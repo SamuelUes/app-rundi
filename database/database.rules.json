@@ -1,0 +1,51 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    
+    "activeRides": {
+      "$rideId": {
+        ".read": "auth != null && (data.child('clientId').val() === auth.uid || data.child('driverId').val() === auth.uid)",
+        ".write": "auth != null && (data.child('clientId').val() === auth.uid || data.child('driverId').val() === auth.uid || !data.exists())",
+        ".validate": "newData.hasChildren(['id', 'clientId', 'status', 'origin', 'destination'])"
+      }
+    },
+    
+    "driverLocations": {
+      "$driverId": {
+        ".read": "auth != null",
+        ".write": "auth != null && auth.uid === $driverId",
+        ".validate": "newData.hasChildren(['lat', 'lng', 'timestamp'])"
+      }
+    },
+    
+    "chats": {
+      "$rideId": {
+        "messages": {
+          ".read": "auth != null",
+          "$messageId": {
+            ".write": "auth != null && !data.exists()",
+            ".validate": "newData.hasChildren(['senderId', 'text', 'timestamp'])"
+          }
+        },
+        "typing": {
+          "$userId": {
+            ".read": "auth != null",
+            ".write": "auth != null && auth.uid === $userId"
+          }
+        },
+        "metadata": {
+          ".read": "auth != null",
+          ".write": "auth != null"
+        }
+      }
+    },
+    
+    "presence": {
+      "$userId": {
+        ".read": "auth != null",
+        ".write": "auth != null && auth.uid === $userId"
+      }
+    }
+  }
+}

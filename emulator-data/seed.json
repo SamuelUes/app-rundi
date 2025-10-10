@@ -1,0 +1,38 @@
+{
+  "users": {
+    "test-client-123": {
+      "id": "test-client-123",
+      "email": "cliente@test.com",
+      "name": "Cliente Test",
+      "phone": "+50512345678",
+      "role": "client",
+      "profilePhoto": null,
+      "driverStatus": null,
+      "currentRideId": null,
+      "fcmToken": null,
+      "notificationsEnabled": true,
+      "stats": {
+        "totalRides": 0,
+        "averageRating": 0,
+        "totalEarnings": 0
+      }
+    },
+    "test-driver-456": {
+      "id": "test-driver-456",
+      "email": "conductor@test.com",
+      "name": "Conductor Test",
+      "phone": "+50587654321",
+      "role": "driver",
+      "profilePhoto": null,
+      "driverStatus": "available",
+      "currentRideId": null,
+      "fcmToken": null,
+      "notificationsEnabled": true,
+      "stats": {
+        "totalRides": 0,
+        "averageRating": 5.0,
+        "totalEarnings": 0
+      }
+    }
+  }
+}

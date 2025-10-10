@@ -1,0 +1,223 @@
+/**
+ * Supabase Sync Helpers
+ * Funciones para sincronizar datos entre Firebase y Supabase
+ */
+
+import { supabase } from "../config/supabase";
+
+/**
+ * Sincronizar viaje a Supabase
+ */
+export async function syncRideToSupabase(rideData: any) {
+  try {
+    const { data, error } = await supabase
+      .from("rides")
+      .upsert({
+        id: rideData.id,
+        client_id: rideData.clientId,
+        driver_id: rideData.driverId || null,
+        origin_lat: rideData.origin?.lat,
+        origin_lng: rideData.origin?.lng,
+        origin_address: rideData.origin?.address,
+        destination_lat: rideData.destination?.lat,
+        destination_lng: rideData.destination?.lng,
+        destination_address: rideData.destination?.address,
+        estimated_distance: rideData.estimatedDistance,
+        estimated_duration: rideData.estimatedDuration,
+        actual_distance: rideData.actualDistance || null,
+        actual_duration: rideData.actualDuration || null,
+        estimated_price: rideData.estimatedPrice,
+        final_fare: rideData.finalFare || null,
+        client_suggested_price: rideData.clientSuggestedPrice || null,
+        notes: rideData.notes || null,
+        ride_type: rideData.rideType || "normal",
+        status: rideData.status,
+        cancel_reason: rideData.cancelReason || null,
+        canceled_by: rideData.canceledBy || null,
+        requested_at: rideData.requestedAt || new Date().toISOString(),
+        accepted_at: rideData.acceptedAt || null,
+        started_at: rideData.startedAt || null,
+        completed_at: rideData.completedAt || null,
+        canceled_at: rideData.canceledAt || null,
+        updated_at: new Date().toISOString(),
+      }, {
+        onConflict: "id",
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error("❌ Error sincronizando viaje a Supabase:", error);
+      return null;
+    }
+
+    console.log(`✅ Viaje sincronizado a Supabase: ${rideData.id}`);
+    return data;
+  } catch (error) {
+    console.error("❌ Error en syncRideToSupabase:", error);
+    return null;
+  }
+}
+
+/**
+ * Obtener viajes del día desde Supabase
+ */
+export async function getTodayRides(userId: string, userRole: "driver" | "client") {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const column = userRole === "driver" ? "driver_id" : "client_id";
+
+    const { data, error } = await supabase
+      .from("rides")
+      .select("*")
+      .eq(column, userId)
+      .gte("created_at", today.toISOString())
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("❌ Error obteniendo viajes del día:", error);
+      return [];
+    }
+
+    return data || [];
+  } catch (error) {
+    console.error("❌ Error en getTodayRides:", error);
+    return [];
+  }
+}
+
+/**
+ * Obtener historial completo de viajes desde Supabase
+ */
+export async function getRideHistory(
+  userId: string,
+  userRole: "driver" | "client",
+  limit: number = 50,
+  offset: number = 0
+) {
+  try {
+    const column = userRole === "driver" ? "driver_id" : "client_id";
+
+    const { data, error } = await supabase
+      .from("rides")
+      .select("*")
+      .eq(column, userId)
+      .order("created_at", { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (error) {
+      console.error("❌ Error obteniendo historial:", error);
+      return [];
+    }
+
+    return data || [];
+  } catch (error) {
+    console.error("❌ Error en getRideHistory:", error);
+    return [];
+  }
+}
+
+/**
+ * Obtener estadísticas del conductor desde Supabase
+ */
+export async function getDriverStats(driverId: string) {
+  try {
+    // Total de viajes completados
+    const { count: totalRides, error: ridesError } = await supabase
+      .from("rides")
+      .select("*", { count: "exact", head: true })
+      .eq("driver_id", driverId)
+      .eq("status", "completed");
+
+    if (ridesError) {
+      console.error("❌ Error obteniendo total de viajes:", ridesError);
+    }
+
+    // Obtener IDs de viajes completados del conductor
+    const { data: ridesData, error: ridesDataError } = await supabase
+      .from("rides")
+      .select("id")
+      .eq("driver_id", driverId)
+      .eq("status", "completed");
+
+    if (ridesDataError) {
+      console.error("❌ Error obteniendo rides:", ridesDataError);
+    }
+
+    const rideIds = ridesData?.map((r: any) => r.id) || [];
+
+    // Total de ganancias
+    let totalEarnings = 0;
+    if (rideIds.length > 0) {
+      const { data: paymentsData, error: paymentsError } = await supabase
+        .from("payments")
+        .select("total")
+        .eq("status", "completed")
+        .in("ride_id", rideIds);
+
+      if (paymentsError) {
+        console.error("❌ Error obteniendo ganancias:", paymentsError);
+      }
+
+      totalEarnings = paymentsData?.reduce((sum: number, p: any) => sum + (parseFloat(p.total) || 0), 0) || 0;
+    }
+
+    // Rating promedio
+    const { data: ratingsData, error: ratingsError } = await supabase
+      .from("ratings")
+      .select("rating")
+      .eq("to_user_id", driverId);
+
+    if (ratingsError) {
+      console.error("❌ Error obteniendo ratings:", ratingsError);
+    }
+
+    const averageRating = ratingsData && ratingsData.length > 0
+      ? ratingsData.reduce((sum: number, r: any) => sum + r.rating, 0) / ratingsData.length
+      : 0;
+
+    return {
+      totalRides: totalRides || 0,
+      totalEarnings: totalEarnings.toFixed(2),
+      averageRating: averageRating.toFixed(2),
+    };
+  } catch (error) {
+    console.error("❌ Error en getDriverStats:", error);
+    return {
+      totalRides: 0,
+      totalEarnings: "0.00",
+      averageRating: "0.00",
+    };
+  }
+}
+
+/**
+ * Guardar ubicación del viaje en Supabase
+ */
+export async function saveRideLocation(rideId: string, location: any) {
+  try {
+    const { error } = await supabase
+      .from("ride_locations")
+      .insert({
+        ride_id: rideId,
+        lat: location.lat,
+        lng: location.lng,
+        speed: location.speed || null,
+        heading: location.heading || null,
+        accuracy: location.accuracy || null,
+        timestamp: new Date().toISOString(),
+      });
+
+    if (error) {
+      console.error("❌ Error guardando ubicación:", error);
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error("❌ Error en saveRideLocation:", error);
+    return false;
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "expo": {
+    "name": "DriveAngel.ni",
+    "slug": "driveangel-ni",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "scheme": "driveangel",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "android": {
+      "package": "com.driveangel.ni",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
+      ],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyAMeFnZTR6jspAZi3kYphjQQSksWvpM4g"
+        }
+      }
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Permitir a DriveAngel.ni acceder a tu ubicación para rastrear tu viaje."
+        }
+      ]
+    ],
+    "extra": {
+      "domain": "driveangel.online",
+      "apiUrl": "https://api.driveangel.online",
+      "wsUrl": "https://api.driveangel.online",
+      "mapboxAccessToken": "pk.eyJ1Ijoic2FtdWVsdWVzIiwiYSI6ImNtZ2k5OHdzbDA3NW8ybXB4OXM5Y2E2ZzYifQ.rTD0LZ2w9t_jQxEV2MR_Sg"
+    }
+  }
+}

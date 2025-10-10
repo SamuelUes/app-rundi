@@ -1,0 +1,269 @@
+{
+  "description": "Firebase Database Schema - SOLO DATOS EN TIEMPO REAL",
+  "updated": "2025-10-08",
+  "note": "Este schema es SOLO para Firebase. Datos históricos están en Supabase PostgreSQL",
+  
+  "firestore": {
+    "collections": {
+      "users": {
+        "description": "Perfiles de usuarios (sincronizado con Firebase Auth)",
+        "document_structure": {
+          "id": "string (Firebase UID)",
+          "email": "string",
+          "name": "string",
+          "phone": "string",
+          "role": "string (client | driver | admin)",
+          "profilePhoto": "string | null",
+          "driverStatus": "string | null (offline | available | busy)",
+          "currentRideId": "string | null",
+          "currentLocation": {
+            "lat": "number",
+            "lng": "number",
+            "timestamp": "number"
+          },
+          "fcmToken": "string | null",
+          "notificationsEnabled": "boolean",
+          "stats": {
+            "totalRides": "number",
+            "averageRating": "number",
+            "totalEarnings": "number"
+          },
+          "createdAt": "timestamp",
+          "updatedAt": "timestamp"
+        },
+        "indexes": [
+          {
+            "fields": ["role", "driverStatus"],
+            "description": "Buscar conductores disponibles"
+          },
+          {
+            "fields": ["role", "createdAt"],
+            "description": "Listar usuarios por fecha"
+          }
+        ],
+        "security_rules": {
+          "read": "auth != null",
+          "create": "auth != null && request.auth.uid == userId",
+          "update": "auth != null && request.auth.uid == userId",
+          "delete": "false"
+        }
+      },
+      
+      "notifications": {
+        "description": "Notificaciones de usuarios (subcollection)",
+        "path": "notifications/{userId}/items/{notificationId}",
+        "document_structure": {
+          "id": "string",
+          "type": "string (ride_requested | ride_accepted | ride_started | ride_completed | payment_received | new_message | rating_received | driver_nearby)",
+          "title": "string",
+          "body": "string",
+          "data": {
+            "rideId": "string (optional)",
+            "driverId": "string (optional)",
+            "amount": "number (optional)"
+          },
+          "read": "boolean",
+          "readAt": "timestamp | null",
+          "createdAt": "timestamp"
+        },
+        "security_rules": {
+          "read": "auth != null && auth.uid == userId",
+          "update": "auth != null && auth.uid == userId && only ['read', 'readAt'] modified",
+          "create": "false (only via Cloud Functions)",
+          "delete": "auth != null && auth.uid == userId"
+        }
+      }
+    }
+  },
+  
+  "realtime_database": {
+    "paths": {
+      "activeRides": {
+        "description": "Viajes activos en tiempo real",
+        "path": "activeRides/{rideId}",
+        "structure": {
+          "id": "string",
+          "clientId": "string (Firebase UID)",
+          "driverId": "string | null (Firebase UID)",
+          "status": "string (requested | accepted | in_progress | completed | canceled)",
+          "origin": {
+            "lat": "number",
+            "lng": "number",
+            "address": "string"
+          },
+          "destination": {
+            "lat": "number",
+            "lng": "number",
+            "address": "string"
+          },
+          "driverLocation": {
+            "lat": "number",
+            "lng": "number",
+            "heading": "number (0-360 degrees)",
+            "speed": "number (km/h)",
+            "accuracy": "number (meters)",
+            "timestamp": "number (unix timestamp)"
+          },
+          "estimatedDistance": "number (meters)",
+          "estimatedDuration": "number (seconds)",
+          "estimatedPrice": "number (córdobas)",
+          "eta": "number | null (minutes)",
+          "distanceTraveled": "number (meters)",
+          "rideType": "string (normal | premium | shared)",
+          "notes": "string | null",
+          "requestedAt": "number (unix timestamp)",
+          "acceptedAt": "number | null",
+          "startedAt": "number | null",
+          "lastUpdate": "number (unix timestamp)"
+        },
+        "security_rules": {
+          "read": "auth != null && (data.clientId == auth.uid || data.driverId == auth.uid)",
+          "write": "auth != null && (data.clientId == auth.uid || data.driverId == auth.uid || !data.exists())"
+        }
+      },
+      
+      "driverLocations": {
+        "description": "Ubicación actual de conductores",
+        "path": "driverLocations/{driverId}",
+        "structure": {
+          "lat": "number",
+          "lng": "number",
+          "heading": "number",
+          "speed": "number",
+          "accuracy": "number",
+          "status": "string (available | busy)",
+          "currentRideId": "string | null",
+          "timestamp": "number",
+          "lastUpdate": "number"
+        },
+        "security_rules": {
+          "read": "auth != null",
+          "write": "auth != null && auth.uid == driverId"
+        }
+      },
+      
+      "chats": {
+        "description": "Chat en tiempo real entre cliente y conductor",
+        "paths": {
+          "messages": {
+            "path": "chats/{rideId}/messages/{messageId}",
+            "structure": {
+              "id": "string",
+              "senderId": "string (Firebase UID)",
+              "senderName": "string",
+              "senderRole": "string (client | driver)",
+              "text": "string",
+              "type": "string (text | predefined | location)",
+              "timestamp": "number",
+              "read": "boolean",
+              "readAt": "number | null"
+            }
+          },
+          "typing": {
+            "path": "chats/{rideId}/typing/{userId}",
+            "structure": {
+              "isTyping": "boolean",
+              "timestamp": "number"
+            }
+          },
+          "metadata": {
+            "path": "chats/{rideId}/metadata",
+            "structure": {
+              "participants": {
+                "[userId]": {
+                  "name": "string",
+                  "role": "string",
+                  "lastSeen": "number"
+                }
+              },
+              "createdAt": "number",
+              "lastMessage": {
+                "text": "string",
+                "timestamp": "number",
+                "senderId": "string"
+              }
+            }
+          }
+        },
+        "security_rules": {
+          "messages": {
+            "read": "auth != null",
+            "write": "auth != null && !data.exists()"
+          },
+          "typing": {
+            "read": "auth != null",
+            "write": "auth != null && auth.uid == userId"
+          }
+        },
+        "predefined_messages": [
+          { "id": 1, "text": "👍 Ok", "emoji": "👍" },
+          { "id": 2, "text": "⏱️ Llegando en 2 minutos", "emoji": "⏱️" },
+          { "id": 3, "text": "📍 Ya llegué", "emoji": "📍" },
+          { "id": 4, "text": "🚗 En camino", "emoji": "🚗" },
+          { "id": 5, "text": "✅ Perfecto", "emoji": "✅" },
+          { "id": 6, "text": "❓ ¿Dónde estás?", "emoji": "❓" }
+        ]
+      },
+      
+      "presence": {
+        "description": "Estado online/offline de usuarios",
+        "path": "presence/{userId}",
+        "structure": {
+          "online": "boolean",
+          "lastSeen": "number",
+          "device": "string",
+          "platform": "string (ios | android | web)"
+        },
+        "security_rules": {
+          "read": "auth != null",
+          "write": "auth != null && auth.uid == userId"
+        }
+      }
+    }
+  },
+  
+  "synchronization_flow": {
+    "user_registration": [
+      "1. Firebase Auth creates user",
+      "2. Cloud Function creates Firestore profile (users collection)",
+      "3. If driver: Cloud Function creates PostgreSQL record (drivers table)",
+      "4. Frontend receives complete user"
+    ],
+    "request_ride": [
+      "1. Client requests ride",
+      "2. Cloud Function validates data",
+      "3. Insert into PostgreSQL (rides table)",
+      "4. Publish to Realtime DB (activeRides)",
+      "5. Nearby drivers receive notification",
+      "6. Update Firestore (user.stats)"
+    ],
+    "real_time_tracking": [
+      "1. Driver accepts ride",
+      "2. Update Realtime DB (activeRides/{rideId})",
+      "3. Client listens to real-time changes",
+      "4. Driver sends location every 3 seconds",
+      "5. Update Realtime DB (driverLocations/{driverId})",
+      "6. Update Realtime DB (activeRides/{rideId}/driverLocation)",
+      "7. Client sees location on map in real-time"
+    ],
+    "complete_ride": [
+      "1. Driver completes ride",
+      "2. Cloud Function updates PostgreSQL (rides)",
+      "3. Save tracking history to PostgreSQL (ride_locations)",
+      "4. Delete from Realtime DB (activeRides/{rideId})",
+      "5. Update stats in Firestore (users/{userId}/stats)",
+      "6. Create notification in Firestore (notifications)"
+    ]
+  },
+  
+  "deployment": {
+    "firestore_rules": "Deploy via: firebase deploy --only firestore:rules",
+    "firestore_indexes": "Deploy via: firebase deploy --only firestore:indexes",
+    "realtime_db_rules": "Deploy via: firebase deploy --only database",
+    "rules_files": {
+      "firestore": "database/firestore.rules",
+      "realtime_db": "database/database.rules.json",
+      "indexes": "database/firestore.indexes.json"
+    }
+  }
+}

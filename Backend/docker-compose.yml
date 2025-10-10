@@ -1,0 +1,40 @@
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: app_uber
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+  backend:
+    build:
+      context: .
+      dockerfile: dockerfile
+    environment:
+      PORT: 3000
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: app_uber
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-sk_test_000000000000000000000000}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - postgres
+      - redis
+    command: ["node", "dist/main.js"]
+
+volumes:
+  pgdata:
