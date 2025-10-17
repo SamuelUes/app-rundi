@@ -1,5 +1,7 @@
 import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getFirebaseAuth, getFirebaseDatabase } from '../config/firebase';
+import { ref, set, serverTimestamp } from 'firebase/database';
 import backendConfig from '../config/backendConfig';
 import firebaseAuthService from '../services/auth/firebaseAuthService';
 import localAuthService from '../services/auth/localAuthService';
@@ -35,21 +37,34 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     
     // Si es Firebase, escuchar cambios de auth
     if (backendConfig.isFirebase()) {
-      const unsubscribe = firebaseAuthService.onAuthStateChange(async (firebaseUser) => {
-        if (firebaseUser) {
-          const userData = await firebaseAuthService.getUserProfile(firebaseUser.uid);
-          setUser({
-            id: firebaseUser.uid,
-            email: firebaseUser.email || '',
-            name: userData.name,
-            role: userData.role,
+      const setupAuthListener = async () => {
+        try {
+          const unsubscribe = await firebaseAuthService.onAuthStateChange(async (firebaseUser) => {
+            if (firebaseUser) {
+              const userData = await firebaseAuthService.getUserProfile(firebaseUser.uid);
+              setUser({
+                id: firebaseUser.uid,
+                email: firebaseUser.email || '',
+                name: userData.name,
+                role: userData.role,
+              });
+            } else {
+              setUser(null);
+            }
           });
-        } else {
-          setUser(null);
+          
+          return unsubscribe;
+        } catch (error) {
+          console.error('Error configurando listener de auth:', error);
+          return () => {};
         }
-      });
-      
-      return () => unsubscribe();
+      };
+
+      const cleanupPromise = setupAuthListener();
+
+      return () => {
+        cleanupPromise.then(unsubscribe => unsubscribe());
+      };
     }
   }, []);
 
@@ -110,11 +125,35 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const logout = async () => {
     try {
+      // Marcar como offline en Firebase antes de hacer logout (solo conductores)
+      if (user?.role === 'driver' && backendConfig.isFirebase()) {
+        try {
+          const auth = await getFirebaseAuth();
+          const database = await getFirebaseDatabase();
+          const firebaseUser = auth.currentUser;
+          if (firebaseUser) {
+            const driverLocationRef = ref(database, `driverLocations/${firebaseUser.uid}`);
+            await set(driverLocationRef, {
+              status: 'offline',
+              updatedAt: serverTimestamp(),
+              lastSeen: serverTimestamp(),
+            });
+            console.log('✅ Usuario marcado como offline en Firebase');
+          }
+        } catch (fbError) {
+          // Ignorar errores de Firebase, continuar con logout
+          console.log('⚠️ No se pudo actualizar status en Firebase, continuando con logout');
+        }
+      }
+      
       await authService.logout();
       await AsyncStorage.removeItem('user');
       setUser(null);
     } catch (error) {
       console.error('Logout error:', error);
+      // Forzar logout local aunque falle
+      setUser(null);
+      await AsyncStorage.removeItem('user');
     }
   };
 

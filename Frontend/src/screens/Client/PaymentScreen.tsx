@@ -10,9 +10,9 @@ import {
   TextInput,
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
-import axios from 'axios';
-import { useStripe } from '@stripe/stripe-react-native';
-import { API_BASE_URL } from '../../config/environment';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { getDatabase, ref as dbRef, update as dbUpdate, get } from 'firebase/database';
+import { initializeFirebase } from '../../config/firebase';
 
 interface PaymentScreenProps {
   route: {
@@ -31,37 +31,92 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
   const { rideId, amount, driverId, driverName, vehiclePlate } = route.params;
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const { initPaymentSheet, presentPaymentSheet } = useStripe();
   const [tip, setTip] = useState(0);
   const [selectedTipPercent, setSelectedTipPercent] = useState<number | null>(null);
   const [customTip, setCustomTip] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<'card' | 'cash'>('card');
+  const [paymentProvider, setPaymentProvider] = useState<'stripe' | 'visanet'>('stripe');
   const [processing, setProcessing] = useState(false);
   const [rideDetails, setRideDetails] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  
+  // Tarjetas guardadas
+  const [savedCards, setSavedCards] = useState<any[]>([]);
+  const [selectedCard, setSelectedCard] = useState<any>(null);
+  const [useNewCard, setUseNewCard] = useState(false);
 
   const tipOptions = [10, 15, 20]; // Porcentajes de propina
 
+  // Obtener el monto del viaje (de params o de rideDetails)
+  const rideAmount = amount || rideDetails?.finalFare || rideDetails?.estimatedPrice || 0;
+
   useEffect(() => {
     loadRideDetails();
+    loadSavedCards();
   }, []);
 
   const loadRideDetails = async () => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/rides/${rideId}`);
-      setRideDetails(response.data);
-    } catch (error) {
+      const { app } = await initializeFirebase();
+      if (!app) throw new Error('Firebase no inicializado');
+      
+      // Obtener datos del viaje desde Realtime DB
+      const { getDatabase, ref: dbRef, get } = await import('firebase/database');
+      const db = getDatabase(app);
+      const rideRef = dbRef(db, `activeRides/${rideId}`);
+      const snapshot = await get(rideRef);
+      
+      if (snapshot.exists()) {
+        const data = snapshot.val();
+        setRideDetails({
+          originAddress: data.origin?.address || 'N/A',
+          destinationAddress: data.destination?.address || 'N/A',
+          estimatedDistance: data.estimatedDistance || 0,
+          estimatedDuration: data.estimatedDuration || 0,
+          finalFare: data.finalFare || data.estimatedPrice || amount,
+          driverId: data.driverId,
+        });
+      } else {
+        console.log('Viaje no encontrado en activeRides, usando datos de params');
+      }
+    } catch (error: any) {
       console.error('Error loading ride details:', error);
-      Alert.alert('Error', 'No se pudieron cargar los detalles del viaje');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadSavedCards = async () => {
+    try {
+      const { app } = await initializeFirebase();
+      if (!app) return;
+
+      const functions = getFunctions(app);
+      const getCardsFn = httpsCallable(functions, 'getCards');
+      const result = await getCardsFn();
+      const data = result.data as any;
+
+      if (data.success && data.cards.length > 0) {
+        setSavedCards(data.cards);
+        // Seleccionar la tarjeta predeterminada automáticamente
+        const defaultCard = data.cards.find((card: any) => card.isDefault);
+        if (defaultCard) {
+          setSelectedCard(defaultCard);
+          setPaymentProvider(defaultCard.provider);
+        }
+      } else {
+        setUseNewCard(true); // Si no hay tarjetas, usar nueva tarjeta
+      }
+    } catch (error: any) {
+      console.error('Error cargando tarjetas:', error);
+      setUseNewCard(true);
     }
   };
 
   const handleTipSelection = (percent: number) => {
     setSelectedTipPercent(percent);
     setCustomTip('');
-    setTip(Math.round(amount * (percent / 100)));
+    setTip(Math.round(rideAmount * (percent / 100)));
   };
 
   const handleCustomTip = (value: string) => {
@@ -83,64 +138,91 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
     try {
       setProcessing(true);
 
-      // Paso 1: Crear Payment Intent en el backend
-      const response = await axios.post(`${API_BASE_URL}/payments/create-intent`, {
-        rideId,
-        tip,
-      });
-
-      const { clientSecret, paymentId, amount: totalAmount } = response.data;
-
-      // Paso 2: Inicializar Payment Sheet de Stripe
-      const { error: initError } = await initPaymentSheet({
-        merchantDisplayName: 'DriveAngel.ni',
-        paymentIntentClientSecret: clientSecret,
-        defaultBillingDetails: {
-          name: 'Cliente DriveAngel',
-        },
-        returnURL: 'driveangel://payment-complete',
-      });
-
-      if (initError) {
-        Alert.alert('Error', 'No se pudo inicializar el pago: ' + initError.message);
-        setProcessing(false);
-        return;
-      }
-
-      // Paso 3: Presentar Payment Sheet al usuario
-      const { error: presentError } = await presentPaymentSheet();
-
-      if (presentError) {
-        if (presentError.code === 'Canceled') {
-          Alert.alert('Cancelado', 'Pago cancelado por el usuario');
-        } else {
-          Alert.alert('Error', 'Error al procesar el pago: ' + presentError.message);
+      const { app } = await initializeFirebase();
+      if (!app) throw new Error('Firebase no inicializado');
+      
+      const functions = getFunctions(app);
+      const db = getDatabase(app);
+      
+      // Verificar si el pago ya está pre-autorizado
+      const paymentStatusRef = dbRef(db, `paymentStatus/${rideId}`);
+      const snapshot = await get(paymentStatusRef);
+      const paymentData = snapshot.val();
+      
+      // Si no hay paymentIntentId, crear uno ahora
+      if (!paymentData?.paymentIntentId) {
+        console.log(`💳 No hay paymentIntent, creando uno ahora...`);
+        
+        let paymentMethodId = null;
+        let finalProvider = paymentProvider;
+        
+        if (selectedCard && !useNewCard) {
+          // Obtener paymentMethodId de la tarjeta guardada
+          console.log(`💳 Usando tarjeta guardada: ${selectedCard.id}`);
+          const getCardInfoFn = httpsCallable(functions, 'createPaymentIntentWithSavedCard');
+          const cardInfoResult = await getCardInfoFn({
+            rideId,
+            cardId: selectedCard.id,
+            tip: 0,
+          });
+          const cardInfo = cardInfoResult.data as any;
+          paymentMethodId = cardInfo.paymentMethodId;
+          finalProvider = cardInfo.provider;
+          console.log(`✅ Tarjeta: ${cardInfo.cardInfo.brand} **** ${cardInfo.cardInfo.last4}`);
         }
-        setProcessing(false);
-        return;
+        
+        // Crear Payment Intent (con o sin tarjeta guardada)
+        console.log(`💳 Creando Payment Intent con ${finalProvider}...`);
+        const createPaymentIntentFn = httpsCallable(functions, 'createPaymentIntent');
+        await createPaymentIntentFn({
+          rideId,
+          tip: 0,
+          provider: finalProvider,
+          paymentMethodId, // null si es nueva tarjeta, o el ID si es guardada
+        });
+      }
+      
+      // Actualizar propina en Realtime DB
+      await dbUpdate(paymentStatusRef, {
+        tip,
+        total: rideAmount + tip,
+        lastUpdatedBy: 'client',
+        lastUpdatedAt: Date.now(),
+      });
+
+      // Capturar el pago (ya pre-autorizado)
+      const capturePaymentFn = httpsCallable(functions, 'capturePayment');
+      const result = await capturePaymentFn({
+        rideId,
+        tip, // Agregar propina al monto final
+      });
+
+      const data = result.data as any;
+      if (!data.success) {
+        throw new Error('Error capturando el pago');
       }
 
-      // Paso 4: Pago autorizado exitosamente - Navegar a tracking
+      // Pago capturado exitosamente
+
       Alert.alert(
-        '¡Pago Autorizado!',
-        'Tu método de pago ha sido autorizado. El cargo se realizará al finalizar el viaje.',
+        '✅ ¡Pago Completado!',
+        `El pago de C$${(rideAmount + tip).toFixed(2)} ha sido procesado exitosamente.`,
         [
           {
-            text: 'Continuar',
+            text: 'Calificar Viaje',
             onPress: () => {
-              navigation.replace('RideTracking', {
+              navigation.replace('Rating', {
                 rideId,
-                driverId: driverId || '',
-                driverName: driverName || 'Conductor',
-                vehiclePlate: vehiclePlate || 'N/A',
-                estimatedFare: amount,
+                driverId: driverId || rideDetails?.driverId,
+                role: 'client',
               });
             },
           },
         ]
       );
     } catch (error: any) {
-      Alert.alert('Error', error.response?.data?.message || 'Error al procesar el pago');
+      console.error('Error capturando pago:', error);
+      Alert.alert('Error', error.message || 'Error al procesar el pago');
     } finally {
       setProcessing(false);
     }
@@ -150,23 +232,40 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
     try {
       setProcessing(true);
 
-      await axios.post(`${API_BASE_URL}/payments/cash`, {
-        rideId,
+      const { app } = await initializeFirebase();
+      if (!app) throw new Error('Firebase no inicializado');
+      
+      const db = getDatabase(app);
+      
+      // Actualizar propina en Realtime DB (el pago en efectivo ya está registrado desde confirmDriver)
+      const paymentStatusRef = dbRef(db, `paymentStatus/${rideId}`);
+      await dbUpdate(paymentStatusRef, {
         tip,
+        total: rideAmount + tip,
+        lastUpdatedBy: 'client',
+        lastUpdatedAt: Date.now(),
       });
 
       Alert.alert(
-        '¡Pago Registrado!',
-        `Por favor paga C$${(amount + tip).toFixed(2)} en efectivo al conductor`,
+        '💵 Pago en Efectivo',
+        `Por favor paga C$${(rideAmount + tip).toFixed(2)} en efectivo al conductor. El conductor confirmará la recepción del pago.`,
         [
           {
             text: 'Entendido',
-            onPress: () => navigation.navigate('ClientHome'),
+            onPress: () => {
+              // Navegar a Rating después de confirmar efectivo
+              navigation.replace('Rating', {
+                rideId,
+                driverId: driverId || rideDetails?.driverId,
+                role: 'client',
+              });
+            },
           },
         ]
       );
     } catch (error: any) {
-      Alert.alert('Error', error.response?.data?.message || 'Error al registrar el pago');
+      console.error('Error registrando pago en efectivo:', error);
+      Alert.alert('Error', error.message || 'Error al registrar el pago');
     } finally {
       setProcessing(false);
     }
@@ -181,7 +280,7 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
     );
   }
 
-  const totalAmount = amount + tip;
+  const totalAmount = rideAmount + tip;
 
   return (
     <ScrollView style={styles.container}>
@@ -222,7 +321,7 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
           <Text style={styles.costTitle}>Desglose de Costos</Text>
           <View style={styles.costRow}>
             <Text style={styles.costLabel}>Tarifa del viaje</Text>
-            <Text style={styles.costValue}>C${amount.toFixed(2)}</Text>
+            <Text style={styles.costValue}>C${rideAmount.toFixed(2)}</Text>
           </View>
           {tip > 0 && (
             <View style={styles.costRow}>
@@ -293,7 +392,7 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
             <Text style={styles.methodIcon}>💳</Text>
             <View style={styles.methodInfo}>
               <Text style={styles.methodName}>Tarjeta de Crédito/Débito</Text>
-              <Text style={styles.methodDescription}>Pago seguro con Stripe</Text>
+              <Text style={styles.methodDescription}>Selecciona tu banco abajo</Text>
             </View>
             {paymentMethod === 'card' && (
               <Text style={styles.methodCheck}>✓</Text>
@@ -317,6 +416,105 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
             )}
           </TouchableOpacity>
         </View>
+
+        {/* Tarjetas Guardadas (solo si es tarjeta y hay tarjetas) */}
+        {paymentMethod === 'card' && savedCards.length > 0 && (
+          <View style={styles.savedCardsCard}>
+            <View style={styles.savedCardsHeader}>
+              <Text style={styles.savedCardsTitle}>Tus Tarjetas</Text>
+              <TouchableOpacity onPress={() => navigation.navigate('SavedCards')}>
+                <Text style={styles.manageCardsLink}>Gestionar →</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Lista de tarjetas guardadas */}
+            {savedCards.map((card) => (
+              <TouchableOpacity
+                key={card.id}
+                style={[
+                  styles.savedCardItem,
+                  selectedCard?.id === card.id && !useNewCard && styles.savedCardItemActive,
+                ]}
+                onPress={() => {
+                  setSelectedCard(card);
+                  setUseNewCard(false);
+                  setPaymentProvider(card.provider);
+                }}
+              >
+                <Text style={styles.savedCardIcon}>💳</Text>
+                <View style={styles.savedCardInfo}>
+                  <Text style={styles.savedCardBrand}>{card.brand.toUpperCase()}</Text>
+                  <Text style={styles.savedCardNumber}>•••• {card.last4}</Text>
+                  {card.isDefault && (
+                    <Text style={styles.savedCardDefault}>Predeterminada</Text>
+                  )}
+                </View>
+                {selectedCard?.id === card.id && !useNewCard && (
+                  <Text style={styles.savedCardCheck}>✓</Text>
+                )}
+              </TouchableOpacity>
+            ))}
+
+            {/* Opción para usar nueva tarjeta */}
+            <TouchableOpacity
+              style={[
+                styles.savedCardItem,
+                useNewCard && styles.savedCardItemActive,
+              ]}
+              onPress={() => setUseNewCard(true)}
+            >
+              <Text style={styles.savedCardIcon}>➕</Text>
+              <View style={styles.savedCardInfo}>
+                <Text style={styles.savedCardBrand}>Nueva Tarjeta</Text>
+                <Text style={styles.savedCardNumber}>Agregar método de pago</Text>
+              </View>
+              {useNewCard && (
+                <Text style={styles.savedCardCheck}>✓</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Selector de Proveedor de Pago (solo si es tarjeta nueva) */}
+        {paymentMethod === 'card' && (savedCards.length === 0 || useNewCard) && (
+          <View style={styles.providerCard}>
+            <Text style={styles.providerTitle}>Selecciona tu banco</Text>
+            
+            <TouchableOpacity
+              style={[
+                styles.providerButton,
+                paymentProvider === 'visanet' && styles.providerButtonActive,
+              ]}
+              onPress={() => setPaymentProvider('visanet')}
+            >
+              <Text style={styles.providerIcon}>🏦</Text>
+              <View style={styles.providerInfo}>
+                <Text style={styles.providerName}>Tarjeta Local (Visanet)</Text>
+                <Text style={styles.providerDescription}>BAC, Banpro, Lafise, Ficohsa</Text>
+              </View>
+              {paymentProvider === 'visanet' && (
+                <Text style={styles.providerCheck}>✓</Text>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.providerButton,
+                paymentProvider === 'stripe' && styles.providerButtonActive,
+              ]}
+              onPress={() => setPaymentProvider('stripe')}
+            >
+              <Text style={styles.providerIcon}>🌎</Text>
+              <View style={styles.providerInfo}>
+                <Text style={styles.providerName}>Tarjeta Internacional (Stripe)</Text>
+                <Text style={styles.providerDescription}>Visa, Mastercard, Amex</Text>
+              </View>
+              {paymentProvider === 'stripe' && (
+                <Text style={styles.providerCheck}>✓</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Botón de pago */}
         <TouchableOpacity
@@ -578,6 +776,133 @@ const createStyles = (colors: any) => StyleSheet.create({
     color: colors.textSecondary,
   },
   methodCheck: {
+    fontSize: 24,
+    color: '#2196F3',
+    fontWeight: '700',
+  },
+  providerCard: {
+    backgroundColor: colors.card,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  providerTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 12,
+  },
+  providerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  providerButtonActive: {
+    backgroundColor: '#E3F2FD',
+    borderColor: '#2196F3',
+  },
+  providerIcon: {
+    fontSize: 32,
+    marginRight: 16,
+  },
+  providerInfo: {
+    flex: 1,
+  },
+  providerName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.text,
+    marginBottom: 4,
+  },
+  providerDescription: {
+    fontSize: 12,
+    color: colors.textSecondary,
+  },
+  providerCheck: {
+    fontSize: 24,
+    color: '#2196F3',
+    fontWeight: '700',
+  },
+  savedCardsCard: {
+    backgroundColor: colors.card,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  savedCardsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  savedCardsTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  manageCardsLink: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#2196F3',
+  },
+  savedCardItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  savedCardItemActive: {
+    backgroundColor: '#E3F2FD',
+    borderColor: '#2196F3',
+  },
+  savedCardIcon: {
+    fontSize: 32,
+    marginRight: 16,
+  },
+  savedCardInfo: {
+    flex: 1,
+  },
+  savedCardBrand: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 4,
+  },
+  savedCardNumber: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.text,
+    marginBottom: 4,
+  },
+  savedCardDefault: {
+    fontSize: 12,
+    color: '#4CAF50',
+    fontWeight: '600',
+  },
+  savedCardCheck: {
     fontSize: 24,
     color: '#2196F3',
     fontWeight: '700',

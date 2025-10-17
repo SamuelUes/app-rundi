@@ -45,43 +45,56 @@ export const useRouteTracking = ({
 
   // Guardar ubicación en el backend
   const saveLocation = async (location: Location.LocationObject) => {
+    console.log('🔍 [TRACKING] Intentando guardar ubicación para rideId:', rideId);
+    
+    // Validar que la ubicación tenga coordenadas válidas
+    if (!location?.coords?.latitude || !location?.coords?.longitude) {
+      console.warn('⚠️ [TRACKING] Ubicación inválida, omitiendo guardado:', location);
+      return;
+    }
+
+    console.log('📍 [TRACKING] Datos a guardar:', {
+      rideId,
+      latitude: location.coords.latitude,
+      longitude: location.coords.longitude,
+      speed: location.coords.speed || 0,
+      heading: location.coords.heading || 0,
+      accuracy: location.coords.accuracy || 0,
+    });
+
     try {
-      const backendUrl = backendConfig.getApiUrl();
-      const response = await fetch(`${backendUrl}/tracking/location`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          rideId,
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude,
-          speed: location.coords.speed,
-          heading: location.coords.heading,
-          accuracy: location.coords.accuracy,
-        }),
+      const { getFirebaseFunctions } = await import('../config/firebase');
+      const { httpsCallable } = await import('firebase/functions');
+      const functions = await getFirebaseFunctions();
+      const saveRideLocationFunction = httpsCallable(functions, 'saveRideLocation');
+      
+      console.log('🚀 [TRACKING] Llamando a Firebase Function saveRideLocation...');
+      
+      const result = await saveRideLocationFunction({
+        rideId,
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+        speed: location.coords.speed || 0,
+        heading: location.coords.heading || 0,
+        accuracy: location.coords.accuracy || 0,
       });
 
-      const data = await response.json();
+      console.log('✅ [TRACKING] Respuesta de Firebase:', result.data);
 
-      if (data.success) {
-        setTotalPoints((prev) => prev + 1);
-        lastSavedLocation.current = {
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude,
-          speed: location.coords.speed,
-          heading: location.coords.heading,
-          accuracy: location.coords.accuracy,
-          timestamp: new Date().toISOString(),
-        };
-        console.log('✅ Ubicación guardada:', totalPoints + 1);
-      } else {
-        console.error('❌ Error guardando ubicación:', data.message);
-        setError(data.message);
-      }
-    } catch (err: any) {
-      console.error('❌ Error en saveLocation:', err);
-      setError(err.message);
+      setTotalPoints((prev) => prev + 1);
+      lastSavedLocation.current = {
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+        speed: location.coords.speed,
+        heading: location.coords.heading,
+        accuracy: location.coords.accuracy,
+        timestamp: new Date().toISOString(),
+      };
+      console.log(`✅ [TRACKING] Ubicación #${totalPoints + 1} guardada exitosamente en PostgreSQL`);
+    } catch (error: any) {
+      console.error('❌ [TRACKING] Error en saveLocation:', error?.message || error);
+      console.error('❌ [TRACKING] Error completo:', error);
+      setError(error?.message || 'Error guardando ubicación');
     }
   };
 
@@ -90,20 +103,26 @@ export const useRouteTracking = ({
     let mounted = true;
 
     const startTracking = async () => {
+      console.log('🔍 [TRACKING] Verificando condiciones:', { isActive, rideId });
+      
       if (!isActive || !rideId) {
-        console.log('⏸️ Tracking pausado (viaje no activo)');
+        console.log('⏸️ [TRACKING] Tracking pausado (viaje no activo o sin rideId)');
         return;
       }
 
       try {
         // Solicitar permisos
+        console.log('📱 [TRACKING] Solicitando permisos de ubicación...');
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== 'granted') {
+          console.error('❌ [TRACKING] Permisos de ubicación denegados');
           setError('Permisos de ubicación denegados');
           return;
         }
 
-        console.log('🎯 Iniciando tracking para viaje:', rideId);
+        console.log('✅ [TRACKING] Permisos concedidos');
+        console.log('🎯 [TRACKING] Iniciando tracking para viaje:', rideId);
+        console.log('⏱️ [TRACKING] Intervalo de guardado:', interval, 'ms');
         setIsTracking(true);
         setError(null);
 
@@ -115,16 +134,33 @@ export const useRouteTracking = ({
             distanceInterval: 5, // O cada 5 metros
           },
           (location) => {
-            if (mounted) {
-              setCurrentLocation(location);
+            try {
+              console.log('📍 Nueva ubicación del conductor:', {
+                latitude: location?.coords?.latitude,
+                longitude: location?.coords?.longitude,
+                heading: location?.coords?.heading,
+                speed: location?.coords?.speed,
+                timestamp: location?.timestamp,
+              });
+
+              if (mounted) {
+                setCurrentLocation(location);
+              }
+            } catch (error: any) {
+              console.error('❌ Error procesando ubicación:', error?.message || error);
             }
           }
         );
 
         // Guardar ubicación cada X segundos
+        console.log('⏰ [TRACKING] Configurando intervalo de guardado cada', interval / 1000, 'segundos');
         saveInterval.current = setInterval(async () => {
-          if (currentLocation) {
+          console.log('⏰ [TRACKING] Intervalo disparado - Verificando ubicación...');
+          if (currentLocation && currentLocation.coords) {
+            console.log('✅ [TRACKING] Ubicación disponible, guardando...');
             await saveLocation(currentLocation);
+          } else {
+            console.log('⏳ [TRACKING] Esperando ubicación válida para guardar...');
           }
         }, interval);
       } catch (err: any) {

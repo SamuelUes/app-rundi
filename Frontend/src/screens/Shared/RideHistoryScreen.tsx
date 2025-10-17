@@ -10,8 +10,11 @@ import {
 } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
+import { RideListSkeleton } from '../../components/SkeletonLoader';
+import { NoHistoryEmptyState } from '../../components/EmptyState';
 import ridesService from '../../services/ridesService';
 import { formatNicaraguaRelativeDate } from '../../utils/dateUtils';
+import { safeString, safeFormatDateTime } from '../../utils/safeFormatters';
 
 interface HistoricalRide {
   id: string;
@@ -20,9 +23,13 @@ interface HistoricalRide {
   estimatedDistance: number;
   estimatedFare: number;
   finalFare: number;
+  clientSuggestedPrice?: number;
+  driverOfferedPrice?: number;
   status: string;
   createdAt: string;
+  updatedAt: string;
   rideType: string;
+  passengers: number;
   client?: { name: string };
   driver?: { name: string; rating: number };
   rating?: number;
@@ -93,26 +100,68 @@ export default function RideHistoryScreen({ navigation }: any) {
     }
   };
 
-  const formatDate = (dateString: string) => {
-    return formatNicaraguaRelativeDate(dateString);
+  const formatDate = (dateString: any): string => {
+    if (!dateString || typeof dateString === 'object') return 'Sin fecha';
+    try {
+      const formatted = formatNicaraguaRelativeDate(dateString);
+      return typeof formatted === 'string' ? formatted : 'Sin fecha';
+    } catch (error) {
+      return 'Sin fecha';
+    }
   };
 
-  const renderRideItem = ({ item }: { item: HistoricalRide }) => {
-    const isDriver = user?.role === 'driver';
-    const distanceKm = (item.estimatedDistance / 1000).toFixed(1);
-    const price = item.finalFare || item.estimatedFare;
+  // Función para sanitizar datos del ride
+  const sanitizeRideData = (item: any) => {
+    return {
+      ...item,
+      id: String(item.id || ''),
+      originAddress: typeof item.originAddress === 'string' ? item.originAddress : 'Origen desconocido',
+      destinationAddress: typeof item.destinationAddress === 'string' ? item.destinationAddress : 'Destino desconocido',
+      estimatedDistance: typeof item.estimatedDistance === 'number' ? item.estimatedDistance : 0,
+      estimatedFare: typeof item.estimatedFare === 'number' || typeof item.estimatedFare === 'string' ? item.estimatedFare : 0,
+      finalFare: item.finalFare && (typeof item.finalFare === 'number' || typeof item.finalFare === 'string') ? item.finalFare : null,
+      status: typeof item.status === 'string' ? item.status : 'unknown',
+      rideType: typeof item.rideType === 'string' ? item.rideType : 'auto',
+      passengers: typeof item.passengers === 'number' ? item.passengers : 1,
+      rating: typeof item.rating === 'number' ? item.rating : null,
+      client: item.client && typeof item.client.name === 'string' ? item.client : null,
+      driver: item.driver && typeof item.driver.name === 'string' ? item.driver : null,
+      createdAt: item.createdAt || null,
+      updatedAt: item.updatedAt || null,
+    };
+  };
 
-    return (
+  const renderRideItem = ({ item: rawItem }: { item: HistoricalRide }) => {
+    try {
+      // Validación inicial
+      if (!rawItem || !rawItem.id || typeof rawItem !== 'object') {
+        return null;
+      }
+
+      // Sanitizar datos
+      const item = sanitizeRideData(rawItem);
+      
+      // Validación post-sanitización
+      if (!item || !item.id) {
+        return null;
+      }
+      
+      const isDriver = user?.role === 'driver';
+      const distanceKm = ((Number(item.estimatedDistance) || 0) / 1000).toFixed(1);
+      const price = Number(item.estimatedFare) || 0;
+      const formattedDate = formatDate(item.updatedAt || item.createdAt);
+
+      return (
       <TouchableOpacity
         style={styles.rideCard}
-        onPress={() => navigation.navigate('RideDetails', { rideId: item.id })}
+        onPress={() => navigation.navigate('RideDetails', { rideId: String(item.id) })}
         activeOpacity={0.7}
       >
         {/* Header con fecha y estado */}
         <View style={styles.rideHeader}>
-          <Text style={styles.dateText}>{formatDate(item.createdAt)}</Text>
-          <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}>
-            <Text style={styles.statusText}>{getStatusText(item.status)}</Text>
+          <Text style={styles.dateText}>{String(formattedDate)}</Text>
+          <View style={[styles.statusBadge, { backgroundColor: getStatusColor(String(item.status)) }]}>
+            <Text style={styles.statusText}>{getStatusText(String(item.status))}</Text>
           </View>
         </View>
 
@@ -121,14 +170,14 @@ export default function RideHistoryScreen({ navigation }: any) {
           <View style={styles.locationRow}>
             <Text style={styles.locationIcon}>🔵</Text>
             <Text style={styles.locationText} numberOfLines={1}>
-              {item.originAddress}
+              {String(item.originAddress || 'Origen desconocido')}
             </Text>
           </View>
           <View style={styles.locationDivider} />
           <View style={styles.locationRow}>
             <Text style={styles.locationIcon}>🔴</Text>
             <Text style={styles.locationText} numberOfLines={1}>
-              {item.destinationAddress}
+              {String(item.destinationAddress || 'Destino desconocido')}
             </Text>
           </View>
         </View>
@@ -137,42 +186,52 @@ export default function RideHistoryScreen({ navigation }: any) {
         <View style={styles.rideInfo}>
           <View style={styles.infoItem}>
             <Text style={styles.infoLabel}>Distancia</Text>
-            <Text style={styles.infoValue}>{distanceKm} km</Text>
+            <Text style={styles.infoValue}>{`${distanceKm} km`}</Text>
           </View>
           <View style={styles.infoItem}>
-            <Text style={styles.infoLabel}>Precio</Text>
-            <Text style={styles.infoValue}>C${price}</Text>
+            <Text style={styles.infoLabel}>
+              {item.finalFare ? 'Precio Final' : 'Precio Est.'}
+            </Text>
+            <Text style={[styles.infoValue, item.finalFare ? { color: '#4CAF50', fontWeight: '700' as '700' } : null]}>
+              {item.finalFare 
+                ? `C$${parseFloat(String(item.finalFare)).toFixed(2)}`
+                : `C$${price.toFixed(2)}`}
+            </Text>
           </View>
           <View style={styles.infoItem}>
             <Text style={styles.infoLabel}>Tipo</Text>
             <Text style={styles.infoValue}>
-              {item.rideType === 'designated_driver' ? '🚗 CD' : '🚕'}
+              {item.rideType === 'designated_driver' ? '🚗 CD' : item.rideType === 'moto' ? '🏍️ Moto' : '🚕 Auto'}
             </Text>
           </View>
+          {item.passengers && item.passengers > 1 && (
+            <View style={styles.infoItem}>
+              <Text style={styles.infoLabel}>Pasajeros</Text>
+              <Text style={styles.infoValue}>{String(item.passengers)}</Text>
+            </View>
+          )}
         </View>
 
+
         {/* Info de conductor/cliente */}
-        {isDriver ? (
-          item.client && (
-            <View style={styles.personInfo}>
-              <Text style={styles.personLabel}>Cliente:</Text>
-              <Text style={styles.personName}>{item.client.name}</Text>
-            </View>
-          )
-        ) : (
-          item.driver && (
-            <View style={styles.personInfo}>
-              <Text style={styles.personLabel}>Conductor:</Text>
-              <Text style={styles.personName}>{item.driver.name}</Text>
-              {item.driver.rating && (
-                <Text style={styles.personRating}>⭐ {item.driver.rating.toFixed(1)}</Text>
-              )}
-            </View>
-          )
+        {isDriver && item.client && item.client.name && (
+          <View style={styles.personInfo}>
+            <Text style={styles.personLabel}>Cliente:</Text>
+            <Text style={styles.personName}>{String(item.client.name)}</Text>
+          </View>
+        )}
+        {!isDriver && item.driver && item.driver.name && (
+          <View style={styles.personInfo}>
+            <Text style={styles.personLabel}>Conductor:</Text>
+            <Text style={styles.personName}>{String(item.driver.name)}</Text>
+            {item.driver.rating && typeof item.driver.rating !== 'object' && parseFloat(String(item.driver.rating)) > 0 && (
+              <Text style={styles.personRating}>⭐ {parseFloat(String(item.driver.rating)).toFixed(1)}</Text>
+            )}
+          </View>
         )}
 
         {/* Rating */}
-        {item.rating && (
+        {item.rating && typeof item.rating === 'number' && item.rating > 0 && (
           <View style={styles.ratingContainer}>
             <Text style={styles.ratingLabel}>Tu calificación:</Text>
             <Text style={styles.ratingValue}>
@@ -191,19 +250,28 @@ export default function RideHistoryScreen({ navigation }: any) {
           </TouchableOpacity>
         )}
       </TouchableOpacity>
-    );
+      );
+    } catch (error) {
+      console.error('❌ Error renderizando ride:', rawItem?.id, error);
+      return (
+        <View style={styles.rideCard}>
+          <Text style={styles.emptyTitle}>Error al cargar viaje</Text>
+          <Text style={styles.emptySubtitle}>{`ID: ${String(rawItem?.id || 'unknown')}`}</Text>
+        </View>
+      );
+    }
   };
 
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <RideListSkeleton count={5} />
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Filtros */}
       <View style={styles.filterContainer}>
         <TouchableOpacity
@@ -236,7 +304,7 @@ export default function RideHistoryScreen({ navigation }: any) {
       <FlatList
         data={rides}
         renderItem={renderRideItem}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item) => String(item.id)}
         contentContainerStyle={styles.listContent}
         refreshControl={
           <RefreshControl

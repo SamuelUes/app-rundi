@@ -10,8 +10,10 @@ import {
   Platform,
   ScrollView,
 } from 'react-native';
+import { Picker } from '@react-native-picker/picker';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
+import { getDepartments, getMunicipalitiesByDepartment } from '../../constants/nicaraguaLocations';
 
 export default function RegisterScreen({ navigation }: any) {
   const { colors } = useTheme();
@@ -19,15 +21,25 @@ export default function RegisterScreen({ navigation }: any) {
   const { register } = useAuth();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
+  const [phone, setPhone] = useState('+505');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [role, setRole] = useState<'client' | 'driver'>('client');
   const [loading, setLoading] = useState(false);
 
+  // Validación de contraseñas
+  const passwordsMatch = password && confirmPassword && password === confirmPassword;
+  const passwordsDontMatch = password && confirmPassword && password !== confirmPassword;
+
   // Datos del conductor
   const [licenseNumber, setLicenseNumber] = useState('');
   const [licenseExpiry, setLicenseExpiry] = useState('');
+  const [department, setDepartment] = useState('');
+  const [municipality, setMunicipality] = useState('');
+  
+  // Lista de departamentos y municipios
+  const departments = getDepartments();
+  const municipalities = department ? getMunicipalitiesByDepartment(department) : [];
 
   // Datos del vehículo
   const [plate, setPlate] = useState('');
@@ -35,7 +47,7 @@ export default function RegisterScreen({ navigation }: any) {
   const [model, setModel] = useState('');
   const [year, setYear] = useState('');
   const [color, setColor] = useState('');
-  const [vehicleType, setVehicleType] = useState<'sedan' | 'suv' | 'van' | 'moto'>('sedan');
+  const [vehicleType, setVehicleType] = useState('moto');
 
   // Documentos del vehículo
   const [registrationNumber, setRegistrationNumber] = useState('');
@@ -80,9 +92,32 @@ export default function RegisterScreen({ navigation }: any) {
     setInsuranceExpiry(formatted);
   };
 
+  // Función para formatear teléfono
+  const handlePhoneChange = (text: string) => {
+    // Si el usuario intenta borrar el prefijo, mantenerlo
+    if (!text.startsWith('+505')) {
+      setPhone('+505');
+      return;
+    }
+    
+    // Solo permitir números después del prefijo
+    const numbers = text.slice(4).replace(/[^\d]/g, '');
+    
+    // Limitar a 8 dígitos (estándar de Nicaragua)
+    if (numbers.length <= 8) {
+      setPhone('+505' + numbers);
+    }
+  };
+
   const handleRegister = async () => {
-    if (!name || !email || !password) {
-      Alert.alert('Error', 'Por favor completa todos los campos obligatorios');
+    if (!name || !email || !phone || !password) {
+      Alert.alert('Error', 'Por favor completa todos los campos obligatorios (Nombre, Email, Teléfono, Contraseña)');
+      return;
+    }
+
+    // Validar que el teléfono tenga al menos el prefijo + 8 dígitos
+    if (phone.length < 12) { // +505 (4) + 8 dígitos = 12
+      Alert.alert('Error', 'El número de teléfono debe tener 8 dígitos');
       return;
     }
 
@@ -96,15 +131,52 @@ export default function RegisterScreen({ navigation }: any) {
       return;
     }
 
+    // Validar campos de conductor si el rol es driver
+    if (role === 'driver') {
+      if (!licenseNumber || !department || !municipality || !plate || !brand || !model || !year || !color) {
+        Alert.alert('Error', 'Por favor completa todos los campos obligatorios del conductor y vehículo (incluyendo departamento y municipio)');
+        return;
+      }
+    }
+
     setLoading(true);
     try {
-      await register({
+      const registerData: any = {
         name,
         email,
         phone,
         password,
         role,
-      });
+      };
+
+      // Agregar datos de conductor y vehículo si el rol es driver
+      if (role === 'driver') {
+        registerData.driverData = {
+          licenseNumber,
+          licenseExpiry: licenseExpiry || null,
+          licensePhoto: null, // Por ahora null, se puede agregar upload después
+          department,
+          municipality,
+        };
+
+        registerData.vehicleData = {
+          plate,
+          brand,
+          model,
+          year: parseInt(year),
+          color,
+          type: vehicleType,
+          registrationNumber: registrationNumber || null,
+          registrationExpiry: registrationExpiry || null,
+          registrationPhoto: null,
+          insuranceNumber: insuranceNumber || null,
+          insuranceCompany: insuranceCompany || null,
+          insuranceExpiry: insuranceExpiry || null,
+          insurancePhoto: null,
+        };
+      }
+
+      await register(registerData);
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Error al crear la cuenta');
     } finally {
@@ -143,15 +215,19 @@ export default function RegisterScreen({ navigation }: any) {
               autoCapitalize="none"
             />
 
-            <Text style={styles.label}>Teléfono (opcional)</Text>
+            <Text style={styles.label}>Teléfono *</Text>
             <TextInput
               style={styles.input}
-              placeholder="Teléfono (opcional, formato: +50512345678)"
+              placeholder="+505 12345678"
               placeholderTextColor={colors.textSecondary}
               value={phone}
-              onChangeText={setPhone}
+              onChangeText={handlePhoneChange}
               keyboardType="phone-pad"
+              maxLength={12}
             />
+            <Text style={styles.helperText}>
+              Formato: +505 seguido de 8 dígitos
+            </Text>
 
             <Text style={styles.label}>Contraseña</Text>
             <TextInput
@@ -165,13 +241,23 @@ export default function RegisterScreen({ navigation }: any) {
 
             <Text style={styles.label}>Confirmar contraseña</Text>
             <TextInput
-              style={styles.input}
+              style={[
+                styles.input,
+                passwordsMatch ? styles.inputSuccess : undefined,
+                passwordsDontMatch ? styles.inputError : undefined,
+              ]}
               placeholder="Confirmar contraseña *"
               placeholderTextColor={colors.textSecondary}
               value={confirmPassword}
               onChangeText={setConfirmPassword}
               secureTextEntry
             />
+            {passwordsMatch && (
+              <Text style={styles.successText}>✓ Las contraseñas coinciden</Text>
+            )}
+            {passwordsDontMatch && (
+              <Text style={styles.errorText}>✗ Las contraseñas no coinciden</Text>
+            )}
 
             <Text style={styles.roleLabel}>¿Eres cliente o conductor?</Text>
             <View style={styles.roleButtons}>
@@ -235,6 +321,40 @@ export default function RegisterScreen({ navigation }: any) {
                   maxLength={10}
                 />
 
+                <Text style={styles.sectionTitle}>📍 Ubicación</Text>
+
+                <Text style={styles.label}>Departamento *</Text>
+                <View style={styles.pickerContainer}>
+                  <Picker
+                    selectedValue={department}
+                    onValueChange={(itemValue) => {
+                      setDepartment(itemValue);
+                      setMunicipality(''); // Reset municipality when department changes
+                    }}
+                    style={styles.picker}
+                  >
+                    <Picker.Item label="Selecciona un departamento" value="" />
+                    {departments.map((dept) => (
+                      <Picker.Item key={dept} label={dept} value={dept} />
+                    ))}
+                  </Picker>
+                </View>
+
+                <Text style={styles.label}>Municipio *</Text>
+                <View style={styles.pickerContainer}>
+                  <Picker
+                    selectedValue={municipality}
+                    onValueChange={(itemValue) => setMunicipality(itemValue)}
+                    style={styles.picker}
+                    enabled={!!department}
+                  >
+                    <Picker.Item label="Selecciona un municipio" value="" />
+                    {municipalities.map((mun) => (
+                      <Picker.Item key={mun} label={mun} value={mun} />
+                    ))}
+                  </Picker>
+                </View>
+
                 <Text style={styles.sectionTitle}>🚗 Datos del Vehículo</Text>
 
                 <Text style={styles.label}>Placa/Matrícula *</Text>
@@ -296,75 +416,25 @@ export default function RegisterScreen({ navigation }: any) {
                   </View>
                 </View>
 
-                <Text style={styles.vehicleTypeLabel}>Tipo de Vehículo:</Text>
-                <View style={styles.vehicleTypeButtons}>
-                  <TouchableOpacity
-                    style={[
-                      styles.vehicleTypeButton,
-                      vehicleType === 'sedan' && styles.vehicleTypeButtonActive,
-                    ]}
-                    onPress={() => setVehicleType('sedan')}
+                <Text style={styles.label}>Tipo de Vehículo *</Text>
+                <View style={styles.pickerContainer}>
+                  <Picker
+                    selectedValue={vehicleType}
+                    onValueChange={(itemValue) => setVehicleType(itemValue)}
+                    style={styles.picker}
                   >
-                    <Text
-                      style={[
-                        styles.vehicleTypeButtonText,
-                        vehicleType === 'sedan' && styles.vehicleTypeButtonTextActive,
-                      ]}
-                    >
-                      SEDAN
-                    </Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[
-                      styles.vehicleTypeButton,
-                      vehicleType === 'suv' && styles.vehicleTypeButtonActive,
-                    ]}
-                    onPress={() => setVehicleType('suv')}
-                  >
-                    <Text
-                      style={[
-                        styles.vehicleTypeButtonText,
-                        vehicleType === 'suv' && styles.vehicleTypeButtonTextActive,
-                      ]}
-                    >
-                      SUV
-                    </Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[
-                      styles.vehicleTypeButton,
-                      vehicleType === 'van' && styles.vehicleTypeButtonActive,
-                    ]}
-                    onPress={() => setVehicleType('van')}
-                  >
-                    <Text
-                      style={[
-                        styles.vehicleTypeButtonText,
-                        vehicleType === 'van' && styles.vehicleTypeButtonTextActive,
-                      ]}
-                    >
-                      VAN
-                    </Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[
-                      styles.vehicleTypeButton,
-                      vehicleType === 'moto' && styles.vehicleTypeButtonActive,
-                    ]}
-                    onPress={() => setVehicleType('moto')}
-                  >
-                    <Text
-                      style={[
-                        styles.vehicleTypeButtonText,
-                        vehicleType === 'moto' && styles.vehicleTypeButtonTextActive,
-                      ]}
-                    >
-                      MOTO
-                    </Text>
-                  </TouchableOpacity>
+                    <Picker.Item label="🏍️ Moto" value="moto" />
+                    <Picker.Item label="🚗 Sedán" value="sedan" />
+                    <Picker.Item label="🚙 SUV" value="suv" />
+                    <Picker.Item label="🛻 Pickup / Camioneta" value="pickup" />
+                    <Picker.Item label="🚐 Van" value="van" />
+                    <Picker.Item label="🚙 Jeep" value="jeep" />
+                    <Picker.Item label="🚙 Crossover" value="crossover" />
+                    <Picker.Item label="🚗 Hatchback" value="hatchback" />
+                    <Picker.Item label="🚗 Coupe" value="coupe" />
+                    <Picker.Item label="🚗 Convertible" value="convertible" />
+                    <Picker.Item label="🚛 Camión" value="truck" />
+                  </Picker>
                 </View>
 
                 <Text style={styles.sectionTitle}>📄 Documentos del Vehículo</Text>
@@ -488,6 +558,13 @@ const createStyles = (colors: any) => StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
+  helperText: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginTop: -12,
+    marginBottom: 16,
+    marginLeft: 4,
+  },
   roleLabel: {
     fontSize: 14,
     fontWeight: '600',
@@ -565,38 +642,38 @@ const createStyles = (colors: any) => StyleSheet.create({
   halfInput: {
     flex: 1,
   },
-  vehicleTypeLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.text,
-    marginBottom: 12,
-    marginTop: 8,
-  },
-  vehicleTypeButtons: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 16,
-  },
-  vehicleTypeButton: {
-    flex: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 8,
+  pickerContainer: {
+    backgroundColor: colors.card,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: colors.border,
+    marginBottom: 16,
+    overflow: 'hidden',
+  },
+  picker: {
+    color: colors.text,
     backgroundColor: colors.card,
-    alignItems: 'center',
   },
-  vehicleTypeButtonActive: {
-    borderColor: colors.text,
-    backgroundColor: colors.text,
+  inputSuccess: {
+    borderColor: '#10b981',
+    borderWidth: 2,
   },
-  vehicleTypeButtonText: {
+  inputError: {
+    borderColor: '#ef4444',
+    borderWidth: 2,
+  },
+  successText: {
+    color: '#10b981',
     fontSize: 12,
+    marginTop: -12,
+    marginBottom: 12,
     fontWeight: '600',
-    color: colors.textSecondary,
   },
-  vehicleTypeButtonTextActive: {
-    color: colors.card,
+  errorText: {
+    color: '#ef4444',
+    fontSize: 12,
+    marginTop: -12,
+    marginBottom: 12,
+    fontWeight: '600',
   },
 });

@@ -1,6 +1,6 @@
 export default {
-  name: 'AppUber',
-  slug: 'app-uber',
+  name: 'DriveAngel',
+  slug: 'driveangel',
   version: '1.0.0',
   orientation: 'portrait',
   userInterfaceStyle: 'light',
@@ -13,7 +13,7 @@ export default {
   assetBundlePatterns: ['**/*'],
   ios: {
     supportsTablet: true,
-    bundleIdentifier: 'com.yourapp.appuber',
+    bundleIdentifier: 'com.driveangel.app',
     config: {
       googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY || 'YOUR_IOS_GOOGLE_MAPS_API_KEY',
       usesNonExemptEncryption: false
@@ -28,7 +28,7 @@ export default {
     usesAppleSignIn: true
   },
   android: {
-    package: 'com.yourapp.appuber',
+    package: 'com.driveangel.app',
     versionCode: 1,
     permissions: [
       'ACCESS_COARSE_LOCATION',
@@ -67,15 +67,15 @@ export default {
       }
     },
     pwa: {
-      name: 'AppUber',
-      shortName: 'AppUber'
+      name: 'DriveAngel',
+      shortName: 'DriveAngel'
     }
   },
   plugins: [
     [
       'expo-location',
       {
-        locationAlwaysAndWhenInUsePermission: 'Permitir a AppUber acceder a tu ubicación.',
+        locationAlwaysAndWhenInUsePermission: 'Permitir a DriveAngel acceder a tu ubicación.',
         isAndroidBackgroundLocationEnabled: true,
         isIosBackgroundLocationEnabled: true
       }
@@ -88,7 +88,7 @@ export default {
     eas: {
       projectId: 'your-project-id'
     },
-    apiUrl: process.env.API_URL || 'https://api.appuber.com',
+    apiUrl: process.env.API_URL || 'https://api.driveangel.com',
     googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY,
     sentryDsn: process.env.SENTRY_DSN,
     environment: process.env.APP_ENV || 'development'

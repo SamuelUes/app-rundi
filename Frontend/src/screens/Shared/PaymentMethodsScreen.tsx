@@ -8,132 +8,146 @@ import {
   Alert,
   TextInput,
   ScrollView,
+  ActivityIndicator,
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { initializeFirebase } from '../../config/firebase';
 
-interface PaymentMethod {
+interface Card {
   id: string;
-  type: 'card' | 'cash';
-  last4?: string;
-  brand?: string;
-  expiryMonth?: number;
-  expiryYear?: number;
+  provider: 'stripe' | 'visanet';
+  brand: string;
+  last4: string;
+  expMonth: number;
+  expYear: number;
   isDefault: boolean;
 }
 
 export default function PaymentMethodsScreen({ navigation }: any) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([
-    {
-      id: '1',
-      type: 'card',
-      last4: '4242',
-      brand: 'Visa',
-      expiryMonth: 12,
-      expiryYear: 2025,
-      isDefault: true,
-    },
-    {
-      id: '2',
-      type: 'cash',
-      isDefault: false,
-    },
-  ]);
+  const [cards, setCards] = useState<Card[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const [showAddCard, setShowAddCard] = useState(false);
+  useEffect(() => {
+    loadCards();
+  }, []);
 
-  const handleSetDefault = (methodId: string) => {
-    setPaymentMethods((prev) =>
-      prev.map((method) => ({
-        ...method,
-        isDefault: method.id === methodId,
-      }))
-    );
-    Alert.alert('Método actualizado', 'Método de pago predeterminado actualizado');
+  const loadCards = async () => {
+    try {
+      setLoading(true);
+      const { app } = await initializeFirebase();
+      if (!app) throw new Error('Firebase no inicializado');
+
+      const functions = getFunctions(app);
+      const getCardsFn = httpsCallable(functions, 'getCards');
+      const result = await getCardsFn();
+      const data = result.data as any;
+
+      if (data.success) {
+        setCards(data.cards);
+      }
+    } catch (error: any) {
+      console.error('Error cargando tarjetas:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleRemoveCard = (methodId: string) => {
+  const handleSetDefault = async (cardId: string) => {
+    try {
+      const { app } = await initializeFirebase();
+      if (!app) throw new Error('Firebase no inicializado');
+
+      const functions = getFunctions(app);
+      const setDefaultCardFn = httpsCallable(functions, 'setDefaultCard');
+      await setDefaultCardFn({ cardId });
+
+      Alert.alert('✅ Éxito', 'Tarjeta predeterminada actualizada');
+      loadCards();
+    } catch (error: any) {
+      console.error('Error estableciendo tarjeta predeterminada:', error);
+      Alert.alert('Error', 'No se pudo actualizar la tarjeta predeterminada');
+    }
+  };
+
+  const handleRemoveCard = async (cardId: string) => {
     Alert.alert(
-      'Eliminar método',
-      '¿Estás seguro que deseas eliminar este método de pago?',
+      'Eliminar Tarjeta',
+      '¿Estás seguro de que deseas eliminar esta tarjeta?',
       [
         { text: 'Cancelar', style: 'cancel' },
         {
           text: 'Eliminar',
           style: 'destructive',
-          onPress: () => {
-            setPaymentMethods((prev) => prev.filter((m) => m.id !== methodId));
+          onPress: async () => {
+            try {
+              const { app } = await initializeFirebase();
+              if (!app) throw new Error('Firebase no inicializado');
+
+              const functions = getFunctions(app);
+              const deleteCardFn = httpsCallable(functions, 'deleteCard');
+              await deleteCardFn({ cardId });
+
+              Alert.alert('✅ Éxito', 'Tarjeta eliminada');
+              loadCards();
+            } catch (error: any) {
+              console.error('Error eliminando tarjeta:', error);
+              Alert.alert('Error', 'No se pudo eliminar la tarjeta');
+            }
           },
         },
       ]
     );
   };
 
-  const renderPaymentMethod = (method: PaymentMethod) => {
-    if (method.type === 'cash') {
-      return (
-        <View key={method.id} style={styles.methodCard}>
-          <View style={styles.methodIcon}>
-            <Text style={styles.methodIconText}>💵</Text>
-          </View>
-          <View style={styles.methodInfo}>
-            <Text style={styles.methodTitle}>Efectivo</Text>
-            <Text style={styles.methodSubtitle}>Paga al conductor</Text>
-          </View>
-          {method.isDefault && (
-            <View style={styles.defaultBadge}>
-              <Text style={styles.defaultText}>Predeterminado</Text>
-            </View>
-          )}
-          {!method.isDefault && (
-            <TouchableOpacity
-              style={styles.setDefaultButton}
-              onPress={() => handleSetDefault(method.id)}
-            >
-              <Text style={styles.setDefaultText}>Usar</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      );
-    }
+  const hasDefaultCard = cards.some(card => card.isDefault);
 
+  const renderCard = (card: Card) => (
+    <View key={card.id} style={styles.methodCard}>
+      <View style={styles.methodIcon}>
+        <Text style={styles.methodIconText}>💳</Text>
+      </View>
+      <View style={styles.methodInfo}>
+        <Text style={styles.methodTitle}>
+          {card.brand} •••• {card.last4}
+        </Text>
+        <Text style={styles.methodSubtitle}>
+          Expira {String(card.expMonth).padStart(2, '0')}/{card.expYear}
+        </Text>
+      </View>
+      {card.isDefault ? (
+        <View style={styles.defaultBadge}>
+          <Text style={styles.defaultText}>Predeterminado</Text>
+        </View>
+      ) : (
+        <View style={styles.cardActions}>
+          <TouchableOpacity
+            style={styles.setDefaultButton}
+            onPress={() => handleSetDefault(card.id)}
+          >
+            <Text style={styles.setDefaultText}>Usar</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.removeButton}
+            onPress={() => handleRemoveCard(card.id)}
+          >
+            <Text style={styles.removeText}>✕</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+    </View>
+  );
+
+  if (loading) {
     return (
-      <View key={method.id} style={styles.methodCard}>
-        <View style={styles.methodIcon}>
-          <Text style={styles.methodIconText}>💳</Text>
-        </View>
-        <View style={styles.methodInfo}>
-          <Text style={styles.methodTitle}>
-            {method.brand} •••• {method.last4}
-          </Text>
-          <Text style={styles.methodSubtitle}>
-            Expira {method.expiryMonth}/{method.expiryYear}
-          </Text>
-        </View>
-        {method.isDefault ? (
-          <View style={styles.defaultBadge}>
-            <Text style={styles.defaultText}>Predeterminado</Text>
-          </View>
-        ) : (
-          <View style={styles.cardActions}>
-            <TouchableOpacity
-              style={styles.setDefaultButton}
-              onPress={() => handleSetDefault(method.id)}
-            >
-              <Text style={styles.setDefaultText}>Usar</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.removeButton}
-              onPress={() => handleRemoveCard(method.id)}
-            >
-              <Text style={styles.removeText}>✕</Text>
-            </TouchableOpacity>
-          </View>
-        )}
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color={colors.primary} />
+        <Text style={styles.loadingText}>Cargando métodos de pago...</Text>
       </View>
     );
-  };
+  }
 
   return (
     <ScrollView style={styles.container}>
@@ -146,76 +160,38 @@ export default function PaymentMethodsScreen({ navigation }: any) {
           </Text>
         </View>
 
-        {/* Lista de métodos */}
-        <View style={styles.methodsList}>
-          {paymentMethods.map(renderPaymentMethod)}
+        {/* Efectivo - Siempre predeterminado si no hay tarjeta predeterminada */}
+        <View style={styles.methodCard}>
+          <View style={styles.methodIcon}>
+            <Text style={styles.methodIconText}>💵</Text>
+          </View>
+          <View style={styles.methodInfo}>
+            <Text style={styles.methodTitle}>Efectivo</Text>
+            <Text style={styles.methodSubtitle}>Paga al conductor</Text>
+          </View>
+          {!hasDefaultCard && (
+            <View style={styles.defaultBadge}>
+              <Text style={styles.defaultText}>Predeterminado</Text>
+            </View>
+          )}
+          {hasDefaultCard && (
+            <TouchableOpacity style={styles.setDefaultButton}>
+              <Text style={styles.setDefaultText}>Usar</Text>
+            </TouchableOpacity>
+          )}
         </View>
+
+        {/* Lista de tarjetas */}
+        {cards.map(renderCard)}
 
         {/* Botón agregar tarjeta */}
         <TouchableOpacity
           style={styles.addButton}
-          onPress={() => setShowAddCard(true)}
+          onPress={() => navigation.navigate('AddCard')}
         >
           <Text style={styles.addButtonIcon}>+</Text>
           <Text style={styles.addButtonText}>Agregar Tarjeta</Text>
         </TouchableOpacity>
-
-        {/* Formulario agregar tarjeta (simplificado) */}
-        {showAddCard && (
-          <View style={styles.addCardForm}>
-            <Text style={styles.formTitle}>Nueva Tarjeta</Text>
-            
-            <TextInput
-              style={styles.input}
-              placeholder="Número de tarjeta"
-              placeholderTextColor="#999"
-              keyboardType="numeric"
-              maxLength={19}
-            />
-            
-            <View style={styles.inputRow}>
-              <TextInput
-                style={[styles.input, styles.inputHalf]}
-                placeholder="MM/AA"
-                placeholderTextColor="#999"
-                keyboardType="numeric"
-                maxLength={5}
-              />
-              <TextInput
-                style={[styles.input, styles.inputHalf]}
-                placeholder="CVV"
-                placeholderTextColor="#999"
-                keyboardType="numeric"
-                maxLength={4}
-                secureTextEntry
-              />
-            </View>
-
-            <TextInput
-              style={styles.input}
-              placeholder="Nombre en la tarjeta"
-              placeholderTextColor="#999"
-            />
-
-            <View style={styles.formActions}>
-              <TouchableOpacity
-                style={styles.cancelButton}
-                onPress={() => setShowAddCard(false)}
-              >
-                <Text style={styles.cancelButtonText}>Cancelar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.saveButton}
-                onPress={() => {
-                  Alert.alert('Próximamente', 'Integración con Stripe en desarrollo');
-                  setShowAddCard(false);
-                }}
-              >
-                <Text style={styles.saveButtonText}>Guardar</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
 
         {/* Info de seguridad */}
         <View style={styles.securityInfo}>
@@ -233,6 +209,11 @@ const createStyles = (colors: any) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.surface,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: colors.textSecondary,
   },
   content: {
     padding: 24,

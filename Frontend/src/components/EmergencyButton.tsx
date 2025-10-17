@@ -1,25 +1,19 @@
 import React, { useState } from 'react';
-import {
-  TouchableOpacity,
-  Text,
-  StyleSheet,
-  Alert,
-  Linking,
-  Modal,
-  View,
-  ActivityIndicator,
-} from 'react-native';
-import { useLocation } from '../hooks/useLocation';
+import { View, Text, TouchableOpacity, Modal, StyleSheet, Linking, Alert, ActivityIndicator } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
+import { useLocation } from '../hooks/useLocation';
+import { getFirebaseFunctions } from '../config/firebase';
+import { httpsCallable } from 'firebase/functions';
+import { useAuth } from '../context/AuthContext';
 
 interface EmergencyButtonProps {
   rideId?: string;
   style?: any;
 }
-
 export default function EmergencyButton({ rideId, style }: EmergencyButtonProps) {
   const { coords } = useLocation();
   const { colors } = useTheme();
+  const { user } = useAuth();
   const [modalVisible, setModalVisible] = useState(false);
   const [calling, setCalling] = useState(false);
 
@@ -35,13 +29,24 @@ export default function EmergencyButton({ rideId, style }: EmergencyButtonProps)
     setModalVisible(false);
 
     try {
-      // Aquí se guardaría en Supabase (por ahora solo llamamos)
-      console.log('🚨 Llamada de emergencia:', {
-        type,
-        number,
-        location: coords,
-        rideId,
+      // Guardar en Supabase vía Firebase Function
+      console.log('🚨 Registrando llamada de emergencia...');
+      
+      const functions = await getFirebaseFunctions();
+      const logEmergencyCallFn = httpsCallable(functions, 'logEmergencyCall');
+      
+      await logEmergencyCallFn({
+        emergencyType: type,
+        emergencyNumber: number,
+        latitude: coords?.latitude || null,
+        longitude: coords?.longitude || null,
+        address: null, // Podríamos hacer reverse geocoding aquí
+        rideId: rideId || null,
+        notes: null,
+        userRole: user?.role || 'client',
       });
+
+      console.log('✅ Llamada de emergencia registrada en Supabase');
 
       // Abrir dialer
       const phoneUrl = `tel:${number}`;
@@ -51,7 +56,7 @@ export default function EmergencyButton({ rideId, style }: EmergencyButtonProps)
         await Linking.openURL(phoneUrl);
         Alert.alert(
           '🚨 Emergencia',
-          `Llamando a ${name} (${number})`,
+          `Llamando a ${name} (${number})\n\nLa llamada ha sido registrada.`,
           [{ text: 'OK' }]
         );
       } else {

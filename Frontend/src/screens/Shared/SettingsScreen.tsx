@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
+import { FCMConfigComponent } from '../../context/FCMContext';
 
 export default function SettingsScreen({ navigation }: any) {
   const { theme, isDark, setTheme, colors } = useTheme();
@@ -253,7 +254,7 @@ export default function SettingsScreen({ navigation }: any) {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Notificaciones</Text>
           
-          <View style={[styles.option, styles.optionLast]}>
+          <View style={styles.option}>
             <View style={styles.optionLeft}>
               <Text style={styles.optionTitle}>Notificaciones Push</Text>
               <Text style={styles.optionDescription}>
@@ -268,6 +269,9 @@ export default function SettingsScreen({ navigation }: any) {
             />
           </View>
         </View>
+
+        {/* FCM Configuration */}
+        <FCMConfigComponent />
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Sonido y Vibración</Text>

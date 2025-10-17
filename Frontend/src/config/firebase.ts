@@ -1,8 +1,16 @@
-import { initializeApp } from 'firebase/app';
-import { getAuth, connectAuthEmulator } from 'firebase/auth';
+import { initializeApp, FirebaseApp } from 'firebase/app';
+import {
+  initializeAuth,
+  getAuth,
+  Auth,
+  connectAuthEmulator,
+  // @ts-ignore - React Native persistence
+  getReactNativePersistence
+} from 'firebase/auth';
 import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore';
 import { getDatabase, connectDatabaseEmulator } from 'firebase/database';
 import { getFunctions, connectFunctionsEmulator } from 'firebase/functions';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Configuración de Firebase
 const firebaseConfig = {
@@ -15,37 +23,119 @@ const firebaseConfig = {
   databaseURL: process.env.FIREBASE_DATABASE_URL || "https://driveangel-ni-default-rtdb.firebaseio.com",
 };
 
-// Debug: Verificar que la configuración se cargó correctamente
-console.log('🔧 Firebase Config:', {
-  apiKey: firebaseConfig.apiKey.substring(0, 10) + '...',
-  projectId: firebaseConfig.projectId,
-  appId: firebaseConfig.appId,
-});
+// Variables globales para inicialización lazy
+let app: FirebaseApp | null = null;
+let auth: Auth | null = null;
+let firestore: any = null;
+let database: any = null;
+let functions: any = null;
+let isInitialized = false;
 
-// Inicializar Firebase
-const app = initializeApp(firebaseConfig);
+/**
+ * Inicializar Firebase de manera segura (solo cuando se necesita)
+ */
+export async function initializeFirebase() {
+  if (isInitialized) {
+    return { app, auth, firestore, database, functions };
+  }
 
-// Inicializar servicios
-export const auth = getAuth(app);
-export const firestore = getFirestore(app);
-export const database = getDatabase(app);
-export const functions = getFunctions(app);
+  try {
+    console.log('🔧 Inicializando Firebase...');
 
-console.log('✅ Firebase inicializado correctamente');
+    // Inicializar Firebase App
+    app = initializeApp(firebaseConfig);
 
-// Conectar a emuladores si está habilitado
-const useEmulators = process.env.USE_FIREBASE_EMULATORS === 'true';
-const emulatorHost = process.env.FIREBASE_EMULATOR_HOST || 'localhost';
+    // Inicializar Auth con persistencia de AsyncStorage
+    try {
+      auth = initializeAuth(app, {
+        persistence: getReactNativePersistence(AsyncStorage)
+      });
+      console.log('✅ Firebase Auth inicializado con persistencia AsyncStorage');
+    } catch (error) {
+      console.warn('⚠️ No se pudo inicializar Auth con persistencia, usando getAuth');
+      auth = getAuth(app);
+    }
 
-if (useEmulators) {
-  console.log('🔧 Conectando a Firebase Emulators...');
-  
-  connectAuthEmulator(auth, `http://${emulatorHost}:9099`);
-  connectFirestoreEmulator(firestore, emulatorHost, 8080);
-  connectDatabaseEmulator(database, emulatorHost, 9000);
-  connectFunctionsEmulator(functions, emulatorHost, 5001);
-  
-  console.log('✅ Firebase Emulators conectados');
+    // Inicializar otros servicios
+    firestore = getFirestore(app);
+    database = getDatabase(app);
+    functions = getFunctions(app, 'us-central1'); // Especificar región
+
+    // Conectar a emuladores si está habilitado
+    const useEmulators = process.env.USE_FIREBASE_EMULATORS === 'true';
+    const emulatorHost = process.env.FIREBASE_EMULATOR_HOST || 'localhost';
+
+    if (useEmulators) {
+      console.log('🔧 Conectando a Firebase Emulators...');
+
+      connectAuthEmulator(auth, `http://${emulatorHost}:9099`);
+      connectFirestoreEmulator(firestore, emulatorHost, 8080);
+      connectDatabaseEmulator(database, emulatorHost, 9000);
+      connectFunctionsEmulator(functions, emulatorHost, 5001);
+
+      console.log('✅ Firebase Emulators conectados');
+    }
+
+    isInitialized = true;
+    console.log('✅ Firebase inicializado correctamente');
+
+    return { app, auth, firestore, database, functions };
+  } catch (error) {
+    console.error('❌ Error inicializando Firebase:', error);
+    throw error;
+  }
 }
 
+/**
+ * Obtener servicios Firebase (inicializa si es necesario)
+ */
+export async function getFirebaseServices() {
+  if (!isInitialized) {
+    await initializeFirebase();
+  }
+  return { app, auth, firestore, database, functions };
+}
+
+/**
+ * Obtener Auth (inicializa si es necesario)
+ */
+export async function getFirebaseAuth(): Promise<Auth> {
+  if (!auth) {
+    await initializeFirebase();
+  }
+  return auth!;
+}
+
+/**
+ * Obtener Firestore (inicializa si es necesario)
+ */
+export async function getFirebaseFirestore() {
+  if (!firestore) {
+    await initializeFirebase();
+  }
+  return firestore;
+}
+
+/**
+ * Obtener Database (inicializa si es necesario)
+ */
+export async function getFirebaseDatabase() {
+  if (!database) {
+    await initializeFirebase();
+  }
+  return database;
+}
+
+/**
+ * Obtener Functions (inicializa si es necesario)
+ */
+export async function getFirebaseFunctions() {
+  if (!functions) {
+    await initializeFirebase();
+  }
+  return functions;
+}
+
+// Exportar configuración para compatibilidad
+export { firebaseConfig };
 export default app;

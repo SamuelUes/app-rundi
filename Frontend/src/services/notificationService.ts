@@ -24,6 +24,14 @@ class NotificationService {
    */
   async initialize(): Promise<string | null> {
     try {
+      // Verificar si Expo está configurado correctamente
+      const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+      
+      if (!projectId || !this.isValidUUID(projectId)) {
+        console.log('ℹ️ Expo Push Notifications deshabilitado - usando FCM');
+        return null;
+      }
+
       // Solicitar permisos
       const { status: existingStatus } = await Notifications.getPermissionsAsync();
       let finalStatus = existingStatus;
@@ -46,8 +54,17 @@ class NotificationService {
       return token;
     } catch (error) {
       console.error('❌ Error inicializando notificaciones:', error);
+      console.log('ℹ️ Expo Notifications falló, usando FCM como alternativa');
       return null;
     }
+  }
+
+  /**
+   * Validar si es un UUID válido
+   */
+  private isValidUUID(uuid: string): boolean {
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    return uuidRegex.test(uuid);
   }
 
   /**

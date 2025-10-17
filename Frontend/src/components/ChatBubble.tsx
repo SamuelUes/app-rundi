@@ -4,10 +4,11 @@ import { formatNicaraguaTime } from '../utils/dateUtils';
 
 interface ChatBubbleProps {
   message: { 
-    text: string; 
+    message: string; 
     timestamp: string; 
-    isDriver: boolean;
+    isDriver?: boolean;
     isOwn?: boolean; // Mensaje propio o del otro usuario
+    senderName?: string;
   };
 }
 
@@ -17,17 +18,25 @@ export default function ChatBubble({ message }: ChatBubbleProps) {
   };
 
   const isOwn = message.isOwn !== undefined ? message.isOwn : message.isDriver;
+  
+  // Fallback para mensajes antiguos que no tienen el campo 'message'
+  const messageText = message.message || '[Mensaje sin contenido]';
+  
+  // Si el mensaje está vacío, no mostrarlo
+  if (!messageText || messageText.trim() === '') {
+    return null;
+  }
 
   return (
     <View style={[styles.container, isOwn ? styles.ownMessage : styles.otherMessage]}>
-      {!isOwn && (
+      {!isOwn && message.senderName && (
         <Text style={styles.senderName}>
-          {message.isDriver ? 'Conductor' : 'Pasajero'}
+          {message.senderName}
         </Text>
       )}
       <View style={[styles.bubble, isOwn ? styles.ownBubble : styles.otherBubble]}>
         <Text style={[styles.messageText, isOwn ? styles.ownText : styles.otherText]}>
-          {message.text}
+          {messageText}
         </Text>
         <Text style={[styles.timestamp, isOwn ? styles.ownTimestamp : styles.otherTimestamp]}>
           {formatTime(message.timestamp)}

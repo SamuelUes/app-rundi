@@ -110,6 +110,7 @@ export class RidesService {
       estimatedDistance: savedRide.estimatedDistance,
       estimatedDuration: savedRide.estimatedDuration,
       estimatedFare: savedRide.estimatedFare,
+      clientSuggestedPrice: savedRide.clientSuggestedPrice, // ✅ Incluir precio sugerido
       rideType: savedRide.rideType,
       createdAt: savedRide.createdAt,
     });

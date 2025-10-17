@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,752 +8,926 @@ import {
   ActivityIndicator,
   RefreshControl,
   Alert,
+  Modal,
+  TextInput,
+  Linking,
+  Platform,
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
-import MapView, { Marker, Callout } from 'react-native-maps';
 import { useAuth } from '../../context/AuthContext';
 import { useLocation } from '../../hooks/useLocation';
-import { useRideNotifications } from '../../hooks/useRideNotifications';
-import { useNotifications } from '../../hooks/useNotifications';
-import FilterModal, { Filters } from '../../components/FilterModal';
+import { getDatabase, ref, onValue } from 'firebase/database';
+import priceNegotiationService from '../../services/priceNegotiationService';
 import ridesService from '../../services/ridesService';
 import mapsService from '../../services/mapsService';
+import DynamicMap from '../../components/DynamicMap';
+import { RideListSkeleton } from '../../components/SkeletonLoader';
+import { NoRidesEmptyState } from '../../components/EmptyState';
+import { RatingDisplay } from '../../components/RatingDisplay';
 
-interface AvailableRide {
+interface Ride {
   id: string;
-  originAddress: string;
-  destinationAddress: string;
+  clientId: string;
+  origin: { lat: number; lng: number; address: string };
+  destination: { lat: number; lng: number; address: string };
   estimatedDistance: number;
   estimatedDuration: number;
-  estimatedFare: number;
-  rideType: string;
-  createdAt: string;
-  client: {
-    name: string;
-    phone: string;
-  };
+  estimatedPrice: number;
+  status: string;
+  clientSuggestedPrice?: number;
+  driverOfferedPrice?: number;
+  passengers?: number;
+  rideType?: string;
+  requestedAt: number;
+  clientRating?: number;
+  clientTotalRatings?: number;
 }
 
 export default function AvailableRidesScreen({ navigation }: any) {
   const { colors } = useTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
   const { user } = useAuth();
   const { coords } = useLocation();
-  const { connected, newRidesCount } = useRideNotifications(user?.id);
-  const { notifyNewRide, setBadgeCount } = useNotifications();
-  const [rides, setRides] = useState<AvailableRide[]>([]);
-  const [filteredRides, setFilteredRides] = useState<AvailableRide[]>([]);
+  const [rides, setRides] = useState<Ride[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [filterModalVisible, setFilterModalVisible] = useState(false);
-  const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
-  const [selectedRide, setSelectedRide] = useState<AvailableRide | null>(null);
-  const [filters, setFilters] = useState<Filters>({
-    minDistance: 0,
-    maxDistance: 100,
-    minPrice: 0,
-    maxPrice: 1000,
-    rideType: 'all',
-  });
-  const previousRidesCount = useRef(0);
+  const [showMapModal, setShowMapModal] = useState(false);
+  const [selectedRide, setSelectedRide] = useState<Ride | null>(null);
+  const [showNegotiateModal, setShowNegotiateModal] = useState(false);
+  const [counterOffer, setCounterOffer] = useState('');
+  const [routeCoordinates, setRouteCoordinates] = useState<Array<{ latitude: number; longitude: number }>>([]);
+  const [loadingRoute, setLoadingRoute] = useState(false);
+  const [clientRatings, setClientRatings] = useState<Map<string, { rating: number; totalRatings: number }>>(new Map());
 
   useEffect(() => {
-    loadAvailableRides();
-    
-    // Auto-refresh cada 30 segundos (reducido para menos carga)
-    const interval = setInterval(loadAvailableRides, 30000);
-    return () => clearInterval(interval);
-  }, [coords]);
+    console.log('🔥 Montando AvailableRidesScreen...');
+    loadRides();
+  }, []);
 
-  // Aplicar filtros cuando cambien los viajes o los filtros
+  // Cargar ratings de clientes cuando cambian los viajes
   useEffect(() => {
-    applyFilters();
-  }, [rides, filters]);
+    const loadClientRatings = async () => {
+      for (const ride of rides) {
+        if (ride.clientId && !clientRatings.has(ride.clientId)) {
+          try {
+            const ratingData = await ridesService.getUserRating(ride.clientId);
+            setClientRatings(prev => new Map(prev).set(ride.clientId, {
+              rating: ratingData.averageRating || 0,
+              totalRatings: ratingData.totalRatings || 0,
+            }));
+          } catch (error) {
+            console.error(`Error cargando rating del cliente ${ride.clientId}:`, error);
+          }
+        }
+      }
+    };
 
-  const loadAvailableRides = async () => {
-    try {
-      if (!coords) {
-        console.log('⚠️ No hay coordenadas disponibles');
+    if (rides.length > 0) {
+      loadClientRatings();
+    }
+  }, [rides]);
+
+  const loadRides = () => {
+    console.log('📡 Conectando a Firebase Realtime DB...');
+    const db = getDatabase();
+    const ridesRef = ref(db, 'activeRides');
+
+    const unsubscribe = onValue(ridesRef, (snapshot) => {
+      console.log('📦 Snapshot recibido');
+      const data = snapshot.val();
+      
+      if (!data) {
+        console.log('📭 No hay viajes en activeRides');
         setRides([]);
+        setLoading(false);
+        setRefreshing(false);
         return;
       }
 
-      const availableRides = await ridesService.getAvailableRides(
-        coords.latitude,
-        coords.longitude,
-        10 // Radio de 10 km
-      );
-      
-      const newRides = availableRides || [];
-      
-      // Detectar nuevos viajes y notificar
-      if (previousRidesCount.current > 0 && newRides.length > previousRidesCount.current) {
-        const latestRide = newRides[0];
-        await notifyNewRide(latestRide);
-        console.log('🔔 Notificación de nuevo viaje enviada');
-      }
-      
-      previousRidesCount.current = newRides.length;
-      setRides(newRides);
-      
-      // Actualizar badge
-      await setBadgeCount(newRides.length);
-    } catch (error: any) {
-      // Silenciar error 404 (no hay viajes disponibles)
-      if (error.response?.status !== 404) {
-        console.error('❌ Error loading rides:', error.message);
-      }
-      setRides([]);
-      previousRidesCount.current = 0;
-      await setBadgeCount(0);
-    } finally {
+      console.log('📦 Datos:', JSON.stringify(data, null, 2));
+
+      const availableRides: Ride[] = [];
+      Object.entries(data).forEach(([rideId, rideData]: [string, any]) => {
+        console.log(`🔍 Viaje ${rideId}:`, {
+          status: rideData.status,
+          driverId: rideData.driverId,
+          clientSuggestedPrice: rideData.clientSuggestedPrice,
+          estimatedPrice: rideData.estimatedPrice,
+          negotiationStatus: rideData.negotiationStatus,
+        });
+
+        // Detectar si este conductor fue aceptado
+        if (rideData.status === 'accepted' && rideData.driverId === user?.id) {
+          console.log('🎉 ¡Tu oferta fue aceptada! Navegando a ActiveRideScreen...');
+          
+          // Navegar a ActiveRideScreen
+          navigation.replace('ActiveRide', {
+            rideId: rideId,
+            clientId: rideData.clientId,
+            origin: rideData.origin,
+            destination: rideData.destination,
+            estimatedFare: rideData.finalFare || rideData.estimatedPrice,
+          });
+          return;
+        }
+
+        // Filtrar solo viajes en estado 'requested' (disponibles)
+        if (rideData.status === 'requested') {
+          availableRides.push({
+            id: rideId,
+            clientId: rideData.clientId || '',
+            status: rideData.status,
+            origin: rideData.origin || {},
+            destination: rideData.destination || {},
+            estimatedDistance: rideData.estimatedDistance || 0,
+            estimatedDuration: rideData.estimatedDuration || 0,
+            estimatedPrice: rideData.estimatedPrice || 0,
+            clientSuggestedPrice: rideData.clientSuggestedPrice,
+            driverOfferedPrice: rideData.driverOfferedPrice,
+            passengers: rideData.passengers || 1,
+            rideType: rideData.rideType || 'normal',
+            requestedAt: rideData.requestedAt || Date.now(),
+          });
+        }
+      });
+
+      console.log(`✅ ${availableRides.length} viajes disponibles`);
+      setRides(availableRides);
       setLoading(false);
       setRefreshing(false);
-    }
-  };
-
-  const applyFilters = () => {
-    const filtered = rides.filter((ride) => {
-      const distanceKm = ride.estimatedDistance / 1000;
-      const price = ride.estimatedFare;
-      
-      // Filtrar por distancia
-      if (distanceKm < filters.minDistance || distanceKm > filters.maxDistance) {
-        return false;
-      }
-      
-      // Filtrar por precio
-      if (price < filters.minPrice || price > filters.maxPrice) {
-        return false;
-      }
-      
-      // Filtrar por tipo
-      if (filters.rideType !== 'all' && ride.rideType !== filters.rideType) {
-        return false;
-      }
-      
-      return true;
+    }, (error) => {
+      console.error('❌ Error en listener:', error);
+      setLoading(false);
+      setRefreshing(false);
     });
-    
-    setFilteredRides(filtered);
-  };
 
-  const handleFilterApply = (newFilters: Filters) => {
-    setFilters(newFilters);
-    console.log('🎛️ Filtros aplicados:', newFilters);
+    return () => {
+      console.log('🔥 Desmontando listener');
+      unsubscribe();
+    };
   };
 
   const handleRefresh = () => {
     setRefreshing(true);
-    loadAvailableRides();
+    loadRides();
   };
 
-  const handleAcceptRide = async (ride: AvailableRide) => {
+  const handleAcceptRide = async (ride: Ride) => {
+    try {
+      // Si el cliente sugirió un precio, aceptar ese precio directamente
+      if (ride.clientSuggestedPrice && ride.clientSuggestedPrice > 0) {
+        Alert.alert(
+          'Aceptar precio del cliente',
+          `¿Deseas aceptar el viaje por C$${ride.clientSuggestedPrice}?\n\nTu oferta aparecerá en la lista de conductores interesados.`,
+          [
+            { text: 'Cancelar', style: 'cancel' },
+            {
+              text: 'Aceptar',
+              onPress: async () => {
+                try {
+                  console.log(`📤 Enviando aceptación de precio para viaje: ${ride.id}`);
+                  console.log(`💰 Precio del cliente: C$${ride.clientSuggestedPrice}`);
+                  
+                  await priceNegotiationService.acceptClientPrice(ride.id);
+                  
+                  // Navegar a pantalla de espera de confirmación del cliente
+                  navigation.replace('WaitingClientConfirmation', {
+                    rideId: ride.id,
+                    clientId: ride.clientId,
+                    origin: ride.origin,
+                    destination: ride.destination,
+                    estimatedFare: ride.clientSuggestedPrice,
+                  });
+                } catch (error: any) {
+                  console.error('❌ Error completo:', error);
+                  Alert.alert('Error', error.message || 'No se pudo enviar la oferta');
+                }
+              },
+            },
+          ]
+        );
+      } else {
+        // Si no hay precio sugerido, aceptar normalmente
+        Alert.alert(
+          'Aceptar viaje',
+          '¿Deseas aceptar este viaje?',
+          [
+            { text: 'Cancelar', style: 'cancel' },
+            {
+              text: 'Aceptar',
+              onPress: async () => {
+                try {
+                  const acceptData = {
+                    driverId: user?.id || '',
+                    vehicleId: 'temp-vehicle-id',
+                    currentLocation: { lat: 0, lng: 0 },
+                  };
+                  await ridesService.acceptRide(ride.id, acceptData);
+                  
+                  // Navegar a pantalla de espera de confirmación del cliente
+                  navigation.replace('WaitingClientConfirmation', {
+                    rideId: ride.id,
+                    clientId: ride.clientId,
+                    origin: ride.origin,
+                    destination: ride.destination,
+                    estimatedFare: ride.estimatedPrice,
+                  });
+                } catch (error: any) {
+                  Alert.alert('Error', error.message || 'No se pudo aceptar el viaje');
+                }
+              },
+            },
+          ]
+        );
+      }
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'No se pudo aceptar el viaje');
+    }
+  };
+
+  const handleShowMap = async (ride: Ride) => {
+    setSelectedRide(ride);
+    setShowMapModal(true);
+    setLoadingRoute(true);
+    setRouteCoordinates([]);
+    
+    // Calcular ruta completa: Conductor → Origen → Destino
+    if (coords) {
+      try {
+        console.log('🗺️ Calculando ruta para modal...');
+        
+        // Ruta 1: Conductor → Origen
+        const route1 = await mapsService.getDirections(
+          { latitude: coords.latitude, longitude: coords.longitude },
+          { latitude: ride.origin.lat, longitude: ride.origin.lng }
+        );
+        
+        // Ruta 2: Origen → Destino
+        const route2 = await mapsService.getDirections(
+          { latitude: ride.origin.lat, longitude: ride.origin.lng },
+          { latitude: ride.destination.lat, longitude: ride.destination.lng }
+        );
+        
+        // Combinar ambas rutas
+        const combinedRoute = [
+          ...(route1?.polyline || []),
+          ...(route2?.polyline || [])
+        ];
+        
+        setRouteCoordinates(combinedRoute);
+        console.log('✅ Ruta calculada:', combinedRoute.length, 'puntos');
+      } catch (error) {
+        console.error('❌ Error calculando ruta:', error);
+        // Fallback: línea recta
+        setRouteCoordinates([
+          { latitude: coords.latitude, longitude: coords.longitude },
+          { latitude: ride.origin.lat, longitude: ride.origin.lng },
+          { latitude: ride.destination.lat, longitude: ride.destination.lng }
+        ]);
+      } finally {
+        setLoadingRoute(false);
+      }
+    }
+  };
+
+  const handleNegotiate = (ride: Ride) => {
+    setSelectedRide(ride);
+    setCounterOffer(ride.estimatedPrice.toString());
+    setShowNegotiateModal(true);
+  };
+
+  const handleSendCounterOffer = async () => {
+    if (!selectedRide) return;
+    
+    const price = parseFloat(counterOffer);
+    if (isNaN(price) || price < 50) {
+      Alert.alert('Error', 'El precio debe ser mínimo C$50');
+      return;
+    }
+
+    try {
+      await priceNegotiationService.negotiatePrice(selectedRide.id, price, 'driver');
+      Alert.alert('Éxito', 'Contraoferta enviada al cliente');
+      setShowNegotiateModal(false);
+      setSelectedRide(null);
+      setCounterOffer('');
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'No se pudo enviar la contraoferta');
+    }
+  };
+
+  const handleNavigateToRide = () => {
+    if (!selectedRide || !coords) {
+      Alert.alert('Error', 'No se puede determinar tu ubicación actual');
+      return;
+    }
+
+    const currentLat = coords.latitude;
+    const currentLng = coords.longitude;
+    const originLat = selectedRide.origin.lat;
+    const originLng = selectedRide.origin.lng;
+    const destLat = selectedRide.destination.lat;
+    const destLng = selectedRide.destination.lng;
+
+    // Waypoints: origen del viaje (punto de recogida)
+    const waypoints = `${originLat},${originLng}`;
+
     Alert.alert(
-      'Aceptar Viaje',
-      `¿Deseas aceptar este viaje?\n\nOrigen: ${ride.originAddress}\nDestino: ${ride.destinationAddress}\nPrecio: C$${ride.estimatedFare}`,
+      'Navegar con GPS',
+      'Ruta completa: Tu ubicación → Punto de recogida → Destino final',
       [
-        { text: 'Cancelar', style: 'cancel' },
         {
-          text: 'Aceptar',
-          onPress: async () => {
-            try {
-              setLoading(true);
-              
-              if (!coords) {
-                Alert.alert('Error', 'No se pudo obtener tu ubicación');
-                return;
-              }
+          text: '🗺️ Google Maps',
+          onPress: () => {
+            const url = Platform.select({
+              ios: `comgooglemaps://?saddr=${currentLat},${currentLng}&daddr=${destLat},${destLng}&waypoints=${waypoints}&directionsmode=driving`,
+              android: `google.navigation:q=${destLat},${destLng}&waypoints=${waypoints}&mode=d`,
+            });
 
-              await ridesService.acceptRide(ride.id, {
-                driverId: user!.id,
-                vehicleId: 'temp-vehicle-id', // TODO: Obtener del perfil del conductor
-                currentLocation: {
-                  lat: coords.latitude,
-                  lng: coords.longitude,
-                },
-              });
+            const fallbackUrl = `https://www.google.com/maps/dir/?api=1&origin=${currentLat},${currentLng}&destination=${destLat},${destLng}&waypoints=${waypoints}&travelmode=driving`;
 
-              // Navegar a la pantalla de viaje activo
-              navigation.navigate('ActiveRide', { rideId: ride.id });
-            } catch (error: any) {
-              Alert.alert('Error', error.response?.data?.message || 'No se pudo aceptar el viaje');
-            } finally {
-              setLoading(false);
-            }
+            Linking.canOpenURL(url || fallbackUrl).then((supported) => {
+              Linking.openURL(supported && url ? url : fallbackUrl);
+            });
           },
         },
+        {
+          text: '🚗 Waze',
+          onPress: () => {
+            // Waze no soporta waypoints, solo destino final
+            const url = `waze://?ll=${destLat},${destLng}&navigate=yes`;
+            Linking.canOpenURL(url).then((supported) => {
+              if (supported) {
+                Linking.openURL(url);
+              } else {
+                Linking.openURL(`https://www.waze.com/ul?ll=${destLat},${destLng}&navigate=yes`);
+              }
+            });
+          },
+        },
+        { text: 'Cancelar', style: 'cancel' },
       ]
     );
   };
 
-  const renderRideItem = ({ item }: { item: AvailableRide }) => {
-    const distanceKm = (item.estimatedDistance / 1000).toFixed(1);
-    const durationMin = Math.round(item.estimatedDuration / 60);
-    const timeAgo = getTimeAgo(item.createdAt);
+  const renderRideItem = ({ item }: { item: Ride }) => {
+    const hasSuggestedPrice = item.clientSuggestedPrice && item.clientSuggestedPrice > 0;
+    const hasDriverOffer = item.driverOfferedPrice && item.driverOfferedPrice > 0;
+    const savings = hasSuggestedPrice 
+      ? item.estimatedPrice - (item.clientSuggestedPrice || 0)
+      : 0;
 
     return (
-      <TouchableOpacity
-        style={styles.rideCard}
-        onPress={() => handleAcceptRide(item)}
-        activeOpacity={0.7}
-      >
-        <View style={styles.rideHeader}>
-          <View style={styles.clientInfo}>
-            <Text style={styles.clientName}>{item.client?.name || 'Cliente'}</Text>
-            <Text style={styles.timeAgo}>{timeAgo}</Text>
-          </View>
-          <View style={styles.priceContainer}>
-            <Text style={styles.priceLabel}>Precio</Text>
-            <Text style={styles.price}>C${item.estimatedFare}</Text>
-          </View>
-        </View>
-
-        <View style={styles.locationContainer}>
-          <View style={styles.locationRow}>
-            <View style={styles.iconContainer}>
-              <Text style={styles.icon}>🔵</Text>
-            </View>
-            <View style={styles.addressContainer}>
-              <Text style={styles.addressLabel}>Origen</Text>
-              <Text style={styles.address} numberOfLines={1}>
-                {item.originAddress}
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.locationRow}>
-            <View style={styles.iconContainer}>
-              <Text style={styles.icon}>🔴</Text>
-            </View>
-            <View style={styles.addressContainer}>
-              <Text style={styles.addressLabel}>Destino</Text>
-              <Text style={styles.address} numberOfLines={1}>
-                {item.destinationAddress}
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.infoRow}>
-          <View style={styles.infoItem}>
-            <Text style={styles.infoLabel}>Distancia</Text>
-            <Text style={styles.infoValue}>{distanceKm} km</Text>
-          </View>
-          <View style={styles.infoItem}>
-            <Text style={styles.infoLabel}>Duración</Text>
-            <Text style={styles.infoValue}>{durationMin} min</Text>
-          </View>
-          <View style={styles.infoItem}>
-            <Text style={styles.infoLabel}>Tipo</Text>
-            <Text style={styles.infoValue}>{item.rideType}</Text>
-          </View>
-        </View>
-
-        <TouchableOpacity style={styles.acceptButton} onPress={() => handleAcceptRide(item)}>
-          <Text style={styles.acceptButtonText}>Aceptar Viaje</Text>
+      <View style={[styles.rideCard, { backgroundColor: colors.surface }]}>
+        {/* Botón Ver Mapa */}
+        <TouchableOpacity
+          style={styles.mapButton}
+          onPress={() => handleShowMap(item)}
+        >
+          <Text style={styles.mapButtonText}>🗺️ Ver Ruta en Mapa</Text>
         </TouchableOpacity>
-      </TouchableOpacity>
+
+        {/* Ubicaciones */}
+        <View style={styles.locations}>
+          <View style={styles.locationRow}>
+            <Text style={styles.locationIcon}>🔵</Text>
+            <Text style={[styles.locationText, { color: colors.text }]} numberOfLines={2}>
+              {item.origin?.address || 'Origen'}
+            </Text>
+          </View>
+          <View style={styles.divider} />
+          <View style={styles.locationRow}>
+            <Text style={styles.locationIcon}>🔴</Text>
+            <Text style={[styles.locationText, { color: colors.text }]} numberOfLines={2}>
+              {item.destination?.address || 'Destino'}
+            </Text>
+          </View>
+        </View>
+
+        {/* Rating del Cliente */}
+        {clientRatings.has(item.clientId) && (
+          <View style={styles.clientRatingContainer}>
+            <Text style={[styles.clientRatingLabel, { color: colors.textSecondary }]}>
+              👤 Cliente:
+            </Text>
+            <RatingDisplay 
+              rating={clientRatings.get(item.clientId)?.rating || 0}
+              totalRatings={clientRatings.get(item.clientId)?.totalRatings}
+              size="small"
+              showCount={true}
+            />
+          </View>
+        )}
+
+        {/* Detalles */}
+        <View style={styles.details}>
+          <View style={styles.detailItem}>
+            <Text style={[styles.detailLabel, { color: colors.textSecondary }]}>
+              Distancia
+            </Text>
+            <Text style={[styles.detailValue, { color: colors.text }]}>
+              {((item.estimatedDistance || 0) / 1000).toFixed(1)} km
+            </Text>
+          </View>
+          <View style={styles.detailItem}>
+            <Text style={[styles.detailLabel, { color: colors.textSecondary }]}>
+              Duración
+            </Text>
+            <Text style={[styles.detailValue, { color: colors.text }]}>
+              {Math.round((item.estimatedDuration || 0) / 60)} min
+            </Text>
+          </View>
+          <View style={styles.detailItem}>
+            <Text style={[styles.detailLabel, { color: colors.textSecondary }]}>
+              Precio
+            </Text>
+            <Text style={[styles.priceValue, { color: colors.primary }]}>
+              C${item.estimatedPrice}
+            </Text>
+          </View>
+        </View>
+
+        {/* Precio Sugerido y Negociación */}
+        {hasSuggestedPrice && (
+          <View style={styles.priceSection}>
+            <View style={styles.suggestedPriceContainer}>
+              <Text style={styles.suggestedLabel}>💡 Cliente sugiere:</Text>
+              <Text style={styles.suggestedPrice}>C${item.clientSuggestedPrice}</Text>
+              {savings > 0 && (
+                <Text style={styles.savingsText}>(diferencia: C${savings.toFixed(2)})</Text>
+              )}
+            </View>
+            <TouchableOpacity
+              style={styles.negotiateButton}
+              onPress={() => handleNegotiate(item)}
+            >
+              <Text style={styles.negotiateButtonText}>💬 Contraofertar</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Contraoferta del Conductor */}
+        {hasDriverOffer && (
+          <View style={[styles.priceSection, { backgroundColor: '#E3F2FD', borderLeftColor: '#2196F3' }]}>
+            <View style={styles.suggestedPriceContainer}>
+              <Text style={[styles.suggestedLabel, { color: '#1565C0' }]}>💬 Tu contraoferta:</Text>
+              <Text style={[styles.suggestedPrice, { color: '#1565C0' }]}>C${item.driverOfferedPrice}</Text>
+              <Text style={[styles.savingsText, { color: '#1565C0' }]}>(esperando respuesta)</Text>
+            </View>
+          </View>
+        )}
+
+        {/* Botón Aceptar */}
+        <TouchableOpacity
+          style={[styles.acceptButton, { backgroundColor: colors.primary }]}
+          onPress={() => handleAcceptRide(item)}
+        >
+          <Text style={styles.acceptButtonText}>
+            {hasSuggestedPrice 
+              ? `✅ Aceptar por C$${item.clientSuggestedPrice}` 
+              : 'Aceptar Viaje'}
+          </Text>
+        </TouchableOpacity>
+      </View>
     );
   };
 
-  const getTimeAgo = (dateString: string): string => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
-
-    if (seconds < 60) return 'Hace un momento';
-    if (seconds < 3600) return `Hace ${Math.floor(seconds / 60)} min`;
-    return `Hace ${Math.floor(seconds / 3600)} h`;
-  };
-
-  if (loading && rides.length === 0) {
+  if (loading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#000" />
-        <Text style={styles.loadingText}>Buscando viajes disponibles...</Text>
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <RideListSkeleton count={4} />
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <View style={styles.headerTop}>
-          <View>
-            <Text style={styles.title}>Viajes Disponibles</Text>
-            <Text style={styles.subtitle}>
-              {filteredRides.length} de {rides.length} {rides.length === 1 ? 'viaje' : 'viajes'}
-            </Text>
-          </View>
-          <View style={styles.headerButtons}>
-            <TouchableOpacity
-              style={styles.filterButton}
-              onPress={() => setFilterModalVisible(true)}
-            >
-              <Text style={styles.filterButtonText}>🎛️</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.filterButton}
-              onPress={() => setViewMode(viewMode === 'list' ? 'map' : 'list')}
-            >
-              <Text style={styles.filterButtonText}>
-                {viewMode === 'list' ? '🗺️' : '📋'}
-              </Text>
-            </TouchableOpacity>
-            <View style={styles.connectionStatus}>
-              <View style={[styles.statusDot, connected ? styles.statusConnected : styles.statusDisconnected]} />
-              <Text style={styles.statusText}>
-                {connected ? 'En línea' : 'Desconectado'}
-              </Text>
-            </View>
-          </View>
-        </View>
-        {newRidesCount > 0 && (
-          <View style={styles.notificationBanner}>
-            <Text style={styles.notificationText}>
-              🔔 {newRidesCount} {newRidesCount === 1 ? 'nuevo viaje' : 'nuevos viajes'}
-            </Text>
-          </View>
-        )}
-      </View>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <FlatList
+        data={rides}
+        renderItem={renderRideItem}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={styles.listContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            colors={[colors.primary]}
+          />
+        }
+        ListEmptyComponent={
+          <NoRidesEmptyState onAction={handleRefresh} />
+        }
+      />
 
-      {viewMode === 'map' ? (
-        // Vista de Mapa
-        <View style={styles.mapContainer}>
-          {coords && (
-            <MapView
-              style={styles.map}
-              initialRegion={{
-                latitude: coords.latitude,
-                longitude: coords.longitude,
-                latitudeDelta: 0.1,
-                longitudeDelta: 0.1,
-              }}
-              showsUserLocation
-              showsMyLocationButton
-            >
-              {/* Pins de viajes disponibles */}
-              {filteredRides.map((ride: any) => (
-                <Marker
-                  key={ride.id}
-                  coordinate={{
-                    latitude: ride.origin?.lat || 0,
-                    longitude: ride.origin?.lng || 0,
-                  }}
-                  pinColor="#4CAF50"
-                  onPress={() => setSelectedRide(ride)}
+      {/* Modal de Mapa */}
+      <Modal
+        visible={showMapModal}
+        animationType="slide"
+        onRequestClose={() => setShowMapModal(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Ruta del Viaje</Text>
+            <TouchableOpacity onPress={() => setShowMapModal(false)}>
+              <Text style={styles.closeButton}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          {selectedRide && coords && (
+            <>
+              <DynamicMap
+                latitude={coords.latitude}
+                longitude={coords.longitude}
+                showMarker={true}
+                markerPosition={{
+                  latitude: coords.latitude,
+                  longitude: coords.longitude,
+                }}
+                markerType="car"
+                originMarker={{
+                  latitude: selectedRide.origin.lat,
+                  longitude: selectedRide.origin.lng,
+                }}
+                destinationMarker={{
+                  latitude: selectedRide.destination.lat,
+                  longitude: selectedRide.destination.lng,
+                }}
+                routeCoordinates={routeCoordinates.length > 0 ? routeCoordinates : undefined}
+                style={{ flex: 1 }}
+              />
+              {loadingRoute && (
+                <View style={styles.loadingRouteContainer}>
+                  <ActivityIndicator size="large" color={colors.primary} />
+                  <Text style={[styles.loadingRouteText, { color: colors.text }]}>
+                    Calculando ruta...
+                  </Text>
+                </View>
+              )}
+              <View style={styles.mapActionsContainer}>
+                <TouchableOpacity
+                  style={[styles.navigateButton, { backgroundColor: colors.primary }]}
+                  onPress={handleNavigateToRide}
                 >
-                  <Callout onPress={() => handleAcceptRide(ride)}>
-                    <View style={styles.calloutContainer}>
-                      <Text style={styles.calloutTitle}>
-                        C${ride.estimatedFare?.toFixed(0)}
-                      </Text>
-                      <Text style={styles.calloutText} numberOfLines={2}>
-                        {ride.originAddress}
-                      </Text>
-                      <Text style={styles.calloutDistance}>
-                        {(ride.estimatedDistance / 1000).toFixed(1)} km
-                      </Text>
-                    </View>
-                  </Callout>
-                </Marker>
-              ))}
-            </MapView>
+                  <Text style={styles.navigateButtonText}>
+                    🧭 Navegar con GPS
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </>
           )}
-          
-          {/* Card flotante del viaje seleccionado */}
-          {selectedRide && (
-            <View style={styles.selectedRideCard}>
-              <TouchableOpacity
-                style={styles.closeButton}
-                onPress={() => setSelectedRide(null)}
-              >
-                <Text style={styles.closeButtonText}>×</Text>
-              </TouchableOpacity>
-              <Text style={styles.selectedRidePrice}>
-                C${selectedRide.estimatedFare?.toFixed(0)}
-              </Text>
-              <Text style={styles.selectedRideAddress} numberOfLines={1}>
-                📍 {selectedRide.originAddress}
-              </Text>
-              <Text style={styles.selectedRideAddress} numberOfLines={1}>
-                🎯 {selectedRide.destinationAddress}
-              </Text>
-              <View style={styles.selectedRideInfo}>
-                <Text style={styles.selectedRideInfoText}>
-                  {(selectedRide.estimatedDistance / 1000).toFixed(1)} km
+        </View>
+      </Modal>
+
+      {/* Modal de Negociación */}
+      <Modal
+        visible={showNegotiateModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowNegotiateModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.negotiateModal, { backgroundColor: colors.surface }]}>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>💬 Hacer Contraoferta</Text>
+            
+            {selectedRide && (
+              <View style={styles.priceInfo}>
+                <Text style={[styles.infoText, { color: colors.textSecondary }]}>
+                  Precio estimado: C${selectedRide.estimatedPrice}
                 </Text>
-                <Text style={styles.selectedRideInfoText}>•</Text>
-                <Text style={styles.selectedRideInfoText}>
-                  {Math.round(selectedRide.estimatedDuration / 60)} min
+                <Text style={[styles.infoText, { color: colors.textSecondary }]}>
+                  Cliente sugiere: C${selectedRide.clientSuggestedPrice}
                 </Text>
               </View>
+            )}
+
+            <Text style={[styles.inputLabel, { color: colors.text }]}>Tu contraoferta:</Text>
+            <TextInput
+              style={[styles.input, { backgroundColor: colors.background, color: colors.text }]}
+              value={counterOffer}
+              onChangeText={setCounterOffer}
+              keyboardType="numeric"
+              placeholder="Ingresa tu precio"
+              placeholderTextColor={colors.textSecondary}
+            />
+
+            <View style={styles.modalButtons}>
               <TouchableOpacity
-                style={styles.acceptButtonMap}
-                onPress={() => handleAcceptRide(selectedRide)}
+                style={[styles.modalButton, styles.cancelButton]}
+                onPress={() => setShowNegotiateModal(false)}
               >
-                <Text style={styles.acceptButtonMapText}>Aceptar Viaje</Text>
+                <Text style={styles.cancelButtonText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.sendButton, { backgroundColor: colors.primary }]}
+                onPress={handleSendCounterOffer}
+              >
+                <Text style={styles.sendButtonText}>Enviar Oferta</Text>
               </TouchableOpacity>
             </View>
-          )}
+          </View>
         </View>
-      ) : filteredRides.length === 0 ? (
-        // Vista vacía
-        <View style={styles.emptyContainer}>
-          <Text style={styles.emptyIcon}>🚗</Text>
-          <Text style={styles.emptyTitle}>No hay viajes disponibles</Text>
-          <Text style={styles.emptyText}>
-            Estamos buscando solicitudes cerca de ti.{'\n'}
-            La lista se actualizará automáticamente.
-          </Text>
-          <TouchableOpacity style={styles.refreshButton} onPress={handleRefresh}>
-            <Text style={styles.refreshButtonText}>Actualizar</Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        // Vista de Lista
-        <FlatList
-          data={filteredRides}
-          renderItem={renderRideItem}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.listContent}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
-          }
-        />
-      )}
-
-      <FilterModal
-        visible={filterModalVisible}
-        onClose={() => setFilterModalVisible(false)}
-        onApply={handleFilterApply}
-        currentFilters={filters}
-      />
+      </Modal>
     </View>
   );
 }
 
-const createStyles = (colors: any) => StyleSheet.create({
+const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.surface,
   },
-  loadingContainer: {
-    flex: 1,
+  centered: {
     justifyContent: 'center',
     alignItems: 'center',
   },
   loadingText: {
     marginTop: 16,
     fontSize: 16,
-    color: colors.textSecondary,
-  },
-  header: {
-    backgroundColor: colors.card,
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
-  },
-  headerTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    marginTop: 4,
-  },
-  connectionStatus: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-  },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 6,
-  },
-  statusConnected: {
-    backgroundColor: '#4CAF50',
-  },
-  statusDisconnected: {
-    backgroundColor: '#ff4444',
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.textSecondary,
-  },
-  notificationBanner: {
-    backgroundColor: '#FFF9E6',
-    padding: 12,
-    borderRadius: 8,
-    marginTop: 12,
-    borderLeftWidth: 4,
-    borderLeftColor: '#FFD700',
-  },
-  notificationText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.text,
   },
   listContent: {
     padding: 16,
   },
   rideCard: {
-    backgroundColor: colors.card,
-    borderRadius: 16,
+    borderRadius: 12,
     padding: 16,
     marginBottom: 16,
+    elevation: 3,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-    borderWidth: 1,
-    borderColor: colors.border,
+    shadowRadius: 4,
   },
-  rideHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 16,
+  suggestedBadge: {
+    backgroundColor: '#FFF3CD',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: '#FFA500',
   },
-  clientInfo: {
-    flex: 1,
-  },
-  clientName: {
-    fontSize: 18,
+  suggestedBadgeText: {
+    fontSize: 14,
     fontWeight: '600',
-    color: colors.text,
+    color: '#856404',
   },
-  timeAgo: {
+  savingsText: {
     fontSize: 12,
-    color: '#999',
-    marginTop: 2,
+    color: '#856404',
+    marginTop: 4,
   },
-  priceContainer: {
-    alignItems: 'flex-end',
-  },
-  priceLabel: {
-    fontSize: 12,
-    color: colors.textSecondary,
-  },
-  price: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#2196F3',
-  },
-  locationContainer: {
+  locations: {
     marginBottom: 16,
   },
   locationRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
+    gap: 8,
+  },
+  locationIcon: {
+    fontSize: 16,
+    marginTop: 2,
+  },
+  locationText: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  divider: {
+    width: 2,
+    height: 20,
+    backgroundColor: '#E0E0E0',
+    marginLeft: 7,
+    marginVertical: 4,
+  },
+  clientRatingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: '#F5F5F5',
+    borderRadius: 8,
     marginBottom: 12,
   },
-  iconContainer: {
-    width: 32,
-    alignItems: 'center',
-  },
-  icon: {
-    fontSize: 16,
-  },
-  addressContainer: {
-    flex: 1,
-  },
-  addressLabel: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    marginBottom: 2,
-  },
-  address: {
-    fontSize: 14,
-    color: colors.text,
+  clientRatingLabel: {
+    fontSize: 13,
     fontWeight: '500',
   },
-  infoRow: {
+  details: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingVertical: 12,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: '#f0f0f0',
+    justifyContent: 'space-between',
     marginBottom: 16,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#E0E0E0',
   },
-  infoItem: {
+  detailItem: {
     alignItems: 'center',
   },
-  infoLabel: {
+  detailLabel: {
     fontSize: 12,
-    color: colors.textSecondary,
     marginBottom: 4,
   },
-  infoValue: {
+  detailValue: {
     fontSize: 16,
     fontWeight: '600',
-    color: colors.text,
+  },
+  priceValue: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  mapButton: {
+    backgroundColor: '#4CAF50',
+    borderRadius: 8,
+    padding: 12,
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  mapButtonText: {
+    color: '#FFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  priceSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFF3CD',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: '#FFA500',
+  },
+  suggestedPriceContainer: {
+    flex: 1,
+  },
+  suggestedLabel: {
+    fontSize: 12,
+    color: '#856404',
+    marginBottom: 4,
+  },
+  suggestedPrice: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#856404',
+  },
+  negotiateButton: {
+    backgroundColor: '#FF9800',
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  negotiateButtonText: {
+    color: '#FFF',
+    fontSize: 14,
+    fontWeight: '600',
   },
   acceptButton: {
-    backgroundColor: '#000',
-    padding: 16,
-    borderRadius: 12,
+    borderRadius: 8,
+    padding: 14,
     alignItems: 'center',
   },
   acceptButtonText: {
-    color: '#fff',
+    color: '#FFF',
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '600',
   },
   emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
     alignItems: 'center',
-    padding: 32,
+    justifyContent: 'center',
+    paddingVertical: 60,
   },
   emptyIcon: {
     fontSize: 64,
     marginBottom: 16,
   },
   emptyTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: colors.text,
+    fontSize: 18,
+    fontWeight: '600',
     marginBottom: 8,
   },
-  emptyText: {
+  emptySubtitle: {
     fontSize: 14,
-    color: colors.textSecondary,
     textAlign: 'center',
-    lineHeight: 20,
   },
-  refreshButton: {
-    marginTop: 24,
-    backgroundColor: '#000',
-    paddingHorizontal: 32,
-    paddingVertical: 12,
-    borderRadius: 8,
+  modalContainer: {
+    flex: 1,
   },
-  refreshButtonText: {
-    color: '#fff',
-    fontSize: 16,
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: '#FFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
+  },
+  modalTitle: {
+    fontSize: 18,
     fontWeight: '600',
   },
-  headerButtons: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
+  closeButton: {
+    fontSize: 24,
+    color: '#666',
   },
-  filterButton: {
-    backgroundColor: '#000',
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  filterButtonText: {
-    fontSize: 20,
+  negotiateModal: {
+    width: '85%',
+    borderRadius: 12,
+    padding: 20,
   },
-  mapContainer: {
-    flex: 1,
+  priceInfo: {
+    marginVertical: 16,
+    padding: 12,
+    backgroundColor: '#F5F5F5',
+    borderRadius: 8,
   },
-  map: {
-    flex: 1,
-  },
-  calloutContainer: {
-    width: 200,
-    padding: 8,
-  },
-  calloutTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#4CAF50',
+  infoText: {
+    fontSize: 14,
     marginBottom: 4,
   },
-  calloutText: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    marginBottom: 4,
-  },
-  calloutDistance: {
-    fontSize: 12,
+  inputLabel: {
+    fontSize: 14,
     fontWeight: '600',
-    color: colors.text,
+    marginBottom: 8,
   },
-  selectedRideCard: {
+  input: {
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    marginBottom: 16,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  modalButton: {
+    flex: 1,
+    borderRadius: 8,
+    padding: 14,
+    alignItems: 'center',
+  },
+  cancelButton: {
+    backgroundColor: '#E0E0E0',
+  },
+  cancelButtonText: {
+    color: '#666',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  sendButton: {
+    // backgroundColor viene de colors.primary
+  },
+  sendButtonText: {
+    color: '#FFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  mapActionsContainer: {
     position: 'absolute',
     bottom: 20,
     left: 20,
     right: 20,
-    backgroundColor: colors.card,
-    borderRadius: 16,
-    padding: 20,
+  },
+  navigateButton: {
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
   },
-  closeButton: {
+  navigateButtonText: {
+    color: '#FFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  loadingRouteContainer: {
     position: 'absolute',
-    top: 8,
-    right: 8,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: colors.surface,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  closeButtonText: {
-    fontSize: 24,
-    color: colors.textSecondary,
-    lineHeight: 24,
-  },
-  selectedRidePrice: {
-    fontSize: 32,
-    fontWeight: '700',
-    color: '#4CAF50',
-    marginBottom: 12,
-  },
-  selectedRideAddress: {
-    fontSize: 14,
-    color: colors.text,
-    marginBottom: 8,
-  },
-  selectedRideInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 16,
-  },
-  selectedRideInfoText: {
-    fontSize: 14,
-    color: colors.textSecondary,
-  },
-  acceptButtonMap: {
-    backgroundColor: '#000',
-    padding: 16,
+    top: '50%',
+    left: '50%',
+    transform: [{ translateX: -50 }, { translateY: -50 }],
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    padding: 20,
     borderRadius: 12,
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
   },
-  acceptButtonMapText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '700',
+  loadingRouteText: {
+    marginTop: 12,
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

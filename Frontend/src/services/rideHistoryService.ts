@@ -3,16 +3,26 @@
  * Servicio para obtener historial de viajes desde Supabase PostgreSQL
  */
 
-import { functions } from '../config/firebase';
+import { getFirebaseFunctions } from '../config/firebase';
 import { httpsCallable } from 'firebase/functions';
 
 class RideHistoryService {
+  private functions: any = null;
+
+  private async getFunctions() {
+    if (!this.functions) {
+      this.functions = await getFirebaseFunctions();
+    }
+    return this.functions;
+  }
+
   /**
    * Obtener historial completo de viajes del usuario
    */
   async getRideHistory(limit: number = 50, offset: number = 0) {
     try {
       // Usar Firebase Callable Function que consulta Supabase
+      const functions = await this.getFunctions();
       const getMyRides = httpsCallable(functions, 'getMyRides');
       const response = await getMyRides({ limit, offset });
       
@@ -89,6 +99,7 @@ class RideHistoryService {
    */
   async getRideDetails(rideId: string) {
     try {
+      const functions = await this.getFunctions();
       const getRideDetailsFunc = httpsCallable(functions, 'getRideDetails');
       const response = await getRideDetailsFunc({ rideId });
       

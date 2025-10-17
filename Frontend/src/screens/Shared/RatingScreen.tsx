@@ -32,6 +32,7 @@ export default function RatingScreen({ route, navigation }: any) {
 
     try {
       setSubmitting(true);
+      console.log('📝 Enviando calificación para rideId:', rideId);
       await ridesService.rateRide(rideId, rating, comment);
       
       Alert.alert(
@@ -40,12 +41,20 @@ export default function RatingScreen({ route, navigation }: any) {
         [
           {
             text: 'OK',
-            onPress: () => navigation.goBack(),
+            onPress: () => {
+              // Navegar según el rol del usuario
+              if (isDriver) {
+                navigation.replace('DriverHome');
+              } else {
+                navigation.replace('ClientHome');
+              }
+            },
           },
         ]
       );
     } catch (error: any) {
-      Alert.alert('Error', error.response?.data?.message || 'No se pudo enviar la calificación');
+      console.error('Error enviando calificación:', error);
+      Alert.alert('Error', error.message || 'No se pudo enviar la calificación');
     } finally {
       setSubmitting(false);
     }
@@ -167,7 +176,27 @@ export default function RatingScreen({ route, navigation }: any) {
         {/* Botón omitir */}
         <TouchableOpacity
           style={styles.skipButton}
-          onPress={() => navigation.goBack()}
+          onPress={async () => {
+            try {
+              // Llamar a skipRating para marcar que omitió
+              await ridesService.skipRating(rideId);
+              
+              // Navegar según el rol del usuario
+              if (isDriver) {
+                navigation.replace('DriverHome');
+              } else {
+                navigation.replace('ClientHome');
+              }
+            } catch (error) {
+              console.error('Error omitiendo calificación:', error);
+              // Navegar de todas formas
+              if (isDriver) {
+                navigation.replace('DriverHome');
+              } else {
+                navigation.replace('ClientHome');
+              }
+            }
+          }}
         >
           <Text style={styles.skipButtonText}>Omitir por ahora</Text>
         </TouchableOpacity>

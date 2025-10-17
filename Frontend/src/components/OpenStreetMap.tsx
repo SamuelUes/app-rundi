@@ -9,9 +9,16 @@ interface OpenStreetMapProps {
   onMapPress?: (event: { latitude: number; longitude: number }) => void;
   showMarker?: boolean;
   markerPosition?: { latitude: number; longitude: number };
-  markerType?: 'default' | 'car' | 'origin' | 'destination'; // Tipo de marcador
+  markerType?: 'default' | 'car' | 'origin' | 'destination' | 'client';
   originMarker?: { latitude: number; longitude: number };
+  destinationMarker?: { latitude: number; longitude: number };
+  clientMarker?: { latitude: number; longitude: number };
   routeCoordinates?: Array<{ latitude: number; longitude: number }>;
+  nearbyDrivers?: Array<{ id: string; latitude: number; longitude: number; heading?: number }>; // Conductores cercanos
+  draggableMarker?: boolean; // Permitir arrastrar el marcador
+  onMarkerDragEnd?: (newLocation: { latitude: number; longitude: number }) => void; // Callback cuando se suelta el marcador
+  rideRequests?: Array<{ id: string; latitude: number; longitude: number; address?: string; estimatedPrice?: string; passengers?: number }>; // Solicitudes de viaje disponibles
+  onRideRequestPress?: (rideRequest: any) => void; // Callback cuando se presiona una solicitud de viaje
 }
 
 export default function OpenStreetMap({
@@ -23,20 +30,41 @@ export default function OpenStreetMap({
   markerPosition,
   markerType = 'default',
   originMarker,
+  destinationMarker,
+  clientMarker,
   routeCoordinates,
+  nearbyDrivers = [],
+  draggableMarker = false,
+  onMarkerDragEnd,
+  rideRequests = [],
+  onRideRequestPress,
 }: OpenStreetMapProps) {
   const webViewRef = useRef<WebView>(null);
 
+  // Log para debug
+  console.log('🗺️ OpenStreetMap - nearbyDrivers recibidos:', nearbyDrivers.length, nearbyDrivers);
+
   const handleMessage = (event: any) => {
-    if (onMapPress) {
-      try {
-        const data = JSON.parse(event.nativeEvent.data);
-        if (data.type === 'mapClick') {
-          onMapPress({ latitude: data.lat, longitude: data.lng });
-        }
-      } catch (error) {
-        console.error('Error parsing map message:', error);
+    try {
+      const data = JSON.parse(event.nativeEvent.data);
+      
+      if (data.type === 'mapClick' && onMapPress) {
+        onMapPress({ latitude: data.lat, longitude: data.lng });
       }
+      
+      if (data.type === 'markerDragEnd' && onMarkerDragEnd) {
+        onMarkerDragEnd({ latitude: data.lat, longitude: data.lng });
+      }
+      
+      if (data.type === 'rideRequestClick' && onRideRequestPress) {
+        // Buscar el viaje completo en el array
+        const rideRequest = rideRequests.find(r => r.id === data.rideId);
+        if (rideRequest) {
+          onRideRequestPress(rideRequest);
+        }
+      }
+    } catch (error) {
+      console.error('Error parsing map message:', error);
     }
   };
 
@@ -76,6 +104,27 @@ export default function OpenStreetMap({
         L.marker([${originMarker.latitude}, ${originMarker.longitude}], {icon: originIcon}).addTo(map);
         ` : ''}
 
+        // Marcador del cliente (👤)
+        ${clientMarker ? `
+        var clientIcon = L.divIcon({
+          html: '<div style="background: rgba(33, 150, 243, 0.2); border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; font-size: 20px; border: 2px solid #2196F3;">👤</div>',
+          iconSize: [40, 40],
+          iconAnchor: [20, 20],
+          className: 'client-marker'
+        });
+        L.marker([${clientMarker.latitude}, ${clientMarker.longitude}], {icon: clientIcon}).addTo(map).bindPopup('👤 Cliente esperando aquí');
+        ` : ''}
+
+        // Marcador de destino (🔴)
+        ${destinationMarker ? `
+        var destIcon = L.icon({
+          iconUrl: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZpZXdCb3g9IjAgMCAzMiAzMiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSIxNiIgY3k9IjE2IiByPSIxMCIgZmlsbD0iI0ZGMDAwMCIgc3Ryb2tlPSJ3aGl0ZSIgc3Ryb2tlLXdpZHRoPSIzIi8+PC9zdmc+',
+          iconSize: [32, 32],
+          iconAnchor: [16, 16]
+        });
+        L.marker([${destinationMarker.latitude}, ${destinationMarker.longitude}], {icon: destIcon}).addTo(map).bindPopup('🔴 Destino del viaje');
+        ` : ''}
+
         // Marcador principal (con tipo personalizado)
         ${showMarker && markerPosition ? `
         ${markerType === 'car' ? `
@@ -86,7 +135,16 @@ export default function OpenStreetMap({
           iconAnchor: [20, 20],
           className: 'car-marker'
         });
-        L.marker([${markerPosition.latitude}, ${markerPosition.longitude}], {icon: carIcon}).addTo(map).bindPopup('\ud83d\ude97 Tu conductor');
+        var mainMarker = L.marker([${markerPosition.latitude}, ${markerPosition.longitude}], {icon: carIcon, draggable: ${draggableMarker}}).addTo(map).bindPopup('🚗 Tu conductor');
+        ` : markerType === 'client' ? `
+        // Icono de cliente (persona)
+        var clientIcon = L.divIcon({
+          html: '<div style="background: rgba(33, 150, 243, 0.2); border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; font-size: 20px; border: 2px solid #2196F3;">👤</div>',
+          iconSize: [40, 40],
+          iconAnchor: [20, 20],
+          className: 'client-marker'
+        });
+        var mainMarker = L.marker([${markerPosition.latitude}, ${markerPosition.longitude}], {icon: clientIcon, draggable: ${draggableMarker}}).addTo(map).bindPopup('👤 Cliente');
         ` : `
         // Icono por defecto (círculo)
         var destIcon = L.icon({
@@ -94,8 +152,20 @@ export default function OpenStreetMap({
           iconSize: [32, 32],
           iconAnchor: [16, 16]
         });
-        L.marker([${markerPosition.latitude}, ${markerPosition.longitude}], {icon: destIcon}).addTo(map);
+        var mainMarker = L.marker([${markerPosition.latitude}, ${markerPosition.longitude}], {icon: destIcon, draggable: ${draggableMarker}}).addTo(map);
         `}
+        
+        // Event listener para cuando se suelta el marcador
+        ${draggableMarker ? `
+        mainMarker.on('dragend', function(e) {
+          var position = e.target.getLatLng();
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'markerDragEnd',
+            lat: position.lat,
+            lng: position.lng
+          }));
+        });
+        ` : ''}
         ` : ''}
 
         // Dibujar ruta
@@ -122,7 +192,31 @@ export default function OpenStreetMap({
         });
         ` : ''}
 
-        console.log('OpenStreetMap loaded successfully');
+        // Agregar marcadores de conductores cercanos
+        ${(nearbyDrivers || []).map(driver => `
+          var carIcon = L.divIcon({
+            html: '<div style="font-size: 24px; transform: rotate(${driver.heading || 0}deg);">🚗</div>',
+            className: 'car-marker',
+            iconSize: [30, 30],
+            iconAnchor: [15, 15]
+          });
+          L.marker([${driver.latitude}, ${driver.longitude}], { icon: carIcon }).addTo(map);
+        `).join('')}
+
+        // Agregar marcadores de solicitudes de viaje disponibles
+        ${(rideRequests || []).map(request => `
+          var requestIcon = L.divIcon({
+            html: '<div style="background: #FF5722; border-radius: 50%; width: 35px; height: 35px; display: flex; align-items: center; justify-content: center; font-size: 18px; color: white; border: 3px solid white; box-shadow: 0 2px 8px rgba(0,0,0,0.3);">👤</div>',
+            className: 'request-marker',
+            iconSize: [35, 35],
+            iconAnchor: [17, 17]
+          });
+          var requestMarker = L.marker([${request.latitude}, ${request.longitude}], { icon: requestIcon }).addTo(map);
+          requestMarker.bindPopup('<div style="font-family: Arial, sans-serif;"><b>📍 Solicitud de Viaje</b><br><small>${request.address || 'Dirección no disponible'}</small><br>${request.estimatedPrice ? '<b>💰 C$' + request.estimatedPrice + '</b><br>' : ''}${request.passengers ? '👥 ' + request.passengers + ' pasajero(s)' : ''}<br><br><button onclick="window.ReactNativeWebView.postMessage(JSON.stringify({type: \\'rideRequestClick\\', rideId: \\'${request.id}\\'}));" style="background: #4CAF50; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: bold; width: 100%;">🚗 Ver Detalles</button></div>');
+        `).join('')}
+
+        console.log('🗺️ OpenStreetMap cargado: ${(nearbyDrivers || []).length} conductores, ${(rideRequests || []).length} solicitudes');
+        console.log('🚗 Conductores a renderizar:', ${JSON.stringify(nearbyDrivers || [])});
       </script>
     </body>
     </html>

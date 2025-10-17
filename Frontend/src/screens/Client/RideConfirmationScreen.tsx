@@ -11,6 +11,13 @@ import {
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
 import ridesService from '../../services/ridesService';
+import { getDatabase, ref, onValue, off } from 'firebase/database';
+import DriverOfferCard from '../../components/DriverOfferCard';
+import PriceNegotiationModal from '../../components/PriceNegotiationModal';
+import priceNegotiationService from '../../services/priceNegotiationService';
+import { RideCardSkeleton } from '../../components/SkeletonLoader';
+import { NoDriversEmptyState } from '../../components/EmptyState';
+import { RatingDisplay } from '../../components/RatingDisplay';
 
 interface RideConfirmationScreenProps {
   route: {
@@ -28,51 +35,95 @@ export default function RideConfirmationScreen({ route, navigation }: RideConfir
   const [ride, setRide] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [canceling, setCanceling] = useState(false);
+  const [driverOffers, setDriverOffers] = useState<any[]>([]);
+  const [selectedOffer, setSelectedOffer] = useState<any>(null);
+  const [showNegotiationModal, setShowNegotiationModal] = useState(false);
+  const [pendingCounterOffers, setPendingCounterOffers] = useState<Set<string>>(new Set());
+  const [confirming, setConfirming] = useState(false);
 
+  // Listener en tiempo real para ofertas de conductores y estado del viaje
   useEffect(() => {
-    loadRideDetails();
+    const db = getDatabase();
+    const rideRef = ref(db, `activeRides/${rideId}`);
     
-    // Polling cada 5 segundos para actualizar el estado
-    const interval = setInterval(loadRideDetails, 5000);
-    return () => clearInterval(interval);
-  }, [rideId]);
+    const unsubscribe = onValue(rideRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        console.log('🔥 Datos del viaje actualizados desde Firebase:', data);
+        
+        // Actualizar datos completos del viaje
+        setRide(data);
+        setLoading(false);
 
-  const loadRideDetails = async () => {
-    try {
-      const rideData = await ridesService.getRideDetails(rideId);
-      setRide(rideData);
-      
-      // Si el viaje fue aceptado y no estamos ya en la pantalla de pago
-      // Mostrar información del conductor primero
-      if (rideData.status === 'accepted' && !ride) {
-        // Primera vez que se acepta, mostrar info del conductor
-        setRide(rideData);
-        // Conductor ha llegado, navegar a tracking
-        navigation.replace('RideTracking', {
-          rideId: rideData.id,
-          driverId: rideData.driverId || '',
-          driverName: rideData.driver?.name || 'Conductor',
-          vehiclePlate: rideData.driver?.vehicle?.plate || 'N/A',
-          estimatedFare: rideData.estimatedPrice || 0,
-        });
+        // Procesar ofertas de conductores (buscar en offers O driverOffers)
+        const offersData = data.offers || data.driverOffers;
+        if (offersData) {
+          console.log('🔍 Ofertas RAW de Firebase:', JSON.stringify(offersData, null, 2));
+          const offersArray = Object.entries(offersData).map(([driverId, offer]: [string, any]) => ({
+            ...offer,
+            driverId, // Este es el ID que viene de la clave del objeto
+            // Agregar datos del vehículo a cada oferta desde el nivel del viaje
+            driver: {
+              ...offer.driver,
+              vehicle: data.vehicle || null,
+            },
+          }));
+          console.log('🔍 Ofertas procesadas con driverId:', offersArray.map(o => ({ driverId: o.driverId, status: o.status })));
+          
+          console.log(`📊 Total ofertas en Firebase: ${offersArray.length}`);
+          console.log(`📋 Ofertas:`, offersArray);
+          console.log(`🚗 Vehículo agregado a ofertas:`, data.vehicle);
+          
+          // Filtrar solo ofertas pendientes
+          const pendingOffers = offersArray.filter((offer: any) => offer.status === 'pending');
+          
+          setDriverOffers(pendingOffers);
+          
+          // Limpiar contraofertas pendientes si el conductor ya respondió
+          setPendingCounterOffers(prev => {
+            const updated = new Set(prev);
+            offersArray.forEach((offer: any) => {
+              // Si el conductor aceptó el precio del cliente o hizo una nueva contraoferta
+              if (offer.acceptedClientPrice || offer.status === 'accepted') {
+                updated.delete(offer.driverId);
+              }
+            });
+            return updated;
+          });
+          
+          console.log(`📬 ${pendingOffers.length} ofertas pendientes disponibles`);
+          console.log(`🎯 Estado del viaje: ${data.status}`);
+          console.log(`📝 Ofertas procesadas:`, JSON.stringify(pendingOffers, null, 2));
+        } else {
+          console.log('❌ No hay offers ni driverOffers en Firebase');
+          setDriverOffers([]);
+        }
+
+        // Solo navegar automáticamente si el viaje ya está en progreso
+        if (data.status === 'in_progress' && data.driverId) {
+          console.log('✅ Viaje en progreso, navegando a tracking...');
+          console.log('🚗 Datos del vehículo:', data.vehicle);
+          navigation.replace('RideTracking', {
+            rideId: data.id,
+            driverId: data.driverId,
+            driverName: data.driver?.name || 'Conductor',
+            vehiclePlate: data.vehicle?.plate || 'N/A',
+            vehicleBrand: data.vehicle?.make || data.vehicle?.brand || 'N/A',
+            vehicleModel: data.vehicle?.model || 'N/A',
+            vehicleColor: data.vehicle?.color || 'N/A',
+            estimatedFare: data.finalFare || data.estimatedPrice || 0,
+          });
+        }
+      } else {
+        console.log('❌ No hay datos del viaje en Firebase');
+        setLoading(false);
       }
-      
-      // Si el viaje ya está en progreso, ir directo al tracking
-      if (rideData.status === 'in_progress') {
-        navigation.replace('RideTracking', {
-          rideId: rideData.id,
-          driverId: rideData.driverId || '',
-          driverName: 'Conductor', // TODO: Obtener del backend
-          vehiclePlate: 'N/A', // TODO: Obtener del backend
-          estimatedFare: rideData.estimatedPrice || 0,
-        });
-      }
-    } catch (error) {
-      console.error('Error loading ride:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+    });
+    
+    return () => {
+      off(rideRef);
+    };
+  }, [rideId]);
 
   const handleCancelRide = () => {
     Alert.alert(
@@ -105,13 +156,64 @@ export default function RideConfirmationScreen({ route, navigation }: RideConfir
     Linking.openURL('tel:+50512345678'); // TODO: Número real de soporte
   };
 
+  const handleViewOffer = (offer: any) => {
+    console.log('Ver oferta:', offer);
+    setSelectedOffer(offer);
+    setShowNegotiationModal(true);
+  };
+
+  const handleAcceptDriverOffer = async (offer: any) => {
+    // Prevenir múltiples confirmaciones
+    if (confirming) {
+      console.log('⏳ Ya hay una confirmación en progreso...');
+      return;
+    }
+
+    try {
+      setConfirming(true);
+      console.log('🎯 Aceptar oferta completa:', JSON.stringify(offer, null, 2));
+      console.log('🆔 RideId:', rideId);
+      console.log('🚗 DriverId de la oferta:', offer.driverId);
+      
+      // En el nuevo sistema de ofertas, aceptar la oferta = confirmar al conductor
+      console.log('✅ Confirmando conductor seleccionado...');
+      await ridesService.confirmDriver(rideId, offer.driverId);
+      
+      Alert.alert(
+        '✅ Conductor Confirmado', 
+        `Has confirmado el viaje con ${offer.driver?.name || 'el conductor'}. El conductor está en camino.`,
+        [{
+          text: 'Ver en Mapa',
+          onPress: () => {
+            // El listener de Firebase navegará automáticamente cuando el estado cambie
+          }
+        }]
+      );
+      
+      setShowNegotiationModal(false);
+      // Firebase listener actualizará automáticamente y navegará a RideTracking
+    } catch (error: any) {
+      console.error('❌ Error confirmando conductor:', error);
+      Alert.alert('Error', error.message || 'No se pudo confirmar al conductor');
+    } finally {
+      setConfirming(false);
+    }
+  };
+
   if (loading || !ride) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#000" />
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <RideCardSkeleton />
+        <RideCardSkeleton />
+        <RideCardSkeleton />
       </View>
     );
   }
+
+  console.log('🎨 RENDER - ride.status:', ride.status, 'driverOffers.length:', driverOffers.length);
+  console.log('🔍 ride.driverId:', ride.driverId, 'ride.driver:', ride.driver);
+  console.log('🔍 ride.vehicle:', ride.vehicle);
+  console.log('🔍 Condición card:', (ride.status === 'pending_confirm' || ride.status === 'accepted'), '&&', ride.driverId);
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 20 }}>
@@ -125,41 +227,62 @@ export default function RideConfirmationScreen({ route, navigation }: RideConfir
         </View>
       </View>
 
-      {/* Animación de búsqueda */}
-      {ride.status === 'requested' && (
-        <View style={styles.searchingContainer}>
-          <ActivityIndicator size="large" color="#2196F3" />
-          <Text style={styles.searchingTitle}>Buscando conductor disponible</Text>
-          <Text style={styles.searchingText}>
-            Estamos notificando a los conductores cercanos.{'\n'}
-            Esto puede tomar unos momentos.
+      {/* Lista de Ofertas de Conductores */}
+      {ride.status === 'requested' && driverOffers.length > 0 && (
+        <View style={styles.offersContainer}>
+          <Text style={styles.offersTitle}>
+            🎉 {driverOffers.length} {driverOffers.length === 1 ? 'conductor interesado' : 'conductores interesados'}
           </Text>
+          <Text style={styles.offersSubtitle}>
+            Revisa las ofertas y elige la que más te convenga
+          </Text>
+          
+          {driverOffers.map((offer: any) => (
+            <DriverOfferCard
+              key={offer.driverId}
+              offer={offer}
+              estimatedPrice={ride.estimatedPrice}
+              clientSuggestedPrice={ride.clientSuggestedPrice}
+              onViewOffer={() => handleViewOffer(offer)}
+              onAcceptOffer={() => handleAcceptDriverOffer(offer)}
+              hasPendingCounterOffer={pendingCounterOffers.has(offer.driverId)}
+            />
+          ))}
         </View>
       )}
 
-      {/* Información del conductor (cuando es aceptado) */}
-      {ride.status === 'accepted' && ride.driver && (
+      {/* Animación de búsqueda (solo si no hay ofertas) */}
+      {ride.status === 'requested' && driverOffers.length === 0 && (
+        <NoDriversEmptyState />
+      )}
+      {/* Información del conductor (cuando está pending_confirm, driver_assigned o accepted) */}
+      {(() => {
+        console.log('🔍 Evaluando condición card:', ride.status, ride.driverId);
+        return (ride.status === 'pending_confirm' || ride.status === 'driver_assigned' || ride.status === 'accepted') && ride.driverId;
+      })() ? (
         <View style={styles.driverContainer}>
           <Text style={styles.driverTitle}>🎉 ¡Conductor encontrado!</Text>
           
           <View style={styles.driverCard}>
             <View style={styles.driverAvatar}>
               <Text style={styles.driverAvatarText}>
-                {ride.driver.name.charAt(0).toUpperCase()}
+                {(ride.driver?.name || 'C').charAt(0).toUpperCase()}
               </Text>
             </View>
             
             <View style={styles.driverInfo}>
-              <Text style={styles.driverName}>{ride.driver.name}</Text>
-              <View style={styles.driverRating}>
-                <Text style={styles.driverRatingText}>⭐ {ride.driver.rating ? ride.driver.rating.toFixed(1) : '5.0'}</Text>
-              </View>
-              {ride.driver.vehicle && (
+              <Text style={styles.driverName}>{ride.driver?.name || 'Conductor'}</Text>
+              <RatingDisplay 
+                rating={ride.driver?.rating ? parseFloat(ride.driver.rating) : 0}
+                size="small"
+                showCount={false}
+              />
+              {(ride as any)?.vehicle && (
                 <>
                   <Text style={styles.driverVehicle}>
-                    {ride.driver.vehicle.brand} {ride.driver.vehicle.model} • {ride.driver.vehicle.color}
+                    🚗 {(ride as any).vehicle.make || (ride as any).vehicle.brand || 'N/A'} {(ride as any).vehicle.model || 'N/A'} • {(ride as any).vehicle.color || 'N/A'}
                   </Text>
-                  <Text style={styles.driverPlate}>Placa: {ride.driver.vehicle.plate}</Text>
+                  <Text style={styles.driverPlate}>📋 Placa: {(ride as any).vehicle.plate || 'N/A'}</Text>
                 </>
               )}
             </View>
@@ -170,20 +293,152 @@ export default function RideConfirmationScreen({ route, navigation }: RideConfir
             <Text style={styles.etaValue}>5-10 minutos</Text>
           </View>
 
+          {/* Botones de Aceptar/Rechazar Conductor (solo si no está accepted) */}
+          {(ride.status === 'driver_assigned' || ride.status === 'pending_confirm') && (
+            <View style={styles.actionButtonsContainer}>
+              {/* Botón Aceptar */}
+              <TouchableOpacity
+                style={[styles.acceptButton, { backgroundColor: '#4CAF50' }]}
+                onPress={async () => {
+                try {
+                  // Verificar autenticación
+                  const { getFirebaseAuth } = await import('../../config/firebase');
+                  const auth = await getFirebaseAuth();
+                  const currentUser = auth.currentUser;
+                  
+                  if (!currentUser) {
+                    Alert.alert('Error', 'Debes iniciar sesión para confirmar al conductor');
+                    return;
+                  }
+
+                  // Obtener token actualizado
+                  await currentUser.getIdToken(true);
+                  
+                  // Llamar a la función para confirmar el conductor
+                  const functions = await import('../../config/firebase').then(m => m.getFirebaseFunctions());
+                  const { httpsCallable } = await import('firebase/functions');
+                  const confirmDriverFunction = httpsCallable(functions, 'confirmDriver');
+                  
+                  console.log('🔑 Confirmando conductor:', ride.driverId);
+                  await confirmDriverFunction({ 
+                    rideId: ride.id,
+                    selectedDriverId: ride.driverId 
+                  });
+                  
+                  Alert.alert(
+                    '✅ Conductor Confirmado',
+                    `Has confirmado el viaje con ${ride.driver?.name || 'el conductor'}. Ahora podrás ver su ubicación en tiempo real.`,
+                    [
+                      {
+                        text: 'Ver en Mapa',
+                        onPress: () => navigation.replace('RideTracking', {
+                          rideId: ride.id,
+                          driverId: ride.driverId,
+                          driverName: ride.driver?.name || 'Conductor',
+                          vehiclePlate: (ride as any)?.vehicle?.plate || 'N/A',
+                          vehicleBrand: (ride as any)?.vehicle?.make || (ride as any)?.vehicle?.brand || 'N/A',
+                          vehicleModel: (ride as any)?.vehicle?.model || 'N/A',
+                          vehicleColor: (ride as any)?.vehicle?.color || 'N/A',
+                          estimatedFare: (ride as any)?.finalFare || ride.estimatedPrice,
+                        })
+                      }
+                    ]
+                  );
+                } catch (error: any) {
+                  console.error('❌ Error confirmando conductor:', error);
+                  Alert.alert('Error', error.message || 'No se pudo confirmar el conductor');
+                }
+              }}
+            >
+              <Text style={styles.acceptButtonText}>✅ Aceptar Conductor</Text>
+            </TouchableOpacity>
+
+            {/* Botón Rechazar */}
+            <TouchableOpacity
+              style={[styles.rejectButton, { backgroundColor: '#FF5252' }]}
+              onPress={() => {
+                Alert.alert(
+                  '❌ Rechazar Conductor',
+                  `¿Estás seguro de que quieres rechazar a ${ride.driver?.name || 'este conductor'}? El viaje volverá a estar disponible para otros conductores.`,
+                  [
+                    { text: 'Cancelar', style: 'cancel' },
+                    {
+                      text: 'Rechazar',
+                      style: 'destructive',
+                      onPress: async () => {
+                        try {
+                          // Verificar autenticación
+                          const { getFirebaseAuth } = await import('../../config/firebase');
+                          const auth = await getFirebaseAuth();
+                          const currentUser = auth.currentUser;
+                          
+                          console.log('👤 Usuario actual:', currentUser ? currentUser.uid : 'NO AUTENTICADO');
+                          
+                          if (!currentUser) {
+                            Alert.alert('Error', 'Debes iniciar sesión para rechazar al conductor');
+                            return;
+                          }
+
+                          // Obtener token actualizado y verificar
+                          const token = await currentUser.getIdToken(true);
+                          console.log('🔑 Token obtenido:', token ? `OK (${token.substring(0, 20)}...)` : 'ERROR');
+                          console.log('📧 Email:', currentUser.email);
+                          console.log('🆔 UID:', currentUser.uid);
+                          
+                          // Inicializar Firebase si no está inicializado
+                          await import('../../config/firebase').then(m => m.initializeFirebase());
+                          
+                          const functions = await import('../../config/firebase').then(m => m.getFirebaseFunctions());
+                          const { httpsCallable } = await import('firebase/functions');
+                          
+                          console.log('📞 Llamando a rejectDriver con rideId:', ride.id);
+                          console.log('🔧 Functions configurado:', functions ? 'OK' : 'ERROR');
+                          
+                          const rejectDriverFunction = httpsCallable(functions, 'rejectDriver');
+                          const result = await rejectDriverFunction({ rideId: ride.id });
+                          
+                          console.log('✅ Resultado:', result);
+                          
+                          Alert.alert(
+                            'Conductor Rechazado',
+                            'El viaje está nuevamente disponible para otros conductores.',
+                            [{ text: 'OK' }]
+                          );
+                        } catch (error: any) {
+                          console.error('❌ Error rechazando conductor:', error);
+                          console.error('❌ Error completo:', JSON.stringify(error, null, 2));
+                          Alert.alert('Error', error.message || 'No se pudo rechazar el conductor');
+                        }
+                      }
+                    }
+                  ]
+                );
+              }}
+            >
+              <Text style={styles.rejectButtonText}>❌ Rechazar</Text>
+            </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Botón secundario: Ver en Mapa (sin confirmación) - Usa navigate en lugar de replace */}
           <TouchableOpacity
-            style={styles.proceedButton}
-            onPress={() => navigation.replace('RideTracking', {
+            style={[styles.secondaryButton, { backgroundColor: colors.primary }]}
+            onPress={() => navigation.navigate('RideTracking', {
               rideId: ride.id,
               driverId: ride.driverId,
-              driverName: ride.driver.name,
-              vehiclePlate: ride.driver.vehicle?.plate || 'N/A',
-              estimatedFare: ride.estimatedPrice,
+              driverName: ride.driver?.name || 'Conductor',
+              vehiclePlate: (ride as any)?.vehicle?.plate || 'N/A',
+              vehicleBrand: (ride as any)?.vehicle?.make || (ride as any)?.vehicle?.brand || 'N/A',
+              vehicleModel: (ride as any)?.vehicle?.model || 'N/A',
+              vehicleColor: (ride as any)?.vehicle?.color || 'N/A',
+              estimatedFare: (ride as any)?.finalFare || ride.estimatedPrice,
+              isPreview: true, // Indicar que es solo preview
             })}
           >
-            <Text style={styles.proceedButtonText}>Ver en Mapa 🗺️</Text>
+            <Text style={styles.secondaryButtonText}>🗺️ Solo Ver en Mapa</Text>
           </TouchableOpacity>
         </View>
-      )}
+      ) : null}
 
       {/* Detalles del viaje */}
       <View style={styles.detailsContainer}>
@@ -194,7 +449,7 @@ export default function RideConfirmationScreen({ route, navigation }: RideConfir
             <Text style={styles.locationIcon}>🔵</Text>
             <View style={styles.locationInfo}>
               <Text style={styles.locationLabel}>Origen</Text>
-              <Text style={styles.locationAddress}>{ride.originAddress}</Text>
+              <Text style={styles.locationAddress}>{ride.origin?.address || ride.originAddress || 'No especificado'}</Text>
             </View>
           </View>
 
@@ -204,7 +459,7 @@ export default function RideConfirmationScreen({ route, navigation }: RideConfir
             <Text style={styles.locationIcon}>🔴</Text>
             <View style={styles.locationInfo}>
               <Text style={styles.locationLabel}>Destino</Text>
-              <Text style={styles.locationAddress}>{ride.destinationAddress}</Text>
+              <Text style={styles.locationAddress}>{ride.destination?.address || ride.destinationAddress || 'No especificado'}</Text>
             </View>
           </View>
         </View>
@@ -261,6 +516,42 @@ export default function RideConfirmationScreen({ route, navigation }: RideConfir
           💬 Podrás chatear con el conductor una vez que acepte el viaje
         </Text>
       </View>
+
+      {/* Modal de Negociación de Precio */}
+      <PriceNegotiationModal
+        visible={showNegotiationModal}
+        onClose={() => setShowNegotiationModal(false)}
+        driver={selectedOffer?.driver || null}
+        estimatedPrice={ride?.estimatedPrice || 0}
+        clientSuggestedPrice={ride?.clientSuggestedPrice}
+        driverOfferedPrice={selectedOffer?.offeredPrice}
+        negotiationStatus={ride?.negotiationStatus}
+        acceptedClientPrice={selectedOffer?.acceptedClientPrice || false}
+        onAcceptDriverOffer={async () => {
+          if (selectedOffer) {
+            await handleAcceptDriverOffer(selectedOffer);
+          }
+        }}
+        onSendCounterOffer={async (price: number) => {
+          try {
+            await priceNegotiationService.negotiatePrice(rideId, price, 'client');
+            // Agregar el conductor a la lista de ofertas pendientes
+            if (selectedOffer?.driverId) {
+              setPendingCounterOffers(prev => new Set(prev).add(selectedOffer.driverId));
+            }
+            Alert.alert('✅ Contraoferta Enviada', `Tu contraoferta de C$${price} ha sido enviada al conductor.`);
+            setShowNegotiationModal(false);
+            // Firebase listener actualizará automáticamente
+          } catch (error: any) {
+            Alert.alert('Error', error.message || 'No se pudo enviar la contraoferta');
+          }
+        }}
+        onAcceptAndStartRide={async () => {
+          // Este callback es para cuando el conductor ya aceptó el precio del cliente
+          setShowNegotiationModal(false);
+          // El viaje ya debería estar en estado 'accepted'
+        }}
+      />
     </ScrollView>
   );
 }
@@ -301,6 +592,21 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: colors.text,
+  },
+  offersContainer: {
+    padding: 16,
+    backgroundColor: colors.background,
+  },
+  offersTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: colors.text,
+    marginBottom: 8,
+  },
+  offersSubtitle: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    marginBottom: 16,
   },
   searchingContainer: {
     padding: 32,
@@ -523,6 +829,43 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontWeight: '600',
     color: colors.text,
   },
+  actionButtonsContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 12,
+  },
+  acceptButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    shadowColor: '#4CAF50',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  acceptButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  rejectButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    shadowColor: '#FF5252',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  rejectButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#fff',
+  },
   etaContainer: {
     backgroundColor: '#E3F2FD',
     padding: 16,
@@ -545,9 +888,23 @@ const createStyles = (colors: any) => StyleSheet.create({
     padding: 16,
     borderRadius: 12,
     alignItems: 'center',
+    marginBottom: 12,
   },
   proceedButtonText: {
     fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  secondaryButton: {
+    backgroundColor: '#2196F3',
+    padding: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  secondaryButtonText: {
+    fontSize: 14,
     fontWeight: '600',
     color: '#fff',
   },

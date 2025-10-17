@@ -4,18 +4,56 @@
     ".write": false,
     
     "activeRides": {
+      ".read": "auth != null",
       "$rideId": {
-        ".read": "auth != null && (data.child('clientId').val() === auth.uid || data.child('driverId').val() === auth.uid)",
-        ".write": "auth != null && (data.child('clientId').val() === auth.uid || data.child('driverId').val() === auth.uid || !data.exists())",
+        ".write": "auth != null && ((data.child('clientId').val() === auth.uid && !data.exists()) || (data.child('driverId').val() === auth.uid) || (!data.exists() && auth != null))",
         ".validate": "newData.hasChildren(['id', 'clientId', 'status', 'origin', 'destination'])"
       }
     },
     
     "driverLocations": {
+      ".read": "auth != null",
       "$driverId": {
+        ".write": "auth != null && auth.uid === $driverId"
+      }
+    },
+    
+    "driversInfo": {
+      ".read": "auth != null",
+      "$driverId": {
+        ".write": "auth != null && auth.uid === $driverId"
+      }
+    },
+    
+    "paymentStatus": {
+      "$rideId": {
         ".read": "auth != null",
-        ".write": "auth != null && auth.uid === $driverId",
-        ".validate": "newData.hasChildren(['lat', 'lng', 'timestamp'])"
+        ".write": "auth != null",
+        ".validate": "newData.hasChildren(['rideId', 'status', 'method', 'amount'])",
+        
+        "status": {
+          ".validate": "newData.isString() && newData.val().matches(/^(initiated|authorized|pending_confirmation|in_progress|pending_capture|completed|confirmed|canceled|partial_charged|pending_cash_payment|failed|refunded)$/)"
+        },
+        
+        "method": {
+          ".validate": "newData.isString() && newData.val().matches(/^(cash|card|stripe)$/)"
+        },
+        
+        "provider": {
+          ".validate": "newData.isString() && newData.val().matches(/^(cash|stripe|local)$/)"
+        },
+        
+        "amount": {
+          ".validate": "newData.isNumber() && newData.val() >= 0"
+        },
+        
+        "tip": {
+          ".validate": "newData.isNumber() && newData.val() >= 0"
+        },
+        
+        "total": {
+          ".validate": "newData.isNumber() && newData.val() >= 0"
+        }
       }
     },
     
@@ -23,9 +61,9 @@
       "$rideId": {
         "messages": {
           ".read": "auth != null",
+          ".write": "auth != null",
           "$messageId": {
-            ".write": "auth != null && !data.exists()",
-            ".validate": "newData.hasChildren(['senderId', 'text', 'timestamp'])"
+            ".validate": "newData.hasChildren(['senderId', 'senderName', 'message', 'timestamp', 'rideId'])"
           }
         },
         "typing": {
@@ -45,6 +83,14 @@
       "$userId": {
         ".read": "auth != null",
         ".write": "auth != null && auth.uid === $userId"
+      }
+    },
+    
+    "clientLocations": {
+      "$userId": {
+        ".read": "auth != null",
+        ".write": "auth != null && auth.uid === $userId",
+        ".validate": "newData.hasChildren(['latitude', 'longitude', 'isManual', 'timestamp'])"
       }
     }
   }

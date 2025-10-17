@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../context/ThemeContext';
 import ridesService from '../../services/ridesService';
 import { formatNicaraguaTime } from '../../utils/dateUtils';
 import rideHistoryService from '../../services/rideHistoryService';
@@ -39,9 +40,9 @@ export default function TodayRidesScreen({ navigation }: any) {
         return;
       }
 
-      const response = await rideHistoryService.getTodayRides(token);
+      const response = await rideHistoryService.getTodayRides();
       
-      const todayRides = response.rides || [];
+      const todayRides = response || [];
       setRides(todayRides);
 
       // Calcular estadísticas

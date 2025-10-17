@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { io, Socket } from 'socket.io-client';
-import { WS_URL } from '../config/environment';
+import firebaseTrackingService from '../services/firebaseTrackingService';
+import { getFirebaseDatabase } from '../config/firebase';
+import { ref, push, onChildAdded, off } from 'firebase/database';
 
-const SOCKET_URL = `${WS_URL}/tracking`;
+const CHAT_REF = 'chats';
 
 export interface ChatMessage {
   id: string;
@@ -15,110 +16,110 @@ export interface ChatMessage {
 }
 
 export function useChat(rideId: string, userId: string, userName: string) {
-  const socketRef = useRef<Socket | null>(null);
-  const [connected, setConnected] = useState(false);
+  const [connected, setConnected] = useState(true); // Firebase siempre está "conectado"
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isTyping, setIsTyping] = useState(false);
   const [typingUser, setTypingUser] = useState<string | null>(null);
+  const messagesRef = useRef<any>(null);
 
   useEffect(() => {
     if (!rideId || !userId) return;
 
-    // Conectar al WebSocket
-    const socket = io(SOCKET_URL, {
-      transports: ['websocket'],
-      reconnection: true,
-      reconnectionDelay: 1000,
-      reconnectionAttempts: 5,
-    });
+    // Conectar a Firebase RTDB
+    setupChatListener();
 
-    socketRef.current = socket;
-
-    socket.on('connect', () => {
-      console.log('✅ Chat conectado');
-      setConnected(true);
-
-      // Suscribirse al viaje
-      socket.emit('ride:subscribe', { rideId });
-    });
-
-    socket.on('disconnect', () => {
-      console.log('❌ Chat desconectado');
-      setConnected(false);
-    });
-
-    // Escuchar mensajes
-    socket.on('chat:message', (data: any) => {
-      console.log('💬 Mensaje recibido:', data);
-      
-      const newMessage: ChatMessage = {
-        id: `${data.senderId}-${data.timestamp}`,
-        rideId: data.rideId,
-        senderId: data.senderId,
-        senderName: data.senderName,
-        message: data.message,
-        timestamp: data.timestamp,
-        isOwn: data.senderId === userId,
-      };
-
-      setMessages((prev) => [...prev, newMessage]);
-    });
-
-    // Escuchar indicador de escritura
-    socket.on('chat:typing', (data: any) => {
-      if (data.userId !== userId) {
-        setIsTyping(true);
-        setTypingUser(data.userName);
-        
-        // Limpiar después de 3 segundos
-        setTimeout(() => {
-          setIsTyping(false);
-          setTypingUser(null);
-        }, 3000);
-      }
-    });
-
-    // Cleanup
     return () => {
-      if (socket.connected) {
-        socket.disconnect();
-      }
+      cleanupChatListener();
     };
   }, [rideId, userId]);
 
-  const sendMessage = (message: string) => {
-    if (!socketRef.current || !message.trim()) return;
+  const setupChatListener = async () => {
+    try {
+      console.log(`🔌 Conectando chat para rideId: ${rideId}, userId: ${userId}`);
+      const database = await getFirebaseDatabase();
+      const chatRef = ref(database, `${CHAT_REF}/${rideId}/messages`);
 
-    const newMessage: ChatMessage = {
-      id: `${userId}-${new Date().toISOString()}`,
-      rideId,
-      senderId: userId,
-      senderName: userName,
-      message: message.trim(),
-      timestamp: new Date().toISOString(),
-      isOwn: true,
-    };
+      messagesRef.current = chatRef;
 
-    // Agregar mensaje localmente
-    setMessages((prev) => [...prev, newMessage]);
+      // Escuchar nuevos mensajes
+      onChildAdded(chatRef, (snapshot) => {
+        console.log('📨 Nuevo mensaje detectado en Firebase:', snapshot.key);
+        const data = snapshot.val();
+        console.log('📦 Datos del mensaje:', data);
+        
+        if (data) {
+          const newMessage: ChatMessage = {
+            id: snapshot.key || `${data.senderId}-${data.timestamp}`,
+            rideId: data.rideId,
+            senderId: data.senderId,
+            senderName: data.senderName,
+            message: data.message,
+            timestamp: data.timestamp,
+            isOwn: data.senderId === userId,
+          };
 
-    // Enviar al servidor
-    socketRef.current.emit('chat:message', {
-      rideId,
-      senderId: userId,
-      senderName: userName,
-      message: message.trim(),
-    });
+          console.log('✉️ Mensaje procesado:', {
+            id: newMessage.id,
+            message: newMessage.message,
+            isOwn: newMessage.isOwn,
+            senderId: newMessage.senderId,
+            myUserId: userId
+          });
+
+          setMessages((prev) => {
+            // Evitar duplicados
+            if (prev.some(msg => msg.id === newMessage.id)) {
+              console.log('⚠️ Mensaje duplicado, ignorando:', newMessage.id);
+              return prev;
+            }
+            console.log('➕ Agregando mensaje a la lista');
+            return [...prev, newMessage];
+          });
+        }
+      });
+
+      console.log('✅ Chat conectado a Firebase RTDB');
+    } catch (error) {
+      console.error('❌ Error conectando chat:', error);
+    }
+  };
+
+  const cleanupChatListener = () => {
+    if (messagesRef.current) {
+      off(messagesRef.current);
+      messagesRef.current = null;
+      console.log('🧹 Chat desconectado');
+    }
+  };
+
+  const sendMessage = async (message: string) => {
+    if (!message.trim()) return;
+
+    try {
+      const database = await getFirebaseDatabase();
+      const chatRef = ref(database, `${CHAT_REF}/${rideId}/messages`);
+
+      const messageData = {
+        rideId,
+        senderId: userId,
+        senderName: userName,
+        message: message.trim(),
+        timestamp: new Date().toISOString(),
+      };
+
+      // Enviar a Firebase RTDB
+      await push(chatRef, messageData);
+
+      console.log('💬 Mensaje enviado:', messageData);
+    } catch (error) {
+      console.error('❌ Error enviando mensaje:', error);
+    }
   };
 
   const sendTypingIndicator = () => {
-    if (!socketRef.current) return;
-
-    socketRef.current.emit('chat:typing', {
-      rideId,
-      userId,
-      userName,
-    });
+    // Para Firebase RTDB, podríamos implementar typing indicators
+    // pero por simplicidad, lo dejamos como está por ahora
+    console.log('👆 Typing indicator (no implementado en Firebase)');
   };
 
   return {

@@ -4,6 +4,8 @@ import { NavigationContainer } from '@react-navigation/native';
 import { StripeProvider } from '@stripe/stripe-react-native';
 import { AuthProvider } from './src/context/AuthContext';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
+import { FCMProvider } from './src/context/FCMContext';
+import { usePresence } from './src/hooks/usePresence';
 import AppNavigator from './src/navigation/AppNavigator';
 
 // Stripe Publishable Key (desde .env)
@@ -11,6 +13,9 @@ const STRIPE_PUBLISHABLE_KEY = process.env.STRIPE_PUBLIC_KEY || 'pk_test_51SEkQK
 
 function AppContent() {
   const { isDark } = useTheme();
+  
+  // Activar sistema de presencia automáticamente
+  usePresence();
   
   return (
     <NavigationContainer>
@@ -29,7 +34,9 @@ export default function App() {
         urlScheme="driveangel"
       >
         <AuthProvider>
-          <AppContent />
+          <FCMProvider>
+            <AppContent />
+          </FCMProvider>
         </AuthProvider>
       </StripeProvider>
     </ThemeProvider>

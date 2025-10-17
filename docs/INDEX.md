@@ -1,5 +1,9 @@
 # 📚 ÍNDICE GENERAL DE DOCUMENTACIÓN - DriveAngel
 
+**Última actualización:** 2025-10-16  
+**Total de documentos:** 140+ archivos organizados  
+**Estado:** ✅ Completamente organizado y actualizado
+
 ## 🗂️ ESTRUCTURA DE DOCUMENTACIÓN:
 
 ```
@@ -7,22 +11,28 @@ docs/
 ├── INDEX.md (este archivo)
 ├── README.md (guía principal)
 │
-├── session-2025-10-09/ .......... Sesión más reciente
+├── session-2025-10-09/ .......... Sesión 2025-10-09
 │   ├── registro/
 │   ├── mapas/
 │   └── fixes/
 │
-├── backend/ ..................... Documentación de Backend
-├── frontend/ .................... Documentación de Frontend
-├── firebase/ .................... Configuración Firebase
-├── stripe/ ...................... Integración de Pagos
-├── database/ .................... Schemas y BD
-├── deployment/ .................. Guías de Deploy
-├── migration/ ................... Migración de servicios
-├── config/ ...................... Configuración y .env
-├── cloudinary/ .................. Almacenamiento de imágenes
-├── quickstart/ .................. Guías de inicio rápido
-└── general/ ..................... Documentación general
+├── backend/ ..................... Documentación de Backend (7 archivos)
+├── frontend/ .................... Documentación de Frontend (30+ archivos)
+│   └── dark-mode/ ............... Dark Mode (12 archivos)
+├── firebase/ .................... Configuración Firebase (9 archivos)
+├── stripe/ ...................... Integración de Pagos (30 archivos)
+├── database/ .................... Schemas y BD (4 archivos)
+├── deployment/ .................. Guías de Deploy (7 archivos)
+├── migration/ ................... Migración de servicios (4 archivos)
+├── config/ ...................... Configuración y .env (10 archivos)
+├── cloudinary/ .................. Almacenamiento de imágenes (2 archivos)
+├── quickstart/ .................. Guías de inicio rápido (4 archivos)
+└── general/ ..................... Documentación general (50+ archivos)
+    ├── features/ ................ Features implementados (25 archivos)
+    ├── fixes/ ................... Fixes y correcciones (15 archivos)
+    ├── testing/ ................. Testing y QA (6 archivos)
+    ├── infrastructure/ .......... Infraestructura (2 archivos)
+    └── sessions/ ................ Resúmenes de sesiones (9 archivos)
 ```
 
 ---
@@ -177,48 +187,52 @@ docs/
 ## 📊 ESTADÍSTICAS DE DOCUMENTACIÓN:
 
 ```
-📁 Total de carpetas: 12
-📄 Total de archivos: 70+ documentos
-📝 Última actualización: 2025-10-09
+📁 Total de carpetas: 18
+📄 Total de archivos: 140+ documentos
+📝 Última actualización: 2025-10-16
 ✅ Estado: Completamente organizado
 ```
 
 ### **Distribución por Categoría:**
-- 🔥 Firebase: 7 documentos
-- 💳 Stripe: 3 documentos
-- 🔧 Backend: 3+ documentos
-- 💻 Frontend: 14+ documentos
-- 🗄️ Database: 1+ documentos
-- 🚀 Deployment: 4 documentos
-- 🔄 Migration: 3 documentos
-- ⚙️ Config: 3 documentos
+- 🔥 Firebase: 9 documentos
+- 💳 Stripe/Pagos: 30 documentos
+- 🔧 Backend: 7 documentos
+- 💻 Frontend: 30+ documentos
+  - 🌙 Dark Mode: 12 documentos
+- 🗄️ Database: 4 documentos
+- 🚀 Deployment: 7 documentos
+- 🔄 Migration: 4 documentos
+- ⚙️ Config: 10 documentos
 - 🖼️ Cloudinary: 2 documentos
 - ⚡ Quickstart: 4 documentos
-- 📖 General: 19+ documentos
+- 📖 General: 50+ documentos
+  - ✨ Features: 25 documentos
+  - 🔧 Fixes: 15 documentos
+  - 🧪 Testing: 6 documentos
+  - 🏗️ Infrastructure: 2 documentos
+  - 📅 Sessions: 9 documentos
 - 🎯 Sesión 2025-10-09: 13 documentos
 
 ---
 
 ## 🔄 ÚLTIMA ACTUALIZACIÓN:
 
-**Fecha:** 2025-10-09  
-**Acción:** Organización completa de documentación  
-**Archivos organizados:** 24+ archivos movidos  
-**Carpetas creadas:** 6 nuevas categorías  
+**Fecha:** 2025-10-16  
+**Acción:** Reorganización masiva de documentación  
+**Archivos organizados:** 140+ archivos movidos y categorizados  
+**Carpetas creadas:** 5 nuevas subcategorías (features, fixes, testing, infrastructure, sessions)  
 **Estado:** ✅ Completado
 
----
-
-## 📝 CONVENCIONES:
-
-### **Nomenclatura de Archivos:**
-- `FEATURE_NAME.md` - Documentación de features
-- `FIX_NAME.md` - Documentación de fixes
-- `GUIDE_NAME.md` - Guías paso a paso
-- `SETUP.md` - Guías de configuración
-- `README.md` - Índices de carpetas
-
-### **Estructura de Carpetas:**
+### **Cambios principales:**
+- ✅ Todos los archivos MD de la raíz movidos a `docs/`
+- ✅ Creada subcarpeta `frontend/dark-mode/` con 12 documentos
+- ✅ Creada subcarpeta `general/features/` con 25 documentos
+- ✅ Creada subcarpeta `general/fixes/` con 15 documentos
+- ✅ Creada subcarpeta `general/testing/` con 6 documentos
+- ✅ Creada subcarpeta `general/infrastructure/` con 2 documentos
+- ✅ Creada subcarpeta `general/sessions/` con 9 documentos
+- ✅ 30 documentos de pagos organizados en `stripe/`
+- ✅ Índice actualizado con nueva estructura
 ```
 docs/
 ├── categoria/

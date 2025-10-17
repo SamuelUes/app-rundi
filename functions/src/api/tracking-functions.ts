@@ -79,19 +79,15 @@ export const getETA = functions.https.onCall(async (data, context) => {
     // Calcular ETA en minutos
     const etaMinutes = Math.round((distanceRemaining / avgSpeed) * 60);
 
-    // Calcular hora de llegada
+    // Calcular hora de llegada (enviar timestamp ISO para que el frontend lo formatee)
     const arrivalTime = new Date();
     arrivalTime.setMinutes(arrivalTime.getMinutes() + etaMinutes);
-    const etaTime = arrivalTime.toLocaleTimeString('es-NI', {
-      hour: '2-digit',
-      minute: '2-digit',
-    });
 
     return {
       success: true,
       data: {
         etaMinutes,
-        etaTime,
+        etaTimestamp: arrivalTime.toISOString(), // Enviar timestamp ISO
         distanceRemaining: Math.round(distanceRemaining * 1000) / 1000, // Redondear a 3 decimales
         avgSpeed: Math.round(avgSpeed * 10) / 10, // Velocidad promedio
       },
@@ -158,8 +154,8 @@ export const saveLocation = functions.https.onCall(async (data, context) => {
     // Guardar ubicación
     const locationResult = await client.query(
       `INSERT INTO ride_locations 
-       (ride_id, latitude, longitude, speed, heading, accuracy, timestamp)
-       VALUES ($1, $2, $3, $4, $5, $6, NOW())
+       (id, ride_id, lat, lng, speed, heading, accuracy, timestamp)
+       VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, NOW())
        RETURNING *`,
       [rideId, latitude, longitude, speed || null, heading || null, accuracy || null]
     );

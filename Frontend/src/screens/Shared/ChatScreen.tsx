@@ -9,14 +9,18 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  Linking,
+  Alert,
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
+import { SkeletonLoader } from '../../components/SkeletonLoader';
+import { EmptyState } from '../../components/EmptyState';
 import { useAuth } from '../../context/AuthContext';
 import { useChat } from '../../hooks/useChat';
 import ChatBubble from '../../components/ChatBubble';
 
 export default function ChatScreen({ route }: any) {
-  const { rideId, otherUserName } = route.params;
+  const { rideId, otherUserName, otherUserPhone } = route.params;
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { user } = useAuth();
@@ -74,22 +78,67 @@ export default function ChatScreen({ route }: any) {
     }
   };
 
+  const handleCall = () => {
+    if (!otherUserPhone) {
+      Alert.alert('Error', 'Número de teléfono no disponible');
+      return;
+    }
+
+    Alert.alert(
+      '📞 Llamar',
+      `¿Deseas llamar a ${otherUserName}?\n${otherUserPhone}`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Llamar',
+          onPress: async () => {
+            try {
+              const phoneUrl = `tel:${otherUserPhone}`;
+              const canOpen = await Linking.canOpenURL(phoneUrl);
+              
+              if (canOpen) {
+                await Linking.openURL(phoneUrl);
+              } else {
+                Alert.alert('Error', 'No se puede realizar la llamada en este dispositivo');
+              }
+            } catch (error) {
+              console.error('Error al intentar llamar:', error);
+              Alert.alert('Error', 'No se pudo realizar la llamada');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
     >
-      {/* Header con estado de conexión */}
+      {/* Header con estado de conexión y botón de llamada */}
       <View style={styles.header}>
         <View style={styles.headerInfo}>
-          <Text style={styles.headerTitle}>{otherUserName}</Text>
-          <View style={styles.statusContainer}>
-            <View style={[styles.statusDot, connected ? styles.statusConnected : styles.statusDisconnected]} />
-            <Text style={styles.statusText}>
-              {connected ? 'En línea' : 'Desconectado'}
-            </Text>
+          <View>
+            <Text style={styles.headerTitle}>{otherUserName}</Text>
+            <View style={styles.statusContainer}>
+              <View style={[styles.statusDot, connected ? styles.statusConnected : styles.statusDisconnected]} />
+              <Text style={styles.statusText}>
+                {connected ? 'En línea' : 'Desconectado'}
+              </Text>
+            </View>
           </View>
+          
+          {/* Botón de llamada */}
+          {otherUserPhone && (
+            <TouchableOpacity
+              style={styles.callButton}
+              onPress={handleCall}
+            >
+              <Text style={styles.callButtonText}>📞</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
 
@@ -201,6 +250,22 @@ const createStyles = (colors: any) => StyleSheet.create({
   statusText: {
     fontSize: 12,
     color: colors.textSecondary,
+  },
+  callButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#4CAF50',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  callButtonText: {
+    fontSize: 24,
   },
   messagesList: {
     paddingVertical: 16,

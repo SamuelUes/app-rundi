@@ -3,7 +3,7 @@
  * SIN WebSocket - Usa listeners nativos de Firebase
  */
 
-import { database } from '../config/firebase';
+import { getFirebaseDatabase } from '../config/firebase';
 import { ref, set, onValue, off, update, remove } from 'firebase/database';
 
 interface DriverLocation {
@@ -21,6 +21,11 @@ interface RideTracking {
   status: 'waiting' | 'in_progress' | 'completed' | 'cancelled';
   driverLocation?: DriverLocation;
   lastUpdate: number;
+  destination?: {
+    lat: number;
+    lng: number;
+    address: string;
+  };
 }
 
 class FirebaseTrackingService {
@@ -39,6 +44,7 @@ class FirebaseTrackingService {
     }
   ): Promise<void> {
     try {
+      const database = await getFirebaseDatabase();
       const locationRef = ref(database, `driverLocations/${driverId}`);
       
       await set(locationRef, {
@@ -65,6 +71,7 @@ class FirebaseTrackingService {
     data: Partial<RideTracking>
   ): Promise<void> {
     try {
+      const database = await getFirebaseDatabase();
       const rideRef = ref(database, `activeRides/${rideId}`);
       
       await update(rideRef, {
@@ -82,10 +89,11 @@ class FirebaseTrackingService {
   /**
    * Escuchar ubicación del conductor en tiempo real
    */
-  subscribeToDriverLocation(
+  async subscribeToDriverLocation(
     driverId: string,
     callback: (location: DriverLocation | null) => void
-  ): () => void {
+  ): Promise<() => void> {
+    const database = await getFirebaseDatabase();
     const locationRef = ref(database, `driverLocations/${driverId}`);
     
     const unsubscribe = onValue(
@@ -125,10 +133,11 @@ class FirebaseTrackingService {
   /**
    * Escuchar tracking del viaje en tiempo real
    */
-  subscribeToRideTracking(
+  async subscribeToRideTracking(
     rideId: string,
     callback: (tracking: RideTracking | null) => void
-  ): () => void {
+  ): Promise<() => void> {
+    const database = await getFirebaseDatabase();
     const rideRef = ref(database, `activeRides/${rideId}`);
     
     const unsubscribe = onValue(
@@ -168,6 +177,7 @@ class FirebaseTrackingService {
     clientId: string
   ): Promise<void> {
     try {
+      const database = await getFirebaseDatabase();
       const rideRef = ref(database, `activeRides/${rideId}`);
       
       await set(rideRef, {
@@ -190,6 +200,7 @@ class FirebaseTrackingService {
    */
   async stopRideTracking(rideId: string): Promise<void> {
     try {
+      const database = await getFirebaseDatabase();
       const rideRef = ref(database, `activeRides/${rideId}`);
       await remove(rideRef);
       

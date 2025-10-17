@@ -109,9 +109,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace 'com.yourapp.appuber'
+    namespace 'com.driveangel.app'
     defaultConfig {
-        applicationId 'com.yourapp.appuber'
+        applicationId 'com.driveangel.app'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

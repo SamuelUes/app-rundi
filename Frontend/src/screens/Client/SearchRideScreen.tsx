@@ -12,7 +12,9 @@ import {
   Platform,
   Switch,
   Modal,
+  Image,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import DynamicMap from '../../components/DynamicMap';
 import { useLocation } from '../../hooks/useLocation';
 import { useAuth } from '../../context/AuthContext';
@@ -21,6 +23,9 @@ import ridesService, { Driver } from '../../services/ridesService';
 import mapsService from '../../services/mapsService';
 import driversService from '../../services/driversService';
 import Button from '../../components/Button';
+import { SkeletonLoader } from '../../components/SkeletonLoader';
+import { NoDriversEmptyState, NoSearchResultsEmptyState } from '../../components/EmptyState';
+import { AnimatedButton } from '../../components/AnimatedButton';
 
 export default function SearchRideScreen({ navigation }: any) {
   const { user } = useAuth();
@@ -32,9 +37,18 @@ export default function SearchRideScreen({ navigation }: any) {
   const [destination, setDestination] = useState('');
   const [originCoords, setOriginCoords] = useState<{latitude: number; longitude: number} | null>(null);
   const [destinationCoords, setDestinationCoords] = useState<{latitude: number; longitude: number} | null>(null);
+  const [usingManualLocation, setUsingManualLocation] = useState(false);
   
-  // Tipo de viaje
-  const [isDesignatedDriver, setIsDesignatedDriver] = useState(false);
+  // Múltiples destinos
+  const [extraDestinations, setExtraDestinations] = useState<Array<{address: string; coords: {latitude: number; longitude: number} | null}>>([]);
+  
+  // Cantidad de pasajeros
+  const [passengers, setPassengers] = useState(1);
+  
+  // Tipo de vehículo
+  const [vehicleType, setVehicleType] = useState<'moto' | 'auto' | 'designated_driver'>('auto');
+  const [clientVehiclePhoto, setClientVehiclePhoto] = useState<string | null>(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   
   // Autocompletado
   const [suggestions, setSuggestions] = useState<any[]>([]);
@@ -57,54 +71,111 @@ export default function SearchRideScreen({ navigation }: any) {
   const [calculatingRoute, setCalculatingRoute] = useState(false);
   const [routeCoordinates, setRouteCoordinates] = useState<any[]>([]);
   
+  // Negociación de precio
+  const [suggestedPrice, setSuggestedPrice] = useState('');
+  const [showPriceInput, setShowPriceInput] = useState(false);
+  
   // Modo selección en mapa
   const [isSelectingOnMap, setIsSelectingOnMap] = useState(false);
-  const [selectingType, setSelectingType] = useState<'origin' | 'destination'>('destination'); // Nuevo: qué estamos seleccionando
+  const [selectingType, setSelectingType] = useState<'origin' | 'destination' | 'extra' | null>('destination'); // Nuevo: qué estamos seleccionando
+  const [currentExtraDestIndex, setCurrentExtraDestIndex] = useState<number>(0); // Índice de la parada extra que se está editando
   const [selectedMapLocation, setSelectedMapLocation] = useState<{latitude: number; longitude: number} | null>(null);
   const [previewRoute, setPreviewRoute] = useState<any[]>([]);
   const [showRouteConfirmation, setShowRouteConfirmation] = useState(false);
+
+  // Método de pago seleccionado ('cash' o 'stripe' por defecto, puede cambiar después a banco local)
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'stripe' | 'card'>('cash');
 
   // Consultar proveedor de mapas al backend
   useEffect(() => {
     mapsService.fetchProviderFromBackend();
   }, []);
 
-  // Verificar conductores disponibles al abrir la pantalla
+  // Verificar conductores disponibles al abrir la pantalla o cambiar tipo de vehículo
   useEffect(() => {
     if (coords) {
       checkDriverAvailability();
     }
-  }, [coords]);
+  }, [coords, vehicleType]);
+
+  // Resetear pasajeros cuando se cambia a moto
+  useEffect(() => {
+    if (vehicleType === 'moto' && passengers > 1) {
+      setPassengers(1);
+      Alert.alert(
+        '🏍️ Moto seleccionada',
+        'Las motos solo pueden llevar 1 pasajero. Se ha ajustado automáticamente.',
+        [{ text: 'Entendido' }]
+      );
+    }
+  }, [vehicleType]);
 
   const checkDriverAvailability = async () => {
     if (!coords) return;
 
     setCheckingDrivers(true);
     try {
-      const result = await driversService.checkAvailableDrivers(coords, 10);
+      console.log(`🔍 Verificando disponibilidad con tipo: "${vehicleType}"`);
+      const result = await driversService.checkAvailableDrivers(coords, 15, vehicleType);
+      console.log(`📊 Resultado completo:`, result);
       setDriversAvailable(result.available);
-      console.log(`ℹ️ Conductores disponibles: ${result.count}`);
+      console.log(`ℹ️ Conductores con vehículo tipo "${vehicleType}" disponibles: ${result.count}`);
     } catch (error) {
-      console.error('Error verificando conductores:', error);
+      console.error('❌ Error verificando conductores:', error);
       setDriversAvailable(null);
     } finally {
       setCheckingDrivers(false);
     }
   };
 
-  // Obtener dirección del origen al cargar
+  // Obtener dirección del origen al cargar (priorizar ubicación manual)
   useEffect(() => {
-    if (coords) {
+    if (coords && user) {
       loadOriginAddress();
     }
-  }, [coords]);
+  }, [coords, user]);
 
   const loadOriginAddress = async () => {
-    if (!coords) return;
+    if (!coords || !user) return;
+    
+    try {
+      // Primero, intentar obtener ubicación manual de Firebase
+      const { getDatabase, ref, get } = await import('firebase/database');
+      const db = getDatabase();
+      const clientLocationRef = ref(db, `clientLocations/${user.id}`);
+      const snapshot = await get(clientLocationRef);
+      
+      if (snapshot.exists()) {
+        const manualLocation = snapshot.val();
+        // Verificar que la ubicación manual es reciente (menos de 1 hora)
+        const isRecent = (Date.now() - manualLocation.timestamp) < 3600000; // 1 hora
+        
+        if (manualLocation.isManual && isRecent) {
+          console.log('📍 Usando ubicación manual guardada');
+          const manualCoords = {
+            latitude: manualLocation.latitude,
+            longitude: manualLocation.longitude
+          };
+          const address = await mapsService.reverseGeocode(manualCoords);
+          if (address) {
+            setOrigin(address + ' 📍');
+            setOriginCoords(manualCoords);
+            setUsingManualLocation(true);
+            return;
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error obteniendo ubicación manual:', error);
+    }
+    
+    // Si no hay ubicación manual o hubo error, usar GPS
+    console.log('📡 Usando ubicación GPS');
     const address = await mapsService.reverseGeocode(coords);
     if (address) {
       setOrigin(address);
-      setOriginCoords(coords); // Guardar coordenadas del origen
+      setOriginCoords(coords);
+      setUsingManualLocation(false);
     }
   };
 
@@ -161,7 +232,7 @@ export default function SearchRideScreen({ navigation }: any) {
     
     setDestinationCoords(placeCoords);
     
-    // Calcular ruta real con TomTom Routing API
+    // Calcular ruta real con MapBox Routing API
     const startPoint = originCoords || coords;
     if (startPoint) {
       await calculateRealRoute(startPoint, placeCoords);
@@ -173,6 +244,68 @@ export default function SearchRideScreen({ navigation }: any) {
     }, 500);
   };
 
+  // Función para calcular ruta entre dos puntos
+  const calculateRealRoute = async (
+    start: { latitude: number; longitude: number },
+    end: { latitude: number; longitude: number }
+  ) => {
+    try {
+      setCalculatingRoute(true);
+      console.log('🛣️ Calculando ruta desde:', start, 'hasta:', end);
+      
+      const route = await mapsService.getDirections(start, end);
+      
+      if (route) {
+        console.log('✅ Ruta calculada:', {
+          distance: route.distance,
+          duration: route.duration,
+          points: route.polyline.length
+        });
+        
+        // Guardar la ruta para preview
+        setPreviewRoute(route.polyline);
+        setRouteCoordinates(route.polyline);
+        
+        // Calcular estimaciones
+        const distanceKm = route.distance / 1000;
+        const durationMin = route.duration / 60;
+        
+        setEstimatedDistance(parseFloat(distanceKm.toFixed(2)));
+        setEstimatedDuration(parseFloat(durationMin.toFixed(0)));
+        
+        // Calcular precio usando el backend
+        try {
+          const isDD = vehicleType === 'designated_driver';
+          console.log('💰 Solicitando precio al backend:', {
+            distance: route.distance,
+            extraStops: extraDestinations.length,
+            isDD
+          });
+          
+          const priceResult = await ridesService.calculatePrice(route.distance, extraDestinations.length, isDD);
+          setEstimatedPrice(priceResult.price);
+          console.log('✅ Precio calculado por backend:', priceResult.price, priceResult.breakdown);
+        } catch (priceError) {
+          console.error('⚠️ Backend no disponible para calcular precio, usando fallback local:', priceError);
+          // Calcular precio localmente como fallback
+          const basePrice = distanceKm * 35; // C$35 por km (tarifa promedio)
+          const extraStopsCharge = extraDestinations.length * 20;
+          const finalPrice = Math.max(50, Math.round(basePrice + extraStopsCharge));
+          setEstimatedPrice(finalPrice);
+          console.log('✅ Precio calculado localmente (fallback):', finalPrice);
+        }
+      } else {
+        console.error('❌ No se obtuvo ruta del servicio de mapas');
+        Alert.alert('Error', 'No se pudo calcular la ruta. Verifica las ubicaciones.');
+      }
+    } catch (error) {
+      console.error('❌ Error en calculateRealRoute:', error);
+      Alert.alert('Error', 'No se pudo calcular la ruta. Intenta de nuevo.');
+    } finally {
+      setCalculatingRoute(false);
+    }
+  };
+
   const handleMapPress = async (latitude: number, longitude: number) => {
     setSelectedMapLocation({ latitude, longitude });
     
@@ -182,120 +315,110 @@ export default function SearchRideScreen({ navigation }: any) {
       return;
     }
     
+    // Si estamos seleccionando parada extra, no calcular ruta completa
+    if (selectingType === 'extra') {
+      setShowRouteConfirmation(true);
+      return;
+    }
+    
     // Si estamos seleccionando destino, calcular ruta desde el origen
     const startPoint = originCoords || coords;
     if (startPoint) {
-      setCalculatingRoute(true);
-      const route = await mapsService.getDirections(startPoint, { latitude, longitude });
-      
-      if (route) {
-        // Guardar la ruta para preview
-        setPreviewRoute(route.polyline);
-        
-        // Calcular estimaciones
-        const distanceKm = route.distance / 1000;
-        const durationMin = route.duration / 60;
-        const price = mapsService.calculateEstimatedPrice(route.distance, route.duration);
-        
-        setEstimatedDistance(parseFloat(distanceKm.toFixed(2)));
-        setEstimatedDuration(parseFloat(durationMin.toFixed(0)));
-        setEstimatedPrice(parseFloat(price.toFixed(2)));
-        
-        // Mostrar confirmación
-        setShowRouteConfirmation(true);
-      }
-      setCalculatingRoute(false);
+      await calculateRealRoute(startPoint, { latitude, longitude });
+      setShowRouteConfirmation(true);
     }
   };
 
   const confirmRoute = async () => {
     if (!selectedMapLocation) return;
     
-    const { latitude, longitude } = selectedMapLocation;
+    // Obtener dirección del punto seleccionado
+    const address = await mapsService.reverseGeocode(selectedMapLocation);
     
-    // Obtener dirección usando Reverse Geocoding
-    const address = await mapsService.reverseGeocode({ latitude, longitude });
-    console.log('📍 Address from map:', address);
-    
-    if (address) {
-      isSelectingSuggestionRef.current = true;
-      
-      if (selectingType === 'origin') {
-        // Actualizar origen
-        setOrigin(address);
-        setOriginCoords({ latitude, longitude });
-        
-        // Si ya hay destino, recalcular ruta
-        if (destinationCoords) {
-          await calculateRealRoute({ latitude, longitude }, destinationCoords);
-        }
-      } else {
-        // Actualizar destino
-        setDestination(address);
-        setDestinationCoords({ latitude, longitude });
-        setRouteCoordinates(previewRoute);
-      }
-      
-      setShowSuggestions(false);
-      setSuggestions([]);
-      
-      // Cerrar modal y limpiar preview
-      setIsSelectingOnMap(false);
-      setShowRouteConfirmation(false);
-      setPreviewRoute([]);
-      setSelectedMapLocation(null);
-      
-      setTimeout(() => {
-        isSelectingSuggestionRef.current = false;
-      }, 1000);
+    if (selectingType === 'origin') {
+      setOrigin(address || 'Ubicación seleccionada');
+      setOriginCoords(selectedMapLocation);
+    } else if (selectingType === 'extra') {
+      // Actualizar parada extra
+      const newDests = [...extraDestinations];
+      newDests[currentExtraDestIndex] = {
+        address: address || 'Parada seleccionada',
+        coords: selectedMapLocation
+      };
+      setExtraDestinations(newDests);
+    } else {
+      setDestination(address || 'Destino seleccionado');
+      setDestinationCoords(selectedMapLocation);
     }
+    
+    // Limpiar sugerencias
+    setShowSuggestions(false);
+    setSuggestions([]);
+    
+    setIsSelectingOnMap(false);
+    setShowRouteConfirmation(false);
+    setSelectingType(null);
   };
 
   const cancelRouteSelection = () => {
     setShowRouteConfirmation(false);
     setPreviewRoute([]);
+    setRouteCoordinates([]);
     setSelectedMapLocation(null);
-    setEstimatedPrice(0);
     setEstimatedDistance(0);
     setEstimatedDuration(0);
+    setEstimatedPrice(0);
   };
 
-  const calculateRealRoute = async (origin: any, destination: any) => {
+  const handleTakeVehiclePhoto = async () => {
     try {
-      setCalculatingRoute(true);
-      
-      const route = await mapsService.getDirections(origin, destination);
-      
-      if (route) {
-        // Distancia en km
-        const distanceKm = route.distance / 1000;
-        setEstimatedDistance(parseFloat(distanceKm.toFixed(2)));
-        
-        // Duración en minutos
-        const durationMin = route.duration / 60;
-        setEstimatedDuration(parseFloat(durationMin.toFixed(0)));
-        
-        // Precio basado en distancia y duración REALES
-        const price = mapsService.calculateEstimatedPrice(
-          route.distance,
-          route.duration
-        );
-        setEstimatedPrice(parseFloat(price.toFixed(2)));
-        
-        // Polyline ya viene como array de coordenadas
-        setRouteCoordinates(route.polyline);
-        
-        console.log('✅ Ruta calculada:', {
-          distancia: distanceKm.toFixed(2) + ' km',
-          duración: durationMin.toFixed(0) + ' min',
-          precio: 'C$' + price.toFixed(2)
-        });
+      // Solicitar permisos
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permisos necesarios', 'Necesitamos acceso a tu cámara para tomar la foto del vehículo');
+        return;
       }
+
+      Alert.alert(
+        'Foto del Vehículo',
+        'Selecciona una opción',
+        [
+          {
+            text: '📷 Tomar Foto',
+            onPress: async () => {
+              const result = await ImagePicker.launchCameraAsync({
+                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                allowsEditing: true,
+                aspect: [4, 3],
+                quality: 0.8,
+              });
+
+              if (!result.canceled && result.assets[0]) {
+                setClientVehiclePhoto(result.assets[0].uri);
+              }
+            },
+          },
+          {
+            text: '🖼️ Galería',
+            onPress: async () => {
+              const result = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                allowsEditing: true,
+                aspect: [4, 3],
+                quality: 0.8,
+              });
+
+              if (!result.canceled && result.assets[0]) {
+                setClientVehiclePhoto(result.assets[0].uri);
+              }
+            },
+          },
+          { text: 'Cancelar', style: 'cancel' },
+        ]
+      );
     } catch (error) {
-      console.error('Error calculating route:', error);
-      Alert.alert('Error', 'No se pudo calcular la ruta');
-    } finally {
-      setCalculatingRoute(false);
+      console.error('Error al tomar foto:', error);
+      Alert.alert('Error', 'No se pudo tomar la foto');
     }
   };
 
@@ -322,20 +445,39 @@ export default function SearchRideScreen({ navigation }: any) {
 
       // Verificar conductores disponibles antes de solicitar
       console.log('🔍 Verificando conductores disponibles...');
-      const availabilityCheck = await driversService.checkAvailableDrivers(startPoint, 10);
+      const availabilityCheck = await driversService.checkAvailableDrivers(startPoint, 15, vehicleType);
       
       if (!availabilityCheck.available || availabilityCheck.count === 0) {
         Alert.alert(
           'Sin conductores',
-          'No hay conductores disponibles en este momento. Por favor, intenta más tarde.'
+          `No hay conductores con vehículo tipo "${vehicleType === 'moto' ? 'Moto' : vehicleType === 'auto' ? 'Auto' : 'Conductor Designado'}" disponibles en este momento. Por favor, intenta más tarde o selecciona otro tipo de vehículo.`
         );
         setRequestingRide(false);
         return;
       }
 
-      console.log(`✅ ${availabilityCheck.count} conductor(es) disponible(s)`);
+      console.log(`✅ ${availabilityCheck.count} conductor(es) con vehículo tipo "${vehicleType}" disponible(s)`);
+
+      // Validar precio sugerido si existe
+      let clientSuggestedPrice = undefined;
+      if (suggestedPrice && suggestedPrice.trim() !== '') {
+        const priceValue = parseFloat(suggestedPrice);
+        if (priceValue < 50) {
+          Alert.alert('Error', 'El precio sugerido debe ser mínimo C$50');
+          setRequestingRide(false);
+          return;
+        }
+        clientSuggestedPrice = priceValue;
+        console.log('💰 Cliente sugiere precio:', clientSuggestedPrice);
+      }
 
       // Solicitar viaje directamente (sin buscar conductores primero)
+      console.log('📤 Enviando solicitud con:', {
+        estimatedPrice,
+        clientSuggestedPrice,
+        hasClientSuggestion: !!clientSuggestedPrice
+      });
+      
       const ride = await ridesService.requestRide({
         clientId: user.id,
         origin: {
@@ -351,8 +493,18 @@ export default function SearchRideScreen({ navigation }: any) {
         estimatedDistance: Math.round(estimatedDistance * 1000), // Convertir a metros
         estimatedDuration: Math.round(estimatedDuration * 60), // Convertir a segundos
         estimatedPrice: estimatedPrice,
-        rideType: isDesignatedDriver ? 'designated_driver' : 'normal',
-        notes: isDesignatedDriver ? '🚗 Conductor Designado' : undefined,
+        clientSuggestedPrice: clientSuggestedPrice, // Precio sugerido por el cliente
+        rideType: vehicleType === 'designated_driver' ? 'designated_driver' : 'normal',
+        vehicleType: vehicleType,
+        clientVehiclePhoto: vehicleType === 'designated_driver' ? (clientVehiclePhoto || undefined) : undefined,
+        passengers: passengers,
+        extraDestinations: extraDestinations.map(dest => ({
+          lat: dest.coords?.latitude || 0,
+          lng: dest.coords?.longitude || 0,
+          address: dest.address,
+        })),
+        notes: vehicleType === 'designated_driver' ? '🚗 Conductor Designado' : undefined,
+        paymentMethod: paymentMethod, // Agregar método de pago
       });
 
       console.log('✅ Viaje solicitado:', ride.id);
@@ -401,8 +553,17 @@ export default function SearchRideScreen({ navigation }: any) {
         estimatedDistance: Math.round(estimatedDistance * 1000), // Convertir a metros
         estimatedDuration: Math.round(estimatedDuration * 60), // Convertir a segundos
         estimatedPrice: estimatedPrice,
-        rideType: isDesignatedDriver ? 'designated_driver' : 'normal',
-        notes: isDesignatedDriver ? '🚗 Conductor Designado' : undefined,
+        rideType: vehicleType === 'designated_driver' ? 'designated_driver' : 'normal',
+        vehicleType: vehicleType,
+        clientVehiclePhoto: vehicleType === 'designated_driver' ? (clientVehiclePhoto || undefined) : undefined,
+        passengers: passengers,
+        extraDestinations: extraDestinations.map(dest => ({
+          lat: dest.coords?.latitude || 0,
+          lng: dest.coords?.longitude || 0,
+          address: dest.address,
+        })),
+        notes: vehicleType === 'designated_driver' ? '🚗 Conductor Designado' : undefined,
+        paymentMethod: paymentMethod, // Agregar método de pago
       });
 
       // Navegar a la pantalla de confirmación
@@ -430,15 +591,20 @@ export default function SearchRideScreen({ navigation }: any) {
   return (
     <View style={styles.container}>
       {/* Mapa pequeño - Solo mostrar si NO hay destino seleccionado */}
-      {!destinationCoords && (
+      {!destinationCoords && originCoords && (
         <View style={styles.mapContainer}>
           <DynamicMap
-            latitude={coords.latitude}
-            longitude={coords.longitude}
+            latitude={originCoords.latitude}
+            longitude={originCoords.longitude}
             style={styles.map}
             showMarker={true}
-            markerPosition={{ latitude: coords.latitude, longitude: coords.longitude }}
+            markerPosition={{ latitude: originCoords.latitude, longitude: originCoords.longitude }}
             markerType="origin"
+            onMapPress={(event) => {
+              // Al tocar el mapa pequeño, abrir el mapa completo para seleccionar origen
+              setSelectingType('origin');
+              setIsSelectingOnMap(true);
+            }}
           />
         </View>
       )}
@@ -456,18 +622,43 @@ export default function SearchRideScreen({ navigation }: any) {
               {showRouteConfirmation 
                 ? '🛣️ ¿Confirmar ubicación?' 
                 : selectingType === 'origin'
-                  ? '🔵 Toca el mapa para seleccionar origen'
+                  ? '🔵 Selecciona tu punto de origen'
                   : '🔴 Toca el mapa para seleccionar destino'}
             </Text>
-            <TouchableOpacity 
-              style={styles.closeMapButton}
-              onPress={() => {
-                setIsSelectingOnMap(false);
-                cancelRouteSelection();
-              }}
-            >
-              <Text style={styles.closeMapButtonText}>✕</Text>
-            </TouchableOpacity>
+            <View style={styles.fullMapHeaderButtons}>
+              {/* Botón recargar ubicación */}
+              {!showRouteConfirmation && (
+                <TouchableOpacity 
+                  style={styles.reloadLocationButton}
+                  onPress={() => {
+                    if (coords) {
+                      setSelectedMapLocation({
+                        latitude: coords.latitude,
+                        longitude: coords.longitude
+                      });
+                      Alert.alert(
+                        '📍 Ubicación Actualizada',
+                        'El mapa se ha centrado en tu ubicación actual',
+                        [{ text: 'OK' }]
+                      );
+                    }
+                  }}
+                >
+                  <Text style={styles.reloadLocationButtonText}>🔄</Text>
+                </TouchableOpacity>
+              )}
+              
+              {/* Botón cerrar */}
+              <TouchableOpacity 
+                style={styles.closeMapButton}
+                onPress={() => {
+                  setIsSelectingOnMap(false);
+                  cancelRouteSelection();
+                }}
+              >
+                <Text style={styles.closeMapButtonText}>✕</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           {/* Mapa completo */}
@@ -587,30 +778,264 @@ export default function SearchRideScreen({ navigation }: any) {
             editable={!searchingDrivers}
           />
           {loadingSuggestions && (
-            <ActivityIndicator style={styles.suggestionsLoader} size="small" color="#000" />
+            <View style={styles.suggestionsLoader}>
+              <SkeletonLoader width={200} height={16} />
+              <SkeletonLoader width={150} height={14} style={{ marginTop: 8 }} />
+            </View>
           )}
+        </View>
+
+        {/* Destinos adicionales */}
+        {extraDestinations.map((dest, index) => (
+          <View key={index} style={styles.inputContainer}>
+            <View style={styles.inputHeader}>
+              <Text style={styles.inputLabel}>🟡 Parada {index + 2}</Text>
+              <View style={styles.headerButtons}>
+                <TouchableOpacity 
+                  style={styles.mapSelectButton}
+                  onPress={() => {
+                    setSelectingType('extra');
+                    setIsSelectingOnMap(true);
+                    setCurrentExtraDestIndex(index);
+                  }}
+                  disabled={searchingDrivers}
+                >
+                  <Text style={styles.mapSelectButtonText}>📍 Seleccionar en mapa</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.removeDestButton}
+                  onPress={() => {
+                    const newDests = [...extraDestinations];
+                    newDests.splice(index, 1);
+                    setExtraDestinations(newDests);
+                  }}
+                >
+                  <Text style={styles.removeDestButtonText}>✕ Eliminar</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+            <TextInput
+              style={styles.input}
+              placeholder="Dirección de parada..."
+              value={dest.address}
+              onChangeText={(text) => {
+                const newDests = [...extraDestinations];
+                newDests[index].address = text;
+                setExtraDestinations(newDests);
+              }}
+              editable={!searchingDrivers}
+            />
+          </View>
+        ))}
+
+        {/* Botón agregar destino */}
+        {extraDestinations.length < 3 && (
+          <TouchableOpacity
+            style={styles.addDestButton}
+            onPress={() => setExtraDestinations([...extraDestinations, {address: '', coords: null}])}
+            disabled={searchingDrivers}
+          >
+            <Text style={styles.addDestButtonText}>➕ Agregar parada adicional</Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Selector de pasajeros */}
+        <View style={styles.passengersContainer}>
+          <Text style={styles.passengersLabel}>
+            👥 Cantidad de pasajeros {vehicleType === 'moto' && '(Máx. 1 en moto)'}
+          </Text>
+          <View style={styles.passengersSelector}>
+            <TouchableOpacity
+              style={[styles.passengerButton, passengers <= 1 && styles.passengerButtonDisabled]}
+              onPress={() => setPassengers(Math.max(1, passengers - 1))}
+              disabled={passengers <= 1 || searchingDrivers}
+            >
+              <Text style={styles.passengerButtonText}>−</Text>
+            </TouchableOpacity>
+            <View style={styles.passengerCount}>
+              <Text style={styles.passengerCountText}>{passengers}</Text>
+            </View>
+            <TouchableOpacity
+              style={[
+                styles.passengerButton, 
+                (passengers >= 6 || (vehicleType === 'moto' && passengers >= 1)) && styles.passengerButtonDisabled
+              ]}
+              onPress={() => {
+                const maxPassengers = vehicleType === 'moto' ? 1 : 6;
+                setPassengers(Math.min(maxPassengers, passengers + 1));
+              }}
+              disabled={passengers >= 6 || (vehicleType === 'moto' && passengers >= 1) || searchingDrivers}
+            >
+              <Text style={styles.passengerButtonText}>+</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Selector de método de pago */}
+        <View style={styles.paymentContainer}>
+          <Text style={styles.paymentTitle}>💳 Método de Pago</Text>
+          <View style={styles.paymentButtons}>
+            <TouchableOpacity
+              style={[
+                styles.paymentButton,
+                paymentMethod === 'cash' && styles.paymentButtonActive,
+              ]}
+              onPress={() => setPaymentMethod('cash')}
+            >
+              <Text style={styles.paymentIcon}>💵</Text>
+              <Text style={[
+                styles.paymentButtonText,
+                paymentMethod === 'cash' && styles.paymentButtonTextActive,
+              ]}>Efectivo</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.paymentButton,
+                paymentMethod === 'stripe' && styles.paymentButtonActive,
+              ]}
+              onPress={() => setPaymentMethod('stripe')}
+            >
+              <Text style={styles.paymentIcon}>💳</Text>
+              <Text style={[
+                styles.paymentButtonText,
+                paymentMethod === 'stripe' && styles.paymentButtonTextActive,
+              ]}>Tarjeta</Text>
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.paymentNote}>
+            💡 Puedes cambiar a bancos locales (BAC, Banpro, etc.) después de confirmar el viaje
+          </Text>
         </View>
 
         {/* Tipo de servicio */}
         <View style={styles.serviceTypeContainer}>
-          <View style={styles.serviceTypeHeader}>
-            <View>
-              <Text style={styles.serviceTypeTitle}>
-                {isDesignatedDriver ? '🚗 Conductor Designado' : '🚕 Viaje Normal'}
-              </Text>
-              <Text style={styles.serviceTypeSubtitle}>
-                {isDesignatedDriver 
-                  ? 'Usarás tu propio vehículo, el conductor solo maneja'
-                  : 'Viaje tradicional tipo Uber'}
-              </Text>
+          <View style={styles.vehicleTypeContainer}>
+            <Text style={styles.vehicleTypeTitle}>Tipo de Vehículo</Text>
+            <View style={styles.vehicleTypeButtons}>
+              <TouchableOpacity
+                style={[
+                  styles.vehicleTypeButton,
+                  vehicleType === 'moto' && styles.vehicleTypeButtonActive,
+                ]}
+                onPress={() => setVehicleType('moto')}
+              >
+                <Text style={styles.vehicleTypeIcon}>🏍️</Text>
+                <Text style={[
+                  styles.vehicleTypeButtonText,
+                  vehicleType === 'moto' && styles.vehicleTypeButtonTextActive,
+                ]}>Moto</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.vehicleTypeButton,
+                  vehicleType === 'auto' && styles.vehicleTypeButtonActive,
+                ]}
+                onPress={() => setVehicleType('auto')}
+              >
+                <Text style={styles.vehicleTypeIcon}>🚗</Text>
+                <Text style={[
+                  styles.vehicleTypeButtonText,
+                  vehicleType === 'auto' && styles.vehicleTypeButtonTextActive,
+                ]}>Auto</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.vehicleTypeButton,
+                  vehicleType === 'designated_driver' && styles.vehicleTypeButtonActive,
+                ]}
+                onPress={() => {
+                  Alert.alert(
+                    '🚗 Conductor Designado',
+                    'Este servicio consta de solicitar 2 conductores:\n\n1️⃣ Uno que maneje tu vehículo\n2️⃣ Otro que lleve el vehículo de los conductores\n\nAsí asegurando que llegues tú, tu gente y tu vehículo, de forma seguro a tus destinos.\n\n⚠️ No disponible para viajes de Motos',
+                    [
+                      { text: 'Cancelar', style: 'cancel' },
+                      { text: 'Entendido', onPress: () => setVehicleType('designated_driver') },
+                    ]
+                  );
+                }}
+              >
+                <Text style={styles.vehicleTypeIcon}>👨‍✈️</Text>
+                <Text style={[
+                  styles.vehicleTypeButtonText,
+                  vehicleType === 'designated_driver' && styles.vehicleTypeButtonTextActive,
+                ]}>Conductor{"\n"}Designado</Text>
+              </TouchableOpacity>
             </View>
-            <Switch
-              value={isDesignatedDriver}
-              onValueChange={setIsDesignatedDriver}
-              trackColor={{ false: '#ccc', true: '#4CAF50' }}
-              thumbColor={isDesignatedDriver ? '#fff' : '#f4f3f4'}
-            />
           </View>
+
+          {/* Foto del vehículo (solo para conductor designado) */}
+          {vehicleType === 'designated_driver' && (
+            <View style={styles.vehiclePhotoContainer}>
+              <Text style={styles.vehiclePhotoTitle}>📸 Foto de tu Vehículo Sedan o 4x4</Text>
+              <Text style={styles.vehiclePhotoSubtitle}>
+                El conductor necesita ver tu vehículo para identificarlo
+              </Text>
+              
+              {clientVehiclePhoto ? (
+                <View style={styles.vehiclePhotoPreview}>
+                  <Image
+                    source={{ uri: clientVehiclePhoto }}
+                    style={styles.vehiclePhotoImage}
+                    resizeMode="cover"
+                  />
+                  <TouchableOpacity
+                    style={styles.changePhotoButton}
+                    onPress={handleTakeVehiclePhoto}
+                  >
+                    <Text style={styles.changePhotoButtonText}>Cambiar Foto</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={styles.takePhotoButton}
+                  onPress={handleTakeVehiclePhoto}
+                >
+                  <Text style={styles.takePhotoIcon}>📷</Text>
+                  <Text style={styles.takePhotoText}>Tomar/Seleccionar Foto</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
+        </View>
+
+        {/* Sugerir Precio (SIEMPRE VISIBLE) */}
+        <View style={styles.priceInputContainer}>
+          <Text style={styles.priceInputLabel}>💰 Sugerir mi precio (opcional):</Text>
+          <View style={styles.priceInputRow}>
+            <Text style={styles.currencySymbol}>C$</Text>
+            <TextInput
+              style={styles.priceInput}
+              placeholder="Mínimo C$50"
+              placeholderTextColor={colors.textSecondary}
+              keyboardType="numeric"
+              value={suggestedPrice}
+              onChangeText={setSuggestedPrice}
+            />
+            {suggestedPrice && (
+              <TouchableOpacity
+                style={styles.clearPriceButton}
+                onPress={() => setSuggestedPrice('')}
+              >
+                <Text style={styles.clearPriceButtonText}>✕</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          {suggestedPrice && parseFloat(suggestedPrice) < 50 && (
+            <Text style={styles.priceWarning}>⚠️ El precio mínimo es C$50</Text>
+          )}
+          {estimatedPrice > 0 && suggestedPrice && parseFloat(suggestedPrice) < estimatedPrice && parseFloat(suggestedPrice) >= 50 && (
+            <Text style={styles.priceInfo}>
+              💡 Estás ofreciendo C${(estimatedPrice - parseFloat(suggestedPrice)).toFixed(2)} menos que el estimado
+            </Text>
+          )}
+          {estimatedPrice > 0 && suggestedPrice && parseFloat(suggestedPrice) > estimatedPrice && (
+            <Text style={styles.priceInfo}>
+              💰 Estás ofreciendo C${(parseFloat(suggestedPrice) - estimatedPrice).toFixed(2)} más que el estimado
+            </Text>
+          )}
         </View>
 
         {/* Sugerencias de Google Places */}
@@ -644,10 +1069,10 @@ export default function SearchRideScreen({ navigation }: any) {
           </View>
         )}
 
-        {/* Estimación REAL con TomTom Routing */}
+        {/* Estimación REAL con MapBox Routing */}
         {estimatedPrice > 0 && !calculatingRoute && (
           <View style={styles.estimateCard}>
-            <Text style={styles.estimateTitle}>📊 Estimación Real (TomTom Maps)</Text>
+            <Text style={styles.estimateTitle}>📊 Estimación Real (MapBox)</Text>
             <View style={styles.estimateRow}>
               <Text style={styles.estimateLabel}>📏 Distancia:</Text>
               <Text style={styles.estimateValue}>{estimatedDistance} km</Text>
@@ -663,8 +1088,18 @@ export default function SearchRideScreen({ navigation }: any) {
           </View>
         )}
 
+        {/* Indicador de verificación automática de conductores */}
+        {checkingDrivers && (
+          <View style={styles.checkingDriversCard}>
+            <ActivityIndicator size="small" color="#000" />
+            <Text style={styles.checkingDriversText}>
+              🔍 Verificando conductores disponibles...
+            </Text>
+          </View>
+        )}
+
         {/* Mensaje de disponibilidad de conductores */}
-        {driversAvailable === false && !requestingRide && (
+        {driversAvailable === false && !requestingRide && !checkingDrivers && (
           <View style={styles.noDriversCard}>
             <Text style={styles.noDriversIcon}>🚗</Text>
             <Text style={styles.noDriversTitle}>No hay conductores disponibles</Text>
@@ -711,7 +1146,7 @@ export default function SearchRideScreen({ navigation }: any) {
               >
                 <View style={styles.driverInfo}>
                   <Text style={styles.driverName}>{driver.name}</Text>
-                  <Text style={styles.driverRating}>⭐ {driver.rating.toFixed(1)}</Text>
+                  <Text style={styles.driverRating}>⭐ {driver.rating ? Number(driver.rating).toFixed(1) : '5.0'}</Text>
                 </View>
                 <View style={styles.vehicleInfo}>
                   <Text style={styles.vehicleText}>
@@ -950,6 +1385,103 @@ const createStyles = (colors: any) => StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
+  vehicleTypeContainer: {
+    marginBottom: 0,
+  },
+  vehicleTypeTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 12,
+  },
+  vehicleTypeButtons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  vehicleTypeButton: {
+    flex: 1,
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    padding: 12,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: colors.border,
+  },
+  vehicleTypeButtonActive: {
+    backgroundColor: '#4CAF50',
+    borderColor: '#4CAF50',
+  },
+  vehicleTypeIcon: {
+    fontSize: 28,
+    marginBottom: 4,
+  },
+  vehicleTypeButtonText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.text,
+    textAlign: 'center',
+  },
+  vehicleTypeButtonTextActive: {
+    color: '#fff',
+  },
+  vehiclePhotoContainer: {
+    marginTop: 16,
+    padding: 16,
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  vehiclePhotoTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 4,
+  },
+  vehiclePhotoSubtitle: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginBottom: 12,
+  },
+  vehiclePhotoPreview: {
+    alignItems: 'center',
+  },
+  vehiclePhotoImage: {
+    width: '100%',
+    height: 200,
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  changePhotoButton: {
+    backgroundColor: colors.surface,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  changePhotoButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  takePhotoButton: {
+    backgroundColor: '#4CAF50',
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  takePhotoIcon: {
+    fontSize: 24,
+  },
+  takePhotoText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#fff',
+  },
   serviceTypeHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -962,7 +1494,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     marginBottom: 4,
   },
   serviceTypeSubtitle: {
-    fontSize: 13,
+    fontSize: 12,
     color: colors.textSecondary,
     maxWidth: '80%',
   },
@@ -1031,6 +1563,24 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     flex: 1,
+  },
+  fullMapHeaderButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  reloadLocationButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(76, 175, 80, 0.9)', // Verde
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  reloadLocationButtonText: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: '700',
   },
   closeMapButton: {
     width: 36,
@@ -1149,5 +1699,233 @@ const createStyles = (colors: any) => StyleSheet.create({
     color: '#fff',
     fontSize: 14,
     fontWeight: '600',
+  },
+  // Estilos para destinos adicionales
+  addDestButton: {
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    padding: 14,
+    alignItems: 'center',
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderStyle: 'dashed',
+  },
+  addDestButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  headerButtons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  mapSelectButton: {
+    backgroundColor: colors.primary,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  mapSelectButtonText: {
+    fontSize: 11,
+    color: '#fff',
+    fontWeight: '600',
+  },
+  removeDestButton: {
+    backgroundColor: '#ff4444',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  removeDestButtonText: {
+    fontSize: 12,
+    color: '#fff',
+    fontWeight: '600',
+  },
+  // Estilos para selector de pasajeros
+  passengersContainer: {
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  passengersLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text,
+    marginBottom: 12,
+  },
+  passengersSelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 20,
+  },
+  passengerButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  passengerButtonDisabled: {
+    backgroundColor: colors.border,
+    opacity: 0.5,
+  },
+  passengerButtonText: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  passengerCount: {
+    minWidth: 60,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: colors.primary,
+  },
+  passengerCountText: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: colors.text,
+  },
+  checkingDriversCard: {
+    backgroundColor: '#E3F2FD',
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#2196F3',
+  },
+  checkingDriversText: {
+    marginLeft: 8,
+    fontSize: 14,
+    color: '#1976D2',
+    fontWeight: '600',
+  },
+  suggestPriceButton: {
+    marginTop: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    backgroundColor: '#FFF3E0',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FF9800',
+    alignItems: 'center',
+  },
+  suggestPriceButtonText: {
+    fontSize: 14,
+    color: '#F57C00',
+    fontWeight: '600',
+  },
+  priceInputContainer: {
+    marginTop: 12,
+    padding: 12,
+    backgroundColor: '#F5F5F5',
+    borderRadius: 8,
+  },
+  priceInputLabel: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 8,
+    fontWeight: '600',
+  },
+  priceInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    paddingHorizontal: 12,
+  },
+  currencySymbol: {
+    fontSize: 16,
+    color: '#333',
+    fontWeight: '700',
+    marginRight: 4,
+  },
+  priceInput: {
+    flex: 1,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: '#333',
+  },
+  clearPriceButton: {
+    padding: 4,
+  },
+  clearPriceButtonText: {
+    fontSize: 18,
+    color: '#999',
+    fontWeight: '700',
+  },
+  priceWarning: {
+    marginTop: 8,
+    fontSize: 12,
+    color: '#F44336',
+  },
+  priceInfo: {
+    marginTop: 8,
+    fontSize: 12,
+    color: '#4CAF50',
+  },
+  // Estilos para selector de método de pago
+  paymentContainer: {
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  paymentTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 12,
+  },
+  paymentButtons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  paymentButton: {
+    flex: 1,
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    padding: 12,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: colors.border,
+  },
+  paymentButtonActive: {
+    backgroundColor: '#4CAF50',
+    borderColor: '#4CAF50',
+  },
+  paymentIcon: {
+    fontSize: 28,
+    marginBottom: 4,
+  },
+  paymentButtonText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.text,
+    textAlign: 'center',
+  },
+  paymentButtonTextActive: {
+    color: '#fff',
+  },
+  paymentNote: {
+    fontSize: 11,
+    color: colors.textSecondary,
+    marginTop: 8,
+    textAlign: 'center',
+    fontStyle: 'italic',
   },
 });

@@ -23,13 +23,20 @@ export const toNicaraguaDate = (date: Date | string): Date => {
  * Formatea una fecha en hora de Nicaragua (HH:MM AM/PM)
  */
 export const formatNicaraguaTime = (date: Date | string): string => {
-  const dateObj = typeof date === 'string' ? new Date(date) : date;
-  return dateObj.toLocaleTimeString('es-NI', {
-    timeZone: NICARAGUA_TIMEZONE,
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: true,
-  });
+  try {
+    const dateObj = typeof date === 'string' ? new Date(date) : date;
+    if (isNaN(dateObj.getTime())) {
+      return '00:00';
+    }
+    return dateObj.toLocaleTimeString('es-NI', {
+      timeZone: NICARAGUA_TIMEZONE,
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    });
+  } catch (error) {
+    return '00:00';
+  }
 };
 
 /**
@@ -52,28 +59,38 @@ export const formatNicaraguaDateTime = (date: Date | string): string => {
  * Formatea una fecha relativa (Hoy, Ayer, o fecha completa)
  */
 export const formatNicaraguaRelativeDate = (date: Date | string): string => {
-  const dateObj = toNicaraguaDate(typeof date === 'string' ? new Date(date) : date);
-  const today = getNicaraguaDate();
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
+  try {
+    const inputDate = typeof date === 'string' ? new Date(date) : date;
+    if (isNaN(inputDate.getTime())) {
+      return 'Sin fecha';
+    }
+    
+    const dateObj = toNicaraguaDate(inputDate);
+    const today = getNicaraguaDate();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
 
-  const dateStr = dateObj.toDateString();
-  const todayStr = today.toDateString();
-  const yesterdayStr = yesterday.toDateString();
+    const dateStr = dateObj.toDateString();
+    const todayStr = today.toDateString();
+    const yesterdayStr = yesterday.toDateString();
 
-  const time = formatNicaraguaTime(dateObj);
+    const time = formatNicaraguaTime(dateObj);
 
-  if (dateStr === todayStr) {
-    return `Hoy, ${time}`;
-  } else if (dateStr === yesterdayStr) {
-    return `Ayer, ${time}`;
-  } else {
-    return dateObj.toLocaleDateString('es-NI', {
-      timeZone: NICARAGUA_TIMEZONE,
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-    }) + `, ${time}`;
+    if (dateStr === todayStr) {
+      return `Hoy ${time}`;
+    } else if (dateStr === yesterdayStr) {
+      return `Ayer ${time}`;
+    } else {
+      const formattedDate = dateObj.toLocaleDateString('es-NI', {
+        timeZone: NICARAGUA_TIMEZONE,
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+      });
+      return `${formattedDate} ${time}`;
+    }
+  } catch (error) {
+    return 'Sin fecha';
   }
 };
 

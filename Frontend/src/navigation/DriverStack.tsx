@@ -14,6 +14,11 @@ import PaymentMethodsScreen from '../screens/Shared/PaymentMethodsScreen';
 import SettingsScreen from '../screens/Shared/SettingsScreen';
 import HelpScreen from '../screens/Shared/HelpScreen';
 import ChatScreen from '../screens/Shared/ChatScreen';
+import CompleteVehicleInfoScreen from '../screens/Shared/CompleteVehicleInfoScreen';
+import RideDetailsScreen from '../screens/Shared/RideDetailsScreen';
+import WaitingPaymentScreen from '../screens/Driver/WaitingPaymentScreen';
+import ConfirmCashPaymentScreen from '../screens/Driver/ConfirmCashPaymentScreen';
+import WaitingClientConfirmationScreen from '../screens/Driver/WaitingClientConfirmationScreen';
 
 export type DriverStackParamList = {
   DriverHome: undefined;
@@ -37,6 +42,28 @@ export type DriverStackParamList = {
   Chat: {
     rideId: string;
     otherUserName: string;
+  };
+  CompleteVehicleInfo: undefined;
+  RideDetails: {
+    rideId: string;
+  };
+  WaitingPayment: {
+    rideId: string;
+    amount: number;
+    clientName: string;
+  };
+  ConfirmCashPayment: {
+    rideId: string;
+    amount: number;
+    tip: number;
+    clientName: string;
+  };
+  WaitingClientConfirmation: {
+    rideId: string;
+    clientId: string;
+    origin: { lat: number; lng: number; address: string };
+    destination: { lat: number; lng: number; address: string };
+    estimatedFare: number;
   };
 };
 
@@ -71,6 +98,11 @@ export default function DriverStack() {
       <Stack.Screen name="Settings" component={SettingsScreen} options={{ headerShown: true, title: 'Configuración' }} />
       <Stack.Screen name="Help" component={HelpScreen} options={{ headerShown: true, title: 'Ayuda' }} />
       <Stack.Screen name="Chat" component={ChatScreen} options={{ headerShown: true, title: 'Chat' }} />
+      <Stack.Screen name="CompleteVehicleInfo" component={CompleteVehicleInfoScreen} options={{ headerShown: true, title: 'Completar Información' }} />
+      <Stack.Screen name="RideDetails" component={RideDetailsScreen} options={{ headerShown: true, title: 'Detalles del Viaje' }} />
+      <Stack.Screen name="WaitingPayment" component={WaitingPaymentScreen} options={{ headerShown: true, title: 'Esperando Pago' }} />
+      <Stack.Screen name="ConfirmCashPayment" component={ConfirmCashPaymentScreen} options={{ headerShown: true, title: 'Confirmar Pago en Efectivo' }} />
+      <Stack.Screen name="WaitingClientConfirmation" component={WaitingClientConfirmationScreen} options={{ headerShown: true, title: 'Esperando Confirmación' }} />
     </Stack.Navigator>
   );
 }

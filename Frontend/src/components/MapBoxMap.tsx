@@ -9,8 +9,10 @@ interface MapBoxMapProps {
   onMapPress?: (event: { latitude: number; longitude: number }) => void;
   showMarker?: boolean;
   markerPosition?: { latitude: number; longitude: number };
-  markerType?: 'default' | 'car' | 'origin' | 'destination'; // Tipo de marcador
+  markerType?: 'default' | 'car' | 'origin' | 'destination' | 'client'; // Tipo de marcador
   originMarker?: { latitude: number; longitude: number };
+  destinationMarker?: { latitude: number; longitude: number };
+  clientMarker?: { latitude: number; longitude: number };
   routeCoordinates?: Array<{ latitude: number; longitude: number }>;
 }
 
@@ -23,6 +25,8 @@ export default function MapBoxMap({
   markerPosition,
   markerType = 'default',
   originMarker,
+  destinationMarker,
+  clientMarker,
   routeCoordinates,
 }: MapBoxMapProps) {
   const mapRef = useRef<MapView>(null);
@@ -81,6 +85,32 @@ export default function MapBoxMap({
         />
       )}
 
+      {/* Marcador del cliente (👤) */}
+      {clientMarker && (
+        <Marker
+          coordinate={{
+            latitude: clientMarker.latitude,
+            longitude: clientMarker.longitude,
+          }}
+          pinColor="orange"
+          title="Cliente"
+          description="👤 Cliente esperando aquí"
+        />
+      )}
+
+      {/* Marcador de destino (🔴) */}
+      {destinationMarker && (
+        <Marker
+          coordinate={{
+            latitude: destinationMarker.latitude,
+            longitude: destinationMarker.longitude,
+          }}
+          pinColor="red"
+          title="Destino"
+          description="🔴 Destino del viaje"
+        />
+      )}
+
       {/* Marcador principal (con tipo personalizado) */}
       {showMarker && markerPosition && (
         <Marker
@@ -88,9 +118,9 @@ export default function MapBoxMap({
             latitude: markerPosition.latitude,
             longitude: markerPosition.longitude,
           }}
-          pinColor={markerType === 'car' ? 'green' : markerType === 'origin' ? 'blue' : 'red'}
-          title={markerType === 'car' ? 'Conductor' : markerType === 'origin' ? 'Origen' : 'Destino'}
-          description={markerType === 'car' ? '🚗 Tu conductor' : undefined}
+          pinColor={markerType === 'car' ? 'green' : markerType === 'origin' ? 'blue' : markerType === 'client' ? 'orange' : 'red'}
+          title={markerType === 'car' ? 'Conductor' : markerType === 'origin' ? 'Origen' : markerType === 'client' ? 'Cliente' : 'Destino'}
+          description={markerType === 'car' ? '🚗 Tu conductor' : markerType === 'client' ? '👤 Cliente' : undefined}
         />
       )}
 

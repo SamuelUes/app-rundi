@@ -124,8 +124,8 @@ class MapsService {
         console.log(`🗺️ Backend recomienda - Datos: ${data.provider.toUpperCase()}, Mapa: ${this.mapProvider.toUpperCase()}`);
       }
     } catch (error: any) {
-      // Silenciar el error si es 404 (endpoint no implementado aún)
-      if (error.message !== 'HTTP 404') {
+      // Silenciar errores de red (Network request failed) y 404
+      if (error.message !== 'HTTP 404' && error.message !== 'Network request failed') {
         console.warn('⚠️ Error consultando proveedor de mapas:', error.message);
       }
       this.providerFetched = true;

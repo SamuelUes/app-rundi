@@ -242,14 +242,17 @@ export const register = functions.https.onCall(async (data, context) => {
         const driverResult = await client.query(
           `INSERT INTO drivers (
             user_id, license_number, license_expiry, license_photo, 
+            department, municipality,
             status, total_rides, average_rating, total_earnings
-          ) VALUES ($1, $2, $3, $4, $5, 0, 0, 0) 
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, 0, 0, 0) 
           RETURNING id`,
           [
             userRecord.uid,
             driverData.licenseNumber,
             driverData.licenseExpiry,
             driverData.licensePhoto,
+            driverData.department || null,
+            driverData.municipality || null,
             "pending",
           ]
         );

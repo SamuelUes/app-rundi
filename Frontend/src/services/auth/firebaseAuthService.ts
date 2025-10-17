@@ -13,7 +13,7 @@ import {
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
-import { auth, firestore, functions } from '../../config/firebase';
+import { getFirebaseAuth, getFirebaseFirestore, getFirebaseFunctions } from '../../config/firebase';
 
 class FirebaseAuthService {
   /**
@@ -21,6 +21,8 @@ class FirebaseAuthService {
    */
   async register(email: string, password: string, name: string, phone: string, role: string, driverData?: any, vehicleData?: any) {
     try {
+      const functions = await getFirebaseFunctions();
+      
       // Preparar datos para enviar
       const registerPayload: any = {
         email,
@@ -51,6 +53,7 @@ class FirebaseAuthService {
       // Intentar login automático
       try {
         console.log('🔐 Haciendo login automático...');
+        const auth = await getFirebaseAuth();
         const userCredential = await signInWithEmailAndPassword(auth, email, password);
         console.log('✅ Login automático exitoso');
 
@@ -86,6 +89,9 @@ class FirebaseAuthService {
    */
   async login(email: string, password: string) {
     try {
+      const auth = await getFirebaseAuth();
+      const firestore = await getFirebaseFirestore();
+      
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
 
@@ -116,6 +122,7 @@ class FirebaseAuthService {
    */
   async logout() {
     try {
+      const auth = await getFirebaseAuth();
       await signOut(auth);
       console.log('✅ Sesión cerrada');
     } catch (error: any) {
@@ -127,25 +134,38 @@ class FirebaseAuthService {
   /**
    * Obtener usuario actual
    */
-  getCurrentUser(): User | null {
-    return auth.currentUser;
+  async getCurrentUser(): Promise<User | null> {
+    try {
+      const auth = await getFirebaseAuth();
+      return auth.currentUser;
+    } catch (error) {
+      console.error('❌ Error obteniendo usuario actual:', error);
+      return null;
+    }
   }
 
   /**
    * Obtener token de autenticación
    */
   async getIdToken(): Promise<string | null> {
-    const user = auth.currentUser;
-    if (user) {
-      return await user.getIdToken();
+    try {
+      const auth = await getFirebaseAuth();
+      const user = auth.currentUser;
+      if (user) {
+        return await user.getIdToken();
+      }
+      return null;
+    } catch (error) {
+      console.error('❌ Error obteniendo token:', error);
+      return null;
     }
-    return null;
   }
 
   /**
    * Escuchar cambios en el estado de autenticación
    */
-  onAuthStateChange(callback: (user: User | null) => void) {
+  async onAuthStateChange(callback: (user: User | null) => void) {
+    const auth = await getFirebaseAuth();
     return onAuthStateChanged(auth, callback);
   }
 
@@ -154,6 +174,7 @@ class FirebaseAuthService {
    */
   async getUserProfile(uid: string) {
     try {
+      const firestore = await getFirebaseFirestore();
       const userDoc = await getDoc(doc(firestore, 'users', uid));
       
       if (!userDoc.exists()) {
@@ -172,6 +193,7 @@ class FirebaseAuthService {
    */
   async updateUserProfile(uid: string, data: any) {
     try {
+      const firestore = await getFirebaseFirestore();
       await updateDoc(doc(firestore, 'users', uid), {
         ...data,
         updatedAt: new Date(),

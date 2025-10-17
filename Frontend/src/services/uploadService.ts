@@ -1,5 +1,3 @@
-import axios from 'axios';
-import { API_BASE_URL } from '../config/environment';
 import * as ImagePicker from 'expo-image-picker';
 
 export interface UploadResult {
@@ -12,10 +10,15 @@ class UploadService {
    * Solicitar permisos de cámara y galería
    */
   async requestPermissions(): Promise<boolean> {
-    const cameraPermission = await ImagePicker.requestCameraPermissionsAsync();
-    const galleryPermission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    try {
+      const cameraPermission = await ImagePicker.requestCameraPermissionsAsync();
+      const galleryPermission = await ImagePicker.requestMediaLibraryPermissionsAsync();
 
-    return cameraPermission.granted && galleryPermission.granted;
+      return cameraPermission.granted && galleryPermission.granted;
+    } catch (error) {
+      console.error('Error solicitando permisos:', error);
+      return false;
+    }
   }
 
   /**
@@ -54,45 +57,26 @@ class UploadService {
   }
 
   /**
-   * Subir imagen al servidor
+   * "Subir" imagen (en realidad solo retorna la URI local)
+   * La URI se guarda directamente en Supabase PostgreSQL
    */
   async uploadImage(
     imageUri: string,
-    folder?: string,
+    folder: string = 'images',
   ): Promise<UploadResult> {
     try {
-      const formData = new FormData();
+      console.log('📤 Procesando imagen...');
+      console.log('URI:', imageUri);
 
-      // Obtener el nombre del archivo y la extensión
-      const uriParts = imageUri.split('.');
-      const fileType = uriParts[uriParts.length - 1];
-
-      formData.append('file', {
-        uri: imageUri,
-        name: `photo.${fileType}`,
-        type: `image/${fileType}`,
-      } as any);
-
-      if (folder) {
-        formData.append('folder', folder);
-      }
-
-      const response = await axios.post(
-        `${API_BASE_URL}/api/upload/image`,
-        formData,
-        {
-          headers: {
-            'Content-Type': 'multipart/form-data',
-          },
-        },
-      );
-
-      return response.data.data;
+      // Retornar la URI local directamente
+      // Se guardará en la BD de Supabase como está
+      return {
+        url: imageUri,
+        publicId: `${folder}_${Date.now()}`,
+      };
     } catch (error: any) {
-      console.error('Error uploading image:', error);
-      throw new Error(
-        error.response?.data?.message || 'Error al subir la imagen',
-      );
+      console.error('❌ Error procesando imagen:', error);
+      throw new Error('Error al procesar la imagen');
     }
   }
 
@@ -101,42 +85,17 @@ class UploadService {
    */
   async uploadMultipleImages(
     imageUris: string[],
-    folder?: string,
+    folder: string = 'images',
   ): Promise<UploadResult[]> {
     try {
-      const formData = new FormData();
-
-      imageUris.forEach((uri, index) => {
-        const uriParts = uri.split('.');
-        const fileType = uriParts[uriParts.length - 1];
-
-        formData.append('files', {
-          uri,
-          name: `photo_${index}.${fileType}`,
-          type: `image/${fileType}`,
-        } as any);
-      });
-
-      if (folder) {
-        formData.append('folder', folder);
-      }
-
-      const response = await axios.post(
-        `${API_BASE_URL}/api/upload/images`,
-        formData,
-        {
-          headers: {
-            'Content-Type': 'multipart/form-data',
-          },
-        },
-      );
-
-      return response.data.data;
+      const results = imageUris.map((uri, index) => ({
+        url: uri,
+        publicId: `${folder}_${Date.now()}_${index}`,
+      }));
+      return results;
     } catch (error: any) {
-      console.error('Error uploading images:', error);
-      throw new Error(
-        error.response?.data?.message || 'Error al subir las imágenes',
-      );
+      console.error('Error procesando imágenes:', error);
+      throw new Error('Error al procesar las imágenes');
     }
   }
 
@@ -144,107 +103,21 @@ class UploadService {
    * Subir foto de perfil
    */
   async uploadProfilePhoto(imageUri: string): Promise<UploadResult> {
-    try {
-      const formData = new FormData();
-
-      const uriParts = imageUri.split('.');
-      const fileType = uriParts[uriParts.length - 1];
-
-      formData.append('file', {
-        uri: imageUri,
-        name: `profile.${fileType}`,
-        type: `image/${fileType}`,
-      } as any);
-
-      const response = await axios.post(
-        `${API_BASE_URL}/api/upload/profile`,
-        formData,
-        {
-          headers: {
-            'Content-Type': 'multipart/form-data',
-          },
-        },
-      );
-
-      return response.data.data;
-    } catch (error: any) {
-      console.error('Error uploading profile photo:', error);
-      throw new Error(
-        error.response?.data?.message || 'Error al subir la foto de perfil',
-      );
-    }
+    return this.uploadImage(imageUri, 'profiles');
   }
 
   /**
    * Subir licencia
    */
   async uploadLicense(imageUri: string): Promise<UploadResult> {
-    try {
-      const formData = new FormData();
-
-      const uriParts = imageUri.split('.');
-      const fileType = uriParts[uriParts.length - 1];
-
-      formData.append('file', {
-        uri: imageUri,
-        name: `license.${fileType}`,
-        type: `image/${fileType}`,
-      } as any);
-
-      const response = await axios.post(
-        `${API_BASE_URL}/api/upload/license`,
-        formData,
-        {
-          headers: {
-            'Content-Type': 'multipart/form-data',
-          },
-        },
-      );
-
-      return response.data.data;
-    } catch (error: any) {
-      console.error('Error uploading license:', error);
-      throw new Error(
-        error.response?.data?.message || 'Error al subir la licencia',
-      );
-    }
+    return this.uploadImage(imageUri, 'licenses');
   }
 
   /**
    * Subir fotos del vehículo
    */
   async uploadVehiclePhotos(imageUris: string[]): Promise<UploadResult[]> {
-    try {
-      const formData = new FormData();
-
-      imageUris.forEach((uri, index) => {
-        const uriParts = uri.split('.');
-        const fileType = uriParts[uriParts.length - 1];
-
-        formData.append('files', {
-          uri,
-          name: `vehicle_${index}.${fileType}`,
-          type: `image/${fileType}`,
-        } as any);
-      });
-
-      const response = await axios.post(
-        `${API_BASE_URL}/api/upload/vehicle`,
-        formData,
-        {
-          headers: {
-            'Content-Type': 'multipart/form-data',
-          },
-        },
-      );
-
-      return response.data.data;
-    } catch (error: any) {
-      console.error('Error uploading vehicle photos:', error);
-      throw new Error(
-        error.response?.data?.message || 'Error al subir las fotos del vehículo',
-      );
-    }
+    return this.uploadMultipleImages(imageUris, 'vehicles');
   }
 
   /**
@@ -254,37 +127,7 @@ class UploadService {
     imageUri: string,
     type: string,
   ): Promise<UploadResult> {
-    try {
-      const formData = new FormData();
-
-      const uriParts = imageUri.split('.');
-      const fileType = uriParts[uriParts.length - 1];
-
-      formData.append('file', {
-        uri: imageUri,
-        name: `${type}.${fileType}`,
-        type: `image/${fileType}`,
-      } as any);
-
-      formData.append('type', type);
-
-      const response = await axios.post(
-        `${API_BASE_URL}/api/upload/document`,
-        formData,
-        {
-          headers: {
-            'Content-Type': 'multipart/form-data',
-          },
-        },
-      );
-
-      return response.data.data;
-    } catch (error: any) {
-      console.error('Error uploading document:', error);
-      throw new Error(
-        error.response?.data?.message || 'Error al subir el documento',
-      );
-    }
+    return this.uploadImage(imageUri, `documents/${type}`);
   }
 }
 
