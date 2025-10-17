@@ -1,0 +1,69 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ============================================
+    // HELPER FUNCTIONS
+    // ============================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isDriver() {
+      return isAuthenticated() && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'driver';
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+    
+    // ============================================
+    // USERS COLLECTION
+    // Perfiles de usuarios (sincronizado con Firebase Auth)
+    // ============================================
+    
+    match /users/{userId} {
+      // Cualquier usuario autenticado puede leer perfiles
+      allow read: if isAuthenticated();
+      
+      // Solo el dueño puede crear su perfil
+      allow create: if isOwner(userId) && 
+                      request.resource.data.id == userId &&
+                      request.resource.data.keys().hasAll(['id', 'email', 'name', 'role']);
+      
+      // Solo el dueño puede actualizar su perfil
+      allow update: if isOwner(userId);
+      
+      // No permitir eliminar usuarios
+      allow delete: if false;
+    }
+    
+    // ============================================
+    // NOTIFICATIONS SUBCOLLECTION
+    // Notificaciones de usuarios
+    // Path: notifications/{userId}/items/{notificationId}
+    // ============================================
+    
+    match /notifications/{userId}/items/{notificationId} {
+      // Solo el dueño puede leer sus notificaciones
+      allow read: if isOwner(userId);
+      
+      // Solo el dueño puede marcar como leída (solo campos read y readAt)
+      allow update: if isOwner(userId) && 
+                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'readAt']);
+      
+      // Solo el sistema puede crear notificaciones (via Cloud Functions)
+      allow create: if false;
+      
+      // El dueño puede eliminar sus notificaciones
+      allow delete: if isOwner(userId);
+    }
+  }
+}
