@@ -137,10 +137,24 @@ export default function ProfileScreen({ navigation }: any) {
             </View>
           ) : driverProfile?.driver?.vehicle ? (
             <>
-              {/* Verificar si falta información importante */}
-              {(!driverProfile.driver.vehicle.vehiclePhoto || 
-                !driverProfile.driver.vehicle.registrationPhoto || 
-                !driverProfile.driver.vehicle.insurancePhoto) && (
+              {/* Mostrar un mensaje especial para conductores verificados */}
+              {driverProfile.driver.status === 'verified' && (
+                <View style={styles.successCard}>
+                  <Text style={styles.successIcon}>✅</Text>
+                  <View style={styles.successContent}>
+                    <Text style={styles.successTitle}>Conductor Verificado</Text>
+                    <Text style={styles.successText}>
+                      Tu información ha sido verificada correctamente. Ya puedes recibir viajes.
+                    </Text>
+                  </View>
+                </View>
+              )}
+
+              {/* Verificar si falta información importante Y no está verificado */}
+              {driverProfile.driver.status !== 'verified' && 
+               (!driverProfile.driver.vehicle.vehicle_photo || 
+                (!driverProfile.driver.vehicle.registration_photo_front || !driverProfile.driver.vehicle.registration_photo_back) || 
+                !driverProfile.driver.vehicle.insurance_photo) && (
                 <View style={styles.warningCard}>
                   <Text style={styles.warningIcon}>⚠️</Text>
                   <View style={styles.warningContent}>
@@ -149,15 +163,15 @@ export default function ProfileScreen({ navigation }: any) {
                       Falta completar información importante de tu vehículo. 
                       Es urgente que completes los siguientes datos:
                     </Text>
-                    {!driverProfile.driver.vehicle.vehiclePhoto && (
+                    {!driverProfile?.driver?.vehicle?.vehicle_photo && (
                       <Text style={styles.warningItem}>
-                        📸 Foto del vehículo ({driverProfile.driver.vehicle.type === 'moto' ? 'lateral' : 'frontal'})
+                        📷 Foto del vehículo ({driverProfile?.driver?.vehicle?.type === 'moto' ? 'lateral' : 'frontal'})
                       </Text>
                     )}
-                    {!driverProfile.driver.vehicle.registrationPhoto && (
+                    {(!driverProfile?.driver?.vehicle?.registration_photo_front || !driverProfile?.driver?.vehicle?.registration_photo_back) && (
                       <Text style={styles.warningItem}>📄 Foto de matrícula</Text>
                     )}
-                    {!driverProfile.driver.vehicle.insurancePhoto && (
+                    {!driverProfile?.driver?.vehicle?.insurance_photo && (
                       <Text style={styles.warningItem}>🛡️ Foto de seguro</Text>
                     )}
                     <TouchableOpacity 
@@ -471,6 +485,34 @@ const createStyles = (colors: any) => StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
     marginTop: 12,
+  },
+  successCard: {
+    backgroundColor: '#D4EDDA',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    flexDirection: 'row',
+    borderWidth: 1,
+    borderColor: '#C3E6CB',
+  },
+  successIcon: {
+    fontSize: 24,
+    marginRight: 12,
+  },
+  successContent: {
+    flex: 1,
+  },
+  successTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#155724',
+    marginBottom: 8,
+  },
+  successText: {
+    fontSize: 14,
+    color: '#155724',
+    marginBottom: 12,
+    lineHeight: 20,
   },
   completeButton: {
     backgroundColor: '#FF9800',

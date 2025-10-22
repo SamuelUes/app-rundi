@@ -98,7 +98,7 @@ export interface Ride {
   destinationAddress: string;
   destinationLat: number;
   destinationLng: number;
-  status: 'requested' | 'accepted' | 'driver_arrived' | 'in_progress' | 'completed' | 'canceled';
+  status: 'requested' | 'accepted' | 'driver_arrived' | 'in_progress' | 'pending_payment' | 'completed' | 'canceled';
   estimatedDistance: number;
   estimatedDuration: number;
   estimatedPrice: number;
@@ -294,7 +294,8 @@ class RidesService {
       const startRideFunction = httpsCallable(functions, 'startRide');
       const response = await startRideFunction({ rideId });
       return response.data as Ride;
-    } else if (status === 'completed') {
+    } else if (status === 'completed' || status === 'pending_payment') {
+      // Ambos estados usan completeRide (el backend decide el estado final según el método de pago)
       const completeRideFunction = httpsCallable(functions, 'completeRide');
       const response = await completeRideFunction({ 
         rideId,

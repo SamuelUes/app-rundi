@@ -9,6 +9,7 @@ import {
 import { useTheme } from '../../context/ThemeContext';
 import { AnimatedButton } from '../../components/AnimatedButton';
 import { getDatabase, ref, onValue, off } from 'firebase/database';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import { initializeFirebase } from '../../config/firebase';
 
 interface WaitingPaymentScreenProps {
@@ -125,6 +126,69 @@ export default function WaitingPaymentScreen({ route, navigation }: WaitingPayme
     );
   };
 
+  const [switching, setSwitching] = useState(false);
+
+  const handleSwitchToCash = () => {
+    Alert.alert(
+      'Cambiar a Pago en Efectivo',
+      '¿El cliente prefiere pagar en efectivo? Puedes cambiar el método de pago.',
+      [
+        {
+          text: 'Cancelar',
+          style: 'cancel',
+        },
+        {
+          text: 'Cambiar a Efectivo',
+          onPress: async () => {
+            try {
+              setSwitching(true);
+
+              const { app } = await initializeFirebase();
+              if (!app) throw new Error('Firebase no inicializado');
+
+              const functions = getFunctions(app);
+              const switchPaymentMethodFn = httpsCallable(functions, 'switchPaymentMethod');
+              
+              console.log('🔄 Cambiando método de pago a efectivo...');
+              const result = await switchPaymentMethodFn({
+                rideId,
+                newPaymentMethod: 'cash',
+                reason: 'Cliente prefiere pagar en efectivo',
+              });
+
+              const data = result.data as any;
+              console.log('✅ Método de pago cambiado:', data);
+
+              Alert.alert(
+                '✅ Método Cambiado',
+                'El método de pago se cambió a efectivo. Ahora debes confirmar que recibiste el pago.',
+                [
+                  {
+                    text: 'Entendido',
+                    onPress: () => {
+                      // Navegar a pantalla de confirmación de efectivo
+                      navigation.replace('ConfirmCashPayment', {
+                        rideId,
+                        amount: numericAmount,
+                        tip: 0,
+                        clientName,
+                      });
+                    },
+                  },
+                ]
+              );
+            } catch (error: any) {
+              console.error('❌ Error cambiando método de pago:', error);
+              Alert.alert('Error', error.message || 'No se pudo cambiar el método de pago');
+            } finally {
+              setSwitching(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   if (loading) {
     return (
       <View style={styles.container}>
@@ -186,11 +250,22 @@ export default function WaitingPaymentScreen({ route, navigation }: WaitingPayme
         </Text>
       </View>
 
+      {/* Switch to Cash Button */}
+      <AnimatedButton
+        title="💵 Cambiar a Pago en Efectivo"
+        onPress={handleSwitchToCash}
+        variant="secondary"
+        loading={switching}
+        disabled={switching}
+        style={styles.switchButton}
+      />
+
       {/* Cancel Button */}
       <AnimatedButton
         title="Cancelar Espera"
         onPress={handleCancel}
         variant="outline"
+        disabled={switching}
         style={styles.cancelButton}
       />
     </View>
@@ -308,6 +383,9 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontSize: 14,
     color: '#1976D2',
     lineHeight: 20,
+  },
+  switchButton: {
+    marginBottom: 12,
   },
   cancelButton: {
     marginTop: 'auto',

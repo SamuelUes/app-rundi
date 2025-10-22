@@ -8,6 +8,7 @@ interface DriverOffer {
     name: string;
     rating: number;
     phone: string;
+    photoURL?: string;
     vehicle?: {
       make?: string;
       model?: string;
@@ -54,11 +55,26 @@ export default function DriverOfferCard({
 
   return (
     <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-      {/* Header con nombre y rating */}
+      {/* Header con foto, nombre y rating */}
       <View style={styles.header}>
+        {/* Foto de perfil del conductor */}
+        {driver.photoURL ? (
+          <Image
+            source={{ uri: driver.photoURL }}
+            style={styles.driverAvatar}
+            resizeMode="cover"
+          />
+        ) : (
+          <View style={[styles.driverAvatar, { backgroundColor: colors.primary + '30' }]}>
+            <Text style={[styles.driverAvatarText, { color: colors.primary }]}>
+              {driver.name.charAt(0).toUpperCase()}
+            </Text>
+          </View>
+        )}
+        
         <View style={styles.driverInfo}>
           <Text style={[styles.driverName, { color: colors.text }]}>
-            🚗 {driver.name}
+            {driver.name}
           </Text>
           {driver.rating > 0 && (
             <Text style={[styles.rating, { color: colors.textSecondary }]}>
@@ -166,20 +182,29 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 12,
+    gap: 12,
+  },
+  driverAvatar: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
+  driverAvatarText: {
+    fontSize: 20,
+    fontWeight: '700',
   },
   driverInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+    flex: 1,
   },
   driverName: {
     fontSize: 16,

@@ -4,7 +4,13 @@
  */
 
 import { httpsCallable } from 'firebase/functions';
-import { getFirebaseFunctions } from '../config/firebase';
+import { initializeFirebase } from '../config/firebase';
+
+// Helper para obtener functions
+async function getFirebaseFunctions() {
+  const { functions } = await initializeFirebase();
+  return functions;
+}
 
 class PriceNegotiationService {
   /**
@@ -160,6 +166,66 @@ class PriceNegotiationService {
       console.error('Error rechazando contraoferta:', error);
       throw error;
     }
+  }
+
+  /**
+   * Conductor envía una oferta para un viaje
+   * @param rideId ID del viaje
+   * @param driverId ID del conductor
+   * @param offerPrice Precio ofrecido por el conductor
+   */
+  async sendOffer(rideId: string, driverId: string, offerPrice: number) {
+    try {
+      console.log('📤 Enviando oferta del conductor...');
+      console.log(`  - Viaje: ${rideId}`);
+      console.log(`  - Conductor: ${driverId}`);
+      console.log(`  - Precio: C$${offerPrice}`);
+      
+      const { getFirebaseAuth } = require('../config/firebase');
+      const auth = await getFirebaseAuth();
+      const currentUser = auth.currentUser;
+      
+      if (!currentUser) {
+        throw new Error('Usuario no autenticado. Por favor inicia sesión nuevamente.');
+      }
+      
+      const functions = await getFirebaseFunctions();
+      const sendDriverOfferFunction = httpsCallable(functions, 'sendDriverOffer');
+      
+      const response = await sendDriverOfferFunction({
+        rideId,
+        driverId,
+        offerPrice,
+      });
+
+      const result = response.data as any;
+      
+      if (!result.success) {
+        throw new Error(result.message || 'Error enviando oferta');
+      }
+
+      console.log('✅ Oferta enviada exitosamente');
+      return result;
+    } catch (error: any) {
+      console.error('❌ Error enviando oferta:', error);
+      console.error('Código de error:', error.code);
+      console.error('Mensaje:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Alias para sendOffer (compatibilidad)
+   */
+  async sendDriverOffer(rideId: string, driverId: string, offerPrice: number) {
+    return this.sendOffer(rideId, driverId, offerPrice);
+  }
+
+  /**
+   * Crear oferta del conductor (alias alternativo)
+   */
+  async createOffer(params: { rideId: string; driverId: string; offerPrice: number }) {
+    return this.sendOffer(params.rideId, params.driverId, params.offerPrice);
   }
 }
 

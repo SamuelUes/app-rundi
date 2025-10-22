@@ -23,7 +23,7 @@ export async function saveCompletedRideToPostgres(ride: any, rideId: string): Pr
     const distance = ride.actualDistance || ride.estimatedDistance || 0;
     const duration = ride.actualDuration || ride.estimatedDuration || 0;
 
-    // Insertar viaje en PostgreSQL
+    // Insertar viaje en PostgreSQL (genera UUID automáticamente)
     const rideResult = await client.query(
       `INSERT INTO rides (
         client_id, driver_id, 
@@ -32,17 +32,11 @@ export async function saveCompletedRideToPostgres(ride: any, rideId: string): Pr
         status, estimated_price, final_fare,
         estimated_distance, actual_distance,
         estimated_duration, actual_duration,
-        payment_type, ride_type, passengers, notes,
+        payment_method, ride_type, passengers, notes,
         requested_at, accepted_at, started_at, completed_at
       ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23
       )
-      ON CONFLICT (id) DO UPDATE SET
-        status = EXCLUDED.status,
-        final_fare = EXCLUDED.final_fare,
-        actual_distance = EXCLUDED.actual_distance,
-        actual_duration = EXCLUDED.actual_duration,
-        completed_at = EXCLUDED.completed_at
       RETURNING id`,
       [
         ride.clientId,
@@ -91,7 +85,7 @@ export async function saveCanceledRideToPostgres(ride: any, rideId: string): Pro
   try {
     console.log(`💾 Guardando viaje cancelado en PostgreSQL: ${rideId}`);
     
-    // Insertar viaje en PostgreSQL
+    // Insertar viaje cancelado en PostgreSQL (genera UUID automáticamente)
     const rideResult = await client.query(
       `INSERT INTO rides (
         client_id, driver_id, 
@@ -99,17 +93,12 @@ export async function saveCanceledRideToPostgres(ride: any, rideId: string): Pro
         destination_lat, destination_lng, destination_address,
         status, estimated_price, final_fare,
         estimated_distance, estimated_duration,
-        payment_type, ride_type, passengers, notes,
+        payment_method, ride_type, passengers, notes,
         cancel_reason, canceled_by,
         requested_at, accepted_at, started_at, canceled_at
       ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23
       )
-      ON CONFLICT (id) DO UPDATE SET
-        status = EXCLUDED.status,
-        cancel_reason = EXCLUDED.cancel_reason,
-        canceled_by = EXCLUDED.canceled_by,
-        canceled_at = EXCLUDED.canceled_at
       RETURNING id`,
       [
         ride.clientId,

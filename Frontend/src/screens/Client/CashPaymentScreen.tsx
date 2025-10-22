@@ -1,360 +1,484 @@
-import React, { useState, useMemo, useEffect } from 'react';
+/**
+ * CashPaymentScreen - Versión mejorada
+ * 
+ * Esta pantalla permite al cliente ver y confirmar el pago en efectivo.
+ * 
+ * Mejoras:
+ * - Implementación de LoadingOverlay para estados de carga
+ * - Alertas consistentes con alertService
+ */
+
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
+  TouchableOpacity,
   StyleSheet,
-  Alert,
   ScrollView,
-  ActivityIndicator,
+  Image,
+  Alert,
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { AnimatedButton } from '../../components/AnimatedButton';
-import { getDatabase, ref, onValue, off } from 'firebase/database';
-import { initializeFirebase } from '../../config/firebase';
+import { getAuth } from 'firebase/auth';
+import { getDatabase, ref, onValue, off, update } from 'firebase/database';
+import { formatNicaraguaTime } from '../../utils/dateUtils';
+import { formatCurrency } from '../../utils/formatters';
 
-interface CashPaymentScreenProps {
-  route: {
-    params: {
-      rideId: string;
-      amount: number;
-      tip: number;
-      driverName: string;
-    };
-  };
-  navigation: any;
-}
+// Servicios optimizados
+import alertService from '../../services/alertService';
+import LoadingOverlay from '../../components/LoadingOverlay';
 
-export default function CashPaymentScreen({ route, navigation }: CashPaymentScreenProps) {
-  const { rideId, amount, tip, driverName } = route.params;
+export default function CashPaymentScreen({ route, navigation }: any) {
   const { colors } = useTheme();
+  const { rideId, amount: paramAmount, driverName: paramDriverName, driverPhoto } = route.params;
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const [paymentStatus, setPaymentStatus] = useState<string>('pending');
+  
+  const [ride, setRide] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-
-  const totalAmount = amount + tip;
-
+  const [confirming, setConfirming] = useState(false);
+  const [paymentStatus, setPaymentStatus] = useState<string>('pending');
+  const [driverPhotoURL, setDriverPhotoURL] = useState<string | null>(null);
+  const [currentPaymentMethod, setCurrentPaymentMethod] = useState<string>('cash');
+  
+  // Cargar detalles del viaje
   useEffect(() => {
-    let unsubscribe: (() => void) | null = null;
-
-    const setupListener = async () => {
-      try {
-        const { app } = await initializeFirebase();
-        if (!app) throw new Error('Firebase no inicializado');
-
-        const db = getDatabase(app);
-        const paymentRef = ref(db, `paymentStatus/${rideId}`);
-
-        unsubscribe = onValue(paymentRef, (snapshot) => {
-          const data = snapshot.val();
-          console.log('💵 Estado del pago:', data);
-
-          if (data?.status) {
-            setPaymentStatus(data.status);
-            setLoading(false);
-
-            // Si el conductor confirmó el pago, no mostrar alert
-            // El botón "Calificar Viaje" aparecerá automáticamente en la UI
-            if (data.status === 'completed') {
-              console.log('✅ Pago confirmado por el conductor');
-            }
-          }
-        });
-      } catch (error) {
-        console.error('Error configurando listener:', error);
+    setLoading(true);
+    
+    const db = getDatabase();
+    const rideRef = ref(db, `activeRides/${rideId}`);
+    const paymentRef = ref(db, `paymentStatus/${rideId}`);
+    
+    console.log('💳 [CashPaymentScreen] Iniciando listeners para rideId:', rideId);
+    
+    // Listener para el viaje
+    const unsubscribeRide = onValue(rideRef, async (snapshot) => {
+      console.log('📦 Snapshot recibido de activeRides');
+      const data = snapshot.val();
+      console.log('📦 Datos:', data ? 'Viaje encontrado' : 'null');
+      
+      if (data) {
+        console.log('✅ Viaje encontrado, status:', data.status);
+        setRide(data);
         setLoading(false);
-      }
-    };
-
-    setupListener();
-
-    return () => {
-      if (unsubscribe) {
-        unsubscribe();
-      }
-    };
-  }, [rideId]);
-
-  const handleBackToHome = () => {
-    navigation.replace('ClientHome');
-  };
-
-  if (loading) {
-    return (
-      <View style={[styles.container, styles.centerContent]}>
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Cargando información del pago...</Text>
-      </View>
-    );
-  }
-
-  return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerIcon}>💵</Text>
-        <Text style={styles.headerTitle}>Pago en Efectivo</Text>
-        <Text style={styles.headerSubtitle}>
-          {paymentStatus === 'completed' 
-            ? 'Pago confirmado por el conductor'
-            : 'Esperando confirmación del conductor'}
-        </Text>
-      </View>
-
-      {/* Información del pago */}
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Resumen del Pago</Text>
         
-        <View style={styles.row}>
-          <Text style={styles.label}>Conductor:</Text>
-          <Text style={styles.value}>{driverName}</Text>
+        // Detectar cambio de método de pago
+        console.log(`🔍 Verificando método de pago: actual=${data.paymentMethod}, previo=${currentPaymentMethod}`);
+        
+        if (data.paymentMethod && data.paymentMethod !== currentPaymentMethod) {
+          console.log(`🔄 Método de pago cambiado de ${currentPaymentMethod} a ${data.paymentMethod}`);
+          
+          if (data.paymentMethod === 'card' || data.paymentMethod === 'stripe') {
+            // Convertir amount a número
+            const finalAmount = typeof data.finalFare === 'string' 
+              ? parseFloat(data.finalFare) 
+              : (data.finalFare || (typeof paramAmount === 'string' ? parseFloat(paramAmount) : paramAmount));
+            
+            console.log('💳 Navegando a PaymentScreen con amount:', finalAmount);
+            
+            // Mostrar Alert y navegar
+            Alert.alert(
+              'Método de Pago Cambiado',
+              'El conductor cambió el método de pago a tarjeta. Serás redirigido a la pantalla de pago con tarjeta.',
+              [
+                {
+                  text: 'Entendido',
+                  onPress: () => {
+                    setCurrentPaymentMethod(data.paymentMethod);
+                    navigation.replace('Payment', {
+                      rideId,
+                      amount: finalAmount,
+                      driverName: data.driver?.name || paramDriverName,
+                      driverPhoto: data.driver?.photoURL,
+                    });
+                  },
+                },
+              ],
+              { cancelable: false }
+            );
+          }
+        }
+        
+        // Obtener foto de perfil del conductor desde driversInfo
+        if (data.driverId && !data.driver?.photoURL) {
+          console.log('📸 Obteniendo foto de perfil del conductor:', data.driverId);
+          try {
+            const { get } = await import('firebase/database');
+            const driverInfoRef = ref(db, `driversInfo/${data.driverId}`);
+            const driverInfoSnapshot = await get(driverInfoRef);
+            const driverInfo = driverInfoSnapshot.val();
+            
+            if (driverInfo?.photoURL) {
+              console.log('✅ Foto de perfil encontrada:', driverInfo.photoURL);
+              setDriverPhotoURL(driverInfo.photoURL);
+            } else {
+              console.log('⚠️ No se encontró foto en driversInfo');
+            }
+          } catch (error) {
+            console.error('❌ Error obteniendo foto de perfil:', error);
+          }
+        } else if (data.driver?.photoURL) {
+          setDriverPhotoURL(data.driver.photoURL);
+        }
+      } else {
+        console.log('⚠️ Viaje no encontrado en activeRides, puede estar completado');
+        // No mostrar error aquí, esperar a que paymentStatus confirme
+      }
+    });
+    
+    // Listener para el estado del pago
+    const unsubscribePayment = onValue(paymentRef, (snapshot) => {
+      const paymentData = snapshot.val();
+      console.log('💰 Estado de pago actualizado:', paymentData);
+      
+      if (paymentData) {
+        setPaymentStatus(paymentData.status);
+        
+        // Si el pago fue confirmado por el conductor, ir a calificación
+        if (paymentData.status === 'confirmed' || paymentData.status === 'completed') {
+          console.log('✅ Pago confirmado, navegando a calificación');
+          navigation.replace('Rating', { 
+            rideId
+          });
+        }
+      }
+    });
+    
+    return () => {
+      console.log('🔇 Limpiando listeners de CashPaymentScreen');
+      off(rideRef);
+      off(paymentRef);
+    };
+  }, [rideId, navigation]);
+  
+  // Confirmar pago en efectivo
+  const handleConfirmPayment = async () => {
+    try {
+      setConfirming(true);
+      console.log('💳 Cliente confirmando pago para rideId:', rideId);
+      
+      const auth = getAuth();
+      
+      if (!auth.currentUser) {
+        alertService.showErrorAlert('Debes iniciar sesión para confirmar el pago');
+        setConfirming(false);
+        return;
+      }
+      
+      // Llamar a la función del backend
+      const { getFunctions, httpsCallable } = await import('firebase/functions');
+      const { initializeFirebase } = await import('../../config/firebase');
+      
+      const { app } = await initializeFirebase();
+      if (!app) {
+        throw new Error('Firebase no inicializado');
+      }
+      
+      const functions = getFunctions(app);
+      const confirmCashPaymentFn = httpsCallable(functions, 'confirmCashPayment');
+      
+      // Convertir amount a número
+      const finalAmount = ride?.finalFare || ride?.estimatedPrice || paramAmount || 0;
+      const numericAmount = typeof finalAmount === 'string' ? parseFloat(finalAmount) : finalAmount;
+      
+      const result = await confirmCashPaymentFn({
+        rideId,
+        amount: numericAmount,
+        tip: 0,
+        confirmedBy: 'client'
+      });
+      
+      const data = result.data as any;
+      console.log('✅ Respuesta del backend:', data);
+      
+      if (data.bothConfirmed) {
+        // Ambos confirmaron → Ir a calificación
+        alertService.showSuccessAlert(
+          'Pago Confirmado',
+          'El pago fue confirmado por ambas partes',
+          () => {
+            navigation.replace('Rating', { rideId });
+          }
+        );
+      } else {
+        // Solo cliente confirmó → Esperar conductor
+        alertService.showSuccessAlert(
+          'Confirmación Registrada',
+          'Esperando que el conductor confirme que recibió el pago'
+        );
+        setPaymentStatus('pending_confirmation');
+      }
+      
+      setConfirming(false);
+      
+    } catch (error: any) {
+      console.error('❌ Error confirmando pago:', error);
+      alertService.showErrorAlert(
+        error.message || 'No se pudo confirmar el pago. Intenta de nuevo.'
+      );
+      setConfirming(false);
+    }
+  };
+  
+  // Mostrar pantalla de carga
+  if (loading || !ride) {
+    return <LoadingOverlay visible={true} message="Cargando información del pago..." />;
+  }
+  
+  // Valores seguros
+  const driverName = ride?.driver?.name ? String(ride.driver.name) : 'Conductor';
+  const driverInitial = driverName.charAt(0).toUpperCase();
+  const driverRating = ride?.driver?.rating ? parseFloat(ride.driver.rating) : 0;
+  const amount = ride?.finalFare || ride?.estimatedPrice || paramAmount || 0;
+  const numericAmount = typeof amount === 'string' ? parseFloat(amount) : amount;
+  
+  return (
+    <View style={styles.container}>
+      <ScrollView style={styles.content}>
+        <View style={styles.header}>
+          <Text style={styles.title}>Pago en Efectivo</Text>
+          <Text style={styles.subtitle}>Confirma que has pagado en efectivo al conductor</Text>
         </View>
-
-        <View style={styles.divider} />
-
-        <View style={styles.row}>
-          <Text style={styles.label}>Tarifa del viaje:</Text>
-          <Text style={styles.value}>C${amount.toFixed(2)}</Text>
+        
+        {/* Detalles del pago */}
+        <View style={styles.card}>
+          {/* Foto y nombre del conductor */}
+          <View style={styles.driverSection}>
+            {(driverPhotoURL || ride?.driver?.photoURL) ? (
+              <Image
+                source={{ uri: driverPhotoURL || ride.driver.photoURL }}
+                style={styles.driverAvatar}
+                resizeMode="cover"
+              />
+            ) : (
+              <View style={[styles.driverAvatar, { backgroundColor: colors.primary + '30' }]}>
+                <Text style={[styles.driverAvatarText, { color: colors.primary }]}>
+                  {driverInitial}
+                </Text>
+              </View>
+            )}
+            <View style={styles.driverInfo}>
+              <Text style={styles.driverName}>
+                {driverName}
+              </Text>
+              {driverRating > 0 && !isNaN(driverRating) && (
+                <Text style={styles.driverRating}>
+                  ⭐ {driverRating.toFixed(1)}
+                </Text>
+              )}
+            </View>
+          </View>
+          
+          <View style={styles.divider} />
+          
+          <View style={styles.detailRow}>
+            <Text style={styles.detailLabel}>Monto:</Text>
+            <Text style={styles.detailValueAmount}>
+              {formatCurrency(numericAmount)}
+            </Text>
+          </View>
+          
+          <View style={styles.detailRow}>
+            <Text style={styles.detailLabel}>Fecha:</Text>
+            <Text style={styles.detailValue}>
+              {formatNicaraguaTime(new Date())}
+            </Text>
+          </View>
+          
+          <View style={styles.detailRow}>
+            <Text style={styles.detailLabel}>Método:</Text>
+            <Text style={styles.detailValue}>Efectivo</Text>
+          </View>
         </View>
-
-        {tip > 0 && (
-          <View style={styles.row}>
-            <Text style={styles.label}>Propina:</Text>
-            <Text style={styles.value}>C${tip.toFixed(2)}</Text>
+        
+        {/* Estado del pago */}
+        {paymentStatus === 'pending_confirmation' && (
+          <View style={[styles.card, styles.waitingCard]}>
+            <Text style={styles.waitingTitle}>⏳ Esperando confirmación</Text>
+            <Text style={styles.waitingDescription}>
+              El conductor debe confirmar que recibió tu pago
+            </Text>
           </View>
         )}
-
-        <View style={styles.divider} />
-
-        <View style={styles.row}>
-          <Text style={styles.totalLabel}>Total a pagar:</Text>
-          <Text style={styles.totalValue}>C${totalAmount.toFixed(2)}</Text>
-        </View>
-      </View>
-
-      {/* Instrucciones */}
-      <View style={[styles.card, styles.instructionsCard]}>
-        <Text style={styles.instructionsTitle}>📋 Instrucciones</Text>
-        <Text style={styles.instructionsText}>
-          1. Entrega el monto exacto en efectivo al conductor
-        </Text>
-        <Text style={styles.instructionsText}>
-          2. Espera a que el conductor confirme el pago
-        </Text>
-        <Text style={styles.instructionsText}>
-          3. Una vez confirmado, podrás calificar el viaje
-        </Text>
-      </View>
-
-      {/* Estado del pago */}
-      {paymentStatus === 'pending' || paymentStatus === 'pending_confirmation' ? (
-        <View style={[styles.card, styles.waitingCard]}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.waitingText}>
-            Esperando confirmación del conductor...
-          </Text>
-          <Text style={styles.waitingSubtext}>
-            El conductor debe confirmar que recibió el pago en efectivo
-          </Text>
-        </View>
-      ) : paymentStatus === 'completed' ? (
-        <View style={[styles.card, styles.successCard]}>
-          <Text style={styles.successIcon}>✅</Text>
-          <Text style={styles.successText}>¡Pago Confirmado!</Text>
-          <Text style={styles.successSubtext}>
-            El conductor ha confirmado que recibió el pago
-          </Text>
-        </View>
-      ) : null}
-
-      {/* Botones */}
-      <View style={styles.buttonsContainer}>
-        {paymentStatus === 'completed' ? (
-          <AnimatedButton
-            title="Calificar Viaje"
-            onPress={() => navigation.replace('Rating', { rideId })}
-            style={styles.primaryButton}
-          />
+      </ScrollView>
+      
+      <View style={styles.footer}>
+        {paymentStatus === 'pending' ? (
+          <TouchableOpacity 
+            onPress={handleConfirmPayment} 
+            style={[styles.confirmButton, { backgroundColor: colors.primary }]}
+            disabled={confirming}
+          >
+            <Text style={styles.confirmButtonText}>
+              {confirming ? 'Procesando...' : 'Confirmar Pago en Efectivo'}
+            </Text>
+          </TouchableOpacity>
         ) : (
-          <AnimatedButton
-            title="Volver al Inicio"
-            onPress={handleBackToHome}
-            style={styles.secondaryButton}
-            variant="secondary"
-          />
+          <TouchableOpacity 
+            style={[styles.secondaryButton, {borderColor: colors.border}]}
+            onPress={() => navigation.goBack()}
+          >
+            <Text style={[styles.secondaryButtonText, {color: colors.text}]}>Volver</Text>
+          </TouchableOpacity>
         )}
       </View>
-
-      {/* Nota importante */}
-      <View style={styles.noteCard}>
-        <Text style={styles.noteIcon}>ℹ️</Text>
-        <Text style={styles.noteText}>
-          Si tienes algún problema con el pago, contacta a soporte desde el menú de ayuda
-        </Text>
-      </View>
-    </ScrollView>
+    </View>
   );
 }
 
-const createStyles = (colors: any) =>
-  StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: colors.background,
-    },
-    content: {
-      padding: 20,
-    },
-    centerContent: {
-      justifyContent: 'center',
-      alignItems: 'center',
-    },
-    loadingText: {
-      marginTop: 16,
-      fontSize: 16,
-      color: colors.text,
-    },
-    header: {
-      alignItems: 'center',
-      marginBottom: 24,
-    },
-    headerIcon: {
-      fontSize: 64,
-      marginBottom: 12,
-    },
-    headerTitle: {
-      fontSize: 28,
-      fontWeight: 'bold',
-      color: colors.text,
-      marginBottom: 8,
-    },
-    headerSubtitle: {
-      fontSize: 16,
-      color: colors.textSecondary,
-      textAlign: 'center',
-    },
-    card: {
-      backgroundColor: colors.card,
-      borderRadius: 12,
-      padding: 20,
-      marginBottom: 16,
-      borderWidth: 1,
-      borderColor: colors.border,
-    },
-    cardTitle: {
-      fontSize: 18,
-      fontWeight: 'bold',
-      color: colors.text,
-      marginBottom: 16,
-    },
-    row: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      marginBottom: 12,
-    },
-    label: {
-      fontSize: 16,
-      color: colors.textSecondary,
-    },
-    value: {
-      fontSize: 16,
-      fontWeight: '600',
-      color: colors.text,
-    },
-    divider: {
-      height: 1,
-      backgroundColor: colors.border,
-      marginVertical: 12,
-    },
-    totalLabel: {
-      fontSize: 18,
-      fontWeight: 'bold',
-      color: colors.text,
-    },
-    totalValue: {
-      fontSize: 24,
-      fontWeight: 'bold',
-      color: colors.primary,
-    },
-    instructionsCard: {
-      backgroundColor: `${colors.primary}15`,
-      borderColor: colors.primary,
-    },
-    instructionsTitle: {
-      fontSize: 16,
-      fontWeight: 'bold',
-      color: colors.text,
-      marginBottom: 12,
-    },
-    instructionsText: {
-      fontSize: 14,
-      color: colors.text,
-      marginBottom: 8,
-      lineHeight: 20,
-    },
-    waitingCard: {
-      alignItems: 'center',
-      paddingVertical: 32,
-    },
-    waitingText: {
-      fontSize: 18,
-      fontWeight: '600',
-      color: colors.text,
-      marginTop: 16,
-      textAlign: 'center',
-    },
-    waitingSubtext: {
-      fontSize: 14,
-      color: colors.textSecondary,
-      marginTop: 8,
-      textAlign: 'center',
-    },
-    successCard: {
-      alignItems: 'center',
-      backgroundColor: `${colors.success || '#4CAF50'}15`,
-      borderColor: colors.success || '#4CAF50',
-    },
-    successIcon: {
-      fontSize: 64,
-      marginBottom: 12,
-    },
-    successText: {
-      fontSize: 20,
-      fontWeight: 'bold',
-      color: colors.success || '#4CAF50',
-      marginBottom: 8,
-    },
-    successSubtext: {
-      fontSize: 14,
-      color: colors.textSecondary,
-      textAlign: 'center',
-    },
-    buttonsContainer: {
-      marginTop: 8,
-      marginBottom: 16,
-    },
-    primaryButton: {
-      marginBottom: 12,
-    },
-    secondaryButton: {
-      marginBottom: 12,
-    },
-    noteCard: {
-      flexDirection: 'row',
-      backgroundColor: `${colors.warning || '#FF9800'}15`,
-      borderRadius: 8,
-      padding: 16,
-      borderWidth: 1,
-      borderColor: colors.warning || '#FF9800',
-    },
-    noteIcon: {
-      fontSize: 20,
-      marginRight: 12,
-    },
-    noteText: {
-      flex: 1,
-      fontSize: 13,
-      color: colors.text,
-      lineHeight: 18,
-    },
-  });
+// Estilos
+const createStyles = (colors: any) => StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  centerContent: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  content: {
+    flex: 1,
+    padding: 16,
+  },
+  header: {
+    alignItems: 'center',
+    marginVertical: 24,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: colors.text,
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontSize: 16,
+    color: colors.textSecondary,
+    textAlign: 'center',
+  },
+  card: {
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  driverSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    gap: 12,
+  },
+  driverAvatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
+  driverAvatarText: {
+    fontSize: 24,
+    fontWeight: '700',
+  },
+  driverInfo: {
+    flex: 1,
+  },
+  driverName: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 4,
+  },
+  driverRating: {
+    fontSize: 14,
+    color: colors.textSecondary,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: colors.border,
+    marginBottom: 16,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  detailLabel: {
+    fontSize: 16,
+    color: colors.textSecondary,
+    fontWeight: '500',
+  },
+  detailValue: {
+    fontSize: 16,
+    color: colors.text,
+    fontWeight: '600',
+  },
+  detailValueAmount: {
+    fontSize: 18,
+    color: colors.primary,
+    fontWeight: 'bold',
+  },
+  waitingCard: {
+    alignItems: 'center',
+    paddingVertical: 24,
+  },
+  waitingTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  waitingText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.text,
+    marginTop: 16,
+    textAlign: 'center',
+  },
+  waitingDescription: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  footer: {
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  confirmButton: {
+    height: 50,
+    borderRadius: 25,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  confirmButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  secondaryButton: {
+    height: 50,
+    borderRadius: 25,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+  },
+  secondaryButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: colors.text,
+  },
+});

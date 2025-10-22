@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,10 +8,13 @@ import {
   Alert,
   Linking,
   ScrollView,
+  Image,
+  BackHandler,
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
+import { useFocusEffect } from '@react-navigation/native';
 import ridesService from '../../services/ridesService';
-import { getDatabase, ref, onValue, off } from 'firebase/database';
+import { getDatabase, ref, onValue, off, get } from 'firebase/database';
 import DriverOfferCard from '../../components/DriverOfferCard';
 import PriceNegotiationModal from '../../components/PriceNegotiationModal';
 import priceNegotiationService from '../../services/priceNegotiationService';
@@ -40,13 +43,74 @@ export default function RideConfirmationScreen({ route, navigation }: RideConfir
   const [showNegotiationModal, setShowNegotiationModal] = useState(false);
   const [pendingCounterOffers, setPendingCounterOffers] = useState<Set<string>>(new Set());
   const [confirming, setConfirming] = useState(false);
+  const [driverPhotoURL, setDriverPhotoURL] = useState<string | null>(null);
+
+  // Función para manejar la cancelación
+  const handleBackPress = useCallback(() => {
+    Alert.alert(
+      '⚠️ Cancelar Viaje',
+      'Si regresas, tu viaje será cancelado automáticamente. ¿Estás seguro?',
+      [
+        {
+          text: 'Quedarme',
+          style: 'cancel',
+          onPress: () => console.log('Usuario decidió quedarse en RideConfirmation'),
+        },
+        {
+          text: 'Cancelar Viaje',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              console.log('🚫 Usuario confirmó cancelación desde botón atrás');
+              setCanceling(true);
+              await ridesService.cancelRide(rideId, 'Cancelado por el cliente al regresar');
+              navigation.navigate('ClientHome');
+            } catch (error: any) {
+              console.error('❌ Error cancelando viaje:', error);
+              Alert.alert('Error', 'No se pudo cancelar el viaje. Intenta de nuevo.');
+              setCanceling(false);
+            }
+          },
+        },
+      ],
+      { cancelable: false }
+    );
+  }, [rideId, navigation]);
+
+  // Interceptar botón físico de regresar (Android)
+  useFocusEffect(
+    useCallback(() => {
+      const onBackPress = () => {
+        handleBackPress();
+        return true; // Prevenir el comportamiento por defecto
+      };
+
+      BackHandler.addEventListener('hardwareBackPress', onBackPress);
+
+      return () => BackHandler.removeEventListener('hardwareBackPress', onBackPress);
+    }, [handleBackPress])
+  );
+
+  // Interceptar botón de navegación del header
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', (e: any) => {
+      // Solo interceptar si el usuario está intentando salir manualmente
+      // No interceptar si es una navegación programática (replace)
+      if (e.data.action.type === 'GO_BACK' || e.data.action.type === 'POP') {
+        e.preventDefault();
+        handleBackPress();
+      }
+    });
+
+    return unsubscribe;
+  }, [navigation, handleBackPress]);
 
   // Listener en tiempo real para ofertas de conductores y estado del viaje
   useEffect(() => {
     const db = getDatabase();
     const rideRef = ref(db, `activeRides/${rideId}`);
     
-    const unsubscribe = onValue(rideRef, (snapshot) => {
+    const unsubscribe = onValue(rideRef, async (snapshot) => {
       const data = snapshot.val();
       if (data) {
         console.log('🔥 Datos del viaje actualizados desde Firebase:', data);
@@ -54,20 +118,67 @@ export default function RideConfirmationScreen({ route, navigation }: RideConfir
         // Actualizar datos completos del viaje
         setRide(data);
         setLoading(false);
+        
+        // Si hay un conductor asignado, obtener su foto de perfil desde driversInfo
+        if (data.driverId && !data.driver?.photoURL) {
+          console.log('📸 Obteniendo foto de perfil del conductor:', data.driverId);
+          try {
+            const driverInfoRef = ref(db, `driversInfo/${data.driverId}`);
+            const driverInfoSnapshot = await get(driverInfoRef);
+            const driverInfo = driverInfoSnapshot.val();
+            
+            if (driverInfo?.photoURL) {
+              console.log('✅ Foto de perfil encontrada en driversInfo:', driverInfo.photoURL);
+              setDriverPhotoURL(driverInfo.photoURL);
+            } else {
+              console.log('⚠️ No se encontró foto en driversInfo');
+            }
+          } catch (error) {
+            console.error('❌ Error obteniendo foto de perfil:', error);
+          }
+        }
 
         // Procesar ofertas de conductores (buscar en offers O driverOffers)
         const offersData = data.offers || data.driverOffers;
         if (offersData) {
           console.log('🔍 Ofertas RAW de Firebase:', JSON.stringify(offersData, null, 2));
-          const offersArray = Object.entries(offersData).map(([driverId, offer]: [string, any]) => ({
-            ...offer,
-            driverId, // Este es el ID que viene de la clave del objeto
-            // Agregar datos del vehículo a cada oferta desde el nivel del viaje
-            driver: {
-              ...offer.driver,
-              vehicle: data.vehicle || null,
-            },
-          }));
+          
+          // Obtener fotos de perfil de los conductores desde driversInfo
+          const offersArray = await Promise.all(
+            Object.entries(offersData).map(async ([driverId, offer]: [string, any]) => {
+              let photoURL = offer.driver?.photoURL;
+              
+              // Si no tiene foto en la oferta, buscar en driversInfo
+              if (!photoURL) {
+                try {
+                  console.log(`📸 Obteniendo foto de perfil del conductor ${driverId} desde driversInfo`);
+                  const driverInfoRef = ref(db, `driversInfo/${driverId}`);
+                  const driverInfoSnapshot = await get(driverInfoRef);
+                  const driverInfo = driverInfoSnapshot.val();
+                  
+                  if (driverInfo?.photoURL) {
+                    photoURL = driverInfo.photoURL;
+                    console.log(`✅ Foto encontrada para ${driverId}:`, photoURL);
+                  } else {
+                    console.log(`⚠️ No se encontró foto para ${driverId}`);
+                  }
+                } catch (error) {
+                  console.error(`❌ Error obteniendo foto de ${driverId}:`, error);
+                }
+              }
+              
+              return {
+                ...offer,
+                driverId,
+                driver: {
+                  ...offer.driver,
+                  photoURL, // Agregar foto de perfil
+                  vehicle: data.vehicle || null,
+                },
+              };
+            })
+          );
+          
           console.log('🔍 Ofertas procesadas con driverId:', offersArray.map(o => ({ driverId: o.driverId, status: o.status })));
           
           console.log(`📊 Total ofertas en Firebase: ${offersArray.length}`);
@@ -264,11 +375,19 @@ export default function RideConfirmationScreen({ route, navigation }: RideConfir
           <Text style={styles.driverTitle}>🎉 ¡Conductor encontrado!</Text>
           
           <View style={styles.driverCard}>
-            <View style={styles.driverAvatar}>
-              <Text style={styles.driverAvatarText}>
-                {(ride.driver?.name || 'C').charAt(0).toUpperCase()}
-              </Text>
-            </View>
+            {(ride.driver?.photoURL || driverPhotoURL) ? (
+              <Image
+                source={{ uri: ride.driver?.photoURL || driverPhotoURL }}
+                style={styles.driverAvatar}
+                resizeMode="cover"
+              />
+            ) : (
+              <View style={styles.driverAvatar}>
+                <Text style={styles.driverAvatarText}>
+                  {(ride.driver?.name || 'C').charAt(0).toUpperCase()}
+                </Text>
+              </View>
+            )}
             
             <View style={styles.driverInfo}>
               <Text style={styles.driverName}>{ride.driver?.name || 'Conductor'}</Text>

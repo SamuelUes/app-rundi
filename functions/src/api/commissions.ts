@@ -55,16 +55,18 @@ export const getCommissionBreakdown = functions.https.onCall(async (data, contex
       [driverId, startDate.toISOString(), endDate.toISOString()]
     );
 
-    // Organizar datos
+    // Organizar datos con nuevas tasas de comisión
     const breakdown: any = {
       cash: {
-        normal: { rides: 0, fare: 0, commission: 0, rate: 10 },
-        designated: { rides: 0, fare: 0, commission: 0, rate: 15 },
+        normal_car: { rides: 0, fare: 0, commission: 0, rate: 11 },
+        normal_motorcycle: { rides: 0, fare: 0, commission: 0, rate: 7.5 },
+        designated: { rides: 0, fare: 0, commission: 0, rate: 25 },
         total: { rides: 0, fare: 0, commission: 0 },
       },
       card: {
-        normal: { rides: 0, fare: 0, commission: 0, rate: 10 },
-        designated: { rides: 0, fare: 0, commission: 0, rate: 15 },
+        normal_car: { rides: 0, fare: 0, commission: 0, rate: 11 },
+        normal_motorcycle: { rides: 0, fare: 0, commission: 0, rate: 7.5 },
+        designated: { rides: 0, fare: 0, commission: 0, rate: 25 },
         total: { rides: 0, fare: 0, commission: 0 },
       },
       totals: {

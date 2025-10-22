@@ -39,12 +39,15 @@ interface DynamicMapProps {
  * @param props - Propiedades del mapa
  * @returns Componente de mapa renderizado
  */
-export default function DynamicMap({ provider = 'openstreet', ...props }: DynamicMapProps) {
+function DynamicMapComponent({ provider = 'openstreet', ...props }: DynamicMapProps) {
   // En Expo Go, siempre usar OpenStreetMap (Mapbox no funciona correctamente)
   const isExpoGo = !Constants.appOwnership || Constants.appOwnership === 'expo';
   const actualProvider = isExpoGo ? 'openstreet' : provider;
 
-  console.log(`🗺️ Usando ${actualProvider.toUpperCase()} ${isExpoGo ? '(Expo Go)' : '(Development Build)'}`);
+  // Solo loguear cuando cambia el provider (no en cada render)
+  React.useEffect(() => {
+    console.log(`🗺️ Usando ${actualProvider.toUpperCase()} ${isExpoGo ? '(Expo Go)' : '(Development Build)'}`);
+  }, [actualProvider, isExpoGo]);
 
   if (actualProvider === 'mapbox') {
     return <MapBoxMap {...props} />;
@@ -52,3 +55,20 @@ export default function DynamicMap({ provider = 'openstreet', ...props }: Dynami
   
   return <OpenStreetMap {...props} />;
 }
+
+// Exportar con React.memo para optimización
+export default React.memo(DynamicMapComponent, (prevProps, nextProps) => {
+  // Comparación personalizada para evitar re-renders innecesarios
+  return (
+    prevProps.latitude === nextProps.latitude &&
+    prevProps.longitude === nextProps.longitude &&
+    prevProps.markerPosition?.latitude === nextProps.markerPosition?.latitude &&
+    prevProps.markerPosition?.longitude === nextProps.markerPosition?.longitude &&
+    prevProps.originMarker?.latitude === nextProps.originMarker?.latitude &&
+    prevProps.originMarker?.longitude === nextProps.originMarker?.longitude &&
+    prevProps.destinationMarker?.latitude === nextProps.destinationMarker?.latitude &&
+    prevProps.destinationMarker?.longitude === nextProps.destinationMarker?.longitude &&
+    prevProps.routeCoordinates?.length === nextProps.routeCoordinates?.length &&
+    prevProps.nearbyDrivers?.length === nextProps.nearbyDrivers?.length
+  );
+});

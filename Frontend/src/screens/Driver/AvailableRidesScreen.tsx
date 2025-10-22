@@ -60,7 +60,14 @@ export default function AvailableRidesScreen({ navigation }: any) {
 
   useEffect(() => {
     console.log('🔥 Montando AvailableRidesScreen...');
-    loadRides();
+    const unsubscribe = loadRides();
+    
+    // Limpiar listener al desmontar
+    return () => {
+      if (unsubscribe) {
+        unsubscribe();
+      }
+    };
   }, []);
 
   // Cargar ratings de clientes cuando cambian los viajes
@@ -103,7 +110,7 @@ export default function AvailableRidesScreen({ navigation }: any) {
         return;
       }
 
-      console.log('📦 Datos:', JSON.stringify(data, null, 2));
+      console.log('📦 Datos:', data);
 
       const availableRides: Ride[] = [];
       Object.entries(data).forEach(([rideId, rideData]: [string, any]) => {
@@ -150,7 +157,7 @@ export default function AvailableRidesScreen({ navigation }: any) {
         }
       });
 
-      console.log(`✅ ${availableRides.length} viajes disponibles`);
+      console.log(`✅ ${availableRides.length} viajes disponibles para mostrar`);
       setRides(availableRides);
       setLoading(false);
       setRefreshing(false);
@@ -160,15 +167,17 @@ export default function AvailableRidesScreen({ navigation }: any) {
       setRefreshing(false);
     });
 
-    return () => {
-      console.log('🔥 Desmontando listener');
-      unsubscribe();
-    };
+    // Retornar directamente la función de unsubscribe
+    return unsubscribe;
   };
 
   const handleRefresh = () => {
     setRefreshing(true);
-    loadRides();
+    // No llamar loadRides() aquí porque ya hay un listener activo
+    // El listener se actualiza automáticamente
+    setTimeout(() => {
+      setRefreshing(false);
+    }, 1000);
   };
 
   const handleAcceptRide = async (ride: Ride) => {

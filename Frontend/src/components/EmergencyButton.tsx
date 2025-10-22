@@ -72,19 +72,19 @@ export default function EmergencyButton({ rideId, style }: EmergencyButtonProps)
 
   const styles = StyleSheet.create({
     button: {
-      backgroundColor: '#FF3B30',
-      padding: 12,
-      borderRadius: 12,
-      flexDirection: 'row',
+      backgroundColor: 'transparent',
+      padding: 0,
+      borderRadius: 0,
+      flexDirection: 'column',
       alignItems: 'center',
       justifyContent: 'center',
       ...style,
     },
     buttonText: {
-      color: '#FFFFFF',
-      fontSize: 16,
+      color: colors.text,
+      fontSize: 12,
       fontWeight: '700',
-      marginLeft: 8,
+      marginTop: 4,
     },
     modalOverlay: {
       flex: 1,
@@ -159,11 +159,10 @@ export default function EmergencyButton({ rideId, style }: EmergencyButtonProps)
         disabled={calling}
       >
         {calling ? (
-          <ActivityIndicator color="#FFFFFF" />
+          <ActivityIndicator color={colors.primary} />
         ) : (
           <>
-            <Text style={{ fontSize: 20 }}>🚨</Text>
-            <Text style={styles.buttonText}>SOS</Text>
+            <Text style={{ fontSize: 24, marginBottom: 4 }}>🆘</Text>  
           </>
         )}
       </TouchableOpacity>

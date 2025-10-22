@@ -22,10 +22,33 @@ export const safeString = (value: any, fallback: string = 'N/A'): string => {
  * @returns Fecha formateada o fallback
  */
 export const safeFormatDateTime = (dateString: any, fallback: string = 'N/A'): string => {
-  if (!dateString || typeof dateString === 'object') return fallback;
+  if (!dateString) return fallback;
+  
   try {
-    const date = new Date(dateString);
+    let date: Date;
+    
+    // Si es un objeto con propiedades _seconds y _nanoseconds (Firebase Timestamp)
+    if (typeof dateString === 'object' && dateString._seconds) {
+      date = new Date(dateString._seconds * 1000);
+    }
+    // Si es un objeto Date directo
+    else if (dateString instanceof Date) {
+      date = dateString;
+    }
+    // Si es un string ISO o formato válido
+    else if (typeof dateString === 'string') {
+      date = new Date(dateString);
+    }
+    // Si es un número (timestamp en ms)
+    else if (typeof dateString === 'number') {
+      date = new Date(dateString);
+    }
+    else {
+      return fallback;
+    }
+    
     if (isNaN(date.getTime())) return fallback;
+    
     return date.toLocaleString('es-ES', {
       year: 'numeric',
       month: 'short',
@@ -33,7 +56,8 @@ export const safeFormatDateTime = (dateString: any, fallback: string = 'N/A'): s
       hour: '2-digit',
       minute: '2-digit',
     });
-  } catch {
+  } catch (error) {
+    console.warn('⚠️ Error formateando fecha-hora:', dateString, error);
     return fallback;
   }
 };
@@ -45,16 +69,40 @@ export const safeFormatDateTime = (dateString: any, fallback: string = 'N/A'): s
  * @returns Fecha formateada o fallback
  */
 export const safeFormatDate = (dateString: any, fallback: string = 'N/A'): string => {
-  if (!dateString || typeof dateString === 'object') return fallback;
+  if (!dateString) return fallback;
+  
   try {
-    const date = new Date(dateString);
+    let date: Date;
+    
+    // Si es un objeto con propiedades _seconds y _nanoseconds (Firebase Timestamp)
+    if (typeof dateString === 'object' && dateString._seconds) {
+      date = new Date(dateString._seconds * 1000);
+    }
+    // Si es un objeto Date directo
+    else if (dateString instanceof Date) {
+      date = dateString;
+    }
+    // Si es un string ISO o formato válido
+    else if (typeof dateString === 'string') {
+      date = new Date(dateString);
+    }
+    // Si es un número (timestamp en ms)
+    else if (typeof dateString === 'number') {
+      date = new Date(dateString);
+    }
+    else {
+      return fallback;
+    }
+    
     if (isNaN(date.getTime())) return fallback;
+    
     return date.toLocaleDateString('es-ES', {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
     });
-  } catch {
+  } catch (error) {
+    console.warn('⚠️ Error formateando fecha:', dateString, error);
     return fallback;
   }
 };
@@ -66,15 +114,39 @@ export const safeFormatDate = (dateString: any, fallback: string = 'N/A'): strin
  * @returns Hora formateada o fallback
  */
 export const safeFormatTime = (dateString: any, fallback: string = 'N/A'): string => {
-  if (!dateString || typeof dateString === 'object') return fallback;
+  if (!dateString) return fallback;
+  
   try {
-    const date = new Date(dateString);
+    let date: Date;
+    
+    // Si es un objeto con propiedades _seconds y _nanoseconds (Firebase Timestamp)
+    if (typeof dateString === 'object' && dateString._seconds) {
+      date = new Date(dateString._seconds * 1000);
+    }
+    // Si es un objeto Date directo
+    else if (dateString instanceof Date) {
+      date = dateString;
+    }
+    // Si es un string ISO o formato válido
+    else if (typeof dateString === 'string') {
+      date = new Date(dateString);
+    }
+    // Si es un número (timestamp en ms)
+    else if (typeof dateString === 'number') {
+      date = new Date(dateString);
+    }
+    else {
+      return fallback;
+    }
+    
     if (isNaN(date.getTime())) return fallback;
+    
     return date.toLocaleTimeString('es-ES', {
       hour: '2-digit',
       minute: '2-digit',
     });
-  } catch {
+  } catch (error) {
+    console.warn('⚠️ Error formateando hora:', dateString, error);
     return fallback;
   }
 };
@@ -85,9 +157,31 @@ export const safeFormatTime = (dateString: any, fallback: string = 'N/A'): strin
  * @returns Date object o null si es inválida
  */
 export const safeToDate = (dateString: any): Date | null => {
-  if (!dateString || typeof dateString === 'object') return null;
+  if (!dateString) return null;
+  
   try {
-    const date = new Date(dateString);
+    let date: Date;
+    
+    // Si es un objeto con propiedades _seconds y _nanoseconds (Firebase Timestamp)
+    if (typeof dateString === 'object' && dateString._seconds) {
+      date = new Date(dateString._seconds * 1000);
+    }
+    // Si es un objeto Date directo
+    else if (dateString instanceof Date) {
+      date = dateString;
+    }
+    // Si es un string ISO o formato válido
+    else if (typeof dateString === 'string') {
+      date = new Date(dateString);
+    }
+    // Si es un número (timestamp en ms)
+    else if (typeof dateString === 'number') {
+      date = new Date(dateString);
+    }
+    else {
+      return null;
+    }
+    
     if (isNaN(date.getTime())) return null;
     return date;
   } catch {

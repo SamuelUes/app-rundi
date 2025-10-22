@@ -31,7 +31,24 @@
         "googleMaps": {
           "apiKey": "AIzaSyAMeFnZTR6jspAZi3kYphjQQSksWvpM4g"
         }
-      }
+      },
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "data": {
+            "scheme": "driveangel"
+          },
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ]
+    },
+    "ios": {
+      "scheme": "driveangel",
+      "bundleIdentifier": "com.driveangel.ni",
+      "urlSchemes": ["driveangel", "tel", "mailto", "whatsapp", "waze", "googlemaps"]
     },
     "plugins": [
       [
@@ -39,13 +56,22 @@
         {
           "locationAlwaysAndWhenInUsePermission": "Permitir a DriveAngel.ni acceder a tu ubicación para rastrear tu viaje."
         }
+      ],
+      [
+        "expo-google-app-auth",
+        {
+          "iosClientId": "1040329608349-tl5cpqbf5gn10atmspkq7ligjivebuji.apps.googleusercontent.com",
+          "androidClientId": "1040329608349-t11k2f7tu1gtrh8fpogu3n1gmf2gi8p3.apps.googleusercontent.com"
+        }
       ]
     ],
     "extra": {
       "domain": "driveangel.online",
       "apiUrl": "https://api.driveangel.online",
       "wsUrl": "https://api.driveangel.online",
-      "mapboxAccessToken": "pk.eyJ1Ijoic2FtdWVsdWVzIiwiYSI6ImNtZ2k5OHdzbDA3NW8ybXB4OXM5Y2E2ZzYifQ.rTD0LZ2w9t_jQxEV2MR_Sg"
+      "mapboxAccessToken": "pk.eyJ1Ijoic2FtdWVsdWVzIiwiYSI6ImNtZ2k5OHdzbDA3NW8ybXB4OXM5Y2E2ZzYifQ.rTD0LZ2w9t_jQxEV2MR_Sg",
+      "supabaseUrl": "https://ceytngpresytjhafcadu.supabase.co",
+      "supabaseKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNleXRuZ3ByZXN5dGpoYWZjYWR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk5Nzg4NzIsImV4cCI6MjA3NTU1NDg3Mn0.3G9aCmJsjOIL-VG6E49sNnxvKBLITX-I1gFFlWKVslo"
     }
   }
 }

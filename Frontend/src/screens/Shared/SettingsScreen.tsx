@@ -44,6 +44,10 @@ export default function SettingsScreen({ navigation }: any) {
     );
   };
 
+  const handleDeleteAccount = () => {
+    navigation.navigate('DeleteAccount');
+  };
+
   const styles = StyleSheet.create({
     container: {
       flex: 1,
@@ -343,7 +347,10 @@ export default function SettingsScreen({ navigation }: any) {
             <Text style={styles.arrow}>›</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={[styles.option, styles.optionLast]}>
+          <TouchableOpacity 
+            style={[styles.option, styles.optionLast]}
+            onPress={handleDeleteAccount}
+          >
             <Text style={[styles.optionTitle, { color: colors.error }]}>Eliminar mi cuenta</Text>
             <Text style={styles.arrow}>›</Text>
           </TouchableOpacity>

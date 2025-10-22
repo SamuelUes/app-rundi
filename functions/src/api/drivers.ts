@@ -96,13 +96,15 @@ export const getDriverProfile = functions.https.onCall(async (data, context) => 
 
     // Obtener datos de PostgreSQL con JOIN explícito
     const driverResult = await client.query(
-      `SELECT 
-        d.id, d.user_id, d.license_number, d.license_expiry, d.license_photo,
-        d.status, d.total_rides, d.average_rating, d.total_earnings,
-        d.created_at, d.updated_at,
+      `SELECT
+        d.*,
         v.id as vehicle_id, v.plate, v.brand, v.model, v.year, v.color, v.type,
+        v.is_4x4, v.motor, v.chasis, v.vin, v.cylinders, v.passengers, v.fuel_type,
+        v.tonnage, v.vehicle_class, v.service_type, v.lien, v.emission_date,
         v.registration_number, v.registration_expiry, v.registration_photo,
+        v.registration_photo_front, v.registration_photo_back,
         v.insurance_number, v.insurance_company, v.insurance_expiry, v.insurance_photo,
+        v.insurance_start_date, v.vehicle_photo,
         v.is_active, v.created_at as vehicle_created_at, v.updated_at as vehicle_updated_at
        FROM drivers d
        LEFT JOIN vehicles v ON v.driver_id = d.id AND v.is_active = true
@@ -136,11 +138,61 @@ export const getDriverProfile = functions.https.onCall(async (data, context) => 
     }
 
     const driverData = driverResult.rows[0];
+    
+    // Helper para convertir fechas de PostgreSQL a strings YYYY-MM-DD
+    const formatDateToString = (dateValue: any): string | null => {
+      if (!dateValue) return null;
+      
+      // Si ya es un string, devolverlo
+      if (typeof dateValue === 'string') {
+        return dateValue;
+      }
+      
+      // Si es un objeto Date, convertirlo a YYYY-MM-DD
+      if (dateValue instanceof Date) {
+        return dateValue.toISOString().split('T')[0];
+      }
+      
+      // Intentar crear Date y convertir
+      try {
+        const date = new Date(dateValue);
+        if (!isNaN(date.getTime())) {
+          return date.toISOString().split('T')[0];
+        }
+      } catch (e) {
+        console.error('Error convirtiendo fecha:', e);
+      }
+      
+      return null;
+    };
+    
     console.log(`✅ Datos del conductor encontrados:`, {
       driver_id: driverData.id,
       license: driverData.license_number,
+      department: driverData.department,
+      municipality: driverData.municipality,
+      license_expiry: driverData.license_expiry,
+      license_expiry_type: typeof driverData.license_expiry,
       vehicle_exists: !!driverData.vehicle_id,
       vehicle_plate: driverData.plate
+    });
+
+    // Log detallado de las fotos del conductor
+    console.log(`📸 Fotos del conductor en BD:`, {
+      license_photo: driverData.license_photo,
+      license_photo_front: driverData.license_photo_front,
+      license_photo_back: driverData.license_photo_back,
+      profile_photo: driverData.profile_photo,
+    });
+
+    // Log de todos los campos disponibles en driverData
+    console.log(`🔍 Campos disponibles en driverData:`, Object.keys(driverData));
+    console.log(`🔍 Valores de campos de licencia:`, {
+      license_photo: driverData.license_photo,
+      license_photo_front: driverData.license_photo_front,
+      license_photo_back: driverData.license_photo_back,
+      license_photo_front_exists: driverData.hasOwnProperty('license_photo_front'),
+      license_photo_back_exists: driverData.hasOwnProperty('license_photo_back'),
     });
 
     // Obtener datos de Firestore
@@ -151,21 +203,26 @@ export const getDriverProfile = functions.https.onCall(async (data, context) => 
     const locationSnapshot = await admin.database().ref(`driverLocations/${targetDriverId}`).once("value");
     const locationData = locationSnapshot.val();
 
-    // Preparar respuesta con estructura consistente
     const profile = {
       success: true,
       driver: {
         id: driverData.id,
         user_id: driverData.user_id,
         license_number: driverData.license_number,
-        license_expiry: driverData.license_expiry,
+        license_expiry: formatDateToString(driverData.license_expiry),
         license_photo: driverData.license_photo,
+        license_photo_front: driverData.license_photo_front,
+        license_photo_back: driverData.license_photo_back,
+        department: driverData.department,
+        municipality: driverData.municipality,
+        profile_photo: driverData.profile_photo,
         status: driverData.status,
         total_rides: driverData.total_rides,
         average_rating: driverData.average_rating,
         total_earnings: driverData.total_earnings,
-        created_at: driverData.created_at,
-        updated_at: driverData.updated_at,
+        verified_at: formatDateToString(driverData.verified_at),
+        created_at: formatDateToString(driverData.created_at),
+        updated_at: formatDateToString(driverData.updated_at),
         // Datos del vehículo (si existe)
         vehicle: driverData.vehicle_id ? {
           id: driverData.vehicle_id,
@@ -175,18 +232,34 @@ export const getDriverProfile = functions.https.onCall(async (data, context) => 
           year: driverData.year,
           color: driverData.color,
           type: driverData.type,
+          is_4x4: driverData.is_4x4,
+          motor: driverData.motor,
+          chasis: driverData.chasis,
+          vin: driverData.vin,
+          cylinders: driverData.cylinders,
+          passengers: driverData.passengers,
+          fuel_type: driverData.fuel_type,
+          tonnage: driverData.tonnage,
+          vehicle_class: driverData.vehicle_class,
+          service_type: driverData.service_type,
+          lien: driverData.lien,
+          emission_date: formatDateToString(driverData.emission_date),
           registration_number: driverData.registration_number,
-          registration_expiry: driverData.registration_expiry,
+          registration_expiry: formatDateToString(driverData.registration_expiry),
           registration_photo: driverData.registration_photo,
+          registration_photo_front: driverData.registration_photo_front,
+          registration_photo_back: driverData.registration_photo_back,
           insurance_number: driverData.insurance_number,
           insurance_company: driverData.insurance_company,
-          insurance_expiry: driverData.insurance_expiry,
+          insurance_start_date: formatDateToString(driverData.insurance_start_date),
+          insurance_expiry: formatDateToString(driverData.insurance_expiry),
           insurance_photo: driverData.insurance_photo,
+          vehicle_photo: driverData.vehicle_photo,
           is_active: driverData.is_active,
-          created_at: driverData.vehicle_created_at,
-          updated_at: driverData.vehicle_updated_at,
+          created_at: formatDateToString(driverData.vehicle_created_at),
+          updated_at: formatDateToString(driverData.vehicle_updated_at),
         } : null,
-        // Datos de usuario de Firestore
+        // Datos de usuario de Firestore (name, email, phone, role, etc.)
         ...userData,
         // Ubicación actual
         currentLocation: locationData,
@@ -194,6 +267,22 @@ export const getDriverProfile = functions.https.onCall(async (data, context) => 
     };
 
     console.log(`✅ Perfil de conductor obtenido exitosamente para: ${targetDriverId}`);
+    console.log(`📤 Respuesta final - Campos del conductor:`, {
+      department: profile.driver.department,
+      municipality: profile.driver.municipality,
+      license_expiry: profile.driver.license_expiry,
+      license_expiry_type: typeof profile.driver.license_expiry,
+    });
+    
+    if (profile.driver.vehicle) {
+      console.log(`📤 Respuesta final - Fechas del vehículo (convertidas a strings):`, {
+        registration_expiry: profile.driver.vehicle.registration_expiry,
+        insurance_expiry: profile.driver.vehicle.insurance_expiry,
+        insurance_start_date: profile.driver.vehicle.insurance_start_date,
+        emission_date: profile.driver.vehicle.emission_date,
+      });
+    }
+    
     return profile;
 
   } catch (error: any) {
@@ -230,7 +319,7 @@ export const updateDriverStatus = functions.https.onCall(async (data, context) =
     // Obtener datos del conductor y vehículo de PostgreSQL
     const driverResult = await client.query(
       `SELECT 
-        d.id, d.user_id, d.average_rating,
+        d.id, d.user_id, d.average_rating, d.profile_photo,
         v.type, v.brand, v.model, v.year, v.color, v.plate, v.is_4x4
        FROM drivers d
        LEFT JOIN vehicles v ON v.driver_id = d.id AND v.is_active = true
@@ -249,6 +338,7 @@ export const updateDriverStatus = functions.https.onCall(async (data, context) =
       fullName: userData?.fullName || userData?.name || 'Conductor',
       phone: userData?.phone || '',
       averageRating: driverResult.rows[0]?.average_rating || 0,
+      photoURL: driverResult.rows[0]?.profile_photo || userData?.profilePhoto || null,
     };
 
     // Si se proporciona ubicación, actualizarla también
@@ -304,11 +394,21 @@ export const updateDriverStatus = functions.https.onCall(async (data, context) =
  */
 /**
  * Actualizar modo conductor designado
+ * Solo disponible para usuarios con rol designated_driver
  */
 export const updateDesignatedDriverMode = functions.https.onCall(async (data, context) => {
   // Verificar autenticación
   if (!context.auth) {
     throw new functions.https.HttpsError("unauthenticated", "Usuario no autenticado");
+  }
+  
+  // Verificar que el usuario tenga el rol correcto
+  const userDoc = await admin.firestore().collection("users").doc(context.auth.uid).get();
+  if (!userDoc.exists || userDoc.data()?.role !== "designated_driver") {
+    throw new functions.https.HttpsError(
+      "permission-denied",
+      "Solo los conductores designados autorizados pueden utilizar esta característica."
+    );
   }
 
   const { driverId, isActive } = data;
@@ -491,3 +591,839 @@ function calculateDistance(
 function toRad(degrees: number): number {
   return degrees * (Math.PI / 180);
 }
+
+/**
+ * Actualizar información del conductor (fotos de licencia, etc.)
+ */
+export const updateDriver = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "Usuario no autenticado");
+  }
+
+  const { 
+    license_photo_front, 
+    license_photo_back,
+    license_number,
+    license_expiry,
+    department,
+    municipality,
+    profile_photo
+  } = data;
+
+  const client = await pool.connect();
+  try {
+    // Construir query dinámicamente solo con campos proporcionados
+    const updates: string[] = [];
+    const values: any[] = [];
+    let paramCount = 1;
+
+    if (license_photo_front !== undefined) {
+      updates.push(`license_photo_front = $${paramCount++}`);
+      values.push(license_photo_front);
+    }
+    if (license_photo_back !== undefined) {
+      updates.push(`license_photo_back = $${paramCount++}`);
+      values.push(license_photo_back);
+    }
+    if (license_number !== undefined) {
+      updates.push(`license_number = $${paramCount++}`);
+      values.push(license_number);
+    }
+    if (license_expiry !== undefined) {
+      updates.push(`license_expiry = $${paramCount++}`);
+      values.push(license_expiry);
+    }
+    if (department !== undefined) {
+      updates.push(`department = $${paramCount++}`);
+      values.push(department);
+    }
+    if (municipality !== undefined) {
+      updates.push(`municipality = $${paramCount++}`);
+      values.push(municipality);
+    }
+    if (profile_photo !== undefined) {
+      updates.push(`profile_photo = $${paramCount++}`);
+      values.push(profile_photo);
+    }
+
+    if (updates.length === 0) {
+      throw new Error("No hay campos para actualizar");
+    }
+
+    updates.push(`updated_at = NOW()`);
+    values.push(context.auth.uid);
+
+    const query = `
+      UPDATE drivers 
+      SET ${updates.join(', ')}
+      WHERE user_id = $${paramCount}
+      RETURNING *
+    `;
+
+    const result = await client.query(query, values);
+
+    if (result.rows.length === 0) {
+      throw new Error("Conductor no encontrado");
+    }
+
+    // Si se actualizó la foto de perfil, también actualizar en Firestore
+    if (profile_photo !== undefined) {
+      console.log(`📸 Actualizando foto de perfil en Firestore: ${profile_photo}`);
+      await admin.firestore().collection("users").doc(context.auth.uid).update({
+        profilePhoto: profile_photo,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      console.log(`✅ Foto de perfil actualizada en Firestore`);
+    }
+
+    console.log(`✅ Conductor actualizado: ${context.auth.uid}`);
+
+    return {
+      success: true,
+      driver: result.rows[0],
+    };
+  } catch (error: any) {
+    console.error("❌ Error actualizando conductor:", error);
+    throw new functions.https.HttpsError("internal", error.message);
+  } finally {
+    client.release();
+  }
+});
+
+/**
+ * Actualizar información del vehículo (fotos de documentos, etc.)
+ */
+export const updateVehicle = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "Usuario no autenticado");
+  }
+  const { 
+    vehicleId,
+    registration_photo_front,
+    registration_photo_back,
+    insurance_photo,
+    vehicle_photo,
+    registration_number,
+    registration_expiry,
+    insurance_number,
+    insurance_company,
+    insurance_start_date,
+    insurance_expiry,
+    motor,
+    chasis,
+    vin,
+    cylinders,
+    passengers,
+    fuel_type,
+    tonnage,
+    vehicle_class,
+    service_type,
+    lien,
+    plate,
+    brand,
+    model,
+    year,
+    color,
+    vehicleType,
+    is_4x4
+  } = data;
+
+  if (!vehicleId) {
+    throw new functions.https.HttpsError("invalid-argument", "vehicleId es requerido");
+  }
+
+  const client = await pool.connect();
+  try {
+    // Construir query dinámicamente
+    const updates: string[] = [];
+    const values: any[] = [];
+    let paramCount = 1;
+
+    if (registration_photo_front !== undefined) {
+      updates.push(`registration_photo_front = $${paramCount++}`);
+      values.push(registration_photo_front);
+    }
+    if (registration_photo_back !== undefined) {
+      updates.push(`registration_photo_back = $${paramCount++}`);
+      values.push(registration_photo_back);
+    }
+    if (insurance_photo !== undefined) {
+      updates.push(`insurance_photo = $${paramCount++}`);
+      values.push(insurance_photo);
+    }
+    if (vehicle_photo !== undefined) {
+      updates.push(`vehicle_photo = $${paramCount++}`);
+      values.push(vehicle_photo);
+    }
+    if (registration_number !== undefined) {
+      updates.push(`registration_number = $${paramCount++}`);
+      values.push(registration_number);
+    }
+    if (registration_expiry !== undefined) {
+      updates.push(`registration_expiry = $${paramCount++}`);
+      values.push(registration_expiry);
+    }
+    if (insurance_number !== undefined) {
+      updates.push(`insurance_number = $${paramCount++}`);
+      values.push(insurance_number);
+    }
+    if (insurance_company !== undefined) {
+      updates.push(`insurance_company = $${paramCount++}`);
+      values.push(insurance_company);
+    }
+    if (insurance_start_date !== undefined) {
+      updates.push(`insurance_start_date = $${paramCount++}`);
+      values.push(insurance_start_date);
+    }
+    if (insurance_expiry !== undefined) {
+      updates.push(`insurance_expiry = $${paramCount++}`);
+      values.push(insurance_expiry);
+    }
+    if (motor !== undefined) {
+      updates.push(`motor = $${paramCount++}`);
+      values.push(motor);
+    }
+    if (chasis !== undefined) {
+      updates.push(`chasis = $${paramCount++}`);
+      values.push(chasis);
+    }
+    if (vin !== undefined) {
+      updates.push(`vin = $${paramCount++}`);
+      values.push(vin);
+    }
+    if (cylinders !== undefined) {
+      updates.push(`cylinders = $${paramCount++}`);
+      values.push(cylinders);
+    }
+    if (passengers !== undefined) {
+      updates.push(`passengers = $${paramCount++}`);
+      values.push(passengers);
+    }
+    if (fuel_type !== undefined) {
+      updates.push(`fuel_type = $${paramCount++}`);
+      values.push(fuel_type);
+    }
+    if (tonnage !== undefined) {
+      updates.push(`tonnage = $${paramCount++}`);
+      values.push(tonnage);
+    }
+    if (vehicle_class !== undefined) {
+      updates.push(`vehicle_class = $${paramCount++}`);
+      values.push(vehicle_class);
+    }
+    if (service_type !== undefined) {
+      updates.push(`service_type = $${paramCount++}`);
+      values.push(service_type);
+    }
+    if (lien !== undefined) {
+      updates.push(`lien = $${paramCount++}`);
+      values.push(lien);
+    }
+    if (plate !== undefined) {
+      updates.push(`plate = $${paramCount++}`);
+      values.push(plate);
+    }
+    if (brand !== undefined) {
+      updates.push(`brand = $${paramCount++}`);
+      values.push(brand);
+    }
+    if (model !== undefined) {
+      updates.push(`model = $${paramCount++}`);
+      values.push(model);
+    }
+    if (year !== undefined) {
+      updates.push(`year = $${paramCount++}`);
+      values.push(year);
+    }
+    if (color !== undefined) {
+      updates.push(`color = $${paramCount++}`);
+      values.push(color);
+    }
+    if (vehicleType !== undefined) {
+      updates.push(`type = $${paramCount++}`);
+      values.push(vehicleType);
+    }
+    if (is_4x4 !== undefined) {
+      updates.push(`is_4x4 = $${paramCount++}`);
+      values.push(is_4x4);
+    }
+
+    if (updates.length === 0) {
+      throw new Error("No hay campos para actualizar");
+    }
+
+    updates.push(`updated_at = NOW()`);
+    values.push(vehicleId);
+
+    const query = `
+      UPDATE vehicles 
+      SET ${updates.join(', ')}
+      WHERE id = $${paramCount}
+      RETURNING *
+    `;
+
+    const result = await client.query(query, values);
+
+    if (result.rows.length === 0) {
+      throw new Error("Vehículo no encontrado");
+    }
+
+    console.log(`✅ Vehículo actualizado: ${vehicleId}`);
+
+    return {
+      success: true,
+      vehicle: result.rows[0],
+    };
+  } catch (error: any) {
+    console.error("❌ Error actualizando vehículo:", error);
+    throw new functions.https.HttpsError("internal", error.message);
+  } finally {
+    client.release();
+  }
+});
+
+/**
+ * Agregar nuevo vehículo para un conductor
+ * Crea un nuevo registro en la tabla vehicles
+ */
+export const addVehicle = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "Usuario no autenticado");
+  }
+
+  const {
+    plate,
+    brand,
+    model,
+    year,
+    color,
+    type,
+    motor,
+    chasis,
+    vin,
+    cylinders,
+    passengers,
+    fuel_type,
+    tonnage,
+    vehicle_class,
+    service_type,
+    lien,
+    emission_date,
+    registration_number,
+    registration_expiry,
+    registration_photo,
+    registration_photo_front,
+    registration_photo_back,
+    insurance_number,
+    insurance_company,
+    insurance_start_date,
+    insurance_expiry,
+    insurance_photo,
+    vehicle_photo,
+  } = data;
+
+  console.log(`🚗 Agregando nuevo vehículo para conductor: ${context.auth.uid}`);
+
+  const client = await pool.connect();
+  try {
+    // Obtener driver_id del usuario
+    const driverResult = await client.query(
+      `SELECT id FROM drivers WHERE user_id = $1`,
+      [context.auth.uid]
+    );
+
+    if (driverResult.rows.length === 0) {
+      throw new Error("Conductor no encontrado");
+    }
+
+    const driverId = driverResult.rows[0].id;
+
+    // Insertar nuevo vehículo
+    const vehicleResult = await client.query(
+      `INSERT INTO vehicles (
+        driver_id, plate, brand, model, year, color, type,
+        motor, chasis, vin, cylinders, passengers, fuel_type,
+        tonnage, vehicle_class, service_type, lien, emission_date,
+        registration_number, registration_expiry, registration_photo,
+        registration_photo_front, registration_photo_back,
+        insurance_number, insurance_company, insurance_start_date,
+        insurance_expiry, insurance_photo, vehicle_photo, is_active
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+        $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25,
+        $26, $27, $28, $29, true
+      ) RETURNING *`,
+      [
+        driverId, plate, brand, model, year, color, type,
+        motor, chasis, vin, cylinders, passengers, fuel_type,
+        tonnage, vehicle_class, service_type, lien, emission_date,
+        registration_number, registration_expiry, registration_photo,
+        registration_photo_front, registration_photo_back,
+        insurance_number, insurance_company, insurance_start_date,
+        insurance_expiry, insurance_photo, vehicle_photo,
+      ]
+    );
+
+    console.log(`✅ Vehículo agregado exitosamente: ${vehicleResult.rows[0].id}`);
+
+    return {
+      success: true,
+      vehicle: vehicleResult.rows[0],
+    };
+  } catch (error: any) {
+    console.error("❌ Error agregando vehículo:", error);
+    throw new functions.https.HttpsError("internal", error.message);
+  } finally {
+    client.release();
+  }
+});
+
+/**
+ * Cambiar vehículo activo del conductor
+ * Desactiva el vehículo actual y activa el nuevo
+ * También actualiza la información en Firebase Realtime Database
+ */
+export const switchVehicle = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "Usuario no autenticado");
+  }
+
+  const { vehicleId } = data;
+
+  if (!vehicleId) {
+    throw new functions.https.HttpsError("invalid-argument", "vehicleId es requerido");
+  }
+
+  console.log(`🔄 Cambiando vehículo activo para conductor: ${context.auth.uid}`);
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Obtener driver_id del usuario
+    const driverResult = await client.query(
+      `SELECT id FROM drivers WHERE user_id = $1`,
+      [context.auth.uid]
+    );
+
+    if (driverResult.rows.length === 0) {
+      throw new Error("Conductor no encontrado");
+    }
+
+    const driverId = driverResult.rows[0].id;
+
+    // Verificar que el vehículo pertenece al conductor
+    const vehicleCheck = await client.query(
+      `SELECT id FROM vehicles WHERE id = $1 AND driver_id = $2`,
+      [vehicleId, driverId]
+    );
+
+    if (vehicleCheck.rows.length === 0) {
+      throw new Error("Vehículo no encontrado o no pertenece a este conductor");
+    }
+
+    // Desactivar todos los vehículos del conductor
+    await client.query(
+      `UPDATE vehicles SET is_active = false WHERE driver_id = $1`,
+      [driverId]
+    );
+
+    // Activar el nuevo vehículo
+    const switchResult = await client.query(
+      `UPDATE vehicles SET is_active = true WHERE id = $1 RETURNING *`,
+      [vehicleId]
+    );
+
+    await client.query("COMMIT");
+
+    const newVehicle = switchResult.rows[0];
+
+    // ✅ NUEVO: Actualizar información del vehículo en Firebase Realtime Database
+    console.log(`📡 Actualizando vehículo en Firebase Realtime Database para: ${context.auth.uid}`);
+    
+    await admin.database().ref(`driversInfo/${context.auth.uid}/vehicle`).set({
+      id: newVehicle.id,
+      plate: newVehicle.plate,
+      brand: newVehicle.brand,
+      model: newVehicle.model,
+      year: newVehicle.year,
+      color: newVehicle.color,
+      type: newVehicle.type,
+      is_4x4: newVehicle.is_4x4 || false,
+      motor: newVehicle.motor,
+      chasis: newVehicle.chasis,
+      vin: newVehicle.vin,
+      cylinders: newVehicle.cylinders,
+      passengers: newVehicle.passengers,
+      fuel_type: newVehicle.fuel_type,
+      tonnage: newVehicle.tonnage,
+      vehicle_class: newVehicle.vehicle_class,
+      service_type: newVehicle.service_type,
+      lien: newVehicle.lien,
+      emission_date: newVehicle.emission_date,
+      registration_number: newVehicle.registration_number,
+      registration_expiry: newVehicle.registration_expiry,
+      registration_photo: newVehicle.registration_photo,
+      registration_photo_front: newVehicle.registration_photo_front,
+      registration_photo_back: newVehicle.registration_photo_back,
+      insurance_number: newVehicle.insurance_number,
+      insurance_company: newVehicle.insurance_company,
+      insurance_start_date: newVehicle.insurance_start_date,
+      insurance_expiry: newVehicle.insurance_expiry,
+      insurance_photo: newVehicle.insurance_photo,
+      vehicle_photo: newVehicle.vehicle_photo,
+      updated_at: Date.now(),
+    });
+
+    console.log(`✅ Vehículo cambiado exitosamente a: ${vehicleId}`);
+    console.log(`✅ Información del vehículo actualizada en Firebase Realtime Database`);
+
+    return {
+      success: true,
+      vehicle: newVehicle,
+    };
+  } catch (error: any) {
+    await client.query("ROLLBACK");
+    console.error("❌ Error cambiando vehículo:", error);
+    throw new functions.https.HttpsError("internal", error.message);
+  } finally {
+    client.release();
+  }
+});
+
+/**
+ * Obtener todos los vehículos del conductor
+ */
+export const getDriverVehicles = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "Usuario no autenticado");
+  }
+
+  console.log(`🚗 Obteniendo vehículos del conductor: ${context.auth.uid}`);
+
+  const client = await pool.connect();
+  try {
+    // Obtener driver_id del usuario
+    const driverResult = await client.query(
+      `SELECT id FROM drivers WHERE user_id = $1`,
+      [context.auth.uid]
+    );
+
+    if (driverResult.rows.length === 0) {
+      throw new Error("Conductor no encontrado");
+    }
+
+    const driverId = driverResult.rows[0].id;
+
+    // Obtener todos los vehículos del conductor
+    const vehiclesResult = await client.query(
+      `SELECT * FROM vehicles WHERE driver_id = $1 ORDER BY is_active DESC, created_at DESC`,
+      [driverId]
+    );
+
+    console.log(`✅ ${vehiclesResult.rows.length} vehículos encontrados`);
+
+    // Helper para convertir fechas de PostgreSQL a strings YYYY-MM-DD
+    const formatDateToString = (dateValue: any): string | null => {
+      if (!dateValue) return null;
+      
+      // Si ya es un string, devolverlo
+      if (typeof dateValue === 'string') {
+        return dateValue.split('T')[0]; // Remover hora si existe
+      }
+      
+      // Si es un objeto Date
+      if (dateValue instanceof Date) {
+        return dateValue.toISOString().split('T')[0];
+      }
+      
+      // Intentar convertir como fecha
+      try {
+        const date = new Date(dateValue);
+        if (!isNaN(date.getTime())) {
+          return date.toISOString().split('T')[0];
+        }
+      } catch (e) {
+        console.warn(`⚠️ No se pudo convertir fecha: ${dateValue}`);
+      }
+      
+      return null;
+    };
+
+    // Normalizar fechas en cada vehículo
+    const normalizedVehicles = vehiclesResult.rows.map((vehicle: any) => ({
+      ...vehicle,
+      registration_expiry: formatDateToString(vehicle.registration_expiry),
+      insurance_expiry: formatDateToString(vehicle.insurance_expiry),
+      insurance_start_date: formatDateToString(vehicle.insurance_start_date),
+      emission_date: formatDateToString(vehicle.emission_date),
+      created_at: formatDateToString(vehicle.created_at),
+      updated_at: formatDateToString(vehicle.updated_at),
+    }));
+
+    console.log(`📤 Primer vehículo normalizado:`, JSON.stringify(normalizedVehicles[0], null, 2));
+
+    return {
+      success: true,
+      vehicles: normalizedVehicles,
+    };
+  } catch (error: any) {
+    console.error("❌ Error obteniendo vehículos:", error);
+    throw new functions.https.HttpsError("internal", error.message);
+  } finally {
+    client.release();
+  }
+});
+
+/**
+ * Solicitar acceso a Conductor Designado
+ */
+export const requestDesignatedDriverAccess = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "Usuario no autenticado");
+  }
+
+  console.log(`🚙 Solicitando acceso a Conductor Designado para: ${context.auth.uid}`);
+
+  const client = await pool.connect();
+  try {
+    // Obtener datos del conductor
+    const driverResult = await client.query(
+      `SELECT id, designated_driver_request_status FROM drivers WHERE user_id = $1`,
+      [context.auth.uid]
+    );
+
+    if (driverResult.rows.length === 0) {
+      throw new Error("Conductor no encontrado");
+    }
+
+    const driver = driverResult.rows[0];
+    const currentStatus = driver.designated_driver_request_status;
+
+    // Validar que no haya solicitud pendiente
+    if (currentStatus === 'pending') {
+      throw new Error("Ya tienes una solicitud pendiente");
+    }
+
+    // Actualizar estado de solicitud a 'pending'
+    await client.query(
+      `UPDATE drivers 
+       SET designated_driver_request_status = 'pending', updated_at = NOW()
+       WHERE user_id = $1`,
+      [context.auth.uid]
+    );
+
+    console.log(`✅ Solicitud de Conductor Designado enviada para: ${context.auth.uid}`);
+
+    // Actualizar rol en Firestore (aún es 'driver', pero con solicitud pendiente)
+    await admin.firestore()
+      .collection('users')
+      .doc(context.auth.uid)
+      .update({
+        'driverStatus.designatedDriverRequestStatus': 'pending',
+        'updatedAt': admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+    console.log(`💾 Estado de solicitud actualizado en Firestore`);
+
+    return {
+      success: true,
+      message: 'Solicitud enviada correctamente',
+      requestStatus: 'pending',
+    };
+  } catch (error: any) {
+    console.error("❌ Error solicitando acceso a Conductor Designado:", error);
+    throw new functions.https.HttpsError("internal", error.message);
+  } finally {
+    client.release();
+  }
+});
+
+/**
+ * Obtener estado de solicitud de Conductor Designado
+ */
+export const getDesignatedDriverRequestStatus = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "Usuario no autenticado");
+  }
+
+  console.log(`📋 Obteniendo estado de solicitud de Conductor Designado para: ${context.auth.uid}`);
+
+  const client = await pool.connect();
+  try {
+    const result = await client.query(
+      `SELECT designated_driver_request_status, designated_driver_role FROM drivers WHERE user_id = $1`,
+      [context.auth.uid]
+    );
+
+    if (result.rows.length === 0) {
+      throw new Error("Conductor no encontrado");
+    }
+
+    const driver = result.rows[0];
+
+    console.log(`✅ Estado de solicitud obtenido:`, {
+      requestStatus: driver.designated_driver_request_status,
+      role: driver.designated_driver_role,
+    });
+
+    return {
+      success: true,
+      requestStatus: driver.designated_driver_request_status,
+      designatedDriverRole: driver.designated_driver_role,
+    };
+  } catch (error: any) {
+    console.error("❌ Error obteniendo estado de solicitud:", error);
+    throw new functions.https.HttpsError("internal", error.message);
+  } finally {
+    client.release();
+  }
+});
+
+/**
+ * Aprobar solicitud de Conductor Designado (SOLO ADMIN)
+ * Actualiza rol en PostgreSQL, Firestore y Firebase Auth
+ */
+export const approveDesignatedDriverRequest = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "Usuario no autenticado");
+  }
+
+  const { userId } = data;
+
+  if (!userId) {
+    throw new functions.https.HttpsError("invalid-argument", "userId es requerido");
+  }
+
+  console.log(`🚙 Aprobando solicitud de Conductor Designado para: ${userId}`);
+
+  const client = await pool.connect();
+  try {
+    // 1. Actualizar en PostgreSQL
+    const updateResult = await client.query(
+      `UPDATE drivers 
+       SET designated_driver_request_status = 'approved', 
+           designated_driver_role = 'designated_driver',
+           updated_at = NOW()
+       WHERE user_id = $1
+       RETURNING *`,
+      [userId]
+    );
+
+    if (updateResult.rows.length === 0) {
+      throw new Error("Conductor no encontrado");
+    }
+
+    console.log(`✅ Conductor Designado aprobado en PostgreSQL: ${userId}`);
+
+    // 2. Actualizar rol en Firestore
+    await admin.firestore()
+      .collection('users')
+      .doc(userId)
+      .update({
+        'role': 'designated_driver',
+        'driverStatus.designatedDriverRole': 'designated_driver',
+        'driverStatus.designatedDriverRequestStatus': 'approved',
+        'updatedAt': admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+    console.log(`✅ Rol actualizado en Firestore: ${userId}`);
+
+    // 3. Actualizar rol en Firebase Auth (Custom Claims)
+    await admin.auth().setCustomUserClaims(userId, {
+      role: 'designated_driver',
+      designatedDriver: true,
+    });
+
+    console.log(`✅ Rol actualizado en Firebase Auth: ${userId}`);
+
+    // 4. Actualizar en Firebase Realtime Database
+    const db = admin.database();
+    await db.ref(`drivers/${userId}`).update({
+      role: 'designated_driver',
+      designatedDriverRole: 'designated_driver',
+      designatedDriverRequestStatus: 'approved',
+      updatedAt: admin.database.ServerValue.TIMESTAMP,
+    });
+
+    console.log(`✅ Rol actualizado en Firebase Realtime: ${userId}`);
+
+    return {
+      success: true,
+      message: 'Conductor Designado aprobado correctamente',
+      role: 'designated_driver',
+      requestStatus: 'approved',
+    };
+  } catch (error: any) {
+    console.error("❌ Error aprobando Conductor Designado:", error);
+    throw new functions.https.HttpsError("internal", error.message);
+  } finally {
+    client.release();
+  }
+});
+
+/**
+ * Rechazar solicitud de Conductor Designado (SOLO ADMIN)
+ * Actualiza estado en PostgreSQL y Firestore
+ */
+export const rejectDesignatedDriverRequest = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "Usuario no autenticado");
+  }
+
+  const { userId, reason } = data;
+
+  if (!userId) {
+    throw new functions.https.HttpsError("invalid-argument", "userId es requerido");
+  }
+
+  console.log(`❌ Rechazando solicitud de Conductor Designado para: ${userId}`);
+
+  const client = await pool.connect();
+  try {
+    // 1. Actualizar en PostgreSQL
+    await client.query(
+      `UPDATE drivers 
+       SET designated_driver_request_status = 'rejected',
+           updated_at = NOW()
+       WHERE user_id = $1`,
+      [userId]
+    );
+
+    console.log(`✅ Solicitud rechazada en PostgreSQL: ${userId}`);
+
+    // 2. Actualizar en Firestore
+    await admin.firestore()
+      .collection('users')
+      .doc(userId)
+      .update({
+        'driverStatus.designatedDriverRequestStatus': 'rejected',
+        'driverStatus.rejectionReason': reason || 'No especificado',
+        'updatedAt': admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+    console.log(`✅ Solicitud rechazada en Firestore: ${userId}`);
+
+    // 3. Actualizar en Firebase Realtime Database
+    const db = admin.database();
+    await db.ref(`drivers/${userId}`).update({
+      designatedDriverRequestStatus: 'rejected',
+      rejectionReason: reason || 'No especificado',
+      updatedAt: admin.database.ServerValue.TIMESTAMP,
+    });
+
+    console.log(`✅ Solicitud rechazada en Firebase Realtime: ${userId}`);
+
+    return {
+      success: true,
+      message: 'Solicitud de Conductor Designado rechazada',
+      requestStatus: 'rejected',
+      reason: reason || 'No especificado',
+    };
+  } catch (error: any) {
+    console.error("❌ Error rechazando Conductor Designado:", error);
+    throw new functions.https.HttpsError("internal", error.message);
+  } finally {
+    client.release();
+  }
+});

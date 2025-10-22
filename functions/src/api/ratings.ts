@@ -381,6 +381,21 @@ async function updateUserAverageRating(client: any, userId: string): Promise<voi
     [averageRating, userId]
   );
 
+  // ✅ NUEVO: Actualizar también en Firestore
+  try {
+    await admin.firestore()
+      .collection('users')
+      .doc(userId)
+      .update({
+        'stats.averageRating': averageRating,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    console.log(`💾 Rating promedio actualizado en Firestore para ${userId}: ${averageRating}`);
+  } catch (error: any) {
+    console.error(`⚠️ Error actualizando rating en Firestore para ${userId}:`, error.message);
+    // No lanzar error, continuar con el flujo
+  }
+
   console.log(`📊 Rating promedio actualizado para ${userId}: ${averageRating}`);
 }
 

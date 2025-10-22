@@ -11,8 +11,33 @@ export interface Municipality {
 export interface Department {
   name: string;
   code: string;
+  plateCode?: string; // Código de matrícula vehicular (opcional)
   municipalities: Municipality[];
 }
+
+/**
+ * Códigos de matrícula por departamento
+ * Formato: 1-2 letras + 5-6 dígitos
+ */
+export const PLATE_CODES: { [key: string]: string } = {
+  'Managua': 'M',
+  'Masaya': 'MS',
+  'Granada': 'GR',
+  'Carazo': 'CZ',
+  'Rivas': 'R',
+  'León': 'L',
+  'Chinandega': 'CH',
+  'Estelí': 'ES',
+  'Madriz': 'MD',
+  'Nueva Segovia': 'NS',
+  'Jinotega': 'J',
+  'Matagalpa': 'MT',
+  'Boaco': 'BO',
+  'Chontales': 'CT',
+  'Río San Juan': 'SJ',
+  'RAAN': 'AN', // Región Autónoma Atlántico Norte
+  'RAAS': 'AS', // Región Autónoma Atlántico Sur
+};
 
 export const NICARAGUA_LOCATIONS: Department[] = [
   {

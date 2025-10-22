@@ -79,7 +79,7 @@ export default function RideRequestsScreen({ navigation }: any) {
       const availableRides = await ridesService.getAvailableRides(
         coords.latitude,
         coords.longitude,
-        15 // 15 km de radio (mayor cobertura en Nicaragua)
+        12 // 15 km de radio (mayor cobertura en Nicaragua)
       );
       setRides(availableRides || []);
     } catch (error: any) {

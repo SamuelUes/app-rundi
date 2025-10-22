@@ -79,10 +79,9 @@ export const requestRide = functions.https.onCall(async (data, context) => {
     const rideId = admin.database().ref().child('activeRides').push().key;
 
     if (!rideId) {
-      throw new functions.https.HttpsError("internal", "Error generando ID del viaje");
+      throw new functions.https.HttpsError('internal', 'Error generando ID del viaje');
     }
 
-    // Crear viaje en Firebase Realtime DB
     const rideData = {
       id: rideId,
       clientId,
@@ -189,6 +188,21 @@ export const acceptRide = functions.https.onCall(async (data, context) => {
       throw new functions.https.HttpsError("not-found", "Datos del conductor no encontrados");
     }
 
+    // Obtener profile_photo desde Supabase (PostgreSQL)
+    let profilePhoto = null;
+    try {
+      const driverProfileResult = await pool.query(
+        'SELECT profile_photo FROM drivers WHERE user_id = $1',
+        [driverId]
+      );
+      if (driverProfileResult.rows.length > 0) {
+        profilePhoto = driverProfileResult.rows[0].profile_photo;
+        console.log('📸 Foto de perfil obtenida desde Supabase:', profilePhoto);
+      }
+    } catch (error) {
+      console.error('Error obteniendo foto de perfil:', error);
+    }
+
     // Obtener datos del vehículo desde driversInfo en Realtime Database
     const driverInfoSnapshot = await admin.database()
       .ref(`driversInfo/${driverId}`)
@@ -222,6 +236,7 @@ export const acceptRide = functions.https.onCall(async (data, context) => {
         rating: driverData.rating || 0,
         totalRides: driverData.totalRides || 0,
         phone: driverData.phone || '',
+        photoURL: profilePhoto || driverData.profilePhoto || driverData.photoURL || null,
         id: driverId,
       },
       vehicle: vehicleData,  // ✅ Usar vehicleData de driversInfo
@@ -457,6 +472,34 @@ export const startRide = functions.https.onCall(async (data, context) => {
 
     if (ride.status !== 'accepted') {
       throw new functions.https.HttpsError('failed-precondition', `El viaje no puede ser iniciado. Estado actual: ${ride.status}`);
+    }
+
+    // Validación adicional: Si es viaje de conductor designado, debe tener inspección completada
+    const isDesignatedDriverRide = ride.rideType === 'designated_driver' || 
+                                 ride.serviceType === 'designated_driver' || 
+                                 ride.ride_type === 'designated_driver';
+
+    if (isDesignatedDriverRide) {
+      // Registrar información para diagnóstico
+      console.log(`🚗 Viaje de conductor designado detectado: ${rideId}`);
+      console.log(`📝 Estado de la inspección:`, ride.vehicleInspection || 'Sin inspección');
+      
+      // Verificar si tiene inspección de vehículo completada
+      if (!ride.vehicleInspection || ride.vehicleInspection.inspected !== true) {
+        console.error(`❌ Error: Viaje ${rideId} requiere inspección de vehículo pero no la tiene`); 
+        throw new functions.https.HttpsError(
+          'failed-precondition',
+          'Este viaje requiere una inspección de vehículo antes de iniciar. ' +
+          'Completa la inspección en la aplicación móvil.'
+        );
+      }
+
+      console.log(`✅ Inspección de vehículo verificada para viaje de conductor designado: ${rideId}`);
+      
+      // Verificar el proveedor de almacenamiento de las fotos para diagnóstico
+      if (ride.vehicleInspection.storage_provider) {
+        console.log(`📷 Proveedor de almacenamiento de fotos: ${ride.vehicleInspection.storage_provider}`);
+      }
     }
 
     // Actualizar en Firebase Realtime Database
@@ -1172,14 +1215,17 @@ export const completeRide = functions.https.onCall(async (data, context) => {
       throw new functions.https.HttpsError('permission-denied', 'No tienes permiso para completar este viaje');
     }
 
-    if (ride.status !== 'in_progress') {
+    // Permitir completar desde 'in_progress' o 'driver_arrived'
+    if (ride.status !== 'in_progress' && ride.status !== 'driver_arrived') {
       throw new functions.https.HttpsError('failed-precondition', `El viaje no puede ser completado. Estado actual: ${ride.status}`);
     }
 
-    // Actualizar viaje en Firebase - cambiar a pending_rating en lugar de completed
-    // El viaje permanecerá en activeRides hasta que ambas partes califiquen
+    console.log(`🏁 [completeRide] Completando viaje ${rideId} desde status: ${ride.status}`);
+
+    // Actualizar viaje en Firebase - cambiar a pending_payment
+    // El viaje permanecerá en activeRides hasta que el conductor confirme el pago
     await admin.database().ref(`activeRides/${rideId}`).update({
-      status: 'pending_rating',
+      status: 'pending_payment',
       completedAt: admin.database.ServerValue.TIMESTAMP,
       finalFare: finalFare || ride.finalFare || ride.estimatedPrice,
       actualDistance: actualDistance || ride.estimatedDistance,
@@ -1190,24 +1236,30 @@ export const completeRide = functions.https.onCall(async (data, context) => {
       driverRated: false,
     });
 
-    // Actualizar paymentStatus según el método de pago
+    // Crear/actualizar paymentStatus según el método de pago
     const paymentMethod = ride.paymentMethod || 'cash';
     const finalAmount = finalFare || ride.finalFare || ride.estimatedPrice;
     
     if (paymentMethod === 'cash') {
-      // Para efectivo, marcar como completado inmediatamente
-      await admin.database().ref(`paymentStatus/${rideId}`).update({
-        status: 'completed',
+      // Para efectivo, marcar como 'pending' esperando confirmación del conductor
+      console.log(`💵 [completeRide] Pago en efectivo - status: pending`);
+      await admin.database().ref(`paymentStatus/${rideId}`).set({
+        status: 'pending',
+        method: 'cash',
         finalAmount: finalAmount,
+        createdAt: admin.database.ServerValue.TIMESTAMP,
         lastUpdatedAt: admin.database.ServerValue.TIMESTAMP,
         lastUpdatedBy: 'backend',
-        message: 'Pago en efectivo completado'
+        message: 'Esperando confirmación de pago en efectivo'
       });
     } else if (paymentMethod === 'card') {
       // Para tarjeta, dejar en pending_capture para que se procese después
-      await admin.database().ref(`paymentStatus/${rideId}`).update({
+      console.log(`💳 [completeRide] Pago con tarjeta - status: pending_capture`);
+      await admin.database().ref(`paymentStatus/${rideId}`).set({
         status: 'pending_capture',
+        method: 'card',
         finalAmount: finalAmount,
+        createdAt: admin.database.ServerValue.TIMESTAMP,
         lastUpdatedAt: admin.database.ServerValue.TIMESTAMP,
         lastUpdatedBy: 'backend',
         message: 'Esperando captura de pago con tarjeta'
@@ -1314,25 +1366,16 @@ export const completeRide = functions.https.onCall(async (data, context) => {
       actualDuration,
     });
 
-    // Archivar viaje: Guardar en PostgreSQL y limpiar Realtime Database
-    // Esto se hace en background para no bloquear la respuesta
-    archiveCompletedRide({
-      ...ride,
-      status: 'completed',
-      completedAt: Date.now(),
-      finalFare: finalFare || ride.finalFare || ride.estimatedPrice,
-      actualDistance: actualDistance || ride.estimatedDistance,
-      actualDuration: actualDuration || ride.estimatedDuration,
-    }, rideId).catch(error => {
-      console.error(`❌ Error archivando viaje ${rideId}:`, error);
-    });
+    // NO archivar todavía - el viaje debe permanecer en activeRides
+    // hasta que ambos (cliente Y conductor) confirmen el pago
+    // El archivado se hará en confirmCashPayment cuando bothConfirmed === true
 
     return {
       success: true,
       message: 'Viaje completado exitosamente',
       ride: {
         ...ride,
-        status: 'completed',
+        status: 'pending_payment',
         finalFare: finalFare || ride.finalFare,
       },
     };
@@ -1428,11 +1471,33 @@ export const updateRideStatus = functions.https.onCall(async (data, context) => 
   const { rideId, status, finalFare, actualDistance, actualDuration } = data;
 
   try {
+    // Verificación adicional para viajes de conductores designados al intentar iniciar viaje
     if (status === 'in_progress') {
-      // Llamar a startRide
+      // Verificar si el viaje es de tipo conductor designado antes de iniciar
+      const rideSnapshot = await admin.database()
+        .ref(`activeRides/${rideId}`)
+        .once('value');
+
+      const ride = rideSnapshot.val();
+      if (ride) {
+        const isDesignatedDriverRide = ride.rideType === 'designated_driver' || 
+                                     ride.serviceType === 'designated_driver' || 
+                                     ride.ride_type === 'designated_driver';
+        
+        if (isDesignatedDriverRide) {
+          console.log(`🔎 Verificando inspección para viaje de conductor designado via updateRideStatus: ${rideId}`);
+        }
+      }
+      
+      // Llamar a startRide (tiene su propia validación de inspección)
       return await startRide.run({ rideId }, context);
+    } else if (status === 'pending_payment') {
+      // Llamar a completeRide (que ahora marca como pending_payment)
+      console.log(`💰 [updateRideStatus] Cambiando viaje ${rideId} a pending_payment`);
+      return await completeRide.run({ rideId, finalFare, actualDistance, actualDuration }, context);
     } else if (status === 'completed') {
-      // Llamar a completeRide
+      // Este estado solo se usa cuando el pago ya fue confirmado
+      console.log(`✅ [updateRideStatus] Viaje ${rideId} marcado como completed (pago confirmado)`);
       return await completeRide.run({ rideId, finalFare, actualDistance, actualDuration }, context);
     } else {
       throw new functions.https.HttpsError('invalid-argument', `Estado no soportado: ${status}`);
@@ -1440,5 +1505,174 @@ export const updateRideStatus = functions.https.onCall(async (data, context) => 
   } catch (error: any) {
     console.error('❌ Error actualizando estado del viaje:', error);
     throw new functions.https.HttpsError('internal', error.message);
+  }
+});
+
+/**
+ * 13. CONFIRMAR PAGO EN EFECTIVO
+ * El conductor O cliente confirma el pago en efectivo
+ * Solo cuando AMBOS confirman, el viaje se marca como completed
+ */
+export const confirmCashPayment = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "Usuario no autenticado");
+  }
+
+  const { rideId, amount, tip = 0, confirmedBy } = data; // confirmedBy: 'client' | 'driver'
+  const userId = context.auth.uid;
+
+  try {
+    // Verificar que el viaje existe en activeRides
+    const rideSnapshot = await admin.database()
+      .ref(`activeRides/${rideId}`)
+      .once('value');
+
+    const ride = rideSnapshot.val();
+
+    if (!ride) {
+      throw new functions.https.HttpsError('not-found', 'Viaje no encontrado');
+    }
+
+    // Verificar permisos según quién confirma
+    if (confirmedBy === 'driver' && ride.driverId !== userId) {
+      throw new functions.https.HttpsError('permission-denied', 'No tienes permiso para confirmar este pago');
+    }
+    if (confirmedBy === 'client' && ride.clientId !== userId) {
+      throw new functions.https.HttpsError('permission-denied', 'No tienes permiso para confirmar este pago');
+    }
+
+    if (ride.status !== 'pending_payment') {
+      throw new functions.https.HttpsError('failed-precondition', `El viaje no está en estado de pago pendiente. Estado actual: ${ride.status}`);
+    }
+
+    // Obtener estado actual del pago
+    const paymentSnapshot = await admin.database()
+      .ref(`paymentStatus/${rideId}`)
+      .once('value');
+    
+    const currentPayment = paymentSnapshot.val() || {};
+
+    // Actualizar confirmación según quién confirma
+    const updates: any = {
+      lastUpdatedAt: admin.database.ServerValue.TIMESTAMP,
+      lastUpdatedBy: confirmedBy,
+    };
+
+    if (confirmedBy === 'client') {
+      updates.confirmedByClient = true;
+      updates.clientConfirmedAt = admin.database.ServerValue.TIMESTAMP;
+      updates.message = 'Cliente confirmó que realizó el pago';
+      console.log(`✅ Cliente confirmó pago para viaje: ${rideId}`);
+    } else if (confirmedBy === 'driver') {
+      updates.confirmedByDriver = true;
+      updates.driverConfirmedAt = admin.database.ServerValue.TIMESTAMP;
+      updates.finalAmount = amount + tip;
+      updates.tip = tip;
+      updates.message = 'Conductor confirmó que recibió el pago';
+      console.log(`✅ Conductor confirmó pago para viaje: ${rideId}, Total: C$${amount + tip}`);
+    }
+
+    // Actualizar paymentStatus
+    await admin.database().ref(`paymentStatus/${rideId}`).update(updates);
+
+    // Verificar si AMBOS ya confirmaron
+    const bothConfirmed = 
+      (confirmedBy === 'client' && currentPayment.confirmedByDriver) ||
+      (confirmedBy === 'driver' && currentPayment.confirmedByClient);
+
+    if (bothConfirmed) {
+      // AMBOS confirmaron → Completar el viaje
+      console.log(`🎉 AMBOS confirmaron el pago para viaje: ${rideId}`);
+
+      // Actualizar en activeRides (cambiar a pending_rating)
+      await admin.database()
+        .ref(`activeRides/${rideId}`)
+        .update({
+          status: 'pending_rating',
+          paymentConfirmedAt: admin.database.ServerValue.TIMESTAMP,
+          finalAmount: amount,
+          tip: tip,
+          totalAmount: amount + tip,
+          lastUpdate: admin.database.ServerValue.TIMESTAMP,
+        });
+
+      // Marcar paymentStatus como completed
+      await admin.database().ref(`paymentStatus/${rideId}`).update({
+        status: 'completed',
+        confirmedAt: admin.database.ServerValue.TIMESTAMP,
+        message: 'Pago confirmado por cliente y conductor'
+      });
+
+      // Actualizar estadísticas del conductor
+      await admin.database()
+        .ref(`drivers/${ride.driverId}/stats`)
+        .transaction((stats) => {
+          return {
+            totalRides: (stats?.totalRides || 0) + 1,
+            totalEarnings: (stats?.totalEarnings || 0) + amount + tip,
+            lastRideCompletedAt: Date.now()
+          };
+        });
+
+      // Notificar al cliente
+      try {
+        const clientDoc = await admin.firestore().collection('users').doc(ride.clientId).get();
+        const fcmToken = clientDoc.data()?.fcmToken;
+
+        if (fcmToken) {
+          await admin.messaging().send({
+            token: fcmToken,
+            notification: {
+              title: '💰 Pago Confirmado',
+              body: `El pago de C$${(amount + tip).toFixed(2)} fue confirmado. ¡Califica tu experiencia!`,
+            },
+            data: {
+              type: 'payment_confirmed',
+              rideId,
+            },
+          });
+        }
+      } catch (notifError) {
+        console.log('⚠️ Error enviando notificación:', notifError);
+      }
+
+      // ARCHIVAR VIAJE: Guardar en PostgreSQL y limpiar Realtime
+      // Solo cuando AMBOS confirmaron el pago
+      console.log(`📦 Ambos confirmaron - Archivando viaje ${rideId}...`);
+      archiveCompletedRide({
+        ...ride,
+        status: 'completed',
+        completedAt: Date.now(),
+        finalFare: amount,
+        tip: tip,
+        totalAmount: amount + tip,
+        actualDistance: ride.actualDistance || ride.estimatedDistance,
+        actualDuration: ride.actualDuration || ride.estimatedDuration,
+      }, rideId).catch(error => {
+        console.error(`❌ Error archivando viaje ${rideId}:`, error);
+      });
+
+      return { 
+        success: true, 
+        message: 'Pago confirmado por ambas partes',
+        totalAmount: amount + tip,
+        status: 'pending_rating',
+        bothConfirmed: true
+      };
+    } else {
+      // Solo uno confirmó → Esperar al otro
+      return { 
+        success: true, 
+        message: confirmedBy === 'client' 
+          ? 'Confirmación registrada. Esperando confirmación del conductor.'
+          : 'Confirmación registrada. Esperando confirmación del cliente.',
+        status: 'pending_payment',
+        bothConfirmed: false
+      };
+    }
+
+  } catch (error) {
+    console.error('❌ Error confirmando pago:', error);
+    throw new functions.https.HttpsError('internal', `Error confirmando pago: ${error instanceof Error ? error.message : 'Error desconocido'}`);
   }
 });

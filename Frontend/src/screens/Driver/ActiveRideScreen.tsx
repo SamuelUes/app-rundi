@@ -1,15 +1,19 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
-  Alert,
   ActivityIndicator,
-  ScrollView,
+  Alert, // Mantenemos Alert temporalmente para migración gradual
   Linking,
   Platform,
+  Image,
+  ScrollView,
 } from 'react-native';
+
+// Servicio centralizado de alertas
+import alertService from '../../services/alertService';
 import { useTheme } from '../../context/ThemeContext';
 import { MapSkeleton } from '../../components/SkeletonLoader';
 import { AnimatedButton } from '../../components/AnimatedButton';
@@ -23,229 +27,170 @@ import { RideProgressIndicator } from '../../components/RideProgressIndicator';
 import ridesService from '../../services/ridesService';
 import mapsService from '../../services/mapsService';
 import firebaseTrackingService from '../../services/firebaseTrackingService';
-import { getDatabase, ref, onValue, off } from 'firebase/database';
+import { getDatabase, ref, onValue, off, DataSnapshot } from 'firebase/database';
+
+interface RouteParams {
+  rideId: string;
+}
+
+/**
+ * Calcular ruta real usando OpenRouteService (gratuito)
+ * Retorna array de coordenadas que siguen las calles
+ */
+async function calculateRealRoute(
+  startLat: number,
+  startLng: number,
+  endLat: number,
+  endLng: number
+): Promise<Array<{ latitude: number; longitude: number }>> {
+  try {
+    console.log(`🗺️ Calculando ruta de [${startLat}, ${startLng}] a [${endLat}, ${endLng}]`);
+    
+    // Usar OpenRouteService (gratuito, sin API key para uso básico)
+    const url = `https://router.project-osrm.org/route/v1/driving/${startLng},${startLat};${endLng},${endLat}?overview=full&geometries=geojson`;
+    
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+      },
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    if (!data.routes || data.routes.length === 0) {
+      throw new Error('No se encontró ninguna ruta');
+    }
+    
+    // Extraer coordenadas de la geometría
+    const coordinates = data.routes[0].geometry.coordinates;
+    
+    // Convertir de [lng, lat] a { latitude, longitude }
+    const route = coordinates.map((coord: [number, number]) => ({
+      longitude: coord[0],
+      latitude: coord[1],
+    }));
+    
+    console.log(`✅ Ruta calculada con ${route.length} puntos`);
+    return route;
+  } catch (error) {
+    console.error('❌ Error calculando ruta:', error);
+    
+    // Fallback: línea recta
+    return [
+      { latitude: startLat, longitude: startLng },
+      { latitude: endLat, longitude: endLng },
+    ];
+  }
+}
 
 export default function ActiveRideScreen({ route, navigation }: any) {
-  const { rideId } = route.params;
+  const { rideId } = route.params as RouteParams;
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { user } = useAuth();
-  const { coords } = useLocation();
   const [ride, setRide] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [updating, setUpdating] = useState(false);
-  const [rideStartTime, setRideStartTime] = useState<Date | null>(null);
-  const [elapsedTime, setElapsedTime] = useState(0);
-  const [expectedRoute, setExpectedRoute] = useState<Array<{ latitude: number; longitude: number }>>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [rideProgress, setRideProgress] = useState(0);
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'stripe'>('cash');
+  const [updating, setUpdating] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<string | null>(null);
 
-  // Calcular valores constantes
+  // Estado para cliente compartiendo ubicación
+  const [clientLocation, setClientLocation] = useState<{
+    latitude: number;
+    longitude: number;
+    timestamp: number;
+  } | null>(null);
+
+  // Estado para tracking del viaje
+  const [isTracking, setIsTracking] = useState(false);
+  const [rideStartTime, setRideStartTime] = useState<Date | null>(null);
+  const [rideTimer, setRideTimer] = useState(0);
+  const [showDeviationAlert, setShowDeviationAlert] = useState(false);
+  const { coords } = useLocation();
+
+  // Si es designated_driver, hay dos conductores
+  const [isDesignatedDriver, setIsDesignatedDriver] = useState(false);
+  const [designatedDriverConfirmed, setDesignatedDriverConfirmed] = useState(false);
+
+  // Estado para detectar si llegó a la ubicación del cliente
+  const [arrivedAtPickup, setArrivedAtPickup] = useState(false);
+  const [vehicleInspectionCompleted, setVehicleInspectionCompleted] = useState(false);
+
+  // Inicializamos el tracking con false, lo actualizaremos cuando tengamos el estado del viaje
+  const { startTracking, stopTracking, isBackgroundTracking } = useRouteTracking({
+    rideId,
+    isActive: false, // Se actualizará después cuando tengamos el estado del viaje
+    useBackgroundTracking: true
+  });
+
+  // Estados para snapping a la ruta actual
+  const [snapToRoute, setSnapToRoute] = useState(true);
+  const [routePolyline, setRoutePolyline] = useState<any[]>([]);
+
+  // Verificamos si es conductor designado
+  useEffect(() => {
+    if (ride) {
+      setIsDesignatedDriver(Boolean(ride.designatedDriverRide));
+      setDesignatedDriverConfirmed(Boolean(ride.designatedDriverConfirmed));
+    }
+  }, [ride]);
+
+  // Estado derivado para las fases del viaje
   const isPendingConfirm = ride?.status === 'pending_confirm';
   const isAccepted = ride?.status === 'accepted';
   const isInProgress = ride?.status === 'in_progress';
 
-  // Timer del viaje
+  // Cargar datos del viaje desde Firebase
   useEffect(() => {
-    if (!rideStartTime) return;
+    setLoading(true);
+    setLoadError(null);
+    let hasShownConfirmation = false; // Para mostrar alerta solo una vez
 
-    const timer = setInterval(() => {
-      const now = new Date();
-      const diff = Math.floor((now.getTime() - rideStartTime.getTime()) / 1000);
-      setElapsedTime(diff);
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [rideStartTime]);
-
-  // Calcular ruta esperada del conductor
-  useEffect(() => {
-    const calculateRoute = async () => {
-      // Normalizar coordenadas del destino
-      const destLat = ride?.destination?.latitude || ride?.destination?.lat;
-      const destLng = ride?.destination?.longitude || ride?.destination?.lng;
-      
-      if (!coords?.latitude || !coords?.longitude || !destLat || !destLng) {
-        console.log('⏸️ No se puede calcular ruta - faltan coordenadas');
-        return;
-      }
-
-      try {
-        console.log('🛣️ Calculando ruta para viaje activo...');
-        console.log('📍 Origen (conductor):', coords.latitude, coords.longitude);
-        console.log('🎯 Destino:', destLat, destLng);
-
-        let combinedRoute: Array<{ latitude: number; longitude: number }> = [];
-
-        // Normalizar coordenadas del origen
-        const originLat = ride.origin?.latitude || ride.origin?.lat;
-        const originLng = ride.origin?.longitude || ride.origin?.lng;
-
-        // Si el viaje está accepted pero no iniciado, calcular ruta completa conductor → origen → destino
-        if (isAccepted && originLat && originLng) {
-          console.log('📍 Origen del viaje (punto de recogida):', originLat, originLng);
-          console.log('🛣️ Calculando ruta completa: Conductor → Origen → Destino');
-          
-          // Ruta 1: Conductor → Origen (punto de recogida)
-          const route1 = await mapsService.getDirections(
-            { latitude: coords.latitude, longitude: coords.longitude },
-            { latitude: originLat, longitude: originLng }
-          );
-          
-          // Ruta 2: Origen → Destino
-          const route2 = await mapsService.getDirections(
-            { latitude: originLat, longitude: originLng },
-            { latitude: destLat, longitude: destLng }
-          );
-          
-          // Combinar ambas rutas
-          combinedRoute = [
-            ...(route1?.polyline || []),
-            ...(route2?.polyline || [])
-          ];
-          
-          console.log('✅ Ruta completa calculada:', combinedRoute.length, 'puntos');
-        } else {
-          // Viaje in_progress: solo calcular ruta conductor → destino
-          console.log('🛣️ Calculando ruta: Conductor → Destino');
-          const route = await mapsService.getDirections(
-            { latitude: coords.latitude, longitude: coords.longitude },
-            { latitude: destLat, longitude: destLng }
-          );
-          
-          combinedRoute = route?.polyline || [];
-          console.log('✅ Ruta calculada:', combinedRoute.length, 'puntos');
-        }
-
-        if (combinedRoute.length > 0) {
-          setExpectedRoute(combinedRoute);
-        } else {
-          console.log('❌ No se pudo calcular ruta, usando línea recta');
-          setExpectedRoute([
-            { latitude: coords.latitude, longitude: coords.longitude },
-            { latitude: destLat, longitude: destLng }
-          ]);
-        }
-      } catch (error) {
-        console.error('❌ Error calculando ruta para viaje activo:', error);
-        // Fallback: línea recta
-        setExpectedRoute([
-          { latitude: coords.latitude, longitude: coords.longitude },
-          { latitude: destLat, longitude: destLng }
-        ]);
-      }
-    };
-
-    calculateRoute();
-  }, [ride?.destination, coords, isAccepted]);
-
-  // Hook de tracking automático
-  const { isTracking, totalPoints } = useRouteTracking({
-    rideId,
-    isActive: ride?.status === 'in_progress',
-    interval: 5000, // Guardar cada 5 segundos
-  });
-
-  // Calcular progreso del viaje
-  useEffect(() => {
-    if (!ride || !coords || ride.status !== 'in_progress') {
-      setRideProgress(0);
-      return;
-    }
-
-    const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-      const R = 6371e3; // Radio de la Tierra en metros
-      const φ1 = (lat1 * Math.PI) / 180;
-      const φ2 = (lat2 * Math.PI) / 180;
-      const Δφ = ((lat2 - lat1) * Math.PI) / 180;
-      const Δλ = ((lon2 - lon1) * Math.PI) / 180;
-
-      const a =
-        Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-        Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-      return R * c; // Distancia en metros
-    };
-
-    const calculateProgress = () => {
-      const destLat = parseFloat(ride.destination?.lat || ride.destination?.latitude || 0);
-      const destLng = parseFloat(ride.destination?.lng || ride.destination?.longitude || 0);
-      const estimatedDistance = ride.estimatedDistance || 0;
-
-      if (!destLat || !destLng || !estimatedDistance) {
-        return 0;
-      }
-
-      // Calcular distancia restante al destino
-      const remainingDistance = calculateDistance(
-        coords.latitude,
-        coords.longitude,
-        destLat,
-        destLng
-      );
-
-      // Calcular distancia recorrida
-      const traveledDistance = estimatedDistance - remainingDistance;
-
-      // Calcular porcentaje
-      const progress = (traveledDistance / estimatedDistance) * 100;
-
-      // Limitar entre 0 y 100
-      const finalProgress = Math.min(Math.max(progress, 0), 100);
-      
-      console.log('📊 [CONDUCTOR] Progreso calculado:', {
-        estimatedDistance,
-        remainingDistance,
-        traveledDistance,
-        progress,
-        finalProgress
-      });
-      
-      return finalProgress;
-    };
-
-    const progress = calculateProgress();
-    setRideProgress(progress);
-  }, [coords, ride]);
-
-  // Listener en tiempo real para el viaje activo
-  useEffect(() => {
     const db = getDatabase();
     const rideRef = ref(db, `activeRides/${rideId}`);
-    
-    const unsubscribe = onValue(rideRef, async (snapshot) => {
+
+    onValue(rideRef, (snapshot) => {
       const data = snapshot.val();
+      
       if (data) {
-        console.log('🔥 Datos del viaje actualizados desde Firebase:', data);
+        console.log(`🚕 Datos del viaje ${rideId} actualizados:`, data.status);
+        console.log('📦 RIDE COMPLETO:', JSON.stringify(data, null, 2));
+        console.log('🗺️ routeCoordinates?', data.routeCoordinates?.length || 0, 'puntos');
+        console.log('🗺️ route?', data.route?.length || 0, 'puntos');
         setRide(data);
         setLoading(false);
-        
-        // Obtener método de pago desde paymentStatus
+
+        // Si hay datos de pago, obtener método
         try {
-          const paymentStatusRef = ref(db, `paymentStatus/${rideId}`);
-          const paymentSnapshot = await import('firebase/database').then(({ get }) => get(paymentStatusRef));
-          const paymentData = paymentSnapshot.val();
-          
-          if (paymentData?.method) {
-            console.log('💳 Método de pago desde paymentStatus:', paymentData.method);
-            setPaymentMethod(paymentData.method);
+          if (data.payment) {
+            setPaymentMethod(data.payment.method || 'cash');
           } else {
-            console.log('💳 No hay método de pago en paymentStatus, usando default: cash');
             setPaymentMethod('cash');
           }
         } catch (error) {
-          console.log('⚠️ Error leyendo paymentStatus, usando default: cash');
           setPaymentMethod('cash');
+        }
+        
+        // Detectar cuando el cliente confirma el viaje (solo una vez)
+        if (!hasShownConfirmation && data.status === 'accepted' && ride?.status === 'pending_confirm') {
+          hasShownConfirmation = true;
+          alertService.showSuccessAlert(
+            '✅ Cliente Confirmó',
+            'El cliente aceptó el viaje. Dirígete al punto de recogida.'
+          );
         }
 
         // Si el viaje fue cancelado o completado, volver atrás
         if (data.status === 'canceled' || data.status === 'completed') {
-          Alert.alert(
+          alertService.showInfoAlert(
             'Viaje Finalizado',
             `El viaje ha sido ${data.status === 'canceled' ? 'cancelado' : 'completado'}`,
-            [{ text: 'OK', onPress: () => navigation.goBack() }]
+            () => navigation.goBack()
           );
         }
       } else {
@@ -258,29 +203,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
     return () => {
       off(rideRef);
     };
-  }, [rideId]);
-
-  // Listener para detectar cuando el cliente confirma el viaje
-  useEffect(() => {
-    if (!ride || ride.status !== 'pending_confirm') return;
-
-    const db = getDatabase();
-    const rideRef = ref(db, `activeRides/${rideId}`);
-    
-    const unsubscribe = onValue(rideRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data && data.status === 'accepted') {
-        // El cliente confirmó el viaje
-        Alert.alert(
-          '✅ Cliente Confirmó',
-          'El cliente aceptó el viaje. Dirígete al punto de recogida.',
-          [{ text: 'OK' }]
-        );
-      }
-    });
-
-    return () => off(rideRef);
-  }, [ride?.status, rideId]);
+  }, [rideId]); // Solo depende de rideId, no de ride
 
   // Timer del viaje
   useEffect(() => {
@@ -288,137 +211,325 @@ export default function ActiveRideScreen({ route, navigation }: any) {
 
     const timer = setInterval(() => {
       const now = new Date();
-      const diff = Math.floor((now.getTime() - rideStartTime.getTime()) / 1000);
-      setElapsedTime(diff);
+      const elapsed = Math.floor((now.getTime() - rideStartTime.getTime()) / 1000);
+      setRideTimer(elapsed);
     }, 1000);
 
     return () => clearInterval(timer);
   }, [rideStartTime]);
 
+  // Escuchar ubicación del cliente en tiempo real
+  useEffect(() => {
+    if (!rideId) return;
 
-  const handleStartRide = async () => {
+    const db = getDatabase();
+    const clientLocationRef = ref(db, `rideLocations/${rideId}/client`);
+
+    onValue(clientLocationRef, (snapshot) => {
+      const locationData = snapshot.val();
+      if (locationData && locationData.latitude && locationData.longitude) {
+        setClientLocation({
+          latitude: locationData.latitude,
+          longitude: locationData.longitude,
+          timestamp: locationData.timestamp || Date.now(),
+        });
+      }
+    });
+
+    return () => {
+      off(clientLocationRef);
+    };
+  }, [rideId]);
+
+  // Usar ruta precalculada del backend o calcular si no existe
+  useEffect(() => {
+    const setupRoute = async () => {
+      if (!coords || !ride) {
+        console.log('⚠️ No hay coordenadas o ride disponible');
+        return;
+      }
+      
+      console.log('🗺️ Configurando ruta...');
+      console.log('🚗 ride status:', ride?.status);
+      console.log('🎯 isAccepted:', isAccepted, 'isInProgress:', isInProgress);
+      console.log('📦 Datos completos del ride:', JSON.stringify(ride, null, 2));
+      
+      // PRIORIDAD 1: Usar ruta precalculada del backend si existe
+      if (ride.routeCoordinates && Array.isArray(ride.routeCoordinates) && ride.routeCoordinates.length > 0) {
+        console.log('✅ Usando ruta precalculada del backend:', ride.routeCoordinates.length, 'puntos');
+        setRoutePolyline(ride.routeCoordinates);
+        setLoadError(null);
+        return;
+      }
+      
+      console.log('⚠️ No hay ruta precalculada en ride.routeCoordinates');
+      console.log('🔍 Verificando si existe en ride.route:', ride.route);
+      
+      // Verificar formatos alternativos
+      if (ride.route && Array.isArray(ride.route) && ride.route.length > 0) {
+        console.log('✅ Encontrada ruta en ride.route:', ride.route.length, 'puntos');
+        setRoutePolyline(ride.route);
+        setLoadError(null);
+        return;
+      }
+      
+      console.log('⚠️ No hay ruta del backend, calculando ruta real...');
+      
+      // Validar que todas las coordenadas necesarias existan
+      const validateCoords = (lat: any, lng: any, label: string): boolean => {
+        if (typeof lat !== 'number' || typeof lng !== 'number') {
+          console.error(`❌ Coordenadas inválidas para ${label}:`, { lat, lng });
+          return false;
+        }
+        if (isNaN(lat) || isNaN(lng)) {
+          console.error(`❌ Coordenadas NaN para ${label}:`, { lat, lng });
+          return false;
+        }
+        if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+          console.error(`❌ Coordenadas fuera de rango para ${label}:`, { lat, lng });
+          return false;
+        }
+        return true;
+      };
+      
+      // CALCULAR RUTA REAL usando OpenRouteService
+      try {
+        const originLat = ride.origin?.lat || ride.origin?.latitude;
+        const originLng = ride.origin?.lng || ride.origin?.longitude;
+        const destLat = ride.destination?.lat || ride.destination?.latitude;
+        const destLng = ride.destination?.lng || ride.destination?.longitude;
+        
+        if (!validateCoords(originLat, originLng, 'Origen') || 
+            !validateCoords(destLat, destLng, 'Destino') ||
+            !validateCoords(coords.latitude, coords.longitude, 'Conductor')) {
+          setLoadError('Coordenadas inválidas');
+          return;
+        }
+        
+        // Calcular ruta real
+        if (isAccepted) {
+          // Conductor → Origen → Destino (dos segmentos)
+          console.log('🗺️ Calculando ruta: Conductor → Origen → Destino');
+          
+          // Segmento 1: Conductor → Origen
+          const route1 = await calculateRealRoute(
+            coords.latitude, coords.longitude,
+            originLat, originLng
+          );
+          
+          // Segmento 2: Origen → Destino
+          const route2 = await calculateRealRoute(
+            originLat, originLng,
+            destLat, destLng
+          );
+          
+          // Combinar ambas rutas
+          const fullRoute = [...route1, ...route2];
+          setRoutePolyline(fullRoute);
+          console.log('✅ Ruta real calculada:', fullRoute.length, 'puntos');
+        } else if (isInProgress) {
+          // Conductor → Destino
+          console.log('🗺️ Calculando ruta: Conductor → Destino');
+          const route = await calculateRealRoute(
+            coords.latitude, coords.longitude,
+            destLat, destLng
+          );
+          setRoutePolyline(route);
+          console.log('✅ Ruta real calculada:', route.length, 'puntos');
+        }
+        
+        setLoadError(null);
+      } catch (error: any) {
+        console.error('❌ Error calculando ruta:', error);
+        
+        // FALLBACK: Si falla el cálculo, usar líneas rectas
+        console.log('⚠️ Usando líneas rectas como fallback');
+        try {
+          const originLat = ride.origin?.lat || ride.origin?.latitude;
+          const originLng = ride.origin?.lng || ride.origin?.longitude;
+          const destLat = ride.destination?.lat || ride.destination?.latitude;
+          const destLng = ride.destination?.lng || ride.destination?.longitude;
+          
+          if (isAccepted) {
+            const straightLineRoute = [
+              { latitude: coords.latitude, longitude: coords.longitude },
+              { latitude: originLat, longitude: originLng },
+              { latitude: destLat, longitude: destLng },
+            ];
+            setRoutePolyline(straightLineRoute);
+          } else if (isInProgress) {
+            const straightLineRoute = [
+              { latitude: coords.latitude, longitude: coords.longitude },
+              { latitude: destLat, longitude: destLng },
+            ];
+            setRoutePolyline(straightLineRoute);
+          }
+        } catch (fallbackError) {
+          console.error('❌ Error en fallback:', fallbackError);
+          setLoadError('Error al crear la ruta');
+        }
+      }
+    };
+
+    setupRoute();
+  }, [ride, coords]); // Ejecutar cuando cambie el viaje o las coordenadas
+
+  // Iniciar/detener tracking según estado del viaje
+  useEffect(() => {
+    if (isInProgress && !isTracking && coords) {
+      console.log('🛰️ Iniciando tracking de ubicación en primer plano');
+      startTracking(rideId);
+      setIsTracking(true);
+
+      // Nota: el tracking en background se maneja internamente en useRouteTracking
+    } else if (!isInProgress && isTracking) {
+      console.log('🛑 Deteniendo tracking de ubicación');
+      stopTracking();
+      setIsTracking(false);
+      
+      // Nota: el tracking en background se detiene automáticamente
+    }
+  }, [isInProgress, isTracking, coords, startTracking, rideId]); // Quitar stopBackgroundTracking de las dependencias de useEffect
+
+  // Detectar si llegó a la ubicación del cliente
+  useEffect(() => {
+    if (isAccepted && coords && ride?.origin) {
+      // Calcular distancia usando Haversine
+      const R = 6371; // Radio de la Tierra en km
+      const dLat = (ride.origin.latitude - coords.latitude) * Math.PI / 180;
+      const dLon = (ride.origin.longitude - coords.longitude) * Math.PI / 180;
+      const a = 
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(coords.latitude * Math.PI / 180) * Math.cos(ride.origin.latitude * Math.PI / 180) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      const distance = R * c;
+      
+      // Si está a menos de 100 metros del origen, marcarlo como llegado
+      if (distance < 0.1) { // 0.1 km = 100 metros
+        setArrivedAtPickup(true);
+      } else {
+        setArrivedAtPickup(false);
+      }
+    }
+  }, [coords, isAccepted, ride]);
+
+  // Función para verificar si el vehículo necesita inspección
+  const needsVehicleInspection = () => {
+    return isDesignatedDriver && isInProgress && !designatedDriverConfirmed;
+  };
+
+  // Función para abrir inspección del vehículo
+  const handleInspectVehicle = () => {
+    if (!isDesignatedDriver || !ride) return;
+    
+    navigation.navigate('VehicleInspection', {
+      rideId: rideId,
+      clientName: ride.clientName,
+      clientVehicleInfo: {
+        brand: ride.clientVehicle?.brand,
+        model: ride.clientVehicle?.model,
+        color: ride.clientVehicle?.color,
+        plate: ride.clientVehicle?.plate,
+      }
+    });
+  };
+
+   // Iniciar viaje
+   const handleStartRide = async () => {
     try {
       setUpdating(true);
+      
+      // Verificar si necesita inspección del vehículo (solo para conductores designados)
+      if (needsVehicleInspection()) {
+        // Navegar a la pantalla de inspección
+        navigation.navigate('VehicleInspection', {
+          rideId,
+          clientName: ride?.client?.name || 'Cliente'
+        });
+        setUpdating(false);
+        return;
+      }
+      
+      // Iniciar viaje normalmente
       await ridesService.updateRideStatus(rideId, 'in_progress');
       setRideStartTime(new Date());
-      Alert.alert('¡Viaje Iniciado!', 'El viaje ha comenzado');
+      alertService.showSuccessAlert('¡Viaje Iniciado!', 'El viaje ha comenzado');
       // Firebase listener actualizará automáticamente
-    } catch (error: any) {
-      Alert.alert('Error', error.response?.data?.message || 'No se pudo iniciar el viaje');
+    } catch (error) {
+      alertService.showErrorAlert('No se pudo iniciar el viaje');
+      console.error('Error al iniciar viaje:', error);
     } finally {
       setUpdating(false);
     }
   };
 
   const handleCompleteRide = async () => {
-    Alert.alert(
+    alertService.showConfirmAlert(
       'Completar Viaje',
       '¿Has llegado al destino?',
-      [
-        { text: 'No', style: 'cancel' },
-        {
-          text: 'Sí, completar',
-          onPress: async () => {
-            try {
-              setUpdating(true);
-              
-              // Calcular datos del viaje completado
-              const finalFare = ride?.finalFare || ride?.estimatedPrice || 0;
-              const actualDistance = ride?.estimatedDistance || 0;
-              const actualDuration = ride?.estimatedDuration || 0;
-              
-              await ridesService.updateRideStatus(rideId, 'completed', {
-                finalFare,
-                actualDistance,
-                actualDuration,
-              });
-              
-              // Escuchar paymentStatus para navegar según método de pago
-              const { getDatabase, ref: dbRef, onValue } = await import('firebase/database');
-              const { initializeFirebase } = await import('../../config/firebase');
-              
-              const { app } = await initializeFirebase();
-              if (!app) {
-                navigation.goBack();
-                return;
-              }
-              
-              const db = getDatabase(app);
-              const paymentStatusRef = dbRef(db, `paymentStatus/${rideId}`);
-              
-              const unsubscribe = onValue(paymentStatusRef, (snapshot) => {
-                const paymentData = snapshot.val();
-                
-                if (paymentData) {
-                  const { method, status } = paymentData;
-                  
-                  // Navegar según método de pago
-                  if (method === 'cash' && (status === 'pending_confirmation' || status === 'pending_cash_payment')) {
-                    unsubscribe();
-                    navigation.replace('ConfirmCashPayment', {
-                      rideId,
-                      amount: finalFare,
-                      tip: paymentData.tip || 0,
-                      clientName: ride?.client?.name || 'Cliente',
-                    });
-                  } else if ((method === 'card' || method === 'stripe') && status === 'pending_capture') {
-                    unsubscribe();
-                    navigation.replace('WaitingPayment', {
-                      rideId,
-                      amount: finalFare,
-                      clientName: ride?.client?.name || 'Cliente',
-                    });
-                  }
-                }
-              });
-              
-              // Timeout de seguridad (10 segundos)
-              setTimeout(() => {
-                unsubscribe();
-                Alert.alert(
-                  '¡Viaje Completado!',
-                  'El cliente realizará el pago. Puedes continuar con otros viajes.',
-                  [{ text: 'OK', onPress: () => navigation.replace('AvailableRides') }]
-                );
-              }, 10000);
-            } catch (error: any) {
-              console.error('Error completando viaje:', error);
-              Alert.alert('Error', error.message || 'No se pudo completar el viaje');
-            } finally {
-              setUpdating(false);
-            }
-          },
-        },
-      ]
+      async () => {
+        try {
+          setUpdating(true);
+          console.log('🏁 [ActiveRideScreen] Completando viaje:', rideId);
+          
+          // Calcular datos del viaje completado
+          const finalFare = ride?.finalFare || ride?.estimatedPrice || 0;
+          const actualDistance = ride?.estimatedDistance || 0;
+          const actualDuration = ride?.estimatedDuration || 0;
+          
+          console.log('💰 [ActiveRideScreen] Datos del viaje:', { finalFare, actualDistance, actualDuration, paymentMethod });
+          
+          // IMPORTANTE: Cambiar a 'pending_payment' en lugar de 'completed'
+          // El viaje solo se marca como 'completed' cuando el pago se confirma
+          await ridesService.updateRideStatus(rideId, 'pending_payment', {
+            finalFare,
+            actualDistance,
+            actualDuration,
+            completedAt: Date.now(),
+          });
+          
+          console.log('✅ [ActiveRideScreen] Viaje actualizado a pending_payment');
+          
+          // Navegar a pantalla unificada de confirmación de pago
+          console.log(`💳 [ActiveRideScreen] Navegando a PaymentConfirmation con método: ${paymentMethod}`);
+          alertService.showSuccessAlert('¡Viaje Completado!', 'Procede con la confirmación del pago');
+          navigation.replace('PaymentConfirmation', { 
+            rideId, 
+            amount: finalFare,
+            tip: 0,
+            clientName: ride?.clientName || 'Cliente',
+            paymentMethod: paymentMethod as 'cash' | 'card'
+          }); 
+        } catch (error: any) {
+          console.error('Error completando viaje:', error);
+          alertService.showErrorAlert(error.message || 'No se pudo completar el viaje');
+        } finally {
+          setUpdating(false);
+        }
+      }
     );
   };
 
   const handleCancelRide = () => {
-    Alert.alert(
+    alertService.showConfirmAlert(
       'Cancelar Viaje',
       '¿Estás seguro que deseas cancelar este viaje?',
-      [
-        { text: 'No', style: 'cancel' },
-        {
-          text: 'Sí, cancelar',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              setUpdating(true);
-              await ridesService.cancelRide(rideId, 'Cancelado por el conductor');
-              Alert.alert(
-                'Viaje Cancelado',
-                'El viaje ha sido cancelado',
-                [{ text: 'OK', onPress: () => navigation.goBack() }]
-              );
-            } catch (error: any) {
-              Alert.alert('Error', error.response?.data?.message || 'No se pudo cancelar el viaje');
-            } finally {
-              setUpdating(false);
-            }
-          },
-        },
-      ]
+      async () => {
+        try {
+          setUpdating(true);
+          await ridesService.cancelRide(rideId, 'Cancelado por el conductor');
+          alertService.showSuccessAlert(
+            'Viaje Cancelado',
+            'El viaje ha sido cancelado',
+            () => navigation.goBack()
+          );
+        } catch (error: any) {
+          alertService.showErrorAlert(error.response?.data?.message || 'No se pudo cancelar el viaje');
+        } finally {
+          setUpdating(false);
+        }
+      }
     );
   };
 
@@ -432,7 +543,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
 
   const handleCallClient = () => {
     if (!ride?.client?.phone) {
-      Alert.alert('Error', 'No hay número de teléfono disponible');
+      alertService.showErrorAlert('No hay número de teléfono disponible');
       return;
     }
 
@@ -442,7 +553,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
         if (supported) {
           return Linking.openURL(phoneUrl);
         } else {
-          Alert.alert('Error', 'No se puede realizar la llamada');
+          alertService.showErrorAlert('No se puede realizar la llamada');
         }
       })
       .catch((err) => console.error('Error al llamar:', err));
@@ -453,7 +564,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
 
     if (!coords || !coords.latitude || !coords.longitude) {
       console.log('❌ Error: Ubicación actual del conductor no disponible');
-      Alert.alert('Error', 'No se puede determinar tu ubicación actual. Verifica que el GPS esté activado.');
+      alertService.showErrorAlert('No se puede determinar tu ubicación actual. Verifica que el GPS esté activado.');
       return;
     }
 
@@ -471,7 +582,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
       navigationMessage = 'Ruta desde tu ubicación actual hasta el destino final';
     } else {
       console.log('❌ Error: Estado del viaje inválido para navegación');
-      Alert.alert('Error', 'El estado del viaje no permite navegación GPS.');
+      alertService.showErrorAlert('El estado del viaje no permite navegación GPS.');
       return;
     }
 
@@ -481,436 +592,475 @@ export default function ActiveRideScreen({ route, navigation }: any) {
 
     if (!destination || !destLat || !destLng) {
       console.log('❌ Error: Destino no válido:', destination);
-      Alert.alert('Error', 'Información de destino incompleta.');
+      alertService.showErrorAlert('Información de destino incompleta.');
       return;
     }
 
     const currentLat = coords.latitude;
     const currentLng = coords.longitude;
 
-    // Determinar el destino final y waypoints basado en el estado del viaje
-    let finalDestination;
-    let waypoints = '';
-    let routeDescription = '';
+     // Determinar el destino final y waypoints basado en el estado del viaje
+     let finalDestination;
+     let waypoints = '';
+     let routeDescription = '';
+ 
+     if (isAccepted) {
+       // Viaje aceptado: ruta desde ubicación actual → origen del viaje → destino del viaje
+       finalDestination = ride.destination; // Destino final del viaje
+       waypoints = `${destLat},${destLng}`; // Origen del viaje como waypoint
+       routeDescription = `Ruta completa: Tu ubicación → Punto de recogida → Destino final`;
+     } else if (isInProgress) {
+       // Viaje en progreso: ruta desde ubicación actual → destino del viaje
+       finalDestination = ride.destination;
+       waypoints = '';
+       routeDescription = `Ruta desde tu ubicación actual hasta el destino final`;
+     } else {
+       console.log('❌ Error: Estado del viaje inválido para navegación');
+       alertService.showErrorAlert('El estado del viaje no permite navegación GPS.');
+       return;
+     }
+ 
+     // Normalizar coordenadas del destino final
+     const finalDestLat = finalDestination?.latitude || finalDestination?.lat;
+     const finalDestLng = finalDestination?.longitude || finalDestination?.lng;
+ 
+     console.log('📍 Coordenadas finales:', {
+       currentLat,
+       currentLng,
+       waypointLat: isAccepted ? destLat : null,
+       waypointLng: isAccepted ? destLng : null,
+       finalDestLat,
+       finalDestLng,
+       destinationType: isAccepted ? 'viaje accepted con waypoint' : 'viaje in_progress'
+     });
+ 
+     // Validar coordenadas del destino final
+     if (!finalDestLat || !finalDestLng || !currentLat || !currentLng) {
+       console.log('❌ Coordenadas inválidas:', { currentLat, currentLng, finalDestLat, finalDestLng });
+       alertService.showErrorAlert('Coordenadas inválidas para navegación');
+       return;
+     }
+ 
+     console.log('✅ Coordenadas válidas, procediendo con navegación');
+ 
+     // Agregar paradas adicionales si existen
+     if (ride.extraDestinations && ride.extraDestinations.length > 0) {
+       const extraWaypoints = ride.extraDestinations
+         .map((stop: any) => `${stop.lat},${stop.lng}`)
+         .join('|');
+       waypoints = waypoints ? `${waypoints}|${extraWaypoints}` : extraWaypoints;
+     }
+ 
+     const stopsText = ride.extraDestinations && ride.extraDestinations.length > 0
+       ? `\n\n📍 Paradas adicionales: ${ride.extraDestinations.length}`
+       : '';
+ 
+     // Usar el servicio centralizado para mostrar opciones de navegación
+     alertService.showOptionsAlert(
+       'Navegar con GPS',
+       `${routeDescription}${stopsText}`,
+       [
+         {
+           text: '🗺️ Google Maps',
+           onPress: async () => {
+             try {
+               // Crear URLs para Google Maps
+               const navigationUrl = Platform.select({
+                 ios: `comgooglemaps://?saddr=${currentLat},${currentLng}&daddr=${finalDestLat},${finalDestLng}${waypoints ? `&waypoints=${waypoints}` : ''}&directionsmode=driving`,
+                 android: `google.navigation:q=${finalDestLat},${finalDestLng}${waypoints ? `&waypoints=${waypoints}` : ''}&mode=d`,
+               }) || '';
+               
+               const fallbackUrl = `https://www.google.com/maps/dir/?api=1&origin=${currentLat},${currentLng}&destination=${finalDestLat},${finalDestLng}${waypoints ? `&waypoints=${waypoints}` : ''}&travelmode=driving`;
+               
+               // Usar el servicio para guardar estado y mostrar instrucciones
+               await alertService.showExternalNavAlert(
+                 'Cuando vuelvas a la app, presiona "Ver Viajes Disponibles" y luego "Viajes Activos" para regresar a este viaje.',
+                 'ACTIVE_RIDE_ID',
+                 rideId,
+                 () => {
+                   // Navegar a Google Maps
+                   console.log('🗺️ Abriendo navegación en Google Maps');
+                   Linking.canOpenURL(navigationUrl).then((supported) => {
+                     Linking.openURL(supported ? navigationUrl : fallbackUrl);
+                   }).catch(() => Linking.openURL(fallbackUrl));
+                 }
+               );
+             } catch (error) {
+               console.error('Error iniciando navegación:', error);
+             }
+           }
+         },
+         {
+           text: '🚗 Waze',
+           onPress: () => {
+             // Waze no soporta waypoints, solo destino final
+             const wazeUrl = `waze://?ll=${finalDestLat},${finalDestLng}&navigate=yes`;
+             const wazeFallbackUrl = `https://www.waze.com/ul?ll=${finalDestLat},${finalDestLng}&navigate=yes`;
+             
+             console.log('🚗 Waze URL:', wazeUrl);
+             
+             Linking.canOpenURL(wazeUrl).then((supported) => {
+               if (supported) {
+                 Linking.openURL(wazeUrl);
+               } else {
+                 Linking.openURL(wazeFallbackUrl);
+               }
+             });
+           }
+         },
+         { text: 'Cancelar', style: 'cancel' }
+       ]
+     );
+   };
+ 
+   const formatTime = (seconds: number): string => {
+     const mins = Math.floor(seconds / 60);
+     const secs = seconds % 60;
+     return `${mins}:${secs.toString().padStart(2, '0')}`;
+   };
+ 
+   if (loading || !ride) {
+     return (
+       <View style={styles.loadingContainer}>
+         <ActivityIndicator size="large" color="#000" />
+         <Text style={styles.loadingText}>
+           {loading ? 'Cargando detalles...' : 'Esperando datos del viaje...'}
+         </Text>
+         {loadError && (
+           <Text style={[styles.loadingText, { color: '#f44336', marginTop: 10 }]}>
+             {loadError}
+           </Text>
+         )}
+       </View>
+     );
+   }
+ 
+   // Validar que el ride tenga las propiedades necesarias
+   if (!ride.origin || !ride.destination) {
+     return (
+       <View style={styles.loadingContainer}>
+         <Text style={[styles.loadingText, { color: '#f44336' }]}>
+           Error: El viaje no tiene información completa de origen o destino.
+         </Text>
+         <TouchableOpacity
+           style={[styles.primaryButton, { marginTop: 20 }]}
+           onPress={() => {
+             setLoadError(null);
+             setLoading(true);
+             // Firebase listener reintentará automáticamente
+           }}
+         >
+           <Text style={styles.primaryButtonText}>Reintentar</Text>
+         </TouchableOpacity>
+       </View>
+     );
+   }
+ 
+   // Pantalla de espera cuando está pending_confirm
+   if (isPendingConfirm) {
+     return (
+       <View style={styles.container}>
+         <View style={styles.waitingContainer}>
+           <Text style={styles.waitingIcon}>⏳</Text>
+           <Text style={styles.waitingTitle}>Esperando Confirmación</Text>
+           <Text style={styles.waitingText}>
+             El cliente está revisando tu oferta.{'\n'}
+             Te notificaremos cuando confirme el viaje.
+           </Text>
+           
+           <View style={styles.waitingCard}>
+             <Text style={styles.waitingCardTitle}>📍 Detalles del Viaje</Text>
+             <View style={styles.waitingDetail}>
+               <Text style={styles.waitingDetailLabel}>Origen:</Text>
+               <Text style={styles.waitingDetailValue}>{ride?.origin?.address || 'N/A'}</Text>
+             </View>
+             <View style={styles.waitingDetail}>
+               <Text style={styles.waitingDetailLabel}>Destino:</Text>
+               <Text style={styles.waitingDetailValue}>{ride?.destination?.address || 'N/A'}</Text>
+             </View>
+             <View style={styles.waitingDetail}>
+               <Text style={styles.waitingDetailLabel}>Precio:</Text>
+               <Text style={styles.waitingDetailValue}>C${ride?.finalFare || ride?.estimatedPrice || 0}</Text>
+             </View>
+           </View>
+ 
+           {/* Nota informativa en lugar del botón */}
+           <View style={styles.infoNote}>
+             <Text style={styles.infoNoteText}>
+               💡 Permanece en esta pantalla hasta que el cliente confirme o rechace tu oferta.
+             </Text>
+           </View> 
+         </View>
+       </View>
+     );
+   }
 
-    if (isAccepted) {
-      // Viaje aceptado: ruta desde ubicación actual → origen del viaje → destino del viaje
-      finalDestination = ride.destination; // Destino final del viaje
-      waypoints = `${destLat},${destLng}`; // Origen del viaje como waypoint
-      routeDescription = `Ruta completa: Tu ubicación → Punto de recogida → Destino final`;
-    } else if (isInProgress) {
-      // Viaje en progreso: ruta desde ubicación actual → destino del viaje
-      finalDestination = ride.destination;
-      waypoints = '';
-      routeDescription = `Ruta desde tu ubicación actual hasta el destino final`;
-    } else {
-      console.log('❌ Error: Estado del viaje inválido para navegación');
-      Alert.alert('Error', 'El estado del viaje no permite navegación GPS.');
-      return;
-    }
-
-    // Normalizar coordenadas del destino final
-    const finalDestLat = finalDestination?.latitude || finalDestination?.lat;
-    const finalDestLng = finalDestination?.longitude || finalDestination?.lng;
-
-    console.log('📍 Coordenadas finales:', {
-      currentLat,
-      currentLng,
-      waypointLat: isAccepted ? destLat : null,
-      waypointLng: isAccepted ? destLng : null,
-      finalDestLat,
-      finalDestLng,
-      destinationType: isAccepted ? 'viaje accepted con waypoint' : 'viaje in_progress'
-    });
-
-    // Validar coordenadas del destino final
-    if (!finalDestLat || !finalDestLng || !currentLat || !currentLng) {
-      console.log('❌ Coordenadas inválidas:', { currentLat, currentLng, finalDestLat, finalDestLng });
-      Alert.alert('Error', 'Coordenadas inválidas para navegación');
-      return;
-    }
-
-    console.log('✅ Coordenadas válidas, procediendo con navegación');
-
-    // Agregar paradas adicionales si existen
-    if (ride.extraDestinations && ride.extraDestinations.length > 0) {
-      const extraWaypoints = ride.extraDestinations
-        .map((stop: any) => `${stop.lat},${stop.lng}`)
-        .join('|');
-      waypoints = waypoints ? `${waypoints}|${extraWaypoints}` : extraWaypoints;
-    }
-
-    const stopsText = ride.extraDestinations && ride.extraDestinations.length > 0
-      ? `\n\n📍 Paradas adicionales: ${ride.extraDestinations.length}`
-      : '';
-
-    Alert.alert(
-      'Navegar con GPS',
-      `${routeDescription}${stopsText}`,
-      [
-        {
-          text: '🗺️ Google Maps',
-          onPress: () => {
-            // URL para Google Maps: desde ubicación actual hasta destino (con waypoints si es viaje accepted)
-            const url = Platform.select({
-              ios: `comgooglemaps://?saddr=${currentLat},${currentLng}&daddr=${finalDestLat},${finalDestLng}${waypoints ? `&waypoints=${waypoints}` : ''}&directionsmode=driving`,
-              android: `google.navigation:q=${finalDestLat},${finalDestLng}${waypoints ? `&waypoints=${waypoints}` : ''}&mode=d`,
-            });
-
-            const fallbackUrl = `https://www.google.com/maps/dir/?api=1&origin=${currentLat},${currentLng}&destination=${finalDestLat},${finalDestLng}${waypoints ? `&waypoints=${waypoints}` : ''}&travelmode=driving`;
-
-            console.log('🗺️ URLs generadas:', { url, fallbackUrl, waypoints });
-
-            Linking.canOpenURL(url || fallbackUrl).then((supported) => {
-              console.log('📱 App soportada:', supported);
-              Linking.openURL(supported && url ? url : fallbackUrl);
-            });
-          },
-        },
-        {
-          text: '🚗 Waze',
-          onPress: () => {
-            // Waze no soporta waypoints, solo destino final
-            const url = `waze://?ll=${finalDestLat},${finalDestLng}&navigate=yes`;
-            console.log('🚗 Waze URL:', url);
-            Linking.canOpenURL(url).then((supported) => {
-              if (supported) {
-                Linking.openURL(url);
-              } else {
-                Linking.openURL(`https://www.waze.com/ul?ll=${finalDestLat},${finalDestLng}&navigate=yes`);
-              }
-            });
-          },
-        },
-        { text: 'Cancelar', style: 'cancel' },
-      ]
-    );
-  };
-
-  const formatTime = (seconds: number): string => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  if (loading || !ride) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#000" />
-        <Text style={styles.loadingText}>
-          {loading ? 'Cargando detalles...' : 'Esperando datos del viaje...'}
-        </Text>
-        {loadError && (
-          <Text style={[styles.loadingText, { color: '#f44336', marginTop: 10 }]}>
-            {loadError}
-          </Text>
-        )}
-      </View>
-    );
-  }
-
-  // Validar que el ride tenga las propiedades necesarias
-  if (!ride.origin || !ride.destination) {
-    return (
-      <View style={styles.loadingContainer}>
-        <Text style={[styles.loadingText, { color: '#f44336' }]}>
-          Error: El viaje no tiene información completa de origen o destino.
-        </Text>
-        <TouchableOpacity
-          style={[styles.primaryButton, { marginTop: 20 }]}
-          onPress={() => {
-            setLoadError(null);
-            setLoading(true);
-            // Firebase listener reintentará automáticamente
-          }}
-        >
-          <Text style={styles.primaryButtonText}>Reintentar</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  // Pantalla de espera cuando está pending_confirm
-  if (isPendingConfirm) {
-    return (
-      <View style={styles.container}>
-        <View style={styles.waitingContainer}>
-          <Text style={styles.waitingIcon}>⏳</Text>
-          <Text style={styles.waitingTitle}>Esperando Confirmación</Text>
-          <Text style={styles.waitingText}>
-            El cliente está revisando tu oferta.{'\n'}
-            Te notificaremos cuando confirme el viaje.
-          </Text>
-          
-          <View style={styles.waitingCard}>
-            <Text style={styles.waitingCardTitle}>📍 Detalles del Viaje</Text>
-            <View style={styles.waitingDetail}>
-              <Text style={styles.waitingDetailLabel}>Origen:</Text>
-              <Text style={styles.waitingDetailValue}>{ride?.origin?.address || 'N/A'}</Text>
-            </View>
-            <View style={styles.waitingDetail}>
-              <Text style={styles.waitingDetailLabel}>Destino:</Text>
-              <Text style={styles.waitingDetailValue}>{ride?.destination?.address || 'N/A'}</Text>
-            </View>
-            <View style={styles.waitingDetail}>
-              <Text style={styles.waitingDetailLabel}>Precio:</Text>
-              <Text style={styles.waitingDetailValue}>C${ride?.finalFare || ride?.estimatedPrice || 0}</Text>
-            </View>
-          </View>
-
-          {/* Nota informativa en lugar del botón */}
-          <View style={styles.infoNote}>
-            <Text style={styles.infoNoteText}>
-              💡 Permanece en esta pantalla hasta que el cliente confirme o rechace tu oferta.
-            </Text>
-          </View> 
-        </View>
-      </View>
-    );
-  }
-
-  return (
     <View style={styles.container}>
       {/* Mapa */}
-      {coords && ride && (
-        <View style={styles.mapContainer}>
+      <View style={styles.mapContainer}>
+        {coords ? (
           <DynamicMap
+            // Props según la interfaz DynamicMapProps
             latitude={coords.latitude}
             longitude={coords.longitude}
-            style={styles.map}
             showMarker={true}
-            markerPosition={coords}
+            markerPosition={{ latitude: coords.latitude, longitude: coords.longitude }}
             markerType="car"
-            originMarker={ride.origin ? { 
-              latitude: ride.origin.latitude || ride.origin.lat, 
-              longitude: ride.origin.longitude || ride.origin.lng 
+            clientMarker={clientLocation ? {
+              latitude: clientLocation.latitude,
+              longitude: clientLocation.longitude
             } : undefined}
-            clientMarker={ride.origin ? { 
-              latitude: ride.origin.latitude || ride.origin.lat, 
-              longitude: ride.origin.longitude || ride.origin.lng 
+            originMarker={isAccepted && ride?.origin ? {
+              latitude: ride.origin.lat || ride.origin.latitude,
+              longitude: ride.origin.lng || ride.origin.longitude
             } : undefined}
-            routeCoordinates={expectedRoute.length > 0 ? expectedRoute : (
-              (ride?.destination?.latitude || ride?.destination?.lat) && (ride?.destination?.longitude || ride?.destination?.lng) && coords ? (
-                isAccepted && (ride?.origin?.latitude || ride?.origin?.lat) && (ride?.origin?.longitude || ride?.origin?.lng) ? [
-                  { latitude: coords.latitude, longitude: coords.longitude }, // Ubicación conductor
-                  { latitude: ride.origin.latitude || ride.origin.lat, longitude: ride.origin.longitude || ride.origin.lng }, // Origen del viaje
-                  { latitude: ride.destination.latitude || ride.destination.lat, longitude: ride.destination.longitude || ride.destination.lng } // Destino del viaje
-                ] : [
-                  { latitude: coords.latitude, longitude: coords.longitude }, // Ubicación conductor
-                  { latitude: ride.destination.latitude || ride.destination.lat, longitude: ride.destination.longitude || ride.destination.lng } // Destino del viaje
-                ]
-              ) : undefined
-            )}
+            destinationMarker={ride?.destination ? {
+              latitude: ride.destination.lat || ride.destination.latitude,
+              longitude: ride.destination.lng || ride.destination.longitude
+            } : undefined}
+            routeCoordinates={snapToRoute ? routePolyline : []}
           />
-        </View>
+        ) : (
+          <MapSkeleton />
+        )}
+        
+        {/* Banner de error si la ruta falló */}
+        {loadError && routePolyline.length === 0 && (
+          <View style={styles.errorBanner}>
+            <Text style={styles.errorBannerIcon}>⚠️</Text>
+            <View style={styles.errorBannerContent}>
+              <Text style={styles.errorBannerTitle}>Sin ruta calculada</Text>
+              <Text style={styles.errorBannerText}>
+                Usa el botón "Navegar" para abrir Google Maps
+              </Text>
+            </View>
+          </View>
+        )}
+      </View>
+
+      {/* Botón flotante para controlar snap a la ruta */}
+      {routePolyline.length > 0 && (
+        <TouchableOpacity
+          style={[styles.snapButton, snapToRoute ? styles.snapActive : styles.snapInactive]}
+          onPress={() => setSnapToRoute(!snapToRoute)}
+        >
+          <Text style={snapToRoute ? styles.snapActiveText : styles.snapInactiveText}>
+            {snapToRoute ? '📌 Ruta Activa' : '📍 Sin Ruta'}
+          </Text>
+        </TouchableOpacity>
       )}
 
-      <ScrollView style={styles.content}>
-        {/* Header con botón de regreso */}
-        <View style={styles.headerContainer}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => navigation.goBack()}
-          >
-            <Text style={styles.backButtonText}>← Atrás</Text>
-          </TouchableOpacity>
-          <View style={styles.header}>
-            <View>
-              <Text style={styles.title}>Viaje Activo</Text>
-              {isInProgress && rideStartTime && (
-                <Text style={styles.timerText}>
-                  ⏱️ Tiempo: {formatTime(elapsedTime)}
-                </Text>
+      {/* Contenido */}
+      <ScrollView 
+        style={styles.content}
+        contentContainerStyle={styles.contentContainer}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Cabecera con detalles del cliente */}
+        <View style={styles.header}>
+          <View style={styles.clientInfo}>
+            <View style={styles.clientData}>
+              <Text style={styles.clientName}>{ride?.client?.name || 'Cliente'}</Text>
+              <Text style={styles.clientPhone}>{ride?.client?.phone || 'Sin teléfono'}</Text>
+              
+              {clientLocation && (
+                <View style={styles.locationStatusContainer}>
+                  <View style={[styles.dot, { backgroundColor: '#4CAF50' }]} />
+                  <Text style={styles.locationStatus}>
+                    Compartiendo ubicación
+                  </Text>
+                </View>
               )}
             </View>
-            <View style={[styles.statusBadge, isInProgress ? styles.statusInProgress : styles.statusAccepted]}>
-              <Text style={styles.statusText}>
-                {isInProgress ? 'En Progreso' : 'Aceptado'}
+            {ride?.client?.photoURL ? (
+              <Image 
+                source={{ uri: ride.client.photoURL }} 
+                style={styles.clientPhoto} 
+              />
+            ) : (
+              <View style={[styles.clientPhoto, { backgroundColor: colors.card }]}>
+                <Text style={styles.clientInitial}>{(ride?.client?.name || 'C')[0]}</Text>
+              </View>
+            )}
+          </View>
+        </View>
+
+        {/* Detalles del viaje */}
+        <View style={styles.rideDetails}>
+          <View style={styles.addressContainer}>
+            <View style={styles.addressIcon}>
+              <Text>🚗</Text>
+            </View>
+            <View style={styles.addressContent}>
+              <Text style={styles.addressLabel}>Tu Ubicación</Text>
+              <Text style={styles.addressText}>{ride.driverLocationAddress || 'En movimiento'}</Text>
+            </View>
+          </View>
+          
+          {isAccepted && (
+            <View style={styles.addressContainer}>
+              <View style={[styles.addressIcon, styles.pickupIcon]}>
+                <Text>📍</Text>
+              </View>
+              <View style={styles.addressContent}>
+                <Text style={styles.addressLabel}>Punto de Recogida</Text>
+                <Text style={styles.addressText}>{ride.origin.address}</Text>
+              </View>
+            </View>
+          )}
+          
+          <View style={styles.addressContainer}>
+            <View style={[styles.addressIcon, styles.dropoffIcon]}>
+              <Text>🏁</Text>
+            </View>
+            <View style={styles.addressContent}>
+              <Text style={styles.addressLabel}>Destino Final</Text>
+              <Text style={styles.addressText}>{ride.destination.address}</Text>
+            </View>
+          </View>
+
+          {/* Información adicional del viaje */}
+          <View style={styles.tripInfo}>
+            <View style={styles.tripInfoItem}>
+              <Text style={styles.tripInfoLabel}>Distancia</Text>
+              <Text style={styles.tripInfoValue}>{(ride.estimatedDistance / 1000).toFixed(1)} km</Text>
+            </View>
+            
+            <View style={styles.tripInfoItem}>
+              <Text style={styles.tripInfoLabel}>Tiempo est.</Text>
+              <Text style={styles.tripInfoValue}>
+                {Math.ceil(ride.estimatedDuration / 60)} min
+              </Text>
+            </View>
+            
+            <View style={styles.tripInfoItem}>
+              <Text style={styles.tripInfoLabel}>Tarifa</Text>
+              <Text style={styles.tripInfoValue}>C${ride.finalFare || ride.estimatedPrice}</Text>
+            </View>
+            
+            <View style={styles.tripInfoItem}>
+              <Text style={styles.tripInfoLabel}>Pago</Text>
+              <Text style={styles.tripInfoValue}>
+                {paymentMethod === 'card' ? '💳 Tarjeta' : '💵 Efectivo'}
               </Text>
             </View>
           </View>
-        </View>
-
-      {/* Detalles del viaje */}
-      <View style={styles.detailsContainer}>
-        <View style={styles.locationContainer}>
-          <View style={styles.locationRow}>
-            <Text style={styles.locationIcon}>🔵</Text>
-            <View style={styles.locationInfo}>
-              <Text style={styles.locationLabel}>Origen</Text>
-              <Text style={styles.locationAddress}>
-                {ride.origin?.address || 'Dirección no disponible'}
-              </Text>
+          
+          {/* Tiempo transcurrido si el viaje está en progreso */}
+          {isInProgress && (
+            <View style={styles.timeElapsed}>
+              <Text style={styles.timeElapsedLabel}>Tiempo Transcurrido</Text>
+              <Text style={styles.timeElapsedValue}>{formatTime(rideTimer)}</Text>
             </View>
-          </View>
-
-          <View style={styles.locationDivider} />
-
-          <View style={styles.locationRow}>
-            <Text style={styles.locationIcon}>🔴</Text>
-            <View style={styles.locationInfo}>
-              <Text style={styles.locationLabel}>Destino</Text>
-              <Text style={styles.locationAddress}>
-                {ride.destination?.address || 'Dirección no disponible'}
-              </Text>
+          )}
+          
+          {/* ETA si está disponible */}
+          {isInProgress && (
+            <View style={styles.etaContainer}>
+              <ETADisplay 
+                rideId={rideId}
+                currentLat={coords ? coords.latitude : 0}
+                currentLng={coords ? coords.longitude : 0}
+                useRealtime={true}
+              />
             </View>
+          )}
+
+          {/* Alerta de desviación */}
+          {showDeviationAlert && (
+            <View style={styles.deviationAlert}>
+              <DeviationAlert 
+                currentLat={coords ? coords.latitude : 0}
+                currentLng={coords ? coords.longitude : 0}
+                expectedRoute={routePolyline.map(point => ({
+                  latitude: point.latitude || 0,
+                  longitude: point.longitude || 0
+                }))}
+                threshold={500}
+              />
+            </View>
+          )}
+
+          {/* Barra de progreso del viaje */}
+          <View style={styles.progressIndicator}>
+            <RideProgressIndicator 
+              progress={isInProgress ? 50 : isAccepted ? 25 : 0} 
+              role="driver"
+              rideStatus={ride.status}
+              paymentMethod={paymentMethod as 'cash' | 'card' | 'stripe'}
+            />
           </View>
-        </View>
-
-        <View style={styles.infoGrid}>
-          <View style={styles.infoCard}>
-            <Text style={styles.infoLabel}>📏 Distancia</Text>
-            <Text style={styles.infoValue}>
-              {ride.estimatedDistance 
-                ? (ride.estimatedDistance / 1000).toFixed(1) 
-                : (ride.distance 
-                  ? (ride.distance / 1000).toFixed(1) 
-                  : '0.0')} km
-            </Text>
+          
+          {/* Acciones rápidas: Llamar, Navegar, Chat */}
+          <View style={styles.quickActions}>
+            <TouchableOpacity 
+              style={styles.quickActionButton}
+              onPress={handleCallClient}
+            >
+              <Text style={styles.quickActionIcon}>📞</Text>
+              <Text style={styles.quickActionText}>Llamar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.quickActionButton}
+              onPress={handleNavigate}
+            >
+              <Text style={styles.quickActionIcon}>🧭</Text>
+              <Text style={styles.quickActionText}>Navegar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.quickActionButton}
+              onPress={handleOpenChat}
+            >
+              <Text style={styles.quickActionIcon}>💬</Text>
+              <Text style={styles.quickActionText}>Chat</Text>
+            </TouchableOpacity>
           </View>
-          <View style={styles.infoCard}>
-            <Text style={styles.infoLabel}>⏱️ Duración</Text>
-            <Text style={styles.infoValue}>
-              {ride.estimatedDuration 
-                ? Math.round(ride.estimatedDuration / 60) 
-                : '0'} min
-            </Text>
-          </View>
-          <View style={styles.infoCard}>
-            <Text style={styles.infoLabel}>💰 Precio</Text>
-            <Text style={styles.infoValue}>C${ride.estimatedPrice || 0}</Text>
-          </View>
-        </View>
 
-        {/* Info del cliente */}
-        {ride.client && (
-          <View style={styles.clientInfo}>
-            <Text style={styles.clientLabel}>Cliente:</Text>
-            <Text style={styles.clientName}>{ride.client.name}</Text>
-          </View>
-        )}
+          {isAccepted && arrivedAtPickup && isDesignatedDriver && !vehicleInspectionCompleted && (
+            <TouchableOpacity
+              style={[styles.primaryButton, { backgroundColor: '#FF9800' }, updating && styles.buttonDisabled]}
+              onPress={handleInspectVehicle}
+              disabled={updating}
+            >
+              <Text style={styles.primaryButtonText}>
+                📸 Inspeccionar Vehículo del Cliente
+              </Text>
+            </TouchableOpacity>
+          )}
 
-        {/* ETA Display - Solo cuando el viaje está en progreso */}
-        {isInProgress && coords && (
-          <ETADisplay
-            rideId={rideId}
-            currentLat={coords.latitude}
-            currentLng={coords.longitude}
-            updateInterval={30000}
-            useRealtime={true}
-          />
-        )}
+          {isAccepted && (
+            <TouchableOpacity
+              style={[styles.primaryButton, updating && styles.buttonDisabled]}
+              onPress={handleStartRide}
+              disabled={updating}
+            >
+              <Text style={styles.primaryButtonText}>
+                {updating ? 'Iniciando...' : '🚗 Iniciar Viaje'}
+              </Text>
+            </TouchableOpacity>
+          )}
 
-        {/* Indicador de Progreso del Viaje */}
-        <RideProgressIndicator
-          progress={rideProgress}
-          role="driver"
-          rideStatus={ride?.status || ''}
-          estimatedFare={ride?.finalFare || ride?.estimatedPrice || 0}
-          paymentMethod={paymentMethod}
-        />
+          {isInProgress && (
+            <TouchableOpacity
+              style={[styles.primaryButton, updating && styles.buttonDisabled]}
+              onPress={handleCompleteRide}
+              disabled={updating}
+            >
+              <Text style={styles.primaryButtonText}>
+                {updating ? 'Completando...' : '✅ Completar Viaje'}
+              </Text>
+            </TouchableOpacity>
+          )}
 
-        {/* Alerta de Desvío */}
-        {isInProgress && coords && expectedRoute.length > 0 && (
-          <DeviationAlert
-            currentLat={coords.latitude}
-            currentLng={coords.longitude}
-            expectedRoute={expectedRoute}
-            threshold={500}
-            onDeviation={(distance) => {
-              console.log(`⚠️ Desvío detectado: ${distance}m`);
-            }}
-          />
-        )}
-
-        {/* Tracking Status */}
-        {isInProgress && (
-          <View style={styles.trackingInfo}>
-            <Text style={styles.trackingText}>
-              {isTracking ? '🟢' : '⚪'} Tracking: {isTracking ? 'Activo' : 'Inactivo'}
-            </Text>
-            <Text style={styles.trackingPoints}>
-              📍 {totalPoints} puntos guardados
-            </Text>
-          </View>
-        )}
-
-        {/* Advertencia de auto-cancelación */}
-        {isAccepted && (
-          <View style={styles.warningBox}>
-            <Text style={styles.warningIcon}>⏰</Text>
-            <Text style={styles.warningText}>
-              Debes iniciar el viaje en los próximos 10 minutos o se cancelará automáticamente
-            </Text>
-          </View>
-        )}
-      </View>
-
-      {/* Botones de acción */}
-      <View style={styles.actionsContainer}>
-        {/* Botones de llamada y navegación */}
-        <View style={styles.quickActions}>
           <TouchableOpacity
-            style={styles.quickActionButton}
-            onPress={handleCallClient}
-          >
-            <Text style={styles.quickActionIcon}>📞</Text>
-            <Text style={styles.quickActionText}>Llamar</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.quickActionButton}
-            onPress={handleNavigate}
-          >
-            <Text style={styles.quickActionIcon}>🧭</Text>
-            <Text style={styles.quickActionText}>Navegar</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.quickActionButton}
-            onPress={handleOpenChat}
-          >
-            <Text style={styles.quickActionIcon}>💬</Text>
-            <Text style={styles.quickActionText}>Chat</Text>
-          </TouchableOpacity>
-        </View>
-        {isAccepted && (
-          <TouchableOpacity
-            style={[styles.primaryButton, updating && styles.buttonDisabled]}
-            onPress={handleStartRide}
+            style={[styles.cancelButton, updating && styles.buttonDisabled]}
+            onPress={handleCancelRide}
             disabled={updating}
           >
-            <Text style={styles.primaryButtonText}>
-              {updating ? 'Iniciando...' : '🚗 Iniciar Viaje'}
-            </Text>
+            <Text style={styles.cancelButtonText}>Cancelar Viaje</Text>
           </TouchableOpacity>
-        )}
-
-        {isInProgress && (
-          <TouchableOpacity
-            style={[styles.primaryButton, updating && styles.buttonDisabled]}
-            onPress={handleCompleteRide}
-            disabled={updating}
-          >
-            <Text style={styles.primaryButtonText}>
-              {updating ? 'Completando...' : '✅ Completar Viaje'}
-            </Text>
-          </TouchableOpacity>
-        )}
-
-        <TouchableOpacity
-          style={[styles.cancelButton, updating && styles.buttonDisabled]}
-          onPress={handleCancelRide}
-          disabled={updating}
-        >
-          <Text style={styles.cancelButtonText}>Cancelar Viaje</Text>
-        </TouchableOpacity>
-
-        {/* Info de pago */}
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>
-            💳 El cliente realizará el pago al finalizar el viaje
-          </Text>
         </View>
-      </View>
       </ScrollView>
     </View>
   );
@@ -919,319 +1069,186 @@ export default function ActiveRideScreen({ route, navigation }: any) {
 const createStyles = (colors: any) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.surface,
+    backgroundColor: colors.background,
   },
-  loadingContainer: {
+  mapContainer: {
+    height: 280,
+    width: '100%',
+  },
+  content: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: colors.background,
   },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: colors.textSecondary,
+  contentContainer: {
+    paddingBottom: 20,
   },
   header: {
     backgroundColor: colors.card,
-    padding: 20,
+    padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
+    borderBottomColor: colors.border,
+  },
+  clientInfo: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  title: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  statusBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-  },
-  statusAccepted: {
-    backgroundColor: '#FFA726',
-  },
-  statusInProgress: {
-    backgroundColor: '#2196F3',
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#fff',
-  },
-  detailsContainer: {
-    backgroundColor: colors.card,
-    margin: 16,
-    borderRadius: 16,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  locationContainer: {
-    marginBottom: 16,
-  },
-  locationRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-  },
-  locationIcon: {
-    fontSize: 20,
-    marginRight: 12,
-  },
-  locationInfo: {
+  clientData: {
     flex: 1,
-  },
-  locationLabel: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    marginBottom: 4,
-  },
-  locationAddress: {
-    fontSize: 14,
-    color: colors.text,
-    fontWeight: '500',
-  },
-  locationDivider: {
-    height: 20,
-    width: 2,
-    backgroundColor: '#e0e0e0',
-    marginLeft: 10,
-    marginVertical: 8,
-  },
-  infoGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingVertical: 16,
-    backgroundColor: colors.card,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginBottom: 16,
-  },
-  infoCard: {
-    alignItems: 'center',
-    flex: 1,
-  },
-  infoLabel: {
-    fontSize: 13,
-    color: colors.textSecondary,
-    marginBottom: 6,
-    fontWeight: '500',
-  },
-  infoValue: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  clientInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  clientLabel: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    marginRight: 8,
   },
   clientName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.text,
-  },
-  warningBox: {
-    flexDirection: 'row',
-    backgroundColor: '#FFF3E0',
-    padding: 12,
-    borderRadius: 8,
-    borderLeftWidth: 4,
-    borderLeftColor: '#FF9800',
-  },
-  warningIcon: {
-    fontSize: 20,
-    marginRight: 8,
-  },
-  warningText: {
-    flex: 1,
-    fontSize: 12,
-    color: '#E65100',
-    lineHeight: 18,
-  },
-  trackingInfo: {
-    backgroundColor: colors.surface,
-    padding: 12,
-    borderRadius: 8,
-    marginTop: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  trackingText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.text,
-    marginBottom: 4,
-  },
-  trackingPoints: {
-    fontSize: 12,
-    color: colors.textSecondary,
-  },
-  actionsContainer: {
-    padding: 16,
-  },
-  primaryButton: {
-    backgroundColor: '#000',
-    padding: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  primaryButtonText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#fff',
-  },
-  chatButton: {
-    backgroundColor: '#f0f0f0',
-    padding: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  chatButtonText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  cancelButton: {
-    backgroundColor: colors.card,
-    padding: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#ff4444',
-  },
-  cancelButtonText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#ff4444',
-  },
-  buttonDisabled: {
-    opacity: 0.5,
-  },
-  footer: {
-    backgroundColor: '#E3F2FD',
-    padding: 12,
-    alignItems: 'center',
-    marginTop: 16,
-    borderRadius: 8,
-  },
-  footerText: {
-    fontSize: 12,
-    color: '#1976D2',
-    fontWeight: '600',
-  },
-  // Nuevos estilos
-  mapContainer: {
-    height: 250,
-  },
-  map: {
-    flex: 1,
-  },
-  content: {
-    flex: 1,
-  },
-  waitingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  waitingIcon: {
-    fontSize: 80,
-    marginBottom: 20,
-  },
-  waitingTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: colors.text,
-    marginBottom: 12,
-    textAlign: 'center',
-  },
-  waitingText: {
-    fontSize: 16,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    marginBottom: 30,
-    lineHeight: 24,
-  },
-  waitingCard: {
-    backgroundColor: colors.card,
-    borderRadius: 12,
-    padding: 20,
-    width: '100%',
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  waitingCardTitle: {
     fontSize: 18,
     fontWeight: '600',
     color: colors.text,
-    marginBottom: 16,
+    marginBottom: 4,
   },
-  waitingDetail: {
-    marginBottom: 12,
+  clientPhoto: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  waitingDetailLabel: {
+  clientInitial: {
+    fontSize: 22,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  clientPhone: {
     fontSize: 14,
     color: colors.textSecondary,
     marginBottom: 4,
   },
-  waitingDetailValue: {
-    fontSize: 16,
-    color: colors.text,
-    fontWeight: '500',
-  },
-  infoNote: {
-    backgroundColor: '#E3F2FD',
-    borderRadius: 12,
-    padding: 16,
-    marginTop: 20,
-    borderLeftWidth: 4,
-    borderLeftColor: '#2196F3',
-  },
-  infoNoteText: {
-    fontSize: 14,
-    color: '#1976D2',
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-  timerText: {
-    fontSize: 14,
-    color: '#2196F3',
-    fontWeight: '600',
+  locationStatusContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginTop: 4,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 6,
+  },
+  locationStatus: {
+    fontSize: 12,
+    color: colors.textSecondary,
+  },
+  rideDetails: {
+    backgroundColor: colors.card,
+    padding: 16,
+    marginHorizontal: 16,
+    marginVertical: 8,
+    borderRadius: 12,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 3,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
+  },
+  addressContainer: {
+    flexDirection: 'row',
+    marginBottom: 16,
+    alignItems: 'flex-start',
+  },
+  addressIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#E0E0E0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  pickupIcon: {
+    backgroundColor: '#42A5F5',
+  },
+  dropoffIcon: {
+    backgroundColor: '#66BB6A',
+  },
+  addressContent: {
+    flex: 1,
+  },
+  addressLabel: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginBottom: 2,
+  },
+  addressText: {
+    fontSize: 14,
+    color: colors.text,
+  },
+  tripInfo: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    marginTop: 10,
+    marginBottom: 16,
+    padding: 10,
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  tripInfoItem: {
+    width: '48%',
+    paddingVertical: 8,
+  },
+  tripInfoLabel: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginBottom: 2,
+  },
+  tripInfoValue: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: colors.text,
+  },
+  timeElapsed: {
+    alignItems: 'center',
+    marginVertical: 10,
+    padding: 10,
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  timeElapsedLabel: {
+    fontSize: 12,
+    color: colors.textSecondary,
+  },
+  timeElapsedValue: {
+    fontSize: 24,
+    fontWeight: '600',
+    color: colors.text,
+    marginTop: 4,
+  },
+  etaContainer: {
+    marginTop: 10,
+    marginBottom: 16,
+  },
+  deviationAlert: {
+    marginTop: 10,
+    marginBottom: 16,
+  },
+  progressIndicator: {
+    marginVertical: 16,
   },
   quickActions: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    marginBottom: 16,
-    gap: 12,
+    marginVertical: 12,
+    marginHorizontal: 16,
   },
   quickActionButton: {
-    flex: 1,
-    backgroundColor: colors.card,
-    padding: 12,
-    borderRadius: 12,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
+    padding: 12,
   },
   quickActionIcon: {
     fontSize: 24,
@@ -1239,11 +1256,151 @@ const createStyles = (colors: any) => StyleSheet.create({
   },
   quickActionText: {
     fontSize: 12,
-    fontWeight: '600',
     color: colors.text,
   },
-  headerContainer: {
+  primaryButton: {
+    backgroundColor: colors.primary,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginVertical: 8,
+    marginHorizontal: 16,
+  },
+  primaryButtonText: {
+    color: '#FFF',
+    fontWeight: '600',
+    fontSize: 16,
+  },
+  cancelButton: {
+    backgroundColor: 'transparent',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#f44336',
+    marginTop: 8,
+    marginHorizontal: 16,
     marginBottom: 16,
+  },
+  cancelButtonText: {
+    color: '#f44336',
+    fontWeight: '600',
+    fontSize: 16,
+  },
+  buttonDisabled: {
+    opacity: 0.6,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: colors.background,
+  },
+  loadingText: {
+    marginTop: 20,
+    fontSize: 16,
+    color: colors.text,
+    textAlign: 'center',
+  },
+  waitingContainer: {
+    flex: 1,
+    padding: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  waitingIcon: {
+    fontSize: 60,
+    marginBottom: 20,
+  },
+  waitingTitle: {
+    fontSize: 24,
+    fontWeight: '600',
+    marginBottom: 16,
+    color: colors.text,
+    textAlign: 'center',
+  },
+  waitingText: {
+    fontSize: 16,
+    color: colors.textSecondary,
+    marginBottom: 30,
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  waitingCard: {
+    backgroundColor: colors.card,
+    width: '100%',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 20,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 4,
+      },
+    }),
+  },
+  waitingCardTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 16,
+    color: colors.text,
+  },
+  waitingDetail: {
+    flexDirection: 'row',
+    marginBottom: 12,
+    alignItems: 'flex-start',
+  },
+  waitingDetailLabel: {
+    width: 70,
+    fontSize: 14,
+    color: colors.textSecondary,
+  },
+  waitingDetailValue: {
+    flex: 1,
+    fontSize: 14,
+    color: colors.text,
+  },
+  infoNote: {
+    backgroundColor: '#FFF9C4',
+    padding: 16,
+    borderRadius: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: '#FBC02D',
+    width: '100%',
+  },
+  infoNoteText: {
+    fontSize: 14,
+    color: '#5D4037',
+    lineHeight: 20,
+  },
+  snapButton: {
+    position: 'absolute',
+    top: 20,
+    right: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    zIndex: 10,
+  },
+  snapActive: {
+    backgroundColor: colors.primary + 'F0',
+  },
+  snapInactive: {
+    backgroundColor: colors.card + 'F0',
+  },
+  snapActiveText: {
+    color: '#FFF',
+    fontWeight: '600',
+  },
+  snapInactiveText: {
+    color: colors.text,
   },
   backButton: {
     flexDirection: 'row',
@@ -1265,5 +1422,41 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: colors.text,
+  },
+  errorBanner: {
+    position: 'absolute',
+    top: 80,
+    left: 16,
+    right: 16,
+    backgroundColor: '#FFF3CD',
+    borderRadius: 12,
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: '#FFE69C',
+  },
+  errorBannerIcon: {
+    fontSize: 24,
+    marginRight: 12,
+  },
+  errorBannerContent: {
+    flex: 1,
+  },
+  errorBannerTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#856404',
+    marginBottom: 2,
+  },
+  errorBannerText: {
+    fontSize: 12,
+    color: '#856404',
+    lineHeight: 16,
   },
 });

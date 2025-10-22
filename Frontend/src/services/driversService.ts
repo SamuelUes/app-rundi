@@ -128,6 +128,43 @@ class DriversService {
     const result = await updateMode({ driverId, isActive });
     return result.data as { success: boolean };
   }
+
+  /**
+   * Actualizar información del conductor (fotos de licencia, etc.)
+   */
+  async updateDriver(data: {
+    license_photo_front?: string;
+    license_photo_back?: string;
+    license_number?: string;
+    license_expiry?: string;
+    profile_photo?: string;
+  }): Promise<{ success: boolean; driver: any }> {
+    const functions = await this.getFunctions();
+    const updateDriver = httpsCallable(functions, 'updateDriver');
+    const result = await updateDriver(data);
+    return result.data as { success: boolean; driver: any };
+  }
+
+  /**
+   * Actualizar información del vehículo (fotos de documentos, etc.)
+   */
+  async updateVehicle(vehicleId: string, data: {
+    registration_photo_front?: string;
+    registration_photo_back?: string;
+    insurance_photo?: string;
+    vehicle_photo?: string;
+    registration_number?: string;
+    registration_expiry?: string;
+    insurance_number?: string;
+    insurance_company?: string;
+    insurance_start_date?: string;
+    insurance_expiry?: string;
+  }): Promise<{ success: boolean; vehicle: any }> {
+    const functions = await this.getFunctions();
+    const updateVehicle = httpsCallable(functions, 'updateVehicle');
+    const result = await updateVehicle({ vehicleId, ...data });
+    return result.data as { success: boolean; vehicle: any };
+  }
 }
 
 export default new DriversService();

@@ -6,7 +6,6 @@ export const onUserCreated = functions.auth.user().onCreate(async (user) => {
   // Aquí puedes agregar lógica adicional
 });
 
-export const onUserDeleted = functions.auth.user().onDelete(async (user) => {
-  console.log(`🗑️ Usuario eliminado: ${user.uid}`);
-  // Limpiar datos del usuario
-});
+// ELIMINADO: onUserDeleted - Reemplazado por deleteUserFromSupabase en user/deleteUserData.ts
+// La función deleteUserFromSupabase maneja toda la lógica de eliminación de datos
+// tanto en Firebase como en Supabase

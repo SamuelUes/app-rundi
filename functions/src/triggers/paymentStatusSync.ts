@@ -68,10 +68,12 @@ export const syncPaymentStatusToPostgres = functions.database
         const paymentMethod = after.method || 'cash';
         const paymentProvider = after.provider || (paymentMethod === 'cash' ? 'cash' : 'stripe');
         
-        // Calcular comisión según tipo de viaje
-        // designated_driver: 15%, normal: 10%
+        // Calcular comisión según tipo de viaje y vehículo
+        const { getCommissionRate } = require('../helpers/priceCalculator');
+        
         const rideType = ride.rideType || ride.isDesignatedDriver ? 'designated_driver' : 'normal';
-        const commissionRate = rideType === 'designated_driver' ? 0.15 : 0.10;
+        const vehicleType = ride.vehicleType || 'car'; // 'car' o 'motorcycle'
+        const commissionRate = getCommissionRate(vehicleType, rideType);
         const commission = amount * commissionRate; // Comisión solo sobre amount, NO sobre propina
         
         console.log(`💰 Cálculo de pago:`, {
@@ -167,3 +169,220 @@ export const syncPaymentStatusToPostgres = functions.database
       return null;
     }
   });
+
+/**
+ * TRIGGER INVERSO: Sincronizar pagos de PostgreSQL a Firebase Realtime DB
+ * 
+ * Se ejecuta cada minuto y sincroniza pagos actualizados desde Supabase
+ * Actualiza /paymentStatus/{rideId} y /activeRides/{rideId} en Firebase
+ */
+export const syncPostgresToFirebase = functions.pubsub
+  .schedule('every 1 minutes')
+  .onRun(async (context) => {
+    console.log('🔄 [syncPostgresToFirebase] Iniciando sincronización Supabase → Firebase...');
+    
+    const client = await pool.connect();
+    try {
+      // Obtener pagos actualizados en los últimos 2 minutos
+      const result = await client.query(`
+        SELECT 
+          p.id,
+          p.ride_id,
+          p.status,
+          p.amount,
+          p.tip,
+          p.total,
+          p.commission,
+          p.payment_method,
+          p.updated_at,
+          r.firebase_ride_id
+        FROM payments p
+        INNER JOIN rides r ON r.id = p.ride_id
+        WHERE p.updated_at >= NOW() - INTERVAL '2 minutes'
+        AND p.status IN ('completed', 'canceled', 'pending_confirmation')
+        AND (p.synced_to_firebase IS NULL OR p.synced_to_firebase = false)
+        ORDER BY p.updated_at DESC
+      `);
+
+      console.log(`📊 [syncPostgresToFirebase] Encontrados ${result.rows.length} pagos para sincronizar`);
+
+      for (const payment of result.rows) {
+        const firebaseRideId = payment.firebase_ride_id;
+        
+        if (!firebaseRideId) {
+          console.log(`⚠️ [syncPostgresToFirebase] Pago ${payment.id} no tiene firebase_ride_id, saltando...`);
+          continue;
+        }
+        
+        console.log(`🔄 [syncPostgresToFirebase] Sincronizando pago ${payment.id} para ride ${firebaseRideId}`);
+        
+        try {
+          // Actualizar paymentStatus en Firebase
+          const paymentStatusRef = admin.database().ref(`paymentStatus/${firebaseRideId}`);
+          await paymentStatusRef.update({
+            status: payment.status,
+            finalAmount: payment.amount,
+            tip: payment.tip || 0,
+            lastUpdatedAt: admin.database.ServerValue.TIMESTAMP,
+            lastUpdatedBy: 'supabase_sync',
+            message: getStatusMessage(payment.status),
+            syncedFromPostgres: true,
+          });
+
+          console.log(`✅ [syncPostgresToFirebase] paymentStatus actualizado para ${firebaseRideId}`);
+
+          // Si el pago está completado, actualizar también activeRides
+          if (payment.status === 'completed') {
+            const activeRideRef = admin.database().ref(`activeRides/${firebaseRideId}`);
+            const rideSnapshot = await activeRideRef.once('value');
+            
+            if (rideSnapshot.exists()) {
+              await activeRideRef.update({
+                status: 'completed',
+                paymentConfirmed: true,
+                lastUpdate: admin.database.ServerValue.TIMESTAMP,
+              });
+              
+              console.log(`✅ [syncPostgresToFirebase] activeRide actualizado para ${firebaseRideId}`);
+            } else {
+              console.log(`⚠️ [syncPostgresToFirebase] activeRide no existe para ${firebaseRideId}`);
+            }
+          }
+
+          // Marcar como sincronizado en PostgreSQL
+          await client.query(
+            `UPDATE payments 
+             SET synced_to_firebase = true, 
+                 firebase_synced_at = NOW()
+             WHERE id = $1`,
+            [payment.id]
+          );
+
+          console.log(`✅ [syncPostgresToFirebase] Pago ${payment.id} marcado como sincronizado`);
+
+        } catch (error) {
+          console.error(`❌ [syncPostgresToFirebase] Error sincronizando pago ${payment.id}:`, error);
+        }
+      }
+
+      console.log('✅ [syncPostgresToFirebase] Sincronización completada');
+      
+    } catch (error) {
+      console.error('❌ [syncPostgresToFirebase] Error en sincronización:', error);
+    } finally {
+      client.release();
+    }
+  });
+
+/**
+ * Función manual para forzar sincronización de un pago específico
+ * Útil para debugging o re-sincronización
+ */
+export const forceSyncPaymentToFirebase = functions.https.onCall(async (data, context) => {
+  // Verificar autenticación
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
+  }
+
+  const { rideId } = data;
+
+  if (!rideId) {
+    throw new functions.https.HttpsError('invalid-argument', 'rideId es requerido');
+  }
+
+  console.log(`🔄 [forceSyncPayment] Sincronización manual solicitada para ride: ${rideId}`);
+
+  const client = await pool.connect();
+  try {
+    // Obtener el pago desde PostgreSQL
+    const result = await client.query(
+      `SELECT 
+        p.id,
+        p.ride_id,
+        p.status,
+        p.amount,
+        p.tip,
+        p.total,
+        p.commission,
+        p.payment_method,
+        r.firebase_ride_id
+       FROM payments p
+       INNER JOIN rides r ON r.id = p.ride_id
+       WHERE r.firebase_ride_id = $1
+       ORDER BY p.created_at DESC
+       LIMIT 1`,
+      [rideId]
+    );
+
+    if (result.rows.length === 0) {
+      throw new functions.https.HttpsError('not-found', 'Pago no encontrado');
+    }
+
+    const payment = result.rows[0];
+    const firebaseRideId = payment.firebase_ride_id;
+
+    // Actualizar paymentStatus en Firebase
+    const paymentStatusRef = admin.database().ref(`paymentStatus/${firebaseRideId}`);
+    await paymentStatusRef.update({
+      status: payment.status,
+      finalAmount: payment.amount,
+      tip: payment.tip || 0,
+      lastUpdatedAt: admin.database.ServerValue.TIMESTAMP,
+      lastUpdatedBy: 'manual_sync',
+      message: getStatusMessage(payment.status),
+      syncedFromPostgres: true,
+    });
+
+    // Si está completado, actualizar activeRides
+    if (payment.status === 'completed') {
+      const activeRideRef = admin.database().ref(`activeRides/${firebaseRideId}`);
+      await activeRideRef.update({
+        status: 'completed',
+        paymentConfirmed: true,
+        lastUpdate: admin.database.ServerValue.TIMESTAMP,
+      });
+    }
+
+    // Marcar como sincronizado
+    await client.query(
+      `UPDATE payments 
+       SET synced_to_firebase = true, 
+           firebase_synced_at = NOW()
+       WHERE id = $1`,
+      [payment.id]
+    );
+
+    console.log(`✅ [forceSyncPayment] Sincronización manual completada para ${firebaseRideId}`);
+
+    return {
+      success: true,
+      message: 'Pago sincronizado exitosamente',
+      rideId: firebaseRideId,
+      status: payment.status,
+    };
+
+  } catch (error: any) {
+    console.error('❌ [forceSyncPayment] Error en sincronización manual:', error);
+    throw new functions.https.HttpsError('internal', error.message);
+  } finally {
+    client.release();
+  }
+});
+
+/**
+ * Obtener mensaje descriptivo según el estado del pago
+ */
+function getStatusMessage(status: string): string {
+  switch (status) {
+    case 'completed':
+      return 'Pago confirmado por cliente y conductor';
+    case 'canceled':
+      return 'Pago cancelado';
+    case 'pending_confirmation':
+      return 'Esperando confirmación de pago en efectivo';
+    case 'pending':
+      return 'Esperando confirmación de pago';
+    default:
+      return 'Estado actualizado desde Supabase';
+  }
+}

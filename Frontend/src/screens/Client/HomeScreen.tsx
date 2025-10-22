@@ -1,475 +1,763 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Platform } from 'react-native';
+/**
+ * HomeScreen - Versión mejorada para clientes
+ * 
+ * Esta pantalla permite al cliente ver su ubicación, conductores cercanos,
+ * y acceder a la funcionalidad de solicitar viajes.
+ * 
+ * Mejoras:
+ * - Implementación de useFirebaseData para consultas optimizadas a Firebase
+ * - Utilización de LoadingOverlay para estados de carga
+ * - Alertas consistentes con alertService
+ */
+
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  Dimensions,
+  ActivityIndicator,
+  Image,
+  Animated,
+  Easing,
+  Platform,
+} from 'react-native';
 import DynamicMap from '../../components/DynamicMap';
 import { useLocation } from '../../hooks/useLocation';
-import mapsService from '../../services/mapsService';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import Button from '../../components/Button';
 import { httpsCallable } from 'firebase/functions';
 import { getFirebaseFunctions } from '../../config/firebase';
-import { getDatabase, ref, onValue, off } from 'firebase/database';
 import { MapSkeleton } from '../../components/SkeletonLoader';
 import { NoConnectionEmptyState } from '../../components/EmptyState';
 import { AnimatedButton } from '../../components/AnimatedButton';
 
+// Importar servicios optimizados
+import alertService from '../../services/alertService';
+import LoadingOverlay from '../../components/LoadingOverlay';
+import { useFirebaseData, useFirebaseItem } from '../../hooks/useFirebaseData';
+import locationTrackingService from '../../services/locationTrackingService';
+
+// Importaciones para Firebase
+import { set } from 'firebase/database';
+
 export default function HomeScreen({ navigation }: any) {
   const { user } = useAuth();
   const { colors } = useTheme();
-  const { coords, loading: locationLoading, error, refreshLocation } = useLocation();
-  const [mapReady, setMapReady] = useState(false);
+  const { coords, error: locationError, refreshLocation } = useLocation();
+  const mapRef = useRef(null);
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  
+  // Estado para UI
+  const [isLocationDialogOpen, setIsLocationDialogOpen] = useState(false);
+  const [loadingNearbyDrivers, setLoadingNearbyDrivers] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState('Obteniendo ubicación...');
+  const [hasRideRequest, setHasRideRequest] = useState(false);
   const [activeRide, setActiveRide] = useState<any>(null);
-  const [checkingRide, setCheckingRide] = useState(true);
-  const [centeringLocation, setCenteringLocation] = useState(false);
-  const [mapKey, setMapKey] = useState(0); // Para forzar re-render del mapa
-  const [availableDrivers, setAvailableDrivers] = useState<any[]>([]); // Conductores disponibles
-  const [manualLocation, setManualLocation] = useState<{latitude: number; longitude: number} | null>(null); // Ubicación manual del cliente
-  const [effectiveLocation, setEffectiveLocation] = useState<{latitude: number; longitude: number} | null>(null); // Ubicación efectiva (manual o GPS)
-
-  // Consultar proveedor de mapas al backend
+  const [pendingPayments, setPendingPayments] = useState<any[]>([]);
+  const [hasPendingPayments, setHasPendingPayments] = useState(false);
+  const [totalDebt, setTotalDebt] = useState(0);
+  const [checkingPayments, setCheckingPayments] = useState(true);
+  
+  // Log para debug
   useEffect(() => {
-    mapsService.fetchProviderFromBackend();
-  }, []);
+    console.log('🔔 [HomeScreen] Estado de pendingPayments actualizado:', pendingPayments.length);
+  }, [pendingPayments]);
 
-  // Cargar ubicación manual guardada de Firebase al montar
+  // Verificar pagos pendientes al cargar
   useEffect(() => {
-    const loadManualLocation = async () => {
-      if (!user?.id) return;
-      
+    const checkPendingPayments = async () => {
+      if (!user?.id) {
+        setCheckingPayments(false);
+        return;
+      }
+
       try {
-        const db = getDatabase();
-        const clientLocationRef = ref(db, `clientLocations/${user.id}`);
-        const snapshot = await import('firebase/database').then(({ get }) => get(clientLocationRef));
+        console.log('💰 [HomeScreen] Verificando pagos pendientes...');
+        const functions = await getFirebaseFunctions();
+        const getPendingPaymentsFn = httpsCallable(functions, 'getPendingPayments');
         
-        if (snapshot.exists()) {
-          const savedLocation = snapshot.val();
-          const isRecent = (Date.now() - savedLocation.timestamp) < 3600000; // 1 hora
-          
-          if (savedLocation.isManual && isRecent) {
-            console.log('📍 Cargando ubicación manual guardada:', savedLocation);
-            setManualLocation({
-              latitude: savedLocation.latitude,
-              longitude: savedLocation.longitude
-            });
+        const result = await getPendingPaymentsFn();
+        const data = result.data as any;
+
+        console.log('💰 [HomeScreen] Resultado:', data);
+
+        if (data.success) {
+          setPendingPayments(data.payments || []);
+          setHasPendingPayments(data.hasPendingPayments);
+          setTotalDebt(data.totalDebt || 0);
+
+          if (data.hasPendingPayments) {
+            console.log(`⚠️ [HomeScreen] Cliente tiene ${data.count} pagos pendientes, Total: C$${data.totalDebt}`);
           }
         }
       } catch (error) {
-        console.error('❌ Error cargando ubicación manual:', error);
+        console.error('❌ Error verificando pagos pendientes:', error);
+      } finally {
+        setCheckingPayments(false);
+      }
+    };
+
+    checkPendingPayments();
+  }, [user?.id]);
+  
+  // Estado para datos
+  const [savedAddress, setSavedAddress] = useState('');
+  const [favoriteLocations, setFavoriteLocations] = useState<any[]>([]);
+  const [availableDrivers, setAvailableDrivers] = useState<any[]>([]);
+  
+  // Ubicación guardada del cliente (useFirebaseItem optimizado)
+  const { data: clientLocationData } = useFirebaseItem<any>(
+    'clientLocations',
+    user?.id || '',
+    { once: false }
+  );
+  
+  // Datos de conductores disponibles (useFirebaseData optimizado)
+  const { 
+    data: driversInfo,
+    loading: loadingDrivers,
+    error: driversError
+  } = useFirebaseData<any>('driversInfo', { maxCacheAge: 10000 }); // Cache 10s
+  
+  // Viajes activos (useFirebaseData optimizado)
+  const { 
+    data: activeRidesData,
+    loading: loadingRides
+  } = useFirebaseData<Record<string, any>>('activeRides', { maxCacheAge: 5000 }); // Cache 5s
+  
+  // Efecto para cargar ubicación guardada
+  useEffect(() => {
+    const loadSavedLocation = async () => {
+      if (!user?.id || !clientLocationData) return;
+      
+      try {
+        if (clientLocationData.address) {
+          setSavedAddress(clientLocationData.address);
+        }
+      } catch (error) {
+        console.error('❌ Error cargando ubicación guardada:', error);
+      }
+    };
+    loadSavedLocation();
+  }, [user?.id, clientLocationData]);
+  
+  // Efecto para verificar viajes activos
+  useEffect(() => {
+    if (!user?.id || !activeRidesData) {
+      console.log('⚠️ [HomeScreen] No se puede verificar viajes:', { userId: user?.id, hasData: !!activeRidesData });
+      return;
+    }
+    
+    const checkActiveRides = async () => {
+      try {
+        console.log('🔍 [HomeScreen] Verificando viajes activos para usuario:', user.id);
+        let activeRideFound = false;
+        
+        // Primero verificar si hay un viaje guardado en AsyncStorage
+        const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+        const savedRideId = await AsyncStorage.getItem('ACTIVE_RIDE_ID');
+        
+        console.log('💾 [HomeScreen] Viaje guardado en AsyncStorage:', savedRideId);
+        
+        if (savedRideId && activeRidesData[savedRideId]) {
+          console.log('💾 [HomeScreen] Encontrado viaje guardado en AsyncStorage:', savedRideId);
+          
+          const rideData = activeRidesData[savedRideId];
+          console.log('📊 [HomeScreen] Datos del viaje:', { status: rideData.status, clientId: rideData.clientId });
+          
+          // Verificar si el viaje sigue activo para este cliente
+          if (rideData.clientId === user.id && 
+              (rideData.status === 'requested' || rideData.status === 'pending_confirm' || 
+               rideData.status === 'accepted' || rideData.status === 'in_progress' || 
+               rideData.status === 'driver_assigned')) {
+            
+            console.log('🚗 [HomeScreen] Viaje activo confirmado, mostrando banner...');
+            setHasRideRequest(true);
+            setActiveRide({ ...rideData, id: savedRideId });
+            activeRideFound = true;
+          } else {
+            // Limpiar el AsyncStorage si el viaje ya no está activo
+            await AsyncStorage.removeItem('ACTIVE_RIDE_ID');
+            console.log('🗑️ Viaje guardado ya no está activo, limpiando AsyncStorage');
+          }
+        } else {
+          console.log('⚠️ [HomeScreen] No hay viaje guardado o no existe en Firebase');
+        }
+        
+        // Si no se encontró en AsyncStorage, buscar en todos los viajes activos
+        if (!activeRideFound) {
+          // Filtrar viajes del cliente actual
+          const clientRides = Object.entries(activeRidesData)
+            .filter(([_, ride]: [string, any]) => 
+              ride.clientId === user.id && 
+              (ride.status === 'requested' || ride.status === 'pending_confirm' || 
+               ride.status === 'accepted' || ride.status === 'in_progress' || 
+               ride.status === 'driver_assigned' || ride.status === 'pending_payment')
+            );
+          
+          if (clientRides.length > 0) {
+            const [activeRideId, activeRideData] = clientRides[0];
+            console.log('✅ [HomeScreen] Encontrado viaje activo:', activeRideId);
+            
+            // Si el viaje está en pending_payment, navegar a pantalla de pago
+            if (activeRideData.status === 'pending_payment') {
+              console.log('💵 [HomeScreen] Viaje en pending_payment, navegando a CashPaymentScreen');
+              navigation.navigate('CashPayment', {
+                rideId: activeRideId,
+                amount: activeRideData.finalFare || activeRideData.estimatedPrice,
+              });
+              activeRideFound = true;
+              return; // Salir temprano
+            }
+            
+            setHasRideRequest(true);
+            setActiveRide({ ...activeRideData, id: activeRideId });
+            activeRideFound = true; // ✅ FIX: Marcar como encontrado
+            
+            // Guardar en AsyncStorage
+            await AsyncStorage.setItem('ACTIVE_RIDE_ID', activeRideId);
+            
+            // NOTA: No sincronizar con Supabase aquí porque los IDs de Firebase no son UUIDs
+            // La sincronización se hará cuando se confirme el viaje en RideConfirmationScreen
+            console.log('💾 Viaje guardado en AsyncStorage:', activeRideId);
+          } else {
+            // No se encontró ningún viaje activo
+            console.log('📭 [HomeScreen] No hay viajes activos');
+            setHasRideRequest(false);
+            setActiveRide(null);
+          }
+        }
+        
+        // Si no se encontró ningún viaje activo, limpiar también AsyncStorage
+        if (!activeRideFound) {
+          const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+          await AsyncStorage.removeItem('ACTIVE_RIDE_ID');
+          setHasRideRequest(false);
+          setActiveRide(null);
+          console.log('🗑️ [HomeScreen] No hay viajes activos, limpiando estado');
+        }
+        
+      } catch (error) {
+        console.error('❌ Error verificando viajes activos:', error);
       }
     };
     
-    loadManualLocation();
-  }, [user?.id]);
-
-  // Actualizar ubicación efectiva cuando cambia manual o GPS
+    checkActiveRides();
+  }, [user?.id, activeRidesData]);
+  
+  // Listener para pagos pendientes
   useEffect(() => {
-    console.log('🔄 Actualizando ubicación efectiva - manual:', manualLocation, 'GPS:', coords);
-    if (manualLocation) {
-      setEffectiveLocation(manualLocation);
-      console.log('📍 Usando ubicación manual:', manualLocation);
-    } else if (coords) {
-      setEffectiveLocation(coords);
-      console.log('📡 Usando ubicación GPS:', coords);
-    } else {
-      console.log('⚠️ No hay ubicación disponible (ni manual ni GPS)');
+    if (!user?.id) {
+      console.log('⚠️ [HomeScreen] No hay userId, no se puede escuchar pagos');
+      return;
     }
-  }, [manualLocation, coords]);
-
-  // Verificar si hay viaje activo en tiempo real
-  useEffect(() => {
-    if (!user?.id) return;
-
+    
+    const { getDatabase, ref, onValue, off } = require('firebase/database');
     const db = getDatabase();
-    const ridesRef = ref(db, 'activeRides');
-
-    const unsubscribe = onValue(ridesRef, (snapshot) => {
-      const data = snapshot.val();
-      console.log('🔍 [HomeScreen] Buscando viajes activos para user.id:', user.id);
+    const paymentStatusRef = ref(db, 'paymentStatus');
+    
+    console.log('👂 [HomeScreen] Escuchando pagos pendientes para usuario:', user.id);
+    
+    const unsubscribe = onValue(paymentStatusRef, async (snapshot: any) => {
+      const paymentsData = snapshot.val();
       
-      if (data) {
-        // Buscar viaje donde el cliente es el usuario actual
-        const rides = Object.values(data) as any[];
-        console.log('📦 [HomeScreen] Total de viajes en activeRides:', rides.length);
-        
-        const myActiveRide = rides.find(
-          (ride: any) => {
-            console.log('🔍 Comparando viaje:', {
-              rideId: ride.id,
-              clientId: ride.clientId,
-              userId: user.id,
-              match: ride.clientId === user.id,
-              status: ride.status,
-              validStatus: ['requested', 'pending_confirm', 'accepted', 'in_progress'].includes(ride.status)
-            });
-            
-            return ride.clientId === user.id && 
-              (ride.status === 'requested' || 
-               ride.status === 'pending_confirm' || 
-               ride.status === 'accepted' || 
-               ride.status === 'in_progress');
-          }
-        );
-        
-        if (myActiveRide) {
-          console.log('✅ [HomeScreen] Viaje activo encontrado:', myActiveRide.id, 'Status:', myActiveRide.status);
-          setActiveRide(myActiveRide);
-        } else {
-          console.log('❌ [HomeScreen] No se encontró viaje activo para este usuario');
-          setActiveRide(null);
-        }
-      } else {
-        console.log('📭 [HomeScreen] No hay viajes en activeRides');
-        setActiveRide(null);
+      console.log('📦 [HomeScreen] Snapshot de paymentStatus recibido');
+      
+      if (!paymentsData) {
+        console.log('📭 [HomeScreen] No hay pagos en paymentStatus');
+        setPendingPayments([]);
+        return;
       }
-      setCheckingRide(false);
+      
+      console.log('📋 [HomeScreen] Pagos en Firebase:', Object.keys(paymentsData).length);
+      
+      // Filtrar pagos pendientes del usuario
+      const userPendingPayments = [];
+      
+      for (const [rideId, paymentInfo] of Object.entries(paymentsData)) {
+        const payment = paymentInfo as any;
+        
+        console.log(`🔍 [HomeScreen] Revisando pago ${rideId}:`, {
+          status: payment.status,
+          method: payment.method,
+        });
+        
+        // Solo pagos pendientes o pending_confirmation
+        if (payment.status === 'pending' || payment.status === 'pending_confirmation') {
+          // Obtener datos del viaje
+          const { ref: refFunc, get } = require('firebase/database');
+          const rideRef = refFunc(db, `activeRides/${rideId}`);
+          const rideSnapshot = await get(rideRef);
+          const rideData = rideSnapshot.val();
+          
+          if (!rideData) {
+            console.log(`⚠️ [HomeScreen] Viaje ${rideId} no encontrado en activeRides`);
+            continue;
+          }
+          
+          console.log(`🔍 [HomeScreen] Viaje ${rideId} - clientId: ${rideData.clientId}, userId: ${user.id}`);
+          
+          // Verificar que el viaje pertenece al usuario
+          if (rideData.clientId === user.id) {
+            console.log(`💰 [HomeScreen] ✅ Pago pendiente encontrado: ${rideId}`);
+            userPendingPayments.push({
+              rideId,
+              payment,
+              ride: rideData,
+            });
+          } else {
+            console.log(`⏭️ [HomeScreen] Pago ${rideId} no es del usuario actual`);
+          }
+        }
+      }
+      
+      console.log(`📊 [HomeScreen] Total pagos pendientes del usuario: ${userPendingPayments.length}`);
+      setPendingPayments(userPendingPayments);
     });
-
-    return () => off(ridesRef);
+    
+    return () => {
+      console.log('🔇 Limpiando listener de pagos pendientes');
+      off(paymentStatusRef);
+    };
   }, [user?.id]);
-
-  // Función para calcular distancia entre dos puntos (Haversine)
-  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-    const R = 6371; // Radio de la Tierra en km
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = 
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-      Math.sin(dLon / 2) * Math.sin(dLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c; // Distancia en km
-  };
-
-  // Escuchar ubicaciones de conductores disponibles en tiempo real
+  
+  // Efecto para procesar conductores cercanos (mejorado con lógica del archivo viejo)
   useEffect(() => {
-    console.log('🎯 useEffect conductores - effectiveLocation:', effectiveLocation);
+    if (!coords && !clientLocationData?.coords) {
+      console.log('⚠️ Sin ubicación disponible para buscar conductores');
+      setAvailableDrivers([]);
+      return;
+    }
+    
+    // Usar ubicación guardada si no hay ubicación actual
+    const effectiveLocation = coords || clientLocationData?.coords;
     if (!effectiveLocation) {
       console.log('⚠️ No hay effectiveLocation, no se puede buscar conductores');
       return;
     }
-
-    console.log('✅ Iniciando listener de conductores con ubicación:', effectiveLocation);
     
-    try {
-      const db = getDatabase();
-      console.log('✅ Database obtenida:', db);
-      const driversRef = ref(db, 'driversInfo');
-      console.log('✅ Referencia creada a driversInfo');
-      const SEARCH_RADIUS_KM = 15; // Radio de búsqueda en kilómetros (15km para mayor cobertura en Nicaragua)
-
-      console.log('🔄 Configurando listener onValue...');
+    console.log('✅ Iniciando búsqueda de conductores con ubicación:', effectiveLocation);
+    setLoadingNearbyDrivers(true);
+    
+    const processDriversData = () => {
+      if (!driversInfo) {
+        console.log('ℹ️ No hay conductores en driversInfo (nodo vacío o no existe)');
+        setAvailableDrivers([]);
+        setLoadingNearbyDrivers(false);
+        return;
+      }
       
-      const unsubscribe = onValue(
-        driversRef, 
-        (snapshot) => {
-          console.log('🔔 onValue callback ejecutado! (INICIO)');
-          
-          try {
-          console.log('🔔 onValue callback ejecutado!');
-          const data = snapshot.val();
-          console.log('📦 Datos RAW de driversInfo:', data ? Object.keys(data).length + ' conductores' : 'null');
-          console.log('📍 Ubicación del cliente para buscar conductores:', effectiveLocation);
+      try {
+        console.log('📦 Datos RAW de driversInfo:', Object.keys(driversInfo).length + ' conductores');
+        console.log('📍 Ubicación del cliente para buscar conductores:', effectiveLocation);
         
-          if (!data || typeof data !== 'object') {
-            console.log('ℹ️ No hay conductores en driversInfo (nodo vacío o no existe)');
-            setAvailableDrivers([]);
-            return;
-          }
-      
-        if (data && typeof data === 'object') {
-        // Convertir a array y filtrar conductores disponibles
-        const allDrivers = Object.entries(data).map(([driverId, driverData]: [string, any]) => {
+        const SEARCH_RADIUS_KM = 12; // Radio en kilómetros (15km para mayor cobertura)
+        
+        // Convertir a array y filtrar conductores disponibles (soportar múltiples formatos)
+        const allDrivers = Object.entries(driversInfo).map(([driverId, driverData]: [string, any]) => {
           // Validar que driverData existe y tiene las propiedades necesarias
           if (!driverData || typeof driverData !== 'object') {
             console.log(`⚠️ Conductor ${driverId} tiene datos inválidos`);
             return null;
           }
+          
+          // Soportar múltiples formatos de coordenadas
+          const latitude = driverData.coords?.latitude || driverData.lat || driverData.latitude;
+          const longitude = driverData.coords?.longitude || driverData.lng || driverData.longitude;
+          const isAvailable = driverData.status === 'available' || driverData.isAvailable === true;
+          
           const driver = {
             id: driverId,
-            latitude: driverData.lat || driverData.latitude, // Soportar ambos formatos
-            longitude: driverData.lng || driverData.longitude, // Soportar ambos formatos
-            isAvailable: driverData.status === 'available' || driverData.isAvailable === true, // Soportar ambos formatos
+            latitude: latitude,
+            longitude: longitude,
+            isAvailable: isAvailable,
             heading: driverData.heading || 0,
+            name: driverData.name || 'Conductor',
+            vehicle: driverData.vehicle || {},
             lastUpdate: driverData.timestamp || driverData.updatedAt,
           };
+          
           console.log(`🔍 Procesando conductor ${driverId.substring(0, 8)}:`, {
             lat: driver.latitude,
             lng: driver.longitude,
             available: driver.isAvailable,
             rawStatus: driverData.status,
-            rawLat: driverData.lat,
-            rawLng: driverData.lng
           });
+          
           return driver;
         }).filter((driver): driver is NonNullable<typeof driver> => driver !== null);
-
+        
         // Filtrar por disponibilidad, ubicación válida y radio de búsqueda
         const nearbyDrivers = allDrivers.filter(driver => {
           if (!driver.isAvailable || !driver.latitude || !driver.longitude) {
             return false;
           }
-
-          // Calcular distancia usando la ubicación efectiva (manual o GPS)
+          
+          // Calcular distancia
           const distance = calculateDistance(
             effectiveLocation.latitude,
             effectiveLocation.longitude,
             driver.latitude,
             driver.longitude
           );
-
-          console.log(`🚗 Conductor ${driver.id}: ${distance.toFixed(2)}km de distancia`);
+          
+          console.log(`🚗 Conductor ${driver.id.substring(0, 8)}: ${distance.toFixed(2)}km de distancia`);
           return distance <= SEARCH_RADIUS_KM;
+        }).map(driver => {
+          // Calcular distancia para ordenar
+          const distance = calculateDistance(
+            effectiveLocation.latitude,
+            effectiveLocation.longitude,
+            driver.latitude,
+            driver.longitude
+          );
+          return { ...driver, distance };
         });
-
+        
+        // Ordenar por distancia
+        nearbyDrivers.sort((a, b) => a.distance - b.distance);
+        
         console.log(`🚗 ${nearbyDrivers.length} conductores disponibles dentro de ${SEARCH_RADIUS_KM}km`);
         console.log('📍 Conductores cercanos:', nearbyDrivers.map(d => ({
           id: d.id.substring(0, 8),
           lat: d.latitude,
           lng: d.longitude,
-          distance: calculateDistance(effectiveLocation.latitude, effectiveLocation.longitude, d.latitude, d.longitude).toFixed(2) + 'km'
+          distance: d.distance.toFixed(2) + 'km'
         })));
+        
         setAvailableDrivers(nearbyDrivers);
-      } else {
-        setAvailableDrivers([]);
-      }
-        } catch (callbackError) {
-          console.error('❌ Error en callback de onValue:', callbackError);
-          setAvailableDrivers([]);
-        }
-      },
-      (error) => {
-        console.error('❌ Error en listener de Firebase:', error);
-        setAvailableDrivers([]);
-      }
-    );
-    
-    console.log('✅ Listener onValue configurado exitosamente');
-
-      return () => {
-        console.log('🔇 Deteniendo listener de conductores');
-        off(driversRef);
-      };
-    } catch (error) {
-      console.error('❌ Error configurando listener de conductores:', error);
-    }
-  }, [effectiveLocation]); // Dependencia: effectiveLocation (manual o GPS)
-
-  const checkActiveRide = async () => {
-    try {
-      setCheckingRide(true);
-      const functions = await getFirebaseFunctions();
-      const getActiveRideFunction = httpsCallable(functions, 'getActiveRide');
-      const response = await getActiveRideFunction({});
-      const result = response.data as { success: boolean; hasActiveRide: boolean; ride: any };
-
-      // Verificar que el viaje exista y NO esté cancelado o completado
-      if (result.success && result.hasActiveRide && result.ride) {
-        const validStatuses = ['requested', 'accepted', 'started'];
-        if (validStatuses.includes(result.ride.status)) {
-          setActiveRide(result.ride);
-        } else {
-          // Viaje cancelado o completado, no mostrar botón
-          setActiveRide(null);
-        }
-      } else {
-        setActiveRide(null);
-      }
-    } catch (error) {
-      console.error('Error verificando viaje activo:', error);
-      setActiveRide(null);
-    } finally {
-      setCheckingRide(false);
-    }
-  };
-
-  const goToActiveRide = () => {
-    if (!activeRide) return;
-
-    if (activeRide.status === 'requested' || activeRide.status === 'pending_confirm') {
-      // Viaje solicitado o esperando confirmación, ir a confirmación
-      navigation.navigate('RideConfirmation', { rideId: activeRide.id });
-    } else {
-      // Viaje aceptado o en progreso, ir a tracking
-      navigation.navigate('RideTracking', {
-        rideId: activeRide.id,
-        driverId: activeRide.driverId,
-        driverName: activeRide.driver?.name || 'Conductor',
-        vehiclePlate: activeRide.vehicle?.plate || 'N/A',
-        vehicleBrand: activeRide.vehicle?.make || activeRide.vehicle?.brand || 'N/A',
-        vehicleModel: activeRide.vehicle?.model || 'N/A',
-        vehicleColor: activeRide.vehicle?.color || 'N/A',
-        estimatedFare: activeRide.estimatedPrice || 0,
-      });
-    }
-  };
-
-  const handleCenterLocation = async () => {
-    setCenteringLocation(true);
-    try {
-      // Actualizar ubicación
-      await refreshLocation();
-      // Limpiar ubicación manual (volver a GPS)
-      setManualLocation(null);
-      // Forzar re-render del mapa para centrar
-      setMapKey(prev => prev + 1);
-      console.log('📍 Ubicación actualizada y centrada');
-    } catch (error) {
-      console.error('Error actualizando ubicación:', error);
-    } finally {
-      setCenteringLocation(false);
-    }
-  };
-
-  // Manejar cuando el usuario mueve el pin manualmente
-  const handleMarkerDragEnd = async (newLocation: { latitude: number; longitude: number }) => {
-    console.log('📍 Nueva ubicación manual:', newLocation);
-    setManualLocation(newLocation);
-
-    // Guardar en Firebase Realtime Database
-    if (user?.id) {
-      try {
-        const db = getDatabase();
-        const clientLocationRef = ref(db, `clientLocations/${user.id}`);
-        await import('firebase/database').then(({ set }) => 
-          set(clientLocationRef, {
-            latitude: newLocation.latitude,
-            longitude: newLocation.longitude,
-            isManual: true,
-            timestamp: Date.now(),
-          })
-        );
-        console.log('✅ Ubicación manual guardada en Firebase');
       } catch (error) {
-        console.error('❌ Error guardando ubicación manual:', error);
+        console.error('❌ Error procesando conductores:', error);
+        setAvailableDrivers([]);
+      } finally {
+        setLoadingNearbyDrivers(false);
       }
+    };
+    
+    // Procesar datos si ya están disponibles
+    if (!loadingDrivers) {
+      processDriversData();
+    }
+    
+  }, [coords, clientLocationData?.coords, driversInfo, loadingDrivers]);
+  
+  // Función para calcular distancia entre coordenadas
+  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+    // Radio de la tierra en km
+    const R = 6371;
+    
+    // Convertir a radianes
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    
+    // Fórmula haversine
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+      Math.sin(dLon/2) * Math.sin(dLon/2);
+    
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    const distance = R * c; // Distancia en km
+    
+    return distance;
+  };
+  
+  // Guardar ubicación del cliente en Firebase
+  const saveClientLocation = async (newLocation: {latitude: number, longitude: number}, address: string) => {
+    if (!user?.id) return;
+    
+    try {
+      // Usar Firebase database de forma manual
+      const { getDatabase, ref } = await import('firebase/database');
+      const db = getDatabase();
+      const clientLocationRef = ref(db, `clientLocations/${user.id}`);
+      
+      await set(clientLocationRef, {
+        coords: {
+          latitude: newLocation.latitude,
+          longitude: newLocation.longitude,
+        },
+        address: address,
+        updatedAt: new Date().toISOString()
+      });
+      
+      // También guardar en Supabase para histórico
+      const locationHistory = {
+        user_id: user.id,
+        latitude: newLocation.latitude,
+        longitude: newLocation.longitude,
+        address: address,
+        created_at: new Date().toISOString()
+      };
+      
+      // Esta función debería implementarse en locationTrackingService
+      // locationTrackingService.saveLocationHistory(locationHistory);
+      
+    } catch (error) {
+      console.error('❌ Error guardando ubicación:', error);
+      alertService.showErrorAlert('No se pudo guardar tu ubicación. Intenta de nuevo.');
     }
   };
+  
+  // Navegar a pantalla de pagos pendientes
+  const handleViewPendingPayments = () => {
+    console.log('💰 Navegando a pantalla de pagos pendientes');
+    navigation.navigate('PendingPayments');
+  };
+  
+  // Centrar mapa en la ubicación actual y actualizar ubicación
+  const handleCenterMap = async () => {
+    try {
+      // Actualizar la ubicación
+      await refreshLocation();
+      
+      if (!coords || !mapRef.current) {
+        alertService.showInfoAlert('Ubicación', 'Actualizando ubicación...');
+        return;
+      }
+      
+      // Centrar el mapa
+      // @ts-ignore
+      mapRef.current.animateToRegion({
+        latitude: coords.latitude,
+        longitude: coords.longitude,
+        latitudeDelta: 0.005,
+        longitudeDelta: 0.005,
+      }, 1000);
+      
+      console.log('📍 Ubicación actualizada y mapa centrado');
+    } catch (error) {
+      console.error('❌ Error actualizando ubicación:', error);
+      alertService.showErrorAlert('No se pudo actualizar la ubicación');
+    }
+  };
+  
+  // Ir a pantalla de solicitud de viaje
+  const handleRequestRide = () => {
+    // Bloquear si hay pagos pendientes
+    if (hasPendingPayments) {
+      alertService.showInfoAlert(
+        '⚠️ Pagos Pendientes',
+        `Tienes ${pendingPayments.length} pago(s) pendiente(s) por un total de C$${totalDebt.toFixed(2)}. Por favor, paga tus deudas antes de solicitar un nuevo viaje.`,
+        () => {
+          navigation.navigate('PendingPayments');
+        }
+      );
+      return;
+    }
 
-  // Estilos dinámicos con tema
-  const styles = useMemo(() => createStyles(colors), [colors]);
-
-  // Solo mostrar loading si NO hay ubicación efectiva (ni manual ni GPS)
-  if (locationLoading && !effectiveLocation) {
+    navigation.navigate('SearchRide');
+  };
+  
+  // Ir a pantalla de viaje activo
+  const handleViewActiveRide = async () => {
+    try {
+      // Usar el activeRide del estado si está disponible
+      if (!activeRide) {
+        console.log('❌ No hay viaje activo en el estado');
+        return;
+      }
+      
+      console.log('🚗 Navegando a viaje activo:', activeRide.id, 'Estado:', activeRide.status);
+      
+      // Navegar según el estado del viaje
+      if (activeRide.status === 'requested' || 
+          activeRide.status === 'pending_confirm' || 
+          activeRide.status === 'driver_assigned') {
+        // Viaje esperando confirmación
+        navigation.navigate('RideConfirmation', { rideId: activeRide.id });
+      } else if (activeRide.status === 'accepted' || activeRide.status === 'in_progress') {
+        // Viaje confirmado o en progreso
+        navigation.navigate('RideTracking', {
+          rideId: activeRide.id,
+          driverId: activeRide.driverId,
+          driverName: activeRide.driver?.name || 'Conductor',
+          vehiclePlate: activeRide.vehicle?.plate || activeRide.driver?.vehicle?.plate || 'N/A',
+          vehicleBrand: activeRide.vehicle?.make || activeRide.vehicle?.brand || activeRide.driver?.vehicle?.brand || 'N/A',
+          vehicleModel: activeRide.vehicle?.model || activeRide.driver?.vehicle?.model || 'N/A',
+          vehicleColor: activeRide.vehicle?.color || activeRide.driver?.vehicle?.color || 'N/A',
+          estimatedFare: activeRide.finalFare || activeRide.estimatedPrice || 0,
+        });
+      } else {
+        console.log('⚠️ Estado de viaje no manejado:', activeRide.status);
+      }
+    } catch (error) {
+      console.error('❌ Error al navegar a viaje activo:', error);
+    }
+  };
+  
+  // Mostrar pantalla de carga si corresponde
+  if (!coords && !clientLocationData?.coords) {
+    return <LoadingOverlay visible={true} message={loadingMessage} />;
+  }
+  
+  // Mostrar error si no hay ubicación
+  if (locationError) {
     return (
-      <View style={styles.container}>
-        <MapSkeleton />
-        <View style={styles.loadingOverlay}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={[styles.loadingText, { color: colors.text }]}>
-            Obteniendo ubicación...
-          </Text>
-        </View>
+      <View style={styles.errorContainer}>
+        <Text style={styles.errorText}>No se pudo acceder a tu ubicación</Text>
+        <Text style={styles.errorDescription}>
+          Verifica los permisos de ubicación y asegúrate de tener el GPS activado
+        </Text>
+        <TouchableOpacity 
+          style={styles.retryButton}
+          onPress={() => {
+            setLoadingMessage('Obteniendo ubicación...');
+            refreshLocation();
+          }}
+        >
+          <Text style={styles.retryText}>Reintentar</Text>
+        </TouchableOpacity>
       </View>
     );
   }
-
-  if (error || (!coords && !effectiveLocation)) {
-    return (
-      <View style={styles.container}>
-        <NoConnectionEmptyState onRetry={refreshLocation} />
-      </View>
-    );
-  }
-
-  // Usar ubicación efectiva para el mapa
-  const mapLocation = effectiveLocation || coords || { latitude: 0, longitude: 0 };
 
   return (
     <View style={styles.container}>
-      {/* Mapa dinámico según backend */}
+      {/* Mapa con ubicación actual */}
       <DynamicMap
-        key={mapKey}
-        latitude={mapLocation.latitude}
-        longitude={mapLocation.longitude}
+        latitude={coords?.latitude || clientLocationData?.coords?.latitude || 0}
+        longitude={coords?.longitude || clientLocationData?.coords?.longitude || 0}
         style={styles.map}
         showMarker={true}
-        markerPosition={mapLocation}
+        markerPosition={coords ? { latitude: coords.latitude, longitude: coords.longitude } : undefined}
         markerType="origin"
         nearbyDrivers={availableDrivers}
-        draggableMarker={true}
-        onMarkerDragEnd={handleMarkerDragEnd}
       />
 
       {/* Header flotante */}
-      <View style={styles.header}>
-        <View style={styles.headerContent}>
-          <Text style={styles.greeting}>Hola, {user?.name || 'Usuario'}</Text>
-          <Text style={styles.subtitle}>¿A dónde quieres ir?</Text>
-        </View>
-        <View style={styles.headerButtons}>
-          <TouchableOpacity
-            style={styles.headerButton}
-            onPress={() => navigation.navigate('Settings')}
-          >
-            <Text style={styles.headerButtonIcon}>⚙️</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.profileButton}
-            onPress={() => navigation.navigate('Profile')}
-          >
-            <Text style={styles.profileIcon}>👤</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
+            <View style={styles.header}>
+              <View style={styles.headerContent}>
+                <Text style={styles.greeting}>Hola, {user?.name || 'Usuario'}</Text>
+                <Text style={styles.subtitle}>¿A dónde quieres ir?</Text>
+              </View>
+              <View style={styles.headerButtons}>
+                <TouchableOpacity
+                  style={styles.headerButton}
+                  onPress={() => navigation.navigate('Settings')}
+                >
+                  <Text style={styles.headerButtonIcon}>⚙️</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.profileButton}
+                  onPress={() => navigation.navigate('Profile')}
+                >
+                  <Text style={styles.profileIcon}>👤</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
 
       {/* Barra de búsqueda flotante */}
       <TouchableOpacity
         style={styles.searchBar}
-        onPress={() => navigation.navigate('SearchRide')}
+        onPress={handleRequestRide}
       >
         <View style={styles.searchIcon}>
           <Text style={styles.searchIconText}>🔍</Text>
         </View>
         <Text style={styles.searchText}>Buscar destino...</Text>
       </TouchableOpacity>
-
-      {/* Botón flotante para centrar ubicación */}
-      <TouchableOpacity
-        style={styles.centerLocationButton}
-        onPress={handleCenterLocation}
-        disabled={centeringLocation}
+      
+      {/* Botón para centrar mapa */}
+      <TouchableOpacity 
+        style={styles.centerMapButton}
+        onPress={handleCenterMap}
       >
-        {centeringLocation ? (
-          <ActivityIndicator size="small" color="#fff" />
-        ) : (
-          <Text style={styles.centerLocationIcon}>📍</Text>
-        )}
+        <Text style={styles.centerMapIcon}>📍</Text>
       </TouchableOpacity>
-
-      {/* Botón de viaje activo (si existe) - Movido abajo */}
-      {activeRide && !checkingRide ? (
-        <TouchableOpacity
-          style={styles.activeRideButton}
-          onPress={goToActiveRide}
-        >
-          <View style={styles.activeRideContent}>
-            <Text style={styles.activeRideIcon}>🚗</Text>
-            <View style={styles.activeRideInfo}>
-              <Text style={styles.activeRideTitle}>Viaje en curso</Text>
-              <Text style={styles.activeRideSubtitle}>
-                {activeRide.status === 'requested' ? 'Buscando conductor...' :
-                 activeRide.status === 'pending_confirm' ? 'Confirma tu conductor' :
-                 activeRide.status === 'accepted' ? 'Conductor en camino' : 
-                 'Viaje en progreso'}
-              </Text>
+      
+      {/* Panel inferior */}
+      <View style={styles.bottomPanel}>
+        {/* Banner de pagos pendientes */}
+        {pendingPayments.length > 0 && !hasRideRequest && (
+          <TouchableOpacity 
+            style={[styles.activeRideBanner, { backgroundColor: '#FF9800' }]}
+            onPress={handleViewPendingPayments}
+          >
+            <View style={styles.activeRideContent}>
+              <Text style={styles.activeRideIcon}>💰</Text>
+              <View style={styles.activeRideInfo}>
+                <Text style={styles.activeRideText}>Pago pendiente</Text>
+                <Text style={styles.activeRideSubtext}>
+                  {pendingPayments.length === 1 
+                    ? 'Tienes 1 pago pendiente' 
+                    : `Tienes ${pendingPayments.length} pagos pendientes`}
+                </Text>
+              </View>
+              <Text style={styles.activeRideArrow}>→</Text>
             </View>
-            <Text style={styles.activeRideArrow}>→</Text>
-          </View>
-        </TouchableOpacity>
-      ) : (
+          </TouchableOpacity>
+        )}
+        
+        {/* Banner de viaje activo con estados dinámicos */}
+        {hasRideRequest && activeRide && (
+          <TouchableOpacity 
+            style={styles.activeRideBanner}
+            onPress={handleViewActiveRide}
+          >
+            <View style={styles.activeRideContent}>
+              <Text style={styles.activeRideIcon}>🚗</Text>
+              <View style={styles.activeRideInfo}>
+                <Text style={styles.activeRideText}>Viaje activo</Text>
+                <Text style={styles.activeRideSubtext}>
+                  {activeRide.status === 'requested' ? '🔍 Buscando conductor...' :
+                   activeRide.status === 'pending_confirm' || activeRide.status === 'driver_assigned' ? '✅ Confirma tu conductor' :
+                   activeRide.status === 'accepted' ? '🚗 Conductor en camino' : 
+                   '🛣️ Viaje en progreso'}
+                </Text>
+              </View>
+              <Text style={styles.activeRideArrow}>→</Text>
+            </View>
+          </TouchableOpacity>
+        )}
+
+        {/* Banner de pagos pendientes */}
+        {hasPendingPayments && (
+          <TouchableOpacity
+            style={styles.pendingPaymentsBanner}
+            onPress={() => navigation.navigate('PendingPayments')}
+          >
+            <View style={styles.pendingPaymentsContent}>
+              <Text style={styles.pendingPaymentsIcon}>⚠️</Text>
+              <View style={styles.pendingPaymentsInfo}>
+                <Text style={styles.pendingPaymentsTitle}>Pagos Pendientes</Text>
+                <Text style={styles.pendingPaymentsSubtext}>
+                  {pendingPayments.length} pago(s) • C${totalDebt.toFixed(2)}
+                </Text>
+              </View>
+              <Text style={styles.pendingPaymentsArrow}>→</Text>
+            </View>
+          </TouchableOpacity>
+        )}
+        
+        {/* Botón de solicitar viaje */}
         <View style={styles.requestButtonContainer}>
-          <Button
-            title="Solicitar Viaje"
-            onPress={() => navigation.navigate('SearchRide')}
-            style={styles.requestButton}
-          />
+          <TouchableOpacity
+            onPress={handleRequestRide}
+            style={[
+              styles.requestButton, 
+              { 
+                backgroundColor: hasPendingPayments ? '#BDBDBD' : colors.primary,
+                opacity: hasPendingPayments ? 0.6 : 1
+              }
+            ]}
+            disabled={hasPendingPayments}
+          >
+            <Text style={styles.requestButtonText}>
+              {hasPendingPayments ? '🔒 Paga tus deudas primero' : 'Solicitar Viaje'}
+            </Text>
+          </TouchableOpacity>
         </View>
-      )}
+      </View>
     </View>
   );
 }
 
+// Estilos
 const createStyles = (colors: any) => StyleSheet.create({
   container: {
     flex: 1,
@@ -478,244 +766,169 @@ const createStyles = (colors: any) => StyleSheet.create({
   map: {
     flex: 1,
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: colors.background,
-  },
-  loadingOverlay: {
-    position: 'absolute',
-    top: '50%',
-    left: '50%',
-    transform: [{ translateX: -50 }, { translateY: -50 }],
-    alignItems: 'center',
-    backgroundColor: colors.card,
-    padding: 24,
-    borderRadius: 16,
-    ...Platform.select({
-      default: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.2,
-        shadowRadius: 8,
-        elevation: 8,
-      }
-    }),
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: colors.textSecondary,
-  },
-  debugText: {
-    marginTop: 8,
-    fontSize: 12,
-    color: colors.textSecondary,
-  },
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-    backgroundColor: colors.background,
-  },
-  errorText: {
-    fontSize: 16,
-    color: colors.error,
-    textAlign: 'center',
-  },
   header: {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    paddingTop: 50,
-    paddingHorizontal: 20,
-    paddingBottom: 16,
-    backgroundColor: colors.card + 'F2',
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
+    top: 50,
+    left: 16,
+    right: 16,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    ...Platform.select({
-      web: {
-        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)'
-      },
-      default: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 8,
-        elevation: 4,
-      }
-    }),
+    alignItems: 'center',
+    zIndex: 10,
+    backgroundColor: colors.background + '95',
+    borderRadius: 16,
+    padding: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 3,
   },
   headerContent: {
     flex: 1,
   },
+  greeting: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: colors.text,
+  },
+  subtitle: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    marginTop: 2,
+    fontWeight: '500',
+  },
   headerButtons: {
     flexDirection: 'row',
-    gap: 12,
+    gap: 8,
   },
   headerButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#fff',
-    justifyContent: 'center',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.card,
     alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#e0e0e0',
-    ...Platform.select({
-      default: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-        elevation: 3,
-      }
-    }),
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 5,
   },
   headerButtonIcon: {
     fontSize: 20,
   },
   profileButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#fff',
-    justifyContent: 'center',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.primary,
     alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#e0e0e0',
-    ...Platform.select({
-      default: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-        elevation: 3,
-      }
-    }),
+    justifyContent: 'center',
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+    elevation: 6,
   },
   profileIcon: {
-    fontSize: 24,
-  },
-  greeting: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: colors.text,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    marginTop: 4,
-  },
-  trafficIndicator: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 8,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    backgroundColor: '#f5f5f5',
-    borderRadius: 20,
-    alignSelf: 'flex-start',
-  },
-  trafficIcon: {
-    fontSize: 12,
-    marginRight: 6,
-  },
-  trafficText: {
-    fontSize: 12,
-    color: '#666',
-    fontWeight: '600',
+    fontSize: 22,
+    color: '#fff',
   },
   searchBar: {
     position: 'absolute',
-    top: 150,
-    left: 20,
-    right: 20,
-    backgroundColor: colors.card,
+    top: 130,
+    left: 16,
+    right: 16,
+    backgroundColor: colors.card + 'F5',
+    borderRadius: 16,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderRadius: 12,
-    ...Platform.select({
-      web: {
-        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)'
-      },
-      default: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.15,
-        shadowRadius: 8,
-        elevation: 5,
-      }
-    }),
+    paddingVertical: 16,
+    paddingHorizontal: 18,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+    zIndex: 10,
+    borderWidth: 1,
+    borderColor: colors.border + '40',
   },
   searchIcon: {
-    width: 32,
-    height: 32,
-    backgroundColor: colors.surface,
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
     marginRight: 12,
   },
   searchIconText: {
-    fontSize: 16,
+    fontSize: 20,
   },
   searchText: {
     fontSize: 16,
-    color: colors.textSecondary,
+    color: colors.text,
+    fontWeight: '500',
+    opacity: 0.7,
   },
-  centerLocationButton: {
-    position: 'absolute',
-    top: 220,
-    right: 20,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#2196F3',
-    justifyContent: 'center',
-    alignItems: 'center',
-    ...Platform.select({
-      web: {
-        boxShadow: '0 4px 12px rgba(33, 150, 243, 0.4)'
-      },
-      default: {
-        shadowColor: '#2196F3',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.4,
-        shadowRadius: 12,
-        elevation: 6,
-      }
-    }),
-  },
-  centerLocationIcon: {
-    fontSize: 28,
+  bottomPanel: {
+    backgroundColor: colors.card + 'F0',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 24,
+    elevation: 16,
+    borderTopWidth: 1,
+    borderTopColor: colors.border + '20',
   },
   requestButtonContainer: {
-    position: 'absolute',
-    bottom: 20,
-    left: 20,
-    right: 20,
+    alignItems: 'center',
   },
   requestButton: {
-    backgroundColor: '#000',
-    paddingVertical: 16,
+    width: '100%',
+    height: 60,
+    borderRadius: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#D4AF37',
+    shadowColor: '#D4AF37',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.45,
+    shadowRadius: 12,
+    elevation: 8,
+    borderWidth: 2,
+    borderColor: '#D4AF37' + '40',
   },
-  activeRideButton: {
+  requestButtonText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '900',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  centerMapButton: {
     position: 'absolute',
-    bottom: 20,
-    left: 20,
-    right: 20,
-    backgroundColor: '#4CAF50',
-    borderRadius: 16,
+    bottom: 180,
+    right: 16,
+    backgroundColor: colors.card,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  centerMapIcon: {
+    fontSize: 24,
+  },
+  activeRideBanner: {
+    backgroundColor: '#D4AF37',
     padding: 16,
+    borderRadius: 16,
+    marginBottom: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
@@ -727,26 +940,104 @@ const createStyles = (colors: any) => StyleSheet.create({
     alignItems: 'center',
   },
   activeRideIcon: {
-    fontSize: 32,
+    fontSize: 28,
     marginRight: 12,
   },
   activeRideInfo: {
     flex: 1,
   },
-  activeRideTitle: {
+  activeRideText: {
+    color: '#fff',
     fontSize: 18,
     fontWeight: '700',
-    color: '#fff',
     marginBottom: 4,
   },
-  activeRideSubtitle: {
-    fontSize: 14,
+  activeRideSubtext: {
     color: '#fff',
-    opacity: 0.9,
+    fontSize: 14,
+    opacity: 0.95,
+    fontWeight: '500',
   },
   activeRideArrow: {
     fontSize: 24,
     color: '#fff',
     fontWeight: '700',
+  },
+  pendingPaymentsBanner: {
+    backgroundColor: '#FF9800',
+    padding: 16,
+    borderRadius: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  pendingPaymentsContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  pendingPaymentsIcon: {
+    fontSize: 28,
+    marginRight: 12,
+  },
+  pendingPaymentsInfo: {
+    flex: 1,
+  },
+  pendingPaymentsTitle: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  pendingPaymentsSubtext: {
+    color: '#fff',
+    fontSize: 14,
+    opacity: 0.95,
+    fontWeight: '500',
+  },
+  pendingPaymentsArrow: {
+    fontSize: 24,
+    color: '#fff',
+    fontWeight: '700',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: colors.background,
+  },
+  errorText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  errorDescription: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    marginBottom: 20,
+    textAlign: 'center',
+    fontWeight: '500',
+  },
+  retryButton: {
+    backgroundColor: '#D4AF37',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
+    marginTop: 16,
+    shadowColor: '#D4AF37',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  retryText: {
+    color: colors.background,
+    fontSize: 15,
+    fontWeight: '800',
+    letterSpacing: 0.3,
   },
 });

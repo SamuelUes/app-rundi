@@ -1,17 +1,29 @@
 /**
  * Servicio de Tracking usando Firebase Realtime Database
  * SIN WebSocket - Usa listeners nativos de Firebase
+ * Versión mejorada con soporte para múltiples destinos y seguimiento de clientes
  */
 
 import { getFirebaseDatabase } from '../config/firebase';
-import { ref, set, onValue, off, update, remove } from 'firebase/database';
+import { ref, set, onValue, off, update, remove, serverTimestamp } from 'firebase/database';
 
-interface DriverLocation {
+interface Location {
   latitude: number;
   longitude: number;
   speed?: number;
   heading?: number;
+  accuracy?: number;
   timestamp: number;
+}
+
+interface Destination {
+  lat: number;
+  lng: number;
+  address: string;
+  order?: number; // Orden en la secuencia de múltiples destinos
+  completed?: boolean; // Si ya se completó este destino
+  eta?: number; // Tiempo estimado de llegada en segundos
+  distance?: number; // Distancia en metros
 }
 
 interface RideTracking {
@@ -19,13 +31,13 @@ interface RideTracking {
   driverId: string;
   clientId: string;
   status: 'waiting' | 'in_progress' | 'completed' | 'cancelled';
-  driverLocation?: DriverLocation;
+  driverLocation?: Location;
+  clientLocation?: Location;
   lastUpdate: number;
-  destination?: {
-    lat: number;
-    lng: number;
-    address: string;
-  };
+  destination?: Destination;
+  // Soporte para múltiples destinos
+  destinations?: Destination[];
+  currentDestinationIndex?: number;
 }
 
 class FirebaseTrackingService {
@@ -41,6 +53,7 @@ class FirebaseTrackingService {
       longitude: number;
       speed?: number;
       heading?: number;
+      accuracy?: number;
     }
   ): Promise<void> {
     try {
@@ -50,8 +63,9 @@ class FirebaseTrackingService {
       await set(locationRef, {
         lat: location.latitude,
         lng: location.longitude,
-        speed: location.speed || null,
-        heading: location.heading || null,
+        speed: location.speed || 0,
+        heading: location.heading || 0,
+        accuracy: location.accuracy || 0,
         status: 'available',
         lastUpdate: Date.now(),
       });
@@ -59,6 +73,35 @@ class FirebaseTrackingService {
       console.log(`📍 Ubicación actualizada en Firebase RTDB: ${driverId}`);
     } catch (error) {
       console.error('❌ Error actualizando ubicación:', error);
+      throw error;
+    }
+  }
+  
+  /**
+   * Actualizar ubicación del cliente
+   */
+  async updateClientLocation(
+    clientId: string,
+    location: {
+      latitude: number;
+      longitude: number;
+      accuracy?: number;
+    }
+  ): Promise<void> {
+    try {
+      const database = await getFirebaseDatabase();
+      const locationRef = ref(database, `clientLocations/${clientId}`);
+      
+      await set(locationRef, {
+        lat: location.latitude,
+        lng: location.longitude,
+        accuracy: location.accuracy || 0,
+        lastUpdate: Date.now(),
+      });
+
+      console.log(`📍 Ubicación del cliente actualizada: ${clientId}`);
+    } catch (error) {
+      console.error('❌ Error actualizando ubicación del cliente:', error);
       throw error;
     }
   }
@@ -91,7 +134,7 @@ class FirebaseTrackingService {
    */
   async subscribeToDriverLocation(
     driverId: string,
-    callback: (location: DriverLocation | null) => void
+    callback: (location: Location | null) => void
   ): Promise<() => void> {
     const database = await getFirebaseDatabase();
     const locationRef = ref(database, `driverLocations/${driverId}`);

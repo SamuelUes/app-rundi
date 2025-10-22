@@ -11,6 +11,7 @@ admin.initializeApp();
 
 // Importar módulos
 import * as authAPI from "./api/auth";
+import * as smsAPI from "./api/sms";
 import * as ridesAPI from "./api/rides";
 import * as driversAPI from "./api/drivers";
 import * as paymentsAPI from "./api/payments";
@@ -27,6 +28,13 @@ import * as penaltiesAPI from "./api/penalties";
 import * as commissionsAPI from "./api/commissions";
 import * as ratingsAPI from "./api/ratings";
 import * as cardsAPI from "./api/cards";
+import * as servicesAPI from "./api/services";
+import * as switchPaymentMethodAPI from "./api/switchPaymentMethod";
+import * as pendingPaymentsAPI from "./api/pendingPayments";
+import * as routingFunctions from "./location/routing";
+
+// Importar user management
+import * as userManagement from "./user/deleteUserData";
 
 // Importar triggers
 import * as authTriggers from "./triggers/auth";
@@ -39,6 +47,7 @@ import * as stripeWebhook from "./webhooks/stripe";
 
 // Importar scheduled functions
 import * as cleanupScheduled from "./scheduled/cleanupOldRides";
+import * as cleanupRealtimeDB from "./scheduled/cleanupRealtimeDB";
 
 // ============================================
 // API ENDPOINTS
@@ -48,6 +57,13 @@ import * as cleanupScheduled from "./scheduled/cleanupOldRides";
 export const register = authAPI.register;
 export const login = authAPI.login;
 export const logout = authAPI.logout;
+export const completeDriverRegistration = authAPI.completeDriverRegistration;
+
+// SMS (Validación de teléfono)
+export const sendSmsCode = smsAPI.sendSmsCode;
+export const verifySmsCode = smsAPI.verifySmsCode;
+export const resendSmsCode = smsAPI.resendSmsCode;
+export const cleanupExpiredSmsCode = smsAPI.cleanupExpiredSmsCode;
 
 // Rides
 export const requestRide = ridesAPI.requestRide;
@@ -56,6 +72,7 @@ export const confirmDriver = ridesAPI.confirmDriver;
 export const rejectDriver = ridesAPI.rejectDriver;
 export const startRide = ridesAPI.startRide;
 export const completeRide = ridesAPI.completeRide;
+export const confirmCashPayment = ridesAPI.confirmCashPayment;
 export const cancelRide = ridesAPI.cancelRide;
 export const getRideDetails = ridesAPI.getRideDetails;
 export const getAvailableRides = ridesAPI.getAvailableRides;
@@ -70,6 +87,15 @@ export const getDriverProfile = driversAPI.getDriverProfile;
 export const updateDriverStatus = driversAPI.updateDriverStatus;
 export const getAvailableDrivers = driversAPI.getAvailableDrivers;
 export const updateDesignatedDriverMode = driversAPI.updateDesignatedDriverMode;
+export const updateDriver = driversAPI.updateDriver;
+export const updateVehicle = driversAPI.updateVehicle;
+export const addVehicle = driversAPI.addVehicle;
+export const switchVehicle = driversAPI.switchVehicle;
+export const getDriverVehicles = driversAPI.getDriverVehicles;
+export const requestDesignatedDriverAccess = driversAPI.requestDesignatedDriverAccess;
+export const getDesignatedDriverRequestStatus = driversAPI.getDesignatedDriverRequestStatus;
+export const approveDesignatedDriverRequest = driversAPI.approveDesignatedDriverRequest;
+export const rejectDesignatedDriverRequest = driversAPI.rejectDesignatedDriverRequest;
 
 // Payments
 export const createPaymentIntent = paymentsAPI.createPaymentIntent;
@@ -148,13 +174,34 @@ export const rateRide = ratingsAPI.rateRide; // Alias para compatibilidad
 export const getUserRating = ratingsAPI.getUserRating;
 export const getRideRatings = ratingsAPI.getRideRatings;
 
+// Services (Gestión de servicios y comisiones)
+export const getServices = servicesAPI.getServices;
+export const getServiceById = servicesAPI.getServiceById;
+export const createService = servicesAPI.createService;
+export const updateService = servicesAPI.updateService;
+export const getCommissionForRide = servicesAPI.getCommissionForRide;
+export const assignServiceToDriver = servicesAPI.assignServiceToDriver;
+export const approveDriverService = servicesAPI.approveDriverService;
+export const getDriverServices = servicesAPI.getDriverServices;
+
+// Switch Payment Method
+export const switchPaymentMethod = switchPaymentMethodAPI.switchPaymentMethod;
+export const getPaymentMethodHistory = switchPaymentMethodAPI.getPaymentMethodHistory;
+
+// Location & Routing
+export const calculateRoute = routingFunctions.calculateRoute;
+export const reverseGeocode = routingFunctions.reverseGeocode;
+export const geocodeAddress = routingFunctions.geocodeAddress;
+export const searchPlaces = routingFunctions.searchPlaces;
+export const calculateDistance = routingFunctions.calculateDistance;
+
 // ============================================
 // TRIGGERS AUTOMÁTICOS
 // ============================================
 
 // Auth Triggers
 export const onUserCreated = authTriggers.onUserCreated;
-export const onUserDeleted = authTriggers.onUserDeleted;
+// onUserDeleted ELIMINADO - Reemplazado por deleteUserFromSupabase (ver USER MANAGEMENT section)
 
 // Rides Triggers
 export const onRideStatusChanged = ridesTriggers.onRideStatusChanged;
@@ -163,6 +210,8 @@ export const onRideCreated = ridesTriggers.onRideCreated;
 // Payments Triggers
 export const onPaymentCompleted = paymentsTriggers.onPaymentCompleted;
 export const syncPaymentStatusToPostgres = paymentStatusSync.syncPaymentStatusToPostgres;
+export const syncPostgresToFirebase = paymentStatusSync.syncPostgresToFirebase;
+export const forceSyncPaymentToFirebase = paymentStatusSync.forceSyncPaymentToFirebase;
 
 // FCM Triggers
 export const onRideAccepted = fcmFunctions.sendRideAcceptedNotification;
@@ -186,6 +235,43 @@ export const cleanupOrphanPaymentsScheduled = cleanupScheduled.cleanupOrphanPaym
 
 // Limpiar chats huérfanos (cada 12 horas)
 export const cleanupOldChatsScheduled = cleanupScheduled.cleanupOldChats;
+
+// ============================================
+// REALTIME DATABASE CLEANUP (Reemplaza extensiones)
+// ============================================
+
+// Limpiar ubicaciones de conductores (cada hora) - Mantiene últimas 100
+export const cleanupDriverLocations = cleanupRealtimeDB.cleanupDriverLocations;
+
+// Limpiar ubicaciones de viajes (cada 30 min) - Mantiene últimas 500
+export const cleanupRideLocations = cleanupRealtimeDB.cleanupRideLocations;
+
+// Limpiar mensajes de chat (cada 6 horas) - Mantiene últimos 100
+export const cleanupChatMessages = cleanupRealtimeDB.cleanupChatMessages;
+
+// Limpiar notificaciones (diario) - Mantiene últimas 20
+export const cleanupNotifications = cleanupRealtimeDB.cleanupNotifications;
+
+// Limpiar historial de presencia (diario) - Mantiene últimos 10
+export const cleanupPresenceHistory = cleanupRealtimeDB.cleanupPresenceHistory;
+
+// ============================================
+// PENDING PAYMENTS
+// ============================================
+
+export const getPendingPayments = pendingPaymentsAPI.getPendingPayments;
+export const processPendingPayment = pendingPaymentsAPI.processPendingPayment;
+
+// ============================================
+// USER MANAGEMENT
+// ============================================
+
+// Eliminar datos de usuario de Supabase cuando se elimina de Firebase Auth
+export const deleteUserFromSupabase = userManagement.deleteUserFromSupabase;
+
+// Eliminar datos manualmente (para testing o limpieza)
+export const manualDeleteUserData = userManagement.manualDeleteUserData;
+
 
 // ============================================
 // HEALTH CHECK

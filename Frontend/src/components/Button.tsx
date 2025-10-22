@@ -5,13 +5,18 @@ interface Props {
   title: string;
   onPress?: (event: GestureResponderEvent) => void;
   disabled?: boolean;
+  loading?: boolean;
   style?: ViewStyle;
 }
 
-export default function Button({ title, onPress, disabled, style }: Props) {
+export default function Button({ title, onPress, disabled, loading, style }: Props) {
   return (
-    <TouchableOpacity style={[styles.button, style, disabled && styles.disabled]} onPress={onPress} disabled={disabled}>
-      <Text style={styles.text}>{title}</Text>
+    <TouchableOpacity 
+      style={[styles.button, style, (disabled || loading) && styles.disabled]} 
+      onPress={onPress} 
+      disabled={disabled || loading}
+    >
+      <Text style={styles.text}>{loading ? 'Cargando...' : title}</Text>
     </TouchableOpacity>
   );
 }

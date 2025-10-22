@@ -79,8 +79,13 @@ temp/
 
 # Carpetas ignoradas (legacy)
 Backend/
-docs/session-2025-10-09/
+docs/
 
+database/
+supabase.ts
+
+# Permitidos
+!database/supabase-only.sql
 
 # Frontend - PERMITIR .env para APIs públicas (Google Maps, etc.)
 # El .env del Frontend se permite porque contiene solo APIs del cliente

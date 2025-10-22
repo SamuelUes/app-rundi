@@ -1,15 +1,16 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   Alert,
   ScrollView,
+  ActivityIndicator,
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { AnimatedButton } from '../../components/AnimatedButton';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { getDatabase, ref, update } from 'firebase/database';
+import { getDatabase, ref, update, onValue, off } from 'firebase/database';
 import { initializeFirebase } from '../../config/firebase';
 
 interface ConfirmCashPaymentScreenProps {
@@ -29,47 +30,113 @@ export default function ConfirmCashPaymentScreen({ route, navigation }: ConfirmC
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [confirming, setConfirming] = useState(false);
+  const [clientConfirmed, setClientConfirmed] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  console.log('💵 [ConfirmCashPaymentScreen] Params:', { rideId, amount, tip, clientName });
 
   // Convertir a números si vienen como strings
   const numericAmount = typeof amount === 'string' ? parseFloat(amount) : (amount || 0);
   const numericTip = typeof tip === 'string' ? parseFloat(tip) : (tip || 0);
   const totalAmount = numericAmount + numericTip;
 
+  // Escuchar si el cliente confirmó el pago
+  useEffect(() => {
+    const setupListener = async () => {
+      try {
+        const { app } = await initializeFirebase();
+        if (!app) {
+          console.error('❌ Firebase no inicializado');
+          setLoading(false);
+          return;
+        }
+        const db = getDatabase(app);
+        const paymentRef = ref(db, `paymentStatus/${rideId}`);
+
+        console.log('👂 [ConfirmCashPaymentScreen] Escuchando confirmación del cliente...');
+
+        const unsubscribe = onValue(paymentRef, (snapshot) => {
+          const paymentData = snapshot.val();
+          console.log('📦 [ConfirmCashPaymentScreen] paymentStatus:', paymentData);
+
+          if (paymentData) {
+            const confirmed = paymentData.confirmedByClient === true;
+            setClientConfirmed(confirmed);
+            console.log(`${confirmed ? '✅' : '⏳'} Cliente ${confirmed ? 'confirmó' : 'no ha confirmado'} el pago`);
+          }
+          setLoading(false);
+        });
+
+        return () => {
+          off(paymentRef);
+        };
+      } catch (error) {
+        console.error('❌ Error configurando listener:', error);
+        setLoading(false);
+      }
+    };
+
+    setupListener();
+  }, [rideId]);
+
   const handleConfirmPayment = async () => {
+    // Verificar si el cliente ya confirmó
+    if (!clientConfirmed) {
+      Alert.alert(
+        'Espera',
+        'El cliente debe confirmar primero que realizó el pago',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
     try {
       setConfirming(true);
+      console.log('💵 Conductor confirmando pago para rideId:', rideId);
 
       const { app } = await initializeFirebase();
       if (!app) throw new Error('Firebase no inicializado');
 
-      // Actualizar status en Firebase Realtime DB
-      const db = getDatabase(app);
-      const paymentRef = ref(db, `paymentStatus/${rideId}`);
-      
-      await update(paymentRef, {
-        status: 'completed',
-        confirmedAt: Date.now(),
-        confirmedBy: 'driver',
-      });
-
-      // Llamar función para completar pago en Supabase
+      // Llamar función del backend para confirmar pago
       const functions = getFunctions(app);
-      const completeCashPayment = httpsCallable(functions, 'completeCashPayment');
+      const confirmCashPaymentFn = httpsCallable(functions, 'confirmCashPayment');
       
-      await completeCashPayment({ rideId });
+      console.log('🔄 Llamando a confirmCashPayment Cloud Function...');
+      const result = await confirmCashPaymentFn({ 
+        rideId,
+        amount: numericAmount,
+        tip: numericTip,
+        confirmedBy: 'driver'
+      });
+      
+      const data = result.data as any;
+      console.log('✅ confirmCashPayment exitoso:', data);
 
-      Alert.alert(
-        '¡Pago Confirmado!',
-        'El pago en efectivo ha sido registrado exitosamente',
-        [
-          {
-            text: 'Volver a Búsqueda',
-            onPress: () => navigation.replace('AvailableRides'),
-          },
-        ]
-      );
+      if (data.bothConfirmed) {
+        // Ambos confirmaron → Pago completado
+        Alert.alert(
+          '¡Pago Confirmado!',
+          'El pago en efectivo ha sido confirmado por ambas partes',
+          [
+            {
+              text: 'Volver a Búsqueda',
+              onPress: () => {
+                console.log('🔙 Navegando a AvailableRides');
+                navigation.replace('AvailableRides');
+              },
+            },
+          ]
+        );
+      } else {
+        // Solo conductor confirmó (no debería pasar porque verificamos arriba)
+        Alert.alert(
+          'Confirmación Registrada',
+          'Esperando confirmación del cliente'
+        );
+      }
     } catch (error: any) {
-      console.error('Error confirmando pago:', error);
+      console.error('❌ Error confirmando pago:', error);
+      console.error('❌ Error completo:', JSON.stringify(error, null, 2));
       Alert.alert('Error', error.message || 'No se pudo confirmar el pago');
     } finally {
       setConfirming(false);
@@ -108,21 +175,12 @@ export default function ConfirmCashPaymentScreen({ route, navigation }: ConfirmC
       const { app } = await initializeFirebase();
       if (!app) throw new Error('Firebase no inicializado');
 
-      // Actualizar status en Firebase Realtime DB
-      const db = getDatabase(app);
-      const paymentRef = ref(db, `paymentStatus/${rideId}`);
-      
-      await update(paymentRef, {
-        status: 'canceled',
-        cancelReason: reason,
-        canceledAt: Date.now(),
-        canceledBy: 'driver',
-      });
-
-      // Llamar función para cancelar pago en Supabase
+      // Llamar función del backend para cancelar pago
+      // El backend se encargará de actualizar paymentStatus y activeRides
       const functions = getFunctions(app);
       const cancelCashPayment = httpsCallable(functions, 'cancelCashPayment');
       
+      console.log('🔄 Cancelando pago con razón:', reason);
       await cancelCashPayment({ rideId, reason });
 
       Alert.alert(
@@ -141,6 +199,59 @@ export default function ConfirmCashPaymentScreen({ route, navigation }: ConfirmC
     } finally {
       setConfirming(false);
     }
+  };
+
+  const handleSwitchToCard = () => {
+    Alert.alert(
+      'Cambiar a Pago con Tarjeta',
+      '¿El cliente no tiene efectivo? Puedes cambiar el método de pago a tarjeta.',
+      [
+        {
+          text: 'Cancelar',
+          style: 'cancel',
+        },
+        {
+          text: 'Cambiar a Tarjeta',
+          onPress: async () => {
+            try {
+              setConfirming(true);
+
+              const { app } = await initializeFirebase();
+              if (!app) throw new Error('Firebase no inicializado');
+
+              const functions = getFunctions(app);
+              const switchPaymentMethodFn = httpsCallable(functions, 'switchPaymentMethod');
+              
+              console.log('🔄 Cambiando método de pago a tarjeta...');
+              const result = await switchPaymentMethodFn({
+                rideId,
+                newPaymentMethod: 'card',
+                reason: 'Cliente no tiene efectivo',
+              });
+
+              const data = result.data as any;
+              console.log('✅ Método de pago cambiado:', data);
+
+              Alert.alert(
+                '✅ Método Cambiado',
+                'El método de pago se cambió a tarjeta. El cliente recibirá una notificación.',
+                [
+                  {
+                    text: 'Entendido',
+                    onPress: () => navigation.goBack(),
+                  },
+                ]
+              );
+            } catch (error: any) {
+              console.error('❌ Error cambiando método de pago:', error);
+              Alert.alert('Error', error.message || 'No se pudo cambiar el método de pago');
+            } finally {
+              setConfirming(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   return (
@@ -178,13 +289,34 @@ export default function ConfirmCashPaymentScreen({ route, navigation }: ConfirmC
         </View>
       </View>
 
+      {/* Estado de confirmación del cliente */}
+      {loading ? (
+        <View style={styles.statusCard}>
+          <ActivityIndicator size="small" color={colors.primary} />
+          <Text style={styles.statusText}>Verificando estado del pago...</Text>
+        </View>
+      ) : clientConfirmed ? (
+        <View style={[styles.statusCard, styles.statusCardSuccess]}>
+          <Text style={styles.statusIcon}>✅</Text>
+          <Text style={styles.statusTextSuccess}>Cliente confirmó el pago</Text>
+          <Text style={styles.statusSubtext}>Puedes confirmar que recibiste el dinero</Text>
+        </View>
+      ) : (
+        <View style={[styles.statusCard, styles.statusCardWarning]}>
+          <Text style={styles.statusIcon}>⏳</Text>
+          <Text style={styles.statusTextWarning}>Esperando confirmación del cliente</Text>
+          <Text style={styles.statusSubtext}>El cliente debe confirmar primero que realizó el pago</Text>
+        </View>
+      )}
+
       {/* Instructions */}
       <View style={styles.instructionsCard}>
         <Text style={styles.instructionsTitle}>📋 Instrucciones</Text>
         <Text style={styles.instructionsText}>
-          1. Verifica que el cliente te entregue el monto exacto{'\n'}
-          2. Cuenta el dinero cuidadosamente{'\n'}
-          3. Confirma el pago solo si recibiste el monto completo
+          1. Espera a que el cliente confirme el pago{'\n'}
+          2. Verifica que te entregue el monto exacto{'\n'}
+          3. Cuenta el dinero cuidadosamente{'\n'}
+          4. Confirma el pago solo si recibiste el monto completo
         </Text>
       </View>
 
@@ -203,6 +335,14 @@ export default function ConfirmCashPaymentScreen({ route, navigation }: ConfirmC
         loading={confirming}
         disabled={confirming}
         style={styles.confirmButton}
+      />
+
+      <AnimatedButton
+        title="💳 Cambiar a Pago con Tarjeta"
+        onPress={handleSwitchToCard}
+        variant="secondary"
+        disabled={confirming}
+        style={styles.switchButton}
       />
 
       <AnimatedButton
@@ -292,6 +432,51 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontWeight: '800',
     color: '#4CAF50',
   },
+  statusCard: {
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: colors.border,
+  },
+  statusCardSuccess: {
+    backgroundColor: '#E8F5E9',
+    borderColor: '#4CAF50',
+  },
+  statusCardWarning: {
+    backgroundColor: '#FFF3E0',
+    borderColor: '#FF9800',
+  },
+  statusIcon: {
+    fontSize: 40,
+    marginBottom: 8,
+  },
+  statusText: {
+    fontSize: 16,
+    color: colors.text,
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  statusTextSuccess: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#2E7D32',
+    textAlign: 'center',
+  },
+  statusTextWarning: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#E65100',
+    textAlign: 'center',
+  },
+  statusSubtext: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    marginTop: 4,
+  },
   instructionsCard: {
     backgroundColor: '#E3F2FD',
     borderRadius: 12,
@@ -328,6 +513,9 @@ const createStyles = (colors: any) => StyleSheet.create({
     lineHeight: 20,
   },
   confirmButton: {
+    marginBottom: 12,
+  },
+  switchButton: {
     marginBottom: 12,
   },
   reportButton: {

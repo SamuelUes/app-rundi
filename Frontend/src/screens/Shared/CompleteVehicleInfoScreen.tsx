@@ -5,50 +5,64 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  TextInput,
   Alert,
   ActivityIndicator,
-  Image,
+  Switch,
 } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
-import { safeFormatDate } from '../../utils/safeFormatters';
 import Button from '../../components/Button';
 import driversService from '../../services/driversService';
-import uploadService from '../../services/uploadService';
+import ImagePicker from '../../components/ImagePicker';
+import { 
+  uploadLicensePhoto,
+  uploadRegistrationPhoto,
+  uploadInsurancePhoto,
+} from '../../services/supabaseStorage';
 
 interface VehicleData {
   id: string;
+  plate: string;
   brand: string;
   model: string;
   year: number;
   color: string;
-  plate: string;
   type: string;
-  registrationNumber?: string;
-  registrationExpiry?: string;
-  registrationPhoto?: string;
-  insuranceNumber?: string;
-  insuranceCompany?: string;
-  insuranceExpiry?: string;
-  insurancePhoto?: string;
-  vehiclePhoto?: string;
+  registration_number?: string;
+  registration_expiry?: string;
+  registration_photo?: string;
+  registration_photo_front?: string;
+  registration_photo_back?: string;
+  insurance_photo?: string;
+  vehicle_photo?: string;
+  // Campos adicionales del esquema
+  motor?: string;
+  chasis?: string;
+  vin?: string;
+  cylinders?: number;
+  passengers?: number;
+  fuel_type?: string;
+  tonnage?: number;
+  vehicle_class?: string;
+  service_type?: string;
+  lien?: string;
+  insurance_number?: string;
+  insurance_company?: string;
+  insurance_expiry?: string;
+  insurance_start_date?: string;
+  is_4x4?: boolean;
 }
 
 interface DriverData {
-  user_id?: string;
   license_number: string;
   license_expiry?: string;
-  license_photo?: string;
-  status?: string;
-  total_rides?: number;
-  average_rating?: number;
-  total_earnings?: number;
-  created_at?: string;
-  updated_at?: string;
-  // Datos de Firestore
-  name?: string;
-  email?: string;
-  role?: string;
+  license_photo_front?: string;
+  license_photo_back?: string;
+  // Campos adicionales del esquema
+  department?: string;
+  municipality?: string;
+  profile_photo?: string;
 }
 
 export default function CompleteVehicleInfoScreen({ navigation }: any) {
@@ -56,27 +70,128 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
   const { colors } = useTheme();
   const styles = createStyles(colors);
 
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [vehicleData, setVehicleData] = useState<VehicleData | null>(null);
   const [driverData, setDriverData] = useState<DriverData | null>(null);
+  
+  // Estado para verificación de campos completos
+  const [isComplete, setIsComplete] = useState<{
+    personalInfo: boolean,
+    vehicleInfo: boolean,
+    documentsInfo: boolean,
+    licensePhotos: boolean,
+    registrationPhotos: boolean,
+    insurancePhotos: boolean,
+    vehiclePhotos: boolean
+  }>({
+    personalInfo: false,
+    vehicleInfo: false,
+    documentsInfo: false,
+    licensePhotos: false,
+    registrationPhotos: false,
+    insurancePhotos: false,
+    vehiclePhotos: false
+  });
 
-  // Estados para las fotos
-  const [vehiclePhoto, setVehiclePhoto] = useState<string | null>(null);
-  const [registrationPhoto, setRegistrationPhoto] = useState<string | null>(null);
+  // Estados para fotos
+  const [licensePhotoFront, setLicensePhotoFront] = useState<string | null>(null);
+  const [licensePhotoBack, setLicensePhotoBack] = useState<string | null>(null);
+  const [registrationPhotoFront, setRegistrationPhotoFront] = useState<string | null>(null);
+  const [registrationPhotoBack, setRegistrationPhotoBack] = useState<string | null>(null);
   const [insurancePhoto, setInsurancePhoto] = useState<string | null>(null);
-  const [licensePhoto, setLicensePhoto] = useState<string | null>(null);
+  const [vehiclePhoto, setVehiclePhoto] = useState<string | null>(null);
 
-  // Estados de carga para uploads
-  const [uploadingVehiclePhoto, setUploadingVehiclePhoto] = useState(false);
-  const [uploadingRegistrationPhoto, setUploadingRegistrationPhoto] = useState(false);
-  const [uploadingInsurancePhoto, setUploadingInsurancePhoto] = useState(false);
-  const [uploadingLicensePhoto, setUploadingLicensePhoto] = useState(false);
+  // Estados para URIs locales temporales (antes de subir a Supabase)
+  const [tempLicenseFrontUri, setTempLicenseFrontUri] = useState<string | null>(null);
+  const [tempLicenseBackUri, setTempLicenseBackUri] = useState<string | null>(null);
+  const [tempRegistrationFrontUri, setTempRegistrationFrontUri] = useState<string | null>(null);
+  const [tempRegistrationBackUri, setTempRegistrationBackUri] = useState<string | null>(null);
+  const [tempInsuranceUri, setTempInsuranceUri] = useState<string | null>(null);
+  const [tempVehicleUri, setTempVehicleUri] = useState<string | null>(null);
 
-  // Cargar datos existentes
+  // Estados para datos del conductor
+  const [department, setDepartment] = useState('');
+  const [municipality, setMunicipality] = useState('');
+  const [licenseNumber, setLicenseNumber] = useState('');
+  const [licenseExpiry, setLicenseExpiry] = useState('');
+
+  // Estados para datos del vehículo
+  const [plate, setPlate] = useState('');
+  const [brand, setBrand] = useState('');
+  const [model, setModel] = useState('');
+  const [year, setYear] = useState('');
+  const [color, setColor] = useState('');
+  const [vehicleType, setVehicleType] = useState('');
+  const [registrationNumber, setRegistrationNumber] = useState('');
+  const [registrationExpiry, setRegistrationExpiry] = useState('');
+  const [insuranceNumber, setInsuranceNumber] = useState('');
+  const [insuranceCompany, setInsuranceCompany] = useState('');
+  const [insuranceExpiry, setInsuranceExpiry] = useState('');
+  const [insuranceStartDate, setInsuranceStartDate] = useState('');
+  const [motor, setMotor] = useState('');
+  const [chasis, setChasis] = useState('');
+  const [vin, setVin] = useState('');
+  const [cylinders, setCylinders] = useState('');
+  const [passengers, setPassengers] = useState('');
+  const [fuelType, setFuelType] = useState('');
+  const [tonnage, setTonnage] = useState('');
+  const [vehicleClass, setVehicleClass] = useState('');
+  const [serviceType, setServiceType] = useState('');
+  const [lien, setLien] = useState('NINGUNO');
+  const [is4x4, setIs4x4] = useState(false);
+
   useEffect(() => {
     loadExistingData();
   }, []);
+
+  // Función para verificar si todos los campos requeridos están completos
+  const checkCompleteness = () => {
+    // Información personal - número de licencia es obligatorio
+    const personalComplete = !!licenseNumber;
+    
+    // Información del vehículo - campos obligatorios
+    const vehicleComplete = !!plate && 
+                          !!brand && 
+                          !!model && 
+                          !!year && 
+                          !!color && 
+                          !!vehicleType;
+    
+    // Información de documentos - números y fechas importantes
+    const documentsComplete = !!registrationNumber && 
+                             !!insuranceNumber && 
+                             !!insuranceCompany &&
+                             !!registrationExpiry &&
+                             !!insuranceExpiry;
+    
+    // Fotos - todas son importantes para verificación
+    const licensePhotosComplete = !!licensePhotoFront && !!licensePhotoBack;
+    const registrationPhotosComplete = !!registrationPhotoFront && !!registrationPhotoBack;
+    const insurancePhotosComplete = !!insurancePhoto;
+    const vehiclePhotosComplete = !!vehiclePhoto;
+    
+    // Si hay cambio en alguna sección, actualizar el estado
+    const newCompletionState = {
+      personalInfo: personalComplete,
+      vehicleInfo: vehicleComplete,
+      documentsInfo: documentsComplete,
+      licensePhotos: licensePhotosComplete,
+      registrationPhotos: registrationPhotosComplete,
+      insurancePhotos: insurancePhotosComplete,
+      vehiclePhotos: vehiclePhotosComplete
+    };
+    
+    // Actualizar estado solo si ha cambiado (evitar renders innecesarios)
+    if (JSON.stringify(newCompletionState) !== JSON.stringify(isComplete)) {
+      setIsComplete(newCompletionState);
+      
+      // Log para depuración
+      console.log('✅ Estado de completitud actualizado:', newCompletionState);
+      console.log('📊 Resumen: ' + Object.values(newCompletionState).filter(Boolean).length + 
+                 ' de ' + Object.values(newCompletionState).length + ' secciones completadas');
+    }
+  };
 
   const loadExistingData = async () => {
     if (!user?.id) return;
@@ -84,114 +199,167 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
     setLoading(true);
     try {
       const profile = await driversService.getDriverProfile(user.id);
-
-      console.log('🔍 Perfil completo recibido:', profile);
-      console.log('👤 Datos del driver:', profile?.driver);
-      console.log('🚗 Datos del vehículo:', profile?.driver?.vehicle);
+      console.log('✅ Perfil de conductor cargado exitosamente');
 
       if (profile?.driver) {
-        setDriverData(profile.driver);
-        if (profile.driver.vehicle) {
-          setVehicleData(profile.driver.vehicle);
-          // Cargar fotos existentes
-          setVehiclePhoto(profile.driver.vehicle.vehiclePhoto || null);
-          setRegistrationPhoto(profile.driver.vehicle.registrationPhoto || null);
-          setInsurancePhoto(profile.driver.vehicle.insurancePhoto || null);
+        const driver = profile.driver;
+        const vehicle = driver.vehicle;
+
+        // Función helper para convertir fechas
+        const formatDate = (dateValue: any) => {
+          // Valores null, undefined o string vacío
+          if (!dateValue || dateValue === null || dateValue === undefined) {
+            return '';
+          }
+          
+          // Si es un objeto vacío {} (problema de serialización del backend)
+          if (typeof dateValue === 'object' && Object.keys(dateValue).length === 0) {
+            return '';
+          }
+          
+          // Si es un objeto con _seconds (Firestore Timestamp)
+          if (typeof dateValue === 'object' && dateValue._seconds) {
+            const date = new Date(dateValue._seconds * 1000);
+            return date.toISOString().split('T')[0]; // YYYY-MM-DD
+          }
+          
+          // Si es un string de fecha válido
+          if (typeof dateValue === 'string' && dateValue.length > 0) {
+            // Si ya está en formato YYYY-MM-DD, devolverlo tal como está
+            if (dateValue.match(/^\d{4}-\d{2}-\d{2}$/)) {
+              return dateValue;
+            }
+            // Si está en formato ISO (YYYY-MM-DDTHH:mm:ss)
+            if (dateValue.includes('T')) {
+              return dateValue.split('T')[0];
+            }
+            // Intentar parsear otros formatos
+            const date = new Date(dateValue);
+            if (!isNaN(date.getTime())) {
+              return date.toISOString().split('T')[0];
+            }
+          }
+          
+          return '';
+        };
+
+        // Función helper para manejar campos de texto que pueden ser undefined
+        const safeString = (value: any) => {
+          if (value === null || value === undefined) {
+            return '';
+          }
+          return String(value);
+        };
+
+        // Cargar datos del conductor
+        setDriverData(driver);
+        setDepartment(safeString(driver.department));
+        setMunicipality(safeString(driver.municipality));
+        setLicenseNumber(safeString(driver.license_number));
+        setLicenseExpiry(formatDate(driver.license_expiry));
+        setLicensePhotoFront(driver.license_photo_front || null);
+        setLicensePhotoBack(driver.license_photo_back || null);
+
+        console.log('✅ Datos del conductor cargados:', {
+          department: safeString(driver.department),
+          municipality: safeString(driver.municipality),
+          license_expiry: formatDate(driver.license_expiry),
+        });
+
+        // Cargar datos del vehículo si existe
+        if (vehicle) {
+          setVehicleData(vehicle);
+          setPlate(safeString(vehicle.plate));
+          setBrand(safeString(vehicle.brand));
+          setModel(safeString(vehicle.model));
+          setYear(vehicle.year ? vehicle.year.toString() : '');
+          setColor(safeString(vehicle.color));
+          setVehicleType(safeString(vehicle.type));
+          setRegistrationNumber(safeString(vehicle.registration_number));
+          setRegistrationExpiry(formatDate(vehicle.registration_expiry));
+          setInsuranceNumber(safeString(vehicle.insurance_number));
+          setInsuranceCompany(safeString(vehicle.insurance_company));
+          setInsuranceExpiry(formatDate(vehicle.insurance_expiry));
+          setInsuranceStartDate(formatDate(vehicle.insurance_start_date));
+          setMotor(safeString(vehicle.motor));
+          setChasis(safeString(vehicle.chasis));
+          setVin(safeString(vehicle.vin));
+          setCylinders(vehicle.cylinders ? vehicle.cylinders.toString() : '');
+          setPassengers(vehicle.passengers ? vehicle.passengers.toString() : '');
+          setFuelType(safeString(vehicle.fuel_type));
+          setTonnage(vehicle.tonnage ? vehicle.tonnage.toString() : '');
+          setVehicleClass(safeString(vehicle.vehicle_class));
+          setServiceType(safeString(vehicle.service_type));
+          setLien(safeString(vehicle.lien) || 'NINGUNO');
+          setIs4x4(vehicle.is_4x4 || false);
+
+          console.log('✅ Fechas del vehículo cargadas:', {
+            registration_expiry: formatDate(vehicle.registration_expiry),
+            insurance_expiry: formatDate(vehicle.insurance_expiry),
+            insurance_start_date: formatDate(vehicle.insurance_start_date),
+          });
+
+          // Cargar fotos del vehículo
+          setRegistrationPhotoFront(vehicle.registration_photo_front || null);
+          setRegistrationPhotoBack(vehicle.registration_photo_back || null);
+          setInsurancePhoto(vehicle.insurance_photo || null);
+          setVehiclePhoto(vehicle.vehicle_photo || null);
         }
-        setLicensePhoto(profile.driver.licensePhoto || null);
+        
+        // Esperar un momento para que los estados se actualicen antes de verificar completitud
+        setTimeout(() => {
+          checkCompleteness();
+        }, 500);
       }
     } catch (error) {
-      console.error('Error cargando datos existentes:', error);
-      Alert.alert('Error', 'No se pudieron cargar los datos existentes');
+      console.error('Error cargando datos:', error);
+      Alert.alert('Error', 'No se pudieron cargar los datos');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleTakePhoto = async (type: 'vehicle' | 'registration' | 'insurance' | 'license') => {
-    try {
-      const photoAsset = await uploadService.takePhoto();
-      if (photoAsset?.uri) {
-        await uploadPhoto(type, photoAsset.uri);
-      }
-    } catch (error) {
-      console.error('Error tomando foto:', error);
-    }
+  // Funciones para seleccionar fotos (solo guardan URI local temporalmente)
+  const handleSelectLicenseFront = async (uri: string) => {
+    setTempLicenseFrontUri(uri);
+    setLicensePhotoFront(null); // Reset URL actual hasta que se guarde
+    // Actualizar estado de completitud
+    setTimeout(() => checkCompleteness(), 100);
   };
 
-  const handleSelectFromGallery = async (type: 'vehicle' | 'registration' | 'insurance' | 'license') => {
-    try {
-      const photoAsset = await uploadService.pickImageFromGallery();
-      if (photoAsset?.uri) {
-        await uploadPhoto(type, photoAsset.uri);
-      }
-    } catch (error) {
-      console.error('Error seleccionando foto:', error);
-    }
+  const handleSelectLicenseBack = async (uri: string) => {
+    setTempLicenseBackUri(uri);
+    setLicensePhotoBack(null);
+    // Actualizar estado de completitud
+    setTimeout(() => checkCompleteness(), 100);
   };
 
-  const uploadPhoto = async (type: 'vehicle' | 'registration' | 'insurance' | 'license', photoUri: string) => {
-    if (!user?.id) return;
+  const handleSelectRegistrationFront = async (uri: string) => {
+    setTempRegistrationFrontUri(uri);
+    setRegistrationPhotoFront(null);
+    // Actualizar estado de completitud
+    setTimeout(() => checkCompleteness(), 100);
+  };
 
-    // Set loading state
-    switch (type) {
-      case 'vehicle':
-        setUploadingVehiclePhoto(true);
-        break;
-      case 'registration':
-        setUploadingRegistrationPhoto(true);
-        break;
-      case 'insurance':
-        setUploadingInsurancePhoto(true);
-        break;
-      case 'license':
-        setUploadingLicensePhoto(true);
-        break;
-    }
+  const handleSelectRegistrationBack = async (uri: string) => {
+    setTempRegistrationBackUri(uri);
+    setRegistrationPhotoBack(null);
+    // Actualizar estado de completitud
+    setTimeout(() => checkCompleteness(), 100);
+  };
 
-    try {
-      let result;
+  const handleSelectInsurance = async (uri: string) => {
+    setTempInsuranceUri(uri);
+    setInsurancePhoto(null);
+    // Actualizar estado de completitud
+    setTimeout(() => checkCompleteness(), 100);
+  };
 
-      switch (type) {
-        case 'vehicle':
-          result = await uploadService.uploadVehiclePhotos([photoUri]);
-          setVehiclePhoto(result[0].url);
-          break;
-        case 'registration':
-          result = await uploadService.uploadDocument(photoUri, 'registration');
-          setRegistrationPhoto(result.url);
-          break;
-        case 'insurance':
-          result = await uploadService.uploadDocument(photoUri, 'insurance');
-          setInsurancePhoto(result.url);
-          break;
-        case 'license':
-          result = await uploadService.uploadLicense(photoUri);
-          setLicensePhoto(result.url);
-          break;
-      }
-
-      Alert.alert('Éxito', 'Foto subida correctamente');
-    } catch (error) {
-      console.error('Error subiendo foto:', error);
-      Alert.alert('Error', 'No se pudo subir la foto');
-    } finally {
-      // Clear loading state
-      switch (type) {
-        case 'vehicle':
-          setUploadingVehiclePhoto(false);
-          break;
-        case 'registration':
-          setUploadingRegistrationPhoto(false);
-          break;
-        case 'insurance':
-          setUploadingInsurancePhoto(false);
-          break;
-        case 'license':
-          setUploadingLicensePhoto(false);
-          break;
-      }
-    }
+  const handleSelectVehicle = async (uri: string) => {
+    setTempVehicleUri(uri);
+    setVehiclePhoto(null);
+    // Actualizar estado de completitud
+    setTimeout(() => checkCompleteness(), 100);
   };
 
   const handleSave = async () => {
@@ -199,22 +367,122 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
 
     setSaving(true);
     try {
-      // Aquí podríamos actualizar otros campos si es necesario
-      // Por ahora solo guardamos las fotos que se subieron
+      console.log('🚀 Iniciando proceso completo de subida y guardado...');
+
+      // 1. Subir SOLO fotos nuevas a Supabase
+      console.log('📤 Subiendo fotos nuevas a Supabase...');
+
+      const uploadResults: { [key: string]: string } = {};
+
+      // Solo subir fotos que tengan URI temporal (nuevas)
+      if (tempLicenseFrontUri) {
+        uploadResults.license_photo_front = await uploadLicensePhoto(user.id, tempLicenseFrontUri, 'front');
+      }
+      if (tempLicenseBackUri) {
+        uploadResults.license_photo_back = await uploadLicensePhoto(user.id, tempLicenseBackUri, 'back');
+      }
+      if (tempRegistrationFrontUri) {
+        uploadResults.registration_photo_front = await uploadRegistrationPhoto(user.id, tempRegistrationFrontUri, 'front');
+      }
+      if (tempRegistrationBackUri) {
+        uploadResults.registration_photo_back = await uploadRegistrationPhoto(user.id, tempRegistrationBackUri, 'back');
+      }
+      if (tempInsuranceUri) {
+        uploadResults.insurance_photo = await uploadInsurancePhoto(user.id, tempInsuranceUri);
+      }
+      if (tempVehicleUri) {
+        uploadResults.vehicle_photo = await uploadInsurancePhoto(user.id, tempVehicleUri);
+      }
+
+      console.log('✅ Fotos nuevas subidas:', uploadResults);
+
+      // 2. Preparar datos para guardar en BD
+      const driverUpdates: any = {};
+      const vehicleUpdates: any = {};
+
+      // Datos del conductor
+      if (department !== (driverData?.department || '')) driverUpdates.department = department;
+      if (municipality !== (driverData?.municipality || '')) driverUpdates.municipality = municipality;
+      if (licenseNumber !== (driverData?.license_number || '')) driverUpdates.license_number = licenseNumber;
+      if (licenseExpiry !== (driverData?.license_expiry || '')) driverUpdates.license_expiry = licenseExpiry;
+
+      // Fotos nuevas del conductor
+      if (uploadResults.license_photo_front) driverUpdates.license_photo_front = uploadResults.license_photo_front;
+      if (uploadResults.license_photo_back) driverUpdates.license_photo_back = uploadResults.license_photo_back;
+
+      // Datos del vehículo
+      if (plate !== (vehicleData?.plate || '')) vehicleUpdates.plate = plate;
+      if (brand !== (vehicleData?.brand || '')) vehicleUpdates.brand = brand;
+      if (model !== (vehicleData?.model || '')) vehicleUpdates.model = model;
+      if (year !== (vehicleData?.year?.toString() || '')) vehicleUpdates.year = parseInt(year);
+      if (color !== (vehicleData?.color || '')) vehicleUpdates.color = color;
+      if (vehicleType !== (vehicleData?.type || '')) vehicleUpdates.type = vehicleType;
+      if (registrationNumber !== (vehicleData?.registration_number || '')) vehicleUpdates.registration_number = registrationNumber;
+      if (registrationExpiry !== (vehicleData?.registration_expiry || '')) vehicleUpdates.registration_expiry = registrationExpiry;
+      if (insuranceNumber !== (vehicleData?.insurance_number || '')) vehicleUpdates.insurance_number = insuranceNumber;
+      if (insuranceCompany !== (vehicleData?.insurance_company || '')) vehicleUpdates.insurance_company = insuranceCompany;
+      if (insuranceExpiry !== (vehicleData?.insurance_expiry || '')) vehicleUpdates.insurance_expiry = insuranceExpiry;
+      if (insuranceStartDate !== (vehicleData?.insurance_start_date || '')) vehicleUpdates.insurance_start_date = insuranceStartDate;
+      if (motor !== (vehicleData?.motor || '')) vehicleUpdates.motor = motor;
+      if (chasis !== (vehicleData?.chasis || '')) vehicleUpdates.chasis = chasis;
+      if (vin !== (vehicleData?.vin || '')) vehicleUpdates.vin = vin;
+      if (cylinders !== (vehicleData?.cylinders?.toString() || '')) vehicleUpdates.cylinders = parseInt(cylinders);
+      if (passengers !== (vehicleData?.passengers?.toString() || '')) vehicleUpdates.passengers = parseInt(passengers);
+      if (fuelType !== (vehicleData?.fuel_type || '')) vehicleUpdates.fuel_type = fuelType;
+      if (tonnage !== (vehicleData?.tonnage?.toString() || '')) vehicleUpdates.tonnage = parseFloat(tonnage);
+      if (vehicleClass !== (vehicleData?.vehicle_class || '')) vehicleUpdates.vehicle_class = vehicleClass;
+      if (serviceType !== (vehicleData?.service_type || '')) vehicleUpdates.service_type = serviceType;
+      if (lien !== (vehicleData?.lien || 'NINGUNO')) vehicleUpdates.lien = lien;
+      if (is4x4 !== (vehicleData?.is_4x4 || false)) vehicleUpdates.is_4x4 = is4x4;
+
+      // Fotos nuevas del vehículo
+      if (uploadResults.registration_photo_front) vehicleUpdates.registration_photo_front = uploadResults.registration_photo_front;
+      if (uploadResults.registration_photo_back) vehicleUpdates.registration_photo_back = uploadResults.registration_photo_back;
+      if (uploadResults.insurance_photo) vehicleUpdates.insurance_photo = uploadResults.insurance_photo;
+      if (uploadResults.vehicle_photo) vehicleUpdates.vehicle_photo = uploadResults.vehicle_photo;
+
+      // 3. Guardar en PostgreSQL
+      console.log('💾 Guardando datos en base de datos...');
+
+      if (Object.keys(driverUpdates).length > 0) {
+        console.log('📤 Actualizando conductor:', driverUpdates);
+        const driverResult = await driversService.updateDriver(driverUpdates);
+        console.log('✅ Respuesta conductor:', driverResult);
+      }
+
+      if (vehicleData?.id && Object.keys(vehicleUpdates).length > 0) {
+        console.log('📤 Actualizando vehículo:', vehicleUpdates);
+        const vehicleResult = await driversService.updateVehicle(vehicleData.id, vehicleUpdates);
+        console.log('✅ Respuesta vehículo:', vehicleResult);
+      }
+
+      // 4. Actualizar estados locales con las URLs finales
+      if (uploadResults.license_photo_front) setLicensePhotoFront(uploadResults.license_photo_front);
+      if (uploadResults.license_photo_back) setLicensePhotoBack(uploadResults.license_photo_back);
+      if (uploadResults.registration_photo_front) setRegistrationPhotoFront(uploadResults.registration_photo_front);
+      if (uploadResults.registration_photo_back) setRegistrationPhotoBack(uploadResults.registration_photo_back);
+      if (uploadResults.insurance_photo) setInsurancePhoto(uploadResults.insurance_photo);
+      if (uploadResults.vehicle_photo) setVehiclePhoto(uploadResults.vehicle_photo);
+
+      // 5. Limpiar URIs temporales
+      setTempLicenseFrontUri(null);
+      setTempLicenseBackUri(null);
+      setTempRegistrationFrontUri(null);
+      setTempRegistrationBackUri(null);
+      setTempInsuranceUri(null);
+      setTempVehicleUri(null);
+
+      // Actualizar estado de completitud
+      checkCompleteness();
 
       Alert.alert(
-        'Información Actualizada',
-        'Los datos se han guardado correctamente',
-        [
-          {
-            text: 'OK',
-            onPress: () => navigation.goBack(),
-          },
-        ]
+        'Éxito',
+        'Los datos han sido guardados correctamente',
+        [{ text: 'OK', onPress: () => navigation.goBack() }]
       );
     } catch (error) {
-      console.error('Error guardando información:', error);
-      Alert.alert('Error', 'No se pudieron guardar los cambios');
+      console.error('❌ Error en el proceso completo:', error);
+      Alert.alert('Error', 'No se pudieron guardar los datos. Por favor intenta de nuevo.');
     } finally {
       setSaving(false);
     }
@@ -232,406 +500,511 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
   return (
     <ScrollView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Completar Información del Vehículo</Text>
+        <Text style={styles.title}>Completar Información</Text>
         <Text style={styles.subtitle}>
-          Sube las fotos faltantes para completar tu perfil de conductor
+          Completa tu información personal y de vehículo. Los campos marcados con * son obligatorios.
         </Text>
+        
+        {/* Resumen de completitud */}
+        <View style={styles.completionSummary}>
+          {Object.values(isComplete).filter(Boolean).length > 0 && (
+            <Text style={styles.completionSummaryText}>
+              <Text style={{color: '#4CAF50', fontWeight: 'bold'}}>
+                {Object.values(isComplete).filter(Boolean).length}
+              </Text> de {Object.values(isComplete).length} secciones completadas
+            </Text>
+          )}
+        </View>
       </View>
 
-      {/* Información del Conductor */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>📋 Información del Conductor</Text>
-
-        {driverData && (
-          <View style={styles.infoCard}>
-            <Text style={styles.infoLabel}>Número de Licencia</Text>
-            <Text style={styles.infoValue}>{driverData?.license_number || 'No especificado'}</Text>
-
-            <Text style={styles.infoLabel}>Vencimiento Licencia</Text>
-            <Text style={styles.infoValue}>
-              {driverData?.license_expiry ? safeFormatDate(driverData.license_expiry) : 'No especificado'}
-            </Text>
-
-            <Text style={styles.infoLabel}>Estado del Conductor</Text>
-            <Text style={styles.infoValue}>
-              {driverData?.status === 'pending' ? 'Pendiente de Verificación' :
-               driverData?.status === 'verified' ? 'Verificado' :
-               driverData?.status === 'rejected' ? 'Rechazado' :
-               driverData?.status || 'Desconocido'}
-              {driverData.status === 'pending' ? 'Pendiente de Verificación' :
-               driverData.status === 'verified' ? 'Verificado' :
-               driverData.status === 'rejected' ? 'Rechazado' :
-               driverData.status || 'Desconocido'}
-            </Text>
-          </View>
-        )}
-
-        {/* Foto de Licencia */}
-        <View style={styles.photoSection}>
-          <Text style={styles.photoTitle}>
-            📄 Foto de Licencia {licensePhoto ? '✅' : '❌'}
-          </Text>
-
-          {licensePhoto ? (
-            <View style={styles.photoContainer}>
-              <Image source={{ uri: licensePhoto }} style={styles.photo} />
-              <TouchableOpacity
-                style={styles.changePhotoButton}
-                onPress={() => Alert.alert(
-                  'Cambiar Foto',
-                  '¿Qué deseas hacer?',
-                  [
-                    { text: 'Tomar Foto', onPress: () => handleTakePhoto('license') },
-                    { text: 'Seleccionar de Galería', onPress: () => handleSelectFromGallery('license') },
-                    { text: 'Cancelar', style: 'cancel' },
-                  ]
-                )}
-                disabled={uploadingLicensePhoto}
-              >
-                <Text style={styles.changePhotoText}>
-                  {uploadingLicensePhoto ? '⏳ Subiendo...' : 'Cambiar'}
-                </Text>
-              </TouchableOpacity>
+      {/* Información Personal */}
+      <View style={[styles.section, isComplete.personalInfo && styles.completedSection]}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>👤 Información Personal</Text>
+          {isComplete.personalInfo && (
+            <View style={styles.completionBadge}>
+              <View style={[styles.completionIcon, styles.iconComplete]} />
+              <Text style={styles.completedText}>Completo</Text>
             </View>
-          ) : (
-            <TouchableOpacity
-              style={styles.uploadButton}
-              onPress={() => Alert.alert(
-                'Foto de Licencia',
-                '¿Qué deseas hacer?',
-                [
-                  { text: 'Tomar Foto', onPress: () => handleTakePhoto('license') },
-                  { text: 'Seleccionar de Galería', onPress: () => handleSelectFromGallery('license') },
-                  { text: 'Cancelar', style: 'cancel' },
-                ]
-              )}
-              disabled={uploadingLicensePhoto}
-            >
-              <Text style={styles.uploadIcon}>
-                {uploadingLicensePhoto ? '⏳' : '📷'}
-              </Text>
-              <Text style={styles.uploadText}>
-                {uploadingLicensePhoto ? 'Subiendo...' : 'Subir Foto de Licencia'}
-              </Text>
-            </TouchableOpacity>
           )}
+        </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Número de Licencia *</Text>
+          <TextInput
+            style={[styles.input, licenseNumber ? styles.inputFilled : styles.inputRequired]}
+            value={licenseNumber}
+            onChangeText={(text) => {
+              setLicenseNumber(text);
+              // Actualizar completitud al cambiar
+              checkCompleteness();
+            }}
+            placeholder="Ej: B21332434"
+            placeholderTextColor={colors.textSecondary}
+          />
+        </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Fecha de Vencimiento de Licencia</Text>
+          <TextInput
+            style={styles.input}
+            value={licenseExpiry}
+            onChangeText={setLicenseExpiry}
+            placeholder="YYYY-MM-DD"
+            placeholderTextColor={colors.textSecondary}
+          />
+        </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Departamento</Text>
+          <TextInput
+            style={styles.input}
+            value={department}
+            onChangeText={setDepartment}
+            placeholder="Ej: Managua"
+            placeholderTextColor={colors.textSecondary}
+          />
+        </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Municipio</Text>
+          <TextInput
+            style={styles.input}
+            value={municipality}
+            onChangeText={setMunicipality}
+            placeholder="Ej: Managua"
+            placeholderTextColor={colors.textSecondary}
+          />
         </View>
       </View>
 
       {/* Información del Vehículo */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>🚗 Información del Vehículo</Text>
+      <View style={[styles.section, isComplete.vehicleInfo && styles.completedSection]}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>🚗 Información del Vehículo</Text>
+          {isComplete.vehicleInfo && (
+            <View style={styles.completionBadge}>
+              <View style={[styles.completionIcon, styles.iconComplete]} />
+              <Text style={styles.completedText}>Completo</Text>
+            </View>
+          )}
+        </View>
 
-        {vehicleData && (
-          <View style={styles.infoCard}>
-            <Text style={styles.infoLabel}>Marca</Text>
-            <Text style={styles.infoValue}>{vehicleData.brand}</Text>
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Placa *</Text>
+          <TextInput
+            style={[styles.input, plate ? styles.inputFilled : styles.inputRequired]}
+            value={plate}
+            onChangeText={(text) => {
+              setPlate(text);
+              // Actualizar completitud al cambiar
+              checkCompleteness();
+            }}
+            placeholder="Ej: M 323023"
+            placeholderTextColor={colors.textSecondary}
+          />
+        </View>
 
-            <Text style={styles.infoLabel}>Modelo</Text>
-            <Text style={styles.infoValue}>{vehicleData.model}</Text>
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Marca</Text>
+          <TextInput
+            style={[styles.input, brand ? styles.inputFilled : styles.inputRequired]}
+            value={brand}
+            onChangeText={(text) => {
+              setBrand(text);
+              // Actualizar completitud al cambiar
+              checkCompleteness();
+            }}
+            placeholder="Ej: Toyota"
+            placeholderTextColor={colors.textSecondary}
+          />
+        </View>
 
-            <Text style={styles.infoLabel}>Año</Text>
-            <Text style={styles.infoValue}>{vehicleData.year}</Text>
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Modelo</Text>
+          <TextInput
+            style={styles.input}
+            value={model}
+            onChangeText={setModel}
+            placeholder="Ej: Prado"
+            placeholderTextColor={colors.textSecondary}
+          />
+        </View>
 
-            <Text style={styles.infoLabel}>Color</Text>
-            <Text style={styles.infoValue}>{vehicleData.color}</Text>
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Año</Text>
+          <TextInput
+            style={styles.input}
+            value={year}
+            onChangeText={setYear}
+            placeholder="Ej: 2021"
+            keyboardType="numeric"
+            placeholderTextColor={colors.textSecondary}
+          />
+        </View>
 
-            <Text style={styles.infoLabel}>Placa</Text>
-            <Text style={styles.infoValue}>{vehicleData.plate}</Text>
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Color</Text>
+          <TextInput
+            style={styles.input}
+            value={color}
+            onChangeText={setColor}
+            placeholder="Ej: Negro"
+            placeholderTextColor={colors.textSecondary}
+          />
+        </View>
 
-            <Text style={styles.infoLabel}>Tipo de Vehículo</Text>
-            <Text style={styles.infoValue}>
-              {vehicleData.type === 'sedan' ? 'Sedán' :
-               vehicleData.type === 'suv' ? 'SUV' :
-               vehicleData.type === 'van' ? 'Van' :
-               vehicleData.type === 'moto' ? 'Moto' : vehicleData.type}
-            </Text>
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Tipo de Vehículo</Text>
+          <TextInput
+            style={styles.input}
+            value={vehicleType}
+            onChangeText={setVehicleType}
+            placeholder="Ej: suv, sedan, pickup"
+            placeholderTextColor={colors.textSecondary}
+          />
+        </View>
 
-            {/* Información de Matrícula/Circulación */}
-            {vehicleData.registrationNumber && (
-              <>
-                <Text style={styles.infoLabel}>Número de Circulación</Text>
-                <Text style={styles.infoValue}>{vehicleData.registrationNumber}</Text>
-              </>
-            )}
-
-            {vehicleData.registrationExpiry && (
-              <>
-                <Text style={styles.infoLabel}>Vencimiento Circulación</Text>
-                <Text style={styles.infoValue}>
-                  {safeFormatDate(vehicleData.registrationExpiry)}
-                </Text>
-              </>
-            )}
-
-            {/* Información del Seguro */}
-            {vehicleData.insuranceNumber && (
-              <>
-                <Text style={styles.infoLabel}>Número de Póliza de Seguro</Text>
-                <Text style={styles.infoValue}>{vehicleData.insuranceNumber}</Text>
-              </>
-            )}
-
-            {vehicleData.insuranceCompany && (
-              <>
-                <Text style={styles.infoLabel}>Compañía de Seguros</Text>
-                <Text style={styles.infoValue}>{vehicleData.insuranceCompany}</Text>
-              </>
-            )}
-
-            {vehicleData.insuranceExpiry && (
-              <>
-                <Text style={styles.infoLabel}>Vencimiento del Seguro</Text>
-                <Text style={styles.infoValue}>
-                  {safeFormatDate(vehicleData.insuranceExpiry)}
-                </Text>
-              </>
-            )}
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>¿Es 4x4?</Text>
+          <View style={styles.switchContainer}>
+            <Text style={styles.switchLabel}>No</Text>
+            <Switch
+              value={is4x4}
+              onValueChange={setIs4x4}
+              trackColor={{ false: colors.border, true: colors.primary }}
+              thumbColor={is4x4 ? colors.primary : colors.textSecondary}
+            />
+            <Text style={styles.switchLabel}>Sí</Text>
           </View>
-        )}
-
-        {/* Foto del Vehículo */}
-        <View style={styles.photoSection}>
-          <Text style={styles.photoTitle}>
-            🚗 Foto del Vehículo {vehiclePhoto ? '✅' : '❌'}
-          </Text>
-
-          {vehiclePhoto ? (
-            <View style={styles.photoContainer}>
-              <Image source={{ uri: vehiclePhoto }} style={styles.photo} />
-              <TouchableOpacity
-                style={styles.changePhotoButton}
-                onPress={() => Alert.alert(
-                  'Cambiar Foto',
-                  '¿Qué deseas hacer?',
-                  [
-                    { text: 'Tomar Foto', onPress: () => handleTakePhoto('vehicle') },
-                    { text: 'Seleccionar de Galería', onPress: () => handleSelectFromGallery('vehicle') },
-                    { text: 'Cancelar', style: 'cancel' },
-                  ]
-                )}
-                disabled={uploadingVehiclePhoto}
-              >
-                <Text style={styles.changePhotoText}>
-                  {uploadingVehiclePhoto ? '⏳ Subiendo...' : 'Cambiar'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <TouchableOpacity
-              style={styles.uploadButton}
-              onPress={() => Alert.alert(
-                'Foto del Vehículo',
-                '¿Qué deseas hacer?',
-                [
-                  { text: 'Tomar Foto', onPress: () => handleTakePhoto('vehicle') },
-                  { text: 'Seleccionar de Galería', onPress: () => handleSelectFromGallery('vehicle') },
-                  { text: 'Cancelar', style: 'cancel' },
-                ]
-              )}
-              disabled={uploadingVehiclePhoto}
-            >
-              <Text style={styles.uploadIcon}>
-                {uploadingVehiclePhoto ? '⏳' : '📷'}
-              </Text>
-              <Text style={styles.uploadText}>
-                {uploadingVehiclePhoto ? 'Subiendo...' : `Subir Foto ${vehicleData?.type === 'moto' ? 'Lateral' : 'Frontal'}`}
-              </Text>
-            </TouchableOpacity>
-          )}
-        </View>
-
-        {/* Foto de Matrícula */}
-        <View style={styles.photoSection}>
-          <Text style={styles.photoTitle}>
-            📄 Foto de Matrícula {registrationPhoto ? '✅' : '❌'}
-          </Text>
-
-          {registrationPhoto ? (
-            <View style={styles.photoContainer}>
-              <Image source={{ uri: registrationPhoto }} style={styles.photo} />
-              <TouchableOpacity
-                style={styles.changePhotoButton}
-                onPress={() => Alert.alert(
-                  'Cambiar Foto',
-                  '¿Qué deseas hacer?',
-                  [
-                    { text: 'Tomar Foto', onPress: () => handleTakePhoto('registration') },
-                    { text: 'Seleccionar de Galería', onPress: () => handleSelectFromGallery('registration') },
-                    { text: 'Cancelar', style: 'cancel' },
-                  ]
-                )}
-                disabled={uploadingRegistrationPhoto}
-              >
-                <Text style={styles.changePhotoText}>
-                  {uploadingRegistrationPhoto ? '⏳ Subiendo...' : 'Cambiar'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <TouchableOpacity
-              style={styles.uploadButton}
-              onPress={() => Alert.alert(
-                'Foto de Matrícula',
-                '¿Qué deseas hacer?',
-                [
-                  { text: 'Tomar Foto', onPress: () => handleTakePhoto('registration') },
-                  { text: 'Seleccionar de Galería', onPress: () => handleSelectFromGallery('registration') },
-                  { text: 'Cancelar', style: 'cancel' },
-                ]
-              )}
-              disabled={uploadingRegistrationPhoto}
-            >
-              <Text style={styles.uploadIcon}>
-                {uploadingRegistrationPhoto ? '⏳' : '📷'}
-              </Text>
-              <Text style={styles.uploadText}>
-                {uploadingRegistrationPhoto ? 'Subiendo...' : 'Subir Foto de Matrícula'}
-              </Text>
-            </TouchableOpacity>
-          )}
-        </View>
-
-        {/* Foto de Seguro */}
-        <View style={styles.photoSection}>
-          <Text style={styles.photoTitle}>
-            🛡️ Foto de Seguro {insurancePhoto ? '✅' : '❌'}
-          </Text>
-
-          {insurancePhoto ? (
-            <View style={styles.photoContainer}>
-              <Image source={{ uri: insurancePhoto }} style={styles.photo} />
-              <TouchableOpacity
-                style={styles.changePhotoButton}
-                onPress={() => Alert.alert(
-                  'Cambiar Foto',
-                  '¿Qué deseas hacer?',
-                  [
-                    { text: 'Tomar Foto', onPress: () => handleTakePhoto('insurance') },
-                    { text: 'Seleccionar de Galería', onPress: () => handleSelectFromGallery('insurance') },
-                    { text: 'Cancelar', style: 'cancel' },
-                  ]
-                )}
-                disabled={uploadingInsurancePhoto}
-              >
-                <Text style={styles.changePhotoText}>
-                  {uploadingInsurancePhoto ? '⏳ Subiendo...' : 'Cambiar'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <TouchableOpacity
-              style={styles.uploadButton}
-              onPress={() => Alert.alert(
-                'Foto de Seguro',
-                '¿Qué deseas hacer?',
-                [
-                  { text: 'Tomar Foto', onPress: () => handleTakePhoto('insurance') },
-                  { text: 'Seleccionar de Galería', onPress: () => handleSelectFromGallery('insurance') },
-                  { text: 'Cancelar', style: 'cancel' },
-                ]
-              )}
-              disabled={uploadingInsurancePhoto}
-            >
-              <Text style={styles.uploadIcon}>
-                {uploadingInsurancePhoto ? '⏳' : '📷'}
-              </Text>
-              <Text style={styles.uploadText}>
-                {uploadingInsurancePhoto ? 'Subiendo...' : 'Subir Foto de Seguro'}
-              </Text>
-            </TouchableOpacity>
-          )}
         </View>
       </View>
 
-      {/* Resumen de Documentos */}
+      {/* Información Técnica del Vehículo */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>📋 Estado de Documentos</Text>
-
-        <View style={styles.documentsSummary}>
-          <View style={styles.documentRow}>
-            <Text style={styles.documentLabel}>📄 Licencia de Conducir</Text>
-            <View style={styles.documentStatus}>
-              <Text style={[styles.documentStatusText, { color: driverData?.license_photo ? '#10b981' : '#ef4444' }]}>
-                {driverData?.license_photo ? '✅ Completo' : '❌ Pendiente'}
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.documentRow}>
-            <Text style={styles.documentLabel}>🚗 Foto del Vehículo</Text>
-            <View style={styles.documentStatus}>
-              <Text style={[styles.documentStatusText, { color: vehiclePhoto ? '#10b981' : '#ef4444' }]}>
-                {vehiclePhoto ? '✅ Completo' : '❌ Pendiente'}
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.documentRow}>
-            <Text style={styles.documentLabel}>📋 Matrícula/Circulación</Text>
-            <View style={styles.documentStatus}>
-              <Text style={[styles.documentStatusText, { color: registrationPhoto ? '#10b981' : '#ef4444' }]}>
-                {registrationPhoto ? '✅ Completo' : '❌ Pendiente'}
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.documentRow}>
-            <Text style={styles.documentLabel}>🛡️ Póliza de Seguro</Text>
-            <View style={styles.documentStatus}>
-              <Text style={[styles.documentStatusText, { color: insurancePhoto ? '#10b981' : '#ef4444' }]}>
-                {insurancePhoto ? '✅ Completo' : '❌ Pendiente'}
-              </Text>
-            </View>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>🔧 Información Técnica</Text>
+          <View style={styles.completionBadge}>
+            <View style={[styles.completionIcon, styles.iconNotRequired]} />
+            <Text style={{color: colors.textSecondary, fontSize: 14}}>Opcional</Text>
           </View>
         </View>
 
-        {/* Mensaje de completitud */}
-        <View style={styles.completionMessage}>
-          <Text style={styles.completionTitle}>
-            {(() => {
-              const totalDocs = 4;
-              const completedDocs = [
-                driverData?.license_photo,
-                vehiclePhoto,
-                registrationPhoto,
-                insurancePhoto
-              ].filter(Boolean).length;
-
-              if (completedDocs === totalDocs) {
-                return '🎉 ¡Perfil Completo!';
-              } else if (completedDocs >= totalDocs * 0.75) {
-                return '📈 ¡Casi listo!';
-              } else if (completedDocs >= totalDocs * 0.5) {
-                return '⚡ ¡Vas por buen camino!';
-              } else {
-                return '📎 Documentos Pendientes';
-              }
-            })()}
-          </Text>
-          <Text style={styles.completionText}>
-            {(() => {
-              const totalDocs = 4;
-              const completedDocs = [
-                driverData?.license_photo,
-                vehiclePhoto,
-                registrationPhoto,
-                insurancePhoto
-              ].filter(Boolean).length;
-
-              return `${completedDocs} de ${totalDocs} documentos completados`;
-            })()}
-          </Text>
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Motor</Text>
+          <TextInput
+            style={styles.input}
+            value={motor}
+            onChangeText={setMotor}
+            placeholder="Número de motor"
+            placeholderTextColor={colors.textSecondary}
+          />
         </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Chasis</Text>
+          <TextInput
+            style={styles.input}
+            value={chasis}
+            onChangeText={setChasis}
+            placeholder="Número de chasis"
+            placeholderTextColor={colors.textSecondary}
+          />
+        </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>VIN</Text>
+          <TextInput
+            style={styles.input}
+            value={vin}
+            onChangeText={setVin}
+            placeholder="Número de VIN"
+            placeholderTextColor={colors.textSecondary}
+          />
+        </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Cilindros</Text>
+          <TextInput
+            style={styles.input}
+            value={cylinders}
+            onChangeText={setCylinders}
+            placeholder="Ej: 6"
+            keyboardType="numeric"
+            placeholderTextColor={colors.textSecondary}
+          />
+        </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Pasajeros</Text>
+          <TextInput
+            style={styles.input}
+            value={passengers}
+            onChangeText={setPassengers}
+            placeholder="Ej: 5"
+            keyboardType="numeric"
+            placeholderTextColor={colors.textSecondary}
+          />
+        </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Tipo de Combustible</Text>
+          <TextInput
+            style={styles.input}
+            value={fuelType}
+            onChangeText={setFuelType}
+            placeholder="Ej: Gasolina, Diésel"
+            placeholderTextColor={colors.textSecondary}
+          />
+        </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Tonelaje</Text>
+          <TextInput
+            style={styles.input}
+            value={tonnage}
+            onChangeText={setTonnage}
+            placeholder="Ej: 2.5"
+            keyboardType="decimal-pad"
+            placeholderTextColor={colors.textSecondary}
+          />
+        </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Clase de Vehículo</Text>
+          <TextInput
+            style={styles.input}
+            value={vehicleClass}
+            onChangeText={setVehicleClass}
+            placeholder="Ej: PARTICULAR"
+            placeholderTextColor={colors.textSecondary}
+          />
+        </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Tipo de Servicio</Text>
+          <TextInput
+            style={styles.input}
+            value={serviceType}
+            onChangeText={setServiceType}
+            placeholder="Ej: PRIVADO"
+            placeholderTextColor={colors.textSecondary}
+          />
+        </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Gravamen</Text>
+          <TextInput
+            style={styles.input}
+            value={lien}
+            onChangeText={setLien}
+            placeholder="Ej: NINGUNO"
+            placeholderTextColor={colors.textSecondary}
+          />
+        </View>
+      </View>
+
+      {/* Información de Documentos */}
+      <View style={[styles.section, isComplete.documentsInfo && styles.completedSection]}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>📄 Documentos</Text>
+          {isComplete.documentsInfo && (
+            <View style={styles.completionBadge}>
+              <View style={[styles.completionIcon, styles.iconComplete]} />
+              <Text style={styles.completedText}>Completo</Text>
+            </View>
+          )}
+        </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Número de Matrícula</Text>
+          <TextInput
+            style={styles.input}
+            value={registrationNumber}
+            onChangeText={setRegistrationNumber}
+            placeholder="Ej: B2301230"
+            placeholderTextColor={colors.textSecondary}
+          />
+        </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Fecha de Vencimiento de Matrícula</Text>
+          <TextInput
+            style={styles.input}
+            value={registrationExpiry}
+            onChangeText={setRegistrationExpiry}
+            placeholder="YYYY-MM-DD"
+            placeholderTextColor={colors.textSecondary}
+          />
+        </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Número de Póliza de Seguro</Text>
+          <TextInput
+            style={styles.input}
+            value={insuranceNumber}
+            onChangeText={setInsuranceNumber}
+            placeholder="Ej: RCO30201102"
+            placeholderTextColor={colors.textSecondary}
+          />
+        </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Compañía de Seguro</Text>
+          <TextInput
+            style={styles.input}
+            value={insuranceCompany}
+            onChangeText={setInsuranceCompany}
+            placeholder="Ej: BAC"
+            placeholderTextColor={colors.textSecondary}
+          />
+        </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Fecha de Vencimiento del Seguro</Text>
+          <TextInput
+            style={styles.input}
+            value={insuranceExpiry}
+            onChangeText={setInsuranceExpiry}
+            placeholder="YYYY-MM-DD"
+            placeholderTextColor={colors.textSecondary}
+          />
+        </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Fecha de Inicio del Seguro</Text>
+          <TextInput
+            style={styles.input}
+            value={insuranceStartDate}
+            onChangeText={setInsuranceStartDate}
+            placeholder="YYYY-MM-DD"
+            placeholderTextColor={colors.textSecondary}
+          />
+        </View>
+      </View>
+
+      {/* Licencia de Conducir */}
+      <View style={[styles.section, isComplete.licensePhotos && styles.completedSection]}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>🪪 Licencia de Conducir</Text>
+          {isComplete.licensePhotos && (
+            <View style={styles.completionBadge}>
+              <View style={[styles.completionIcon, styles.iconComplete]} />
+              <Text style={styles.completedText}>Completo</Text>
+            </View>
+          )}
+        </View>
+
+        <View style={styles.photoRow}>
+          <View style={styles.photoContainer}>
+            <Text style={styles.photoLabel}>Frente</Text>
+            <ImagePicker
+              imageUri={tempLicenseFrontUri || licensePhotoFront || driverData?.license_photo_front || null}
+              onImageSelected={handleSelectLicenseFront}
+              label="Subir frente"
+            />
+          </View>
+
+          <View style={styles.photoContainer}>
+            <Text style={styles.photoLabel}>Reverso</Text>
+            <ImagePicker
+              imageUri={tempLicenseBackUri || licensePhotoBack || driverData?.license_photo_back || null}
+              onImageSelected={handleSelectLicenseBack}
+              label="Subir reverso"
+            />
+          </View>
+        </View>
+      </View>
+
+      {/* Tarjeta de Circulación */}
+      <View style={[styles.section, isComplete.registrationPhotos && styles.completedSection]}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>📄 Tarjeta de Circulación</Text>
+          {isComplete.registrationPhotos && (
+            <View style={styles.completionBadge}>
+              <View style={[styles.completionIcon, styles.iconComplete]} />
+              <Text style={styles.completedText}>Completo</Text>
+            </View>
+          )}
+        </View>
+
+        <View style={styles.photoRow}>
+          <View style={styles.photoContainer}>
+            <Text style={styles.photoLabel}>Frente</Text>
+            <ImagePicker
+              imageUri={tempRegistrationFrontUri || registrationPhotoFront || vehicleData?.registration_photo_front || null}
+              onImageSelected={handleSelectRegistrationFront}
+              label="Subir frente"
+            />
+          </View>
+
+          <View style={styles.photoContainer}>
+            <Text style={styles.photoLabel}>Reverso</Text>
+            <ImagePicker
+              imageUri={tempRegistrationBackUri || registrationPhotoBack || vehicleData?.registration_photo_back || null}
+              onImageSelected={handleSelectRegistrationBack}
+              label="Subir reverso"
+            />
+          </View>
+        </View>
+      </View>
+
+      {/* Póliza de Seguro */}
+      <View style={[styles.section, isComplete.insurancePhotos && styles.completedSection]}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>🛡️ Póliza de Seguro</Text>
+          {isComplete.insurancePhotos && (
+            <View style={styles.completionBadge}>
+              <View style={[styles.completionIcon, styles.iconComplete]} />
+              <Text style={styles.completedText}>Completo</Text>
+            </View>
+          )}
+        </View>
+
+        <ImagePicker
+          imageUri={tempInsuranceUri || insurancePhoto || vehicleData?.insurance_photo || null}
+          onImageSelected={handleSelectInsurance}
+          label="Subir póliza"
+        />
+      </View>
+
+      {/* Foto del Vehículo */}
+      <View style={[styles.section, isComplete.vehiclePhotos && styles.completedSection]}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>🚗 Foto del Vehículo</Text>
+          {isComplete.vehiclePhotos && (
+            <View style={styles.completionBadge}>
+              <View style={[styles.completionIcon, styles.iconComplete]} />
+              <Text style={styles.completedText}>Completo</Text>
+            </View>
+          )}
+        </View>
+
+        <ImagePicker
+          imageUri={tempVehicleUri || vehiclePhoto || vehicleData?.vehicle_photo || null}
+          onImageSelected={handleSelectVehicle}
+          label="Subir foto del vehículo"
+        />
       </View>
 
       {/* Botón Guardar */}
-      <View style={styles.saveContainer}>
+      <View style={styles.buttonContainer}>
+        {Object.values(isComplete).every(Boolean) ? (
+          <View style={styles.allCompletedBanner}>
+            <Text style={styles.allCompletedText}>¡Todo completo!</Text>
+          </View>
+        ) : (
+          <Text style={styles.incompleteText}>
+            Complete todos los campos requeridos para continuar
+          </Text>
+        )}
         <Button
-          title={saving ? 'Guardando...' : 'Guardar Cambios'}
+          title={Object.values(isComplete).every(Boolean) ? "¡Guardar Información!" : "Guardar Información"}
           onPress={handleSave}
-          style={styles.saveButton}
-          disabled={saving || uploadingLicensePhoto || uploadingRegistrationPhoto || uploadingInsurancePhoto || uploadingVehiclePhoto}
+          disabled={saving}
+          loading={saving}
+          // El componente Button no acepta la propiedad color directamente
+          // Se podría modificar el componente Button para aceptar un prop de color
         />
       </View>
     </ScrollView>
@@ -655,149 +1028,159 @@ const createStyles = (colors: any) => StyleSheet.create({
     color: colors.textSecondary,
   },
   header: {
-    padding: 24,
+    padding: 20,
     backgroundColor: colors.card,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
   title: {
     fontSize: 24,
-    fontWeight: '800',
+    fontWeight: 'bold',
     color: colors.text,
     marginBottom: 8,
   },
   subtitle: {
-    fontSize: 16,
+    fontSize: 14,
     color: colors.textSecondary,
-    lineHeight: 22,
   },
   section: {
-    padding: 24,
+    padding: 20,
+    backgroundColor: colors.card,
+    marginTop: 12,
+    borderRadius: 12,
+    marginHorizontal: 16,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.border,
+  },
+  completedSection: {
+    borderLeftColor: '#4CAF50', // Verde para secciones completadas
+    borderLeftWidth: 3,
   },
   sectionTitle: {
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: '600',
     color: colors.text,
     marginBottom: 16,
-  },
-  infoCard: {
-    backgroundColor: colors.surface,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 24,
-  },
-  infoLabel: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    marginTop: 8,
-  },
-  infoValue: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.text,
-    marginBottom: 4,
-  },
-  photoSection: {
-    marginBottom: 24,
-  },
-  photoTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.text,
-    marginBottom: 12,
-  },
-  uploadButton: {
-    backgroundColor: colors.surface,
-    borderRadius: 12,
-    padding: 24,
+    flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 2,
-    borderColor: colors.border,
-    borderStyle: 'dashed',
+    justifyContent: 'space-between',
   },
-  uploadIcon: {
-    fontSize: 48,
-    marginBottom: 12,
-  },
-  uploadText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.text,
-    textAlign: 'center',
-  },
-  photoContainer: {
-    position: 'relative',
-  },
-  photo: {
-    width: '100%',
-    height: 200,
-    borderRadius: 12,
-  },
-  changePhotoButton: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-  },
-  changePhotoText: {
-    color: '#fff',
-    fontSize: 12,
+  completedText: {
+    color: '#4CAF50',
+    fontSize: 14,
     fontWeight: '600',
   },
-  saveContainer: {
-    padding: 24,
-    paddingBottom: 48,
-  },
-  saveButton: {
-    backgroundColor: colors.primary,
-  },
-  documentsSummary: {
-    backgroundColor: colors.surface,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-  },
-  documentRow: {
+  photoRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    gap: 12,
   },
-  documentLabel: {
-    fontSize: 14,
-    color: colors.text,
+  photoContainer: {
     flex: 1,
   },
-  documentStatus: {
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
-    backgroundColor: colors.background,
-  },
-  documentStatusText: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  completionMessage: {
-    backgroundColor: colors.surface,
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-  },
-  completionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
+  photoLabel: {
+    fontSize: 14,
+    fontWeight: '500',
     color: colors.text,
     marginBottom: 8,
   },
-  completionText: {
+  buttonContainer: {
+    padding: 20,
+    paddingBottom: 40,
+  },
+  inputGroup: {
+    marginBottom: 16,
+  },
+  inputLabel: {
     fontSize: 14,
+    fontWeight: '600',
+    color: colors.text,
+    marginBottom: 8,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    color: colors.text,
+    backgroundColor: colors.card,
+  },
+  inputFilled: {
+    borderColor: '#4CAF50',
+    backgroundColor: 'rgba(76, 175, 80, 0.05)', // Verde muy claro
+  },
+  inputRequired: {
+    borderColor: '#FF9800', // Naranja para campos obligatorios sin llenar
+  },
+  switchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+  },
+  switchLabel: {
+    fontSize: 16,
+    fontWeight: '500',
     color: colors.textSecondary,
+  },
+  completionBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    marginBottom: 8,
+  },
+  completionIcon: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    marginRight: 4,
+  },
+  iconComplete: {
+    backgroundColor: '#4CAF50',
+  },
+  iconIncomplete: {
+    backgroundColor: '#FF9800',
+  },
+  iconNotRequired: {
+    backgroundColor: colors.border,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  completionSummary: {
+    marginTop: 16,
+    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 4,
+  },
+  completionSummaryText: {
+    fontSize: 14,
+    color: colors.text,
+    fontWeight: '500',
     textAlign: 'center',
+  },
+  allCompletedBanner: {
+    backgroundColor: 'rgba(76, 175, 80, 0.2)',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  allCompletedText: {
+    color: '#388E3C',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  incompleteText: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 10,
   },
 });

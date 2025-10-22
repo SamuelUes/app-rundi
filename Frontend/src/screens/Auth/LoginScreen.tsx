@@ -12,14 +12,21 @@ import {
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
+import { useGoogleAuth } from '../../hooks/useGoogleAuth';
+import GoogleSignInButton from '../../components/GoogleSignInButton';
+
+// Google Client ID desde variables de entorno
+// Android Client ID para Expo
+const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID || '1040329608349-t11k2f7tu1gtrh8fpogu3n1gmf2gi8p3.apps.googleusercontent.com';
 
 export default function LoginScreen({ navigation }: any) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const { login } = useAuth();
+  const { login, loginWithGoogle } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const { promptAsync, loading: googleLoading, loginWithGoogle: googleLogin } = useGoogleAuth(GOOGLE_CLIENT_ID);
 
   const handleLogin = async () => {
     if (!email || !password) {
@@ -34,6 +41,19 @@ export default function LoginScreen({ navigation }: any) {
       Alert.alert('Error', error.message || 'Error al iniciar sesión');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    try {
+      const result = await promptAsync();
+      if (result?.type === 'success') {
+        const { id_token } = result.params;
+        const userData = await googleLogin(id_token);
+        await loginWithGoogle(userData);
+      }
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Error al iniciar sesión con Google');
     }
   };
 
@@ -72,16 +92,32 @@ export default function LoginScreen({ navigation }: any) {
             <TouchableOpacity
               style={styles.loginButton}
               onPress={handleLogin}
-              disabled={loading}
+              disabled={loading || googleLoading}
             >
               <Text style={styles.loginButtonText}>
                 {loading ? 'Iniciando...' : 'Iniciar Sesión'}
               </Text>
             </TouchableOpacity>
 
+            {/* Separador */}
+            <View style={styles.dividerContainer}>
+              <View style={styles.divider} />
+              <Text style={styles.dividerText}>O</Text>
+              <View style={styles.divider} />
+            </View>
+
+            {/* Google Sign-In Button */}
+            <GoogleSignInButton
+              onPress={handleGoogleLogin}
+              loading={googleLoading}
+              disabled={loading}
+              variant="login"
+            />
+
             <TouchableOpacity
               style={styles.registerButton}
-              onPress={() => navigation.navigate('Register')}
+              onPress={() => navigation.navigate('RegisterNew')}
+              disabled={loading || googleLoading}
             >
               <Text style={styles.registerButtonText}>
                 ¿No tienes cuenta? Regístrate
@@ -104,58 +140,89 @@ const createStyles = (colors: any) => StyleSheet.create({
   },
   content: {
     flex: 1,
-    padding: 24,
+    padding: 18,
     justifyContent: 'center',
   },
   title: {
-    fontSize: 32,
-    fontWeight: '700',
-    color: colors.text,
-    marginBottom: 8,
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#D4AF37',
+    marginBottom: 6,
+    letterSpacing: 0.3,
   },
   subtitle: {
-    fontSize: 16,
+    fontSize: 14,
     color: colors.textSecondary,
-    marginBottom: 32,
+    marginBottom: 24,
+    fontWeight: '500',
   },
   form: {
     width: '100%',
   },
   label: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 13,
+    fontWeight: '700',
     color: colors.text,
-    marginBottom: 8,
+    marginBottom: 6,
+    letterSpacing: 0.2,
   },
   input: {
     backgroundColor: colors.card,
     borderRadius: 12,
-    padding: 16,
-    fontSize: 16,
+    padding: 13,
+    fontSize: 15,
     color: colors.text,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
+    marginBottom: 14,
+    borderWidth: 1.5,
+    borderColor: '#D4AF37' + '30',
+    shadowColor: '#D4AF37',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
   },
   loginButton: {
-    backgroundColor: colors.text,
-    padding: 16,
+    backgroundColor: '#D4AF37',
+    padding: 14,
     borderRadius: 12,
     alignItems: 'center',
-    marginTop: 8,
+    marginTop: 6,
+    shadowColor: '#D4AF37',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 4,
   },
   loginButtonText: {
-    color: colors.card,
-    fontSize: 16,
-    fontWeight: '700',
+    color: colors.background,
+    fontSize: 15,
+    fontWeight: '800',
+    letterSpacing: 0.3,
   },
   registerButton: {
-    padding: 16,
+    padding: 12,
     alignItems: 'center',
-    marginTop: 8,
+    marginTop: 12,
   },
   registerButtonText: {
+    color: '#D4AF37',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  dividerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 16,
+  },
+  divider: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#D4AF37' + '30',
+  },
+  dividerText: {
+    marginHorizontal: 10,
     color: colors.textSecondary,
-    fontSize: 14,
+    fontSize: 12,
+    fontWeight: '600',
   },
 });

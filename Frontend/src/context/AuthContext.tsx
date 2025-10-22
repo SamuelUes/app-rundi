@@ -11,14 +11,25 @@ interface User {
   id: string;
   email: string;
   name: string;
-  role: 'client' | 'driver' | 'admin';
+  role: 'client' | 'driver' | 'admin' | 'designated_driver';
+  /**
+   * Roles disponibles:
+   * - client: Usuario normal que puede solicitar viajes
+   * - driver: Conductor regular que puede ofrecer viajes normales
+   * - admin: Administrador del sistema con todos los permisos
+   * - designated_driver: "Super-rol" que permite:
+   *   1. Ofrecer viajes normales (igual que un driver regular)
+   *   2. Adicionalmente, ofrecer servicio de conductor designado en fase beta
+   */
 }
 
 interface AuthContextData {
   user: User | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
+  loginWithGoogle: (userData: any) => Promise<void>;
   register: (registerData: any) => Promise<void>;
+  registerWithGoogle: (userData: any) => Promise<void>;
   logout: () => Promise<void>;
   getToken: () => Promise<string | null>;
 }
@@ -73,7 +84,30 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const userData = await AsyncStorage.getItem('user');
       
       if (userData) {
-        setUser(JSON.parse(userData));
+        const parsedUser = JSON.parse(userData);
+        console.log('📱 Usuario cargado desde AsyncStorage:', parsedUser.role);
+        console.log('📱 Usuario completo:', JSON.stringify(parsedUser, null, 2));
+        
+        // Validar que el usuario tenga los campos necesarios
+        if (!parsedUser.id && parsedUser.uid) {
+          console.log('⚠️ Usuario sin campo id, normalizando...');
+          parsedUser.id = parsedUser.uid;
+          await AsyncStorage.setItem('user', JSON.stringify(parsedUser));
+        }
+        
+        
+        // Validar que el rol sea válido
+        const validRoles = ['client', 'driver', 'designated_driver'];
+        if (!validRoles.includes(parsedUser.role)) {
+          console.log('⚠️ Rol inválido detectado:', parsedUser.role);
+          console.log('🔄 Limpiando usuario para forzar nuevo login...');
+          await AsyncStorage.removeItem('user');
+          setUser(null);
+          setLoading(false);
+          return;
+        }
+        
+        setUser(parsedUser);
       }
     } catch (error) {
       console.error('Error loading user:', error);
@@ -86,10 +120,23 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     try {
       const userData = await authService.login(email, password);
       
-      await AsyncStorage.setItem('user', JSON.stringify(userData));
+      console.log('🔐 Login userData recibido:', JSON.stringify(userData, null, 2));
+      console.log('🔐 Rol del usuario:', userData?.role);
       
-      setUser(userData);
-    } catch (error) {
+      // Normalizar userData: convertir uid a id si es necesario
+      const normalizedUser = {
+        id: userData.uid || userData.id,
+        email: userData.email,
+        name: userData.name,
+        role: userData.role,
+      };
+      
+      console.log('🔐 Usuario normalizado:', JSON.stringify(normalizedUser, null, 2));
+      
+      await AsyncStorage.setItem('user', JSON.stringify(normalizedUser));
+      
+      setUser(normalizedUser);
+    } catch (error: any) {
       console.error('Login error:', error);
       throw error;
     }
@@ -157,6 +204,30 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
+  const loginWithGoogle = async (userData: any) => {
+    try {
+      console.log('🔐 Iniciando sesión con Google:', userData);
+      
+      await AsyncStorage.setItem('user', JSON.stringify(userData));
+      setUser(userData);
+    } catch (error) {
+      console.error('Google login error:', error);
+      throw error;
+    }
+  };
+
+  const registerWithGoogle = async (userData: any) => {
+    try {
+      console.log('📝 Registrando con Google:', userData);
+      
+      await AsyncStorage.setItem('user', JSON.stringify(userData));
+      setUser(userData);
+    } catch (error) {
+      console.error('Google register error:', error);
+      throw error;
+    }
+  };
+
   const getToken = async (): Promise<string | null> => {
     try {
       // Usar el mainAuthService que tiene getToken()
@@ -168,7 +239,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, getToken }}>
+    <AuthContext.Provider value={{ user, loading, login, loginWithGoogle, register, registerWithGoogle, logout, getToken }}>
       {children}
     </AuthContext.Provider>
   );

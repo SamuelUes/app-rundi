@@ -39,6 +39,7 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
   const [processing, setProcessing] = useState(false);
   const [rideDetails, setRideDetails] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [currentPaymentMethod, setCurrentPaymentMethod] = useState<string>('card');
   
   // Tarjetas guardadas
   const [savedCards, setSavedCards] = useState<any[]>([]);
@@ -53,6 +54,7 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
   useEffect(() => {
     loadRideDetails();
     loadSavedCards();
+    setupPaymentMethodListener();
   }, []);
 
   const loadRideDetails = async () => {
@@ -110,6 +112,59 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
     } catch (error: any) {
       console.error('Error cargando tarjetas:', error);
       setUseNewCard(true);
+    }
+  };
+
+  // Listener para detectar cambios de método de pago
+  const setupPaymentMethodListener = async () => {
+    try {
+      const { app } = await initializeFirebase();
+      if (!app) return;
+
+      const { getDatabase, ref: dbRef, onValue, off } = await import('firebase/database');
+      const db = getDatabase(app);
+      const rideRef = dbRef(db, `activeRides/${rideId}`);
+
+      const unsubscribe = onValue(rideRef, (snapshot) => {
+        const data = snapshot.val();
+        
+        if (data?.paymentMethod && data.paymentMethod !== currentPaymentMethod) {
+          console.log(`🔄 [PaymentScreen] Método de pago cambiado de ${currentPaymentMethod} a ${data.paymentMethod}`);
+          setCurrentPaymentMethod(data.paymentMethod);
+          
+          if (data.paymentMethod === 'cash') {
+            // Convertir amount a número
+            const finalAmount = typeof data.finalFare === 'string' 
+              ? parseFloat(data.finalFare) 
+              : (data.finalFare || (typeof amount === 'string' ? parseFloat(amount) : amount));
+            
+            Alert.alert(
+              'Método de Pago Cambiado',
+              'El conductor cambió el método de pago a efectivo. Serás redirigido a la pantalla de pago en efectivo.',
+              [
+                {
+                  text: 'Entendido',
+                  onPress: () => {
+                    navigation.replace('CashPayment', {
+                      rideId,
+                      amount: finalAmount,
+                      driverName: data.driver?.name || driverName,
+                      driverPhoto: data.driver?.photoURL,
+                    });
+                  },
+                },
+              ]
+            );
+          }
+        }
+      });
+
+      // Cleanup al desmontar
+      return () => {
+        off(rideRef);
+      };
+    } catch (error) {
+      console.error('Error configurando listener de método de pago:', error);
     }
   };
 

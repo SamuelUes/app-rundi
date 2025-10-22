@@ -1,6 +1,7 @@
 /**
  * Payments API - Migrado de Backend/src/payments/payments.service.ts
  * Firebase Functions implementation con Stripe
+ * Actualizado con Zod validation y sistema de servicios
  */
 
 import * as functions from "firebase-functions";
@@ -79,10 +80,16 @@ export const createPaymentIntent = functions.https.onCall(async (data, context) 
     const tipAmount = Math.round(tip * 100);
     const totalAmount = fareAmount + tipAmount;
 
-    // Calcular comisión según tipo de viaje
-    // 10% para viajes normales, 15% para conductor designado
+    // Calcular comisión según tipo de viaje y vehículo
+    // Importar función de cálculo de comisión
+    const { getCommissionRate } = await import('../helpers/priceCalculator');
+    
     const rideType = ride.ride_type || 'normal';
-    const commissionRate = rideType === 'designated_driver' ? 0.15 : 0.10;
+    const vehicleType = ride.vehicle_type || 'car'; // 'car' o 'motorcycle'
+    const commissionRate = getCommissionRate(
+      vehicleType as 'car' | 'motorcycle',
+      rideType as 'normal' | 'designated_driver'
+    );
     const commission = fare * commissionRate;
 
     let paymentIntentId: string;
@@ -506,18 +513,74 @@ export const completeCashPayment = functions.https.onCall(async (data, context) 
     throw new functions.https.HttpsError("invalid-argument", "rideId es requerido");
   }
 
-  // Obtener pgRideId desde Firebase
-  const admin = require('firebase-admin');
-  const rideSnapshot = await admin.database().ref(`activeRides/${rideId}`).once('value');
-  const ride = rideSnapshot.val();
+  console.log(`💵 [completeCashPayment] Procesando pago para rideId: ${rideId}`);
 
-  if (!ride || !ride.pgRideId) {
-    throw new functions.https.HttpsError("not-found", "Viaje no encontrado o no sincronizado con PostgreSQL");
+  // Obtener datos del pago desde paymentStatus (más confiable que activeRides)
+  const admin = require('firebase-admin');
+  const paymentSnapshot = await admin.database().ref(`paymentStatus/${rideId}`).once('value');
+  const paymentData = paymentSnapshot.val();
+
+  console.log(`📦 [completeCashPayment] Datos de paymentStatus:`, paymentData);
+
+  if (!paymentData) {
+    throw new functions.https.HttpsError("not-found", "Estado de pago no encontrado");
+  }
+
+  // VALIDACIÓN: Verificar que AMBOS (cliente Y conductor) hayan confirmado
+  const clientConfirmed = paymentData.confirmedByClient === true;
+  const driverConfirmed = paymentData.confirmedBy === 'driver' || paymentData.status === 'payment_in_progress';
+
+  console.log(`🔍 [completeCashPayment] Validando confirmaciones - Cliente: ${clientConfirmed}, Conductor: ${driverConfirmed}`);
+
+  if (!driverConfirmed) {
+    throw new functions.https.HttpsError("failed-precondition", "El conductor no ha confirmado el pago");
+  }
+
+  // Si el cliente NO confirmó, verificar si ya pasó el timeout (5 minutos)
+  if (!clientConfirmed) {
+    const confirmedAt = paymentData.confirmedAt || paymentData.lastUpdatedAt || Date.now();
+    const timeoutMinutes = 5;
+    const timeElapsed = Date.now() - confirmedAt;
+    const timeoutMs = timeoutMinutes * 60 * 1000;
+
+    if (timeElapsed < timeoutMs) {
+      // Aún no ha pasado el timeout, rechazar
+      throw new functions.https.HttpsError(
+        "failed-precondition", 
+        `El cliente aún no ha confirmado el pago. Espera ${Math.ceil((timeoutMs - timeElapsed) / 60000)} minutos o contacta al cliente.`
+      );
+    } else {
+      // Ya pasó el timeout, proceder pero marcar como pago problemático
+      console.log(`⚠️ [completeCashPayment] Cliente no confirmó después de ${timeoutMinutes} minutos. Procesando con comisión.`);
+    }
+  } else {
+    console.log(`✅ [completeCashPayment] Ambos confirmaron el pago`);
+  }
+
+  // Intentar obtener datos del viaje desde activeRides (puede no existir si ya se completó)
+  let ride = null;
+  const rideSnapshot = await admin.database().ref(`activeRides/${rideId}`).once('value');
+  ride = rideSnapshot.val();
+
+  console.log(`📦 [completeCashPayment] Viaje en activeRides:`, ride ? 'Encontrado' : 'No encontrado');
+
+  // Si no está en activeRides, buscar en completedRides
+  if (!ride) {
+    console.log(`🔍 [completeCashPayment] Buscando en completedRides...`);
+    const completedSnapshot = await admin.database().ref(`completedRides/${rideId}`).once('value');
+    ride = completedSnapshot.val();
+    console.log(`📦 [completeCashPayment] Viaje en completedRides:`, ride ? 'Encontrado' : 'No encontrado');
+  }
+
+  if (!ride) {
+    throw new functions.https.HttpsError("not-found", "Viaje no encontrado en activeRides ni completedRides");
   }
 
   const pgRideId = ride.pgRideId;
-  const finalAmount = ride.finalFare || ride.estimatedPrice || 0;
+  const finalAmount = paymentData.finalAmount || ride.finalFare || ride.estimatedPrice || 0;
   const commission = finalAmount * (ride.isDesignatedDriver ? 0.15 : 0.10);
+
+  console.log(`💰 [completeCashPayment] Monto final: C$${finalAmount}, Comisión: C$${commission}`);
 
   const client = await pool.connect();
   try {
@@ -561,7 +624,7 @@ export const completeCashPayment = functions.https.onCall(async (data, context) 
 
     console.log(`✅ Pago en efectivo confirmado para viaje ${rideId}: C$${payment.amount}`);
 
-    // Actualizar Realtime DB
+    // Actualizar Realtime DB - Marcar pago como completado
     const admin = require('firebase-admin');
     await admin.database().ref(`paymentStatus/${rideId}`).update({
       status: 'completed',
@@ -570,6 +633,32 @@ export const completeCashPayment = functions.https.onCall(async (data, context) 
       lastUpdatedBy: 'backend',
       lastUpdatedAt: admin.database.ServerValue.TIMESTAMP,
     });
+
+    // Actualizar estado del viaje a 'completed' (ahora sí, pago confirmado)
+    const rideRefActive = admin.database().ref(`activeRides/${rideId}`);
+    const rideRefCompleted = admin.database().ref(`completedRides/${rideId}`);
+    
+    // Obtener datos del viaje
+    const rideSnapshot = await rideRefActive.once('value');
+    const rideData = rideSnapshot.val();
+    
+    if (rideData) {
+      console.log(`🔄 [completeCashPayment] Moviendo viaje ${rideId} de activeRides a completedRides`);
+      
+      // Actualizar status a completed
+      rideData.status = 'completed';
+      rideData.paymentCompletedAt = admin.database.ServerValue.TIMESTAMP;
+      
+      // Mover a completedRides
+      await rideRefCompleted.set(rideData);
+      
+      // Eliminar de activeRides
+      await rideRefActive.remove();
+      
+      console.log(`✅ [completeCashPayment] Viaje ${rideId} movido a completedRides`);
+    } else {
+      console.log(`⚠️ [completeCashPayment] Viaje ${rideId} no encontrado en activeRides, puede estar ya completado`);
+    }
 
     return {
       success: true,
@@ -597,24 +686,10 @@ export const cancelCashPayment = functions.https.onCall(async (data, context) =>
     throw new functions.https.HttpsError("invalid-argument", "rideId es requerido");
   }
 
-  const client = await pool.connect();
   try {
-    // Actualizar pago a CANCELED con razón
-    const result = await client.query(
-      `UPDATE payments 
-       SET status = $1, cancel_reason = $2, updated_at = NOW()
-       WHERE ride_id = $3 AND payment_method = $4
-       RETURNING *`,
-      [PaymentStatus.CANCELED, reason, rideId, PaymentMethod.CASH]
-    );
+    console.log(`🔄 Cancelando pago en efectivo para viaje ${rideId}: ${reason}`);
 
-    if (result.rows.length === 0) {
-      throw new Error("Pago no encontrado");
-    }
-
-    console.log(`🔄 Pago en efectivo cancelado para viaje ${rideId}: ${reason}`);
-
-    // Actualizar Realtime DB
+    // Actualizar Realtime DB primero
     const admin = require('firebase-admin');
     await admin.database().ref(`paymentStatus/${rideId}`).update({
       status: 'canceled',
@@ -625,14 +700,54 @@ export const cancelCashPayment = functions.https.onCall(async (data, context) =>
       lastUpdatedAt: admin.database.ServerValue.TIMESTAMP,
     });
 
-    return {
-      success: true,
-      payment: result.rows[0],
-    };
+    // Obtener pgRideId desde Firebase
+    const rideSnapshot = await admin.database().ref(`activeRides/${rideId}`).once('value');
+    const ride = rideSnapshot.val();
+    
+    if (!ride) {
+      console.log(`⚠️ Viaje ${rideId} no encontrado en activeRides, puede estar archivado`);
+      return {
+        success: true,
+        message: 'Pago cancelado en Firebase (viaje no encontrado en PostgreSQL)',
+      };
+    }
+
+    const pgRideId = ride.pgRideId;
+    
+    if (!pgRideId) {
+      console.log(`⚠️ Viaje ${rideId} no tiene pgRideId, puede no estar en PostgreSQL aún`);
+      return {
+        success: true,
+        message: 'Pago cancelado en Firebase (viaje no tiene pgRideId)',
+      };
+    }
+
+    // Actualizar en PostgreSQL si existe
+    const client = await pool.connect();
+    try {
+      const result = await client.query(
+        `UPDATE payments 
+         SET status = $1, cancel_reason = $2, updated_at = NOW()
+         WHERE ride_id = $3 AND payment_method = $4
+         RETURNING *`,
+        [PaymentStatus.CANCELED, reason, pgRideId, PaymentMethod.CASH]
+      );
+
+      if (result.rows.length === 0) {
+        console.log(`⚠️ Pago no encontrado en PostgreSQL para pgRideId: ${pgRideId}`);
+      } else {
+        console.log(`✅ Pago en efectivo cancelado en PostgreSQL para viaje ${rideId} (pgRideId: ${pgRideId})`);
+      }
+
+      return {
+        success: true,
+        payment: result.rows[0] || null,
+      };
+    } finally {
+      client.release();
+    }
   } catch (error: any) {
     console.error("❌ Error cancelando pago en efectivo:", error);
     throw new functions.https.HttpsError("internal", error.message);
-  } finally {
-    client.release();
   }
 });

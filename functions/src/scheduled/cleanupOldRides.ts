@@ -17,7 +17,7 @@ import { archiveCompletedRide, archiveCanceledRide } from "../helpers/cleanupHel
  * Se ejecuta cada hora
  */
 export const cleanupOldRides = functions.pubsub
-  .schedule('every 1 hours')
+  .schedule('30 * * * *')  // Cada hora a los 30 minutos (00:30, 01:30, 02:30...)
   .timeZone('America/Managua')
   .onRun(async (context) => {
     console.log('🧹 Iniciando limpieza de viajes antiguos...');
@@ -106,7 +106,7 @@ export const cleanupOldRides = functions.pubsub
  * Se ejecuta cada 6 horas
  */
 export const cleanupOrphanPayments = functions.pubsub
-  .schedule('every 6 hours')
+  .schedule('0 3,9,15,21 * * *')  // Cada 6 horas (03:00, 09:00, 15:00, 21:00)
   .timeZone('America/Managua')
   .onRun(async (context) => {
     console.log('🧹 Iniciando limpieza de payments huérfanos...');

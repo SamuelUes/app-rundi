@@ -12,9 +12,26 @@
 -- - ✅ Agregadas columnas de ratings: driving, safety, friendliness
 -- - ✅ Agregada columna notes a payments
 -- - ✅ Agregadas columnas department y municipality a drivers (2025-10-16)
+-- - ✅ Actualizada tabla vehicles con campos oficiales de Nicaragua (2025-10-17):
+--   * motor, chasis, vin, cylinders, passengers, fuel_type
+--   * tonnage, vehicle_class, service_type, lien, emission_date
+--   * insurance_start_date
 -- - ✅ Limpieza de duplicados y definiciones redundantes
 -- - ✅ Índices optimizados para performance
 -- - ✅ Todas las migraciones consolidadas
+-- - ✅ Agregadas columnas para Conductor Designado (2025-10-20):
+--   * designated_driver_request_status: Estado de solicitud (null, pending, approved, rejected)
+--   * designated_driver_role: Rol asignado (null, designated_driver)
+-- - ✅ Agregadas columnas para sincronización con Firebase (2025-10-21):
+--   * synced_to_firebase: Marca si el pago fue sincronizado a Firebase
+--   * firebase_synced_at: Timestamp de sincronización
+--   * Índice optimizado para consultas de sincronización
+-- - ✅ Sistema de Servicios y Comisiones (2025-10-21):
+--   * Tabla services: Catálogo de servicios (Viaje Normal, Conductor Designado, etc)
+--   * Tabla driver_services: Asignación de servicios a conductores
+--   * Tabla service_commission_history: Historial de cambios de comisiones
+--   * Comisiones personalizadas por conductor
+--   * Arquitectura flexible y escalable
 -- ============================================
 
 -- ============================================
@@ -35,9 +52,11 @@ $$ language 'plpgsql';
 CREATE TABLE IF NOT EXISTS public.drivers (
   id UUID NOT NULL DEFAULT gen_random_uuid(),
   user_id VARCHAR(255) NOT NULL,
+  profile_photo VARCHAR(500) NULL,
   license_number VARCHAR(50) NULL,
   license_expiry DATE NULL,
-  license_photo VARCHAR(500) NULL,
+  license_photo_front VARCHAR(500) NULL,
+  license_photo_back VARCHAR(500) NULL,
   department VARCHAR(100) NULL,
   municipality VARCHAR(100) NULL,
   status VARCHAR(20) NULL DEFAULT 'pending'::VARCHAR,
@@ -45,6 +64,8 @@ CREATE TABLE IF NOT EXISTS public.drivers (
   total_rides INTEGER NULL DEFAULT 0,
   average_rating NUMERIC(3, 2) NULL DEFAULT 0,
   total_earnings NUMERIC(10, 2) NULL DEFAULT 0,
+  designated_driver_request_status VARCHAR(20) NULL DEFAULT NULL,
+  designated_driver_role VARCHAR(50) NULL DEFAULT NULL,
   created_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
   updated_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
   CONSTRAINT drivers_pkey PRIMARY KEY (id),
@@ -53,15 +74,22 @@ CREATE TABLE IF NOT EXISTS public.drivers (
 
 COMMENT ON TABLE public.drivers IS 'Datos sensibles de conductores - sincronizado con Firebase Auth';
 COMMENT ON COLUMN public.drivers.user_id IS 'Firebase Auth UID';
+COMMENT ON COLUMN public.drivers.profile_photo IS 'URL de foto de perfil del conductor - OBLIGATORIA para verificación de identidad (Supabase Storage)';
 COMMENT ON COLUMN public.drivers.status IS 'Estado: pending, active, suspended, rejected';
 COMMENT ON COLUMN public.drivers.average_rating IS 'Promedio de calificaciones recibidas (1-5)';
+COMMENT ON COLUMN public.drivers.license_photo_front IS 'URL de foto frontal de licencia (Supabase Storage)';
+COMMENT ON COLUMN public.drivers.license_photo_back IS 'URL de foto trasera de licencia (Supabase Storage)';
 COMMENT ON COLUMN public.drivers.department IS 'Departamento de residencia del conductor (ej: Managua, León, Granada)';
 COMMENT ON COLUMN public.drivers.municipality IS 'Municipio de residencia del conductor (ej: Managua, Masaya, Tipitapa)';
+COMMENT ON COLUMN public.drivers.designated_driver_request_status IS 'Estado de solicitud para Conductor Designado: null (sin solicitud), pending (solicitud enviada), approved (aprobado), rejected (rechazado)';
+COMMENT ON COLUMN public.drivers.designated_driver_role IS 'Rol asignado: null (conductor normal), designated_driver (conductor designado aprobado)';
 
 CREATE INDEX IF NOT EXISTS idx_drivers_user_id ON public.drivers USING btree (user_id);
 CREATE INDEX IF NOT EXISTS idx_drivers_status ON public.drivers USING btree (status);
 CREATE INDEX IF NOT EXISTS idx_drivers_department ON public.drivers USING btree (department);
 CREATE INDEX IF NOT EXISTS idx_drivers_municipality ON public.drivers USING btree (municipality);
+CREATE INDEX IF NOT EXISTS idx_drivers_designated_driver_request_status ON public.drivers USING btree (designated_driver_request_status);
+CREATE INDEX IF NOT EXISTS idx_drivers_designated_driver_role ON public.drivers USING btree (designated_driver_role);
 
 CREATE TRIGGER update_drivers_updated_at BEFORE UPDATE ON public.drivers
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
@@ -79,15 +107,34 @@ CREATE TABLE IF NOT EXISTS public.vehicles (
   year INTEGER NULL,
   color VARCHAR(30) NULL,
   type VARCHAR(20) NULL DEFAULT 'auto'::VARCHAR,
-  is_4x4 BOOLEAN NULL DEFAULT FALSE,
-  vehicle_photo TEXT NULL,
+  
+  -- Datos de Circulación (Tarjeta de Circulación de Nicaragua)
+  motor VARCHAR(50) NULL,
+  chasis VARCHAR(50) NULL,
+  vin VARCHAR(50) NULL,
+  cylinders INTEGER NULL,
+  passengers INTEGER NULL,
+  fuel_type VARCHAR(20) NULL,
+  tonnage NUMERIC(5, 2) NULL DEFAULT 0,
+  vehicle_class VARCHAR(30) NULL,
+  service_type VARCHAR(20) NULL,
+  lien VARCHAR(100) NULL DEFAULT 'NINGUNO',
+  emission_date DATE NULL,
   registration_number VARCHAR(50) NULL,
   registration_expiry DATE NULL,
-  registration_photo VARCHAR(500) NULL,
+  registration_photo_front VARCHAR(500) NULL,
+  registration_photo_back VARCHAR(500) NULL,
+  
+  -- Datos de Seguro
   insurance_number VARCHAR(50) NULL,
   insurance_company VARCHAR(100) NULL,
+  insurance_start_date DATE NULL,
   insurance_expiry DATE NULL,
   insurance_photo VARCHAR(500) NULL,
+  
+  -- Otros
+  is_4x4 BOOLEAN NULL DEFAULT FALSE,
+  vehicle_photo TEXT NULL,
   is_active BOOLEAN NULL DEFAULT TRUE,
   created_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
   updated_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
@@ -96,8 +143,24 @@ CREATE TABLE IF NOT EXISTS public.vehicles (
   CONSTRAINT vehicles_plate_key UNIQUE (plate)
 ) TABLESPACE pg_default;
 
-COMMENT ON TABLE public.vehicles IS 'Vehículos de conductores con documentación completa';
+COMMENT ON TABLE public.vehicles IS 'Vehículos de conductores con documentación completa según formato nicaragüense';
 COMMENT ON COLUMN public.vehicles.type IS 'Tipo: auto, moto, suv, pickup';
+COMMENT ON COLUMN public.vehicles.motor IS 'Número de motor (de tarjeta de circulación)';
+COMMENT ON COLUMN public.vehicles.chasis IS 'Número de chasis (de tarjeta de circulación)';
+COMMENT ON COLUMN public.vehicles.vin IS 'VIN - Vehicle Identification Number';
+COMMENT ON COLUMN public.vehicles.cylinders IS 'Número de cilindros del motor';
+COMMENT ON COLUMN public.vehicles.passengers IS 'Capacidad de pasajeros';
+COMMENT ON COLUMN public.vehicles.fuel_type IS 'Tipo de combustible: Gasolina, Diesel, Eléctrico, Híbrido';
+COMMENT ON COLUMN public.vehicles.tonnage IS 'Tonelaje del vehículo';
+COMMENT ON COLUMN public.vehicles.vehicle_class IS 'Clase: PARTICULAR, PÚBLICO, OFICIAL';
+COMMENT ON COLUMN public.vehicles.service_type IS 'Servicio: PRIVADO, PÚBLICO, TAXI, ALQUILER';
+COMMENT ON COLUMN public.vehicles.lien IS 'Gravamen del vehículo (NINGUNO, BANCO, etc.)';
+COMMENT ON COLUMN public.vehicles.emission_date IS 'Fecha de emisión de la tarjeta de circulación';
+COMMENT ON COLUMN public.vehicles.registration_photo_front IS 'URL de foto frontal de circulación (Supabase Storage)';
+COMMENT ON COLUMN public.vehicles.registration_photo_back IS 'URL de foto trasera de circulación (Supabase Storage)';
+COMMENT ON COLUMN public.vehicles.insurance_number IS 'Número de póliza de seguro';
+COMMENT ON COLUMN public.vehicles.insurance_start_date IS 'Fecha de inicio de la póliza de seguro';
+COMMENT ON COLUMN public.vehicles.insurance_photo IS 'URL de foto de póliza de seguro (Supabase Storage)';
 COMMENT ON COLUMN public.vehicles.is_4x4 IS 'Indica si es 4x4 (requerido para conductor designado)';
 COMMENT ON COLUMN public.vehicles.is_active IS 'Indica si el vehículo está activo';
 
@@ -231,6 +294,10 @@ CREATE TABLE IF NOT EXISTS public.payments (
   notes TEXT NULL,
   cancel_reason TEXT NULL,
   
+  -- Sincronización con Firebase
+  synced_to_firebase BOOLEAN NULL DEFAULT FALSE,
+  firebase_synced_at TIMESTAMP WITHOUT TIME ZONE NULL,
+  
   -- Timestamps
   paid_at TIMESTAMP WITHOUT TIME ZONE NULL,
   created_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
@@ -253,11 +320,14 @@ COMMENT ON COLUMN public.payments.local_authorization_code IS 'Código de autori
 COMMENT ON COLUMN public.payments.local_bank IS 'Banco: bac, banpro, lafise, ficohsa, avanz';
 COMMENT ON COLUMN public.payments.notes IS 'Notas adicionales sobre el pago';
 COMMENT ON COLUMN public.payments.cancel_reason IS 'Razón de cancelación del pago (si aplica)';
+COMMENT ON COLUMN public.payments.synced_to_firebase IS 'Indica si el pago fue sincronizado a Firebase Realtime Database';
+COMMENT ON COLUMN public.payments.firebase_synced_at IS 'Timestamp de cuando se sincronizó a Firebase';
 
 CREATE INDEX IF NOT EXISTS idx_payments_ride_id ON public.payments USING btree (ride_id);
 CREATE INDEX IF NOT EXISTS idx_payments_status ON public.payments USING btree (status);
 CREATE INDEX IF NOT EXISTS idx_payments_stripe_id ON public.payments USING btree (stripe_payment_intent_id);
 CREATE INDEX IF NOT EXISTS idx_payments_local_transaction_id ON public.payments USING btree (local_transaction_id);
+CREATE INDEX IF NOT EXISTS idx_payments_sync_status ON public.payments USING btree (synced_to_firebase, updated_at) WHERE (synced_to_firebase = FALSE);
 CREATE INDEX IF NOT EXISTS idx_payments_cancel_reason ON public.payments USING btree (cancel_reason) WHERE cancel_reason IS NOT NULL;
 
 CREATE TRIGGER update_payments_updated_at BEFORE UPDATE ON public.payments
@@ -463,6 +533,50 @@ CREATE TRIGGER update_emergency_calls_updated_at BEFORE UPDATE ON public.emergen
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================
+-- 10. DESIGNATED_DRIVER_INSPECTIONS TABLE
+-- Inspecciones de vehículos del cliente para viajes de conductor designado
+-- ============================================
+CREATE TABLE IF NOT EXISTS public.designated_driver_inspections (
+  id UUID NOT NULL DEFAULT gen_random_uuid(),
+  ride_id UUID NOT NULL,
+  driver_id VARCHAR(255) NOT NULL,
+  
+  -- Fotos del vehículo del cliente
+  vehicle_front_photo VARCHAR(500) NULL,
+  vehicle_rear_photo VARCHAR(500) NULL,
+  interior_front_photo VARCHAR(500) NULL,
+  interior_rear_photo VARCHAR(500) NULL,
+  
+  -- Estado de la inspección
+  status VARCHAR(20) NULL DEFAULT 'completed'::VARCHAR,
+  
+  -- Timestamps
+  inspected_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
+  created_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
+  updated_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
+  
+  CONSTRAINT designated_driver_inspections_pkey PRIMARY KEY (id),
+  CONSTRAINT designated_driver_inspections_ride_id_fkey FOREIGN KEY (ride_id) REFERENCES public.rides(id) ON DELETE CASCADE
+) TABLESPACE pg_default;
+
+COMMENT ON TABLE public.designated_driver_inspections IS 'Inspecciones de vehículos del cliente para viajes de conductor designado - Fotos en Supabase Storage';
+COMMENT ON COLUMN public.designated_driver_inspections.ride_id IS 'ID del viaje (FK a rides)';
+COMMENT ON COLUMN public.designated_driver_inspections.driver_id IS 'Firebase Auth UID del conductor que realizó la inspección';
+COMMENT ON COLUMN public.designated_driver_inspections.vehicle_front_photo IS 'URL de foto frontal del vehículo (Supabase Storage)';
+COMMENT ON COLUMN public.designated_driver_inspections.vehicle_rear_photo IS 'URL de foto trasera del vehículo (Supabase Storage)';
+COMMENT ON COLUMN public.designated_driver_inspections.interior_front_photo IS 'URL de foto interior delantero (Supabase Storage)';
+COMMENT ON COLUMN public.designated_driver_inspections.interior_rear_photo IS 'URL de foto interior trasero (Supabase Storage)';
+COMMENT ON COLUMN public.designated_driver_inspections.status IS 'Estado: pending, completed, failed';
+
+CREATE INDEX IF NOT EXISTS idx_designated_driver_inspections_ride_id ON public.designated_driver_inspections USING btree (ride_id);
+CREATE INDEX IF NOT EXISTS idx_designated_driver_inspections_driver_id ON public.designated_driver_inspections USING btree (driver_id);
+CREATE INDEX IF NOT EXISTS idx_designated_driver_inspections_status ON public.designated_driver_inspections USING btree (status);
+CREATE INDEX IF NOT EXISTS idx_designated_driver_inspections_created_at ON public.designated_driver_inspections USING btree (created_at DESC);
+
+CREATE TRIGGER update_designated_driver_inspections_updated_at BEFORE UPDATE ON public.designated_driver_inspections
+FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================
 -- VISTAS ÚTILES
 -- ============================================
 
@@ -502,8 +616,106 @@ ORDER BY ec.created_at DESC;
 COMMENT ON VIEW emergency_calls_complete IS 'Vista completa de llamadas de emergencia con información del viaje';
 
 -- ============================================
--- DESHABILITAR ROW LEVEL SECURITY
--- (Para permitir acceso desde Firebase Functions)
+-- 10. SERVICES TABLE
+-- Catálogo de servicios disponibles
+-- ============================================
+CREATE TABLE IF NOT EXISTS public.services (
+  id UUID NOT NULL DEFAULT gen_random_uuid(),
+  name VARCHAR(100) NOT NULL,
+  description TEXT NULL,
+  code VARCHAR(50) UNIQUE NOT NULL,
+  commission_rate DECIMAL(5, 4) NOT NULL,
+  base_price DECIMAL(10, 2) NOT NULL DEFAULT 0,
+  price_per_km DECIMAL(10, 2) NOT NULL,
+  price_per_minute DECIMAL(10, 2) NOT NULL,
+  minimum_fare DECIMAL(10, 2) NOT NULL DEFAULT 0,
+  vehicle_types JSONB NULL,
+  requires_special_license BOOLEAN DEFAULT FALSE,
+  max_distance_km INTEGER NULL,
+  available_hours JSONB NULL,
+  icon VARCHAR(50) NULL,
+  color VARCHAR(7) NULL,
+  display_order INTEGER DEFAULT 0,
+  is_active BOOLEAN DEFAULT TRUE,
+  is_featured BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
+  updated_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
+  CONSTRAINT services_pkey PRIMARY KEY (id)
+) TABLESPACE pg_default;
+
+COMMENT ON TABLE public.services IS 'Catálogo de servicios disponibles (Viaje Normal, Conductor Designado, etc)';
+COMMENT ON COLUMN public.services.commission_rate IS 'Tasa de comisión (0.1000 = 10%)';
+COMMENT ON COLUMN public.services.code IS 'Código único del servicio para identificación en código';
+
+CREATE INDEX IF NOT EXISTS idx_services_code ON public.services USING btree (code);
+CREATE INDEX IF NOT EXISTS idx_services_active ON public.services USING btree (is_active);
+CREATE INDEX IF NOT EXISTS idx_services_display_order ON public.services USING btree (display_order);
+
+CREATE TRIGGER update_services_updated_at BEFORE UPDATE ON public.services
+FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================
+-- 11. DRIVER_SERVICES TABLE
+-- Relación Many-to-Many entre conductores y servicios
+-- ============================================
+CREATE TABLE IF NOT EXISTS public.driver_services (
+  id UUID NOT NULL DEFAULT gen_random_uuid(),
+  driver_id UUID NOT NULL,
+  service_id UUID NOT NULL,
+  custom_commission_rate DECIMAL(5, 4) NULL,
+  is_active BOOLEAN DEFAULT TRUE,
+  is_approved BOOLEAN DEFAULT FALSE,
+  approved_by VARCHAR(255) NULL,
+  approved_at TIMESTAMP WITHOUT TIME ZONE NULL,
+  assigned_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
+  expires_at TIMESTAMP WITHOUT TIME ZONE NULL,
+  notes TEXT NULL,
+  created_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
+  updated_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
+  CONSTRAINT driver_services_pkey PRIMARY KEY (id),
+  CONSTRAINT driver_services_driver_fkey FOREIGN KEY (driver_id) 
+    REFERENCES public.drivers(id) ON DELETE CASCADE,
+  CONSTRAINT driver_services_service_fkey FOREIGN KEY (service_id) 
+    REFERENCES public.services(id) ON DELETE CASCADE,
+  CONSTRAINT driver_services_unique UNIQUE (driver_id, service_id)
+) TABLESPACE pg_default;
+
+COMMENT ON TABLE public.driver_services IS 'Servicios asignados a conductores con comisiones personalizadas';
+COMMENT ON COLUMN public.driver_services.custom_commission_rate IS 'Comisión personalizada para este conductor (override)';
+
+CREATE INDEX IF NOT EXISTS idx_driver_services_driver ON public.driver_services USING btree (driver_id);
+CREATE INDEX IF NOT EXISTS idx_driver_services_service ON public.driver_services USING btree (service_id);
+CREATE INDEX IF NOT EXISTS idx_driver_services_active ON public.driver_services USING btree (is_active, is_approved);
+CREATE INDEX IF NOT EXISTS idx_driver_services_expires ON public.driver_services USING btree (expires_at) 
+  WHERE expires_at IS NOT NULL;
+
+CREATE TRIGGER update_driver_services_updated_at BEFORE UPDATE ON public.driver_services
+FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================
+-- 12. SERVICE_COMMISSION_HISTORY TABLE
+-- Historial de cambios de comisiones
+-- ============================================
+CREATE TABLE IF NOT EXISTS public.service_commission_history (
+  id UUID NOT NULL DEFAULT gen_random_uuid(),
+  service_id UUID NOT NULL,
+  old_commission_rate DECIMAL(5, 4) NOT NULL,
+  new_commission_rate DECIMAL(5, 4) NOT NULL,
+  changed_by VARCHAR(255) NOT NULL,
+  change_reason TEXT NULL,
+  changed_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
+  CONSTRAINT service_commission_history_pkey PRIMARY KEY (id),
+  CONSTRAINT service_commission_history_service_fkey FOREIGN KEY (service_id) 
+    REFERENCES public.services(id) ON DELETE CASCADE
+) TABLESPACE pg_default;
+
+COMMENT ON TABLE public.service_commission_history IS 'Historial de cambios de comisiones para auditoría';
+
+CREATE INDEX IF NOT EXISTS idx_commission_history_service ON public.service_commission_history USING btree (service_id);
+CREATE INDEX IF NOT EXISTS idx_commission_history_date ON public.service_commission_history USING btree (changed_at DESC);
+
+-- ============================================
+-- DESACTIVAR ROW LEVEL SECURITY (Temporal)
 -- ============================================
 ALTER TABLE public.drivers DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.vehicles DISABLE ROW LEVEL SECURITY;
@@ -514,6 +726,9 @@ ALTER TABLE public.ratings DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ride_locations DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.analytics_events DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.emergency_calls DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.services DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.driver_services DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.service_commission_history DISABLE ROW LEVEL SECURITY;
 
 -- ============================================
 -- VERIFICACIÓN FINAL

@@ -26,6 +26,7 @@ import Button from '../../components/Button';
 import { SkeletonLoader } from '../../components/SkeletonLoader';
 import { NoDriversEmptyState, NoSearchResultsEmptyState } from '../../components/EmptyState';
 import { AnimatedButton } from '../../components/AnimatedButton';
+import { calculateRidePrice, formatPriceBreakdown, getVehicleTypeName, type PriceBreakdown } from '../../utils/priceCalculator';
 
 export default function SearchRideScreen({ navigation }: any) {
   const { user } = useAuth();
@@ -38,6 +39,14 @@ export default function SearchRideScreen({ navigation }: any) {
   const [originCoords, setOriginCoords] = useState<{latitude: number; longitude: number} | null>(null);
   const [destinationCoords, setDestinationCoords] = useState<{latitude: number; longitude: number} | null>(null);
   const [usingManualLocation, setUsingManualLocation] = useState(false);
+  
+  // Inicializar origen con ubicación actual al inicio
+  useEffect(() => {
+    if (coords && !originCoords) {
+      setOriginCoords({ latitude: coords.latitude, longitude: coords.longitude });
+      setOrigin('Mi ubicación actual');
+    }
+  }, [coords]);
   
   // Múltiples destinos
   const [extraDestinations, setExtraDestinations] = useState<Array<{address: string; coords: {latitude: number; longitude: number} | null}>>([]);
@@ -70,6 +79,7 @@ export default function SearchRideScreen({ navigation }: any) {
   const [estimatedDuration, setEstimatedDuration] = useState(0);
   const [calculatingRoute, setCalculatingRoute] = useState(false);
   const [routeCoordinates, setRouteCoordinates] = useState<any[]>([]);
+  const [priceBreakdown, setPriceBreakdown] = useState<PriceBreakdown | null>(null);
   
   // Negociación de precio
   const [suggestedPrice, setSuggestedPrice] = useState('');
@@ -82,6 +92,13 @@ export default function SearchRideScreen({ navigation }: any) {
   const [selectedMapLocation, setSelectedMapLocation] = useState<{latitude: number; longitude: number} | null>(null);
   const [previewRoute, setPreviewRoute] = useState<any[]>([]);
   const [showRouteConfirmation, setShowRouteConfirmation] = useState(false);
+  
+  // Pines móviles (draggable markers)
+  const [isDraggingMarker, setIsDraggingMarker] = useState(false);
+  const [draggedMarkerType, setDraggedMarkerType] = useState<'origin' | 'destination' | null>(null);
+  const [tempLocation, setTempLocation] = useState<{latitude: number; longitude: number; address?: string} | null>(null);
+  const [showLocationConfirmation, setShowLocationConfirmation] = useState(false);
+  const [loadingAddress, setLoadingAddress] = useState(false);
 
   // Método de pago seleccionado ('cash' o 'stripe' por defecto, puede cambiar después a banco local)
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'stripe' | 'card'>('cash');
@@ -273,27 +290,30 @@ export default function SearchRideScreen({ navigation }: any) {
         setEstimatedDistance(parseFloat(distanceKm.toFixed(2)));
         setEstimatedDuration(parseFloat(durationMin.toFixed(0)));
         
-        // Calcular precio usando el backend
-        try {
-          const isDD = vehicleType === 'designated_driver';
-          console.log('💰 Solicitando precio al backend:', {
-            distance: route.distance,
-            extraStops: extraDestinations.length,
-            isDD
-          });
-          
-          const priceResult = await ridesService.calculatePrice(route.distance, extraDestinations.length, isDD);
-          setEstimatedPrice(priceResult.price);
-          console.log('✅ Precio calculado por backend:', priceResult.price, priceResult.breakdown);
-        } catch (priceError) {
-          console.error('⚠️ Backend no disponible para calcular precio, usando fallback local:', priceError);
-          // Calcular precio localmente como fallback
-          const basePrice = distanceKm * 35; // C$35 por km (tarifa promedio)
-          const extraStopsCharge = extraDestinations.length * 20;
-          const finalPrice = Math.max(50, Math.round(basePrice + extraStopsCharge));
-          setEstimatedPrice(finalPrice);
-          console.log('✅ Precio calculado localmente (fallback):', finalPrice);
-        }
+        // Calcular precio usando la nueva fórmula
+        const vehicleTypeForCalc = vehicleType === 'moto' ? 'motorcycle' : 'car';
+        const rideTypeForCalc = vehicleType === 'designated_driver' ? 'designated_driver' : 'normal';
+        
+        const breakdown = calculateRidePrice(
+          route.distance, // distancia en metros
+          route.duration, // duración en segundos
+          vehicleTypeForCalc,
+          rideTypeForCalc,
+          originCoords?.latitude,
+          originCoords?.longitude,
+          extraDestinations.length
+        );
+        
+        setEstimatedPrice(breakdown.finalPrice);
+        setPriceBreakdown(breakdown);
+        
+        console.log('✅ Precio calculado:', {
+          finalPrice: breakdown.finalPrice,
+          distancePrice: breakdown.distancePrice,
+          timePrice: breakdown.timePrice,
+          isPeakHour: breakdown.isPeakHour,
+          breakdown: formatPriceBreakdown(breakdown)
+        });
       } else {
         console.error('❌ No se obtuvo ruta del servicio de mapas');
         Alert.alert('Error', 'No se pudo calcular la ruta. Verifica las ubicaciones.');
@@ -369,7 +389,68 @@ export default function SearchRideScreen({ navigation }: any) {
     setEstimatedDuration(0);
     setEstimatedPrice(0);
   };
-
+  
+  // Manejar cuando se mueve un pin (draggable marker)
+  const handleMarkerDragEnd = async (type: 'origin' | 'destination', newLocation: { latitude: number; longitude: number }) => {
+    console.log(`📍 Pin de ${type} movido a:`, newLocation);
+    setDraggedMarkerType(type);
+    setTempLocation({ ...newLocation });
+    setShowLocationConfirmation(true);
+    
+    // Obtener dirección de la nueva ubicación (reverse geocoding)
+    setLoadingAddress(true);
+    try {
+      const address = await mapsService.reverseGeocode(newLocation);
+      setTempLocation(prev => prev ? { ...prev, address: address || undefined } : null);
+    } catch (error) {
+      console.error('❌ Error obteniendo dirección:', error);
+      setTempLocation(prev => prev ? { ...prev, address: 'Ubicación seleccionada' } : null);
+    } finally {
+      setLoadingAddress(false);
+    }
+  };
+  
+  // Confirmar nueva ubicación del pin
+  const confirmMarkerLocation = async () => {
+    if (!tempLocation || !draggedMarkerType) return;
+    
+    if (draggedMarkerType === 'origin') {
+      setOriginCoords({ latitude: tempLocation.latitude, longitude: tempLocation.longitude });
+      setOrigin(tempLocation.address || 'Ubicación seleccionada');
+      console.log('✅ Origen actualizado:', tempLocation);
+    } else {
+      setDestinationCoords({ latitude: tempLocation.latitude, longitude: tempLocation.longitude });
+      setDestination(tempLocation.address || 'Ubicación seleccionada');
+      console.log('✅ Destino actualizado:', tempLocation);
+    }
+    
+    // Cerrar confirmación
+    setShowLocationConfirmation(false);
+    setTempLocation(null);
+    setDraggedMarkerType(null);
+    
+    // Recalcular ruta si tenemos ambos puntos
+    if (draggedMarkerType === 'origin' && destinationCoords) {
+      await calculateRealRoute(
+        { latitude: tempLocation.latitude, longitude: tempLocation.longitude },
+        destinationCoords
+      );
+    } else if (draggedMarkerType === 'destination' && originCoords) {
+      await calculateRealRoute(
+        originCoords,
+        { latitude: tempLocation.latitude, longitude: tempLocation.longitude }
+      );
+    }
+  };
+  
+  // Cancelar cambio de ubicación del pin
+  const cancelMarkerLocation = () => {
+    setShowLocationConfirmation(false);
+    setTempLocation(null);
+    setDraggedMarkerType(null);
+  };
+  
+  // Tomar foto del vehículo (para conductor designado)
   const handleTakeVehiclePhoto = async () => {
     try {
       // Solicitar permisos
@@ -600,12 +681,19 @@ export default function SearchRideScreen({ navigation }: any) {
             showMarker={true}
             markerPosition={{ latitude: originCoords.latitude, longitude: originCoords.longitude }}
             markerType="origin"
+            draggableMarker={true}
+            onMarkerDragEnd={(newLocation) => handleMarkerDragEnd('origin', newLocation)}
             onMapPress={(event) => {
               // Al tocar el mapa pequeño, abrir el mapa completo para seleccionar origen
               setSelectingType('origin');
               setIsSelectingOnMap(true);
             }}
           />
+          
+          {/* Hint para mover el pin */}
+          <View style={styles.dragHintCard}>
+            <Text style={styles.dragHintText}>💡 Arrastra el pin para ajustar tu ubicación</Text>
+          </View>
         </View>
       )}
 
@@ -677,12 +765,41 @@ export default function SearchRideScreen({ navigation }: any) {
             }
             style={styles.fullMap}
             onMapPress={showRouteConfirmation ? undefined : (event) => handleMapPress(event.latitude, event.longitude)}
-            showMarker={!!selectedMapLocation}
-            markerPosition={selectedMapLocation || undefined}
+            showMarker={
+              // Mostrar marcador si hay selectedMapLocation O si es origen y hay originCoords
+              !!selectedMapLocation || (selectingType === 'origin' && !!originCoords)
+            }
+            markerPosition={
+              selectedMapLocation || 
+              (selectingType === 'origin' ? originCoords : undefined) ||
+              undefined
+            }
             markerType={selectingType === 'origin' ? 'origin' : 'destination'}
-            originMarker={originCoords || coords || undefined}
+            originMarker={selectingType !== 'origin' && originCoords ? originCoords : undefined}
+            clientMarker={selectingType === 'origin' ? coords : undefined}
             routeCoordinates={previewRoute}
+            draggableMarker={true}
+            onMarkerDragEnd={(newLocation) => {
+              const type = selectingType === 'origin' ? 'origin' : 'destination';
+              handleMarkerDragEnd(type, newLocation);
+            }}
           />
+          
+          {/* Hint para mover el pin en modal */}
+          {!showRouteConfirmation && (
+            <View style={styles.dragHintCardModal}>
+              <Text style={styles.dragHintText}>
+                {selectingType === 'origin' 
+                  ? '🔵 Arrastra el pin para elegir dónde te recogen'
+                  : '🔴 Arrastra el pin para elegir tu destino'}
+              </Text>
+              {selectingType === 'origin' && (
+                <Text style={styles.dragHintSubtext}>
+                  📍 Tu ubicación actual también se muestra en el mapa
+                </Text>
+              )}
+            </View>
+          )}
 
           {/* Panel de confirmación de ruta */}
           {showRouteConfirmation && (
@@ -1069,21 +1186,75 @@ export default function SearchRideScreen({ navigation }: any) {
           </View>
         )}
 
-        {/* Estimación REAL con MapBox Routing */}
-        {estimatedPrice > 0 && !calculatingRoute && (
+        {/* Estimación REAL con Desglose Completo */}
+        {estimatedPrice > 0 && !calculatingRoute && priceBreakdown && (
           <View style={styles.estimateCard}>
-            <Text style={styles.estimateTitle}>📊 Estimación Real (MapBox)</Text>
-            <View style={styles.estimateRow}>
-              <Text style={styles.estimateLabel}>📏 Distancia:</Text>
-              <Text style={styles.estimateValue}>{estimatedDistance} km</Text>
+            <View style={styles.estimateHeader}>
+              <Text style={styles.estimateTitle}>📊 Estimación de Viaje</Text>
+              <View style={styles.vehicleTypeBadge}>
+                <Text style={styles.vehicleTypeText}>
+                  {getVehicleTypeName(priceBreakdown.vehicleType, priceBreakdown.rideType)}
+                </Text>
+              </View>
             </View>
-            <View style={styles.estimateRow}>
-              <Text style={styles.estimateLabel}>⏱️ Duración:</Text>
-              <Text style={styles.estimateValue}>{estimatedDuration} min</Text>
-            </View>
-            <View style={styles.estimateRow}>
-              <Text style={styles.estimateLabel}>💰 Precio estimado:</Text>
-              <Text style={styles.estimatePrice}>C${estimatedPrice}</Text>
+            
+            {/* Hora Pico Warning */}
+            {priceBreakdown.isPeakHour && (
+              <View style={styles.peakHourWarning}>
+                <Text style={styles.peakHourIcon}>⚠️</Text>
+                <View style={styles.peakHourTextContainer}>
+                  <Text style={styles.peakHourTitle}>Hora Pico en Managua</Text>
+                  <Text style={styles.peakHourText}>
+                    Se agregaron {priceBreakdown.peakHourAdjustment} min al tiempo
+                  </Text>
+                </View>
+              </View>
+            )}
+            
+            {/* Desglose de Precio */}
+            <View style={styles.priceBreakdownSection}>
+              <View style={styles.estimateRow}>
+                <Text style={styles.estimateLabel}>📏 Distancia:</Text>
+                <Text style={styles.estimateValue}>{priceBreakdown.distanceKm} km</Text>
+              </View>
+              <View style={styles.estimateRow}>
+                <Text style={styles.estimateLabel}>   × C${priceBreakdown.multiplier}/km</Text>
+                <Text style={styles.estimateSubvalue}>C${priceBreakdown.distancePrice}</Text>
+              </View>
+              
+              <View style={styles.dividerLine} />
+              
+              <View style={styles.estimateRow}>
+                <Text style={styles.estimateLabel}>⏱️ Tiempo:</Text>
+                <Text style={styles.estimateValue}>{priceBreakdown.durationMinutes} min</Text>
+              </View>
+              <View style={styles.estimateRow}>
+                <Text style={styles.estimateLabel}>   ({Math.ceil(priceBreakdown.durationMinutes / 5)} bloques × C$3)</Text>
+                <Text style={styles.estimateSubvalue}>C${priceBreakdown.timePrice}</Text>
+              </View>
+              
+              {priceBreakdown.extraStopsCharge > 0 && (
+                <>
+                  <View style={styles.dividerLine} />
+                  <View style={styles.estimateRow}>
+                    <Text style={styles.estimateLabel}>🛑 Paradas extras:</Text>
+                    <Text style={styles.estimateSubvalue}>C${priceBreakdown.extraStopsCharge}</Text>
+                  </View>
+                </>
+              )}
+              
+              <View style={styles.dividerLineBold} />
+              
+              <View style={styles.estimateRow}>
+                <Text style={styles.estimateLabelBold}>💰 Total:</Text>
+                <Text style={styles.estimatePrice}>C${priceBreakdown.finalPrice}</Text>
+              </View>
+              
+              <View style={styles.commissionInfo}>
+                <Text style={styles.commissionText}>
+                  ℹ️ Comisión DriveAngel: {(priceBreakdown.commissionRate * 100).toFixed(1)}% (C${priceBreakdown.commission})
+                </Text>
+              </View>
             </View>
           </View>
         )}
@@ -1174,6 +1345,50 @@ export default function SearchRideScreen({ navigation }: any) {
           </View>
         )}
       </ScrollView>
+      
+      {/* Modal de confirmación de ubicación movida */}
+      <Modal
+        visible={showLocationConfirmation}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={cancelMarkerLocation}
+      >
+        <View style={styles.confirmLocationOverlay}>
+          <View style={styles.confirmLocationCard}>
+            <Text style={styles.confirmLocationTitle}>
+              📍 {draggedMarkerType === 'origin' ? 'Confirmar Origen' : 'Confirmar Destino'}
+            </Text>
+            
+            {loadingAddress ? (
+              <View style={styles.loadingAddressContainer}>
+                <ActivityIndicator size="small" color={colors.primary} />
+                <Text style={styles.loadingAddressText}>Obteniendo dirección...</Text>
+              </View>
+            ) : (
+              <Text style={styles.confirmLocationAddress}>
+                {tempLocation?.address || 'Ubicación seleccionada'}
+              </Text>
+            )}
+            
+            <View style={styles.confirmLocationButtons}>
+              <TouchableOpacity
+                style={styles.confirmLocationCancelButton}
+                onPress={cancelMarkerLocation}
+              >
+                <Text style={styles.confirmLocationCancelText}>❌ Cancelar</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={styles.confirmLocationConfirmButton}
+                onPress={confirmMarkerLocation}
+                disabled={loadingAddress}
+              >
+                <Text style={styles.confirmLocationConfirmText}>✅ Confirmar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1254,6 +1469,82 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontSize: 18,
     fontWeight: '800',
     color: colors.text,
+  },
+  estimateHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  vehicleTypeBadge: {
+    backgroundColor: colors.primary + '20',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  vehicleTypeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.primary,
+  },
+  peakHourWarning: {
+    flexDirection: 'row',
+    backgroundColor: '#FF9800' + '20',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 12,
+    alignItems: 'center',
+  },
+  peakHourIcon: {
+    fontSize: 24,
+    marginRight: 12,
+  },
+  peakHourTextContainer: {
+    flex: 1,
+  },
+  peakHourTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#FF9800',
+    marginBottom: 2,
+  },
+  peakHourText: {
+    fontSize: 12,
+    color: colors.textSecondary,
+  },
+  priceBreakdownSection: {
+    marginTop: 8,
+  },
+  estimateSubvalue: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  dividerLine: {
+    height: 1,
+    backgroundColor: colors.border,
+    marginVertical: 8,
+  },
+  dividerLineBold: {
+    height: 2,
+    backgroundColor: colors.border,
+    marginVertical: 12,
+  },
+  estimateLabelBold: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  commissionInfo: {
+    marginTop: 8,
+    padding: 8,
+    backgroundColor: colors.background,
+    borderRadius: 6,
+  },
+  commissionText: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    textAlign: 'center',
   },
   driversSection: {
     marginTop: 20,
@@ -1927,5 +2218,118 @@ const createStyles = (colors: any) => StyleSheet.create({
     marginTop: 8,
     textAlign: 'center',
     fontStyle: 'italic',
+  },
+  // Estilos para hint de pin draggable
+  dragHintCard: {
+    position: 'absolute',
+    bottom: 10,
+    left: 10,
+    right: 10,
+    backgroundColor: 'rgba(76, 175, 80, 0.95)',
+    borderRadius: 8,
+    padding: 10,
+    alignItems: 'center',
+  },
+  dragHintCardModal: {
+    position: 'absolute',
+    bottom: 20,
+    left: 20,
+    right: 20,
+    backgroundColor: 'rgba(76, 175, 80, 0.95)',
+    borderRadius: 12,
+    padding: 14,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  dragHintText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  dragHintSubtext: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '400',
+    marginTop: 4,
+    opacity: 0.9,
+  },
+  // Estilos para modal de confirmación de ubicación
+  confirmLocationOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  confirmLocationCard: {
+    backgroundColor: colors.card,
+    borderRadius: 16,
+    padding: 20,
+    width: '100%',
+    maxWidth: 350,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  confirmLocationTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  confirmLocationAddress: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    marginBottom: 20,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  loadingAddressContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+  },
+  loadingAddressText: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    marginLeft: 10,
+  },
+  confirmLocationButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  confirmLocationCancelButton: {
+    flex: 1,
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    padding: 14,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  confirmLocationCancelText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  confirmLocationConfirmButton: {
+    flex: 1,
+    backgroundColor: '#4CAF50',
+    borderRadius: 12,
+    padding: 14,
+    alignItems: 'center',
+  },
+  confirmLocationConfirmText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#fff',
   },
 });
