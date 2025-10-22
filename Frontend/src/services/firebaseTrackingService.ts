@@ -4,8 +4,9 @@
  * Versión mejorada con soporte para múltiples destinos y seguimiento de clientes
  */
 
-import { getFirebaseDatabase } from '../config/firebase';
+import { getFirebaseDatabase, getFirebaseFunctions } from '../config/firebase';
 import { ref, set, onValue, off, update, remove, serverTimestamp } from 'firebase/database';
+import { httpsCallable } from 'firebase/functions';
 
 interface Location {
   latitude: number;
@@ -108,12 +109,14 @@ class FirebaseTrackingService {
 
   /**
    * Actualizar tracking del viaje
+   * Guarda en Firebase Realtime DB Y en PostgreSQL (ride_locations)
    */
   async updateRideTracking(
     rideId: string,
     data: Partial<RideTracking>
   ): Promise<void> {
     try {
+      // 1. Actualizar Firebase Realtime DB
       const database = await getFirebaseDatabase();
       const rideRef = ref(database, `activeRides/${rideId}`);
       
@@ -121,6 +124,36 @@ class FirebaseTrackingService {
         ...data,
         lastUpdate: Date.now(),
       });
+
+      // 2. Si hay ubicación del conductor, guardar en PostgreSQL (ride_locations)
+      if (data.driverLocation) {
+        try {
+          console.log(`🔄 Intentando guardar ubicación en PostgreSQL para ${rideId}`);
+          const functions = await getFirebaseFunctions();
+          console.log(`✅ Functions inicializado`);
+          
+          const saveLocationFn = httpsCallable(functions, 'saveRideLocation');
+          console.log(`✅ Cloud Function obtenida`);
+          
+          const result = await saveLocationFn({
+            rideId,
+            latitude: data.driverLocation.latitude,
+            longitude: data.driverLocation.longitude,
+            speed: data.driverLocation.speed || null,
+            heading: data.driverLocation.heading || null,
+            accuracy: data.driverLocation.accuracy || null,
+          });
+
+          console.log(`📍 Ubicación guardada en PostgreSQL: ${rideId}`, result);
+        } catch (pgError: any) {
+          console.error(`❌ Error guardando en PostgreSQL:`, {
+            message: pgError.message,
+            code: pgError.code,
+            details: pgError.details,
+          });
+          // No lanzar error - Firebase Realtime DB es lo importante
+        }
+      }
 
       console.log(`🚗 Tracking actualizado: ${rideId}`);
     } catch (error) {

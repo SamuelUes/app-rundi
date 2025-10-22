@@ -9,6 +9,7 @@
     "scheme": "driveangel",
     "owner": "samuelues",
     "projectId": "e8f4c3b2-9d1a-4e7f-8c5b-2a3d4e5f6a7b",
+    "runtimeVersion": "1.0.0",
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
@@ -46,7 +47,6 @@
       ]
     },
     "ios": {
-      "scheme": "driveangel",
       "bundleIdentifier": "com.driveangel.ni",
       "urlSchemes": ["driveangel", "tel", "mailto", "whatsapp", "waze", "googlemaps"]
     },

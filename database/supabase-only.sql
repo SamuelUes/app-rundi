@@ -1,7 +1,7 @@
 -- ============================================
 -- SUPABASE POSTGRESQL - SCHEMA COMPLETO
 -- DriveAngel.ni
--- Actualizado: 2025-10-16
+-- Actualizado: 2025-10-21
 -- ============================================
 -- 
 -- IMPORTANTE: Este schema es SOLO para Supabase PostgreSQL

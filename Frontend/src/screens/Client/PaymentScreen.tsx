@@ -237,13 +237,9 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
         });
       }
       
-      // Actualizar propina en Realtime DB
-      await dbUpdate(paymentStatusRef, {
-        tip,
-        total: rideAmount + tip,
-        lastUpdatedBy: 'client',
-        lastUpdatedAt: Date.now(),
-      });
+      // NOTA: La actualización de propina se hace desde el backend (Cloud Functions)
+      // El cliente NO tiene permisos para escribir en /paymentStatus en Firebase Realtime DB
+      // Esto es por seguridad - solo el backend puede actualizar estados de pago
 
       // Capturar el pago (ya pre-autorizado)
       const capturePaymentFn = httpsCallable(functions, 'capturePayment');
@@ -287,19 +283,9 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
     try {
       setProcessing(true);
 
-      const { app } = await initializeFirebase();
-      if (!app) throw new Error('Firebase no inicializado');
-      
-      const db = getDatabase(app);
-      
-      // Actualizar propina en Realtime DB (el pago en efectivo ya está registrado desde confirmDriver)
-      const paymentStatusRef = dbRef(db, `paymentStatus/${rideId}`);
-      await dbUpdate(paymentStatusRef, {
-        tip,
-        total: rideAmount + tip,
-        lastUpdatedBy: 'client',
-        lastUpdatedAt: Date.now(),
-      });
+      // NOTA: La actualización de paymentStatus se hace desde el backend (Cloud Functions)
+      // El cliente NO tiene permisos para escribir en /paymentStatus en Firebase Realtime DB
+      // Esto es por seguridad - solo el backend puede actualizar estados de pago
 
       Alert.alert(
         '💵 Pago en Efectivo',
@@ -319,8 +305,8 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
         ]
       );
     } catch (error: any) {
-      console.error('Error registrando pago en efectivo:', error);
-      Alert.alert('Error', error.message || 'Error al registrar el pago');
+      console.error('Error procesando pago en efectivo:', error);
+      Alert.alert('Error', error.message || 'Error al procesar el pago');
     } finally {
       setProcessing(false);
     }

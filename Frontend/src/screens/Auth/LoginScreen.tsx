@@ -46,14 +46,41 @@ export default function LoginScreen({ navigation }: any) {
 
   const handleGoogleLogin = async () => {
     try {
+      setLoading(true);
+      console.log('🔐 Iniciando Google Sign-In...');
+      
       const result = await promptAsync();
+      
       if (result?.type === 'success') {
+        console.log('✅ Google Sign-In exitoso');
         const { id_token } = result.params;
+        
+        if (!id_token) {
+          throw new Error('No se recibió ID Token de Google');
+        }
+        
+        console.log('🔄 Iniciando sesión con Firebase...');
         const userData = await googleLogin(id_token);
+        
+        console.log('💾 Guardando datos de usuario...');
         await loginWithGoogle(userData);
+        
+        console.log('✅ Login completado, navegando a HomeScreen');
+        // La navegación se maneja automáticamente en el contexto de autenticación
+      } else if (result?.type === 'cancel') {
+        console.log('❌ Usuario canceló Google Sign-In');
+        // No mostrar alerta, es una acción esperada del usuario
+      } else {
+        throw new Error('Error desconocido en Google Sign-In');
       }
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Error al iniciar sesión con Google');
+      console.error('❌ Error en Google Login:', error);
+      Alert.alert(
+        'Error',
+        error.message || 'Error al iniciar sesión con Google. Intenta de nuevo.'
+      );
+    } finally {
+      setLoading(false);
     }
   };
 
