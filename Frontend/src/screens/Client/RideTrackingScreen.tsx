@@ -131,7 +131,7 @@ const useRideStatus = (rideId: string) => {
   } = useFirebaseItem<any>(`activeRides`, rideId);
 
   const [rideStatus, setRideStatus] = useState('in_progress');
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'stripe'>('cash');
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card'>('cash');
   const [finalFare, setFinalFare] = useState<number>(0);
 
   useEffect(() => {

@@ -30,7 +30,7 @@ export interface RequestRideData {
   extraDestinations?: Array<{lat: number; lng: number; address: string}>; // Paradas adicionales
   clientSuggestedPrice?: number;
   notes?: string;
-  paymentMethod?: 'cash' | 'stripe' | 'card'; // Método de pago seleccionado
+  paymentMethod?: 'cash' | 'card'; // Método de pago: cash (efectivo) o card (bancos nacionales)
 }
 
 export interface AcceptRideData {
@@ -145,11 +145,38 @@ class RidesService {
   }
 
   async requestRide(data: RequestRideData): Promise<Ride> {
-    const functions = await this.getFunctions();
-    const requestRideFunction = httpsCallable(functions, 'requestRide');
-    const response = await requestRideFunction(data);
-    const result = response.data as { success: boolean; ride: any };
-    return result.ride;
+    try {
+      // Validar datos requeridos
+      if (!data.clientId) {
+        throw new Error('clientId es requerido');
+      }
+      if (!data.origin || !data.destination) {
+        throw new Error('origin y destination son requeridos');
+      }
+      if (!data.estimatedPrice || data.estimatedPrice <= 0) {
+        throw new Error('estimatedPrice debe ser mayor a 0');
+      }
+
+      const functions = await this.getFunctions();
+      const requestRideFunction = httpsCallable(functions, 'requestRide');
+      
+      // Limpiar datos: remover campos undefined
+      const cleanData = Object.fromEntries(
+        Object.entries(data).filter(([_, v]) => v !== undefined)
+      );
+      
+      const response = await requestRideFunction(cleanData);
+      const result = response.data as { success: boolean; ride: any };
+      
+      if (!result.success || !result.ride) {
+        throw new Error('Respuesta inválida del servidor');
+      }
+      
+      return result.ride;
+    } catch (error: any) {
+      console.error('Error en requestRide:', error);
+      throw error;
+    }
   }
 
   async getMyRides(userId: string): Promise<Ride[]> {
@@ -287,7 +314,7 @@ class RidesService {
     await rejectDriverFunction({ rideId, reason });
   }
 
-  async updateRideStatus(rideId: string, status: Ride['status'], additionalData?: any): Promise<Ride> {
+  async updateRideStatus(rideId: string, status: Ride['status'], additionalData?: any): Promise<any> {
     const functions = await this.getFunctions();
     
     if (status === 'in_progress') {
@@ -303,7 +330,14 @@ class RidesService {
         actualDistance: additionalData?.actualDistance || 0,
         actualDuration: additionalData?.actualDuration || 0,
       });
-      return response.data as Ride;
+      
+      // ✅ NUEVO: Retornar pgRideId junto con el ride
+      const data = response.data as any;
+      return {
+        ...data,
+        pgRideId: data.pgRideId,  // ← Extraer pgRideId
+        ride: data.ride,
+      };
     }
     
     throw new Error(`Estado no soportado: ${status}`);

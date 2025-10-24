@@ -64,8 +64,8 @@ CREATE TABLE IF NOT EXISTS public.drivers (
   total_rides INTEGER NULL DEFAULT 0,
   average_rating NUMERIC(3, 2) NULL DEFAULT 0,
   total_earnings NUMERIC(10, 2) NULL DEFAULT 0,
-  designated_driver_request_status VARCHAR(20) NULL DEFAULT NULL,
-  designated_driver_role VARCHAR(50) NULL DEFAULT NULL,
+  -- ✅ ELIMINADOS: designated_driver_request_status, designated_driver_role
+  -- Ahora se usan driver_services para esto
   created_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
   updated_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
   CONSTRAINT drivers_pkey PRIMARY KEY (id),
@@ -81,15 +81,12 @@ COMMENT ON COLUMN public.drivers.license_photo_front IS 'URL de foto frontal de 
 COMMENT ON COLUMN public.drivers.license_photo_back IS 'URL de foto trasera de licencia (Supabase Storage)';
 COMMENT ON COLUMN public.drivers.department IS 'Departamento de residencia del conductor (ej: Managua, León, Granada)';
 COMMENT ON COLUMN public.drivers.municipality IS 'Municipio de residencia del conductor (ej: Managua, Masaya, Tipitapa)';
-COMMENT ON COLUMN public.drivers.designated_driver_request_status IS 'Estado de solicitud para Conductor Designado: null (sin solicitud), pending (solicitud enviada), approved (aprobado), rejected (rechazado)';
-COMMENT ON COLUMN public.drivers.designated_driver_role IS 'Rol asignado: null (conductor normal), designated_driver (conductor designado aprobado)';
 
 CREATE INDEX IF NOT EXISTS idx_drivers_user_id ON public.drivers USING btree (user_id);
 CREATE INDEX IF NOT EXISTS idx_drivers_status ON public.drivers USING btree (status);
 CREATE INDEX IF NOT EXISTS idx_drivers_department ON public.drivers USING btree (department);
 CREATE INDEX IF NOT EXISTS idx_drivers_municipality ON public.drivers USING btree (municipality);
-CREATE INDEX IF NOT EXISTS idx_drivers_designated_driver_request_status ON public.drivers USING btree (designated_driver_request_status);
-CREATE INDEX IF NOT EXISTS idx_drivers_designated_driver_role ON public.drivers USING btree (designated_driver_role);
+-- ✅ ELIMINADOS índices para designated_driver_request_status y designated_driver_role
 
 CREATE TRIGGER update_drivers_updated_at BEFORE UPDATE ON public.drivers
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
@@ -179,6 +176,9 @@ FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TABLE IF NOT EXISTS public.rides (
   id UUID NOT NULL DEFAULT gen_random_uuid(),
   
+  -- ✅ Firebase Ride ID (para sincronización)
+  firebase_ride_id VARCHAR(255) NULL,
+  
   -- Participantes (Firebase UIDs)
   client_id VARCHAR(255) NOT NULL,
   driver_id VARCHAR(255) NULL,
@@ -215,6 +215,9 @@ CREATE TABLE IF NOT EXISTS public.rides (
   vehicle_type VARCHAR(50) NULL DEFAULT 'auto'::VARCHAR,
   client_vehicle_photo TEXT NULL,
   
+  -- ✅ Servicio ofrecido (referencia a services table)
+  service_id UUID NULL,
+  
   -- Método de pago
   payment_type VARCHAR(20) NULL DEFAULT 'cash'::VARCHAR,
   
@@ -234,7 +237,8 @@ CREATE TABLE IF NOT EXISTS public.rides (
   updated_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
   
   CONSTRAINT rides_pkey PRIMARY KEY (id),
-  CONSTRAINT rides_canceled_by_check CHECK (canceled_by IN ('client', 'driver'))
+  CONSTRAINT rides_canceled_by_check CHECK (canceled_by IN ('client', 'driver')),
+  CONSTRAINT rides_service_id_fkey FOREIGN KEY (service_id) REFERENCES public.services(id) ON DELETE SET NULL
 ) TABLESPACE pg_default;
 
 COMMENT ON TABLE public.rides IS 'Historial completo de viajes - Viajes activos están en Firebase Realtime DB';
@@ -245,11 +249,14 @@ COMMENT ON COLUMN public.rides.extra_destinations IS 'Array JSON de paradas adic
 COMMENT ON COLUMN public.rides.driver_offered_price IS 'Precio ofrecido por el conductor (si es diferente al estimado)';
 COMMENT ON COLUMN public.rides.vehicle_type IS 'Tipo de vehículo solicitado: moto, auto, designated_driver';
 COMMENT ON COLUMN public.rides.client_vehicle_photo IS 'URL de la foto del vehículo del cliente (solo para conductor designado)';
+COMMENT ON COLUMN public.rides.service_id IS 'Referencia al servicio ofrecido (normal, designated_driver, night, motorcycle, etc)';
 COMMENT ON COLUMN public.rides.payment_type IS 'Método de pago: cash (efectivo), card_local (bancos locales), stripe';
 COMMENT ON COLUMN public.rides.canceled_by IS 'Indica quién canceló el viaje: client o driver';
 
+CREATE INDEX IF NOT EXISTS idx_rides_firebase_ride_id ON public.rides USING btree (firebase_ride_id);
 CREATE INDEX IF NOT EXISTS idx_rides_client_id ON public.rides USING btree (client_id);
 CREATE INDEX IF NOT EXISTS idx_rides_driver_id ON public.rides USING btree (driver_id);
+CREATE INDEX IF NOT EXISTS idx_rides_service_id ON public.rides USING btree (service_id);
 CREATE INDEX IF NOT EXISTS idx_rides_status ON public.rides USING btree (status);
 CREATE INDEX IF NOT EXISTS idx_rides_created_at ON public.rides USING btree (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_rides_vehicle_type ON public.rides USING btree (vehicle_type);
@@ -262,7 +269,7 @@ FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================
 -- 4. PAYMENTS TABLE
--- Historial de pagos con Stripe y Bancos Locales
+-- Historial de pagos: Cash (Efectivo) y Card (Bancos Locales)
 -- ============================================
 CREATE TABLE IF NOT EXISTS public.payments (
   id UUID NOT NULL DEFAULT gen_random_uuid(),
@@ -274,18 +281,14 @@ CREATE TABLE IF NOT EXISTS public.payments (
   commission NUMERIC(10, 2) NULL,
   total NUMERIC(10, 2) GENERATED ALWAYS AS (amount + tip) STORED,
   
-  -- Método de pago
+  -- Método de pago: cash (efectivo) o card (bancos locales)
   payment_method VARCHAR(20) NULL,
   payment_provider VARCHAR(20) NULL,
   
   -- Estado
   status VARCHAR(20) NULL DEFAULT 'pending'::VARCHAR,
   
-  -- Stripe
-  stripe_payment_intent_id VARCHAR(255) NULL,
-  stripe_charge_id VARCHAR(255) NULL,
-  
-  -- Bancos Locales
+  -- Bancos Locales (para card payments)
   local_transaction_id VARCHAR(255) NULL,
   local_authorization_code VARCHAR(255) NULL,
   local_bank VARCHAR(20) NULL,
@@ -304,17 +307,16 @@ CREATE TABLE IF NOT EXISTS public.payments (
   updated_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
   
   CONSTRAINT payments_pkey PRIMARY KEY (id),
-  CONSTRAINT payments_stripe_payment_intent_id_key UNIQUE (stripe_payment_intent_id),
   CONSTRAINT payments_local_transaction_id_key UNIQUE (local_transaction_id),
   CONSTRAINT payments_ride_id_fkey FOREIGN KEY (ride_id) REFERENCES public.rides(id) ON DELETE CASCADE
 ) TABLESPACE pg_default;
 
-COMMENT ON TABLE public.payments IS 'Historial de pagos procesados con Stripe o Bancos Locales';
+COMMENT ON TABLE public.payments IS 'Historial de pagos: Cash (Efectivo) y Card (Bancos Locales)';
 COMMENT ON COLUMN public.payments.amount IS 'Tarifa final del viaje (final_fare)';
 COMMENT ON COLUMN public.payments.commission IS 'Comisión: 10% viajes normales, 15% conductor designado';
 COMMENT ON COLUMN public.payments.total IS 'Total que paga el cliente: amount + tip';
-COMMENT ON COLUMN public.payments.payment_method IS 'Método: stripe, bac, banpro, lafise, ficohsa, avanz, cash';
-COMMENT ON COLUMN public.payments.payment_provider IS 'Proveedor: stripe, local, cash';
+COMMENT ON COLUMN public.payments.payment_method IS 'Método: cash (efectivo) o card (bancos locales)';
+COMMENT ON COLUMN public.payments.payment_provider IS 'Proveedor: cash o local';
 COMMENT ON COLUMN public.payments.local_transaction_id IS 'ID de transacción del banco local';
 COMMENT ON COLUMN public.payments.local_authorization_code IS 'Código de autorización del banco local';
 COMMENT ON COLUMN public.payments.local_bank IS 'Banco: bac, banpro, lafise, ficohsa, avanz';

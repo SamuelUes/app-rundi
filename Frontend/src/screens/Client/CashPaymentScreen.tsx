@@ -29,6 +29,163 @@ import { formatCurrency } from '../../utils/formatters';
 import alertService from '../../services/alertService';
 import LoadingOverlay from '../../components/LoadingOverlay';
 
+// Crear estilos fuera del componente para mejor rendimiento
+const createStyles = (colors: any) => StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  centerContent: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  content: {
+    flex: 1,
+    padding: 16,
+  },
+  header: {
+    alignItems: 'center',
+    marginVertical: 24,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: colors.text,
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontSize: 16,
+    color: colors.textSecondary,
+    textAlign: 'center',
+  },
+  card: {
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  driverSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    gap: 12,
+  },
+  driverAvatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
+  driverAvatarText: {
+    fontSize: 24,
+    fontWeight: '700',
+  },
+  driverInfo: {
+    flex: 1,
+  },
+  driverName: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 4,
+  },
+  driverRating: {
+    fontSize: 14,
+    color: colors.textSecondary,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: colors.border,
+    marginBottom: 16,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  detailLabel: {
+    fontSize: 16,
+    color: colors.textSecondary,
+    fontWeight: '500',
+  },
+  detailValue: {
+    fontSize: 16,
+    color: colors.text,
+    fontWeight: '600',
+  },
+  detailValueAmount: {
+    fontSize: 18,
+    color: colors.primary,
+    fontWeight: 'bold',
+  },
+  waitingCard: {
+    alignItems: 'center',
+    paddingVertical: 24,
+  },
+  waitingTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  waitingText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.text,
+    marginTop: 16,
+    textAlign: 'center',
+  },
+  waitingDescription: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  footer: {
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  confirmButton: {
+    height: 50,
+    borderRadius: 25,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  confirmButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  secondaryButton: {
+    height: 50,
+    borderRadius: 25,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+  },
+  secondaryButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: colors.text,
+  },
+});
+
 export default function CashPaymentScreen({ route, navigation }: any) {
   const { colors } = useTheme();
   const { rideId, amount: paramAmount, driverName: paramDriverName, driverPhoto } = route.params;
@@ -58,23 +215,34 @@ export default function CashPaymentScreen({ route, navigation }: any) {
       console.log('📦 Datos:', data ? 'Viaje encontrado' : 'null');
       
       if (data) {
-        console.log('✅ Viaje encontrado, status:', data.status);
         setRide(data);
         setLoading(false);
         
-        // Detectar cambio de método de pago
-        console.log(`🔍 Verificando método de pago: actual=${data.paymentMethod}, previo=${currentPaymentMethod}`);
+        // ✅ MEJORADO: Detectar cambio de método de pago ANTES de actualizar el estado
+        const previousPaymentMethod = currentPaymentMethod;
+        const newPaymentMethod = data.paymentMethod || 'cash';
         
-        if (data.paymentMethod && data.paymentMethod !== currentPaymentMethod) {
-          console.log(`🔄 Método de pago cambiado de ${currentPaymentMethod} a ${data.paymentMethod}`);
-          
-          if (data.paymentMethod === 'card' || data.paymentMethod === 'stripe') {
+        console.log(`🔍 Verificando método de pago: anterior=${previousPaymentMethod}, nuevo=${newPaymentMethod}`);
+        
+        // Detectar cambio de método de pago (solo del conductor)
+        if (
+          newPaymentMethod && 
+          newPaymentMethod !== previousPaymentMethod &&
+          !confirming &&
+          data.paymentMethodChangedBy && 
+          data.paymentMethodChangedBy !== getAuth().currentUser?.uid
+        ) {
+            console.log(`🔄 Método de pago cambiado por conductor de ${previousPaymentMethod} a ${newPaymentMethod}`);
+            
+            if (newPaymentMethod === 'card') {
             // Convertir amount a número
             const finalAmount = typeof data.finalFare === 'string' 
               ? parseFloat(data.finalFare) 
               : (data.finalFare || (typeof paramAmount === 'string' ? parseFloat(paramAmount) : paramAmount));
-            
             console.log('💳 Navegando a PaymentScreen con amount:', finalAmount);
+            
+            // ✅ NUEVO: Actualizar estado ANTES de navegar
+            setCurrentPaymentMethod(newPaymentMethod);
             
             // Mostrar Alert y navegar
             Alert.alert(
@@ -84,7 +252,6 @@ export default function CashPaymentScreen({ route, navigation }: any) {
                 {
                   text: 'Entendido',
                   onPress: () => {
-                    setCurrentPaymentMethod(data.paymentMethod);
                     navigation.replace('Payment', {
                       rideId,
                       amount: finalAmount,
@@ -98,6 +265,9 @@ export default function CashPaymentScreen({ route, navigation }: any) {
             );
           }
         }
+        
+        // ✅ NUEVO: Actualizar currentPaymentMethod siempre para evitar bucles
+        setCurrentPaymentMethod(newPaymentMethod);
         
         // Obtener foto de perfil del conductor desde driversInfo
         if (data.driverId && !data.driver?.photoURL) {
@@ -303,7 +473,7 @@ export default function CashPaymentScreen({ route, navigation }: any) {
       </ScrollView>
       
       <View style={styles.footer}>
-        {paymentStatus === 'pending' ? (
+        {paymentStatus === 'pending' || paymentStatus === 'pending_capture' || paymentStatus === 'pending_confirmation' ? (
           <TouchableOpacity 
             onPress={handleConfirmPayment} 
             style={[styles.confirmButton, { backgroundColor: colors.primary }]}
@@ -325,160 +495,3 @@ export default function CashPaymentScreen({ route, navigation }: any) {
     </View>
   );
 }
-
-// Estilos
-const createStyles = (colors: any) => StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  centerContent: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  content: {
-    flex: 1,
-    padding: 16,
-  },
-  header: {
-    alignItems: 'center',
-    marginVertical: 24,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: colors.text,
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: colors.textSecondary,
-    textAlign: 'center',
-  },
-  card: {
-    backgroundColor: colors.card,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  driverSection: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-    gap: 12,
-  },
-  driverAvatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    justifyContent: 'center',
-    alignItems: 'center',
-    overflow: 'hidden',
-  },
-  driverAvatarText: {
-    fontSize: 24,
-    fontWeight: '700',
-  },
-  driverInfo: {
-    flex: 1,
-  },
-  driverName: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: colors.text,
-    marginBottom: 4,
-  },
-  driverRating: {
-    fontSize: 14,
-    color: colors.textSecondary,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: colors.border,
-    marginBottom: 16,
-  },
-  detailRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  detailLabel: {
-    fontSize: 16,
-    color: colors.textSecondary,
-    fontWeight: '500',
-  },
-  detailValue: {
-    fontSize: 16,
-    color: colors.text,
-    fontWeight: '600',
-  },
-  detailValueAmount: {
-    fontSize: 18,
-    color: colors.primary,
-    fontWeight: 'bold',
-  },
-  waitingCard: {
-    alignItems: 'center',
-    paddingVertical: 24,
-  },
-  waitingTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: colors.text,
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  waitingText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.text,
-    marginTop: 16,
-    textAlign: 'center',
-  },
-  waitingDescription: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    marginTop: 8,
-    textAlign: 'center',
-  },
-  footer: {
-    padding: 16,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  confirmButton: {
-    height: 50,
-    borderRadius: 25,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  confirmButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  secondaryButton: {
-    height: 50,
-    borderRadius: 25,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-  },
-  secondaryButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: colors.text,
-  },
-});

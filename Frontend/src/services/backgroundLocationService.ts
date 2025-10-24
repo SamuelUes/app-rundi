@@ -128,13 +128,28 @@ const defineBackgroundTask = () => {
         accuracy: location.coords.accuracy || 0,
       });
       
-      // Luego actualizamos la referencia en el viaje activo (usando un update directo)
-      const database = await getFirebaseDatabase();
-      const rideRef = dbRef(database, `activeRides/${trackingState.rideId}`);
-      await update(rideRef, {
-        clientLocationRef: `/clientLocations/${trackingState.userId}`,
-        lastClientUpdate: Date.now(),
-      });
+      // ✅ NUEVO: Usar Cloud Function en lugar de actualizar directamente
+      // Esto evita problemas de permisos en Firebase Realtime DB
+      try {
+        const { getFirebaseFunctions } = await import('../config/firebase');
+        const { httpsCallable } = await import('firebase/functions');
+        
+        const functions = await getFirebaseFunctions();
+        const updateTrackingFn = httpsCallable(functions, 'updateRideStatus');
+        
+        await updateTrackingFn({
+          rideId: trackingState.rideId,
+          status: 'in_progress',
+          clientLocation: {
+            latitude: location.coords.latitude,
+            longitude: location.coords.longitude,
+            accuracy: location.coords.accuracy || 0,
+          },
+        });
+      } catch (error) {
+        console.warn('⚠️ Error actualizando tracking vía Cloud Function:', error);
+        // No lanzar error - el tracking de ubicación es lo importante
+      }
     }
     
       return;

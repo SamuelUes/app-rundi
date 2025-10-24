@@ -153,21 +153,22 @@ export const updateRideExample = functions.https.onCall(async (data, context) =>
 // ============================================
 // EJEMPLO 5: Validación con transformaciones
 // ============================================
-import { z } from 'zod';
 
-const CancelRideWithTransformSchema = CancelRideInputSchema.extend({
-  // Transformar cancelReason a minúsculas
-  cancelReason: z.string().min(1).max(500).transform(val => val.toLowerCase()),
-});
+// Nota: CancelRideInputSchema ya tiene un transform, así que no se puede hacer extend
+// const CancelRideWithTransformSchema = CancelRideInputSchema.extend({
+//   // Transformar cancelReason a minúsculas
+//   cancelReason: z.string().min(1).max(500).transform(val => val.toLowerCase()),
+// });
 
 export const cancelRideExample = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
   }
 
-  const validatedData = validateData(CancelRideWithTransformSchema, data);
+  // Usar CancelRideInputSchema directamente (ya tiene transform)
+  const validatedData = validateData(CancelRideInputSchema, data);
   
-  // validatedData.cancelReason ya está en minúsculas
+  // validatedData.cancelReason ya está normalizado
   console.log('Razón de cancelación:', validatedData.cancelReason);
   
   await admin.database().ref(`activeRides/${validatedData.rideId}`).update({

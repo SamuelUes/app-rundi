@@ -6,6 +6,8 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import pool from "../config/database";
+import { validateData } from "../utils/validation";
+import { UpdateDriverInputSchema, UpdateDriverLocationInputSchema } from "../schemas/driver.schema";
 
 /**
  * Registrar conductor (ya se hace en auth.register, esto es para actualizar)
@@ -16,17 +18,19 @@ export const registerDriver = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError("unauthenticated", "Usuario no autenticado");
   }
 
-  const { licenseNumber, licenseExpiry, licensePhoto } = data;
+  // ✅ VALIDACIÓN CON ZOD
+  const validatedData = validateData(UpdateDriverInputSchema, data);
+  const { licenseNumber, licenseExpiry, licenseFront, licenseBack, profilePhoto } = validatedData;
 
   const client = await pool.connect();
   try {
     // Actualizar datos de conductor en PostgreSQL
     const result = await client.query(
       `UPDATE drivers 
-       SET license_number = $1, license_expiry = $2, license_photo = $3, updated_at = NOW()
-       WHERE user_id = $4
+       SET license_number = $1, license_expiry = $2, license_photo_front = $3, license_photo_back = $4, profile_photo = $5, updated_at = NOW()
+       WHERE user_id = $6
        RETURNING *`,
-      [licenseNumber, licenseExpiry, licensePhoto, context.auth.uid]
+      [licenseNumber, licenseExpiry, licenseFront, licenseBack, profilePhoto, context.auth.uid]
     );
 
     if (result.rows.length === 0) {
@@ -56,7 +60,9 @@ export const updateDriverLocation = functions.https.onCall(async (data, context)
     throw new functions.https.HttpsError("unauthenticated", "Usuario no autenticado");
   }
 
-  const { latitude, longitude, heading, speed, accuracy } = data;
+  // ✅ VALIDACIÓN CON ZOD
+  const validatedData = validateData(UpdateDriverLocationInputSchema, data);
+  const { lat: latitude, lng: longitude, heading, speed, accuracy } = validatedData;
 
   // Actualizar en Firebase Realtime Database (tiempo real)
   await admin.database().ref(`driverLocations/${context.auth.uid}`).set({
@@ -308,28 +314,45 @@ export const updateDriverStatus = functions.https.onCall(async (data, context) =
     throw new functions.https.HttpsError("invalid-argument", "Estado inválido");
   }
 
-  const client = await pool.connect();
+  let client: any;
   try {
-    // Actualizar en Firestore
-    await admin.firestore().collection("users").doc(context.auth.uid).update({
-      driverStatus: status,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
+    // Actualizar en Firestore (crítico)
+    try {
+      await admin.firestore().collection("users").doc(context.auth.uid).update({
+        driverStatus: status,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    } catch (firestoreError: any) {
+      console.warn("⚠️ Error actualizando Firestore:", firestoreError.message);
+      // Continuar aunque falle Firestore
+    }
 
-    // Obtener datos del conductor y vehículo de PostgreSQL
-    const driverResult = await client.query(
-      `SELECT 
-        d.id, d.user_id, d.average_rating, d.profile_photo,
-        v.type, v.brand, v.model, v.year, v.color, v.plate, v.is_4x4
-       FROM drivers d
-       LEFT JOIN vehicles v ON v.driver_id = d.id AND v.is_active = true
-       WHERE d.user_id = $1`,
-      [context.auth.uid]
-    );
+    // Obtener datos del conductor y vehículo de PostgreSQL (no crítico)
+    let driverResult: any = { rows: [] };
+    try {
+      client = await pool.connect();
+      driverResult = await client.query(
+        `SELECT 
+          d.id, d.user_id, d.average_rating, d.profile_photo,
+          v.type, v.brand, v.model, v.year, v.color, v.plate, v.is_4x4
+         FROM drivers d
+         LEFT JOIN vehicles v ON v.driver_id = d.id AND v.is_active = true
+         WHERE d.user_id = $1`,
+        [context.auth.uid]
+      );
+    } catch (pgError: any) {
+      console.warn("⚠️ Error consultando PostgreSQL:", pgError.message);
+      // Continuar sin datos de PostgreSQL
+    }
 
     // Obtener datos de Firestore
-    const userDoc = await admin.firestore().collection("users").doc(context.auth.uid).get();
-    const userData = userDoc.data();
+    let userData: any = {};
+    try {
+      const userDoc = await admin.firestore().collection("users").doc(context.auth.uid).get();
+      userData = userDoc.data() || {};
+    } catch (userError: any) {
+      console.warn("⚠️ Error obteniendo datos de usuario:", userError.message);
+    }
 
     // Preparar datos para Realtime DB
     const updateData: any = {
@@ -362,16 +385,21 @@ export const updateDriverStatus = functions.https.onCall(async (data, context) =
       console.log(`🚗 Vehículo agregado: ${vehicleData.type} ${vehicleData.brand} ${vehicleData.model}`);
     }
 
-    // Actualizar en driversInfo (nueva estructura)
-    await admin.database().ref(`driversInfo/${context.auth.uid}`).update(updateData);
-    
-    // Mantener driverLocations por compatibilidad (deprecated)
-    await admin.database().ref(`driverLocations/${context.auth.uid}`).update({
-      status,
-      lastUpdate: Date.now(),
-      lat: latitude,
-      lng: longitude,
-    });
+    // Actualizar en Realtime DB (crítico)
+    try {
+      await admin.database().ref(`driversInfo/${context.auth.uid}`).update(updateData);
+      
+      // Mantener driverLocations por compatibilidad (deprecated)
+      await admin.database().ref(`driverLocations/${context.auth.uid}`).update({
+        status,
+        lastUpdate: Date.now(),
+        lat: latitude,
+        lng: longitude,
+      });
+    } catch (dbError: any) {
+      console.error("❌ Error actualizando Realtime DB:", dbError.message);
+      throw new functions.https.HttpsError("unavailable", "No se pudo actualizar estado del conductor");
+    }
 
     console.log(`✅ Estado de conductor actualizado: ${context.auth.uid} -> ${status}`);
 
@@ -380,10 +408,16 @@ export const updateDriverStatus = functions.https.onCall(async (data, context) =
       status,
     };
   } catch (error: any) {
-    console.error("❌ Error actualizando estado:", error);
-    throw new functions.https.HttpsError("internal", error.message);
+    console.error("❌ Error actualizando estado:", error.message);
+    throw new functions.https.HttpsError("internal", error.message || "Error actualizando estado");
   } finally {
-    client.release();
+    if (client) {
+      try {
+        client.release();
+      } catch (releaseError) {
+        console.warn("⚠️ Error liberando conexión PostgreSQL:", releaseError);
+      }
+    }
   }
 });
 
@@ -392,54 +426,14 @@ export const updateDriverStatus = functions.https.onCall(async (data, context) =
  * NUEVA FUNCIÓN para verificar disponibilidad
  * NOTA: Esta función NO requiere autenticación (es pública)
  */
-/**
- * Actualizar modo conductor designado
- * Solo disponible para usuarios con rol designated_driver
- */
-export const updateDesignatedDriverMode = functions.https.onCall(async (data, context) => {
-  // Verificar autenticación
-  if (!context.auth) {
-    throw new functions.https.HttpsError("unauthenticated", "Usuario no autenticado");
-  }
-  
-  // Verificar que el usuario tenga el rol correcto
-  const userDoc = await admin.firestore().collection("users").doc(context.auth.uid).get();
-  if (!userDoc.exists || userDoc.data()?.role !== "designated_driver") {
-    throw new functions.https.HttpsError(
-      "permission-denied",
-      "Solo los conductores designados autorizados pueden utilizar esta característica."
-    );
-  }
-
-  const { driverId, isActive } = data;
-
-  if (!driverId) {
-    throw new functions.https.HttpsError("invalid-argument", "Driver ID requerido");
-  }
-
-  try {
-    // Actualizar en Firebase Realtime DB
-    await admin.database().ref(`driverLocations/${driverId}`).update({
-      designatedDriverMode: isActive,
-      updatedAt: Date.now(),
-    });
-
-    console.log(`✅ Modo conductor designado ${isActive ? 'activado' : 'desactivado'} para driver ${driverId}`);
-
-    return {
-      success: true,
-      message: `Modo conductor designado ${isActive ? 'activado' : 'desactivado'}`,
-    };
-  } catch (error: any) {
-    console.error("❌ Error actualizando modo conductor designado:", error);
-    throw new functions.https.HttpsError("internal", error.message);
-  }
-});
+// ✅ ELIMINADO: updateDesignatedDriverMode
+// Ahora los conductores ofrecen servicios a través de driver_services
+// El modo se controla por getDriverServices() que retorna servicios activos
 
 export const getAvailableDrivers = functions.https.onCall(async (data, context) => {
-  const { latitude, longitude, radius = 10, vehicleType } = data; // radius en km, vehicleType opcional
+  const { latitude, longitude, radius = 10, vehicleType, serviceCode } = data; // radius en km, vehicleType opcional, serviceCode opcional
 
-  console.log(`🔍 Buscando conductores cerca de: ${latitude}, ${longitude} (radio: ${radius}km, tipo: ${vehicleType || 'todos'})`);
+  console.log(`🔍 Buscando conductores cerca de: ${latitude}, ${longitude} (radio: ${radius}km, tipo: ${vehicleType || 'todos'}, servicio: ${serviceCode || 'todos'})`);
 
   if (!latitude || !longitude) {
     throw new functions.https.HttpsError("invalid-argument", "Ubicación requerida");
@@ -510,6 +504,36 @@ export const getAvailableDrivers = functions.https.onCall(async (data, context) 
         // Si se especificó tipo pero el conductor no tiene vehículo registrado
         console.log(`  ⏭️ Saltando - No tiene vehículo registrado`);
         continue;
+      }
+
+      // ✅ NUEVO: Filtrar por servicio si se especificó
+      if (serviceCode) {
+        try {
+          const client = await pool.connect();
+          try {
+            const serviceResult = await client.query(
+              `SELECT ds.* FROM driver_services ds
+               JOIN services s ON ds.service_id = s.id
+               WHERE ds.driver_id = (SELECT id FROM drivers WHERE user_id = $1)
+               AND s.code = $2
+               AND ds.is_active = true
+               AND ds.is_approved = true
+               AND (ds.expires_at IS NULL OR ds.expires_at > NOW())`,
+              [driverId, serviceCode]
+            );
+
+            if (serviceResult.rows.length === 0) {
+              console.log(`  ⏭️ Saltando - No ofrece servicio '${serviceCode}'`);
+              continue;
+            }
+            console.log(`  ✅ Ofrece servicio '${serviceCode}'`);
+          } finally {
+            client.release();
+          }
+        } catch (err) {
+          console.error(`  ⚠️ Error verificando servicio para ${driverId}:`, err);
+          continue;
+        }
       }
 
       availableCount++;
@@ -1175,255 +1199,18 @@ export const getDriverVehicles = functions.https.onCall(async (data, context) =>
   }
 });
 
-/**
- * Solicitar acceso a Conductor Designado
- */
-export const requestDesignatedDriverAccess = functions.https.onCall(async (data, context) => {
-  if (!context.auth) {
-    throw new functions.https.HttpsError("unauthenticated", "Usuario no autenticado");
-  }
+// ✅ ELIMINADO: requestDesignatedDriverAccess
+// Ahora usar: assignServiceToDriver(driverId, serviceId)
+// Donde serviceId es el UUID del servicio "designated_driver"
 
-  console.log(`🚙 Solicitando acceso a Conductor Designado para: ${context.auth.uid}`);
+// ✅ ELIMINADO: getDesignatedDriverRequestStatus
+// Ahora usar: getDriverServices(driverId)
+// Que retorna servicios activos y aprobados del conductor
 
-  const client = await pool.connect();
-  try {
-    // Obtener datos del conductor
-    const driverResult = await client.query(
-      `SELECT id, designated_driver_request_status FROM drivers WHERE user_id = $1`,
-      [context.auth.uid]
-    );
+// ✅ ELIMINADO: approveDesignatedDriverRequest
+// Ahora usar: approveDriverService(driverServiceId, approved)
+// Que ya existe en driverServices.ts
 
-    if (driverResult.rows.length === 0) {
-      throw new Error("Conductor no encontrado");
-    }
-
-    const driver = driverResult.rows[0];
-    const currentStatus = driver.designated_driver_request_status;
-
-    // Validar que no haya solicitud pendiente
-    if (currentStatus === 'pending') {
-      throw new Error("Ya tienes una solicitud pendiente");
-    }
-
-    // Actualizar estado de solicitud a 'pending'
-    await client.query(
-      `UPDATE drivers 
-       SET designated_driver_request_status = 'pending', updated_at = NOW()
-       WHERE user_id = $1`,
-      [context.auth.uid]
-    );
-
-    console.log(`✅ Solicitud de Conductor Designado enviada para: ${context.auth.uid}`);
-
-    // Actualizar rol en Firestore (aún es 'driver', pero con solicitud pendiente)
-    await admin.firestore()
-      .collection('users')
-      .doc(context.auth.uid)
-      .update({
-        'driverStatus.designatedDriverRequestStatus': 'pending',
-        'updatedAt': admin.firestore.FieldValue.serverTimestamp(),
-      });
-
-    console.log(`💾 Estado de solicitud actualizado en Firestore`);
-
-    return {
-      success: true,
-      message: 'Solicitud enviada correctamente',
-      requestStatus: 'pending',
-    };
-  } catch (error: any) {
-    console.error("❌ Error solicitando acceso a Conductor Designado:", error);
-    throw new functions.https.HttpsError("internal", error.message);
-  } finally {
-    client.release();
-  }
-});
-
-/**
- * Obtener estado de solicitud de Conductor Designado
- */
-export const getDesignatedDriverRequestStatus = functions.https.onCall(async (data, context) => {
-  if (!context.auth) {
-    throw new functions.https.HttpsError("unauthenticated", "Usuario no autenticado");
-  }
-
-  console.log(`📋 Obteniendo estado de solicitud de Conductor Designado para: ${context.auth.uid}`);
-
-  const client = await pool.connect();
-  try {
-    const result = await client.query(
-      `SELECT designated_driver_request_status, designated_driver_role FROM drivers WHERE user_id = $1`,
-      [context.auth.uid]
-    );
-
-    if (result.rows.length === 0) {
-      throw new Error("Conductor no encontrado");
-    }
-
-    const driver = result.rows[0];
-
-    console.log(`✅ Estado de solicitud obtenido:`, {
-      requestStatus: driver.designated_driver_request_status,
-      role: driver.designated_driver_role,
-    });
-
-    return {
-      success: true,
-      requestStatus: driver.designated_driver_request_status,
-      designatedDriverRole: driver.designated_driver_role,
-    };
-  } catch (error: any) {
-    console.error("❌ Error obteniendo estado de solicitud:", error);
-    throw new functions.https.HttpsError("internal", error.message);
-  } finally {
-    client.release();
-  }
-});
-
-/**
- * Aprobar solicitud de Conductor Designado (SOLO ADMIN)
- * Actualiza rol en PostgreSQL, Firestore y Firebase Auth
- */
-export const approveDesignatedDriverRequest = functions.https.onCall(async (data, context) => {
-  if (!context.auth) {
-    throw new functions.https.HttpsError("unauthenticated", "Usuario no autenticado");
-  }
-
-  const { userId } = data;
-
-  if (!userId) {
-    throw new functions.https.HttpsError("invalid-argument", "userId es requerido");
-  }
-
-  console.log(`🚙 Aprobando solicitud de Conductor Designado para: ${userId}`);
-
-  const client = await pool.connect();
-  try {
-    // 1. Actualizar en PostgreSQL
-    const updateResult = await client.query(
-      `UPDATE drivers 
-       SET designated_driver_request_status = 'approved', 
-           designated_driver_role = 'designated_driver',
-           updated_at = NOW()
-       WHERE user_id = $1
-       RETURNING *`,
-      [userId]
-    );
-
-    if (updateResult.rows.length === 0) {
-      throw new Error("Conductor no encontrado");
-    }
-
-    console.log(`✅ Conductor Designado aprobado en PostgreSQL: ${userId}`);
-
-    // 2. Actualizar rol en Firestore
-    await admin.firestore()
-      .collection('users')
-      .doc(userId)
-      .update({
-        'role': 'designated_driver',
-        'driverStatus.designatedDriverRole': 'designated_driver',
-        'driverStatus.designatedDriverRequestStatus': 'approved',
-        'updatedAt': admin.firestore.FieldValue.serverTimestamp(),
-      });
-
-    console.log(`✅ Rol actualizado en Firestore: ${userId}`);
-
-    // 3. Actualizar rol en Firebase Auth (Custom Claims)
-    await admin.auth().setCustomUserClaims(userId, {
-      role: 'designated_driver',
-      designatedDriver: true,
-    });
-
-    console.log(`✅ Rol actualizado en Firebase Auth: ${userId}`);
-
-    // 4. Actualizar en Firebase Realtime Database
-    const db = admin.database();
-    await db.ref(`drivers/${userId}`).update({
-      role: 'designated_driver',
-      designatedDriverRole: 'designated_driver',
-      designatedDriverRequestStatus: 'approved',
-      updatedAt: admin.database.ServerValue.TIMESTAMP,
-    });
-
-    console.log(`✅ Rol actualizado en Firebase Realtime: ${userId}`);
-
-    return {
-      success: true,
-      message: 'Conductor Designado aprobado correctamente',
-      role: 'designated_driver',
-      requestStatus: 'approved',
-    };
-  } catch (error: any) {
-    console.error("❌ Error aprobando Conductor Designado:", error);
-    throw new functions.https.HttpsError("internal", error.message);
-  } finally {
-    client.release();
-  }
-});
-
-/**
- * Rechazar solicitud de Conductor Designado (SOLO ADMIN)
- * Actualiza estado en PostgreSQL y Firestore
- */
-export const rejectDesignatedDriverRequest = functions.https.onCall(async (data, context) => {
-  if (!context.auth) {
-    throw new functions.https.HttpsError("unauthenticated", "Usuario no autenticado");
-  }
-
-  const { userId, reason } = data;
-
-  if (!userId) {
-    throw new functions.https.HttpsError("invalid-argument", "userId es requerido");
-  }
-
-  console.log(`❌ Rechazando solicitud de Conductor Designado para: ${userId}`);
-
-  const client = await pool.connect();
-  try {
-    // 1. Actualizar en PostgreSQL
-    await client.query(
-      `UPDATE drivers 
-       SET designated_driver_request_status = 'rejected',
-           updated_at = NOW()
-       WHERE user_id = $1`,
-      [userId]
-    );
-
-    console.log(`✅ Solicitud rechazada en PostgreSQL: ${userId}`);
-
-    // 2. Actualizar en Firestore
-    await admin.firestore()
-      .collection('users')
-      .doc(userId)
-      .update({
-        'driverStatus.designatedDriverRequestStatus': 'rejected',
-        'driverStatus.rejectionReason': reason || 'No especificado',
-        'updatedAt': admin.firestore.FieldValue.serverTimestamp(),
-      });
-
-    console.log(`✅ Solicitud rechazada en Firestore: ${userId}`);
-
-    // 3. Actualizar en Firebase Realtime Database
-    const db = admin.database();
-    await db.ref(`drivers/${userId}`).update({
-      designatedDriverRequestStatus: 'rejected',
-      rejectionReason: reason || 'No especificado',
-      updatedAt: admin.database.ServerValue.TIMESTAMP,
-    });
-
-    console.log(`✅ Solicitud rechazada en Firebase Realtime: ${userId}`);
-
-    return {
-      success: true,
-      message: 'Solicitud de Conductor Designado rechazada',
-      requestStatus: 'rejected',
-      reason: reason || 'No especificado',
-    };
-  } catch (error: any) {
-    console.error("❌ Error rechazando Conductor Designado:", error);
-    throw new functions.https.HttpsError("internal", error.message);
-  } finally {
-    client.release();
-  }
-});
+// ✅ ELIMINADO: rejectDesignatedDriverRequest
+// Ahora usar: approveDriverService(driverServiceId, approved=false)
+// Que ya existe en driverServices.ts

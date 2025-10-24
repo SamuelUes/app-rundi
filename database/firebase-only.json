@@ -248,11 +248,13 @@
     ],
     "complete_ride": [
       "1. Driver completes ride",
-      "2. Cloud Function updates PostgreSQL (rides)",
-      "3. Save tracking history to PostgreSQL (ride_locations)",
-      "4. Delete from Realtime DB (activeRides/{rideId})",
-      "5. Update stats in Firestore (users/{userId}/stats)",
-      "6. Create notification in Firestore (notifications)"
+      "2. Cloud Function fills payments table (PostgreSQL)",
+      "3. Cloud Function fills ride_locations table (PostgreSQL)",
+      "4. Cloud Function fills driver_penalties table (PostgreSQL) if applicable",
+      "5. Cloud Function updates rides table with missing data (PostgreSQL)",
+      "6. Delete from Realtime DB (activeRides/{rideId})",
+      "7. Update stats in Firestore (users/{userId}/stats)",
+      "8. Create notification in Firestore (notifications)"
     ]
   },
   

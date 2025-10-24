@@ -49,5 +49,8 @@
     </activity>
     <activity android:name="com.facebook.react.devsupport.DevSettingsActivity" android:exported="false"/>
     <uses-library android:name="org.apache.http.legacy" android:required="false"/>
+    
+    <!-- ✅ NUEVO: Servicio de ubicación en segundo plano para expo-location -->
+    <service android:name="expo.modules.location.LocationUpdatesService" android:foregroundServiceType="location" android:exported="false"/>
   </application>
 </manifest>

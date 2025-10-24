@@ -16,7 +16,8 @@ import { initializeFirebase } from '../../config/firebase';
 
 interface Card {
   id: string;
-  provider: 'stripe' | 'visanet';
+  provider: 'local'; // Bancos nacionales
+  bank?: 'bac' | 'banpro' | 'lafise' | 'ficohsa' | 'avanz';
   brand: string;
   last4: string;
   expMonth: number;

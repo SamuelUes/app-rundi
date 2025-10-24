@@ -1,6 +1,8 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import pool from "../config/database";
+import { validateData } from "../utils/validation";
+import { CreateUserInputSchema } from "../schemas/user.schema";
 
 /**
  * Registrar usuario
@@ -11,158 +13,28 @@ import pool from "../config/database";
  * 2. Google OAuth (authProvider: 'google')
  */
 export const register = functions.https.onCall(async (data, context) => {
-  const { email, password, name, phone, role, driverData, vehicleData, authProvider } = data;
+  // ✅ VALIDACIÓN CON ZOD (reemplaza 70 líneas de validaciones manuales)
+  const validatedData = validateData(CreateUserInputSchema, data);
+  const { email, password, name, phone, role, driverData, vehicleData, authProvider } = validatedData;
 
   console.log(`📝 Registro iniciado: ${phone} (${role}) - Proveedor: ${authProvider || 'email/password'}`);
 
   // ============================================
-  // VALIDACIONES BÁSICAS
+  // VALIDACIONES ADICIONALES (no cubiertas por Zod)
   // ============================================
   
-  // 1. Campos requeridos (email es opcional, teléfono es obligatorio)
   const isGoogleAuth = authProvider === 'google';
-  
-  if (!name || !phone || !role) {
-    throw new functions.https.HttpsError(
-      "invalid-argument",
-      "Faltan campos requeridos: nombre, teléfono y rol"
-    );
-  }
-
-  // Para email/password, requerir contraseña
-  if (!isGoogleAuth && !password) {
-    throw new functions.https.HttpsError(
-      "invalid-argument",
-      "Contraseña requerida para registro con email/password"
-    );
-  }
-
-  // 2. Validar formato de email (solo si se proporciona)
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (email && !emailRegex.test(email)) {
-    throw new functions.https.HttpsError(
-      "invalid-argument",
-      "Formato de email inválido"
-    );
-  }
-
-  // 2b. Validar formato de teléfono
-  const phoneRegex = /^\+505\d{8}$/;
-  if (!phoneRegex.test(phone.replace(/\s/g, ''))) {
-    throw new functions.https.HttpsError(
-      "invalid-argument",
-      "Formato de teléfono inválido. Debe ser +505 XXXX XXXX"
-    );
-  }
-
-  // 3. Validar longitud de password (solo si no es Google Auth)
-  if (!isGoogleAuth && password && password.length < 6) {
-    throw new functions.https.HttpsError(
-      "invalid-argument",
-      "La contraseña debe tener al menos 6 caracteres"
-    );
-  }
-
-  // 4. Validar nombre
-  if (name.trim().length < 2) {
-    throw new functions.https.HttpsError(
-      "invalid-argument",
-      "El nombre debe tener al menos 2 caracteres"
-    );
-  }
-
-  // 5. Validar rol
-  if (!["client", "driver", "designated_driver"].includes(role)) {
-    throw new functions.https.HttpsError(
-      "invalid-argument",
-      "Rol inválido. Debe ser 'client', 'driver' o 'designated_driver'"
-    );
-  }
-  
-  // 6. Validar si rol es designated_driver (solo disponible para usuarios autorizados - fase beta)
-  // El rol designated_driver es un "super-rol" que permite:
-  // 1. Dar viajes normales (como cualquier conductor regular)
-  // 2. Adicionalmente, dar servicio de conductor designado
-  if (role === "designated_driver") {
-    // Si no es una actualización autorizada, rechazar
-    if (!context?.auth?.token?.admin) {
-      throw new functions.https.HttpsError(
-        "permission-denied",
-        "El rol 'designated_driver' solo está disponible para usuarios autorizados durante la fase beta."
-      );
-    }
-  }
 
   // ============================================
-  // VALIDACIONES DE CONDUCTOR
+  // VALIDACIONES DE CONDUCTOR (Zod ya validó la estructura)
   // ============================================
   
-  if (role === "driver" || role === "designated_driver") {
-    // Verificar que existan los datos
+  if (role === "driver") {
+    // Verificar que existan los datos (Zod ya validó el contenido)
     if (!driverData || !vehicleData) {
       throw new functions.https.HttpsError(
         "invalid-argument",
         "Los conductores requieren datos de licencia y vehículo"
-      );
-    }
-
-    // Validar datos de licencia
-    if (!driverData.licenseNumber || driverData.licenseNumber.trim().length < 5) {
-      throw new functions.https.HttpsError(
-        "invalid-argument",
-        "Número de licencia inválido (mínimo 5 caracteres)"
-      );
-    }
-
-    // Validar datos de vehículo
-    if (!vehicleData.plate || vehicleData.plate.trim().length < 4) {
-      throw new functions.https.HttpsError(
-        "invalid-argument",
-        "Placa del vehículo inválida (mínimo 4 caracteres)"
-      );
-    }
-
-    if (!vehicleData.brand || vehicleData.brand.trim().length < 2) {
-      throw new functions.https.HttpsError(
-        "invalid-argument",
-        "Marca del vehículo requerida"
-      );
-    }
-
-    if (!vehicleData.model || vehicleData.model.trim().length < 2) {
-      throw new functions.https.HttpsError(
-        "invalid-argument",
-        "Modelo del vehículo requerido"
-      );
-    }
-
-    if (!vehicleData.year || isNaN(vehicleData.year)) {
-      throw new functions.https.HttpsError(
-        "invalid-argument",
-        "Año del vehículo inválido"
-      );
-    }
-
-    // Validar año del vehículo
-    const currentYear = new Date().getFullYear();
-    if (vehicleData.year < 1900 || vehicleData.year > currentYear + 1) {
-      throw new functions.https.HttpsError(
-        "invalid-argument",
-        `Año del vehículo debe estar entre 1900 y ${currentYear + 1}`
-      );
-    }
-
-    if (!vehicleData.color || vehicleData.color.trim().length < 2) {
-      throw new functions.https.HttpsError(
-        "invalid-argument",
-        "Color del vehículo requerido"
-      );
-    }
-
-    if (!vehicleData.type || !["sedan", "suv", "van", "moto"].includes(vehicleData.type)) {
-      throw new functions.https.HttpsError(
-        "invalid-argument",
-        "Tipo de vehículo inválido. Debe ser: sedan, suv, van o moto"
       );
     }
   }
@@ -172,21 +44,23 @@ export const register = functions.https.onCall(async (data, context) => {
   // ============================================
 
   try {
-    // Verificar email duplicado en Firestore
-    const existingUser = await admin.firestore()
-      .collection("users")
-      .where("email", "==", email.toLowerCase().trim())
-      .get();
+    // Verificar email duplicado en Firestore (solo si se proporciona email)
+    if (email) {
+      const existingUser = await admin.firestore()
+        .collection("users")
+        .where("email", "==", email.toLowerCase().trim())
+        .get();
 
-    if (!existingUser.empty) {
-      throw new functions.https.HttpsError(
-        "already-exists",
-        "Este email ya está registrado"
-      );
+      if (!existingUser.empty) {
+        throw new functions.https.HttpsError(
+          "already-exists",
+          "Este email ya está registrado"
+        );
+      }
     }
 
     // Si es conductor, verificar licencia y placa duplicadas
-    if (role === "driver" || role === "designated_driver") {
+    if (role === "driver" && driverData && vehicleData) {
       const client = await pool.connect();
       try {
         // Verificar licencia duplicada
@@ -260,7 +134,7 @@ export const register = functions.https.onCall(async (data, context) => {
       authProvider: authProvider || 'email/password',
       emailVerified: !!email, // Si se proporcionó email, marcarlo como verificado
       profilePhoto: null,
-      driverStatus: (role === "driver" || role === "designated_driver") ? "offline" : null,
+      driverStatus: role === "driver" ? "offline" : null,
       currentRideId: null,
       currentLocation: null,
       fcmToken: null,
@@ -276,8 +150,8 @@ export const register = functions.https.onCall(async (data, context) => {
     console.log(`✅ Usuario guardado en Firestore: ${userRecord.uid} (rol: ${role})`);
 
     // 3. Si es conductor, crear registro en PostgreSQL
-    if (role === "driver" || role === "designated_driver") {
-      console.log(`🗄️ Creando registro de conductor en PostgreSQL (rol: ${role})...`);
+    if (role === "driver" && driverData && vehicleData) {
+      console.log(`🗄️ Creando registro de conductor en PostgreSQL...`);
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
@@ -289,9 +163,8 @@ export const register = functions.https.onCall(async (data, context) => {
             license_photo, license_photo_front, license_photo_back,
             department, municipality,
             status, verified_at, total_rides, average_rating, total_earnings,
-            designated_driver_request_status, designated_driver_role,
             created_at, updated_at
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, 0, 0, NULL, NULL, NOW(), NOW()) 
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, 0, 0, NOW(), NOW()) 
           RETURNING id`,
           [
             userRecord.uid,
@@ -489,8 +362,8 @@ export const login = functions.https.onCall(async (data, context) => {
     console.log(`🔍 Datos del usuario:`, JSON.stringify(userData, null, 2));
 
     // Si es conductor, obtener datos adicionales de PostgreSQL
-    if (userData?.role === "driver" || userData?.role === "designated_driver") {
-      console.log(`🚗 Usuario es conductor (${userData?.role}), obteniendo datos de PostgreSQL...`);
+    if (userData?.role === "driver") {
+      console.log(`🚗 Usuario es conductor, obteniendo datos de PostgreSQL...`);
       const client = await pool.connect();
       try {
         const result = await client.query(
@@ -541,7 +414,7 @@ export const logout = functions.https.onCall(async (data, context) => {
       .doc(userId)
       .get();
 
-    if (userDoc.exists && (userDoc.data()?.role === "driver" || userDoc.data()?.role === "designated_driver")) {
+    if (userDoc.exists && userDoc.data()?.role === "driver") {
       await admin.firestore()
         .collection("users")
         .doc(userId)
@@ -614,10 +487,9 @@ export const completeDriverRegistration = functions.https.onCall(async (data, co
           license_photo, license_photo_front, license_photo_back,
           department, municipality, profile_photo,
           status, verified_at, total_rides, average_rating, total_earnings,
-          designated_driver_request_status, designated_driver_role,
           created_at, updated_at
         )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, 0, 0, NULL, NULL, NOW(), NOW())
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, 0, 0, NOW(), NOW())
          ON CONFLICT (user_id) DO UPDATE SET
            license_number = $2,
            license_expiry = $3,

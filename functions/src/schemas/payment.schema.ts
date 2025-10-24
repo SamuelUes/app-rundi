@@ -22,14 +22,11 @@ export type PaymentStatus = z.infer<typeof PaymentStatusSchema>;
 // ============================================
 // PAYMENT METHOD ENUM
 // ============================================
+// cash: Efectivo
+// card: Tarjeta (a través de bancos nacionales: BAC, Banpro, Lafise, Ficohsa, Avanz)
 export const PaymentMethodSchema = z.enum([
   'cash',
-  'stripe',
-  'bac',
-  'banpro',
-  'lafise',
-  'ficohsa',
-  'avanz',
+  'card',
 ]);
 
 export type PaymentMethod = z.infer<typeof PaymentMethodSchema>;
@@ -37,9 +34,10 @@ export type PaymentMethod = z.infer<typeof PaymentMethodSchema>;
 // ============================================
 // PAYMENT PROVIDER ENUM
 // ============================================
+// cash: Pago en efectivo
+// local: Bancos nacionales (BAC, Banpro, Lafise, Ficohsa, Avanz)
 export const PaymentProviderSchema = z.enum([
   'cash',
-  'stripe',
   'local',
 ]);
 
@@ -49,14 +47,26 @@ export type PaymentProvider = z.infer<typeof PaymentProviderSchema>;
 // CREATE PAYMENT INPUT
 // ============================================
 export const CreatePaymentInputSchema = z.object({
-  rideId: z.string().uuid(),
-  amount: z.number().positive(),
-  tip: z.number().min(0).default(0),
-  commission: z.number().min(0),
-  paymentMethod: PaymentMethodSchema,
-  paymentProvider: PaymentProviderSchema,
-  stripePaymentIntentId: z.string().optional(),
-  stripeChargeId: z.string().optional(),
+  rideId: z.string().min(1), // Acepta Firebase IDs y UUIDs
+  amount: z.union([
+    z.number().positive(),
+    z.string().transform((val) => {
+      const num = parseFloat(val);
+      if (isNaN(num) || num <= 0) throw new Error('amount debe ser positivo');
+      return num;
+    }),
+  ]),
+  tip: z.union([
+    z.number().min(0),
+    z.string().transform((val) => {
+      const num = parseFloat(val);
+      if (isNaN(num) || num < 0) throw new Error('tip debe ser >= 0');
+      return num;
+    }),
+  ]).default(0),
+  commission: z.number().min(0).default(0),
+  paymentMethod: PaymentMethodSchema.optional().default('cash'),
+  paymentProvider: PaymentProviderSchema.optional().default('cash'),
   localTransactionId: z.string().optional(),
   localAuthorizationCode: z.string().optional(),
   localBank: z.enum(['bac', 'banpro', 'lafise', 'ficohsa', 'avanz']).optional(),
@@ -70,8 +80,22 @@ export type CreatePaymentInput = z.infer<typeof CreatePaymentInputSchema>;
 // ============================================
 export const ConfirmCashPaymentInputSchema = z.object({
   rideId: z.string().min(1),
-  amount: z.number().positive(),
-  tip: z.number().min(0).default(0),
+  amount: z.union([
+    z.number().positive(),
+    z.string().transform((val) => {
+      const num = parseFloat(val);
+      if (isNaN(num) || num <= 0) throw new Error('amount debe ser positivo');
+      return num;
+    }),
+  ]),
+  tip: z.union([
+    z.number().min(0),
+    z.string().transform((val) => {
+      const num = parseFloat(val);
+      if (isNaN(num) || num < 0) throw new Error('tip debe ser >= 0');
+      return num;
+    }),
+  ]).default(0),
   confirmedBy: z.enum(['client', 'driver']),
   userId: z.string().min(1),
 });
@@ -82,7 +106,7 @@ export type ConfirmCashPaymentInput = z.infer<typeof ConfirmCashPaymentInputSche
 // CANCEL PAYMENT INPUT
 // ============================================
 export const CancelPaymentInputSchema = z.object({
-  paymentId: z.string().uuid(),
+  paymentId: z.string().min(1), // Acepta Firebase IDs y UUIDs
   cancelReason: z.string().min(1).max(500),
   canceledBy: z.string().min(1),
 });
@@ -90,24 +114,24 @@ export const CancelPaymentInputSchema = z.object({
 export type CancelPaymentInput = z.infer<typeof CancelPaymentInputSchema>;
 
 // ============================================
-// STRIPE PAYMENT INTENT INPUT
+// CARD PAYMENT INTENT INPUT (Bancos Nacionales)
 // ============================================
-export const CreateStripePaymentIntentInputSchema = z.object({
+export const CreateCardPaymentIntentInputSchema = z.object({
   rideId: z.string().min(1),
   amount: z.number().positive(),
   tip: z.number().min(0).default(0),
-  currency: z.string().default('usd'),
-  customerId: z.string().optional(),
-  paymentMethodId: z.string().optional(),
+  bank: z.enum(['bac', 'banpro', 'lafise', 'ficohsa', 'avanz']),
+  transactionId: z.string().optional(),
+  authorizationCode: z.string().optional(),
 });
 
-export type CreateStripePaymentIntentInput = z.infer<typeof CreateStripePaymentIntentInputSchema>;
+export type CreateCardPaymentIntentInput = z.infer<typeof CreateCardPaymentIntentInputSchema>;
 
 // ============================================
 // LOCAL BANK PAYMENT INPUT
 // ============================================
 export const LocalBankPaymentInputSchema = z.object({
-  rideId: z.string().uuid(),
+  rideId: z.string().min(1), // Acepta Firebase IDs y UUIDs
   amount: z.number().positive(),
   tip: z.number().min(0).default(0),
   bank: z.enum(['bac', 'banpro', 'lafise', 'ficohsa', 'avanz']),
@@ -121,8 +145,8 @@ export type LocalBankPaymentInput = z.infer<typeof LocalBankPaymentInputSchema>;
 // PAYMENT FULL SCHEMA (Response)
 // ============================================
 export const PaymentSchema = z.object({
-  id: z.string().uuid(),
-  rideId: z.string().uuid(),
+  id: z.string().min(1), // Acepta Firebase IDs y UUIDs
+  rideId: z.string().min(1), // Acepta Firebase IDs y UUIDs
   amount: z.number(),
   tip: z.number(),
   total: z.number(),
@@ -130,8 +154,6 @@ export const PaymentSchema = z.object({
   paymentMethod: PaymentMethodSchema,
   paymentProvider: PaymentProviderSchema,
   status: PaymentStatusSchema,
-  stripePaymentIntentId: z.string().optional(),
-  stripeChargeId: z.string().optional(),
   localTransactionId: z.string().optional(),
   localAuthorizationCode: z.string().optional(),
   localBank: z.string().optional(),
@@ -142,6 +164,9 @@ export const PaymentSchema = z.object({
   paidAt: z.date().optional(),
   createdAt: z.date(),
   updatedAt: z.date(),
+  // Deprecated Stripe fields (kept for backward compatibility)
+  stripePaymentIntentId: z.string().optional(),
+  stripeChargeId: z.string().optional(),
 });
 
 export type Payment = z.infer<typeof PaymentSchema>;

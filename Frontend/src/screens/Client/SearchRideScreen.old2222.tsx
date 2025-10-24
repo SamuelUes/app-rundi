@@ -504,7 +504,7 @@ export default function SearchRideScreen({ navigation }: any) {
           address: dest.address,
         })),
         notes: vehicleType === 'designated_driver' ? '🚗 Conductor Designado' : undefined,
-        paymentMethod: paymentMethod, // Agregar método de pago
+        paymentMethod: (paymentMethod as 'cash' | 'card') || 'cash', // Agregar método de pago
       });
 
       console.log('✅ Viaje solicitado:', ride.id);
@@ -563,7 +563,7 @@ export default function SearchRideScreen({ navigation }: any) {
           address: dest.address,
         })),
         notes: vehicleType === 'designated_driver' ? '🚗 Conductor Designado' : undefined,
-        paymentMethod: paymentMethod, // Agregar método de pago
+        paymentMethod: (paymentMethod as 'cash' | 'card') || 'cash', // Agregar método de pago
       });
 
       // Navegar a la pantalla de confirmación

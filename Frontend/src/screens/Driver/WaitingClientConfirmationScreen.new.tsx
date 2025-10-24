@@ -116,11 +116,18 @@ export default function WaitingClientConfirmationScreen({ route, navigation }: a
             throw new Error('No se pudo verificar tu información');
           }
           
-          const db = getDatabase();
-          const driverOfferRef = ref(db, `activeRides/${rideId}/driverOffers/${auth.currentUser.uid}`);
+          // ✅ NUEVO: Usar Cloud Function en lugar de actualizar directamente
+          // Esto evita problemas de permisos en Firebase Realtime DB
+          const { getFirebaseFunctions } = await import('../../config/firebase');
+          const { httpsCallable } = await import('firebase/functions');
           
-          // Eliminar la oferta del conductor
-          await update(driverOfferRef, {});
+          const functions = await getFirebaseFunctions();
+          const rejectDriverFn = httpsCallable(functions, 'rejectDriver');
+          
+          await rejectDriverFn({
+            rideId,
+            driverId: auth.currentUser.uid,
+          });
           
           alertService.showSuccessAlert(
             'Oferta Cancelada',

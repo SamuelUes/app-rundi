@@ -71,7 +71,7 @@ export const useRouteTracking = ({
   // =====================================================
   
   // Guardar ubicación actual en Firebase
-  const saveLocation = async (): Promise<void> => {
+  const saveLocation = async (status?: 'waiting' | 'in_progress' | 'completed' | 'cancelled' | 'pending_payment' | 'pending_rating'): Promise<void> => {
     try {
       if (!locationHook.coords || !rideId) {
         return;
@@ -80,6 +80,7 @@ export const useRouteTracking = ({
       const { latitude, longitude, speed, heading, accuracy } = locationHook.coords;
 
       // Guardar en Firebase Realtime DB Y PostgreSQL
+      // ✅ NUEVO: Pasar status para que no guarde si el viaje está completado/cancelado
       await firebaseTrackingService.updateRideTracking(rideId, {
         driverLocation: {
           latitude,
@@ -89,6 +90,7 @@ export const useRouteTracking = ({
           accuracy: accuracy || 0,
           timestamp: Date.now(),
         },
+        status: status || 'in_progress',
       });
 
       setTotalPoints(prev => prev + 1);

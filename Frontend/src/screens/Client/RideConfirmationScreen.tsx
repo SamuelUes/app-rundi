@@ -185,10 +185,13 @@ export default function RideConfirmationScreen({ route, navigation }: RideConfir
           console.log(`📋 Ofertas:`, offersArray);
           console.log(`🚗 Vehículo agregado a ofertas:`, data.vehicle);
           
-          // Filtrar solo ofertas pendientes
-          const pendingOffers = offersArray.filter((offer: any) => offer.status === 'pending');
+          // ✅ CORREGIDO: Mostrar ofertas pendientes O aceptadas (no solo pendientes)
+          // Cuando un conductor acepta el precio del cliente, el status cambia a 'accepted'
+          const activeOffers = offersArray.filter((offer: any) => 
+            offer.status === 'pending' || offer.status === 'accepted'
+          );
           
-          setDriverOffers(pendingOffers);
+          setDriverOffers(activeOffers);
           
           // Limpiar contraofertas pendientes si el conductor ya respondió
           setPendingCounterOffers(prev => {
@@ -202,9 +205,9 @@ export default function RideConfirmationScreen({ route, navigation }: RideConfir
             return updated;
           });
           
-          console.log(`📬 ${pendingOffers.length} ofertas pendientes disponibles`);
+          console.log(`📬 ${activeOffers.length} ofertas activas disponibles (pendientes + aceptadas)`);
           console.log(`🎯 Estado del viaje: ${data.status}`);
-          console.log(`📝 Ofertas procesadas:`, JSON.stringify(pendingOffers, null, 2));
+          console.log(`📝 Ofertas procesadas:`, JSON.stringify(activeOffers, null, 2));
         } else {
           console.log('❌ No hay offers ni driverOffers en Firebase');
           setDriverOffers([]);
@@ -290,19 +293,20 @@ export default function RideConfirmationScreen({ route, navigation }: RideConfir
       console.log('✅ Confirmando conductor seleccionado...');
       await ridesService.confirmDriver(rideId, offer.driverId);
       
-      Alert.alert(
-        '✅ Conductor Confirmado', 
-        `Has confirmado el viaje con ${offer.driver?.name || 'el conductor'}. El conductor está en camino.`,
-        [{
-          text: 'Ver en Mapa',
-          onPress: () => {
-            // El listener de Firebase navegará automáticamente cuando el estado cambie
-          }
-        }]
-      );
+      console.log('✅ Conductor confirmado, navegando a RideTracking...');
       
+      // ✅ MEJORADO: Navegar directamente a RideTracking
       setShowNegotiationModal(false);
-      // Firebase listener actualizará automáticamente y navegará a RideTracking
+      navigation.replace('RideTracking', {
+        rideId: rideId,
+        driverId: offer.driverId,
+        driverName: offer.driver?.name || 'Conductor',
+        vehiclePlate: offer.driver?.vehicle?.plate || 'N/A',
+        vehicleBrand: offer.driver?.vehicle?.make || offer.driver?.vehicle?.brand || 'N/A',
+        vehicleModel: offer.driver?.vehicle?.model || 'N/A',
+        vehicleColor: offer.driver?.vehicle?.color || 'N/A',
+        estimatedFare: ride.finalFare || ride.estimatedPrice || 0,
+      });
     } catch (error: any) {
       console.error('❌ Error confirmando conductor:', error);
       Alert.alert('Error', error.message || 'No se pudo confirmar al conductor');
@@ -338,8 +342,8 @@ export default function RideConfirmationScreen({ route, navigation }: RideConfir
         </View>
       </View>
 
-      {/* Lista de Ofertas de Conductores */}
-      {ride.status === 'requested' && driverOffers.length > 0 && (
+      {/* ✅ MEJORADO: Lista de Ofertas de Conductores (mostrar en cualquier estado) */}
+      {driverOffers.length > 0 && (
         <View style={styles.offersContainer}>
           <Text style={styles.offersTitle}>
             🎉 {driverOffers.length} {driverOffers.length === 1 ? 'conductor interesado' : 'conductores interesados'}
@@ -348,28 +352,58 @@ export default function RideConfirmationScreen({ route, navigation }: RideConfir
             Revisa las ofertas y elige la que más te convenga
           </Text>
           
-          {driverOffers.map((offer: any) => (
-            <DriverOfferCard
-              key={offer.driverId}
-              offer={offer}
-              estimatedPrice={ride.estimatedPrice}
-              clientSuggestedPrice={ride.clientSuggestedPrice}
-              onViewOffer={() => handleViewOffer(offer)}
-              onAcceptOffer={() => handleAcceptDriverOffer(offer)}
-              hasPendingCounterOffer={pendingCounterOffers.has(offer.driverId)}
-            />
-          ))}
+          <ScrollView 
+            horizontal={false}
+            scrollEnabled={true}
+            style={styles.offersScrollContainer}
+            nestedScrollEnabled={true}
+          >
+            {driverOffers.map((offer: any) => {
+              // ✅ Calcular distancia del conductor al punto de origen
+              const driverLat = offer.driver?.lat;
+              const driverLng = offer.driver?.lng;
+              const originLat = ride.origin?.lat;
+              const originLng = ride.origin?.lng;
+              
+              let driverDistance = undefined;
+              if (driverLat && driverLng && originLat && originLng) {
+                // Fórmula de Haversine para calcular distancia entre dos puntos
+                const R = 6371; // Radio de la Tierra en km
+                const dLat = (originLat - driverLat) * Math.PI / 180;
+                const dLng = (originLng - driverLng) * Math.PI / 180;
+                const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                          Math.cos(driverLat * Math.PI / 180) * Math.cos(originLat * Math.PI / 180) *
+                          Math.sin(dLng/2) * Math.sin(dLng/2);
+                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+                driverDistance = R * c;
+              }
+              
+              return (
+                <DriverOfferCard
+                  key={offer.driverId}
+                  offer={offer}
+                  estimatedPrice={ride.estimatedPrice}
+                  clientSuggestedPrice={ride.clientSuggestedPrice}
+                  onViewOffer={() => handleViewOffer(offer)}
+                  onAcceptOffer={() => handleAcceptDriverOffer(offer)}
+                  hasPendingCounterOffer={pendingCounterOffers.has(offer.driverId)}
+                  driverDistance={driverDistance}
+                />
+              );
+            })}
+          </ScrollView>
         </View>
       )}
 
-      {/* Animación de búsqueda (solo si no hay ofertas) */}
+      {/* Animación de búsqueda (solo si no hay ofertas y está en 'requested') */}
       {ride.status === 'requested' && driverOffers.length === 0 && (
         <NoDriversEmptyState />
       )}
-      {/* Información del conductor (cuando está pending_confirm, driver_assigned o accepted) */}
+      {/* ✅ CORREGIDO: Información del conductor (solo si NO hay ofertas en la lista) */}
       {(() => {
-        console.log('🔍 Evaluando condición card:', ride.status, ride.driverId);
-        return (ride.status === 'pending_confirm' || ride.status === 'driver_assigned' || ride.status === 'accepted') && ride.driverId;
+        console.log('🔍 Evaluando condición card:', ride.status, ride.driverId, 'driverOffers:', driverOffers.length);
+        // ✅ Solo mostrar si: hay conductor asignado Y NO hay ofertas en la lista
+        return (ride.status === 'pending_confirm' || ride.status === 'driver_assigned' || ride.status === 'accepted') && ride.driverId && driverOffers.length === 0;
       })() ? (
         <View style={styles.driverContainer}>
           <Text style={styles.driverTitle}>🎉 ¡Conductor encontrado!</Text>
@@ -653,7 +687,7 @@ export default function RideConfirmationScreen({ route, navigation }: RideConfir
         }}
         onSendCounterOffer={async (price: number) => {
           try {
-            await priceNegotiationService.negotiatePrice(rideId, price, 'client');
+            await priceNegotiationService.negotiatePrice(rideId, price, 'client', ride?.estimatedPrice);
             // Agregar el conductor a la lista de ofertas pendientes
             if (selectedOffer?.driverId) {
               setPendingCounterOffers(prev => new Set(prev).add(selectedOffer.driverId));
@@ -725,6 +759,10 @@ const createStyles = (colors: any) => StyleSheet.create({
   offersSubtitle: {
     fontSize: 14,
     color: colors.textSecondary,
+    marginBottom: 16,
+  },
+  offersScrollContainer: {
+    maxHeight: 500, // ✅ Limitar altura para permitir scroll
     marginBottom: 16,
   },
   searchingContainer: {

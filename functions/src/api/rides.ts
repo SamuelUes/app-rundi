@@ -21,6 +21,8 @@ import pool from "../config/database";
 import { calculateRidePriceWithStops } from "../helpers/priceCalculator";
 import { logRideEvent, AnalyticsEvents } from "../utils/analyticsUtils";
 import { archiveCompletedRide, archiveCanceledRide } from "../helpers/cleanupHelpers";
+import { validateData } from "../utils/validation";
+import { CreateRideInputSchema, AcceptRideInputSchema, CompleteRideInputSchema, CancelRideInputSchema } from "../schemas/ride.schema";
 
 /**
  * Calcular distancia entre dos puntos (Haversine formula)
@@ -51,29 +53,43 @@ export const requestRide = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError("unauthenticated", "Usuario no autenticado");
   }
 
+  // ✅ VALIDACIÓN CON ZOD (reemplaza validaciones manuales)
+  const validatedData = validateData(CreateRideInputSchema, data);
   const {
     origin,
     destination,
+    serviceCode,  // ✅ NUEVO: código del servicio
     estimatedDistance,
     estimatedDuration,
     estimatedPrice,
     paymentMethod,
-    extraStops,
+    stops: extraStops,
     isDesignatedDriver,
     clientSuggestedPrice,
-  } = data;
+    rideType,
+    vehicleType,
+    clientVehiclePhoto,
+    passengers,
+    extraDestinations,
+    notes,
+  } = validatedData;
 
   const clientId = context.auth.uid;
 
+  // ✅ NUEVO: Obtener UUID del servicio por código
+  const client = await pool.connect();
   try {
-    // Validaciones
-    if (!origin || !destination) {
-      throw new functions.https.HttpsError("invalid-argument", "Origen y destino son requeridos");
+    const serviceResult = await client.query(
+      'SELECT id FROM services WHERE code = $1',
+      [serviceCode]
+    );
+
+    if (serviceResult.rows.length === 0) {
+      throw new functions.https.HttpsError('not-found', `Servicio '${serviceCode}' no encontrado`);
     }
 
-    if (estimatedDistance < 100) {
-      throw new functions.https.HttpsError("invalid-argument", "La distancia mínima es 100 metros");
-    }
+    const serviceId = serviceResult.rows[0].id;
+    console.log(`✅ Servicio encontrado: ${serviceCode} (${serviceId})`);
 
     // Generar ID único para el viaje
     const rideId = admin.database().ref().child('activeRides').push().key;
@@ -87,13 +103,21 @@ export const requestRide = functions.https.onCall(async (data, context) => {
       clientId,
       origin,
       destination,
+      serviceCode,  // ✅ NUEVO: guardar código del servicio
+      serviceId,    // ✅ NUEVO: guardar UUID del servicio
       estimatedDistance,
       estimatedDuration,
       estimatedPrice,
       clientSuggestedPrice: clientSuggestedPrice || estimatedPrice,
       paymentMethod: paymentMethod || 'cash',
+      rideType: rideType || 'normal',
+      vehicleType: vehicleType || 'auto',
+      clientVehiclePhoto: clientVehiclePhoto || null,
+      passengers: passengers || 1,
       extraStops: extraStops || [],
+      extraDestinations: extraDestinations || [],
       isDesignatedDriver: isDesignatedDriver || false,
+      notes: notes || null,
       status: 'requested',
       createdAt: admin.database.ServerValue.TIMESTAMP,
       updatedAt: admin.database.ServerValue.TIMESTAMP,
@@ -116,12 +140,17 @@ export const requestRide = functions.https.onCall(async (data, context) => {
 
     console.log(`✅ Viaje creado: ${rideId}`);
 
-    // Log analytics
-    await logRideEvent(AnalyticsEvents.RIDE_REQUESTED, rideId, clientId, {
-      estimatedPrice,
-      estimatedDistance,
-      paymentMethod,
-    });
+    // Log analytics (no-bloqueante - no lanzar error si falla)
+    try {
+      await logRideEvent(AnalyticsEvents.RIDE_REQUESTED, rideId, clientId, {
+        estimatedPrice,
+        estimatedDistance,
+        paymentMethod,
+      });
+    } catch (analyticsError: any) {
+      console.warn(`⚠️ Error logging analytics:`, analyticsError.message);
+      // No lanzar error, el viaje ya se creó exitosamente
+    }
 
     return {
       success: true,
@@ -131,6 +160,8 @@ export const requestRide = functions.https.onCall(async (data, context) => {
   } catch (error: any) {
     console.error("❌ Error solicitando viaje:", error);
     throw new functions.https.HttpsError("internal", error.message);
+  } finally {
+    client.release();
   }
 });
 
@@ -144,7 +175,9 @@ export const acceptRide = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError("unauthenticated", "Usuario no autenticado");
   }
 
-  const { rideId, offeredPrice } = data;
+  // ✅ VALIDACIÓN CON ZOD
+  const validatedData = validateData(AcceptRideInputSchema, data);
+  const { rideId, offeredPrice } = validatedData;
   const driverId = context.auth.uid;
 
   try {
@@ -427,10 +460,14 @@ export const confirmDriver = functions.https.onCall(async (data, context) => {
       });
     }
 
-    // Log analytics
-    await logRideEvent(AnalyticsEvents.RIDE_ACCEPTED, rideId, clientId, {
-      driverId: selectedDriverId,
-    });
+    // Log analytics (no-bloqueante)
+    try {
+      await logRideEvent(AnalyticsEvents.RIDE_ACCEPTED, rideId, clientId, {
+        driverId: selectedDriverId,
+      });
+    } catch (analyticsError: any) {
+      console.warn(`⚠️ Error logging analytics:`, analyticsError.message);
+    }
 
     return {
       success: true,
@@ -542,7 +579,9 @@ export const cancelRide = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError("unauthenticated", "Usuario no autenticado");
   }
 
-  const { rideId, reason } = data;
+  // ✅ VALIDACIÓN CON ZOD
+  const validatedData = validateData(CancelRideInputSchema, data);
+  const { rideId, cancelReason: reason } = validatedData;
   const userId = context.auth.uid;
 
   try {
@@ -659,12 +698,16 @@ export const cancelRide = functions.https.onCall(async (data, context) => {
       console.error('❌ Error actualizando paymentStatus:', error);
     }
 
-    // Log analytics
-    await logRideEvent(AnalyticsEvents.RIDE_CANCELED, rideId, userId, {
-      canceledBy,
-      reason,
-      progressPercentage: progressPercentage.toFixed(2),
-    });
+    // Log analytics (no-bloqueante)
+    try {
+      await logRideEvent(AnalyticsEvents.RIDE_CANCELED, rideId, userId, {
+        canceledBy,
+        reason,
+        progressPercentage: progressPercentage.toFixed(2),
+      });
+    } catch (analyticsError: any) {
+      console.warn(`⚠️ Error logging analytics:`, analyticsError.message);
+    }
 
     // Archivar viaje cancelado: Guardar en PostgreSQL y limpiar Realtime Database
     // Esto se hace en background para no bloquear la respuesta
@@ -718,12 +761,16 @@ export const cancelRide = functions.https.onCall(async (data, context) => {
             });
           }
 
-          await logRideEvent(AnalyticsEvents.PAYMENT_COMPLETED, rideId, userId, {
-            type: 'cancellation_charge',
-            progress: progressPercentage,
-            amount: chargedAmount,
-            method,
-          });
+          try {
+            await logRideEvent(AnalyticsEvents.PAYMENT_COMPLETED, rideId, userId, {
+              type: 'cancellation_charge',
+              progress: progressPercentage,
+              amount: chargedAmount,
+              method,
+            });
+          } catch (analyticsError: any) {
+            console.warn(`⚠️ Error logging analytics:`, analyticsError.message);
+          }
         }
         // CASO 2: Cliente cancela con <60% progreso
         else if (canceledBy === 'client' && progressPercentage < 60) {
@@ -1196,7 +1243,9 @@ export const completeRide = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError("unauthenticated", "Usuario no autenticado");
   }
 
-  const { rideId, finalFare, actualDistance, actualDuration } = data;
+  // ✅ VALIDACIÓN CON ZOD
+  const validatedData = validateData(CompleteRideInputSchema, data);
+  const { rideId, finalFare, actualDistance, actualDuration } = validatedData;
   const driverId = context.auth.uid;
 
   try {
@@ -1224,17 +1273,28 @@ export const completeRide = functions.https.onCall(async (data, context) => {
 
     // Actualizar viaje en Firebase - cambiar a pending_payment
     // El viaje permanecerá en activeRides hasta que el conductor confirme el pago
-    await admin.database().ref(`activeRides/${rideId}`).update({
-      status: 'pending_payment',
-      completedAt: admin.database.ServerValue.TIMESTAMP,
-      finalFare: finalFare || ride.finalFare || ride.estimatedPrice,
-      actualDistance: actualDistance || ride.estimatedDistance,
-      actualDuration: actualDuration || ride.estimatedDuration,
-      lastUpdate: admin.database.ServerValue.TIMESTAMP,
-      // Inicializar campos de rating
-      clientRated: false,
-      driverRated: false,
-    });
+    try {
+      const updateData = {
+        status: 'pending_payment',
+        completedAt: admin.database.ServerValue.TIMESTAMP,
+        finalFare: finalFare || ride.finalFare || ride.estimatedPrice,
+        actualDistance: actualDistance || ride.estimatedDistance,
+        actualDuration: actualDuration || ride.estimatedDuration,
+        lastUpdate: admin.database.ServerValue.TIMESTAMP,
+        // Inicializar campos de rating
+        clientRated: false,
+        driverRated: false,
+      };
+      
+      console.log(`📝 [completeRide] Actualizando activeRides/${rideId} con:`, updateData);
+      
+      await admin.database().ref(`activeRides/${rideId}`).update(updateData);
+      
+      console.log(`✅ [completeRide] Status actualizado a 'pending_payment' en Firebase`);
+    } catch (firebaseError) {
+      console.error(`❌ [completeRide] Error actualizando status en Firebase:`, firebaseError);
+      throw new functions.https.HttpsError('internal', `Error actualizando status en Firebase: ${firebaseError}`);
+    }
 
     // Crear/actualizar paymentStatus según el método de pago
     const paymentMethod = ride.paymentMethod || 'cash';
@@ -1286,93 +1346,36 @@ export const completeRide = functions.https.onCall(async (data, context) => {
       });
     }
 
-    // Guardar en PostgreSQL para historial permanente
-    const client = await pool.connect();
+    // ✅ IMPORTANTE: NO guardar en PostgreSQL aquí
+    // El viaje se guardará en PostgreSQL cuando AMBOS confirmen el pago en confirmCashPayment()
+    // Esto asegura que el viaje se guarde con el estado correcto ('completed') y con el pago confirmado
+    console.log(`⏸️ [completeRide] Viaje ${rideId} en estado 'pending_payment' - Se guardará en PostgreSQL cuando ambos confirmen el pago`);
+
+    // Log analytics (no-bloqueante)
     try {
-      const finalAmount = finalFare || ride.finalFare || ride.estimatedPrice;
-      const distance = actualDistance || ride.estimatedDistance || 0;
-      const duration = actualDuration || ride.estimatedDuration || 0;
-
-      // Debug: Ver qué datos tiene el ride
-      console.log('📊 Datos del viaje para guardar:', {
-        origin: ride.origin,
-        destination: ride.destination,
-        estimatedPrice: ride.estimatedPrice,
-        finalAmount,
-        distance,
-        duration
+      await logRideEvent(AnalyticsEvents.RIDE_COMPLETED, rideId, driverId, {
+        finalFare: finalFare || ride.finalFare,
+        actualDistance,
+        actualDuration,
       });
-
-      // Insertar viaje en PostgreSQL
-      // Nota: Usamos gen_random_uuid() para el ID de PostgreSQL
-      // y guardamos el pgRideId en Firebase para futuras referencias
-      const rideResult = await client.query(
-        `INSERT INTO rides (
-          client_id, driver_id, 
-          origin_lat, origin_lng, origin_address,
-          destination_lat, destination_lng, destination_address,
-          status, estimated_price, final_fare,
-          estimated_distance, actual_distance,
-          estimated_duration, actual_duration,
-          payment_type, ride_type,
-          requested_at, started_at, completed_at
-        ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20
-        )
-        RETURNING id`,
-        [
-          ride.clientId,
-          driverId,
-          ride.origin?.lat || ride.origin?.latitude || 0,
-          ride.origin?.lng || ride.origin?.longitude || 0,
-          ride.origin?.address || '',
-          ride.destination?.lat || ride.destination?.latitude || 0,
-          ride.destination?.lng || ride.destination?.longitude || 0,
-          ride.destination?.address || '',
-          'completed',
-          ride.estimatedPrice || 0,
-          finalAmount,
-          ride.estimatedDistance || 0,
-          distance,
-          ride.estimatedDuration || 0,
-          duration,
-          ride.paymentMethod || 'cash',
-          ride.isDesignatedDriver ? 'designated_driver' : 'normal',
-          new Date(ride.createdAt || Date.now()),
-          new Date(ride.startedAt || Date.now()),
-          new Date()
-        ]
-      );
-
-      const pgRideId = rideResult.rows[0].id;
-
-      // Guardar el pgRideId en Firebase para futuras referencias
-      await admin.database().ref(`activeRides/${rideId}`).update({
-        pgRideId: pgRideId
-      });
-
-      console.log(`💾 Viaje guardado en PostgreSQL: ${rideId} (PG ID: ${pgRideId})`);
-    } catch (pgError) {
-      console.error('❌ Error guardando en PostgreSQL:', pgError);
-      // No lanzar error, continuar con el flujo
-    } finally {
-      client.release();
+    } catch (analyticsError: any) {
+      console.warn(`⚠️ Error logging analytics:`, analyticsError.message);
     }
-
-    // Log analytics
-    await logRideEvent(AnalyticsEvents.RIDE_COMPLETED, rideId, driverId, {
-      finalFare: finalFare || ride.finalFare,
-      actualDistance,
-      actualDuration,
-    });
 
     // NO archivar todavía - el viaje debe permanecer en activeRides
     // hasta que ambos (cliente Y conductor) confirmen el pago
     // El archivado se hará en confirmCashPayment cuando bothConfirmed === true
 
+    // ✅ Obtener pgRideId desde Firebase (ya fue guardado)
+    const finalRideSnapshot = await admin.database().ref(`activeRides/${rideId}`).once('value');
+    const updatedRide = finalRideSnapshot.val();
+    const pgRideId = updatedRide?.pgRideId;
+
     return {
       success: true,
       message: 'Viaje completado exitosamente',
+      rideId,
+      pgRideId,  // ✅ NUEVO: Retornar pgRideId para usar en ubicaciones y pagos
       ride: {
         ...ride,
         status: 'pending_payment',
@@ -1521,17 +1524,49 @@ export const confirmCashPayment = functions.https.onCall(async (data, context) =
   const { rideId, amount, tip = 0, confirmedBy } = data; // confirmedBy: 'client' | 'driver'
   const userId = context.auth.uid;
 
+  console.log(`📍 [confirmCashPayment] Iniciando confirmación de pago:`, {
+    rideId,
+    amount,
+    tip,
+    confirmedBy,
+    userId
+  });
+
   try {
-    // Verificar que el viaje existe en activeRides
-    const rideSnapshot = await admin.database()
+    // ✅ MEJORADO: Buscar en activeRides primero, luego en completedRides
+    let ride = null;
+    let rideLocation = 'activeRides';
+    
+    console.log(`🔍 [confirmCashPayment] Buscando viaje en activeRides/${rideId}...`);
+    const activeRideSnapshot = await admin.database()
       .ref(`activeRides/${rideId}`)
       .once('value');
 
-    const ride = rideSnapshot.val();
+    ride = activeRideSnapshot.val();
+    console.log(`📦 [confirmCashPayment] Resultado en activeRides:`, ride ? 'Encontrado' : 'No encontrado');
+
+    // Si no está en activeRides, buscar en completedRides
+    if (!ride) {
+      console.log(`⚠️ [confirmCashPayment] Viaje no encontrado en activeRides, buscando en completedRides...`);
+      const completedRideSnapshot = await admin.database()
+        .ref(`completedRides/${rideId}`)
+        .once('value');
+      
+      ride = completedRideSnapshot.val();
+      rideLocation = 'completedRides';
+      console.log(`📦 [confirmCashPayment] Resultado en completedRides:`, ride ? 'Encontrado' : 'No encontrado');
+    }
 
     if (!ride) {
-      throw new functions.https.HttpsError('not-found', 'Viaje no encontrado');
+      console.error(`❌ [confirmCashPayment] Viaje no encontrado en ningún lugar. rideId: ${rideId}`);
+      throw new functions.https.HttpsError('not-found', 'Viaje no encontrado en activeRides ni completedRides');
     }
+    
+    console.log(`✅ [confirmCashPayment] Viaje encontrado en ${rideLocation}:`, {
+      status: ride.status,
+      clientId: ride.clientId,
+      driverId: ride.driverId
+    });
 
     // Verificar permisos según quién confirma
     if (confirmedBy === 'driver' && ride.driverId !== userId) {
@@ -1541,9 +1576,27 @@ export const confirmCashPayment = functions.https.onCall(async (data, context) =
       throw new functions.https.HttpsError('permission-denied', 'No tienes permiso para confirmar este pago');
     }
 
+    // ✅ MEJORADO: Verificar status de forma más robusta
+    // El viaje DEBE estar en 'pending_payment' para confirmar pago
+    // Si está en 'in_progress', significa que completeRide() NO se ejecutó correctamente
     if (ride.status !== 'pending_payment') {
-      throw new functions.https.HttpsError('failed-precondition', `El viaje no está en estado de pago pendiente. Estado actual: ${ride.status}`);
+      console.error(`❌ [confirmCashPayment] Viaje no está en estado de pago pendiente:`, {
+        status: ride.status,
+        completedAt: ride.completedAt,
+        expectedStatus: 'pending_payment'
+      });
+      
+      // Si está en 'in_progress', sugerir que complete el viaje primero
+      if (ride.status === 'in_progress') {
+        throw new functions.https.HttpsError('failed-precondition', 
+          `El viaje aún está en progreso. El conductor debe completar el viaje primero antes de confirmar el pago.`);
+      }
+      
+      throw new functions.https.HttpsError('failed-precondition', 
+        `El viaje no está en estado de pago pendiente. Estado actual: ${ride.status}. Se requiere estado: 'pending_payment'`);
     }
+    
+    console.log(`✅ [confirmCashPayment] Viaje está en estado válido para confirmar pago`);
 
     // Obtener estado actual del pago
     const paymentSnapshot = await admin.database()
@@ -1584,9 +1637,11 @@ export const confirmCashPayment = functions.https.onCall(async (data, context) =
       // AMBOS confirmaron → Completar el viaje
       console.log(`🎉 AMBOS confirmaron el pago para viaje: ${rideId}`);
 
-      // Actualizar en activeRides (cambiar a pending_rating)
+      // ✅ CORREGIDO: Actualizar en la ubicación correcta del viaje (activeRides o completedRides)
+      const rideUpdatePath = rideLocation === 'activeRides' ? `activeRides/${rideId}` : `completedRides/${rideId}`;
+      
       await admin.database()
-        .ref(`activeRides/${rideId}`)
+        .ref(rideUpdatePath)
         .update({
           status: 'pending_rating',
           paymentConfirmedAt: admin.database.ServerValue.TIMESTAMP,
@@ -1639,18 +1694,63 @@ export const confirmCashPayment = functions.https.onCall(async (data, context) =
       // ARCHIVAR VIAJE: Guardar en PostgreSQL y limpiar Realtime
       // Solo cuando AMBOS confirmaron el pago
       console.log(`📦 Ambos confirmaron - Archivando viaje ${rideId}...`);
-      archiveCompletedRide({
-        ...ride,
-        status: 'completed',
-        completedAt: Date.now(),
-        finalFare: amount,
+      
+      // ✅ NUEVO: Pasar el paymentStatus actualizado para que se guarde correctamente en PostgreSQL
+      const updatedPaymentStatus = {
+        ...currentPayment,
+        status: 'completed',  // ← Asegurar que el estado es 'completed'
+        confirmedAt: Date.now(),
+        message: 'Pago confirmado por cliente y conductor',
+        finalAmount: amount + tip,  // ✅ Asegurar que finalAmount está presente
         tip: tip,
-        totalAmount: amount + tip,
-        actualDistance: ride.actualDistance || ride.estimatedDistance,
-        actualDuration: ride.actualDuration || ride.estimatedDuration,
-      }, rideId).catch(error => {
-        console.error(`❌ Error archivando viaje ${rideId}:`, error);
-      });
+        method: currentPayment.method || 'cash',  // ✅ Asegurar que method está presente
+        createdAt: currentPayment.createdAt || Date.now(),  // ✅ Asegurar que createdAt está presente
+      };
+      
+      // ✅ CRÍTICO: ESPERAR a que se archive antes de retornar
+      // Si no esperamos, la función retorna antes de guardar en PostgreSQL
+      try {
+        console.log(`📦 [confirmCashPayment] Iniciando archivado de viaje ${rideId}...`);
+        console.log(`   Datos del viaje:`, {
+          clientId: ride.clientId,
+          driverId: ride.driverId,
+          amount,
+          tip,
+          actualDistance: ride.actualDistance || ride.estimatedDistance,
+        });
+        
+        const rideDataToArchive = {
+          ...ride,
+          status: 'completed',
+          completedAt: Date.now(),
+          finalFare: amount,
+          tip: tip,
+          totalAmount: amount + tip,
+          actualDistance: ride.actualDistance || ride.estimatedDistance,
+          actualDuration: ride.actualDuration || ride.estimatedDuration,
+        };
+        
+        console.log(`📋 [confirmCashPayment] Datos a archivar:`, {
+          rideId,
+          status: rideDataToArchive.status,
+          amount: rideDataToArchive.finalFare,
+          tip: rideDataToArchive.tip,
+        });
+        
+        await archiveCompletedRide(rideDataToArchive, rideId, updatedPaymentStatus);
+        
+        console.log(`✅ [confirmCashPayment] Viaje ${rideId} archivado exitosamente en PostgreSQL`);
+      } catch (archiveError: any) {
+        console.error(`❌ [confirmCashPayment] Error archivando viaje ${rideId}:`, archiveError.message);
+        console.error(`   Detalles del error:`, {
+          message: archiveError.message,
+          code: archiveError.code,
+          stack: archiveError.stack,
+        });
+        // No lanzar error - el pago ya se confirmó en Realtime DB
+        // El archivado se puede reintentar después
+        console.warn(`⚠️ [confirmCashPayment] El viaje se completó en Firebase pero NO se archivó en PostgreSQL`);
+      }
 
       return { 
         success: true, 

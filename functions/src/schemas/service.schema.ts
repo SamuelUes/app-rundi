@@ -104,7 +104,8 @@ export type ApproveDriverServiceInput = z.infer<typeof ApproveDriverServiceInput
 // ============================================
 export const GetCommissionForRideInputSchema = z.object({
   driverId: z.string().uuid(),
-  serviceCode: ServiceCodeSchema,
+  serviceId: z.string().uuid(),
+  amount: z.number().positive(),
 });
 
 export type GetCommissionForRideInput = z.infer<typeof GetCommissionForRideInputSchema>;

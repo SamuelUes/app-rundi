@@ -61,21 +61,37 @@ export const submitRating = functions.https.onCall(async (data, context) => {
 
     // 2. Buscar el viaje en PostgreSQL
     if (firebaseRide) {
-      // Si está en Firebase, buscar en PostgreSQL por client_id y driver_id
-      const rideResult = await client.query(
-        `SELECT id, client_id, driver_id, status 
+      console.log(`✅ Viaje ${rideId} encontrado en Firebase`);
+      console.log(`   clientId: ${firebaseRide.clientId}, driverId: ${firebaseRide.driverId}`);
+      
+      // ✅ MEJORADO: Buscar por firebase_ride_id PRIMERO (más específico)
+      let rideResult = await client.query(
+        `SELECT id, client_id, driver_id, status, completed_at
          FROM rides 
-         WHERE client_id = $1 
-           AND driver_id = $2 
-           AND completed_at IS NOT NULL
-         ORDER BY completed_at DESC
+         WHERE firebase_ride_id = $1
          LIMIT 1`,
-        [firebaseRide.clientId, firebaseRide.driverId]
+        [rideId]
       );
+
+      // Si no encuentra por firebase_ride_id, buscar por client_id y driver_id
+      if (rideResult.rows.length === 0) {
+        console.log(`⚠️ Viaje no encontrado por firebase_ride_id, buscando por client_id y driver_id...`);
+        rideResult = await client.query(
+          `SELECT id, client_id, driver_id, status, completed_at
+           FROM rides 
+           WHERE client_id = $1 
+             AND driver_id = $2 
+             AND completed_at IS NOT NULL
+           ORDER BY completed_at DESC
+           LIMIT 1`,
+          [firebaseRide.clientId, firebaseRide.driverId]
+        );
+      }
 
       if (rideResult.rows.length > 0) {
         ride = rideResult.rows[0];
         pgRideId = ride.id;
+        console.log(`✅ Viaje encontrado en PostgreSQL: ${pgRideId} (completado: ${ride.completed_at})`);
       } else {
         // Si no existe en PostgreSQL, usar datos de Firebase
         console.log(`⚠️ Viaje ${rideId} no encontrado en PostgreSQL, usando datos de Firebase`);
@@ -95,24 +111,22 @@ export const submitRating = functions.https.onCall(async (data, context) => {
       // Esto puede pasar si el viaje ya fue archivado
       console.log(`⚠️ Viaje ${rideId} no encontrado en Firebase, buscando en PostgreSQL...`);
       
-      // Intentar buscar por el rideId del usuario actual
+      // ✅ MEJORADO: Buscar por firebase_ride_id en PostgreSQL
       const rideResult = await client.query(
         `SELECT id, client_id, driver_id, status 
          FROM rides 
-         WHERE (client_id = $1 OR driver_id = $1)
-           AND completed_at IS NOT NULL
-         ORDER BY completed_at DESC
+         WHERE firebase_ride_id = $1
          LIMIT 1`,
-        [fromUserId]
+        [rideId]
       );
 
-      if (rideResult.rows.length === 0) {
+      if (rideResult.rows.length > 0) {
+        ride = rideResult.rows[0];
+        pgRideId = ride.id;
+        console.log(`✅ Viaje encontrado en PostgreSQL por firebase_ride_id: ${pgRideId}`);
+      } else {
         throw new functions.https.HttpsError('not-found', 'Viaje no encontrado. Es posible que ya haya sido calificado.');
       }
-
-      ride = rideResult.rows[0];
-      pgRideId = ride.id;
-      console.log(`✅ Viaje encontrado en PostgreSQL: ${pgRideId}`);
     }
 
     // 2. Determinar quién califica a quién
@@ -133,6 +147,8 @@ export const submitRating = functions.https.onCall(async (data, context) => {
 
     // 3. Verificar que no haya calificado ya (solo si existe en PostgreSQL)
     if (pgRideId) {
+      console.log(`🔍 Verificando si ya existe rating para ride_id=${pgRideId}, from_user_id=${fromUserId}`);
+      
       const existingRating = await client.query(
         `SELECT id FROM ratings 
          WHERE ride_id = $1 AND from_user_id = $2`,
@@ -140,8 +156,13 @@ export const submitRating = functions.https.onCall(async (data, context) => {
       );
 
       if (existingRating.rows.length > 0) {
+        console.error(`❌ Ya existe rating para este viaje: ${existingRating.rows[0].id}`);
         throw new functions.https.HttpsError('already-exists', 'Ya has calificado este viaje');
       }
+      
+      console.log(`✅ No existe rating previo, se puede proceder`);
+    } else {
+      console.log(`⚠️ pgRideId es null, no se puede verificar rating duplicado en PostgreSQL`);
     }
 
     // 4. Insertar calificación con categorías detalladas (solo si existe en PostgreSQL)
@@ -181,13 +202,25 @@ export const submitRating = functions.https.onCall(async (data, context) => {
     await updateUserAverageRating(client, toUserId);
 
     // 6. Actualizar Firebase Realtime Database
-    const rideRef = admin.database().ref(`activeRides/${rideId}`);
-    const rideSnapshot = await rideRef.once('value');
-    const currentFirebaseRide = rideSnapshot.val();
+    // ✅ MEJORADO: Buscar en activeRides primero, luego en completedRides
+    let rideRef = admin.database().ref(`activeRides/${rideId}`);
+    let rideSnapshot = await rideRef.once('value');
+    let currentFirebaseRide = rideSnapshot.val();
+    let rideLocation = 'activeRides';
+
+    if (!currentFirebaseRide) {
+      console.log(`⚠️ Viaje ${rideId} no encontrado en activeRides, buscando en completedRides...`);
+      rideRef = admin.database().ref(`completedRides/${rideId}`);
+      rideSnapshot = await rideRef.once('value');
+      currentFirebaseRide = rideSnapshot.val();
+      rideLocation = 'completedRides';
+    }
 
     let bothRated = false;
 
     if (currentFirebaseRide) {
+      console.log(`✅ Viaje ${rideId} encontrado en ${rideLocation}`);
+      
       // Marcar quién calificó
       const updateData: any = {};
       if (raterRole === 'client') {
@@ -200,35 +233,50 @@ export const submitRating = functions.https.onCall(async (data, context) => {
       updateData.lastUpdate = admin.database.ServerValue.TIMESTAMP;
 
       await rideRef.update(updateData);
+      console.log(`✅ [submitRating] Actualizado ${raterRole} calificó en ${rideLocation}`);
 
-      // 7. Si ambos calificaron, archivar el viaje
+      // 7. Si ambos calificaron, cambiar status a completed
       bothRated = (raterRole === 'client' && currentFirebaseRide.driverRated) || 
                   (raterRole === 'driver' && currentFirebaseRide.clientRated);
 
       if (bothRated) {
-        console.log(`📦 Ambos calificaron - Archivando viaje ${rideId}`);
+        console.log(`📦 [submitRating] Ambos calificaron - Actualizando status en ${rideLocation}`);
         
-        // Cambiar status a completed (ahora sí está listo para archivar)
+        // ✅ NUEVO: Cambiar status a completed cuando AMBOS calificaron
         await rideRef.update({
           status: 'completed',
           bothRated: true,
+          ratingCompletedAt: admin.database.ServerValue.TIMESTAMP,
           lastUpdate: admin.database.ServerValue.TIMESTAMP,
         });
 
-        // El sistema de limpieza automática lo archivará
-        console.log(`✅ Viaje ${rideId} marcado para archivado`);
+        console.log(`✅ [submitRating] Viaje ${rideId} status actualizado a 'completed' en ${rideLocation}`);
+      } else {
+        // ✅ NUEVO: Si solo uno calificó, mantener status en pending_rating
+        if (currentFirebaseRide.status === 'pending_rating') {
+          console.log(`⏳ [submitRating] Un usuario calificó, esperando al otro para ${rideId}`);
+          // No cambiar status, seguir esperando
+        }
       }
+    } else {
+      console.warn(`⚠️ [submitRating] Viaje ${rideId} no encontrado en activeRides ni completedRides`);
     }
 
     await client.query('COMMIT');
 
     console.log(`✅ Rating creado: ${raterRole} calificó con ${rating} estrellas`);
 
+    // ✅ NUEVO: Retornar información clara sobre el estado
     return {
       success: true,
       ratingId: newRating.id,
       message: 'Calificación enviada exitosamente',
+      ratingSubmitted: true,
       bothRated,
+      rideStatus: bothRated ? 'completed' : 'pending_rating',
+      nextAction: bothRated 
+        ? 'El viaje ha sido completado. Ambos han calificado.'
+        : 'Esperando que la otra parte califique para completar el viaje.',
     };
   } catch (error: any) {
     await client.query('ROLLBACK');
@@ -464,10 +512,16 @@ export const skipRating = functions.https.onCall(async (data, context) => {
       console.log(`✅ Viaje ${rideId} marcado para archivado`);
     }
 
+    // ✅ NUEVO: Retornar información clara sobre el estado
     return {
       success: true,
       message: 'Calificación omitida',
+      ratingSkipped: true,
       bothRated: bothRated || false,
+      rideStatus: bothRated ? 'completed' : 'pending_rating',
+      nextAction: bothRated 
+        ? 'El viaje ha sido completado. Ambos han completado la calificación.'
+        : 'Esperando que la otra parte complete la calificación para completar el viaje.',
     };
   } catch (error: any) {
     console.error('❌ Error omitiendo rating:', error);

@@ -28,7 +28,7 @@ export default function AddCardScreen({ navigation }: AddCardScreenProps) {
   const [cardHolder, setCardHolder] = useState('');
   const [expiry, setExpiry] = useState('');
   const [cvv, setCvv] = useState('');
-  const [provider, setProvider] = useState<'stripe' | 'visanet'>('visanet');
+  const [selectedBank, setSelectedBank] = useState<'bac' | 'banpro' | 'lafise' | 'ficohsa' | 'avanz'>('bac');
   const [setAsDefault, setSetAsDefault] = useState(false);
   const [processing, setProcessing] = useState(false);
 
@@ -179,7 +179,7 @@ export default function AddCardScreen({ navigation }: AddCardScreenProps) {
         expYear: '20' + year,
         cvv: cvv,
         cardholderName: cardHolder,
-        provider: provider,
+        bank: selectedBank,
       });
 
       const validationData = validationResult.data as any;
@@ -195,7 +195,7 @@ export default function AddCardScreen({ navigation }: AddCardScreenProps) {
       const addCardFn = httpsCallable(functions, 'addCard');
       await addCardFn({
         paymentMethodId: validationData.paymentMethodId,
-        provider: provider,
+        bank: selectedBank,
         brand: validationData.cardInfo.brand,
         last4: validationData.cardInfo.last4,
         expMonth: validationData.cardInfo.expMonth,
@@ -293,6 +293,33 @@ export default function AddCardScreen({ navigation }: AddCardScreenProps) {
               onChangeText={setCardHolder}
               autoCapitalize="characters"
             />
+          </View>
+
+          {/* Selector de Banco */}
+          <View style={styles.bankSelectorContainer}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>
+              Selecciona tu banco:
+            </Text>
+            <View style={styles.bankButtonsRow}>
+              {(['bac', 'banpro', 'lafise', 'ficohsa', 'avanz'] as const).map((bank) => (
+                <TouchableOpacity
+                  key={bank}
+                  style={[
+                    styles.bankButton,
+                    selectedBank === bank && styles.bankButtonActive,
+                    { backgroundColor: selectedBank === bank ? colors.primary : colors.surface }
+                  ]}
+                  onPress={() => setSelectedBank(bank)}
+                >
+                  <Text style={[
+                    styles.bankButtonText,
+                    { color: selectedBank === bank ? '#FFF' : colors.text }
+                  ]}>
+                    {bank.toUpperCase()}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
           </View>
 
           {/* Checkbox para tarjeta predeterminada */}
@@ -595,5 +622,30 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontSize: 12,
     color: '#2E7D32',
     lineHeight: 18,
+  },
+  bankSelectorContainer: {
+    marginVertical: 16,
+  },
+  bankButtonsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  bankButton: {
+    flex: 1,
+    minWidth: '30%',
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: colors.border,
+    alignItems: 'center',
+  },
+  bankButtonActive: {
+    borderColor: colors.primary,
+  },
+  bankButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
 });

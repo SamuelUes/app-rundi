@@ -7,7 +7,7 @@ interface RideProgressIndicatorProps {
   role: 'client' | 'driver';
   rideStatus: string;
   estimatedFare?: number; // Opcional, para mostrar monto exacto al cliente
-  paymentMethod?: 'cash' | 'card' | 'stripe'; // Método de pago
+  paymentMethod?: 'cash' | 'card'; // Método de pago: cash (efectivo) o card (bancos nacionales)
 }
 
 export const RideProgressIndicator: React.FC<RideProgressIndicatorProps> = ({

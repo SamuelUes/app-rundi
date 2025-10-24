@@ -28,6 +28,9 @@ import ridesService from '../../services/ridesService';
 import mapsService from '../../services/mapsService';
 import firebaseTrackingService from '../../services/firebaseTrackingService';
 import { getDatabase, ref, onValue, off, DataSnapshot } from 'firebase/database';
+// ✅ NUEVO: Imports para guardar ubicaciones con pgRideId
+import { getFirebaseFunctions } from '../../config/firebase';
+import { httpsCallable } from 'firebase/functions';
 
 interface RouteParams {
   rideId: string;
@@ -167,12 +170,20 @@ export default function ActiveRideScreen({ route, navigation }: any) {
 
         // Si hay datos de pago, obtener método
         try {
-          if (data.payment) {
-            setPaymentMethod(data.payment.method || 'cash');
+          // ✅ CORREGIDO: Buscar en paymentStatus (no payment)
+          if (data.paymentStatus && data.paymentStatus.method) {
+            console.log(`💳 [ActiveRideScreen] Método de pago del viaje: ${data.paymentStatus.method}`);
+            setPaymentMethod(data.paymentStatus.method);
+          } else if (data.payment && data.payment.method) {
+            // Fallback: por si existe en payment (compatibilidad)
+            console.log(`💳 [ActiveRideScreen] Método de pago del viaje (fallback): ${data.payment.method}`);
+            setPaymentMethod(data.payment.method);
           } else {
+            console.log(`💳 [ActiveRideScreen] No hay método de pago, usando default: cash`);
             setPaymentMethod('cash');
           }
         } catch (error) {
+          console.error(`❌ [ActiveRideScreen] Error obteniendo método de pago:`, error);
           setPaymentMethod('cash');
         }
         
@@ -480,22 +491,46 @@ export default function ActiveRideScreen({ route, navigation }: any) {
           
           console.log('💰 [ActiveRideScreen] Datos del viaje:', { finalFare, actualDistance, actualDuration, paymentMethod });
           
-          // IMPORTANTE: Cambiar a 'pending_payment' en lugar de 'completed'
-          // El viaje solo se marca como 'completed' cuando el pago se confirma
-          await ridesService.updateRideStatus(rideId, 'pending_payment', {
+          // ✅ NUEVO: Obtener pgRideId del response
+          const result = await ridesService.updateRideStatus(rideId, 'pending_payment', {
             finalFare,
             actualDistance,
             actualDuration,
             completedAt: Date.now(),
           });
           
-          console.log('✅ [ActiveRideScreen] Viaje actualizado a pending_payment');
+          const { pgRideId } = result;  // ← Extraer pgRideId
+          console.log(`✅ [ActiveRideScreen] Viaje completado. Firebase ID: ${rideId}, PostgreSQL ID: ${pgRideId}`);
+          
+          // ✅ NUEVO: Guardar ubicaciones con pgRideId
+          if (pgRideId && coords) {
+            console.log(`📍 [ActiveRideScreen] Guardando ubicaciones con pgRideId: ${pgRideId}`);
+            try {
+              const functions = await getFirebaseFunctions();
+              const saveLocationFn = httpsCallable(functions, 'saveRideLocationWithRetry');
+              
+              await saveLocationFn({
+                rideId: pgRideId,  // ← Usar pgRideId
+                latitude: coords.latitude,
+                longitude: coords.longitude,
+                speed: coords.speed || null,
+                heading: coords.heading || null,
+                accuracy: coords.accuracy || null,
+              });
+              
+              console.log('✅ [ActiveRideScreen] Ubicaciones guardadas');
+            } catch (locError) {
+              console.warn('⚠️ [ActiveRideScreen] Error guardando ubicaciones:', locError);
+              // No lanzar error - continuar con el flujo
+            }
+          }
           
           // Navegar a pantalla unificada de confirmación de pago
           console.log(`💳 [ActiveRideScreen] Navegando a PaymentConfirmation con método: ${paymentMethod}`);
           alertService.showSuccessAlert('¡Viaje Completado!', 'Procede con la confirmación del pago');
           navigation.replace('PaymentConfirmation', { 
-            rideId, 
+            rideId,
+            pgRideId,  // ← Pasar pgRideId a PaymentConfirmation
             amount: finalFare,
             tip: 0,
             clientName: ride?.clientName || 'Cliente',
@@ -988,7 +1023,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
               progress={isInProgress ? 50 : isAccepted ? 25 : 0} 
               role="driver"
               rideStatus={ride.status}
-              paymentMethod={paymentMethod as 'cash' | 'card' | 'stripe'}
+              paymentMethod={paymentMethod as 'cash' | 'card'}
             />
           </View>
           

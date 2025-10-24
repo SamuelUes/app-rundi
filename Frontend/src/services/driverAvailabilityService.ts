@@ -70,7 +70,7 @@ class DriverAvailabilityService {
 
   /**
    * Iniciar heartbeat para mantener disponibilidad activa
-   * Envía actualizaciones periódicas al backend
+   * Envía actualizaciones periódicas al backend con manejo de errores
    */
   startHeartbeat(coords: { latitude: number; longitude: number } | null): void {
     if (this.heartbeatInterval) {
@@ -85,17 +85,29 @@ class DriverAvailabilityService {
         const state = await this.getAvailabilityState();
         
         if (state && state.isAvailable && coords) {
-          // Actualizar estado en el backend
-          await driversService.updateStatus('available', coords);
-          
-          // Actualizar timestamp
-          state.lastUpdate = new Date().toISOString();
-          await this.saveAvailabilityState(state);
-          
-          console.log('💓 Heartbeat enviado - Conductor disponible');
+          try {
+            // Actualizar estado en el backend con reintentos
+            await driversService.updateStatus('available', coords, 2);
+            
+            // Actualizar timestamp
+            state.lastUpdate = new Date().toISOString();
+            await this.saveAvailabilityState(state);
+            
+            console.log('💓 Heartbeat enviado - Conductor disponible');
+          } catch (updateError: any) {
+            // No lanzar error, solo registrar
+            const errorCode = updateError?.code || updateError?.message || 'unknown';
+            console.warn(`⚠️ Heartbeat falló (${errorCode}), reintentando en próximo ciclo`);
+            
+            // Si es un error de autenticación, detener heartbeat
+            if (errorCode === 'auth/user-token-expired' || errorCode === 'unauthenticated') {
+              console.error('🔐 Token expirado, deteniendo heartbeat');
+              this.stopHeartbeat();
+            }
+          }
         }
-      } catch (error) {
-        console.error('❌ Error en heartbeat:', error);
+      } catch (error: any) {
+        console.warn('⚠️ Error en ciclo de heartbeat:', error?.message || error);
       }
     }, HEARTBEAT_INTERVAL);
   }

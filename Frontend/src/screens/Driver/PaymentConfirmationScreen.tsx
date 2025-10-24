@@ -24,6 +24,7 @@ interface PaymentConfirmationScreenProps {
   route: {
     params: {
       rideId: string;
+      pgRideId?: string;  // ✅ NUEVO: pgRideId de PostgreSQL
       amount: number;
       tip?: number;
       clientName: string;
@@ -37,7 +38,7 @@ export default function PaymentConfirmationScreen({
   route, 
   navigation 
 }: PaymentConfirmationScreenProps) {
-  const { rideId, amount, tip = 0, clientName, paymentMethod: initialMethod } = route.params;
+  const { rideId, pgRideId, amount, tip = 0, clientName, paymentMethod: initialMethod } = route.params;
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   
@@ -152,11 +153,15 @@ export default function PaymentConfirmationScreen({
       const { app } = await initializeFirebase();
       if (!app) throw new Error('Firebase no inicializado');
 
+      // ✅ CORRECCIÓN: SIEMPRE usar rideId (Firebase ID), NO pgRideId
+      // pgRideId es para PostgreSQL, confirmCashPayment necesita el Firebase rideId
+      console.log(`💳 [PaymentConfirmation] Usando Firebase rideId: ${rideId} (pgRideId: ${pgRideId})`);
+
       const functions = getFunctions(app);
       const confirmCashPaymentFn = httpsCallable(functions, 'confirmCashPayment');
       
       const result = await confirmCashPaymentFn({ 
-        rideId,
+        rideId: rideId,  // ← SIEMPRE usar rideId (Firebase ID)
         amount: numericAmount,
         tip: numericTip,
         confirmedBy: 'driver'

@@ -28,6 +28,7 @@ interface AuthContextData {
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   loginWithGoogle: (userData: any) => Promise<void>;
+  loginWithPhoneAndSMS: (userData: any, token: string) => Promise<void>;
   register: (registerData: any) => Promise<void>;
   registerWithGoogle: (userData: any) => Promise<void>;
   logout: () => Promise<void>;
@@ -228,6 +229,34 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
+  const loginWithPhoneAndSMS = async (userData: any, token: string) => {
+    try {
+      console.log('📱 Iniciando sesión con teléfono y SMS:', userData);
+      
+      // Normalizar userData
+      const normalizedUser = {
+        id: userData.id || userData.uid,
+        email: userData.email,
+        name: userData.name,
+        phone: userData.phone,
+        role: userData.role,
+      };
+      
+      // Guardar usuario en AsyncStorage
+      await AsyncStorage.setItem('user', JSON.stringify(normalizedUser));
+      
+      // Guardar token en AsyncStorage
+      await AsyncStorage.setItem('authToken', token);
+      
+      setUser(normalizedUser);
+      
+      console.log('✅ Login con SMS exitoso');
+    } catch (error) {
+      console.error('Phone SMS login error:', error);
+      throw error;
+    }
+  };
+
   const getToken = async (): Promise<string | null> => {
     try {
       // Usar el mainAuthService que tiene getToken()
@@ -239,7 +268,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, loginWithGoogle, register, registerWithGoogle, logout, getToken }}>
+    <AuthContext.Provider value={{ user, loading, login, loginWithGoogle, loginWithPhoneAndSMS, register, registerWithGoogle, logout, getToken }}>
       {children}
     </AuthContext.Provider>
   );

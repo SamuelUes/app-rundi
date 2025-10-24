@@ -28,7 +28,7 @@ export const switchPaymentMethod = functions.https.onCall(async (data, context) 
   }
 
   // Validar que el método sea válido
-  const validMethods = ['cash', 'card', 'stripe'];
+  const validMethods = ['cash', 'card'];
   if (!validMethods.includes(newPaymentMethod)) {
     throw new functions.https.HttpsError(
       'invalid-argument',
@@ -90,8 +90,16 @@ export const switchPaymentMethod = functions.https.onCall(async (data, context) 
     }
 
     // 6. Actualizar en PostgreSQL si el viaje ya existe
-    const client = await pool.connect();
+    // ✅ MEJORADO: Agregar timeout y mejor manejo de errores
+    let client;
     try {
+      // Usar timeout de 5 segundos para evitar bloqueos
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('PostgreSQL connection timeout')), 5000)
+      );
+      
+      client = await Promise.race([pool.connect(), timeoutPromise]) as any;
+      
       const result = await client.query(
         `UPDATE rides 
          SET payment_method = $1, updated_at = NOW()
@@ -103,10 +111,18 @@ export const switchPaymentMethod = functions.https.onCall(async (data, context) 
       if (result.rows.length > 0) {
         console.log(`✅ Método de pago actualizado en PostgreSQL: ${rideId}`);
       }
-    } catch (error) {
-      console.log(`⚠️ Viaje aún no existe en PostgreSQL (normal si no se ha completado): ${error}`);
+    } catch (error: any) {
+      // ✅ MEJORADO: Log más detallado
+      if (error.message.includes('timeout') || error.message.includes('connection slots')) {
+        console.warn(`⚠️ No se pudo conectar a PostgreSQL (conexiones agotadas): ${error.message}`);
+      } else {
+        console.log(`⚠️ Viaje aún no existe en PostgreSQL (normal si no se ha completado): ${error.message}`);
+      }
+      // No lanzar error - Firebase ya fue actualizado correctamente
     } finally {
-      client.release();
+      if (client) {
+        client.release();
+      }
     }
 
     // 7. Registrar cambio en historial (opcional)
