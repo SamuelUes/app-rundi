@@ -41,6 +41,10 @@ interface Ride {
   requestedAt: number;
   clientRating?: number;
   clientTotalRatings?: number;
+  // ✅ NUEVO: Soporte para múltiples destinos
+  extraDestinations?: Array<{ lat: number; lng: number; address: string }>;
+  waypointsCount?: number;
+  hasMultipleDestinations?: boolean;
 }
 
 export default function AvailableRidesScreen({ navigation }: any) {
@@ -259,39 +263,66 @@ export default function AvailableRidesScreen({ navigation }: any) {
     setLoadingRoute(true);
     setRouteCoordinates([]);
     
-    // Calcular ruta completa: Conductor → Origen → Destino
+    // ✅ MEJORADO: Calcular ruta completa con múltiples destinos
     if (coords) {
       try {
         console.log('🗺️ Calculando ruta para modal...');
+        console.log('📍 Paradas extras:', ride.extraDestinations?.length || 0);
+        console.log('📦 Ride completo:', JSON.stringify(ride, null, 2));
+        if (ride.extraDestinations && ride.extraDestinations.length > 0) {
+          console.log('📍 Paradas encontradas:', JSON.stringify(ride.extraDestinations, null, 2));
+        }
+        
+        const routeSegments: any[] = [];
         
         // Ruta 1: Conductor → Origen
         const route1 = await mapsService.getDirections(
           { latitude: coords.latitude, longitude: coords.longitude },
           { latitude: ride.origin.lat, longitude: ride.origin.lng }
         );
+        routeSegments.push(route1?.polyline || []);
         
-        // Ruta 2: Origen → Destino
-        const route2 = await mapsService.getDirections(
-          { latitude: ride.origin.lat, longitude: ride.origin.lng },
+        // Ruta 2: Origen → Paradas extras (si existen)
+        let currentPoint = { latitude: ride.origin.lat, longitude: ride.origin.lng };
+        
+        if (ride.extraDestinations && ride.extraDestinations.length > 0) {
+          for (const waypoint of ride.extraDestinations) {
+            const waypointRoute = await mapsService.getDirections(
+              currentPoint,
+              { latitude: waypoint.lat, longitude: waypoint.lng }
+            );
+            routeSegments.push(waypointRoute?.polyline || []);
+            currentPoint = { latitude: waypoint.lat, longitude: waypoint.lng };
+          }
+        }
+        
+        // Ruta final: Última parada → Destino final
+        const finalRoute = await mapsService.getDirections(
+          currentPoint,
           { latitude: ride.destination.lat, longitude: ride.destination.lng }
         );
+        routeSegments.push(finalRoute?.polyline || []);
         
-        // Combinar ambas rutas
-        const combinedRoute = [
-          ...(route1?.polyline || []),
-          ...(route2?.polyline || [])
-        ];
-        
+        // Combinar todas las rutas
+        const combinedRoute = routeSegments.flat();
         setRouteCoordinates(combinedRoute);
-        console.log('✅ Ruta calculada:', combinedRoute.length, 'puntos');
+        console.log('✅ Ruta calculada:', combinedRoute.length, 'puntos con', ride.extraDestinations?.length || 0, 'paradas');
       } catch (error) {
         console.error('❌ Error calculando ruta:', error);
-        // Fallback: línea recta
-        setRouteCoordinates([
+        // Fallback: línea recta con todas las paradas
+        const fallbackRoute = [
           { latitude: coords.latitude, longitude: coords.longitude },
           { latitude: ride.origin.lat, longitude: ride.origin.lng },
-          { latitude: ride.destination.lat, longitude: ride.destination.lng }
-        ]);
+        ];
+        
+        if (ride.extraDestinations) {
+          ride.extraDestinations.forEach(stop => {
+            fallbackRoute.push({ latitude: stop.lat, longitude: stop.lng });
+          });
+        }
+        
+        fallbackRoute.push({ latitude: ride.destination.lat, longitude: ride.destination.lng });
+        setRouteCoordinates(fallbackRoute);
       } finally {
         setLoadingRoute(false);
       }
@@ -337,12 +368,23 @@ export default function AvailableRidesScreen({ navigation }: any) {
     const destLat = selectedRide.destination.lat;
     const destLng = selectedRide.destination.lng;
 
-    // Waypoints: origen del viaje (punto de recogida)
-    const waypoints = `${originLat},${originLng}`;
+    // ✅ MEJORADO: Waypoints incluyen origen + paradas extras
+    let waypoints = `${originLat},${originLng}`;
+    
+    if (selectedRide.extraDestinations && selectedRide.extraDestinations.length > 0) {
+      const extraWaypoints = selectedRide.extraDestinations
+        .map(stop => `${stop.lat},${stop.lng}`)
+        .join('|');
+      waypoints = `${waypoints}|${extraWaypoints}`;
+    }
+
+    const stopsText = selectedRide.extraDestinations && selectedRide.extraDestinations.length > 0
+      ? `\n\n📍 Paradas: ${selectedRide.extraDestinations.length}`
+      : '';
 
     Alert.alert(
       'Navegar con GPS',
-      'Ruta completa: Tu ubicación → Punto de recogida → Destino final',
+      `Ruta completa: Tu ubicación → Punto de recogida → ${selectedRide.extraDestinations?.length || 0 > 0 ? 'Paradas → ' : ''}Destino final${stopsText}`,
       [
         {
           text: '🗺️ Google Maps',
@@ -404,6 +446,24 @@ export default function AvailableRidesScreen({ navigation }: any) {
             </Text>
           </View>
           <View style={styles.divider} />
+          
+          {/* ✅ NUEVO: Mostrar paradas extras si existen */}
+          {item.extraDestinations && item.extraDestinations.length > 0 && (
+            <>
+              {item.extraDestinations.map((stop, index) => (
+                <View key={`waypoint-${index}`}>
+                  <View style={styles.locationRow}>
+                    <Text style={styles.locationIcon}>🟡</Text>
+                    <Text style={[styles.locationText, { color: colors.textSecondary, fontSize: 12 }]} numberOfLines={2}>
+                      Parada {index + 1}: {stop.address}
+                    </Text>
+                  </View>
+                  <View style={styles.divider} />
+                </View>
+              ))}
+            </>
+          )}
+          
           <View style={styles.locationRow}>
             <Text style={styles.locationIcon}>🔴</Text>
             <Text style={[styles.locationText, { color: colors.text }]} numberOfLines={2}>
@@ -411,6 +471,15 @@ export default function AvailableRidesScreen({ navigation }: any) {
             </Text>
           </View>
         </View>
+        
+        {/* ✅ NUEVO: Badge de múltiples destinos */}
+        {item.extraDestinations && item.extraDestinations.length > 0 && (
+          <View style={[styles.multipleStopsBadge, { backgroundColor: colors.primary + '20' }]}>
+            <Text style={[styles.multipleStopsBadgeText, { color: colors.primary }]}>
+              📍 {item.extraDestinations.length} parada{item.extraDestinations.length > 1 ? 's' : ''} adicional{item.extraDestinations.length > 1 ? 'es' : ''}
+            </Text>
+          </View>
+        )}
 
         {/* Rating del Cliente */}
         {clientRatings.has(item.clientId) && (
@@ -559,6 +628,17 @@ export default function AvailableRidesScreen({ navigation }: any) {
                   latitude: selectedRide.destination.lat,
                   longitude: selectedRide.destination.lng,
                 }}
+                // ✅ NUEVO: Pasar marcadores de paradas extras
+                extraStopMarkers={
+                  selectedRide.extraDestinations && selectedRide.extraDestinations.length > 0
+                    ? selectedRide.extraDestinations.map((stop, index) => ({
+                        latitude: stop.lat,
+                        longitude: stop.lng,
+                        index: index + 1,
+                        color: '#FFA500', // Naranja para paradas
+                      }))
+                    : undefined
+                }
                 routeCoordinates={routeCoordinates.length > 0 ? routeCoordinates : undefined}
                 style={{ flex: 1 }}
               />
@@ -937,6 +1017,17 @@ const styles = StyleSheet.create({
   loadingRouteText: {
     marginTop: 12,
     fontSize: 14,
+    fontWeight: '600',
+  },
+  // ✅ NUEVO: Estilos para múltiples destinos
+  multipleStopsBadge: {
+    borderRadius: 8,
+    padding: 10,
+    marginVertical: 12,
+    alignItems: 'center',
+  },
+  multipleStopsBadgeText: {
+    fontSize: 13,
     fontWeight: '600',
   },
 });

@@ -71,6 +71,8 @@ export default React.memo(DynamicMapComponent, (prevProps, nextProps) => {
     prevProps.destinationMarker?.latitude === nextProps.destinationMarker?.latitude &&
     prevProps.destinationMarker?.longitude === nextProps.destinationMarker?.longitude &&
     prevProps.routeCoordinates?.length === nextProps.routeCoordinates?.length &&
-    prevProps.nearbyDrivers?.length === nextProps.nearbyDrivers?.length
+    prevProps.nearbyDrivers?.length === nextProps.nearbyDrivers?.length &&
+    // ✅ NUEVO: Comparar extraStopMarkers
+    prevProps.extraStopMarkers?.length === nextProps.extraStopMarkers?.length
   );
 });

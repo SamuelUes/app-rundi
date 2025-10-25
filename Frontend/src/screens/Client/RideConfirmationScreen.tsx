@@ -608,6 +608,24 @@ export default function RideConfirmationScreen({ route, navigation }: RideConfir
 
           <View style={styles.locationDivider} />
 
+          {/* ✅ NUEVO: Mostrar paradas extras si existen */}
+          {ride.extraDestinations && ride.extraDestinations.length > 0 && (
+            <>
+              {ride.extraDestinations.map((stop: any, index: number) => (
+                <View key={`waypoint-${index}`}>
+                  <View style={styles.locationRow}>
+                    <Text style={styles.locationIcon}>🟡</Text>
+                    <View style={styles.locationInfo}>
+                      <Text style={styles.locationLabel}>Parada {index + 1}</Text>
+                      <Text style={styles.locationAddress}>{stop.address || 'No especificado'}</Text>
+                    </View>
+                  </View>
+                  <View style={styles.locationDivider} />
+                </View>
+              ))}
+            </>
+          )}
+
           <View style={styles.locationRow}>
             <Text style={styles.locationIcon}>🔴</Text>
             <View style={styles.locationInfo}>

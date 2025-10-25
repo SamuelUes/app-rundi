@@ -13,6 +13,7 @@ import * as admin from "firebase-admin";
 import {
   saveCompletedRideToSupabase,
   savePaymentToSupabase,
+  saveRideLocationsToSupabase, // ✅ NUEVO
 } from "../helpers/supabaseArchive";
 
 /**
@@ -94,6 +95,16 @@ export const onPaymentCompleted = functions.database
       }
 
       console.log(`✅ Pago guardado en Supabase`);
+
+      // ✅ PASO 3.5: Guardar ubicaciones en Supabase
+      console.log(`\n3️⃣.5️⃣ Guardando ubicaciones en Supabase...`);
+      const locationIds = await saveRideLocationsToSupabase(pgRideId, ride);
+      
+      if (locationIds && locationIds.length > 0) {
+        console.log(`✅ ${locationIds.length} ubicaciones guardadas en Supabase`);
+      } else {
+        console.warn(`⚠️ No se guardaron ubicaciones`);
+      }
 
       // PASO 4: Actualizar Firebase con pgRideId (para referencia)
       console.log(`\n4️⃣ Actualizando Firebase con pgRideId...`);

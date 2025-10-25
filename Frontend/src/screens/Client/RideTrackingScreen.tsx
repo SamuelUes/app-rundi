@@ -284,6 +284,7 @@ async function calculateRealRoute(
 const useDestinationAndRoute = (rideData: any) => {
   const [destinationCoords, setDestinationCoords] = useState<{latitude: number, longitude: number} | null>(null);
   const [originCoords, setOriginCoords] = useState<{latitude: number, longitude: number} | null>(null);
+  const [waypointCoords, setWaypointCoords] = useState<Array<{latitude: number, longitude: number}>>([]);
   const [routeCoordinates, setRouteCoordinates] = useState<Array<{latitude: number, longitude: number}>>([]);
 
   useEffect(() => {
@@ -319,6 +320,18 @@ const useDestinationAndRoute = (rideData: any) => {
       }
     }
 
+    // ✅ NUEVO: Extraer coordenadas de paradas extras
+    if (rideData.extraDestinations && Array.isArray(rideData.extraDestinations)) {
+      const waypoints = rideData.extraDestinations
+        .filter((stop: any) => stop.lat || stop.latitude)
+        .map((stop: any) => ({
+          latitude: stop.latitude || stop.lat,
+          longitude: stop.longitude || stop.lng,
+        }));
+      setWaypointCoords(waypoints);
+      console.log('📍 [Cliente] Paradas extras encontradas:', waypoints.length);
+    }
+
     // Calcular ruta real si no existe en rideData
     const calculateRoute = async () => {
       // Prioridad 1: Usar ruta del backend si existe
@@ -328,23 +341,53 @@ const useDestinationAndRoute = (rideData: any) => {
         return;
       }
       
-      // Prioridad 2: Calcular ruta real
+      // Prioridad 2: Calcular ruta real con múltiples destinos
       const origLat = rideData.origin?.latitude || rideData.origin?.lat;
       const origLng = rideData.origin?.longitude || rideData.origin?.lng;
       const destLat = rideData.destination?.latitude || rideData.destination?.lat;
       const destLng = rideData.destination?.longitude || rideData.destination?.lng;
       
       if (origLat && origLng && destLat && destLng) {
-        console.log('🗺️ [Cliente] Calculando ruta real...');
-        const route = await calculateRealRoute(origLat, origLng, destLat, destLng);
-        setRouteCoordinates(route);
+        console.log('🗺️ [Cliente] Calculando ruta real con', rideData.extraDestinations?.length || 0, 'paradas...');
+        
+        const routeSegments: any[] = [];
+        let currentPoint = { latitude: origLat, longitude: origLng };
+        
+        // ✅ NUEVO: Calcular ruta a través de cada parada
+        if (rideData.extraDestinations && rideData.extraDestinations.length > 0) {
+          for (const waypoint of rideData.extraDestinations) {
+            const waypointLat = waypoint.latitude || waypoint.lat;
+            const waypointLng = waypoint.longitude || waypoint.lng;
+            
+            if (waypointLat && waypointLng) {
+              const segmentRoute = await calculateRealRoute(
+                currentPoint.latitude, currentPoint.longitude,
+                waypointLat, waypointLng
+              );
+              routeSegments.push(segmentRoute);
+              currentPoint = { latitude: waypointLat, longitude: waypointLng };
+            }
+          }
+        }
+        
+        // Ruta final al destino
+        const finalRoute = await calculateRealRoute(
+          currentPoint.latitude, currentPoint.longitude,
+          destLat, destLng
+        );
+        routeSegments.push(finalRoute);
+        
+        // Combinar todas las rutas
+        const combinedRoute = routeSegments.flat();
+        setRouteCoordinates(combinedRoute);
+        console.log('✅ [Cliente] Ruta calculada con', combinedRoute.length, 'puntos');
       }
     };
     
     calculateRoute();
-  }, [rideData?.destination?.latitude, rideData?.destination?.lat, rideData?.destination?.longitude, rideData?.destination?.lng, rideData?.origin?.latitude, rideData?.origin?.lat, rideData?.origin?.longitude, rideData?.origin?.lng, rideData?.route?.length]);
+  }, [rideData?.destination?.latitude, rideData?.destination?.lat, rideData?.destination?.longitude, rideData?.destination?.lng, rideData?.origin?.latitude, rideData?.origin?.lat, rideData?.origin?.longitude, rideData?.origin?.lng, rideData?.route?.length, rideData?.extraDestinations?.length]);
 
-  return { destinationCoords, originCoords, routeCoordinates };
+  return { destinationCoords, originCoords, waypointCoords, routeCoordinates };
 };
 
 // Componente principal
@@ -373,7 +416,7 @@ export default function RideTrackingScreen({ route, navigation }: RideTrackingSc
   const { driverLocation, isConnected } = useDriverLocation(driverId);
   const { rideStatus, paymentMethod, finalFare, rideData, loading: rideLoading, error: rideError } = useRideStatus(rideId);
   const { driverData, vehicleData } = useDriverAndVehicleData(driverId, { driverName, vehiclePlate, vehicleBrand, vehicleModel, vehicleColor });
-  const { destinationCoords, originCoords, routeCoordinates } = useDestinationAndRoute(rideData);
+  const { destinationCoords, originCoords, waypointCoords, routeCoordinates } = useDestinationAndRoute(rideData);
   
   // Efecto adicional: intentar obtener datos del vehículo desde rideData si existen
   useEffect(() => {
@@ -724,6 +767,17 @@ export default function RideTrackingScreen({ route, navigation }: RideTrackingSc
           markerType="car"
           destinationMarker={destinationCoords ? destinationCoords : undefined}
           originMarker={isAccepted && originCoords ? originCoords : undefined}
+          // ✅ NUEVO: Pasar waypoints como extraStopMarkers
+          extraStopMarkers={
+            waypointCoords && waypointCoords.length > 0
+              ? waypointCoords.map((waypoint, index) => ({
+                  latitude: waypoint.latitude,
+                  longitude: waypoint.longitude,
+                  index: index + 1,
+                  color: '#FFA500', // Naranja para paradas
+                }))
+              : undefined
+          }
           routeCoordinates={routeCoordinates}
         />
         
@@ -765,6 +819,55 @@ export default function RideTrackingScreen({ route, navigation }: RideTrackingSc
                 <Text style={styles.driverPhone}>{driverData.phone}</Text>
               )}
             </View>
+          </View>
+
+          {/* ✅ NUEVO: Información de ubicaciones */}
+          <View style={styles.locationsContainer}>
+            {/* Origen */}
+            {originCoords && (
+              <View style={styles.locationItem}>
+                <Text style={styles.locationIcon}>📍</Text>
+                <View style={styles.locationContent}>
+                  <Text style={styles.locationLabel}>Punto de Recogida</Text>
+                  <Text style={[styles.locationAddress, { color: colors.text }]}>
+                    {rideData?.origin?.address || 'Mi ubicación'}
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            {/* Paradas intermedias */}
+            {waypointCoords && waypointCoords.length > 0 && (
+              <>
+                {waypointCoords.map((waypoint, index) => {
+                  const extraDest = rideData?.extraDestinations?.[index];
+                  return (
+                    <View key={`waypoint-${index}`} style={styles.locationItem}>
+                      <Text style={styles.locationIcon}>🟠</Text>
+                      <View style={styles.locationContent}>
+                        <Text style={styles.locationLabel}>Parada {index + 1}</Text>
+                        <Text style={[styles.locationAddress, { color: colors.text }]}>
+                          {extraDest?.address || `Parada ${index + 1}`}
+                        </Text>
+                      </View>
+                    </View>
+                  );
+                })}
+              </>
+            )}
+
+            {/* Destino final */}
+            {destinationCoords && (
+              <View style={styles.locationItem}>
+                <Text style={styles.locationIcon}>🎯</Text>
+                <View style={styles.locationContent}>
+                  <Text style={styles.locationLabel}>Destino Final</Text>
+                  <Text style={[styles.locationAddress, { color: colors.text }]}>
+                    {rideData?.destination?.address || 'Destino'}
+                  </Text>
+                </View>
+              </View>
+            )}
           </View>
 
           {/* ETA y progreso */}
@@ -885,6 +988,37 @@ const createStyles = (colors: any) => StyleSheet.create({
     paddingBottom: 16,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
+  },
+  // ✅ NUEVO: Estilos para ubicaciones
+  locationsContainer: {
+    marginBottom: 16,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  locationItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+  },
+  locationIcon: {
+    fontSize: 20,
+    marginRight: 12,
+    marginTop: 2,
+  },
+  locationContent: {
+    flex: 1,
+  },
+  locationLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textSecondary || '#999',
+    marginBottom: 4,
+  },
+  locationAddress: {
+    fontSize: 14,
+    fontWeight: '500',
+    lineHeight: 20,
   },
   driverAvatar: {
     width: 50,

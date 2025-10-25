@@ -316,6 +316,134 @@ export async function saveCanceledRideToSupabase(
 }
 
 /**
+ * ✅ NUEVO: GUARDAR UBICACIONES DEL VIAJE EN SUPABASE
+ * 
+ * Inserta en tabla ride_locations todas las paradas del viaje
+ * (origen, paradas intermedias, destino)
+ */
+export async function saveRideLocationsToSupabase(
+  pgRideId: string,
+  ride: any
+): Promise<string[] | null> {
+  const client = await pool.connect();
+  try {
+    console.log(`\n📍 [saveRideLocationsToSupabase] Guardando ubicaciones para ride: ${pgRideId}`);
+
+    const locationIds: string[] = [];
+    let locationOrder = 1;
+
+    // 1. Guardar ORIGEN
+    if (ride.origin) {
+      const originResult = await client.query(
+        `INSERT INTO public.ride_locations (
+          ride_id,
+          location_type,
+          location_order,
+          latitude,
+          longitude,
+          address,
+          created_at,
+          updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        RETURNING id`,
+        [
+          pgRideId,                                    // $1
+          'origin',                                    // $2
+          locationOrder,                               // $3
+          ride.origin.lat || ride.origin.latitude,    // $4
+          ride.origin.lng || ride.origin.longitude,   // $5
+          ride.origin.address || 'Origen',             // $6
+          new Date(),                                  // $7
+          new Date(),                                  // $8
+        ]
+      );
+      
+      if (originResult.rows && originResult.rows[0]) {
+        locationIds.push(originResult.rows[0].id);
+        console.log(`   ✅ Origen guardado: ${originResult.rows[0].id}`);
+        locationOrder++;
+      }
+    }
+
+    // 2. Guardar PARADAS INTERMEDIAS (extraDestinations)
+    if (ride.extraDestinations && ride.extraDestinations.length > 0) {
+      for (const waypoint of ride.extraDestinations) {
+        const waypointResult = await client.query(
+          `INSERT INTO public.ride_locations (
+            ride_id,
+            location_type,
+            location_order,
+            latitude,
+            longitude,
+            address,
+            created_at,
+            updated_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          RETURNING id`,
+          [
+            pgRideId,                                  // $1
+            'waypoint',                                // $2
+            locationOrder,                             // $3
+            waypoint.lat || waypoint.latitude,        // $4
+            waypoint.lng || waypoint.longitude,       // $5
+            waypoint.address || `Parada ${locationOrder - 1}`, // $6
+            new Date(),                                // $7
+            new Date(),                                // $8
+          ]
+        );
+        
+        if (waypointResult.rows && waypointResult.rows[0]) {
+          locationIds.push(waypointResult.rows[0].id);
+          console.log(`   ✅ Parada ${locationOrder - 1} guardada: ${waypointResult.rows[0].id}`);
+          locationOrder++;
+        }
+      }
+    }
+
+    // 3. Guardar DESTINO
+    if (ride.destination) {
+      const destinationResult = await client.query(
+        `INSERT INTO public.ride_locations (
+          ride_id,
+          location_type,
+          location_order,
+          latitude,
+          longitude,
+          address,
+          created_at,
+          updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        RETURNING id`,
+        [
+          pgRideId,                                      // $1
+          'destination',                                // $2
+          locationOrder,                                // $3
+          ride.destination.lat || ride.destination.latitude, // $4
+          ride.destination.lng || ride.destination.longitude, // $5
+          ride.destination.address || 'Destino',        // $6
+          new Date(),                                   // $7
+          new Date(),                                   // $8
+        ]
+      );
+      
+      if (destinationResult.rows && destinationResult.rows[0]) {
+        locationIds.push(destinationResult.rows[0].id);
+        console.log(`   ✅ Destino guardado: ${destinationResult.rows[0].id}`);
+      }
+    }
+
+    console.log(`✅ [saveRideLocationsToSupabase] ${locationIds.length} ubicaciones guardadas`);
+    return locationIds.length > 0 ? locationIds : null;
+  } catch (error: any) {
+    console.error(`❌ [saveRideLocationsToSupabase] Error:`, error.message);
+    console.error(`   Stack:`, error.stack);
+    return null;
+  } finally {
+    client.release();
+  }
+}
+
+/**
  * Calcular comisión (10% para viajes normales)
  */
 function calculateCommission(amount: number): number {

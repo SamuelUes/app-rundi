@@ -10,7 +10,11 @@
 
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
-import { saveCompletedRideToSupabase, savePaymentToSupabase } from "../helpers/supabaseArchive";
+import { 
+  saveCompletedRideToSupabase, 
+  savePaymentToSupabase,
+  saveRideLocationsToSupabase, // ✅ NUEVO
+} from "../helpers/supabaseArchive";
 
 export const onRideCanceled = functions.database
   .ref("activeRides/{rideId}")
@@ -82,6 +86,16 @@ export const onRideCanceled = functions.database
       }
 
       console.log(`✅ Viaje cancelado guardado en Supabase: ${pgRideId}`);
+
+      // ✅ PASO 2.5: Guardar ubicaciones en Supabase
+      console.log(`\n2️⃣.5️⃣ Guardando ubicaciones en Supabase...`);
+      const locationIds = await saveRideLocationsToSupabase(pgRideId, newRide);
+      
+      if (locationIds && locationIds.length > 0) {
+        console.log(`✅ ${locationIds.length} ubicaciones guardadas en Supabase`);
+      } else {
+        console.warn(`⚠️ No se guardaron ubicaciones`);
+      }
 
       // PASO 3: Guardar pago cancelado en Supabase (si existe)
       if (paymentStatus) {
