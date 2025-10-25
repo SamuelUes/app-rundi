@@ -98,6 +98,10 @@ export const requestRide = functions.https.onCall(async (data, context) => {
       throw new functions.https.HttpsError('internal', 'Error generando ID del viaje');
     }
 
+    // ✅ MEJORADO: Preparar datos de destinos múltiples
+    const hasMultipleDestinations = extraDestinations && extraDestinations.length > 0;
+    const waypointsCount = hasMultipleDestinations ? extraDestinations.length : 0;
+    
     const rideData = {
       id: rideId,
       clientId,
@@ -115,7 +119,11 @@ export const requestRide = functions.https.onCall(async (data, context) => {
       clientVehiclePhoto: clientVehiclePhoto || null,
       passengers: passengers || 1,
       extraStops: extraStops || [],
+      // ✅ MEJORADO: Guardar destinos extras con estructura clara
       extraDestinations: extraDestinations || [],
+      // ✅ NUEVO: Metadatos de destinos múltiples para queries rápidas
+      hasMultipleDestinations: hasMultipleDestinations,
+      waypointsCount: waypointsCount,
       isDesignatedDriver: isDesignatedDriver || false,
       notes: notes || null,
       status: 'requested',
@@ -125,6 +133,20 @@ export const requestRide = functions.https.onCall(async (data, context) => {
       offersCount: 0,
       rejectedDrivers: [],
     };
+    
+    // ✅ LOG: Información de destinos múltiples
+    if (hasMultipleDestinations) {
+      console.log(`📍 [requestRide] Viaje con ${waypointsCount} parada(s) extra(s):`, {
+        rideId,
+        waypointsCount,
+        extraDestinations: extraDestinations.map((d, i) => ({
+          order: i + 1,
+          address: d.address,
+          lat: d.lat,
+          lng: d.lng,
+        })),
+      });
+    }
 
     await admin.database().ref(`activeRides/${rideId}`).set(rideData);
 

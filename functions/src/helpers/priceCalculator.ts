@@ -7,11 +7,10 @@
  * - Auto Normal: 11%
  * - Conductor Designado: 25%
  * 
- * FÓRMULA FINAL:
- * Precio = (Distancia × Multiplicador según tipo) + (Tiempo en bloques de 5min × C$3)
+ * ✅ FÓRMULA FINAL (SOLO DISTANCIA):
+ * Precio = Distancia × Multiplicador según tipo
  * 
- * HORA PICO EN MANAGUA (6am-8am y 5pm-8pm):
- * Se agregan 15 minutos adicionales al tiempo calculado
+ * ⚠️ NOTA: El precio se calcula SOLO por distancia, NO incluye costo por tiempo
  * 
  * Fórmula de precios por tramos de distancia para AUTO NORMAL:
  * - 0.2 km a 0.4 km   → multiplicar por 10 C$
@@ -224,11 +223,11 @@ export function isInManagua(lat: number, lng: number): boolean {
  * Calcular precio por tiempo
  * C$3 por cada 5 minutos
  */
-function calculateTimePrice(durationMinutes: number): number {
-  const PRICE_PER_5_MIN = 3;
-  const blocks = Math.ceil(durationMinutes / 5);
-  return blocks * PRICE_PER_5_MIN;
-}
+//function calculateTimePrice(durationMinutes: number): number {
+//  const PRICE_PER_5_MIN = 3;
+//  const blocks = Math.ceil(durationMinutes / 5);
+//  return blocks * PRICE_PER_5_MIN;
+//}
 
 /**
  * Calcula el precio del viaje según distancia, tiempo y tipo
@@ -251,30 +250,20 @@ export function calculateRidePrice(
   // Convertir metros a kilómetros
   const distanceKm = distanceInMeters / 1000;
   
-  // Convertir segundos a minutos
-  let durationMinutes = Math.ceil(durationInSeconds / 60);
-  
-  // Verificar hora pico en Managua
-  const isPeak = isPeakHour();
-  const inManagua = originLat && originLng ? isInManagua(originLat, originLng) : false;
-  const peakHourAdjustment = (isPeak && inManagua) ? 15 : 0;
-  
-  // Ajustar tiempo si es hora pico en Managua
-  if (peakHourAdjustment > 0) {
-    durationMinutes += peakHourAdjustment;
-  }
+  // Convertir segundos a minutos (solo para referencia, NO se usa en el cálculo)
+  const durationMinutes = Math.ceil(durationInSeconds / 60);
   
   // Obtener multiplicador según tipo
   const { multiplier } = getMultiplier(distanceKm, vehicleType, rideType);
   
-  // Calcular precio por distancia
+  // ✅ Calcular precio SOLO por distancia
   const distancePrice = distanceKm * multiplier;
   
-  // Calcular precio por tiempo
-  const timePrice = calculateTimePrice(durationMinutes);
+  // ✅ NO hay costo por tiempo
+  //const timePrice = 0;
   
-  // Precio base (distancia + tiempo)
-  const basePrice = distancePrice + timePrice;
+  // ✅ Precio base = solo distancia
+  const basePrice = distancePrice;
   
   // Precio mínimo de C$50
   const MINIMUM_FARE = 50;
@@ -284,29 +273,22 @@ export function calculateRidePrice(
   const commissionRate = getCommissionRate(vehicleType, rideType);
   const commission = Math.round(finalPrice * commissionRate);
   
-  // Crear desglose legible
+  // ✅ Crear desglose legible (SOLO distancia)
   let breakdown = `Distancia: ${distanceKm.toFixed(2)} km × C$${multiplier} = C$${distancePrice.toFixed(2)}\n`;
-  breakdown += `Tiempo: ${durationMinutes} min (${Math.ceil(durationMinutes / 5)} bloques × C$3) = C$${timePrice}\n`;
-  
-  if (peakHourAdjustment > 0) {
-    breakdown += `⚠️ Hora pico en Managua: +${peakHourAdjustment} min\n`;
-  }
-  
-  breakdown += `Subtotal: C$${basePrice.toFixed(2)}\n`;
   breakdown += `Precio final: C$${finalPrice}\n`;
   breakdown += `Comisión (${(commissionRate * 100).toFixed(1)}%): C$${commission}`;
   
   return {
     distancePrice: Math.round(distancePrice),
-    timePrice,
+    timePrice: 0, // ✅ NO hay costo por tiempo
     basePrice: Math.round(basePrice),
     distanceKm: parseFloat(distanceKm.toFixed(2)),
     durationMinutes,
     multiplier,
     finalPrice,
     breakdown,
-    isPeakHour: isPeak && inManagua,
-    peakHourAdjustment,
+    isPeakHour: false, // ✅ Ya no se aplica ajuste por hora pico
+    peakHourAdjustment: 0, // ✅ Sin ajuste de hora pico
     vehicleType,
     rideType,
     commissionRate,

@@ -80,7 +80,6 @@ temp/
 # Carpetas ignoradas (legacy)
 Backend/
 docs/
-
 database/
 supabase.ts
 

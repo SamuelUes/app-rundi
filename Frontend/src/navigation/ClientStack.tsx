@@ -19,6 +19,7 @@ import ChatScreen from '../screens/Shared/ChatScreen';
 import RideDetailsScreen from '../screens/Shared/RideDetailsScreen';
 import SavedCardsScreen from '../screens/Shared/SavedCardsScreen';
 import AddCardScreen from '../screens/Shared/AddCardScreen';
+import InvoiceScreen from '../screens/Shared/InvoiceScreen';
 
 export type ClientStackParamList = {
   ClientHome: undefined;
@@ -67,6 +68,9 @@ export type ClientStackParamList = {
   };
   SavedCards: undefined;
   AddCard: undefined;
+  Invoice: {
+    rideId: string;
+  };
 };
 
 const Stack = createNativeStackNavigator<ClientStackParamList>();
@@ -105,6 +109,7 @@ export default function ClientStack() {
       <Stack.Screen name="RideDetails" component={RideDetailsScreen} options={{ headerShown: true, title: 'Detalles del Viaje' }} />
       <Stack.Screen name="SavedCards" component={SavedCardsScreen} options={{ headerShown: false }} />
       <Stack.Screen name="AddCard" component={AddCardScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="Invoice" component={InvoiceScreen} options={{ headerShown: true, title: 'Factura' }} />
     </Stack.Navigator>
   );
 }

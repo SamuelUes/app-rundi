@@ -1,6 +1,10 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Image, Modal, Alert } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
+import BiometricService from '../services/biometricService';
+import { supabase } from '../config/supabase';
+import { ref, update } from 'firebase/database';
+import db from '../config/firebase';
 
 interface DriverOffer {
   driver: {
@@ -60,6 +64,42 @@ export default function DriverOfferCard({
   // Máximo: 133.33% del precio estimado (con techo de 500 C$)
   const minNegotiationPrice = Math.max(50, Math.round(estimatedPrice * 0.6667 * 100) / 100);
   const maxNegotiationPrice = Math.min(500, Math.round(estimatedPrice * 1.3333 * 100) / 100);
+
+
+  const [showBiometricModal, setShowBiometricModal] = useState(false);
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
+
+  const handleAcceptDesignatedRide = async () => {
+    // Por ahora, aceptar directamente
+    onAcceptOffer();
+  };
+
+  const handleBiometricConfirmation = async (method: 'fingerprint' | 'face_id') => {
+    try {
+      setIsAuthenticating(true);
+
+      const reason = method === 'fingerprint' 
+        ? 'Confirma con tu huella para aceptar el viaje'
+        : 'Confirma con tu rostro para aceptar el viaje';
+
+      const result = await BiometricService.authenticate(reason);
+
+      if (!result.success) {
+        Alert.alert('Error', result.error || 'Autenticación fallida');
+        return;
+      }
+
+      console.log('✅ Viaje designado aceptado con biometría:', method);
+      setShowBiometricModal(false);
+      onAcceptOffer();
+
+    } catch (error) {
+      console.error('❌ Error:', error);
+      Alert.alert('Error', 'Error al procesar biometría');
+    } finally {
+      setIsAuthenticating(false);
+    }
+  };
 
   return (
     <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -216,6 +256,44 @@ export default function DriverOfferCard({
           </>
         )}
       </View>
+
+      {/* Modal de Biometría */}
+      {showBiometricModal && (
+        <Modal visible={true} transparent={true}>
+          <View style={styles.biometricModal}>
+            <View style={styles.biometricContent}>
+              <Text style={styles.biometricTitle}>Verifica tu identidad</Text>
+              <Text style={styles.biometricSubtitle}>
+                Se requiere biometría para aceptar este viaje
+              </Text>
+
+              <TouchableOpacity
+                style={styles.biometricButton}
+                onPress={() => handleBiometricConfirmation('fingerprint')}
+                disabled={isAuthenticating}
+              >
+                <Text style={styles.biometricButtonText}>👆 Usar Huella</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.biometricButton}
+                onPress={() => handleBiometricConfirmation('face_id')}
+                disabled={isAuthenticating}
+              >
+                <Text style={styles.biometricButtonText}>👤 Usar Face ID</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={() => setShowBiometricModal(false)}
+                disabled={isAuthenticating}
+              >
+                <Text style={styles.cancelButtonText}>Cancelar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      )}
     </View>
   );
 }
@@ -392,5 +470,57 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  biometricModal: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  biometricContent: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 24,
+    width: '80%',
+    alignItems: 'center',
+  },
+  biometricTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  biometricSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  biometricButton: {
+    backgroundColor: '#2196F3',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    marginBottom: 12,
+    width: '100%',
+    alignItems: 'center',
+  },
+  biometricButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  cancelButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    width: '100%',
+    alignItems: 'center',
+  },
+  cancelButtonText: {
+    color: '#666',
+    fontWeight: '600',
+    fontSize: 14,
   },
 });

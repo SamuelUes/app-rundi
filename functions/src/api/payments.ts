@@ -526,13 +526,49 @@ export const registerCashPayment = functions.https.onCall(async (data, context) 
 });
 
 /**
+ * Sincronizar datos de biometría a Supabase (NO-BLOQUEANTE)
+ * Se ejecuta en background sin bloquear la respuesta
+ */
+async function syncBiometryToSupabase(rideId: string, paymentData: any): Promise<void> {
+  try {
+    console.log(`🔐 [syncBiometryToSupabase] Sincronizando biometría para rideId: ${rideId}`);
+    
+    const { createClient } = await import('@supabase/supabase-js');
+    const supabase = createClient(
+      process.env.SUPABASE_URL || '',
+      process.env.SUPABASE_ANON_KEY || ''
+    );
+
+    // Actualizar pago con datos de biometría
+    const { error: updateError } = await supabase
+      .from('payments')
+      .update({
+        biometric_authenticated: paymentData.biometric_authenticated || false,
+        biometric_type: paymentData.biometric_type || null,
+        authentication_method: paymentData.authentication_method || 'manual',
+        sms_code_verified: paymentData.sms_code_verified || false,
+        status: 'completed',
+        paid_at: new Date().toISOString(),
+      })
+      .eq('ride_id', rideId);
+
+    if (updateError) {
+      console.error(`❌ Error actualizando pago en Supabase:`, updateError);
+    } else {
+      console.log(`✅ Pago actualizado en Supabase con datos de biometría`);
+    }
+  } catch (error: any) {
+    console.error(`❌ Error en syncBiometryToSupabase:`, error);
+  }
+}
+
+/**
  * Completar pago en efectivo (conductor confirma que recibió el dinero)
  * 
- * ✅ NUEVO SISTEMA (2025-10-24):
- * - Este endpoint SOLO actualiza paymentStatus en Firebase
+ * ✅ ACTUALIZADO (2025-10-24):
+ * - Guarda datos de biometría desde Realtime DB
+ * - Sincroniza a Supabase en background (NO-BLOQUEANTE)
  * - El trigger onPaymentCompleted se dispara automáticamente
- * - El trigger archiva en Supabase automáticamente
- * - NO intentes archivar aquí
  */
 export const completeCashPayment = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
@@ -547,9 +583,6 @@ export const completeCashPayment = functions.https.onCall(async (data, context) 
 
   console.log(`💵 [completeCashPayment] Procesando pago para rideId: ${rideId}`);
 
-  // ✅ NUEVO SISTEMA: SOLO actualizar Firebase
-  // El trigger onPaymentCompleted se dispara automáticamente y archiva en Supabase
-  
   const admin = require('firebase-admin');
   const paymentSnapshot = await admin.database().ref(`paymentStatus/${rideId}`).once('value');
   const paymentData = paymentSnapshot.val();
@@ -575,8 +608,7 @@ export const completeCashPayment = functions.https.onCall(async (data, context) 
 
   console.log(`✅ [completeCashPayment] Ambos confirmaron el pago`);
 
-  // ✅ ACTUALIZAR paymentStatus a 'completed' en Firebase
-  // Esto dispara el trigger onPaymentCompleted automáticamente
+  // ✅ ACTUALIZAR paymentStatus a 'completed' en Firebase (BLOQUEANTE)
   console.log(`🔄 [completeCashPayment] Actualizando paymentStatus.status a 'completed'...`);
   await admin.database().ref(`paymentStatus/${rideId}`).update({
     status: 'completed',
@@ -586,13 +618,21 @@ export const completeCashPayment = functions.https.onCall(async (data, context) 
   });
 
   console.log(`✅ [completeCashPayment] paymentStatus actualizado a 'completed'`);
+
+  // ✅ SINCRONIZAR datos de biometría a Supabase (NO-BLOQUEANTE - Background)
+  // NO esperar - ejecutar en background para no bloquear la respuesta
+  syncBiometryToSupabase(rideId, paymentData).catch((err) => {
+    console.error(`⚠️ Error sincronizando biometría a Supabase (background):`, err);
+    // Registrar para monitoreo pero no afectar el flujo principal
+  });
+
+  console.log(`   ✅ Sincronización de biometría iniciada en background`);
   console.log(`   ⏳ El trigger onPaymentCompleted se disparará automáticamente...`);
-  console.log(`   ⏳ El viaje se archivará en Supabase automáticamente...`);
 
   return {
     success: true,
     bothConfirmed: true,
-    message: "Pago completado. El viaje se archivará automáticamente.",
+    message: "Pago completado con biometría sincronizada.",
     status: "pending_rating",
   };
 });

@@ -261,6 +261,90 @@ export default function SearchRideScreen({ navigation }: any) {
     }, 500);
   };
 
+  // ✅ NUEVA: Función para calcular routing secuencial con múltiples destinos
+  const calculateSequentialRoute = async (
+    startPoint: { latitude: number; longitude: number },
+    stops: Array<{ latitude: number; longitude: number }>,
+    endPoint: { latitude: number; longitude: number }
+  ) => {
+    try {
+      setCalculatingRoute(true);
+      console.log('🛣️ Calculando ruta secuencial con', stops.length, 'paradas');
+      
+      // Construir array de waypoints: origen → paradas → destino
+      const waypoints = [startPoint, ...stops, endPoint];
+      
+      let totalDistance = 0;
+      let totalDuration = 0;
+      let allPolylines: any[] = [];
+      
+      // Calcular ruta entre cada par de puntos consecutivos
+      for (let i = 0; i < waypoints.length - 1; i++) {
+        const from = waypoints[i];
+        const to = waypoints[i + 1];
+        
+        console.log(`📍 Tramo ${i + 1}: (${from.latitude}, ${from.longitude}) → (${to.latitude}, ${to.longitude})`);
+        
+        const route = await mapsService.getDirections(from, to);
+        
+        if (route) {
+          totalDistance += route.distance;
+          totalDuration += route.duration;
+          allPolylines = [...allPolylines, ...route.polyline];
+          
+          console.log(`✅ Tramo ${i + 1}: ${(route.distance / 1000).toFixed(2)} km`);
+        } else {
+          throw new Error(`No se pudo calcular el tramo ${i + 1}`);
+        }
+      }
+      
+      console.log('✅ Ruta secuencial completa:', {
+        distanciaTotal: (totalDistance / 1000).toFixed(2) + ' km',
+        duracionTotal: (totalDuration / 60).toFixed(0) + ' min',
+        tramos: waypoints.length - 1
+      });
+      
+      // Guardar la ruta completa para preview
+      setPreviewRoute(allPolylines);
+      setRouteCoordinates(allPolylines);
+      
+      // Calcular estimaciones
+      const distanceKm = totalDistance / 1000;
+      const durationMin = totalDuration / 60;
+      
+      setEstimatedDistance(parseFloat(distanceKm.toFixed(2)));
+      setEstimatedDuration(parseFloat(durationMin.toFixed(0)));
+      
+      // Calcular precio usando la nueva fórmula
+      const vehicleTypeForCalc = vehicleType === 'moto' ? 'motorcycle' : 'car';
+      const rideTypeForCalc = vehicleType === 'designated_driver' ? 'designated_driver' : 'normal';
+      
+      const breakdown = calculateRidePrice(
+        totalDistance, // distancia total en metros
+        totalDuration, // duración total en segundos
+        vehicleTypeForCalc,
+        rideTypeForCalc,
+        originCoords?.latitude,
+        originCoords?.longitude,
+        stops.length // número de paradas extras
+      );
+      
+      setEstimatedPrice(breakdown.finalPrice);
+      setPriceBreakdown(breakdown);
+      
+      console.log('✅ Precio calculado:', {
+        finalPrice: breakdown.finalPrice,
+        distancePrice: breakdown.distancePrice,
+        breakdown: formatPriceBreakdown(breakdown)
+      });
+    } catch (error) {
+      console.error('❌ Error en calculateSequentialRoute:', error);
+      Alert.alert('Error', 'No se pudo calcular la ruta. Intenta de nuevo.');
+    } finally {
+      setCalculatingRoute(false);
+    }
+  };
+
   // Función para calcular ruta entre dos puntos
   const calculateRealRoute = async (
     start: { latitude: number; longitude: number },
@@ -335,16 +419,55 @@ export default function SearchRideScreen({ navigation }: any) {
       return;
     }
     
-    // Si estamos seleccionando parada extra, no calcular ruta completa
+    // ✅ Si estamos seleccionando parada extra, CALCULAR ruta con paradas
     if (selectingType === 'extra') {
+      const startPoint = originCoords || coords;
+      if (startPoint) {
+        // Crear array temporal con la nueva parada
+        const tempDests = [...extraDestinations];
+        tempDests[currentExtraDestIndex] = {
+          address: 'Parada temporal',
+          coords: { latitude, longitude }
+        };
+        
+        const stopsCoords = tempDests
+          .filter((dest: any) => dest.coords !== null)
+          .map((dest: any) => dest.coords as { latitude: number; longitude: number });
+        
+        if (stopsCoords.length > 0) {
+          if (destinationCoords) {
+            // Con destino final: Origen → Paradas → Destino Final
+            await calculateSequentialRoute(startPoint, stopsCoords, destinationCoords);
+          } else {
+            // Sin destino final: Origen → Paradas
+            if (stopsCoords.length === 1) {
+              await calculateRealRoute(startPoint, stopsCoords[0]);
+            } else {
+              const routeStops = stopsCoords.slice(0, -1);
+              const lastStop = stopsCoords[stopsCoords.length - 1];
+              await calculateSequentialRoute(startPoint, routeStops, lastStop);
+            }
+          }
+        }
+      }
       setShowRouteConfirmation(true);
       return;
     }
     
-    // Si estamos seleccionando destino, calcular ruta desde el origen
+    // ✅ Si estamos seleccionando destino, calcular ruta secuencial si hay paradas
     const startPoint = originCoords || coords;
     if (startPoint) {
-      await calculateRealRoute(startPoint, { latitude, longitude });
+      const stopsCoords = extraDestinations
+        .filter((dest: any) => dest.coords !== null)
+        .map((dest: any) => dest.coords as { latitude: number; longitude: number });
+      
+      if (stopsCoords.length > 0) {
+        // Con paradas: Origen → Paradas → Destino Final
+        await calculateSequentialRoute(startPoint, stopsCoords, { latitude, longitude });
+      } else {
+        // Sin paradas: Origen → Destino Final
+        await calculateRealRoute(startPoint, { latitude, longitude });
+      }
       setShowRouteConfirmation(true);
     }
   };
@@ -359,25 +482,78 @@ export default function SearchRideScreen({ navigation }: any) {
       setOrigin(address || 'Ubicación seleccionada');
       setOriginCoords(selectedMapLocation);
     } else if (selectingType === 'extra') {
-      // Actualizar parada extra
+      // ✅ Actualizar parada extra
       const newDests = [...extraDestinations];
       newDests[currentExtraDestIndex] = {
         address: address || 'Parada seleccionada',
         coords: selectedMapLocation
       };
       setExtraDestinations(newDests);
+      
+      // ✅ NUEVO: Calcular ruta actualizada con la nueva parada
+      // SIEMPRE incluir TODAS las paradas en el routing
+      const startPoint = originCoords || coords;
+      if (startPoint) {
+        const stopsCoords = newDests
+          .filter((dest: any) => dest.coords !== null)
+          .map((dest: any) => dest.coords as { latitude: number; longitude: number });
+        
+        if (stopsCoords.length > 0) {
+          if (destinationCoords) {
+            // Con destino final: Origen → TODAS las Paradas → Destino Final
+            await calculateSequentialRoute(startPoint, stopsCoords, destinationCoords);
+          } else {
+            // Sin destino final: Origen → TODAS las Paradas (la última es el endpoint)
+            if (stopsCoords.length === 1) {
+              // Solo una parada: Origen → Parada
+              await calculateRealRoute(startPoint, stopsCoords[0]);
+            } else {
+              // Múltiples paradas: Origen → Paradas (todas)
+              // Usar la última como endpoint, las demás como waypoints
+              const routeStops = stopsCoords.slice(0, -1);
+              const lastStop = stopsCoords[stopsCoords.length - 1];
+              await calculateSequentialRoute(startPoint, routeStops, lastStop);
+            }
+          }
+        }
+      }
     } else {
+      // ✅ Destino final
       setDestination(address || 'Destino seleccionado');
       setDestinationCoords(selectedMapLocation);
+      
+      // ✅ Calcular ruta secuencial con todas las paradas
+      const startPoint = originCoords || coords;
+      if (startPoint) {
+        const stopsCoords = extraDestinations
+          .filter((dest: any) => dest.coords !== null)
+          .map((dest: any) => dest.coords as { latitude: number; longitude: number });
+        
+        // Si hay paradas, usar ruta secuencial; si no, ruta simple
+        if (stopsCoords.length > 0) {
+          await calculateSequentialRoute(startPoint, stopsCoords, selectedMapLocation);
+        } else {
+          await calculateRealRoute(startPoint, selectedMapLocation);
+        }
+      }
     }
     
     // Limpiar sugerencias
     setShowSuggestions(false);
     setSuggestions([]);
     
-    setIsSelectingOnMap(false);
-    setShowRouteConfirmation(false);
-    setSelectingType(null);
+    // ✅ IMPORTANTE: Solo cerrar modal si es destino final
+    // Si es parada extra, mantener modal abierto para agregar más paradas
+    if (selectingType !== 'extra') {
+      setIsSelectingOnMap(false);
+      setShowRouteConfirmation(false);
+      setSelectingType(null);
+    } else {
+      // Para parada extra: mantener modal abierto pero limpiar selección
+      setShowRouteConfirmation(false);
+      setSelectedMapLocation(null);
+      setSelectingType(null);
+    }
   };
 
   const cancelRouteSelection = () => {
@@ -414,7 +590,10 @@ export default function SearchRideScreen({ navigation }: any) {
   const confirmMarkerLocation = async () => {
     if (!tempLocation || !draggedMarkerType) return;
     
-    if (draggedMarkerType === 'origin') {
+    // ✅ Guardar el tipo antes de limpiarlo
+    const markerType = draggedMarkerType;
+    
+    if (markerType === 'origin') {
       setOriginCoords({ latitude: tempLocation.latitude, longitude: tempLocation.longitude });
       setOrigin(tempLocation.address || 'Ubicación seleccionada');
       console.log('✅ Origen actualizado:', tempLocation);
@@ -429,17 +608,33 @@ export default function SearchRideScreen({ navigation }: any) {
     setTempLocation(null);
     setDraggedMarkerType(null);
     
-    // Recalcular ruta si tenemos ambos puntos
-    if (draggedMarkerType === 'origin' && destinationCoords) {
-      await calculateRealRoute(
-        { latitude: tempLocation.latitude, longitude: tempLocation.longitude },
-        destinationCoords
-      );
-    } else if (draggedMarkerType === 'destination' && originCoords) {
-      await calculateRealRoute(
-        originCoords,
-        { latitude: tempLocation.latitude, longitude: tempLocation.longitude }
-      );
+    // ✅ Recalcular ruta si tenemos ambos puntos
+    if (markerType === 'origin' && destinationCoords) {
+      const startPoint = { latitude: tempLocation.latitude, longitude: tempLocation.longitude };
+      const stopsCoords = extraDestinations
+        .filter((dest: any) => dest.coords !== null)
+        .map((dest: any) => dest.coords as { latitude: number; longitude: number });
+      
+      if (stopsCoords.length > 0) {
+        // Con paradas: Origen → Paradas → Destino Final
+        await calculateSequentialRoute(startPoint, stopsCoords, destinationCoords);
+      } else {
+        // Sin paradas: Origen → Destino Final
+        await calculateRealRoute(startPoint, destinationCoords);
+      }
+    } else if (markerType === 'destination' && originCoords) {
+      const newDestination = { latitude: tempLocation.latitude, longitude: tempLocation.longitude };
+      const stopsCoords = extraDestinations
+        .filter((dest: any) => dest.coords !== null)
+        .map((dest: any) => dest.coords as { latitude: number; longitude: number });
+      
+      if (stopsCoords.length > 0) {
+        // Con paradas: Origen → Paradas → Nuevo Destino
+        await calculateSequentialRoute(originCoords, stopsCoords, newDestination);
+      } else {
+        // Sin paradas: Origen → Nuevo Destino
+        await calculateRealRoute(originCoords, newDestination);
+      }
     }
   };
   
@@ -806,9 +1001,25 @@ export default function SearchRideScreen({ navigation }: any) {
               (selectingType === 'origin' ? originCoords : undefined) ||
               undefined
             }
-            markerType={selectingType === 'origin' ? 'origin' : 'destination'}
+            // ✅ CORREGIDO: Usar tipo correcto según lo que se está seleccionando
+            markerType={
+              selectingType === 'origin' ? 'origin' : 
+              selectingType === 'extra' ? 'default' : 
+              'destination'
+            }
             originMarker={selectingType !== 'origin' && originCoords ? originCoords : undefined}
             clientMarker={selectingType === 'origin' ? coords : undefined}
+            // ✅ NUEVO: Pasar marcadores de paradas extras con colores
+            extraStopMarkers={
+              extraDestinations
+                .map((dest, index) => ({
+                  latitude: dest.coords?.latitude || 0,
+                  longitude: dest.coords?.longitude || 0,
+                  index: index + 1,
+                  color: ['#FFA500', '#FFD700', '#00CED1', '#FF69B4', '#32CD32'][index % 5] // Colores variados
+                }))
+                .filter(marker => marker.latitude !== 0 && marker.longitude !== 0)
+            }
             routeCoordinates={previewRoute}
             draggableMarker={true}
             onMarkerDragEnd={(newLocation) => {
@@ -904,41 +1115,23 @@ export default function SearchRideScreen({ navigation }: any) {
           />
         </View>
 
-        {/* Destino con Autocompletar */}
-        <View style={styles.inputContainer}>
-          <View style={styles.inputHeader}>
-            <Text style={styles.inputLabel}>🔴 Destino</Text>
-            <TouchableOpacity 
-              style={styles.mapPinButton}
-              onPress={() => {
-                setSelectingType('destination');
-                setIsSelectingOnMap(true);
-              }}
-              disabled={searchingDrivers}
-            >
-              <Text style={styles.mapPinButtonText}>📍 Seleccionar en mapa</Text>
-            </TouchableOpacity>
-          </View>
-          <TextInput
-            style={styles.input}
-            placeholder="Buscar dirección..."
-            value={destination}
-            onChangeText={setDestination}
-            editable={!searchingDrivers}
-          />
-          {loadingSuggestions && (
-            <View style={styles.suggestionsLoader}>
-              <SkeletonLoader width={200} height={16} />
-              <SkeletonLoader width={150} height={14} style={{ marginTop: 8 }} />
-            </View>
-          )}
-        </View>
+        {/* ✅ NUEVO ORDEN: Botón agregar parada ANTES del destino */}
+        {/* Botón agregar destino */}
+        {extraDestinations.length < 3 && (
+          <TouchableOpacity
+            style={styles.addDestButton}
+            onPress={() => setExtraDestinations([...extraDestinations, {address: '', coords: null}])}
+            disabled={searchingDrivers}
+          >
+            <Text style={styles.addDestButtonText}>➕ Agregar parada adicional</Text>
+          </TouchableOpacity>
+        )}
 
         {/* Destinos adicionales */}
         {extraDestinations.map((dest, index) => (
           <View key={index} style={styles.inputContainer}>
             <View style={styles.inputHeader}>
-              <Text style={styles.inputLabel}>🟡 Parada {index + 2}</Text>
+              <Text style={styles.inputLabel}>🟡 Parada {index + 1}</Text>
               <View style={styles.headerButtons}>
                 <TouchableOpacity 
                   style={styles.mapSelectButton}
@@ -977,16 +1170,35 @@ export default function SearchRideScreen({ navigation }: any) {
           </View>
         ))}
 
-        {/* Botón agregar destino */}
-        {extraDestinations.length < 3 && (
-          <TouchableOpacity
-            style={styles.addDestButton}
-            onPress={() => setExtraDestinations([...extraDestinations, {address: '', coords: null}])}
-            disabled={searchingDrivers}
-          >
-            <Text style={styles.addDestButtonText}>➕ Agregar parada adicional</Text>
-          </TouchableOpacity>
-        )}
+        {/* Destino con Autocompletar - AHORA AL FINAL */}
+        <View style={styles.inputContainer}>
+          <View style={styles.inputHeader}>
+            <Text style={styles.inputLabel}>🔴 Destino Final</Text>
+            <TouchableOpacity 
+              style={styles.mapPinButton}
+              onPress={() => {
+                setSelectingType('destination');
+                setIsSelectingOnMap(true);
+              }}
+              disabled={searchingDrivers}
+            >
+              <Text style={styles.mapPinButtonText}>📍 Seleccionar en mapa</Text>
+            </TouchableOpacity>
+          </View>
+          <TextInput
+            style={styles.input}
+            placeholder="Buscar dirección..."
+            value={destination}
+            onChangeText={setDestination}
+            editable={!searchingDrivers}
+          />
+          {loadingSuggestions && (
+            <View style={styles.suggestionsLoader}>
+              <SkeletonLoader width={200} height={16} />
+              <SkeletonLoader width={150} height={14} style={{ marginTop: 8 }} />
+            </View>
+          )}
+        </View>
 
         {/* Selector de pasajeros */}
         <View style={styles.passengersContainer}>
@@ -1252,17 +1464,6 @@ export default function SearchRideScreen({ navigation }: any) {
               <View style={styles.estimateRow}>
                 <Text style={styles.estimateLabel}>   × C${priceBreakdown.multiplier}/km</Text>
                 <Text style={styles.estimateSubvalue}>C${priceBreakdown.distancePrice}</Text>
-              </View>
-              
-              <View style={styles.dividerLine} />
-              
-              <View style={styles.estimateRow}>
-                <Text style={styles.estimateLabel}>⏱️ Tiempo:</Text>
-                <Text style={styles.estimateValue}>{priceBreakdown.durationMinutes} min</Text>
-              </View>
-              <View style={styles.estimateRow}>
-                <Text style={styles.estimateLabel}>   ({Math.ceil(priceBreakdown.durationMinutes / 5)} bloques × C$3)</Text>
-                <Text style={styles.estimateSubvalue}>C${priceBreakdown.timePrice}</Text>
               </View>
               
               {priceBreakdown.extraStopsCharge > 0 && (

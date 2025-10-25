@@ -17,6 +17,8 @@ interface DynamicMapProps {
   originMarker?: { latitude: number; longitude: number };
   destinationMarker?: { latitude: number; longitude: number };
   clientMarker?: { latitude: number; longitude: number };
+  // ✅ NUEVO: Marcadores de paradas extras con colores
+  extraStopMarkers?: Array<{ latitude: number; longitude: number; index: number; color?: string }>;
   routeCoordinates?: Array<{ latitude: number; longitude: number }>;
   provider?: 'mapbox' | 'openstreet'; // Proveedor de mapa
   nearbyDrivers?: Array<{ id: string; latitude: number; longitude: number; heading?: number }>; // Conductores cercanos

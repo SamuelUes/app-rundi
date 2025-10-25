@@ -13,6 +13,8 @@ interface OpenStreetMapProps {
   originMarker?: { latitude: number; longitude: number };
   destinationMarker?: { latitude: number; longitude: number };
   clientMarker?: { latitude: number; longitude: number };
+  // ✅ NUEVO: Marcadores de paradas extras
+  extraStopMarkers?: Array<{ latitude: number; longitude: number; index: number; color?: string }>;
   routeCoordinates?: Array<{ latitude: number; longitude: number }>;
   nearbyDrivers?: Array<{ id: string; latitude: number; longitude: number; heading?: number }>; // Conductores cercanos
   draggableMarker?: boolean; // Permitir arrastrar el marcador
@@ -32,6 +34,7 @@ export default function OpenStreetMap({
   originMarker,
   destinationMarker,
   clientMarker,
+  extraStopMarkers = [], // ✅ NUEVO
   routeCoordinates,
   nearbyDrivers = [],
   draggableMarker = false,
@@ -231,6 +234,17 @@ export default function OpenStreetMap({
           L.marker([${driver.latitude}, ${driver.longitude}], { icon: driverIcon }).addTo(map).bindPopup('<div style="font-family: Arial; font-weight: bold; color: #2196F3;">🚗 Conductor disponible</div>');
         `).join('')}
 
+        // ✅ NUEVO: Agregar marcadores de paradas extras
+        ${(extraStopMarkers || []).map(stop => `
+          var stopIcon = L.divIcon({
+            html: '<div style="background: linear-gradient(135deg, ${stop.color || '#FFA500'} 0%, ${stop.color || '#FFA500'} 100%); border-radius: 50%; width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; font-size: 20px; border: 4px solid white; box-shadow: 0 4px 12px rgba(255, 165, 0, 0.5);"><span style="font-weight: bold; color: white;">${stop.index}</span></div>',
+            className: 'stop-marker',
+            iconSize: [45, 45],
+            iconAnchor: [22, 22]
+          });
+          L.marker([${stop.latitude}, ${stop.longitude}], { icon: stopIcon }).addTo(map).bindPopup('<div style="font-family: Arial; font-weight: bold; color: ${stop.color || '#FFA500'};">🛑 Parada ${stop.index}</div>');
+        `).join('')}
+
         // Agregar marcadores de solicitudes de viaje disponibles (destinos múltiples)
         ${(rideRequests || []).map(request => `
           var requestIcon = L.divIcon({
@@ -243,7 +257,7 @@ export default function OpenStreetMap({
           requestMarker.bindPopup('<div style="font-family: Arial, sans-serif; background: white; border-radius: 8px; padding: 12px;"><b style="color: #FF5722;">📍 Solicitud de Viaje</b><br><small style="color: #666;">${request.address || 'Dirección no disponible'}</small><br>${request.estimatedPrice ? '<b style="color: #4CAF50;">💰 C$' + request.estimatedPrice + '</b><br>' : ''}${request.passengers ? '<span style="color: #2196F3;">👥 ' + request.passengers + ' pasajero(s)</span>' : ''}<br><br><button onclick="window.ReactNativeWebView.postMessage(JSON.stringify({type: \\'rideRequestClick\\', rideId: \\'${request.id}\\'}));" style="background: linear-gradient(135deg, #4CAF50 0%, #388E3C 100%); color: white; border: none; padding: 10px 16px; border-radius: 6px; cursor: pointer; font-weight: bold; width: 100%; box-shadow: 0 2px 6px rgba(0,0,0,0.2);">🚗 Ver Detalles</button></div>');
         `).join('')}
 
-        console.log('🗺️ OpenStreetMap cargado: ${(nearbyDrivers || []).length} conductores, ${(rideRequests || []).length} solicitudes');
+        console.log('🗺️ OpenStreetMap cargado: ${(nearbyDrivers || []).length} conductores, ${(rideRequests || []).length} solicitudes, ${(extraStopMarkers || []).length} paradas extras');
         console.log('🚗 Conductores a renderizar:', ${JSON.stringify(nearbyDrivers || [])});
         console.log('📍 Solicitudes a renderizar:', ${JSON.stringify(rideRequests || [])});
         

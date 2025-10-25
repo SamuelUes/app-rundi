@@ -107,6 +107,130 @@ async function locationExistsInSupabase(locationId: string): Promise<boolean> {
 }
 
 // ============================================
+// SYNC ALL RIDE LOCATIONS (Normalized)
+// ============================================
+async function syncRideLocationsToSupabase(rideId: string, rideData: any): Promise<{ originLocationId?: string; destinationLocationId?: string; waypointsCount: number }> {
+  try {
+    const supabase = getSupabaseClient();
+    const locationIds: { originLocationId?: string; destinationLocationId?: string; waypointsCount: number } = { waypointsCount: 0 };
+    
+    // ✅ VALIDAR que existan datos de ubicación
+    if (!rideData.origin || !rideData.destination) {
+      console.warn(`⚠️ [syncRideLocationsToSupabase] Datos de ubicación incompletos para ${rideId}`);
+      return locationIds;
+    }
+    
+    // ✅ PASO 1: Guardar origen
+    const originLocationId = `${rideId}-origin`;
+    const originLocation = {
+      id: originLocationId,
+      ride_id: rideId,
+      lat: rideData.origin.lat || rideData.origin.latitude,
+      lng: rideData.origin.lng || rideData.origin.longitude,
+      address: rideData.origin.address || 'Origen',
+      location_type: 'origin',
+      is_origin: true,
+      is_destination: false,
+      is_waypoint: false,
+      waypoint_order: null,
+      place_name: null,
+      place_id: null,
+      timestamp: new Date(),
+      created_at: new Date(),
+    };
+    
+    const { error: originError } = await supabase.from('ride_locations').upsert(originLocation);
+    if (originError) {
+      console.error(`❌ [syncRideLocationsToSupabase] Error guardando origen:`, originError);
+    } else {
+      locationIds.originLocationId = originLocationId;
+      console.log(`✅ [syncRideLocationsToSupabase] Origen guardado: ${originLocationId}`);
+    }
+    
+    // ✅ PASO 2: Guardar destinos extras como waypoints (si existen)
+    if (rideData.extraDestinations && Array.isArray(rideData.extraDestinations) && rideData.extraDestinations.length > 0) {
+      console.log(`📍 [syncRideLocationsToSupabase] Sincronizando ${rideData.extraDestinations.length} parada(s) extra(s)`);
+      
+      for (let i = 0; i < rideData.extraDestinations.length; i++) {
+        const dest = rideData.extraDestinations[i];
+        
+        // ✅ Validar que el destino tenga coordenadas
+        if (!dest.lat && !dest.latitude) {
+          console.warn(`⚠️ [syncRideLocationsToSupabase] Parada ${i + 1} sin coordenadas, saltando`);
+          continue;
+        }
+        
+        const waypointLocationId = `${rideId}-waypoint-${i + 1}`;
+        const waypointLocation = {
+          id: waypointLocationId,
+          ride_id: rideId,
+          lat: dest.lat || dest.latitude,
+          lng: dest.lng || dest.longitude,
+          address: dest.address || `Parada ${i + 1}`,
+          location_type: 'waypoint',
+          is_origin: false,
+          is_destination: false,
+          is_waypoint: true,
+          waypoint_order: i + 1,
+          place_name: null,
+          place_id: null,
+          timestamp: new Date(),
+          created_at: new Date(),
+        };
+        
+        const { error: waypointError } = await supabase.from('ride_locations').upsert(waypointLocation);
+        if (waypointError) {
+          console.error(`❌ [syncRideLocationsToSupabase] Error guardando parada ${i + 1}:`, waypointError);
+        } else {
+          locationIds.waypointsCount++;
+          console.log(`✅ [syncRideLocationsToSupabase] Parada ${i + 1} guardada: ${waypointLocationId}`);
+        }
+      }
+    }
+    
+    // ✅ PASO 3: Guardar destino final
+    const destinationLocationId = `${rideId}-destination`;
+    const destinationLocation = {
+      id: destinationLocationId,
+      ride_id: rideId,
+      lat: rideData.destination.lat || rideData.destination.latitude,
+      lng: rideData.destination.lng || rideData.destination.longitude,
+      address: rideData.destination.address || 'Destino',
+      location_type: 'destination',
+      is_origin: false,
+      is_destination: true,
+      is_waypoint: false,
+      waypoint_order: null,
+      place_name: null,
+      place_id: null,
+      timestamp: new Date(),
+      created_at: new Date(),
+    };
+    
+    const { error: destError } = await supabase.from('ride_locations').upsert(destinationLocation);
+    if (destError) {
+      console.error(`❌ [syncRideLocationsToSupabase] Error guardando destino:`, destError);
+    } else {
+      locationIds.destinationLocationId = destinationLocationId;
+      console.log(`✅ [syncRideLocationsToSupabase] Destino final guardado: ${destinationLocationId}`);
+    }
+    
+    // ✅ LOG RESUMEN
+    console.log(`📊 [syncRideLocationsToSupabase] Resumen:`, {
+      rideId,
+      originLocationId: locationIds.originLocationId,
+      waypointsCount: locationIds.waypointsCount,
+      destinationLocationId: locationIds.destinationLocationId,
+    });
+    
+    return locationIds;
+  } catch (error: any) {
+    console.error(`❌ [syncRideLocationsToSupabase] Error crítico:`, error);
+    return { waypointsCount: 0 };
+  }
+}
+
+// ============================================
 // SYNC ACTIVE RIDES
 // ============================================
 export async function syncActiveRideToSupabase(rideId: string, rideData: any): Promise<void> {
@@ -170,6 +294,40 @@ export async function syncActiveRideToSupabase(rideId: string, rideData: any): P
     
     const action = exists ? 'actualizado' : 'insertado';
     console.log(`✅ [syncActiveRideToSupabase] Viaje ${action}: ${rideId}`);
+    
+    // ✅ NUEVO: Sincronizar todas las ubicaciones a ride_locations (normalizado)
+    const locationIds = await syncRideLocationsToSupabase(rideId, rideData);
+    
+    // ✅ NUEVO: Actualizar rides con los IDs de ubicación y metadatos de destinos múltiples
+    if (locationIds.originLocationId || locationIds.destinationLocationId || locationIds.waypointsCount > 0) {
+      const updateData: any = {};
+      
+      if (locationIds.originLocationId) {
+        updateData.origin_location_id = locationIds.originLocationId;
+      }
+      if (locationIds.destinationLocationId) {
+        updateData.destination_location_id = locationIds.destinationLocationId;
+      }
+      
+      // ✅ Actualizar metadatos de destinos múltiples
+      updateData.waypoints_count = locationIds.waypointsCount;
+      updateData.has_multiple_stops = locationIds.waypointsCount > 0;
+      
+      const { error: updateError } = await supabase
+        .from('rides')
+        .update(updateData)
+        .eq('id', rideIdToUse);
+      
+      if (updateError) {
+        console.error(`❌ [syncActiveRideToSupabase] Error actualizando IDs de ubicación:`, updateError);
+      } else {
+        console.log(`✅ [syncActiveRideToSupabase] Datos de ubicación guardados:`, {
+          originLocationId: locationIds.originLocationId,
+          waypointsCount: locationIds.waypointsCount,
+          destinationLocationId: locationIds.destinationLocationId,
+        });
+      }
+    }
   } catch (error: any) {
     console.error(`❌ [syncActiveRideToSupabase] Error:`, error);
     // No lanzar error - la sincronización es no-bloqueante
