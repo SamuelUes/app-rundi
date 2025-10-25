@@ -14,13 +14,74 @@ async function getFirebaseFunctions() {
 
 class PriceNegotiationService {
   /**
+   * Calcular límites dinámicos basados en el precio estimado
+   * Mínimo: 66.67% del precio estimado (con piso de 50 C$)
+   * Máximo: 133.33% del precio estimado (con techo de 500 C$)
+   */
+  private calculatePriceLimits(estimatedPrice: number): { min: number; max: number } {
+    const min = Math.max(50, Math.round(estimatedPrice * 0.6667 * 100) / 100);
+    const max = Math.min(500, Math.round(estimatedPrice * 1.3333 * 100) / 100);
+    return { min, max };
+  }
+
+  /**
+   * Validar que el precio esté dentro de los límites permitidos
+   * @param price Precio a validar
+   * @param estimatedPrice Precio estimado del viaje (para calcular límites dinámicos)
+   */
+  private validatePrice(price: number, estimatedPrice?: number): { valid: boolean; error?: string } {
+    if (isNaN(price)) {
+      return { valid: false, error: 'El precio debe ser un número válido' };
+    }
+
+    // Si no se proporciona estimatedPrice, usar límites globales
+    if (!estimatedPrice) {
+      const globalMin = 50; // Mínimo absoluto de todos los viajes
+      const globalMax = 500;
+      if (price < globalMin) {
+        return { valid: false, error: `El precio mínimo permitido es C$${globalMin}` };
+      }
+      if (price > globalMax) {
+        return { valid: false, error: `El precio máximo permitido es C$${globalMax}` };
+      }
+      return { valid: true };
+    }
+
+    // Usar límites dinámicos basados en estimatedPrice
+    const { min: MIN_PRICE, max: MAX_PRICE } = this.calculatePriceLimits(estimatedPrice);
+    
+    console.log('💰 Validando precio:', {
+      price,
+      estimatedPrice,
+      MIN_PRICE,
+      MAX_PRICE,
+      isValid: price >= MIN_PRICE && price <= MAX_PRICE,
+    });
+
+    if (price < MIN_PRICE) {
+      return { valid: false, error: `El precio mínimo permitido es C$${MIN_PRICE}` };
+    }
+    if (price > MAX_PRICE) {
+      return { valid: false, error: `El precio máximo permitido es C$${MAX_PRICE}` };
+    }
+    return { valid: true };
+  }
+
+  /**
    * Sugerir o contraofertar precio
    * @param rideId ID del viaje
    * @param suggestedPrice Precio sugerido
    * @param role Rol del usuario ('client' o 'driver')
+   * @param estimatedPrice Precio estimado del viaje (para validación dinámica)
    */
-  async negotiatePrice(rideId: string, suggestedPrice: number, role: 'client' | 'driver') {
+  async negotiatePrice(rideId: string, suggestedPrice: number, role: 'client' | 'driver', estimatedPrice?: number) {
     try {
+      // Validar precio con límites dinámicos
+      const validation = this.validatePrice(suggestedPrice, estimatedPrice);
+      if (!validation.valid) {
+        throw new Error(validation.error);
+      }
+
       const functions = await getFirebaseFunctions();
       const negotiatePriceFunction = httpsCallable(functions, 'negotiatePrice');
       
@@ -173,9 +234,16 @@ class PriceNegotiationService {
    * @param rideId ID del viaje
    * @param driverId ID del conductor
    * @param offerPrice Precio ofrecido por el conductor
+   * @param estimatedPrice Precio estimado del viaje (para validación dinámica)
    */
-  async sendOffer(rideId: string, driverId: string, offerPrice: number) {
+  async sendOffer(rideId: string, driverId: string, offerPrice: number, estimatedPrice?: number) {
     try {
+      // Validar precio con límites dinámicos
+      const validation = this.validatePrice(offerPrice, estimatedPrice);
+      if (!validation.valid) {
+        throw new Error(validation.error);
+      }
+
       console.log('📤 Enviando oferta del conductor...');
       console.log(`  - Viaje: ${rideId}`);
       console.log(`  - Conductor: ${driverId}`);

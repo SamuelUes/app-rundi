@@ -100,8 +100,8 @@ export default function SearchRideScreen({ navigation }: any) {
   const [showLocationConfirmation, setShowLocationConfirmation] = useState(false);
   const [loadingAddress, setLoadingAddress] = useState(false);
 
-  // Método de pago seleccionado ('cash' o 'stripe' por defecto, puede cambiar después a banco local)
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'stripe' | 'card'>('cash');
+  // Método de pago seleccionado: 'cash' (efectivo) o 'card' (bancos nacionales)
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card'>('cash');
 
   // Consultar proveedor de mapas al backend
   useEffect(() => {
@@ -539,12 +539,12 @@ export default function SearchRideScreen({ navigation }: any) {
 
       console.log(`✅ ${availabilityCheck.count} conductor(es) con vehículo tipo "${vehicleType}" disponible(s)`);
 
-      // Validar precio sugerido si existe
-      let clientSuggestedPrice = undefined;
+      // Validar precio sugerido si existe (rango: 30-500)
+      let clientSuggestedPrice: number | undefined = undefined;
       if (suggestedPrice && suggestedPrice.trim() !== '') {
         const priceValue = parseFloat(suggestedPrice);
-        if (priceValue < 50) {
-          Alert.alert('Error', 'El precio sugerido debe ser mínimo C$50');
+        if (isNaN(priceValue) || priceValue < 30 || priceValue > 500) {
+          Alert.alert('Error', 'El precio debe estar entre C$30 y C$500');
           setRequestingRide(false);
           return;
         }
@@ -559,7 +559,8 @@ export default function SearchRideScreen({ navigation }: any) {
         hasClientSuggestion: !!clientSuggestedPrice
       });
       
-      const ride = await ridesService.requestRide({
+      // Construir objeto de solicitud sin campos undefined
+      const requestData: any = {
         clientId: user.id,
         origin: {
           lat: startPoint.latitude,
@@ -574,19 +575,37 @@ export default function SearchRideScreen({ navigation }: any) {
         estimatedDistance: Math.round(estimatedDistance * 1000), // Convertir a metros
         estimatedDuration: Math.round(estimatedDuration * 60), // Convertir a segundos
         estimatedPrice: estimatedPrice,
-        clientSuggestedPrice: clientSuggestedPrice, // Precio sugerido por el cliente
         rideType: vehicleType === 'designated_driver' ? 'designated_driver' : 'normal',
-        vehicleType: vehicleType,
-        clientVehiclePhoto: vehicleType === 'designated_driver' ? (clientVehiclePhoto || undefined) : undefined,
-        passengers: passengers,
-        extraDestinations: extraDestinations.map(dest => ({
+        vehicleType: vehicleType || 'auto',
+        paymentMethod: paymentMethod || 'cash', // Usar default si no está definido
+      };
+
+      // Agregar campos opcionales solo si tienen valor
+      if (clientSuggestedPrice) {
+        requestData.clientSuggestedPrice = clientSuggestedPrice;
+      }
+
+      if (vehicleType === 'designated_driver' && clientVehiclePhoto) {
+        requestData.clientVehiclePhoto = clientVehiclePhoto;
+      }
+
+      if (passengers && passengers > 0) {
+        requestData.passengers = passengers;
+      }
+
+      if (extraDestinations && extraDestinations.length > 0) {
+        requestData.extraDestinations = extraDestinations.map(dest => ({
           lat: dest.coords?.latitude || 0,
           lng: dest.coords?.longitude || 0,
           address: dest.address,
-        })),
-        notes: vehicleType === 'designated_driver' ? '🚗 Conductor Designado' : undefined,
-        paymentMethod: paymentMethod, // Agregar método de pago
-      });
+        }));
+      }
+
+      if (vehicleType === 'designated_driver') {
+        requestData.notes = '🚗 Conductor Designado';
+      }
+
+      const ride = await ridesService.requestRide(requestData);
 
       console.log('✅ Viaje solicitado:', ride.id);
 
@@ -619,6 +638,18 @@ export default function SearchRideScreen({ navigation }: any) {
     try {
       setRequestingRide(true);
 
+      // Validar precio sugerido si existe
+      let clientSuggestedPrice = undefined;
+      if (suggestedPrice && suggestedPrice.trim() !== '') {
+        const priceValue = parseFloat(suggestedPrice);
+        if (priceValue < 50) {
+          Alert.alert('Error', 'El precio mínimo sugerido es C$50');
+          setRequestingRide(false);
+          return;
+        }
+        clientSuggestedPrice = priceValue;
+      }
+
       const ride = await ridesService.requestRide({
         clientId: user.id,
         origin: {
@@ -634,6 +665,7 @@ export default function SearchRideScreen({ navigation }: any) {
         estimatedDistance: Math.round(estimatedDistance * 1000), // Convertir a metros
         estimatedDuration: Math.round(estimatedDuration * 60), // Convertir a segundos
         estimatedPrice: estimatedPrice,
+        clientSuggestedPrice: clientSuggestedPrice, // Precio sugerido por el cliente
         rideType: vehicleType === 'designated_driver' ? 'designated_driver' : 'normal',
         vehicleType: vehicleType,
         clientVehiclePhoto: vehicleType === 'designated_driver' ? (clientVehiclePhoto || undefined) : undefined,
@@ -1009,14 +1041,14 @@ export default function SearchRideScreen({ navigation }: any) {
             <TouchableOpacity
               style={[
                 styles.paymentButton,
-                paymentMethod === 'stripe' && styles.paymentButtonActive,
+                paymentMethod === 'card' && styles.paymentButtonActive,
               ]}
-              onPress={() => setPaymentMethod('stripe')}
+              onPress={() => setPaymentMethod('card')}
             >
-              <Text style={styles.paymentIcon}>💳</Text>
+              <Text style={styles.paymentIcon}>🏦</Text>
               <Text style={[
                 styles.paymentButtonText,
-                paymentMethod === 'stripe' && styles.paymentButtonTextActive,
+                paymentMethod === 'card' && styles.paymentButtonTextActive,
               ]}>Tarjeta</Text>
             </TouchableOpacity>
           </View>

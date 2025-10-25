@@ -11,7 +11,6 @@ import {
   UpdateServiceInputSchema,
   AssignServiceToDriverInputSchema,
   ApproveDriverServiceInputSchema,
-  GetCommissionForRideInputSchema,
 } from '../schemas/service.schema';
 
 // ============================================
@@ -205,41 +204,6 @@ export const updateService = functions.https.onCall(async (data, context) => {
     };
   } catch (error: any) {
     console.error('❌ [updateService] Error:', error);
-    throw new functions.https.HttpsError('internal', error.message);
-  } finally {
-    client.release();
-  }
-});
-
-// ============================================
-// GET COMMISSION FOR RIDE
-// Obtiene la comisión efectiva para un conductor y servicio
-// ============================================
-export const getCommissionForRide = functions.https.onCall(async (data, context) => {
-  // Validar datos
-  const validatedData = validateData(GetCommissionForRideInputSchema, data);
-
-  console.log(`💰 [getCommissionForRide] Driver: ${validatedData.driverId}, Service: ${validatedData.serviceCode}`);
-
-  const client = await pool.connect();
-  try {
-    // Usar la función helper de PostgreSQL
-    const result = await client.query(
-      'SELECT get_driver_commission_rate($1, $2) as commission_rate',
-      [validatedData.driverId, validatedData.serviceCode]
-    );
-
-    const commissionRate = parseFloat(result.rows[0].commission_rate);
-
-    console.log(`✅ [getCommissionForRide] Comisión: ${commissionRate * 100}%`);
-
-    return {
-      success: true,
-      commissionRate,
-      commissionPercentage: commissionRate * 100,
-    };
-  } catch (error: any) {
-    console.error('❌ [getCommissionForRide] Error:', error);
     throw new functions.https.HttpsError('internal', error.message);
   } finally {
     client.release();

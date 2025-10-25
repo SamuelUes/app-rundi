@@ -15,6 +15,7 @@ interface UseGoogleAuthReturn {
   promptAsync: () => Promise<any>;
   loading: boolean;
   error: string | null;
+  clearError: () => void;
   loginWithGoogle: (idToken: string) => Promise<any>;
   registerWithGoogle: (
     idToken: string,
@@ -35,9 +36,14 @@ export const useGoogleAuth = (clientId: string): UseGoogleAuthReturn => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
+  // Validar que el clientId esté disponible
+  if (!clientId) {
+    console.error('❌ Google Client ID no configurado. Verifica REACT_APP_GOOGLE_CLIENT_ID');
+  }
+  
   // Usar useAuthRequest correctamente
   const [request, response, promptAsync] = Google.useAuthRequest({
-    clientId,
+    clientId: clientId || '',
     scopes: ['profile', 'email'],
   }) as any;
 
@@ -46,6 +52,9 @@ export const useGoogleAuth = (clientId: string): UseGoogleAuthReturn => {
     if (response?.type === 'success') {
       const { id_token } = response.params;
       console.log('✅ Google Auth exitoso, token recibido');
+    } else if (response?.type === 'error') {
+      console.error('❌ Error en Google Auth:', response.params?.error);
+      setError(response.params?.error || 'Error en Google Sign-In');
     }
   }, [response]);
 
@@ -93,10 +102,15 @@ export const useGoogleAuth = (clientId: string): UseGoogleAuthReturn => {
     }
   };
 
+  const clearError = () => {
+    setError(null);
+  };
+
   return {
     promptAsync,
     loading,
     error,
+    clearError,
     loginWithGoogle,
     registerWithGoogle,
   };

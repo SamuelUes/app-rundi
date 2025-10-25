@@ -70,10 +70,14 @@ export const switchToLocalPayment = functions.https.onCall(async (data, context)
     if (payment.payment_provider === 'stripe' && payment.stripe_payment_intent_id) {
       console.log(`❌ Cancelando pre-autorización de Stripe: ${payment.stripe_payment_intent_id}`);
       
-      const stripe = require('stripe')(functions.config().stripe?.secret_key);
-      await stripe.paymentIntents.cancel(payment.stripe_payment_intent_id);
-      
-      console.log(`✅ Pre-autorización de Stripe cancelada`);
+      const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+      if (stripeSecretKey) {
+        const stripe = require('stripe')(stripeSecretKey);
+        await stripe.paymentIntents.cancel(payment.stripe_payment_intent_id);
+        console.log(`✅ Pre-autorización de Stripe cancelada`);
+      } else {
+        console.warn(`⚠️ STRIPE_SECRET_KEY no configurada, no se puede cancelar pre-autorización`);
+      }
     }
 
     // Crear pre-autorización con banco local

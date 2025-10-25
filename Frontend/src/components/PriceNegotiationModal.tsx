@@ -47,16 +47,68 @@ export default function PriceNegotiationModal({
   const { colors } = useTheme();
   const [counterOffer, setCounterOffer] = useState('');
 
+  const numericEstimatedPrice = typeof estimatedPrice === 'string' 
+    ? parseFloat(estimatedPrice) 
+    : estimatedPrice;
+
+  // Límites de precio dinámicos basados en el precio estimado
+  // Mínimo: 66.67% del precio estimado (con piso de 50 C$)
+  // Máximo: 133.33% del precio estimado (con techo de 500 C$)
+  const MIN_PRICE = Math.max(50, Math.round(numericEstimatedPrice * 0.6667 * 100) / 100);
+  const MAX_PRICE = Math.min(500, Math.round(numericEstimatedPrice * 1.3333 * 100) / 100);
+
+  // Debug logging
+  console.log('💰 PriceNegotiationModal - Cálculo de límites:', {
+    estimatedPrice,
+    numericEstimatedPrice,
+    MIN_PRICE,
+    MAX_PRICE,
+  });
+
   const handleSendCounterOffer = () => {
     const price = parseFloat(counterOffer);
-    if (isNaN(price) || price < 50) {
-      Alert.alert('Error', 'El precio debe ser mínimo C$50');
+    
+    console.log('📝 Validando contraoferta:', {
+      counterOffer,
+      price,
+      MIN_PRICE,
+      MAX_PRICE,
+      isValid: price >= MIN_PRICE && price <= MAX_PRICE,
+    });
+    
+    if (isNaN(price)) {
+      Alert.alert('Error', 'Por favor ingresa un precio válido');
       return;
     }
+    
+    if (price < MIN_PRICE) {
+      Alert.alert('Error', `El precio mínimo es C$${MIN_PRICE}`);
+      return;
+    }
+    
+    if (price > MAX_PRICE) {
+      Alert.alert('Error', `El precio máximo es C$${MAX_PRICE}`);
+      return;
+    }
+    
+    console.log('✅ Contraoferta válida, enviando:', price);
     onSendCounterOffer(price);
     setCounterOffer('');
     // Cerrar el modal después de enviar la contraoferta
     onClose();
+  };
+
+  // Función para validar y formatear el input
+  const handleCounterOfferChange = (text: string) => {
+    // Solo permitir números y un punto decimal
+    const numericText = text.replace(/[^0-9.]/g, '');
+    // Limitar a un solo punto decimal
+    const parts = numericText.split('.');
+    if (parts.length > 2) {
+      setCounterOffer(parts[0] + '.' + parts[1]);
+    } else {
+      setCounterOffer(numericText);
+    }
   };
 
   const driverAcceptedClientPrice = acceptedClientPrice || negotiationStatus === 'driver_accepted';
@@ -188,6 +240,32 @@ export default function PriceNegotiationModal({
                   <Text style={[styles.counterOfferLabel, { color: textColor }]}>
                     O hacer contraoferta:
                   </Text>
+                  <View style={[styles.priceRangeContainer, { backgroundColor: backgroundColor, borderColor: primaryColor }]}>
+                    <Text style={[styles.priceRangeHint, { color: textColor }]}>
+                      📊 Rango permitido:
+                    </Text>
+                    <View style={styles.priceRangeValues}>
+                      <View style={styles.priceRangeItem}>
+                        <Text style={[styles.priceRangeLabel, { color: textSecondaryColor }]}>
+                          Mínimo
+                        </Text>
+                        <Text style={[styles.priceRangeValue, { color: '#4CAF50' }]}>
+                          C${MIN_PRICE}
+                        </Text>
+                      </View>
+                      <Text style={[styles.priceRangeDash, { color: textSecondaryColor }]}>
+                        —
+                      </Text>
+                      <View style={styles.priceRangeItem}>
+                        <Text style={[styles.priceRangeLabel, { color: textSecondaryColor }]}>
+                          Máximo
+                        </Text>
+                        <Text style={[styles.priceRangeValue, { color: '#FF9800' }]}>
+                          C${MAX_PRICE}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
                   <View style={styles.counterOfferInput}>
                     <TextInput
                       style={[styles.input, { 
@@ -195,9 +273,9 @@ export default function PriceNegotiationModal({
                         color: textColor 
                       }]}
                       value={counterOffer}
-                      onChangeText={setCounterOffer}
-                      keyboardType="numeric"
-                      placeholder="Ej: 85"
+                      onChangeText={handleCounterOfferChange}
+                      keyboardType="decimal-pad"
+                      placeholder={`Ej: ${Math.round((MIN_PRICE + MAX_PRICE) / 2)}`}
                       placeholderTextColor={textSecondaryColor}
                     />
                     <TouchableOpacity
@@ -346,6 +424,38 @@ const styles = StyleSheet.create({
   counterOfferLabel: {
     fontSize: 14,
     fontWeight: '600',
+  },
+  priceRangeHint: {
+    fontSize: 12,
+    fontWeight: '500',
+    marginBottom: 8,
+  },
+  priceRangeContainer: {
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: 2,
+  },
+  priceRangeValues: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+  },
+  priceRangeItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  priceRangeLabel: {
+    fontSize: 12,
+    marginBottom: 4,
+  },
+  priceRangeValue: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  priceRangeDash: {
+    fontSize: 20,
+    marginHorizontal: 8,
   },
   counterOfferInput: {
     flexDirection: 'row',

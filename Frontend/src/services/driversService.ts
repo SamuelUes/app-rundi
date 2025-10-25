@@ -28,11 +28,12 @@ class DriversService {
   }
 
   /**
-   * Actualizar estado del conductor
+   * Actualizar estado del conductor con reintentos
    */
   async updateStatus(
     status: 'offline' | 'available' | 'busy',
-    location?: Location
+    location?: Location,
+    retries: number = 3
   ): Promise<{ success: boolean; status: string }> {
     // Verificar que el usuario esté autenticado
     const auth = await getFirebaseAuth();
@@ -50,8 +51,29 @@ class DriversService {
       data.longitude = location.longitude;
     }
 
-    const result = await updateDriverStatus(data);
-    return result.data as { success: boolean; status: string };
+    // Reintentos con backoff exponencial
+    let lastError: any;
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        const result = await updateDriverStatus(data);
+        return result.data as { success: boolean; status: string };
+      } catch (error: any) {
+        lastError = error;
+        console.warn(`⚠️ Intento ${attempt}/${retries} fallido en updateStatus:`, error.code || error.message);
+        
+        // Si es el último intento, lanzar el error
+        if (attempt === retries) {
+          console.error('❌ Error final en updateStatus después de', retries, 'intentos:', error);
+          throw error;
+        }
+        
+        // Esperar antes de reintentar (backoff exponencial)
+        const delay = Math.pow(2, attempt - 1) * 1000; // 1s, 2s, 4s
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+    
+    throw lastError;
   }
 
   /**

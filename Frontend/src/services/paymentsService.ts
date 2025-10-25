@@ -25,14 +25,33 @@ class PaymentsService {
   }
 
   async createPaymentIntent(data: CreatePaymentIntentData): Promise<PaymentIntent> {
-    const functions = await this.getFunctions();
-    const createPaymentIntentFunction = httpsCallable(functions, 'createPaymentIntent');
-    const response = await createPaymentIntentFunction({
-      rideId: data.rideId,
-      amount: data.amount,
-      currency: data.currency || 'nio',
-    });
-    return response.data as PaymentIntent;
+    if (!data.rideId) {
+      throw new Error('rideId es requerido');
+    }
+    
+    if (!data.amount || data.amount <= 0) {
+      throw new Error('amount debe ser mayor a 0');
+    }
+
+    try {
+      const functions = await this.getFunctions();
+      const createPaymentIntentFunction = httpsCallable(functions, 'createPaymentIntent');
+      
+      const response = await createPaymentIntentFunction({
+        rideId: data.rideId,
+        amount: data.amount,
+        currency: data.currency || 'usd', // ✅ Cambiar a 'usd'
+      });
+      
+      if (!response.data) {
+        throw new Error('Respuesta inválida del servidor');
+      }
+      
+      return response.data as PaymentIntent;
+    } catch (error: any) {
+      console.error('Error en createPaymentIntent:', error);
+      throw error;
+    }
   }
 
   async getPaymentHistory(userId: string): Promise<any[]> {

@@ -4,8 +4,9 @@
  * Versión mejorada con soporte para múltiples destinos y seguimiento de clientes
  */
 
-import { getFirebaseDatabase } from '../config/firebase';
+import { getFirebaseDatabase, getFirebaseFunctions } from '../config/firebase';
 import { ref, set, onValue, off, update, remove, serverTimestamp } from 'firebase/database';
+import { httpsCallable } from 'firebase/functions';
 
 interface Location {
   latitude: number;
@@ -30,7 +31,7 @@ interface RideTracking {
   rideId: string;
   driverId: string;
   clientId: string;
-  status: 'waiting' | 'in_progress' | 'completed' | 'cancelled';
+  status: 'waiting' | 'in_progress' | 'completed' | 'cancelled' | 'pending_payment' | 'pending_rating';
   driverLocation?: Location;
   clientLocation?: Location;
   lastUpdate: number;
@@ -107,25 +108,115 @@ class FirebaseTrackingService {
   }
 
   /**
+   * Guardar ubicación con reintentos automáticos
+   */
+  private async saveLocationWithRetry(
+    rideId: string,
+    location: Location,
+    retries: number = 3
+  ): Promise<void> {
+    for (let i = 0; i < retries; i++) {
+      try {
+        console.log(
+          `📍 Intento ${i + 1}/${retries} guardando ubicación en PostgreSQL`
+        );
+
+        const functions = await getFirebaseFunctions();
+        const saveLocationFn = httpsCallable(
+          functions,
+          'saveRideLocationWithRetry'
+        );
+
+        const result = await saveLocationFn({
+          rideId,
+          latitude: location.latitude,
+          longitude: location.longitude,
+          speed: location.speed || null,
+          heading: location.heading || null,
+          accuracy: location.accuracy || null,
+        });
+
+        console.log('✅ Ubicación guardada en PostgreSQL:', result.data);
+        return; // Éxito
+      } catch (error: any) {
+        console.error(`❌ Intento ${i + 1} falló:`, error.message);
+
+        if (i === retries - 1) {
+          console.error('❌ Todos los intentos fallaron');
+          // No lanzar error - Firebase Realtime DB es lo importante
+          return;
+        }
+
+        // Backoff exponencial
+        const delay = Math.pow(2, i) * 1000;
+        console.log(`⏳ Esperando ${delay}ms antes de reintentar...`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+  }
+
+  /**
    * Actualizar tracking del viaje
+   * Guarda en Firebase Realtime DB Y en PostgreSQL (ride_locations)
+   * ✅ NUEVO: Usa Cloud Function para actualizar (evita problemas de permisos)
    */
   async updateRideTracking(
     rideId: string,
     data: Partial<RideTracking>
   ): Promise<void> {
     try {
-      const database = await getFirebaseDatabase();
-      const rideRef = ref(database, `activeRides/${rideId}`);
+      // ✅ NUEVO: Usar Cloud Function en lugar de actualizar directamente
+      // Esto evita problemas de permisos en Firebase Realtime DB
+      const functions = await getFirebaseFunctions();
+      const updateTrackingFn = httpsCallable(functions, 'updateRideStatus');
       
-      await update(rideRef, {
-        ...data,
-        lastUpdate: Date.now(),
-      });
+      // ✅ NUEVO: Agregar timeout para evitar bloqueos
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Timeout actualizando tracking')), 5000)
+      );
+      
+      await Promise.race([
+        updateTrackingFn({
+          rideId,
+          status: data.status,
+          driverLocation: data.driverLocation ? {
+            latitude: data.driverLocation.latitude,
+            longitude: data.driverLocation.longitude,
+            speed: data.driverLocation.speed,
+            heading: data.driverLocation.heading,
+            accuracy: data.driverLocation.accuracy,
+          } : null,
+        }),
+        timeoutPromise
+      ]);
+
+      console.log(`✅ Tracking actualizado vía Cloud Function: ${rideId}`);
+
+      // 2. Si hay ubicación del conductor, guardar en PostgreSQL (ride_locations) con reintentos
+      // ✅ NUEVO: No guardar ubicaciones si el viaje está completado, cancelado o en pending_payment
+      if (data.driverLocation && 
+          data.status !== 'pending_payment' && 
+          data.status !== 'completed' && 
+          data.status !== 'cancelled' &&
+          data.status !== 'pending_rating') {
+        await this.saveLocationWithRetry(rideId, data.driverLocation, 3);
+      } else if (data.status === 'pending_payment' || data.status === 'completed' || data.status === 'cancelled' || data.status === 'pending_rating') {
+        console.log(`⏸️ Tracking pausado: viaje en estado ${data.status}, no se guardan ubicaciones`);
+      }
 
       console.log(`🚗 Tracking actualizado: ${rideId}`);
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Error actualizando tracking:', error);
-      throw error;
+      
+      // ✅ NUEVO: Logging detallado de errores
+      if (error.code === 'functions/unavailable') {
+        console.warn(`⚠️ Firebase Functions no disponible - posible problema de conectividad`);
+      } else if (error.message?.includes('Timeout')) {
+        console.warn(`⚠️ Timeout actualizando tracking - servidor lento`);
+      }
+      
+      // No lanzar error - el tracking es no-bloqueante
+      console.warn(`⚠️ Tracking no se actualizó, pero el viaje continúa`);
     }
   }
 

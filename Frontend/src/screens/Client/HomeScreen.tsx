@@ -286,8 +286,14 @@ export default function HomeScreen({ navigation }: any) {
           method: payment.method,
         });
         
+        // ✅ MEJORADO: Excluir pagos completados, cancelados o fallidos
+        if (payment.status === 'completed' || payment.status === 'canceled' || payment.status === 'failed') {
+          console.log(`✅ [HomeScreen] Pago ${rideId} ya está ${payment.status}, ignorando`);
+          continue;
+        }
+        
         // Solo pagos pendientes o pending_confirmation
-        if (payment.status === 'pending' || payment.status === 'pending_confirmation') {
+        if (payment.status === 'pending' || payment.status === 'pending_confirmation' || payment.status === 'in_progress') {
           // Obtener datos del viaje
           const { ref: refFunc, get } = require('firebase/database');
           const rideRef = refFunc(db, `activeRides/${rideId}`);

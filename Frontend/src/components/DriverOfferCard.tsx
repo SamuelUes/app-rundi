@@ -30,6 +30,7 @@ interface DriverOfferCardProps {
   onViewOffer: () => void;
   onAcceptOffer: () => void;
   hasPendingCounterOffer?: boolean;
+  driverDistance?: number; // ✅ Distancia del conductor al punto de origen (en km)
 }
 
 export default function DriverOfferCard({
@@ -39,6 +40,7 @@ export default function DriverOfferCard({
   onViewOffer,
   onAcceptOffer,
   hasPendingCounterOffer = false,
+  driverDistance, // ✅ Distancia del conductor
 }: DriverOfferCardProps) {
   const { colors } = useTheme();
 
@@ -52,6 +54,12 @@ export default function DriverOfferCard({
     : difference < 0 
     ? `C$${Math.abs(difference).toFixed(2)} más` 
     : 'Precio estimado';
+
+  // Calcular límites de negociación dinámicos
+  // Mínimo: 66.67% del precio estimado (con piso de 50 C$)
+  // Máximo: 133.33% del precio estimado (con techo de 500 C$)
+  const minNegotiationPrice = Math.max(50, Math.round(estimatedPrice * 0.6667 * 100) / 100);
+  const maxNegotiationPrice = Math.min(500, Math.round(estimatedPrice * 1.3333 * 100) / 100);
 
   return (
     <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -83,6 +91,18 @@ export default function DriverOfferCard({
           )}
         </View>
       </View>
+
+      {/* ✅ NUEVO: Distancia del conductor al punto de origen */}
+      {driverDistance !== undefined && (
+        <View style={[styles.distanceSection, { backgroundColor: colors.background }]}>
+          <Text style={[styles.distanceLabel, { color: colors.textSecondary }]}>
+            📍 Distancia al origen:
+          </Text>
+          <Text style={[styles.distanceValue, { color: colors.primary }]}>
+            {driverDistance.toFixed(2)} km
+          </Text>
+        </View>
+      )}
 
       {/* Info del vehículo */}
       {vehicle && (vehicle.make || vehicle.model) && (
@@ -133,6 +153,32 @@ export default function DriverOfferCard({
         <Text style={[styles.savingsText, { color: difference > 0 ? '#4CAF50' : '#FF9800' }]}>
           {savingsText}
         </Text>
+      </View>
+
+      {/* Límites de Negociación */}
+      <View style={[styles.negotiationLimitsSection, { backgroundColor: colors.background }]}>
+        <Text style={[styles.negotiationLimitsTitle, { color: colors.textSecondary }]}>
+          📊 Rango de negociación:
+        </Text>
+        <View style={styles.negotiationLimitsRow}>
+          <View style={styles.limitItem}>
+            <Text style={[styles.limitLabel, { color: colors.textSecondary }]}>
+              Mínimo
+            </Text>
+            <Text style={[styles.limitValue, { color: '#4CAF50' }]}>
+              C${minNegotiationPrice}
+            </Text>
+          </View>
+          <View style={styles.limitDivider} />
+          <View style={styles.limitItem}>
+            <Text style={[styles.limitLabel, { color: colors.textSecondary }]}>
+              Máximo
+            </Text>
+            <Text style={[styles.limitValue, { color: '#FF9800' }]}>
+              C${maxNegotiationPrice}
+            </Text>
+          </View>
+        </View>
       </View>
 
       {/* Botones de acción */}
@@ -213,6 +259,22 @@ const styles = StyleSheet.create({
   rating: {
     fontSize: 14,
   },
+  distanceSection: {
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  distanceLabel: {
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  distanceValue: {
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
   vehicleSection: {
     flexDirection: 'row',
     marginBottom: 12,
@@ -265,6 +327,38 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontStyle: 'italic',
     textAlign: 'right',
+  },
+  negotiationLimitsSection: {
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+  },
+  negotiationLimitsTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  negotiationLimitsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+  },
+  limitItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  limitLabel: {
+    fontSize: 12,
+    marginBottom: 4,
+  },
+  limitValue: {
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  limitDivider: {
+    width: 1,
+    height: 30,
+    backgroundColor: '#E0E0E0',
   },
   actions: {
     gap: 8,

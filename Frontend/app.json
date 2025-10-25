@@ -9,6 +9,7 @@
     "scheme": "driveangel",
     "owner": "samuelues",
     "projectId": "e8f4c3b2-9d1a-4e7f-8c5b-2a3d4e5f6a7b",
+    "runtimeVersion": "1.0.0",
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
@@ -21,7 +22,8 @@
         "ACCESS_COARSE_LOCATION",
         "CAMERA",
         "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE"
+        "WRITE_EXTERNAL_STORAGE",
+        "POST_NOTIFICATIONS"
       ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
@@ -46,7 +48,6 @@
       ]
     },
     "ios": {
-      "scheme": "driveangel",
       "bundleIdentifier": "com.driveangel.ni",
       "urlSchemes": ["driveangel", "tel", "mailto", "whatsapp", "waze", "googlemaps"]
     },
@@ -62,6 +63,13 @@
         {
           "iosClientId": "1040329608349-tl5cpqbf5gn10atmspkq7ligjivebuji.apps.googleusercontent.com",
           "androidClientId": "1040329608349-t11k2f7tu1gtrh8fpogu3n1gmf2gi8p3.apps.googleusercontent.com"
+        }
+      ],
+      [
+        "react-native-firebase",
+        {
+          "messaging_android_notification_channel_id": "default",
+          "messaging_android_notification_priority": "priority_default"
         }
       ]
     ],

@@ -13,7 +13,7 @@ export {
   CreatePaymentInputSchema,
   ConfirmCashPaymentInputSchema,
   CancelPaymentInputSchema,
-  CreateStripePaymentIntentInputSchema,
+  CreateCardPaymentIntentInputSchema,
   LocalBankPaymentInputSchema,
   PaymentSchema,
   type PaymentStatus,
@@ -21,7 +21,7 @@ export {
   type CreatePaymentInput,
   type ConfirmCashPaymentInput,
   type CancelPaymentInput,
-  type CreateStripePaymentIntentInput,
+  type CreateCardPaymentIntentInput,
   type LocalBankPaymentInput,
   type Payment,
 } from './payment.schema';

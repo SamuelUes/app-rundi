@@ -7,6 +7,8 @@
 import * as functions from "firebase-functions";
 import pool from "../config/database";
 import Stripe from "stripe";
+import { validateData } from "../utils/validation";
+import { CreateCardPaymentIntentInputSchema } from "../schemas/payment.schema";
 
 // Inicializar Stripe
 const stripeKey = process.env.STRIPE_SECRET_KEY || "";
@@ -33,11 +35,10 @@ export const createPaymentIntent = functions.https.onCall(async (data, context) 
     throw new functions.https.HttpsError("unauthenticated", "Usuario no autenticado");
   }
 
-  const { rideId, tip = 0, provider = 'stripe' } = data; // Agregar provider: 'stripe' | 'visanet'
-
-  if (!rideId) {
-    throw new functions.https.HttpsError("invalid-argument", "rideId es requerido");
-  }
+  // ✅ VALIDACIÓN CON ZOD
+  const validatedData = validateData(CreateCardPaymentIntentInputSchema, data);
+  const { rideId, tip = 0 } = validatedData;
+  const provider = 'stripe'; // Por defecto usar Stripe
 
   const client = await pool.connect();
   try {
@@ -94,66 +95,31 @@ export const createPaymentIntent = functions.https.onCall(async (data, context) 
 
     let paymentIntentId: string;
     let transactionId: string | null = null;
-    let paymentProvider: string;
+    let paymentProvider: string = provider; // 'stripe' por defecto
 
-    // Procesar según proveedor seleccionado
-    if (provider === 'visanet') {
-      // **VISANET - Tarjetas de bancos locales nicaragüenses**
-      console.log(`🏦 [Visanet] Creando transacción para viaje ${rideId}...`);
-      
-      const { VisanetService } = await import('../services/visanetService');
-      const visanet = new VisanetService();
-      
-      if (!visanet.isConfigured()) {
-        throw new Error('Visanet no está configurado. Usa Stripe o efectivo.');
-      }
-      
-      const transaction = await visanet.createTransaction({
-        amount: totalAmount,
-        currency: 'NIO',
-        orderId: rideId,
-        description: `Viaje DriveAngel - ${rideId}`,
-        metadata: {
-          rideId: ride.id,
-          clientId: ride.client_id,
-          driverId: ride.driver_id || "",
-          fare: fare.toString(),
-          tip: tip.toString(),
-          commission: commission.toString(),
-          rideType: rideType,
-        },
-      });
-      
-      transactionId = transaction.transactionId;
-      paymentIntentId = transaction.transactionId; // Usar transactionId como paymentIntentId
-      paymentProvider = 'visanet';
-      
-      console.log(`✅ [Visanet] Transacción autorizada: ${transactionId}`);
-    } else {
-      // **STRIPE - Tarjetas internacionales (default)**
-      console.log(`💳 [Stripe] Creando Payment Intent para viaje ${rideId}...`);
-      
-      const paymentIntent = await stripe.paymentIntents.create({
-        amount: totalAmount,
-        currency: "nio",
-        capture_method: "manual", // NO capturar automáticamente
-        metadata: {
-          rideId: ride.id,
-          clientId: ride.client_id,
-          driverId: ride.driver_id || "",
-          fare: fare.toString(),
-          tip: tip.toString(),
-          commission: commission.toString(),
-          rideType: rideType,
-        },
-        description: "Pre-autorización de viaje - DriveAngel.ni",
-      });
-      
-      paymentIntentId = paymentIntent.id;
-      paymentProvider = 'stripe';
-      
-      console.log(`✅ [Stripe] Payment Intent creado: ${paymentIntentId}`);
-    }
+    // **STRIPE - Procesador de pagos principal**
+    console.log(`💳 [Stripe] Creando Payment Intent para viaje ${rideId}...`);
+    
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: totalAmount,
+      currency: "usd",
+      capture_method: "manual", // NO capturar automáticamente
+      metadata: {
+        rideId: ride.id,
+        clientId: ride.client_id,
+        driverId: ride.driver_id || "",
+        fare: fare.toString(),
+        tip: tip.toString(),
+        commission: commission.toString(),
+        rideType: rideType,
+      },
+      description: "Pre-autorización de viaje - DriveAngel.ni",
+    });
+    
+    paymentIntentId = paymentIntent.id;
+    paymentProvider = 'stripe';
+    
+    console.log(`✅ [Stripe] Payment Intent creado: ${paymentIntentId}`);
 
     // Guardar en PostgreSQL
     // amount = final_fare (sin tip)
@@ -244,8 +210,6 @@ export const capturePayment = functions.https.onCall(async (data, context) => {
       throw new Error("Payment Intent ID no encontrado. El pago no fue pre-autorizado correctamente.");
     }
 
-    const provider = paymentStatus.provider || 'stripe';
-
     // Actualizar monto si hay propina
     let finalAmount = paymentStatus.amount;
     if (tipAmount > 0) {
@@ -254,36 +218,19 @@ export const capturePayment = functions.https.onCall(async (data, context) => {
 
     let captureSuccess = false;
 
-    // Capturar según proveedor
-    if (provider === 'visanet') {
-      // **VISANET - Capturar transacción**
-      console.log(`🏦 [Visanet] Capturando transacción ${paymentIntentId}...`);
-      
-      const { VisanetService } = await import('../services/visanetService');
-      const visanet = new VisanetService();
-      
-      const transaction = await visanet.captureTransaction(
-        paymentIntentId,
-        Math.round(finalAmount * 100) // Monto en centavos
-      );
-      
-      captureSuccess = transaction.status === 'captured';
-      console.log(`✅ [Visanet] Transacción capturada: ${paymentIntentId}`);
-    } else {
-      // **STRIPE - Capturar Payment Intent**
-      console.log(`💳 [Stripe] Capturando Payment Intent ${paymentIntentId}...`);
-      
-      // Actualizar monto si hay propina
-      if (tipAmount > 0) {
-        await stripe.paymentIntents.update(paymentIntentId, {
-          amount: Math.round(finalAmount * 100), // Convertir a centavos
-        });
-      }
-      
-      const paymentIntent = await stripe.paymentIntents.capture(paymentIntentId);
-      captureSuccess = paymentIntent.status === "succeeded";
-      console.log(`✅ [Stripe] Payment Intent capturado: ${paymentIntentId}`);
+    // **CAPTURAR PAYMENT INTENT (Bancos Nacionales)**
+    console.log(`💳 [Bancos Locales] Capturando Payment Intent ${paymentIntentId}...`);
+    
+    // Actualizar monto si hay propina
+    if (tipAmount > 0) {
+      await stripe.paymentIntents.update(paymentIntentId, {
+        amount: Math.round(finalAmount * 100), // Convertir a centavos
+      });
     }
+    
+    const paymentIntent = await stripe.paymentIntents.capture(paymentIntentId);
+    captureSuccess = paymentIntent.status === "succeeded";
+    console.log(`✅ [Bancos Locales] Payment Intent capturado: ${paymentIntentId}`);
 
     if (captureSuccess) {
       // Actualizar en PostgreSQL (si existe el registro)
@@ -313,6 +260,15 @@ export const capturePayment = functions.https.onCall(async (data, context) => {
         paymentIntentId: paymentIntentId
       };
     } else {
+      // ✅ NUEVO: Actualizar Firebase también cuando falla
+      await admin.database().ref(`paymentStatus/${rideId}`).update({
+        status: 'failed',
+        failureReason: 'Stripe capture failed',
+        failedAt: admin.database.ServerValue.TIMESTAMP,
+        lastUpdatedBy: 'backend',
+        lastUpdatedAt: admin.database.ServerValue.TIMESTAMP,
+      });
+      
       throw new Error("No se pudo capturar el pago");
     }
   } catch (error: any) {
@@ -333,6 +289,7 @@ export const capturePayment = functions.https.onCall(async (data, context) => {
 /**
  * Cancelar autorización de pago
  * Migrado de: Backend/src/payments/payments.service.ts -> cancelPaymentAuthorization()
+ * ✅ NUEVO: Actualiza status en activeRides para que no aparezca como viaje activo
  */
 export const cancelPaymentAuthorization = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
@@ -360,8 +317,24 @@ export const cancelPaymentAuthorization = functions.https.onCall(async (data, co
       throw new Error("No se puede cancelar un pago ya completado");
     }
 
-    // Cancelar en Stripe
-    await stripe.paymentIntents.cancel(payment.stripe_payment_intent_id);
+    // ✅ NUEVO: Validar que paymentIntentId existe antes de cancelar
+    if (!payment.stripe_payment_intent_id) {
+      console.log(`⚠️ No hay Stripe Payment Intent para cancelar en viaje ${rideId}`);
+      // Continuar sin error - el pago ya no existe
+    } else {
+      // Cancelar en Stripe con manejo de errores
+      try {
+        await stripe.paymentIntents.cancel(payment.stripe_payment_intent_id);
+        console.log(`✅ Payment Intent cancelado en Stripe: ${payment.stripe_payment_intent_id}`);
+      } catch (stripeError: any) {
+        if (stripeError.code === 'resource_missing') {
+          console.log(`⚠️ Payment Intent ya no existe en Stripe: ${payment.stripe_payment_intent_id}`);
+          // Continuar - el pago ya fue cancelado
+        } else {
+          throw stripeError;
+        }
+      }
+    }
 
     // Actualizar en PostgreSQL
     await client.query(
@@ -370,6 +343,37 @@ export const cancelPaymentAuthorization = functions.https.onCall(async (data, co
     );
 
     console.log(`🔄 Autorización de pago cancelada para viaje ${rideId}`);
+
+    // ✅ NUEVO: Actualizar status en Firebase para que no aparezca como viaje activo
+    const admin = require('firebase-admin');
+    
+    // Actualizar en activeRides si existe
+    const rideRefActive = admin.database().ref(`activeRides/${rideId}`);
+    const rideSnapshot = await rideRefActive.once('value');
+    const rideData = rideSnapshot.val();
+    
+    if (rideData) {
+      console.log(`🔄 [cancelPaymentAuthorization] Actualizando status en activeRides para ${rideId}`);
+      
+      // ✅ NUEVO: Marcar como 'completed' pero con paymentStatus='cancelled'
+      // Esto indica que el viaje se completó pero el pago fue cancelado
+      // NO aparecerá como viaje activo en los home screens
+      await rideRefActive.update({
+        status: 'completed',
+        paymentStatus: 'cancelled',
+        paymentCancelledAt: admin.database.ServerValue.TIMESTAMP,
+        lastUpdatedBy: 'backend',
+        lastUpdatedAt: admin.database.ServerValue.TIMESTAMP,
+      });
+    }
+
+    // Actualizar paymentStatus en Firebase
+    await admin.database().ref(`paymentStatus/${rideId}`).update({
+      status: 'cancelled',
+      cancelledAt: admin.database.ServerValue.TIMESTAMP,
+      lastUpdatedBy: 'backend',
+      lastUpdatedAt: admin.database.ServerValue.TIMESTAMP,
+    });
 
     return { success: true };
   } catch (error: any) {
@@ -432,6 +436,15 @@ export const registerCashPayment = functions.https.onCall(async (data, context) 
     throw new functions.https.HttpsError("invalid-argument", "rideId es requerido");
   }
 
+  // ✅ NUEVO: Validar que rideId es UUID válido (no Firebase ID)
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!uuidRegex.test(rideId)) {
+    throw new functions.https.HttpsError(
+      'invalid-argument',
+      'rideId debe ser un UUID válido de PostgreSQL, no Firebase ID. Usa pgRideId de completeRide()'
+    );
+  }
+
   const client = await pool.connect();
   try {
     // Obtener viaje
@@ -481,6 +494,19 @@ export const registerCashPayment = functions.https.onCall(async (data, context) 
       lastUpdatedAt: admin.database.ServerValue.TIMESTAMP,
     });
 
+    // ✅ NUEVO: Sincronizar a Supabase de forma NO bloqueante (registerCashPayment)
+    try {
+      const { syncPaymentToSupabase } = await import('./supabasePaymentSync');
+      // NO esperar - ejecutar en background
+      syncPaymentToSupabase(payment.id).catch((err) => {
+        console.error(`❌ Error sincronizando pago a Supabase (background):`, err);
+        // Registrar para monitoreo pero no afectar el flujo principal
+      });
+    } catch (error) {
+      console.error(`❌ Error iniciando sincronización:`, error);
+      // No lanzar error - el pago ya se guardó en PostgreSQL
+    }
+
     return {
       success: true,
       payment: {
@@ -501,6 +527,12 @@ export const registerCashPayment = functions.https.onCall(async (data, context) 
 
 /**
  * Completar pago en efectivo (conductor confirma que recibió el dinero)
+ * 
+ * ✅ NUEVO SISTEMA (2025-10-24):
+ * - Este endpoint SOLO actualiza paymentStatus en Firebase
+ * - El trigger onPaymentCompleted se dispara automáticamente
+ * - El trigger archiva en Supabase automáticamente
+ * - NO intentes archivar aquí
  */
 export const completeCashPayment = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
@@ -515,7 +547,9 @@ export const completeCashPayment = functions.https.onCall(async (data, context) 
 
   console.log(`💵 [completeCashPayment] Procesando pago para rideId: ${rideId}`);
 
-  // Obtener datos del pago desde paymentStatus (más confiable que activeRides)
+  // ✅ NUEVO SISTEMA: SOLO actualizar Firebase
+  // El trigger onPaymentCompleted se dispara automáticamente y archiva en Supabase
+  
   const admin = require('firebase-admin');
   const paymentSnapshot = await admin.database().ref(`paymentStatus/${rideId}`).once('value');
   const paymentData = paymentSnapshot.val();
@@ -528,152 +562,45 @@ export const completeCashPayment = functions.https.onCall(async (data, context) 
 
   // VALIDACIÓN: Verificar que AMBOS (cliente Y conductor) hayan confirmado
   const clientConfirmed = paymentData.confirmedByClient === true;
-  const driverConfirmed = paymentData.confirmedBy === 'driver' || paymentData.status === 'payment_in_progress';
+  const driverConfirmed = paymentData.confirmedByDriver === true;
 
   console.log(`🔍 [completeCashPayment] Validando confirmaciones - Cliente: ${clientConfirmed}, Conductor: ${driverConfirmed}`);
 
-  if (!driverConfirmed) {
-    throw new functions.https.HttpsError("failed-precondition", "El conductor no ha confirmado el pago");
-  }
-
-  // Si el cliente NO confirmó, verificar si ya pasó el timeout (5 minutos)
-  if (!clientConfirmed) {
-    const confirmedAt = paymentData.confirmedAt || paymentData.lastUpdatedAt || Date.now();
-    const timeoutMinutes = 5;
-    const timeElapsed = Date.now() - confirmedAt;
-    const timeoutMs = timeoutMinutes * 60 * 1000;
-
-    if (timeElapsed < timeoutMs) {
-      // Aún no ha pasado el timeout, rechazar
-      throw new functions.https.HttpsError(
-        "failed-precondition", 
-        `El cliente aún no ha confirmado el pago. Espera ${Math.ceil((timeoutMs - timeElapsed) / 60000)} minutos o contacta al cliente.`
-      );
-    } else {
-      // Ya pasó el timeout, proceder pero marcar como pago problemático
-      console.log(`⚠️ [completeCashPayment] Cliente no confirmó después de ${timeoutMinutes} minutos. Procesando con comisión.`);
-    }
-  } else {
-    console.log(`✅ [completeCashPayment] Ambos confirmaron el pago`);
-  }
-
-  // Intentar obtener datos del viaje desde activeRides (puede no existir si ya se completó)
-  let ride = null;
-  const rideSnapshot = await admin.database().ref(`activeRides/${rideId}`).once('value');
-  ride = rideSnapshot.val();
-
-  console.log(`📦 [completeCashPayment] Viaje en activeRides:`, ride ? 'Encontrado' : 'No encontrado');
-
-  // Si no está en activeRides, buscar en completedRides
-  if (!ride) {
-    console.log(`🔍 [completeCashPayment] Buscando en completedRides...`);
-    const completedSnapshot = await admin.database().ref(`completedRides/${rideId}`).once('value');
-    ride = completedSnapshot.val();
-    console.log(`📦 [completeCashPayment] Viaje en completedRides:`, ride ? 'Encontrado' : 'No encontrado');
-  }
-
-  if (!ride) {
-    throw new functions.https.HttpsError("not-found", "Viaje no encontrado en activeRides ni completedRides");
-  }
-
-  const pgRideId = ride.pgRideId;
-  const finalAmount = paymentData.finalAmount || ride.finalFare || ride.estimatedPrice || 0;
-  const commission = finalAmount * (ride.isDesignatedDriver ? 0.15 : 0.10);
-
-  console.log(`💰 [completeCashPayment] Monto final: C$${finalAmount}, Comisión: C$${commission}`);
-
-  const client = await pool.connect();
-  try {
-    // Verificar si ya existe un pago para este viaje
-    const existingPayment = await client.query(
-      `SELECT id FROM payments WHERE ride_id = $1`,
-      [pgRideId]
+  if (!clientConfirmed || !driverConfirmed) {
+    throw new functions.https.HttpsError(
+      "failed-precondition", 
+      `Ambos deben confirmar. Cliente: ${clientConfirmed}, Conductor: ${driverConfirmed}`
     );
-
-    let result;
-    if (existingPayment.rows.length > 0) {
-      // Actualizar pago existente
-      result = await client.query(
-        `UPDATE payments 
-         SET status = $1, paid_at = NOW(), updated_at = NOW()
-         WHERE ride_id = $2
-         RETURNING *`,
-        [PaymentStatus.COMPLETED, pgRideId]
-      );
-    } else {
-      // Crear nuevo pago
-      result = await client.query(
-        `INSERT INTO payments (
-          ride_id, amount, tip, commission, payment_method, payment_provider, status, 
-          paid_at, created_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
-        RETURNING *`,
-        [
-          pgRideId,
-          finalAmount,
-          0, // tip
-          commission,
-          PaymentMethod.CASH,
-          'cash',
-          PaymentStatus.COMPLETED
-        ]
-      );
-    }
-
-    const payment = result.rows[0];
-
-    console.log(`✅ Pago en efectivo confirmado para viaje ${rideId}: C$${payment.amount}`);
-
-    // Actualizar Realtime DB - Marcar pago como completado
-    const admin = require('firebase-admin');
-    await admin.database().ref(`paymentStatus/${rideId}`).update({
-      status: 'completed',
-      completedAt: admin.database.ServerValue.TIMESTAMP,
-      confirmedBy: 'driver',
-      lastUpdatedBy: 'backend',
-      lastUpdatedAt: admin.database.ServerValue.TIMESTAMP,
-    });
-
-    // Actualizar estado del viaje a 'completed' (ahora sí, pago confirmado)
-    const rideRefActive = admin.database().ref(`activeRides/${rideId}`);
-    const rideRefCompleted = admin.database().ref(`completedRides/${rideId}`);
-    
-    // Obtener datos del viaje
-    const rideSnapshot = await rideRefActive.once('value');
-    const rideData = rideSnapshot.val();
-    
-    if (rideData) {
-      console.log(`🔄 [completeCashPayment] Moviendo viaje ${rideId} de activeRides a completedRides`);
-      
-      // Actualizar status a completed
-      rideData.status = 'completed';
-      rideData.paymentCompletedAt = admin.database.ServerValue.TIMESTAMP;
-      
-      // Mover a completedRides
-      await rideRefCompleted.set(rideData);
-      
-      // Eliminar de activeRides
-      await rideRefActive.remove();
-      
-      console.log(`✅ [completeCashPayment] Viaje ${rideId} movido a completedRides`);
-    } else {
-      console.log(`⚠️ [completeCashPayment] Viaje ${rideId} no encontrado en activeRides, puede estar ya completado`);
-    }
-
-    return {
-      success: true,
-      payment: result.rows[0],
-    };
-  } catch (error: any) {
-    console.error("❌ Error completando pago en efectivo:", error);
-    throw new functions.https.HttpsError("internal", error.message);
-  } finally {
-    client.release();
   }
+
+  console.log(`✅ [completeCashPayment] Ambos confirmaron el pago`);
+
+  // ✅ ACTUALIZAR paymentStatus a 'completed' en Firebase
+  // Esto dispara el trigger onPaymentCompleted automáticamente
+  console.log(`🔄 [completeCashPayment] Actualizando paymentStatus.status a 'completed'...`);
+  await admin.database().ref(`paymentStatus/${rideId}`).update({
+    status: 'completed',
+    confirmedAt: admin.database.ServerValue.TIMESTAMP,
+    lastUpdatedBy: 'backend',
+    lastUpdatedAt: admin.database.ServerValue.TIMESTAMP,
+  });
+
+  console.log(`✅ [completeCashPayment] paymentStatus actualizado a 'completed'`);
+  console.log(`   ⏳ El trigger onPaymentCompleted se disparará automáticamente...`);
+  console.log(`   ⏳ El viaje se archivará en Supabase automáticamente...`);
+
+  return {
+    success: true,
+    bothConfirmed: true,
+    message: "Pago completado. El viaje se archivará automáticamente.",
+    status: "pending_rating",
+  };
 });
+
 
 /**
  * Cancelar pago en efectivo (conductor reporta problema)
+ * ✅ MEJORADO: Garantiza que se guarde en PostgreSQL y Supabase
  */
 export const cancelCashPayment = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
@@ -687,10 +614,133 @@ export const cancelCashPayment = functions.https.onCall(async (data, context) =>
   }
 
   try {
-    console.log(`🔄 Cancelando pago en efectivo para viaje ${rideId}: ${reason}`);
+    console.log(`❌ [cancelCashPayment] Cancelando pago para viaje ${rideId}: ${reason}`);
 
-    // Actualizar Realtime DB primero
+    // Obtener datos del viaje PRIMERO (antes de actualizar Realtime)
     const admin = require('firebase-admin');
+    const rideSnapshot = await admin.database().ref(`activeRides/${rideId}`).once('value');
+    let ride = rideSnapshot.val();
+    
+    if (!ride) {
+      console.warn(`⚠️ [cancelCashPayment] Viaje ${rideId} no encontrado en activeRides`);
+      // Intentar en completedRides
+      const completedSnapshot = await admin.database().ref(`completedRides/${rideId}`).once('value');
+      const completedRide = completedSnapshot.val();
+      
+      if (!completedRide) {
+        throw new functions.https.HttpsError("not-found", "Viaje no encontrado en activeRides ni completedRides");
+      }
+      
+      ride = completedRide;
+    }
+
+    let pgRideId = ride?.pgRideId;
+    
+    // ✅ MEJORADO: Si no existe pgRideId en Firebase, buscarlo en PostgreSQL
+    if (!pgRideId) {
+      console.log(`⚠️ [cancelCashPayment] pgRideId no encontrado en Firebase, buscando en PostgreSQL...`);
+      
+      try {
+        const client = await pool.connect();
+        try {
+          // Buscar por clientId y driverId (más confiable que por rideId)
+          const result = await client.query(
+            `SELECT id FROM rides 
+             WHERE client_id = $1 AND driver_id = $2 
+             ORDER BY created_at DESC 
+             LIMIT 1`,
+            [ride.clientId, ride.driverId]
+          );
+          
+          if (result.rows.length > 0) {
+            pgRideId = result.rows[0].id;
+            console.log(`✅ [cancelCashPayment] pgRideId encontrado en PostgreSQL: ${pgRideId}`);
+          } else {
+            console.warn(`⚠️ [cancelCashPayment] No se encontró viaje en PostgreSQL para clientId=${ride.clientId}, driverId=${ride.driverId}`);
+          }
+        } finally {
+          client.release();
+        }
+      } catch (dbError) {
+        console.error(`❌ [cancelCashPayment] Error buscando en PostgreSQL:`, dbError);
+      }
+    }
+    
+    // ✅ VALIDACIÓN FINAL: Verificar que pgRideId existe
+    if (!pgRideId) {
+      console.error(`❌ [cancelCashPayment] pgRideId no encontrado para rideId: ${rideId}`);
+      throw new functions.https.HttpsError("failed-precondition", "El viaje no tiene pgRideId. No se puede guardar la cancelación en PostgreSQL.");
+    }
+
+    console.log(`📋 [cancelCashPayment] Datos: rideId=${rideId}, pgRideId=${pgRideId}, reason=${reason}`);
+
+    // Actualizar en PostgreSQL PRIMERO (más importante)
+    const client = await pool.connect();
+    let paymentUpdated = false;
+    
+    try {
+      // ✅ MEJORADO: Intentar UPDATE primero, si no existe INSERT
+      const existingPayment = await client.query(
+        `SELECT id FROM payments WHERE ride_id = $1`,
+        [pgRideId]
+      );
+
+      if (existingPayment.rows.length > 0) {
+        // ✅ ACTUALIZAR pago existente
+        console.log(`🔄 [cancelCashPayment] Pago existe, ACTUALIZANDO para pgRideId: ${pgRideId}`);
+        const result = await client.query(
+          `UPDATE payments 
+           SET status = $1, cancel_reason = $2, updated_at = NOW()
+           WHERE ride_id = $3
+           RETURNING *`,
+          [PaymentStatus.CANCELED, reason, pgRideId]
+        );
+
+        if (result.rows.length > 0) {
+          console.log(`✅ [cancelCashPayment] Pago ACTUALIZADO en PostgreSQL: ${result.rows[0].id}`);
+          paymentUpdated = true;
+        } else {
+          console.error(`❌ [cancelCashPayment] UPDATE no retornó filas para pgRideId: ${pgRideId}`);
+        }
+      } else {
+        // ✅ INSERTAR nuevo pago cancelado (si no existe)
+        console.log(`🆕 [cancelCashPayment] Pago no existe, INSERTANDO para pgRideId: ${pgRideId}`);
+        
+        const finalAmount = ride?.finalFare || ride?.estimatedPrice || 0;
+        const commission = finalAmount * 0.15;
+        
+        const result = await client.query(
+          `INSERT INTO payments (
+            ride_id, amount, tip, commission, payment_method, payment_provider, status, 
+            cancel_reason, notes, created_at, updated_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+          RETURNING *`,
+          [
+            pgRideId,
+            finalAmount,
+            0, // tip
+            commission,
+            PaymentMethod.CASH,
+            'cash',
+            PaymentStatus.CANCELED,
+            reason,
+            'Pago cancelado por conductor'
+          ]
+        );
+
+        if (result.rows.length > 0) {
+          console.log(`✅ [cancelCashPayment] Pago INSERTADO en PostgreSQL: ${result.rows[0].id}`);
+          paymentUpdated = true;
+        } else {
+          console.error(`❌ [cancelCashPayment] INSERT no retornó filas para pgRideId: ${pgRideId}`);
+        }
+      }
+    } finally {
+      client.release();
+    }
+
+    // Actualizar Realtime DB DESPUÉS de guardar en PostgreSQL
+    console.log(`📝 [cancelCashPayment] Actualizando paymentStatus en Realtime DB`);
     await admin.database().ref(`paymentStatus/${rideId}`).update({
       status: 'canceled',
       cancelReason: reason,
@@ -700,54 +750,40 @@ export const cancelCashPayment = functions.https.onCall(async (data, context) =>
       lastUpdatedAt: admin.database.ServerValue.TIMESTAMP,
     });
 
-    // Obtener pgRideId desde Firebase
-    const rideSnapshot = await admin.database().ref(`activeRides/${rideId}`).once('value');
-    const ride = rideSnapshot.val();
-    
-    if (!ride) {
-      console.log(`⚠️ Viaje ${rideId} no encontrado en activeRides, puede estar archivado`);
-      return {
-        success: true,
-        message: 'Pago cancelado en Firebase (viaje no encontrado en PostgreSQL)',
-      };
-    }
-
-    const pgRideId = ride.pgRideId;
-    
-    if (!pgRideId) {
-      console.log(`⚠️ Viaje ${rideId} no tiene pgRideId, puede no estar en PostgreSQL aún`);
-      return {
-        success: true,
-        message: 'Pago cancelado en Firebase (viaje no tiene pgRideId)',
-      };
-    }
-
-    // Actualizar en PostgreSQL si existe
-    const client = await pool.connect();
-    try {
-      const result = await client.query(
-        `UPDATE payments 
-         SET status = $1, cancel_reason = $2, updated_at = NOW()
-         WHERE ride_id = $3 AND payment_method = $4
-         RETURNING *`,
-        [PaymentStatus.CANCELED, reason, pgRideId, PaymentMethod.CASH]
-      );
-
-      if (result.rows.length === 0) {
-        console.log(`⚠️ Pago no encontrado en PostgreSQL para pgRideId: ${pgRideId}`);
-      } else {
-        console.log(`✅ Pago en efectivo cancelado en PostgreSQL para viaje ${rideId} (pgRideId: ${pgRideId})`);
+    // ✅ NUEVO: Sincronizar a Supabase de forma NO bloqueante
+    if (paymentUpdated) {
+      try {
+        const { syncPaymentToSupabase } = await import('./supabasePaymentSync');
+        // NO esperar - ejecutar en background
+        // Necesitamos obtener el ID del pago para sincronizar
+        const paymentResult = await pool.query(
+          `SELECT id FROM payments WHERE ride_id = $1`,
+          [pgRideId]
+        );
+        
+        if (paymentResult.rows.length > 0) {
+          const paymentId = paymentResult.rows[0].id;
+          syncPaymentToSupabase(paymentId).catch((err) => {
+            console.error(`❌ Error sincronizando pago cancelado a Supabase (background):`, err);
+          });
+          console.log(`✅ [cancelCashPayment] Sincronización a Supabase iniciada para paymentId: ${paymentId}`);
+        }
+      } catch (error) {
+        console.warn(`⚠️ [cancelCashPayment] Error iniciando sincronización a Supabase:`, error);
+        // No lanzar error - el pago ya se guardó en PostgreSQL
       }
-
-      return {
-        success: true,
-        payment: result.rows[0] || null,
-      };
-    } finally {
-      client.release();
     }
+
+    return {
+      success: true,
+      message: 'Pago cancelado exitosamente',
+      rideId,
+      pgRideId,
+      reason,
+      paymentUpdated,
+    };
   } catch (error: any) {
-    console.error("❌ Error cancelando pago en efectivo:", error);
+    console.error("❌ [cancelCashPayment] Error cancelando pago:", error);
     throw new functions.https.HttpsError("internal", error.message);
   }
 });

@@ -32,6 +32,12 @@ import * as servicesAPI from "./api/services";
 import * as switchPaymentMethodAPI from "./api/switchPaymentMethod";
 import * as pendingPaymentsAPI from "./api/pendingPayments";
 import * as routingFunctions from "./location/routing";
+import * as penaltiesSyncAPI from "./api/penaltiesSync";
+import * as locationsSyncAPI from "./api/locationsSync";
+import * as driverServicesSyncAPI from "./api/driverServicesSync";
+import * as driverServicesAPI from "./api/driverServices";
+import * as supabasePaymentSyncAPI from "./api/supabasePaymentSync";
+import * as realtimeSyncAPI from "./api/realtimeSyncToSupabase";
 
 // Importar user management
 import * as userManagement from "./user/deleteUserData";
@@ -39,11 +45,17 @@ import * as userManagement from "./user/deleteUserData";
 // Importar triggers
 import * as authTriggers from "./triggers/auth";
 import * as ridesTriggers from "./triggers/rides";
-import * as paymentsTriggers from "./triggers/payments";
-import * as paymentStatusSync from "./triggers/paymentStatusSync";
+// ⚠️ DEPRECADO: import * as paymentsTriggers from "./triggers/payments";
+// ⚠️ DEPRECADO: import * as paymentStatusSync from "./triggers/paymentStatusSync";
+// ⚠️ ELIMINADO: import * as paymentStatusListener from "./triggers/paymentStatusListener";
+import * as onPaymentCompletedTrigger from "./triggers/onPaymentCompleted";
+import * as onRideCanceledTrigger from "./triggers/onRideCanceled";
+
+// Importar notificaciones
+import * as notificationsAPI from "./api/notifications";
 
 // Importar webhooks
-import * as stripeWebhook from "./webhooks/stripe";
+// ✅ Eliminado: Stripe webhook (sistema de pagos simplificado)
 
 // Importar scheduled functions
 import * as cleanupScheduled from "./scheduled/cleanupOldRides";
@@ -86,16 +98,22 @@ export const updateDriverLocation = driversAPI.updateDriverLocation;
 export const getDriverProfile = driversAPI.getDriverProfile;
 export const updateDriverStatus = driversAPI.updateDriverStatus;
 export const getAvailableDrivers = driversAPI.getAvailableDrivers;
-export const updateDesignatedDriverMode = driversAPI.updateDesignatedDriverMode;
+// ✅ ELIMINADOS:
+// - updateDesignatedDriverMode
+// - requestDesignatedDriverAccess
+// - getDesignatedDriverRequestStatus
+// - approveDesignatedDriverRequest
+// - rejectDesignatedDriverRequest
+// Ahora usar funciones en driverServices.ts:
+// - assignServiceToDriver()
+// - getDriverServices()
+// - approveDriverService()
+// - deactivateDriverService()
 export const updateDriver = driversAPI.updateDriver;
 export const updateVehicle = driversAPI.updateVehicle;
 export const addVehicle = driversAPI.addVehicle;
 export const switchVehicle = driversAPI.switchVehicle;
 export const getDriverVehicles = driversAPI.getDriverVehicles;
-export const requestDesignatedDriverAccess = driversAPI.requestDesignatedDriverAccess;
-export const getDesignatedDriverRequestStatus = driversAPI.getDesignatedDriverRequestStatus;
-export const approveDesignatedDriverRequest = driversAPI.approveDesignatedDriverRequest;
-export const rejectDesignatedDriverRequest = driversAPI.rejectDesignatedDriverRequest;
 
 // Payments
 export const createPaymentIntent = paymentsAPI.createPaymentIntent;
@@ -127,6 +145,10 @@ export const getRouteHistory = trackingFunctions.getRouteHistory;
 export const updateDriverLocationOptimized = trackingOptimized.updateDriverLocationOptimized;
 export const getIntelligentETA = trackingOptimized.getIntelligentETA;
 export const getCompressedRouteHistory = trackingOptimized.getCompressedRouteHistory;
+
+// Locations Sync (Sincronizar ubicaciones a Supabase)
+export const saveRideLocationWithRetry = locationsSyncAPI.saveRideLocationWithRetry;
+export const saveRideLocationsBatch = locationsSyncAPI.saveRideLocationsBatch;
 
 // FCM (Firebase Cloud Messaging)
 export const registerFCMToken = fcmFunctions.registerFCMToken;
@@ -164,6 +186,10 @@ export const markPenaltiesAsDeducted = penaltiesAPI.markPenaltiesAsDeducted;
 export const forgivePenalty = penaltiesAPI.forgivePenalty;
 export const getPenaltiesSummary = penaltiesAPI.getPenaltiesSummary;
 
+// Penalties Sync (Sincronizar a Supabase)
+export const syncPenaltyToSupabase = penaltiesSyncAPI.syncPenaltyToSupabase;
+export const syncPenaltiesBatch = penaltiesSyncAPI.syncPenaltiesBatch;
+
 // Commissions
 export const getCommissionBreakdown = commissionsAPI.getCommissionBreakdown;
 
@@ -179,10 +205,17 @@ export const getServices = servicesAPI.getServices;
 export const getServiceById = servicesAPI.getServiceById;
 export const createService = servicesAPI.createService;
 export const updateService = servicesAPI.updateService;
-export const getCommissionForRide = servicesAPI.getCommissionForRide;
-export const assignServiceToDriver = servicesAPI.assignServiceToDriver;
-export const approveDriverService = servicesAPI.approveDriverService;
-export const getDriverServices = servicesAPI.getDriverServices;
+
+// Driver Services (Servicios asignados a conductores con validaciones)
+export const getDriverServices = driverServicesAPI.getDriverServices;
+export const getCommissionForRide = driverServicesAPI.getCommissionForRide;
+export const assignServiceToDriver = driverServicesAPI.assignServiceToDriver;
+export const approveDriverService = driverServicesAPI.approveDriverService;
+export const deactivateDriverService = driverServicesAPI.deactivateDriverService;
+
+// Driver Services Sync (Sincronizar servicios a Supabase)
+export const syncDriverServiceToSupabase = driverServicesSyncAPI.syncDriverServiceToSupabase;
+export const syncDriverServicesBatch = driverServicesSyncAPI.syncDriverServicesBatch;
 
 // Switch Payment Method
 export const switchPaymentMethod = switchPaymentMethodAPI.switchPaymentMethod;
@@ -208,10 +241,20 @@ export const onRideStatusChanged = ridesTriggers.onRideStatusChanged;
 export const onRideCreated = ridesTriggers.onRideCreated;
 
 // Payments Triggers
-export const onPaymentCompleted = paymentsTriggers.onPaymentCompleted;
-export const syncPaymentStatusToPostgres = paymentStatusSync.syncPaymentStatusToPostgres;
-export const syncPostgresToFirebase = paymentStatusSync.syncPostgresToFirebase;
-export const forceSyncPaymentToFirebase = paymentStatusSync.forceSyncPaymentToFirebase;
+// ⚠️ DEPRECADO: onPaymentCompleted (función vacía, solo loguea)
+// export const onPaymentCompleted = paymentsTriggers.onPaymentCompleted;
+
+// ⚠️ ELIMINADO: Listener automático reemplazado por onPaymentCompletedTrigger
+// export const onPaymentStatusChange = paymentStatusListener.onPaymentStatusChange;
+
+// ⚠️ DEPRECADO: Mantener para compatibilidad pero no usar
+// export const syncPaymentStatusToPostgres = paymentStatusSync.syncPaymentStatusToPostgres;
+// export const syncPostgresToFirebase = paymentStatusSync.syncPostgresToFirebase;
+// export const forceSyncPaymentToFirebase = paymentStatusSync.forceSyncPaymentToFirebase;
+
+// Payments Sync to Supabase
+export const syncPaymentsToSupabase = supabasePaymentSyncAPI.syncPaymentsToSupabase;
+export const forceSyncPaymentToSupabase = supabasePaymentSyncAPI.forceSyncPaymentToSupabase;
 
 // FCM Triggers
 export const onRideAccepted = fcmFunctions.sendRideAcceptedNotification;
@@ -220,8 +263,7 @@ export const onRideCancelled = fcmFunctions.sendRideCancelledNotification;
 // ============================================
 // WEBHOOKS
 // ============================================
-
-export const stripeWebhookHandler = stripeWebhook.handler;
+// ✅ Eliminado: Stripe webhook (sistema de pagos simplificado)
 
 // ============================================
 // SCHEDULED FUNCTIONS (Cron Jobs)
@@ -272,6 +314,53 @@ export const deleteUserFromSupabase = userManagement.deleteUserFromSupabase;
 // Eliminar datos manualmente (para testing o limpieza)
 export const manualDeleteUserData = userManagement.manualDeleteUserData;
 
+
+// ============================================
+// REALTIME SYNC TO SUPABASE
+// ============================================
+
+// ✅ NUEVO: Inicializar listeners de forma lazy (solo cuando se necesita)
+// Esto evita errores de credenciales al arrancar en el emulador
+let syncListenersInitialized = false;
+
+function ensureSyncListenersInitialized(): void {
+  if (!syncListenersInitialized) {
+    try {
+      realtimeSyncAPI.initializeRealtimeSyncListeners();
+      syncListenersInitialized = true;
+    } catch (error) {
+      console.warn(`⚠️ Error inicializando sync listeners:`, error);
+      // No lanzar error - el sistema funcionará sin listeners
+    }
+  }
+}
+
+// Inicializar listeners después de que el sistema esté listo
+// Usar setImmediate para que se ejecute después de que todas las funciones se hayan registrado
+setImmediate(() => {
+  try {
+    ensureSyncListenersInitialized();
+  } catch (error) {
+    console.warn(`⚠️ Error en inicialización diferida de listeners:`, error);
+  }
+});
+
+// Exportar funciones de sincronización manual
+export const syncActiveRideToSupabase = realtimeSyncAPI.syncActiveRideToSupabase;
+export const syncPaymentStatusToSupabase = realtimeSyncAPI.syncPaymentStatusToSupabase;
+export const syncDriverLocationToSupabase = realtimeSyncAPI.syncDriverLocationToSupabase;
+
+// Exportar triggers
+export const onPaymentCompletedAutomatic = onPaymentCompletedTrigger.onPaymentCompleted;
+export const onPaymentCanceledAutomatic = onPaymentCompletedTrigger.onPaymentCanceled;
+export const onRideCanceledAutomatic = onRideCanceledTrigger.onRideCanceled;
+
+// Notificaciones Push Triggers
+export const onDriverFoundNotification = notificationsAPI.onDriverFound;
+export const onDriverAcceptedNotification = notificationsAPI.onDriverAccepted;
+export const onRideStartedNotification = notificationsAPI.onRideStartedNotification;
+export const onRideCompletedNotification = notificationsAPI.onRideCompletedNotification;
+export const onChatMessageNotification = notificationsAPI.onChatMessageNotification;
 
 // ============================================
 // HEALTH CHECK

@@ -16,25 +16,11 @@ export const DriverStatusSchema = z.enum([
 
 export type DriverStatus = z.infer<typeof DriverStatusSchema>;
 
-// ============================================
-// DESIGNATED DRIVER STATUS ENUM
-// ============================================
-export const DesignatedDriverStatusSchema = z.enum([
-  'pending',
-  'approved',
-  'rejected',
-]);
-
-export type DesignatedDriverStatus = z.infer<typeof DesignatedDriverStatusSchema>;
-
-// ============================================
-// DESIGNATED DRIVER ROLE ENUM
-// ============================================
-export const DesignatedDriverRoleSchema = z.enum([
-  'designated_driver',
-]);
-
-export type DesignatedDriverRole = z.infer<typeof DesignatedDriverRoleSchema>;
+// ✅ ELIMINADOS:
+// - DesignatedDriverStatusSchema
+// - DesignatedDriverRoleSchema
+// El estado de solicitud ahora está en driver_services.is_approved
+// El rol siempre es "driver"
 
 // ============================================
 // CREATE DRIVER INPUT
@@ -45,10 +31,10 @@ export const CreateDriverInputSchema = z.object({
   licenseExpiry: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), // YYYY-MM-DD
   department: z.string().max(100).optional(),
   municipality: z.string().max(100).optional(),
-  profilePhoto: z.string().url().optional(),
-  licenseFront: z.string().url().optional(),
-  licenseBack: z.string().url().optional(),
-  backgroundCheck: z.string().url().optional(),
+  profilePhoto: z.string().min(1).optional(), // Aceptar URLs locales o remotas
+  licenseFront: z.string().min(1).optional(), // Aceptar URLs locales o remotas
+  licenseBack: z.string().min(1).optional(), // Aceptar URLs locales o remotas
+  backgroundCheck: z.string().min(1).optional(), // Aceptar URLs locales o remotas
 });
 
 export type CreateDriverInput = z.infer<typeof CreateDriverInputSchema>;
@@ -61,10 +47,10 @@ export const UpdateDriverInputSchema = z.object({
   licenseExpiry: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   department: z.string().max(100).optional(),
   municipality: z.string().max(100).optional(),
-  profilePhoto: z.string().url().optional(),
-  licenseFront: z.string().url().optional(),
-  licenseBack: z.string().url().optional(),
-  backgroundCheck: z.string().url().optional(),
+  profilePhoto: z.string().min(1).optional(), // Aceptar URLs locales o remotas
+  licenseFront: z.string().min(1).optional(), // Aceptar URLs locales o remotas
+  licenseBack: z.string().min(1).optional(), // Aceptar URLs locales o remotas
+  backgroundCheck: z.string().min(1).optional(), // Aceptar URLs locales o remotas
   isApproved: z.boolean().optional(),
   isActive: z.boolean().optional(),
 });
@@ -135,8 +121,8 @@ export const DriverSchema = z.object({
   isActive: z.boolean(),
   averageRating: z.number().min(0).max(5).optional(),
   totalRides: z.number().min(0).default(0),
-  designatedDriverRequestStatus: DesignatedDriverStatusSchema.optional(),
-  designatedDriverRole: DesignatedDriverRoleSchema.optional(),
+  // ✅ Eliminados: designatedDriverRequestStatus, designatedDriverRole
+  // Ahora se usan driver_services para esto
   createdAt: z.date(),
   updatedAt: z.date(),
 });

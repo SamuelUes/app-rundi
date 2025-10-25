@@ -133,22 +133,33 @@ export default function VehicleInspectionScreen({ route, navigation }: VehicleIn
 
       console.log('✅ Inspección guardada en Supabase con ID:', inspectionId);
 
-      // 2. Actualizar en Realtime Database con referencias a Supabase
-      const db = getDatabase();
-      const rideRef = dbRef(db, `activeRides/${rideId}`);
-      
-      await update(rideRef, {
-        vehicleInspection: {
-          timestamp: Date.now(),
-          driver_id: user.id,
-          photos: uploadedUrls,
-          inspected: true,
-          storage_provider: 'supabase',
-          inspection_id: inspectionId
-        }
-      });
-
-      console.log('✅ Firebase Realtime actualizado con inspection_id:', inspectionId);
+      // ✅ NUEVO: Usar Cloud Function en lugar de actualizar directamente
+      // Esto evita problemas de permisos en Firebase Realtime DB
+      try {
+        const { getFirebaseFunctions } = await import('../../config/firebase');
+        const { httpsCallable } = await import('firebase/functions');
+        
+        const functions = await getFirebaseFunctions();
+        const updateTrackingFn = httpsCallable(functions, 'updateRideStatus');
+        
+        await updateTrackingFn({
+          rideId,
+          status: 'in_progress',
+          vehicleInspection: {
+            timestamp: Date.now(),
+            driver_id: user.id,
+            photos: uploadedUrls,
+            inspected: true,
+            storage_provider: 'supabase',
+            inspection_id: inspectionId
+          }
+        });
+        
+        console.log('✅ Firebase Realtime actualizado con inspection_id:', inspectionId);
+      } catch (error) {
+        console.warn('⚠️ Error actualizando inspection en Cloud Function:', error);
+        // No lanzar error - la inspección ya se guardó en Supabase
+      }
 
       setLoading(false);
       Alert.alert(

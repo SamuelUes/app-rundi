@@ -381,10 +381,44 @@ export default function RideRequestsScreen({ navigation }: any) {
                     Cliente ofrece: <Text style={styles.modalInfoBold}>C${selectedRide.clientSuggestedPrice}</Text>
                   </Text>
                 )}
+                
+                {/* Rango de negociación dinámico */}
+                {(() => {
+                  const minPrice = Math.max(50, Math.round(selectedRide.estimatedPrice * 0.6667 * 100) / 100);
+                  const maxPrice = Math.min(500, Math.round(selectedRide.estimatedPrice * 1.3333 * 100) / 100);
+                  return (
+                    <View style={[styles.priceRangeContainer, { backgroundColor: colors.background, borderColor: colors.primary }]}>
+                      <Text style={[styles.priceRangeTitle, { color: colors.text }]}>
+                        📊 Rango de negociación:
+                      </Text>
+                      <View style={styles.priceRangeValues}>
+                        <View style={styles.priceRangeItem}>
+                          <Text style={[styles.priceRangeLabel, { color: colors.textSecondary }]}>
+                            Mínimo
+                          </Text>
+                          <Text style={[styles.priceRangeValue, { color: '#4CAF50' }]}>
+                            C${minPrice}
+                          </Text>
+                        </View>
+                        <Text style={[styles.priceRangeDash, { color: colors.textSecondary }]}>
+                          —
+                        </Text>
+                        <View style={styles.priceRangeItem}>
+                          <Text style={[styles.priceRangeLabel, { color: colors.textSecondary }]}>
+                            Máximo
+                          </Text>
+                          <Text style={[styles.priceRangeValue, { color: '#FF9800' }]}>
+                            C${maxPrice}
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+                  );
+                })()}
               </View>
             )}
 
-            <Text style={styles.inputLabel}>Tu oferta (mínimo C$50):</Text>
+            <Text style={styles.inputLabel}>Tu oferta:</Text>
             <TextInput
               style={styles.priceInput}
               value={customOffer}
@@ -810,5 +844,38 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
     color: '#fff',
+  },
+  priceRangeContainer: {
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 12,
+    marginBottom: 12,
+    borderWidth: 2,
+  },
+  priceRangeTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  priceRangeValues: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+  },
+  priceRangeItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  priceRangeLabel: {
+    fontSize: 12,
+    marginBottom: 4,
+  },
+  priceRangeValue: {
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  priceRangeDash: {
+    fontSize: 20,
+    marginHorizontal: 8,
   },
 });

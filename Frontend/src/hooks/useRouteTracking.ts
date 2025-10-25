@@ -67,21 +67,69 @@ export const useRouteTracking = ({
   const consecutiveErrorsRef = useRef(0);
 
   // =====================================================
-  // ⚠️ TRACKING DESHABILITADO PARA DESARROLLO
+  // ✅ TRACKING HABILITADO
   // =====================================================
   
-  // Guardar ubicación actual en Firebase - DESHABILITADO
-  const saveLocation = async (): Promise<void> => {
-    console.log('📍 [TRACKING] saveLocation deshabilitado para desarrollo');
-    return;
+  // Guardar ubicación actual en Firebase
+  const saveLocation = async (status?: 'waiting' | 'in_progress' | 'completed' | 'cancelled' | 'pending_payment' | 'pending_rating'): Promise<void> => {
+    try {
+      if (!locationHook.coords || !rideId) {
+        return;
+      }
+
+      const { latitude, longitude, speed, heading, accuracy } = locationHook.coords;
+
+      // Guardar en Firebase Realtime DB Y PostgreSQL
+      // ✅ NUEVO: Pasar status para que no guarde si el viaje está completado/cancelado
+      await firebaseTrackingService.updateRideTracking(rideId, {
+        driverLocation: {
+          latitude,
+          longitude,
+          speed: speed || 0,
+          heading: heading || 0,
+          accuracy: accuracy || 0,
+          timestamp: Date.now(),
+        },
+        status: status || 'in_progress',
+      });
+
+      setTotalPoints(prev => prev + 1);
+    } catch (err) {
+      console.error('❌ Error guardando ubicación:', err);
+      consecutiveErrorsRef.current++;
+      
+      if (consecutiveErrorsRef.current > 5) {
+        setError('Error persistente guardando ubicación');
+      }
+    }
   };
 
-  // Iniciar tracking en primer plano - DESHABILITADO
+  // Iniciar tracking en primer plano
   const startForegroundTracking = async (): Promise<void> => {
-    console.log('🏹 [TRACKING] Tracking en primer plano deshabilitado para desarrollo');
-    setIsTracking(false);
-    setError(null);
-    return;
+    try {
+      console.log('🏹 [TRACKING] Iniciando tracking en primer plano');
+      setIsTracking(true);
+      setError(null);
+      consecutiveErrorsRef.current = 0;
+
+      // Guardar ubicación inmediatamente
+      await saveLocation();
+
+      // Luego cada X segundos
+      if (saveInterval.current) {
+        clearInterval(saveInterval.current);
+      }
+
+      saveInterval.current = setInterval(async () => {
+        await saveLocation();
+      }, interval);
+
+      console.log('✅ Tracking en primer plano iniciado');
+    } catch (err) {
+      console.error('❌ Error iniciando tracking:', err);
+      setError(String(err));
+      setIsTracking(false);
+    }
   };
 
   // Detener tracking en primer plano
@@ -108,28 +156,71 @@ export const useRouteTracking = ({
     return;
   };
 
-  // Iniciar todo el sistema de tracking - DESHABILITADO
+  // Iniciar todo el sistema de tracking
   const startTracking = async (newRideId: string = rideId): Promise<void> => {
-    console.log('🏹 [TRACKING] startTracking deshabilitado para desarrollo');
-    return;
+    console.log('🏹 [TRACKING] Iniciando sistema de tracking completo');
+    
+    if (!newRideId) {
+      setError('No hay rideId para trackear');
+      return;
+    }
+
+    try {
+      // Iniciar tracking en primer plano
+      await startForegroundTracking();
+
+      // Iniciar tracking en segundo plano si está disponible
+      if (useBackgroundTracking) {
+        const bgStarted = await backgroundLocationService.startBackgroundLocationTracking(
+          newRideId,
+          'driver'
+        );
+        if (bgStarted) {
+          setIsBackgroundTracking(true);
+          console.log('✅ Background tracking iniciado');
+        }
+      }
+    } catch (err) {
+      console.error('❌ Error iniciando tracking:', err);
+      setError(String(err));
+    }
   };
 
-  // Detener todo el sistema de tracking - DESHABILITADO
+  // Detener todo el sistema de tracking
   const stopTracking = async (): Promise<void> => {
-    console.log('🛑 [TRACKING] stopTracking deshabilitado para desarrollo');
-    return;
+    console.log('🛑 [TRACKING] Deteniendo sistema de tracking');
+    
+    try {
+      // Detener tracking en primer plano
+      stopForegroundTracking();
+
+      // Detener tracking en segundo plano
+      if (isBackgroundTracking) {
+        await backgroundLocationService.stopBackgroundLocationTracking();
+        setIsBackgroundTracking(false);
+        console.log('✅ Background tracking detenido');
+      }
+
+      console.log(`📊 Total de puntos grabados: ${totalPoints}`);
+    } catch (err) {
+      console.error('❌ Error deteniendo tracking:', err);
+    }
   };
 
-  // Efecto para simular que respondemos a isActive
+  // Efecto para iniciar/detener tracking cuando el viaje está activo
   useEffect(() => {
     if (isActive && rideId) {
-      console.log('⚠️ Tracking deshabilitado para desarrollo (no se iniciará)');
+      console.log('🏁 Viaje activo, iniciando tracking...');
+      startTracking(rideId);
     } else {
-      console.log('ℹ️ Viaje inactivo (tracking deshabilitado)');
+      console.log('🛑 Viaje inactivo, deteniendo tracking...');
+      stopTracking();
     }
     
     return () => {
-      // Nada que limpiar
+      if (isActive) {
+        stopTracking();
+      }
     };
   }, [isActive, rideId]);
 
@@ -148,10 +239,10 @@ export const useRouteTracking = ({
       },
       timestamp: locationHook.coords.timestamp || Date.now(),
     } : null,
-    isTracking: false, // Siempre falso en desarrollo
-    isBackgroundTracking: false, // Siempre falso en desarrollo
-    error: null,
-    totalPoints: 0, // Sin puntos en desarrollo
+    isTracking,
+    isBackgroundTracking,
+    error,
+    totalPoints,
     startTracking,
     stopTracking,
   };

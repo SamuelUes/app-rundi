@@ -37,12 +37,7 @@ export type RideStatus = z.infer<typeof RideStatusSchema>;
 // ============================================
 export const PaymentMethodSchema = z.enum([
   'cash',
-  'stripe',
-  'bac',
-  'banpro',
-  'lafise',
-  'ficohsa',
-  'avanz',
+  'card',
 ]);
 
 export type PaymentMethod = z.infer<typeof PaymentMethodSchema>;
@@ -51,11 +46,14 @@ export type PaymentMethod = z.infer<typeof PaymentMethodSchema>;
 // VEHICLE TYPE ENUM
 // ============================================
 export const VehicleTypeSchema = z.enum([
+  'auto',
+  'moto',
   'car',
   'motorcycle',
   'sedan',
   'suv',
   'van',
+  'designated_driver',
 ]);
 
 export type VehicleType = z.infer<typeof VehicleTypeSchema>;
@@ -67,13 +65,33 @@ export const CreateRideInputSchema = z.object({
   clientId: z.string().min(1),
   origin: LocationSchema,
   destination: LocationSchema,
-  estimatedDistance: z.number().positive(),
-  estimatedDuration: z.number().positive(),
-  estimatedPrice: z.number().positive(),
-  paymentMethod: PaymentMethodSchema,
-  clientSuggestedPrice: z.number().positive().optional(),
+  // ✅ NUEVO: Código del servicio (normal, designated_driver, night, motorcycle, etc)
+  serviceCode: z.string().min(1).default('normal'),
+  estimatedDistance: z.union([
+    z.number().positive(),
+    z.string().transform((val) => {
+      const num = parseFloat(val);
+      if (isNaN(num) || num <= 0) throw new Error('estimatedDistance debe ser positivo');
+      return num;
+    }),
+  ]),
+  estimatedDuration: z.union([
+    z.number().positive(),
+    z.string().transform((val) => {
+      const num = parseFloat(val);
+      if (isNaN(num) || num <= 0) throw new Error('estimatedDuration debe ser positivo');
+      return num;
+    }),
+  ]),
+  estimatedPrice: z.number().min(30).max(500), // Rango realista de precios
+  paymentMethod: PaymentMethodSchema.optional().default('cash'),
+  clientSuggestedPrice: z.number().min(30).max(500).optional(), // Rango realista
+  rideType: z.enum(['normal', 'designated_driver']).optional().default('normal'),
   isDesignatedDriver: z.boolean().default(false),
   vehicleType: VehicleTypeSchema.optional(),
+  clientVehiclePhoto: z.string().optional(), // Para conductor designado
+  passengers: z.number().int().min(1).max(6).optional(),
+  extraDestinations: z.array(LocationSchema).optional(),
   stops: z.array(LocationSchema).optional(),
   notes: z.string().max(500).optional(),
 });
@@ -100,9 +118,18 @@ export type UpdateRideInput = z.infer<typeof UpdateRideInputSchema>;
 // ============================================
 export const AcceptRideInputSchema = z.object({
   rideId: z.string().min(1),
-  driverId: z.string().min(1),
-  offeredPrice: z.number().positive(),
+  offeredPrice: z.union([
+    z.number().positive(),
+    z.string().transform((val) => {
+      const num = parseFloat(val);
+      if (isNaN(num) || num <= 0) throw new Error('offeredPrice debe ser positivo');
+      return num;
+    }),
+  ]),
   estimatedArrival: z.number().positive().optional(),
+  vehicleId: z.string().optional(),
+  currentLocation: LocationSchema,
+  driverProposedPrice: z.number().positive().optional(),
 });
 
 export type AcceptRideInput = z.infer<typeof AcceptRideInputSchema>;
@@ -113,7 +140,14 @@ export type AcceptRideInput = z.infer<typeof AcceptRideInputSchema>;
 export const ConfirmDriverInputSchema = z.object({
   rideId: z.string().min(1),
   driverId: z.string().min(1),
-  agreedPrice: z.number().positive(),
+  agreedPrice: z.union([
+    z.number().positive(),
+    z.string().transform((val) => {
+      const num = parseFloat(val);
+      if (isNaN(num) || num <= 0) throw new Error('agreedPrice debe ser positivo');
+      return num;
+    }),
+  ]),
 });
 
 export type ConfirmDriverInput = z.infer<typeof ConfirmDriverInputSchema>;
@@ -128,16 +162,36 @@ export const StartRideInputSchema = z.object({
 });
 
 export type StartRideInput = z.infer<typeof StartRideInputSchema>;
-
 // ============================================
 // COMPLETE RIDE INPUT
 // ============================================
 export const CompleteRideInputSchema = z.object({
   rideId: z.string().min(1),
-  driverId: z.string().min(1),
-  actualDistance: z.number().positive(),
-  actualDuration: z.number().positive(),
-  finalFare: z.number().positive(),
+  driverId: z.string().min(1).optional(), // Opcional porque el backend obtiene del context
+  actualDistance: z.union([
+    z.number().min(0), // Permitir 0
+    z.string().transform((val) => {
+      const num = parseFloat(val);
+      if (isNaN(num) || num < 0) throw new Error('actualDistance debe ser >= 0');
+      return num;
+    }),
+  ]).optional(),
+  actualDuration: z.union([
+    z.number().min(0), // Permitir 0
+    z.string().transform((val) => {
+      const num = parseFloat(val);
+      if (isNaN(num) || num < 0) throw new Error('actualDuration debe ser >= 0');
+      return num;
+    }),
+  ]).optional(),
+  finalFare: z.union([
+    z.number().positive(),
+    z.string().transform((val) => {
+      const num = parseFloat(val);
+      if (isNaN(num) || num <= 0) throw new Error('finalFare debe ser un número positivo');
+      return num;
+    }),
+  ]).optional(),
   endLocation: LocationSchema.optional(),
   route: z.array(z.object({
     lat: z.number(),
@@ -152,10 +206,14 @@ export type CompleteRideInput = z.infer<typeof CompleteRideInputSchema>;
 // ============================================
 export const CancelRideInputSchema = z.object({
   rideId: z.string().min(1),
-  canceledBy: z.enum(['client', 'driver', 'system']),
-  cancelReason: z.string().min(1).max(500),
-  userId: z.string().min(1),
-});
+  canceledBy: z.enum(['client', 'driver', 'system']).optional(), // Opcional porque el backend obtiene del context
+  cancelReason: z.string().min(1).max(500).optional(), // Opcional
+  reason: z.string().min(1).max(500).optional(), // Alias para cancelReason
+  userId: z.string().min(1).optional(), // Opcional porque el backend obtiene del context
+}).transform((data) => ({
+  ...data,
+  cancelReason: data.cancelReason || data.reason || 'Sin razón especificada',
+}));
 
 export type CancelRideInput = z.infer<typeof CancelRideInputSchema>;
 

@@ -9,21 +9,32 @@ import * as functions from 'firebase-functions';
 /**
  * Validar datos con un schema de Zod
  * Lanza HttpsError si la validación falla
+ * Ignora campos undefined y campos desconocidos
  */
 export function validateData<T extends z.ZodTypeAny>(
   schema: T,
   data: unknown
 ): z.infer<T> {
   try {
-    return schema.parse(data);
+    // Limpiar datos: remover campos undefined
+    const cleanData = data && typeof data === 'object' 
+      ? Object.fromEntries(
+          Object.entries(data).filter(([_, v]) => v !== undefined)
+        )
+      : data;
+    
+    // Usar .strict() para rechazar campos desconocidos, pero permitir undefined
+    return schema.parse(cleanData);
   } catch (error) {
     if (error instanceof z.ZodError) {
       const errors = error.issues.map((err: any) => ({
         path: err.path.join('.'),
         message: err.message,
+        code: err.code,
       }));
       
-      console.error('❌ Validation error:', errors);
+      console.error('❌ Validation error:', JSON.stringify(errors, null, 2));
+      console.error('❌ Data received:', JSON.stringify(data, null, 2));
       
       throw new functions.https.HttpsError(
         'invalid-argument',

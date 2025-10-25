@@ -112,17 +112,20 @@ export default function RegisterScreen({ navigation }: any) {
 
   const handleRegisterWithGoogle = async () => {
     try {
+      setLoading(true);
       console.log('🔐 Iniciando registro con Google...');
 
       // Validar campos requeridos
       if (!name || !phone || !role) {
         Alert.alert('Error', 'Por favor completa Nombre, Teléfono y Rol');
+        setLoading(false);
         return;
       }
 
       // Validar que el teléfono esté en formato correcto
       if (!smsService.validatePhoneFormat(phone)) {
         Alert.alert('Error', 'Formato de teléfono inválido. Usa +505 XXXX XXXX');
+        setLoading(false);
         return;
       }
 
@@ -143,6 +146,7 @@ export default function RegisterScreen({ navigation }: any) {
 
       if (!smsResult.success) {
         Alert.alert('Error', smsResult.message);
+        setLoading(false);
         return;
       }
 
@@ -159,6 +163,8 @@ export default function RegisterScreen({ navigation }: any) {
     } catch (error: any) {
       console.error('Error en registro con Google:', error);
       Alert.alert('Error', error.message || 'Error al registrarse con Google');
+    } finally {
+      setLoading(false);
     }
   };
 

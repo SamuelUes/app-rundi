@@ -66,6 +66,8 @@ export default function DriverHomeScreen({ navigation }: any) {
   const [activeRide, setActiveRide] = useState<any>(null);
   const [availableRideRequests, setAvailableRideRequests] = useState<any[]>([]);
   const [savedRideId, setSavedRideId] = useState<string | null>(null);
+  // ✅ NUEVO: Estado para pagos pendientes
+  const [pendingPayments, setPendingPayments] = useState<any[]>([]);
 
   // Refs
   const notifiedRides = useRef<Set<string>>(new Set());
@@ -355,6 +357,72 @@ export default function DriverHomeScreen({ navigation }: any) {
     setupListener();
   }, [coords, isAvailable, user?.id]);
 
+  // ✅ NUEVO: Escuchar pagos pendientes del conductor
+  useEffect(() => {
+    if (!user?.id) {
+      console.log('⚠️ [DriverHomeScreen] No hay user.id, saltando listener de pagos');
+      return;
+    }
+
+    let unsubscribe: (() => void) | null = null;
+
+    const setupPaymentListener = async () => {
+      try {
+        console.log('🔍 [DriverHomeScreen] Iniciando listener de pagos pendientes...');
+        
+        const { getDatabase, ref: dbRef, onValue, off } = await import('firebase/database');
+        const { initializeFirebase } = await import('../../config/firebase');
+        
+        const { app } = await initializeFirebase();
+        if (!app) {
+          console.error('❌ [DriverHomeScreen] Firebase no inicializado');
+          return;
+        }
+
+        const db = getDatabase(app);
+        const paymentStatusRef = dbRef(db, 'paymentStatus');
+
+        unsubscribe = onValue(paymentStatusRef, (snapshot) => {
+          const data = snapshot.val();
+          console.log('📦 [DriverHomeScreen] Snapshot de paymentStatus recibido:', data ? 'con datos' : 'vacío');
+          
+          if (!data) {
+            setPendingPayments([]);
+            return;
+          }
+
+          // Filtrar pagos con status 'pending' (esperando confirmación del conductor)
+          const pending = Object.entries(data)
+            .filter(([_, payment]: any) => {
+              const isPending = payment.status === 'pending' && payment.confirmedByClient;
+              if (isPending) {
+                console.log(`✅ [DriverHomeScreen] Pago pendiente encontrado:`, payment);
+              }
+              return isPending;
+            })
+            .map(([rideId, payment]: any) => ({ rideId, ...payment }));
+
+          console.log(`💳 [DriverHomeScreen] Total pagos pendientes: ${pending.length}`);
+          setPendingPayments(pending);
+        });
+
+        console.log('✅ [DriverHomeScreen] Listener de pagos configurado');
+      } catch (error) {
+        console.error('❌ [DriverHomeScreen] Error configurando listener de pagos:', error);
+      }
+    };
+
+    setupPaymentListener();
+
+    // Cleanup
+    return () => {
+      if (unsubscribe) {
+        console.log('🔇 [DriverHomeScreen] Removiendo listener de pagos');
+        unsubscribe();
+      }
+    };
+  }, [user?.id]);
+
   // ============================================
   // HANDLERS
   // ============================================
@@ -500,6 +568,37 @@ export default function DriverHomeScreen({ navigation }: any) {
             </View>
             <View style={styles.activeRideArrow}>
               <Text style={styles.activeRideArrowText}>→</Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+      )}
+
+      {/* ✅ NUEVO: Banner de Pagos Pendientes */}
+      {pendingPayments.length > 0 && (
+        <TouchableOpacity
+          style={styles.pendingPaymentBanner}
+          onPress={() => {
+            const firstPayment = pendingPayments[0];
+            navigation.navigate('PaymentConfirmation', {
+              rideId: firstPayment.rideId,
+              amount: firstPayment.finalAmount,
+              method: firstPayment.method,
+            });
+          }}
+          activeOpacity={0.9}
+        >
+          <View style={styles.pendingPaymentBannerContent}>
+            <View style={styles.pendingPaymentIcon}>
+              <Text style={styles.pendingPaymentEmoji}>💳</Text>
+            </View>
+            <View style={styles.pendingPaymentInfo}>
+              <Text style={styles.pendingPaymentTitle}>Pago Pendiente</Text>
+              <Text style={styles.pendingPaymentSubtitle}>
+                {pendingPayments.length} {pendingPayments.length === 1 ? 'pago esperando confirmación' : 'pagos esperando confirmación'}
+              </Text>
+            </View>
+            <View style={styles.pendingPaymentArrow}>
+              <Text style={styles.pendingPaymentArrowText}>→</Text>
             </View>
           </View>
         </TouchableOpacity>
@@ -848,6 +947,64 @@ const createStyles = (colors: any) =>
       alignItems: 'center',
     },
     activeRideArrowText: {
+      fontSize: 18,
+      fontWeight: '700',
+      color: '#FFFFFF',
+    },
+    // ✅ NUEVO: Estilos para banner de pagos pendientes
+    pendingPaymentBanner: {
+      position: 'absolute',
+      bottom: 120,
+      left: 16,
+      right: 16,
+      backgroundColor: '#FF6B6B',
+      borderRadius: 16,
+      padding: 16,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.3,
+      shadowRadius: 8,
+      elevation: 8,
+      zIndex: 99,
+    },
+    pendingPaymentBannerContent: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    pendingPaymentIcon: {
+      width: 50,
+      height: 50,
+      borderRadius: 25,
+      backgroundColor: 'rgba(255, 255, 255, 0.3)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginRight: 12,
+    },
+    pendingPaymentEmoji: {
+      fontSize: 24,
+    },
+    pendingPaymentInfo: {
+      flex: 1,
+    },
+    pendingPaymentTitle: {
+      fontSize: 16,
+      fontWeight: '700',
+      color: '#FFFFFF',
+      marginBottom: 4,
+    },
+    pendingPaymentSubtitle: {
+      fontSize: 14,
+      color: 'rgba(255, 255, 255, 0.9)',
+    },
+    pendingPaymentArrow: {
+      width: 30,
+      height: 30,
+      borderRadius: 15,
+      backgroundColor: 'rgba(255, 255, 255, 0.3)',
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    pendingPaymentArrowText: {
       fontSize: 18,
       fontWeight: '700',
       color: '#FFFFFF',
