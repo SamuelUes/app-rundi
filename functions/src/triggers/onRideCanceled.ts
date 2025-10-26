@@ -14,6 +14,7 @@ import {
   saveCompletedRideToSupabase, 
   savePaymentToSupabase,
   saveRideLocationsToSupabase, // ✅ NUEVO
+  updateRideLocationIds, // ✅ NUEVO
 } from "../helpers/supabaseArchive";
 
 export const onRideCanceled = functions.database
@@ -93,6 +94,15 @@ export const onRideCanceled = functions.database
       
       if (locationIds && locationIds.length > 0) {
         console.log(`✅ ${locationIds.length} ubicaciones guardadas en Supabase`);
+        
+        // ✅ PASO 2.6: Actualizar IDs de origen y destino en rides
+        console.log(`\n2️⃣.6️⃣ Actualizando IDs de ubicaciones en rides...`);
+        const idsUpdated = await updateRideLocationIds(pgRideId, locationIds);
+        if (idsUpdated) {
+          console.log(`✅ IDs de ubicaciones actualizados`);
+        } else {
+          console.warn(`⚠️ Error actualizando IDs de ubicaciones`);
+        }
       } else {
         console.warn(`⚠️ No se guardaron ubicaciones`);
       }

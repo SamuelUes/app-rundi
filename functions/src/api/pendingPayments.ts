@@ -42,10 +42,11 @@ export const getPendingPayments = functions.https.onCall(async (data, context) =
           r.client_id,
           r.driver_id,
           r.status as ride_status,
-          r.origin_address,
-          r.destination_address,
           r.final_fare,
-          r.requested_at
+          r.requested_at,
+          -- ✅ NUEVO: Obtener ubicaciones desde ride_locations
+          (SELECT address FROM ride_locations WHERE ride_id = r.id AND location_type = 'origin' LIMIT 1) as origin_address,
+          (SELECT address FROM ride_locations WHERE ride_id = r.id AND location_type = 'destination' LIMIT 1) as destination_address
         FROM payments p
         INNER JOIN rides r ON p.ride_id = r.id
         WHERE r.client_id = $1 

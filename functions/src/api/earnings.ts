@@ -74,15 +74,16 @@ export const getDriverEarnings = functions.https.onCall(async (data, context) =>
     const ridesResult = await client.query(
       `SELECT 
         r.id,
-        r.origin_address,
-        r.destination_address,
         r.actual_distance,
         r.actual_duration,
         r.final_fare,
         r.completed_at,
         r.ride_type,
         p.commission,
-        p.status as payment_status
+        p.status as payment_status,
+        -- ✅ NUEVO: Obtener ubicaciones desde ride_locations
+        (SELECT address FROM ride_locations WHERE ride_id = r.id AND location_type = 'origin' LIMIT 1) as origin_address,
+        (SELECT address FROM ride_locations WHERE ride_id = r.id AND location_type = 'destination' LIMIT 1) as destination_address
        FROM rides r
        LEFT JOIN payments p ON r.id = p.ride_id
        WHERE r.driver_id = $1 

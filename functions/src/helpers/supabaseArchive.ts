@@ -23,11 +23,23 @@ export async function saveCompletedRideToSupabase(
   paymentStatus: any
 ): Promise<string | null> {
   const client = await pool.connect();
+  
+  // ✅ Usar status del ride si existe, sino usar 'completed'
+  const rideStatus = ride.status || 'completed';
+  
+  // Preparar datos FUERA del try block para poder usarlos en catch
+  const finalFare = paymentStatus?.finalAmount || ride.finalFare || ride.estimatedPrice || 0;
+  const actualDistance = ride.actualDistance || ride.estimatedDistance || 0;
+  const actualDuration = ride.actualDuration || ride.estimatedDuration || 0;
+  
   try {
-    // ✅ Usar status del ride si existe, sino usar 'completed'
-    const rideStatus = ride.status || 'completed';
-    
-    console.log(`\n💾 [saveCompletedRideToSupabase] Guardando viaje: ${firebaseRideId} (status: ${rideStatus})`);
+    console.log(`\n${"=".repeat(60)}`);
+    console.log(`💾 [saveCompletedRideToSupabase] INICIANDO GUARDADO DE VIAJE`);
+    console.log(`${"=".repeat(60)}`);
+    console.log(`   Firebase ID: ${firebaseRideId}`);
+    console.log(`   Status: ${rideStatus}`);
+    console.log(`   Client ID: ${ride.clientId}`);
+    console.log(`   Driver ID: ${ride.driverId}`);
 
     // Validar datos requeridos
     if (!ride.clientId || !ride.driverId) {
@@ -35,12 +47,7 @@ export async function saveCompletedRideToSupabase(
       return null;
     }
 
-    // Preparar datos
-    const finalFare = paymentStatus?.finalAmount || ride.finalFare || ride.estimatedPrice || 0;
-    const actualDistance = ride.actualDistance || ride.estimatedDistance || 0;
-    const actualDuration = ride.actualDuration || ride.estimatedDuration || 0;
-
-    console.log(`   📊 Datos a guardar:`, {
+    console.log(`\n   📊 Datos a guardar:`, {
       firebase_ride_id: firebaseRideId,
       client_id: ride.clientId,
       driver_id: ride.driverId,
@@ -49,20 +56,64 @@ export async function saveCompletedRideToSupabase(
       final_fare: finalFare,
       actual_distance: actualDistance,
       actual_duration: actualDuration,
+      waypoints_count: ride.extraDestinations?.length || 0,
+      has_multiple_stops: (ride.extraDestinations?.length || 0) > 0,
     });
 
-    // Insertar en tabla rides
+    // ✅ ACTUALIZADO: Insertar en tabla rides SIN campos de ubicación
+    // Las ubicaciones se guardan en ride_locations
+    console.log(`   🔍 Ejecutando INSERT en tabla rides...`);
+    
+    // Preparar parámetros para logging
+    const params = [
+      firebaseRideId,                                    // $1
+      ride.clientId,                                     // $2
+      ride.driverId,                                     // $3
+      ride.estimatedDistance || null,                    // $4
+      ride.estimatedDuration || null,                    // $5
+      actualDistance,                                    // $6
+      actualDuration,                                    // $7
+      ride.estimatedPrice || null,                       // $8
+      finalFare,                                         // $9
+      ride.clientSuggestedPrice || null,                 // $10
+      ride.driverOfferedPrice || null,                   // $11
+      ride.passengers || 1,                              // $12
+      ride.notes || null,                                // $13
+      ride.rideType || 'normal',                         // $14
+      ride.vehicleType || 'auto',                        // $15
+      ride.paymentMethod || 'cash',                      // $16
+      rideStatus,                                        // $17
+      ride.cancelReason || null,                         // $18
+      ride.canceledBy || null,                           // $19
+      ride.requestedAt ? new Date(ride.requestedAt) : null, // $20
+      ride.acceptedAt ? new Date(ride.acceptedAt) : null,   // $21
+      ride.startedAt ? new Date(ride.startedAt) : null,     // $22
+      ride.completedAt ? new Date(ride.completedAt) : (rideStatus === 'completed' ? new Date() : null), // $23
+      ride.canceledAt ? new Date(ride.canceledAt) : (rideStatus === 'canceled' ? new Date() : null), // $24
+      ride.extraDestinations?.length || 0,               // $25 waypoints_count
+      (ride.extraDestinations?.length || 0) > 0,         // $26 has_multiple_stops
+      new Date(),                                        // $27 created_at
+      new Date(),                                        // $28 updated_at
+    ];
+    
+    console.log(`   📋 Parámetros del INSERT:`, {
+      $1: params[0],  // firebase_ride_id
+      $2: params[1],  // client_id
+      $3: params[2],  // driver_id
+      $16: params[15], // payment_type
+      $17: params[16], // status
+      $25: params[24], // waypoints_count
+      $26: params[25], // has_multiple_stops
+    });
+    
+    console.log(`\n   🔍 Ejecutando INSERT en tabla rides...`);
+    console.log(`   ⏱️ Timestamp: ${new Date().toISOString()}`);
+    
     const result = await client.query(
       `INSERT INTO public.rides (
         firebase_ride_id,
         client_id,
         driver_id,
-        origin_lat,
-        origin_lng,
-        origin_address,
-        destination_lat,
-        destination_lng,
-        destination_address,
         estimated_distance,
         estimated_duration,
         actual_distance,
@@ -84,62 +135,84 @@ export async function saveCompletedRideToSupabase(
         started_at,
         completed_at,
         canceled_at,
+        waypoints_count,
+        has_multiple_stops,
         created_at,
         updated_at
       ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
         $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-        $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32
+        $21, $22, $23, $24, $25, $26, $27, $28
       )
       RETURNING id`,
-      [
-        firebaseRideId,                                    // $1
-        ride.clientId,                                     // $2
-        ride.driverId,                                     // $3
-        ride.origin?.lat || ride.origin?.latitude || null,// $4
-        ride.origin?.lng || ride.origin?.longitude || null,// $5
-        ride.origin?.address || null,                      // $6
-        ride.destination?.lat || ride.destination?.latitude || null, // $7
-        ride.destination?.lng || ride.destination?.longitude || null, // $8
-        ride.destination?.address || null,                 // $9
-        ride.estimatedDistance || null,                    // $10
-        ride.estimatedDuration || null,                    // $11
-        actualDistance,                                    // $12
-        actualDuration,                                    // $13
-        ride.estimatedPrice || null,                       // $14
-        finalFare,                                         // $15
-        ride.clientSuggestedPrice || null,                 // $16
-        ride.driverOfferedPrice || null,                   // $17
-        ride.passengers || 1,                              // $18
-        ride.notes || null,                                // $19
-        ride.rideType || 'normal',                         // $20
-        ride.vehicleType || 'auto',                        // $21
-        ride.paymentMethod || 'cash',                      // $22
-        rideStatus,                                        // $23 ✅ Usar rideStatus dinámico
-        ride.cancelReason || null,                         // $24 ✅ Agregar cancel_reason
-        ride.canceledBy || null,                           // $25 ✅ Agregar canceled_by
-        ride.requestedAt ? new Date(ride.requestedAt) : null, // $26
-        ride.acceptedAt ? new Date(ride.acceptedAt) : null,   // $27
-        ride.startedAt ? new Date(ride.startedAt) : null,     // $28
-        ride.completedAt ? new Date(ride.completedAt) : (rideStatus === 'completed' ? new Date() : null), // $29
-        ride.canceledAt ? new Date(ride.canceledAt) : (rideStatus === 'canceled' ? new Date() : null), // $30
-        new Date(),                                        // $31 created_at
-        new Date(),                                        // $32 updated_at
-      ]
+      params
     );
+    
+    console.log(`   ✅ INSERT ejecutado exitosamente`);
+    console.log(`   📊 Resultado:`, result);
 
     if (!result.rows || result.rows.length === 0) {
       console.error(`❌ [saveCompletedRideToSupabase] INSERT no retornó filas`);
+      console.error(`   Resultado completo:`, JSON.stringify(result, null, 2));
       return null;
     }
 
     const pgRideId = result.rows[0].id;
     console.log(`✅ [saveCompletedRideToSupabase] Viaje guardado: ${pgRideId}`);
+    console.log(`   📍 Ubicaciones: ${ride.extraDestinations?.length || 0} paradas`);
+    console.log(`   💰 Monto final: ${finalFare}`);
+
+    // ✅ VERIFICACIÓN: Confirmar que el registro se guardó correctamente
+    console.log(`\n   🔍 Verificando que el registro se guardó...`);
+    const verifyResult = await client.query(
+      `SELECT id, firebase_ride_id, client_id, driver_id, status, waypoints_count, has_multiple_stops
+       FROM public.rides 
+       WHERE id = $1`,
+      [pgRideId]
+    );
+
+    if (verifyResult.rows && verifyResult.rows.length > 0) {
+      const savedRide = verifyResult.rows[0];
+      console.log(`   ✅ Registro verificado en BD:`);
+      console.log(`      ID: ${savedRide.id}`);
+      console.log(`      Firebase ID: ${savedRide.firebase_ride_id}`);
+      console.log(`      Status: ${savedRide.status}`);
+      console.log(`      Waypoints: ${savedRide.waypoints_count}`);
+    } else {
+      console.warn(`   ⚠️ Registro NO encontrado en BD después de INSERT`);
+    }
 
     return pgRideId;
   } catch (error: any) {
-    console.error(`❌ [saveCompletedRideToSupabase] Error:`, error.message);
-    console.error(`   Stack:`, error.stack);
+    console.error(`\n${"=".repeat(60)}`);
+    console.error(`❌ [saveCompletedRideToSupabase] ERROR CRÍTICO AL GUARDAR VIAJE`);
+    console.error(`${"=".repeat(60)}`);
+    console.error(`   Mensaje: ${error.message}`);
+    console.error(`   Código: ${error.code}`);
+    console.error(`   Detalle: ${error.detail}`);
+    console.error(`   Hint: ${error.hint}`);
+    console.error(`   Posición: ${error.position}`);
+    console.error(`   Contexto: ${error.context}`);
+    console.error(`   Tabla: ${error.table}`);
+    console.error(`   Columna: ${error.column}`);
+    console.error(`   Constraint: ${error.constraint}`);
+    console.error(`\n   Stack:`, error.stack);
+    
+    // Log de los datos que intentamos guardar
+    console.error(`\n   📊 Datos intentados:`, {
+      firebaseRideId,
+      clientId: ride.clientId,
+      driverId: ride.driverId,
+      status: rideStatus,
+      serviceId: ride.serviceId,
+      estimatedPrice: ride.estimatedPrice,
+      finalFare: finalFare,
+      waypoints_count: ride.extraDestinations?.length || 0,
+      has_multiple_stops: (ride.extraDestinations?.length || 0) > 0,
+    });
+    
+    console.error(`${"=".repeat(60)}\n`);
+    
     return null;
   } finally {
     client.release();
@@ -236,17 +309,25 @@ export async function saveCanceledRideToSupabase(
       return null;
     }
 
+    console.log(`   📊 Datos a guardar:`, {
+      firebase_ride_id: firebaseRideId,
+      client_id: ride.clientId,
+      driver_id: ride.driverId || null,
+      status: 'canceled',
+      cancel_reason: ride.cancelReason || null,
+      canceled_by: ride.canceledBy || null,
+    });
+
+    // ✅ ACTUALIZADO: Insertar en tabla rides SIN campos de ubicación
+    // Las ubicaciones se guardan en ride_locations
+    console.log(`   🔍 Ejecutando INSERT en tabla rides...`);
+    console.log(`   ⏱️ Timestamp: ${new Date().toISOString()}`);
+    
     const result = await client.query(
       `INSERT INTO public.rides (
         firebase_ride_id,
         client_id,
         driver_id,
-        origin_lat,
-        origin_lng,
-        origin_address,
-        destination_lat,
-        destination_lng,
-        destination_address,
         estimated_distance,
         estimated_duration,
         estimated_price,
@@ -261,45 +342,46 @@ export async function saveCanceledRideToSupabase(
         requested_at,
         accepted_at,
         canceled_at,
+        waypoints_count,
+        has_multiple_stops,
         created_at,
         updated_at
       ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-        $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-        $21, $22, $23, $24, $25
+        $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21
       )
       RETURNING id`,
       [
         firebaseRideId,                                    // $1
         ride.clientId,                                     // $2
         ride.driverId || null,                             // $3
-        ride.origin?.lat || null,                          // $4
-        ride.origin?.lng || null,                          // $5
-        ride.origin?.address || null,                      // $6
-        ride.destination?.lat || null,                     // $7
-        ride.destination?.lng || null,                     // $8
-        ride.destination?.address || null,                 // $9
-        ride.estimatedDistance || null,                    // $10
-        ride.estimatedDuration || null,                    // $11
-        ride.estimatedPrice || null,                       // $12
-        ride.finalFare || null,                            // $13
-        ride.passengers || 1,                              // $14
-        ride.rideType || 'normal',                         // $15
-        ride.vehicleType || 'auto',                        // $16
-        ride.paymentMethod || 'cash',                      // $17
-        'canceled',                                        // $18
-        ride.cancelReason || null,                         // $19
-        ride.canceledBy || null,                           // $20
-        ride.requestedAt ? new Date(ride.requestedAt) : null, // $21
-        ride.acceptedAt ? new Date(ride.acceptedAt) : null,   // $22
-        ride.canceledAt ? new Date(ride.canceledAt) : new Date(), // $23
-        new Date(),                                        // $24 created_at
-        new Date(),                                        // $25 updated_at
+        ride.estimatedDistance || null,                    // $4
+        ride.estimatedDuration || null,                    // $5
+        ride.estimatedPrice || null,                       // $6
+        ride.finalFare || null,                            // $7
+        ride.passengers || 1,                              // $8
+        ride.rideType || 'normal',                         // $9
+        ride.vehicleType || 'auto',                        // $10
+        ride.paymentMethod || 'cash',                      // $11
+        'canceled',                                        // $12
+        ride.cancelReason || null,                         // $13
+        ride.canceledBy || null,                           // $14
+        ride.requestedAt ? new Date(ride.requestedAt) : null, // $15
+        ride.acceptedAt ? new Date(ride.acceptedAt) : null,   // $16
+        ride.canceledAt ? new Date(ride.canceledAt) : new Date(), // $17
+        ride.extraDestinations?.length || 0,               // $18 waypoints_count
+        (ride.extraDestinations?.length || 0) > 0,         // $19 has_multiple_stops
+        new Date(),                                        // $20 created_at
+        new Date(),                                        // $21 updated_at
       ]
     );
+    
+    console.log(`   ✅ INSERT ejecutado exitosamente`);
+    console.log(`   📊 Resultado:`, result);
 
     if (!result.rows || result.rows.length === 0) {
       console.error(`❌ [saveCanceledRideToSupabase] INSERT no retornó filas`);
+      console.error(`   Resultado:`, result);
       return null;
     }
 
@@ -308,7 +390,20 @@ export async function saveCanceledRideToSupabase(
 
     return pgRideId;
   } catch (error: any) {
-    console.error(`❌ [saveCanceledRideToSupabase] Error:`, error.message);
+    console.error(`❌ [saveCanceledRideToSupabase] Error al guardar viaje cancelado:`);
+    console.error(`   Mensaje: ${error.message}`);
+    console.error(`   Código: ${error.code}`);
+    console.error(`   Detalle: ${error.detail}`);
+    console.error(`   Stack:`, error.stack);
+    
+    // Log de los datos que intentamos guardar
+    console.error(`   Datos intentados:`, {
+      firebaseRideId,
+      clientId: ride.clientId,
+      driverId: ride.driverId,
+      status: 'canceled',
+    });
+    
     return null;
   } finally {
     client.release();
@@ -438,6 +533,70 @@ export async function saveRideLocationsToSupabase(
     console.error(`❌ [saveRideLocationsToSupabase] Error:`, error.message);
     console.error(`   Stack:`, error.stack);
     return null;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * ✅ NUEVO: ACTUALIZAR IDs DE UBICACIONES EN RIDES
+ * 
+ * Después de guardar las ubicaciones, actualiza los IDs de origen y destino en rides
+ */
+export async function updateRideLocationIds(
+  pgRideId: string,
+  locationIds: string[]
+): Promise<boolean> {
+  const client = await pool.connect();
+  try {
+    if (!locationIds || locationIds.length === 0) {
+      console.warn(`⚠️ [updateRideLocationIds] No hay ubicaciones para actualizar`);
+      return false;
+    }
+
+    console.log(`\n🔗 [updateRideLocationIds] Actualizando IDs de ubicaciones para ride: ${pgRideId}`);
+
+    // Obtener las ubicaciones para identificar origen y destino
+    const locationsResult = await client.query(
+      `SELECT id, location_type FROM public.ride_locations 
+       WHERE ride_id = $1 
+       ORDER BY location_order ASC`,
+      [pgRideId]
+    );
+
+    if (!locationsResult.rows || locationsResult.rows.length === 0) {
+      console.warn(`⚠️ [updateRideLocationIds] No se encontraron ubicaciones`);
+      return false;
+    }
+
+    // Buscar origen y destino
+    const originLocation = locationsResult.rows.find((loc: any) => loc.location_type === 'origin');
+    const destinationLocation = locationsResult.rows.find((loc: any) => loc.location_type === 'destination');
+
+    if (!originLocation || !destinationLocation) {
+      console.warn(`⚠️ [updateRideLocationIds] Falta origen o destino`);
+      return false;
+    }
+
+    // Actualizar rides con los IDs
+    await client.query(
+      `UPDATE public.rides 
+       SET origin_location_id = $1, 
+           destination_location_id = $2,
+           updated_at = NOW()
+       WHERE id = $3`,
+      [originLocation.id, destinationLocation.id, pgRideId]
+    );
+
+    console.log(`✅ [updateRideLocationIds] IDs actualizados:`);
+    console.log(`   📍 Origen: ${originLocation.id}`);
+    console.log(`   🎯 Destino: ${destinationLocation.id}`);
+
+    return true;
+  } catch (error: any) {
+    console.error(`❌ [updateRideLocationIds] Error:`, error.message);
+    console.error(`   Stack:`, error.stack);
+    return false;
   } finally {
     client.release();
   }

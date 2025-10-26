@@ -27,12 +27,6 @@ export const getMyRides = functions.https.onCall(async (data, context) => {
         r.client_id as "clientId",
         r.driver_id as "driverId",
         r.status,
-        r.origin_lat as "originLat",
-        r.origin_lng as "originLng",
-        r.origin_address as "originAddress",
-        r.destination_lat as "destinationLat",
-        r.destination_lng as "destinationLng",
-        r.destination_address as "destinationAddress",
         r.estimated_distance as "estimatedDistance",
         r.estimated_duration as "estimatedDuration",
         r.estimated_price as "estimatedFare",
@@ -45,7 +39,14 @@ export const getMyRides = functions.https.onCall(async (data, context) => {
         r.accepted_at as "acceptedAt",
         r.started_at as "startedAt",
         r.completed_at as "completedAt",
-        r.canceled_at as "canceledAt"
+        r.canceled_at as "canceledAt",
+        -- ✅ NUEVO: Obtener ubicaciones desde ride_locations
+        (SELECT latitude FROM ride_locations WHERE ride_id = r.id AND location_type = 'origin' LIMIT 1) as "originLat",
+        (SELECT longitude FROM ride_locations WHERE ride_id = r.id AND location_type = 'origin' LIMIT 1) as "originLng",
+        (SELECT address FROM ride_locations WHERE ride_id = r.id AND location_type = 'origin' LIMIT 1) as "originAddress",
+        (SELECT latitude FROM ride_locations WHERE ride_id = r.id AND location_type = 'destination' LIMIT 1) as "destinationLat",
+        (SELECT longitude FROM ride_locations WHERE ride_id = r.id AND location_type = 'destination' LIMIT 1) as "destinationLng",
+        (SELECT address FROM ride_locations WHERE ride_id = r.id AND location_type = 'destination' LIMIT 1) as "destinationAddress"
        FROM rides r
        WHERE r.client_id = $1 OR r.driver_id = $1
        ORDER BY r.created_at DESC

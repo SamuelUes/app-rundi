@@ -8,6 +8,15 @@
 -- Los datos en tiempo real están en Firebase Realtime DB
 -- 
 -- CAMBIOS EN ESTA VERSIÓN (2025-10-25):
+-- - ✅ REFACTORIZADO: Esquema de ride_locations
+--   * Eliminados campos de ubicación de rides (origin_lat, origin_lng, etc)
+--   * Actualizado ride_locations con nueva estructura:
+--     - location_type: 'origin', 'waypoint', 'destination'
+--     - location_order: 1, 2, 3, ... (orden de paradas)
+--     - address: Dirección de la ubicación
+--   * Agregados campos a rides:
+--     - waypoints_count: Cantidad de paradas
+--     - has_multiple_stops: Boolean si hay múltiples paradas
 -- - ✅ Agregadas tablas de biometría:
 --   * biometric_authentications: Registro de autenticaciones biométricas
 --   * sms_verification_codes: Códigos SMS para verificación
@@ -183,15 +192,9 @@ CREATE TABLE IF NOT EXISTS public.rides (
   client_id VARCHAR(255) NOT NULL,
   driver_id VARCHAR(255) NULL,
   
-  -- Ubicaciones - Origen
-  origin_lat DECIMAL(10, 8) NULL,
-  origin_lng DECIMAL(11, 8) NULL,
-  origin_address TEXT NULL,
-  
-  -- Ubicaciones - Destino
-  destination_lat DECIMAL(10, 8) NULL,
-  destination_lng DECIMAL(11, 8) NULL,
-  destination_address TEXT NULL,
+  -- ✅ ACTUALIZADO (2025-10-25): Ubicaciones ahora en ride_locations
+  -- Eliminados: origin_lat, origin_lng, origin_address, destination_lat, destination_lng, destination_address
+  -- Agregados: waypoints_count, has_multiple_stops
   
   -- Métricas estimadas
   estimated_distance INTEGER NULL,
@@ -209,11 +212,18 @@ CREATE TABLE IF NOT EXISTS public.rides (
   
   -- Información adicional
   passengers INTEGER NULL DEFAULT 1,
-  extra_destinations JSONB NULL,
   notes TEXT NULL,
   ride_type VARCHAR(20) NULL DEFAULT 'normal'::VARCHAR,
   vehicle_type VARCHAR(50) NULL DEFAULT 'auto'::VARCHAR,
   client_vehicle_photo TEXT NULL,
+  
+  -- ✅ NUEVO (2025-10-25): Contadores de paradas
+  waypoints_count INTEGER NULL DEFAULT 0,
+  has_multiple_stops BOOLEAN NULL DEFAULT FALSE,
+  
+  -- ✅ NUEVO (2025-10-25): Referencias a ubicaciones principales
+  origin_location_id UUID NULL,
+  destination_location_id UUID NULL,
   
   -- ✅ Servicio ofrecido (referencia a services table)
   service_id UUID NULL,
@@ -244,14 +254,20 @@ CREATE TABLE IF NOT EXISTS public.rides (
   
   CONSTRAINT rides_pkey PRIMARY KEY (id),
   CONSTRAINT rides_canceled_by_check CHECK (canceled_by IN ('client', 'driver')),
-  CONSTRAINT rides_service_id_fkey FOREIGN KEY (service_id) REFERENCES public.services(id) ON DELETE SET NULL
+  CONSTRAINT rides_service_id_fkey FOREIGN KEY (service_id) REFERENCES public.services(id) ON DELETE SET NULL,
+  -- ✅ NUEVO (2025-10-25): Foreign keys para ubicaciones
+  CONSTRAINT fk_rides_origin_location FOREIGN KEY (origin_location_id) REFERENCES public.ride_locations(id) ON DELETE SET NULL,
+  CONSTRAINT fk_rides_destination_location FOREIGN KEY (destination_location_id) REFERENCES public.ride_locations(id) ON DELETE SET NULL
 ) TABLESPACE pg_default;
 
-COMMENT ON TABLE public.rides IS 'Historial completo de viajes - Viajes activos están en Firebase Realtime DB';
+COMMENT ON TABLE public.rides IS 'Historial completo de viajes - Viajes activos están en Firebase Realtime DB - Ubicaciones en ride_locations';
 COMMENT ON COLUMN public.rides.client_id IS 'Firebase Auth UID del cliente';
 COMMENT ON COLUMN public.rides.driver_id IS 'Firebase Auth UID del conductor';
 COMMENT ON COLUMN public.rides.passengers IS 'Cantidad de pasajeros (1-6)';
-COMMENT ON COLUMN public.rides.extra_destinations IS 'Array JSON de paradas adicionales [{address, lat, lng}]';
+COMMENT ON COLUMN public.rides.waypoints_count IS 'Cantidad de paradas intermedias (sin contar origen ni destino)';
+COMMENT ON COLUMN public.rides.has_multiple_stops IS 'Indica si hay múltiples paradas (waypoints_count > 0)';
+COMMENT ON COLUMN public.rides.origin_location_id IS 'Referencia a la ubicación de origen en ride_locations';
+COMMENT ON COLUMN public.rides.destination_location_id IS 'Referencia a la ubicación de destino en ride_locations';
 COMMENT ON COLUMN public.rides.driver_offered_price IS 'Precio ofrecido por el conductor (si es diferente al estimado)';
 COMMENT ON COLUMN public.rides.vehicle_type IS 'Tipo de vehículo solicitado: moto, auto, designated_driver';
 COMMENT ON COLUMN public.rides.client_vehicle_photo IS 'URL de la foto del vehículo del cliente (solo para conductor designado)';
@@ -275,6 +291,12 @@ CREATE INDEX IF NOT EXISTS idx_rides_payment_type ON public.rides USING btree (p
 CREATE INDEX IF NOT EXISTS idx_rides_canceled_by ON public.rides USING btree (canceled_by) WHERE canceled_by IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_rides_biometric_required ON public.rides USING btree (biometric_acceptance_required) WHERE biometric_acceptance_required = TRUE;
 CREATE INDEX IF NOT EXISTS idx_rides_biometric_verified ON public.rides USING btree (biometric_acceptance_verified) WHERE biometric_acceptance_verified = TRUE;
+-- ✅ NUEVO (2025-10-25): Índices para paradas
+CREATE INDEX IF NOT EXISTS idx_rides_waypoints_count ON public.rides USING btree (waypoints_count) WHERE waypoints_count > 0;
+CREATE INDEX IF NOT EXISTS idx_rides_multiple_stops ON public.rides USING btree (has_multiple_stops) WHERE has_multiple_stops = TRUE;
+-- ✅ NUEVO (2025-10-25): Índices para referencias de ubicaciones
+CREATE INDEX IF NOT EXISTS idx_rides_origin_location_id ON public.rides USING btree (origin_location_id);
+CREATE INDEX IF NOT EXISTS idx_rides_destination_location_id ON public.rides USING btree (destination_location_id);
 
 CREATE TRIGGER update_rides_updated_at BEFORE UPDATE ON public.rides
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
@@ -447,36 +469,46 @@ CREATE INDEX IF NOT EXISTS idx_ratings_user_rating ON public.ratings USING btree
 
 -- ============================================
 -- 7. RIDE_LOCATIONS TABLE
--- Historial de tracking (ruta completa) - COMPRIMIDO
+-- ✅ ACTUALIZADO (2025-10-25): Ubicaciones de origen, paradas y destino
+-- Estructura: origin → waypoint 1 → waypoint 2 → ... → destination
 -- ============================================
 CREATE TABLE IF NOT EXISTS public.ride_locations (
   id UUID NOT NULL DEFAULT gen_random_uuid(),
-  ride_id UUID NULL,
+  ride_id UUID NOT NULL,
+  
+  -- ✅ NUEVO (2025-10-25): Tipo y orden de ubicación
+  location_type VARCHAR(20) NOT NULL,  -- 'origin', 'waypoint', 'destination'
+  location_order INTEGER NOT NULL,      -- 1, 2, 3, ... (orden secuencial)
   
   -- Ubicación
-  lat NUMERIC(10, 8) NULL,
-  lng NUMERIC(11, 8) NULL,
+  latitude NUMERIC(10, 8) NOT NULL,
+  longitude NUMERIC(11, 8) NOT NULL,
+  address TEXT,
   
-  -- Métricas
-  speed NUMERIC(5, 2) NULL,
-  heading NUMERIC(5, 2) NULL,
-  accuracy NUMERIC(5, 2) NULL,
-  
-  -- Timestamp
-  timestamp TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
+  -- Timestamps
   created_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
+  updated_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
   
   CONSTRAINT ride_locations_pkey PRIMARY KEY (id),
-  CONSTRAINT ride_locations_ride_id_fkey FOREIGN KEY (ride_id) REFERENCES public.rides(id) ON DELETE CASCADE
+  CONSTRAINT ride_locations_ride_id_fkey FOREIGN KEY (ride_id) REFERENCES public.rides(id) ON DELETE CASCADE,
+  CONSTRAINT unique_ride_location_order UNIQUE(ride_id, location_order)
 ) TABLESPACE pg_default;
 
-COMMENT ON TABLE public.ride_locations IS 'Historial COMPRIMIDO de ubicaciones (cada 30s o 50+ metros) - Tracking en vivo está en Firebase Realtime DB';
-COMMENT ON COLUMN public.ride_locations.speed IS 'Velocidad en km/h';
-COMMENT ON COLUMN public.ride_locations.heading IS 'Dirección en grados (0-360)';
-COMMENT ON COLUMN public.ride_locations.accuracy IS 'Precisión en metros';
+COMMENT ON TABLE public.ride_locations IS 'Ubicaciones de viajes: origen, paradas intermedias y destino - Ordenadas por location_order';
+COMMENT ON COLUMN public.ride_locations.location_type IS 'Tipo de ubicación: origin (origen), waypoint (parada intermedia), destination (destino final)';
+COMMENT ON COLUMN public.ride_locations.location_order IS 'Orden secuencial de la ubicación (1=origen, 2=parada1, 3=parada2, N=destino)';
+COMMENT ON COLUMN public.ride_locations.latitude IS 'Latitud de la ubicación';
+COMMENT ON COLUMN public.ride_locations.longitude IS 'Longitud de la ubicación';
+COMMENT ON COLUMN public.ride_locations.address IS 'Dirección legible de la ubicación';
 
 CREATE INDEX IF NOT EXISTS idx_ride_locations_ride_id ON public.ride_locations USING btree (ride_id);
-CREATE INDEX IF NOT EXISTS idx_ride_locations_timestamp ON public.ride_locations USING btree (timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_ride_locations_type ON public.ride_locations USING btree (location_type);
+CREATE INDEX IF NOT EXISTS idx_ride_locations_order ON public.ride_locations USING btree (ride_id, location_order);
+
+-- ✅ NUEVO (2025-10-25): Trigger para actualizar updated_at
+CREATE TRIGGER update_ride_locations_updated_at 
+BEFORE UPDATE ON public.ride_locations 
+FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================
 -- 8. ANALYTICS_EVENTS TABLE
@@ -793,7 +825,51 @@ CREATE INDEX IF NOT EXISTS idx_sms_expires ON public.sms_verification_codes USIN
 CREATE INDEX IF NOT EXISTS idx_sms_created ON public.sms_verification_codes USING btree (created_at DESC);
 
 -- ============================================
--- 14. SERVICE_COMMISSION_HISTORY TABLE
+-- 14. CARDS TABLE
+-- Tarjetas guardadas de usuarios (2025-10-25)
+-- ✅ NUEVO: Solo se guardan últimos 4 dígitos, fecha de expiración y banco
+-- ============================================
+CREATE TABLE IF NOT EXISTS public.cards (
+  id UUID NOT NULL DEFAULT gen_random_uuid(),
+  user_id VARCHAR(255) NOT NULL,
+  local_card_id VARCHAR(255) NOT NULL,
+  last_four_digits VARCHAR(4) NOT NULL,
+  expiration_month INTEGER NOT NULL,
+  expiration_year INTEGER NOT NULL,
+  bank_name VARCHAR(255) NOT NULL,
+  card_brand VARCHAR(50) NOT NULL,
+  is_default BOOLEAN NOT NULL DEFAULT FALSE,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+  CONSTRAINT cards_pkey PRIMARY KEY (id),
+  CONSTRAINT cards_local_id_key UNIQUE (local_card_id),
+  CONSTRAINT cards_user_id_check CHECK (user_id != '')
+) TABLESPACE pg_default;
+
+COMMENT ON TABLE public.cards IS 'Tarjetas guardadas de usuarios - Bancos locales de Nicaragua (sin Stripe)';
+COMMENT ON COLUMN public.cards.user_id IS 'Firebase Auth UID del usuario';
+COMMENT ON COLUMN public.cards.local_card_id IS 'ID local de la tarjeta (formato: local_banco_timestamp)';
+COMMENT ON COLUMN public.cards.last_four_digits IS 'Últimos 4 dígitos de la tarjeta (para mostrar en UI)';
+COMMENT ON COLUMN public.cards.expiration_month IS 'Mes de expiración (1-12)';
+COMMENT ON COLUMN public.cards.expiration_year IS 'Año de expiración (YYYY)';
+COMMENT ON COLUMN public.cards.bank_name IS 'Nombre del banco (BAC, Banpro, Lafise, Ficohsa, Avanz)';
+COMMENT ON COLUMN public.cards.card_brand IS 'Marca de la tarjeta (Visa, Mastercard, Amex)';
+COMMENT ON COLUMN public.cards.is_default IS 'Indica si es la tarjeta predeterminada del usuario';
+COMMENT ON COLUMN public.cards.is_active IS 'Indica si la tarjeta está activa (no eliminada)';
+
+-- Crear trigger para actualizar updated_at
+CREATE TRIGGER update_cards_updated_at BEFORE UPDATE ON public.cards
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Índices para optimización
+CREATE INDEX IF NOT EXISTS idx_cards_user ON public.cards USING btree (user_id);
+CREATE INDEX IF NOT EXISTS idx_cards_default ON public.cards USING btree (user_id, is_default) WHERE is_active = TRUE;
+CREATE INDEX IF NOT EXISTS idx_cards_active ON public.cards USING btree (user_id, is_active);
+CREATE INDEX IF NOT EXISTS idx_cards_created ON public.cards USING btree (created_at DESC);
+
+-- ============================================
+-- 15. SERVICE_COMMISSION_HISTORY TABLE
 -- Historial de cambios de comisiones
 -- ============================================
 CREATE TABLE IF NOT EXISTS public.service_commission_history (
@@ -831,6 +907,7 @@ ALTER TABLE public.driver_services DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.service_commission_history DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.biometric_authentications DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sms_verification_codes DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cards DISABLE ROW LEVEL SECURITY;
 
 -- ============================================
 -- VERIFICACIÓN FINAL
@@ -849,7 +926,8 @@ ORDER BY table_name;
 -- table_name                      | columns_count
 -- --------------------------------|---------------
 -- analytics_events                | 8
--- biometric_authentications       | 10 (NUEVO)
+-- biometric_authentications       | 10
+-- cards                           | 12 (NUEVO - Tarjetas guardadas)
 -- driver_penalties                | 10
 -- driver_services                 | 10
 -- drivers                         | 11
@@ -860,8 +938,8 @@ ORDER BY table_name;
 -- rides                           | 32 (actualizado con biometría)
 -- service_commission_history      | 7
 -- services                        | 14
--- sms_verification_codes          | 11 (NUEVO)
+-- sms_verification_codes          | 11
 -- vehicles                        | 18
 -- ============================================
--- TOTAL: 14 TABLAS (+ 2 nuevas de biometría)
+-- TOTAL: 15 TABLAS (+ 1 nueva de tarjetas)
 -- ============================================

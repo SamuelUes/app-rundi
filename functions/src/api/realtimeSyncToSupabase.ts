@@ -249,16 +249,11 @@ export async function syncActiveRideToSupabase(rideId: string, rideData: any): P
     const supabase = getSupabaseClient();
     
     // Mapear datos de Firebase a Supabase según schema en supabase-only.sql
+    // ✅ IMPORTANTE: Las ubicaciones se guardan en ride_locations, NO en rides
     const supabaseRide = {
       id: rideIdToUse,
       client_id: rideData.clientId || '',
       driver_id: rideData.driverId || null,
-      origin_lat: rideData.origin?.lat || rideData.origin?.latitude || null,
-      origin_lng: rideData.origin?.lng || rideData.origin?.longitude || null,
-      origin_address: rideData.origin?.address || null,
-      destination_lat: rideData.destination?.lat || rideData.destination?.latitude || null,
-      destination_lng: rideData.destination?.lng || rideData.destination?.longitude || null,
-      destination_address: rideData.destination?.address || null,
       status: rideData.status || 'requested',
       estimated_price: rideData.estimatedPrice || null,
       final_fare: rideData.finalFare || null,

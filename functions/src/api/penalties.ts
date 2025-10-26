@@ -45,9 +45,10 @@ export const getDriverPenalties = functions.https.onCall(async (data, context) =
         p.status,
         p.deducted_at,
         p.created_at,
-        r.origin_address,
-        r.destination_address,
-        r.final_fare
+        r.final_fare,
+        -- ✅ NUEVO: Obtener ubicaciones desde ride_locations
+        (SELECT address FROM ride_locations WHERE ride_id = r.id AND location_type = 'origin' LIMIT 1) as origin_address,
+        (SELECT address FROM ride_locations WHERE ride_id = r.id AND location_type = 'destination' LIMIT 1) as destination_address
        FROM driver_penalties p
        LEFT JOIN rides r ON p.ride_id = r.id
        WHERE p.driver_id = $1
