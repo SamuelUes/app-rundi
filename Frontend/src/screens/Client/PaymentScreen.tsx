@@ -14,6 +14,7 @@ import { useAuth } from '../../context/AuthContext';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { getDatabase, ref as dbRef, update as dbUpdate, get } from 'firebase/database';
 import { initializeFirebase } from '../../config/firebase';
+import { validateAndSaveCard, getCardsList, formatCardNumber, formatExpiryDate, isValidExpiryFormat, isValidCVV } from '../../utils/cardUtils';
 
 interface PaymentScreenProps {
   route: {
@@ -114,18 +115,12 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
 
   const loadSavedCards = async () => {
     try {
-      const { app } = await initializeFirebase();
-      if (!app) return;
+      const cards = await getCardsList();
 
-      const functions = getFunctions(app);
-      const getCardsFn = httpsCallable(functions, 'getCards');
-      const result = await getCardsFn();
-      const data = result.data as any;
-
-      if (data.success && data.cards.length > 0) {
-        setSavedCards(data.cards);
+      if (cards && cards.length > 0) {
+        setSavedCards(cards);
         // Seleccionar la tarjeta predeterminada automáticamente
-        const defaultCard = data.cards.find((card: any) => card.isDefault);
+        const defaultCard = cards.find((card: any) => card.isDefault);
         if (defaultCard) {
           setSelectedCard(defaultCard);
           setUseNewCard(false);
@@ -355,6 +350,86 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
     } catch (error: any) {
       console.error('Error procesando pago en efectivo:', error);
       Alert.alert('Error', error.message || 'Error al procesar el pago');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  /**
+   * Guardar tarjeta nueva
+   */
+  const handleSaveCard = async () => {
+    try {
+      // Validar campos
+      if (!cardNumber.trim()) {
+        Alert.alert('Error', 'Ingresa el número de tarjeta');
+        return;
+      }
+
+      if (!cardHolder.trim()) {
+        Alert.alert('Error', 'Ingresa el nombre del titular');
+        return;
+      }
+
+      if (!expiryDate.trim() || !isValidExpiryFormat(expiryDate)) {
+        Alert.alert('Error', 'Ingresa la fecha de expiración en formato MM/YY o MM/YYYY');
+        return;
+      }
+
+      if (!cvv.trim() || !isValidCVV(cvv)) {
+        Alert.alert('Error', 'Ingresa un CVV válido (3 o 4 dígitos)');
+        return;
+      }
+
+      if (!selectedBank) {
+        Alert.alert('Error', 'Selecciona un banco');
+        return;
+      }
+
+      setProcessing(true);
+
+      const { month, year } = formatExpiryDate(expiryDate);
+      const fullYear = year.length === 2 ? `20${year}` : year;
+
+      // Validar y guardar tarjeta
+      const result = await validateAndSaveCard(
+        {
+          cardNumber: cardNumber.replace(/\s/g, ''),
+          expMonth: month,
+          expYear: fullYear,
+          cvv: cvv,
+          cardholderName: cardHolder,
+          bank: selectedBank,
+        },
+        saveCard // setAsDefault
+      );
+
+      console.log(`✅ Tarjeta guardada exitosamente: ${result.card.id}`);
+
+      Alert.alert(
+        '✅ Tarjeta Guardada',
+        `Tu tarjeta ${result.card.brand.toUpperCase()} **** ${result.card.lastFour} ha sido guardada exitosamente.`,
+        [
+          {
+            text: 'Continuar',
+            onPress: () => {
+              // Limpiar formulario
+              setCardNumber('');
+              setCardHolder('');
+              setExpiryDate('');
+              setCvv('');
+              setSaveCard(false);
+              setUseNewCard(false);
+
+              // Recargar tarjetas
+              loadSavedCards();
+            },
+          },
+        ]
+      );
+    } catch (error: any) {
+      console.error('❌ Error guardando tarjeta:', error);
+      Alert.alert('Error', error.message || 'Error al guardar la tarjeta');
     } finally {
       setProcessing(false);
     }

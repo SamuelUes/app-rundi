@@ -1,5 +1,6 @@
 /**
  * Zod Schemas para validación de Payments
+ * ✅ ACTUALIZADO: Sin Stripe - Solo bancos locales y efectivo
  */
 
 import { z } from 'zod';
@@ -13,8 +14,6 @@ export const PaymentStatusSchema = z.enum([
   'completed',
   'canceled',
   'failed',
-  'refunded',
-  'partial_charged',
 ]);
 
 export type PaymentStatus = z.infer<typeof PaymentStatusSchema>;
@@ -23,7 +22,7 @@ export type PaymentStatus = z.infer<typeof PaymentStatusSchema>;
 // PAYMENT METHOD ENUM
 // ============================================
 // cash: Efectivo
-// card: Tarjeta (a través de bancos nacionales: BAC, Banpro, Lafise, Ficohsa, Avanz)
+// card: Tarjeta (bancos locales: BAC, Banpro, Lafise, Ficohsa, Avanz)
 export const PaymentMethodSchema = z.enum([
   'cash',
   'card',
@@ -164,9 +163,6 @@ export const PaymentSchema = z.object({
   paidAt: z.date().optional(),
   createdAt: z.date(),
   updatedAt: z.date(),
-  // Deprecated Stripe fields (kept for backward compatibility)
-  stripePaymentIntentId: z.string().optional(),
-  stripeChargeId: z.string().optional(),
 });
 
 export type Payment = z.infer<typeof PaymentSchema>;

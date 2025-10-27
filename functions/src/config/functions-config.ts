@@ -53,7 +53,7 @@ export const lowDemandConfig: FunctionConfig = {
 };
 
 /**
- * Configuración para webhooks (Stripe)
+ * Configuración para webhooks (Bancos locales)
  * - Necesitan responder rápido
  */
 export const webhookConfig: FunctionConfig = {

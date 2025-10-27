@@ -39,11 +39,11 @@ export async function syncPaymentToSupabase(paymentId: string): Promise<void> {
     console.log(`🔄 [syncPaymentToSupabase] Sincronizando pago ${paymentId}...`);
 
     // Obtener pago desde PostgreSQL
+    // ✅ ACTUALIZADO: Sin campos de Stripe
     const result = await client.query(
       `SELECT 
         id, ride_id, amount, tip, commission, payment_method, 
         payment_provider, status, paid_at, created_at, updated_at,
-        stripe_payment_intent_id, stripe_charge_id,
         local_transaction_id, local_authorization_code, local_bank,
         cancel_reason, notes
        FROM payments 
@@ -59,6 +59,7 @@ export async function syncPaymentToSupabase(paymentId: string): Promise<void> {
     const payment = result.rows[0];
 
     // Preparar datos para Supabase
+    // ✅ ACTUALIZADO: Sin campos de Stripe
     const supabasePayment = {
       id: payment.id,
       ride_id: payment.ride_id,
@@ -71,8 +72,6 @@ export async function syncPaymentToSupabase(paymentId: string): Promise<void> {
       paid_at: payment.paid_at,
       created_at: payment.created_at,
       updated_at: payment.updated_at,
-      stripe_payment_intent_id: payment.stripe_payment_intent_id,
-      stripe_charge_id: payment.stripe_charge_id,
       local_transaction_id: payment.local_transaction_id,
       local_authorization_code: payment.local_authorization_code,
       local_bank: payment.local_bank,

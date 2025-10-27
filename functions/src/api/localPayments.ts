@@ -11,7 +11,9 @@ import {
 } from '../utils/localPaymentUtils';
 
 /**
- * Cambiar método de pago de Stripe a Banco Local
+ * Procesar pago con Banco Local
+ * ✅ ACTUALIZADO: Solo bancos locales (sin Stripe)
+ * ✅ VALIDACIONES: Número, CVV, Fecha de expiración
  */
 export const switchToLocalPayment = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
@@ -29,6 +31,47 @@ export const switchToLocalPayment = functions.https.onCall(async (data, context)
   } = data;
 
   const clientId = context.auth.uid;
+
+  // ✅ VALIDACIONES DE TARJETA (ANTES de conectar a BD)
+  try {
+    // Validar que todos los datos estén presentes
+    if (!cardNumber || !expiryMonth || !expiryYear || !cvv || !cardHolder || !bank) {
+      throw new Error('Todos los campos de la tarjeta son requeridos');
+    }
+
+    // Validar número de tarjeta (Luhn)
+    const cleaned = cardNumber.replace(/\s/g, '');
+    if (!validateCardNumber(cleaned)) {
+      throw new Error('Número de tarjeta inválido');
+    }
+
+    // Validar CVV
+    const cardBrand = detectCardBrand(cleaned);
+    const expectedCVVLength = cardBrand === 'amex' ? 4 : 3;
+    if (cvv.length !== expectedCVVLength) {
+      throw new Error(`CVV inválido. ${cardBrand === 'amex' ? 'Amex requiere 4 dígitos' : 'Otros requieren 3 dígitos'}`);
+    }
+
+    // Validar fecha de expiración
+    const expMonthNum = parseInt(expiryMonth);
+    const expYearNum = parseInt(expiryYear);
+    
+    if (expMonthNum < 1 || expMonthNum > 12) {
+      throw new Error('Mes de expiración inválido (1-12)');
+    }
+
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
+
+    if (expYearNum < currentYear || (expYearNum === currentYear && expMonthNum < currentMonth)) {
+      throw new Error('Tarjeta expirada');
+    }
+
+    console.log(`✅ Tarjeta validada: ${cardBrand} ****${cleaned.slice(-4)}`);
+  } catch (validationError: any) {
+    throw new functions.https.HttpsError('invalid-argument', validationError.message);
+  }
 
   const client = await pool.connect();
   try {
@@ -64,20 +107,6 @@ export const switchToLocalPayment = functions.https.onCall(async (data, context)
         'failed-precondition',
         'El pago ya fue procesado o cancelado'
       );
-    }
-
-    // Cancelar pre-autorización de Stripe si existe
-    if (payment.payment_provider === 'stripe' && payment.stripe_payment_intent_id) {
-      console.log(`❌ Cancelando pre-autorización de Stripe: ${payment.stripe_payment_intent_id}`);
-      
-      const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
-      if (stripeSecretKey) {
-        const stripe = require('stripe')(stripeSecretKey);
-        await stripe.paymentIntents.cancel(payment.stripe_payment_intent_id);
-        console.log(`✅ Pre-autorización de Stripe cancelada`);
-      } else {
-        console.warn(`⚠️ STRIPE_SECRET_KEY no configurada, no se puede cancelar pre-autorización`);
-      }
     }
 
     // Crear pre-autorización con banco local
@@ -119,11 +148,10 @@ export const switchToLocalPayment = functions.https.onCall(async (data, context)
            local_transaction_id = $3,
            local_authorization_code = $4,
            local_bank = $5,
-           stripe_payment_intent_id = NULL,
            updated_at = NOW()
        WHERE id = $6`,
       [
-        bank,
+        'card',
         'local',
         localPaymentResponse.transactionId,
         localPaymentResponse.authorizationCode,
@@ -134,17 +162,17 @@ export const switchToLocalPayment = functions.https.onCall(async (data, context)
 
     await client.query('COMMIT');
 
-    console.log(`✅ Método de pago cambiado a ${bank.toUpperCase()} para viaje ${rideId}`);
+    console.log(`✅ Pago procesado con ${bank.toUpperCase()} para viaje ${rideId}`);
 
     return {
       success: true,
-      message: `Método de pago cambiado a ${bank.toUpperCase()} exitosamente`,
+      message: `Pago procesado con ${bank.toUpperCase()} exitosamente`,
       transactionId: localPaymentResponse.transactionId,
       authorizationCode: localPaymentResponse.authorizationCode,
     };
   } catch (error: any) {
     await client.query('ROLLBACK');
-    console.error('❌ Error cambiando método de pago:', error);
+    console.error('❌ Error procesando pago:', error);
 
     if (error.code) {
       throw error;
@@ -204,3 +232,45 @@ export const getAvailableBanks = functions.https.onCall(async (data, context) =>
     banks,
   };
 });
+
+// ============================================
+// FUNCIONES DE VALIDACIÓN
+// ============================================
+
+/**
+ * Validar número de tarjeta usando Algoritmo de Luhn
+ */
+function validateCardNumber(number: string): boolean {
+  if (!/^\d{13,19}$/.test(number)) return false;
+
+  let sum = 0;
+  let isEven = false;
+
+  for (let i = number.length - 1; i >= 0; i--) {
+    let digit = parseInt(number[i]);
+
+    if (isEven) {
+      digit *= 2;
+      if (digit > 9) digit -= 9;
+    }
+
+    sum += digit;
+    isEven = !isEven;
+  }
+
+  return sum % 10 === 0;
+}
+
+/**
+ * Detectar marca de tarjeta por número
+ */
+function detectCardBrand(cardNumber: string): string {
+  const cleaned = cardNumber.replace(/\s/g, '');
+  
+  if (/^4/.test(cleaned)) return 'visa';
+  if (/^5[1-5]/.test(cleaned)) return 'mastercard';
+  if (/^3[47]/.test(cleaned)) return 'amex';
+  if (/^6(?:011|5)/.test(cleaned)) return 'discover';
+  
+  return 'unknown';
+}

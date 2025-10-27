@@ -28,6 +28,7 @@ import * as penaltiesAPI from "./api/penalties";
 import * as commissionsAPI from "./api/commissions";
 import * as ratingsAPI from "./api/ratings";
 import * as cardsAPI from "./api/cards";
+import * as cardsManagementAPI from "./api/cardsManagement"; // ✅ NUEVO
 import * as servicesAPI from "./api/services";
 import * as switchPaymentMethodAPI from "./api/switchPaymentMethod";
 import * as pendingPaymentsAPI from "./api/pendingPayments";
@@ -115,22 +116,61 @@ export const addVehicle = driversAPI.addVehicle;
 export const switchVehicle = driversAPI.switchVehicle;
 export const getDriverVehicles = driversAPI.getDriverVehicles;
 
-// Payments
-export const createPaymentIntent = paymentsAPI.createPaymentIntent;
-export const capturePayment = paymentsAPI.capturePayment;
-export const cancelPaymentAuthorization = paymentsAPI.cancelPaymentAuthorization;
-export const getPaymentDetails = paymentsAPI.getPaymentDetails;
+// Payments - ✅ ACTUALIZADO: Sin Stripe
+// ❌ DEPRECATED: createPaymentIntent, capturePayment, cancelPaymentAuthorization, getPaymentDetails, createPaymentIntentWithSavedCard
+// ✅ ACTIVOS: registerCashPayment, completeCashPayment, cancelCashPayment
 export const registerCashPayment = paymentsAPI.registerCashPayment;
+export const completeCashPayment = paymentsAPI.completeCashPayment;
+export const cancelCashPayment = paymentsAPI.cancelCashPayment;
+
+// ============================================
+// FUNCIONES DEPRECADAS DE STRIPE (STUBS)
+// ============================================
+// Estas funciones fueron removidas. Mantener stubs para limpiar Firebase.
+
+export const createPaymentIntent = functions.https.onCall(async (data, context) => {
+  throw new functions.https.HttpsError(
+    'failed-precondition',
+    'Esta función ha sido deprecada. El sistema ahora usa bancos locales. Usa switchToLocalPayment() en su lugar.'
+  );
+});
+
+export const capturePayment = functions.https.onCall(async (data, context) => {
+  throw new functions.https.HttpsError(
+    'failed-precondition',
+    'Esta función ha sido deprecada. El sistema ahora usa bancos locales.'
+  );
+});
+
+export const cancelPaymentAuthorization = functions.https.onCall(async (data, context) => {
+  throw new functions.https.HttpsError(
+    'failed-precondition',
+    'Esta función ha sido deprecada. El sistema ahora usa bancos locales.'
+  );
+});
+
+export const getPaymentDetails = functions.https.onCall(async (data, context) => {
+  throw new functions.https.HttpsError(
+    'failed-precondition',
+    'Esta función ha sido deprecada. El sistema ahora usa bancos locales.'
+  );
+});
+
+export const createPaymentIntentWithSavedCard = functions.https.onCall(async (data, context) => {
+  throw new functions.https.HttpsError(
+    'failed-precondition',
+    'Esta función ha sido deprecada. El sistema ahora usa bancos locales. Usa switchToLocalPayment() en su lugar.'
+  );
+});
 
 // Cards (Tarjetas Guardadas)
 export const validateAndTokenizeCard = cardsAPI.validateAndTokenizeCard;
-export const addCard = cardsAPI.addCard;
-export const getCards = cardsAPI.getCards;
-export const deleteCard = cardsAPI.deleteCard;
-export const setDefaultCard = cardsAPI.setDefaultCard;
-export const createPaymentIntentWithSavedCard = cardsAPI.createPaymentIntentWithSavedCard;
-export const completeCashPayment = paymentsAPI.completeCashPayment;
-export const cancelCashPayment = paymentsAPI.cancelCashPayment;
+
+// ✅ NUEVO: Cards Management (Gestión de tarjetas guardadas en Supabase)
+export const addCard = cardsManagementAPI.addCard;
+export const getCards = cardsManagementAPI.getCards;
+export const deleteCard = cardsManagementAPI.deleteCard;
+export const setDefaultCard = cardsManagementAPI.setDefaultCard;
 
 // Users
 export const getUserProfile = usersAPI.getUserProfile;
