@@ -73,8 +73,9 @@ class PriceNegotiationService {
    * @param suggestedPrice Precio sugerido
    * @param role Rol del usuario ('client' o 'driver')
    * @param estimatedPrice Precio estimado del viaje (para validación dinámica)
+   * @param driverId ID del conductor (requerido si role es 'driver')
    */
-  async negotiatePrice(rideId: string, suggestedPrice: number, role: 'client' | 'driver', estimatedPrice?: number) {
+  async negotiatePrice(rideId: string, suggestedPrice: number, role: 'client' | 'driver', estimatedPrice?: number, driverId?: string) {
     try {
       // Validar precio con límites dinámicos
       const validation = this.validatePrice(suggestedPrice, estimatedPrice);
@@ -85,11 +86,19 @@ class PriceNegotiationService {
       const functions = await getFirebaseFunctions();
       const negotiatePriceFunction = httpsCallable(functions, 'negotiatePrice');
       
-      const response = await negotiatePriceFunction({
+      const payload: any = {
         rideId,
         suggestedPrice,
         role,
-      });
+      };
+      
+      // ✅ NUEVO: Agregar driverId si es conductor
+      if (role === 'driver' && driverId) {
+        payload.driverId = driverId;
+        console.log(`💰 [negotiatePrice] Enviando driverId: ${driverId}`);
+      }
+      
+      const response = await negotiatePriceFunction(payload);
 
       const result = response.data as any;
       
@@ -175,18 +184,30 @@ class PriceNegotiationService {
   }
 
   /**
-   * @deprecated Usar acceptDriverOffer en su lugar
+   * Aceptar contraoferta - Cliente acepta la contraoferta del conductor
+   * @param rideId ID del viaje
+   * @param acceptedPrice Precio aceptado
+   * @param role Rol del usuario ('client' o 'driver')
+   * @param driverId ID del conductor (opcional, para actualizar status de oferta)
    */
-  async acceptCounterOffer(rideId: string, acceptedPrice: number, role: 'client' | 'driver') {
+  async acceptCounterOffer(rideId: string, acceptedPrice: number, role: 'client' | 'driver', driverId?: string) {
     try {
       const functions = await getFirebaseFunctions();
       const acceptCounterOfferFunction = httpsCallable(functions, 'acceptCounterOffer');
       
-      const response = await acceptCounterOfferFunction({
+      const payload: any = {
         rideId,
         acceptedPrice,
         role,
-      });
+      };
+      
+      // ✅ NUEVO: Agregar driverId si se proporciona
+      if (driverId) {
+        payload.driverId = driverId;
+        console.log(`💰 [acceptCounterOffer] Enviando driverId: ${driverId}`);
+      }
+      
+      const response = await acceptCounterOfferFunction(payload);
 
       const result = response.data as any;
       

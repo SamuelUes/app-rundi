@@ -198,7 +198,8 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
 
     setLoading(true);
     try {
-      const profile = await driversService.getDriverProfile(user.id);
+      // ✅ Obtener perfil del conductor autenticado
+      const profile = await driversService.getMyDriverProfile();
       console.log('✅ Perfil de conductor cargado exitosamente');
 
       if (profile?.driver) {

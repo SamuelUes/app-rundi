@@ -35,7 +35,8 @@ interface Ride {
   estimatedPrice: number;
   status: string;
   clientSuggestedPrice?: number;
-  driverOfferedPrice?: number;
+  driverOfferedPrice?: number | null;
+  driverOfferStatus?: string | null;
   passengers?: number;
   rideType?: string;
   requestedAt: number;
@@ -143,6 +144,11 @@ export default function AvailableRidesScreen({ navigation }: any) {
 
         // Filtrar solo viajes en estado 'requested' (disponibles)
         if (rideData.status === 'requested') {
+          const offers = rideData.offers || {};
+          const myOffer = user?.id ? offers[user.id] : null;
+          const myOfferedPrice = myOffer?.offeredPrice ?? null;
+          const myOfferStatus = myOffer?.status ?? null;
+
           availableRides.push({
             id: rideId,
             clientId: rideData.clientId || '',
@@ -153,10 +159,15 @@ export default function AvailableRidesScreen({ navigation }: any) {
             estimatedDuration: rideData.estimatedDuration || 0,
             estimatedPrice: rideData.estimatedPrice || 0,
             clientSuggestedPrice: rideData.clientSuggestedPrice,
-            driverOfferedPrice: rideData.driverOfferedPrice,
+            driverOfferedPrice: myOfferedPrice,
+            driverOfferStatus: myOfferStatus,
             passengers: rideData.passengers || 1,
             rideType: rideData.rideType || 'normal',
             requestedAt: rideData.requestedAt || Date.now(),
+            // ✅ NUEVO: Soporte para múltiples destinos
+            extraDestinations: rideData.extraDestinations || [],
+            waypointsCount: rideData.waypointsCount || 0,
+            hasMultipleDestinations: rideData.hasMultipleDestinations || false,
           });
         }
       });
@@ -331,12 +342,16 @@ export default function AvailableRidesScreen({ navigation }: any) {
 
   const handleNegotiate = (ride: Ride) => {
     setSelectedRide(ride);
-    setCounterOffer(ride.estimatedPrice.toString());
+    const startingPrice = ride.driverOfferedPrice || ride.clientSuggestedPrice || ride.estimatedPrice || 0;
+    setCounterOffer(startingPrice ? startingPrice.toString() : '');
     setShowNegotiateModal(true);
   };
 
   const handleSendCounterOffer = async () => {
-    if (!selectedRide) return;
+    if (!selectedRide || !user?.id) {
+      Alert.alert('Error', 'No se pudo obtener tu información');
+      return;
+    }
     
     const price = parseFloat(counterOffer);
     if (isNaN(price) || price < 50) {
@@ -345,12 +360,17 @@ export default function AvailableRidesScreen({ navigation }: any) {
     }
 
     try {
-      await priceNegotiationService.negotiatePrice(selectedRide.id, price, 'driver');
+      console.log(`💰 [handleSendCounterOffer] Enviando contraoferta: C$${price} para viaje ${selectedRide.id} como conductor ${user.id}`);
+      
+      // ✅ NUEVO: Pasar driverId junto con la contraoferta
+      await priceNegotiationService.negotiatePrice(selectedRide.id, price, 'driver', selectedRide.estimatedPrice, user.id);
+      
       Alert.alert('Éxito', 'Contraoferta enviada al cliente');
       setShowNegotiateModal(false);
       setSelectedRide(null);
       setCounterOffer('');
     } catch (error: any) {
+      console.error('❌ Error enviando contraoferta:', error);
       Alert.alert('Error', error.message || 'No se pudo enviar la contraoferta');
     }
   };
@@ -421,7 +441,7 @@ export default function AvailableRidesScreen({ navigation }: any) {
   };
 
   const renderRideItem = ({ item }: { item: Ride }) => {
-    const hasSuggestedPrice = item.clientSuggestedPrice && item.clientSuggestedPrice > 0;
+    const hasSuggestedPrice = !!(item.clientSuggestedPrice && item.clientSuggestedPrice > 0);
     const hasDriverOffer = item.driverOfferedPrice && item.driverOfferedPrice > 0;
     const savings = hasSuggestedPrice 
       ? item.estimatedPrice - (item.clientSuggestedPrice || 0)
@@ -524,24 +544,33 @@ export default function AvailableRidesScreen({ navigation }: any) {
           </View>
         </View>
 
-        {/* Precio Sugerido y Negociación */}
-        {hasSuggestedPrice && (
-          <View style={styles.priceSection}>
-            <View style={styles.suggestedPriceContainer}>
-              <Text style={styles.suggestedLabel}>💡 Cliente sugiere:</Text>
-              <Text style={styles.suggestedPrice}>C${item.clientSuggestedPrice}</Text>
-              {savings > 0 && (
-                <Text style={styles.savingsText}>(diferencia: C${savings.toFixed(2)})</Text>
-              )}
-            </View>
-            <TouchableOpacity
-              style={styles.negotiateButton}
-              onPress={() => handleNegotiate(item)}
-            >
-              <Text style={styles.negotiateButtonText}>💬 Contraofertar</Text>
-            </TouchableOpacity>
+        {/* Precio Sugerido / Estimado y Negociación */}
+        <View style={styles.priceSection}>
+          <View style={styles.suggestedPriceContainer}>
+            {hasSuggestedPrice ? (
+              <>
+                <Text style={styles.suggestedLabel}>💡 Cliente sugiere:</Text>
+                <Text style={styles.suggestedPrice}>C${item.clientSuggestedPrice}</Text>
+                {savings > 0 && (
+                  <Text style={styles.savingsText}>(diferencia: C${savings.toFixed(2)})</Text>
+                )}
+              </>
+            ) : (
+              <>
+                <Text style={styles.suggestedLabel}>💡 Precio estimado del sistema:</Text>
+                <Text style={styles.suggestedPrice}>C${item.estimatedPrice}</Text>
+              </>
+            )}
           </View>
-        )}
+          <TouchableOpacity
+            style={styles.negotiateButton}
+            onPress={() => handleNegotiate(item)}
+          >
+            <Text style={styles.negotiateButtonText}>
+              {hasSuggestedPrice ? '💬 Contraofertar' : '💬 Ofrecer precio'}
+            </Text>
+          </TouchableOpacity>
+        </View>
 
         {/* Contraoferta del Conductor */}
         {hasDriverOffer && (
@@ -650,6 +679,26 @@ export default function AvailableRidesScreen({ navigation }: any) {
                   </Text>
                 </View>
               )}
+              
+              {/* ✅ NUEVO: Información de paradas extras */}
+              {selectedRide.extraDestinations && selectedRide.extraDestinations.length > 0 && (
+                <View style={[styles.stopsInfoContainer, { backgroundColor: colors.surface }]}>
+                  <Text style={[styles.stopsInfoTitle, { color: colors.text }]}>
+                    📍 Paradas ({selectedRide.extraDestinations.length})
+                  </Text>
+                  {selectedRide.extraDestinations.map((stop, index) => (
+                    <View key={`stop-${index}`} style={styles.stopItem}>
+                      <Text style={[styles.stopNumber, { color: colors.primary }]}>
+                        {index + 1}
+                      </Text>
+                      <Text style={[styles.stopAddress, { color: colors.text }]} numberOfLines={2}>
+                        {stop.address}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+              
               <View style={styles.mapActionsContainer}>
                 <TouchableOpacity
                   style={[styles.navigateButton, { backgroundColor: colors.primary }]}
@@ -681,9 +730,15 @@ export default function AvailableRidesScreen({ navigation }: any) {
                 <Text style={[styles.infoText, { color: colors.textSecondary }]}>
                   Precio estimado: C${selectedRide.estimatedPrice}
                 </Text>
-                <Text style={[styles.infoText, { color: colors.textSecondary }]}>
-                  Cliente sugiere: C${selectedRide.clientSuggestedPrice}
-                </Text>
+                {selectedRide.clientSuggestedPrice ? (
+                  <Text style={[styles.infoText, { color: colors.textSecondary }]}>
+                    Cliente sugiere: C${selectedRide.clientSuggestedPrice}
+                  </Text>
+                ) : (
+                  <Text style={[styles.infoText, { color: colors.textSecondary }]}>
+                    No hay precio sugerido. Propón tu tarifa.
+                  </Text>
+                )}
               </View>
             )}
 
@@ -998,6 +1053,35 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontSize: 16,
     fontWeight: '600',
+  },
+  // ✅ NUEVO: Estilos para información de paradas
+  stopsInfoContainer: {
+    padding: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#E0E0E0',
+    maxHeight: 150,
+  },
+  stopsInfoTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  stopItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    marginBottom: 8,
+  },
+  stopNumber: {
+    fontSize: 12,
+    fontWeight: '700',
+    minWidth: 24,
+    textAlign: 'center',
+  },
+  stopAddress: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 16,
   },
   loadingRouteContainer: {
     position: 'absolute',

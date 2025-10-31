@@ -63,6 +63,8 @@ export default function SearchRideScreen({ navigation }: any) {
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [destinationSelected, setDestinationSelected] = useState(false);
+  const [isDestinationFocused, setDestinationFocused] = useState(false);
   const isSelectingSuggestionRef = useRef(false);
   
   // Conductores y viaje
@@ -198,22 +200,33 @@ export default function SearchRideScreen({ navigation }: any) {
 
   // Autocompletar destino con debounce
   useEffect(() => {
-    // No buscar si se está seleccionando una sugerencia
     if (isSelectingSuggestionRef.current) {
       return;
     }
 
+    if (!isDestinationFocused) {
+      setShowSuggestions(false);
+      return;
+    }
+
+    if (destinationSelected) {
+      setShowSuggestions(false);
+      return;
+    }
+
+    const trimmedDestination = destination.trim();
+    if (trimmedDestination.length <= 2) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+
     const timer = setTimeout(() => {
-      if (destination.length > 2) {
-        searchPlaces(destination);
-      } else {
-        setSuggestions([]);
-        setShowSuggestions(false);
-      }
+      searchPlaces(trimmedDestination);
     }, 300);
 
     return () => clearTimeout(timer);
-  }, [destination]);
+  }, [destination, destinationSelected, isDestinationFocused]);
 
   const searchPlaces = async (text: string) => {
     try {
@@ -238,6 +251,7 @@ export default function SearchRideScreen({ navigation }: any) {
     
     // Actualizar destino
     setDestination(place.description);
+    setDestinationSelected(true);
     
     // Obtener coordenadas del lugar
     const placeCoords = await mapsService.getPlaceDetails(place.place_id, place.position);
@@ -520,6 +534,7 @@ export default function SearchRideScreen({ navigation }: any) {
     } else {
       // ✅ Destino final
       setDestination(address || 'Destino seleccionado');
+      setDestinationSelected(true);
       setDestinationCoords(selectedMapLocation);
       
       // ✅ Calcular ruta secuencial con todas las paradas
@@ -1185,19 +1200,72 @@ export default function SearchRideScreen({ navigation }: any) {
               <Text style={styles.mapPinButtonText}>📍 Seleccionar en mapa</Text>
             </TouchableOpacity>
           </View>
-          <TextInput
-            style={styles.input}
-            placeholder="Buscar dirección..."
-            value={destination}
-            onChangeText={setDestination}
-            editable={!searchingDrivers}
-          />
-          {loadingSuggestions && (
-            <View style={styles.suggestionsLoader}>
-              <SkeletonLoader width={200} height={16} />
-              <SkeletonLoader width={150} height={14} style={{ marginTop: 8 }} />
-            </View>
-          )}
+          <View style={{ position: 'relative' }}>
+            <TextInput
+              style={styles.input}
+              placeholder="Buscar dirección..."
+              value={destination}
+              onChangeText={(text) => {
+                setDestinationSelected(false);
+                setDestinationCoords(null);
+                setDestination(text);
+              }}
+              onFocus={() => {
+                setDestinationFocused(true);
+                if (suggestions.length > 0 && !destinationSelected) {
+                  setShowSuggestions(true);
+                }
+              }}
+              onBlur={() => {
+                setDestinationFocused(false);
+                // no cerrar aquí para permitir tap en sugerencias; se controlará en overlay
+                setTimeout(() => {
+                  if (!isDestinationFocused) {
+                    setShowSuggestions(false);
+                  }
+                }, 150);
+              }}
+              editable={!searchingDrivers}
+            />
+            {loadingSuggestions && (
+              <View style={styles.suggestionsLoader}>
+                <SkeletonLoader width={200} height={16} />
+                <SkeletonLoader width={150} height={14} style={{ marginTop: 8 }} />
+              </View>
+            )}
+            {showSuggestions && suggestions.length > 0 && (
+              <View style={styles.suggestionsContainer}>
+                <ScrollView keyboardShouldPersistTaps="always">
+                  {suggestions.map((suggestion, index) => {
+                    const mainText = suggestion.description
+                      ?? suggestion?.structured_formatting?.main_text
+                      ?? suggestion?.name
+                      ?? '';
+                    const secondaryText = suggestion.secondary_text
+                      ?? suggestion?.structured_formatting?.secondary_text
+                      ?? suggestion?.vicinity
+                      ?? '';
+
+                    return (
+                      <TouchableOpacity
+                        key={index}
+                        style={styles.suggestionItem}
+                        onPress={() => selectSuggestion(suggestion)}
+                      >
+                        <Text style={styles.suggestionIcon}>📍</Text>
+                        <View style={styles.suggestionText}>
+                          <Text style={styles.suggestionMain}>{mainText}</Text>
+                          {secondaryText ? (
+                            <Text style={styles.suggestionSecondary}>{secondaryText}</Text>
+                          ) : null}
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            )}
+          </View>
         </View>
 
         {/* Selector de pasajeros */}
@@ -1842,18 +1910,25 @@ const createStyles = (colors: any) => StyleSheet.create({
   suggestionsLoader: {
     position: 'absolute',
     right: 16,
-    top: 38,
+    top: 14,
+    zIndex: 20,
   },
   suggestionsContainer: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    marginTop: 4,
     backgroundColor: colors.card,
     borderRadius: 12,
-    marginTop: -8,
-    marginBottom: 16,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 6,
+    maxHeight: 220,
+    overflow: 'hidden',
+    zIndex: 15,
   },
   suggestionItem: {
     flexDirection: 'row',

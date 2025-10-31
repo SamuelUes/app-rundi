@@ -1,4 +1,3 @@
-import client from '../api/client';
 import { getFirebaseFunctions } from '../config/firebase';
 import { httpsCallable } from 'firebase/functions';
 
@@ -31,6 +30,7 @@ export interface RequestRideData {
   clientSuggestedPrice?: number;
   notes?: string;
   paymentMethod?: 'cash' | 'card'; // Método de pago: cash (efectivo) o card (bancos nacionales)
+  serviceId?: string; // ✅ NUEVO: ID del servicio (normal, motorcycle, night, designated_driver)
 }
 
 export interface AcceptRideData {
@@ -45,80 +45,315 @@ export interface AcceptRideData {
   estimatedArrivalTime?: string;
 }
 
+export interface RideVehicle {
+  id?: string;
+  brand?: string;
+  model?: string;
+  color?: string;
+  plate?: string;
+  type?: string;
+  year?: number;
+  isActive?: boolean;
+  registrationNumber?: string;
+  insuranceCompany?: string;
+}
+
+export interface RidePayment {
+  id?: string;
+  amount: number;
+  tip?: number;
+  commission?: number;
+  status?: string;
+  paymentMethod?: string;
+  paidAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface RideParticipant {
+  id?: string;
+  name?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  photo?: string | null;
+  rating?: number | null;
+  totalRides?: number | null;
+  department?: string | null;
+  municipality?: string | null;
+  licenseNumber?: string | null;
+  vehicles?: RideVehicle[];
+}
+
+export interface RideLocation {
+  id?: string;
+  latitude: number;
+  longitude: number;
+  address?: string;
+  type?: string;
+  order?: number;
+}
+
 export interface Ride {
   id: string;
-  clientId: string;
+  status: string;
+  clientId?: string;
   driverId?: string;
-  client?: {
-    id: string;
-    name: string;
-    email: string;
-    phone: string;
-  };
-  driver?: {
-    id: string;
-    name: string;
-    email?: string;
-    phone?: string;
-    rating?: number;
-    licenseNumber?: string;
-    photo?: string;
-  };
-  vehicle?: {
-    id: string;
-    brand: string;
-    model: string;
-    color: string;
-    plate: string;
-    type: string;
-    year?: number;
-    registrationNumber?: string;
-    insuranceCompany?: string;
-  };
-  payment?: {
-    id?: string;
-    amount?: number;
-    tip?: number;
-    total?: number;
-    paymentMethod?: string;
-    status: string;
-    paidAt?: string;
-    createdAt?: string;
-    // Nuevos campos calculados
-    estimatedPrice: number;
-    commission: number;
-    commissionRate: number;
-    finalAmount: number;
-  };
-  origin: Location;
-  originAddress: string;
-  originLat: number;
-  originLng: number;
-  destination: Location;
-  destinationAddress: string;
-  destinationLat: number;
-  destinationLng: number;
-  status: 'requested' | 'accepted' | 'driver_arrived' | 'in_progress' | 'pending_payment' | 'completed' | 'canceled';
-  estimatedDistance: number;
-  estimatedDuration: number;
-  estimatedPrice: number;
-  clientSuggestedPrice?: number;
-  driverOfferedPrice?: number;
-  negotiationStatus?: 'pending' | 'accepted' | 'rejected' | null;
-  finalPrice?: number;
+  client?: RideParticipant;
+  driver?: RideParticipant;
+  vehicle?: RideVehicle;
+  origin?: Location;
+  destination?: Location;
+  originAddress?: string;
+  destinationAddress?: string;
+  allAddresses: string[];
+  hasMultipleStops?: boolean;
+  waypointsCount?: number;
   passengers?: number;
-  rideType: string;
+  rideType?: string;
   vehicleType?: string;
+  paymentType?: string;
+  estimatedPrice?: number;
+  estimatedFare?: number;
+  finalFare?: number;
+  commission?: number;
+  tip?: number;
+  distance?: number;
+  estimatedDistance?: number;
+  duration?: number;
+  estimatedDuration?: number;
   notes?: string;
-  createdAt: string;
+  cancelReason?: string;
+  createdAt?: string;
   updatedAt?: string;
   requestedAt?: string;
   acceptedAt?: string;
   startedAt?: string;
   completedAt?: string;
   canceledAt?: string;
-  cancelReason?: string;
+  timeline?: {
+    requestedAt?: string;
+    acceptedAt?: string;
+    startedAt?: string;
+    completedAt?: string;
+    canceledAt?: string;
+  };
+  payments: RidePayment[];
+  primaryPayment?: RidePayment;
+  payment?: {
+    id?: string;
+    amount: number;
+    tip?: number;
+    total: number;
+    paymentMethod?: string;
+    status: string;
+    paidAt?: string;
+    createdAt?: string;
+    estimatedPrice: number;
+    commission: number;
+    commissionRate: number;
+    finalAmount: number;
+  };
+  locations: RideLocation[];
+  originLat?: number;
+  originLng?: number;
+  destinationLat?: number;
+  destinationLng?: number;
 }
+
+const toISOString = (value: any): string | undefined => {
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+
+  const date = typeof value === 'number' ? new Date(value) : new Date(String(value));
+  if (Number.isNaN(date.getTime())) {
+    return undefined;
+  }
+  return date.toISOString();
+};
+
+const toNumber = (value: any, fallback = 0): number => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : fallback;
+};
+
+const normalizeVehicle = (vehicle: any): RideVehicle => ({
+  id: vehicle?.id ?? undefined,
+  brand: vehicle?.brand ?? undefined,
+  model: vehicle?.model ?? undefined,
+  color: vehicle?.color ?? undefined,
+  plate: vehicle?.plate ?? undefined,
+  type: vehicle?.type ?? undefined,
+  year: vehicle?.year !== undefined ? Number(vehicle.year) : undefined,
+  isActive: typeof vehicle?.isActive === 'boolean' ? vehicle.isActive : (vehicle?.is_active ?? undefined),
+  registrationNumber: vehicle?.registrationNumber ?? vehicle?.registration_number ?? undefined,
+  insuranceCompany: vehicle?.insuranceCompany ?? vehicle?.insurance_company ?? undefined,
+});
+
+const normalizePayment = (payment: any): RidePayment => ({
+  id: payment?.id ?? undefined,
+  amount: toNumber(payment?.amount ?? 0, 0),
+  tip: payment?.tip !== undefined ? toNumber(payment.tip, 0) : undefined,
+  commission: payment?.commission !== undefined && payment?.commission !== null ? toNumber(payment.commission, 0) : undefined,
+  status: payment?.status ?? undefined,
+  paymentMethod: payment?.paymentMethod ?? payment?.payment_method ?? undefined,
+  paidAt: toISOString(payment?.paidAt ?? payment?.paid_at),
+  createdAt: toISOString(payment?.createdAt ?? payment?.created_at),
+  updatedAt: toISOString(payment?.updatedAt ?? payment?.updated_at),
+});
+
+const normalizeLocation = (location: any): RideLocation => ({
+  id: location?.id ?? undefined,
+  latitude: toNumber(location?.latitude ?? 0, 0),
+  longitude: toNumber(location?.longitude ?? 0, 0),
+  address: typeof location?.address === 'string' ? location.address : undefined,
+  type: location?.type ?? location?.location_type ?? undefined,
+  order: location?.order !== undefined ? Number(location.order) : (location?.location_order !== undefined ? Number(location.location_order) : undefined),
+});
+
+const normalizeParticipant = (participant: any): RideParticipant => {
+  if (!participant) {
+    return {};
+  }
+
+  return {
+    id: participant.id ?? participant.uid ?? undefined,
+    name: participant.name ?? participant.displayName ?? null,
+    email: participant.email ?? null,
+    phone: participant.phone ?? participant.phoneNumber ?? null,
+    photo: participant.photo ?? participant.photoURL ?? participant.photoUrl ?? null,
+    rating: participant.rating ?? participant.average_rating ?? null,
+    totalRides: participant.totalRides ?? participant.total_rides ?? null,
+    department: participant.department ?? null,
+    municipality: participant.municipality ?? null,
+    licenseNumber: participant.licenseNumber ?? participant.license_number ?? null,
+    vehicles: Array.isArray(participant.vehicles) ? participant.vehicles.map(normalizeVehicle) : undefined,
+  };
+};
+
+const normalizeRide = (raw: any): Ride => {
+  const payments = Array.isArray(raw?.payments) ? raw.payments.map(normalizePayment) : [];
+  const primaryPayment = raw?.primaryPayment ? normalizePayment(raw.primaryPayment) : payments[0];
+
+  const locations = Array.isArray(raw?.locations) ? raw.locations.map(normalizeLocation) : [];
+  const originLocation = locations.find((loc: RideLocation) => loc.type === 'origin') || locations[0];
+  const destinationLocation = locations.find((loc: RideLocation) => loc.type === 'destination') || locations[locations.length - 1];
+
+  const originAddress = typeof raw?.originAddress === 'string' && raw.originAddress.trim().length > 0
+    ? raw.originAddress
+    : originLocation?.address;
+
+  const destinationAddress = typeof raw?.destinationAddress === 'string' && raw.destinationAddress.trim().length > 0
+    ? raw.destinationAddress
+    : destinationLocation?.address;
+
+  const allAddresses = Array.isArray(raw?.allAddresses) && raw.allAddresses.length > 0
+    ? raw.allAddresses
+    : locations
+        .map((loc: RideLocation) => loc.address)
+        .filter((addr: string | undefined | null): addr is string => typeof addr === 'string' && addr.trim().length > 0);
+
+  const distance = raw?.distance ?? raw?.actualDistance ?? raw?.actual_distance ?? undefined;
+  const estimatedDistance = raw?.estimatedDistance ?? raw?.estimated_distance ?? undefined;
+  const duration = raw?.duration ?? raw?.actualDuration ?? raw?.actual_duration ?? undefined;
+  const estimatedDuration = raw?.estimatedDuration ?? raw?.estimated_duration ?? undefined;
+
+  const commission = raw?.commission !== undefined && raw?.commission !== null
+    ? toNumber(raw.commission, 0)
+    : (primaryPayment?.commission ?? undefined);
+
+  const ride: Ride = {
+    id: String(raw?.id ?? ''),
+    status: String(raw?.status ?? 'unknown'),
+    clientId: raw?.clientId ?? raw?.client_id ?? undefined,
+    driverId: raw?.driverId ?? raw?.driver_id ?? undefined,
+    client: raw?.client ? normalizeParticipant(raw.client) : undefined,
+    driver: raw?.driver ? normalizeParticipant(raw.driver) : undefined,
+    vehicle: raw?.vehicle ? normalizeVehicle(raw.vehicle) : undefined,
+    origin: originLocation
+      ? {
+          latitude: originLocation.latitude,
+          longitude: originLocation.longitude,
+          address: originLocation.address,
+        }
+      : undefined,
+    destination: destinationLocation
+      ? {
+          latitude: destinationLocation.latitude,
+          longitude: destinationLocation.longitude,
+          address: destinationLocation.address,
+        }
+      : undefined,
+    originAddress: originAddress,
+    destinationAddress: destinationAddress,
+    allAddresses,
+    hasMultipleStops: Boolean(raw?.hasMultipleStops ?? raw?.has_multiple_stops ?? locations.some((loc: RideLocation) => loc.type === 'waypoint')),
+    waypointsCount: raw?.waypointsCount ?? raw?.waypoints_count ?? undefined,
+    passengers: raw?.passengers !== undefined ? Number(raw.passengers) : undefined,
+    rideType: raw?.rideType ?? raw?.ride_type ?? undefined,
+    vehicleType: raw?.vehicleType ?? raw?.vehicle_type ?? undefined,
+    paymentType: raw?.paymentType ?? raw?.payment_type ?? undefined,
+    estimatedPrice: raw?.estimatedPrice !== undefined ? toNumber(raw.estimatedPrice, 0) : (raw?.estimated_price !== undefined ? toNumber(raw.estimated_price, 0) : undefined),
+    estimatedFare: raw?.estimatedFare !== undefined ? toNumber(raw.estimatedFare, 0) : undefined,
+    finalFare: raw?.finalFare !== undefined ? toNumber(raw.finalFare, 0) : (raw?.final_fare !== undefined ? toNumber(raw.final_fare, 0) : undefined),
+    commission,
+    tip: primaryPayment?.tip,
+    distance: distance !== undefined ? toNumber(distance, 0) : undefined,
+    estimatedDistance: estimatedDistance !== undefined ? toNumber(estimatedDistance, 0) : undefined,
+    duration: duration !== undefined ? toNumber(duration, 0) : undefined,
+    estimatedDuration: estimatedDuration !== undefined ? toNumber(estimatedDuration, 0) : undefined,
+    notes: raw?.notes ?? undefined,
+    cancelReason: raw?.cancelReason ?? undefined,
+    createdAt: toISOString(raw?.createdAt ?? raw?.created_at),
+    updatedAt: toISOString(raw?.updatedAt ?? raw?.updated_at),
+    requestedAt: toISOString(raw?.requestedAt ?? raw?.requested_at),
+    acceptedAt: toISOString(raw?.acceptedAt ?? raw?.accepted_at),
+    startedAt: toISOString(raw?.startedAt ?? raw?.started_at),
+    completedAt: toISOString(raw?.completedAt ?? raw?.completed_at),
+    canceledAt: toISOString(raw?.canceledAt ?? raw?.canceled_at),
+  timeline: raw?.timeline
+    ? {
+        requestedAt: toISOString(raw.timeline.requestedAt ?? raw.timeline.requested_at),
+        acceptedAt: toISOString(raw.timeline.acceptedAt ?? raw.timeline.accepted_at),
+        startedAt: toISOString(raw.timeline.startedAt ?? raw.timeline.started_at),
+        completedAt: toISOString(raw.timeline.completedAt ?? raw.timeline.completed_at),
+        canceledAt: toISOString(raw.timeline.canceledAt ?? raw.timeline.canceled_at),
+      }
+    : undefined,
+    payments,
+    primaryPayment,
+    locations,
+    originLat: originLocation?.latitude,
+    originLng: originLocation?.longitude,
+    destinationLat: destinationLocation?.latitude,
+    destinationLng: destinationLocation?.longitude,
+  };
+
+  if (!ride.vehicle && ride.driver?.vehicles && ride.driver.vehicles.length > 0) {
+    ride.vehicle = ride.driver.vehicles.find((v) => v.isActive) || ride.driver.vehicles[0];
+  }
+
+  if (primaryPayment) {
+    const commissionValue = primaryPayment.commission ?? 0;
+    const finalFare = ride.finalFare ?? primaryPayment.amount;
+    ride.payment = {
+      id: primaryPayment.id,
+      amount: primaryPayment.amount,
+      tip: primaryPayment.tip,
+      total: primaryPayment.amount,
+      paymentMethod: primaryPayment.paymentMethod,
+      status: primaryPayment.status ?? 'pending',
+      paidAt: primaryPayment.paidAt,
+      createdAt: primaryPayment.createdAt ?? primaryPayment.paidAt,
+      estimatedPrice: ride.estimatedPrice ?? finalFare ?? 0,
+      commission: commissionValue,
+      commissionRate: finalFare ? commissionValue / finalFare : 0,
+      finalAmount: primaryPayment.amount - commissionValue,
+    };
+  }
+
+  return ride;
+};
 
 export interface Driver {
   id: string;
@@ -179,30 +414,62 @@ class RidesService {
     }
   }
 
-  async getMyRides(userId: string): Promise<Ride[]> {
+  async getMyRides(
+    userId: string,
+    userType: 'client' | 'driver' = 'client',
+    options?: { pageSize?: number },
+  ): Promise<Ride[]> {
     try {
+      console.log(`📱 [ridesService] Obteniendo viajes para ${userType}: ${userId}`);
       const functions = await this.getFunctions();
       const getMyRidesFunction = httpsCallable(functions, 'getMyRides');
-      const response = await getMyRidesFunction({ userId, limit: 50, offset: 0 });
-      const result = response.data as { success: boolean; rides: any[] };
-      return result.success ? result.rides : [];
-    } catch (error) {
-      console.error('Error getting my rides:', error);
+
+      const limit = Math.min(Math.max(options?.pageSize ?? 200, 1), 500);
+      let offset = 0;
+      let totalCount: number | null = null;
+      const allRides: Ride[] = [];
+
+      while (true) {
+        const response = await getMyRidesFunction({ userType, limit, offset });
+        const result = response.data as { success: boolean; rides: any[]; totalCount?: number };
+        const batchRaw = result.success && Array.isArray(result.rides) ? result.rides : [];
+        const batch = batchRaw.map(normalizeRide);
+        allRides.push(...batch);
+
+        if (typeof result.totalCount === 'number' && !Number.isNaN(result.totalCount)) {
+          totalCount = result.totalCount;
+        }
+
+        console.log(
+          `✅ [ridesService] Lote obtenido: ${batch.length} (acumulado: ${allRides.length}${
+            totalCount !== null ? ` / ${totalCount}` : ''
+          })`,
+        );
+
+        if (batch.length < limit) {
+          break;
+        }
+
+        offset += limit;
+
+        if (totalCount !== null && allRides.length >= totalCount) {
+          break;
+        }
+      }
+
+      if (totalCount !== null && allRides.length > totalCount) {
+        return allRides.slice(0, totalCount);
+      }
+
+      return allRides;
+    } catch (error: any) {
+      console.error('❌ Error getting my rides:', error.message);
       return [];
     }
   }
 
   async getDriverRides(driverId: string): Promise<Ride[]> {
-    try {
-      const functions = await this.getFunctions();
-      const getMyRidesFunction = httpsCallable(functions, 'getMyRides');
-      const response = await getMyRidesFunction({ userId: driverId, limit: 50, offset: 0 });
-      const result = response.data as { success: boolean; rides: any[] };
-      return result.success ? result.rides : [];
-    } catch (error) {
-      console.error('Error getting driver rides:', error);
-      return [];
-    }
+    return this.getMyRides(driverId, 'driver');
   }
 
   async getRideDetails(rideId: string): Promise<Ride> {
@@ -210,7 +477,10 @@ class RidesService {
     const getRideDetailsFunction = httpsCallable(functions, 'getRideDetails');
     const response = await getRideDetailsFunction({ rideId });
     const result = response.data as { success: boolean; ride: any };
-    return result.ride;
+    if (!result.success || !result.ride) {
+      throw new Error('No se pudieron obtener los detalles del viaje');
+    }
+    return normalizeRide(result.ride);
   }
 
   async cancelRide(rideId: string, reason?: string): Promise<{ 

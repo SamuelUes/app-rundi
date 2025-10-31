@@ -7,7 +7,25 @@
       ".read": "auth != null",
       "$rideId": {
         ".write": "auth != null && ((data.child('clientId').val() === auth.uid) || (data.child('driverId').val() === auth.uid) || (!data.exists() && auth != null))",
-        ".validate": "newData.hasChildren(['id', 'clientId', 'status', 'origin', 'destination'])"
+        ".validate": "newData.hasChildren(['id', 'clientId', 'status', 'origin', 'destination', 'estimatedPrice', 'requestedAt'])",
+        
+        "id": { ".validate": "newData.isString()" },
+        "clientId": { ".validate": "newData.isString()" },
+        "driverId": { ".validate": "newData.isString() || newData.val() == null" },
+        "status": { ".validate": "newData.isString() && newData.val().matches(/^(requested|accepted|in_progress|completed|canceled)$/)" },
+        "origin": { ".validate": "newData.hasChildren(['lat', 'lng'])" },
+        "destination": { ".validate": "newData.hasChildren(['lat', 'lng'])" },
+        "estimatedPrice": { ".validate": "newData.isNumber() && newData.val() > 0" },
+        "estimatedDistance": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+        "estimatedDuration": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+        "distance": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+        "duration": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+        "finalFare": { ".validate": "newData.isNumber() || newData.val() == null" },
+        "requestedAt": { ".validate": "newData.isNumber() && newData.val() > 0" },
+        "acceptedAt": { ".validate": "newData.isNumber() || newData.val() == null" },
+        "startedAt": { ".validate": "newData.isNumber() || newData.val() == null" },
+        "completedAt": { ".validate": "newData.isNumber() || newData.val() == null" },
+        "lastUpdate": { ".validate": "newData.isNumber() && newData.val() > 0" }
       }
     },
     
@@ -31,8 +49,12 @@
         ".write": "auth != null",
         ".validate": "newData.hasChildren(['rideId', 'status', 'method', 'amount'])",
         
+        "rideId": {
+          ".validate": "newData.isString()"
+        },
+        
         "status": {
-          ".validate": "newData.isString() && newData.val().matches(/^(initiated|authorized|pending_confirmation|in_progress|pending_capture|completed|confirmed|canceled|partial_charged|pending_cash_payment|failed|refunded)$/)"
+          ".validate": "newData.isString() && newData.val().matches(/^(pending_confirmation|in_progress|completed|canceled|failed)$/)"
         },
         
         "method": {
@@ -40,7 +62,7 @@
         },
         
         "provider": {
-          ".validate": "newData.isString() && newData.val().matches(/^(cash|local)$/)"
+          ".validate": "newData.isString() && newData.val().matches(/^(cash|local|stripe)$/)"
         },
         
         "amount": {
@@ -53,6 +75,22 @@
         
         "total": {
           ".validate": "newData.isNumber() && newData.val() >= 0"
+        },
+        
+        "createdAt": {
+          ".validate": "newData.isNumber() && newData.val() > 0"
+        },
+        
+        "updatedAt": {
+          ".validate": "newData.isNumber() && newData.val() > 0"
+        },
+        
+        "confirmedByClient": {
+          ".validate": "newData.isBoolean()"
+        },
+        
+        "confirmedByDriver": {
+          ".validate": "newData.isBoolean()"
         }
       }
     },

@@ -106,9 +106,11 @@ class EarningsService {
     period: string;
   }> {
     try {
+      console.log(`💰 [earningsService] Obteniendo ganancias - período: ${period}`);
       const functions = await getFirebaseFunctions();
       const getDriverEarningsFn = httpsCallable(functions, 'getDriverEarnings');
 
+      console.log(`📞 [earningsService] Llamando a getDriverEarnings...`);
       const response = await getDriverEarningsFn({
         period,
         startDate,
@@ -116,15 +118,58 @@ class EarningsService {
       });
 
       const result = response.data as any;
+      console.log(`✅ [earningsService] Respuesta recibida:`, result);
 
+      // ✅ Backend retorna 'earnings', convertir a formato esperado
+      const earnings = result.earnings || {};
+      const rides = Array.isArray(earnings.completedRides) ? earnings.completedRides : [];
+      
       return {
-        summary: result.summary,
-        rides: result.rides,
-        period: result.period,
+        summary: {
+          totalEarnings: earnings.totalEarnings || 0,
+          totalRides: earnings.totalRides || 0,
+          averagePerRide: earnings.averageEarning || 0,
+          commission: earnings.totalCommission || 0,
+          netEarnings: earnings.netEarnings ?? (earnings.totalEarnings || 0),
+          penalties: [],
+          penaltyCount: 0,
+          cashRidesCount: 0,
+          cashCommissionTotal: 0,
+          cashCommissionPending: 0,
+          retentionAmount: 0,
+          hasRetention: false,
+          netEarningsAfterPenalties: earnings.netEarnings ?? (earnings.totalEarnings || 0),
+        },
+        rides: rides.map((ride: any) => ({
+          id: ride.id,
+          clientName: ride.clientName || '',
+          origin: ride.origin || ride.originAddress || '',
+          destination: ride.destination || ride.destinationAddress || '',
+          distance: ride.distance || 0,
+          duration: ride.duration || 0,
+          fare: ride.fare || 0,
+          commission: ride.commission || 0,
+          netEarning: ride.driverEarning || (ride.fare || 0) - (ride.commission || 0),
+          completedAt: ride.completedAt || '',
+          paymentStatus: ride.paymentStatus || 'pending',
+        })),
+        period: period,
       };
     } catch (error: any) {
-      console.error('❌ Error obteniendo ganancias:', error);
-      throw new Error(error.message || 'No se pudieron obtener las ganancias');
+      console.error('❌ Error obteniendo ganancias:', error.message);
+      console.error('❌ Error stack:', error.code);
+      // Retornar datos vacíos en lugar de lanzar error
+      return {
+        summary: {
+          totalEarnings: 0,
+          totalRides: 0,
+          averagePerRide: 0,
+          commission: 0,
+          netEarnings: 0,
+        },
+        rides: [],
+        period: period,
+      };
     }
   }
 

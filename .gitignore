@@ -1,9 +1,9 @@
 # Environment files
 # IMPORTANTE: Se ignoran todos los .env EXCEPTO el del Frontend
-.env
-.env.local
-.env.production
-.env.*.local
+#.env
+#.env.local
+#.env.production
+#.env.*.local
 
 # PERMITIR archivos .env.example (son plantillas sin datos sensibles)
 !.env.example
@@ -15,11 +15,11 @@
 !Frontend/.env.production
 
 # Mantener ignorados los .env de Backend y Functions (contienen secrets)
-functions/.env
-functions/.env.development
-functions/.env.production
-Backend/.env
-Backend/.env.*
+#functions/.env
+#functions/.env.development
+#functions/.env.production
+#Backend/.env
+#Backend/.env.*
 
 # Dependencies
 node_modules/

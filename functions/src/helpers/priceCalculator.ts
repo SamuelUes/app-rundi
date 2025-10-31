@@ -138,11 +138,11 @@ function getMultiplier(distanceKm: number, vehicleType: VehicleType, rideType: R
 export function getCommissionRate(vehicleType: VehicleType, rideType: RideType): number {
   // Valores por defecto (fallback si falla la BD)
   if (rideType === 'designated_driver') {
-    return 0.15; // 15%
+    return 0.25; // 25%
   } else if (vehicleType === 'motorcycle') {
-    return 0.08; // 8%
+    return 0.075; // 7.5%
   } else {
-    return 0.10; // 10%
+    return 0.11; // 11%
   }
 }
 
@@ -172,7 +172,7 @@ export async function getCommissionFromDatabase(
   } catch (error) {
     console.error('❌ Error obteniendo comisión desde BD:', error);
     // Fallback a valores por defecto
-    return serviceCode === 'designated_driver' ? 0.15 : 0.10;
+    return serviceCode === 'designated_driver' ? 0.25 : 0.11;
   } finally {
     client.release();
   }

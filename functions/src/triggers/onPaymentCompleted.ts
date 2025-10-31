@@ -16,7 +16,7 @@ import {
   saveRideLocationsToSupabase, // ✅ NUEVO
   updateRideLocationIds, // ✅ NUEVO
   saveCanceledRideToSupabase, // ✅ NUEVO
-} from "../helpers/supabaseArchive";
+} from "../helpers/supabaseArchive.old";
 
 /**
  * TRIGGER: Cuando paymentStatus/{rideId}.status = 'completed'

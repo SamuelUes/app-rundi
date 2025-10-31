@@ -142,44 +142,42 @@ export default function RideDetailsScreen({ navigation, route }: any) {
   }
 
   const isDriver = user?.role === 'driver';
-  
-  // Convertir distancia de forma segura
-  const distanceKm = (() => {
-    try {
-      if (ride.estimatedDistance && !isNaN(Number(ride.estimatedDistance))) {
-        return (Number(ride.estimatedDistance) / 1000).toFixed(1);
-      }
-      return '0.0';
-    } catch {
-      return '0.0';
+
+  const distanceMeters = Number(ride.distance ?? ride.estimatedDistance ?? 0) || 0;
+  const distanceKm = (distanceMeters / 1000).toFixed(1);
+  const durationSeconds = Number(ride.duration ?? ride.estimatedDuration ?? 0) || 0;
+
+  const primaryPayment = ride.primaryPayment || null;
+  const payments: any[] = Array.isArray(ride.payments) ? ride.payments : [];
+
+  const finalPrice = (() => {
+    if (ride.finalFare !== undefined && ride.finalFare !== null) {
+      return Number(ride.finalFare) || 0;
     }
-  })();
-  
-  // Calcular precio final de forma segura
-  const getFinalPrice = (): number => {
-    // Intentar obtener de finalFare primero
-    if (ride.finalFare) {
-      return typeof ride.finalFare === 'string' 
-        ? parseFloat(ride.finalFare) 
-        : ride.finalFare;
+    if (primaryPayment?.amount !== undefined) {
+      return Number(primaryPayment.amount) || 0;
     }
-    
-    // Si no, usar estimatedPrice
-    if (ride.estimatedPrice) {
-      return typeof ride.estimatedPrice === 'string'
-        ? parseFloat(ride.estimatedPrice)
-        : ride.estimatedPrice;
+    if (ride.estimatedPrice !== undefined) {
+      return Number(ride.estimatedPrice) || 0;
     }
-    
-    // Si hay payment, usar amount
-    if (ride.payment?.amount) {
-      return ride.payment.amount;
-    }
-    
     return 0;
-  };
-  
-  const finalPrice = getFinalPrice();
+  })();
+
+  const commission = (() => {
+    if (ride.commission !== undefined && ride.commission !== null) {
+      return Number(ride.commission) || 0;
+    }
+    if (primaryPayment?.commission !== undefined && primaryPayment.commission !== null) {
+      return Number(primaryPayment.commission) || 0;
+    }
+    return 0;
+  })();
+
+  const tip = primaryPayment?.tip ? Number(primaryPayment.tip) || 0 : 0;
+  const driverNet = ride.payment?.finalAmount ?? (primaryPayment ? (Number(primaryPayment.amount) || 0) - commission + tip : null);
+
+  const paymentStatus = primaryPayment?.status ?? (payments[0]?.status ?? 'no_payment_data');
+  const paymentMethod = primaryPayment?.paymentMethod ?? (payments[0]?.paymentMethod ?? ride.paymentType ?? 'no_payment_data');
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
@@ -196,27 +194,50 @@ export default function RideDetailsScreen({ navigation, route }: any) {
         </Text>
       </View>
 
-      {/* Ruta */}
+      {/* Ruta - Soportar múltiples destinos */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>📍 Ruta</Text>
         <View style={styles.card}>
-          <View style={styles.locationRow}>
-            <Text style={styles.locationIcon}>🔵</Text>
-            <View style={styles.locationInfo}>
-              <Text style={styles.locationLabel}>Origen</Text>
-              <Text style={styles.locationText}>{safeString(ride.originAddress)}</Text>
-            </View>
-          </View>
-          
-          <View style={styles.routeLine} />
-          
-          <View style={styles.locationRow}>
-            <Text style={styles.locationIcon}>🔴</Text>
-            <View style={styles.locationInfo}>
-              <Text style={styles.locationLabel}>Destino</Text>
-              <Text style={styles.locationText}>{safeString(ride.destinationAddress)}</Text>
-            </View>
-          </View>
+          {/* Si hay múltiples paradas, mostrar todas */}
+          {ride.hasMultipleStops && ride.allAddresses && ride.allAddresses.length > 0 ? (
+            ride.allAddresses.map((address: string, idx: number) => (
+              <View key={`route-${idx}`}>
+                <View style={styles.locationRow}>
+                  <Text style={styles.locationIcon}>
+                    {idx === 0 ? '🔵' : idx === ride.allAddresses.length - 1 ? '🔴' : '📍'}
+                  </Text>
+                  <View style={styles.locationInfo}>
+                    <Text style={styles.locationLabel}>
+                      {idx === 0 ? 'Origen' : idx === ride.allAddresses.length - 1 ? 'Destino' : `Parada ${idx}`}
+                    </Text>
+                    <Text style={styles.locationText}>{safeString(address)}</Text>
+                  </View>
+                </View>
+                {idx < ride.allAddresses.length - 1 && <View style={styles.routeLine} />}
+              </View>
+            ))
+          ) : (
+            // Si no hay múltiples paradas, mostrar origen y destino
+            <>
+              <View style={styles.locationRow}>
+                <Text style={styles.locationIcon}>🔵</Text>
+                <View style={styles.locationInfo}>
+                  <Text style={styles.locationLabel}>Origen</Text>
+                  <Text style={styles.locationText}>{safeString(ride.originAddress)}</Text>
+                </View>
+              </View>
+              
+              <View style={styles.routeLine} />
+              
+              <View style={styles.locationRow}>
+                <Text style={styles.locationIcon}>🔴</Text>
+                <View style={styles.locationInfo}>
+                  <Text style={styles.locationLabel}>Destino</Text>
+                  <Text style={styles.locationText}>{safeString(ride.destinationAddress)}</Text>
+                </View>
+              </View>
+            </>
+          )}
         </View>
       </View>
 
@@ -447,7 +468,7 @@ export default function RideDetailsScreen({ navigation, route }: any) {
             }
             
             const rideType = ride.rideType || 'normal';
-            const commissionRate = rideType === 'designated_driver' ? 0.15 : 0.10;
+            const commissionRate = rideType === 'designated_driver' ? 0.25 : 0.11;
             
             // Convertir commission a número de forma segura
             let commission = 0;

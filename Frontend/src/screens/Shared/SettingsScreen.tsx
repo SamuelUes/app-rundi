@@ -362,12 +362,12 @@ export default function SettingsScreen({ navigation }: any) {
           
           <View style={styles.option}>
             <Text style={styles.optionTitle}>Versión</Text>
-            <Text style={styles.optionDescription}>1.0.0</Text>
+            <Text style={styles.optionDescription}>1.0.01</Text>
           </View>
 
           <View style={styles.option}>
             <Text style={styles.optionTitle}>Dominio</Text>
-            <Text style={styles.optionDescription}>driveangel.online</Text>
+            <Text style={styles.optionDescription}>conduce.online</Text>
           </View>
 
           <TouchableOpacity style={[styles.option, styles.optionLast]}>

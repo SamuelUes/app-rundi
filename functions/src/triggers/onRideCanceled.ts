@@ -10,12 +10,12 @@
 
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
-import { 
-  saveCompletedRideToSupabase, 
+import {
+  saveCanceledRideToSupabase,
   savePaymentToSupabase,
-  saveRideLocationsToSupabase, // ✅ NUEVO
-  updateRideLocationIds, // ✅ NUEVO
-} from "../helpers/supabaseArchive";
+  saveRideLocationsToSupabase,
+  updateRideLocationIds,
+} from "../helpers/supabaseArchive.old";
 
 export const onRideCanceled = functions.database
   .ref("activeRides/{rideId}")
@@ -69,17 +69,12 @@ export const onRideCanceled = functions.database
       // ✅ IMPORTANTE: Guardar con status 'canceled' en Supabase
       const rideDataForSupabase = {
         ...newRide,
-        status: "canceled",  // ✅ Status debe ser 'canceled' en Supabase
         cancelReason: newRide.cancelReason || "Sin razón especificada",
         canceledBy: newRide.canceledBy || "unknown",
         canceledAt: newRide.canceledAt || Date.now(),
       };
-      
-      const pgRideId = await saveCompletedRideToSupabase(
-        rideDataForSupabase,
-        rideId,
-        paymentStatus || { status: 'canceled' }
-      );
+
+      const pgRideId = await saveCanceledRideToSupabase(rideDataForSupabase, rideId);
 
       if (!pgRideId) {
         console.error(`❌ [onRideCanceled] Error guardando viaje en Supabase`);
@@ -112,9 +107,9 @@ export const onRideCanceled = functions.database
         console.log(`\n3️⃣ Guardando pago cancelado en Supabase...`);
         const paymentDataForSupabase = {
           ...paymentStatus,
-          status: 'canceled',
-          cancelReason: newRide.cancelReason || "Sin razón especificada",
-          canceledBy: newRide.canceledBy || "unknown",
+          status: paymentStatus.status || 'canceled',
+          cancelReason: newRide.cancelReason || paymentStatus.cancelReason || "Sin razón especificada",
+          canceledBy: newRide.canceledBy || paymentStatus.canceledBy || "unknown",
         };
         
         const paymentSaved = await savePaymentToSupabase(pgRideId, paymentDataForSupabase);

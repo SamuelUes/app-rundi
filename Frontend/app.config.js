@@ -1,7 +1,7 @@
 export default {
-  name: 'DriveAngel',
-  slug: 'driveangel',
-  version: '1.0.0',
+  name: 'Conduce',
+  slug: 'conduce',
+  version: '1.0.01',
   orientation: 'portrait',
   userInterfaceStyle: 'light',
   updates: {

@@ -210,11 +210,12 @@ export default function PaymentConfirmationScreen({
               if (!app) throw new Error('Firebase no inicializado');
 
               const functions = getFunctions(app);
-              const switchPaymentMethodFn = httpsCallable(functions, 'switchPaymentMethod');
+              const changePaymentMethodFn = httpsCallable(functions, 'changePaymentMethod');
               
               console.log(`🔄 Cambiando método de pago a ${newMethod}...`);
-              const result = await switchPaymentMethodFn({
-                rideId,
+              console.log(`📍 Usando rideId: ${rideId} (pgRideId: ${pgRideId})`);
+              const result = await changePaymentMethodFn({
+                rideId: pgRideId || rideId,  // ✅ Usar pgRideId si está disponible, sino rideId
                 newPaymentMethod: newMethod,
                 reason: `Cliente ${paymentMethod === 'cash' ? 'no tiene efectivo' : 'prefiere pagar en efectivo'}`,
               });

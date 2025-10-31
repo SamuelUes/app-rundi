@@ -657,11 +657,14 @@ export default function ActiveRideScreen({ route, navigation }: any) {
     );
   };
 
+  const resolvedClientName = ride?.client?.fullName || ride?.client?.name || ride?.clientName || 'Cliente';
+  const resolvedClientPhone = ride?.client?.phone || ride?.client?.phoneNumber || ride?.clientPhone || 'Sin teléfono';
+
   const handleOpenChat = () => {
     navigation.navigate('Chat', {
       rideId,
-      otherUserName: ride?.client?.name || 'Cliente',
-      otherUserPhone: ride?.client?.phone || null,
+      otherUserName: resolvedClientName,
+      otherUserPhone: resolvedClientPhone === 'Sin teléfono' ? null : resolvedClientPhone,
     });
   };
 
@@ -1003,8 +1006,8 @@ export default function ActiveRideScreen({ route, navigation }: any) {
         <View style={styles.header}>
           <View style={styles.clientInfo}>
             <View style={styles.clientData}>
-              <Text style={styles.clientName}>{ride?.client?.name || 'Cliente'}</Text>
-              <Text style={styles.clientPhone}>{ride?.client?.phone || 'Sin teléfono'}</Text>
+              <Text style={styles.clientName}>{resolvedClientName}</Text>
+              <Text style={styles.clientPhone}>{resolvedClientPhone}</Text>
               
               {clientLocation && (
                 <View style={styles.locationStatusContainer}>
@@ -1022,7 +1025,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
               />
             ) : (
               <View style={[styles.clientPhoto, { backgroundColor: colors.card }]}>
-                <Text style={styles.clientInitial}>{(ride?.client?.name || 'C')[0]}</Text>
+                <Text style={styles.clientInitial}>{resolvedClientName?.[0] || 'C'}</Text>
               </View>
             )}
           </View>

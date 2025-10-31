@@ -15,11 +15,14 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { safeFormatDate } from '../../utils/safeFormatters';
-import * as ImagePicker from 'expo-image-picker';
+import * as ExpoImagePicker from 'expo-image-picker';
 import driversService from '../../services/driversService';
 import vehiclesService from '../../services/vehiclesService';
 import designatedDriverService from '../../services/designatedDriverService';
 import supabaseStorage from '../../services/supabaseStorage';
+import { FormattedInput } from '../../components/FormattedInput';
+import ImagePickerComponent from '../../components/ImagePicker';
+import earningsService from '../../services/earningsService';
 
 interface DriverStats {
   totalRides: number;
@@ -36,10 +39,13 @@ interface Vehicle {
   color: string;
   plate: string;
   type: string;
+  isActive?: boolean;
   is_active?: boolean;
   registrationNumber?: string;
   registrationExpiry?: string;
   registrationPhoto?: string;
+  registrationPhotoFront?: string;
+  registrationPhotoBack?: string;
   insuranceNumber?: string;
   insuranceCompany?: string;
   insuranceExpiry?: string;
@@ -49,14 +55,24 @@ interface Vehicle {
 
 interface DriverData {
   id: string;
-  license_number: string;
+  // Campos en camelCase (del backend)
+  licenseNumber?: string;
+  licenseExpiry?: string;
+  licensePhoto?: string;
+  licensePhotoFront?: string;
+  licensePhotoBack?: string;
+  // Campos en snake_case (compatibilidad)
+  license_number?: string;
   license_expiry?: string;
   license_photo?: string;
   license_photo_front?: string;
   license_photo_back?: string;
   status?: string;
+  totalRides?: number;
   total_rides?: number;
+  averageRating?: number;
   average_rating?: number;
+  totalEarnings?: number;
   total_earnings?: number;
 }
 
@@ -74,6 +90,7 @@ export default function DriverProfileScreen({ navigation }: any) {
     averageRating: 5.0,
     completionRate: 100,
   });
+  const [dailyStats, setDailyStats] = useState<{ rides: number; earnings: number }>({ rides: 0, earnings: 0 });
   const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
   const [showAddVehicleModal, setShowAddVehicleModal] = useState(false);
   const [vehicleFormData, setVehicleFormData] = useState({
@@ -97,10 +114,14 @@ export default function DriverProfileScreen({ navigation }: any) {
     emission_date: '',
     registration_number: '',
     registration_expiry: '',
+    registration_photo_front: null as string | null,
+    registration_photo_back: null as string | null,
     insurance_number: '',
     insurance_company: '',
     insurance_start_date: '',
     insurance_expiry: '',
+    insurance_photo: null as string | null,
+    vehicle_photo: null as string | null,
   });
   const [addingVehicle, setAddingVehicle] = useState(false);
   const [designatedDriverRequestStatus, setDesignatedDriverRequestStatus] = useState<string | null>(null);
@@ -109,6 +130,8 @@ export default function DriverProfileScreen({ navigation }: any) {
   // Animaciones
   const cardScaleAnim = useMemo(() => new Animated.Value(0.95), []);
   const cardOpacityAnim = useMemo(() => new Animated.Value(0), []);
+
+  const formatCurrency = (value: number = 0) => `C$${Number.isFinite(value) ? value.toFixed(2) : '0.00'}`;
 
   useEffect(() => {
     // Animar entrada del card de Conductor Designado
@@ -129,21 +152,54 @@ export default function DriverProfileScreen({ navigation }: any) {
   useEffect(() => {
     loadDriverData();
     loadDesignatedDriverStatus();
-    
+    loadEarningsStats();
+
     // Escuchar cambios de foco para recargar datos cuando se regrese a la pantalla
     const unsubscribe = navigation.addListener('focus', () => {
       loadDriverData();
       loadDesignatedDriverStatus();
+      loadEarningsStats();
     });
 
     return unsubscribe;
   }, [navigation]);
+
+  const loadEarningsStats = async () => {
+    try {
+      const [todayResponse, totalsResponse] = await Promise.all([
+        earningsService.getDriverEarnings('today'),
+        earningsService.getDriverStats(),
+      ]);
+
+      if (todayResponse?.summary) {
+        setDailyStats({
+          rides: todayResponse.summary.totalRides ?? 0,
+          earnings:
+            todayResponse.summary.netEarnings ?? todayResponse.summary.totalEarnings ?? 0,
+        });
+      } else {
+        setDailyStats({ rides: 0, earnings: 0 });
+      }
+
+      if (totalsResponse) {
+        setStats((prev) => ({
+          ...prev,
+          totalRides: totalsResponse.totalRides ?? prev.totalRides ?? 0,
+          totalEarnings:
+            totalsResponse.totalNetEarnings ?? totalsResponse.totalEarnings ?? prev.totalEarnings ?? 0,
+        }));
+      }
+    } catch (error) {
+      console.error('Error cargando estadísticas de ganancias del conductor:', error);
+    }
+  };
 
   // Cargar estado de solicitud de Conductor Designado
   const loadDesignatedDriverStatus = async () => {
     try {
       if (!user?.id) return;
       
+
       console.log('📋 Cargando estado de solicitud de Conductor Designado...');
       const status = await designatedDriverService.getDesignatedDriverRequestStatus();
       
@@ -166,54 +222,62 @@ export default function DriverProfileScreen({ navigation }: any) {
     try {
       console.log('📱 Cargando datos del conductor para:', user.id);
       
-      // Cargar datos reales del backend
-      const profile = await driversService.getDriverProfile(user.id);
+      // ✅ Usar getMyDriverProfile() para obtener el perfil del usuario autenticado
+      const profile = await driversService.getMyDriverProfile();
       
       console.log('✅ Perfil cargado:', profile);
 
-      if (profile?.driver) {
-        setDriverData(profile.driver);
+      // ✅ El servicio retorna directamente el objeto driver, no envuelto
+      if (profile) {
+        setDriverData(profile);
 
         // Actualizar estadísticas desde los datos reales
         setStats({
-          totalRides: profile.driver.total_rides || 0,
-          totalEarnings: profile.driver.total_earnings || 0,
-          averageRating: profile.driver.average_rating || 5.0,
+          totalRides: profile.totalRides || profile.total_rides || 0,
+          totalEarnings: profile.earnings || profile.total_earnings || 0,
+          averageRating: profile.rating || profile.average_rating || 5.0,
           completionRate: 96, // TODO: Calcular basado en datos reales
         });
 
-        // ✅ NUEVO: Cargar TODOS los vehículos del conductor
+        // ✅ NUEVO: Cargar vehículos desde el perfil o desde la BD
         try {
-          console.log('🚗 Cargando todos los vehículos del conductor...');
-          const allVehicles = await vehiclesService.getDriverVehicles();
+          console.log('🚗 Cargando vehículos del conductor...');
           
-          if (allVehicles && allVehicles.length > 0) {
-            console.log(`✅ ${allVehicles.length} vehículos cargados`);
-            console.log('📋 Primer vehículo cargado:', JSON.stringify(allVehicles[0], null, 2));
-            setVehicles(allVehicles);
+          // Prioridad 1: Usar vehículos del perfil si existen
+          if (profile.vehicles && Array.isArray(profile.vehicles) && profile.vehicles.length > 0) {
+            console.log(`✅ ${profile.vehicles.length} vehículos encontrados en el perfil`);
+            console.log('📋 Primer vehículo:', JSON.stringify(profile.vehicles[0], null, 2));
+            setVehicles(profile.vehicles);
           } else {
-            console.log('⚠️ No hay vehículos registrados');
-            setVehicles([]);
+            // Prioridad 2: Intentar cargar de la BD
+            console.log('📡 Intentando cargar vehículos de la BD...');
+            const allVehicles = await vehiclesService.getDriverVehicles();
+            
+            if (allVehicles && allVehicles.length > 0) {
+              console.log(`✅ ${allVehicles.length} vehículos cargados de la BD`);
+              console.log('📋 Primer vehículo cargado:', JSON.stringify(allVehicles[0], null, 2));
+              setVehicles(allVehicles);
+            } else {
+              console.log('⚠️ No hay vehículos registrados');
+              setVehicles([]);
+            }
           }
         } catch (vehicleError: any) {
           console.error('❌ Error cargando vehículos:', vehicleError);
-          // Si falla, usar el vehículo del perfil como fallback
-          if (profile.driver.vehicle) {
-            console.log('🔄 Usando vehículo del perfil como fallback:', JSON.stringify(profile.driver.vehicle, null, 2));
-            setVehicles([{
-              ...profile.driver.vehicle,
-              type: profile.driver.vehicle.type || 'sedan'
-            }]);
+          // Si falla, usar los vehículos del perfil si existen
+          if (profile.vehicles && Array.isArray(profile.vehicles)) {
+            console.log('🔄 Usando vehículos del perfil como fallback');
+            setVehicles(profile.vehicles);
           }
         }
 
         // ✅ NUEVO: Cargar foto de perfil
-        if (profile.driver.profile_photo) {
-          console.log('📸 Cargando foto de perfil:', profile.driver.profile_photo);
-          setProfilePhoto(profile.driver.profile_photo);
-        } else if (profile.driver.profilePhoto) {
-          console.log('📸 Cargando foto de perfil (profilePhoto):', profile.driver.profilePhoto);
-          setProfilePhoto(profile.driver.profilePhoto);
+        if (profile.profilePhoto) {
+          console.log('📸 Cargando foto de perfil:', profile.profilePhoto);
+          setProfilePhoto(profile.profilePhoto);
+        } else if (profile.profile_photo) {
+          console.log('📸 Cargando foto de perfil (profile_photo):', profile.profile_photo);
+          setProfilePhoto(profile.profile_photo);
         } else {
           console.log('⚠️ No hay foto de perfil registrada');
           setProfilePhoto(null);
@@ -234,15 +298,15 @@ export default function DriverProfileScreen({ navigation }: any) {
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   const handleUploadPhoto = async (type: 'profile' | 'vehicle' | 'document', docType?: string) => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    const { status } = await ExpoImagePicker.requestMediaLibraryPermissionsAsync();
     
     if (status !== 'granted') {
       Alert.alert('Permiso Denegado', 'Necesitamos acceso a tu galería para subir fotos');
       return;
     }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+    const result = await ExpoImagePicker.launchImageLibraryAsync({
+      mediaTypes: ExpoImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: type === 'profile' ? [1, 1] : [4, 3],
       quality: 0.8,
@@ -332,10 +396,14 @@ export default function DriverProfileScreen({ navigation }: any) {
         emission_date: vehicleFormData.emission_date || undefined,
         registration_number: vehicleFormData.registration_number || undefined,
         registration_expiry: vehicleFormData.registration_expiry || undefined,
+        registration_photo_front: vehicleFormData.registration_photo_front || undefined,
+        registration_photo_back: vehicleFormData.registration_photo_back || undefined,
         insurance_number: vehicleFormData.insurance_number || undefined,
         insurance_company: vehicleFormData.insurance_company || undefined,
         insurance_start_date: vehicleFormData.insurance_start_date || undefined,
         insurance_expiry: vehicleFormData.insurance_expiry || undefined,
+        insurance_photo: vehicleFormData.insurance_photo || undefined,
+        vehicle_photo: vehicleFormData.vehicle_photo || undefined,
       });
 
       console.log('✅ Vehículo agregado exitosamente');
@@ -365,10 +433,14 @@ export default function DriverProfileScreen({ navigation }: any) {
         emission_date: '',
         registration_number: '',
         registration_expiry: '',
+        registration_photo_front: null,
+        registration_photo_back: null,
         insurance_number: '',
         insurance_company: '',
         insurance_start_date: '',
         insurance_expiry: '',
+        insurance_photo: null,
+        vehicle_photo: null,
       });
       setShowAddVehicleModal(false);
       
@@ -403,7 +475,7 @@ export default function DriverProfileScreen({ navigation }: any) {
   // Validar si un vehículo tiene datos completos
   const isVehicleComplete = (vehicle: Vehicle): boolean => {
     const hasBasicInfo = vehicle.plate && vehicle.brand && vehicle.model && vehicle.year && vehicle.color && vehicle.type;
-    const hasRegistration = vehicle.registrationNumber && vehicle.registrationExpiry && vehicle.registrationPhoto;
+    const hasRegistration = vehicle.registrationNumber && vehicle.registrationExpiry && vehicle.registrationPhotoFront && vehicle.registrationPhotoBack;
     const hasInsurance = vehicle.insuranceNumber && vehicle.insuranceCompany && vehicle.insuranceExpiry && vehicle.insurancePhoto;
     const hasVehiclePhoto = vehicle.vehiclePhoto;
     
@@ -417,7 +489,7 @@ export default function DriverProfileScreen({ navigation }: any) {
     if (!vehicle.plate || !vehicle.brand || !vehicle.model || !vehicle.year || !vehicle.color || !vehicle.type) {
       issues.push('Información básica incompleta');
     }
-    if (!vehicle.registrationNumber || !vehicle.registrationExpiry || !vehicle.registrationPhoto) {
+    if (!vehicle.registrationNumber || !vehicle.registrationExpiry || !vehicle.registrationPhotoFront || !vehicle.registrationPhotoBack) {
       issues.push('Datos de registro incompletos');
     }
     if (!vehicle.insuranceNumber || !vehicle.insuranceCompany || !vehicle.insuranceExpiry || !vehicle.insurancePhoto) {
@@ -554,16 +626,28 @@ export default function DriverProfileScreen({ navigation }: any) {
           <View style={styles.walletRow}>
             <View style={styles.walletItem}>
               <Text style={styles.walletLabel}>Ganancias Totales</Text>
-              <Text style={styles.walletValue}>C${(typeof stats.totalEarnings === 'number' ? stats.totalEarnings : 0).toFixed(2)}</Text>
             </View>
             <View style={styles.walletDivider} />
             <View style={styles.walletItem}>
               <Text style={styles.walletLabel}>Viajes Completados</Text>
+              <Text style={styles.walletValue}>{stats.totalRides}</Text>
+            </View>
+          </View>
+          <View style={styles.walletRowSecondary}>
+            <View style={styles.walletItem}>
+              <Text style={styles.walletLabel}>Ganancias Hoy</Text>
+              <Text style={styles.walletValue}>{formatCurrency(dailyStats.earnings)}</Text>
+            </View>
+            <View style={styles.walletDivider} />
+            <View style={styles.walletItem}>
+              <Text style={styles.walletLabel}>Viajes Hoy</Text>
+              <Text style={styles.walletValue}>{dailyStats.rides}</Text>
             </View>
             <View style={styles.walletDivider} />
             <View style={styles.walletItem}>
               <Text style={styles.walletLabel}>Calificación</Text>
-              <Text style={styles.walletValue}>⭐ {(typeof stats.averageRating === 'number' ? stats.averageRating : 5.0).toFixed(1)}</Text>
+              <Text style={styles.walletValue}> ⭐ {(typeof stats.averageRating === 'number' ? stats.averageRating : 5).toFixed(1)}
+              </Text>
             </View>
           </View>
         </View>
@@ -572,44 +656,52 @@ export default function DriverProfileScreen({ navigation }: any) {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>🚗 Mis Vehículos</Text>
         
-        {vehicles.map((vehicle) => (
-          <View key={vehicle.id} style={[styles.vehicleCard, vehicle.is_active && styles.vehicleCardActive]}>
-            <View style={styles.vehicleIcon}>
-              <Text style={styles.vehicleIconText}>🚗</Text>
-            </View>
-            <View style={styles.vehicleInfo}>
-              <Text style={styles.vehicleName}>
-                {vehicle.brand} {vehicle.model}
-              </Text>
-              <Text style={styles.vehicleDetails}>
-                {vehicle.color} • {vehicle.year} • {vehicle.plate}
-              </Text>
-              {vehicle.is_active && (
-                <Text style={styles.activeVehicleLabel}>✅ Vehículo Activo</Text>
-              )}
-            </View>
-            <View style={styles.vehicleButtonsContainer}>
-              <TouchableOpacity 
-                style={[styles.verifyButton]}
-                onPress={() => navigation.navigate('VehicleVerification', { vehicleId: vehicle.id })}
-              >
-                <Text style={styles.verifyButtonText}>
-                  {isVehicleComplete(vehicle) ? 'Ver' : 'Verificar'}
-                </Text>
-              </TouchableOpacity>
-              {vehicles.length > 1 && (
-                <TouchableOpacity 
-                  style={[styles.changeButton, vehicle.is_active && styles.changeButtonActive]}
-                  onPress={() => handleSwitchVehicle(vehicle.id)}
-                >
-                  <Text style={[styles.changeButtonText, vehicle.is_active && styles.changeButtonTextActive]}>
-                    {vehicle.is_active ? '✓ Activo' : 'Cambiar'}
+        {vehicles && vehicles.length > 0 ? (
+          <>
+            {vehicles.map((vehicle) => (
+              <View key={vehicle.id} style={[styles.vehicleCard, vehicle.is_active && styles.vehicleCardActive]}>
+                <View style={styles.vehicleIcon}>
+                  <Text style={styles.vehicleIconText}>🚗</Text>
+                </View>
+                <View style={styles.vehicleInfo}>
+                  <Text style={styles.vehicleName}>
+                    {vehicle.brand} {vehicle.model}
                   </Text>
-                </TouchableOpacity>
-              )}
-            </View>
+                  <Text style={styles.vehicleDetails}>
+                    {vehicle.color} • {vehicle.year} • {vehicle.plate}
+                  </Text>
+                  {vehicle.is_active && (
+                    <Text style={styles.activeVehicleLabel}>✅ Vehículo Activo</Text>
+                  )}
+                </View>
+                <View style={styles.vehicleButtonsContainer}>
+                  <TouchableOpacity 
+                    style={[styles.verifyButton]}
+                    onPress={() => navigation.navigate('VehicleVerification', { vehicleId: vehicle.id })}
+                  >
+                    <Text style={styles.verifyButtonText}>
+                      {isVehicleComplete(vehicle) ? 'Ver' : 'Verificar'}
+                    </Text>
+                  </TouchableOpacity>
+                  {vehicles.length > 1 && (
+                    <TouchableOpacity 
+                      style={[styles.changeButton, vehicle.is_active && styles.changeButtonActive]}
+                      onPress={() => handleSwitchVehicle(vehicle.id)}
+                    >
+                      <Text style={[styles.changeButtonText, vehicle.is_active && styles.changeButtonTextActive]}>
+                        {vehicle.is_active ? '✓ Activo' : 'Cambiar'}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </View>
+            ))}
+          </>
+        ) : (
+          <View style={styles.emptyVehiclesContainer}>
+            <Text style={styles.emptyVehiclesText}>No hay vehículos registrados</Text>
           </View>
-        ))}
+        )}
 
         <TouchableOpacity 
           style={styles.addVehicleButton}
@@ -658,9 +750,14 @@ export default function DriverProfileScreen({ navigation }: any) {
               onPress={() => navigation.navigate('DriversDocumentsInspection')}
             >
               <Text style={styles.uploadButtonText}>
-                {(driverData.license_photo_front && driverData.license_photo_back && driverData.license_number && driverData.license_expiry) 
+                {((driverData.licensePhotoFront || driverData.license_photo_front) && 
+                  (driverData.licensePhotoBack || driverData.license_photo_back) && 
+                  (driverData.licenseNumber || driverData.license_number) && 
+                  (driverData.licenseExpiry || driverData.license_expiry)) 
                   ? 'Ver' 
-                  : (driverData.license_photo_front && driverData.license_photo_back) || driverData.license_photo
+                  : ((driverData.licensePhotoFront || driverData.license_photo_front) && 
+                     (driverData.licensePhotoBack || driverData.license_photo_back)) || 
+                    (driverData.licensePhoto || driverData.license_photo)
                     ? 'Actualizar'
                     : 'Completar'}
               </Text>
@@ -1004,12 +1101,13 @@ export default function DriverProfileScreen({ navigation }: any) {
 
             {/* SECCIÓN: DOCUMENTOS */}
             <View style={styles.formSection}>
-              <Text style={styles.formSectionTitle}>📄 Documentos</Text>
+              <Text style={styles.formSectionTitle}>📄 Documentos de Registro</Text>
               
               <Text style={styles.formLabel}>Fecha de Emisión</Text>
-              <TextInput
+              <FormattedInput
                 style={styles.formInput}
                 placeholder="YYYY-MM-DD"
+                format="date"
                 value={vehicleFormData.emission_date}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, emission_date: text })}
                 placeholderTextColor={colors.textSecondary}
@@ -1025,12 +1123,25 @@ export default function DriverProfileScreen({ navigation }: any) {
               />
 
               <Text style={styles.formLabel}>Vencimiento de Registro</Text>
-              <TextInput
+              <FormattedInput
                 style={styles.formInput}
                 placeholder="YYYY-MM-DD"
+                format="date"
                 value={vehicleFormData.registration_expiry}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, registration_expiry: text })}
                 placeholderTextColor={colors.textSecondary}
+              />
+
+              <ImagePickerComponent
+                label="Foto Frontal del Registro"
+                imageUri={vehicleFormData.registration_photo_front}
+                onImageSelected={(uri: string) => setVehicleFormData({ ...vehicleFormData, registration_photo_front: uri })}
+              />
+
+              <ImagePickerComponent
+                label="Foto Trasera del Registro"
+                imageUri={vehicleFormData.registration_photo_back}
+                onImageSelected={(uri: string) => setVehicleFormData({ ...vehicleFormData, registration_photo_back: uri })}
               />
             </View>
 
@@ -1057,21 +1168,40 @@ export default function DriverProfileScreen({ navigation }: any) {
               />
 
               <Text style={styles.formLabel}>Inicio de Seguro</Text>
-              <TextInput
+              <FormattedInput
                 style={styles.formInput}
                 placeholder="YYYY-MM-DD"
+                format="date"
                 value={vehicleFormData.insurance_start_date}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, insurance_start_date: text })}
                 placeholderTextColor={colors.textSecondary}
               />
 
               <Text style={styles.formLabel}>Vencimiento de Seguro</Text>
-              <TextInput
+              <FormattedInput
                 style={styles.formInput}
                 placeholder="YYYY-MM-DD"
+                format="date"
                 value={vehicleFormData.insurance_expiry}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, insurance_expiry: text })}
                 placeholderTextColor={colors.textSecondary}
+              />
+
+              <ImagePickerComponent
+                label="Póliza de Seguro"
+                imageUri={vehicleFormData.insurance_photo}
+                onImageSelected={(uri: string) => setVehicleFormData({ ...vehicleFormData, insurance_photo: uri })}
+              />
+            </View>
+
+            {/* SECCIÓN: FOTOS DEL VEHÍCULO */}
+            <View style={styles.formSection}>
+              <Text style={styles.formSectionTitle}>📸 Fotos del Vehículo</Text>
+              
+              <ImagePickerComponent
+                label="Foto General del Vehículo"
+                imageUri={vehicleFormData.vehicle_photo}
+                onImageSelected={(uri: string) => setVehicleFormData({ ...vehicleFormData, vehicle_photo: uri })}
               />
             </View>
 
@@ -1217,6 +1347,14 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontSize: 12,
     color: colors.textSecondary,
   },
+  walletRowSecondary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'transparent',
+    paddingVertical: 8,
+    borderRadius: 8,
+  },  
   walletCard: {
     backgroundColor: colors.card,
     borderRadius: 16,
@@ -1677,5 +1815,19 @@ const createStyles = (colors: any) => StyleSheet.create({
     backgroundColor: '#90CAF9',
     opacity: 0.8,
     shadowOpacity: 0.1,
+  },
+  emptyVehiclesContainer: {
+    paddingVertical: 24,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f5f5f5',
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+  emptyVehiclesText: {
+    fontSize: 14,
+    color: '#999',
+    textAlign: 'center',
   },
 });

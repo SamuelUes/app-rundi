@@ -150,15 +150,17 @@ export const useFirebaseData = <T>(path: string, options: FirebaseOptions = {}) 
   
   // Efecto para cargar datos y limpiar al desmontar
   useEffect(() => {
+    console.log(`👂 [useFirebaseData] Iniciando listener para: ${path}`);
     fetchData();
     
     // Cleanup: desuscribirse al desmontar
     return () => {
       if (dbRef.current) {
+        console.log(`🛑 [useFirebaseData] Deteniendo listener para: ${path}`);
         off(dbRef.current);
       }
     };
-  }, [fetchData]);
+  }, [fetchData, path]);
   
   return { data, loading, error, refresh };
 };

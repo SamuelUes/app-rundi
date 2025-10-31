@@ -4,41 +4,78 @@
  */
 
 import * as functions from "firebase-functions";
-import * as admin from "firebase-admin";
-
-// Inicializar Firebase Admin
-admin.initializeApp();
+import "./config/firebase";
 
 // Importar módulos
-import * as authAPI from "./api/auth";
-import * as smsAPI from "./api/sms";
-import * as ridesAPI from "./api/rides";
-import * as driversAPI from "./api/drivers";
-import * as paymentsAPI from "./api/payments";
-import * as usersAPI from "./api/users";
-import * as trackingFunctions from "./api/tracking-functions";
-import * as trackingOptimized from "./api/tracking-optimized";
-import * as fcmFunctions from "./api/fcm-functions";
+// ⚠️ NOTA: Los archivos .old.ts fueron eliminados - usar versiones nuevas
+// import * as authAPI from "./api/auth.old";
+// import * as smsAPI from "./api/sms.old";
+
+// ✅ NUEVAS APIs CON SEQUELIZE + ZOD
+import * as ridesSequelizeAPI from "./api/rides_sequelize";
+import * as driversSequelizeAPI from "./api/drivers_sequelize";
+import * as paymentsSequelizeAPI from "./api/payments_sequelize";
+import * as ratingsSequelizeAPI from "./api/ratings_sequelize";
+import * as priceNegotiationSequelizeAPI from "./api/price_negotiation_sequelize";
+import * as vehiclesSequelizeAPI from "./api/vehicles_sequelize";
+import * as penaltiesSequelizeAPI from "./api/driver_penalties_sequelize";
+import * as rideLocationsSequelizeAPI from "./api/ride_locations_sequelize";
+import * as emergencyCallsSequelizeAPI from "./api/emergency_calls_sequelize";
+import * as servicesSequelizeAPI from "./api/services_sequelize";
+import * as cardsSequelizeAPI from "./api/cards_sequelize";
+import * as designatedDriverInspectionsSequelizeAPI from "./api/designated_driver_inspections_sequelize";
+import * as driverServicesSequelizeAPI from "./api/driver_services_sequelize";
+import * as biometricAuthSequelizeAPI from "./api/biometric_authentications_sequelize";
+import * as analyticsSequelizeAPI from "./api/analytics_sequelize";
+import * as smsCodesSequelizeAPI from "./api/sms_verification_codes_sequelize";
+import * as commissionHistorySequelizeAPI from "./api/service_commission_history_sequelize";
+// ⚠️ COMENTADOS: Archivos .old.ts eliminados
+// import * as usersAPI from "./api/users.old";
+// import * as trackingFunctions from "./api/tracking-functions.old";
+// import * as trackingOptimized from "./api/tracking-optimized.old";
+// import * as fcmFunctions from "./api/fcm-functions.old";
+// import * as rideHistoryAPI from "./api/rideHistory.old";
+// import * as priceNegotiationAPI from "./api/priceNegotiation.old";
+// import * as emergencyAPI from "./api/emergency.old";
+// import * as earningsAPI from "./api/earnings.old";
+// import * as localPaymentsAPI from "./api/localPayments.old";
+// import * as commissionsAPI from "./api/commissions.old";
+// import * as cardsAPI from "./api/cards.old";
+// import * as cardsManagementAPI from "./api/cardsManagement.old";
+// import * as servicesAPI from "./api/services.old";
+// import * as switchPaymentMethodAPI from "./api/switchPaymentMethod.old";
+// import * as pendingPaymentsAPI from "./api/pendingPayments.old";
+// import * as penaltiesSyncAPI from "./api/penaltiesSync.old";
+// import * as locationsSyncAPI from "./api/locationsSync.old";
+// import * as driverServicesSyncAPI from "./api/driverServicesSync.old";
+// import * as driverServicesAPI from "./api/driverServices.old";
+// import * as supabasePaymentSyncAPI from "./api/supabasePaymentSync.old";
+// import * as realtimeSyncAPI from "./api/realtimeSyncToSupabase.old";
+
+import * as updateStatusAPI from "./api/updateStatus";
+import * as driversCompatibilityAPI from "./api/drivers-compatibility";
+// ✅ NUEVAS: Funciones de historial y ganancias
 import * as rideHistoryAPI from "./api/rideHistory";
-import * as priceNegotiationAPI from "./api/priceNegotiation";
-import * as emergencyAPI from "./api/emergency";
-import * as earningsAPI from "./api/earnings";
-import * as localPaymentsAPI from "./api/localPayments";
-import * as penaltiesAPI from "./api/penalties";
-import * as commissionsAPI from "./api/commissions";
-import * as ratingsAPI from "./api/ratings";
-import * as cardsAPI from "./api/cards";
-import * as cardsManagementAPI from "./api/cardsManagement"; // ✅ NUEVO
-import * as servicesAPI from "./api/services";
-import * as switchPaymentMethodAPI from "./api/switchPaymentMethod";
-import * as pendingPaymentsAPI from "./api/pendingPayments";
-import * as routingFunctions from "./location/routing";
-import * as penaltiesSyncAPI from "./api/penaltiesSync";
-import * as locationsSyncAPI from "./api/locationsSync";
-import * as driverServicesSyncAPI from "./api/driverServicesSync";
-import * as driverServicesAPI from "./api/driverServices";
-import * as supabasePaymentSyncAPI from "./api/supabasePaymentSync";
-import * as realtimeSyncAPI from "./api/realtimeSyncToSupabase";
+// ✅ NUEVAS: Funciones de tarjetas y perfil
+import * as cardsManagementAPI from "./api/cardsManagement";
+import * as driverProfileAPI from "./api/driverProfile";
+// ⚠️ COMENTADOS: Archivos .old.ts - crear nuevas versiones si es necesario
+// import * as priceNegotiationAPI from "./api/priceNegotiation";
+// import * as emergencyAPI from "./api/emergency";
+// import * as localPaymentsAPI from "./api/localPayments";
+// import * as commissionsAPI from "./api/commissions";
+// import * as cardsAPI from "./api/cards";
+// import * as cardsManagementAPI from "./api/cardsManagement";
+// import * as servicesAPI from "./api/services";
+// import * as switchPaymentMethodAPI from "./api/switchPaymentMethod";
+// import * as pendingPaymentsAPI from "./api/pendingPayments";
+// import * as routingFunctions from "./location/routing";
+// import * as penaltiesSyncAPI from "./api/penaltiesSync";
+// import * as locationsSyncAPI from "./api/locationsSync";
+// import * as driverServicesSyncAPI from "./api/driverServicesSync";
+// import * as driverServicesAPI from "./api/driverServices";
+// import * as supabasePaymentSyncAPI from "./api/supabasePaymentSync";
+// import * as realtimeSyncAPI from "./api/realtimeSyncToSupabase";
 
 // Importar user management
 import * as userManagement from "./user/deleteUserData";
@@ -46,14 +83,11 @@ import * as userManagement from "./user/deleteUserData";
 // Importar triggers
 import * as authTriggers from "./triggers/auth";
 import * as ridesTriggers from "./triggers/rides";
-// ⚠️ DEPRECADO: import * as paymentsTriggers from "./triggers/payments";
-// ⚠️ DEPRECADO: import * as paymentStatusSync from "./triggers/paymentStatusSync";
-// ⚠️ ELIMINADO: import * as paymentStatusListener from "./triggers/paymentStatusListener";
 import * as onPaymentCompletedTrigger from "./triggers/onPaymentCompleted";
 import * as onRideCanceledTrigger from "./triggers/onRideCanceled";
 
 // Importar notificaciones
-import * as notificationsAPI from "./api/notifications";
+// import * as notificationsAPI from "./api/notifications";
 
 // Importar webhooks
 // ✅ Eliminado: Stripe webhook (sistema de pagos simplificado)
@@ -66,62 +100,75 @@ import * as cleanupRealtimeDB from "./scheduled/cleanupRealtimeDB";
 // API ENDPOINTS
 // ============================================
 
-// Auth
-export const register = authAPI.register;
-export const login = authAPI.login;
-export const logout = authAPI.logout;
-export const completeDriverRegistration = authAPI.completeDriverRegistration;
+// ⚠️ COMENTADOS: Auth y SMS - archivos .old.ts eliminados
+// import * as authAPI from "./api/auth";
+// import * as smsAPI from "./api/sms";
+// export const register = authAPI.register;
+// export const login = authAPI.login;
+// export const logout = authAPI.logout;
+// export const completeDriverRegistration = authAPI.completeDriverRegistration;
+// export const sendSmsCode = smsAPI.sendSmsCode;
+// export const verifySmsCode = smsAPI.verifySmsCode;
+// export const resendSmsCode = smsAPI.resendSmsCode;
+// export const cleanupExpiredSmsCode = smsAPI.cleanupExpiredSmsCode;
 
-// SMS (Validación de teléfono)
-export const sendSmsCode = smsAPI.sendSmsCode;
-export const verifySmsCode = smsAPI.verifySmsCode;
-export const resendSmsCode = smsAPI.resendSmsCode;
-export const cleanupExpiredSmsCode = smsAPI.cleanupExpiredSmsCode;
-
+// ✅ NUEVAS APIs CON SEQUELIZE + ZOD
 // Rides
-export const requestRide = ridesAPI.requestRide;
-export const acceptRide = ridesAPI.acceptRide;
-export const confirmDriver = ridesAPI.confirmDriver;
-export const rejectDriver = ridesAPI.rejectDriver;
-export const startRide = ridesAPI.startRide;
-export const completeRide = ridesAPI.completeRide;
-export const confirmCashPayment = ridesAPI.confirmCashPayment;
-export const cancelRide = ridesAPI.cancelRide;
-export const getRideDetails = ridesAPI.getRideDetails;
-export const getAvailableRides = ridesAPI.getAvailableRides;
-export const getActiveRide = ridesAPI.getActiveRide;
-export const calculatePrice = ridesAPI.calculatePrice;
-export const updateRideStatus = ridesAPI.updateRideStatus; // Wrapper para startRide/completeRide
+export const createRide = ridesSequelizeAPI.createRide;
+export const requestRide = ridesSequelizeAPI.createRide; // Alias para compatibilidad
+export const acceptRide = ridesSequelizeAPI.acceptRide;
+export const confirmDriver = ridesSequelizeAPI.confirmDriver; // ✅ NUEVO: Cliente confirma conductor específico
+export const startRide = ridesSequelizeAPI.startRide;
+export const completeRide = ridesSequelizeAPI.completeRide;
+export const cancelRide = ridesSequelizeAPI.cancelRide;
+export const getClientRides = ridesSequelizeAPI.getClientRides;
+export const getDriverRides = ridesSequelizeAPI.getDriverRides;
+export const getRideDetails = ridesSequelizeAPI.getRideDetails;
+export const getActiveRides = ridesSequelizeAPI.getActiveRides;
+export const getRideStats = ridesSequelizeAPI.getRideStats;
+export const updateRideStatus = ridesSequelizeAPI.updateRideStatus;
+export const getIntelligentETA = ridesSequelizeAPI.getIntelligentETA;
+export const changePaymentMethod = ridesSequelizeAPI.changePaymentMethod; // ✅ NUEVO: Cambiar método de pago
 
 // Drivers
-export const registerDriver = driversAPI.registerDriver;
-export const updateDriverLocation = driversAPI.updateDriverLocation;
-export const getDriverProfile = driversAPI.getDriverProfile;
-export const updateDriverStatus = driversAPI.updateDriverStatus;
-export const getAvailableDrivers = driversAPI.getAvailableDrivers;
-// ✅ ELIMINADOS:
-// - updateDesignatedDriverMode
-// - requestDesignatedDriverAccess
-// - getDesignatedDriverRequestStatus
-// - approveDesignatedDriverRequest
-// - rejectDesignatedDriverRequest
-// Ahora usar funciones en driverServices.ts:
-// - assignServiceToDriver()
-// - getDriverServices()
-// - approveDriverService()
-// - deactivateDriverService()
-export const updateDriver = driversAPI.updateDriver;
-export const updateVehicle = driversAPI.updateVehicle;
-export const addVehicle = driversAPI.addVehicle;
-export const switchVehicle = driversAPI.switchVehicle;
-export const getDriverVehicles = driversAPI.getDriverVehicles;
+export const createDriverProfile = driversSequelizeAPI.createDriverProfile;
+export const getDriverProfile = driversSequelizeAPI.getDriverProfile;
+export const getDriverByUserId = driversSequelizeAPI.getDriverByUserId;
+export const updateDriverProfile = driversSequelizeAPI.updateDriverProfile;
+export const getActiveDrivers = driversSequelizeAPI.getActiveDrivers;
+export const getDriversByRating = driversSequelizeAPI.getDriversByRating;
+export const getDriversByDepartment = driversSequelizeAPI.getDriversByDepartment;
+export const getDriverStats = driversSequelizeAPI.getDriverStats;
+export const changeDriverStatus = driversSequelizeAPI.changeDriverStatus;
+export const verifyDriver = driversSequelizeAPI.verifyDriver;
+export const rejectDriver = driversSequelizeAPI.rejectDriver;
+export const suspendDriver = driversSequelizeAPI.suspendDriver;
+export const updateDriverStats = driversSequelizeAPI.updateDriverStats;
+export const getAllDrivers = driversSequelizeAPI.getAllDrivers;
 
-// Payments - ✅ ACTUALIZADO: Sin Stripe
+// Drivers Compatibility (Frontend)
+export const updateDriverLocation = driversCompatibilityAPI.updateDriverLocation;
+export const getAvailableDrivers = driversCompatibilityAPI.getAvailableDrivers;
+export const updateDesignatedDriverMode = driversCompatibilityAPI.updateDesignatedDriverMode;
+export const updateDriver = driversCompatibilityAPI.updateDriver;
+export const requestDesignatedDriverAccess = driversCompatibilityAPI.requestDesignatedDriverAccess;
+export const getDesignatedDriverRequestStatus = driversCompatibilityAPI.getDesignatedDriverRequestStatus;
+
+// Payments - ✅ ACTUALIZADO: Sequelize + Zod
 // ❌ DEPRECATED: createPaymentIntent, capturePayment, cancelPaymentAuthorization, getPaymentDetails, createPaymentIntentWithSavedCard
-// ✅ ACTIVOS: registerCashPayment, completeCashPayment, cancelCashPayment
-export const registerCashPayment = paymentsAPI.registerCashPayment;
-export const completeCashPayment = paymentsAPI.completeCashPayment;
-export const cancelCashPayment = paymentsAPI.cancelCashPayment;
+// ✅ ACTIVOS: registerCashPayment, confirmCashPayment, completeCashPayment, cancelCashPayment
+export const registerCashPayment = paymentsSequelizeAPI.registerCashPayment;
+export const confirmCashPayment = paymentsSequelizeAPI.confirmCashPayment;
+export const completeCashPayment = paymentsSequelizeAPI.completeCashPayment;
+export const cancelCashPayment = paymentsSequelizeAPI.cancelCashPayment;
+
+// Price Negotiation - ✅ NUEVO: Sequelize
+// ✅ ACTIVOS: negotiatePrice, acceptClientPrice, makeCounterOffer, acceptCounterOffer, rejectCounterOffer
+export const negotiatePrice = priceNegotiationSequelizeAPI.negotiatePrice;
+export const acceptClientPrice = priceNegotiationSequelizeAPI.acceptClientPrice;
+export const makeCounterOffer = priceNegotiationSequelizeAPI.makeCounterOffer;
+export const acceptCounterOffer = priceNegotiationSequelizeAPI.acceptCounterOffer;
+export const rejectCounterOffer = priceNegotiationSequelizeAPI.rejectCounterOffer;
 
 // ============================================
 // FUNCIONES DEPRECADAS DE STRIPE (STUBS)
@@ -163,110 +210,175 @@ export const createPaymentIntentWithSavedCard = functions.https.onCall(async (da
   );
 });
 
-// Cards (Tarjetas Guardadas)
-export const validateAndTokenizeCard = cardsAPI.validateAndTokenizeCard;
-
-// ✅ NUEVO: Cards Management (Gestión de tarjetas guardadas en Supabase)
+// ✅ ACTIVAS: Cards Management - Gestión de tarjetas
 export const addCard = cardsManagementAPI.addCard;
 export const getCards = cardsManagementAPI.getCards;
 export const deleteCard = cardsManagementAPI.deleteCard;
 export const setDefaultCard = cardsManagementAPI.setDefaultCard;
 
-// Users
-export const getUserProfile = usersAPI.getUserProfile;
-export const updateUserProfile = usersAPI.updateUserProfile;
+// ✅ ACTIVAS: Driver Profile - Perfil del conductor (con fallback a Realtime DB)
+export const getDriverProfileWithFallback = driverProfileAPI.getDriverProfileWithFallback;
+export const updateDriverProfileWithSync = driverProfileAPI.updateDriverProfileWithSync;
 
-// Tracking (Firebase Callable Functions)
-export const getETA = trackingFunctions.getETA;
-export const saveRideLocation = trackingFunctions.saveLocation;
-export const getRouteHistory = trackingFunctions.getRouteHistory;
+// ⚠️ COMENTADOS: Users - archivos .old.ts eliminados
+// export const getUserProfile = usersAPI.getUserProfile;
+// export const updateUserProfile = usersAPI.updateUserProfile;
 
-// Tracking Optimizado (Nuevo sistema)
-export const updateDriverLocationOptimized = trackingOptimized.updateDriverLocationOptimized;
-export const getIntelligentETA = trackingOptimized.getIntelligentETA;
-export const getCompressedRouteHistory = trackingOptimized.getCompressedRouteHistory;
+// ⚠️ COMENTADOS: Tracking - archivos .old.ts eliminados
+// export const getETA = trackingFunctions.getETA;
+// export const saveRideLocation = trackingFunctions.saveLocation;
+// export const getRouteHistory = trackingFunctions.getRouteHistory;
+// export const updateDriverLocationOptimized = trackingOptimized.updateDriverLocationOptimized;
+// export const getIntelligentETA = trackingOptimized.getIntelligentETA;
+// export const getCompressedRouteHistory = trackingOptimized.getCompressedRouteHistory;
 
-// Locations Sync (Sincronizar ubicaciones a Supabase)
-export const saveRideLocationWithRetry = locationsSyncAPI.saveRideLocationWithRetry;
-export const saveRideLocationsBatch = locationsSyncAPI.saveRideLocationsBatch;
+// ⚠️ COMENTADOS: Locations Sync - archivos .old.ts eliminados
+// export const saveRideLocationWithRetry = locationsSyncAPI.saveRideLocationWithRetry;
+// export const saveRideLocationsBatch = locationsSyncAPI.saveRideLocationsBatch;
 
-// FCM (Firebase Cloud Messaging)
-export const registerFCMToken = fcmFunctions.registerFCMToken;
-export const clearFCMToken = fcmFunctions.clearFCMToken;
-export const sendTestNotification = fcmFunctions.sendTestNotification;
+// ⚠️ COMENTADOS: FCM - archivos .old.ts eliminados
+// export const registerFCMToken = fcmFunctions.registerFCMToken;
+// export const clearFCMToken = fcmFunctions.clearFCMToken;
+// export const sendTestNotification = fcmFunctions.sendTestNotification;
 
-// Ride History
+// ✅ ACTIVAS: Ride History - Historial y Ganancias
+export const diagnosticRides = rideHistoryAPI.diagnosticRides;
 export const getMyRides = rideHistoryAPI.getMyRides;
-export const getDriverStats = rideHistoryAPI.getDriverStats;
+export const getDriverEarnings = rideHistoryAPI.getDriverEarnings;
+export const getDriverEarningsStats = rideHistoryAPI.getDriverStats;
+export const getEarningsByDay = rideHistoryAPI.getEarningsByDay;
 
-// Price Negotiation
-export const negotiatePrice = priceNegotiationAPI.negotiatePrice;
-export const acceptClientPrice = priceNegotiationAPI.acceptClientPrice;
-export const acceptDriverOffer = priceNegotiationAPI.acceptDriverOffer;
-export const acceptCounterOffer = priceNegotiationAPI.acceptCounterOffer;
-export const rejectCounterOffer = priceNegotiationAPI.rejectCounterOffer;
+// ⚠️ COMENTADOS: Price Negotiation, Emergency, Local Payments - archivos .old.ts eliminados
+// export const negotiatePrice = priceNegotiationAPI.negotiatePrice;
+// export const acceptClientPrice = priceNegotiationAPI.acceptClientPrice;
+// export const acceptDriverOffer = priceNegotiationAPI.acceptDriverOffer;
+// export const acceptCounterOffer = priceNegotiationAPI.acceptCounterOffer;
+// export const rejectCounterOffer = priceNegotiationAPI.rejectCounterOffer;
+// export const logEmergencyCall = emergencyAPI.logEmergencyCall;
+// export const updateEmergencyCallStatus = emergencyAPI.updateEmergencyCallStatus;
+// export const getEmergencyCalls = emergencyAPI.getEmergencyCalls;
+// export const switchToLocalPayment = localPaymentsAPI.switchToLocalPayment;
+// export const getAvailableBanks = localPaymentsAPI.getAvailableBanks;
 
-// Emergency
-export const logEmergencyCall = emergencyAPI.logEmergencyCall;
-export const updateEmergencyCallStatus = emergencyAPI.updateEmergencyCallStatus;
-export const getEmergencyCalls = emergencyAPI.getEmergencyCalls;
+// ⚠️ ELIMINADAS: Penalties antiguas (usar nuevas Sequelize)
+// export const getDriverPenaltiesOld = penaltiesAPI.getDriverPenalties;
+// export const markPenaltiesAsDeducted = penaltiesAPI.markPenaltiesAsDeducted;
+// export const forgivePenalty = penaltiesAPI.forgivePenalty;
+// export const getPenaltiesSummary = penaltiesAPI.getPenaltiesSummary;
 
-// Earnings
-export const getDriverEarnings = earningsAPI.getDriverEarnings;
-export const getDriverEarningsStats = earningsAPI.getDriverStats;
-export const getEarningsByDay = earningsAPI.getEarningsByDay;
+// ⚠️ COMENTADOS: Penalties Sync, Commissions - archivos .old.ts eliminados
+// export const syncPenaltyToSupabase = penaltiesSyncAPI.syncPenaltyToSupabase;
+// export const syncPenaltiesBatch = penaltiesSyncAPI.syncPenaltiesBatch;
+// export const getCommissionBreakdown = commissionsAPI.getCommissionBreakdown;
 
-// Local Payments
-export const switchToLocalPayment = localPaymentsAPI.switchToLocalPayment;
-export const getAvailableBanks = localPaymentsAPI.getAvailableBanks;
-
-// Penalties
-export const getDriverPenalties = penaltiesAPI.getDriverPenalties;
-export const markPenaltiesAsDeducted = penaltiesAPI.markPenaltiesAsDeducted;
-export const forgivePenalty = penaltiesAPI.forgivePenalty;
-export const getPenaltiesSummary = penaltiesAPI.getPenaltiesSummary;
-
-// Penalties Sync (Sincronizar a Supabase)
-export const syncPenaltyToSupabase = penaltiesSyncAPI.syncPenaltyToSupabase;
-export const syncPenaltiesBatch = penaltiesSyncAPI.syncPenaltiesBatch;
-
-// Commissions
-export const getCommissionBreakdown = commissionsAPI.getCommissionBreakdown;
-
+// ✅ NUEVAS APIs CON SEQUELIZE + ZOD
 // Ratings
-export const submitRating = ratingsAPI.submitRating;
-export const skipRating = ratingsAPI.skipRating;
-export const rateRide = ratingsAPI.rateRide; // Alias para compatibilidad
-export const getUserRating = ratingsAPI.getUserRating;
-export const getRideRatings = ratingsAPI.getRideRatings;
+export const submitRating = ratingsSequelizeAPI.submitRating;
+export const getDriverRatings = ratingsSequelizeAPI.getDriverRatings;
+export const getRecentRatings = ratingsSequelizeAPI.getRecentRatings;
 
-// Services (Gestión de servicios y comisiones)
-export const getServices = servicesAPI.getServices;
-export const getServiceById = servicesAPI.getServiceById;
-export const createService = servicesAPI.createService;
-export const updateService = servicesAPI.updateService;
+// Vehicles (Sequelize)
+export const createVehicleSeq = vehiclesSequelizeAPI.createVehicle;
+export const createVehicleCompleteSeq = vehiclesSequelizeAPI.createVehicleComplete;
+export const getVehicleSeq = vehiclesSequelizeAPI.getVehicle;
+export const getDriverVehiclesSeq = vehiclesSequelizeAPI.getDriverVehicles;
+export const updateVehicleSeq = vehiclesSequelizeAPI.updateVehicle;
+export const switchVehicle = vehiclesSequelizeAPI.switchVehicle;
+export const deleteVehicleSeq = vehiclesSequelizeAPI.deleteVehicle;
 
-// Driver Services (Servicios asignados a conductores con validaciones)
-export const getDriverServices = driverServicesAPI.getDriverServices;
-export const getCommissionForRide = driverServicesAPI.getCommissionForRide;
-export const assignServiceToDriver = driverServicesAPI.assignServiceToDriver;
-export const approveDriverService = driverServicesAPI.approveDriverService;
-export const deactivateDriverService = driverServicesAPI.deactivateDriverService;
+// Driver Penalties
+export const createPenalty = penaltiesSequelizeAPI.createPenalty;
+export const getDriverPenalties = penaltiesSequelizeAPI.getDriverPenalties;
+export const getTotalPenalties = penaltiesSequelizeAPI.getTotalPenalties;
+export const markPenaltyAsPaid = penaltiesSequelizeAPI.markPenaltyAsPaid;
+export const deletePenalty = penaltiesSequelizeAPI.deletePenalty;
 
-// Driver Services Sync (Sincronizar servicios a Supabase)
-export const syncDriverServiceToSupabase = driverServicesSyncAPI.syncDriverServiceToSupabase;
-export const syncDriverServicesBatch = driverServicesSyncAPI.syncDriverServicesBatch;
+// Ride Locations
+export const createRideLocation = rideLocationsSequelizeAPI.createRideLocation;
+export const getRideLocations = rideLocationsSequelizeAPI.getRideLocations;
+export const updateRideLocation = rideLocationsSequelizeAPI.updateRideLocation;
+export const deleteRideLocation = rideLocationsSequelizeAPI.deleteRideLocation;
+export const deleteRideLocationsByRideId = rideLocationsSequelizeAPI.deleteRideLocationsByRideId;
 
-// Switch Payment Method
-export const switchPaymentMethod = switchPaymentMethodAPI.switchPaymentMethod;
-export const getPaymentMethodHistory = switchPaymentMethodAPI.getPaymentMethodHistory;
+// Emergency Calls (Sequelize)
+export const createEmergencyCallSeq = emergencyCallsSequelizeAPI.createEmergencyCall;
+export const getUserEmergencyCallsSeq = emergencyCallsSequelizeAPI.getUserEmergencyCalls;
+export const updateEmergencyCallStatusSeq = emergencyCallsSequelizeAPI.updateEmergencyCallStatus;
 
-// Location & Routing
-export const calculateRoute = routingFunctions.calculateRoute;
-export const reverseGeocode = routingFunctions.reverseGeocode;
-export const geocodeAddress = routingFunctions.geocodeAddress;
-export const searchPlaces = routingFunctions.searchPlaces;
-export const calculateDistance = routingFunctions.calculateDistance;
+// Services (Sequelize)
+export const createServiceSeq = servicesSequelizeAPI.createService;
+export const getServicesSeq = servicesSequelizeAPI.getServices;
+export const getServiceByIdSeq = servicesSequelizeAPI.getServiceById;
+export const updateServiceSeq = servicesSequelizeAPI.updateService;
+
+// Cards (Sequelize)
+export const addCardSeq = cardsSequelizeAPI.addCard;
+export const getUserCardsSeq = cardsSequelizeAPI.getUserCards;
+export const setDefaultCardSeq = cardsSequelizeAPI.setDefaultCard;
+export const deleteCardSeq = cardsSequelizeAPI.deleteCard;
+
+// Designated Driver Inspections (Sequelize)
+export const createInspectionSeq = designatedDriverInspectionsSequelizeAPI.createInspection;
+export const getRideInspectionSeq = designatedDriverInspectionsSequelizeAPI.getRideInspection;
+export const updateInspectionSeq = designatedDriverInspectionsSequelizeAPI.updateInspection;
+
+// Driver Services (Sequelize)
+export const assignServiceToDriverSeq = driverServicesSequelizeAPI.assignServiceToDriver;
+export const getDriverServicesSeq = driverServicesSequelizeAPI.getDriverServices;
+export const approveDriverServiceSeq = driverServicesSequelizeAPI.approveDriverService;
+export const deactivateDriverServiceSeq = driverServicesSequelizeAPI.deactivateDriverService;
+
+// Biometric Authentications (Sequelize)
+export const createBiometricAuthSeq = biometricAuthSequelizeAPI.createBiometricAuth;
+export const getUserBiometricAuthsSeq = biometricAuthSequelizeAPI.getUserBiometricAuths;
+export const updateBiometricAuthStatusSeq = biometricAuthSequelizeAPI.updateBiometricAuthStatus;
+
+// Analytics (Sequelize)
+export const logAnalyticsEventSeq = analyticsSequelizeAPI.logAnalyticsEvent;
+export const getUserAnalyticsEventsSeq = analyticsSequelizeAPI.getUserAnalyticsEvents;
+export const getEventsByTypeSeq = analyticsSequelizeAPI.getEventsByType;
+
+// SMS Verification Codes (Sequelize)
+export const createSmsCodeSeq = smsCodesSequelizeAPI.createSmsCode;
+export const verifySmsCodeSeq = smsCodesSequelizeAPI.verifySmsCode;
+export const getUserSmsCodesSeq = smsCodesSequelizeAPI.getUserSmsCodes;
+
+// Service Commission History (Sequelize)
+export const recordCommissionChangeSeq = commissionHistorySequelizeAPI.recordCommissionChange;
+export const getServiceCommissionHistorySeq = commissionHistorySequelizeAPI.getServiceCommissionHistory;
+export const getLatestCommissionRateSeq = commissionHistorySequelizeAPI.getLatestCommissionRate;
+
+// Update Status (Realtime DB Sync)
+export const updateStatus = updateStatusAPI.updateStatus;
+export const updateDriverStatus = updateStatusAPI.updateStatus; // Alias para compatibilidad con Frontend
+export const getDriverStatus = updateStatusAPI.getDriverStatus;
+export const getDriversStatus = updateStatusAPI.getDriversStatus;
+
+// ⚠️ ELIMINADAS: APIs antiguas de ratings (usar nuevas Sequelize)
+// export const skipRating = ratingsAPI.skipRating;
+// export const rateRide = ratingsAPI.rateRide;
+// export const getUserRating = ratingsAPI.getUserRating;
+// export const getRideRatings = ratingsAPI.getRideRatings;
+
+// ⚠️ COMENTADOS: Services, Driver Services, Routing - archivos .old.ts eliminados
+// export const getServices = servicesAPI.getServices;
+// export const getServiceById = servicesAPI.getServiceById;
+// export const createService = servicesAPI.createService;
+// export const updateService = servicesAPI.updateService;
+// export const getDriverServices = driverServicesAPI.getDriverServices;
+// export const getCommissionForRide = driverServicesAPI.getCommissionForRide;
+// export const assignServiceToDriver = driverServicesAPI.assignServiceToDriver;
+// export const approveDriverService = driverServicesAPI.approveDriverService;
+// export const deactivateDriverService = driverServicesAPI.deactivateDriverService;
+// export const syncDriverServiceToSupabase = driverServicesSyncAPI.syncDriverServiceToSupabase;
+// export const syncDriverServicesBatch = driverServicesSyncAPI.syncDriverServicesBatch;
+// export const switchPaymentMethod = switchPaymentMethodAPI.switchPaymentMethod;
+// export const getPaymentMethodHistory = switchPaymentMethodAPI.getPaymentMethodHistory;
+// export const calculateRoute = routingFunctions.calculateRoute;
+// export const reverseGeocode = routingFunctions.reverseGeocode;
+// export const geocodeAddress = routingFunctions.geocodeAddress;
+// export const searchPlaces = routingFunctions.searchPlaces;
+// export const calculateDistance = routingFunctions.calculateDistance;
 
 // ============================================
 // TRIGGERS AUTOMÁTICOS
@@ -292,13 +404,11 @@ export const onRideCreated = ridesTriggers.onRideCreated;
 // export const syncPostgresToFirebase = paymentStatusSync.syncPostgresToFirebase;
 // export const forceSyncPaymentToFirebase = paymentStatusSync.forceSyncPaymentToFirebase;
 
-// Payments Sync to Supabase
-export const syncPaymentsToSupabase = supabasePaymentSyncAPI.syncPaymentsToSupabase;
-export const forceSyncPaymentToSupabase = supabasePaymentSyncAPI.forceSyncPaymentToSupabase;
-
-// FCM Triggers
-export const onRideAccepted = fcmFunctions.sendRideAcceptedNotification;
-export const onRideCancelled = fcmFunctions.sendRideCancelledNotification;
+// ⚠️ COMENTADOS: Payments Sync, FCM Triggers - archivos .old.ts eliminados
+// export const syncPaymentsToSupabase = supabasePaymentSyncAPI.syncPaymentsToSupabase;
+// export const forceSyncPaymentToSupabase = supabasePaymentSyncAPI.forceSyncPaymentToSupabase;
+// export const onRideAccepted = fcmFunctions.sendRideAcceptedNotification;
+// export const onRideCancelled = fcmFunctions.sendRideCancelledNotification;
 
 // ============================================
 // WEBHOOKS
@@ -341,8 +451,9 @@ export const cleanupPresenceHistory = cleanupRealtimeDB.cleanupPresenceHistory;
 // PENDING PAYMENTS
 // ============================================
 
-export const getPendingPayments = pendingPaymentsAPI.getPendingPayments;
-export const processPendingPayment = pendingPaymentsAPI.processPendingPayment;
+// ⚠️ COMENTADOS: Pending Payments - archivos .old.ts eliminados
+// export const getPendingPayments = pendingPaymentsAPI.getPendingPayments;
+// export const processPendingPayment = pendingPaymentsAPI.processPendingPayment;
 
 // ============================================
 // USER MANAGEMENT
@@ -366,7 +477,8 @@ let syncListenersInitialized = false;
 function ensureSyncListenersInitialized(): void {
   if (!syncListenersInitialized) {
     try {
-      realtimeSyncAPI.initializeRealtimeSyncListeners();
+      // ⚠️ COMENTADO: realtimeSyncAPI - archivos .old.ts eliminados
+      // realtimeSyncAPI.initializeRealtimeSyncListeners();
       syncListenersInitialized = true;
     } catch (error) {
       console.warn(`⚠️ Error inicializando sync listeners:`, error);
@@ -385,10 +497,10 @@ setImmediate(() => {
   }
 });
 
-// Exportar funciones de sincronización manual
-export const syncActiveRideToSupabase = realtimeSyncAPI.syncActiveRideToSupabase;
-export const syncPaymentStatusToSupabase = realtimeSyncAPI.syncPaymentStatusToSupabase;
-export const syncDriverLocationToSupabase = realtimeSyncAPI.syncDriverLocationToSupabase;
+// ⚠️ COMENTADOS: Realtime Sync - archivos .old.ts eliminados
+// export const syncActiveRideToSupabase = realtimeSyncAPI.syncActiveRideToSupabase;
+// export const syncPaymentStatusToSupabase = realtimeSyncAPI.syncPaymentStatusToSupabase;
+// export const syncDriverLocationToSupabase = realtimeSyncAPI.syncDriverLocationToSupabase;
 
 // Exportar triggers
 export const onPaymentCompletedAutomatic = onPaymentCompletedTrigger.onPaymentCompleted;
@@ -396,11 +508,11 @@ export const onPaymentCanceledAutomatic = onPaymentCompletedTrigger.onPaymentCan
 export const onRideCanceledAutomatic = onRideCanceledTrigger.onRideCanceled;
 
 // Notificaciones Push Triggers
-export const onDriverFoundNotification = notificationsAPI.onDriverFound;
-export const onDriverAcceptedNotification = notificationsAPI.onDriverAccepted;
-export const onRideStartedNotification = notificationsAPI.onRideStartedNotification;
-export const onRideCompletedNotification = notificationsAPI.onRideCompletedNotification;
-export const onChatMessageNotification = notificationsAPI.onChatMessageNotification;
+//export const onDriverFoundNotification = notificationsAPI.onDriverFound;
+//export const onDriverAcceptedNotification = notificationsAPI.onDriverAccepted;
+//export const onRideStartedNotification = notificationsAPI.onRideStartedNotification;
+//export const onRideCompletedNotification = notificationsAPI.onRideCompletedNotification;
+//export const onChatMessageNotification = notificationsAPI.onChatMessageNotification;
 
 // ============================================
 // HEALTH CHECK
@@ -410,7 +522,7 @@ export const healthCheck = functions.https.onRequest((req, res) => {
   res.json({
     status: "ok",
     timestamp: new Date().toISOString(),
-    service: "DriveAngel.ni Functions",
-    version: "1.0.0",
+    service: "Conduce.ni Functions",
+    version: "1.0.1",
   });
 });

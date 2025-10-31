@@ -63,29 +63,30 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
         console.log('📋 Cargando datos existentes del conductor:', user.id);
         setLoading(true);
 
-        // Obtener perfil del conductor desde el backend
-        const profile = await driversService.getDriverProfile(user.id);
+        // ✅ Obtener perfil del conductor autenticado
+        const profile = await driversService.getMyDriverProfile();
         
-        if (profile?.driver) {
+        // ✅ El servicio retorna directamente el objeto driver, no envuelto
+        if (profile) {
           console.log('✅ Datos del conductor cargados desde backend:', {
-            license_number: profile.driver.license_number,
-            license_expiry: profile.driver.license_expiry,
-            license_photo_front: profile.driver.license_photo_front ? '✅' : '❌',
-            license_photo_back: profile.driver.license_photo_back ? '✅' : '❌',
+            license_number: profile.licenseNumber || profile.license_number,
+            license_expiry: profile.licenseExpiry || profile.license_expiry,
+            license_photo_front: (profile.license_photo_front || profile.licensePhotoFront) ? '✅' : '❌',
+            license_photo_back: (profile.license_photo_back || profile.licensePhotoBack) ? '✅' : '❌',
           });
 
-          // Cargar datos existentes en los estados
-          if (profile.driver.license_number) {
-            setLicenseNumber(profile.driver.license_number);
+          // Cargar datos existentes en los estados (con fallback a snake_case)
+          if (profile.licenseNumber || profile.license_number) {
+            setLicenseNumber(profile.licenseNumber || profile.license_number);
           }
-          if (profile.driver.license_expiry) {
-            setLicenseExpiry(profile.driver.license_expiry);
+          if (profile.licenseExpiry || profile.license_expiry) {
+            setLicenseExpiry(profile.licenseExpiry || profile.license_expiry);
           }
-          if (profile.driver.license_photo_front) {
-            setLicensePhotoFront(profile.driver.license_photo_front);
+          if (profile.license_photo_front || profile.licensePhotoFront) {
+            setLicensePhotoFront(profile.license_photo_front || profile.licensePhotoFront);
           }
-          if (profile.driver.license_photo_back) {
-            setLicensePhotoBack(profile.driver.license_photo_back);
+          if (profile.license_photo_back || profile.licensePhotoBack) {
+            setLicensePhotoBack(profile.license_photo_back || profile.licensePhotoBack);
           }
         } else {
           console.log('⚠️ No se encontraron datos del conductor');

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -45,6 +45,9 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
   const [rideDetails, setRideDetails] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [currentPaymentMethod, setCurrentPaymentMethod] = useState<string>('card');
+  const currentPaymentMethodRef = useRef<string>('card');
+  const isNavigatingRef = useRef(false);
+  const [changingPaymentMethod, setChangingPaymentMethod] = useState(false);
   
   // Tarjetas guardadas
   const [savedCards, setSavedCards] = useState<any[]>([]);
@@ -57,7 +60,6 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
   const [expiryDate, setExpiryDate] = useState('');
   const [cvv, setCvv] = useState('');
   const [saveCard, setSaveCard] = useState(false);
-  const [isNavigating, setIsNavigating] = useState(false); // ✅ Flag para evitar sobreposición
 
   const tipOptions = [10, 15, 20]; // Porcentajes de propina
 
@@ -135,78 +137,125 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
   };
 
   // Listener para detectar cambios de método de pago (solo del conductor)
+  const computeFinalAmount = () => {
+    if (rideDetails?.finalFare) return rideDetails.finalFare;
+    if (rideDetails?.estimatedPrice) return rideDetails.estimatedPrice;
+    return rideAmount;
+  };
+
+  const handleBackendMethodChange = (newMethod?: string) => {
+    if (!newMethod) return;
+    const normalizedMethod: 'card' | 'cash' = newMethod === 'cash' ? 'cash' : 'card';
+
+    if (normalizedMethod === currentPaymentMethodRef.current) {
+      if (normalizedMethod === 'card') {
+        isNavigatingRef.current = false;
+      }
+      return;
+    }
+
+    currentPaymentMethodRef.current = normalizedMethod;
+    setCurrentPaymentMethod(normalizedMethod);
+    setPaymentMethod(normalizedMethod);
+
+    if (normalizedMethod === 'cash') {
+      if (!isNavigatingRef.current) {
+        isNavigatingRef.current = true;
+
+        const finalAmount = computeFinalAmount();
+        const driverDisplayName = rideDetails?.driver?.name || driverName;
+        const driverPhoto = rideDetails?.driver?.photoURL;
+
+        navigation.replace('CashPayment', {
+          rideId,
+          amount: finalAmount,
+          driverName: driverDisplayName,
+          driverPhoto,
+        });
+      }
+    } else {
+      isNavigatingRef.current = false;
+    }
+  };
+
   const setupPaymentMethodListener = async () => {
     try {
       const { app } = await initializeFirebase();
       if (!app) return;
-
       const { getDatabase, ref: dbRef, onValue, off } = await import('firebase/database');
       const db = getDatabase(app);
       const rideRef = dbRef(db, `activeRides/${rideId}`);
+      const paymentStatusRef = dbRef(db, `paymentStatus/${rideId}`);
 
-      const unsubscribe = onValue(rideRef, (snapshot) => {
+      const unsubscribeRide = onValue(rideRef, (snapshot) => {
         const data = snapshot.val();
-        
-        // ✅ MEJORADO: Detectar cambio de método de pago ANTES de actualizar el estado
-        const previousPaymentMethod = currentPaymentMethod;
-        const newPaymentMethod = data?.paymentMethod || 'card';
-        
-        // Solo redirigir si:
-        // 1. El método cambió
-        // 2. NO estamos procesando un pago
-        // 3. El cambio fue hecho por el conductor (paymentMethodChangedBy !== clientId)
-        if (
-          newPaymentMethod && 
-          newPaymentMethod !== previousPaymentMethod &&
-          !processing &&
-          data?.paymentMethodChangedBy && 
-          data.paymentMethodChangedBy !== user?.id
-        ) {
-          console.log(`🔄 [PaymentScreen] Método de pago cambiado por conductor de ${previousPaymentMethod} a ${newPaymentMethod}`);
-          
-          if (newPaymentMethod === 'cash' && !isNavigating) {
-            // Convertir amount a número
-            const finalAmount = typeof data.finalFare === 'string' 
-              ? parseFloat(data.finalFare) 
-              : (data.finalFare || (typeof amount === 'string' ? parseFloat(amount) : amount));
-            
-            // ✅ NUEVO: Actualizar estado ANTES de navegar
-            setCurrentPaymentMethod(newPaymentMethod);
-            setIsNavigating(true); // ✅ Marcar que estamos navegando
-            
-            Alert.alert(
-              'Método de Pago Cambiado',
-              'El conductor cambió el método de pago a efectivo. Serás redirigido a la pantalla de pago en efectivo.',
-              [
-                {
-                  text: 'Entendido',
-                  onPress: () => {
-                    console.log(`🔄 [PaymentScreen] Navegando a CashPayment con método: cash`);
-                    navigation.replace('CashPayment', {
-                      rideId,
-                      amount: finalAmount,
-                      driverName: data.driver?.name || driverName,
-                      driverPhoto: data.driver?.photoURL,
-                    });
-                  },
-                },
-              ]
-            );
-          }
-        }
-        
-        // ✅ NUEVO: Actualizar currentPaymentMethod siempre para evitar bucles
-        if (data?.paymentMethod) {
-          setCurrentPaymentMethod(data.paymentMethod);
-        }
+        handleBackendMethodChange(data?.paymentMethod);
+      });
+
+      const unsubscribePayment = onValue(paymentStatusRef, (snapshot) => {
+        const paymentData = snapshot.val();
+        const methodFromStatus = paymentData?.method || paymentData?.paymentMethod;
+        handleBackendMethodChange(methodFromStatus);
       });
 
       // Cleanup al desmontar
       return () => {
-        off(rideRef);
+        if (unsubscribeRide) {
+          unsubscribeRide();
+        } else {
+          off(rideRef);
+        }
+        if (unsubscribePayment) {
+          unsubscribePayment();
+        } else {
+          off(paymentStatusRef);
+        }
       };
     } catch (error) {
       console.error('Error configurando listener de método de pago:', error);
+    }
+  };
+
+  const handleSelectPaymentMethod = async (method: 'card' | 'cash') => {
+    if (changingPaymentMethod || processing) return;
+
+    if (isPendingPayment && method === 'cash') {
+      return;
+    }
+
+    if (paymentMethod === method && currentPaymentMethodRef.current === method) {
+      return;
+    }
+
+    // Si ya coincide con el método actual en backend, solo actualizar UI local
+    if (currentPaymentMethodRef.current === method) {
+      setPaymentMethod(method);
+      return;
+    }
+
+    try {
+      setChangingPaymentMethod(true);
+
+      const { app } = await initializeFirebase();
+      if (!app) throw new Error('Firebase no inicializado');
+
+      const functions = getFunctions(app);
+      const changePaymentMethodFn = httpsCallable(functions, 'changePaymentMethod');
+
+      await changePaymentMethodFn({
+        rideId,
+        newPaymentMethod: method,
+        reason: method === 'cash'
+          ? 'Cliente prefiere pagar en efectivo'
+          : 'Cliente prefiere pagar con tarjeta',
+      });
+
+      // Esperar a que el listener sincronice el estado
+    } catch (error: any) {
+      console.error('Error cambiando método de pago desde cliente:', error);
+      Alert.alert('Error', error.message || 'No se pudo cambiar el método de pago.');
+    } finally {
+      setChangingPaymentMethod(false);
     }
   };
 
@@ -551,7 +600,8 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
               styles.methodButton,
               paymentMethod === 'card' && styles.methodButtonActive,
             ]}
-            onPress={() => setPaymentMethod('card')}
+            onPress={() => handleSelectPaymentMethod('card')}
+            disabled={changingPaymentMethod}
           >
             <Text style={styles.methodIcon}>💳</Text>
             <View style={styles.methodInfo}>
@@ -570,8 +620,8 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
               paymentMethod === 'cash' && styles.methodButtonActive,
               isPendingPayment && styles.methodButtonDisabled, // Deshabilitar si es pago pendiente
             ]}
-            onPress={() => !isPendingPayment && setPaymentMethod('cash')}
-            disabled={isPendingPayment}
+            onPress={() => handleSelectPaymentMethod('cash')}
+            disabled={isPendingPayment || changingPaymentMethod}
           >
             <Text style={styles.methodIcon}>💵</Text>
             <View style={styles.methodInfo}>

@@ -73,49 +73,55 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
         // Obtener vehículos del conductor
         const vehicles = await vehiclesService.getDriverVehicles();
         
+        if (!vehicles || vehicles.length === 0) {
+          console.warn('⚠️ No hay vehículos disponibles');
+          setLoading(false);
+          return;
+        }
+        
         // Buscar el vehículo por ID
         const vehicle = vehicles.find((v: any) => v.id === vehicleId);
         
         if (vehicle) {
           console.log('✅ Datos del vehículo cargados:', {
-            registration_number: vehicle.registration_number,
-            registration_expiry: vehicle.registration_expiry,
-            insurance_number: vehicle.insurance_number,
-            insurance_company: vehicle.insurance_company,
-            insurance_expiry: vehicle.insurance_expiry,
-            vehicle_photo: vehicle.vehicle_photo ? '✅' : '❌',
-            registration_photo_front: vehicle.registration_photo_front ? '✅' : '❌',
-            registration_photo_back: vehicle.registration_photo_back ? '✅' : '❌',
-            insurance_photo: vehicle.insurance_photo ? '✅' : '❌',
+            registrationNumber: vehicle.registrationNumber,
+            registrationExpiry: vehicle.registrationExpiry,
+            insuranceNumber: vehicle.insuranceNumber,
+            insuranceCompany: vehicle.insuranceCompany,
+            insuranceExpiry: vehicle.insuranceExpiry,
+            vehiclePhoto: vehicle.vehiclePhoto ? '✅' : '❌',
+            registrationPhotoFront: vehicle.registrationPhotoFront ? '✅' : '❌',
+            registrationPhotoBack: vehicle.registrationPhotoBack ? '✅' : '❌',
+            insurancePhoto: vehicle.insurancePhoto ? '✅' : '❌',
           });
 
-          // Cargar datos existentes
-          if (vehicle.registration_number) {
-            setRegistrationNumber(vehicle.registration_number);
+          // Cargar datos existentes (ya están mapeados a camelCase por normalizeVehicle)
+          if (vehicle.registrationNumber) {
+            setRegistrationNumber(vehicle.registrationNumber);
           }
-          if (vehicle.registration_expiry) {
-            setRegistrationExpiry(vehicle.registration_expiry);
+          if (vehicle.registrationExpiry) {
+            setRegistrationExpiry(vehicle.registrationExpiry);
           }
-          if (vehicle.insurance_number) {
-            setInsuranceNumber(vehicle.insurance_number);
+          if (vehicle.insuranceNumber) {
+            setInsuranceNumber(vehicle.insuranceNumber);
           }
-          if (vehicle.insurance_company) {
-            setInsuranceCompany(vehicle.insurance_company);
+          if (vehicle.insuranceCompany) {
+            setInsuranceCompany(vehicle.insuranceCompany);
           }
-          if (vehicle.insurance_expiry) {
-            setInsuranceExpiry(vehicle.insurance_expiry);
+          if (vehicle.insuranceExpiry) {
+            setInsuranceExpiry(vehicle.insuranceExpiry);
           }
-          if (vehicle.vehicle_photo) {
-            setVehiclePhoto(vehicle.vehicle_photo);
+          if (vehicle.vehiclePhoto) {
+            setVehiclePhoto(vehicle.vehiclePhoto);
           }
-          if (vehicle.registration_photo_front) {
-            setRegistrationPhotoFront(vehicle.registration_photo_front);
+          if (vehicle.registrationPhotoFront) {
+            setRegistrationPhotoFront(vehicle.registrationPhotoFront);
           }
-          if (vehicle.registration_photo_back) {
-            setRegistrationPhotoBack(vehicle.registration_photo_back);
+          if (vehicle.registrationPhotoBack) {
+            setRegistrationPhotoBack(vehicle.registrationPhotoBack);
           }
-          if (vehicle.insurance_photo) {
-            setInsurancePhoto(vehicle.insurance_photo);
+          if (vehicle.insurancePhoto) {
+            setInsurancePhoto(vehicle.insurancePhoto);
           }
         } else {
           console.log('⚠️ Vehículo no encontrado con ID:', vehicleId);

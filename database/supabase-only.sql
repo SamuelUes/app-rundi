@@ -355,7 +355,7 @@ CREATE TABLE IF NOT EXISTS public.payments (
 
 COMMENT ON TABLE public.payments IS 'Historial de pagos: Cash (Efectivo) y Card (Bancos Locales)';
 COMMENT ON COLUMN public.payments.amount IS 'Tarifa final del viaje (final_fare)';
-COMMENT ON COLUMN public.payments.commission IS 'Comisión: 10% viajes normales, 15% conductor designado';
+COMMENT ON COLUMN public.payments.commission IS 'Comisión: 11% viajes normales, 15% conductor designado';
 COMMENT ON COLUMN public.payments.total IS 'Total que paga el cliente: amount + tip';
 COMMENT ON COLUMN public.payments.payment_method IS 'Método: cash (efectivo) o card (bancos locales)';
 COMMENT ON COLUMN public.payments.payment_provider IS 'Proveedor: cash o local';
@@ -705,7 +705,7 @@ CREATE TABLE IF NOT EXISTS public.services (
 ) TABLESPACE pg_default;
 
 COMMENT ON TABLE public.services IS 'Catálogo de servicios disponibles (Viaje Normal, Conductor Designado, etc)';
-COMMENT ON COLUMN public.services.commission_rate IS 'Tasa de comisión (0.1000 = 10%)';
+COMMENT ON COLUMN public.services.commission_rate IS 'Tasa de comisión (0.1100 = 11%)';
 COMMENT ON COLUMN public.services.code IS 'Código único del servicio para identificación en código';
 
 CREATE INDEX IF NOT EXISTS idx_services_code ON public.services USING btree (code);

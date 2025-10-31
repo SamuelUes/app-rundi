@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -105,139 +105,164 @@ export default function RideConfirmationScreen({ route, navigation }: RideConfir
     return unsubscribe;
   }, [navigation, handleBackPress]);
 
-  // Listener en tiempo real para ofertas de conductores y estado del viaje
-  useEffect(() => {
-    const db = getDatabase();
-    const rideRef = ref(db, `activeRides/${rideId}`);
-    
-    const unsubscribe = onValue(rideRef, async (snapshot) => {
-      const data = snapshot.val();
-      if (data) {
-        console.log('🔥 Datos del viaje actualizados desde Firebase:', data);
-        
-        // Actualizar datos completos del viaje
-        setRide(data);
-        setLoading(false);
-        
-        // Si hay un conductor asignado, obtener su foto de perfil desde driversInfo
-        if (data.driverId && !data.driver?.photoURL) {
-          console.log('📸 Obteniendo foto de perfil del conductor:', data.driverId);
-          try {
-            const driverInfoRef = ref(db, `driversInfo/${data.driverId}`);
-            const driverInfoSnapshot = await get(driverInfoRef);
-            const driverInfo = driverInfoSnapshot.val();
-            
-            if (driverInfo?.photoURL) {
-              console.log('✅ Foto de perfil encontrada en driversInfo:', driverInfo.photoURL);
-              setDriverPhotoURL(driverInfo.photoURL);
-            } else {
-              console.log('⚠️ No se encontró foto en driversInfo');
-            }
-          } catch (error) {
-            console.error('❌ Error obteniendo foto de perfil:', error);
+  const [driverInfoCache, setDriverInfoCache] = useState<Record<string, any>>({});
+
+ // Listener en tiempo real para ofertas de conductores y estado del viaje
+useEffect(() => {
+  const db = getDatabase();
+  const rideRef = ref(db, `activeRides/${rideId}`);
+  
+  const unsubscribe = onValue(rideRef, async (snapshot) => {
+    const data = snapshot.val();
+    if (data) {
+      console.log('🔥 Datos del viaje actualizados desde Firebase:', data);
+      console.log('🔍 Verificando offers:', data.offers ? 'EXISTE' : 'NO EXISTE');
+      console.log('🔍 Verificando driverOffers:', data.driverOffers ? 'EXISTE' : 'NO EXISTE');
+      console.log('🔍 Keys del objeto:', Object.keys(data));
+      
+      // Actualizar datos completos del viaje
+      setRide(data);
+      setLoading(false);
+      
+      // Si hay un conductor asignado, obtener su foto de perfil desde driversInfo
+      if (data.driverId && !data.driver?.photoURL) {
+        console.log('📸 Obteniendo foto de perfil del conductor:', data.driverId);
+        try {
+          const driverInfoRef = ref(db, `driversInfo/${data.driverId}`);
+          const driverInfoSnapshot = await get(driverInfoRef);
+          const driverInfo = driverInfoSnapshot.val();
+          
+          if (driverInfo?.photoURL) {
+            console.log('✅ Foto de perfil encontrada en driversInfo:', driverInfo.photoURL);
+            setDriverPhotoURL(driverInfo.photoURL);
+          } else {
+            console.log('⚠️ No se encontró foto en driversInfo');
           }
+        } catch (error) {
+          console.error('❌ Error obteniendo foto de perfil:', error);
         }
-
-        // Procesar ofertas de conductores (buscar en offers O driverOffers)
-        const offersData = data.offers || data.driverOffers;
-        if (offersData) {
-          console.log('🔍 Ofertas RAW de Firebase:', JSON.stringify(offersData, null, 2));
-          
-          // Obtener fotos de perfil de los conductores desde driversInfo
-          const offersArray = await Promise.all(
-            Object.entries(offersData).map(async ([driverId, offer]: [string, any]) => {
-              let photoURL = offer.driver?.photoURL;
-              
-              // Si no tiene foto en la oferta, buscar en driversInfo
-              if (!photoURL) {
-                try {
-                  console.log(`📸 Obteniendo foto de perfil del conductor ${driverId} desde driversInfo`);
-                  const driverInfoRef = ref(db, `driversInfo/${driverId}`);
-                  const driverInfoSnapshot = await get(driverInfoRef);
-                  const driverInfo = driverInfoSnapshot.val();
-                  
-                  if (driverInfo?.photoURL) {
-                    photoURL = driverInfo.photoURL;
-                    console.log(`✅ Foto encontrada para ${driverId}:`, photoURL);
-                  } else {
-                    console.log(`⚠️ No se encontró foto para ${driverId}`);
-                  }
-                } catch (error) {
-                  console.error(`❌ Error obteniendo foto de ${driverId}:`, error);
-                }
-              }
-              
-              return {
-                ...offer,
-                driverId,
-                driver: {
-                  ...offer.driver,
-                  photoURL, // Agregar foto de perfil
-                  vehicle: data.vehicle || null,
-                },
-              };
-            })
-          );
-          
-          console.log('🔍 Ofertas procesadas con driverId:', offersArray.map(o => ({ driverId: o.driverId, status: o.status })));
-          
-          console.log(`📊 Total ofertas en Firebase: ${offersArray.length}`);
-          console.log(`📋 Ofertas:`, offersArray);
-          console.log(`🚗 Vehículo agregado a ofertas:`, data.vehicle);
-          
-          // ✅ CORREGIDO: Mostrar ofertas pendientes O aceptadas (no solo pendientes)
-          // Cuando un conductor acepta el precio del cliente, el status cambia a 'accepted'
-          const activeOffers = offersArray.filter((offer: any) => 
-            offer.status === 'pending' || offer.status === 'accepted'
-          );
-          
-          setDriverOffers(activeOffers);
-          
-          // Limpiar contraofertas pendientes si el conductor ya respondió
-          setPendingCounterOffers(prev => {
-            const updated = new Set(prev);
-            offersArray.forEach((offer: any) => {
-              // Si el conductor aceptó el precio del cliente o hizo una nueva contraoferta
-              if (offer.acceptedClientPrice || offer.status === 'accepted') {
-                updated.delete(offer.driverId);
-              }
-            });
-            return updated;
-          });
-          
-          console.log(`📬 ${activeOffers.length} ofertas activas disponibles (pendientes + aceptadas)`);
-          console.log(`🎯 Estado del viaje: ${data.status}`);
-          console.log(`📝 Ofertas procesadas:`, JSON.stringify(activeOffers, null, 2));
-        } else {
-          console.log('❌ No hay offers ni driverOffers en Firebase');
-          setDriverOffers([]);
-        }
-
-        // Solo navegar automáticamente si el viaje ya está en progreso
-        if (data.status === 'in_progress' && data.driverId) {
-          console.log('✅ Viaje en progreso, navegando a tracking...');
-          console.log('🚗 Datos del vehículo:', data.vehicle);
-          navigation.replace('RideTracking', {
-            rideId: data.id,
-            driverId: data.driverId,
-            driverName: data.driver?.name || 'Conductor',
-            vehiclePlate: data.vehicle?.plate || 'N/A',
-            vehicleBrand: data.vehicle?.make || data.vehicle?.brand || 'N/A',
-            vehicleModel: data.vehicle?.model || 'N/A',
-            vehicleColor: data.vehicle?.color || 'N/A',
-            estimatedFare: data.finalFare || data.estimatedPrice || 0,
-          });
-        }
-      } else {
-        console.log('❌ No hay datos del viaje en Firebase');
-        setLoading(false);
       }
-    });
-    
-    return () => {
-      off(rideRef);
-    };
-  }, [rideId]);
+
+      // ✅ NUEVO: Leer explícitamente las ofertas desde Firebase
+      let offersData = data.offers || data.driverOffers;
+      
+      // Si no hay ofertas en los datos principales, leer desde la ruta offers
+      if (!offersData) {
+        try {
+          console.log('📍 Intentando leer ofertas desde activeRides/{rideId}/offers...');
+          const offersRef = ref(db, `activeRides/${rideId}/offers`);
+          const offersSnapshot = await get(offersRef);
+          if (offersSnapshot.exists()) {
+            offersData = offersSnapshot.val();
+            console.log('📦 ✅ Ofertas obtenidas desde ruta offers:', JSON.stringify(offersData, null, 2));
+          } else {
+            console.log('📦 ⚠️ No hay ofertas en activeRides/{rideId}/offers');
+          }
+        } catch (error) {
+          console.error('❌ Error leyendo ofertas:', error);
+        }
+      }
+      
+      console.log('📦 offersData final:', offersData ? 'EXISTE' : 'NO EXISTE');
+      if (offersData) {
+        console.log('🔍 Ofertas RAW de Firebase:', JSON.stringify(offersData, null, 2));
+        
+        // Obtener fotos de perfil de los conductores desde driversInfo
+        const offersArray = await Promise.all(
+          Object.entries(offersData).map(async ([driverId, offer]: [string, any]) => {
+            let photoURL = offer.driver?.photoURL;
+            let cachedInfo: any = null; // ✅ Definimos cachedInfo local para evitar error
+
+            // Si no tiene foto en la oferta, buscar en driversInfo
+            if (!photoURL) {
+              try {
+                console.log(`📸 Obteniendo foto de perfil del conductor ${driverId} desde driversInfo`);
+                const driverInfoRef = ref(db, `driversInfo/${driverId}`);
+                const driverInfoSnapshot = await get(driverInfoRef);
+                const driverInfo = driverInfoSnapshot.val();
+                cachedInfo = driverInfo;
+                
+                if (driverInfo?.photoURL) {
+                  photoURL = driverInfo.photoURL;
+                  console.log(`✅ Foto encontrada para ${driverId}:`, photoURL);
+                } else {
+                  console.log(`⚠️ No se encontró foto para ${driverId}`);
+                }
+              } catch (error) {
+                console.error(`❌ Error obteniendo foto de ${driverId}:`, error);
+              }
+            }
+            
+            return {
+              ...offer,
+              driverId,
+              driver: {
+                ...offer.driver,
+                name: offer.driver?.name || cachedInfo?.name || `Conductor ${driverId.substring(0,4)}`,
+                phone: offer.driver?.phone || cachedInfo?.phone || null,
+                photoURL: offer.driver?.photoURL || photoURL || cachedInfo?.photoURL || null,
+                vehicle: data.vehicle || null,
+              },
+            };
+          })
+        );
+        
+        console.log('🔍 Ofertas procesadas con driverId:', offersArray.map(o => ({ driverId: o.driverId, status: o.status })));
+        console.log(`📊 Total ofertas en Firebase: ${offersArray.length}`);
+        console.log(`📋 Ofertas:`, offersArray);
+        console.log(`🚗 Vehículo agregado a ofertas:`, data.vehicle);
+        
+        // ✅ Mostrar ofertas pendientes O aceptadas (no solo pendientes)
+        const activeOffers = offersArray.filter((offer: any) => 
+          offer.status === 'pending' || offer.status === 'accepted'
+        );
+        
+        setDriverOffers(activeOffers);
+        
+        // Limpiar contraofertas pendientes si el conductor ya respondió
+        setPendingCounterOffers(prev => {
+          const updated = new Set(prev);
+          offersArray.forEach((offer: any) => {
+            if (offer.acceptedClientPrice || offer.status === 'accepted') {
+              updated.delete(offer.driverId);
+            }
+          });
+          return updated;
+        });
+        
+        console.log(`📬 ${activeOffers.length} ofertas activas disponibles (pendientes + aceptadas)`);
+        console.log(`🎯 Estado del viaje: ${data.status}`);
+        console.log(`📝 Ofertas procesadas:`, JSON.stringify(activeOffers, null, 2));
+      } else {
+        console.log('❌ No hay offers ni driverOffers en Firebase');
+        setDriverOffers([]);
+      }
+
+      // Solo navegar automáticamente si el viaje ya está en progreso
+      if (data.status === 'in_progress' && data.driverId) {
+        console.log('✅ Viaje en progreso, navegando a tracking...');
+        console.log('🚗 Datos del vehículo:', data.vehicle);
+        navigation.replace('RideTracking', {
+          rideId: rideId,
+          driverId: data.driverId,
+          driverName: data.driver?.name || 'Conductor',
+          vehiclePlate: data.vehicle?.plate || 'N/A',
+          vehicleBrand: data.vehicle?.make || data.vehicle?.brand || 'N/A',
+          vehicleModel: data.vehicle?.model || 'N/A',
+          vehicleColor: data.vehicle?.color || 'N/A',
+          estimatedFare: data.finalFare || data.estimatedPrice || 0,
+        });
+      }
+    } else {
+      console.log('❌ No hay datos del viaje en Firebase');
+      setLoading(false);
+    }
+  });
+  
+  return () => {
+    off(rideRef);
+  };
+}, [rideId]);
 
   const handleCancelRide = () => {
     Alert.alert(
@@ -288,6 +313,13 @@ export default function RideConfirmationScreen({ route, navigation }: RideConfir
       console.log('🎯 Aceptar oferta completa:', JSON.stringify(offer, null, 2));
       console.log('🆔 RideId:', rideId);
       console.log('🚗 DriverId de la oferta:', offer.driverId);
+      
+      // ✅ NUEVO: Si hay contraoferta del conductor, aceptarla primero
+      if (ride?.driverOfferedPrice && ride?.negotiationStatus === 'driver_offered') {
+        console.log('💰 Aceptando contraoferta del conductor: C$' + ride.driverOfferedPrice);
+        await priceNegotiationService.acceptCounterOffer(rideId, ride.driverOfferedPrice, 'client', offer.driverId);
+        console.log('✅ Contraoferta aceptada');
+      }
       
       // En el nuevo sistema de ofertas, aceptar la oferta = confirmar al conductor
       console.log('✅ Confirmando conductor seleccionado...');

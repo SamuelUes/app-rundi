@@ -228,7 +228,15 @@ class FirebaseTrackingService {
     callback: (location: Location | null) => void
   ): Promise<() => void> {
     const database = await getFirebaseDatabase();
+    
+    // ✅ NUEVO: Escuchar driverLocations (principal) con fallback a driversInfo
     const locationRef = ref(database, `driverLocations/${driverId}`);
+    const driverInfoRef = ref(database, `driversInfo/${driverId}`);
+    
+    console.log(`📍 [subscribeToDriverLocation] Escuchando ubicación del conductor: ${driverId}`);
+    
+    let hasReceivedData = false;
+    let unsubscribeInfo: (() => void) | null = null;
     
     const unsubscribe = onValue(
       locationRef,
@@ -236,6 +244,8 @@ class FirebaseTrackingService {
         const data = snapshot.val();
         
         if (data) {
+          hasReceivedData = true;
+          console.log(`📍 [subscribeToDriverLocation] Ubicación recibida desde driverLocations:`, data);
           callback({
             latitude: data.lat,
             longitude: data.lng,
@@ -243,8 +253,34 @@ class FirebaseTrackingService {
             heading: data.heading,
             timestamp: data.lastUpdate,
           });
-        } else {
-          callback(null);
+          
+          // Si teníamos un fallback activo, desactivarlo
+          if (unsubscribeInfo) {
+            unsubscribeInfo();
+            unsubscribeInfo = null;
+          }
+        } else if (!hasReceivedData) {
+          console.log(`⚠️ [subscribeToDriverLocation] No hay datos en driverLocations, activando fallback a driversInfo...`);
+          
+          // Fallback: escuchar driversInfo
+          unsubscribeInfo = onValue(
+            driverInfoRef,
+            (infoSnapshot) => {
+              const infoData = infoSnapshot.val();
+              if (infoData && (infoData.lat || infoData.latitude)) {
+                console.log(`📍 [subscribeToDriverLocation] Ubicación recibida desde driversInfo:`, infoData);
+                callback({
+                  latitude: infoData.latitude || infoData.lat,
+                  longitude: infoData.longitude || infoData.lng,
+                  speed: infoData.speed || null,
+                  heading: infoData.heading || null,
+                  timestamp: infoData.lastUpdate || new Date().toISOString(),
+                });
+              } else {
+                callback(null);
+              }
+            }
+          );
         }
       },
       (error) => {
@@ -259,7 +295,11 @@ class FirebaseTrackingService {
     // Retornar función de limpieza
     return () => {
       off(locationRef);
+      if (unsubscribeInfo) {
+        unsubscribeInfo();
+      }
       this.listeners.delete(`driver_${driverId}`);
+      this.listeners.delete(`driver_info_${driverId}`);
       console.log(`🛑 Detenido listener de conductor: ${driverId}`);
     };
   }

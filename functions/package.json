@@ -1,7 +1,7 @@
 {
-  "name": "driveangel-functions",
-  "version": "1.0.0",
-  "description": "Firebase Functions para DriveAngel.ni",
+  "name": "conduce-functions",
+  "version": "1.0.01",
+  "description": "Firebase Functions para conduce.ni",
   "scripts": {
     "build": "tsc",
     "build:watch": "tsc --watch",
@@ -12,7 +12,7 @@
     "logs": "firebase functions:log"
   },
   "engines": {
-    "node": "18"
+    "node": "20"
   },
   "main": "lib/index.js",
   "dependencies": {
@@ -20,15 +20,20 @@
     "@mapbox/polyline": "^1.2.1",
     "@supabase/supabase-js": "^2.75.0",
     "axios": "^1.12.2",
+    "dotenv": "^16.3.1",
     "firebase-admin": "^12.0.0",
     "firebase-functions": "^5.1.1",
     "pg": "^8.11.3",
+    "pg-hstore": "^2.3.4",
+    "postgres": "^3.4.7",
+    "sequelize": "^6.37.7",
     "stripe": "^14.10.0",
     "twilio": "^5.10.3",
     "zod": "^3.22.4"
   },
   "devDependencies": {
     "@types/pg": "^8.10.9",
+    "@types/sequelize": "^4.28.20",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
     "eslint": "^8.0.0",
