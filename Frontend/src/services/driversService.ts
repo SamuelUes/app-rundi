@@ -187,6 +187,64 @@ class DriversService {
     const result = await updateVehicle({ vehicleId, ...data });
     return result.data as { success: boolean; vehicle: any };
   }
+
+  /**
+   * Obtener mi perfil del conductor (usuario autenticado, con fallback a Realtime DB)
+   */
+  async getMyDriverProfile(): Promise<any> {
+    try {
+      const functions = await this.getFunctions();
+      const getDriverProfileFn = httpsCallable(functions, 'getDriverProfileWithFallback');
+      
+      console.log(`👤 [driversService] Obteniendo mi perfil del conductor`);
+      
+      const response = await getDriverProfileFn({});
+      const result = response.data as { success: boolean; driver: any };
+      
+      if (result.success) {
+        console.log(`✅ Perfil del conductor obtenido`);
+        return result.driver;
+      } else {
+        throw new Error('No se pudo obtener el perfil');
+      }
+    } catch (error: any) {
+      console.error('❌ Error obteniendo perfil del conductor:', error.message);
+      throw new Error(error.message || 'Error al obtener perfil del conductor');
+    }
+  }
+
+  /**
+   * Actualizar mi perfil del conductor (usuario autenticado, con sincronización a Realtime DB)
+   */
+  async updateMyDriverProfile(data: {
+    firstName?: string;
+    lastName?: string;
+    phone?: string;
+    licenseNumber?: string;
+    licenseExpiry?: string;
+    vehicleType?: string;
+    vehiclePlate?: string;
+  }): Promise<{ success: boolean; message: string }> {
+    try {
+      const functions = await this.getFunctions();
+      const updateDriverProfileFn = httpsCallable(functions, 'updateDriverProfileWithSync');
+      
+      console.log(`👤 [driversService] Actualizando mi perfil del conductor`);
+      
+      const response = await updateDriverProfileFn(data);
+      const result = response.data as { success: boolean; message: string };
+      
+      if (result.success) {
+        console.log(`✅ Perfil del conductor actualizado`);
+        return result;
+      } else {
+        throw new Error('No se pudo actualizar el perfil');
+      }
+    } catch (error: any) {
+      console.error('❌ Error actualizando perfil del conductor:', error.message);
+      throw new Error(error.message || 'Error al actualizar perfil del conductor');
+    }
+  }
 }
 
 export default new DriversService();

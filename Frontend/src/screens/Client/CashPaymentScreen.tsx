@@ -8,7 +8,7 @@
  * - Alertas consistentes con alertService
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -197,6 +197,8 @@ export default function CashPaymentScreen({ route, navigation }: any) {
   const [paymentStatus, setPaymentStatus] = useState<string>('pending');
   const [driverPhotoURL, setDriverPhotoURL] = useState<string | null>(null);
   const [currentPaymentMethod, setCurrentPaymentMethod] = useState<string>('cash');
+  const currentPaymentMethodRef = useRef<string>('cash');
+  const isNavigatingRef = useRef(false);
   
   // Cargar detalles del viaje
   useEffect(() => {
@@ -218,56 +220,12 @@ export default function CashPaymentScreen({ route, navigation }: any) {
         setRide(data);
         setLoading(false);
         
-        // ✅ MEJORADO: Detectar cambio de método de pago ANTES de actualizar el estado
-        const previousPaymentMethod = currentPaymentMethod;
-        const newPaymentMethod = data.paymentMethod || 'cash';
-        
-        console.log(`🔍 Verificando método de pago: anterior=${previousPaymentMethod}, nuevo=${newPaymentMethod}`);
-        
-        // Detectar cambio de método de pago (solo del conductor)
-        if (
-          newPaymentMethod && 
-          newPaymentMethod !== previousPaymentMethod &&
-          !confirming &&
-          data.paymentMethodChangedBy && 
-          data.paymentMethodChangedBy !== getAuth().currentUser?.uid
-        ) {
-            console.log(`🔄 Método de pago cambiado por conductor de ${previousPaymentMethod} a ${newPaymentMethod}`);
-            
-            if (newPaymentMethod === 'card') {
-            // Convertir amount a número
-            const finalAmount = typeof data.finalFare === 'string' 
-              ? parseFloat(data.finalFare) 
-              : (data.finalFare || (typeof paramAmount === 'string' ? parseFloat(paramAmount) : paramAmount));
-            console.log('💳 Navegando a PaymentScreen con amount:', finalAmount);
-            
-            // ✅ NUEVO: Actualizar estado ANTES de navegar
-            setCurrentPaymentMethod(newPaymentMethod);
-            
-            // Mostrar Alert y navegar
-            Alert.alert(
-              'Método de Pago Cambiado',
-              'El conductor cambió el método de pago a tarjeta. Serás redirigido a la pantalla de pago con tarjeta.',
-              [
-                {
-                  text: 'Entendido',
-                  onPress: () => {
-                    navigation.replace('Payment', {
-                      rideId,
-                      amount: finalAmount,
-                      driverName: data.driver?.name || paramDriverName,
-                      driverPhoto: data.driver?.photoURL,
-                    });
-                  },
-                },
-              ],
-              { cancelable: false }
-            );
-          }
+        // ✅ MEJORADO: Detectar cambio de método de pago
+        const ridePaymentMethod = data.paymentMethod || 'cash';
+        if (ridePaymentMethod !== currentPaymentMethodRef.current) {
+          currentPaymentMethodRef.current = ridePaymentMethod;
+          setCurrentPaymentMethod(ridePaymentMethod);
         }
-        
-        // ✅ NUEVO: Actualizar currentPaymentMethod siempre para evitar bucles
-        setCurrentPaymentMethod(newPaymentMethod);
         
         // Obtener foto de perfil del conductor desde driversInfo
         if (data.driverId && !data.driver?.photoURL) {
@@ -303,7 +261,57 @@ export default function CashPaymentScreen({ route, navigation }: any) {
       
       if (paymentData) {
         setPaymentStatus(paymentData.status);
-        
+
+        const methodFromStatus = paymentData.method || paymentData.paymentMethod;
+
+        if (
+          methodFromStatus &&
+          methodFromStatus !== currentPaymentMethodRef.current
+        ) {
+          console.log(`🔄 [CashPaymentScreen] Método actualizado vía paymentStatus: ${currentPaymentMethodRef.current} → ${methodFromStatus}`);
+          currentPaymentMethodRef.current = methodFromStatus;
+          setCurrentPaymentMethod(methodFromStatus);
+
+          if (methodFromStatus === 'card' && !isNavigatingRef.current) {
+            isNavigatingRef.current = true;
+
+            const finalAmount = (() => {
+              if (typeof paymentData.amount === 'number') return paymentData.amount;
+              if (typeof paymentData.amount === 'string') return parseFloat(paymentData.amount);
+              if (typeof paymentData.finalAmount === 'number') return paymentData.finalAmount;
+              if (typeof paymentData.finalAmount === 'string') return parseFloat(paymentData.finalAmount);
+              if (ride?.finalFare) {
+                return typeof ride.finalFare === 'string' ? parseFloat(ride.finalFare) : ride.finalFare;
+              }
+              return typeof paramAmount === 'string' ? parseFloat(paramAmount) : paramAmount || 0;
+            })();
+
+            Alert.alert(
+              'Método de Pago Cambiado',
+              'El método de pago cambió a tarjeta. Serás redirigido a la pantalla de pago con tarjeta.',
+              [
+                {
+                  text: 'Entendido',
+                  onPress: () => {
+                    navigation.replace('Payment', {
+                      rideId,
+                      amount: finalAmount,
+                      driverName: ride?.driver?.name || paramDriverName,
+                      driverPhoto: ride?.driver?.photoURL || driverPhoto,
+                    });
+                  },
+                },
+              ],
+              { cancelable: false }
+            );
+          }
+        }
+      } else {
+        // Si no hay paymentStatus, reiniciar flag de navegación para futuros cambios
+        isNavigatingRef.current = false;
+      }
+
+      if (paymentData) {
         // Si el pago fue confirmado por el conductor, ir a calificación
         if (paymentData.status === 'confirmed' || paymentData.status === 'completed') {
           console.log('✅ Pago confirmado, navegando a calificación');

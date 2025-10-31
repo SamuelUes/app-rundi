@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { getFirebaseDatabase, getFirebaseAuth } from '../config/firebase';
-import { ref, onDisconnect, set, serverTimestamp, onValue } from 'firebase/database';
+import { ref, onDisconnect, set, serverTimestamp, onValue, update } from 'firebase/database';
 import { useAuth } from '../context/AuthContext';
 import { AppState, AppStateStatus } from 'react-native';
 
@@ -42,7 +42,7 @@ export function usePresence() {
 
         // IMPORTANTE: Primero marcar como offline al iniciar
         // El conductor debe activar manualmente su disponibilidad
-        await set(driverLocationRef, {
+        await update(driverLocationRef, {
           status: 'offline',
           updatedAt: serverTimestamp(),
           lastSeen: serverTimestamp(),
@@ -82,7 +82,7 @@ export function usePresence() {
           nextAppState.match(/inactive|background/)
         ) {
           console.log('📱 App en background, marcando como offline...');
-          await set(driverLocationRef, {
+          await update(driverLocationRef, {
             status: 'offline',
             updatedAt: serverTimestamp(),
             lastSeen: serverTimestamp(),
@@ -120,7 +120,7 @@ export function usePresence() {
           const firebaseUser = auth.currentUser;
           if (firebaseUser && user?.role === 'driver') {
             const cleanupRef = ref(database, `driverLocations/${firebaseUser.uid}`);
-            await set(cleanupRef, {
+            await update(cleanupRef, {
               status: 'offline',
               updatedAt: serverTimestamp(),
               lastSeen: serverTimestamp(),

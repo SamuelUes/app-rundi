@@ -50,6 +50,14 @@ interface RideRequest {
     plate?: string;
     photos?: string[];
   };
+  // ✅ NUEVO: Soporte para múltiples destinos
+  extraDestinations?: Array<{
+    lat: number;
+    lng: number;
+    address: string;
+  }>;
+  waypointsCount?: number;
+  hasMultipleDestinations?: boolean;
 }
 
 export default function RideRequestsScreen({ navigation }: any) {
@@ -227,6 +235,26 @@ export default function RideRequestsScreen({ navigation }: any) {
           </View>
 
           <View style={styles.routeLine} />
+
+          {/* ✅ NUEVO: Mostrar paradas extras si existen */}
+          {item.extraDestinations && item.extraDestinations.length > 0 && (
+            <>
+              {item.extraDestinations.map((stop: any, index: number) => (
+                <View key={`waypoint-${index}`}>
+                  <View style={styles.routePoint}>
+                    <Text style={styles.routeIcon}>🟡</Text>
+                    <View style={styles.routeDetails}>
+                      <Text style={styles.routeLabel}>PARADA {index + 1}</Text>
+                      <Text style={styles.routeAddress} numberOfLines={2}>
+                        {stop.address}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={styles.routeLine} />
+                </View>
+              ))}
+            </>
+          )}
 
           <View style={styles.routePoint}>
             <Text style={styles.routeIcon}>🔴</Text>

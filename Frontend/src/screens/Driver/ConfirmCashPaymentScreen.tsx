@@ -6,12 +6,16 @@ import {
   Alert,
   ScrollView,
   ActivityIndicator,
+  TouchableOpacity,
+  TextInput,
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { AnimatedButton } from '../../components/AnimatedButton';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { getDatabase, ref, update, onValue, off } from 'firebase/database';
 import { initializeFirebase } from '../../config/firebase';
+import BiometricService from '../../services/biometricService';
+import { supabase } from '../../config/supabase';
 
 interface ConfirmCashPaymentScreenProps {
   route: {
@@ -32,6 +36,11 @@ export default function ConfirmCashPaymentScreen({ route, navigation }: ConfirmC
   const [confirming, setConfirming] = useState(false);
   const [clientConfirmed, setClientConfirmed] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [showSmsInput, setShowSmsInput] = useState(false);
+  const [smsCode, setSmsCode] = useState('');
+  const [smsAttempts, setSmsAttempts] = useState(0);
+  const [smsExpiresAt, setSmsExpiresAt] = useState<Date | null>(null);
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
 
   console.log('💵 [ConfirmCashPaymentScreen] Params:', { rideId, amount, tip, clientName });
 
@@ -79,6 +88,155 @@ export default function ConfirmCashPaymentScreen({ route, navigation }: ConfirmC
     setupListener();
   }, [rideId]);
 
+  const handleConfirmWithFingerprint = async () => {
+    try {
+      setIsAuthenticating(true);
+
+      const result = await BiometricService.authenticate(
+        `Confirma tu huella para completar el pago de C$${totalAmount.toFixed(2)}`
+      );
+
+      if (!result.success) {
+        Alert.alert('Error', result.error || 'Autenticación fallida');
+        return;
+      }
+
+      // Guardar en Supabase
+      await supabase.from('biometric_authentications').insert({
+        ride_id: rideId,
+        user_id: 'driver_id', // TODO: obtener del contexto
+        user_type: 'driver',
+        biometric_type: 'fingerprint',
+        context: 'payment_confirmation',
+        success: true,
+        attempt_number: 1,
+      });
+
+      // Actualizar Firebase
+      const { app } = await initializeFirebase();
+      if (!app) throw new Error('Firebase no inicializado');
+      const db = getDatabase(app);
+      const paymentRef = ref(db, `paymentStatus/${rideId}`);
+      
+      await update(paymentRef, {
+        status: 'payment_in_progress',
+        confirmedAt: Date.now(),
+        confirmedBy: 'driver',
+        finalAmount: totalAmount,
+        biometric_authenticated: true,
+        biometric_type: 'fingerprint',
+        authentication_method: 'biometric',
+      });
+
+      // Llamar Cloud Function
+      const functions = getFunctions(app);
+      const completeCashPayment = httpsCallable(functions, 'completeCashPayment');
+      await completeCashPayment({ rideId });
+
+      Alert.alert('Éxito', 'Pago confirmado correctamente');
+      navigation.replace('AvailableRides');
+
+    } catch (error: any) {
+      console.error('❌ Error:', error);
+      Alert.alert('Error', error.message || 'Error procesando pago');
+    } finally {
+      setIsAuthenticating(false);
+    }
+  };
+
+  const handleUseSms = async () => {
+    try {
+      setIsAuthenticating(true);
+
+      const { app } = await initializeFirebase();
+      if (!app) throw new Error('Firebase no inicializado');
+      
+      const functions = getFunctions(app);
+      const sendSmsCode = httpsCallable(functions, 'sendSmsCode');
+      
+      await sendSmsCode({
+        rideId,
+        userId: 'driver_id', // TODO: obtener del contexto
+        phoneNumber: '+50512345678', // TODO: obtener del contexto
+        context: 'payment_confirmation',
+      });
+
+      setSmsExpiresAt(new Date(Date.now() + 10 * 60 * 1000));
+      setSmsAttempts(0);
+      setShowSmsInput(true);
+      
+      Alert.alert('SMS Enviado', 'Revisa tu teléfono para el código');
+
+    } catch (error: any) {
+      console.error('❌ Error:', error);
+      Alert.alert('Error', 'Error enviando SMS');
+    } finally {
+      setIsAuthenticating(false);
+    }
+  };
+
+  const handleVerifySmsCode = async () => {
+    try {
+      setIsAuthenticating(true);
+
+      if (smsCode.length !== 6) {
+        Alert.alert('Error', 'Ingresa 6 dígitos');
+        return;
+      }
+
+      const { app } = await initializeFirebase();
+      if (!app) throw new Error('Firebase no inicializado');
+      
+      const functions = getFunctions(app);
+      const verifySmsCode = httpsCallable(functions, 'verifySmsCode');
+      
+      const result = await verifySmsCode({
+        rideId,
+        userId: 'driver_id', // TODO: obtener del contexto
+        code: smsCode,
+        context: 'payment_confirmation',
+      });
+
+      if (!(result.data as any).verified) {
+        setSmsAttempts(smsAttempts + 1);
+        
+        if (smsAttempts >= 2) {
+          Alert.alert('Error', 'Demasiados intentos. Intenta de nuevo en 5 minutos');
+          setShowSmsInput(false);
+        } else {
+          Alert.alert('Error', `Código incorrecto. Intentos restantes: ${3 - smsAttempts - 1}`);
+        }
+        return;
+      }
+
+      // Actualizar Firebase
+      const db = getDatabase(app);
+      const paymentRef = ref(db, `paymentStatus/${rideId}`);
+      
+      await update(paymentRef, {
+        status: 'payment_in_progress',
+        confirmedAt: Date.now(),
+        confirmedBy: 'driver',
+        finalAmount: totalAmount,
+        sms_code_verified: true,
+        authentication_method: 'sms',
+      });
+
+      // Llamar Cloud Function
+      const completeCashPayment = httpsCallable(functions, 'completeCashPayment');
+      await completeCashPayment({ rideId });
+
+      Alert.alert('Éxito', 'Pago confirmado correctamente');
+      navigation.replace('AvailableRides');
+
+    } catch (error: any) {
+      console.error('❌ Error:', error);
+      Alert.alert('Error', error.message || 'Error verificando código');
+    } finally {
+      setIsAuthenticating(false);
+    }
+  };
+
   const handleConfirmPayment = async () => {
     // Verificar si el cliente ya confirmó
     if (!clientConfirmed) {
@@ -90,57 +248,8 @@ export default function ConfirmCashPaymentScreen({ route, navigation }: ConfirmC
       return;
     }
 
-    try {
-      setConfirming(true);
-      console.log('💵 Conductor confirmando pago para rideId:', rideId);
-
-      const { app } = await initializeFirebase();
-      if (!app) throw new Error('Firebase no inicializado');
-
-      // Llamar función del backend para confirmar pago
-      const functions = getFunctions(app);
-      const confirmCashPaymentFn = httpsCallable(functions, 'confirmCashPayment');
-      
-      console.log('🔄 Llamando a confirmCashPayment Cloud Function...');
-      const result = await confirmCashPaymentFn({ 
-        rideId,
-        amount: numericAmount,
-        tip: numericTip,
-        confirmedBy: 'driver'
-      });
-      
-      const data = result.data as any;
-      console.log('✅ confirmCashPayment exitoso:', data);
-
-      if (data.bothConfirmed) {
-        // Ambos confirmaron → Pago completado
-        Alert.alert(
-          '¡Pago Confirmado!',
-          'El pago en efectivo ha sido confirmado por ambas partes',
-          [
-            {
-              text: 'Volver a Búsqueda',
-              onPress: () => {
-                console.log('🔙 Navegando a AvailableRides');
-                navigation.replace('AvailableRides');
-              },
-            },
-          ]
-        );
-      } else {
-        // Solo conductor confirmó (no debería pasar porque verificamos arriba)
-        Alert.alert(
-          'Confirmación Registrada',
-          'Esperando confirmación del cliente'
-        );
-      }
-    } catch (error: any) {
-      console.error('❌ Error confirmando pago:', error);
-      console.error('❌ Error completo:', JSON.stringify(error, null, 2));
-      Alert.alert('Error', error.message || 'No se pudo confirmar el pago');
-    } finally {
-      setConfirming(false);
-    }
+    // Usar biometría como método principal
+    await handleConfirmWithFingerprint();
   };
 
   const handleReportIssue = () => {

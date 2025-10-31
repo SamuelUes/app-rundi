@@ -35,12 +35,17 @@ interface Ride {
   estimatedPrice: number;
   status: string;
   clientSuggestedPrice?: number;
-  driverOfferedPrice?: number;
+  driverOfferedPrice?: number | null;
+  driverOfferStatus?: string | null;
   passengers?: number;
   rideType?: string;
   requestedAt: number;
   clientRating?: number;
   clientTotalRatings?: number;
+  // ✅ NUEVO: Soporte para múltiples destinos
+  extraDestinations?: Array<{ lat: number; lng: number; address: string }>;
+  waypointsCount?: number;
+  hasMultipleDestinations?: boolean;
 }
 
 export default function AvailableRidesScreen({ navigation }: any) {
@@ -139,6 +144,11 @@ export default function AvailableRidesScreen({ navigation }: any) {
 
         // Filtrar solo viajes en estado 'requested' (disponibles)
         if (rideData.status === 'requested') {
+          const offers = rideData.offers || {};
+          const myOffer = user?.id ? offers[user.id] : null;
+          const myOfferedPrice = myOffer?.offeredPrice ?? null;
+          const myOfferStatus = myOffer?.status ?? null;
+
           availableRides.push({
             id: rideId,
             clientId: rideData.clientId || '',
@@ -149,10 +159,15 @@ export default function AvailableRidesScreen({ navigation }: any) {
             estimatedDuration: rideData.estimatedDuration || 0,
             estimatedPrice: rideData.estimatedPrice || 0,
             clientSuggestedPrice: rideData.clientSuggestedPrice,
-            driverOfferedPrice: rideData.driverOfferedPrice,
+            driverOfferedPrice: myOfferedPrice,
+            driverOfferStatus: myOfferStatus,
             passengers: rideData.passengers || 1,
             rideType: rideData.rideType || 'normal',
             requestedAt: rideData.requestedAt || Date.now(),
+            // ✅ NUEVO: Soporte para múltiples destinos
+            extraDestinations: rideData.extraDestinations || [],
+            waypointsCount: rideData.waypointsCount || 0,
+            hasMultipleDestinations: rideData.hasMultipleDestinations || false,
           });
         }
       });
@@ -259,39 +274,66 @@ export default function AvailableRidesScreen({ navigation }: any) {
     setLoadingRoute(true);
     setRouteCoordinates([]);
     
-    // Calcular ruta completa: Conductor → Origen → Destino
+    // ✅ MEJORADO: Calcular ruta completa con múltiples destinos
     if (coords) {
       try {
         console.log('🗺️ Calculando ruta para modal...');
+        console.log('📍 Paradas extras:', ride.extraDestinations?.length || 0);
+        console.log('📦 Ride completo:', JSON.stringify(ride, null, 2));
+        if (ride.extraDestinations && ride.extraDestinations.length > 0) {
+          console.log('📍 Paradas encontradas:', JSON.stringify(ride.extraDestinations, null, 2));
+        }
+        
+        const routeSegments: any[] = [];
         
         // Ruta 1: Conductor → Origen
         const route1 = await mapsService.getDirections(
           { latitude: coords.latitude, longitude: coords.longitude },
           { latitude: ride.origin.lat, longitude: ride.origin.lng }
         );
+        routeSegments.push(route1?.polyline || []);
         
-        // Ruta 2: Origen → Destino
-        const route2 = await mapsService.getDirections(
-          { latitude: ride.origin.lat, longitude: ride.origin.lng },
+        // Ruta 2: Origen → Paradas extras (si existen)
+        let currentPoint = { latitude: ride.origin.lat, longitude: ride.origin.lng };
+        
+        if (ride.extraDestinations && ride.extraDestinations.length > 0) {
+          for (const waypoint of ride.extraDestinations) {
+            const waypointRoute = await mapsService.getDirections(
+              currentPoint,
+              { latitude: waypoint.lat, longitude: waypoint.lng }
+            );
+            routeSegments.push(waypointRoute?.polyline || []);
+            currentPoint = { latitude: waypoint.lat, longitude: waypoint.lng };
+          }
+        }
+        
+        // Ruta final: Última parada → Destino final
+        const finalRoute = await mapsService.getDirections(
+          currentPoint,
           { latitude: ride.destination.lat, longitude: ride.destination.lng }
         );
+        routeSegments.push(finalRoute?.polyline || []);
         
-        // Combinar ambas rutas
-        const combinedRoute = [
-          ...(route1?.polyline || []),
-          ...(route2?.polyline || [])
-        ];
-        
+        // Combinar todas las rutas
+        const combinedRoute = routeSegments.flat();
         setRouteCoordinates(combinedRoute);
-        console.log('✅ Ruta calculada:', combinedRoute.length, 'puntos');
+        console.log('✅ Ruta calculada:', combinedRoute.length, 'puntos con', ride.extraDestinations?.length || 0, 'paradas');
       } catch (error) {
         console.error('❌ Error calculando ruta:', error);
-        // Fallback: línea recta
-        setRouteCoordinates([
+        // Fallback: línea recta con todas las paradas
+        const fallbackRoute = [
           { latitude: coords.latitude, longitude: coords.longitude },
           { latitude: ride.origin.lat, longitude: ride.origin.lng },
-          { latitude: ride.destination.lat, longitude: ride.destination.lng }
-        ]);
+        ];
+        
+        if (ride.extraDestinations) {
+          ride.extraDestinations.forEach(stop => {
+            fallbackRoute.push({ latitude: stop.lat, longitude: stop.lng });
+          });
+        }
+        
+        fallbackRoute.push({ latitude: ride.destination.lat, longitude: ride.destination.lng });
+        setRouteCoordinates(fallbackRoute);
       } finally {
         setLoadingRoute(false);
       }
@@ -300,12 +342,16 @@ export default function AvailableRidesScreen({ navigation }: any) {
 
   const handleNegotiate = (ride: Ride) => {
     setSelectedRide(ride);
-    setCounterOffer(ride.estimatedPrice.toString());
+    const startingPrice = ride.driverOfferedPrice || ride.clientSuggestedPrice || ride.estimatedPrice || 0;
+    setCounterOffer(startingPrice ? startingPrice.toString() : '');
     setShowNegotiateModal(true);
   };
 
   const handleSendCounterOffer = async () => {
-    if (!selectedRide) return;
+    if (!selectedRide || !user?.id) {
+      Alert.alert('Error', 'No se pudo obtener tu información');
+      return;
+    }
     
     const price = parseFloat(counterOffer);
     if (isNaN(price) || price < 50) {
@@ -314,12 +360,17 @@ export default function AvailableRidesScreen({ navigation }: any) {
     }
 
     try {
-      await priceNegotiationService.negotiatePrice(selectedRide.id, price, 'driver');
+      console.log(`💰 [handleSendCounterOffer] Enviando contraoferta: C$${price} para viaje ${selectedRide.id} como conductor ${user.id}`);
+      
+      // ✅ NUEVO: Pasar driverId junto con la contraoferta
+      await priceNegotiationService.negotiatePrice(selectedRide.id, price, 'driver', selectedRide.estimatedPrice, user.id);
+      
       Alert.alert('Éxito', 'Contraoferta enviada al cliente');
       setShowNegotiateModal(false);
       setSelectedRide(null);
       setCounterOffer('');
     } catch (error: any) {
+      console.error('❌ Error enviando contraoferta:', error);
       Alert.alert('Error', error.message || 'No se pudo enviar la contraoferta');
     }
   };
@@ -337,12 +388,23 @@ export default function AvailableRidesScreen({ navigation }: any) {
     const destLat = selectedRide.destination.lat;
     const destLng = selectedRide.destination.lng;
 
-    // Waypoints: origen del viaje (punto de recogida)
-    const waypoints = `${originLat},${originLng}`;
+    // ✅ MEJORADO: Waypoints incluyen origen + paradas extras
+    let waypoints = `${originLat},${originLng}`;
+    
+    if (selectedRide.extraDestinations && selectedRide.extraDestinations.length > 0) {
+      const extraWaypoints = selectedRide.extraDestinations
+        .map(stop => `${stop.lat},${stop.lng}`)
+        .join('|');
+      waypoints = `${waypoints}|${extraWaypoints}`;
+    }
+
+    const stopsText = selectedRide.extraDestinations && selectedRide.extraDestinations.length > 0
+      ? `\n\n📍 Paradas: ${selectedRide.extraDestinations.length}`
+      : '';
 
     Alert.alert(
       'Navegar con GPS',
-      'Ruta completa: Tu ubicación → Punto de recogida → Destino final',
+      `Ruta completa: Tu ubicación → Punto de recogida → ${selectedRide.extraDestinations?.length || 0 > 0 ? 'Paradas → ' : ''}Destino final${stopsText}`,
       [
         {
           text: '🗺️ Google Maps',
@@ -379,7 +441,7 @@ export default function AvailableRidesScreen({ navigation }: any) {
   };
 
   const renderRideItem = ({ item }: { item: Ride }) => {
-    const hasSuggestedPrice = item.clientSuggestedPrice && item.clientSuggestedPrice > 0;
+    const hasSuggestedPrice = !!(item.clientSuggestedPrice && item.clientSuggestedPrice > 0);
     const hasDriverOffer = item.driverOfferedPrice && item.driverOfferedPrice > 0;
     const savings = hasSuggestedPrice 
       ? item.estimatedPrice - (item.clientSuggestedPrice || 0)
@@ -404,6 +466,24 @@ export default function AvailableRidesScreen({ navigation }: any) {
             </Text>
           </View>
           <View style={styles.divider} />
+          
+          {/* ✅ NUEVO: Mostrar paradas extras si existen */}
+          {item.extraDestinations && item.extraDestinations.length > 0 && (
+            <>
+              {item.extraDestinations.map((stop, index) => (
+                <View key={`waypoint-${index}`}>
+                  <View style={styles.locationRow}>
+                    <Text style={styles.locationIcon}>🟡</Text>
+                    <Text style={[styles.locationText, { color: colors.textSecondary, fontSize: 12 }]} numberOfLines={2}>
+                      Parada {index + 1}: {stop.address}
+                    </Text>
+                  </View>
+                  <View style={styles.divider} />
+                </View>
+              ))}
+            </>
+          )}
+          
           <View style={styles.locationRow}>
             <Text style={styles.locationIcon}>🔴</Text>
             <Text style={[styles.locationText, { color: colors.text }]} numberOfLines={2}>
@@ -411,6 +491,15 @@ export default function AvailableRidesScreen({ navigation }: any) {
             </Text>
           </View>
         </View>
+        
+        {/* ✅ NUEVO: Badge de múltiples destinos */}
+        {item.extraDestinations && item.extraDestinations.length > 0 && (
+          <View style={[styles.multipleStopsBadge, { backgroundColor: colors.primary + '20' }]}>
+            <Text style={[styles.multipleStopsBadgeText, { color: colors.primary }]}>
+              📍 {item.extraDestinations.length} parada{item.extraDestinations.length > 1 ? 's' : ''} adicional{item.extraDestinations.length > 1 ? 'es' : ''}
+            </Text>
+          </View>
+        )}
 
         {/* Rating del Cliente */}
         {clientRatings.has(item.clientId) && (
@@ -455,24 +544,33 @@ export default function AvailableRidesScreen({ navigation }: any) {
           </View>
         </View>
 
-        {/* Precio Sugerido y Negociación */}
-        {hasSuggestedPrice && (
-          <View style={styles.priceSection}>
-            <View style={styles.suggestedPriceContainer}>
-              <Text style={styles.suggestedLabel}>💡 Cliente sugiere:</Text>
-              <Text style={styles.suggestedPrice}>C${item.clientSuggestedPrice}</Text>
-              {savings > 0 && (
-                <Text style={styles.savingsText}>(diferencia: C${savings.toFixed(2)})</Text>
-              )}
-            </View>
-            <TouchableOpacity
-              style={styles.negotiateButton}
-              onPress={() => handleNegotiate(item)}
-            >
-              <Text style={styles.negotiateButtonText}>💬 Contraofertar</Text>
-            </TouchableOpacity>
+        {/* Precio Sugerido / Estimado y Negociación */}
+        <View style={styles.priceSection}>
+          <View style={styles.suggestedPriceContainer}>
+            {hasSuggestedPrice ? (
+              <>
+                <Text style={styles.suggestedLabel}>💡 Cliente sugiere:</Text>
+                <Text style={styles.suggestedPrice}>C${item.clientSuggestedPrice}</Text>
+                {savings > 0 && (
+                  <Text style={styles.savingsText}>(diferencia: C${savings.toFixed(2)})</Text>
+                )}
+              </>
+            ) : (
+              <>
+                <Text style={styles.suggestedLabel}>💡 Precio estimado del sistema:</Text>
+                <Text style={styles.suggestedPrice}>C${item.estimatedPrice}</Text>
+              </>
+            )}
           </View>
-        )}
+          <TouchableOpacity
+            style={styles.negotiateButton}
+            onPress={() => handleNegotiate(item)}
+          >
+            <Text style={styles.negotiateButtonText}>
+              {hasSuggestedPrice ? '💬 Contraofertar' : '💬 Ofrecer precio'}
+            </Text>
+          </TouchableOpacity>
+        </View>
 
         {/* Contraoferta del Conductor */}
         {hasDriverOffer && (
@@ -559,6 +657,17 @@ export default function AvailableRidesScreen({ navigation }: any) {
                   latitude: selectedRide.destination.lat,
                   longitude: selectedRide.destination.lng,
                 }}
+                // ✅ NUEVO: Pasar marcadores de paradas extras
+                extraStopMarkers={
+                  selectedRide.extraDestinations && selectedRide.extraDestinations.length > 0
+                    ? selectedRide.extraDestinations.map((stop, index) => ({
+                        latitude: stop.lat,
+                        longitude: stop.lng,
+                        index: index + 1,
+                        color: '#FFA500', // Naranja para paradas
+                      }))
+                    : undefined
+                }
                 routeCoordinates={routeCoordinates.length > 0 ? routeCoordinates : undefined}
                 style={{ flex: 1 }}
               />
@@ -570,6 +679,26 @@ export default function AvailableRidesScreen({ navigation }: any) {
                   </Text>
                 </View>
               )}
+              
+              {/* ✅ NUEVO: Información de paradas extras */}
+              {selectedRide.extraDestinations && selectedRide.extraDestinations.length > 0 && (
+                <View style={[styles.stopsInfoContainer, { backgroundColor: colors.surface }]}>
+                  <Text style={[styles.stopsInfoTitle, { color: colors.text }]}>
+                    📍 Paradas ({selectedRide.extraDestinations.length})
+                  </Text>
+                  {selectedRide.extraDestinations.map((stop, index) => (
+                    <View key={`stop-${index}`} style={styles.stopItem}>
+                      <Text style={[styles.stopNumber, { color: colors.primary }]}>
+                        {index + 1}
+                      </Text>
+                      <Text style={[styles.stopAddress, { color: colors.text }]} numberOfLines={2}>
+                        {stop.address}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+              
               <View style={styles.mapActionsContainer}>
                 <TouchableOpacity
                   style={[styles.navigateButton, { backgroundColor: colors.primary }]}
@@ -601,9 +730,15 @@ export default function AvailableRidesScreen({ navigation }: any) {
                 <Text style={[styles.infoText, { color: colors.textSecondary }]}>
                   Precio estimado: C${selectedRide.estimatedPrice}
                 </Text>
-                <Text style={[styles.infoText, { color: colors.textSecondary }]}>
-                  Cliente sugiere: C${selectedRide.clientSuggestedPrice}
-                </Text>
+                {selectedRide.clientSuggestedPrice ? (
+                  <Text style={[styles.infoText, { color: colors.textSecondary }]}>
+                    Cliente sugiere: C${selectedRide.clientSuggestedPrice}
+                  </Text>
+                ) : (
+                  <Text style={[styles.infoText, { color: colors.textSecondary }]}>
+                    No hay precio sugerido. Propón tu tarifa.
+                  </Text>
+                )}
               </View>
             )}
 
@@ -919,6 +1054,35 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
+  // ✅ NUEVO: Estilos para información de paradas
+  stopsInfoContainer: {
+    padding: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#E0E0E0',
+    maxHeight: 150,
+  },
+  stopsInfoTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  stopItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    marginBottom: 8,
+  },
+  stopNumber: {
+    fontSize: 12,
+    fontWeight: '700',
+    minWidth: 24,
+    textAlign: 'center',
+  },
+  stopAddress: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 16,
+  },
   loadingRouteContainer: {
     position: 'absolute',
     top: '50%',
@@ -937,6 +1101,17 @@ const styles = StyleSheet.create({
   loadingRouteText: {
     marginTop: 12,
     fontSize: 14,
+    fontWeight: '600',
+  },
+  // ✅ NUEVO: Estilos para múltiples destinos
+  multipleStopsBadge: {
+    borderRadius: 8,
+    padding: 10,
+    marginVertical: 12,
+    alignItems: 'center',
+  },
+  multipleStopsBadgeText: {
+    fontSize: 13,
     fontWeight: '600',
   },
 });

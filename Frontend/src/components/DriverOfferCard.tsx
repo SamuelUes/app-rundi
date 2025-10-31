@@ -1,26 +1,36 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Image, Modal, Alert } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
+import BiometricService from '../services/biometricService';
+import { supabase } from '../config/supabase';
+import { ref, update } from 'firebase/database';
+import db from '../config/firebase';
 
 interface DriverOffer {
   driver: {
-    id: string;
-    name: string;
-    rating: number;
-    phone: string;
-    photoURL?: string;
-    vehicle?: {
-      make?: string;
-      model?: string;
-      color?: string;
-      plate?: string;
-      photos?: string[];
-    } | null;
+    id?: string;
+    userId?: string;
+    name?: string | null;
+    rating?: number | string | null;
+    phone?: string | null;
+    photoURL?: string | null;
+    profilePhoto?: string | null;
+    vehicle?: DriverVehicle | null;
   };
+  vehicle?: DriverVehicle | null;
   offeredPrice: number;
   acceptedClientPrice: boolean;
   status: 'pending' | 'accepted' | 'rejected';
   timestamp: number;
+}
+
+interface DriverVehicle {
+  make?: string;
+  brand?: string;
+  model?: string;
+  color?: string;
+  plate?: string;
+  photos?: string[];
 }
 
 interface DriverOfferCardProps {
@@ -44,8 +54,20 @@ export default function DriverOfferCard({
 }: DriverOfferCardProps) {
   const { colors } = useTheme();
 
-  const { driver, offeredPrice, acceptedClientPrice } = offer;
-  const vehicle = driver.vehicle;
+  const driver = (offer.driver || {}) as DriverOffer['driver'];
+  const { offeredPrice, acceptedClientPrice } = offer;
+  const vehicle = driver?.vehicle || offer.vehicle || null;
+
+  const driverPhoto = driver?.photoURL || driver?.profilePhoto || null;
+  const displayName = typeof driver?.name === 'string' && driver.name.trim().length > 0
+    ? driver.name
+    : 'Conductor';
+  const avatarInitial = displayName.charAt(0).toUpperCase();
+  let driverRatingValue: number | null = null;
+  if (driver?.rating !== undefined && driver?.rating !== null) {
+    const parsed = typeof driver.rating === 'string' ? parseFloat(driver.rating) : Number(driver.rating);
+    driverRatingValue = Number.isFinite(parsed) ? parsed : null;
+  }
 
   // Calcular ahorro/diferencia
   const difference = estimatedPrice - offeredPrice;
@@ -61,32 +83,74 @@ export default function DriverOfferCard({
   const minNegotiationPrice = Math.max(50, Math.round(estimatedPrice * 0.6667 * 100) / 100);
   const maxNegotiationPrice = Math.min(500, Math.round(estimatedPrice * 1.3333 * 100) / 100);
 
+
+  const [showBiometricModal, setShowBiometricModal] = useState(false);
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
+
+  const handleAcceptDesignatedRide = async () => {
+    // Por ahora, aceptar directamente
+    onAcceptOffer();
+  };
+
+  const handleBiometricConfirmation = async (method: 'fingerprint' | 'face_id') => {
+    try {
+      setIsAuthenticating(true);
+  
+      const reason =
+        method === 'fingerprint'
+          ? 'Confirma con tu huella para aceptar el viaje'
+          : 'Confirma con tu rostro para aceptar el viaje';
+  
+      const result = await BiometricService.authenticate(reason);
+  
+      if (!result.success) {
+        Alert.alert('Error', result.error || 'Autenticación fallida');
+        return;
+      }
+  
+      console.log('✅ Viaje designado aceptado con biometría:', method);
+      onAcceptOffer();
+    } catch (error: any) {
+      console.error('❌ Error al procesar biometría:', error);
+    } finally {
+      setIsAuthenticating(false);
+    }
+  };
+
   return (
     <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
       {/* Header con foto, nombre y rating */}
       <View style={styles.header}>
         {/* Foto de perfil del conductor */}
-        {driver.photoURL ? (
+        {driverPhoto ? (
           <Image
-            source={{ uri: driver.photoURL }}
+            source={{ uri: driverPhoto }}
             style={styles.driverAvatar}
             resizeMode="cover"
           />
         ) : (
           <View style={[styles.driverAvatar, { backgroundColor: colors.primary + '30' }]}>
-            <Text style={[styles.driverAvatarText, { color: colors.primary }]}>
-              {driver.name.charAt(0).toUpperCase()}
-            </Text>
+            <Text style={[styles.driverAvatarText, { color: colors.primary }]}>{avatarInitial}</Text>
           </View>
         )}
-        
         <View style={styles.driverInfo}>
-          <Text style={[styles.driverName, { color: colors.text }]}>
-            {driver.name}
-          </Text>
-          {driver.rating > 0 && (
+          <Text style={[styles.driverName, { color: colors.text }]}>{displayName}</Text>
+          {vehicle && (vehicle.make || vehicle.brand || vehicle.model || vehicle.plate) && (
+            <View style={styles.vehicleSummaryGroup}>
+              <Text style={[styles.vehicleSummary, { color: colors.textSecondary }]}>
+                {(vehicle.make || vehicle.brand || 'Vehículo')}
+                {vehicle.model ? ` ${vehicle.model}` : ''}
+              </Text>
+              {vehicle.plate && (
+                <Text style={[styles.vehicleSummary, { color: colors.textSecondary }]}>
+                  Placa: {vehicle.plate}
+                </Text>
+              )}
+            </View>
+          )}
+          {driverRatingValue !== null && driverRatingValue > 0 && (
             <Text style={[styles.rating, { color: colors.textSecondary }]}>
-              ⭐ {driver.rating.toFixed(1)}
+              ⭐ {driverRatingValue.toFixed(1)}
             </Text>
           )}
         </View>
@@ -103,7 +167,7 @@ export default function DriverOfferCard({
           </Text>
         </View>
       )}
-
+  
       {/* Info del vehículo */}
       {vehicle && (vehicle.make || vehicle.model) && (
         <View style={styles.vehicleSection}>
@@ -115,10 +179,11 @@ export default function DriverOfferCard({
               resizeMode="cover"
             />
           )}
-          
+  
           <View style={styles.vehicleInfo}>
             <Text style={[styles.vehicleText, { color: colors.textSecondary }]}>
-              🚗 {vehicle.make || (vehicle as any).brand || 'N/A'} {vehicle.model || 'N/A'} • {vehicle.color || 'N/A'}
+              🚗 {(vehicle.make || vehicle.brand || 'N/A') + ' ' + (vehicle.model || 'N/A')} •{' '}
+              {vehicle.color || 'N/A'}
             </Text>
             {vehicle.plate && (
               <Text style={[styles.plateText, { color: colors.textSecondary }]}>
@@ -128,59 +193,56 @@ export default function DriverOfferCard({
           </View>
         </View>
       )}
-
+  
       {/* Precio ofrecido */}
       <View style={styles.priceSection}>
         {acceptedClientPrice ? (
           <View style={styles.acceptedPriceContainer}>
-            <Text style={[styles.acceptedLabel, { color: '#4CAF50' }]}>
-              ✅ Aceptó tu precio
-            </Text>
-            <Text style={[styles.priceValue, { color: '#4CAF50' }]}>
-              C${offeredPrice}
-            </Text>
+            <Text style={[styles.acceptedLabel, { color: '#4CAF50' }]}>✅ Aceptó tu precio</Text>
+            <Text style={[styles.priceValue, { color: '#4CAF50' }]}>C${offeredPrice}</Text>
           </View>
         ) : (
           <View style={styles.offerPriceContainer}>
-            <Text style={[styles.offerLabel, { color: colors.textSecondary }]}>
-              💰 Ofrece:
-            </Text>
-            <Text style={[styles.priceValue, { color: '#FF9800' }]}>
-              C${offeredPrice}
-            </Text>
+            <Text style={[styles.offerLabel, { color: colors.textSecondary }]}>💰 Ofrece:</Text>
+            <Text style={[styles.priceValue, { color: '#FF9800' }]}>C${offeredPrice}</Text>
           </View>
         )}
-        <Text style={[styles.savingsText, { color: difference > 0 ? '#4CAF50' : '#FF9800' }]}>
+        <Text
+          style={[
+            styles.savingsText,
+            { color: difference > 0 ? '#4CAF50' : '#FF9800' },
+          ]}
+        >
           {savingsText}
         </Text>
       </View>
-
+  
       {/* Límites de Negociación */}
-      <View style={[styles.negotiationLimitsSection, { backgroundColor: colors.background }]}>
-        <Text style={[styles.negotiationLimitsTitle, { color: colors.textSecondary }]}>
+      <View
+        style={[styles.negotiationLimitsSection, { backgroundColor: colors.background }]}
+      >
+        <Text
+          style={[styles.negotiationLimitsTitle, { color: colors.textSecondary }]}
+        >
           📊 Rango de negociación:
         </Text>
         <View style={styles.negotiationLimitsRow}>
           <View style={styles.limitItem}>
-            <Text style={[styles.limitLabel, { color: colors.textSecondary }]}>
-              Mínimo
-            </Text>
+            <Text style={[styles.limitLabel, { color: colors.textSecondary }]}>Mínimo</Text>
             <Text style={[styles.limitValue, { color: '#4CAF50' }]}>
               C${minNegotiationPrice}
             </Text>
           </View>
           <View style={styles.limitDivider} />
           <View style={styles.limitItem}>
-            <Text style={[styles.limitLabel, { color: colors.textSecondary }]}>
-              Máximo
-            </Text>
+            <Text style={[styles.limitLabel, { color: colors.textSecondary }]}>Máximo</Text>
             <Text style={[styles.limitValue, { color: '#FF9800' }]}>
               C${maxNegotiationPrice}
             </Text>
           </View>
         </View>
       </View>
-
+  
       {/* Botones de acción */}
       <View style={styles.actions}>
         {acceptedClientPrice ? (
@@ -188,9 +250,7 @@ export default function DriverOfferCard({
             style={[styles.acceptButton, { backgroundColor: '#4CAF50' }]}
             onPress={onAcceptOffer}
           >
-            <Text style={styles.acceptButtonText}>
-              🚀 Aceptar y Comenzar Viaje
-            </Text>
+            <Text style={styles.acceptButtonText}>🚀 Aceptar y Comenzar Viaje</Text>
           </TouchableOpacity>
         ) : (
           <>
@@ -198,27 +258,66 @@ export default function DriverOfferCard({
               style={[styles.viewButton, { backgroundColor: colors.primary }]}
               onPress={onViewOffer}
             >
-              <Text style={styles.viewButtonText}>
-                💬 Ver oferta y negociar
-              </Text>
+              <Text style={styles.viewButtonText}>💬 Ver oferta y negociar</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.quickAcceptButton, { 
-                backgroundColor: hasPendingCounterOffer ? '#9E9E9E' : '#4CAF50' 
-              }]}
+              style={[
+                styles.quickAcceptButton,
+                { backgroundColor: hasPendingCounterOffer ? '#9E9E9E' : '#4CAF50' },
+              ]}
               onPress={hasPendingCounterOffer ? undefined : onAcceptOffer}
               disabled={hasPendingCounterOffer}
             >
               <Text style={styles.quickAcceptButtonText}>
-                {hasPendingCounterOffer ? '⏳ Esperando confirmación' : `✅ Aceptar C$${offeredPrice}`}
+                {hasPendingCounterOffer
+                  ? '⏳ Esperando confirmación'
+                  : `✅ Aceptar C$${offeredPrice}`}
               </Text>
             </TouchableOpacity>
           </>
         )}
       </View>
+  
+      {/* Modal de Biometría */}
+      {showBiometricModal && (
+        <Modal visible={true} transparent={true}>
+          <View style={styles.biometricModal}>
+            <View style={styles.biometricContent}>
+              <Text style={styles.biometricTitle}>Verifica tu identidad</Text>
+              <Text style={styles.biometricSubtitle}>
+                Se requiere biometría para aceptar este viaje
+              </Text>
+  
+              <TouchableOpacity
+                style={styles.biometricButton}
+                onPress={() => handleBiometricConfirmation('fingerprint')}
+                disabled={isAuthenticating}
+              >
+                <Text style={styles.biometricButtonText}>👆 Usar Huella</Text>
+              </TouchableOpacity>
+  
+              <TouchableOpacity
+                style={styles.biometricButton}
+                onPress={() => handleBiometricConfirmation('face_id')}
+                disabled={isAuthenticating}
+              >
+                <Text style={styles.biometricButtonText}>👤 Usar Face ID</Text>
+              </TouchableOpacity>
+  
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={() => setShowBiometricModal(false)}
+                disabled={isAuthenticating}
+              >
+                <Text style={styles.cancelButtonText}>Cancelar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      )}
     </View>
   );
-}
+};
 
 const styles = StyleSheet.create({
   card: {
@@ -255,6 +354,14 @@ const styles = StyleSheet.create({
   driverName: {
     fontSize: 16,
     fontWeight: '600',
+  },
+  vehicleSummaryGroup: {
+    flexDirection: 'column',
+    marginTop: 4,
+  },
+  vehicleSummary: {
+    fontSize: 13,
+    marginTop: 2,
   },
   rating: {
     fontSize: 14,
@@ -392,5 +499,57 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  biometricModal: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  biometricContent: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 24,
+    width: '80%',
+    alignItems: 'center',
+  },
+  biometricTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  biometricSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  biometricButton: {
+    backgroundColor: '#2196F3',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    marginBottom: 12,
+    width: '100%',
+    alignItems: 'center',
+  },
+  biometricButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  cancelButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    width: '100%',
+    alignItems: 'center',
+  },
+  cancelButtonText: {
+    color: '#666',
+    fontWeight: '600',
+    fontSize: 14,
   },
 });

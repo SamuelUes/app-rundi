@@ -28,6 +28,7 @@ import mapsService from '../../services/mapsService';
 import ridesService from '../../services/ridesService';
 import driversService from '../../services/driversService';
 import driverAvailabilityService from '../../services/driverAvailabilityService';
+import earningsService from '../../services/earningsService';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -63,6 +64,7 @@ export default function DriverHomeScreen({ navigation }: any) {
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
   const [todayStats, setTodayStats] = useState({ trips: 0, earnings: 0 });
+  const [totalStats, setTotalStats] = useState({ trips: 0, earnings: 0 });
   const [activeRide, setActiveRide] = useState<any>(null);
   const [availableRideRequests, setAvailableRideRequests] = useState<any[]>([]);
   const [savedRideId, setSavedRideId] = useState<string | null>(null);
@@ -74,6 +76,8 @@ export default function DriverHomeScreen({ navigation }: any) {
   const PANEL_MIN_HEIGHT = 180;
   const PANEL_MAX_HEIGHT = SCREEN_HEIGHT * 0.7;
   const panelHeight = useRef(new Animated.Value(PANEL_MIN_HEIGHT)).current;
+
+  const formatCurrency = (value: number = 0) => `C$${Number.isFinite(value) ? value.toFixed(2) : '0.00'}`;
   
   const panResponder = useRef(
     PanResponder.create({
@@ -112,6 +116,42 @@ export default function DriverHomeScreen({ navigation }: any) {
   useEffect(() => {
     mapsService.fetchProviderFromBackend();
   }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadEarningsStats = async () => {
+      try {
+        const todayResponse = await earningsService.getDriverEarnings('today');
+        if (isMounted && todayResponse?.summary) {
+          setTodayStats({
+            trips: todayResponse.summary.totalRides ?? 0,
+            earnings: todayResponse.summary.netEarnings ?? todayResponse.summary.totalEarnings ?? 0,
+          });
+        }
+
+        const totalsResponse = await earningsService.getDriverStats();
+        if (isMounted && totalsResponse) {
+          setTotalStats({
+            trips: totalsResponse.totalRides ?? 0,
+            earnings: totalsResponse.totalNetEarnings ?? totalsResponse.totalEarnings ?? 0,
+          });
+        }
+      } catch (err) {
+        console.error('❌ [DriverHomeScreen] Error cargando estadísticas de ganancias:', err);
+      }
+    };
+
+    loadEarningsStats();
+    const unsubscribe = navigation.addListener('focus', loadEarningsStats);
+
+    return () => {
+      isMounted = false;
+      if (unsubscribe) {
+        unsubscribe();
+      }
+    };
+  }, [navigation]);
 
   useEffect(() => {
     const restoreAvailabilityState = async () => {
@@ -161,7 +201,8 @@ export default function DriverHomeScreen({ navigation }: any) {
       }
       
       try {
-        const driverProfile = await driversService.getDriverProfile(user.id);
+        // ✅ Usar getMyDriverProfile() para obtener el perfil del usuario autenticado
+        const driverProfile = await driversService.getMyDriverProfile();
         const is4x4 = driverProfile?.vehicle?.is4x4 || false;
         setVehicleIs4x4(is4x4);
       } catch (error) {
@@ -658,14 +699,28 @@ export default function DriverHomeScreen({ navigation }: any) {
             <View style={styles.statCard}>
               <Text style={styles.statIcon}>🚗</Text>
               <Text style={styles.statValue}>{todayStats.trips}</Text>
-              <Text style={styles.statLabel}>Viajes</Text>
+              <Text style={styles.statLabel}>Viajes Hoy</Text>
             </View>
             <View style={styles.statCard}>
               <Text style={styles.statIcon}>💰</Text>
-              <Text style={styles.statValue}>${todayStats.earnings.toFixed(2)}</Text>
-              <Text style={styles.statLabel}>Ganancias</Text>
+              <Text style={styles.statValue}>{formatCurrency(todayStats.earnings)}</Text>
+              <Text style={styles.statLabel}>Ganancias Hoy</Text>
             </View>
           </View>
+
+          {/* Estadísticas totales */}
+          {/* <View style={styles.statsContainer}>
+            <View style={styles.statCard}>
+              <Text style={styles.statIcon}>🧾</Text>
+              <Text style={styles.statValue}>{totalStats.trips}</Text>
+              <Text style={styles.statLabel}>Viajes Totales</Text>
+            </View>
+            <View style={styles.statCard}>
+              <Text style={styles.statIcon}>💼</Text>
+              <Text style={styles.statValue}>{formatCurrency(totalStats.earnings)}</Text>
+              <Text style={styles.statLabel}>Ganancias Totales</Text>
+            </View>
+          </View> */}
 
           {/* Botón Viajes Disponibles */}
           <TouchableOpacity

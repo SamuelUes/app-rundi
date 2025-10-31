@@ -39,10 +39,12 @@ export default function EarningsScreen() {
       setLoading(true);
       const data = await earningsService.getDriverEarnings(selectedPeriod);
       setSummary(data.summary);
-      setRides(data.rides);
+      setRides(data.rides || []); // ✅ Asegurar que rides es un array
     } catch (error: any) {
       console.error('Error cargando ganancias:', error);
-      Alert.alert('Error', 'No se pudieron cargar las ganancias');
+      // Establecer valores por defecto en caso de error
+      setSummary(null);
+      setRides([]);
     } finally {
       setLoading(false);
     }
@@ -88,8 +90,11 @@ export default function EarningsScreen() {
     setRefreshing(false);
   };
 
-  const formatCurrency = (amount: number) => {
-    return `C$${amount.toFixed(2)}`;
+  const formatCurrency = (amount: number | undefined) => {
+    if (amount === undefined || amount === null) {
+      return 'C$0.00';
+    }
+    return `C$${Number(amount).toFixed(2)}`;
   };
 
   const formatDate = (dateString: string) => {
@@ -195,7 +200,7 @@ export default function EarningsScreen() {
               {commissionBreakdown.cash.normal.rides > 0 && (
                 <View style={styles.commissionRow}>
                   <Text style={styles.commissionDetail}>
-                    {commissionBreakdown.cash.normal.rides} viajes normales (10%)
+                    {commissionBreakdown.cash.normal.rides} viajes normales (11%)
                   </Text>
                   <Text style={styles.commissionAmount}>
                     {formatCurrency(commissionBreakdown.cash.normal.commission)}
@@ -234,7 +239,7 @@ export default function EarningsScreen() {
               {commissionBreakdown.card.normal.rides > 0 && (
                 <View style={styles.commissionRow}>
                   <Text style={styles.commissionDetail}>
-                    {commissionBreakdown.card.normal.rides} viajes normales (10%)
+                    {commissionBreakdown.card.normal.rides} viajes normales (11%)
                   </Text>
                   <Text style={styles.commissionAmount}>
                     {formatCurrency(commissionBreakdown.card.normal.commission)}
@@ -305,7 +310,7 @@ export default function EarningsScreen() {
       <View style={styles.ridesSection}>
         <Text style={styles.ridesTitle}>📋 Historial de Viajes</Text>
         
-        {rides.length === 0 ? (
+        {!rides || rides.length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyStateText}>No hay viajes en este período</Text>
           </View>

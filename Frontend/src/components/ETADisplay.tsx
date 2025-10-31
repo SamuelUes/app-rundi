@@ -192,12 +192,14 @@ const ETADisplay: React.FC<ETADisplayProps> = ({
           </View>
         </View>
 
-        <View style={styles.distanceRow}>
-          <Text style={styles.distanceIcon}>🚗</Text>
-          <Text style={styles.distanceText}>
-            {eta.distanceRemaining.toFixed(1)} km restantes
-          </Text>
-        </View>
+        {typeof eta.distanceRemaining === 'number' && !Number.isNaN(eta.distanceRemaining) && (
+          <View style={styles.distanceRow}>
+            <Text style={styles.distanceIcon}>🚗</Text>
+            <Text style={styles.distanceText}>
+              {(eta.distanceRemaining / 1000).toFixed(1)} km restantes
+            </Text>
+          </View>
+        )}
 
         {/* Indicador de actualización en tiempo real */}
         {useRealtime && (

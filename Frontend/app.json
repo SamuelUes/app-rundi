@@ -5,11 +5,10 @@
     "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
     "scheme": "driveangel",
     "owner": "samuelues",
     "projectId": "e8f4c3b2-9d1a-4e7f-8c5b-2a3d4e5f6a7b",
-    "runtimeVersion": "1.0.0",
+    "runtimeVersion": "1.0.1",
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
@@ -17,6 +16,7 @@
     },
     "android": {
       "package": "com.driveangel.ni",
+      "userInterfaceStyle": "automatic",
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
@@ -56,6 +56,12 @@
         "expo-location",
         {
           "locationAlwaysAndWhenInUsePermission": "Permitir a DriveAngel.ni acceder a tu ubicación para rastrear tu viaje."
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Permitir uso de FaceID"
         }
       ],
       [

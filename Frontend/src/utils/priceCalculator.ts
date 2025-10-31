@@ -98,17 +98,8 @@ export function isInManagua(lat: number, lng: number): boolean {
 }
 
 /**
- * Calcular precio por tiempo
- * C$3 por cada 5 minutos
- */
-function calculateTimePrice(durationMinutes: number): number {
-  const PRICE_PER_5_MIN = 3;
-  const blocks = Math.ceil(durationMinutes / 5);
-  return blocks * PRICE_PER_5_MIN;
-}
-
-/**
- * Calcula el precio del viaje según distancia, tiempo y tipo
+ * ✅ FÓRMULA ACTUALIZADA: SOLO DISTANCIA
+ * Calcula el precio del viaje según SOLO distancia (sin tiempo ni paradas)
  */
 export function calculateRidePrice(
   distanceInMeters: number,
@@ -122,34 +113,23 @@ export function calculateRidePrice(
   // Convertir metros a kilómetros
   const distanceKm = distanceInMeters / 1000;
   
-  // Convertir segundos a minutos
-  let durationMinutes = Math.ceil(durationInSeconds / 60);
-  
-  // Verificar hora pico en Managua
-  const isPeak = isPeakHour();
-  const inManagua = originLat && originLng ? isInManagua(originLat, originLng) : false;
-  const peakHourAdjustment = (isPeak && inManagua) ? 15 : 0;
-  
-  // Ajustar tiempo si es hora pico en Managua
-  if (peakHourAdjustment > 0) {
-    durationMinutes += peakHourAdjustment;
-  }
+  // Convertir segundos a minutos (solo para referencia, NO se usa en el cálculo)
+  const durationMinutes = Math.ceil(durationInSeconds / 60);
   
   // Obtener multiplicador según tipo
   const multiplier = getMultiplier(distanceKm, vehicleType, rideType);
   
-  // Calcular precio por distancia
+  // ✅ Calcular precio SOLO por distancia
   const distancePrice = distanceKm * multiplier;
   
-  // Calcular precio por tiempo
-  const timePrice = calculateTimePrice(durationMinutes);
+  // ✅ NO hay costo por tiempo
+  const timePrice = 0;
   
-  // Recargo por paradas extras
-  const STOP_FEE = 20;
-  const extraStopsCharge = extraStops * STOP_FEE;
+  // ✅ NO hay costo por paradas extras
+  const extraStopsCharge = 0;
   
-  // Precio base (distancia + tiempo + paradas)
-  const basePrice = distancePrice + timePrice + extraStopsCharge;
+  // ✅ Precio base = solo distancia
+  const basePrice = distancePrice;
   
   // Precio mínimo de C$50
   const MINIMUM_FARE = 50;
@@ -161,38 +141,28 @@ export function calculateRidePrice(
   
   return {
     distancePrice: Math.round(distancePrice),
-    timePrice,
+    timePrice: 0, // ✅ NO hay costo por tiempo
     basePrice: Math.round(basePrice),
     distanceKm: parseFloat(distanceKm.toFixed(2)),
     durationMinutes,
     multiplier,
     finalPrice,
-    isPeakHour: isPeak && inManagua,
-    peakHourAdjustment,
+    isPeakHour: false, // ✅ Ya no se aplica ajuste por hora pico
+    peakHourAdjustment: 0, // ✅ Sin ajuste de hora pico
     vehicleType,
     rideType,
     commissionRate,
     commission,
-    extraStopsCharge,
+    extraStopsCharge: 0, // ✅ NO hay costo por paradas
   };
 }
 
 /**
- * Formatear desglose de precio para mostrar al usuario
+ * ✅ Formatear desglose de precio para mostrar al usuario (SOLO DISTANCIA)
  */
 export function formatPriceBreakdown(breakdown: PriceBreakdown): string {
   let text = `📏 Distancia: ${breakdown.distanceKm} km × C$${breakdown.multiplier} = C$${breakdown.distancePrice}\n`;
-  text += `⏱️ Tiempo: ${breakdown.durationMinutes} min (${Math.ceil(breakdown.durationMinutes / 5)} bloques × C$3) = C$${breakdown.timePrice}\n`;
-  
-  if (breakdown.extraStopsCharge > 0) {
-    text += `🛑 Paradas extras: C$${breakdown.extraStopsCharge}\n`;
-  }
-  
-  if (breakdown.peakHourAdjustment > 0) {
-    text += `⚠️ Hora pico en Managua: +${breakdown.peakHourAdjustment} min\n`;
-  }
-  
-  text += `\n💰 Total: C$${breakdown.finalPrice}`;
+  text += `💰 Total: C$${breakdown.finalPrice}`;
   
   return text;
 }

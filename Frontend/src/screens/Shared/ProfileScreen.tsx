@@ -29,7 +29,8 @@ export default function ProfileScreen({ navigation }: any) {
 
     setLoadingProfile(true);
     try {
-      const profile = await driversService.getDriverProfile(user.id);
+      // ✅ Obtener perfil del conductor autenticado
+      const profile = await driversService.getMyDriverProfile();
       console.log('Perfil de conductor cargado:', profile);
       console.log('Datos del vehículo:', profile?.driver?.vehicle);
       setDriverProfile(profile);
@@ -314,7 +315,7 @@ export default function ProfileScreen({ navigation }: any) {
 
       {/* App Info */}
       <View style={styles.appInfo}>
-        <Text style={styles.appVersion}>Drive Angel v1.0.0</Text>
+        <Text style={styles.appVersion}>conduce v1.0.1</Text>
         <Text style={styles.appCopyright}>© 2025 Todos los derechos reservados</Text>
       </View>
     </ScrollView>

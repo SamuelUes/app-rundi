@@ -20,6 +20,9 @@ interface HistoricalRide {
   id: string;
   originAddress: string;
   destinationAddress: string;
+  allAddresses?: string[];  // ✅ NUEVO: Todas las direcciones (origin, waypoints, destination)
+  hasMultipleStops?: boolean;  // ✅ NUEVO: Indica si hay múltiples paradas
+  waypointsCount?: number;  // ✅ NUEVO: Cantidad de paradas intermedias
   estimatedDistance: number;
   estimatedFare: number;
   finalFare: number;
@@ -53,9 +56,12 @@ export default function RideHistoryScreen({ navigation }: any) {
     try {
       if (!user?.id) return;
       
+      console.log(`📋 [RideHistoryScreen] Cargando viajes para ${user.role}: ${user.id}`);
       setLoading(true);
-      const rides = await ridesService.getMyRides(user.id);
+      const userType = user.role === 'driver' ? 'driver' : 'client';
+      const rides = await ridesService.getMyRides(user.id, userType);
       
+      console.log(`✅ [RideHistoryScreen] Viajes cargados: ${rides?.length || 0}`);
       if (rides && Array.isArray(rides)) {
         let filteredRides: any[] = rides;
         
@@ -68,7 +74,7 @@ export default function RideHistoryScreen({ navigation }: any) {
         setRides(filteredRides as HistoricalRide[]);
       }
     } catch (error) {
-      console.error('Error loading rides:', error);
+      console.error('❌ Error loading rides:', error);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -117,6 +123,10 @@ export default function RideHistoryScreen({ navigation }: any) {
       id: String(item.id || ''),
       originAddress: typeof item.originAddress === 'string' ? item.originAddress : 'Origen desconocido',
       destinationAddress: typeof item.destinationAddress === 'string' ? item.destinationAddress : 'Destino desconocido',
+      // ✅ NUEVO: Soportar múltiples direcciones
+      allAddresses: Array.isArray(item.allAddresses) ? item.allAddresses : [],
+      hasMultipleStops: typeof item.hasMultipleStops === 'boolean' ? item.hasMultipleStops : false,
+      waypointsCount: typeof item.waypointsCount === 'number' ? item.waypointsCount : 0,
       estimatedDistance: typeof item.estimatedDistance === 'number' ? item.estimatedDistance : 0,
       estimatedFare: typeof item.estimatedFare === 'number' || typeof item.estimatedFare === 'string' ? item.estimatedFare : 0,
       finalFare: item.finalFare && (typeof item.finalFare === 'number' || typeof item.finalFare === 'string') ? item.finalFare : null,
@@ -165,21 +175,41 @@ export default function RideHistoryScreen({ navigation }: any) {
           </View>
         </View>
 
-        {/* Ubicaciones */}
+        {/* Ubicaciones - Soportar múltiples destinos */}
         <View style={styles.locationContainer}>
-          <View style={styles.locationRow}>
-            <Text style={styles.locationIcon}>🔵</Text>
-            <Text style={styles.locationText} numberOfLines={1}>
-              {String(item.originAddress || 'Origen desconocido')}
-            </Text>
-          </View>
-          <View style={styles.locationDivider} />
-          <View style={styles.locationRow}>
-            <Text style={styles.locationIcon}>🔴</Text>
-            <Text style={styles.locationText} numberOfLines={1}>
-              {String(item.destinationAddress || 'Destino desconocido')}
-            </Text>
-          </View>
+          {/* Si hay múltiples paradas, mostrar todas */}
+          {item.hasMultipleStops && item.allAddresses && item.allAddresses.length > 0 ? (
+            item.allAddresses.map((address: string, idx: number) => (
+              <View key={`${item.id}-addr-${idx}`}>
+                <View style={styles.locationRow}>
+                  <Text style={styles.locationIcon}>
+                    {idx === 0 ? '🔵' : idx === item.allAddresses.length - 1 ? '🔴' : '📍'}
+                  </Text>
+                  <Text style={styles.locationText} numberOfLines={1}>
+                    {String(address || 'Ubicación desconocida')}
+                  </Text>
+                </View>
+                {idx < item.allAddresses.length - 1 && <View style={styles.locationDivider} />}
+              </View>
+            ))
+          ) : (
+            // Si no hay múltiples paradas, mostrar origen y destino
+            <>
+              <View style={styles.locationRow}>
+                <Text style={styles.locationIcon}>🔵</Text>
+                <Text style={styles.locationText} numberOfLines={1}>
+                  {String(item.originAddress || 'Origen desconocido')}
+                </Text>
+              </View>
+              <View style={styles.locationDivider} />
+              <View style={styles.locationRow}>
+                <Text style={styles.locationIcon}>🔴</Text>
+                <Text style={styles.locationText} numberOfLines={1}>
+                  {String(item.destinationAddress || 'Destino desconocido')}
+                </Text>
+              </View>
+            </>
+          )}
         </View>
 
         {/* Info del viaje */}

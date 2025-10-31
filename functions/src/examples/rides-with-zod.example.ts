@@ -11,7 +11,7 @@ import {
   AcceptRideInputSchema,
   CompleteRideInputSchema,
   CancelRideInputSchema,
-} from '../schemas/ride.schema';
+} from '../schemas/ride.schema.old';
 
 // ============================================
 // EJEMPLO 1: Validación manual

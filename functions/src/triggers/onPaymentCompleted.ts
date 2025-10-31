@@ -13,7 +13,10 @@ import * as admin from "firebase-admin";
 import {
   saveCompletedRideToSupabase,
   savePaymentToSupabase,
-} from "../helpers/supabaseArchive";
+  saveRideLocationsToSupabase, // ✅ NUEVO
+  updateRideLocationIds, // ✅ NUEVO
+  saveCanceledRideToSupabase, // ✅ NUEVO
+} from "../helpers/supabaseArchive.old";
 
 /**
  * TRIGGER: Cuando paymentStatus/{rideId}.status = 'completed'
@@ -94,6 +97,25 @@ export const onPaymentCompleted = functions.database
       }
 
       console.log(`✅ Pago guardado en Supabase`);
+
+      // ✅ PASO 3.5: Guardar ubicaciones en Supabase
+      console.log(`\n3️⃣.5️⃣ Guardando ubicaciones en Supabase...`);
+      const locationIds = await saveRideLocationsToSupabase(pgRideId, ride);
+      
+      if (locationIds && locationIds.length > 0) {
+        console.log(`✅ ${locationIds.length} ubicaciones guardadas en Supabase`);
+        
+        // ✅ PASO 3.6: Actualizar IDs de origen y destino en rides
+        console.log(`\n3️⃣.6️⃣ Actualizando IDs de ubicaciones en rides...`);
+        const idsUpdated = await updateRideLocationIds(pgRideId, locationIds);
+        if (idsUpdated) {
+          console.log(`✅ IDs de ubicaciones actualizados`);
+        } else {
+          console.warn(`⚠️ Error actualizando IDs de ubicaciones`);
+        }
+      } else {
+        console.warn(`⚠️ No se guardaron ubicaciones`);
+      }
 
       // PASO 4: Actualizar Firebase con pgRideId (para referencia)
       console.log(`\n4️⃣ Actualizando Firebase con pgRideId...`);
@@ -239,10 +261,9 @@ export const onPaymentCanceled = functions.database
         canceledAt: newPaymentStatus.canceledAt || Date.now(),
       };
       
-      const pgRideId = await saveCompletedRideToSupabase(
+      const pgRideId = await saveCanceledRideToSupabase(
         rideDataForSupabase,
-        rideId,
-        newPaymentStatus
+        rideId
       );
 
       if (!pgRideId) {
@@ -251,6 +272,25 @@ export const onPaymentCanceled = functions.database
       }
 
       console.log(`✅ Viaje guardado en Supabase: ${pgRideId}`);
+
+      // PASO 3.5: Guardar ubicaciones en Supabase
+      console.log(`\n3️⃣.5️⃣ Guardando ubicaciones en Supabase...`);
+      const locationIds = await saveRideLocationsToSupabase(pgRideId, ride);
+      
+      if (locationIds && locationIds.length > 0) {
+        console.log(`✅ ${locationIds.length} ubicaciones guardadas en Supabase`);
+        
+        // PASO 3.6: Actualizar IDs de origen y destino en rides
+        console.log(`\n3️⃣.6️⃣ Actualizando IDs de ubicaciones en rides...`);
+        const idsUpdated = await updateRideLocationIds(pgRideId, locationIds);
+        if (idsUpdated) {
+          console.log(`✅ IDs de ubicaciones actualizados`);
+        } else {
+          console.warn(`⚠️ Error actualizando IDs de ubicaciones`);
+        }
+      } else {
+        console.warn(`⚠️ No se guardaron ubicaciones`);
+      }
 
       // PASO 4: Guardar pago cancelado en Supabase
       console.log(`\n4️⃣ Guardando pago cancelado en Supabase...`);

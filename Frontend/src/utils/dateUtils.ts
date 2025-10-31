@@ -3,37 +3,53 @@
  */
 
 const NICARAGUA_TIMEZONE = 'America/Managua'; // GMT-6
+const NICARAGUA_OFFSET_MINUTES = -6 * 60;
+
+type DateInput = Date | string | number;
+
+const toDate = (value: DateInput): Date => {
+  if (value instanceof Date) {
+    return new Date(value.getTime());
+  }
+  return new Date(value);
+};
+
+const applyTimezoneOffset = (value: DateInput, offsetMinutes: number): Date => {
+  const date = toDate(value);
+  if (Number.isNaN(date.getTime())) {
+    return new Date(NaN);
+  }
+  const utcMillis = date.getTime();
+  const targetMillis = utcMillis + offsetMinutes * 60 * 1000;
+  return new Date(targetMillis);
+};
 
 /**
  * Obtiene la fecha actual en zona horaria de Nicaragua
  */
 export const getNicaraguaDate = (): Date => {
-  return new Date(new Date().toLocaleString('en-US', { timeZone: NICARAGUA_TIMEZONE }));
+  return applyTimezoneOffset(new Date(), NICARAGUA_OFFSET_MINUTES);
 };
 
 /**
  * Convierte una fecha UTC a zona horaria de Nicaragua
  */
-export const toNicaraguaDate = (date: Date | string): Date => {
-  const dateObj = typeof date === 'string' ? new Date(date) : date;
-  return new Date(dateObj.toLocaleString('en-US', { timeZone: NICARAGUA_TIMEZONE }));
+export const toNicaraguaDate = (date: DateInput): Date => {
+  return applyTimezoneOffset(date, NICARAGUA_OFFSET_MINUTES);
 };
 
 /**
  * Formatea una fecha en hora de Nicaragua (HH:MM AM/PM)
  */
-export const formatNicaraguaTime = (date: Date | string): string => {
+export const formatNicaraguaTime = (date: DateInput): string => {
   try {
-    const dateObj = typeof date === 'string' ? new Date(date) : date;
-    if (isNaN(dateObj.getTime())) {
+    const dateObj = toNicaraguaDate(date);
+    if (Number.isNaN(dateObj.getTime())) {
       return '00:00';
     }
-    return dateObj.toLocaleTimeString('es-NI', {
-      timeZone: NICARAGUA_TIMEZONE,
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true,
-    });
+    const hours = dateObj.getHours().toString().padStart(2, '0');
+    const minutes = dateObj.getMinutes().toString().padStart(2, '0');
+    return `${hours}:${minutes}`;
   } catch (error) {
     return '00:00';
   }
@@ -42,52 +58,48 @@ export const formatNicaraguaTime = (date: Date | string): string => {
 /**
  * Formatea una fecha completa en Nicaragua (DD/MM/YYYY HH:MM AM/PM)
  */
-export const formatNicaraguaDateTime = (date: Date | string): string => {
-  const dateObj = typeof date === 'string' ? new Date(date) : date;
-  return dateObj.toLocaleString('es-NI', {
-    timeZone: NICARAGUA_TIMEZONE,
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: true,
-  });
+export const formatNicaraguaDateTime = (date: DateInput): string => {
+  const dateObj = toNicaraguaDate(date);
+  if (Number.isNaN(dateObj.getTime())) {
+    return 'Sin fecha';
+  }
+  const day = dateObj.getDate().toString().padStart(2, '0');
+  const month = (dateObj.getMonth() + 1).toString().padStart(2, '0');
+  const year = dateObj.getFullYear();
+  const hours = dateObj.getHours().toString().padStart(2, '0');
+  const minutes = dateObj.getMinutes().toString().padStart(2, '0');
+  return `${day}/${month}/${year} ${hours}:${minutes}`;
 };
 
 /**
  * Formatea una fecha relativa (Hoy, Ayer, o fecha completa)
  */
-export const formatNicaraguaRelativeDate = (date: Date | string): string => {
+export const formatNicaraguaRelativeDate = (date: DateInput): string => {
   try {
-    const inputDate = typeof date === 'string' ? new Date(date) : date;
-    if (isNaN(inputDate.getTime())) {
+    const inputDate = toNicaraguaDate(date);
+    if (Number.isNaN(inputDate.getTime())) {
       return 'Sin fecha';
     }
-    
-    const dateObj = toNicaraguaDate(inputDate);
     const today = getNicaraguaDate();
     const yesterday = new Date(today);
     yesterday.setDate(yesterday.getDate() - 1);
 
-    const dateStr = dateObj.toDateString();
+    const dateStr = inputDate.toDateString();
     const todayStr = today.toDateString();
     const yesterdayStr = yesterday.toDateString();
 
-    const time = formatNicaraguaTime(dateObj);
+    const time = formatNicaraguaTime(inputDate);
 
     if (dateStr === todayStr) {
       return `Hoy ${time}`;
     } else if (dateStr === yesterdayStr) {
       return `Ayer ${time}`;
     } else {
-      const formattedDate = dateObj.toLocaleDateString('es-NI', {
-        timeZone: NICARAGUA_TIMEZONE,
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-      });
-      return `${formattedDate} ${time}`;
+      const day = inputDate.getDate().toString().padStart(2, '0');
+      const monthNames = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+      const month = monthNames[inputDate.getMonth()];
+      const year = inputDate.getFullYear();
+      return `${day} ${month} ${year} ${time}`;
     }
   } catch (error) {
     return 'Sin fecha';

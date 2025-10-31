@@ -10,7 +10,12 @@
 
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
-import { saveCompletedRideToSupabase, savePaymentToSupabase } from "../helpers/supabaseArchive";
+import {
+  saveCanceledRideToSupabase,
+  savePaymentToSupabase,
+  saveRideLocationsToSupabase,
+  updateRideLocationIds,
+} from "../helpers/supabaseArchive.old";
 
 export const onRideCanceled = functions.database
   .ref("activeRides/{rideId}")
@@ -64,17 +69,12 @@ export const onRideCanceled = functions.database
       // ✅ IMPORTANTE: Guardar con status 'canceled' en Supabase
       const rideDataForSupabase = {
         ...newRide,
-        status: "canceled",  // ✅ Status debe ser 'canceled' en Supabase
         cancelReason: newRide.cancelReason || "Sin razón especificada",
         canceledBy: newRide.canceledBy || "unknown",
         canceledAt: newRide.canceledAt || Date.now(),
       };
-      
-      const pgRideId = await saveCompletedRideToSupabase(
-        rideDataForSupabase,
-        rideId,
-        paymentStatus || { status: 'canceled' }
-      );
+
+      const pgRideId = await saveCanceledRideToSupabase(rideDataForSupabase, rideId);
 
       if (!pgRideId) {
         console.error(`❌ [onRideCanceled] Error guardando viaje en Supabase`);
@@ -83,14 +83,33 @@ export const onRideCanceled = functions.database
 
       console.log(`✅ Viaje cancelado guardado en Supabase: ${pgRideId}`);
 
+      // ✅ PASO 2.5: Guardar ubicaciones en Supabase
+      console.log(`\n2️⃣.5️⃣ Guardando ubicaciones en Supabase...`);
+      const locationIds = await saveRideLocationsToSupabase(pgRideId, newRide);
+      
+      if (locationIds && locationIds.length > 0) {
+        console.log(`✅ ${locationIds.length} ubicaciones guardadas en Supabase`);
+        
+        // ✅ PASO 2.6: Actualizar IDs de origen y destino en rides
+        console.log(`\n2️⃣.6️⃣ Actualizando IDs de ubicaciones en rides...`);
+        const idsUpdated = await updateRideLocationIds(pgRideId, locationIds);
+        if (idsUpdated) {
+          console.log(`✅ IDs de ubicaciones actualizados`);
+        } else {
+          console.warn(`⚠️ Error actualizando IDs de ubicaciones`);
+        }
+      } else {
+        console.warn(`⚠️ No se guardaron ubicaciones`);
+      }
+
       // PASO 3: Guardar pago cancelado en Supabase (si existe)
       if (paymentStatus) {
         console.log(`\n3️⃣ Guardando pago cancelado en Supabase...`);
         const paymentDataForSupabase = {
           ...paymentStatus,
-          status: 'canceled',
-          cancelReason: newRide.cancelReason || "Sin razón especificada",
-          canceledBy: newRide.canceledBy || "unknown",
+          status: paymentStatus.status || 'canceled',
+          cancelReason: newRide.cancelReason || paymentStatus.cancelReason || "Sin razón especificada",
+          canceledBy: newRide.canceledBy || paymentStatus.canceledBy || "unknown",
         };
         
         const paymentSaved = await savePaymentToSupabase(pgRideId, paymentDataForSupabase);

@@ -173,7 +173,7 @@ export default function HomeScreen({ navigation }: any) {
           if (rideData.clientId === user.id && 
               (rideData.status === 'requested' || rideData.status === 'pending_confirm' || 
                rideData.status === 'accepted' || rideData.status === 'in_progress' || 
-               rideData.status === 'driver_assigned')) {
+               rideData.status === 'pending_payment' || rideData.status === 'driver_offered' || rideData.status === 'driver_assigned')) {
             
             console.log('🚗 [HomeScreen] Viaje activo confirmado, mostrando banner...');
             setHasRideRequest(true);
@@ -196,7 +196,7 @@ export default function HomeScreen({ navigation }: any) {
               ride.clientId === user.id && 
               (ride.status === 'requested' || ride.status === 'pending_confirm' || 
                ride.status === 'accepted' || ride.status === 'in_progress' || 
-               ride.status === 'driver_assigned' || ride.status === 'pending_payment')
+               ride.status === 'driver_assigned' || ride.status === 'driver_offered' || ride.status === 'pending_payment')
             );
           
           if (clientRides.length > 0) {
@@ -572,7 +572,8 @@ export default function HomeScreen({ navigation }: any) {
       
       // Navegar según el estado del viaje
       if (activeRide.status === 'requested' || 
-          activeRide.status === 'pending_confirm' || 
+        activeRide.status === 'driver_offered' ||
+        activeRide.status === 'pending_confirm' || 
           activeRide.status === 'driver_assigned') {
         // Viaje esperando confirmación
         navigation.navigate('RideConfirmation', { rideId: activeRide.id });
@@ -711,7 +712,7 @@ export default function HomeScreen({ navigation }: any) {
                 <Text style={styles.activeRideText}>Viaje activo</Text>
                 <Text style={styles.activeRideSubtext}>
                   {activeRide.status === 'requested' ? '🔍 Buscando conductor...' :
-                   activeRide.status === 'pending_confirm' || activeRide.status === 'driver_assigned' ? '✅ Confirma tu conductor' :
+                   activeRide.status === 'pending_confirm' || activeRide.status === 'driver_offered' ||activeRide.status === 'driver_assigned' ? '✅ Confirma tu conductor' :
                    activeRide.status === 'accepted' ? '🚗 Conductor en camino' : 
                    '🛣️ Viaje en progreso'}
                 </Text>

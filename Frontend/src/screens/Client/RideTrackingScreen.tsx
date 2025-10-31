@@ -78,7 +78,12 @@ const useDriverLocation = (driverId: string) => {
 
   // Suscribirse a la ubicación del conductor
   useEffect(() => {
-    if (!driverId) return;
+    if (!driverId) {
+      console.log('⚠️ [useDriverLocation] driverId no disponible');
+      return;
+    }
+
+    console.log(`🚗 [useDriverLocation] Iniciando suscripción a ubicación del conductor: ${driverId}`);
 
     let unsubscribe: (() => void) | null = null;
 
@@ -87,7 +92,12 @@ const useDriverLocation = (driverId: string) => {
         unsubscribe = await firebaseTrackingService.subscribeToDriverLocation(
           driverId,
           (location) => {
+            console.log(`📍 [useDriverLocation] Callback recibido con ubicación:`, location);
             if (location) {
+              console.log(`✅ [useDriverLocation] Actualizando ubicación del conductor:`, {
+                latitude: location.latitude,
+                longitude: location.longitude,
+              });
               setDriverLocation({
                 latitude: location.latitude,
                 longitude: location.longitude,
@@ -97,12 +107,13 @@ const useDriverLocation = (driverId: string) => {
               });
               setIsConnected(true);
             } else {
-              console.log('⚠️ No se recibió ubicación del conductor');
+              console.log('⚠️ [useDriverLocation] No se recibió ubicación del conductor');
+              setIsConnected(false);
             }
           }
         );
       } catch (error) {
-        console.error('❌ Error al suscribirse a ubicación del conductor:', error);
+        console.error('❌ [useDriverLocation] Error al suscribirse a ubicación del conductor:', error);
         setIsConnected(false);
       }
     };
@@ -110,6 +121,7 @@ const useDriverLocation = (driverId: string) => {
     subscribeToDriverLocation();
 
     return () => {
+      console.log(`🚗 [useDriverLocation] Limpiando suscripción del conductor: ${driverId}`);
       if (unsubscribe && typeof unsubscribe === 'function') {
         unsubscribe();
       }
@@ -139,9 +151,12 @@ const useRideStatus = (rideId: string) => {
       console.log('🚕 Datos del viaje actualizados:', {
         status: rideData.status,
         paymentMethod: rideData.paymentMethod,
-        finalFare: rideData.finalFare
+        finalFare: rideData.finalFare,
+        completedAt: rideData.completedAt,
+        startedAt: rideData.startedAt,
       });
       
+      console.log('🔍 [useRideStatus] Cambio de estado detectado:', rideData.status);
       setRideStatus(rideData.status || 'in_progress');
       
       // Obtener método de pago (puede estar en payment.method o directamente en paymentMethod)
@@ -201,11 +216,11 @@ const useDriverAndVehicleData = (driverId: string, initialData: any) => {
       console.log('📦 Datos del conductor desde driversInfo:', driverDbData);
       
       setDriverData({
-        name: driverDbData.name || driverData.name,
-        phone: driverDbData.phone || driverData.phone,
+        name: driverDbData.fullName || driverDbData.name || driverData.name,
+        phone: driverDbData.phone || driverDbData.phoneNumber || driverData.phone,
         rating: driverDbData.rating !== undefined ? driverDbData.rating : driverData.rating,
         email: driverDbData.email || driverData.email,
-        photo: driverDbData.photoURL || driverData.photo,
+        photo: driverDbData.photoURL || driverDbData.profilePhoto || driverData.photo,
       });
 
       // Buscar datos del vehículo en driversInfo
@@ -284,10 +299,23 @@ async function calculateRealRoute(
 const useDestinationAndRoute = (rideData: any) => {
   const [destinationCoords, setDestinationCoords] = useState<{latitude: number, longitude: number} | null>(null);
   const [originCoords, setOriginCoords] = useState<{latitude: number, longitude: number} | null>(null);
+  const [waypointCoords, setWaypointCoords] = useState<Array<{latitude: number, longitude: number}>>([]);
   const [routeCoordinates, setRouteCoordinates] = useState<Array<{latitude: number, longitude: number}>>([]);
 
   useEffect(() => {
-    if (!rideData) return;
+    if (!rideData) {
+      console.log('⚠️ [useDestinationAndRoute] rideData es null/undefined');
+      return;
+    }
+
+    console.log('🔍 [useDestinationAndRoute] Datos del viaje completos:', {
+      hasExtraDestinations: !!rideData.extraDestinations,
+      extraDestinationsLength: rideData.extraDestinations?.length || 0,
+      extraDestinations: rideData.extraDestinations,
+      hasMultipleDestinations: rideData.hasMultipleDestinations,
+      origin: rideData.origin,
+      destination: rideData.destination,
+    });
 
     // Extraer coordenadas de destino (solo si cambió)
     if (rideData.destination) {
@@ -319,6 +347,29 @@ const useDestinationAndRoute = (rideData: any) => {
       }
     }
 
+    // ✅ NUEVO: Extraer coordenadas de paradas extras
+    console.log('🔍 [useDestinationAndRoute] Verificando extraDestinations:', rideData.extraDestinations);
+    if (rideData.extraDestinations && Array.isArray(rideData.extraDestinations)) {
+      console.log('📍 [useDestinationAndRoute] extraDestinations es array, procesando...');
+      const waypoints = rideData.extraDestinations
+        .filter((stop: any) => {
+          console.log('🔍 [useDestinationAndRoute] Filtrando parada:', stop);
+          return stop.lat || stop.latitude;
+        })
+        .map((stop: any) => {
+          const mapped = {
+            latitude: stop.latitude || stop.lat,
+            longitude: stop.longitude || stop.lng,
+          };
+          console.log('✅ [useDestinationAndRoute] Parada mapeada:', mapped);
+          return mapped;
+        });
+      console.log('📍 [useDestinationAndRoute] Paradas extras encontradas:', waypoints.length, waypoints);
+      setWaypointCoords(waypoints);
+    } else {
+      console.log('⚠️ [useDestinationAndRoute] No hay extraDestinations o no es array');
+    }
+
     // Calcular ruta real si no existe en rideData
     const calculateRoute = async () => {
       // Prioridad 1: Usar ruta del backend si existe
@@ -328,23 +379,53 @@ const useDestinationAndRoute = (rideData: any) => {
         return;
       }
       
-      // Prioridad 2: Calcular ruta real
+      // Prioridad 2: Calcular ruta real con múltiples destinos
       const origLat = rideData.origin?.latitude || rideData.origin?.lat;
       const origLng = rideData.origin?.longitude || rideData.origin?.lng;
       const destLat = rideData.destination?.latitude || rideData.destination?.lat;
       const destLng = rideData.destination?.longitude || rideData.destination?.lng;
       
       if (origLat && origLng && destLat && destLng) {
-        console.log('🗺️ [Cliente] Calculando ruta real...');
-        const route = await calculateRealRoute(origLat, origLng, destLat, destLng);
-        setRouteCoordinates(route);
+        console.log('🗺️ [Cliente] Calculando ruta real con', rideData.extraDestinations?.length || 0, 'paradas...');
+        
+        const routeSegments: any[] = [];
+        let currentPoint = { latitude: origLat, longitude: origLng };
+        
+        // ✅ NUEVO: Calcular ruta a través de cada parada
+        if (rideData.extraDestinations && rideData.extraDestinations.length > 0) {
+          for (const waypoint of rideData.extraDestinations) {
+            const waypointLat = waypoint.latitude || waypoint.lat;
+            const waypointLng = waypoint.longitude || waypoint.lng;
+            
+            if (waypointLat && waypointLng) {
+              const segmentRoute = await calculateRealRoute(
+                currentPoint.latitude, currentPoint.longitude,
+                waypointLat, waypointLng
+              );
+              routeSegments.push(segmentRoute);
+              currentPoint = { latitude: waypointLat, longitude: waypointLng };
+            }
+          }
+        }
+        
+        // Ruta final al destino
+        const finalRoute = await calculateRealRoute(
+          currentPoint.latitude, currentPoint.longitude,
+          destLat, destLng
+        );
+        routeSegments.push(finalRoute);
+        
+        // Combinar todas las rutas
+        const combinedRoute = routeSegments.flat();
+        setRouteCoordinates(combinedRoute);
+        console.log('✅ [Cliente] Ruta calculada con', combinedRoute.length, 'puntos');
       }
     };
     
     calculateRoute();
-  }, [rideData?.destination?.latitude, rideData?.destination?.lat, rideData?.destination?.longitude, rideData?.destination?.lng, rideData?.origin?.latitude, rideData?.origin?.lat, rideData?.origin?.longitude, rideData?.origin?.lng, rideData?.route?.length]);
+  }, [rideData]);
 
-  return { destinationCoords, originCoords, routeCoordinates };
+  return { destinationCoords, originCoords, waypointCoords, routeCoordinates };
 };
 
 // Componente principal
@@ -373,7 +454,7 @@ export default function RideTrackingScreen({ route, navigation }: RideTrackingSc
   const { driverLocation, isConnected } = useDriverLocation(driverId);
   const { rideStatus, paymentMethod, finalFare, rideData, loading: rideLoading, error: rideError } = useRideStatus(rideId);
   const { driverData, vehicleData } = useDriverAndVehicleData(driverId, { driverName, vehiclePlate, vehicleBrand, vehicleModel, vehicleColor });
-  const { destinationCoords, originCoords, routeCoordinates } = useDestinationAndRoute(rideData);
+  const { destinationCoords, originCoords, waypointCoords, routeCoordinates } = useDestinationAndRoute(rideData);
   
   // Efecto adicional: intentar obtener datos del vehículo desde rideData si existen
   useEffect(() => {
@@ -504,9 +585,39 @@ export default function RideTrackingScreen({ route, navigation }: RideTrackingSc
         break;
       case 'completed':
         setStatusMessage('Viaje completado');
+        // ✅ NUEVO: Navegar a pantalla de pago si el viaje se completó
+        console.log('✅ [RideTrackingScreen] Viaje completado, navegando a pago...');
+        setTimeout(() => {
+          if (paymentMethod === 'cash') {
+            navigation.replace('CashPayment', {
+              rideId,
+              amount: finalFare || estimatedFare,
+              driverName: driverData.name || driverName,
+              driverPhoto: driverData.photo || undefined,
+            });
+          } else {
+            navigation.replace('Payment', {
+              rideId,
+              amount: finalFare || estimatedFare,
+              driverName: driverData.name || driverName,
+              driverPhoto: driverData.photo || undefined,
+            });
+          }
+        }, 500);
         break;
       case 'canceled':
         setStatusMessage('Viaje cancelado');
+        // ✅ NUEVO: Navegar a pantalla de inicio si el viaje fue cancelado
+        console.log('❌ [RideTrackingScreen] Viaje cancelado, navegando a inicio...');
+        setTimeout(() => {
+          alertService.showInfoAlert(
+            'Viaje Cancelado',
+            'El viaje ha sido cancelado.',
+            () => {
+              navigation.replace('SearchRide');
+            }
+          );
+        }, 500);
         break;
       default:
         setStatusMessage('');
@@ -708,6 +819,17 @@ export default function RideTrackingScreen({ route, navigation }: RideTrackingSc
   }
   
   // Renderizado principal
+  console.log('🗺️ [RideTrackingScreen] Renderizando mapa con:', {
+    driverLocation: driverLocation ? `${driverLocation.latitude}, ${driverLocation.longitude}` : 'null',
+    clientCoords: clientCoords ? `${clientCoords.latitude}, ${clientCoords.longitude}` : 'null',
+    isConnected,
+    driverId,
+  });
+  
+  if (!driverLocation && driverId) {
+    console.warn('⚠️ [RideTrackingScreen] No hay ubicación del conductor. El conductor debe estar enviando su ubicación a Firebase en driverLocations/' + driverId);
+  }
+  
   return (
     <View style={styles.container}>
       {/* Mapa con ubicación del conductor */}
@@ -724,6 +846,29 @@ export default function RideTrackingScreen({ route, navigation }: RideTrackingSc
           markerType="car"
           destinationMarker={destinationCoords ? destinationCoords : undefined}
           originMarker={isAccepted && originCoords ? originCoords : undefined}
+          // ✅ NUEVO: Mostrar ubicación del cliente como fallback si no hay ubicación del conductor
+          clientMarker={!driverLocation && clientCoords ? {
+            latitude: clientCoords.latitude,
+            longitude: clientCoords.longitude
+          } : undefined}
+          // ✅ NUEVO: Pasar waypoints como extraStopMarkers
+          extraStopMarkers={
+            waypointCoords && waypointCoords.length > 0
+              ? (() => {
+                  const markers = waypointCoords.map((waypoint, index) => ({
+                    latitude: waypoint.latitude,
+                    longitude: waypoint.longitude,
+                    index: index + 1,
+                    color: '#FFA500', // Naranja para paradas
+                  }));
+                  console.log('🟠 [RideTrackingScreen] Pasando extraStopMarkers al mapa:', markers.length, markers);
+                  return markers;
+                })()
+              : (() => {
+                  console.log('⚠️ [RideTrackingScreen] No hay waypointCoords para mostrar');
+                  return undefined;
+                })()
+          }
           routeCoordinates={routeCoordinates}
         />
         
@@ -749,7 +894,7 @@ export default function RideTrackingScreen({ route, navigation }: RideTrackingSc
               <Image source={{ uri: driverData.photo }} style={styles.driverAvatar} />
             ) : (
               <View style={styles.driverAvatar}>
-                <Text style={styles.driverAvatarText}>{driverData.name[0]}</Text>
+                <Text style={styles.driverAvatarText}>{driverData.name?.[0] || 'C'}</Text>
               </View>
             )}
             
@@ -767,13 +912,62 @@ export default function RideTrackingScreen({ route, navigation }: RideTrackingSc
             </View>
           </View>
 
+          {/* ✅ NUEVO: Información de ubicaciones */}
+          <View style={styles.locationsContainer}>
+            {/* Origen */}
+            {originCoords && (
+              <View style={styles.locationItem}>
+                <Text style={styles.locationIcon}>📍</Text>
+                <View style={styles.locationContent}>
+                  <Text style={styles.locationLabel}>Punto de Recogida</Text>
+                  <Text style={[styles.locationAddress, { color: colors.text }]}>
+                    {rideData?.origin?.address || 'Mi ubicación'}
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            {/* Paradas intermedias */}
+            {waypointCoords && waypointCoords.length > 0 && (
+              <>
+                {waypointCoords.map((waypoint, index) => {
+                  const extraDest = rideData?.extraDestinations?.[index];
+                  return (
+                    <View key={`waypoint-${index}`} style={styles.locationItem}>
+                      <Text style={styles.locationIcon}>🟠</Text>
+                      <View style={styles.locationContent}>
+                        <Text style={styles.locationLabel}>Parada {index + 1}</Text>
+                        <Text style={[styles.locationAddress, { color: colors.text }]}>
+                          {extraDest?.address || `Parada ${index + 1}`}
+                        </Text>
+                      </View>
+                    </View>
+                  );
+                })}
+              </>
+            )}
+
+            {/* Destino final */}
+            {destinationCoords && (
+              <View style={styles.locationItem}>
+                <Text style={styles.locationIcon}>🎯</Text>
+                <View style={styles.locationContent}>
+                  <Text style={styles.locationLabel}>Destino Final</Text>
+                  <Text style={[styles.locationAddress, { color: colors.text }]}>
+                    {rideData?.destination?.address || 'Destino'}
+                  </Text>
+                </View>
+              </View>
+            )}
+          </View>
+
           {/* ETA y progreso */}
-          {isInProgress && (
+          {isInProgress && driverLocation && (
             <View style={styles.etaContainer}>
               <ETADisplay
                 rideId={rideId}
-                currentLat={clientCoords?.latitude || 0}
-                currentLng={clientCoords?.longitude || 0}
+                currentLat={driverLocation.latitude}
+                currentLng={driverLocation.longitude}
               />
               <Text style={styles.etaDescription}>
                 Basado en las condiciones actuales de tráfico
@@ -885,6 +1079,37 @@ const createStyles = (colors: any) => StyleSheet.create({
     paddingBottom: 16,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
+  },
+  // ✅ NUEVO: Estilos para ubicaciones
+  locationsContainer: {
+    marginBottom: 16,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  locationItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+  },
+  locationIcon: {
+    fontSize: 20,
+    marginRight: 12,
+    marginTop: 2,
+  },
+  locationContent: {
+    flex: 1,
+  },
+  locationLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textSecondary || '#999',
+    marginBottom: 4,
+  },
+  locationAddress: {
+    fontSize: 14,
+    fontWeight: '500',
+    lineHeight: 20,
   },
   driverAvatar: {
     width: 50,

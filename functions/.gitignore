@@ -15,7 +15,7 @@ node_modules/
 
 # Firebase cache
 .firebase/
-
+migrations/
 # Logs
 *.log
 npm-debug.log*

@@ -165,6 +165,15 @@ export default function ActiveRideScreen({ route, navigation }: any) {
         console.log('📦 RIDE COMPLETO:', JSON.stringify(data, null, 2));
         console.log('🗺️ routeCoordinates?', data.routeCoordinates?.length || 0, 'puntos');
         console.log('🗺️ route?', data.route?.length || 0, 'puntos');
+        // ✅ NUEVO: Log para verificar extraDestinations
+        console.log('📍 extraDestinations?', data.extraDestinations?.length || 0, 'paradas');
+        console.log('📍 hasMultipleDestinations?', data.hasMultipleDestinations);
+        console.log('📍 waypointsCount?', data.waypointsCount);
+        if (data.extraDestinations && data.extraDestinations.length > 0) {
+          console.log('📍 Paradas encontradas:', JSON.stringify(data.extraDestinations, null, 2));
+        }
+        // Log de todas las claves del objeto ride
+        console.log('🔑 Claves en ride:', Object.keys(data));
         setRide(data);
         setLoading(false);
 
@@ -319,34 +328,88 @@ export default function ActiveRideScreen({ route, navigation }: any) {
         
         // Calcular ruta real
         if (isAccepted) {
-          // Conductor → Origen → Destino (dos segmentos)
-          console.log('🗺️ Calculando ruta: Conductor → Origen → Destino');
+          // ✅ MEJORADO: Conductor → Origen → Paradas extras → Destino
+          console.log('🗺️ Calculando ruta: Conductor → Origen → Paradas → Destino');
+          console.log('📍 Paradas extras:', ride?.extraDestinations?.length || 0);
+          
+          const routeSegments: any[] = [];
+          let currentLat = coords.latitude;
+          let currentLng = coords.longitude;
           
           // Segmento 1: Conductor → Origen
           const route1 = await calculateRealRoute(
-            coords.latitude, coords.longitude,
+            currentLat, currentLng,
             originLat, originLng
           );
+          routeSegments.push(...route1);
+          currentLat = originLat;
+          currentLng = originLng;
           
-          // Segmento 2: Origen → Destino
-          const route2 = await calculateRealRoute(
-            originLat, originLng,
+          // ✅ NUEVO: Segmentos a través de paradas extras
+          if (ride?.extraDestinations && ride.extraDestinations.length > 0) {
+            console.log('📍 Calculando ruta a través de', ride.extraDestinations.length, 'paradas');
+            for (const waypoint of ride.extraDestinations) {
+              const waypointLat = waypoint.lat || waypoint.latitude;
+              const waypointLng = waypoint.lng || waypoint.longitude;
+              
+              if (validateCoords(waypointLat, waypointLng, `Parada`)) {
+                const waypointRoute = await calculateRealRoute(
+                  currentLat, currentLng,
+                  waypointLat, waypointLng
+                );
+                routeSegments.push(...waypointRoute);
+                currentLat = waypointLat;
+                currentLng = waypointLng;
+              }
+            }
+          }
+          
+          // Segmento final: Última parada (o origen) → Destino
+          const finalRoute = await calculateRealRoute(
+            currentLat, currentLng,
             destLat, destLng
           );
+          routeSegments.push(...finalRoute);
           
-          // Combinar ambas rutas
-          const fullRoute = [...route1, ...route2];
-          setRoutePolyline(fullRoute);
-          console.log('✅ Ruta real calculada:', fullRoute.length, 'puntos');
+          setRoutePolyline(routeSegments);
+          console.log('✅ Ruta real calculada:', routeSegments.length, 'puntos con', ride?.extraDestinations?.length || 0, 'paradas');
         } else if (isInProgress) {
-          // Conductor → Destino
-          console.log('🗺️ Calculando ruta: Conductor → Destino');
-          const route = await calculateRealRoute(
-            coords.latitude, coords.longitude,
+          // ✅ MEJORADO: Conductor → Paradas extras → Destino
+          console.log('🗺️ Calculando ruta: Conductor → Paradas → Destino');
+          console.log('📍 Paradas extras:', ride?.extraDestinations?.length || 0);
+          
+          const routeSegments: any[] = [];
+          let currentLat = coords.latitude;
+          let currentLng = coords.longitude;
+          
+          // ✅ NUEVO: Segmentos a través de paradas extras
+          if (ride?.extraDestinations && ride.extraDestinations.length > 0) {
+            console.log('📍 Calculando ruta a través de', ride.extraDestinations.length, 'paradas');
+            for (const waypoint of ride.extraDestinations) {
+              const waypointLat = waypoint.lat || waypoint.latitude;
+              const waypointLng = waypoint.lng || waypoint.longitude;
+              
+              if (validateCoords(waypointLat, waypointLng, `Parada`)) {
+                const waypointRoute = await calculateRealRoute(
+                  currentLat, currentLng,
+                  waypointLat, waypointLng
+                );
+                routeSegments.push(...waypointRoute);
+                currentLat = waypointLat;
+                currentLng = waypointLng;
+              }
+            }
+          }
+          
+          // Segmento final: Última parada (o conductor) → Destino
+          const finalRoute = await calculateRealRoute(
+            currentLat, currentLng,
             destLat, destLng
           );
-          setRoutePolyline(route);
-          console.log('✅ Ruta real calculada:', route.length, 'puntos');
+          routeSegments.push(...finalRoute);
+          
+          setRoutePolyline(routeSegments);
+          console.log('✅ Ruta real calculada:', routeSegments.length, 'puntos con', ride?.extraDestinations?.length || 0, 'paradas');
         }
         
         setLoadError(null);
@@ -362,17 +425,43 @@ export default function ActiveRideScreen({ route, navigation }: any) {
           const destLng = ride.destination?.lng || ride.destination?.longitude;
           
           if (isAccepted) {
+            // ✅ MEJORADO: Incluir paradas en fallback
             const straightLineRoute = [
               { latitude: coords.latitude, longitude: coords.longitude },
               { latitude: originLat, longitude: originLng },
-              { latitude: destLat, longitude: destLng },
             ];
+            
+            // Agregar paradas extras si existen
+            if (ride?.extraDestinations && ride.extraDestinations.length > 0) {
+              for (const waypoint of ride.extraDestinations) {
+                const waypointLat = waypoint.lat || waypoint.latitude;
+                const waypointLng = waypoint.lng || waypoint.longitude;
+                if (typeof waypointLat === 'number' && typeof waypointLng === 'number') {
+                  straightLineRoute.push({ latitude: waypointLat, longitude: waypointLng });
+                }
+              }
+            }
+            
+            straightLineRoute.push({ latitude: destLat, longitude: destLng });
             setRoutePolyline(straightLineRoute);
           } else if (isInProgress) {
+            // ✅ MEJORADO: Incluir paradas en fallback
             const straightLineRoute = [
               { latitude: coords.latitude, longitude: coords.longitude },
-              { latitude: destLat, longitude: destLng },
             ];
+            
+            // Agregar paradas extras si existen
+            if (ride?.extraDestinations && ride.extraDestinations.length > 0) {
+              for (const waypoint of ride.extraDestinations) {
+                const waypointLat = waypoint.lat || waypoint.latitude;
+                const waypointLng = waypoint.lng || waypoint.longitude;
+                if (typeof waypointLat === 'number' && typeof waypointLng === 'number') {
+                  straightLineRoute.push({ latitude: waypointLat, longitude: waypointLng });
+                }
+              }
+            }
+            
+            straightLineRoute.push({ latitude: destLat, longitude: destLng });
             setRoutePolyline(straightLineRoute);
           }
         } catch (fallbackError) {
@@ -568,11 +657,14 @@ export default function ActiveRideScreen({ route, navigation }: any) {
     );
   };
 
+  const resolvedClientName = ride?.client?.fullName || ride?.client?.name || ride?.clientName || 'Cliente';
+  const resolvedClientPhone = ride?.client?.phone || ride?.client?.phoneNumber || ride?.clientPhone || 'Sin teléfono';
+
   const handleOpenChat = () => {
     navigation.navigate('Chat', {
       rideId,
-      otherUserName: ride?.client?.name || 'Cliente',
-      otherUserPhone: ride?.client?.phone || null,
+      otherUserName: resolvedClientName,
+      otherUserPhone: resolvedClientPhone === 'Sin teléfono' ? null : resolvedClientPhone,
     });
   };
 
@@ -678,16 +770,16 @@ export default function ActiveRideScreen({ route, navigation }: any) {
  
      console.log('✅ Coordenadas válidas, procediendo con navegación');
  
-     // Agregar paradas adicionales si existen
+     // ✅ MEJORADO: Agregar paradas adicionales si existen
      if (ride.extraDestinations && ride.extraDestinations.length > 0) {
        const extraWaypoints = ride.extraDestinations
-         .map((stop: any) => `${stop.lat},${stop.lng}`)
+         .map((stop: any) => `${stop.lat || stop.latitude},${stop.lng || stop.longitude}`)
          .join('|');
        waypoints = waypoints ? `${waypoints}|${extraWaypoints}` : extraWaypoints;
      }
  
      const stopsText = ride.extraDestinations && ride.extraDestinations.length > 0
-       ? `\n\n📍 Paradas adicionales: ${ride.extraDestinations.length}`
+       ? `\n\n📍 Paradas adicionales: ${ride.extraDestinations.length}\n${ride.extraDestinations.map((s: any, i: number) => `  ${i + 1}. ${s.address}`).join('\n')}`
        : '';
  
      // Usar el servicio centralizado para mostrar opciones de navegación
@@ -854,6 +946,24 @@ export default function ActiveRideScreen({ route, navigation }: any) {
               latitude: ride.destination.lat || ride.destination.latitude,
               longitude: ride.destination.lng || ride.destination.longitude
             } : undefined}
+            // ✅ NUEVO: Pasar paradas extras como marcadores
+            extraStopMarkers={
+              (() => {
+                // Debug: verificar si extraDestinations existe
+                if (ride?.extraDestinations && ride.extraDestinations.length > 0) {
+                  console.log('🟠 [DynamicMap] Renderizando', ride.extraDestinations.length, 'paradas');
+                  return ride.extraDestinations.map((stop: any, index: number) => ({
+                    latitude: stop.lat || stop.latitude,
+                    longitude: stop.lng || stop.longitude,
+                    index: index + 1,
+                    color: '#FFA500', // Naranja para paradas
+                  }));
+                } else {
+                  console.log('⚠️ [DynamicMap] No hay extraDestinations en ride');
+                  return undefined;
+                }
+              })()
+            }
             routeCoordinates={snapToRoute ? routePolyline : []}
           />
         ) : (
@@ -896,8 +1006,8 @@ export default function ActiveRideScreen({ route, navigation }: any) {
         <View style={styles.header}>
           <View style={styles.clientInfo}>
             <View style={styles.clientData}>
-              <Text style={styles.clientName}>{ride?.client?.name || 'Cliente'}</Text>
-              <Text style={styles.clientPhone}>{ride?.client?.phone || 'Sin teléfono'}</Text>
+              <Text style={styles.clientName}>{resolvedClientName}</Text>
+              <Text style={styles.clientPhone}>{resolvedClientPhone}</Text>
               
               {clientLocation && (
                 <View style={styles.locationStatusContainer}>
@@ -915,7 +1025,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
               />
             ) : (
               <View style={[styles.clientPhoto, { backgroundColor: colors.card }]}>
-                <Text style={styles.clientInitial}>{(ride?.client?.name || 'C')[0]}</Text>
+                <Text style={styles.clientInitial}>{resolvedClientName?.[0] || 'C'}</Text>
               </View>
             )}
           </View>
@@ -943,6 +1053,23 @@ export default function ActiveRideScreen({ route, navigation }: any) {
                 <Text style={styles.addressText}>{ride.origin.address}</Text>
               </View>
             </View>
+          )}
+          
+          {/* ✅ NUEVO: Paradas intermedias */}
+          {ride?.extraDestinations && ride.extraDestinations.length > 0 && (
+            <>
+              {ride.extraDestinations.map((waypoint: any, index: number) => (
+                <View key={`waypoint-${index}`} style={styles.addressContainer}>
+                  <View style={[styles.addressIcon, styles.waypointIcon]}>
+                    <Text>🟠</Text>
+                  </View>
+                  <View style={styles.addressContent}>
+                    <Text style={styles.addressLabel}>Parada {index + 1}</Text>
+                    <Text style={styles.addressText}>{waypoint.address || `Parada ${index + 1}`}</Text>
+                  </View>
+                </View>
+              ))}
+            </>
           )}
           
           <View style={styles.addressContainer}>
@@ -1206,6 +1333,10 @@ const createStyles = (colors: any) => StyleSheet.create({
   },
   dropoffIcon: {
     backgroundColor: '#66BB6A',
+  },
+  // ✅ NUEVO: Estilo para paradas intermedias
+  waypointIcon: {
+    backgroundColor: '#FFA500',
   },
   addressContent: {
     flex: 1,
