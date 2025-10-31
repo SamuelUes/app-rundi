@@ -962,12 +962,12 @@ export default function RideTrackingScreen({ route, navigation }: RideTrackingSc
           </View>
 
           {/* ETA y progreso */}
-          {isInProgress && (
+          {isInProgress && driverLocation && (
             <View style={styles.etaContainer}>
               <ETADisplay
                 rideId={rideId}
-                currentLat={clientCoords?.latitude || 0}
-                currentLng={clientCoords?.longitude || 0}
+                currentLat={driverLocation.latitude}
+                currentLng={driverLocation.longitude}
               />
               <Text style={styles.etaDescription}>
                 Basado en las condiciones actuales de tráfico

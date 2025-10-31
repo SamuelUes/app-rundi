@@ -4,9 +4,10 @@
  * Versión mejorada con soporte para múltiples destinos y seguimiento de clientes
  */
 
-import { getFirebaseDatabase, getFirebaseFunctions } from '../config/firebase';
+import { getFirebaseAuth, getFirebaseDatabase, getFirebaseFunctions } from '../config/firebase';
 import { ref, set, onValue, off, update, remove, serverTimestamp } from 'firebase/database';
 import { httpsCallable } from 'firebase/functions';
+import { signInAnonymously } from 'firebase/auth';
 
 interface Location {
   latitude: number;
@@ -43,6 +44,22 @@ interface RideTracking {
 
 class FirebaseTrackingService {
   private listeners: Map<string, any> = new Map();
+
+  private async ensureFirebaseAuthSession(): Promise<void> {
+    const auth = await getFirebaseAuth();
+    if (auth.currentUser) {
+      return;
+    }
+
+    try {
+      console.log('🔐 [FirebaseTrackingService] No hay sesión Firebase, autenticando anónimamente para tracking...');
+      await signInAnonymously(auth);
+      console.log('✅ [FirebaseTrackingService] Sesión anónima iniciada para tracking');
+    } catch (error) {
+      console.error('❌ [FirebaseTrackingService] Error iniciando sesión anónima:', error);
+      throw error;
+    }
+  }
 
   /**
    * Actualizar ubicación del conductor
@@ -165,6 +182,8 @@ class FirebaseTrackingService {
     data: Partial<RideTracking>
   ): Promise<void> {
     try {
+      await this.ensureFirebaseAuthSession();
+
       // ✅ NUEVO: Usar Cloud Function en lugar de actualizar directamente
       // Esto evita problemas de permisos en Firebase Realtime DB
       const functions = await getFirebaseFunctions();
@@ -217,6 +236,7 @@ class FirebaseTrackingService {
       
       // No lanzar error - el tracking es no-bloqueante
       console.warn(`⚠️ Tracking no se actualizó, pero el viaje continúa`);
+      throw error;
     }
   }
 
