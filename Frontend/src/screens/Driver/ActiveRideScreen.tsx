@@ -31,6 +31,7 @@ import { getDatabase, ref, onValue, off, DataSnapshot } from 'firebase/database'
 // ✅ NUEVO: Imports para guardar ubicaciones con pgRideId
 import { getFirebaseFunctions } from '../../config/firebase';
 import { httpsCallable } from 'firebase/functions';
+import { hasSavedCard, getCardsList } from '../../utils/cardUtils';
 
 interface RouteParams {
   rideId: string;

@@ -5,7 +5,7 @@
     "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "scheme": "driveangel",
+    "scheme": "com.driveangel.app",
     "owner": "samuelues",
     "projectId": "e8f4c3b2-9d1a-4e7f-8c5b-2a3d4e5f6a7b",
     "runtimeVersion": "1.0.1",

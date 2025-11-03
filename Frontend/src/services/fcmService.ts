@@ -12,18 +12,27 @@ import { getFirebaseAuth, getFirebaseFunctions } from '../config/firebase';
 import { httpsCallable } from 'firebase/functions';
 
 // Importar FCM solo si está disponible (Development Build)
-let messaging: any = null;
+let messagingModule: any = null;
+let messagingInstance: any = null;
+let AuthorizationStatusEnum: any = null;
+
 try {
-  messaging = require('@react-native-firebase/messaging').default;
+  messagingModule = require('@react-native-firebase/messaging');
+  const { getMessaging, AuthorizationStatus } = messagingModule;
+  messagingInstance = getMessaging();
+  AuthorizationStatusEnum = AuthorizationStatus;
   console.log('✅ FCM disponible - usando Firebase Cloud Messaging');
 } catch (error) {
+  messagingModule = null;
+  messagingInstance = null;
+  AuthorizationStatusEnum = null;
   console.log('⚠️ FCM no disponible - usando Expo Notifications como fallback');
 }
 
 class FCMService {
   private fcmToken: string | null = null;
   private functions: any = null;
-  private isFCMAvailable: boolean = messaging !== null;
+  private isFCMAvailable: boolean = messagingInstance !== null;
 
   private async getFunctions() {
     if (!this.functions) {
@@ -49,7 +58,7 @@ class FCMService {
   async requestPermission(): Promise<boolean> {
     try {
       // Si FCM no está disponible, retornar false
-      if (!this.isFCMAvailable || !messaging) {
+      if (!this.isFCMAvailable || !messagingModule || !messagingInstance) {
         console.log('⚠️ FCM no disponible, no se pueden solicitar permisos');
         return false;
       }
@@ -66,11 +75,11 @@ class FCMService {
       }
 
       // Para iOS
-      if (Platform.OS === 'ios') {
-        const authStatus = await messaging().requestPermission();
+      if (Platform.OS === 'ios' && messagingModule?.requestPermission) {
+        const authStatus = await messagingModule.requestPermission(messagingInstance);
         const enabled =
-          authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
-          authStatus === messaging.AuthorizationStatus.PROVISIONAL;
+          authStatus === AuthorizationStatusEnum?.AUTHORIZED ||
+          authStatus === AuthorizationStatusEnum?.PROVISIONAL;
 
         if (!enabled) {
           console.log('❌ Permiso de notificaciones denegado');
@@ -92,12 +101,12 @@ class FCMService {
   async getToken(): Promise<string | null> {
     try {
       // Si FCM no está disponible, retornar null
-      if (!this.isFCMAvailable || !messaging) {
+      if (!this.isFCMAvailable || !messagingModule || !messagingInstance) {
         console.log('⚠️ FCM no disponible, no se puede obtener token');
         return null;
       }
 
-      const fcmToken = await messaging().getToken();
+      const fcmToken = await messagingModule.getToken(messagingInstance);
 
       if (fcmToken) {
         console.log('✅ Token FCM obtenido:', fcmToken.substring(0, 20) + '...');
@@ -148,26 +157,26 @@ class FCMService {
    * Configurar listeners de notificaciones
    */
   setupNotificationListeners(): void {
-    if (!this.isFCMAvailable || !messaging) {
+    if (!this.isFCMAvailable || !messagingModule || !messagingInstance) {
       console.log('⚠️ FCM no disponible, saltando configuración de listeners');
       return;
     }
 
     // Listener para notificaciones en foreground
-    messaging().onMessage(async (remoteMessage: any) => {
+    messagingModule.onMessage(messagingInstance, async (remoteMessage: any) => {
       console.log('📬 Notificación recibida en foreground:', remoteMessage);
       this.handleForegroundNotification(remoteMessage);
     });
 
     // Listener para cuando se toca una notificación (app en background)
-    messaging().onNotificationOpenedApp((remoteMessage: any) => {
+    messagingModule.onNotificationOpenedApp(messagingInstance, (remoteMessage: any) => {
       console.log('👆 Notificación tocada (app en background):', remoteMessage);
       this.handleNotificationTap(remoteMessage);
     });
 
     // Listener para cuando se abre la app desde una notificación (app cerrada)
-    messaging()
-      .getInitialNotification()
+    messagingModule
+      .getInitialNotification(messagingInstance)
       .then((remoteMessage: any) => {
         if (remoteMessage) {
           console.log('🚀 App abierta desde notificación:', remoteMessage);
@@ -261,15 +270,15 @@ class FCMService {
   async checkPermissionStatus(): Promise<boolean> {
     try {
       // Si FCM no está disponible, retornar false
-      if (!this.isFCMAvailable || !messaging) {
+      if (!this.isFCMAvailable || !messagingModule || !messagingInstance || !AuthorizationStatusEnum) {
         console.log('⚠️ FCM no disponible, permisos considerados como no concedidos');
         return false;
       }
 
-      const authStatus = await messaging().hasPermission();
+      const authStatus = await messagingModule.hasPermission(messagingInstance);
       const enabled =
-        authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
-        authStatus === messaging.AuthorizationStatus.PROVISIONAL;
+        authStatus === AuthorizationStatusEnum.AUTHORIZED ||
+        authStatus === AuthorizationStatusEnum.PROVISIONAL;
 
       return enabled;
     } catch (error) {

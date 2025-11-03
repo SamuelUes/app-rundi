@@ -15,6 +15,7 @@ import { getFunctions, httpsCallable } from 'firebase/functions';
 import { getDatabase, ref as dbRef, update as dbUpdate, get } from 'firebase/database';
 import { initializeFirebase } from '../../config/firebase';
 import { validateAndSaveCard, getCardsList, formatCardNumber, formatExpiryDate, isValidExpiryFormat, isValidCVV } from '../../utils/cardUtils';
+import type { Card as SavedCard } from '../../services/cardsService';
 
 interface PaymentScreenProps {
   route: {
@@ -50,8 +51,8 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
   const [changingPaymentMethod, setChangingPaymentMethod] = useState(false);
   
   // Tarjetas guardadas
-  const [savedCards, setSavedCards] = useState<any[]>([]);
-  const [selectedCard, setSelectedCard] = useState<any>(null);
+  const [savedCards, setSavedCards] = useState<SavedCard[]>([]);
+  const [selectedCard, setSelectedCard] = useState<SavedCard | null>(null);
   const [useNewCard, setUseNewCard] = useState(false);
   
   // Formulario de tarjeta nueva
@@ -122,7 +123,7 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
       if (cards && cards.length > 0) {
         setSavedCards(cards);
         // Seleccionar la tarjeta predeterminada automáticamente
-        const defaultCard = cards.find((card: any) => card.isDefault);
+        const defaultCard = cards.find((card) => card.isDefault);
         if (defaultCard) {
           setSelectedCard(defaultCard);
           setUseNewCard(false);
@@ -407,6 +408,17 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
   /**
    * Guardar tarjeta nueva
    */
+  const detectCardBrand = (number: string): string => {
+    const cleaned = number.replace(/\s/g, '');
+
+    if (/^4/.test(cleaned)) return 'Visa';
+    if (/^5[1-5]/.test(cleaned)) return 'Mastercard';
+    if (/^3[47]/.test(cleaned)) return 'American Express';
+    if (/^6(?:011|5)/.test(cleaned)) return 'Discover';
+
+    return 'Unknown';
+  };
+
   const handleSaveCard = async () => {
     try {
       // Validar campos
@@ -439,25 +451,28 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
 
       const { month, year } = formatExpiryDate(expiryDate);
       const fullYear = year.length === 2 ? `20${year}` : year;
+      const cleanedNumber = cardNumber.replace(/\s/g, '');
+      const brand = detectCardBrand(cleanedNumber);
 
-      // Validar y guardar tarjeta
+      // Guardar tarjeta utilizando servicio centralizado
       const result = await validateAndSaveCard(
         {
-          cardNumber: cardNumber.replace(/\s/g, ''),
+          cardNumber: cleanedNumber,
           expMonth: month,
           expYear: fullYear,
           cvv: cvv,
           cardholderName: cardHolder,
           bank: selectedBank,
+          brand,
         },
-        saveCard // setAsDefault
+        saveCard
       );
 
       console.log(`✅ Tarjeta guardada exitosamente: ${result.card.id}`);
 
       Alert.alert(
         '✅ Tarjeta Guardada',
-        `Tu tarjeta ${result.card.brand.toUpperCase()} **** ${result.card.lastFour} ha sido guardada exitosamente.`,
+        `Tu tarjeta ${result.card.brand.toUpperCase()} **** ${result.card.last4} ha sido guardada exitosamente.`,
         [
           {
             text: 'Continuar',
@@ -682,16 +697,17 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
                 styles.savedCardItem,
                 useNewCard && styles.savedCardItemActive,
               ]}
-              onPress={() => setUseNewCard(true)}
+              onPress={() => {
+                setSelectedCard(null);
+                setUseNewCard(true);
+              }}
             >
               <Text style={styles.savedCardIcon}>➕</Text>
               <View style={styles.savedCardInfo}>
                 <Text style={styles.savedCardBrand}>Nueva Tarjeta</Text>
                 <Text style={styles.savedCardNumber}>Agregar método de pago</Text>
               </View>
-              {useNewCard && (
-                <Text style={styles.savedCardCheck}>✓</Text>
-              )}
+              {useNewCard && <Text style={styles.savedCardCheck}>✓</Text>}
             </TouchableOpacity>
           </View>
         )}

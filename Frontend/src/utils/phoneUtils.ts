@@ -1,0 +1,91 @@
+export type CountryDialOption = {
+  code: string; // ISO 3166-1 alpha-2
+  dialCode: string; // e.g. +505
+  name: string;
+};
+
+const COUNTRY_DIAL_OPTIONS: CountryDialOption[] = [
+  { code: 'NI', dialCode: '+505', name: 'Nicaragua' },
+  { code: 'US', dialCode: '+1', name: 'Estados Unidos' },
+  { code: 'CA', dialCode: '+1', name: 'Canadá' },
+  { code: 'MX', dialCode: '+52', name: 'México' },
+  { code: 'SV', dialCode: '+503', name: 'El Salvador' },
+  { code: 'HN', dialCode: '+504', name: 'Honduras' },
+  { code: 'CR', dialCode: '+506', name: 'Costa Rica' },
+  { code: 'PA', dialCode: '+507', name: 'Panamá' },
+  { code: 'CO', dialCode: '+57', name: 'Colombia' },
+  { code: 'AR', dialCode: '+54', name: 'Argentina' },
+  { code: 'CL', dialCode: '+56', name: 'Chile' },
+  { code: 'VE', dialCode: '+58', name: 'Venezuela' },
+  { code: 'ES', dialCode: '+34', name: 'España' },
+  { code: 'BR', dialCode: '+55', name: 'Brasil' },
+  { code: 'PE', dialCode: '+51', name: 'Perú' },
+  { code: 'EC', dialCode: '+593', name: 'Ecuador' },
+  { code: 'GT', dialCode: '+502', name: 'Guatemala' },
+  { code: 'DO', dialCode: '+1809', name: 'República Dominicana' },
+];
+
+export const getCountryDialOptions = (): CountryDialOption[] => COUNTRY_DIAL_OPTIONS;
+
+export const normalizePhoneNumber = (value: string, dialCode: string): string => {
+  if (!value) {
+    return '';
+  }
+
+  const digits = value.replace(/\D/g, '');
+  if (!digits) {
+    return '';
+  }
+
+  const normalizedDial = dialCode.replace(/\D/g, '');
+  const numberWithoutDial = digits.startsWith(normalizedDial)
+    ? digits.slice(normalizedDial.length)
+    : digits;
+
+  if (!numberWithoutDial) {
+    return '';
+  }
+
+  const maxLocalLength = Math.max(0, 15 - normalizedDial.length);
+  const limitedLocalNumber = numberWithoutDial.slice(0, maxLocalLength);
+
+  if (!limitedLocalNumber) {
+    return '';
+  }
+
+  return `+${normalizedDial}${limitedLocalNumber}`;
+};
+
+export const formatPhoneNumber = (value: string, dialCode: string): string => {
+  const normalized = normalizePhoneNumber(value, dialCode);
+
+  if (!normalized) {
+    return `${dialCode} `;
+  }
+
+  const digits = normalized.replace('+', '');
+  const normalizedDial = dialCode.replace('+', '');
+
+  const localNumber = digits.slice(normalizedDial.length);
+
+  if (!localNumber) {
+    return `${dialCode}`;
+  }
+
+  return `${dialCode} ${localNumber}`;
+};
+
+export const extractLocalNumber = (fullNumber: string, dialCode: string): string => {
+  if (!fullNumber) {
+    return '';
+  }
+
+  const digits = fullNumber.replace(/\D/g, '');
+  const normalizedDial = dialCode.replace(/\D/g, '');
+
+  if (!digits.startsWith(normalizedDial)) {
+    return digits;
+  }
+
+  return digits.slice(normalizedDial.length);
+};

@@ -5,6 +5,7 @@ import LoginScreen from '../screens/Auth/LoginScreen';
 //import RegisterScreen from '../screens/Auth/RegisterScreen';
 import RegisterScreenNew from '../screens/Auth/RegisterScreen';
 import PhoneVerificationScreen from '../screens/Auth/PhoneVerificationScreen';
+import PhoneVerificationLoginScreen from '../screens/Auth/PhoneVerificationLoginScreen';
 import DriverDataScreen from '../screens/Auth/DriverDataScreen';
 import RegisterConfirm from '../screens/Auth/RegisterConfirm';
 
@@ -19,6 +20,16 @@ export type AuthStackParamList = {
     password?: string;
     role: 'client' | 'driver';
     authProvider: 'email/password' | 'google';
+  };
+  PhoneVerificationLogin: {
+    phone: string;
+    displayPhone: string;
+    country: {
+      code: string;
+      dialCode: string;
+      name: string;
+    };
+    mode: 'login';
   };
   DriverData: {
     name: string;
@@ -78,6 +89,11 @@ export default function AuthStack() {
       <Stack.Screen 
         name="PhoneVerification" 
         component={PhoneVerificationScreen} 
+        options={{ title: 'Verificar Teléfono' }} 
+      />
+      <Stack.Screen 
+        name="PhoneVerificationLogin" 
+        component={PhoneVerificationLoginScreen} 
         options={{ title: 'Verificar Teléfono' }} 
       />
       <Stack.Screen 

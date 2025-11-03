@@ -20,6 +20,9 @@ import driversService from '../../services/driversService';
 import vehiclesService from '../../services/vehiclesService';
 import designatedDriverService from '../../services/designatedDriverService';
 import supabaseStorage from '../../services/supabaseStorage';
+import { initializeFirebase } from '../../config/firebase';
+import { getDatabase, ref, get } from 'firebase/database';
+
 import { FormattedInput } from '../../components/FormattedInput';
 import ImagePickerComponent from '../../components/ImagePicker';
 import earningsService from '../../services/earningsService';
@@ -79,6 +82,7 @@ interface DriverData {
 export default function DriverProfileScreen({ navigation }: any) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+
   const { user } = useAuth();
 
   const [loading, setLoading] = useState(true);
@@ -92,6 +96,8 @@ export default function DriverProfileScreen({ navigation }: any) {
   });
   const [dailyStats, setDailyStats] = useState<{ rides: number; earnings: number }>({ rides: 0, earnings: 0 });
   const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
   const [showAddVehicleModal, setShowAddVehicleModal] = useState(false);
   const [vehicleFormData, setVehicleFormData] = useState({
     plate: '',
@@ -164,6 +170,12 @@ export default function DriverProfileScreen({ navigation }: any) {
     return unsubscribe;
   }, [navigation]);
 
+  useEffect(() => {
+    if (user?.id) {
+      loadSelectedVehicle(user.id);
+    }
+  }, [user?.id]);
+
   const loadEarningsStats = async () => {
     try {
       const [todayResponse, totalsResponse] = await Promise.all([
@@ -213,6 +225,7 @@ export default function DriverProfileScreen({ navigation }: any) {
   };
 
   const loadDriverData = async () => {
+    setLoading(true);
     if (!user?.id) {
       console.log('⚠️ No hay user.id disponible');
       setLoading(false);
@@ -285,17 +298,37 @@ export default function DriverProfileScreen({ navigation }: any) {
       } else {
         console.warn('⚠️ No se encontraron datos del conductor en la respuesta');
       }
-    } catch (error: any) {
-      console.error('❌ Error cargando datos del conductor:', error);
-      console.error('Error details:', error.message);
-      // Mantener datos por defecto en caso de error
-      Alert.alert('Error', 'No se pudieron cargar los datos del perfil. Intenta nuevamente.');
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Error desconocido al cargar datos del conductor';
+      console.warn('⚠️ Error cargando datos del conductor:', message);
     } finally {
       setLoading(false);
     }
   };
 
-  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const loadSelectedVehicle = async (userUuid: string) => {
+    try {
+      const { app } = await initializeFirebase();
+      if (!app) {
+        console.warn('⚠️ Firebase app no inicializado, no se pudo cargar vehículo seleccionado');
+        return;
+      }
+      const db = getDatabase(app);
+      const vehicleRef = ref(db, `driversInfo/${userUuid}/vehicle`);
+      const snapshot = await get(vehicleRef);
+
+      if (snapshot.exists()) {
+        const data = snapshot.val();
+        const vehicleId = typeof data === 'string' ? data : data?.id;
+        setSelectedVehicleId(vehicleId ?? null);
+      } else {
+        setSelectedVehicleId(null);
+      }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Error desconocido al cargar vehículo seleccionado';
+      console.warn('⚠️ Error cargando vehículo seleccionado:', message);
+    }
+  };
 
   const handleUploadPhoto = async (type: 'profile' | 'vehicle' | 'document', docType?: string) => {
     const { status } = await ExpoImagePicker.requestMediaLibraryPermissionsAsync();
@@ -313,7 +346,7 @@ export default function DriverProfileScreen({ navigation }: any) {
     });
 
     if (!result.canceled && result.assets[0] && user?.id) {
-      setUploadingPhoto(true);
+      setUploadingPhoto(true); 
       try {
         if (type === 'profile') {
           console.log('📸 Subiendo foto de perfil a Supabase...');
@@ -346,7 +379,6 @@ export default function DriverProfileScreen({ navigation }: any) {
       }
     }
   };
-
   const getDocumentIcon = (type: string) => {
     switch (type) {
       case 'license': return '🪪';
@@ -512,16 +544,20 @@ export default function DriverProfileScreen({ navigation }: any) {
         return;
       }
 
-      // Validar que el vehículo esté completo
+      if (!vehicleToSwitch.is_active && !vehicleToSwitch.isActive) {
+        Alert.alert('Vehículo no autorizado', 'Este vehículo aún no ha sido aprobado por el equipo administrativo.');
+        return;
+      }
+
       if (!isVehicleComplete(vehicleToSwitch)) {
         const reason = getIncompleteReason(vehicleToSwitch);
         Alert.alert(
-          'Vehículo Incompleto',
+          'Vehículo incompleto',
           `No puedes cambiar a este vehículo porque:\n\n${reason}\n\nPor favor, completa la información en la pantalla de verificación.`,
           [
             { text: 'Cancelar', style: 'cancel' },
             {
-              text: 'Completar Información',
+              text: 'Completar información',
               onPress: () => navigation.navigate('VehicleVerification', { vehicleId: vehicleToSwitch.id })
             }
           ]
@@ -529,19 +565,26 @@ export default function DriverProfileScreen({ navigation }: any) {
         return;
       }
 
-      console.log('🔄 Cambiando vehículo activo a:', vehicleId);
-      
       await vehiclesService.switchVehicle(vehicleId);
-      
-      console.log('✅ Vehículo cambiado exitosamente');
-      
-      // Recargar vehículos
-      await loadDriverData();
-      
-      Alert.alert('Éxito', `Vehículo ${vehicleToSwitch.brand} ${vehicleToSwitch.model} activado correctamente`);
-    } catch (error: any) {
-      console.error('❌ Error cambiando vehículo:', error);
-      Alert.alert('Error', error.message || 'Error al cambiar vehículo');
+
+      setSelectedVehicleId(vehicleId);
+      setVehicles((prev) =>
+        prev.map((vehicle) =>
+          vehicle.id === vehicleId
+            ? {
+                ...vehicle,
+                is_active: vehicle.is_active ?? vehicle.isActive ?? true,
+                isActive: true,
+              }
+            : { ...vehicle }
+        )
+      );
+
+      Alert.alert('Éxito', 'Vehículo seleccionado correctamente');
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Error desconocido al cambiar vehículo';
+      console.error('❌ Error cambiando vehículo:', message);
+      Alert.alert('Error', message || 'No se pudo cambiar el vehículo');
     }
   };
 
@@ -658,44 +701,53 @@ export default function DriverProfileScreen({ navigation }: any) {
         
         {vehicles && vehicles.length > 0 ? (
           <>
-            {vehicles.map((vehicle) => (
-              <View key={vehicle.id} style={[styles.vehicleCard, vehicle.is_active && styles.vehicleCardActive]}>
-                <View style={styles.vehicleIcon}>
-                  <Text style={styles.vehicleIconText}>🚗</Text>
-                </View>
-                <View style={styles.vehicleInfo}>
-                  <Text style={styles.vehicleName}>
-                    {vehicle.brand} {vehicle.model}
-                  </Text>
-                  <Text style={styles.vehicleDetails}>
-                    {vehicle.color} • {vehicle.year} • {vehicle.plate}
-                  </Text>
-                  {vehicle.is_active && (
-                    <Text style={styles.activeVehicleLabel}>✅ Vehículo Activo</Text>
-                  )}
-                </View>
-                <View style={styles.vehicleButtonsContainer}>
-                  <TouchableOpacity 
-                    style={[styles.verifyButton]}
-                    onPress={() => navigation.navigate('VehicleVerification', { vehicleId: vehicle.id })}
-                  >
-                    <Text style={styles.verifyButtonText}>
-                      {isVehicleComplete(vehicle) ? 'Ver' : 'Verificar'}
+            {vehicles.map((vehicle) => {
+              const isSelectedVehicle = selectedVehicleId === vehicle.id;
+              const isApproved = Boolean(vehicle.is_active ?? vehicle.isActive);
+
+              return (
+                <View key={vehicle.id} style={[styles.vehicleCard, isSelectedVehicle && styles.vehicleCardActive]}>
+                  <View style={styles.vehicleIcon}>
+                    <Text style={styles.vehicleIconText}>🚗</Text>
+                  </View>
+                  <View style={styles.vehicleInfo}>
+                    <Text style={styles.vehicleName}>
+                      {vehicle.brand} {vehicle.model}
                     </Text>
-                  </TouchableOpacity>
-                  {vehicles.length > 1 && (
+                    <Text style={styles.vehicleDetails}>
+                      {vehicle.color} • {vehicle.year} • {vehicle.plate}
+                    </Text>
+                    {isSelectedVehicle && (
+                      <Text style={styles.activeVehicleLabel}>Vehículo seleccionado</Text>
+                    )}
+                    {!isApproved && (
+                      <Text style={styles.pendingVehicleLabel}>En revisión administrativa</Text>
+                    )}
+                  </View>
+                  <View style={styles.vehicleButtonsContainer}>
                     <TouchableOpacity 
-                      style={[styles.changeButton, vehicle.is_active && styles.changeButtonActive]}
-                      onPress={() => handleSwitchVehicle(vehicle.id)}
+                      style={[styles.verifyButton]}
+                      onPress={() => navigation.navigate('VehicleVerification', { vehicleId: vehicle.id })}
                     >
-                      <Text style={[styles.changeButtonText, vehicle.is_active && styles.changeButtonTextActive]}>
-                        {vehicle.is_active ? '✓ Activo' : 'Cambiar'}
+                      <Text style={styles.verifyButtonText}>
+                        {isVehicleComplete(vehicle) ? 'Ver' : 'Verificar'}
                       </Text>
                     </TouchableOpacity>
-                  )}
+                    {vehicles.length > 1 && (
+                      <TouchableOpacity 
+                        style={[styles.changeButton, isSelectedVehicle && styles.changeButtonActive]}
+                        onPress={() => handleSwitchVehicle(vehicle.id)}
+                        disabled={isSelectedVehicle || !isApproved}
+                      >
+                        <Text style={[styles.changeButtonText, isSelectedVehicle && styles.changeButtonTextActive, (!isApproved && !isSelectedVehicle) && styles.changeButtonTextDisabled]}>
+                          {isSelectedVehicle ? 'Seleccionado' : isApproved ? 'Cambiar' : 'No disponible'}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
                 </View>
-              </View>
-            ))}
+              );
+            })}
           </>
         ) : (
           <View style={styles.emptyVehiclesContainer}>
@@ -1434,6 +1486,12 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontSize: 13,
     color: colors.textSecondary,
   },
+  pendingVehicleLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#FF9800',
+    marginTop: 4,
+  },
   changeButton: {
     backgroundColor: colors.surface,
     paddingVertical: 8,
@@ -1454,6 +1512,9 @@ const createStyles = (colors: any) => StyleSheet.create({
   changeButtonTextActive: {
     color: colors.background,
     fontWeight: '700',
+  },
+  changeButtonTextDisabled: {
+    color: colors.textSecondary,
   },
   vehicleButtonsContainer: {
     flexDirection: 'row',

@@ -88,7 +88,7 @@ import * as onRideCanceledTrigger from "./triggers/onRideCanceled";
 
 // Importar notificaciones
 // import * as notificationsAPI from "./api/notifications";
-
+import * as fcmAPI from "./api/fcm";
 // Importar webhooks
 // ✅ Eliminado: Stripe webhook (sistema de pagos simplificado)
 
@@ -342,6 +342,11 @@ export const getEventsByTypeSeq = analyticsSequelizeAPI.getEventsByType;
 export const createSmsCodeSeq = smsCodesSequelizeAPI.createSmsCode;
 export const verifySmsCodeSeq = smsCodesSequelizeAPI.verifySmsCode;
 export const getUserSmsCodesSeq = smsCodesSequelizeAPI.getUserSmsCodes;
+
+// FCM callables
+export const registerFCMToken = fcmAPI.registerFCMToken;
+export const clearFCMToken = fcmAPI.clearFCMToken;
+export const sendTestNotification = fcmAPI.sendTestNotification;
 
 // Service Commission History (Sequelize)
 export const recordCommissionChangeSeq = commissionHistorySequelizeAPI.recordCommissionChange;

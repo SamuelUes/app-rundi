@@ -24,11 +24,12 @@ interface PaymentConfirmationScreenProps {
   route: {
     params: {
       rideId: string;
-      pgRideId?: string;  // ✅ NUEVO: pgRideId de PostgreSQL
+      pgRideId?: string;
       amount: number;
       tip?: number;
       clientName: string;
       paymentMethod: 'cash' | 'card';
+      fromHome?: boolean;
     };
   };
   navigation: any;

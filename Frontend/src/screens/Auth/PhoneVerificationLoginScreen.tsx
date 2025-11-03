@@ -4,13 +4,14 @@
  * Reutiliza la lógica de PhoneVerificationScreen pero para login en lugar de registro
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TextInput,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -19,7 +20,8 @@ import {
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
-import phoneLoginService from '../../services/phoneLoginService';
+import phoneAuthService from '../../services/auth/phoneAuthService';
+import firebaseAuthService from '../../services/auth/firebaseAuthService';
 
 export default function PhoneVerificationLoginScreen({ navigation, route }: any) {
   const { colors } = useTheme();
@@ -28,14 +30,19 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
   
   // Datos del login anterior
   const phoneFromRoute = route.params?.phone || '';
+  const displayPhoneFromRoute = route.params?.displayPhone || phoneFromRoute;
   
   const [code, setCode] = useState('');
+  const [normalizedPhone, setNormalizedPhone] = useState<string>(phoneFromRoute);
+  const [displayPhone, setDisplayPhone] = useState<string>('');
   const [phoneInput, setPhoneInput] = useState('+505 ');
   const [loading, setLoading] = useState(false);
   const [resendLoading, setResendLoading] = useState(false);
   const [timeLeft, setTimeLeft] = useState(60);
   const [attempts, setAttempts] = useState(0);
   const MAX_ATTEMPTS = 3;
+
+  const hiddenInputRef = useRef<TextInput>(null);
 
   // Función para formatear teléfono: +505 XXXX XXXX
   const formatPhoneNumber = (text: string) => {
@@ -58,10 +65,40 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
     }
   };
 
+  const normalizePhone = (text: string) => {
+    const digits = text.replace(/\D/g, '');
+    if (!digits) return '';
+    const withCountry = digits.startsWith('505') ? digits : `505${digits}`;
+    return `+${withCountry.slice(0, 11)}`;
+  };
+
+  const formatPhoneForDisplay = (phone: string) => {
+    if (!phone) {
+      return '+505 ';
+    }
+    const digits = phone.replace(/\D/g, '');
+    return formatPhoneNumber(digits);
+  };
+
   const handlePhoneChange = (text: string) => {
     const formatted = formatPhoneNumber(text);
+    const normalized = normalizePhone(text);
     setPhoneInput(formatted);
+    setNormalizedPhone(normalized);
+    setDisplayPhone(formatPhoneForDisplay(normalized));
   };
+
+  useEffect(() => {
+    const initialDisplay = formatPhoneForDisplay(displayPhoneFromRoute || phoneFromRoute);
+    setPhoneInput(initialDisplay);
+    setDisplayPhone(initialDisplay);
+    setNormalizedPhone(phoneFromRoute || normalizePhone(initialDisplay));
+    const timeout = setTimeout(() => {
+      hiddenInputRef.current?.focus();
+    }, 300);
+
+    return () => clearTimeout(timeout);
+  }, [phoneFromRoute, displayPhoneFromRoute]);
 
   // Temporizador para reenviar código
   useEffect(() => {
@@ -85,30 +122,36 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
     setLoading(true);
     try {
       console.log('🔐 Verificando código para login:', code);
-      
-      // Llamar a servicio para verificar código y hacer login
-      const result = await phoneLoginService.verifyCodeAndLogin(phoneFromRoute, code);
-      
-      if (!result.success) {
-        // Código inválido
-        setAttempts(attempts + 1);
-        Alert.alert('Error', result.message || 'Código inválido');
-        setCode('');
-        return;
+
+      if (!normalizedPhone) {
+        throw new Error('Número telefónico inválido. Edita el número y reenvía el código.');
       }
 
-      // Código válido - hacer login
-      console.log('✅ Código verificado, iniciando sesión...');
-      
-      // Usar el método de login del contexto de autenticación
-      if (result.user && result.token) {
-        await loginWithPhoneAndSMS(result.user, result.token);
-        
-        Alert.alert('✅ Éxito', 'Sesión iniciada correctamente');
-        // La navegación se maneja automáticamente en el contexto de autenticación
-      } else {
-        throw new Error('No se recibieron datos de usuario');
+      const credential = await phoneAuthService.confirmVerificationCode(normalizedPhone, code, {
+        signOutAfterConfirm: true,
+      });
+      const firebaseUser = credential.user;
+
+      if (!firebaseUser) {
+        throw new Error('No se pudo obtener el usuario de Firebase');
       }
+
+      const userProfile = await firebaseAuthService.getUserProfile(firebaseUser.uid);
+      const idToken = await firebaseUser.getIdToken();
+
+      await loginWithPhoneAndSMS(
+        {
+          id: firebaseUser.uid,
+          uid: firebaseUser.uid,
+          email: firebaseUser.email || '',
+          name: userProfile?.name || firebaseUser.displayName || 'Usuario',
+          phone: firebaseUser.phoneNumber || normalizedPhone,
+          role: userProfile?.role || 'client',
+        },
+        idToken
+      );
+
+      Alert.alert('✅ Éxito', 'Sesión iniciada correctamente');
     } catch (error: any) {
       console.error('Error verificando código:', error);
       setAttempts(attempts + 1);
@@ -122,17 +165,21 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
   const handleResendCode = async () => {
     setResendLoading(true);
     try {
-      console.log('📱 Reenviando código a:', phoneFromRoute);
-      
-      // Llamar a servicio SMS para reenviar código
-      const result = await phoneLoginService.resendLoginCode(phoneFromRoute);
-      
-      if (!result.success) {
-        Alert.alert('Error', result.message);
+      const targetPhone = normalizedPhone || phoneFromRoute;
+
+      if (!targetPhone) {
+        Alert.alert('Error', 'Ingresa un número válido antes de reenviar el código.');
         return;
       }
-      
-      Alert.alert('✅ Código reenviado', `Se envió un nuevo código a ${phoneFromRoute}`);
+
+      console.log('📱 Reenviando código a:', targetPhone);
+
+      await phoneAuthService.sendVerificationCode(targetPhone);
+
+      const newDisplay = formatPhoneForDisplay(targetPhone);
+      setDisplayPhone(newDisplay);
+
+      Alert.alert('✅ Código reenviado', `Se envió un nuevo código a ${newDisplay}`);
       setTimeLeft(60);
       setCode('');
       setAttempts(0);
@@ -157,7 +204,7 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
             <Text style={styles.subtitle}>
               Hemos enviado un código SMS a:
             </Text>
-            <Text style={styles.phoneNumber}>{phoneFromRoute}</Text>
+            <Text style={styles.phoneNumber}>{displayPhone}</Text>
           </View>
 
           {/* Editar Número Telefónico */}
@@ -182,6 +229,7 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
             
             {/* Input oculto para capturar el texto */}
             <TextInput
+              ref={hiddenInputRef}
               style={styles.hiddenInput}
               placeholder="000000"
               placeholderTextColor={colors.textSecondary}
@@ -194,24 +242,27 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
               keyboardType="numeric"
               maxLength={6}
               editable={!loading}
+              autoFocus
             />
             
             {/* Casillas visuales para cada dígito */}
-            <View style={styles.codeBoxesContainer}>
-              {[0, 1, 2, 3, 4, 5].map((index) => (
-                <View
-                  key={index}
-                  style={[
-                    styles.codeBox,
-                    code.length > index && styles.codeBoxFilled,
-                  ]}
-                >
-                  <Text style={styles.codeBoxText}>
-                    {code[index] || ''}
-                  </Text>
-                </View>
-              ))}
-            </View>
+            <TouchableWithoutFeedback onPress={() => hiddenInputRef.current?.focus()}>
+              <View style={styles.codeBoxesContainer}>
+                {[0, 1, 2, 3, 4, 5].map((index) => (
+                  <View
+                    key={index}
+                    style={[
+                      styles.codeBox,
+                      code.length > index && styles.codeBoxFilled,
+                    ]}
+                  >
+                    <Text style={styles.codeBoxText}>
+                      {code[index] || ''}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            </TouchableWithoutFeedback>
           </View>
 
           {/* Intentos restantes */}
@@ -444,15 +495,16 @@ const createStyles = (colors: any) => StyleSheet.create({
   },
   hiddenInput: {
     position: 'absolute',
+    width: '100%',
+    height: 60,
     opacity: 0,
-    width: 0,
-    height: 0,
+    top: 0,
+    left: 0,
   },
   codeBoxesContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginTop: 20,
-    marginBottom: 10,
   },
   codeBox: {
     width: '15%',

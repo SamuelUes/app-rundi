@@ -28,7 +28,7 @@ interface AuthContextData {
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   loginWithGoogle: (userData: any) => Promise<void>;
-  loginWithPhoneAndSMS: (userData: any, token: string) => Promise<void>;
+  loginWithPhoneAndSMS: (userData: any, token?: string) => Promise<void>;
   register: (registerData: any) => Promise<void>;
   registerWithGoogle: (userData: any) => Promise<void>;
   logout: () => Promise<void>;
@@ -229,11 +229,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  const loginWithPhoneAndSMS = async (userData: any, token: string) => {
+  const loginWithPhoneAndSMS = async (userData: any, token?: string) => {
     try {
       console.log('📱 Iniciando sesión con teléfono y SMS:', userData);
-      
-      // Normalizar userData
+
       const normalizedUser = {
         id: userData.id || userData.uid,
         email: userData.email,
@@ -241,15 +240,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         phone: userData.phone,
         role: userData.role,
       };
-      
-      // Guardar usuario en AsyncStorage
+
       await AsyncStorage.setItem('user', JSON.stringify(normalizedUser));
-      
-      // Guardar token en AsyncStorage
-      await AsyncStorage.setItem('authToken', token);
-      
+
+      if (token) {
+        await AsyncStorage.setItem('authToken', token);
+      }
+
       setUser(normalizedUser);
-      
+
       console.log('✅ Login con SMS exitoso');
     } catch (error) {
       console.error('Phone SMS login error:', error);
@@ -259,7 +258,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const getToken = async (): Promise<string | null> => {
     try {
-      // Usar el mainAuthService que tiene getToken()
       return await mainAuthService.getToken();
     } catch (error) {
       console.error('Error getting token:', error);

@@ -43,6 +43,8 @@ export function useLocation(options: UseLocationOptions = {}) {
   
   const locationSubscription = useRef<Location.LocationSubscription | null>(null);
   const appState = useRef(AppState.currentState);
+  const isRefreshingLocation = useRef(false);
+  const lastSuccessfulRefresh = useRef(0);
 
   // Configurar opciones de ubicación según el nivel de precisión requerido
   const locationOptions = {
@@ -53,7 +55,12 @@ export function useLocation(options: UseLocationOptions = {}) {
 
   // Obtener ubicación actual (una sola vez)
   const getLocation = async () => {
+    if (isRefreshingLocation.current) {
+      return;
+    }
+
     try {
+      isRefreshingLocation.current = true;
       setLoading(true);
       setError(null);
       setIsUsingMockLocation(false);
@@ -64,6 +71,15 @@ export function useLocation(options: UseLocationOptions = {}) {
       if (status !== 'granted') {
         console.warn('⚠️ Permiso de ubicación denegado. Usando ubicación mock: Managua');
         setError('Permiso de ubicación denegado');
+        setCoords(DEFAULT_LOCATION);
+        setIsUsingMockLocation(true);
+        return;
+      }
+
+      const servicesEnabled = await Location.hasServicesEnabledAsync();
+      if (!servicesEnabled) {
+        console.warn('⚠️ Servicios de ubicación desactivados. Usando ubicación mock: Managua');
+        setError('Servicios de ubicación desactivados');
         setCoords(DEFAULT_LOCATION);
         setIsUsingMockLocation(true);
         return;
@@ -98,6 +114,8 @@ export function useLocation(options: UseLocationOptions = {}) {
       setIsUsingMockLocation(true);
     } finally {
       setLoading(false);
+      isRefreshingLocation.current = false;
+      lastSuccessfulRefresh.current = Date.now();
     }
   };
 
@@ -194,7 +212,10 @@ export function useLocation(options: UseLocationOptions = {}) {
     ) {
       // La app vuelve a primer plano: actualizar ubicación
       console.log('📱 App volvió a primer plano, actualizando ubicación...');
-      refreshLocation();
+      const now = Date.now();
+      if (!isRefreshingLocation.current && now - lastSuccessfulRefresh.current > 5000) {
+        refreshLocation();
+      }
     }
 
     appState.current = nextAppState;

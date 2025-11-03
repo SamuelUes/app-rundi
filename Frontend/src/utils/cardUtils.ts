@@ -3,209 +3,136 @@
  * Validación y guardado de tarjetas en Supabase
  */
 
-import { getFunctions, httpsCallable } from 'firebase/functions';
-import { initializeFirebase } from '../config/firebase';
+import cardsService, { Card, AddCardRequest } from '../services/cardsService';
 
-interface CardValidationData {
+let cardsCache: Card[] | null = null;
+
+const normalizeCards = (cards: Card[]): Card[] => {
+  cardsCache = cards;
+  return cards;
+};
+
+const upsertCachedCard = (card: Card) => {
+  if (!cardsCache) {
+    cardsCache = [card];
+    return;
+  }
+
+  const index = cardsCache.findIndex(c => c.id === card.id);
+  if (index === -1) {
+    cardsCache = [...cardsCache, card];
+  } else {
+    const updated = [...cardsCache];
+    updated[index] = card;
+    cardsCache = updated;
+  }
+};
+
+const removeCachedCard = (cardId: string) => {
+  if (!cardsCache) {
+    return;
+  }
+
+  cardsCache = cardsCache.filter(card => card.id !== cardId);
+};
+
+export interface CardFormData {
   cardNumber: string;
   expMonth: string;
   expYear: string;
   cvv: string;
   cardholderName: string;
   bank: 'bac' | 'banpro' | 'lafise' | 'ficohsa' | 'avanz';
-}
-
-interface ValidatedCardInfo {
   brand: string;
-  last4: string;
-  expMonth: number;
-  expYear: number;
-  bank: string;
 }
 
-/**
- * Validar tarjeta localmente
- */
-export const validateCard = async (cardData: CardValidationData): Promise<ValidatedCardInfo> => {
-  try {
-    console.log(`🔐 Validando y tokenizando tarjeta...`);
-
-    const { app } = await initializeFirebase();
-    if (!app) throw new Error('Firebase no inicializado');
-
-    const functions = getFunctions(app);
-    const validateCardFn = httpsCallable(functions, 'validateAndTokenizeCard');
-
-    const result = await validateCardFn({
-      cardNumber: cardData.cardNumber,
-      expMonth: cardData.expMonth,
-      expYear: cardData.expYear,
-      cvv: cardData.cvv,
-      cardholderName: cardData.cardholderName,
-      bank: cardData.bank,
-    });
-
-    const data = result.data as any;
-
-    if (!data.success) {
-      throw new Error(data.message || 'Error validando tarjeta');
-    }
-
-    console.log(`✅ Tarjeta validada: ${JSON.stringify(data.cardInfo)}`);
-
-    return data.cardInfo;
-  } catch (error: any) {
-    console.error('❌ Error validando tarjeta:', error.message);
-    throw error;
-  }
-};
-
-/**
- * Guardar tarjeta validada en Supabase
- */
 export const saveCard = async (
-  cardInfo: ValidatedCardInfo,
+  cardData: CardFormData,
   setAsDefault: boolean = false
-): Promise<any> => {
-  try {
-    console.log(`💾 Guardando tarjeta en Supabase...`);
+): Promise<Card> => {
+  const cleanedNumber = cardData.cardNumber.replace(/\s/g, '');
 
-    const { app } = await initializeFirebase();
-    if (!app) throw new Error('Firebase no inicializado');
+  const payload: AddCardRequest = {
+    bank: cardData.bank,
+    cardBrand: cardData.brand,
+    last4: cleanedNumber.slice(-4),
+    expMonth: Number(cardData.expMonth),
+    expYear: Number(cardData.expYear),
+    setAsDefault,
+  };
 
-    const functions = getFunctions(app);
-    const addCardFn = httpsCallable(functions, 'addCard');
-
-    const result = await addCardFn({
-      bank: cardInfo.bank,
-      cardBrand: cardInfo.brand,
-      last4: cardInfo.last4,
-      expMonth: cardInfo.expMonth,
-      expYear: cardInfo.expYear,
-      setAsDefault: setAsDefault,
-    });
-
-    const data = result.data as any;
-
-    if (!data.success) {
-      throw new Error(data.message || 'Error guardando tarjeta');
-    }
-
-    console.log(`✅ Tarjeta guardada exitosamente: ${data.card.id}`);
-
-    return data.card;
-  } catch (error: any) {
-    console.error('❌ Error guardando tarjeta:', error.message);
-    throw error;
-  }
+  const savedCard = await cardsService.addCard(payload);
+  upsertCachedCard(savedCard);
+  return savedCard;
 };
 
-/**
- * Validar y guardar tarjeta en un solo paso
- */
 export const validateAndSaveCard = async (
-  cardData: CardValidationData,
+  cardData: CardFormData,
   setAsDefault: boolean = false
-): Promise<any> => {
-  try {
-    // Paso 1: Validar
-    const validatedCardInfo = await validateCard(cardData);
+): Promise<{ success: boolean; card: Card }> => {
+  const savedCard = await saveCard(cardData, setAsDefault);
 
-    // Paso 2: Guardar
-    const savedCard = await saveCard(validatedCardInfo, setAsDefault);
-
-    return {
-      success: true,
-      card: savedCard,
-    };
-  } catch (error: any) {
-    console.error('❌ Error en validateAndSaveCard:', error.message);
-    throw error;
-  }
+  return {
+    success: true,
+    card: savedCard,
+  };
 };
 
 /**
  * Obtener tarjetas guardadas del usuario
  */
-export const getCardsList = async (): Promise<any[]> => {
-  try {
-    console.log(`📋 Obteniendo tarjetas guardadas...`);
+export const getCardsList = async (forceRefresh = false): Promise<Card[]> => {
+  console.log(`📋 Obteniendo tarjetas guardadas...`);
 
-    const { app } = await initializeFirebase();
-    if (!app) throw new Error('Firebase no inicializado');
-
-    const functions = getFunctions(app);
-    const getCardsFn = httpsCallable(functions, 'getCards');
-
-    const result = await getCardsFn();
-    const data = result.data as any;
-
-    if (!data.success) {
-      throw new Error(data.message || 'Error obteniendo tarjetas');
-    }
-
-    console.log(`✅ ${data.cards.length} tarjetas encontradas`);
-
-    return data.cards;
-  } catch (error: any) {
-    console.error('❌ Error obteniendo tarjetas:', error.message);
-    throw error;
+  if (!forceRefresh && cardsCache) {
+    return cardsCache;
   }
+
+  const cards = await cardsService.getCards();
+  return normalizeCards(cards);
+};
+
+export const hasSavedCard = async (forceRefresh = false): Promise<boolean> => {
+  const cards = await getCardsList(forceRefresh);
+  return cards.some(card => card.isActive !== false);
+};
+
+export const invalidateCardsCache = () => {
+  cardsCache = null;
 };
 
 /**
  * Eliminar tarjeta
  */
 export const deleteCard = async (cardId: string): Promise<void> => {
-  try {
-    console.log(`🗑️ Eliminando tarjeta: ${cardId}`);
-
-    const { app } = await initializeFirebase();
-    if (!app) throw new Error('Firebase no inicializado');
-
-    const functions = getFunctions(app);
-    const deleteCardFn = httpsCallable(functions, 'deleteCard');
-
-    const result = await deleteCardFn({ cardId });
-    const data = result.data as any;
-
-    if (!data.success) {
-      throw new Error(data.message || 'Error eliminando tarjeta');
-    }
-
-    console.log(`✅ Tarjeta eliminada exitosamente`);
-  } catch (error: any) {
-    console.error('❌ Error eliminando tarjeta:', error.message);
-    throw error;
-  }
+  console.log(`🗑️ Eliminando tarjeta: ${cardId}`);
+  await cardsService.deleteCard(cardId);
+  removeCachedCard(cardId);
 };
 
 /**
  * Establecer tarjeta como predeterminada
  */
 export const setDefaultCard = async (cardId: string): Promise<void> => {
-  try {
-    console.log(`⭐ Estableciendo tarjeta predeterminada: ${cardId}`);
+  console.log(`⭐ Estableciendo tarjeta predeterminada: ${cardId}`);
+  const updatedCard = await cardsService.setDefaultCard(cardId);
 
-    const { app } = await initializeFirebase();
-    if (!app) throw new Error('Firebase no inicializado');
-
-    const functions = getFunctions(app);
-    const setDefaultCardFn = httpsCallable(functions, 'setDefaultCard');
-
-    const result = await setDefaultCardFn({ cardId });
-    const data = result.data as any;
-
-    if (!data.success) {
-      throw new Error(data.message || 'Error estableciendo tarjeta predeterminada');
-    }
-
-    console.log(`✅ Tarjeta predeterminada establecida`);
-  } catch (error: any) {
-    console.error('❌ Error estableciendo tarjeta predeterminada:', error.message);
-    throw error;
+  if (!cardsCache) {
+    cardsCache = [updatedCard];
+    return;
   }
+
+  const updated = cardsCache.map(card =>
+    card.id === updatedCard.id
+      ? updatedCard
+      : { ...card, isDefault: false }
+  );
+
+  cardsCache = upsertDefaults(updated, updatedCard.id);
 };
+
+const upsertDefaults = (cards: Card[], defaultCardId: string): Card[] =>
+  cards.map(card => ({ ...card, isDefault: card.id === defaultCardId }));
 
 /**
  * Formatear número de tarjeta para mostrar

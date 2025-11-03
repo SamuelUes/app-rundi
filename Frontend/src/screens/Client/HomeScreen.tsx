@@ -205,11 +205,31 @@ export default function HomeScreen({ navigation }: any) {
             
             // Si el viaje está en pending_payment, navegar a pantalla de pago
             if (activeRideData.status === 'pending_payment') {
-              console.log('💵 [HomeScreen] Viaje en pending_payment, navegando a CashPaymentScreen');
-              navigation.navigate('CashPayment', {
-                rideId: activeRideId,
-                amount: activeRideData.finalFare || activeRideData.estimatedPrice,
-              });
+              const paymentMethod = activeRideData.paymentMethod || activeRideData.payment?.method || 'cash';
+              const finalAmount = activeRideData.finalFare || activeRideData.estimatedPrice || 0;
+              const driverName = activeRideData.driver?.name || 'Conductor';
+              const driverPhoto = activeRideData.driver?.photoURL || undefined;
+
+              if (paymentMethod === 'card') {
+                console.log('💳 [HomeScreen] Viaje en pending_payment con tarjeta, navegando a PaymentScreen');
+                navigation.navigate('Payment', {
+                  rideId: activeRideId,
+                  amount: finalAmount,
+                  driverId: activeRideData.driverId,
+                  driverName,
+                  vehiclePlate: activeRideData.vehicle?.plate || activeRideData.driver?.vehicle?.plate || 'N/A',
+                  driverPhoto,
+                  isPendingPayment: true,
+                });
+              } else {
+                console.log('💵 [HomeScreen] Viaje en pending_payment con efectivo, navegando a CashPaymentScreen');
+                navigation.navigate('CashPayment', {
+                  rideId: activeRideId,
+                  amount: finalAmount,
+                  driverName,
+                  driverPhoto,
+                });
+              }
               activeRideFound = true;
               return; // Salir temprano
             }
@@ -590,17 +610,52 @@ export default function HomeScreen({ navigation }: any) {
           estimatedFare: activeRide.finalFare || activeRide.estimatedPrice || 0,
         });
       } else {
-        console.log('⚠️ Estado de viaje no manejado:', activeRide.status);
+        if (activeRide.status === 'pending_payment') {
+          const paymentMethod = activeRide.paymentMethod || activeRide.payment?.method || 'cash';
+          const finalAmount = activeRide.finalFare || activeRide.estimatedPrice || 0;
+          const driverName = activeRide.driver?.name || 'Conductor';
+          const driverPhoto = activeRide.driver?.photoURL || undefined;
+
+          if (paymentMethod === 'card') {
+            console.log('💳 [HomeScreen] Viaje pendiente de pago con tarjeta. Navegando a PaymentScreen...');
+            navigation.navigate('Payment', {
+              rideId: activeRide.id,
+              amount: finalAmount,
+              driverId: activeRide.driverId,
+              driverName,
+              vehiclePlate: activeRide.vehicle?.plate || activeRide.driver?.vehicle?.plate || 'N/A',
+              driverPhoto,
+              isPendingPayment: true,
+            });
+          } else {
+            console.log('💵 [HomeScreen] Viaje pendiente de pago en efectivo. Navegando a CashPaymentScreen...');
+            navigation.navigate('CashPayment', {
+              rideId: activeRide.id,
+              amount: finalAmount,
+              driverName,
+              driverPhoto,
+            });
+          }
+        } else if (activeRide.status === 'pending_confirm' || activeRide.status === 'driver_offered' || activeRide.status === 'driver_assigned') {
+          console.log('🚗 [HomeScreen] Viaje pendiente de confirmación. Navegando a Ride confirmation screen...');
+          navigation.navigate('RideConfirmation', { rideId: activeRide.id });
+        } else {
+          console.log(`⚠️ [HomeScreen] Estado de viaje no manejado: ${activeRide.status}`);
+        }
+        setActiveRide(activeRide);
+        setHasRideRequest(true);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Error al navegar a viaje activo:', error);
     }
   };
   
-  // Mostrar pantalla de carga si corresponde
-  if (!coords && !clientLocationData?.coords) {
-    return <LoadingOverlay visible={true} message={loadingMessage} />;
-  }
+// Mostrar pantalla de carga si corresponde
+if (!coords && !clientLocationData?.coords) {
+  console.log('⏳ Esperando coordenadas del cliente...');
+  return <LoadingOverlay visible={true} message={loadingMessage} />;
+}
+
   
   // Mostrar error si no hay ubicación
   if (locationError) {

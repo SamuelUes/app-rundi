@@ -6,33 +6,46 @@
     "activeRides": {
       ".read": "auth != null",
       "$rideId": {
-        ".write": "auth != null && ((data.child('clientId').val() === auth.uid) || (data.child('driverId').val() === auth.uid) || (!data.exists() && auth != null))",
-        ".validate": "newData.hasChildren(['id', 'clientId', 'status', 'origin', 'destination', 'estimatedPrice', 'requestedAt'])",
+        ".write": "auth != null",
+        ".validate": "data.exists() ? true : newData.hasChildren(['id', 'clientId', 'status', 'origin', 'destination', 'estimatedPrice', 'requestedAt'])",
         
         "id": { ".validate": "newData.isString()" },
         "clientId": { ".validate": "newData.isString()" },
         "driverId": { ".validate": "newData.isString() || newData.val() == null" },
         "status": { ".validate": "newData.isString() && newData.val().matches(/^(requested|accepted|in_progress|completed|canceled)$/)" },
-        "origin": { ".validate": "newData.hasChildren(['lat', 'lng'])" },
-        "destination": { ".validate": "newData.hasChildren(['lat', 'lng'])" },
-        "estimatedPrice": { ".validate": "newData.isNumber() && newData.val() > 0" },
-        "estimatedDistance": { ".validate": "newData.isNumber() && newData.val() >= 0" },
-        "estimatedDuration": { ".validate": "newData.isNumber() && newData.val() >= 0" },
-        "distance": { ".validate": "newData.isNumber() && newData.val() >= 0" },
-        "duration": { ".validate": "newData.isNumber() && newData.val() >= 0" },
-        "finalFare": { ".validate": "newData.isNumber() || newData.val() == null" },
-        "requestedAt": { ".validate": "newData.isNumber() && newData.val() > 0" },
-        "acceptedAt": { ".validate": "newData.isNumber() || newData.val() == null" },
-        "startedAt": { ".validate": "newData.isNumber() || newData.val() == null" },
-        "completedAt": { ".validate": "newData.isNumber() || newData.val() == null" },
-        "lastUpdate": { ".validate": "newData.isNumber() && newData.val() > 0" }
+        "origin": { ".validate": "!newData.exists() || newData.hasChildren(['lat', 'lng'])" },
+        "destination": { ".validate": "!newData.exists() || newData.hasChildren(['lat', 'lng'])" },
+        "estimatedPrice": { ".validate": "!newData.exists() || (newData.isNumber() && newData.val() >= 0)" },
+        "estimatedDistance": { ".validate": "!newData.exists() || (newData.isNumber() && newData.val() >= 0)" },
+        "estimatedDuration": { ".validate": "!newData.exists() || (newData.isNumber() && newData.val() >= 0)" },
+        "distance": { ".validate": "!newData.exists() || (newData.isNumber() && newData.val() >= 0)" },
+        "duration": { ".validate": "!newData.exists() || (newData.isNumber() && newData.val() >= 0)" },
+        "finalFare": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+        "requestedAt": { ".validate": "!newData.exists() || (newData.isNumber() && newData.val() > 0)" },
+        "acceptedAt": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+        "startedAt": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+        "completedAt": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+        "lastUpdate": {
+          ".write": "auth != null",
+          ".validate": "newData.isNumber() && newData.val() > 0"
+        },
+
+        "driverLocation": {
+          ".write": "auth != null",
+          ".validate": "newData.hasChildren(['latitude', 'longitude']) && newData.child('latitude').isNumber() && newData.child('longitude').isNumber()"
+        },
+
+        "clientLocation": {
+          ".write": "auth != null",
+          ".validate": "newData.hasChildren(['latitude', 'longitude']) && newData.child('latitude').isNumber() && newData.child('longitude').isNumber()"
+        }
       }
     },
     
     "driverLocations": {
       ".read": "auth != null",
       "$driverId": {
-        ".write": "auth != null && auth.uid === $driverId"
+        ".write": "auth != null"
       }
     },
     

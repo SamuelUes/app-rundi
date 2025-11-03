@@ -402,6 +402,13 @@ export const switchVehicle = functions.https.onCall(async (data, context) => {
       throw new functions.https.HttpsError('not-found', `Vehículo no encontrado: ${vehicleId}`);
     }
 
+    if (!vehicle.is_active) {
+      throw new functions.https.HttpsError(
+        'failed-precondition',
+        'Este vehículo aún no ha sido aprobado por el equipo administrativo'
+      );
+    }
+
     console.log(`📋 Vehículo encontrado:`, vehicle.plate);
 
     // Actualizar en Firebase Realtime Database - driversInfo
@@ -417,9 +424,21 @@ export const switchVehicle = functions.https.onCall(async (data, context) => {
       is_active: true,
     };
 
-    console.log(`📤 Actualizando driversInfo/${driverId}/vehicle con:`, vehicleData);
+    console.log(`📤 Actualizando driversInfo/${firebaseUserId}/vehicle con:`, vehicleData);
 
-    await db.ref(`driversInfo/${driverId}/vehicle`).set(vehicleData);
+    const driverInfoRef = db.ref(`driversInfo/${firebaseUserId}`);
+
+    await driverInfoRef.child('vehicle').set({
+      ...vehicleData,
+      updated_at: admin.database.ServerValue.TIMESTAMP,
+    });
+
+    const driverInfoSnapshot = await driverInfoRef.once('value');
+    const driverInfo = driverInfoSnapshot.val() || {};
+
+    if (!driverInfo.vehicle && driverInfo.status !== 'unavailable') {
+      await driverInfoRef.update({ status: 'unavailable' });
+    }
 
     console.log(`✅ Vehículo activo actualizado en Realtime DB`);
 

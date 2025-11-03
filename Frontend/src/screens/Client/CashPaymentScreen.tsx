@@ -457,7 +457,7 @@ export default function CashPaymentScreen({ route, navigation }: any) {
           </View>
           
           <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Fecha:</Text>
+            <Text style={styles.detailLabel}>Hora:</Text>
             <Text style={styles.detailValue}>
               {formatNicaraguaTime(new Date())}
             </Text>

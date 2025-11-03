@@ -42,22 +42,26 @@ interface RideTracking {
   currentDestinationIndex?: number;
 }
 
+let callableTrackingDisabled = false;
+
 class FirebaseTrackingService {
   private listeners: Map<string, any> = new Map();
 
-  private async ensureFirebaseAuthSession(): Promise<void> {
+  private async ensureFirebaseAuthSession(): Promise<import('firebase/auth').User | null> {
     const auth = await getFirebaseAuth();
+
     if (auth.currentUser) {
-      return;
+      return auth.currentUser;
     }
 
     try {
       console.log('🔐 [FirebaseTrackingService] No hay sesión Firebase, autenticando anónimamente para tracking...');
-      await signInAnonymously(auth);
+      const credential = await signInAnonymously(auth);
       console.log('✅ [FirebaseTrackingService] Sesión anónima iniciada para tracking');
+      return credential.user;
     } catch (error) {
-      console.error('❌ [FirebaseTrackingService] Error iniciando sesión anónima:', error);
-      throw error;
+      console.warn('⚠️ [FirebaseTrackingService] No se pudo iniciar sesión anónima para tracking:', error);
+      return auth.currentUser;
     }
   }
 
@@ -182,60 +186,82 @@ class FirebaseTrackingService {
     data: Partial<RideTracking>
   ): Promise<void> {
     try {
-      await this.ensureFirebaseAuthSession();
+      const authUser = await this.ensureFirebaseAuthSession();
+      const database = await getFirebaseDatabase();
 
-      // ✅ NUEVO: Usar Cloud Function en lugar de actualizar directamente
-      // Esto evita problemas de permisos en Firebase Realtime DB
-      const functions = await getFirebaseFunctions();
-      const updateTrackingFn = httpsCallable(functions, 'updateRideStatus');
-      
-      // ✅ NUEVO: Agregar timeout para evitar bloqueos
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Timeout actualizando tracking')), 5000)
-      );
-      
-      await Promise.race([
-        updateTrackingFn({
-          rideId,
-          status: data.status,
-          driverLocation: data.driverLocation ? {
-            latitude: data.driverLocation.latitude,
-            longitude: data.driverLocation.longitude,
-            speed: data.driverLocation.speed,
-            heading: data.driverLocation.heading,
-            accuracy: data.driverLocation.accuracy,
-          } : null,
-        }),
-        timeoutPromise
-      ]);
+      const updates: any = {
+        lastUpdate: Date.now(),
+      };
 
-      console.log(`✅ Tracking actualizado vía Cloud Function: ${rideId}`);
+      if (data.status) {
+        updates.status = data.status;
+      }
 
-      // 2. Si hay ubicación del conductor, guardar en PostgreSQL (ride_locations) con reintentos
-      // ✅ NUEVO: No guardar ubicaciones si el viaje está completado, cancelado o en pending_payment
-      if (data.driverLocation && 
-          data.status !== 'pending_payment' && 
-          data.status !== 'completed' && 
-          data.status !== 'cancelled' &&
-          data.status !== 'pending_rating') {
-        await this.saveLocationWithRetry(rideId, data.driverLocation, 3);
-      } else if (data.status === 'pending_payment' || data.status === 'completed' || data.status === 'cancelled' || data.status === 'pending_rating') {
+      if (data.driverLocation) {
+        updates.driverLocation = {
+          latitude: data.driverLocation.latitude,
+          longitude: data.driverLocation.longitude,
+          speed: data.driverLocation.speed || null,
+          heading: data.driverLocation.heading || null,
+          accuracy: data.driverLocation.accuracy || null,
+          timestamp: data.driverLocation.timestamp || Date.now(),
+        };
+      }
+
+      if (data.clientLocation) {
+        updates.clientLocation = {
+          latitude: data.clientLocation.latitude,
+          longitude: data.clientLocation.longitude,
+          speed: data.clientLocation.speed || null,
+          heading: data.clientLocation.heading || null,
+          accuracy: data.clientLocation.accuracy || null,
+          timestamp: data.clientLocation.timestamp || Date.now(),
+        };
+      }
+
+      await update(ref(database, `activeRides/${rideId}`), updates);
+      console.log(`✅ Tracking actualizado en Realtime DB: ${rideId}`);
+
+      const shouldPersistLocation = data.driverLocation &&
+        data.status !== 'pending_payment' &&
+        data.status !== 'completed' &&
+        data.status !== 'cancelled' &&
+        data.status !== 'pending_rating';
+
+      if (shouldPersistLocation && authUser && !callableTrackingDisabled) {
+        try {
+          const functions = await getFirebaseFunctions();
+          const updateTrackingFn = httpsCallable(functions, 'updateRideStatus');
+
+          const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Timeout actualizando tracking')), 5000)
+          );
+
+          await Promise.race([
+            updateTrackingFn({
+              rideId,
+              status: data.status,
+              driverLocation: updates.driverLocation,
+            }),
+            timeoutPromise,
+          ]);
+
+          await this.saveLocationWithRetry(rideId, updates.driverLocation, 3);
+        } catch (callableError) {
+          callableTrackingDisabled = true;
+          console.warn('⚠️ [FirebaseTrackingService] Se deshabilita el uso de Cloud Function updateRideStatus por error:', callableError);
+        }
+      } else if (!authUser && shouldPersistLocation) {
+        console.warn('⚠️ [FirebaseTrackingService] Se omitió el guardado en funciones por falta de sesión Firebase');
+      } else if (callableTrackingDisabled && shouldPersistLocation) {
+        console.log('ℹ️ [FirebaseTrackingService] Uso de Cloud Function omitido tras error previo (tracking continúa en RTDB)');
+      } else if (!shouldPersistLocation && data.status) {
         console.log(`⏸️ Tracking pausado: viaje en estado ${data.status}, no se guardan ubicaciones`);
       }
 
-      console.log(`🚗 Tracking actualizado: ${rideId}`);
+      console.log(`🚗 Tracking actualizado (RTDB + opcional Function): ${rideId}`);
     } catch (error: any) {
-      console.error('❌ Error actualizando tracking:', error);
-      
-      // ✅ NUEVO: Logging detallado de errores
-      if (error.code === 'functions/unavailable') {
-        console.warn(`⚠️ Firebase Functions no disponible - posible problema de conectividad`);
-      } else if (error.message?.includes('Timeout')) {
-        console.warn(`⚠️ Timeout actualizando tracking - servidor lento`);
-      }
-      
-      // No lanzar error - el tracking es no-bloqueante
-      console.warn(`⚠️ Tracking no se actualizó, pero el viaje continúa`);
+      console.error('❌ Error actualizando tracking en Realtime DB:', error);
       throw error;
     }
   }

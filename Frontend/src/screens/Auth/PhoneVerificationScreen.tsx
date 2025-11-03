@@ -17,10 +17,12 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
-import smsService from '../../services/smsService';
+import phoneAuthService from '../../services/auth/phoneAuthService';
+import { useAuth } from '../../context/AuthContext';
 
 export default function PhoneVerificationScreen({ navigation, route }: any) {
   const { colors } = useTheme();
+  const { register } = useAuth();
   const styles = useMemo(() => createStyles(colors), [colors]);
   
   // Datos del registro anterior
@@ -54,25 +56,21 @@ export default function PhoneVerificationScreen({ navigation, route }: any) {
 
     setLoading(true);
     try {
-      console.log('🔐 Verificando código:', code);
-      
-      // Llamar a servicio SMS para validar código
-      const result = await smsService.verifyCode(phone, code);
-      
-      if (!result.success) {
-        // Código inválido
-        setAttempts(attempts + 1);
-        Alert.alert('Error', result.message);
-        setCode('');
-        return;
+      console.log('🔐 Verificando código con Firebase:', code);
+
+      const credential = await phoneAuthService.confirmVerificationCode(phone, code, {
+        signOutAfterConfirm: true,
+      });
+
+      const firebaseUser = credential.user;
+
+      if (!firebaseUser) {
+        throw new Error('No se pudo obtener el usuario de Firebase');
       }
 
-      // Código válido
       Alert.alert('✅ Éxito', 'Número verificado correctamente');
-      
-      // Navegar según el rol
+
       if (role === 'driver') {
-        // Para conductores, ir a pantalla de datos del conductor
         navigation.navigate('DriverData', {
           name,
           email,
@@ -82,18 +80,32 @@ export default function PhoneVerificationScreen({ navigation, route }: any) {
           authProvider,
           phoneVerified: true,
         });
-      } else {
-        // Para clientes, crear usuario directamente
-        navigation.navigate('RegisterConfirm', {
-          name,
+        return;
+      }
+
+      if (authProvider === 'email/password') {
+        await register({
           email,
-          phone,
           password,
+          name,
+          phone,
           role,
           authProvider,
           phoneVerified: true,
         });
+
+        return;
       }
+
+      navigation.navigate('RegisterConfirm', {
+        name,
+        email,
+        phone,
+        password,
+        role,
+        authProvider,
+        phoneVerified: true,
+      });
     } catch (error: any) {
       console.error('Error verificando código:', error);
       setAttempts(attempts + 1);
@@ -108,15 +120,9 @@ export default function PhoneVerificationScreen({ navigation, route }: any) {
     setResendLoading(true);
     try {
       console.log('📱 Reenviando código a:', phone);
-      
-      // Llamar a servicio SMS para reenviar código
-      const result = await smsService.resendCode(phone);
-      
-      if (!result.success) {
-        Alert.alert('Error', result.message);
-        return;
-      }
-      
+
+      await phoneAuthService.sendVerificationCode(phone);
+
       Alert.alert('✅ Código reenviado', `Se envió un nuevo código a ${phone}`);
       setTimeLeft(60);
       setCode('');
