@@ -41,7 +41,12 @@ export default function LoginScreen({ navigation }: any) {
   const [normalizedPhone, setNormalizedPhone] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [loginMode, setLoginMode] = useState<'email' | 'phone'>('email'); // 'email' o 'phone'
-  const { promptAsync, loading: googleLoading, loginWithGoogle: googleLogin } = useGoogleAuth(GOOGLE_CLIENT_ID);
+  const {
+    promptAsync,
+    loading: googleLoading,
+    loginWithGoogle: googleLogin,
+    getGoogleIdToken,
+  } = useGoogleAuth(GOOGLE_CLIENT_ID);
 
   const handlePhoneChange = (text: string) => {
     const normalized = normalizePhoneNumber(text, selectedCountry.dialCode);
@@ -115,31 +120,16 @@ export default function LoginScreen({ navigation }: any) {
     try {
       setLoading(true);
       console.log('🔐 Iniciando Google Sign-In...');
-      
-      const result = await promptAsync();
-      
-      if (result?.type === 'success') {
-        console.log('✅ Google Sign-In exitoso');
-        const { id_token } = result.params;
-        
-        if (!id_token) {
-          throw new Error('No se recibió ID Token de Google');
-        }
-        
-        console.log('🔄 Iniciando sesión con Firebase...');
-        const userData = await googleLogin(id_token);
-        
-        console.log('💾 Guardando datos de usuario...');
-        await loginWithGoogle(userData);
-        
-        console.log('✅ Login completado, navegando a HomeScreen');
-        // La navegación se maneja automáticamente en el contexto de autenticación
-      } else if (result?.type === 'cancel') {
-        console.log('❌ Usuario canceló Google Sign-In');
-        // No mostrar alerta, es una acción esperada del usuario
-      } else {
-        throw new Error('Error desconocido en Google Sign-In');
-      }
+
+      const idToken = await getGoogleIdToken();
+
+      console.log('🔄 Iniciando sesión con Firebase...');
+      const userData = await googleLogin(idToken);
+
+      console.log('💾 Guardando datos de usuario...');
+      await loginWithGoogle(userData);
+
+      console.log('✅ Login completado, la navegación se maneja por el contexto');
     } catch (error: any) {
       console.error('❌ Error en Google Login:', error);
       Alert.alert(

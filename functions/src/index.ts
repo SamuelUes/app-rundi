@@ -29,6 +29,7 @@ import * as biometricAuthSequelizeAPI from "./api/biometric_authentications_sequ
 import * as analyticsSequelizeAPI from "./api/analytics_sequelize";
 import * as smsCodesSequelizeAPI from "./api/sms_verification_codes_sequelize";
 import * as commissionHistorySequelizeAPI from "./api/service_commission_history_sequelize";
+import * as authAPI from "./api/auth";
 // ⚠️ COMENTADOS: Archivos .old.ts eliminados
 // import * as usersAPI from "./api/users.old";
 // import * as trackingFunctions from "./api/tracking-functions.old";
@@ -102,15 +103,10 @@ import * as cleanupRealtimeDB from "./scheduled/cleanupRealtimeDB";
 
 // ⚠️ COMENTADOS: Auth y SMS - archivos .old.ts eliminados
 // import * as authAPI from "./api/auth";
-// import * as smsAPI from "./api/sms";
 // export const register = authAPI.register;
 // export const login = authAPI.login;
 // export const logout = authAPI.logout;
 // export const completeDriverRegistration = authAPI.completeDriverRegistration;
-// export const sendSmsCode = smsAPI.sendSmsCode;
-// export const verifySmsCode = smsAPI.verifySmsCode;
-// export const resendSmsCode = smsAPI.resendSmsCode;
-// export const cleanupExpiredSmsCode = smsAPI.cleanupExpiredSmsCode;
 
 // ✅ NUEVAS APIs CON SEQUELIZE + ZOD
 // Rides
@@ -347,6 +343,10 @@ export const getUserSmsCodesSeq = smsCodesSequelizeAPI.getUserSmsCodes;
 export const registerFCMToken = fcmAPI.registerFCMToken;
 export const clearFCMToken = fcmAPI.clearFCMToken;
 export const sendTestNotification = fcmAPI.sendTestNotification;
+
+// Auth API (HTTP + Callable)
+export const auth = authAPI.auth;
+export const register = authAPI.registerCallable;
 
 // Service Commission History (Sequelize)
 export const recordCommissionChangeSeq = commissionHistorySequelizeAPI.recordCommissionChange;

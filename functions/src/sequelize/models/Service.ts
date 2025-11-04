@@ -10,6 +10,8 @@ class Service extends Model {
   declare name: string;
   declare description: string | null;
   declare commission_rate: number;
+  declare base_price: number | null;
+  declare code: string | null;
   declare status: string;
   declare created_at: Date;
 }
@@ -25,6 +27,11 @@ Service.init(
       type: DataTypes.STRING(100),
       allowNull: false,
     },
+    code: {
+      type: DataTypes.STRING(50),
+      allowNull: true,
+      unique: true,
+    },
     description: {
       type: DataTypes.TEXT,
       allowNull: true,
@@ -32,6 +39,10 @@ Service.init(
     commission_rate: {
       type: DataTypes.DECIMAL(5, 4),
       allowNull: false,
+    },
+    base_price: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: true,
     },
     status: {
       type: DataTypes.STRING(20),

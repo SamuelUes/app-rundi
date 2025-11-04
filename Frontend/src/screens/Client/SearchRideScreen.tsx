@@ -22,6 +22,7 @@ import { useTheme } from '../../context/ThemeContext';
 import ridesService, { Driver } from '../../services/ridesService';
 import mapsService from '../../services/mapsService';
 import driversService from '../../services/driversService';
+import servicesService, { ServiceItem } from '@/services/servicesService';
 import Button from '../../components/Button';
 import { SkeletonLoader } from '../../components/SkeletonLoader';
 import { NoDriversEmptyState, NoSearchResultsEmptyState } from '../../components/EmptyState';
@@ -33,6 +34,14 @@ export default function SearchRideScreen({ navigation }: any) {
   const { colors } = useTheme();
   const { coords } = useLocation();
   const styles = useMemo(() => createStyles(colors), [colors]);
+
+  const [servicesCatalog, setServicesCatalog] = useState<ServiceItem[]>([]);
+
+  useEffect(() => {
+    servicesService.listServices().then(setServicesCatalog).catch((error: unknown) => {
+      console.warn('⚠️ No se pudieron cargar los servicios disponibles:', error);
+    });
+  }, []);
 
   const [origin, setOrigin] = useState('');
   const [destination, setDestination] = useState('');
@@ -813,6 +822,20 @@ export default function SearchRideScreen({ navigation }: any) {
 
       if (vehicleType === 'designated_driver') {
         requestData.notes = '🚗 Conductor Designado';
+      }
+
+      const serviceCodeMap: Record<string, string> = {
+        moto: 'motorcycle',
+        auto: 'normal',
+        designated_driver: 'designated_driver',
+      };
+
+      const code = serviceCodeMap[vehicleType];
+      if (code) {
+        const matchedService = servicesCatalog.find((service) => service.code === code);
+        if (matchedService?.id) {
+          requestData.serviceId = matchedService.id;
+        }
       }
 
       const ride = await ridesService.requestRide(requestData);

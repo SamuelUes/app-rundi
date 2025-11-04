@@ -3,10 +3,13 @@
  * Diseñado para soportar 3000 usuarios simultáneos
  */
 
-import { GlobalOptions } from 'firebase-functions/v2/options';
+import { RuntimeOptions } from 'firebase-functions';
+
+// Región por defecto para todas las funciones HTTP/callables
+export const DEFAULT_REGION = 'us-central1';
 
 // Type alias para mejor legibilidad
-type FunctionConfig = GlobalOptions;
+type FunctionConfig = RuntimeOptions;
 
 /**
  * Configuración para funciones de alta demanda (auth, rides, tracking)
@@ -15,13 +18,10 @@ type FunctionConfig = GlobalOptions;
  * - Optimizado para presupuesto de $200/mes
  */
 export const highDemandConfig: FunctionConfig = {
-  region: 'us-central1',
-  memory: '512MiB',
+  memory: '512MB',
   timeoutSeconds: 60,
   minInstances: 3, // 3 instancias siempre activas (balance costo/performance)
   maxInstances: 100, // Escala hasta 100 instancias en picos
-  concurrency: 100, // 100 requests simultáneos por instancia
-  cpu: 1,
 };
 
 /**
@@ -29,13 +29,10 @@ export const highDemandConfig: FunctionConfig = {
  * - Menos frecuentes pero críticas
  */
 export const mediumDemandConfig: FunctionConfig = {
-  region: 'us-central1',
-  memory: '512MiB',
+  memory: '512MB',
   timeoutSeconds: 120,
   minInstances: 2, // 2 instancias siempre activas
   maxInstances: 50,
-  concurrency: 80,
-  cpu: 1,
 };
 
 /**
@@ -43,13 +40,10 @@ export const mediumDemandConfig: FunctionConfig = {
  * - Menos frecuentes, pueden tener cold starts
  */
 export const lowDemandConfig: FunctionConfig = {
-  region: 'us-central1',
-  memory: '256MiB',
+  memory: '256MB',
   timeoutSeconds: 300,
   minInstances: 0, // Permite cold starts
   maxInstances: 10,
-  concurrency: 50,
-  cpu: 1,
 };
 
 /**
@@ -57,13 +51,10 @@ export const lowDemandConfig: FunctionConfig = {
  * - Necesitan responder rápido
  */
 export const webhookConfig: FunctionConfig = {
-  region: 'us-central1',
-  memory: '256MiB',
+  memory: '256MB',
   timeoutSeconds: 60,
   minInstances: 1,
   maxInstances: 20,
-  concurrency: 100,
-  cpu: 1,
 };
 
 /**
@@ -71,13 +62,10 @@ export const webhookConfig: FunctionConfig = {
  * - Se ejecutan en background
  */
 export const scheduledConfig: FunctionConfig = {
-  region: 'us-central1',
-  memory: '1GiB',
+  memory: '1GB',
   timeoutSeconds: 540, // 9 minutos
   minInstances: 0,
   maxInstances: 1,
-  concurrency: 1,
-  cpu: 1,
 };
 
 /**
@@ -85,13 +73,10 @@ export const scheduledConfig: FunctionConfig = {
  * - Responden a eventos de Firestore/Realtime DB
  */
 export const triggerConfig: FunctionConfig = {
-  region: 'us-central1',
-  memory: '256MiB',
+  memory: '256MB',
   timeoutSeconds: 60,
   minInstances: 1,
   maxInstances: 30,
-  concurrency: 50,
-  cpu: 1,
 };
 
 /**

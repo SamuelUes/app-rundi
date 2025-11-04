@@ -3,7 +3,7 @@
  * Hook personalizado para manejar autenticación con Google
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import * as Google from 'expo-auth-session/providers/google';
 import * as WebBrowser from 'expo-web-browser';
 import { AuthSessionResult } from 'expo-auth-session';
@@ -17,6 +17,7 @@ interface UseGoogleAuthReturn {
   loading: boolean;
   error: string | null;
   clearError: () => void;
+  getGoogleIdToken: () => Promise<string>;
   loginWithGoogle: (idToken: string) => Promise<any>;
   registerWithGoogle: (
     idToken: string,
@@ -37,6 +38,7 @@ interface UseGoogleAuthReturn {
 export const useGoogleAuth = (clientId: string): UseGoogleAuthReturn => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const pendingPromiseRef = useRef<{ resolve: (token: string) => void; reject: (error: Error) => void } | null>(null);
 
   const androidClientId =
     process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID ||
@@ -66,19 +68,59 @@ export const useGoogleAuth = (clientId: string): UseGoogleAuthReturn => {
 
   // Manejar respuesta de Google Auth
   useEffect(() => {
-    if (response?.type === 'success') {
+    if (!response) {
+      return;
+    }
+
+    if (response.type === 'success') {
       const idToken = extractIdToken(response);
       if (idToken) {
         console.log('✅ Google Auth exitoso, token recibido');
+        pendingPromiseRef.current?.resolve(idToken);
       } else {
-        console.error('❌ Google Auth completó sin ID Token');
-        setError('No se recibió ID Token de Google');
+        const message = 'No se recibió ID Token de Google';
+        console.error(`❌ ${message}`);
+        setError(message);
+        pendingPromiseRef.current?.reject(new Error(message));
       }
-    } else if (response?.type === 'error') {
-      console.error('❌ Error en Google Auth:', response.params?.error);
-      setError(response.params?.error || 'Error en Google Sign-In');
+    } else if (response.type === 'error') {
+      const message = response.params?.error || 'Error en Google Sign-In';
+      console.error('❌ Error en Google Auth:', message);
+      setError(message);
+      pendingPromiseRef.current?.reject(new Error(message));
+    } else if (response.type === 'dismiss') {
+      pendingPromiseRef.current?.reject(new Error('Autenticación cancelada por el usuario'));
     }
+
+    pendingPromiseRef.current = null;
   }, [response]);
+
+  const getGoogleIdToken = async (): Promise<string> => {
+    setLoading(true);
+    try {
+      const result = await promptAsync();
+
+      if (!result || result.type === 'dismiss' || result.type === 'cancel') {
+        throw new Error('Autenticación cancelada por el usuario');
+      }
+
+      if (result.type === 'error') {
+        const message = (result as any)?.error || 'Error en Google Sign-In';
+        throw new Error(message);
+      }
+
+      const immediateToken = extractIdToken(result);
+      if (immediateToken) {
+        return immediateToken;
+      }
+
+      return await new Promise<string>((resolve, reject) => {
+        pendingPromiseRef.current = { resolve, reject };
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const loginWithGoogle = async (idToken: string) => {
     setLoading(true);
@@ -140,6 +182,7 @@ export const useGoogleAuth = (clientId: string): UseGoogleAuthReturn => {
     loading,
     error,
     clearError,
+    getGoogleIdToken,
     loginWithGoogle,
     registerWithGoogle,
   };

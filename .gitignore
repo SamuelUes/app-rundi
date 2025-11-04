@@ -13,6 +13,7 @@
 !Frontend/.env
 !Frontend/.env.local
 !Frontend/.env.production
+!Frontend/android
 
 # Mantener ignorados los .env de Backend y Functions (contienen secrets)
 #functions/.env
@@ -88,3 +89,4 @@ supabase.ts
 
 # Frontend - PERMITIR .env para APIs públicas (Google Maps, etc.)
 # El .env del Frontend se permite porque contiene solo APIs del cliente
+

@@ -27,10 +27,10 @@ interface AuthContextData {
   user: User | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  loginWithGoogle: (userData: any) => Promise<void>;
+  loginWithGoogle: (userData: any, token?: string) => Promise<void>;
   loginWithPhoneAndSMS: (userData: any, token?: string) => Promise<void>;
   register: (registerData: any) => Promise<void>;
-  registerWithGoogle: (userData: any) => Promise<void>;
+  registerWithGoogle: (userData: any, token?: string) => Promise<void>;
   logout: () => Promise<void>;
   getToken: () => Promise<string | null>;
 }
@@ -43,6 +43,23 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   // Seleccionar el servicio según el modo
   const authService = backendConfig.isFirebase() ? firebaseAuthService : localAuthService;
+
+  const normalizeUserData = (raw: any): User => {
+    if (!raw) {
+      throw new Error('Datos de usuario inválidos');
+    }
+
+    const id = raw.id || raw.userId || raw.uid;
+    const email = raw.email || '';
+    const name = raw.name || '';
+    const role = raw.role as User['role'];
+
+    if (!id || !role) {
+      throw new Error('Respuesta de usuario incompleta');
+    }
+
+    return { id, email, name, role };
+  };
 
   useEffect(() => {
     loadUser();
@@ -120,22 +137,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const login = async (email: string, password: string) => {
     try {
       const userData = await authService.login(email, password);
-      
-      console.log('🔐 Login userData recibido:', JSON.stringify(userData, null, 2));
-      console.log('🔐 Rol del usuario:', userData?.role);
-      
-      // Normalizar userData: convertir uid a id si es necesario
-      const normalizedUser = {
-        id: userData.uid || userData.id,
-        email: userData.email,
-        name: userData.name,
-        role: userData.role,
-      };
-      
-      console.log('🔐 Usuario normalizado:', JSON.stringify(normalizedUser, null, 2));
-      
+
+      const normalizedUser = normalizeUserData(userData);
+
       await AsyncStorage.setItem('user', JSON.stringify(normalizedUser));
-      
+
       setUser(normalizedUser);
     } catch (error: any) {
       console.error('Login error:', error);
@@ -146,31 +152,34 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const register = async (registerData: any) => {
     try {
       const { email, password, name, phone, role, driverData, vehicleData } = registerData;
-      
-      const userData = await authService.register(email, password, name, phone, role, driverData, vehicleData);
-      
-      // Si el login automático falló, hacer login manual
-      if (userData.needsManualLogin) {
-        console.log('⚠️ Haciendo login manual después del registro...');
-        try {
-          await login(email, password);
-          console.log('✅ Login manual exitoso');
-        } catch (loginError) {
-          console.error('❌ Login manual falló:', loginError);
-          // Aún así, el registro fue exitoso
-          throw new Error('Registro exitoso, pero no se pudo iniciar sesión automáticamente. Por favor, inicia sesión manualmente.');
-        }
-      } else {
-        // Login automático funcionó
-        await AsyncStorage.setItem('user', JSON.stringify(userData));
-        setUser(userData);
+
+      if (!email || !password) {
+        throw new Error('Correo y contraseña requeridos para registro tradicional');
       }
+
+      const userData = await authService.register(
+        email,
+        password,
+        name,
+        phone,
+        role,
+        driverData,
+        vehicleData
+      );
+
+      if (userData?.needsManualLogin) {
+        await login(email, password);
+        return;
+      }
+
+      const normalizedUser = normalizeUserData(userData);
+      await AsyncStorage.setItem('user', JSON.stringify(normalizedUser));
+      setUser(normalizedUser);
     } catch (error) {
       console.error('Register error:', error);
       throw error;
     }
   };
-
   const logout = async () => {
     try {
       // Marcar como offline en Firebase antes de hacer logout (solo conductores)
@@ -217,12 +226,30 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  const registerWithGoogle = async (userData: any) => {
+  const registerWithGoogle = async (userData: any, token?: string) => {
     try {
       console.log('📝 Registrando con Google:', userData);
-      
-      await AsyncStorage.setItem('user', JSON.stringify(userData));
-      setUser(userData);
+
+      const payload = userData?.user ? userData.user : userData;
+
+      if (!payload) {
+        throw new Error('Datos de usuario inválidos al registrar con Google');
+      }
+
+      const normalizedUser = {
+        id: payload.userId || payload.uid || payload.id,
+        email: payload.email,
+        name: payload.name,
+        role: payload.role,
+      };
+
+      await AsyncStorage.setItem('user', JSON.stringify(normalizedUser));
+
+      if (token) {
+        await AsyncStorage.setItem('authToken', token);
+      }
+
+      setUser(normalizedUser);
     } catch (error) {
       console.error('Google register error:', error);
       throw error;

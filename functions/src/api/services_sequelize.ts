@@ -17,7 +17,7 @@ export const createService = functions.https.onCall(async (data, context) => {
   }
 
   try {
-    const { name, description, commissionRate } = data;
+    const { name, description, commissionRate, basePrice, code } = data;
 
     if (!name || commissionRate === undefined) {
       throw new functions.https.HttpsError('invalid-argument', 'name y commissionRate son requeridos');
@@ -27,8 +27,10 @@ export const createService = functions.https.onCall(async (data, context) => {
 
     const service = await serviceRepo.create({
       name,
+      code: code || null,
       description: description || null,
       commission_rate: commissionRate,
+      base_price: basePrice ?? null,
       status: 'active',
     });
 
@@ -39,6 +41,8 @@ export const createService = functions.https.onCall(async (data, context) => {
         name: service.name,
         description: service.description,
         commissionRate: service.commission_rate,
+        basePrice: service.base_price,
+        code: service.code,
         status: service.status,
         createdAt: service.created_at,
       },
@@ -70,6 +74,10 @@ export const getServices = functions.https.onCall(async (data, context) => {
         name: s.name,
         description: s.description,
         commissionRate: parseFloat(s.commission_rate.toString()),
+        basePrice: s.base_price !== null && s.base_price !== undefined
+          ? parseFloat(s.base_price.toString())
+          : null,
+        code: s.code,
         status: s.status,
       })),
     };
@@ -109,6 +117,10 @@ export const getServiceById = functions.https.onCall(async (data, context) => {
         name: service.name,
         description: service.description,
         commissionRate: parseFloat(service.commission_rate.toString()),
+        basePrice: service.base_price !== null && service.base_price !== undefined
+          ? parseFloat(service.base_price.toString())
+          : null,
+        code: service.code,
         status: service.status,
       },
     };
@@ -127,7 +139,7 @@ export const updateService = functions.https.onCall(async (data, context) => {
   }
 
   try {
-    const { serviceId, name, description, commissionRate, status } = data;
+    const { serviceId, name, description, commissionRate, status, basePrice, code } = data;
 
     if (!serviceId) {
       throw new functions.https.HttpsError('invalid-argument', 'serviceId es requerido');
@@ -139,6 +151,8 @@ export const updateService = functions.https.onCall(async (data, context) => {
     if (name) updateData.name = name;
     if (description) updateData.description = description;
     if (commissionRate !== undefined) updateData.commission_rate = commissionRate;
+    if (basePrice !== undefined) updateData.base_price = basePrice;
+    if (code !== undefined) updateData.code = code;
     if (status) updateData.status = status;
 
     const service = await serviceRepo.update(serviceId, updateData);
@@ -149,6 +163,10 @@ export const updateService = functions.https.onCall(async (data, context) => {
         id: service.id,
         name: service.name,
         commissionRate: parseFloat(service.commission_rate.toString()),
+        basePrice: service.base_price !== null && service.base_price !== undefined
+          ? parseFloat(service.base_price.toString())
+          : null,
+        code: service.code,
         status: service.status,
       },
     };

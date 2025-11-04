@@ -6,58 +6,17 @@ import LoginScreen from '../screens/Auth/LoginScreen';
 import RegisterScreenNew from '../screens/Auth/RegisterScreen';
 import PhoneVerificationScreen from '../screens/Auth/PhoneVerificationScreen';
 import PhoneVerificationLoginScreen from '../screens/Auth/PhoneVerificationLoginScreen';
+import GooglePhoneScreen from '../screens/Auth/GooglePhoneScreen';
+import RoleSelectionScreen from '../screens/Auth/RoleSelectionScreen';
 import DriverDataScreen from '../screens/Auth/DriverDataScreen';
 import RegisterConfirm from '../screens/Auth/RegisterConfirm';
-
-export type AuthStackParamList = {
-  Login: undefined;
-  Register: undefined;
-  RegisterNew: undefined;
-  PhoneVerification: {
-    name: string;
-    email: string;
-    phone: string;
-    password?: string;
-    role: 'client' | 'driver';
-    authProvider: 'email/password' | 'google';
-  };
-  PhoneVerificationLogin: {
-    phone: string;
-    displayPhone: string;
-    country: {
-      code: string;
-      dialCode: string;
-      name: string;
-    };
-    mode: 'login';
-  };
-  DriverData: {
-    name: string;
-    email: string;
-    phone: string;
-    password?: string;
-    role: 'driver';
-    authProvider: 'email/password' | 'google';
-    phoneVerified: boolean;
-  };
-  RegisterConfirm: {
-    name: string;
-    email: string;
-    phone: string;
-    password?: string;
-    role: 'client' | 'driver';
-    authProvider: 'email/password' | 'google';
-    phoneVerified: boolean;
-    driverData?: any;
-    vehicleData?: any;
-  };
-};
+import { AuthStackParamList } from './types';
 
 const Stack = createNativeStackNavigator<AuthStackParamList>();
 
 export default function AuthStack() {
   const { colors } = useTheme();
-  
+
   return (
     <Stack.Navigator 
       screenOptions={{ 
@@ -85,6 +44,16 @@ export default function AuthStack() {
         name="RegisterNew" 
         component={RegisterScreenNew} 
         options={{ title: 'Nuevo Registro' }} 
+      />
+      <Stack.Screen
+        name="RoleSelection"
+        component={RoleSelectionScreen}
+        options={{ title: 'Seleccionar Rol' }}
+      />
+      <Stack.Screen
+        name="GooglePhone"
+        component={GooglePhoneScreen}
+        options={{ title: 'Número Telefónico' }}
       />
       <Stack.Screen 
         name="PhoneVerification" 

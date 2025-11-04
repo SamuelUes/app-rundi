@@ -5,15 +5,15 @@
 
 import {
   signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
+  signInWithCustomToken,
   signOut,
   onAuthStateChanged,
   User,
-  updateProfile,
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
-import { httpsCallable } from 'firebase/functions';
-import { getFirebaseAuth, getFirebaseFirestore, getFirebaseFunctions } from '../../config/firebase';
+import { getFirebaseAuth, getFirebaseFirestore } from '../../config/firebase';
+import client from '../../api/client';
+import { ENDPOINTS } from '../../api/endpoints';
 
 class FirebaseAuthService {
   /**
@@ -21,61 +21,65 @@ class FirebaseAuthService {
    */
   async register(email: string, password: string, name: string, phone: string, role: string, driverData?: any, vehicleData?: any) {
     try {
-      const functions = await getFirebaseFunctions();
-      
-      // Preparar datos para enviar
-      const registerPayload: any = {
+      const payload: any = {
         email,
         password,
         name,
         phone,
         role,
+        authProvider: 'email/password',
+        method: 'email',
+        driverData: role === 'driver' ? driverData : undefined,
+        vehicleData: role === 'driver' ? vehicleData : undefined,
       };
 
-      // Agregar datos de conductor si existen
-      if (role === 'driver' && driverData) {
-        registerPayload.driverData = driverData;
+      console.log('📤 Enviando datos de registro:', payload);
+
+      const { data } = await client.post(ENDPOINTS.auth.register, payload);
+
+      if (!data?.success || !data?.user) {
+        throw new Error(data?.error || 'Registro inválido');
       }
 
-      // Agregar datos de vehículo si existen
-      if (role === 'driver' && vehicleData) {
-        registerPayload.vehicleData = vehicleData;
-      }
+      const apiUser = data.user;
+      const auth = await getFirebaseAuth();
 
-      console.log('📤 Enviando datos de registro:', registerPayload);
-
-      // Llamar a la Cloud Function de registro
-      const registerFn = httpsCallable(functions, 'register');
-      const result: any = await registerFn(registerPayload);
-
-      console.log('✅ Usuario registrado en Firebase:', result.data);
-
-      // Intentar login automático
       try {
         console.log('🔐 Haciendo login automático...');
-        const auth = await getFirebaseAuth();
         const userCredential = await signInWithEmailAndPassword(auth, email, password);
-        console.log('✅ Login automático exitoso');
 
-        // Retornar los datos del usuario
         return {
           uid: userCredential.user.uid,
-          email: userCredential.user.email || email,
-          name,
-          phone,
-          role,
+          email: userCredential.user.email || apiUser.email || email,
+          name: apiUser.name,
+          phone: apiUser.phone || phone,
+          role: apiUser.role,
         };
       } catch (loginError: any) {
-        console.warn('⚠️ Login automático falló, pero el registro fue exitoso:', loginError.message);
-        
-        // Retornar datos del registro aunque el login falle
+        console.warn('⚠️ Login automático con email falló:', loginError.message);
+
+        if (data.token) {
+          try {
+            const credentialUser = await signInWithCustomToken(auth, data.token);
+            return {
+              uid: credentialUser.user.uid,
+              email: credentialUser.user.email || apiUser.email || email,
+              name: apiUser.name,
+              phone: apiUser.phone || phone,
+              role: apiUser.role,
+            };
+          } catch (tokenError: any) {
+            console.warn('⚠️ Login con custom token falló:', tokenError.message);
+          }
+        }
+
         return {
-          uid: result.data.userId,
-          email,
-          name,
-          phone,
-          role,
-          needsManualLogin: true, // Flag para indicar que necesita login manual
+          uid: apiUser.userId,
+          email: apiUser.email || email,
+          name: apiUser.name,
+          phone: apiUser.phone || phone,
+          role: apiUser.role,
+          needsManualLogin: true,
         };
       }
     } catch (error: any) {

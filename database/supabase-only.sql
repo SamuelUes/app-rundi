@@ -313,6 +313,7 @@ CREATE TABLE IF NOT EXISTS public.payments (
   amount NUMERIC(10, 2) NOT NULL,
   tip NUMERIC(10, 2) NULL DEFAULT 0,
   commission NUMERIC(10, 2) NULL,
+  commission_rate_applied NUMERIC(5, 4) NULL,
   total NUMERIC(10, 2) GENERATED ALWAYS AS (amount + tip) STORED,
   
   -- Método de pago: cash (efectivo) o card (bancos locales)
@@ -355,7 +356,8 @@ CREATE TABLE IF NOT EXISTS public.payments (
 
 COMMENT ON TABLE public.payments IS 'Historial de pagos: Cash (Efectivo) y Card (Bancos Locales)';
 COMMENT ON COLUMN public.payments.amount IS 'Tarifa final del viaje (final_fare)';
-COMMENT ON COLUMN public.payments.commission IS 'Comisión: 11% viajes normales, 15% conductor designado';
+COMMENT ON COLUMN public.payments.commission IS 'Comisión calculada a partir del servicio asociado (service_id)';
+COMMENT ON COLUMN public.payments.commission_rate_applied IS 'Tasa exacta aplicada en este pago (snapshot)';
 COMMENT ON COLUMN public.payments.total IS 'Total que paga el cliente: amount + tip';
 COMMENT ON COLUMN public.payments.payment_method IS 'Método: cash (efectivo) o card (bancos locales)';
 COMMENT ON COLUMN public.payments.payment_provider IS 'Proveedor: cash o local';
@@ -714,6 +716,32 @@ CREATE INDEX IF NOT EXISTS idx_services_display_order ON public.services USING b
 
 CREATE TRIGGER update_services_updated_at BEFORE UPDATE ON public.services
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Seed inicial de servicios (idempotente)
+INSERT INTO public.services (id, name, description, code, commission_rate, base_price, price_per_km, price_per_minute, minimum_fare, vehicle_types, requires_special_license, max_distance_km, available_hours, icon, color, display_order, is_active, is_featured)
+VALUES
+  ('e1cdd47c-9f57-4ed4-93a0-59cdfdffff8a', 'Viaje Normal', 'Servicio estándar de transporte urbano', 'normal', 0.1100, 50.00, 10.00, 0.00, 50.00, '["auto"]'::jsonb, FALSE, NULL, NULL, 'car', '#0A84FF', 1, TRUE, TRUE),
+  ('5e88177d-38f2-4864-addc-272dda26ef28', 'Viaje en Moto', 'Transporte rápido en motocicleta', 'motorcycle', 0.0750, 50.00, 8.00, 0.00, 50.00, '["motorcycle"]'::jsonb, FALSE, NULL, NULL, 'motorcycle', '#FFAA00', 2, TRUE, FALSE),
+  ('b3c69940-2e43-459f-8c2e-459773c56f8e', 'Conductor Designado', 'Servicio de conductor designado para eventos', 'designated_driver', 0.2500, 50.00, 13.00, 0.00, 50.00, '["auto"]'::jsonb, TRUE, NULL, NULL, 'steering-wheel', '#8E44AD', 3, TRUE, TRUE),
+  ('691f8f01-3faf-4e39-aeb7-1bc4dda3fc19', 'Viaje Nocturno', 'Servicio nocturno con tarifa especial (10pm-4am)', 'night', 0.1200, 40.00, 12.00, 0.00, 40.00, '["auto"]'::jsonb, FALSE, NULL, '{"start": "22:00", "end": "04:00"}'::jsonb, 'moon', '#2C3E50', 4, TRUE, FALSE)
+ON CONFLICT (code) DO UPDATE
+SET
+  name = EXCLUDED.name,
+  description = EXCLUDED.description,
+  commission_rate = EXCLUDED.commission_rate,
+  base_price = EXCLUDED.base_price,
+  price_per_km = EXCLUDED.price_per_km,
+  price_per_minute = EXCLUDED.price_per_minute,
+  minimum_fare = EXCLUDED.minimum_fare,
+  vehicle_types = EXCLUDED.vehicle_types,
+  requires_special_license = EXCLUDED.requires_special_license,
+  max_distance_km = EXCLUDED.max_distance_km,
+  available_hours = EXCLUDED.available_hours,
+  icon = EXCLUDED.icon,
+  color = EXCLUDED.color,
+  display_order = EXCLUDED.display_order,
+  is_active = EXCLUDED.is_active,
+  is_featured = EXCLUDED.is_featured;
 
 -- ============================================
 -- 11. DRIVER_SERVICES TABLE

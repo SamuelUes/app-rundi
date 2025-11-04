@@ -3,7 +3,7 @@
  * Pantalla para que conductores ingresen datos de licencia y vehículo
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -17,16 +17,28 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RouteProp } from '@react-navigation/native';
+
 import { useTheme } from '../../context/ThemeContext';
 import registrationService from '../../services/registrationService';
 import { getDepartments, getMunicipalitiesByDepartment } from '../../constants/nicaraguaLocations';
+import { AuthStackParamList } from '../../navigation/types';
 
-export default function DriverDataScreen({ navigation, route }: any) {
+type DriverDataNavigationProp = NativeStackNavigationProp<AuthStackParamList, 'DriverData'>;
+type DriverDataRouteProp = RouteProp<AuthStackParamList, 'DriverData'>;
+
+interface Props {
+  navigation: DriverDataNavigationProp;
+  route: DriverDataRouteProp;
+}
+
+export default function DriverDataScreen({ navigation, route }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
-  // Datos del registro anterior
-  const { name, email, phone, password, role, authProvider, phoneVerified } = route.params || {};
+  const { name, email, phone, password, method, authProvider, googleIdToken, phoneVerified } =
+    route.params;
 
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'license' | 'vehicle'>('license');
@@ -71,7 +83,8 @@ export default function DriverDataScreen({ navigation, route }: any) {
         email,
         phone,
         password,
-        role,
+        role: 'driver',
+        method,
         authProvider,
         phoneVerified,
         driverData: {
@@ -84,11 +97,12 @@ export default function DriverDataScreen({ navigation, route }: any) {
           plate: plate.toUpperCase(),
           brand,
           model,
-          year: parseInt(year),
+          year: parseInt(year, 10),
           color,
           type: type as 'sedan' | 'suv' | 'van' | 'moto',
-          passengers: passengers ? passengers : undefined,
+          passengers: passengers || undefined,
         },
+        googleIdToken,
       });
 
       console.log('✅ Datos guardados');
@@ -100,8 +114,10 @@ export default function DriverDataScreen({ navigation, route }: any) {
         email,
         phone,
         password,
-        role,
+        role: 'driver',
+        method,
         authProvider,
+        googleIdToken,
         phoneVerified,
         driverData: {
           licenseNumber,
@@ -113,10 +129,10 @@ export default function DriverDataScreen({ navigation, route }: any) {
           plate: plate.toUpperCase(),
           brand,
           model,
-          year: parseInt(year),
+          year: parseInt(year, 10),
           color,
           type: type as 'sedan' | 'suv' | 'van' | 'moto',
-          passengers: passengers ? passengers : undefined,
+          passengers: passengers || undefined,
         },
       });
     } catch (error: any) {

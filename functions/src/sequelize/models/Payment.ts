@@ -11,6 +11,7 @@ class Payment extends Model {
   public amount!: number;
   public tip!: number;
   public commission!: number;
+  public commission_rate_applied!: number | null;
   public payment_method!: string;
   public status!: string;
   public cancel_reason?: string;
@@ -45,6 +46,10 @@ Payment.init(
     commission: {
       type: DataTypes.DECIMAL(10, 2),
       defaultValue: 0,
+    },
+    commission_rate_applied: {
+      type: DataTypes.DECIMAL(5, 4),
+      allowNull: true,
     },
     payment_method: {
       type: DataTypes.ENUM('cash', 'card', 'bank_transfer'),

@@ -3,7 +3,7 @@
  * Pantalla de confirmación final antes de crear el usuario
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -15,11 +15,26 @@ import {
   ScrollView,
   ActivityIndicator,
 } from 'react-native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RouteProp } from '@react-navigation/native';
+
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import registrationService from '../../services/registrationService';
+import { AuthStackParamList } from '../../navigation/types';
 
-export default function RegisterConfirmScreen({ navigation, route }: any) {
+type RegisterConfirmNavigationProp = NativeStackNavigationProp<
+  AuthStackParamList,
+  'RegisterConfirm'
+>;
+type RegisterConfirmRouteProp = RouteProp<AuthStackParamList, 'RegisterConfirm'>;
+
+interface Props {
+  navigation: RegisterConfirmNavigationProp;
+  route: RegisterConfirmRouteProp;
+}
+
+export default function RegisterConfirmScreen({ navigation, route }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { register, registerWithGoogle } = useAuth();
@@ -30,11 +45,13 @@ export default function RegisterConfirmScreen({ navigation, route }: any) {
     phone,
     password,
     role,
+    method,
     authProvider,
     phoneVerified,
     driverData,
     vehicleData,
-  } = route.params || {};
+    googleIdToken,
+  } = route.params;
 
   const [loading, setLoading] = useState(false);
 
@@ -49,16 +66,20 @@ export default function RegisterConfirmScreen({ navigation, route }: any) {
       console.log('📝 Creando usuario...');
 
       // Crear usuario
+      const safeEmail = email?.trim() || '';
+
       const userData = await registrationService.createUser({
         name,
-        email,
+        email: safeEmail,
         phone,
         password,
         role,
+        method,
         authProvider,
         phoneVerified,
         driverData,
         vehicleData,
+        googleIdToken,
       });
 
       console.log('✅ Usuario creado:', userData);
@@ -67,24 +88,25 @@ export default function RegisterConfirmScreen({ navigation, route }: any) {
       if (authProvider === 'google') {
         await registerWithGoogle(userData);
       } else {
+        if (!safeEmail || !password) {
+          throw new Error('Correo y contraseña requeridos para completar el registro.');
+        }
         await register({
-          email,
+          email: safeEmail,
           password,
           name,
           phone,
           role,
           driverData,
           vehicleData,
+          googleIdToken,
         });
       }
 
       Alert.alert('✅ ¡Bienvenido!', `Cuenta creada exitosamente para ${role === 'driver' ? 'conductor' : 'cliente'}`);
 
       // Redirigir a HomeScreen
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'Home' }],
-      });
+      navigation.reset({ index: 0, routes: [{ name: 'Login' as never }] });
     } catch (error: any) {
       console.error('Error creando usuario:', error);
       Alert.alert('Error', error.message || 'Error al crear usuario');
