@@ -7,6 +7,7 @@
  */
 
 import { Platform, Alert, PermissionsAndroid } from 'react-native';
+import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getFirebaseAuth, getFirebaseFunctions } from '../config/firebase';
 import { httpsCallable } from 'firebase/functions';
@@ -21,6 +22,39 @@ try {
   const { getMessaging, AuthorizationStatus } = messagingModule;
   messagingInstance = getMessaging();
   AuthorizationStatusEnum = AuthorizationStatus;
+  try {
+    if (messagingModule?.setBackgroundMessageHandler && messagingInstance) {
+      messagingModule.setBackgroundMessageHandler(
+        messagingInstance,
+        async (remoteMessage: any) => {
+          try {
+            console.log('📥 Notificación gestionada en background:', {
+              id: remoteMessage?.messageId,
+              data: remoteMessage?.data,
+            });
+          } catch (logError) {
+            console.warn('⚠️ Error registrando log de background message:', logError);
+          }
+        }
+      );
+    }
+  } catch (handlerError) {
+    try {
+      // Compatibilidad con API antigua (sin instancia como primer parámetro)
+      messagingModule?.setBackgroundMessageHandler?.(async (remoteMessage: any) => {
+        try {
+          console.log('📥 Notificación gestionada en background (compat):', {
+            id: remoteMessage?.messageId,
+            data: remoteMessage?.data,
+          });
+        } catch (logError) {
+          console.warn('⚠️ Error registrando log de background message (compat):', logError);
+        }
+      });
+    } catch (fallbackError) {
+      console.warn('⚠️ No se pudo registrar handler de mensajes en background:', fallbackError ?? handlerError);
+    }
+  }
   console.log('✅ FCM disponible - usando Firebase Cloud Messaging');
 } catch (error) {
   messagingModule = null;
@@ -33,6 +67,28 @@ class FCMService {
   private fcmToken: string | null = null;
   private functions: any = null;
   private isFCMAvailable: boolean = messagingInstance !== null;
+
+  constructor() {
+    this.ensureAndroidChannel();
+  }
+
+  private async ensureAndroidChannel() {
+    if (Platform.OS !== 'android') {
+      return;
+    }
+
+    try {
+      await Notifications.setNotificationChannelAsync('driveangel_default', {
+        name: 'Notificaciones de viajes',
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 250, 250, 250],
+        sound: 'default',
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+      });
+    } catch (error) {
+      console.warn('⚠️ Error asegurando canal de notificaciones:', error);
+    }
+  }
 
   private async getFunctions() {
     if (!this.functions) {
@@ -145,7 +201,10 @@ class FCMService {
 
       const functions = await this.getFunctions();
       const registerTokenFunction = httpsCallable(functions, 'registerFCMToken');
-      await registerTokenFunction({ fcmToken: token });
+      await registerTokenFunction({
+        fcmToken: token,
+        platform: Platform.OS,
+      });
 
       console.log('✅ Token FCM registrado en backend');
     } catch (error) {
@@ -191,20 +250,50 @@ class FCMService {
    * Manejar notificación en foreground
    */
   private handleForegroundNotification(remoteMessage: any): void {
-    const { notification } = remoteMessage;
+    const { notification, data } = remoteMessage;
 
-    if (notification) {
-      Alert.alert(
-        notification.title || 'Nueva notificación',
-        notification.body || '',
-        [
-          {
-            text: 'Ver',
-            onPress: () => this.handleNotificationTap(remoteMessage),
-          },
-          { text: 'Cerrar', style: 'cancel' },
-        ]
-      );
+    // Si la notificación ya trae título/cuerpo desde FCM, evitamos duplicarla
+    const shouldPresentLocalCopy = !notification?.title && !notification?.body;
+
+    if (shouldPresentLocalCopy) {
+      const presentNotification = async () => {
+        try {
+          await this.ensureAndroidChannel();
+          await Notifications.presentNotificationAsync({
+            title: notification?.title || 'Nueva notificación',
+            body: notification?.body || '',
+            data: data || {},
+            sound: 'default',
+          });
+
+          if (messagingModule?.removeDeliveredNotification && remoteMessage?.messageId) {
+            try {
+              await messagingModule.removeDeliveredNotification(remoteMessage.messageId);
+            } catch (removeError) {
+              console.warn('⚠️ No se pudo limpiar notificación original:', removeError);
+            }
+          }
+        } catch (error) {
+          console.error('❌ Error mostrando notificación local:', error);
+          Alert.alert(
+            notification?.title || 'Nueva notificación',
+            notification?.body || '',
+            [
+              {
+                text: 'Ver',
+                onPress: () => this.handleNotificationTap(remoteMessage),
+              },
+              { text: 'Cerrar', style: 'cancel' },
+            ]
+          );
+        }
+      };
+
+      presentNotification().catch((error) => {
+        console.error('❌ Error presentando notificación:', error);
+      });
+    } else {
+      console.log('ℹ️ Notificación ya contiene payload visual, evitando duplicado local.');
     }
   }
 
@@ -250,13 +339,18 @@ class FCMService {
     try {
       const auth = await this.getAuth();
       const user = auth.currentUser;
-      if (user) {
+      const storedToken = this.fcmToken ?? (await AsyncStorage.getItem('fcmToken'));
+
+      if (user && storedToken) {
         const functions = await this.getFunctions();
         const clearTokenFunction = httpsCallable(functions, 'clearFCMToken');
-        await clearTokenFunction({ userId: user.uid });
+        await clearTokenFunction({ fcmToken: storedToken });
       }
 
-      await AsyncStorage.removeItem('fcmToken');
+      if (storedToken) {
+        await AsyncStorage.removeItem('fcmToken');
+      }
+
       this.fcmToken = null;
 
       console.log('🧹 Token FCM limpiado');

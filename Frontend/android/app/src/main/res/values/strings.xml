@@ -2,4 +2,7 @@
   <string name="app_name">Conduce</string>
   <string name="expo_system_ui_user_interface_style" translatable="false">light</string>
   <string name="expo_runtime_version">exposdk:51.0.0</string>
+  <string name="default_notification_channel_id">driveangel_default</string>
+  <string name="default_notification_channel_name">Notificaciones de viajes</string>
+  <string name="default_notification_channel_description">Alertas sobre estado de tus viajes en DriveAngel</string>
 </resources>

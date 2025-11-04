@@ -43,6 +43,8 @@ interface RideTracking {
 }
 
 let callableTrackingDisabled = false;
+let callableTrackingRetryAt: number | null = null;
+const CALLABLE_RETRY_INTERVAL_MS = 60_000; // 1 minuto de enfriamiento antes de reintentar
 
 class FirebaseTrackingService {
   private listeners: Map<string, any> = new Map();
@@ -228,6 +230,13 @@ class FirebaseTrackingService {
         data.status !== 'cancelled' &&
         data.status !== 'pending_rating';
 
+      const now = Date.now();
+      if (callableTrackingDisabled && callableTrackingRetryAt && now >= callableTrackingRetryAt) {
+        callableTrackingDisabled = false;
+        callableTrackingRetryAt = null;
+        console.log('ℹ️ [FirebaseTrackingService] Reintentando uso de Cloud Function para tracking tras periodo de enfriamiento');
+      }
+
       if (shouldPersistLocation && authUser && !callableTrackingDisabled) {
         try {
           const functions = await getFirebaseFunctions();
@@ -249,12 +258,16 @@ class FirebaseTrackingService {
           await this.saveLocationWithRetry(rideId, updates.driverLocation, 3);
         } catch (callableError) {
           callableTrackingDisabled = true;
-          console.warn('⚠️ [FirebaseTrackingService] Se deshabilita el uso de Cloud Function updateRideStatus por error:', callableError);
+          callableTrackingRetryAt = Date.now() + CALLABLE_RETRY_INTERVAL_MS;
+          console.warn('⚠️ [FirebaseTrackingService] Se deshabilita temporalmente el uso de Cloud Function updateRideStatus por error (se reintentará en ' + (CALLABLE_RETRY_INTERVAL_MS / 1000) + 's):', callableError);
         }
       } else if (!authUser && shouldPersistLocation) {
         console.warn('⚠️ [FirebaseTrackingService] Se omitió el guardado en funciones por falta de sesión Firebase');
       } else if (callableTrackingDisabled && shouldPersistLocation) {
-        console.log('ℹ️ [FirebaseTrackingService] Uso de Cloud Function omitido tras error previo (tracking continúa en RTDB)');
+        const msRestantes = callableTrackingRetryAt ? Math.max(0, callableTrackingRetryAt - Date.now()) : CALLABLE_RETRY_INTERVAL_MS;
+        console.log(
+          `ℹ️ [FirebaseTrackingService] Uso de Cloud Function omitido tras error previo (tracking continúa en RTDB, reintento en ${(msRestantes / 1000).toFixed(0)}s)`
+        );
       } else if (!shouldPersistLocation && data.status) {
         console.log(`⏸️ Tracking pausado: viaje en estado ${data.status}, no se guardan ubicaciones`);
       }

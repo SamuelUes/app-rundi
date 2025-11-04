@@ -19,6 +19,8 @@ import { AnimatedButton } from '../../components/AnimatedButton';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { getDatabase, ref, onValue, off } from 'firebase/database';
 import { initializeFirebase } from '../../config/firebase';
+import cardsService from '../../services/cardsService';
+import alertService from '../../services/alertService';
 
 interface PaymentConfirmationScreenProps {
   route: {
@@ -50,6 +52,7 @@ export default function PaymentConfirmationScreen({
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card'>(initialMethod);
   const [paymentStatus, setPaymentStatus] = useState<any>(null);
   const [clientConfirmed, setClientConfirmed] = useState(false);
+  const [hasCardOnFile, setHasCardOnFile] = useState<boolean | null>(null);
 
   // Convertir a números
   const numericAmount = typeof amount === 'string' ? parseFloat(amount) : (amount || 0);
@@ -64,7 +67,53 @@ export default function PaymentConfirmationScreen({
     clientName 
   });
 
-  // Escuchar cambios en el estado del pago
+  const validateCardsForCardPayment = async (): Promise<boolean> => {
+    try {
+      console.log('📋 [PaymentConfirmation] Verificando tarjetas guardadas...');
+      const cards = await cardsService.getCards();
+      const hasCards = Array.isArray(cards) && cards.length > 0;
+      setHasCardOnFile(hasCards);
+
+      if (!hasCards) {
+        alertService.showConfirmAlert(
+          'Tarjeta requerida',
+          'Para recibir pagos con tarjeta necesitas registrar al menos una tarjeta bancaria. Puedes agregarla en Métodos de pago.',
+          () => navigation.navigate('PaymentMethods'),
+          undefined,
+          'Ir a métodos'
+        );
+      }
+
+      return hasCards;
+    } catch (error) {
+      console.error('❌ [PaymentConfirmation] Error obteniendo tarjetas:', error);
+      setHasCardOnFile(false);
+      return false;
+    }
+  };
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const runValidation = async () => {
+      if (paymentMethod === 'card') {
+        const hasCards = await validateCardsForCardPayment();
+        if (!isMounted) {
+          return;
+        }
+        setHasCardOnFile(hasCards);
+      } else {
+        setHasCardOnFile(null);
+      }
+    };
+
+    runValidation();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [paymentMethod]);
+
   useEffect(() => {
     const setupListener = async () => {
       try {
@@ -226,6 +275,9 @@ export default function PaymentConfirmationScreen({
 
               // Actualizar estado local
               setPaymentMethod(newMethod);
+              if (newMethod === 'card') {
+                await validateCardsForCardPayment();
+              }
               setClientConfirmed(false); // Reset confirmación
 
               Alert.alert(

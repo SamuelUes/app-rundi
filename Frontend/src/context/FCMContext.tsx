@@ -1,7 +1,8 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 import fcmService from '../services/fcmService';
+import { useAuth } from '../context/AuthContext';
 
 interface FCMContextType {
   isConfigured: boolean;
@@ -29,6 +30,8 @@ export const FCMProvider: React.FC<FCMProviderProps> = ({ children }) => {
   const [isConfigured, setIsConfigured] = useState(false);
   const [hasPermission, setHasPermission] = useState(false);
   const [isFCMAvailable, setIsFCMAvailable] = useState(false);
+  const listenersConfigured = useRef(false);
+  const { user } = useAuth();
 
   useEffect(() => {
     initializeFCM();
@@ -53,15 +56,19 @@ export const FCMProvider: React.FC<FCMProviderProps> = ({ children }) => {
       const permissionGranted = await fcmService.checkPermissionStatus();
       setHasPermission(permissionGranted);
 
-      if (permissionGranted) {
-        // Configurar listeners y registrar token
-        fcmService.setupNotificationListeners();
-        await fcmService.registerToken();
-        setIsConfigured(true);
-        console.log('✅ FCM configurado correctamente');
-      } else {
-        console.log('⚠️ FCM no configurado - permisos requeridos');
+      if (!permissionGranted) {
+        console.log('⚠️ FCM no configurado - permisos de notificación pendientes');
+        setIsConfigured(false);
+        return;
       }
+
+      if (!listenersConfigured.current) {
+        fcmService.setupNotificationListeners();
+        listenersConfigured.current = true;
+      }
+      await fcmService.registerToken();
+      setIsConfigured(true);
+      console.log('✅ FCM configurado correctamente');
     } catch (error) {
       console.error('❌ Error inicializando FCM:', error);
     }
@@ -77,16 +84,72 @@ export const FCMProvider: React.FC<FCMProviderProps> = ({ children }) => {
       const permissionGranted = await fcmService.requestPermission();
       setHasPermission(permissionGranted);
 
-      if (permissionGranted) {
-        fcmService.setupNotificationListeners();
-        await fcmService.registerToken();
-        setIsConfigured(true);
-        console.log('✅ FCM configurado exitosamente');
+      if (!permissionGranted) {
+        console.log('⚠️ Permisos de notificación rechazados por el usuario');
+        return;
       }
+
+      if (!listenersConfigured.current) {
+        fcmService.setupNotificationListeners();
+        listenersConfigured.current = true;
+      }
+      await fcmService.registerToken();
+      setIsConfigured(true);
+      console.log('✅ FCM configurado exitosamente');
     } catch (error) {
       console.error('❌ Error configurando FCM:', error);
     }
   };
+
+  useEffect(() => {
+    const syncTokenForUser = async () => {
+      if (!user || !isFCMAvailable) {
+        return;
+      }
+
+      try {
+        const permissionGranted = await fcmService.checkPermissionStatus();
+        setHasPermission(permissionGranted);
+
+        if (!permissionGranted) {
+          setIsConfigured(false);
+          return;
+        }
+
+        if (!listenersConfigured.current) {
+          fcmService.setupNotificationListeners();
+          listenersConfigured.current = true;
+        }
+
+        await fcmService.registerToken();
+        setIsConfigured(true);
+      } catch (error) {
+        console.error('❌ Error sincronizando token FCM:', error);
+      }
+    };
+
+    syncTokenForUser();
+  }, [user?.id, isFCMAvailable]);
+
+  useEffect(() => {
+    if (user) {
+      return;
+    }
+
+    const clearTokenOnLogout = async () => {
+      try {
+        await fcmService.clearToken();
+      } catch (error) {
+        console.error('❌ Error limpiando token FCM tras logout:', error);
+      } finally {
+        listenersConfigured.current = false;
+        setIsConfigured(false);
+        setHasPermission(false);
+      }
+    };
+
+    clearTokenOnLogout();
+  }, [user]);
 
   const sendTestNotification = async () => {
     if (!isFCMAvailable) {

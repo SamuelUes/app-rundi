@@ -41,13 +41,20 @@ import LoadingOverlay from '../../components/LoadingOverlay';
 import { useFirebaseData, useFirebaseItem } from '../../hooks/useFirebaseData';
 import locationTrackingService from '../../services/locationTrackingService';
 
+
 // Importaciones para Firebase
 import { set } from 'firebase/database';
 
 export default function HomeScreen({ navigation }: any) {
   const { user } = useAuth();
   const { colors } = useTheme();
-  const { coords, error: locationError, refreshLocation } = useLocation();
+  const {
+    coords,
+    error: locationError,
+    refreshLocation,
+    loading: locationLoading,
+    isUsingMockLocation,
+  } = useLocation();
   const mapRef = useRef(null);
   const styles = useMemo(() => createStyles(colors), [colors]);
   
@@ -650,22 +657,24 @@ export default function HomeScreen({ navigation }: any) {
     }
   };
   
-// Mostrar pantalla de carga si corresponde
-if (!coords && !clientLocationData?.coords) {
-  console.log('⏳ Esperando coordenadas del cliente...');
-  return <LoadingOverlay visible={true} message={loadingMessage} />;
-}
+  const storedCoords = clientLocationData?.coords || null;
+  const effectiveCoords = coords || storedCoords ;
+  const waitingForLocation = locationLoading && !coords && !storedCoords;
+  const showLocationWarning = isUsingMockLocation || (!coords && !!storedCoords);
 
-  
-  // Mostrar error si no hay ubicación
-  if (locationError) {
+  if (waitingForLocation) {
+    console.log('⏳ Esperando coordenadas del cliente...');
+    return <LoadingOverlay visible={true} message={loadingMessage} />;
+  }
+
+  if (locationError && !coords && !storedCoords) {
     return (
       <View style={styles.errorContainer}>
         <Text style={styles.errorText}>No se pudo acceder a tu ubicación</Text>
         <Text style={styles.errorDescription}>
           Verifica los permisos de ubicación y asegúrate de tener el GPS activado
         </Text>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.retryButton}
           onPress={() => {
             setLoadingMessage('Obteniendo ubicación...');
@@ -682,11 +691,11 @@ if (!coords && !clientLocationData?.coords) {
     <View style={styles.container}>
       {/* Mapa con ubicación actual */}
       <DynamicMap
-        latitude={coords?.latitude || clientLocationData?.coords?.latitude || 0}
-        longitude={coords?.longitude || clientLocationData?.coords?.longitude || 0}
+        latitude={effectiveCoords.latitude}
+        longitude={effectiveCoords.longitude}
         style={styles.map}
         showMarker={true}
-        markerPosition={coords ? { latitude: coords.latitude, longitude: coords.longitude } : undefined}
+        markerPosition={{ latitude: effectiveCoords.latitude, longitude: effectiveCoords.longitude }}
         markerType="origin"
         nearbyDrivers={availableDrivers}
       />
@@ -731,6 +740,22 @@ if (!coords && !clientLocationData?.coords) {
       >
         <Text style={styles.centerMapIcon}>📍</Text>
       </TouchableOpacity>
+
+      {showLocationWarning && (
+        <View style={styles.locationWarning}>
+          <Text style={styles.locationWarningText}>
+            🚧 Usamos tu última ubicación conocida o una ubicación aproximada. Activa el GPS para mayor precisión.
+          </Text>
+          <TouchableOpacity
+            onPress={() => {
+              setLoadingMessage('Actualizando ubicación...');
+              refreshLocation();
+            }}
+          >
+            <Text style={styles.locationWarningAction}>Actualizar</Text>
+          </TouchableOpacity>
+        </View>
+      )}
       
       {/* Panel inferior */}
       <View style={styles.bottomPanel}>
@@ -978,13 +1003,39 @@ const createStyles = (colors: any) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
     elevation: 5,
   },
   centerMapIcon: {
     fontSize: 24,
+  },
+  locationWarning: {
+    position: 'absolute',
+    top: 190,
+    left: 16,
+    right: 16,
+    backgroundColor: '#FFF4E5',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: '#FFB74D',
+    zIndex: 15,
+  },
+  locationWarningText: {
+    flex: 1,
+    color: '#BF360C',
+    fontSize: 13,
+    marginRight: 12,
+  },
+  locationWarningAction: {
+    color: colors.primary,
+    fontWeight: '600',
+    fontSize: 13,
   },
   activeRideBanner: {
     backgroundColor: '#D4AF37',

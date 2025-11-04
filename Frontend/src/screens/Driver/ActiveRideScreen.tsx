@@ -31,11 +31,52 @@ import { getDatabase, ref, onValue, off, DataSnapshot } from 'firebase/database'
 // ✅ NUEVO: Imports para guardar ubicaciones con pgRideId
 import { getFirebaseFunctions } from '../../config/firebase';
 import { httpsCallable } from 'firebase/functions';
-import { hasSavedCard, getCardsList } from '../../utils/cardUtils';
 
 interface RouteParams {
   rideId: string;
 }
+
+const normalizePaymentMethod = (method: unknown): string => {
+  if (!method || typeof method !== 'string') {
+    return 'cash';
+  }
+
+  const normalized = method.trim().toLowerCase();
+
+  if (!normalized) {
+    return 'cash';
+  }
+
+  switch (normalized) {
+    case 'card':
+    case 'cash':
+    case 'wallet':
+    case 'transfer':
+    case 'qr':
+    case 'bank_transfer':
+      return normalized;
+    default:
+      return normalized;
+  }
+};
+
+const getPaymentLabel = (method: string): string => {
+  switch (method) {
+    case 'card':
+      return '💳 Tarjeta';
+    case 'cash':
+      return '💵 Efectivo';
+    case 'wallet':
+      return '💰 Billetera';
+    case 'transfer':
+    case 'bank_transfer':
+      return '🏦 Transferencia';
+    case 'qr':
+      return '📱 Pago QR';
+    default:
+      return `💳 ${method.charAt(0).toUpperCase()}${method.slice(1)}`;
+  }
+};
 
 /**
  * Calcular ruta real usando OpenRouteService (gratuito)
@@ -101,7 +142,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [updating, setUpdating] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<string | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<string>('cash');
 
   // Estado para cliente compartiendo ubicación
   const [clientLocation, setClientLocation] = useState<{
@@ -180,20 +221,24 @@ export default function ActiveRideScreen({ route, navigation }: any) {
 
         // Si hay datos de pago, obtener método
         try {
-          // ✅ CORREGIDO: Buscar en paymentStatus (no payment)
-          if (data.paymentStatus && data.paymentStatus.method) {
-            console.log(`💳 [ActiveRideScreen] Método de pago del viaje: ${data.paymentStatus.method}`);
-            setPaymentMethod(data.paymentStatus.method);
-          } else if (data.payment && data.payment.method) {
-            // Fallback: por si existe en payment (compatibilidad)
-            console.log(`💳 [ActiveRideScreen] Método de pago del viaje (fallback): ${data.payment.method}`);
-            setPaymentMethod(data.payment.method);
+          let method: string = 'cash';
+
+          if (data.paymentStatus?.method) {
+            method = normalizePaymentMethod(data.paymentStatus.method);
+            console.log(`💳 [ActiveRideScreen] Método de pago del viaje (paymentStatus): ${method}`);
+          } else if (data.payment?.method) {
+            method = normalizePaymentMethod(data.payment.method);
+            console.log(`💳 [ActiveRideScreen] Método de pago del viaje (payment fallback): ${method}`);
+          } else if (data.paymentMethod) {
+            method = normalizePaymentMethod(data.paymentMethod);
+            console.log(`💳 [ActiveRideScreen] Método de pago del viaje (paymentMethod root): ${method}`);
           } else {
-            console.log(`💳 [ActiveRideScreen] No hay método de pago, usando default: cash`);
-            setPaymentMethod('cash');
+            console.log('💳 [ActiveRideScreen] Método de pago no encontrado, usando cash');
           }
+
+          setPaymentMethod(method);
         } catch (error) {
-          console.error(`❌ [ActiveRideScreen] Error obteniendo método de pago:`, error);
+          console.error('❌ [ActiveRideScreen] Error obteniendo método de pago:', error);
           setPaymentMethod('cash');
         }
         
@@ -572,6 +617,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
       async () => {
         try {
           setUpdating(true);
+          const normalizedPaymentMethod = (paymentMethod || '').toLowerCase();
           console.log('🏁 [ActiveRideScreen] Completando viaje:', rideId);
           
           // Calcular datos del viaje completado

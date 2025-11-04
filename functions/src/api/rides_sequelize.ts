@@ -11,12 +11,41 @@ import { DriverRepository } from '../sequelize/repositories/DriverRepository';
 import { RideLocationRepository } from '../sequelize/repositories/RideLocationRepository';
 import { supabaseGetRidesWithLocationsAndPayments } from '../supabase/client';
 import { mapRides } from './rideHistory';
+import { sendNotificationToUser } from '../services/pushNotifications';
 
 const rideService = new RideService();
 const rideRepo = new RideRepository();
 const driverRepo = new DriverRepository();
 const locationRepo = new RideLocationRepository();
 const db = admin.database();
+
+const notifyUserSafe = async (
+  userId: string | null | undefined,
+  title: string,
+  body: string,
+  data: Record<string, string | number | boolean | null | undefined> = {},
+) => {
+  if (!userId) {
+    return;
+  }
+
+  try {
+    await sendNotificationToUser(userId, {
+      title,
+      body,
+      data: {
+        ...data,
+        rideId: (data.rideId ?? data['rideId'] ?? '') || '',
+      },
+    });
+  } catch (error) {
+    console.error('❌ [rides] Error enviando notificación push:', {
+      userId,
+      title,
+      error,
+    });
+  }
+};
 
 /**
  * Crear viaje - Versión mejorada que acepta datos del Frontend
@@ -249,6 +278,11 @@ export const createRide = functions.https.onCall(async (data, context) => {
     console.log(`✅ [createRide] Client: ${clientId}`);
     console.log(`${'='.repeat(60)}\n`);
 
+    await notifyUserSafe(clientId, '🚗 Solicitud enviada', 'Estamos buscando un conductor para tu viaje', {
+      rideId: ride.id,
+      type: 'ride_requested',
+    });
+
     return {
       success: true,
       ride: {
@@ -384,6 +418,12 @@ export const acceptRide = functions.https.onCall(async (data, context) => {
       
       await db.ref(`activeRides/${rideId}`).update(updateData);
       console.log(`✅ [acceptRide] Viaje sincronizado a Firebase con status: ${newStatus}`);
+
+      await notifyUserSafe(currentData.clientId, '🚗 Conductor disponible', 'Un conductor está listo para tu viaje. Revísalo ahora.', {
+        rideId,
+        type: 'ride_driver_offered',
+        driverId,
+      });
       
       // ✅ NUEVO: Guardar oferta del conductor en offers/{driverId}
       console.log(`💰 [acceptRide] Guardando oferta del conductor en offers...`);
@@ -520,6 +560,12 @@ export const confirmDriver = functions.https.onCall(async (data, context) => {
 
     await db.ref(`activeRides/${rideId}`).update(updateData);
     console.log(`✅ [confirmDriver] Viaje actualizado en Firebase`);
+
+    await notifyUserSafe(selectedDriverId, '✅ Viaje asignado', 'El cliente confirmó el viaje. Dirígete al punto de encuentro.', {
+      rideId,
+      type: 'ride_assigned',
+      clientId,
+    });
 
     // ✅ NUEVO: Guardar oferta del conductor en offers/{driverId}
     console.log(`💰 [confirmDriver] Guardando oferta del conductor en offers...`);
@@ -716,6 +762,12 @@ export const completeRide = functions.https.onCall(async (data, context) => {
         negotiationStatus: currentData.negotiationStatus || null,
       });
       console.log(`✅ [completeRide] Viaje sincronizado a Firebase`);
+
+      await notifyUserSafe(currentData.clientId, '✅ Viaje finalizado', 'Por favor confirma y realiza el pago.', {
+        rideId,
+        type: 'ride_completed',
+        finalFare,
+      });
     } catch (firebaseError: any) {
       console.error(`⚠️ [completeRide] Error sincronizando a Firebase:`, firebaseError.message);
     }
@@ -777,6 +829,20 @@ export const cancelRide = functions.https.onCall(async (data, context) => {
       paymentStatusUpdate.canceledAt = admin.database.ServerValue.TIMESTAMP;
       paymentStatusUpdate.canceledBy = canceledBy || 'unknown';
       paymentStatusUpdate.cancelReason = reason || 'Sin especificar';
+
+      await notifyUserSafe(firebaseRide.clientId, '❌ Viaje cancelado', 'Tu solicitud de viaje fue cancelada.', {
+        rideId,
+        type: 'ride_canceled',
+        canceledBy: canceledBy || 'unknown',
+      });
+
+      if (firebaseRide.driverId) {
+        await notifyUserSafe(firebaseRide.driverId, 'ℹ️ Viaje cancelado', 'El cliente canceló la solicitud antes de iniciar el viaje.', {
+          rideId,
+          type: 'ride_canceled',
+          canceledBy: canceledBy || 'unknown',
+        });
+      }
     }
     // Si el viaje está en progreso (in_progress)
     else if (rideStatus === 'in_progress') {

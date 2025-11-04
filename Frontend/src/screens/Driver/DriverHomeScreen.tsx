@@ -73,6 +73,7 @@ export default function DriverHomeScreen({ navigation }: any) {
 
   // Refs
   const notifiedRides = useRef<Set<string>>(new Set());
+  const rideStatusCacheRef = useRef<Record<string, string>>({});
   const PANEL_MIN_HEIGHT = 180;
   const PANEL_MAX_HEIGHT = SCREEN_HEIGHT * 0.7;
   const panelHeight = useRef(new Animated.Value(PANEL_MIN_HEIGHT)).current;
@@ -263,6 +264,8 @@ export default function DriverHomeScreen({ navigation }: any) {
     console.log('🎯 Iniciando listener de activeRides para conductor');
     console.log('📍 Ubicación del conductor:', coords);
     
+    rideStatusCacheRef.current = {};
+
     const setupListener = async () => {
       try {
         const { getDatabase, ref, onValue, off } = await import('firebase/database');
@@ -288,6 +291,13 @@ export default function DriverHomeScreen({ navigation }: any) {
           let myActiveRide: any = null;
           
           Object.entries(data).forEach(([rideId, rideData]: [string, any]) => {
+            const currentStatus: string | undefined = rideData?.status;
+            if (currentStatus && rideStatusCacheRef.current[rideId] === currentStatus) {
+              return;
+            }
+            if (currentStatus) {
+              rideStatusCacheRef.current[rideId] = currentStatus;
+            }
             console.log(`🔍 Viaje ${rideId}:`, {
               status: rideData.status,
               driverId: rideData.driverId,
@@ -315,13 +325,20 @@ export default function DriverHomeScreen({ navigation }: any) {
               console.log(`✅ Viaje ${rideId} es elegible (requested o negociando)`);
               
               // Calcular distancia al punto de origen
-              const originLat = rideData.origin?.latitude || rideData.origin?.lat;
-              const originLng = rideData.origin?.longitude || rideData.origin?.lng;
+              const rawOriginLat = rideData.origin?.latitude ?? rideData.origin?.lat;
+              const rawOriginLng = rideData.origin?.longitude ?? rideData.origin?.lng;
+
+              const originLat = typeof rawOriginLat === 'string' ? parseFloat(rawOriginLat) : rawOriginLat;
+              const originLng = typeof rawOriginLng === 'string' ? parseFloat(rawOriginLng) : rawOriginLng;
+
+              const hasValidOrigin =
+                typeof originLat === 'number' && Number.isFinite(originLat) &&
+                typeof originLng === 'number' && Number.isFinite(originLng);
               
               console.log(`📍 Origen del viaje ${rideId}:`, { originLat, originLng });
               console.log(`📍 Ubicación conductor:`, { lat: coords.latitude, lng: coords.longitude });
               
-              if (originLat && originLng && coords) {
+              if (hasValidOrigin && coords) {
                 const distance = calculateDistance(
                   coords.latitude,
                   coords.longitude,
@@ -336,7 +353,9 @@ export default function DriverHomeScreen({ navigation }: any) {
                   availableRides.push({
                     id: rideId,
                     ...rideData,
-                    distance: distance
+                    distance,
+                    originLatitude: originLat,
+                    originLongitude: originLng,
                   });
                 } else {
                   console.log(`❌ Viaje ${rideId} fuera del radio (${distance.toFixed(2)} km > ${SEARCH_RADIUS_KM} km)`);
@@ -356,16 +375,52 @@ export default function DriverHomeScreen({ navigation }: any) {
           setRideRequests(availableRides);
           
           // Formatear para el mapa
-          const formattedRides = availableRides.map((ride: any) => ({
-            id: ride.id,
-            latitude: ride.origin?.latitude || ride.origin?.lat || 0,
-            longitude: ride.origin?.longitude || ride.origin?.lng || 0,
-            address: ride.originAddress || ride.origin?.address || 'Origen desconocido',
-            estimatedPrice: `C$${ride.estimatedPrice || ride.clientSuggestedPrice || 0}`,
-            passengers: ride.passengers || 1,
-            destination: ride.destinationAddress || 'Destino',
-            distance: `${ride.distance.toFixed(1)} km`,
-          }));
+          const formattedRides = availableRides
+            .map((ride: any) => {
+              const lat = typeof ride.originLatitude === 'number' && Number.isFinite(ride.originLatitude)
+                ? ride.originLatitude
+                : typeof ride.origin?.latitude === 'string'
+                  ? parseFloat(ride.origin.latitude)
+                  : ride.origin?.latitude ?? ride.origin?.lat;
+
+              const lng = typeof ride.originLongitude === 'number' && Number.isFinite(ride.originLongitude)
+                ? ride.originLongitude
+                : typeof ride.origin?.longitude === 'string'
+                  ? parseFloat(ride.origin.longitude)
+                  : ride.origin?.longitude ?? ride.origin?.lng;
+
+              if (typeof lat !== 'number' || !Number.isFinite(lat) || typeof lng !== 'number' || !Number.isFinite(lng)) {
+                console.log(`⚠️ [DriverHomeScreen] Saltando formateo de viaje ${ride.id} por coordenadas inválidas`, { lat, lng });
+                return null;
+              }
+
+              const address = ride.originAddress || ride.origin?.address || 'Origen desconocido';
+              const estimatedPrice = `C$${ride.estimatedPrice || ride.clientSuggestedPrice || 0}`;
+              const passengers = typeof ride.passengers === 'number' && ride.passengers > 0 ? ride.passengers : 1;
+              const destination = ride.destinationAddress || 'Destino';
+              const distanceLabel = `${ride.distance.toFixed(1)} km`;
+
+              return {
+                id: ride.id,
+                latitude: lat,
+                longitude: lng,
+                address,
+                estimatedPrice,
+                passengers,
+                destination,
+                distance: distanceLabel,
+              };
+            })
+            .filter((ride): ride is {
+              id: string;
+              latitude: number;
+              longitude: number;
+              address: string;
+              estimatedPrice: string;
+              passengers: number;
+              destination: string;
+              distance: string;
+            } => ride !== null);
           
           setAvailableRideRequests(formattedRides);
           console.log(`📍 ${formattedRides.length} solicitudes formateadas para el mapa`);

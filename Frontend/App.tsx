@@ -8,6 +8,7 @@ import { FCMProvider } from './src/context/FCMContext';
 import { usePresence } from './src/hooks/usePresence';
 import AppNavigator from './src/navigation/AppNavigator';
 import fcmService from './src/services/fcmService';
+import { useKeepAwake } from 'expo-keep-awake';
 
 // Stripe Publishable Key (desde .env)
 const STRIPE_PUBLISHABLE_KEY = process.env.STRIPE_PUBLIC_KEY || 'pk_test_51SEkQKHVOBNC1WbUcQQAYs6FDD0dYO3wMA8dQzzHFTLFkEJsNpgBXe9V7ZOfQ85uvhivpzT88ntqoITyLoadFDGd00hoCYtolH';
@@ -17,6 +18,9 @@ function AppContent() {
   
   // Activar sistema de presencia automáticamente
   usePresence();
+
+  // Mantener la pantalla encendida mientras la app está en primer plano
+  useKeepAwake();
 
   // Inicializar FCM al abrir la app
   useEffect(() => {

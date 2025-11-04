@@ -24,6 +24,8 @@ import DynamicMap from '../../components/DynamicMap';
 import { RideListSkeleton } from '../../components/SkeletonLoader';
 import { NoRidesEmptyState } from '../../components/EmptyState';
 import { RatingDisplay } from '../../components/RatingDisplay';
+import alertService from '../../services/alertService';
+import { hasSavedCard } from '../../utils/cardUtils';
 
 interface Ride {
   id: string;
@@ -39,6 +41,7 @@ interface Ride {
   driverOfferStatus?: string | null;
   passengers?: number;
   rideType?: string;
+  paymentMethod?: 'cash' | 'card';
   requestedAt: number;
   clientRating?: number;
   clientTotalRatings?: number;
@@ -195,8 +198,33 @@ export default function AvailableRidesScreen({ navigation }: any) {
     }, 1000);
   };
 
+  const ensureCardForCardPayments = async (ride: Ride): Promise<boolean> => {
+    const ridePaymentMethod = ride?.paymentMethod || ride?.rideType; // fallback if stored differently
+    if ((ridePaymentMethod || '').toLowerCase() !== 'card') {
+      return true;
+    }
+
+    if (await hasSavedCard()) {
+      return true;
+    }
+
+    alertService.showConfirmAlert(
+      'Tarjeta requerida',
+      'Para aceptar viajes con pago por tarjeta necesitas registrar al menos una tarjeta bancaria. Agrega una tarjeta antes de continuar.',
+      () => navigation.navigate('PaymentMethods'),
+      undefined,
+      'Ir a métodos',
+      'Cancelar',
+    );
+
+    return false;
+  };
+
   const handleAcceptRide = async (ride: Ride) => {
     try {
+      if (!(await ensureCardForCardPayments(ride))) {
+        return;
+      }
       // Si el cliente sugirió un precio, aceptar ese precio directamente
       if (ride.clientSuggestedPrice && ride.clientSuggestedPrice > 0) {
         Alert.alert(
