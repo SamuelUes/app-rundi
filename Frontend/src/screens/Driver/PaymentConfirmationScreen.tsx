@@ -148,15 +148,10 @@ export default function PaymentConfirmationScreen({
             // Si el pago fue completado
             if (data.status === 'completed' || data.status === 'confirmed') {
               console.log('✅ Pago completado');
-              Alert.alert(
+              alertService.showSuccessAlert(
                 '¡Pago Completado!',
                 'El pago ha sido confirmado exitosamente',
-                [
-                  {
-                    text: 'Continuar',
-                    onPress: () => navigation.replace('AvailableRides'),
-                  },
-                ]
+                () => navigation.replace('AvailableRides')
               );
             }
           }
@@ -189,7 +184,7 @@ export default function PaymentConfirmationScreen({
   // Confirmar pago en efectivo
   const handleConfirmCashPayment = async () => {
     if (!clientConfirmed) {
-      Alert.alert(
+      alertService.showInfoAlert(
         'Espera',
         'El cliente debe confirmar primero que realizó el pago en efectivo'
       );
@@ -221,20 +216,15 @@ export default function PaymentConfirmationScreen({
       console.log('✅ Pago confirmado:', data);
 
       if (data.bothConfirmed) {
-        Alert.alert(
+        alertService.showSuccessAlert(
           '¡Pago Confirmado!',
           'El pago en efectivo ha sido confirmado por ambas partes',
-          [
-            {
-              text: 'Volver a Búsqueda',
-              onPress: () => navigation.replace('AvailableRides'),
-            },
-          ]
+          () => navigation.replace('AvailableRides')
         );
       }
     } catch (error: any) {
       console.error('❌ Error confirmando pago:', error);
-      Alert.alert('Error', error.message || 'No se pudo confirmar el pago');
+      alertService.showErrorAlert(error.message || 'No se pudo confirmar el pago');
     } finally {
       setConfirming(false);
     }
@@ -245,60 +235,54 @@ export default function PaymentConfirmationScreen({
     const newMethod = paymentMethod === 'cash' ? 'card' : 'cash';
     const methodName = newMethod === 'cash' ? 'Efectivo' : 'Tarjeta';
     
-    Alert.alert(
+    alertService.showConfirmAlert(
       `Cambiar a ${methodName}`,
       `¿Deseas cambiar el método de pago a ${methodName.toLowerCase()}?`,
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: `Cambiar a ${methodName}`,
-          onPress: async () => {
-            try {
-              setSwitching(true);
+      async () => {
+        try {
+          setSwitching(true);
 
-              const { app } = await initializeFirebase();
-              if (!app) throw new Error('Firebase no inicializado');
+          const { app } = await initializeFirebase();
+          if (!app) throw new Error('Firebase no inicializado');
 
-              const functions = getFunctions(app);
-              const changePaymentMethodFn = httpsCallable(functions, 'changePaymentMethod');
-              
-              console.log(`🔄 Cambiando método de pago a ${newMethod}...`);
-              console.log(`📍 Usando rideId: ${rideId} (pgRideId: ${pgRideId})`);
-              const result = await changePaymentMethodFn({
-                rideId: pgRideId || rideId,  // ✅ Usar pgRideId si está disponible, sino rideId
-                newPaymentMethod: newMethod,
-                reason: `Cliente ${paymentMethod === 'cash' ? 'no tiene efectivo' : 'prefiere pagar en efectivo'}`,
-              });
+          const functions = getFunctions(app);
+          const changePaymentMethodFn = httpsCallable(functions, 'changePaymentMethod');
+          
+          console.log(`🔄 Cambiando método de pago a ${newMethod}...`);
+          console.log(`📍 Usando rideId: ${rideId} (pgRideId: ${pgRideId})`);
+          const result = await changePaymentMethodFn({
+            rideId: pgRideId || rideId,  // ✅ Usar pgRideId si está disponible, sino rideId
+            newPaymentMethod: newMethod,
+            reason: `Cliente ${paymentMethod === 'cash' ? 'no tiene efectivo' : 'prefiere pagar en efectivo'}`,
+          });
 
-              const data = result.data as any;
-              console.log('✅ Método de pago cambiado:', data);
+          const data = result.data as any;
+          console.log('✅ Método de pago cambiado:', data);
 
-              // Actualizar estado local
-              setPaymentMethod(newMethod);
-              if (newMethod === 'card') {
-                await validateCardsForCardPayment();
-              }
-              setClientConfirmed(false); // Reset confirmación
+          // Actualizar estado local
+          setPaymentMethod(newMethod);
+          if (newMethod === 'card') {
+            await validateCardsForCardPayment();
+          }
+          setClientConfirmed(false); // Reset confirmación
 
-              Alert.alert(
-                '✅ Método Cambiado',
-                `El método de pago se cambió a ${methodName.toLowerCase()}. El cliente recibirá una notificación.`
-              );
-            } catch (error: any) {
-              console.error('❌ Error cambiando método de pago:', error);
-              Alert.alert('Error', error.message || 'No se pudo cambiar el método de pago');
-            } finally {
-              setSwitching(false);
-            }
-          },
-        },
-      ]
+          alertService.showSuccessAlert(
+            '✅ Método Cambiado',
+            `El método de pago se cambió a ${methodName.toLowerCase()}. El cliente recibirá una notificación.`
+          );
+        } catch (error: any) {
+          console.error('❌ Error cambiando método de pago:', error);
+          alertService.showErrorAlert(error.message || 'No se pudo cambiar el método de pago');
+        } finally {
+          setSwitching(false);
+        }
+      }
     );
   };
 
   // Reportar problema
   const handleReportIssue = () => {
-    Alert.alert(
+    alertService.showOptionsAlert(
       'Reportar Problema',
       '¿Qué sucedió con el pago?',
       [
@@ -322,7 +306,8 @@ export default function PaymentConfirmationScreen({
           text: 'Cancelar',
           style: 'cancel',
         },
-      ]
+      ],
+      true
     );
   };
 
@@ -339,19 +324,14 @@ export default function PaymentConfirmationScreen({
       console.log('🔄 Cancelando pago con razón:', reason);
       await cancelCashPayment({ rideId, reason });
 
-      Alert.alert(
+      alertService.showInfoAlert(
         'Pago Cancelado',
         'El problema ha sido reportado. El equipo de soporte revisará el caso.',
-        [
-          {
-            text: 'Entendido',
-            onPress: () => navigation.replace('AvailableRides'),
-          },
-        ]
+        () => navigation.replace('AvailableRides')
       );
     } catch (error: any) {
       console.error('Error cancelando pago:', error);
-      Alert.alert('Error', error.message || 'No se pudo reportar el problema');
+      alertService.showErrorAlert(error.message || 'No se pudo reportar el problema');
     } finally {
       setConfirming(false);
     }

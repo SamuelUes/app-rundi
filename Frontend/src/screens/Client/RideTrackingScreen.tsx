@@ -483,6 +483,7 @@ export default function RideTrackingScreen({ route, navigation }: RideTrackingSc
   
   // Computar estados derivados para las diferentes fases del viaje
   const isAccepted = rideStatus === 'accepted';
+  const isDriverOnRoute = rideStatus === 'driver_on_route';
   const isInProgress = rideStatus === 'in_progress';
   const isCompleted = rideStatus === 'completed';
   const isCanceled = rideStatus === 'canceled';
@@ -538,6 +539,7 @@ export default function RideTrackingScreen({ route, navigation }: RideTrackingSc
     
     switch (rideStatus) {
       case 'accepted':
+      case 'driver_on_route':
         setStatusMessage('El conductor está en camino');
         break;
       case 'in_progress':
@@ -785,6 +787,7 @@ export default function RideTrackingScreen({ route, navigation }: RideTrackingSc
   const getStatusColor = () => {
     switch (rideStatus) {
       case 'accepted':
+      case 'driver_on_route':
         return '#FF9800';
       case 'in_progress':
         return '#2196F3';
@@ -995,7 +998,7 @@ export default function RideTrackingScreen({ route, navigation }: RideTrackingSc
               <Text style={styles.shareButtonText}>👥 Compartir Viaje</Text>
             </TouchableOpacity>
             
-            {(isAccepted || isInProgress) && (
+            {(isAccepted || isDriverOnRoute || isInProgress) && (
               <TouchableOpacity style={styles.cancelButton} onPress={handleCancelRide}>
                 <Text style={styles.cancelButtonText}>❌ Cancelar Viaje</Text>
               </TouchableOpacity>

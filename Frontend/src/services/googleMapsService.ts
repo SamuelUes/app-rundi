@@ -1,7 +1,22 @@
 import axios from 'axios';
+import Constants from 'expo-constants';
+import { GOOGLE_MAPS_API_KEY as ENV_GOOGLE_MAPS_API_KEY } from '@env';
 
-const GOOGLE_MAPS_API_KEY = 'AIzaSyBQx3SVauc0jsLQU9eT11px5kqbtAVPUoI';
 const GOOGLE_MAPS_BASE_URL = 'https://maps.googleapis.com/maps/api';
+
+const resolveGoogleMapsKey = (): string => {
+  const fromEnv = ENV_GOOGLE_MAPS_API_KEY?.trim();
+  const fromProcess = (process.env.GOOGLE_MAPS_API_KEY || '').trim();
+  const fromExtra = (Constants.expoConfig?.extra as any)?.googleMapsApiKey || (Constants.manifest?.extra as any)?.googleMapsApiKey;
+
+  const key = fromEnv || fromProcess || fromExtra;
+  if (!key) {
+    console.error('❌ Google Maps API key no configurada. Define GOOGLE_MAPS_API_KEY en el entorno.');
+  }
+  return key;
+};
+
+const GOOGLE_MAPS_API_KEY = resolveGoogleMapsKey();
 
 interface Coordinates {
   latitude: number;

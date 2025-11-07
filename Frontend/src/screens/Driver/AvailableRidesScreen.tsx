@@ -227,72 +227,55 @@ export default function AvailableRidesScreen({ navigation }: any) {
       }
       // Si el cliente sugirió un precio, aceptar ese precio directamente
       if (ride.clientSuggestedPrice && ride.clientSuggestedPrice > 0) {
-        Alert.alert(
-          'Aceptar precio del cliente',
-          `¿Deseas aceptar el viaje por C$${ride.clientSuggestedPrice}?\n\nTu oferta aparecerá en la lista de conductores interesados.`,
-          [
-            { text: 'Cancelar', style: 'cancel' },
-            {
-              text: 'Aceptar',
-              onPress: async () => {
-                try {
-                  console.log(`📤 Enviando aceptación de precio para viaje: ${ride.id}`);
-                  console.log(`💰 Precio del cliente: C$${ride.clientSuggestedPrice}`);
-                  
-                  await priceNegotiationService.acceptClientPrice(ride.id);
-                  
-                  // Navegar a pantalla de espera de confirmación del cliente
-                  navigation.replace('WaitingClientConfirmation', {
-                    rideId: ride.id,
-                    clientId: ride.clientId,
-                    origin: ride.origin,
-                    destination: ride.destination,
-                    estimatedFare: ride.clientSuggestedPrice,
-                  });
-                } catch (error: any) {
-                  console.error('❌ Error completo:', error);
-                  Alert.alert('Error', error.message || 'No se pudo enviar la oferta');
-                }
-              },
-            },
-          ]
-        );
+        try {
+          console.log(`📤 Enviando aceptación de precio para viaje: ${ride.id}`);
+          console.log(`💰 Precio del cliente: C$${ride.clientSuggestedPrice}`);
+
+          await priceNegotiationService.acceptClientPrice(ride.id);
+
+          alertService.showSuccessAlert(
+            'Oferta enviada',
+            `Aceptaste el viaje por C$${ride.clientSuggestedPrice}. Esperando confirmación del cliente...`
+          );
+
+          navigation.replace('WaitingClientConfirmation', {
+            rideId: ride.id,
+            clientId: ride.clientId,
+            origin: ride.origin,
+            destination: ride.destination,
+            estimatedFare: ride.clientSuggestedPrice,
+          });
+        } catch (error: any) {
+          console.error('❌ Error completo:', error);
+          alertService.showErrorAlert(error.message || 'No se pudo enviar la oferta');
+        }
       } else {
-        // Si no hay precio sugerido, aceptar normalmente
-        Alert.alert(
-          'Aceptar viaje',
-          '¿Deseas aceptar este viaje?',
-          [
-            { text: 'Cancelar', style: 'cancel' },
-            {
-              text: 'Aceptar',
-              onPress: async () => {
-                try {
-                  const acceptData = {
-                    driverId: user?.id || '',
-                    vehicleId: 'temp-vehicle-id',
-                    currentLocation: { lat: 0, lng: 0 },
-                  };
-                  await ridesService.acceptRide(ride.id, acceptData);
-                  
-                  // Navegar a pantalla de espera de confirmación del cliente
-                  navigation.replace('WaitingClientConfirmation', {
-                    rideId: ride.id,
-                    clientId: ride.clientId,
-                    origin: ride.origin,
-                    destination: ride.destination,
-                    estimatedFare: ride.estimatedPrice,
-                  });
-                } catch (error: any) {
-                  Alert.alert('Error', error.message || 'No se pudo aceptar el viaje');
-                }
-              },
-            },
-          ]
-        );
+        try {
+          const acceptData = {
+            driverId: user?.id || '',
+            vehicleId: 'temp-vehicle-id',
+            currentLocation: { lat: 0, lng: 0 },
+          };
+          await ridesService.acceptRide(ride.id, acceptData);
+
+          alertService.showSuccessAlert(
+            'Oferta enviada',
+            'Hemos notificado al cliente. Esperando confirmación...'
+          );
+
+          navigation.replace('WaitingClientConfirmation', {
+            rideId: ride.id,
+            clientId: ride.clientId,
+            origin: ride.origin,
+            destination: ride.destination,
+            estimatedFare: ride.estimatedPrice,
+          });
+        } catch (error: any) {
+          alertService.showErrorAlert(error.message || 'No se pudo aceptar el viaje');
+        }
       }
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'No se pudo aceptar el viaje');
+      alertService.showErrorAlert(error.message || 'No se pudo aceptar el viaje');
     }
   };
 

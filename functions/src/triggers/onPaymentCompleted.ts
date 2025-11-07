@@ -17,6 +17,7 @@ import {
   updateRideLocationIds, // ✅ NUEVO
   saveCanceledRideToSupabase, // ✅ NUEVO
 } from "../helpers/supabaseArchive.old";
+import { cleanupRideFromRealtime } from "../helpers/cleanupHelpers-new";
 
 /**
  * TRIGGER: Cuando paymentStatus/{rideId}.status = 'completed'
@@ -141,14 +142,10 @@ export const onPaymentCompleted = functions.database
 
       console.log(`✅ Status actualizado a 'completed'`);
 
-      // PASO 6: Limpiar Firebase (eliminar de activeRides)
-      console.log(`\n6️⃣ Limpiando Firebase (eliminando de activeRides)...`);
-      await admin
-        .database()
-        .ref(`activeRides/${rideId}`)
-        .remove();
-
-      console.log(`✅ Eliminado de activeRides`);
+      // PASO 6: Limpiar todos los nodos asociados en Firebase
+      console.log(`\n6️⃣ Limpiando Firebase (activeRides, paymentStatus, chats)...`);
+      await cleanupRideFromRealtime(rideId);
+      console.log(`✅ Datos del viaje eliminados del Realtime Database`);
 
       console.log(`\n${"=".repeat(60)}`);
       console.log(`✅✅✅ [onPaymentCompleted] ¡¡¡ COMPLETADO EXITOSAMENTE !!!`);
@@ -315,6 +312,11 @@ export const onPaymentCanceled = functions.database
         });
 
       console.log(`✅ Firebase actualizado`);
+
+      // PASO 6: Limpiar todos los nodos asociados en Firebase
+      console.log(`\n6️⃣ Limpiando Firebase (activeRides, paymentStatus, chats)...`);
+      await cleanupRideFromRealtime(rideId);
+      console.log(`✅ Datos del viaje eliminados del Realtime Database`);
 
       console.log(`\n${"=".repeat(60)}`);
       console.log(`✅✅✅ [onPaymentCanceled] ¡¡¡ COMPLETADO EXITOSAMENTE !!!`);

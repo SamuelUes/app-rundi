@@ -16,7 +16,6 @@ import {
 import alertService from '../../services/alertService';
 import { useTheme } from '../../context/ThemeContext';
 import { MapSkeleton } from '../../components/SkeletonLoader';
-import { AnimatedButton } from '../../components/AnimatedButton';
 import DynamicMap from '../../components/DynamicMap';
 import { useAuth } from '../../context/AuthContext';
 import { useLocation } from '../../hooks/useLocation';
@@ -25,9 +24,7 @@ import ETADisplay from '../../components/ETADisplay';
 import DeviationAlert from '../../components/DeviationAlert';
 import { RideProgressIndicator } from '../../components/RideProgressIndicator';
 import ridesService from '../../services/ridesService';
-import mapsService from '../../services/mapsService';
-import firebaseTrackingService from '../../services/firebaseTrackingService';
-import { getDatabase, ref, onValue, off, DataSnapshot } from 'firebase/database';
+import { getDatabase, ref, onValue, off } from 'firebase/database';
 // ✅ NUEVO: Imports para guardar ubicaciones con pgRideId
 import { getFirebaseFunctions } from '../../config/firebase';
 import { httpsCallable } from 'firebase/functions';
@@ -93,20 +90,19 @@ async function calculateRealRoute(
     
     // Usar OpenRouteService (gratuito, sin API key para uso básico)
     const url = `https://router.project-osrm.org/route/v1/driving/${startLng},${startLat};${endLng},${endLat}?overview=full&geometries=geojson`;
-    
     const response = await fetch(url, {
       method: 'GET',
       headers: {
         'Accept': 'application/json',
       },
     });
-    
+
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
-    
+
     const data = await response.json();
-    
+
     if (!data.routes || data.routes.length === 0) {
       throw new Error('No se encontró ninguna ruta');
     }
@@ -119,12 +115,12 @@ async function calculateRealRoute(
       longitude: coord[0],
       latitude: coord[1],
     }));
-    
+
     console.log(`✅ Ruta calculada con ${route.length} puntos`);
     return route;
   } catch (error) {
     console.error('❌ Error calculando ruta:', error);
-    
+
     // Fallback: línea recta
     return [
       { latitude: startLat, longitude: startLng },
@@ -138,7 +134,12 @@ export default function ActiveRideScreen({ route, navigation }: any) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { user } = useAuth();
-  const [ride, setRide] = useState<any>(null);
+  const notifiedRides = useRef<Set<string>>(new Set());
+  const rideStatusCacheRef = useRef<Record<string, string>>({});
+  const driverLocationsSignatureRef = useRef<string>('');
+  const driverOnRouteRequestedRef = useRef(false);
+  const PANEL_MIN_HEIGHT = 180;
+  const [ride, setRide] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [updating, setUpdating] = useState(false);
@@ -188,7 +189,10 @@ export default function ActiveRideScreen({ route, navigation }: any) {
   // Estado derivado para las fases del viaje
   const isPendingConfirm = ride?.status === 'pending_confirm';
   const isAccepted = ride?.status === 'accepted';
+  const isDriverOnRoute = ride?.status === 'driver_on_route';
   const isInProgress = ride?.status === 'in_progress';
+  const isCompleted = ride?.status === 'completed';
+  const isCanceled = ride?.status === 'canceled';
 
   // Cargar datos del viaje desde Firebase
   useEffect(() => {
@@ -218,6 +222,23 @@ export default function ActiveRideScreen({ route, navigation }: any) {
         console.log('🔑 Claves en ride:', Object.keys(data));
         setRide(data);
         setLoading(false);
+
+        if (data.driverId !== user?.id) {
+          driverOnRouteRequestedRef.current = false;
+        } else if (data.status === 'driver_on_route') {
+          driverOnRouteRequestedRef.current = true;
+        } else if (data.status === 'accepted' && !driverOnRouteRequestedRef.current) {
+          driverOnRouteRequestedRef.current = true;
+          ridesService
+            .markDriverOnRoute(rideId)
+            .then(() => console.log(`🚕 [Driver] markDriverOnRoute enviado para ${rideId}`))
+            .catch((err) => {
+              console.warn('⚠️ [Driver] Error marcando driver_on_route:', err);
+              driverOnRouteRequestedRef.current = false;
+            });
+        } else if (data.status && !['accepted', 'driver_on_route'].includes(data.status)) {
+          driverOnRouteRequestedRef.current = false;
+        }
 
         // Si hay datos de pago, obtener método
         try {
@@ -269,7 +290,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
     return () => {
       off(rideRef);
     };
-  }, [rideId]); // Solo depende de rideId, no de ride
+  }, [rideId, user?.id]); // Solo depende de rideId, no de ride
 
   // Timer del viaje
   useEffect(() => {
@@ -317,12 +338,11 @@ export default function ActiveRideScreen({ route, navigation }: any) {
       
       console.log('🗺️ Configurando ruta...');
       console.log('🚗 ride status:', ride?.status);
-      console.log('🎯 isAccepted:', isAccepted, 'isInProgress:', isInProgress);
+      console.log('🎯 isAccepted:', isAccepted, 'isDriverOnRoute:', isDriverOnRoute, 'isInProgress:', isInProgress);
       console.log('📦 Datos completos del ride:', JSON.stringify(ride, null, 2));
       
       // PRIORIDAD 1: Usar ruta precalculada del backend si existe
       if (ride.routeCoordinates && Array.isArray(ride.routeCoordinates) && ride.routeCoordinates.length > 0) {
-        console.log('✅ Usando ruta precalculada del backend:', ride.routeCoordinates.length, 'puntos');
         setRoutePolyline(ride.routeCoordinates);
         setLoadError(null);
         return;
@@ -333,7 +353,6 @@ export default function ActiveRideScreen({ route, navigation }: any) {
       
       // Verificar formatos alternativos
       if (ride.route && Array.isArray(ride.route) && ride.route.length > 0) {
-        console.log('✅ Encontrada ruta en ride.route:', ride.route.length, 'puntos');
         setRoutePolyline(ride.route);
         setLoadError(null);
         return;
@@ -373,7 +392,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
         }
         
         // Calcular ruta real
-        if (isAccepted) {
+        if (isAccepted || isDriverOnRoute) {
           // ✅ MEJORADO: Conductor → Origen → Paradas extras → Destino
           console.log('🗺️ Calculando ruta: Conductor → Origen → Paradas → Destino');
           console.log('📍 Paradas extras:', ride?.extraDestinations?.length || 0);
@@ -470,7 +489,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
           const destLat = ride.destination?.lat || ride.destination?.latitude;
           const destLng = ride.destination?.lng || ride.destination?.longitude;
           
-          if (isAccepted) {
+          if (isAccepted || isDriverOnRoute) {
             // ✅ MEJORADO: Incluir paradas en fallback
             const straightLineRoute = [
               { latitude: coords.latitude, longitude: coords.longitude },
@@ -518,7 +537,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
     };
 
     setupRoute();
-  }, [ride, coords]); // Ejecutar cuando cambie el viaje o las coordenadas
+  }, [ride, coords,  isAccepted, isDriverOnRoute, isInProgress]); // Ejecutar cuando cambie el viaje o las coordenadas
 
   // Iniciar/detener tracking según estado del viaje
   useEffect(() => {
@@ -581,14 +600,11 @@ export default function ActiveRideScreen({ route, navigation }: any) {
     });
   };
 
-   // Iniciar viaje
-   const handleStartRide = async () => {
+  const handleStartRide = async () => {
     try {
       setUpdating(true);
-      
-      // Verificar si necesita inspección del vehículo (solo para conductores designados)
+
       if (needsVehicleInspection()) {
-        // Navegar a la pantalla de inspección
         navigation.navigate('VehicleInspection', {
           rideId,
           clientName: ride?.client?.name || 'Cliente'
@@ -596,12 +612,10 @@ export default function ActiveRideScreen({ route, navigation }: any) {
         setUpdating(false);
         return;
       }
-      
-      // Iniciar viaje normalmente
+
       await ridesService.updateRideStatus(rideId, 'in_progress');
       setRideStartTime(new Date());
-      alertService.showSuccessAlert('¡Viaje Iniciado!', 'El viaje ha comenzado');
-      // Firebase listener actualizará automáticamente
+      // 🔕 Eliminadas alertas redundantes de confirmación/éxito
     } catch (error) {
       alertService.showErrorAlert('No se pudo iniciar el viaje');
       console.error('Error al iniciar viaje:', error);
@@ -611,97 +625,77 @@ export default function ActiveRideScreen({ route, navigation }: any) {
   };
 
   const handleCompleteRide = async () => {
-    alertService.showConfirmAlert(
-      'Completar Viaje',
-      '¿Has llegado al destino?',
-      async () => {
+    try {
+      setUpdating(true);
+      const normalizedPaymentMethod = (paymentMethod || '').toLowerCase();
+      console.log('🏁 [ActiveRideScreen] Completando viaje:', rideId);
+
+      const finalFare = ride?.finalFare || ride?.estimatedPrice || 0;
+      const actualDistance = ride?.estimatedDistance || 0;
+      const actualDuration = ride?.estimatedDuration || 0;
+
+      const result = await ridesService.updateRideStatus(rideId, 'pending_payment', {
+        finalFare,
+        actualDistance,
+        actualDuration,
+        completedAt: Date.now(),
+      });
+
+      const { pgRideId } = result;
+      console.log(`✅ [ActiveRideScreen] Viaje completado. Firebase ID: ${rideId}, PostgreSQL ID: ${pgRideId}`);
+
+      if (pgRideId && coords) {
         try {
-          setUpdating(true);
-          const normalizedPaymentMethod = (paymentMethod || '').toLowerCase();
-          console.log('🏁 [ActiveRideScreen] Completando viaje:', rideId);
-          
-          // Calcular datos del viaje completado
-          const finalFare = ride?.finalFare || ride?.estimatedPrice || 0;
-          const actualDistance = ride?.estimatedDistance || 0;
-          const actualDuration = ride?.estimatedDuration || 0;
-          
-          console.log('💰 [ActiveRideScreen] Datos del viaje:', { finalFare, actualDistance, actualDuration, paymentMethod });
-          
-          // ✅ NUEVO: Obtener pgRideId del response
-          const result = await ridesService.updateRideStatus(rideId, 'pending_payment', {
-            finalFare,
-            actualDistance,
-            actualDuration,
-            completedAt: Date.now(),
+          const functions = await getFirebaseFunctions();
+          const saveLocationFn = httpsCallable(functions, 'saveRideLocationWithRetry');
+
+          await saveLocationFn({
+            rideId: pgRideId,
+            latitude: coords.latitude,
+            longitude: coords.longitude,
+            speed: coords.speed || null,
+            heading: coords.heading || null,
+            accuracy: coords.accuracy || null,
           });
-          
-          const { pgRideId } = result;  // ← Extraer pgRideId
-          console.log(`✅ [ActiveRideScreen] Viaje completado. Firebase ID: ${rideId}, PostgreSQL ID: ${pgRideId}`);
-          
-          // ✅ NUEVO: Guardar ubicaciones con pgRideId
-          if (pgRideId && coords) {
-            console.log(`📍 [ActiveRideScreen] Guardando ubicaciones con pgRideId: ${pgRideId}`);
-            try {
-              const functions = await getFirebaseFunctions();
-              const saveLocationFn = httpsCallable(functions, 'saveRideLocationWithRetry');
-              
-              await saveLocationFn({
-                rideId: pgRideId,  // ← Usar pgRideId
-                latitude: coords.latitude,
-                longitude: coords.longitude,
-                speed: coords.speed || null,
-                heading: coords.heading || null,
-                accuracy: coords.accuracy || null,
-              });
-              
-              console.log('✅ [ActiveRideScreen] Ubicaciones guardadas');
-            } catch (locError) {
-              console.warn('⚠️ [ActiveRideScreen] Error guardando ubicaciones:', locError);
-              // No lanzar error - continuar con el flujo
-            }
-          }
-          
-          // Navegar a pantalla unificada de confirmación de pago
-          console.log(`💳 [ActiveRideScreen] Navegando a PaymentConfirmation con método: ${paymentMethod}`);
-          alertService.showSuccessAlert('¡Viaje Completado!', 'Procede con la confirmación del pago');
-          navigation.replace('PaymentConfirmation', { 
-            rideId,
-            pgRideId,  // ← Pasar pgRideId a PaymentConfirmation
-            amount: finalFare,
-            tip: 0,
-            clientName: ride?.clientName || 'Cliente',
-            paymentMethod: paymentMethod as 'cash' | 'card'
-          }); 
-        } catch (error: any) {
-          console.error('Error completando viaje:', error);
-          alertService.showErrorAlert(error.message || 'No se pudo completar el viaje');
-        } finally {
-          setUpdating(false);
+
+          console.log('✅ [ActiveRideScreen] Ubicaciones guardadas');
+        } catch (locError) {
+          console.warn('⚠️ [ActiveRideScreen] Error guardando ubicaciones:', locError);
         }
       }
-    );
+
+      // 🔕 Eliminadas alertas de confirmación/éxito duplicadas
+      navigation.replace('PaymentConfirmation', {
+        rideId,
+        pgRideId,
+        amount: finalFare,
+        tip: 0,
+        clientName: ride?.clientName || 'Cliente',
+        paymentMethod: paymentMethod as 'cash' | 'card'
+      });
+    } catch (error: any) {
+      console.error('Error completando viaje:', error);
+      alertService.showErrorAlert(error.message || 'No se pudo completar el viaje');
+    } finally {
+      setUpdating(false);
+    }
   };
 
-  const handleCancelRide = () => {
-    alertService.showConfirmAlert(
-      'Cancelar Viaje',
-      '¿Estás seguro que deseas cancelar este viaje?',
-      async () => {
-        try {
-          setUpdating(true);
-          await ridesService.cancelRide(rideId, 'Cancelado por el conductor');
-          alertService.showSuccessAlert(
-            'Viaje Cancelado',
-            'El viaje ha sido cancelado',
-            () => navigation.goBack()
-          );
-        } catch (error: any) {
-          alertService.showErrorAlert(error.response?.data?.message || 'No se pudo cancelar el viaje');
-        } finally {
-          setUpdating(false);
-        }
-      }
-    );
+  const handleCancelRide = async () => {
+    try {
+      setUpdating(true);
+      await ridesService.cancelRide(rideId, 'Cancelado por el conductor');
+      alertService.showSuccessAlert(
+        'Viaje Cancelado',
+        'El viaje ha sido cancelado',
+        () => navigation.goBack()
+      );
+    } catch (error: any) {
+      const message = error?.response?.data?.message || error?.message || 'No se pudo cancelar el viaje';
+      alertService.showErrorAlert(message);
+    } finally {
+      setUpdating(false);
+    }
   };
 
   const resolvedClientName = ride?.client?.fullName || ride?.client?.name || ride?.clientName || 'Cliente';
@@ -746,7 +740,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
     let destination;
     let navigationMessage;
 
-    if (isAccepted) {
+    if (isAccepted || isDriverOnRoute) {
       // Viaje aceptado pero no iniciado: navegar al ORIGEN del viaje
       destination = ride.origin;
       navigationMessage = 'Ruta desde tu ubicación actual hasta el punto de recogida del cliente';
@@ -778,7 +772,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
      let waypoints = '';
      let routeDescription = '';
  
-     if (isAccepted) {
+     if (isAccepted || isDriverOnRoute) {
        // Viaje aceptado: ruta desde ubicación actual → origen del viaje → destino del viaje
        finalDestination = ride.destination; // Destino final del viaje
        waypoints = `${destLat},${destLng}`; // Origen del viaje como waypoint
@@ -801,11 +795,11 @@ export default function ActiveRideScreen({ route, navigation }: any) {
      console.log('📍 Coordenadas finales:', {
        currentLat,
        currentLng,
-       waypointLat: isAccepted ? destLat : null,
-       waypointLng: isAccepted ? destLng : null,
+       waypointLat: (isAccepted || isDriverOnRoute) ? destLat : null,
+       waypointLng: (isAccepted || isDriverOnRoute) ? destLng : null,
        finalDestLat,
        finalDestLng,
-       destinationType: isAccepted ? 'viaje accepted con waypoint' : 'viaje in_progress'
+       destinationType: (isAccepted || isDriverOnRoute) ? 'viaje accepted con waypoint' : 'viaje in_progress'
      });
  
      // Validar coordenadas del destino final
@@ -1250,7 +1244,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
             </TouchableOpacity>
           )}
 
-          {isInProgress && (
+{(isAccepted || isDriverOnRoute || isInProgress) && !isCompleted && !isCanceled && (
             <TouchableOpacity
               style={[styles.primaryButton, updating && styles.buttonDisabled]}
               onPress={handleCompleteRide}
@@ -1672,4 +1666,6 @@ const createStyles = (colors: any) => StyleSheet.create({
     color: '#856404',
     lineHeight: 16,
   },
-});
+
+}); 
+     

@@ -13,6 +13,8 @@ interface ThemeContextType {
   isDark: boolean;
   setTheme: (theme: Theme) => void;
   colors: typeof lightColors;
+  mapTrafficEnabled: boolean;
+  setMapTrafficEnabled: (value: boolean) => void;
 }
 
 const lightColors = {
@@ -54,16 +56,18 @@ const darkColors = {
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 const THEME_STORAGE_KEY = '@driveangel_theme';
+const MAP_TRAFFIC_STORAGE_KEY = '@driveangel_map_traffic';
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>('auto');
   const [systemTheme, setSystemTheme] = useState<'light' | 'dark'>(
     Appearance.getColorScheme() || 'light'
   );
+  const [mapTrafficEnabled, setMapTrafficEnabledState] = useState<boolean>(true);
 
   // Cargar tema guardado
   useEffect(() => {
-    loadTheme();
+    loadPreferences();
   }, []);
 
   // Escuchar cambios del sistema
@@ -75,14 +79,19 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     return () => subscription.remove();
   }, []);
 
-  const loadTheme = async () => {
+  const loadPreferences = async () => {
     try {
       const savedTheme = await AsyncStorage.getItem(THEME_STORAGE_KEY);
       if (savedTheme && ['light', 'dark', 'auto'].includes(savedTheme)) {
         setThemeState(savedTheme as Theme);
       }
+
+      const savedTraffic = await AsyncStorage.getItem(MAP_TRAFFIC_STORAGE_KEY);
+      if (savedTraffic !== null) {
+        setMapTrafficEnabledState(savedTraffic === 'true');
+      }
     } catch (error) {
-      console.error('Error loading theme:', error);
+      console.error('Error loading theme preferences:', error);
     }
   };
 
@@ -96,6 +105,16 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const setMapTrafficEnabled = async (value: boolean) => {
+    try {
+      await AsyncStorage.setItem(MAP_TRAFFIC_STORAGE_KEY, value ? 'true' : 'false');
+      setMapTrafficEnabledState(value);
+      console.log(`✅ Tráfico en mapa ${value ? 'activado' : 'desactivado'}`);
+    } catch (error) {
+      console.error('Error saving traffic preference:', error);
+    }
+  };
+
   // Determinar si usar dark mode
   const isDark = theme === 'dark' || (theme === 'auto' && systemTheme === 'dark');
 
@@ -103,7 +122,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const colors = isDark ? darkColors : lightColors;
 
   return (
-    <ThemeContext.Provider value={{ theme, isDark, setTheme, colors }}>
+    <ThemeContext.Provider
+      value={{ theme, isDark, setTheme, colors, mapTrafficEnabled, setMapTrafficEnabled }}
+    >
       {children}
     </ThemeContext.Provider>
   );

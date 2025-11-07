@@ -13,14 +13,13 @@ import { useAuth } from '../../context/AuthContext';
 import { FCMConfigComponent } from '../../context/FCMContext';
 
 export default function SettingsScreen({ navigation }: any) {
-  const { theme, isDark, setTheme, colors } = useTheme();
+  const { theme, isDark, setTheme, colors, mapTrafficEnabled, setMapTrafficEnabled } = useTheme();
   const { user, logout } = useAuth();
   
   // Estados para configuraciones adicionales
   const [notifications, setNotifications] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [vibrationEnabled, setVibrationEnabled] = useState(true);
-  const [locationAlways, setLocationAlways] = useState(false);
 
   const handleThemeChange = (value: 'light' | 'dark' | 'auto') => {
     setTheme(value);
@@ -313,10 +312,25 @@ export default function SettingsScreen({ navigation }: any) {
           </View>
         </View>
 
-        {/* Ubicación */}
+        {/* Mapas y ubicación */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Ubicación</Text>
-          
+          <Text style={styles.sectionTitle}>Mapas y ubicación</Text>
+
+          <View style={styles.option}>
+            <View style={styles.optionLeft}>
+              <Text style={styles.optionTitle}>Tráfico en el mapa</Text>
+              <Text style={styles.optionDescription}>
+                Muestra la capa de tráfico en tiempo real en Google Maps
+              </Text>
+            </View>
+            <Switch
+              value={mapTrafficEnabled}
+              onValueChange={setMapTrafficEnabled}
+              trackColor={{ false: colors.border, true: colors.primary }}
+              thumbColor="#fff"
+            />
+          </View>
+
           <View style={[styles.option, styles.optionLast]}>
             <View style={styles.optionLeft}>
               <Text style={styles.optionTitle}>Ubicación en segundo plano</Text>
@@ -325,10 +339,11 @@ export default function SettingsScreen({ navigation }: any) {
               </Text>
             </View>
             <Switch
-              value={locationAlways}
-              onValueChange={setLocationAlways}
+              value={false}
+              onValueChange={() => {}}
               trackColor={{ false: colors.border, true: colors.primary }}
               thumbColor="#fff"
+              disabled
             />
           </View>
         </View>

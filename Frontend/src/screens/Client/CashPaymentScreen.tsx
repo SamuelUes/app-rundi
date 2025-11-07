@@ -16,7 +16,6 @@ import {
   StyleSheet,
   ScrollView,
   Image,
-  Alert,
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { AnimatedButton } from '../../components/AnimatedButton';
@@ -286,23 +285,17 @@ export default function CashPaymentScreen({ route, navigation }: any) {
               return typeof paramAmount === 'string' ? parseFloat(paramAmount) : paramAmount || 0;
             })();
 
-            Alert.alert(
+            alertService.showInfoAlert(
               'Método de Pago Cambiado',
               'El método de pago cambió a tarjeta. Serás redirigido a la pantalla de pago con tarjeta.',
-              [
-                {
-                  text: 'Entendido',
-                  onPress: () => {
-                    navigation.replace('Payment', {
-                      rideId,
-                      amount: finalAmount,
-                      driverName: ride?.driver?.name || paramDriverName,
-                      driverPhoto: ride?.driver?.photoURL || driverPhoto,
-                    });
-                  },
-                },
-              ],
-              { cancelable: false }
+              () => {
+                navigation.replace('Payment', {
+                  rideId,
+                  amount: finalAmount,
+                  driverName: ride?.driver?.name || paramDriverName,
+                  driverPhoto: ride?.driver?.photoURL || driverPhoto,
+                });
+              }
             );
           }
         }

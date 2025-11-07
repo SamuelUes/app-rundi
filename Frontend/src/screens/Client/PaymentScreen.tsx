@@ -5,7 +5,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
-  Alert,
   ScrollView,
   TextInput,
 } from 'react-native';
@@ -15,6 +14,7 @@ import { getFunctions, httpsCallable } from 'firebase/functions';
 import { getDatabase, ref as dbRef, update as dbUpdate, get } from 'firebase/database';
 import { initializeFirebase } from '../../config/firebase';
 import { validateAndSaveCard, getCardsList, formatCardNumber, formatExpiryDate, isValidExpiryFormat, isValidCVV } from '../../utils/cardUtils';
+import alertService from '../../services/alertService';
 import type { Card as SavedCard } from '../../services/cardsService';
 
 interface PaymentScreenProps {
@@ -254,7 +254,7 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
       // Esperar a que el listener sincronice el estado
     } catch (error: any) {
       console.error('Error cambiando método de pago desde cliente:', error);
-      Alert.alert('Error', error.message || 'No se pudo cambiar el método de pago.');
+      alertService.showErrorAlert(error.message || 'No se pudo cambiar el método de pago.');
     } finally {
       setChangingPaymentMethod(false);
     }
@@ -348,25 +348,20 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
 
       // Pago capturado exitosamente
 
-      Alert.alert(
+      alertService.showSuccessAlert(
         '✅ ¡Pago Completado!',
         `El pago de C$${(rideAmount + tip).toFixed(2)} ha sido procesado exitosamente.`,
-        [
-          {
-            text: 'Calificar Viaje',
-            onPress: () => {
-              navigation.replace('Rating', {
-                rideId,
-                driverId: driverId || rideDetails?.driverId,
-                role: 'client',
-              });
-            },
-          },
-        ]
+        () => {
+          navigation.replace('Rating', {
+            rideId,
+            driverId: driverId || rideDetails?.driverId,
+            role: 'client',
+          });
+        }
       );
     } catch (error: any) {
       console.error('Error capturando pago:', error);
-      Alert.alert('Error', error.message || 'Error al procesar el pago');
+      alertService.showErrorAlert(error.message || 'Error al procesar el pago');
     } finally {
       setProcessing(false);
     }
@@ -380,26 +375,20 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
       // El cliente NO tiene permisos para escribir en /paymentStatus en Firebase Realtime DB
       // Esto es por seguridad - solo el backend puede actualizar estados de pago
 
-      Alert.alert(
+      alertService.showInfoAlert(
         '💵 Pago en Efectivo',
         `Por favor paga C$${(rideAmount + tip).toFixed(2)} en efectivo al conductor. El conductor confirmará la recepción del pago.`,
-        [
-          {
-            text: 'Entendido',
-            onPress: () => {
-              // Navegar a Rating después de confirmar efectivo
-              navigation.replace('Rating', {
-                rideId,
-                driverId: driverId || rideDetails?.driverId,
-                role: 'client',
-              });
-            },
-          },
-        ]
+        () => {
+          navigation.replace('Rating', {
+            rideId,
+            driverId: driverId || rideDetails?.driverId,
+            role: 'client',
+          });
+        }
       );
     } catch (error: any) {
       console.error('Error procesando pago en efectivo:', error);
-      Alert.alert('Error', error.message || 'Error al procesar el pago');
+      alertService.showErrorAlert(error.message || 'Error al procesar el pago');
     } finally {
       setProcessing(false);
     }
@@ -423,27 +412,27 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
     try {
       // Validar campos
       if (!cardNumber.trim()) {
-        Alert.alert('Error', 'Ingresa el número de tarjeta');
+        alertService.showErrorAlert('Ingresa el número de tarjeta');
         return;
       }
 
       if (!cardHolder.trim()) {
-        Alert.alert('Error', 'Ingresa el nombre del titular');
+        alertService.showErrorAlert('Ingresa el nombre del titular');
         return;
       }
 
       if (!expiryDate.trim() || !isValidExpiryFormat(expiryDate)) {
-        Alert.alert('Error', 'Ingresa la fecha de expiración en formato MM/YY o MM/YYYY');
+        alertService.showErrorAlert('Ingresa la fecha de expiración en formato MM/YY o MM/YYYY');
         return;
       }
 
       if (!cvv.trim() || !isValidCVV(cvv)) {
-        Alert.alert('Error', 'Ingresa un CVV válido (3 o 4 dígitos)');
+        alertService.showErrorAlert('Ingresa un CVV válido (3 o 4 dígitos)');
         return;
       }
 
       if (!selectedBank) {
-        Alert.alert('Error', 'Selecciona un banco');
+        alertService.showErrorAlert('Selecciona un banco');
         return;
       }
 
@@ -470,30 +459,25 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
 
       console.log(`✅ Tarjeta guardada exitosamente: ${result.card.id}`);
 
-      Alert.alert(
+      alertService.showSuccessAlert(
         '✅ Tarjeta Guardada',
         `Tu tarjeta ${result.card.brand.toUpperCase()} **** ${result.card.last4} ha sido guardada exitosamente.`,
-        [
-          {
-            text: 'Continuar',
-            onPress: () => {
-              // Limpiar formulario
-              setCardNumber('');
-              setCardHolder('');
-              setExpiryDate('');
-              setCvv('');
-              setSaveCard(false);
-              setUseNewCard(false);
+        () => {
+          // Limpiar formulario
+          setCardNumber('');
+          setCardHolder('');
+          setExpiryDate('');
+          setCvv('');
+          setSaveCard(false);
+          setUseNewCard(false);
 
-              // Recargar tarjetas
-              loadSavedCards();
-            },
-          },
-        ]
+          // Recargar tarjetas
+          loadSavedCards();
+        }
       );
     } catch (error: any) {
       console.error('❌ Error guardando tarjeta:', error);
-      Alert.alert('Error', error.message || 'Error al guardar la tarjeta');
+      alertService.showErrorAlert(error.message || 'Error al guardar la tarjeta');
     } finally {
       setProcessing(false);
     }

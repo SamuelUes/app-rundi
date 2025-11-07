@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, Modal, StyleSheet, Linking, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, Modal, StyleSheet, Linking, Alert, ActivityIndicator, Image } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 import { useLocation } from '../hooks/useLocation';
 import { getFirebaseFunctions } from '../config/firebase';
@@ -79,6 +79,11 @@ export default function EmergencyButton({ rideId, style }: EmergencyButtonProps)
       alignItems: 'center',
       justifyContent: 'center',
       ...style,
+    },
+    icon: {
+      width: 40,
+      height: 40,
+      resizeMode: 'contain',
     },
     buttonText: {
       color: colors.text,
@@ -161,9 +166,10 @@ export default function EmergencyButton({ rideId, style }: EmergencyButtonProps)
         {calling ? (
           <ActivityIndicator color={colors.primary} />
         ) : (
-          <>
-            <Text style={{ fontSize: 24, marginBottom: 4 }}>🆘</Text>  
-          </>
+          <Image
+            source={require('../assets/icons/emergency/red-call-icon.png')}
+            style={styles.icon}
+          />
         )}
       </TouchableOpacity>
 

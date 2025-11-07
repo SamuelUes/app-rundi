@@ -69,3 +69,4 @@ export async function archiveCompletedRide(ride: any, rideId: string, paymentSta
 export async function archiveCanceledRide(ride: any, rideId: string): Promise<void> {
   console.warn(`⚠️ [archiveCanceledRide] DEPRECADO - Usar supabaseArchive.saveCanceledRideToSupabase()`);
 }
+

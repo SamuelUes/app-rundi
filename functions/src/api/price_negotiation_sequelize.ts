@@ -164,22 +164,62 @@ export const acceptClientPrice = functions.https.onCall(async (data, context) =>
       throw new functions.https.HttpsError('invalid-argument', 'Precio del cliente inválido o no definido');
     }
 
-    // Actualizar viaje: aceptar precio del cliente
-    await db.ref(`activeRides/${rideId}`).update({
+    // Obtener datos del conductor para adjuntarlos al viaje
+    let driverInfo: any = null;
+    try {
+      const driverInfoSnapshot = await db.ref(`driversInfo/${driverId}`).once('value');
+      driverInfo = driverInfoSnapshot.val();
+    } catch (driverError) {
+      console.warn('⚠️ [acceptClientPrice] No se pudo obtener driversInfo:', driverError);
+    }
+
+    const driverPayload = driverInfo
+      ? {
+          id: driverId,
+          name: driverInfo.name || null,
+          rating: driverInfo.rating || null,
+          photoURL: driverInfo.photoURL || driverInfo.profilePhoto || null,
+          vehicle: driverInfo.vehicle || null,
+        }
+      : {
+          id: driverId,
+        };
+
+    const rideUpdate: any = {
       finalFare: clientPrice,
       negotiationStatus: 'client_accepted',
       driverOfferedPrice: null,
       clientSuggestedPrice: 0, // Se limpia para evitar duplicados
+      driverId,
+      driver: driverPayload,
+      status: rideData.status === 'requested' ? 'pending_confirm' : rideData.status,
       updatedAt: admin.database.ServerValue.TIMESTAMP,
+    };
+
+    // Actualizar viaje: aceptar precio del cliente y adjuntar conductor
+    await db.ref(`activeRides/${rideId}`).update(rideUpdate);
+
+    // ✅ Asegurar que exista una oferta aceptada para el conductor
+    await db.ref(`activeRides/${rideId}/offers/${driverId}`).update({
+      offeredPrice: clientPrice,
+      status: 'accepted',
+      driver: driverPayload,
+      updatedAt: admin.database.ServerValue.TIMESTAMP,
+      createdAt: admin.database.ServerValue.TIMESTAMP,
     });
 
-    // ✅ Actualizar el status de la oferta a "accepted"
-    if (rideData.offers && rideData.offers[driverId]) {
-      console.log(`✅ [acceptClientPrice] Actualizando status de oferta en offers/${driverId} a "accepted"`);
-      await db.ref(`activeRides/${rideId}/offers/${driverId}`).update({
-        status: 'accepted',
-        updatedAt: admin.database.ServerValue.TIMESTAMP,
+    // ✅ Sincronizar información clave a Supabase
+    try {
+      const { RideRepository } = await import('../sequelize/repositories/RideRepository');
+      const rideRepo = new RideRepository();
+      await rideRepo.update(rideId, {
+        final_fare: clientPrice,
+        negotiation_status: 'client_accepted',
+        status: 'pending_confirm',
+        driver_id: driverId,
       });
+    } catch (supabaseError: any) {
+      console.warn('⚠️ [acceptClientPrice] Error sincronizando a Supabase:', supabaseError.message);
     }
 
     console.log(`✅ [acceptClientPrice] Precio aceptado: C$${clientPrice}`);

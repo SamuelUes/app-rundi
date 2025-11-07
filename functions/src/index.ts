@@ -114,6 +114,7 @@ export const createRide = ridesSequelizeAPI.createRide;
 export const requestRide = ridesSequelizeAPI.createRide; // Alias para compatibilidad
 export const acceptRide = ridesSequelizeAPI.acceptRide;
 export const confirmDriver = ridesSequelizeAPI.confirmDriver; // ✅ NUEVO: Cliente confirma conductor específico
+export const markDriverOnRoute = ridesSequelizeAPI.markDriverOnRoute;
 export const startRide = ridesSequelizeAPI.startRide;
 export const completeRide = ridesSequelizeAPI.completeRide;
 export const cancelRide = ridesSequelizeAPI.cancelRide;

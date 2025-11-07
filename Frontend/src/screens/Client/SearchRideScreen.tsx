@@ -342,7 +342,7 @@ export default function SearchRideScreen({ navigation }: any) {
       const vehicleTypeForCalc = vehicleType === 'moto' ? 'motorcycle' : 'car';
       const rideTypeForCalc = vehicleType === 'designated_driver' ? 'designated_driver' : 'normal';
       
-      const breakdown = calculateRidePrice(
+      const breakdown = await calculateRidePrice(
         totalDistance, // distancia total en metros
         totalDuration, // duración total en segundos
         vehicleTypeForCalc,
@@ -401,7 +401,7 @@ export default function SearchRideScreen({ navigation }: any) {
         const vehicleTypeForCalc = vehicleType === 'moto' ? 'motorcycle' : 'car';
         const rideTypeForCalc = vehicleType === 'designated_driver' ? 'designated_driver' : 'normal';
         
-        const breakdown = calculateRidePrice(
+        const breakdown = await calculateRidePrice(
           route.distance, // distancia en metros
           route.duration, // duración en segundos
           vehicleTypeForCalc,
@@ -953,6 +953,7 @@ export default function SearchRideScreen({ navigation }: any) {
               setSelectingType('origin');
               setIsSelectingOnMap(true);
             }}
+            showUserLocation={false}
           />
           
           {/* Hint para mover el pin */}
@@ -1064,6 +1065,8 @@ export default function SearchRideScreen({ navigation }: any) {
               const type = selectingType === 'origin' ? 'origin' : 'destination';
               handleMarkerDragEnd(type, newLocation);
             }}
+            userLocation={coords || null}
+            showUserLocation={selectingType !== 'origin'}
           />
           
           {/* Hint para mover el pin en modal */}

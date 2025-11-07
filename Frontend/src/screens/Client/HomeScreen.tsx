@@ -40,10 +40,24 @@ import alertService from '../../services/alertService';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import { useFirebaseData, useFirebaseItem } from '../../hooks/useFirebaseData';
 import locationTrackingService from '../../services/locationTrackingService';
+import mapsService from '../../services/mapsService';
 
 
 // Importaciones para Firebase
-import { set } from 'firebase/database';
+
+type ManualOverrideState = {
+  active: boolean;
+  coords: { latitude: number; longitude: number };
+  address?: string;
+  updatedAt: number;
+  source: 'local' | 'remote';
+};
+
+const MANUAL_OVERRIDE_RELEASE_DISTANCE_KM = 0.2; // ~200 metros
+const DEFAULT_CLIENT_LOCATION = {
+  latitude: 12.1364,
+  longitude: -86.2514,
+};
 
 export default function HomeScreen({ navigation }: any) {
   const { user } = useAuth();
@@ -115,6 +129,8 @@ export default function HomeScreen({ navigation }: any) {
   const [savedAddress, setSavedAddress] = useState('');
   const [favoriteLocations, setFavoriteLocations] = useState<any[]>([]);
   const [availableDrivers, setAvailableDrivers] = useState<any[]>([]);
+  const [driverLocationsSnapshot, setDriverLocationsSnapshot] = useState<Record<string, any> | null>(null);
+  const [manualOverride, setManualOverride] = useState<ManualOverrideState | null>(null);
   
   // Ubicación guardada del cliente (useFirebaseItem optimizado)
   const { data: clientLocationData } = useFirebaseItem<any>(
@@ -129,6 +145,120 @@ export default function HomeScreen({ navigation }: any) {
     loading: loadingDrivers,
     error: driversError
   } = useFirebaseData<any>('driversInfo', { maxCacheAge: 10000 }); // Cache 10s
+
+  const driverLocationsSignatureRef = useRef<string>('');
+
+  const parseCoordinate = (value: any): number | null => {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === 'string') {
+      const parsed = parseFloat(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
+  };
+
+  // Listener para driverLocations en tiempo real
+  useEffect(() => {
+    let isMounted = true;
+    let cleanupFn: (() => void) | null = null;
+
+    const startDriverLocationsListener = async () => {
+      try {
+        const { getDatabase, ref: dbRef, onValue, off } = await import('firebase/database');
+        const db = getDatabase();
+        const driverLocationsRef = dbRef(db, 'driverLocations');
+
+        const handleSnapshot = (snapshot: any) => {
+          if (!isMounted) {
+            return;
+          }
+
+          const data = snapshot.val();
+          if (!data || typeof data !== 'object') {
+            if (driverLocationsSignatureRef.current !== '') {
+              driverLocationsSignatureRef.current = '';
+              setDriverLocationsSnapshot(null);
+            }
+            return;
+          }
+
+          const entries = Object.entries<any>(data)
+            .map(([driverId, payload]) => {
+              const latitude = payload?.lat ?? payload?.latitude ?? payload?.coords?.latitude ?? null;
+              const longitude = payload?.lng ?? payload?.longitude ?? payload?.coords?.longitude ?? null;
+
+              if (latitude === null || longitude === null) {
+                return null;
+              }
+
+              const heading = typeof payload?.heading === 'number' ? payload.heading : null;
+              const status = payload?.status ?? payload?.driverStatus ?? payload?.availability;
+
+              return {
+                driverId,
+                latitude: typeof latitude === 'number' ? latitude : parseFloat(latitude),
+                longitude: typeof longitude === 'number' ? longitude : parseFloat(longitude),
+                heading,
+                status,
+                raw: payload,
+              };
+            })
+            .filter((entry): entry is NonNullable<typeof entry> => {
+              return (
+                entry !== null &&
+                typeof entry.latitude === 'number' &&
+                Number.isFinite(entry.latitude) &&
+                typeof entry.longitude === 'number' &&
+                Number.isFinite(entry.longitude)
+              );
+            })
+            .sort((a, b) => a.driverId.localeCompare(b.driverId));
+
+          const signature = entries
+            .map((entry) =>
+              `${entry.driverId}:${entry.latitude.toFixed(6)}:${entry.longitude.toFixed(6)}:${(entry.heading ?? 0).toFixed(2)}:${entry.status ?? ''}`,
+            )
+            .join('|');
+
+          if (signature !== driverLocationsSignatureRef.current) {
+            driverLocationsSignatureRef.current = signature;
+            const snapshotRecord: Record<string, any> = {};
+            entries.forEach((entry) => {
+              snapshotRecord[entry.driverId] = entry.raw;
+            });
+            setDriverLocationsSnapshot(snapshotRecord);
+          }
+        };
+
+        const handleError = (error: any) => {
+          console.error('❌ [HomeScreen] Error escuchando driverLocations:', error);
+          if (!isMounted) {
+            return;
+          }
+          driverLocationsSignatureRef.current = '';
+          setDriverLocationsSnapshot(null);
+        };
+
+        onValue(driverLocationsRef, handleSnapshot, handleError);
+        cleanupFn = () => {
+          off(driverLocationsRef, 'value', handleSnapshot);
+        };
+      } catch (error) {
+        console.error('❌ [HomeScreen] Error iniciando listener de driverLocations:', error);
+      }
+    };
+
+    startDriverLocationsListener();
+
+    return () => {
+      isMounted = false;
+      if (cleanupFn) {
+        cleanupFn();
+      }
+    };
+  }, []);
   
   // Viajes activos (useFirebaseData optimizado)
   const { 
@@ -136,6 +266,38 @@ export default function HomeScreen({ navigation }: any) {
     loading: loadingRides
   } = useFirebaseData<Record<string, any>>('activeRides', { maxCacheAge: 5000 }); // Cache 5s
   
+  // Reconocer override manual proveniente de Firebase
+  useEffect(() => {
+    if (!clientLocationData?.coords) {
+      return;
+    }
+
+    if (clientLocationData?.manualOverride?.active) {
+      setManualOverride((prev) => {
+        if (prev && prev.active && prev.source === 'local') {
+          return prev;
+        }
+        return {
+          active: true,
+          coords: {
+            latitude: clientLocationData.coords.latitude,
+            longitude: clientLocationData.coords.longitude,
+          },
+          address: clientLocationData.address,
+          updatedAt: Date.now(),
+          source: 'remote',
+        };
+      });
+    } else {
+      setManualOverride((prev) => {
+        if (!prev || prev.source === 'local') {
+          return prev;
+        }
+        return null;
+      });
+    }
+  }, [clientLocationData?.coords, clientLocationData?.manualOverride?.active, clientLocationData?.address]);
+
   // Efecto para cargar ubicación guardada
   useEffect(() => {
     const loadSavedLocation = async () => {
@@ -365,118 +527,120 @@ export default function HomeScreen({ navigation }: any) {
       setAvailableDrivers([]);
       return;
     }
-    
-    // Usar ubicación guardada si no hay ubicación actual
+
     const effectiveLocation = coords || clientLocationData?.coords;
     if (!effectiveLocation) {
       console.log('⚠️ No hay effectiveLocation, no se puede buscar conductores');
       return;
     }
-    
+
     console.log('✅ Iniciando búsqueda de conductores con ubicación:', effectiveLocation);
     setLoadingNearbyDrivers(true);
-    
-    const processDriversData = () => {
-      if (!driversInfo) {
-        console.log('ℹ️ No hay conductores en driversInfo (nodo vacío o no existe)');
-        setAvailableDrivers([]);
-        setLoadingNearbyDrivers(false);
-        return;
+
+    try {
+      const SEARCH_RADIUS_KM = 12;
+
+      const driverIds = new Set<string>();
+      if (driversInfo) {
+        Object.keys(driversInfo).forEach((id) => driverIds.add(id));
       }
-      
-      try {
-        console.log('📦 Datos RAW de driversInfo:', Object.keys(driversInfo).length + ' conductores');
-        console.log('📍 Ubicación del cliente para buscar conductores:', effectiveLocation);
-        
-        const SEARCH_RADIUS_KM = 12; // Radio en kilómetros (15km para mayor cobertura)
-        
-        // Convertir a array y filtrar conductores disponibles (soportar múltiples formatos)
-        const allDrivers = Object.entries(driversInfo).map(([driverId, driverData]: [string, any]) => {
-          // Validar que driverData existe y tiene las propiedades necesarias
-          if (!driverData || typeof driverData !== 'object') {
-            console.log(`⚠️ Conductor ${driverId} tiene datos inválidos`);
-            return null;
-          }
-          
-          // Soportar múltiples formatos de coordenadas
-          const latitude = driverData.coords?.latitude || driverData.lat || driverData.latitude;
-          const longitude = driverData.coords?.longitude || driverData.lng || driverData.longitude;
-          const isAvailable = driverData.status === 'available' || driverData.isAvailable === true;
-          
-          const driver = {
-            id: driverId,
-            latitude: latitude,
-            longitude: longitude,
-            isAvailable: isAvailable,
-            heading: driverData.heading || 0,
-            name: driverData.name || 'Conductor',
-            vehicle: driverData.vehicle || {},
-            lastUpdate: driverData.timestamp || driverData.updatedAt,
-          };
-          
-          console.log(`🔍 Procesando conductor ${driverId.substring(0, 8)}:`, {
-            lat: driver.latitude,
-            lng: driver.longitude,
-            available: driver.isAvailable,
-            rawStatus: driverData.status,
-          });
-          
-          return driver;
-        }).filter((driver): driver is NonNullable<typeof driver> => driver !== null);
-        
-        // Filtrar por disponibilidad, ubicación válida y radio de búsqueda
-        const nearbyDrivers = allDrivers.filter(driver => {
-          if (!driver.isAvailable || !driver.latitude || !driver.longitude) {
+      if (driverLocationsSnapshot) {
+        Object.keys(driverLocationsSnapshot).forEach((id) => driverIds.add(id));
+      }
+
+      const allDrivers = Array.from(driverIds).map((driverId) => {
+        const infoData = driversInfo?.[driverId];
+        const realtimeData = driverLocationsSnapshot?.[driverId];
+
+        const latitude =
+          parseCoordinate(realtimeData?.lat ?? realtimeData?.latitude ?? realtimeData?.coords?.latitude) ??
+          parseCoordinate(infoData?.coords?.latitude ?? infoData?.lat ?? infoData?.latitude);
+
+        const longitude =
+          parseCoordinate(realtimeData?.lng ?? realtimeData?.longitude ?? realtimeData?.coords?.longitude) ??
+          parseCoordinate(infoData?.coords?.longitude ?? infoData?.lng ?? infoData?.longitude);
+
+        if (latitude === null || longitude === null) {
+          return null;
+        }
+
+        const statusCandidate =
+          realtimeData?.status ??
+          realtimeData?.driverStatus ??
+          realtimeData?.availability ??
+          infoData?.status ??
+          (infoData?.isAvailable ? 'available' : undefined);
+
+        const normalizedStatus = typeof statusCandidate === 'string' ? statusCandidate.toLowerCase() : '';
+        const isAvailable = normalizedStatus === '' || normalizedStatus.includes('available');
+
+        const heading =
+          (typeof realtimeData?.heading === 'number' && Number.isFinite(realtimeData.heading)
+            ? realtimeData.heading
+            : undefined) ??
+          (typeof infoData?.heading === 'number' ? infoData.heading : undefined) ??
+          0;
+
+        const driverRecord = {
+          id: driverId,
+          latitude,
+          longitude,
+          heading,
+          isAvailable,
+          name: infoData?.name || realtimeData?.name || 'Conductor',
+          vehicle: infoData?.vehicle || {},
+          lastUpdate: realtimeData?.lastUpdate || infoData?.timestamp || infoData?.updatedAt,
+        };
+
+        return driverRecord;
+      })
+        .filter((driver): driver is NonNullable<typeof driver> => driver !== null)
+        .filter((driver) => {
+          if (!driver.isAvailable) {
             return false;
           }
-          
-          // Calcular distancia
+
           const distance = calculateDistance(
             effectiveLocation.latitude,
             effectiveLocation.longitude,
             driver.latitude,
-            driver.longitude
+            driver.longitude,
           );
-          
-          console.log(`🚗 Conductor ${driver.id.substring(0, 8)}: ${distance.toFixed(2)}km de distancia`);
-          return distance <= SEARCH_RADIUS_KM;
-        }).map(driver => {
-          // Calcular distancia para ordenar
+
+          return Number.isFinite(distance) && distance <= SEARCH_RADIUS_KM;
+        })
+        .map((driver) => {
           const distance = calculateDistance(
             effectiveLocation.latitude,
             effectiveLocation.longitude,
             driver.latitude,
-            driver.longitude
+            driver.longitude,
           );
-          return { ...driver, distance };
+
+          return {
+            ...driver,
+            distance,
+          };
         });
-        
-        // Ordenar por distancia
-        nearbyDrivers.sort((a, b) => a.distance - b.distance);
-        
-        console.log(`🚗 ${nearbyDrivers.length} conductores disponibles dentro de ${SEARCH_RADIUS_KM}km`);
-        console.log('📍 Conductores cercanos:', nearbyDrivers.map(d => ({
-          id: d.id.substring(0, 8),
-          lat: d.latitude,
-          lng: d.longitude,
-          distance: d.distance.toFixed(2) + 'km'
-        })));
-        
-        setAvailableDrivers(nearbyDrivers);
-      } catch (error) {
-        console.error('❌ Error procesando conductores:', error);
-        setAvailableDrivers([]);
-      } finally {
-        setLoadingNearbyDrivers(false);
-      }
-    };
-    
-    // Procesar datos si ya están disponibles
-    if (!loadingDrivers) {
-      processDriversData();
+
+      allDrivers.sort((a, b) => a.distance - b.distance);
+
+      console.log(`🚗 ${allDrivers.length} conductores disponibles dentro de ${SEARCH_RADIUS_KM}km`);
+
+      setAvailableDrivers(allDrivers);
+    } catch (error) {
+      console.error('❌ Error procesando conductores:', error);
+      setAvailableDrivers([]);
+    } finally {
+      setLoadingNearbyDrivers(false);
     }
-    
-  }, [coords, clientLocationData?.coords, driversInfo, loadingDrivers]);
+  }, [
+    coords,
+    clientLocationData?.coords,
+    driversInfo,
+    driverLocationsSnapshot,
+    loadingDrivers,
+  ]);
   
   // Función para calcular distancia entre coordenadas
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
@@ -488,48 +652,109 @@ export default function HomeScreen({ navigation }: any) {
     const dLon = (lon2 - lon1) * Math.PI / 180;
     
     // Fórmula haversine
-    const a = 
-      Math.sin(dLat/2) * Math.sin(dLat/2) +
-      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
-      Math.sin(dLon/2) * Math.sin(dLon/2);
-    
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     const distance = R * c; // Distancia en km
-    
+
     return distance;
   };
-  
+
+  const resolveAddressText = (lat: number, lng: number, fallback?: string) =>
+    fallback || `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+
+  useEffect(() => {
+    if (!manualOverride?.active || !coords) {
+      return;
+    }
+
+    const distance = calculateDistance(
+      manualOverride.coords.latitude,
+      manualOverride.coords.longitude,
+      coords.latitude,
+      coords.longitude,
+    );
+
+    if (distance < MANUAL_OVERRIDE_RELEASE_DISTANCE_KM) {
+      return;
+    }
+
+    console.log(
+      '🚶‍♂️ [HomeScreen] Movimiento detectado, liberando override manual. Distancia (km):',
+      distance.toFixed(3),
+    );
+
+    setManualOverride(null);
+
+    (async () => {
+      const address =
+        (await mapsService.reverseGeocode({ latitude: coords.latitude, longitude: coords.longitude })) ||
+        resolveAddressText(coords.latitude, coords.longitude, savedAddress);
+
+      setSavedAddress(address);
+
+      await saveClientLocation(
+        { latitude: coords.latitude, longitude: coords.longitude },
+        address,
+        {
+          source: 'gps',
+          manualOverride: {
+            active: false,
+            updatedAt: new Date().toISOString(),
+          },
+        },
+      );
+    })().catch((error) =>
+      console.error('❌ [HomeScreen] Error sincronizando ubicación tras liberar override manual:', error),
+    );
+  }, [coords, manualOverride]);
+
   // Guardar ubicación del cliente en Firebase
-  const saveClientLocation = async (newLocation: {latitude: number, longitude: number}, address: string) => {
+  const saveClientLocation = async (
+    newLocation: { latitude: number; longitude: number },
+    address: string,
+    options?: { source?: 'manual' | 'gps'; manualOverride?: { active: boolean; updatedAt?: string } },
+  ) => {
     if (!user?.id) return;
-    
+
     try {
       // Usar Firebase database de forma manual
-      const { getDatabase, ref } = await import('firebase/database');
+      const { getDatabase, ref, update } = await import('firebase/database');
       const db = getDatabase();
       const clientLocationRef = ref(db, `clientLocations/${user.id}`);
-      
-      await set(clientLocationRef, {
+
+      const nowIso = new Date().toISOString();
+
+      await update(clientLocationRef, {
         coords: {
           latitude: newLocation.latitude,
           longitude: newLocation.longitude,
         },
-        address: address,
-        updatedAt: new Date().toISOString()
+        address,
+        updatedAt: nowIso,
+        source: options?.source || 'manual',
+        manualOverride:
+          options?.manualOverride ||
+          {
+            active: options?.source === 'manual',
+            updatedAt: nowIso,
+          },
       });
-      
+
       // También guardar en Supabase para histórico
       const locationHistory = {
         user_id: user.id,
         latitude: newLocation.latitude,
         longitude: newLocation.longitude,
-        address: address,
-        created_at: new Date().toISOString()
+        address,
+        created_at: new Date().toISOString(),
       };
-      
+
       // Esta función debería implementarse en locationTrackingService
       // locationTrackingService.saveLocationHistory(locationHistory);
-      
     } catch (error) {
       console.error('❌ Error guardando ubicación:', error);
       alertService.showErrorAlert('No se pudo guardar tu ubicación. Intenta de nuevo.');
@@ -541,7 +766,41 @@ export default function HomeScreen({ navigation }: any) {
     console.log('💰 Navegando a pantalla de pagos pendientes');
     navigation.navigate('PendingPayments');
   };
-  
+
+  const handleManualLocationUpdate = async (newCoords: { latitude: number; longitude: number }) => {
+    try {
+      console.log('🗺️ [HomeScreen] Actualizando ubicación manualmente:', newCoords);
+      setLoadingMessage('Actualizando ubicación...');
+
+      const address =
+        (await mapsService.reverseGeocode({ latitude: newCoords.latitude, longitude: newCoords.longitude })) ||
+        resolveAddressText(newCoords.latitude, newCoords.longitude, savedAddress);
+
+      setSavedAddress(address);
+      setManualOverride({
+        active: true,
+        coords: newCoords,
+        address,
+        updatedAt: Date.now(),
+        source: 'local',
+      });
+
+      await saveClientLocation(newCoords, address, {
+        source: 'manual',
+        manualOverride: {
+          active: true,
+          updatedAt: new Date().toISOString(),
+        },
+      });
+
+      console.log('✅ [HomeScreen] Ubicación manual guardada en Realtime DB');
+      alertService.showSuccessAlert('Ubicación actualizada', 'Tu ubicación actual se actualizó correctamente.');
+    } catch (error) {
+      console.error('❌ [HomeScreen] Error actualizando ubicación manual:', error);
+      alertService.showErrorAlert('No se pudo actualizar tu ubicación. Intenta de nuevo.');
+    }
+  };
+
   // Centrar mapa en la ubicación actual y actualizar ubicación
   const handleCenterMap = async () => {
     try {
@@ -658,7 +917,19 @@ export default function HomeScreen({ navigation }: any) {
   };
   
   const storedCoords = clientLocationData?.coords || null;
-  const effectiveCoords = coords || storedCoords ;
+  const effectiveCoords = useMemo(() => {
+    if (manualOverride?.active) {
+      return manualOverride.coords;
+    }
+    if (coords) {
+      return coords;
+    }
+    if (storedCoords) {
+      return storedCoords;
+    }
+    return DEFAULT_CLIENT_LOCATION;
+  }, [manualOverride?.active, manualOverride?.coords, coords, storedCoords]);
+
   const waitingForLocation = locationLoading && !coords && !storedCoords;
   const showLocationWarning = isUsingMockLocation || (!coords && !!storedCoords);
 
@@ -698,6 +969,8 @@ export default function HomeScreen({ navigation }: any) {
         markerPosition={{ latitude: effectiveCoords.latitude, longitude: effectiveCoords.longitude }}
         markerType="origin"
         nearbyDrivers={availableDrivers}
+        draggableMarker
+        onMarkerDragEnd={handleManualLocationUpdate}
       />
 
       {/* Header flotante */}

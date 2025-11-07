@@ -1,7 +1,7 @@
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useTheme } from '../context/ThemeContext';
-import HomeScreen from '../screens/Client/HomeScreen'; //existe el .old
+import HomeScreen from '../screens/Client/HomeScreenNewDesign'; //existe el .old
 import SearchRideScreen from '../screens/Client/SearchRideScreen'; //existe el .old
 import RideConfirmationScreen from '../screens/Client/RideConfirmationScreen'; //existe el .old
 import RideTrackingScreen from '../screens/Client/RideTrackingScreen';

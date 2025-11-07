@@ -8,6 +8,15 @@
 export type VehicleType = 'car' | 'motorcycle';
 export type RideType = 'normal' | 'designated_driver';
 
+export interface ServicePricingConfig {
+  code: string;
+  basePrice: number;
+  pricePerKm: number;
+  pricePerMinute: number;
+  minimumFare: number;
+  commissionRate: number;
+}
+
 export interface PriceBreakdown {
   distancePrice: number;
   timePrice: number;
@@ -23,50 +32,93 @@ export interface PriceBreakdown {
   commissionRate: number;
   commission: number;
   extraStopsCharge: number;
+  serviceCode: string;
 }
 
-/**
- * Obtener multiplicador según distancia y tipo de vehículo/viaje
- */
-function getMultiplier(distanceKm: number, vehicleType: VehicleType, rideType: RideType): number {
-  if (rideType === 'designated_driver') {
-    // CONDUCTOR DESIGNADO
-    if (distanceKm >= 0.2 && distanceKm <= 0.4) return 13;
-    if (distanceKm >= 0.401 && distanceKm <= 1) return 18;
-    if (distanceKm >= 1.01 && distanceKm <= 2) return 24;
-    if (distanceKm >= 2.01 && distanceKm <= 4) return 30;
-    if (distanceKm >= 4.01) return 35;
-    return 13;
-  } else if (vehicleType === 'motorcycle') {
-    // MOTO
-    if (distanceKm >= 0.2 && distanceKm <= 0.4) return 8;
-    if (distanceKm >= 0.401 && distanceKm <= 1) return 12;
-    if (distanceKm >= 1.01 && distanceKm <= 2) return 18;
-    if (distanceKm >= 2.01 && distanceKm <= 4) return 22;
-    if (distanceKm >= 4.01) return 26;
-    return 8;
-  } else {
-    // AUTO NORMAL
-    if (distanceKm >= 0.2 && distanceKm <= 0.4) return 10;
-    if (distanceKm >= 0.401 && distanceKm <= 1) return 15;
-    if (distanceKm >= 1.01 && distanceKm <= 2) return 20;
-    if (distanceKm >= 2.01 && distanceKm <= 4) return 25;
-    if (distanceKm >= 4.01) return 30;
-    return 10;
-  }
-}
+const DEFAULT_SERVICE_CONFIGS: Record<string, ServicePricingConfig> = {
+  normal: {
+    code: 'normal',
+    basePrice: 50,
+    pricePerKm: 10,
+    pricePerMinute: 0,
+    minimumFare: 50,
+    commissionRate: 0.11,
+  },
+  motorcycle: {
+    code: 'motorcycle',
+    basePrice: 50,
+    pricePerKm: 8,
+    pricePerMinute: 0,
+    minimumFare: 50,
+    commissionRate: 0.07,
+  },
+  designated_driver: {
+    code: 'designated_driver',
+    basePrice: 50,
+    pricePerKm: 13,
+    pricePerMinute: 0,
+    minimumFare: 100,
+    commissionRate: 0.25,
+  },
+  night: {
+    code: 'night',
+    basePrice: 40,
+    pricePerKm: 12,
+    pricePerMinute: 0,
+    minimumFare: 40,
+    commissionRate: 0.12,
+  },
+};
 
 /**
- * Obtener tasa de comisión según tipo de vehículo y viaje
+ * Obtener config de servicio desde Supabase (REST) o fallback local.
  */
-export function getCommissionRate(vehicleType: VehicleType, rideType: RideType): number {
-  if (rideType === 'designated_driver') {
-    return 0.25; // 25%
-  } else if (vehicleType === 'motorcycle') {
-    return 0.075; // 7.5%
-  } else {
-    return 0.11; // 11%
+export async function fetchServiceConfig(serviceCode: string): Promise<ServicePricingConfig> {
+  try {
+    const response = await fetch(
+      `${process.env.EXPO_PUBLIC_SUPABASE_URL}/rest/v1/services?select=code,base_price,price_per_km,price_per_minute,minimum_fare,commission_rate&code=eq.${serviceCode}&is_active=eq.true`,
+      {
+        headers: {
+          apikey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '',
+          Authorization: `Bearer ${process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? ''}`,
+        },
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`Supabase respondió ${response.status}`);
+    }
+
+    const data = await response.json();
+    if (Array.isArray(data) && data.length > 0) {
+      const row = data[0];
+      return {
+        code: row.code,
+        basePrice: Number(row.base_price ?? 0),
+        pricePerKm: Number(row.price_per_km ?? 0),
+        pricePerMinute: Number(row.price_per_minute ?? 0),
+        minimumFare: Number(row.minimum_fare ?? 0),
+        commissionRate: Number(row.commission_rate ?? 0),
+      };
+    }
+  } catch (error) {
+    console.warn(`⚠️ No se pudo obtener servicio ${serviceCode} desde Supabase:`, error);
   }
+
+  return DEFAULT_SERVICE_CONFIGS[serviceCode] ?? DEFAULT_SERVICE_CONFIGS.normal;
+}
+
+function calculateSubtotal(
+  service: ServicePricingConfig,
+  distanceKm: number,
+  durationMinutes: number
+) {
+  const distanceComponent = distanceKm * service.pricePerKm;
+  const timeComponent = durationMinutes * service.pricePerMinute;
+  const subtotal = service.basePrice + distanceComponent + timeComponent;
+  const subtotalWithMinimum = Math.max(subtotal, service.minimumFare);
+
+  return { distanceComponent, timeComponent, subtotalWithMinimum };
 }
 
 /**
@@ -83,25 +135,25 @@ export function isPeakHour(date: Date = new Date()): boolean {
  * Basado en coordenadas aproximadas de Managua
  */
 export function isInManagua(lat: number, lng: number): boolean {
-  // Límites aproximados de Managua
   const MANAGUA_BOUNDS = {
     north: 12.20,
     south: 12.05,
     east: -86.15,
-    west: -86.35
+    west: -86.35,
   };
-  
-  return lat >= MANAGUA_BOUNDS.south && 
-         lat <= MANAGUA_BOUNDS.north && 
-         lng >= MANAGUA_BOUNDS.west && 
-         lng <= MANAGUA_BOUNDS.east;
+
+  return (
+    lat >= MANAGUA_BOUNDS.south &&
+    lat <= MANAGUA_BOUNDS.north &&
+    lng >= MANAGUA_BOUNDS.west &&
+    lng <= MANAGUA_BOUNDS.east
+  );
 }
 
 /**
- * ✅ FÓRMULA ACTUALIZADA: SOLO DISTANCIA
- * Calcula el precio del viaje según SOLO distancia (sin tiempo ni paradas)
+ * Calcular el precio total del viaje
  */
-export function calculateRidePrice(
+export async function calculateRidePrice(
   distanceInMeters: number,
   durationInSeconds: number,
   vehicleType: VehicleType = 'car',
@@ -109,61 +161,62 @@ export function calculateRidePrice(
   originLat?: number,
   originLng?: number,
   extraStops: number = 0
-): PriceBreakdown {
-  // Convertir metros a kilómetros
+): Promise<PriceBreakdown> {
   const distanceKm = distanceInMeters / 1000;
-  
-  // Convertir segundos a minutos (solo para referencia, NO se usa en el cálculo)
   const durationMinutes = Math.ceil(durationInSeconds / 60);
-  
-  // Obtener multiplicador según tipo
-  const multiplier = getMultiplier(distanceKm, vehicleType, rideType);
-  
-  // ✅ Calcular precio SOLO por distancia
-  const distancePrice = distanceKm * multiplier;
-  
-  // ✅ NO hay costo por tiempo
-  const timePrice = 0;
-  
-  // ✅ NO hay costo por paradas extras
-  const extraStopsCharge = 0;
-  
-  // ✅ Precio base = solo distancia
-  const basePrice = distancePrice;
-  
-  // Precio mínimo de C$50
-  const MINIMUM_FARE = 50;
-  const finalPrice = Math.max(Math.round(basePrice), MINIMUM_FARE);
-  
-  // Calcular comisión
-  const commissionRate = getCommissionRate(vehicleType, rideType);
-  const commission = Math.round(finalPrice * commissionRate);
-  
+
+  const serviceCode =
+    rideType === 'designated_driver'
+      ? 'designated_driver'
+      : vehicleType === 'motorcycle'
+      ? 'motorcycle'
+      : 'normal';
+
+  const service = await fetchServiceConfig(serviceCode);
+  const { distanceComponent, timeComponent, subtotalWithMinimum } = calculateSubtotal(
+    service,
+    distanceKm,
+    durationMinutes
+  );
+
+  // Ajustes por hora pico
+  const peak = isPeakHour();
+  const inManagua = originLat && originLng ? isInManagua(originLat, originLng) : false;
+  const peakMultiplier = peak && inManagua ? 1.2 : 1;
+  const adjustedSubtotal = subtotalWithMinimum * peakMultiplier;
+
+  // Costo por paradas extras
+  const extraStopsCharge = extraStops * 20;
+
+  // Precio final
+  const finalPrice = adjustedSubtotal + extraStopsCharge;
+  const commission = finalPrice * service.commissionRate;
+
   return {
-    distancePrice: Math.round(distancePrice),
-    timePrice: 0, // ✅ NO hay costo por tiempo
-    basePrice: Math.round(basePrice),
-    distanceKm: parseFloat(distanceKm.toFixed(2)),
+    distancePrice: distanceComponent,
+    timePrice: timeComponent,
+    basePrice: service.basePrice,
+    distanceKm,
     durationMinutes,
-    multiplier,
-    finalPrice,
-    isPeakHour: false, // ✅ Ya no se aplica ajuste por hora pico
-    peakHourAdjustment: 0, // ✅ Sin ajuste de hora pico
+    multiplier: service.pricePerKm,
+    finalPrice: Number(finalPrice.toFixed(2)),
+    isPeakHour: peak,
+    peakHourAdjustment: peakMultiplier,
     vehicleType,
     rideType,
-    commissionRate,
-    commission,
-    extraStopsCharge: 0, // ✅ NO hay costo por paradas
+    commissionRate: service.commissionRate,
+    commission: Number(commission.toFixed(2)),
+    extraStopsCharge,
+    serviceCode,
   };
 }
 
 /**
- * ✅ Formatear desglose de precio para mostrar al usuario (SOLO DISTANCIA)
+ * Formatear desglose de precios
  */
 export function formatPriceBreakdown(breakdown: PriceBreakdown): string {
-  let text = `📏 Distancia: ${breakdown.distanceKm} km × C$${breakdown.multiplier} = C$${breakdown.distancePrice}\n`;
-  text += `💰 Total: C$${breakdown.finalPrice}`;
-  
+  let text = `📏 Distancia: ${breakdown.distanceKm.toFixed(2)} km × C$${breakdown.multiplier} = C$${breakdown.distancePrice.toFixed(2)}\n`;
+  text += `💰 Total: C$${breakdown.finalPrice.toFixed(2)}`;
   return text;
 }
 

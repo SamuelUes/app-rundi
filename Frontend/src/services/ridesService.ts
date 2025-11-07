@@ -567,6 +567,17 @@ class RidesService {
     return result.ride;
   }
 
+  async markDriverOnRoute(rideId: string): Promise<Ride> {
+    const functions = await this.getFunctions();
+    const markDriverOnRouteFn = httpsCallable(functions, 'markDriverOnRoute');
+    const response = await markDriverOnRouteFn({ rideId });
+    const result = response.data as { success: boolean; ride: any };
+    if (!result.success || !result.ride) {
+      throw new Error('No se pudo actualizar el estado del viaje');
+    }
+    return result.ride;
+  }
+
   async confirmDriver(rideId: string, selectedDriverId: string): Promise<Ride> {
     const functions = await this.getFunctions();
     const confirmDriverFunction = httpsCallable(functions, 'confirmDriver');

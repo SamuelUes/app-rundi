@@ -580,7 +580,7 @@ export default function DriverProfileScreen({ navigation }: any) {
         )
       );
 
-      Alert.alert('Éxito', 'Vehículo seleccionado correctamente');
+     // Alert.alert('Éxito', 'Vehículo seleccionado correctamente');
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Error desconocido al cambiar vehículo';
       console.error('❌ Error cambiando vehículo:', message);

@@ -38,6 +38,17 @@ export class RideService {
     }
     console.log(`✅ Viaje encontrado: ${rideId}, status: ${ride.status}`);
 
+    const alreadyAssigned = ride.driver_id;
+    if (alreadyAssigned && alreadyAssigned !== driverId && ride.status !== 'requested') {
+      throw new Error('El viaje ya tiene un conductor asignado');
+    }
+
+    const terminalStatuses = ['driver_offered', 'accepted', 'driver_on_route', 'in_progress', 'pending_payment', 'completed', 'canceled'];
+    if (alreadyAssigned === driverId && terminalStatuses.includes(ride.status)) {
+      console.log(`🔁 Viaje ${rideId} ya está en estado ${ride.status} para este conductor`);
+      return ride;
+    }
+
     // Validar que el viaje está en un estado que permita nuevas ofertas
     const offerableStatuses = ['requested', 'driver_offered', 'pending_confirm'];
     if (!offerableStatuses.includes(ride.status)) {
@@ -100,10 +111,20 @@ export class RideService {
     const ride = await this.rideRepo.findById(rideId);
     if (!ride) throw new Error('Viaje no encontrado');
 
-    // ✅ ACTUALIZADO: Guardar started_at
+    if (ride.status === 'in_progress') {
+      console.log(`🔁 Viaje ${rideId} ya estaba en progreso`);
+      return ride;
+    }
+
+    const allowedStatuses = ['accepted', 'driver_on_route'];
+    if (!allowedStatuses.includes(ride.status)) {
+      throw new Error(`No se puede iniciar el viaje ${rideId} porque está en estado ${ride.status}`);
+    }
+
+    // ✅ ACTUALIZADO: Guardar started_at solo cuando cambia de estado
     const updated = await this.rideRepo.update(rideId, {
       status: 'in_progress',
-      started_at: new Date(),
+      started_at: ride.started_at || new Date(),
     });
 
     console.log(`🚗 Viaje iniciado: ${rideId}`);
@@ -113,6 +134,11 @@ export class RideService {
   async completeRide(rideId: string, finalFare: number) {
     const ride = await this.rideRepo.findById(rideId);
     if (!ride) throw new Error('Viaje no encontrado');
+
+    if (ride.status === 'completed') {
+      console.log(`🔁 Viaje ${rideId} ya estaba completado`);
+      return ride;
+    }
 
     // ✅ ACTUALIZADO: Guardar todos los campos necesarios
     await this.rideRepo.update(rideId, {
@@ -141,9 +167,41 @@ export class RideService {
     return ride;
   }
 
+  async markDriverOnRoute(rideId: string, driverId: string, extra: Record<string, any> = {}) {
+    const ride = await this.rideRepo.findById(rideId);
+    if (!ride) throw new Error('Viaje no encontrado');
+
+    if (ride.driver_id !== driverId) {
+      throw new Error('Conductor no asignado a este viaje');
+    }
+
+    if (ride.status === 'driver_on_route') {
+      console.log(`🔁 Viaje ${rideId} ya estaba en estado driver_on_route`);
+      return ride;
+    }
+
+    const allowedStatuses = ['accepted'];
+    if (!allowedStatuses.includes(ride.status)) {
+      throw new Error(`No se puede marcar driver_on_route porque el viaje está en estado ${ride.status}`);
+    }
+
+    const updated = await this.rideRepo.update(rideId, {
+      status: 'driver_on_route',
+      ...extra,
+    });
+
+    console.log(`🚕 Conductor en camino para viaje ${rideId}`);
+    return updated;
+  }
+
   async cancelRide(rideId: string, reason: string) {
     const ride = await this.rideRepo.findById(rideId);
     if (!ride) throw new Error('Viaje no encontrado');
+
+    if (ride.status === 'canceled') {
+      console.log(`🔁 Viaje ${rideId} ya estaba cancelado`);
+      return ride;
+    }
 
     await this.rideRepo.update(rideId, {
       status: 'canceled',

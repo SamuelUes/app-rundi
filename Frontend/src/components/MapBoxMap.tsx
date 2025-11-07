@@ -14,6 +14,8 @@ interface MapBoxMapProps {
   destinationMarker?: { latitude: number; longitude: number };
   clientMarker?: { latitude: number; longitude: number };
   routeCoordinates?: Array<{ latitude: number; longitude: number }>;
+  markerVehicleType?: string;
+  markerVehicleIconUri?: string;
 }
 
 export default function MapBoxMap({

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import type { ImageSourcePropType } from 'react-native';
 import {
   View,
   Text,
@@ -29,6 +30,7 @@ import ridesService from '../../services/ridesService';
 import driversService from '../../services/driversService';
 import driverAvailabilityService from '../../services/driverAvailabilityService';
 import earningsService from '../../services/earningsService';
+import { extractVehicleTypeFromInfo, ensureVehicleIconSource } from '../../utils/vehicleIcons';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -43,6 +45,15 @@ const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: numbe
     Math.sin(dLon/2) * Math.sin(dLon/2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
   return R * c;
+};
+
+type NearbyDriverMarker = {
+  id: string;
+  latitude: number;
+  longitude: number;
+  heading?: number;
+  vehicleType?: string | null;
+  vehicleIconSource?: ImageSourcePropType;
 };
 
 export default function DriverHomeScreen({ navigation }: any) {
@@ -70,15 +81,26 @@ export default function DriverHomeScreen({ navigation }: any) {
   const [savedRideId, setSavedRideId] = useState<string | null>(null);
   // ✅ NUEVO: Estado para pagos pendientes
   const [pendingPayments, setPendingPayments] = useState<any[]>([]);
+  const [nearbyDriversMarkers, setNearbyDriversMarkers] = useState<NearbyDriverMarker[]>([]);
 
   // Refs
   const notifiedRides = useRef<Set<string>>(new Set());
   const rideStatusCacheRef = useRef<Record<string, string>>({});
+  const driverLocationsSignatureRef = useRef<string>('');
   const PANEL_MIN_HEIGHT = 180;
   const PANEL_MAX_HEIGHT = SCREEN_HEIGHT * 0.7;
   const panelHeight = useRef(new Animated.Value(PANEL_MIN_HEIGHT)).current;
 
   const formatCurrency = (value: number = 0) => `C$${Number.isFinite(value) ? value.toFixed(2) : '0.00'}`;
+
+  const parseCoordinate = (value: any): number | null => {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string') {
+      const parsed = parseFloat(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
+  };
   
   const panResponder = useRef(
     PanResponder.create({
@@ -196,6 +218,118 @@ export default function DriverHomeScreen({ navigation }: any) {
   }, [coords, isAvailable]);
 
   useEffect(() => {
+    if (!coords || !isAvailable) {
+      driverLocationsSignatureRef.current = '';
+      setNearbyDriversMarkers([]);
+      return;
+    }
+
+    let isMounted = true;
+    let cleanupFn: (() => void) | null = null;
+
+    const startListening = async () => {
+      try {
+        const { getDatabase, ref: dbRef, onValue, off } = await import('firebase/database');
+        const db = getDatabase();
+        const driverLocationsRef = dbRef(db, 'driverLocations');
+
+        const handleSnapshot = (snapshot: any) => {
+          if (!isMounted) {
+            return;
+          }
+
+          const data = snapshot.val();
+
+          if (!data || typeof data !== 'object') {
+            if (driverLocationsSignatureRef.current !== '') {
+              driverLocationsSignatureRef.current = '';
+              setNearbyDriversMarkers([]);
+            }
+            return;
+          }
+
+          const markers: NearbyDriverMarker[] = [];
+
+          Object.entries<any>(data).forEach(([driverId, payload]) => {
+            if (!payload || driverId === user?.id) {
+              return;
+            }
+
+            const lat = parseCoordinate(
+              payload?.lat ?? payload?.latitude ?? payload?.coords?.latitude,
+            );
+            const lng = parseCoordinate(
+              payload?.lng ?? payload?.longitude ?? payload?.coords?.longitude,
+            );
+
+            if (lat === null || lng === null) {
+              return;
+            }
+
+            const distance = calculateDistance(coords.latitude, coords.longitude, lat, lng);
+            if (!Number.isFinite(distance) || distance > 15) {
+              return;
+            }
+
+            const status = payload?.status ?? payload?.driverStatus ?? payload?.availability;
+            if (status && String(status).toLowerCase().includes('offline')) {
+              return;
+            }
+
+            const heading = typeof payload?.heading === 'number' ? payload.heading : undefined;
+
+            markers.push({
+              id: driverId,
+              latitude: lat,
+              longitude: lng,
+              heading,
+            });
+          });
+
+          markers.sort((a, b) => a.id.localeCompare(b.id));
+
+          const signature = markers
+            .map((marker) =>
+              `${marker.id}:${marker.latitude.toFixed(5)}:${marker.longitude.toFixed(5)}:${(marker.heading ?? 0).toFixed(2)}`,
+            )
+            .join('|');
+
+          if (signature !== driverLocationsSignatureRef.current) {
+            driverLocationsSignatureRef.current = signature;
+            setNearbyDriversMarkers(markers);
+          }
+        };
+
+        const handleError = (error: any) => {
+          console.error('❌ [DriverHomeScreen] Error escuchando driverLocations:', error);
+          if (!isMounted) {
+            return;
+          }
+          driverLocationsSignatureRef.current = '';
+          setNearbyDriversMarkers([]);
+        };
+
+        onValue(driverLocationsRef, handleSnapshot, handleError);
+
+        cleanupFn = () => {
+          off(driverLocationsRef, 'value', handleSnapshot);
+        };
+      } catch (error) {
+        console.error('❌ [DriverHomeScreen] Error iniciando listener de driverLocations:', error);
+      }
+    };
+
+    startListening();
+
+    return () => {
+      isMounted = false;
+      if (cleanupFn) {
+        cleanupFn();
+      }
+    };
+  }, [coords?.latitude, coords?.longitude, isAvailable, user?.id]);
+
+  useEffect(() => {
     const checkVehicle = async () => {
       if (!user || !user.id || user.role !== 'driver') {
         return;
@@ -290,14 +424,31 @@ export default function DriverHomeScreen({ navigation }: any) {
           const availableRides: any[] = [];
           let myActiveRide: any = null;
           
+          const rideIdsInSnapshot = new Set<string>();
+
           Object.entries(data).forEach(([rideId, rideData]: [string, any]) => {
+            rideIdsInSnapshot.add(rideId);
+
             const currentStatus: string | undefined = rideData?.status;
-            if (currentStatus && rideStatusCacheRef.current[rideId] === currentStatus) {
-              return;
-            }
-            if (currentStatus) {
-              rideStatusCacheRef.current[rideId] = currentStatus;
-            }
+
+            const originLat = parseCoordinate(
+              rideData?.originLatitude ?? rideData?.origin?.latitude ?? rideData?.origin?.lat,
+            );
+            const originLng = parseCoordinate(
+              rideData?.originLongitude ?? rideData?.origin?.longitude ?? rideData?.origin?.lng,
+            );
+
+            const statusSignature = [
+              currentStatus || 'unknown',
+              typeof originLat === 'number' && Number.isFinite(originLat) ? originLat.toFixed(6) : 'na',
+              typeof originLng === 'number' && Number.isFinite(originLng) ? originLng.toFixed(6) : 'na',
+              rideData?.driverId || 'no-driver',
+              rideData?.updatedAt || rideData?.updated_at || '',
+            ].join('|');
+
+            const previousSignature = rideStatusCacheRef.current[rideId];
+            const isSameSignature = previousSignature === statusSignature;
+            rideStatusCacheRef.current[rideId] = statusSignature;
             console.log(`🔍 Viaje ${rideId}:`, {
               status: rideData.status,
               driverId: rideData.driverId,
@@ -322,15 +473,12 @@ export default function DriverHomeScreen({ navigation }: any) {
                                         rideData.status === 'driver_assigned');
             
             if (isRequested || isNegotiatingWithMe) {
+              if (!isSameSignature && !notifiedRides.current.has(rideId) && isRequested) {
+
+              }
               console.log(`✅ Viaje ${rideId} es elegible (requested o negociando)`);
               
               // Calcular distancia al punto de origen
-              const rawOriginLat = rideData.origin?.latitude ?? rideData.origin?.lat;
-              const rawOriginLng = rideData.origin?.longitude ?? rideData.origin?.lng;
-
-              const originLat = typeof rawOriginLat === 'string' ? parseFloat(rawOriginLat) : rawOriginLat;
-              const originLng = typeof rawOriginLng === 'string' ? parseFloat(rawOriginLng) : rawOriginLng;
-
               const hasValidOrigin =
                 typeof originLat === 'number' && Number.isFinite(originLat) &&
                 typeof originLng === 'number' && Number.isFinite(originLng);
@@ -394,32 +542,51 @@ export default function DriverHomeScreen({ navigation }: any) {
                 return null;
               }
 
-              const address = ride.originAddress || ride.origin?.address || 'Origen desconocido';
-              const estimatedPrice = `C$${ride.estimatedPrice || ride.clientSuggestedPrice || 0}`;
+              const originAddress = ride.originAddress || ride.origin?.address || 'Origen desconocido';
+              const extraDestinations = Array.isArray(ride.extraDestinations) ? ride.extraDestinations : [];
+              const primaryDestination = extraDestinations.length > 0
+                ? extraDestinations[0]?.address || 'Parada'
+                : ride.destinationAddress || ride.destination?.address || 'Destino';
+              const finalDestination = ride.destinationAddress || ride.destination?.address || 'Destino';
+              const hasClientSuggestedPrice = typeof ride.clientSuggestedPrice === 'number' && Number.isFinite(ride.clientSuggestedPrice);
+              const numericPrice = hasClientSuggestedPrice
+                ? Number(ride.clientSuggestedPrice)
+                : Number.isFinite(ride.estimatedPrice)
+                  ? Number(ride.estimatedPrice)
+                  : 0;
+              const priceLabel = `C$${numericPrice.toFixed(2)}`;
               const passengers = typeof ride.passengers === 'number' && ride.passengers > 0 ? ride.passengers : 1;
-              const destination = ride.destinationAddress || 'Destino';
-              const distanceLabel = `${ride.distance.toFixed(1)} km`;
+              const clientName = ride.client?.name || ride.clientName || ride.clientFullName || 'Cliente';
+              const extraStopsCount = extraDestinations.length;
 
               return {
                 id: ride.id,
                 latitude: lat,
                 longitude: lng,
-                address,
-                estimatedPrice,
+                clientName,
+                originAddress,
+                primaryDestination,
+                finalDestination,
+                extraStopsCount,
+                priceLabel,
+                priceValue: numericPrice,
+                hasClientSuggestedPrice,
                 passengers,
-                destination,
-                distance: distanceLabel,
               };
             })
             .filter((ride): ride is {
               id: string;
               latitude: number;
               longitude: number;
-              address: string;
-              estimatedPrice: string;
+              clientName: string;
+              originAddress: string;
+              primaryDestination: string;
+              finalDestination: string;
+              extraStopsCount: number;
+              priceLabel: string;
+              priceValue: number;
+              hasClientSuggestedPrice: boolean;
               passengers: number;
-              destination: string;
-              distance: string;
             } => ride !== null);
           
           setAvailableRideRequests(formattedRides);
@@ -627,7 +794,6 @@ export default function DriverHomeScreen({ navigation }: any) {
 
       {coords && (
         <DynamicMap
-          key={`map-${availableRideRequests.length}-${availableRideRequests.map(r => r.id).join('-')}`}
           latitude={coords.latitude}
           longitude={coords.longitude}
           style={styles.map}
@@ -635,7 +801,12 @@ export default function DriverHomeScreen({ navigation }: any) {
           markerPosition={{ latitude: coords.latitude, longitude: coords.longitude }}
           markerType="car"
           rideRequests={availableRideRequests}
-          onRideRequestPress={() => navigation.navigate('AvailableRides')}
+          onRideRequestPress={(ride) =>
+            navigation.navigate('AvailableRides', {
+              preselectedRideId: ride.id,
+            })
+          }
+          nearbyDrivers={nearbyDriversMarkers}
         />
       )}
 
@@ -855,7 +1026,7 @@ const createStyles = (colors: any) =>
     },
     dragHandle: { paddingVertical: 12, alignItems: 'center' },
     dragIndicator: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#D4AF37' + '40' },
-    scrollContent: { paddingHorizontal: 14, paddingBottom: 14 },
+    scrollContent: { paddingHorizontal: 16, paddingBottom: 18 },
     availabilityCard: { 
       backgroundColor: colors.background + 'F5', 
       borderRadius: 14, 

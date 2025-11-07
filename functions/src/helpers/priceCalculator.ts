@@ -3,7 +3,7 @@
  * DriveAngel.ni
  * 
  * COMISIONES:
- * - Moto: 7.5%
+ * - Moto: 7%
  * - Auto Normal: 11%
  * - Conductor Designado: 25%
  * 
@@ -37,6 +37,97 @@
 export type VehicleType = 'car' | 'motorcycle';
 export type RideType = 'normal' | 'designated_driver';
 
+interface ServicePricingConfig {
+  id: string;
+  code: string;
+  basePrice: number;
+  pricePerKm: number;
+  pricePerMinute: number;
+  minimumFare: number;
+  commissionRate: number;
+}
+
+interface RidePriceOptions {
+  originLat?: number;
+  originLng?: number;
+  driverId?: string;
+  serviceCodeOverride?: string;
+}
+
+const serviceCache = new Map<string, ServicePricingConfig>();
+
+async function fetchServiceConfig(serviceCode: string): Promise<ServicePricingConfig | null> {
+  if (serviceCache.has(serviceCode)) {
+    return serviceCache.get(serviceCode)!;
+  }
+
+  const pool = (await import('../config/database')).default;
+  const client = await pool.connect();
+
+  try {
+    const result = await client.query(
+      `SELECT id, code, commission_rate, base_price, price_per_km, price_per_minute, minimum_fare, is_active
+       FROM public.services
+       WHERE code = $1
+       LIMIT 1`,
+      [serviceCode]
+    );
+
+    if (!result.rows.length) {
+      console.warn(`⚠️ Servicio ${serviceCode} no encontrado en Supabase.`);
+      return null;
+    }
+
+    const row = result.rows[0];
+    const isActive = row.is_active === null ? true : row.is_active === true || row.is_active === 't';
+
+    if (!isActive) {
+      console.warn(`⚠️ Servicio ${serviceCode} está inactivo en Supabase.`);
+      return null;
+    }
+
+    const service: ServicePricingConfig = {
+      id: row.id,
+      code: row.code,
+      basePrice: parseFloat(row.base_price ?? '0'),
+      pricePerKm: parseFloat(row.price_per_km ?? '0'),
+      pricePerMinute: parseFloat(row.price_per_minute ?? '0'),
+      minimumFare: parseFloat(row.minimum_fare ?? '0'),
+      commissionRate: parseFloat(row.commission_rate ?? '0'),
+    };
+
+    serviceCache.set(serviceCode, service);
+    return service;
+  } catch (error) {
+    console.error(`❌ Error consultando servicio ${serviceCode}:`, error);
+    return null;
+  } finally {
+    client.release();
+  }
+}
+
+function buildBreakdownLine(label: string, value: number): string {
+  return `${label}: C$${value.toFixed(2)}`;
+}
+
+function calculateServiceSubtotal(
+  service: ServicePricingConfig,
+  distanceKm: number,
+  durationMinutes: number
+) {
+  const distanceComponent = distanceKm * service.pricePerKm;
+  const timeComponent = durationMinutes * service.pricePerMinute;
+  const subtotal = service.basePrice + distanceComponent + timeComponent;
+  const subtotalWithMinimum = Math.max(subtotal, service.minimumFare);
+
+  return {
+    distanceComponent,
+    timeComponent,
+    subtotal,
+    subtotalWithMinimum,
+  };
+}
+
 export interface PriceCalculationResult {
   distancePrice: number;
   timePrice: number;
@@ -52,6 +143,8 @@ export interface PriceCalculationResult {
   rideType: RideType;
   commissionRate: number;
   commission: number;
+  serviceCode: string;
+  serviceId?: string;
 }
 
 /**
@@ -140,7 +233,7 @@ export function getCommissionRate(vehicleType: VehicleType, rideType: RideType):
   if (rideType === 'designated_driver') {
     return 0.25; // 25%
   } else if (vehicleType === 'motorcycle') {
-    return 0.075; // 7.5%
+    return 0.07; // 7%
   } else {
     return 0.11; // 11%
   }
@@ -239,60 +332,124 @@ export function isInManagua(lat: number, lng: number): boolean {
  * @param originLng - Longitud del origen
  * @returns Resultado del cálculo con desglose completo
  */
-export function calculateRidePrice(
+export async function calculateRidePrice(
   distanceInMeters: number,
   durationInSeconds: number,
   vehicleType: VehicleType = 'car',
   rideType: RideType = 'normal',
   originLat?: number,
-  originLng?: number
-): PriceCalculationResult {
-  // Convertir metros a kilómetros
+  originLng?: number,
+  options: RidePriceOptions = {}
+): Promise<PriceCalculationResult> {
   const distanceKm = distanceInMeters / 1000;
-  
-  // Convertir segundos a minutos (solo para referencia, NO se usa en el cálculo)
   const durationMinutes = Math.ceil(durationInSeconds / 60);
-  
-  // Obtener multiplicador según tipo
-  const { multiplier } = getMultiplier(distanceKm, vehicleType, rideType);
-  
-  // ✅ Calcular precio SOLO por distancia
-  const distancePrice = distanceKm * multiplier;
-  
-  // ✅ NO hay costo por tiempo
-  //const timePrice = 0;
-  
-  // ✅ Precio base = solo distancia
-  const basePrice = distancePrice;
-  
-  // Precio mínimo de C$50
-  const MINIMUM_FARE = 50;
-  const finalPrice = Math.max(Math.round(basePrice), MINIMUM_FARE);
-  
-  // Calcular comisión
-  const commissionRate = getCommissionRate(vehicleType, rideType);
-  const commission = Math.round(finalPrice * commissionRate);
-  
-  // ✅ Crear desglose legible (SOLO distancia)
-  let breakdown = `Distancia: ${distanceKm.toFixed(2)} km × C$${multiplier} = C$${distancePrice.toFixed(2)}\n`;
-  breakdown += `Precio final: C$${finalPrice}\n`;
-  breakdown += `Comisión (${(commissionRate * 100).toFixed(1)}%): C$${commission}`;
-  
+  const serviceCode = options.serviceCodeOverride ?? mapRideTypeToServiceCode(vehicleType, rideType);
+
+  let service = await fetchServiceConfig(serviceCode);
+
+  if (!service) {
+    console.warn(`⚠️ Usando fallback legacy para calcular precio de ${serviceCode}.`);
+    const { multiplier } = getMultiplier(distanceKm, vehicleType, rideType);
+    const legacyDistance = distanceKm * multiplier;
+    const finalLegacyPrice = Math.max(Math.round(legacyDistance), 50);
+    const commissionRateLegacy = getCommissionRate(vehicleType, rideType);
+    const legacyCommission = Math.round(finalLegacyPrice * commissionRateLegacy);
+
+    return {
+      distancePrice: Math.round(legacyDistance),
+      timePrice: 0,
+      basePrice: Math.round(legacyDistance),
+      distanceKm: parseFloat(distanceKm.toFixed(2)),
+      durationMinutes,
+      multiplier,
+      finalPrice: finalLegacyPrice,
+      breakdown: `⚠️ Fallback legacy activo. Distancia: ${distanceKm.toFixed(2)} km × C$${multiplier} = C$${legacyDistance.toFixed(2)}\nPrecio final: C$${finalLegacyPrice}`,
+      isPeakHour: false,
+      peakHourAdjustment: 0,
+      vehicleType,
+      rideType,
+      commissionRate: commissionRateLegacy,
+      commission: legacyCommission,
+      serviceCode,
+    };
+  }
+
+  const serviceSubtotal = calculateServiceSubtotal(service, distanceKm, durationMinutes);
+  let finalPrice = serviceSubtotal.subtotalWithMinimum;
+  const breakdownLines: string[] = [];
+
+  breakdownLines.push(buildBreakdownLine(`Base (${service.code})`, service.basePrice));
+  breakdownLines.push(
+    `Distancia (${distanceKm.toFixed(2)} km × C$${service.pricePerKm.toFixed(2)}): C$${serviceSubtotal.distanceComponent.toFixed(2)}`
+  );
+
+  if (service.pricePerMinute > 0) {
+    breakdownLines.push(
+      `Tiempo (${durationMinutes} min × C$${service.pricePerMinute.toFixed(2)}): C$${serviceSubtotal.timeComponent.toFixed(2)}`
+    );
+  }
+
+  if (serviceSubtotal.subtotalWithMinimum > serviceSubtotal.subtotal) {
+    breakdownLines.push(`Tarifa mínima aplicada: C$${service.minimumFare.toFixed(2)}`);
+  }
+
+  if (serviceCode === 'designated_driver') {
+    const normalService = await fetchServiceConfig('normal');
+    if (normalService) {
+      const normalSubtotal = calculateServiceSubtotal(normalService, distanceKm, durationMinutes);
+      const normalFinal = normalSubtotal.subtotalWithMinimum;
+      const doubledNormal = normalFinal * 2;
+      const adjustedFinal = Math.max(doubledNormal, service.minimumFare, finalPrice);
+
+      breakdownLines.push(`Tarifa normal estimada: C$${normalFinal.toFixed(2)}`);
+      breakdownLines.push(`Tarifa conductor designado = tarifa normal × 2: C$${doubledNormal.toFixed(2)}`);
+
+      if (adjustedFinal > doubledNormal) {
+        breakdownLines.push(`Se aplica tarifa mínima de conductor designado: C$${service.minimumFare.toFixed(2)}`);
+      }
+
+      finalPrice = adjustedFinal;
+    } else {
+      breakdownLines.push('⚠️ No se pudo obtener la tarifa normal para duplicar el precio.');
+    }
+  }
+
+  const finalPriceRounded = Math.round(finalPrice);
+  const distancePriceRounded = Math.round(serviceSubtotal.distanceComponent);
+  const timePriceRounded = Math.round(serviceSubtotal.timeComponent);
+
+  let commissionRate = service.commissionRate;
+
+  if (options.driverId) {
+    try {
+      commissionRate = await getCommissionFromDatabase(options.driverId, serviceCode);
+    } catch (error) {
+      console.error('❌ Error obteniendo comisión personalizada:', error);
+    }
+  }
+
+  const commission = Math.round(finalPriceRounded * commissionRate);
+
+  breakdownLines.push(`Precio final (redondeado): C$${finalPriceRounded.toFixed(2)}`);
+  breakdownLines.push(`Comisión ${(commissionRate * 100).toFixed(2)}%: C$${commission.toFixed(2)}`);
+
   return {
-    distancePrice: Math.round(distancePrice),
-    timePrice: 0, // ✅ NO hay costo por tiempo
-    basePrice: Math.round(basePrice),
+    distancePrice: distancePriceRounded,
+    timePrice: timePriceRounded,
+    basePrice: Math.round(service.basePrice),
     distanceKm: parseFloat(distanceKm.toFixed(2)),
     durationMinutes,
-    multiplier,
-    finalPrice,
-    breakdown,
-    isPeakHour: false, // ✅ Ya no se aplica ajuste por hora pico
-    peakHourAdjustment: 0, // ✅ Sin ajuste de hora pico
+    multiplier: service.pricePerKm,
+    finalPrice: finalPriceRounded,
+    breakdown: breakdownLines.join('\n'),
+    isPeakHour: false,
+    peakHourAdjustment: 0,
     vehicleType,
     rideType,
     commissionRate,
     commission,
+    serviceCode,
+    serviceId: service.id,
   };
 }
 
@@ -307,39 +464,38 @@ export function calculateRidePrice(
  * @param originLng - Longitud del origen
  * @returns Resultado del cálculo con recargo por paradas
  */
-export function calculateRidePriceWithStops(
+export async function calculateRidePriceWithStops(
   distanceInMeters: number,
   durationInSeconds: number,
   extraStops: number = 0,
   vehicleType: VehicleType = 'car',
   rideType: RideType = 'normal',
   originLat?: number,
-  originLng?: number
-): PriceCalculationResult {
-  // Calcular precio base
-  const baseCalculation = calculateRidePrice(
+  originLng?: number,
+  options: RidePriceOptions = {}
+): Promise<PriceCalculationResult> {
+  const baseCalculation = await calculateRidePrice(
     distanceInMeters,
     durationInSeconds,
     vehicleType,
     rideType,
     originLat,
-    originLng
+    originLng,
+    options
   );
-  
-  // Recargo por paradas adicionales: C$20 por cada parada extra
+
   const STOP_FEE = 20;
   const stopCharge = extraStops * STOP_FEE;
-  
-  let finalPrice = baseCalculation.finalPrice + stopCharge;
+  const finalPrice = baseCalculation.finalPrice + stopCharge;
   const commission = Math.round(finalPrice * baseCalculation.commissionRate);
-  
+
   let breakdown = baseCalculation.breakdown;
   if (extraStops > 0) {
-    breakdown += `\nParadas extras: ${extraStops} × C$${STOP_FEE} = C$${stopCharge}`;
-    breakdown += `\nPrecio final con paradas: C$${finalPrice}`;
-    breakdown += `\nComisión actualizada: C$${commission}`;
+    breakdown += `\nParadas extras: ${extraStops} × C$${STOP_FEE} = C$${stopCharge.toFixed(2)}`;
+    breakdown += `\nPrecio final con paradas: C$${finalPrice.toFixed(2)}`;
+    breakdown += `\nComisión actualizada: C$${commission.toFixed(2)}`;
   }
-  
+
   return {
     ...baseCalculation,
     finalPrice,

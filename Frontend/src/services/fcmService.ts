@@ -67,6 +67,7 @@ class FCMService {
   private fcmToken: string | null = null;
   private functions: any = null;
   private isFCMAvailable: boolean = messagingInstance !== null;
+  private recentForegroundMessageIds: Set<string> = new Set();
 
   constructor() {
     this.ensureAndroidChannel();
@@ -252,49 +253,61 @@ class FCMService {
   private handleForegroundNotification(remoteMessage: any): void {
     const { notification, data } = remoteMessage;
 
-    // Si la notificación ya trae título/cuerpo desde FCM, evitamos duplicarla
-    const shouldPresentLocalCopy = !notification?.title && !notification?.body;
+    const presentNotification = async () => {
+      try {
+        await this.ensureAndroidChannel();
 
-    if (shouldPresentLocalCopy) {
-      const presentNotification = async () => {
-        try {
-          await this.ensureAndroidChannel();
-          await Notifications.presentNotificationAsync({
+        const uniqueId =
+          remoteMessage?.messageId ??
+          `${data?.type ?? 'generic'}-${remoteMessage?.sentTime ?? Date.now()}`;
+
+        if (uniqueId && this.recentForegroundMessageIds.has(uniqueId)) {
+          console.log('ℹ️ Notificación duplicada detectada, se omite:', uniqueId);
+          return;
+        }
+
+        if (uniqueId) {
+          this.recentForegroundMessageIds.add(uniqueId);
+          setTimeout(() => this.recentForegroundMessageIds.delete(uniqueId), 20_000);
+        }
+
+        console.log('🔔 Mostrando notificación local (foreground):', {
+          uniqueId,
+          title: notification?.title,
+          body: notification?.body,
+        });
+
+        await Notifications.scheduleNotificationAsync({
+          content: {
             title: notification?.title || 'Nueva notificación',
             body: notification?.body || '',
             data: data || {},
             sound: 'default',
-          });
+            priority: Notifications.AndroidNotificationPriority.HIGH,
+          },
+          trigger: Platform.OS === 'android'
+            ? { seconds: 1, channelId: 'driveangel_default' }
+            : null,
+        });
+      } catch (error) {
+        console.error('❌ Error mostrando notificación local:', error);
+        Alert.alert(
+          notification?.title || 'Nueva notificación',
+          notification?.body || '',
+          [
+            {
+              text: 'Ver',
+              onPress: () => this.handleNotificationTap(remoteMessage),
+            },
+            { text: 'Cerrar', style: 'cancel' },
+          ]
+        );
+      }
+    };
 
-          if (messagingModule?.removeDeliveredNotification && remoteMessage?.messageId) {
-            try {
-              await messagingModule.removeDeliveredNotification(remoteMessage.messageId);
-            } catch (removeError) {
-              console.warn('⚠️ No se pudo limpiar notificación original:', removeError);
-            }
-          }
-        } catch (error) {
-          console.error('❌ Error mostrando notificación local:', error);
-          Alert.alert(
-            notification?.title || 'Nueva notificación',
-            notification?.body || '',
-            [
-              {
-                text: 'Ver',
-                onPress: () => this.handleNotificationTap(remoteMessage),
-              },
-              { text: 'Cerrar', style: 'cancel' },
-            ]
-          );
-        }
-      };
-
-      presentNotification().catch((error) => {
-        console.error('❌ Error presentando notificación:', error);
-      });
-    } else {
-      console.log('ℹ️ Notificación ya contiene payload visual, evitando duplicado local.');
-    }
+    presentNotification().catch((error) => {
+      console.error('❌ Error presentando notificación:', error);
+    });
   }
 
   /**
