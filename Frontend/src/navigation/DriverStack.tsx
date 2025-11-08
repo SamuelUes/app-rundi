@@ -3,8 +3,9 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useTheme } from '../context/ThemeContext';
 import DriverHomeScreen from '../screens/Driver/DriverHomeScreenNewDesign';
 import RideRequestsScreen from '../screens/Driver/RideRequestsScreen';
-import AvailableRidesScreen from '../screens/Driver/AvailableRidesScreen';
-import ActiveRideScreen from '../screens/Driver/ActiveRideScreen';
+import AvailableRidesScreen from '../screens/Driver/AvailableRidesScreeNewDesign';
+import ActiveRideScreen from '../screens/Driver/ActiveRideScreenNewDesign';
+import RidePreviewScreen from '../screens/Driver/RidePreviewScreen';
 import EarningsScreen from '../screens/Driver/EarningsScreen';
 import VehicleVerificationScreen from '../screens/Driver/VehicleVerificationScreen';
 import DriversDocumentsInspectionScreen from '../screens/Driver/DriversDocumentsInspectionScreen';
@@ -30,6 +31,23 @@ export type DriverStackParamList = {
   AvailableRides: undefined;
   ActiveRide: {
     rideId: string;
+  };
+  RidePreview: {
+    ride: {
+      id: string;
+      clientId: string;
+      clientName?: string;
+      clientPhone?: string;
+      origin: { lat: number; lng: number; address?: string };
+      destination: { lat: number; lng: number; address?: string };
+      extraDestinations?: Array<{ lat: number; lng: number; address?: string }>;
+      estimatedPrice: number;
+      estimatedDistance?: number;
+      estimatedDuration?: number;
+      clientSuggestedPrice?: number;
+      driverOfferedPrice?: number | null;
+      paymentMethod?: 'cash' | 'card';
+    };
   };
   Earnings: undefined;
   VehicleVerification: {
@@ -69,6 +87,7 @@ export type DriverStackParamList = {
     origin: { lat: number; lng: number; address: string };
     destination: { lat: number; lng: number; address: string };
     estimatedFare: number;
+    extraDestinations?: Array<{ lat: number; lng: number; address?: string }>;
   };
 };
 
@@ -93,6 +112,7 @@ export default function DriverStack() {
       <Stack.Screen name="DriverHome" component={DriverHomeScreen} options={{ title: 'Conductor' }} />
       <Stack.Screen name="AvailableRides" component={AvailableRidesScreen} options={{ title: 'Viajes Disponibles' }} />
       <Stack.Screen name="ActiveRide" component={ActiveRideScreen} options={{ title: 'Viaje Activo' }} />
+      <Stack.Screen name="RidePreview" component={RidePreviewScreen} options={{ headerShown: false }} />
       <Stack.Screen name="RideRequests" component={RideRequestsScreen} options={{ title: 'Solicitudes' }} />
       <Stack.Screen name="VehicleVerification" component={VehicleVerificationScreen} options={{ title: 'Verificación del Vehículo' }} />
       <Stack.Screen name="DriversDocumentsInspection" component={DriversDocumentsInspectionScreen} options={{ title: 'Documentos del Conductor' }} />

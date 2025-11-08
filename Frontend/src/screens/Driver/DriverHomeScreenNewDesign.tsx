@@ -28,6 +28,7 @@ import driversService from '../../services/driversService';
 import driverAvailabilityService from '../../services/driverAvailabilityService';
 import earningsService from '../../services/earningsService';
 import { extractVehicleTypeFromInfo, ensureVehicleIconSource } from '../../utils/vehicleIcons';
+import { useAcceptedRideListener } from '../../hooks/useAcceptedRideListener';
 
 type NearbyDriverMarker = {
   id: string;
@@ -103,6 +104,9 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   const { coords, loading: locationLoading, error, refreshLocation } = useLocation();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
+  // Monitorear rides aceptados y navegar automáticamente
+  useAcceptedRideListener(navigation);
+
   const [isAvailable, setIsAvailable] = useState(false);
   const [isDesignatedDriverMode, setIsDesignatedDriverMode] = useState(false);
   const [todayStats, setTodayStats] = useState({ trips: 0, earnings: 0 });
@@ -112,6 +116,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   const [activeRide, setActiveRide] = useState<any>(null);
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
+  const [clientNamesCache, setClientNamesCache] = useState<Record<string, string>>({});
 
   const notifiedRides = useRef<Set<string>>(new Set());
   const rideStatusCacheRef = useRef<Record<string, string>>({});
@@ -466,6 +471,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
                 id: ride.id,
                 latitude,
                 longitude,
+                clientId: ride.clientId,
                 clientName: ride.client?.name || ride.clientName || 'Cliente',
                 originAddress: ride.originAddress || ride.origin?.address || 'Origen',
                 finalDestination: ride.destinationAddress || ride.destination?.address || 'Destino',
@@ -473,16 +479,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
                 passengers: ride.passengers ?? 1,
               };
             })
-            .filter((item): item is {
-              id: string;
-              latitude: number;
-              longitude: number;
-              clientName: string;
-              originAddress: string;
-              finalDestination: string;
-              priceLabel: string;
-              passengers: number;
-            } => Boolean(item));
+            .filter((item): item is any => Boolean(item));
 
           setAvailableRideRequests(formatted);
           setActiveRide(myActiveRide);
@@ -501,6 +498,75 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
       cleanup?.();
     };
   }, [coords, isAvailable, user?.id]);
+
+  // Resolver nombres de clientes desde clientsInfo en Realtime DB
+  useEffect(() => {
+    const clientIds = availableRideRequests
+      .map((ride) => ride.clientId)
+      .filter((id): id is string => Boolean(id) && !(id in clientNamesCache));
+
+    if (clientIds.length === 0) return;
+
+    let isMounted = true;
+    let cleanup: null | (() => void) = null;
+
+    (async () => {
+      try {
+        const { getDatabase, ref: dbRef, onValue, off } = await import('firebase/database');
+        const db = getDatabase();
+
+        const unsubscribes: Array<() => void> = [];
+
+        clientIds.forEach((clientId) => {
+          const clientInfoRef = dbRef(db, `clientsInfo/${clientId}`);
+          const unsub = onValue(
+            clientInfoRef,
+            (snapshot) => {
+              if (!isMounted) return;
+              const data = snapshot.val();
+              const fullName = data?.fullName || 'Cliente';
+              setClientNamesCache((prev) => ({
+                ...prev,
+                [clientId]: fullName,
+              }));
+            },
+            (err) => {
+              console.warn(`[DriverHomeScreen] Error leyendo clientsInfo/${clientId}:`, err);
+              // Fallback: marcar como cargado para no reintentar
+              if (isMounted) {
+                setClientNamesCache((prev) => ({
+                  ...prev,
+                  [clientId]: 'Cliente',
+                }));
+              }
+            }
+          );
+          unsubscribes.push(() => off(clientInfoRef, 'value', unsub));
+        });
+
+        cleanup = () => {
+          unsubscribes.forEach((unsub) => unsub());
+        };
+      } catch (err) {
+        console.error('[DriverHomeScreen] Error configurando listeners de clientsInfo:', err);
+      }
+    })();
+
+    return () => {
+      isMounted = false;
+      cleanup?.();
+    };
+  }, [availableRideRequests, clientNamesCache]);
+
+  // Actualizar clientName en availableRideRequests cuando se resuelven los nombres
+  useEffect(() => {
+    setAvailableRideRequests((prev) =>
+      prev.map((ride) => ({
+        ...ride,
+        clientName: ride.clientId && clientNamesCache[ride.clientId] ? clientNamesCache[ride.clientId] : ride.clientName,
+      }))
+    );
+  }, [clientNamesCache]);
 
   useEffect(() => {
     if (!user?.id) {
@@ -1108,12 +1174,12 @@ const createStyles = (colors: any) =>
     },
     earningsValue: {
       color: '#FFFFFF',
-      fontSize: 16.5,
+      fontSize: 14,
       fontWeight: '500',
     },
     earningsRight: {
       alignItems: 'flex-end',
-      gap: 2,
+      gap: 4,
     },
     earningsCta: {
       color: '#FFFFFF',

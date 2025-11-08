@@ -411,7 +411,7 @@ export default function HomeScreen({ navigation }: any) {
             await AsyncStorage.setItem('ACTIVE_RIDE_ID', activeRideId);
             
             // NOTA: No sincronizar con Supabase aquí porque los IDs de Firebase no son UUIDs
-            // La sincronización se hará cuando se confirme el viaje en RideConfirmationScreen
+            // La sincronización se hará cuando se confirme el viaje en pantalla de ofertas (HomeScreenOffers)
             console.log('💾 Viaje guardado en AsyncStorage:', activeRideId);
           } else {
             // No se encontró ningún viaje activo
@@ -862,7 +862,7 @@ export default function HomeScreen({ navigation }: any) {
         activeRide.status === 'pending_confirm' || 
           activeRide.status === 'driver_assigned') {
         // Viaje esperando confirmación
-        navigation.navigate('RideConfirmation', { rideId: activeRide.id });
+        navigation.navigate('HomeOffers', { rideId: activeRide.id });
       } else if (activeRide.status === 'accepted' || activeRide.status === 'in_progress') {
         // Viaje confirmado o en progreso
         navigation.navigate('RideTracking', {
@@ -903,8 +903,8 @@ export default function HomeScreen({ navigation }: any) {
             });
           }
         } else if (activeRide.status === 'pending_confirm' || activeRide.status === 'driver_offered' || activeRide.status === 'driver_assigned') {
-          console.log('🚗 [HomeScreen] Viaje pendiente de confirmación. Navegando a Ride confirmation screen...');
-          navigation.navigate('RideConfirmation', { rideId: activeRide.id });
+          console.log('🚗 [HomeScreen] Viaje pendiente de confirmación. Navegando a HomeScreenOffers...');
+          navigation.navigate('HomeOffers', { rideId: activeRide.id });
         } else {
           console.log(`⚠️ [HomeScreen] Estado de viaje no manejado: ${activeRide.status}`);
         }

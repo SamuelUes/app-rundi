@@ -51,7 +51,7 @@ const DEFAULT_CLIENT_LOCATION = {
 };
 
 const PROFILE_ICON_IMAGE = require('../../assets/icons/profile/profile-icon2.png');
-const REQUEST_BUTTON_IMAGE = require('../../assets/icons/make_request_button/make_request_button2x.png');
+const REQUEST_BUTTON_IMAGE = require('../../assets/icons/make_request_button/make_request_button3x.png');
 const PENDING_ACTION_IMAGE = require('../../assets/icons/pending_acction/pending_acction2x.png');
 const USER_LOCATION_LIGHT_ICON = require('../../assets/icons/actuall-position-white/actuallpositionwhite2x.png');
 const USER_LOCATION_DARK_ICON = require('../../assets/icons/actuall-position-black/actuallpositionblack2x.png');
@@ -341,7 +341,7 @@ export default function HomeScreen({ navigation }: any) {
           // Verificar si el viaje sigue activo para este cliente
           if (rideData.clientId === user.id && 
               (rideData.status === 'requested' || rideData.status === 'pending_confirm' || 
-               rideData.status === 'accepted' || rideData.status === 'in_progress' || 
+               rideData.status === 'accepted' || rideData.status === 'driver_on_route' || rideData.status === 'in_progress' || 
                rideData.status === 'pending_payment' || rideData.status === 'driver_offered' || rideData.status === 'driver_assigned')) {
             
             console.log('🚗 [HomeScreen] Viaje activo confirmado, mostrando banner...');
@@ -363,7 +363,7 @@ export default function HomeScreen({ navigation }: any) {
             .filter(([_, ride]: [string, any]) => 
               ride.clientId === user.id && 
               (ride.status === 'requested' || ride.status === 'pending_confirm' || 
-               ride.status === 'accepted' || ride.status === 'in_progress' || 
+               ride.status === 'accepted' || ride.status === 'driver_on_route' || ride.status === 'in_progress' || 
                ride.status === 'driver_assigned' || ride.status === 'driver_offered' || ride.status === 'pending_payment')
             );
           
@@ -409,7 +409,7 @@ export default function HomeScreen({ navigation }: any) {
             await AsyncStorage.setItem('ACTIVE_RIDE_ID', activeRideId);
             
             // NOTA: No sincronizar con Supabase aquí porque los IDs de Firebase no son UUIDs
-            // La sincronización se hará cuando se confirme el viaje en RideConfirmationScreen
+            // La sincronización se hará cuando se confirme el viaje en HomeScreenOffers
             console.log('💾 Viaje guardado en AsyncStorage:', activeRideId);
           } else {
             // No se encontró ningún viaje activo
@@ -862,11 +862,11 @@ export default function HomeScreen({ navigation }: any) {
       console.log('🚗 Navegando a viaje activo:', activeRide.id, 'Estado:', activeRide.status);
 
       if (['requested', 'driver_offered', 'pending_confirm', 'driver_assigned'].includes(activeRide.status)) {
-        navigation.navigate('RideConfirmation', { rideId: activeRide.id });
+        navigation.navigate('HomeOffers', { rideId: activeRide.id });
         return;
       }
 
-      if (['accepted', 'in_progress'].includes(activeRide.status)) {
+      if (['accepted', 'driver_on_route', 'in_progress'].includes(activeRide.status)) {
         navigation.navigate('RideTracking', {
           rideId: activeRide.id,
           driverId: activeRide.driverId,
@@ -922,6 +922,8 @@ export default function HomeScreen({ navigation }: any) {
       case 'driver_assigned':
         return 'Confirma tu viaje';
       case 'accepted':
+        return 'Conductor en camino';
+      case 'driver_on_route':
         return 'Conductor en camino';
       case 'in_progress':
         return 'Viaje en curso';

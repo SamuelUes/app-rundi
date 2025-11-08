@@ -27,6 +27,7 @@ import * as designatedDriverInspectionsSequelizeAPI from "./api/designated_drive
 import * as driverServicesSequelizeAPI from "./api/driver_services_sequelize";
 import * as biometricAuthSequelizeAPI from "./api/biometric_authentications_sequelize";
 import * as analyticsSequelizeAPI from "./api/analytics_sequelize";
+import * as clientProfilesAPI from "./api/clientProfiles";
 import * as smsCodesSequelizeAPI from "./api/sms_verification_codes_sequelize";
 import * as commissionHistorySequelizeAPI from "./api/service_commission_history_sequelize";
 import * as authAPI from "./api/auth";
@@ -97,6 +98,9 @@ import * as fcmAPI from "./api/fcm";
 import * as cleanupScheduled from "./scheduled/cleanupOldRides";
 import * as cleanupRealtimeDB from "./scheduled/cleanupRealtimeDB";
 
+// Importar presence functions
+import * as presenceAPI from "./api/presence";
+
 // ============================================
 // API ENDPOINTS
 // ============================================
@@ -166,6 +170,15 @@ export const acceptClientPrice = priceNegotiationSequelizeAPI.acceptClientPrice;
 export const makeCounterOffer = priceNegotiationSequelizeAPI.makeCounterOffer;
 export const acceptCounterOffer = priceNegotiationSequelizeAPI.acceptCounterOffer;
 export const rejectCounterOffer = priceNegotiationSequelizeAPI.rejectCounterOffer;
+
+// Client profiles
+export const getClientProfile = clientProfilesAPI.getClientProfile;
+
+// ============================================
+// FUNCIONES DE PRESENCE
+// ============================================
+export const markAppActive = presenceAPI.markAppActive;
+export const markAppClosed = presenceAPI.markAppClosed;
 
 // ============================================
 // FUNCIONES DEPRECADAS DE STRIPE (STUBS)

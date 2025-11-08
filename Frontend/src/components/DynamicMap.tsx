@@ -28,6 +28,9 @@ type NearbyDriver = {
   heading?: number;
   vehicleType?: string | null;
   vehicleIconSource?: ImageSourcePropType;
+  isSelected?: boolean;
+  rating?: number | null;
+  photoURL?: string | null;
 };
 
 interface DynamicMapProps {
@@ -35,6 +38,7 @@ interface DynamicMapProps {
   longitude: number;
   style?: any;
   onMapPress?: (event: { latitude: number; longitude: number }) => void;
+  onDriverPress?: (driverId: string) => void; // when user taps a driver marker
   showMarker?: boolean;
   markerPosition?: { latitude: number; longitude: number };
   markerType?: 'default' | 'car' | 'origin' | 'destination' | 'client';
@@ -42,7 +46,7 @@ interface DynamicMapProps {
   destinationMarker?: { latitude: number; longitude: number };
   clientMarker?: { latitude: number; longitude: number };
   // ✅ NUEVO: Marcadores de paradas extras con colores
-  extraStopMarkers?: Array<{ latitude: number; longitude: number; index: number; color?: string }>;
+  extraStopMarkers?: Array<{ latitude: number; longitude: number; index: number; color?: string; label?: string }>;
   routeCoordinates?: Array<{ latitude: number; longitude: number }>;
   provider?: 'google' | 'mapbox' | 'openstreet' | 'tomtom'; // Proveedor de mapa
   nearbyDrivers?: NearbyDriver[]; // Conductores cercanos
@@ -62,6 +66,10 @@ interface DynamicMapProps {
   userLocationHoldingLightIcon?: ImageSourcePropType;
   userLocationHoldingDarkIcon?: ImageSourcePropType;
   onMarkerDragStart?: (location: { latitude: number; longitude: number }) => void;
+  // ✅ NUEVO: Burbujas de dirección sobre pines
+  originLabel?: string;
+  destinationLabel?: string;
+  showPinBubbles?: boolean;
 }
 
 /**

@@ -20,13 +20,21 @@ interface WaitingClientConfirmationScreenProps {
       origin: { lat: number; lng: number; address: string };
       destination: { lat: number; lng: number; address: string };
       estimatedFare: number;
+      extraDestinations?: Array<{ lat: number; lng: number; address?: string }>;
     };
   };
   navigation: any;
 }
 
 export default function WaitingClientConfirmationScreen({ route, navigation }: WaitingClientConfirmationScreenProps) {
-  const { rideId, clientId, origin, destination, estimatedFare } = route.params;
+  const {
+    rideId,
+    clientId,
+    origin,
+    destination,
+    estimatedFare,
+    extraDestinations = [],
+  } = route.params;
   const { colors } = useTheme();
   const { user } = useAuth();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -190,10 +198,22 @@ export default function WaitingClientConfirmationScreen({ route, navigation }: W
 
             <View style={styles.divider} />
 
+            {extraDestinations.map((stop: { lat: number; lng: number; address?: string }, index: number) => (
+              <View key={`extra-stop-${index}`} style={styles.locationRow}>
+                <Text style={styles.locationIcon}>🟠</Text>
+                <View style={styles.locationInfo}>
+                  <Text style={styles.locationLabel}>{`Parada ${index + 1}`}</Text>
+                  <Text style={styles.locationAddress}>{stop.address || 'Parada adicional'}</Text>
+                </View>
+              </View>
+            ))}
+
+            {extraDestinations.length > 0 && <View style={styles.divider} />}
+
             <View style={styles.locationRow}>
               <Text style={styles.locationIcon}>🔴</Text>
               <View style={styles.locationInfo}>
-                <Text style={styles.locationLabel}>Destino</Text>
+                <Text style={styles.locationLabel}>Destino Final</Text>
                 <Text style={styles.locationAddress}>{destination.address}</Text>
               </View>
             </View>
@@ -344,8 +364,8 @@ const createStyles = (colors: any) => StyleSheet.create({
   tipsContainer: {
     backgroundColor: '#E3F2FD',
     borderRadius: 12,
-    padding: 16,
-    marginBottom: 20,
+    padding: 20,
+    marginBottom: 40,
   },
   tipsTitle: {
     fontSize: 16,

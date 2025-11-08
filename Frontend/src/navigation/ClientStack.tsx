@@ -2,6 +2,7 @@ import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useTheme } from '../context/ThemeContext';
 import HomeScreen from '../screens/Client/HomeScreenNewDesign'; //existe el .old
+import HomeScreenOffers from '../screens/Client/HomeScreenOffers';
 import SearchRideScreen from '../screens/Client/SearchRideScreen'; //existe el .old
 import RideConfirmationScreen from '../screens/Client/RideConfirmationScreen'; //existe el .old
 import RideTrackingScreen from '../screens/Client/RideTrackingScreen';
@@ -20,9 +21,12 @@ import RideDetailsScreen from '../screens/Shared/RideDetailsScreen';
 import SavedCardsScreen from '../screens/Shared/SavedCardsScreen';
 import AddCardScreen from '../screens/Shared/AddCardScreen';
 import InvoiceScreen from '../screens/Shared/InvoiceScreen';
+import { useClientPresence } from '../hooks/useClientPresence';
+import { useInitializeClientProfile } from '../hooks/useClientProfileSync';
 
 export type ClientStackParamList = {
   ClientHome: undefined;
+  HomeOffers: { rideId?: string } | undefined;
   SearchRide: undefined;
   RideConfirmation: {
     rideId: string;
@@ -77,6 +81,10 @@ const Stack = createNativeStackNavigator<ClientStackParamList>();
 
 export default function ClientStack() {
   const { colors } = useTheme();
+  // Mantener heartbeat del cliente en Realtime DB
+  useClientPresence();
+  // Inicializar perfil del cliente (cacheo automático en backend)
+  useInitializeClientProfile();
   
   return (
     <Stack.Navigator 
@@ -92,6 +100,7 @@ export default function ClientStack() {
       }}
     >
       <Stack.Screen name="ClientHome" component={HomeScreen} />
+      <Stack.Screen name="HomeOffers" component={HomeScreenOffers} options={{ headerShown: false }} />
       <Stack.Screen name="SearchRide" component={SearchRideScreen} options={{ headerShown: true, title: 'Buscar viaje' }} />
       <Stack.Screen name="RideConfirmation" component={RideConfirmationScreen} options={{ headerShown: true, title: 'Confirmación de Viaje' }} />
       <Stack.Screen name="RideTracking" component={RideTrackingScreen} options={{ headerShown: true, title: 'Tracking en vivo' }} />

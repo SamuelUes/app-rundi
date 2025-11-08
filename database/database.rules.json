@@ -55,6 +55,29 @@
         ".write": "auth != null && auth.uid === $driverId"
       }
     },
+
+    "drivers": {
+      ".read": "auth != null",
+      "$driverId": {
+        ".write": "auth != null && auth.uid === $driverId",
+        "firstName": { ".validate": "newData.isString() || newData.val() == null" },
+        "lastName": { ".validate": "newData.isString() || newData.val() == null" },
+        "fullName": { ".validate": "newData.isString() || newData.val() == null" },
+        "profilePhoto": { ".validate": "newData.isString() || newData.val() == null" },
+        "photoURL": { ".validate": "newData.isString() || newData.val() == null" },
+        "rating": {
+          ".validate": "(newData.isNumber() && newData.val() >= 0 && newData.val() <= 5) || newData.isString() || newData.val() == null"
+        },
+        "status": { ".validate": "newData.isString() || newData.val() == null" },
+        "vehicle": { ".validate": "newData.val() == null || newData.hasChildren(['type']) || newData.isString()" },
+        "vehicles": { ".validate": "newData.val() == null || newData.hasChildren(['0'])" },
+        "department": { ".validate": "newData.isString() || newData.val() == null" },
+        "municipality": { ".validate": "newData.isString() || newData.val() == null" },
+        "phone": { ".validate": "newData.isString() || newData.val() == null" },
+        "email": { ".validate": "newData.isString() || newData.val() == null" },
+        "$other": { ".validate": "true" }
+      }
+    },
     
     "paymentStatus": {
       "$rideId": {
@@ -142,6 +165,14 @@
         ".read": "auth != null",
         ".write": "auth != null && auth.uid === $userId",
         ".validate": "newData.hasChildren(['latitude', 'longitude', 'isManual', 'timestamp'])"
+      }
+    },
+
+    "clientsInfo": {
+      ".read": "auth != null",
+      "$clientId": {
+        ".read": "auth != null",
+        ".write": "auth != null && auth.uid === $clientId"
       }
     }
   }

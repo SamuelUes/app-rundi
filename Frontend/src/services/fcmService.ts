@@ -17,6 +17,14 @@ let messagingModule: any = null;
 let messagingInstance: any = null;
 let AuthorizationStatusEnum: any = null;
 
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+  }),
+});
+
 try {
   messagingModule = require('@react-native-firebase/messaging');
   const { getMessaging, AuthorizationStatus } = messagingModule;
@@ -68,6 +76,9 @@ class FCMService {
   private functions: any = null;
   private isFCMAvailable: boolean = messagingInstance !== null;
   private recentForegroundMessageIds: Set<string> = new Set();
+  private listenersConfigured = false;
+  private onMessageUnsubscribe: (() => void) | null = null;
+  private onNotificationOpenedUnsubscribe: (() => void) | null = null;
 
   constructor() {
     this.ensureAndroidChannel();
@@ -222,17 +233,27 @@ class FCMService {
       return;
     }
 
+    if (this.listenersConfigured) {
+      console.log('ℹ️ Listeners de notificaciones ya estaban configurados, se omite nueva suscripción');
+      return;
+    }
+
     // Listener para notificaciones en foreground
-    messagingModule.onMessage(messagingInstance, async (remoteMessage: any) => {
-      console.log('📬 Notificación recibida en foreground:', remoteMessage);
-      this.handleForegroundNotification(remoteMessage);
-    });
+    this.onMessageUnsubscribe = messagingModule.onMessage(
+      messagingInstance,
+      async (remoteMessage: any) => {
+        this.handleForegroundNotification(remoteMessage);
+      }
+    );
 
     // Listener para cuando se toca una notificación (app en background)
-    messagingModule.onNotificationOpenedApp(messagingInstance, (remoteMessage: any) => {
-      console.log('👆 Notificación tocada (app en background):', remoteMessage);
-      this.handleNotificationTap(remoteMessage);
-    });
+    this.onNotificationOpenedUnsubscribe = messagingModule.onNotificationOpenedApp(
+      messagingInstance,
+      (remoteMessage: any) => {
+        console.log('👆 Notificación tocada (app en background):', remoteMessage);
+        this.handleNotificationTap(remoteMessage);
+      }
+    );
 
     // Listener para cuando se abre la app desde una notificación (app cerrada)
     messagingModule
@@ -244,6 +265,7 @@ class FCMService {
         }
       });
 
+    this.listenersConfigured = true;
     console.log('✅ Listeners de notificaciones configurados');
   }
 
@@ -252,24 +274,30 @@ class FCMService {
    */
   private handleForegroundNotification(remoteMessage: any): void {
     const { notification, data } = remoteMessage;
+    const uniqueId =
+      remoteMessage?.messageId ??
+      `${data?.type ?? 'generic'}-${remoteMessage?.sentTime ?? Date.now()}`;
+
+    if (uniqueId && this.recentForegroundMessageIds.has(uniqueId)) {
+      console.log('ℹ️ Notificación duplicada detectada, se omite:', uniqueId);
+      return;
+    }
+
+    if (uniqueId) {
+      this.recentForegroundMessageIds.add(uniqueId);
+      setTimeout(() => this.recentForegroundMessageIds.delete(uniqueId), 20_000);
+    }
+
+    console.log('📬 Notificación recibida en foreground:', {
+      id: uniqueId,
+      title: notification?.title,
+      body: notification?.body,
+      type: data?.type ?? 'general',
+    });
 
     const presentNotification = async () => {
       try {
         await this.ensureAndroidChannel();
-
-        const uniqueId =
-          remoteMessage?.messageId ??
-          `${data?.type ?? 'generic'}-${remoteMessage?.sentTime ?? Date.now()}`;
-
-        if (uniqueId && this.recentForegroundMessageIds.has(uniqueId)) {
-          console.log('ℹ️ Notificación duplicada detectada, se omite:', uniqueId);
-          return;
-        }
-
-        if (uniqueId) {
-          this.recentForegroundMessageIds.add(uniqueId);
-          setTimeout(() => this.recentForegroundMessageIds.delete(uniqueId), 20_000);
-        }
 
         console.log('🔔 Mostrando notificación local (foreground):', {
           uniqueId,
@@ -277,17 +305,11 @@ class FCMService {
           body: notification?.body,
         });
 
-        await Notifications.scheduleNotificationAsync({
-          content: {
-            title: notification?.title || 'Nueva notificación',
-            body: notification?.body || '',
-            data: data || {},
-            sound: 'default',
-            priority: Notifications.AndroidNotificationPriority.HIGH,
-          },
-          trigger: Platform.OS === 'android'
-            ? { seconds: 1, channelId: 'driveangel_default' }
-            : null,
+        await Notifications.presentNotificationAsync({
+          title: notification?.title || 'Nueva notificación',
+          body: notification?.body || '',
+          data: data || {},
+          sound: 'default',
         });
       } catch (error) {
         console.error('❌ Error mostrando notificación local:', error);
@@ -308,6 +330,27 @@ class FCMService {
     presentNotification().catch((error) => {
       console.error('❌ Error presentando notificación:', error);
     });
+  }
+
+  teardownNotificationListeners(): void {
+    try {
+      this.onMessageUnsubscribe?.();
+    } catch (error) {
+      console.warn('⚠️ Error eliminando listener onMessage:', error);
+    } finally {
+      this.onMessageUnsubscribe = null;
+    }
+
+    try {
+      this.onNotificationOpenedUnsubscribe?.();
+    } catch (error) {
+      console.warn('⚠️ Error eliminando listener onNotificationOpenedApp:', error);
+    } finally {
+      this.onNotificationOpenedUnsubscribe = null;
+    }
+
+    this.listenersConfigured = false;
+    this.recentForegroundMessageIds.clear();
   }
 
   /**
@@ -365,6 +408,7 @@ class FCMService {
       }
 
       this.fcmToken = null;
+      this.teardownNotificationListeners();
 
       console.log('🧹 Token FCM limpiado');
     } catch (error) {

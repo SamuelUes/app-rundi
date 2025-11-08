@@ -244,6 +244,11 @@ export default function AvailableRidesScreen({ navigation }: any) {
             origin: ride.origin,
             destination: ride.destination,
             estimatedFare: ride.clientSuggestedPrice,
+            extraDestinations: (ride.extraDestinations || []).map((stop) => ({
+              lat: stop.lat,
+              lng: stop.lng,
+              address: stop.address,
+            })),
           });
         } catch (error: any) {
           console.error('❌ Error completo:', error);
@@ -269,6 +274,11 @@ export default function AvailableRidesScreen({ navigation }: any) {
             origin: ride.origin,
             destination: ride.destination,
             estimatedFare: ride.estimatedPrice,
+            extraDestinations: (ride.extraDestinations || []).map((stop) => ({
+              lat: stop.lat,
+              lng: stop.lng,
+              address: stop.address,
+            })),
           });
         } catch (error: any) {
           alertService.showErrorAlert(error.message || 'No se pudo aceptar el viaje');

@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState, useEffect } from 'react';
+import React, { useMemo, useRef, useState, useEffect, useCallback } from 'react';
 import { View, StyleSheet, Text, Image, ImageSourcePropType, TouchableOpacity, Animated } from 'react-native';
 import MapView, {
   LatLng,
@@ -15,6 +15,7 @@ interface ExtraStopMarker {
   longitude: number;
   index: number;
   color?: string;
+  label?: string;
 }
 
 interface RideRequest {
@@ -37,6 +38,9 @@ interface DriverMarker {
   longitude: number;
   heading?: number;
   vehicleIconSource?: ImageSourcePropType;
+  isSelected?: boolean;
+  rating?: number | null;
+  photoURL?: string | null;
 }
 interface GoogleMapProps {
   latitude: number;
@@ -53,6 +57,7 @@ interface GoogleMapProps {
   extraStopMarkers?: ExtraStopMarker[];
   routeCoordinates?: Array<{ latitude: number; longitude: number }>;
   nearbyDrivers?: DriverMarker[];
+  onDriverPress?: (driverId: string) => void;
   draggableMarker?: boolean;
   onMarkerDragEnd?: (newLocation: { latitude: number; longitude: number }) => void;
   rideRequests?: RideRequest[];
@@ -68,10 +73,19 @@ interface GoogleMapProps {
   userLocationHoldingLightIcon?: ImageSourcePropType;
   userLocationHoldingDarkIcon?: ImageSourcePropType;
   onMarkerDragStart?: (location: { latitude: number; longitude: number }) => void;
+  // Small address bubbles
+  originLabel?: string;
+  destinationLabel?: string;
+  showPinBubbles?: boolean;
 }
 
 const EDGE_PADDING = { top: 60, right: 60, bottom: 60, left: 60 };
 const REQUEST_PIN_IMAGE = require('../assets/icons/requests_pin/requests_pin2x.png');
+const DRIVER_PROFILE_BUBBLE_IMAGE = require('../assets/icons/driver-profile-bubble/driverprofilebubble_2x.png');
+// ✅ Iconos personalizados para origen, paradas múltiples y destino final (wireframe)
+const ORIGIN_PIN_IMAGE = require('../assets/icons/origin_marker/origin_marker.png');
+const MULTI_STOP_PIN_IMAGE = require('../assets/icons/multiplelocationmarker/multiplelocationmarker.png');
+const DESTINATION_PIN_IMAGE = require('../assets/icons/desti_locationmarker/desti_locationmarker.png');
 
 function isValidCoord(value: any): value is { latitude: number; longitude: number } {
   return (
@@ -134,6 +148,40 @@ const markerStyles = StyleSheet.create({
   },
   driverIcon: {
     fontSize: 22,
+  },
+  driverBubbleWrapper: {
+    alignItems: 'center',
+  },
+  driverBubbleImage: {
+    width: 64,
+    height: 64,
+    resizeMode: 'contain',
+  },
+  driverBubbleAvatar: {
+    position: 'absolute',
+    top: 14,
+    left: 14,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 2,
+    borderColor: '#fff',
+    backgroundColor: '#e0e0e0',
+  },
+  driverRatingBadge: {
+    position: 'absolute',
+    top: -10,
+    backgroundColor: '#F59E0B',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.08)',
+  },
+  driverRatingText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 11,
   },
   requestWrapper: {
     alignItems: 'center',
@@ -224,6 +272,33 @@ const markerStyles = StyleSheet.create({
     height: 42,
     resizeMode: 'contain',
   },
+  pinIconImage: {
+    width: 38,
+    height: 38,
+    resizeMode: 'contain',
+  },
+  pinWithBubble: {
+    alignItems: 'center',
+  },
+  smallBubble: {
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.1)',
+    marginBottom: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.12,
+    shadowRadius: 2,
+    elevation: 2,
+    maxWidth: 220,
+  },
+  smallBubbleText: {
+    fontSize: 12,
+    color: '#111827',
+  },
 });
 
 function MarkerBubble({
@@ -301,6 +376,7 @@ export default function GoogleMap({
   longitude,
   style,
   onMapPress,
+  onDriverPress,
   showMarker = true,
   markerPosition,
   markerType = 'default',
@@ -326,6 +402,9 @@ export default function GoogleMap({
   userLocationHoldingLightIcon,
   userLocationHoldingDarkIcon,
   onMarkerDragStart,
+  originLabel,
+  destinationLabel,
+  showPinBubbles,
 }: GoogleMapProps) {
   const mapRef = useRef<MapView>(null);
   const { isDark } = useTheme();
@@ -360,7 +439,7 @@ export default function GoogleMap({
       if (Array.isArray(resolvedMapStyle)) {
         mapInstance.setMapStyle(resolvedMapStyle);
       } else {
-        mapInstance.setMapStyle(null);
+        mapInstance.setMapStyle(LIGHT_MAP_STYLE);
       }
     } catch (error) {
       console.warn('[GoogleMap] No se pudo aplicar el estilo del mapa:', error);
@@ -503,6 +582,30 @@ export default function GoogleMap({
     }).start();
   };
 
+  const animateCameraToCoordinate = useCallback(
+    (coord: LatLng, duration: number = 220) => {
+      const map = mapRef.current as any;
+      if (!map) return;
+
+      if (typeof map.animateCamera === 'function') {
+        map.animateCamera({ center: coord }, { duration });
+      } else if (typeof map.animateToRegion === 'function') {
+        map.animateToRegion(
+          {
+            latitude: coord.latitude,
+            longitude: coord.longitude,
+            latitudeDelta: 0.01,
+            longitudeDelta: 0.01,
+          },
+          duration,
+        );
+      }
+    },
+    [],
+  );
+
+  const markerDragFollowThrottleRef = useRef<number>(0);
+
   const handleMarkerDragStart = (event: MarkerDragStartEndEvent) => {
     setIsMarkerHeld(true);
     animateMarkerScale(1.12);
@@ -510,6 +613,16 @@ export default function GoogleMap({
       const { latitude: lat, longitude: lng } = event.nativeEvent.coordinate;
       onMarkerDragStart({ latitude: lat, longitude: lng });
     }
+    animateCameraToCoordinate(event.nativeEvent.coordinate, 280);
+  };
+
+  const handleMarkerDrag = (event: MarkerDragStartEndEvent) => {
+    const now = Date.now();
+    if (now - markerDragFollowThrottleRef.current < 90) {
+      return;
+    }
+    markerDragFollowThrottleRef.current = now;
+    animateCameraToCoordinate(event.nativeEvent.coordinate, 340);
   };
 
   const handleMarkerDragEnd = (event: MarkerDragStartEndEvent) => {
@@ -518,6 +631,7 @@ export default function GoogleMap({
     if (!onMarkerDragEnd) return;
     const { latitude: lat, longitude: lng } = event.nativeEvent.coordinate;
     onMarkerDragEnd({ latitude: lat, longitude: lng });
+    animateCameraToCoordinate(event.nativeEvent.coordinate, 260);
   };
 
   return (
@@ -538,7 +652,7 @@ export default function GoogleMap({
         }}
         onPress={handleMapPress}
         mapType={mapType || 'standard'}
-        customMapStyle={Array.isArray(resolvedMapStyle) ? resolvedMapStyle : undefined}
+        customMapStyle={Array.isArray(resolvedMapStyle) ? resolvedMapStyle : LIGHT_MAP_STYLE}
       >
         {shouldShowUserMarker && effectiveUserLocation && (
           <Marker coordinate={effectiveUserLocation} tracksViewChanges anchor={{ x: 0.5, y: 0.5 }}>
@@ -555,8 +669,15 @@ export default function GoogleMap({
         )}
 
         {isValidCoord(originMarker) && (
-          <Marker coordinate={toLatLng(originMarker)} tracksViewChanges>
-            <MainMarkerContent type="origin" userMarkerIcon={userMarkerIcon} />
+          <Marker coordinate={toLatLng(originMarker)} tracksViewChanges={false}>
+            <View style={markerStyles.pinWithBubble}>
+              {showPinBubbles && !!originLabel && (
+                <View style={markerStyles.smallBubble}>
+                  <Text numberOfLines={1} style={markerStyles.smallBubbleText}>{originLabel}</Text>
+                </View>
+              )}
+              <Image source={ORIGIN_PIN_IMAGE} style={markerStyles.pinIconImage} />
+            </View>
           </Marker>
         )}
 
@@ -568,9 +689,14 @@ export default function GoogleMap({
 
         {isValidCoord(destinationMarker) && (
           <Marker coordinate={toLatLng(destinationMarker)} tracksViewChanges={false}>
-            <MarkerBubble backgroundColor="#F44336" size="medium">
-              <Text style={markerStyles.bubbleText}>🎯</Text>
-            </MarkerBubble>
+            <View style={markerStyles.pinWithBubble}>
+              {showPinBubbles && !!destinationLabel && (
+                <View style={markerStyles.smallBubble}>
+                  <Text numberOfLines={1} style={markerStyles.smallBubbleText}>{destinationLabel}</Text>
+                </View>
+              )}
+              <Image source={DESTINATION_PIN_IMAGE} style={markerStyles.pinIconImage} />
+            </View>
           </Marker>
         )}
 
@@ -580,6 +706,7 @@ export default function GoogleMap({
             tracksViewChanges
             draggable={!!draggableMarker}
             onDragStart={handleMarkerDragStart}
+            onDrag={handleMarkerDrag}
             onDragEnd={handleMarkerDragEnd}
           >
             <Animated.View style={{ transform: [{ scale: markerScale }] }}>
@@ -600,9 +727,14 @@ export default function GoogleMap({
               coordinate={toLatLng(stop)}
               tracksViewChanges={false}
             >
-              <MarkerBubble backgroundColor={stop.color || '#FFA500'} size="medium">
-                <Text style={markerStyles.extraStopText}>{stop.index}</Text>
-              </MarkerBubble>
+              <View style={markerStyles.pinWithBubble}>
+                {showPinBubbles && !!(stop as any).label && (
+                  <View style={markerStyles.smallBubble}>
+                    <Text numberOfLines={1} style={markerStyles.smallBubbleText}>{(stop as any).label}</Text>
+                  </View>
+                )}
+                <Image source={MULTI_STOP_PIN_IMAGE} style={markerStyles.pinIconImage} />
+              </View>
             </Marker>
           );
         })}
@@ -614,10 +746,31 @@ export default function GoogleMap({
               key={`driver-${driver.id}`}
               coordinate={toLatLng(driver)}
               rotation={typeof driver.heading === 'number' ? driver.heading : 0}
-              tracksViewChanges={!!driver.vehicleIconSource}
+              tracksViewChanges={driver.isSelected || !!driver.vehicleIconSource}
               anchor={{ x: 0.5, y: 0.5 }}
+              onPress={() => {
+                if (typeof (onDriverPress) === 'function') {
+                  onDriverPress(driver.id);
+                }
+              }}
             >
-              {driver.vehicleIconSource ? (
+              {driver.isSelected ? (
+                <View style={markerStyles.driverBubbleWrapper}>
+                  {!!driver.rating && (
+                    <View style={markerStyles.driverRatingBadge}>
+                      <Text style={markerStyles.driverRatingText}>{driver.rating.toFixed(1)}</Text>
+                    </View>
+                  )}
+                  <Image source={DRIVER_PROFILE_BUBBLE_IMAGE} style={markerStyles.driverBubbleImage} />
+                  {driver.photoURL ? (
+                    <Image source={{ uri: driver.photoURL }} style={markerStyles.driverBubbleAvatar} />
+                  ) : (
+                    <View style={[markerStyles.driverBubbleAvatar, { justifyContent: 'center', alignItems: 'center' }]}>
+                      <Text>👤</Text>
+                    </View>
+                  )}
+                </View>
+              ) : driver.vehicleIconSource ? (
                 <View style={markerStyles.vehicleIconWrapper}>
                   <Image source={driver.vehicleIconSource} style={markerStyles.vehicleIconImage} />
                 </View>

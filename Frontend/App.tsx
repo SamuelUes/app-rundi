@@ -6,6 +6,7 @@ import { AuthProvider } from './src/context/AuthContext';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import { FCMProvider } from './src/context/FCMContext';
 import { usePresence } from './src/hooks/usePresence';
+import { useDriverProfileSync } from './src/hooks/useDriverProfileSync';
 import AppNavigator from './src/navigation/AppNavigator';
 import fcmService from './src/services/fcmService';
 import { useKeepAwake } from 'expo-keep-awake';
@@ -16,8 +17,9 @@ const STRIPE_PUBLISHABLE_KEY = process.env.STRIPE_PUBLIC_KEY || 'pk_test_51SEkQK
 function AppContent() {
   const { isDark } = useTheme();
   
-  // Activar sistema de presencia automáticamente
+  // Activar sistema de presencia y sincronización de perfil de conductor
   usePresence();
+  useDriverProfileSync();
 
   // Mantener la pantalla encendida mientras la app está en primer plano
   useKeepAwake();

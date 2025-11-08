@@ -842,8 +842,8 @@ export default function SearchRideScreen({ navigation }: any) {
 
       console.log('✅ Viaje solicitado:', ride.id);
 
-      // Navegar a la pantalla de confirmación
-      navigation.navigate('RideConfirmation', { rideId: ride.id });
+      // Navegar a pantalla de ofertas en Home
+      navigation.navigate('HomeOffers', { rideId: ride.id });
     } catch (error: any) {
       console.error('Error requesting ride:', error);
       Alert.alert(
@@ -912,8 +912,8 @@ export default function SearchRideScreen({ navigation }: any) {
         paymentMethod: paymentMethod, // Agregar método de pago
       });
 
-      // Navegar a la pantalla de confirmación
-      navigation.navigate('RideConfirmation', { rideId: ride.id });
+      // Navegar a pantalla de ofertas en Home
+      navigation.navigate('HomeOffers', { rideId: ride.id });
     } catch (error: any) {
       console.error('Error requesting ride:', error);
       Alert.alert(
