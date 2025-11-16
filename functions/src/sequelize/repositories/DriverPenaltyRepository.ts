@@ -44,10 +44,34 @@ export class DriverPenaltyRepository {
     return await DriverPenalty.findAll({ where: { penalty_type: penaltyType } });
   }
 
-  async getTotalPenalties(driverId: string): Promise<number> {
-    const penalties = await DriverPenalty.findAll({
-      where: { driver_id: driverId, status: 'pending' },
+  async getTotalPenalties(driverId: string) {
+    const result = await DriverPenalty.sum('amount', {
+      where: {
+        driver_id: driverId,
+        status: 'pending',
+      },
     });
-    return penalties.reduce((sum, p: any) => sum + parseFloat(p.amount), 0);
+    return result || 0;
+  }
+
+  async getPendingSummary(driverId: string) {
+    const penalties = await DriverPenalty.findAll({
+      where: {
+        driver_id: driverId,
+        status: 'pending',
+      },
+      attributes: ['id', 'penalty_type', 'ride_id', 'amount', 'status'],
+      order: [['created_at', 'DESC']],
+    });
+
+    const total = penalties.length;
+    const commissionPenaltyTypes = new Set(['cash_commission_due']);
+    const commission = penalties.filter((penalty: any) => commissionPenaltyTypes.has(String(penalty.penalty_type || '').toLowerCase()));
+
+    return {
+      total,
+      penalties,
+      commission,
+    };
   }
 }

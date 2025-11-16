@@ -16,6 +16,7 @@ import { getDatabase, ref, update, onValue, off } from 'firebase/database';
 import { initializeFirebase } from '../../config/firebase';
 import BiometricService from '../../services/biometricService';
 import { supabase } from '../../config/supabase';
+import sessionService from '../../services/sessionService';
 
 interface ConfirmCashPaymentScreenProps {
   route: {
@@ -131,7 +132,8 @@ export default function ConfirmCashPaymentScreen({ route, navigation }: ConfirmC
       // Llamar Cloud Function
       const functions = getFunctions(app);
       const completeCashPayment = httpsCallable(functions, 'completeCashPayment');
-      await completeCashPayment({ rideId });
+      const deviceId = await sessionService.getDeviceId();
+      await completeCashPayment({ rideId, deviceId });
 
       Alert.alert('Éxito', 'Pago confirmado correctamente');
       navigation.replace('AvailableRides');
@@ -154,11 +156,13 @@ export default function ConfirmCashPaymentScreen({ route, navigation }: ConfirmC
       const functions = getFunctions(app);
       const sendSmsCode = httpsCallable(functions, 'sendSmsCode');
       
+      const deviceId = await sessionService.getDeviceId();
       await sendSmsCode({
         rideId,
         userId: 'driver_id', // TODO: obtener del contexto
         phoneNumber: '+50512345678', // TODO: obtener del contexto
         context: 'payment_confirmation',
+        deviceId,
       });
 
       setSmsExpiresAt(new Date(Date.now() + 10 * 60 * 1000));
@@ -190,11 +194,13 @@ export default function ConfirmCashPaymentScreen({ route, navigation }: ConfirmC
       const functions = getFunctions(app);
       const verifySmsCode = httpsCallable(functions, 'verifySmsCode');
       
+      const deviceId2 = await sessionService.getDeviceId();
       const result = await verifySmsCode({
         rideId,
         userId: 'driver_id', // TODO: obtener del contexto
         code: smsCode,
         context: 'payment_confirmation',
+        deviceId: deviceId2,
       });
 
       if (!(result.data as any).verified) {
@@ -290,7 +296,8 @@ export default function ConfirmCashPaymentScreen({ route, navigation }: ConfirmC
       const cancelCashPayment = httpsCallable(functions, 'cancelCashPayment');
       
       console.log('🔄 Cancelando pago con razón:', reason);
-      await cancelCashPayment({ rideId, reason });
+      const deviceId4 = await sessionService.getDeviceId();
+      await cancelCashPayment({ rideId, reason, deviceId: deviceId4 });
 
       Alert.alert(
         'Pago Cancelado',
@@ -332,10 +339,12 @@ export default function ConfirmCashPaymentScreen({ route, navigation }: ConfirmC
               const switchPaymentMethodFn = httpsCallable(functions, 'switchPaymentMethod');
               
               console.log('🔄 Cambiando método de pago a tarjeta...');
+              const devId = await sessionService.getDeviceId();
               const result = await switchPaymentMethodFn({
                 rideId,
                 newPaymentMethod: 'card',
                 reason: 'Cliente no tiene efectivo',
+                deviceId: devId,
               });
 
               const data = result.data as any;

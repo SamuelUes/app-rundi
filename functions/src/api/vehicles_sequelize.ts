@@ -433,12 +433,8 @@ export const switchVehicle = functions.https.onCall(async (data, context) => {
       updated_at: admin.database.ServerValue.TIMESTAMP,
     });
 
-    const driverInfoSnapshot = await driverInfoRef.once('value');
-    const driverInfo = driverInfoSnapshot.val() || {};
-
-    if (!driverInfo.vehicle && driverInfo.status !== 'unavailable') {
-      await driverInfoRef.update({ status: 'unavailable' });
-    }
+    // No actualizar 'status' en driversInfo aquí. 'account_status' es administrativo y
+    // 'status' de disponibilidad se maneja exclusivamente en driverLocations.
 
     console.log(`✅ Vehículo activo actualizado en Realtime DB`);
 

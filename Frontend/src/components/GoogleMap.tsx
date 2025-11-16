@@ -49,7 +49,7 @@ interface GoogleMapProps {
   onMapPress?: (event: { latitude: number; longitude: number }) => void;
   showMarker?: boolean;
   markerPosition?: { latitude: number; longitude: number } | null;
-  markerType?: 'default' | 'car' | 'origin' | 'destination' | 'client';
+  markerType?: 'default' | 'car' | 'origin' | 'destination' | 'client' | 'manual_origin' | 'manual_origin_hold';
   originMarker?: { latitude: number; longitude: number } | null;
   destinationMarker?: { latitude: number; longitude: number } | null;
   clientMarker?: { latitude: number; longitude: number } | null;
@@ -72,6 +72,8 @@ interface GoogleMapProps {
   userLocationDarkIcon?: ImageSourcePropType;
   userLocationHoldingLightIcon?: ImageSourcePropType;
   userLocationHoldingDarkIcon?: ImageSourcePropType;
+  manualOriginIcon?: ImageSourcePropType;
+  manualOriginHoldIcon?: ImageSourcePropType;
   onMarkerDragStart?: (location: { latitude: number; longitude: number }) => void;
   // Small address bubbles
   originLabel?: string;
@@ -84,7 +86,7 @@ const REQUEST_PIN_IMAGE = require('../assets/icons/requests_pin/requests_pin2x.p
 const DRIVER_PROFILE_BUBBLE_IMAGE = require('../assets/icons/driver-profile-bubble/driverprofilebubble_2x.png');
 // ✅ Iconos personalizados para origen, paradas múltiples y destino final (wireframe)
 const ORIGIN_PIN_IMAGE = require('../assets/icons/origin_marker/origin_marker.png');
-const MULTI_STOP_PIN_IMAGE = require('../assets/icons/multiplelocationmarker/multiplelocationmarker.png');
+const MULTI_STOP_PIN_IMAGE = require('../assets/icons/select-extra-destination/selectextradestination.png');
 const DESTINATION_PIN_IMAGE = require('../assets/icons/desti_locationmarker/desti_locationmarker.png');
 
 function isValidCoord(value: any): value is { latitude: number; longitude: number } {
@@ -159,14 +161,30 @@ const markerStyles = StyleSheet.create({
   },
   driverBubbleAvatar: {
     position: 'absolute',
-    top: 14,
-    left: 14,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    top: 8,
+    left: 8,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     borderWidth: 2,
     borderColor: '#fff',
+    overflow: 'hidden',
     backgroundColor: '#e0e0e0',
+  },
+  driverBubbleAvatarImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  driverBubbleAvatarFallback: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  driverBubbleAvatarFallbackText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#475569',
   },
   driverRatingBadge: {
     position: 'absolute',
@@ -272,6 +290,11 @@ const markerStyles = StyleSheet.create({
     height: 42,
     resizeMode: 'contain',
   },
+  manualOriginImage: {
+    width: 48,
+    height: 48,
+    resizeMode: 'contain',
+  },
   pinIconImage: {
     width: 38,
     height: 38,
@@ -326,10 +349,16 @@ function MainMarkerContent({
   type,
   vehicleIconSource,
   userMarkerIcon,
+  manualOriginIcon,
+  manualOriginHoldIcon,
+  isMarkerHeld,
 }: {
   type: GoogleMapProps['markerType'];
   vehicleIconSource?: ImageSourcePropType;
   userMarkerIcon?: ImageSourcePropType;
+  manualOriginIcon?: ImageSourcePropType;
+  manualOriginHoldIcon?: ImageSourcePropType;
+  isMarkerHeld?: boolean;
 }) {
   if (vehicleIconSource && type === 'car') {
     return (
@@ -350,6 +379,19 @@ function MainMarkerContent({
     case 'client':
       if (userMarkerIcon) {
         return <Image source={userMarkerIcon} style={markerStyles.userMarkerImage} />;
+      }
+      return (
+        <MarkerBubble backgroundColor="#2196F3" size="medium">
+          <Text style={markerStyles.bubbleText}>📍</Text>
+        </MarkerBubble>
+      );
+    case 'manual_origin_hold':
+    case 'manual_origin':
+      if (isMarkerHeld && manualOriginHoldIcon) {
+        return <Image source={manualOriginHoldIcon} style={markerStyles.manualOriginImage} />;
+      }
+      if (manualOriginIcon) {
+        return <Image source={manualOriginIcon} style={markerStyles.manualOriginImage} />;
       }
       return (
         <MarkerBubble backgroundColor="#2196F3" size="medium">
@@ -401,6 +443,8 @@ export default function GoogleMap({
   userLocationDarkIcon,
   userLocationHoldingLightIcon,
   userLocationHoldingDarkIcon,
+  manualOriginIcon,
+  manualOriginHoldIcon,
   onMarkerDragStart,
   originLabel,
   destinationLabel,
@@ -413,6 +457,7 @@ export default function GoogleMap({
   const baseUserMarkerIcon = isDark ? userLocationDarkIcon : userLocationLightIcon;
   const holdingUserMarkerIcon = isDark ? userLocationHoldingDarkIcon : userLocationHoldingLightIcon;
   const userMarkerIcon = isMarkerHeld ? holdingUserMarkerIcon || baseUserMarkerIcon : baseUserMarkerIcon;
+  const effectiveMarkerType = isMarkerHeld && markerType === 'manual_origin' ? 'manual_origin_hold' : markerType;
   const [selectedRideRequestId, setSelectedRideRequestId] = useState<string | null>(null);
   const lastFitSignatureRef = useRef<string>('');
   const effectiveUserLocation = useMemo(() => {
@@ -711,9 +756,12 @@ export default function GoogleMap({
           >
             <Animated.View style={{ transform: [{ scale: markerScale }] }}>
               <MainMarkerContent
-                type={markerType}
+                type={effectiveMarkerType}
                 vehicleIconSource={markerVehicleIconSource}
                 userMarkerIcon={userMarkerIcon}
+                manualOriginIcon={manualOriginIcon}
+                manualOriginHoldIcon={manualOriginHoldIcon}
+                isMarkerHeld={isMarkerHeld}
               />
             </Animated.View>
           </Marker>
@@ -762,13 +810,17 @@ export default function GoogleMap({
                     </View>
                   )}
                   <Image source={DRIVER_PROFILE_BUBBLE_IMAGE} style={markerStyles.driverBubbleImage} />
-                  {driver.photoURL ? (
-                    <Image source={{ uri: driver.photoURL }} style={markerStyles.driverBubbleAvatar} />
-                  ) : (
-                    <View style={[markerStyles.driverBubbleAvatar, { justifyContent: 'center', alignItems: 'center' }]}>
-                      <Text>👤</Text>
-                    </View>
-                  )}
+                  <View style={markerStyles.driverBubbleAvatar}>
+                    {driver.photoURL ? (
+                      <Image source={{ uri: driver.photoURL }} style={markerStyles.driverBubbleAvatarImage} />
+                    ) : (
+                      <View style={markerStyles.driverBubbleAvatarFallback}>
+                        <Text style={markerStyles.driverBubbleAvatarFallbackText}>
+                          {driver.id?.charAt(0)?.toUpperCase() ?? 'C'}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
                 </View>
               ) : driver.vehicleIconSource ? (
                 <View style={markerStyles.vehicleIconWrapper}>

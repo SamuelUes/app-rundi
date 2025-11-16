@@ -10,16 +10,21 @@ import {
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
-import { getDatabase, ref, onValue, off, get } from 'firebase/database';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import { formatCurrency } from '../../utils/formatters';
 import { httpsCallable } from 'firebase/functions';
 import { getFirebaseFunctions } from '../../config/firebase';
+import { fetchDriverProfile } from '../../services/driverProfilesService';
+import alertService from '../../services/alertService';
 
 interface PendingPayment {
   rideId: string;
   payment: any;
   ride: any;
+  driverProfile?: {
+    name: string;
+    photo?: string | null;
+  };
 }
 
 export default function PendingPaymentsScreen({ navigation }: any) {
@@ -31,50 +36,85 @@ export default function PendingPaymentsScreen({ navigation }: any) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Cargar pagos pendientes usando Cloud Function
+  // Cargar pagos pendientes y perfiles de conductores
   const loadPendingPayments = async () => {
     if (!user?.id) return;
-    
+
     try {
-      console.log('👂 [PendingPaymentsScreen] Cargando pagos pendientes...');
-      
+      setLoading(true);
       const functions = await getFirebaseFunctions();
       const getPendingPaymentsFn = httpsCallable(functions, 'getPendingPayments');
-      
       const result = await getPendingPaymentsFn();
       const data = result.data as any;
 
       console.log('💰 [PendingPaymentsScreen] Resultado:', data);
 
       if (data.success) {
-        // Convertir formato de la Cloud Function al formato esperado por la UI
-        const formattedPayments: PendingPayment[] = data.payments.map((payment: any) => ({
-          rideId: payment.rideId,
-          payment: {
-            status: 'pending',
-            method: payment.paymentMethod,
-            finalAmount: payment.amount,
-            createdAt: payment.createdAt,
-          },
-          ride: {
-            origin: { address: payment.origin },
-            destination: { address: payment.destination },
-            finalFare: payment.amount,
-            driver: { name: payment.driverName },
-            completedAt: payment.createdAt,
-          },
-        }));
+        const profileCache = new Map<string, PendingPayment['driverProfile'] | null>();
+        const formattedPayments: PendingPayment[] = await Promise.all(
+          (data.payments || []).map(async (payment: any) => {
+            const normalizedMethod = payment.paymentMethod === 'card' ? 'card' : 'card';
+            const driverId = payment.driverId || payment.driver_id || null;
+
+            let driverProfile: PendingPayment['driverProfile'] | undefined;
+            if (driverId) {
+              if (profileCache.has(driverId)) {
+                driverProfile = profileCache.get(driverId) ?? undefined;
+              } else {
+                const profile = await fetchDriverProfile(driverId).catch(() => null);
+                if (profile) {
+                  const fullName = [profile.firstName, profile.lastName].filter(Boolean).join(' ').trim();
+                  driverProfile = {
+                    name: fullName || payment.driverName || 'Conductor',
+                    photo: profile.profilePhoto || null,
+                  };
+                } else {
+                  driverProfile = undefined;
+                }
+                profileCache.set(driverId, driverProfile ?? null);
+              }
+            }
+
+            if (!driverProfile) {
+              driverProfile = {
+                name: payment.driverName || 'Conductor',
+                photo: payment.driverPhoto || null,
+              };
+            }
+
+            return {
+              rideId: payment.rideId,
+              payment: {
+                status: 'pending',
+                method: normalizedMethod,
+                finalAmount: payment.amount,
+                createdAt: payment.createdAt,
+              },
+              ride: {
+                origin: { address: payment.origin },
+                destination: { address: payment.destination },
+                finalFare: payment.amount,
+                driver: {
+                  name: driverProfile.name,
+                  photoURL: driverProfile.photo,
+                },
+                completedAt: payment.createdAt,
+              },
+              driverProfile,
+            } as PendingPayment;
+          })
+        );
 
         console.log(`📊 Total pagos pendientes: ${formattedPayments.length}`);
         setPendingPayments(formattedPayments);
       } else {
         setPendingPayments([]);
       }
-      
-      setLoading(false);
     } catch (error) {
       console.error('❌ Error cargando pagos pendientes:', error);
       setPendingPayments([]);
+      alertService.showErrorAlert('No se pudieron cargar los pagos pendientes.');
+    } finally {
       setLoading(false);
     }
   };
@@ -86,6 +126,7 @@ export default function PendingPaymentsScreen({ navigation }: any) {
   const handleRefresh = async () => {
     setRefreshing(true);
     await loadPendingPayments();
+    alertService.showSuccessAlert('Información actualizada', 'Pagos pendientes sincronizados.');
     setRefreshing(false);
   };
 
@@ -176,9 +217,9 @@ export default function PendingPaymentsScreen({ navigation }: any) {
             {pendingPayments.map((pendingPayment) => {
               const { rideId, payment, ride } = pendingPayment;
               const amount = payment.finalAmount || ride.finalFare || ride.estimatedPrice;
-              const driverName = ride.driver?.name || 'Conductor';
-              const driverPhoto = ride.driver?.photoURL;
-              const paymentMethod = payment.method === 'cash' ? 'Efectivo' : 'Tarjeta';
+              const driverName = pendingPayment.driverProfile?.name || ride.driver?.name || 'Conductor';
+              const driverPhoto = pendingPayment.driverProfile?.photo || ride.driver?.photoURL;
+              const paymentMethod = 'Tarjeta (obligatorio)';
               const createdAt = payment.createdAt || ride.completedAt || Date.now();
 
               return (

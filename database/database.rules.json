@@ -2,6 +2,13 @@
   "rules": {
     ".read": false,
     ".write": false,
+
+    "sessions": {
+      "$uid": {
+        ".read": "$uid === auth.uid",
+        ".write": "$uid === auth.uid"
+      }
+    },
     
     "activeRides": {
       ".read": "auth != null",
@@ -12,7 +19,7 @@
         "id": { ".validate": "newData.isString()" },
         "clientId": { ".validate": "newData.isString()" },
         "driverId": { ".validate": "newData.isString() || newData.val() == null" },
-        "status": { ".validate": "newData.isString() && newData.val().matches(/^(requested|accepted|in_progress|completed|canceled)$/)" },
+        "status": { ".validate": "newData.isString() && newData.val().matches(/^(requested|driver_offered|accepted|driver_on_route|driver_arrived|in_progress|pending_payment|pending_rating|completed|canceled)$/)" },
         "origin": { ".validate": "!newData.exists() || newData.hasChildren(['lat', 'lng'])" },
         "destination": { ".validate": "!newData.exists() || newData.hasChildren(['lat', 'lng'])" },
         "estimatedPrice": { ".validate": "!newData.exists() || (newData.isNumber() && newData.val() >= 0)" },
@@ -36,8 +43,7 @@
         },
 
         "clientLocation": {
-          ".write": "auth != null",
-          ".validate": "newData.hasChildren(['latitude', 'longitude']) && newData.child('latitude').isNumber() && newData.child('longitude').isNumber()"
+          ".write": "auth != null"
         }
       }
     },
@@ -45,14 +51,30 @@
     "driverLocations": {
       ".read": "auth != null",
       "$driverId": {
-        ".write": "auth != null"
+        ".write": "auth != null && auth.uid === $driverId",
+        "status": {
+          ".validate": "newData.isString() && newData.val().matches(/^(available|busy|offline)$/)"
+        },
+        "lat": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+        "lng": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+        "heading": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+        "speed": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+        "accuracy": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+        "$other": { ".validate": "true" }
       }
     },
     
     "driversInfo": {
       ".read": "auth != null",
       "$driverId": {
-        ".write": "auth != null && auth.uid === $driverId"
+        ".write": "auth != null && auth.uid === $driverId",
+        "account_status": { 
+          ".validate": "!newData.exists() || (newData.isString() && newData.val().matches(/^(active|inactive)$/))" 
+        },
+        "status": {
+          ".validate": "newData.val() == null"
+        },
+        "$other": { ".validate": "true" }
       }
     },
 
@@ -83,18 +105,18 @@
       "$rideId": {
         ".read": "auth != null",
         ".write": "auth != null",
-        ".validate": "newData.hasChildren(['rideId', 'status', 'method', 'amount'])",
+        ".validate": "data.exists() ? true : newData.hasChildren(['status'])",
         
         "rideId": {
           ".validate": "newData.isString()"
         },
         
         "status": {
-          ".validate": "newData.isString() && newData.val().matches(/^(pending_confirmation|in_progress|completed|canceled|failed)$/)"
+          ".validate": "newData.isString() && newData.val().matches(/^(pending|pending_confirmation|in_progress|payment_in_progress|processing|payment_completed|completed|canceled|failed)$/)"
         },
         
         "method": {
-          ".validate": "newData.isString() && newData.val().matches(/^(cash|card)$/)"
+          ".validate": "newData.isString() && newData.val().matches(/^(cash|card|bank_transfer)$/)"
         },
         
         "provider": {
@@ -173,6 +195,24 @@
       "$clientId": {
         ".read": "auth != null",
         ".write": "auth != null && auth.uid === $clientId"
+      },
+
+      "driverPenalties": {
+        "$driverId": {
+          ".read": "auth != null && auth.uid === $driverId",
+          ".write": false,
+          "summary": {
+            ".read": "auth != null && auth.uid === $driverId",
+            ".write": false
+          }
+        }
+      },
+  
+      "driverCommissionPayments": {
+        "$driverId": {
+          ".read": "auth != null && auth.uid === $driverId",
+          ".write": false
+        }
       }
     }
   }

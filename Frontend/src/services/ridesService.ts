@@ -1,10 +1,17 @@
 import { getFirebaseFunctions } from '../config/firebase';
 import { httpsCallable } from 'firebase/functions';
+import sessionService from './sessionService';
 
 export interface Location {
   latitude: number;
   longitude: number;
   address?: string;
+}
+
+export interface RejectRideResponse {
+  success: boolean;
+  message?: string;
+  ride?: { id: string };
 }
 
 export interface RequestRideData {
@@ -262,6 +269,16 @@ const normalizeRide = (raw: any): Ride => {
     ? toNumber(raw.commission, 0)
     : (primaryPayment?.commission ?? undefined);
 
+  const timeline = raw?.timeline
+    ? {
+        requestedAt: toISOString(raw.timeline.requestedAt ?? raw.timeline.requested_at),
+        acceptedAt: toISOString(raw.timeline.acceptedAt ?? raw.timeline.accepted_at),
+        startedAt: toISOString(raw.timeline.startedAt ?? raw.timeline.started_at),
+        completedAt: toISOString(raw.timeline.completedAt ?? raw.timeline.completed_at),
+        canceledAt: toISOString(raw.timeline.canceledAt ?? raw.timeline.canceled_at),
+      }
+    : undefined;
+
   const ride: Ride = {
     id: String(raw?.id ?? ''),
     status: String(raw?.status ?? 'unknown'),
@@ -311,15 +328,7 @@ const normalizeRide = (raw: any): Ride => {
     startedAt: toISOString(raw?.startedAt ?? raw?.started_at),
     completedAt: toISOString(raw?.completedAt ?? raw?.completed_at),
     canceledAt: toISOString(raw?.canceledAt ?? raw?.canceled_at),
-  timeline: raw?.timeline
-    ? {
-        requestedAt: toISOString(raw.timeline.requestedAt ?? raw.timeline.requested_at),
-        acceptedAt: toISOString(raw.timeline.acceptedAt ?? raw.timeline.accepted_at),
-        startedAt: toISOString(raw.timeline.startedAt ?? raw.timeline.started_at),
-        completedAt: toISOString(raw.timeline.completedAt ?? raw.timeline.completed_at),
-        canceledAt: toISOString(raw.timeline.canceledAt ?? raw.timeline.canceled_at),
-      }
-    : undefined,
+    timeline,
     payments,
     primaryPayment,
     locations,
@@ -330,26 +339,7 @@ const normalizeRide = (raw: any): Ride => {
   };
 
   if (!ride.vehicle && ride.driver?.vehicles && ride.driver.vehicles.length > 0) {
-    ride.vehicle = ride.driver.vehicles.find((v) => v.isActive) || ride.driver.vehicles[0];
-  }
-
-  if (primaryPayment) {
-    const commissionValue = primaryPayment.commission ?? 0;
-    const finalFare = ride.finalFare ?? primaryPayment.amount;
-    ride.payment = {
-      id: primaryPayment.id,
-      amount: primaryPayment.amount,
-      tip: primaryPayment.tip,
-      total: primaryPayment.amount,
-      paymentMethod: primaryPayment.paymentMethod,
-      status: primaryPayment.status ?? 'pending',
-      paidAt: primaryPayment.paidAt,
-      createdAt: primaryPayment.createdAt ?? primaryPayment.paidAt,
-      estimatedPrice: ride.estimatedPrice ?? finalFare ?? 0,
-      commission: commissionValue,
-      commissionRate: finalFare ? commissionValue / finalFare : 0,
-      finalAmount: primaryPayment.amount - commissionValue,
-    };
+    ride.vehicle = ride.driver.vehicles[0];
   }
 
   return ride;
@@ -400,7 +390,8 @@ class RidesService {
         Object.entries(data).filter(([_, v]) => v !== undefined)
       );
       
-      const response = await requestRideFunction(cleanData);
+      const deviceId = await sessionService.getDeviceId();
+      const response = await requestRideFunction({ ...cleanData, deviceId });
       const result = response.data as { success: boolean; ride: any };
       
       if (!result.success || !result.ride) {
@@ -430,7 +421,8 @@ class RidesService {
       const allRides: Ride[] = [];
 
       while (true) {
-        const response = await getMyRidesFunction({ userType, limit, offset });
+        const deviceId = await sessionService.getDeviceId();
+        const response = await getMyRidesFunction({ userType, limit, offset, deviceId });
         const result = response.data as { success: boolean; rides: any[]; totalCount?: number };
         const batchRaw = result.success && Array.isArray(result.rides) ? result.rides : [];
         const batch = batchRaw.map(normalizeRide);
@@ -475,7 +467,8 @@ class RidesService {
   async getRideDetails(rideId: string): Promise<Ride> {
     const functions = await this.getFunctions();
     const getRideDetailsFunction = httpsCallable(functions, 'getRideDetails');
-    const response = await getRideDetailsFunction({ rideId });
+    const deviceId = await sessionService.getDeviceId();
+    const response = await getRideDetailsFunction({ rideId, deviceId });
     const result = response.data as { success: boolean; ride: any };
     if (!result.success || !result.ride) {
       throw new Error('No se pudieron obtener los detalles del viaje');
@@ -483,22 +476,35 @@ class RidesService {
     return normalizeRide(result.ride);
   }
 
-  async cancelRide(rideId: string, reason?: string): Promise<{ 
-    success: boolean; 
-    ride: Ride; 
+  async cancelRide(
+    rideId: string,
+    reason?: string,
+    options?: { canceledBy?: 'client' | 'driver' }
+  ): Promise<{
+    success: boolean;
+    ride: Ride;
     canceledBy: string;
     progressPercentage: string;
     message: string;
   }> {
     const functions = await this.getFunctions();
     const cancelRideFunction = httpsCallable(functions, 'cancelRide');
-    const response = await cancelRideFunction({ rideId, reason });
+
+    const payload: Record<string, any> = { rideId };
+    if (reason) {
+      payload.reason = reason;
+    }
+    if (options?.canceledBy) {
+      payload.canceledBy = options.canceledBy;
+    }
+
+    const deviceId = await sessionService.getDeviceId();
+    const response = await cancelRideFunction({ ...payload, deviceId });
     return response.data as any;
   }
 
   async findAvailableDrivers(location: Location): Promise<Driver[]> {
-    // TODO: Implementar con Firebase Callable Function cuando esté disponible
-    // Por ahora retorna array vacío
+    // TODO: Implement using Firebase Callable Function when backend is ready
     return [];
   }
 
@@ -550,10 +556,12 @@ class RidesService {
   async getAvailableRides(lat?: number, lng?: number, radius?: number): Promise<any[]> {
     const functions = await this.getFunctions();
     const getAvailableRidesFunction = httpsCallable(functions, 'getAvailableRides');
+    const deviceId = await sessionService.getDeviceId();
     const response = await getAvailableRidesFunction({ 
       latitude: lat, 
       longitude: lng, 
-      radius: radius || 1.5 // Radio por defecto: 1.5 km
+      radius: radius || 1.5, // Radio por defecto: 1.5 km
+      deviceId,
     });
     const result = response.data as { success: boolean; rides: any[] };
     return result.rides;
@@ -562,7 +570,8 @@ class RidesService {
   async acceptRide(rideId: string, data: AcceptRideData): Promise<Ride> {
     const functions = await this.getFunctions();
     const acceptRideFunction = httpsCallable(functions, 'acceptRide');
-    const response = await acceptRideFunction({ rideId, ...data });
+    const deviceId = await sessionService.getDeviceId();
+    const response = await acceptRideFunction({ rideId, ...data, deviceId });
     const result = response.data as { success: boolean; ride: any };
     return result.ride;
   }
@@ -570,7 +579,8 @@ class RidesService {
   async markDriverOnRoute(rideId: string): Promise<Ride> {
     const functions = await this.getFunctions();
     const markDriverOnRouteFn = httpsCallable(functions, 'markDriverOnRoute');
-    const response = await markDriverOnRouteFn({ rideId });
+    const deviceId = await sessionService.getDeviceId();
+    const response = await markDriverOnRouteFn({ rideId, deviceId });
     const result = response.data as { success: boolean; ride: any };
     if (!result.success || !result.ride) {
       throw new Error('No se pudo actualizar el estado del viaje');
@@ -581,12 +591,25 @@ class RidesService {
   async confirmDriver(rideId: string, selectedDriverId: string): Promise<Ride> {
     const functions = await this.getFunctions();
     const confirmDriverFunction = httpsCallable(functions, 'confirmDriver');
+    const deviceId = await sessionService.getDeviceId();
     const response = await confirmDriverFunction({ 
       rideId,
-      selectedDriverId 
+      selectedDriverId,
+      deviceId,
     });
     const result = response.data as { success: boolean; ride: any };
     return result.ride;
+  }
+
+  /**
+   * Registrar rechazo del conductor a una solicitud de viaje
+   * Oculta el viaje hasta que el precio cambie para ese conductor
+   */
+  async rejectRide(rideId: string, reason?: string): Promise<RejectRideResponse> {
+    const functions = await this.getFunctions();
+    const rejectRideFunction = httpsCallable(functions, 'rejectRide');
+    const response = await rejectRideFunction({ rideId, reason });
+    return response.data as RejectRideResponse;
   }
 
   async rejectDriver(rideId: string, reason?: string): Promise<void> {
@@ -600,16 +623,19 @@ class RidesService {
     
     if (status === 'in_progress') {
       const startRideFunction = httpsCallable(functions, 'startRide');
-      const response = await startRideFunction({ rideId });
+      const deviceId = await sessionService.getDeviceId();
+      const response = await startRideFunction({ rideId, deviceId });
       return response.data as Ride;
     } else if (status === 'completed' || status === 'pending_payment') {
       // Ambos estados usan completeRide (el backend decide el estado final según el método de pago)
       const completeRideFunction = httpsCallable(functions, 'completeRide');
+      const deviceId = await sessionService.getDeviceId();
       const response = await completeRideFunction({ 
         rideId,
         finalFare: additionalData?.finalFare || 0,
         actualDistance: additionalData?.actualDistance || 0,
         actualDuration: additionalData?.actualDuration || 0,
+        deviceId,
       });
       
       // ✅ NUEVO: Retornar pgRideId junto con el ride
@@ -641,7 +667,8 @@ class RidesService {
   }> {
     const functions = await this.getFunctions();
     const calculatePriceFunction = httpsCallable(functions, 'calculatePrice');
-    const response = await calculatePriceFunction({ distanceInMeters, extraStops, isDesignatedDriver });
+    const deviceId = await sessionService.getDeviceId();
+    const response = await calculatePriceFunction({ distanceInMeters, extraStops, isDesignatedDriver, deviceId });
     const result = response.data as any;
     return {
       price: result.price,
@@ -654,4 +681,10 @@ class RidesService {
   }
 }
 
-export default new RidesService();
+const ridesServiceInstance = new RidesService();
+
+export async function rejectRide(rideId: string, reason: string): Promise<RejectRideResponse> {
+  return ridesServiceInstance.rejectRide(rideId, reason);
+}
+
+export default ridesServiceInstance;

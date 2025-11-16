@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigation } from '@react-navigation/native';
 import {
   View,
   Text,
@@ -13,12 +14,65 @@ import { useTheme } from '../../context/ThemeContext';
 import { SkeletonLoader, RideListSkeleton } from '../../components/SkeletonLoader';
 import { NoHistoryEmptyState } from '../../components/EmptyState';
 import earningsService, { EarningsSummary, RideEarning, DriverStats } from '../../services/earningsService';
+import penaltiesService, { DriverPenaltySummary, PendingCommissionDetail } from '../../services/penaltiesService';
 
 type Period = 'today' | 'week' | 'month';
+
+const EMPTY_PENALTY_SUMMARY: DriverPenaltySummary = {
+  success: false,
+  driverId: '',
+  pendingCount: 0,
+  pendingAmount: 0,
+  penalties: {
+    count: 0,
+    amount: 0,
+  },
+  payments: {
+    count: 0,
+    amount: 0,
+  },
+  paymentDetails: [],
+};
+
+const getPaymentMethodLabel = (method: string = '') => {
+  const normalized = method.toLowerCase();
+  switch (normalized) {
+    case 'cash':
+      return 'Efectivo';
+    case 'card':
+    case 'card_local':
+      return 'Tarjeta';
+    case 'bank_transfer':
+      return 'Transferencia';
+    default:
+      return method || 'Otro';
+  }
+};
+
+const formatDateTime = (date?: string | null) => {
+  if (!date) {
+    return 'Sin fecha';
+  }
+  try {
+    const parsed = new Date(date);
+    if (Number.isNaN(parsed.getTime())) {
+      return 'Fecha inválida';
+    }
+    return parsed.toLocaleString('es-NI', {
+      day: '2-digit',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch (err) {
+    return 'Fecha inválida';
+  }
+};
 
 export default function EarningsScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const navigation = useNavigation<any>();
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -27,10 +81,12 @@ export default function EarningsScreen() {
   const [rides, setRides] = useState<RideEarning[]>([]);
   const [stats, setStats] = useState<DriverStats | null>(null);
   const [commissionBreakdown, setCommissionBreakdown] = useState<any>(null);
+  const [penaltySummary, setPenaltySummary] = useState<DriverPenaltySummary>(EMPTY_PENALTY_SUMMARY);
 
   useEffect(() => {
     loadEarnings();
     loadStats();
+    loadPenaltySummary();
     // loadCommissionBreakdown(); // Deshabilitado - función eliminada
   }, [selectedPeriod]);
 
@@ -60,6 +116,16 @@ export default function EarningsScreen() {
     }
   };
 
+  const loadPenaltySummary = async () => {
+    try {
+      const summary = await penaltiesService.getDriverPenaltySummary();
+      setPenaltySummary(summary?.success ? summary : EMPTY_PENALTY_SUMMARY);
+    } catch (e) {
+      console.warn('⚠️ Error cargando penalizaciones pendientes:', e);
+      setPenaltySummary(EMPTY_PENALTY_SUMMARY);
+    }
+  };
+
   const loadCommissionBreakdown = async () => {
     try {
       const { getFunctions, httpsCallable } = await import('firebase/functions');
@@ -86,6 +152,7 @@ export default function EarningsScreen() {
     setRefreshing(true);
     await loadEarnings();
     await loadStats();
+    await loadPenaltySummary();
     // await loadCommissionBreakdown(); // Deshabilitado - función eliminada
     setRefreshing(false);
   };
@@ -181,6 +248,68 @@ export default function EarningsScreen() {
               <Text style={styles.statLabel}>Promedio</Text>
             </View>
           </View>
+        </View>
+      )}
+
+      {/* ✅ NUEVO: Penalizaciones pendientes */}
+      {penaltySummary.pendingAmount > 0 && (
+        <View style={styles.commissionCard}>
+          <Text style={styles.commissionTitle}>⚠️ Comisiones/penalizaciones pendientes</Text>
+          <View style={styles.commissionSection}>
+            <View style={styles.commissionRow}>
+              <Text style={styles.commissionDetail}>Pendientes totales</Text>
+              <Text style={[styles.commissionAmount, { color: '#E53935' }]}>C${penaltySummary.pendingAmount.toFixed(2)} · {penaltySummary.pendingCount}</Text>
+            </View>
+            <View style={styles.commissionBreakdown}>
+              <View style={styles.commissionRow}>
+                <Text style={styles.commissionDetail}>Penalizaciones (Realtime)</Text>
+                <Text style={styles.commissionAmount}>C${penaltySummary.penalties.amount.toFixed(2)} · {penaltySummary.penalties.count}</Text>
+              </View>
+              <View style={styles.commissionRow}>
+                <Text style={styles.commissionDetail}>Comisiones de pagos (Supabase)</Text>
+                <Text style={styles.commissionAmount}>C${penaltySummary.payments.amount.toFixed(2)} · {penaltySummary.payments.count}</Text>
+              </View>
+            </View>
+            {penaltySummary.paymentDetails.length > 0 && (
+              <View style={styles.commissionPaymentList}>
+                <Text style={styles.commissionSubtitle}>Pagos a liquidar</Text>
+                {penaltySummary.paymentDetails.slice(0, 5).map((detail: PendingCommissionDetail) => (
+                  <View key={detail.id} style={styles.commissionPaymentItem}>
+                    <View style={styles.commissionPaymentLeft}>
+                      <Text style={styles.commissionPaymentMethod}>{getPaymentMethodLabel(detail.paymentMethod)}</Text>
+                      <Text style={styles.commissionPaymentDate}>{formatDateTime(detail.paidAt)}</Text>
+                      {detail.rideId && <Text style={styles.commissionPaymentRide}>Viaje · {detail.rideId}</Text>}
+                    </View>
+                    <View style={styles.commissionPaymentRight}>
+                      <Text style={styles.commissionAmountHighlight}>C${detail.commission.toFixed(2)}</Text>
+                      {typeof detail.commissionRate === 'number' && (
+                        <Text style={styles.commissionRateText}>{Math.round(detail.commissionRate * 100)}%</Text>
+                      )}
+                    </View>
+                  </View>
+                ))}
+                {penaltySummary.paymentDetails.length > 5 && (
+                  <Text style={styles.commissionMoreText}>+{penaltySummary.paymentDetails.length - 5} pagos adicionales pendientes</Text>
+                )}
+              </View>
+            )}
+            <Text style={[styles.commissionDetail, { paddingLeft: 4, marginTop: 10 }]}>Ponte al día para continuar aceptando viajes y activar disponibilidad.</Text>
+          </View>
+          <TouchableOpacity
+            style={{
+              backgroundColor: '#2E7D32',
+              paddingVertical: 12,
+              alignItems: 'center',
+              borderRadius: 10,
+              marginTop: 10,
+            }}
+            activeOpacity={0.85}
+            onPress={() => navigation.navigate('PayCommissions')}
+          >
+            <Text style={{ color: '#fff', fontWeight: '700' }}>
+              Pagar comisiones ahora
+            </Text>
+          </TouchableOpacity>
         </View>
       )}
 
@@ -498,6 +627,11 @@ const createStyles = (colors: any) => StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
+  commissionBreakdown: {
+    marginTop: 4,
+    gap: 4,
+    paddingLeft: 28,
+  },
   commissionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -528,12 +662,67 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontWeight: '600',
     color: '#FF5252',
   },
+  commissionAmountHighlight: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#E53935',
+  },
   commissionRowTotal: {
     marginTop: 8,
     paddingTop: 8,
     borderTopWidth: 1,
     borderTopColor: colors.border,
     paddingLeft: 28,
+  },
+  commissionSubtitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.text,
+    marginTop: 10,
+    paddingLeft: 4,
+  },
+  commissionPaymentList: {
+    marginTop: 6,
+    gap: 8,
+  },
+  commissionPaymentItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  commissionPaymentLeft: {
+    flex: 1,
+    gap: 2,
+  },
+  commissionPaymentRight: {
+    alignItems: 'flex-end',
+    minWidth: 70,
+    gap: 2,
+  },
+  commissionPaymentMethod: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  commissionPaymentDate: {
+    fontSize: 12,
+    color: colors.textSecondary,
+  },
+  commissionPaymentRide: {
+    fontSize: 12,
+    color: colors.textSecondary,
+  },
+  commissionRateText: {
+    fontSize: 12,
+    color: colors.textSecondary,
+  },
+  commissionMoreText: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    textAlign: 'right',
   },
   commissionTotalLabel: {
     fontSize: 15,

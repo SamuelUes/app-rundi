@@ -167,3 +167,9 @@ export const isValidExpiryFormat = (expiryDate: string): boolean => {
 export const isValidCVV = (cvv: string): boolean => {
   return /^\d{3,4}$/.test(cvv);
 };
+
+export const maskCardNumber = (last4OrNumber: string): string => {
+  const digits = String(last4OrNumber).replace(/\D/g, '');
+  const last4 = digits.slice(-4).padStart(4, '0');
+  return `**** ${last4}`;
+};

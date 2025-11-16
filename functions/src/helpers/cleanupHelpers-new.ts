@@ -61,21 +61,22 @@ export async function cleanupRideFromRealtime(
       const driverInfoRef = db.ref(`driversInfo/${resolvedDriverId}`);
       const driverLocationRef = db.ref(`driverLocations/${resolvedDriverId}`);
 
-      const offlinePayload = {
-        status: "offline",
+      const timestampsOnly = {
         updatedAt: serverTimestamp,
         lastSeen: serverTimestamp,
-      };
+      } as const;
 
       await driverInfoRef
-        .update(offlinePayload)
+        .update(timestampsOnly)
         .catch((err) => console.error(`⚠️ Error actualizando driversInfo/${resolvedDriverId}:`, err));
 
       await driverLocationRef
         .update({
-          ...offlinePayload,
+          status: "offline",
           lat: null,
           lng: null,
+          updatedAt: serverTimestamp,
+          lastSeen: serverTimestamp,
         })
         .catch((err) => console.error(`⚠️ Error actualizando driverLocations/${resolvedDriverId}:`, err));
     }
@@ -117,23 +118,24 @@ export async function cleanupPresenceNodes(params: {
   const updates: NullableUpdate = {};
 
   for (const driverId of driverIds) {
-    const offlinePayload = {
-      status: "offline",
+    const timestampsOnly = {
       updatedAt: serverTimestamp,
       lastSeen: serverTimestamp,
-    };
+    } as const;
 
     await db
       .ref(`driversInfo/${driverId}`)
-      .update(offlinePayload)
+      .update(timestampsOnly)
       .catch((err) => console.error(`⚠️ Error actualizando driversInfo/${driverId}:`, err));
 
     await db
       .ref(`driverLocations/${driverId}`)
       .update({
-        ...offlinePayload,
+        status: "offline",
         lat: null,
         lng: null,
+        updatedAt: serverTimestamp,
+        lastSeen: serverTimestamp,
       })
       .catch((err) => console.error(`⚠️ Error actualizando driverLocations/${driverId}:`, err));
 

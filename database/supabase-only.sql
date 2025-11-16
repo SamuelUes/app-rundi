@@ -322,6 +322,7 @@ CREATE TABLE IF NOT EXISTS public.payments (
   
   -- Estado
   status VARCHAR(20) NULL DEFAULT 'pending'::VARCHAR,
+  commission_status VARCHAR(20) NULL DEFAULT 'pending'::VARCHAR,
   
   -- Bancos Locales (para card payments)
   local_transaction_id VARCHAR(255) NULL,
@@ -345,6 +346,7 @@ CREATE TABLE IF NOT EXISTS public.payments (
   
   -- Timestamps
   paid_at TIMESTAMP WITHOUT TIME ZONE NULL,
+  commission_paid_at TIMESTAMP WITHOUT TIME ZONE NULL,
   created_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
   updated_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
   
@@ -373,10 +375,12 @@ COMMENT ON COLUMN public.payments.biometric_type IS 'Tipo de biometría: fingerp
 COMMENT ON COLUMN public.payments.authentication_method IS 'Método de autenticación: biometric, sms, manual';
 COMMENT ON COLUMN public.payments.sms_code_verified IS 'Indica si se verificó con código SMS';
 COMMENT ON COLUMN public.payments.sms_verification_id IS 'Referencia al código SMS verificado';
+COMMENT ON COLUMN public.payments.commission_status IS 'Estado de la comisión: pending (pendiente de liquidar) o paid (liquidada)';
+COMMENT ON COLUMN public.payments.commission_paid_at IS 'Fecha en la que el conductor liquidó la comisión (NULL = pendiente)';
 
 CREATE INDEX IF NOT EXISTS idx_payments_ride_id ON public.payments USING btree (ride_id);
 CREATE INDEX IF NOT EXISTS idx_payments_status ON public.payments USING btree (status);
-CREATE INDEX IF NOT EXISTS idx_payments_stripe_id ON public.payments USING btree (stripe_payment_intent_id);
+-- REMOVED: idx_payments_stripe_id (no existe columna stripe_payment_intent_id)
 CREATE INDEX IF NOT EXISTS idx_payments_local_transaction_id ON public.payments USING btree (local_transaction_id);
 CREATE INDEX IF NOT EXISTS idx_payments_sync_status ON public.payments USING btree (synced_to_firebase, updated_at) WHERE (synced_to_firebase = FALSE);
 CREATE INDEX IF NOT EXISTS idx_payments_cancel_reason ON public.payments USING btree (cancel_reason) WHERE cancel_reason IS NOT NULL;
@@ -921,21 +925,23 @@ CREATE INDEX IF NOT EXISTS idx_commission_history_date ON public.service_commiss
 -- ============================================
 -- DESACTIVAR ROW LEVEL SECURITY (Temporal)
 -- ============================================
-ALTER TABLE public.drivers DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.vehicles DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.rides DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.payments DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.driver_penalties DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.ratings DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.ride_locations DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.analytics_events DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.emergency_calls DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.services DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.driver_services DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.service_commission_history DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.biometric_authentications DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.sms_verification_codes DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.cards DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.drivers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.vehicles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.rides ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.driver_penalties ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ratings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ride_locations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.analytics_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.emergency_calls ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.services ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.driver_services ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.service_commission_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.biometric_authentications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.sms_verification_codes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cards ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE public.designated_driver_inspections ENABLE ROW LEVEL SECURITY;
 
 -- ============================================
 -- VERIFICACIÓN FINAL
@@ -948,6 +954,173 @@ WHERE table_schema = 'public'
   AND table_type = 'BASE TABLE'
 ORDER BY table_name;
 
+-- ============================================
+-- 30. CONFIGURACIÓN DE ROW LEVEL SECURITY (RLS) TESTING NECESARIO  
+-- ============================================
+
+-- Nota: todas las tablas críticas tienen RLS habilitado. A continuación
+-- se definen políticas base para usuarios autenticados (Firebase UID).
+
+CREATE OR REPLACE FUNCTION public.current_firebase_uid()
+RETURNS text
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT coalesce(
+    current_setting('request.jwt.claim.sub', true),
+    (current_setting('request.jwt.claims', true)::json ->> 'sub')
+  );
+$$;
+
+REVOKE INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public FROM anon;
+
+-- Drivers
+DROP POLICY IF EXISTS drivers_read_own ON public.drivers;
+CREATE POLICY drivers_read_own ON public.drivers
+  FOR SELECT USING (user_id = public.current_firebase_uid());
+
+DROP POLICY IF EXISTS drivers_update_own ON public.drivers;
+CREATE POLICY drivers_update_own ON public.drivers
+  FOR UPDATE
+  USING (user_id = public.current_firebase_uid())
+  WITH CHECK (user_id = public.current_firebase_uid());
+
+REVOKE INSERT ON public.drivers FROM anon;
+
+-- Vehicles
+DROP POLICY IF EXISTS vehicles_owner_read ON public.vehicles;
+CREATE POLICY vehicles_owner_read ON public.vehicles
+  FOR SELECT USING (
+    driver_id = (
+      SELECT id FROM public.drivers WHERE user_id = public.current_firebase_uid()
+    )
+  );
+
+DROP POLICY IF EXISTS vehicles_owner_write ON public.vehicles;
+CREATE POLICY vehicles_owner_write ON public.vehicles
+  FOR UPDATE
+  USING (
+    driver_id = (
+      SELECT id FROM public.drivers WHERE user_id = public.current_firebase_uid()
+    )
+  )
+  WITH CHECK (
+    driver_id = (
+      SELECT id FROM public.drivers WHERE user_id = public.current_firebase_uid()
+    )
+  );
+
+REVOKE INSERT ON public.vehicles FROM anon;
+
+-- Rides lectura propia
+DROP POLICY IF EXISTS rides_read_client_driver ON public.rides;
+CREATE POLICY rides_read_client_driver ON public.rides
+  FOR SELECT USING (
+    client_id = public.current_firebase_uid()
+    OR driver_id = public.current_firebase_uid()
+  );
+
+REVOKE INSERT, UPDATE, DELETE ON public.rides FROM anon;
+
+-- Payments lectura propia
+DROP POLICY IF EXISTS payments_read_client_driver ON public.payments;
+CREATE POLICY payments_read_client_driver ON public.payments
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1 FROM public.rides r
+      WHERE r.id = public.payments.ride_id
+        AND (r.client_id = public.current_firebase_uid()
+             OR r.driver_id = public.current_firebase_uid())
+    )
+  );
+
+REVOKE INSERT, UPDATE, DELETE ON public.payments FROM anon;
+
+-- Ride locations lectura propia
+DROP POLICY IF EXISTS ride_locations_read_client_driver ON public.ride_locations;
+CREATE POLICY ride_locations_read_client_driver ON public.ride_locations
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1 FROM public.rides r
+      WHERE r.id = public.ride_locations.ride_id
+        AND (r.client_id = public.current_firebase_uid()
+             OR r.driver_id = public.current_firebase_uid())
+    )
+  );
+
+REVOKE INSERT, UPDATE, DELETE ON public.ride_locations FROM anon;
+
+-- Services lectura pública
+DROP POLICY IF EXISTS services_public_read ON public.services;
+CREATE POLICY services_public_read ON public.services
+  FOR SELECT USING (true);
+
+REVOKE INSERT, UPDATE, DELETE ON public.services FROM anon;
+
+-- Biometría, SMS, penalidades
+DROP POLICY IF EXISTS biometric_auth_read ON public.biometric_authentications;
+CREATE POLICY biometric_auth_read ON public.biometric_authentications
+  FOR SELECT USING (user_id = public.current_firebase_uid());
+
+DROP POLICY IF EXISTS sms_codes_read ON public.sms_verification_codes;
+CREATE POLICY sms_codes_read ON public.sms_verification_codes
+  FOR SELECT USING (user_id = public.current_firebase_uid());
+
+DROP POLICY IF EXISTS penalties_read ON public.driver_penalties;
+CREATE POLICY penalties_read ON public.driver_penalties
+  FOR SELECT USING (driver_id = public.current_firebase_uid());
+
+REVOKE INSERT, UPDATE, DELETE ON public.biometric_authentications FROM anon;
+REVOKE INSERT, UPDATE, DELETE ON public.sms_verification_codes FROM anon;
+REVOKE INSERT, UPDATE, DELETE ON public.driver_penalties FROM anon;
+
+-- Ratings
+DROP POLICY IF EXISTS ratings_read_related ON public.ratings;
+CREATE POLICY ratings_read_related ON public.ratings
+  FOR SELECT USING (
+    from_user_id = public.current_firebase_uid()
+    OR to_user_id = public.current_firebase_uid()
+  );
+
+REVOKE INSERT, UPDATE, DELETE ON public.ratings FROM anon;
+
+-- Emergency calls & analytics
+DROP POLICY IF EXISTS emergency_calls_read ON public.emergency_calls;
+CREATE POLICY emergency_calls_read ON public.emergency_calls
+  FOR SELECT USING (user_id = public.current_firebase_uid());
+
+DROP POLICY IF EXISTS analytics_read_own ON public.analytics_events;
+CREATE POLICY analytics_read_own ON public.analytics_events
+  FOR SELECT USING (user_id = public.current_firebase_uid());
+
+REVOKE INSERT, UPDATE, DELETE ON public.emergency_calls FROM anon;
+REVOKE INSERT, UPDATE, DELETE ON public.analytics_events FROM anon;
+
+-- Cards
+DROP POLICY IF EXISTS cards_read_own ON public.cards;
+CREATE POLICY cards_read_own ON public.cards
+  FOR SELECT USING (user_id = public.current_firebase_uid());
+
+REVOKE INSERT, UPDATE, DELETE ON public.cards FROM anon;
+
+-- Designated driver inspections
+DROP POLICY IF EXISTS designated_driver_inspections_read ON public.designated_driver_inspections;
+CREATE POLICY designated_driver_inspections_read ON public.designated_driver_inspections
+  FOR SELECT USING (driver_id = public.current_firebase_uid());
+
+REVOKE INSERT, UPDATE, DELETE ON public.designated_driver_inspections FROM anon;
+
+-- Vistas con security definer: habilitar security barrier
+ALTER VIEW public.services_stats SET (security_barrier = true);
+ALTER VIEW public.driver_active_services SET (security_barrier = true);
+
+update auth.config
+set
+  external_firebase_enabled = true,
+  external_firebase_issuer = 'https://securetoken.google.com/driveangel-ni',
+  external_firebase_client_id = 'driveangel-ni';
+
+  
 -- ============================================
 -- RESULTADO ESPERADO (2025-10-25):
 -- ============================================

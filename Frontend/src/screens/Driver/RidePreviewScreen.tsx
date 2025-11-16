@@ -23,6 +23,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import GoogleMap from '../../components/GoogleMap';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
+import { useVoiceAssistant } from '../../context/VoiceAssistantContext';
 import { fetchClientProfile, ClientProfile } from '../../services/clientProfilesService';
 import alertService from '../../services/alertService';
 import mapsService from '../../services/mapsService';
@@ -32,6 +33,7 @@ import { hasSavedCard } from '../../utils/cardUtils';
 import { DriverStackParamList } from '../../navigation/DriverStack';
 import { useAcceptedRideListener } from '../../hooks/useAcceptedRideListener';
 import { getDatabase, onValue, ref } from 'firebase/database';
+import proximityService from '../../services/proximityService';
 
 const BACK_ICON = require('../../assets/icons/back_button/back_button2x.png');
 
@@ -61,6 +63,7 @@ interface RidePreviewData {
 
 interface RidePreviewParams {
   ride: RidePreviewData;
+  nearbyRides?: Array<Partial<RidePreviewData> & { distanceMeters?: number }>;
 }
 
 type RidePreviewRouteProp = RouteProp<DriverStackParamList, 'RidePreview'>;
@@ -71,12 +74,93 @@ export default function RidePreviewScreen() {
   const navigation = useNavigation<RidePreviewNavigationProp>();
   const { colors, isDark } = useTheme();
   const { user } = useAuth();
+  const { settings: voiceSettings, speak: speakVoice, stopCategory: stopVoiceCategory } = useVoiceAssistant();
 
   const { ride } = route.params;
+  const initialNearby = (route.params as RidePreviewParams)?.nearbyRides || [];
   const [rideData, setRideData] = useState<RidePreviewData>(ride);
+  const [activeRideGuard, setActiveRideGuard] = useState<string | null>(null);
+  const [nearbyQueue, setNearbyQueue] = useState<Array<Partial<RidePreviewData> & { distanceMeters?: number }>>(initialNearby);
+  const proximityParam = (route.params as any)?.proximity === true;
+  const proximityMode = proximityParam || initialNearby.length > 0; // abierto por proximidad o con cola de cercanas
+  const autoDismissTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const lastVoiceSummaryRef = useRef<string | null>(null);
+  const lastClientOfferSpokenRef = useRef<number | null>(null);
+
+  // Necesario antes del efecto de auto-cierre
+  const [acceptingRide, setAcceptingRide] = useState(false);
+  const [clientProfile, setClientProfile] = useState<ClientProfile | null>(null);
+  const currentRide = rideData;
+  const markDismissed = useCallback(async () => {
+    try {
+      await proximityService.markRideDismissed(currentRide.id);
+    } catch (err) {
+      console.warn('[RidePreviewScreen] No se pudo marcar ride como descartado:', err);
+    }
+  }, [currentRide.id]);
+  const acceptingRideRef = useRef(false);
+  useEffect(() => {
+    acceptingRideRef.current = acceptingRide;
+  }, [acceptingRide]);
+
+  useEffect(() => {
+    return () => {
+      stopVoiceCategory('navigation');
+      stopVoiceCategory('status');
+    };
+  }, [stopVoiceCategory]);
 
   // Monitorear si el cliente acepta este ride específico
   useAcceptedRideListener(navigation, ride.id);
+
+  // 🔒 Guard: Si ya tengo un viaje activo (accepted/driver_on_route/in_progress), redirigir y bloquear esta pantalla
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const db = getDatabase();
+    const activeRef = ref(db, 'activeRides');
+    const unsubscribe = onValue(activeRef, (snapshot) => {
+      const data = snapshot.val();
+      if (!data) {
+        setActiveRideGuard(null);
+        return;
+      }
+
+      let found: string | null = null;
+      Object.entries<any>(data).some(([id, r]) => {
+        const status = String(r?.status || '').toLowerCase();
+        if (r?.driverId === user.id && ['accepted', 'driver_on_route', 'in_progress'].includes(status)) {
+          found = id;
+          return true;
+        }
+        return false;
+      });
+
+      if (found) {
+        setActiveRideGuard(found);
+        navigation.replace('ActiveRide', { rideId: found });
+      } else {
+        setActiveRideGuard(null);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [user?.id, navigation]);
+
+  // ⏱️ Auto-cierre a los 10s si fue abierto por proximidad y no hay interacción
+  useEffect(() => {
+    if (!proximityMode) return;
+    if (autoDismissTimerRef.current) clearTimeout(autoDismissTimerRef.current);
+    autoDismissTimerRef.current = setTimeout(() => {
+      if (!acceptingRide) {
+        markDismissed().finally(() => navigation.goBack());
+      }
+    }, 10_000);
+    return () => {
+      if (autoDismissTimerRef.current) clearTimeout(autoDismissTimerRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proximityMode, rideData.id, acceptingRide, markDismissed]);
 
   const [routeCoordinates, setRouteCoordinates] = useState<Array<{ latitude: number; longitude: number }>>([]);
   const [loadingRoute, setLoadingRoute] = useState(false);
@@ -88,10 +172,8 @@ export default function RidePreviewScreen() {
   const priceContentAnim = useRef(new Animated.Value(1)).current;
   const [priceContentHeight, setPriceContentHeight] = useState(0);
   const [sendingOffer, setSendingOffer] = useState(false);
-  const [acceptingRide, setAcceptingRide] = useState(false);
-  const [clientProfile, setClientProfile] = useState<ClientProfile | null>(null);
 
-  const currentRide = rideData;
+  // markDismissed ya declarado arriba
 
   const animatePriceContent = useCallback(
     (expand: boolean, duration: number = 240) => {
@@ -115,11 +197,125 @@ export default function RidePreviewScreen() {
     [clientProfile?.phone, currentRide.clientPhone]
   );
 
+  const totalDistanceKm = useMemo(() => {
+    const d = currentRide.estimatedDistance;
+    if (typeof d === 'number' && Number.isFinite(d) && d > 0) {
+      return d > 50 ? d / 1000 : d; // heurística: metros->km cuando el valor es grande
+    }
+    const points: Array<{ lat: number; lng: number }> = [];
+    if (currentRide.origin) points.push({ lat: currentRide.origin.lat, lng: currentRide.origin.lng });
+    if (Array.isArray(currentRide.extraDestinations)) {
+      currentRide.extraDestinations.forEach((s) => points.push({ lat: s.lat, lng: s.lng }));
+    }
+    if (currentRide.destination) points.push({ lat: currentRide.destination.lat, lng: currentRide.destination.lng });
+    if (points.length < 2) return null;
+    const toRad = (deg: number) => (deg * Math.PI) / 180;
+    const R = 6371; // km
+    let sum = 0;
+    for (let i = 1; i < points.length; i++) {
+      const a = points[i - 1];
+      const b = points[i];
+      const dLat = toRad(b.lat - a.lat);
+      const dLon = toRad(b.lng - a.lng);
+      const lat1 = toRad(a.lat);
+      const lat2 = toRad(b.lat);
+      const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+      const c = 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+      sum += R * c;
+    }
+    return sum;
+  }, [currentRide.estimatedDistance, currentRide.origin, currentRide.destination, currentRide.extraDestinations]);
+
+  useEffect(() => {
+    if (!voiceSettings.enabled) {
+      lastVoiceSummaryRef.current = null;
+      lastClientOfferSpokenRef.current = null;
+      return;
+    }
+
+    const netPrice = Math.round(
+      typeof currentRide.clientSuggestedPrice === 'number' && Number.isFinite(currentRide.clientSuggestedPrice)
+        ? currentRide.clientSuggestedPrice
+        : currentRide.estimatedPrice || 0,
+    );
+    const distanceFix = typeof totalDistanceKm === 'number' && Number.isFinite(totalDistanceKm)
+      ? totalDistanceKm.toFixed(1)
+      : null;
+
+    const signature = [currentRide.id, netPrice, distanceFix || 'na'].join('|');
+    if (lastVoiceSummaryRef.current === signature) return;
+    lastVoiceSummaryRef.current = signature;
+
+    const parts: string[] = [];
+    parts.push(`Precio neto ${netPrice} Cordobas`);
+    if (distanceFix) parts.push(`Distancia total ${distanceFix} kilómetros`);
+    speakVoice(`${parts.join('. ')}.`, 'navigation', undefined, true);
+  }, [voiceSettings.enabled, currentRide.id, currentRide.clientSuggestedPrice, currentRide.estimatedPrice, totalDistanceKm, speakVoice]);
+
+  useEffect(() => {
+    if (!voiceSettings.enabled) {
+      return;
+    }
+
+    const status = (currentRide.negotiationStatus || '').toLowerCase();
+    if (status !== 'client_suggested') {
+      lastClientOfferSpokenRef.current = null;
+      return;
+    }
+
+    const value = typeof currentRide.clientSuggestedPrice === 'number' ? currentRide.clientSuggestedPrice : null;
+    if (value === null || !Number.isFinite(value) || value <= 0) {
+      return;
+    }
+
+    const rounded = Math.round(value);
+    if (lastClientOfferSpokenRef.current === rounded) {
+      return;
+    }
+
+    lastClientOfferSpokenRef.current = rounded;
+    speakVoice(`Oferta del cliente ${rounded} Cordobas.`, 'status', undefined, true);
+  }, [voiceSettings.enabled, currentRide.negotiationStatus, currentRide.clientSuggestedPrice, speakVoice]);
+
   const toggleSheet = () => {
     const next = !isSheetExpanded;
     setIsSheetExpanded(next);
     animatePriceContent(next);
   };
+
+  // Cambiar a otra solicitud cercana
+  const switchToNearby = useCallback(() => {
+    if (!nearbyQueue || nearbyQueue.length === 0) return;
+    const [next, ...rest] = nearbyQueue;
+    const nextRide: RidePreviewData = {
+      id: String(next.id || currentRide.id),
+      clientId: String(next.clientId || currentRide.clientId),
+      clientName: next.clientName || currentRide.clientName,
+      clientPhone: next.clientPhone || currentRide.clientPhone,
+      origin: next.origin as any || currentRide.origin,
+      destination: next.destination as any || currentRide.destination,
+      extraDestinations: next.extraDestinations as any || currentRide.extraDestinations,
+      estimatedPrice: typeof next.estimatedPrice === 'number' ? next.estimatedPrice : currentRide.estimatedPrice,
+      estimatedDistance: typeof next.estimatedDistance === 'number' ? next.estimatedDistance : currentRide.estimatedDistance,
+      estimatedDuration: typeof next.estimatedDuration === 'number' ? next.estimatedDuration : currentRide.estimatedDuration,
+      clientSuggestedPrice: typeof next.clientSuggestedPrice === 'number' ? next.clientSuggestedPrice : currentRide.clientSuggestedPrice,
+      driverOfferedPrice: typeof next.driverOfferedPrice === 'number' ? next.driverOfferedPrice : currentRide.driverOfferedPrice,
+      driverOfferStatus: currentRide.driverOfferStatus || null,
+      paymentMethod: (next.paymentMethod as any) || currentRide.paymentMethod,
+      negotiationStatus: (next as any).negotiationStatus || currentRide.negotiationStatus || null,
+    };
+    setRideData(nextRide);
+    setNearbyQueue(rest);
+    // Reiniciar temporizador al cambiar de solicitud por proximidad
+    if (proximityMode) {
+      if (autoDismissTimerRef.current) clearTimeout(autoDismissTimerRef.current);
+      autoDismissTimerRef.current = setTimeout(() => {
+        if (!acceptingRide) {
+          navigation.goBack();
+        }
+      }, 10_000);
+    }
+  }, [nearbyQueue, currentRide]);
 
   const handleMeasuredContentLayout = useCallback(
     (event: any) => {
@@ -324,6 +520,11 @@ export default function RidePreviewScreen() {
     setCounterOffer(Math.round(value).toString());
   };
 
+  const handleCounterOfferChange = (value: string) => {
+    setCounterOfferTouched(true);
+    setCounterOffer(value);
+  };
+
   const handleSendCounterOffer = async () => {
     if (!counterOffer) {
       alertService.showInfoAlert('Dato requerido', 'Ingresa un precio para sugerir al cliente.');
@@ -350,7 +551,7 @@ export default function RidePreviewScreen() {
         currentRide.estimatedPrice,
         user.id
       );
-      alertService.showSuccessAlert('Oferta enviada', 'Se envió tu propuesta al cliente.');
+     // alertService.showSuccessAlert('Oferta enviada', 'Se envió tu propuesta al cliente.');
     } catch (error: any) {
       console.error('[RidePreviewScreen] Contraoferta fallida:', error);
       alertService.showErrorAlert(error?.message || 'No se pudo enviar la contraoferta');
@@ -360,7 +561,19 @@ export default function RidePreviewScreen() {
   };
 
   const handleAcceptRide = async () => {
+    // Cancelar auto-dismiss por interacción del usuario
+    if (autoDismissTimerRef.current) clearTimeout(autoDismissTimerRef.current);
     try {
+      // 🔒 Bloquear aceptar si ya tengo un viaje activo
+      if (activeRideGuard) {
+        alertService.showInfoAlert(
+          'Tienes un viaje activo',
+          'Debes completar tu viaje actual antes de aceptar uno nuevo.',
+          () => navigation.replace('ActiveRide', { rideId: activeRideGuard })
+        );
+        return;
+      }
+
       if (!(await ensureCardForCardPayments())) {
         return;
       }
@@ -415,7 +628,8 @@ export default function RidePreviewScreen() {
   };
 
   const handleRejectRide = () => {
-    navigation.goBack();
+    if (autoDismissTimerRef.current) clearTimeout(autoDismissTimerRef.current);
+    markDismissed().finally(() => navigation.goBack());
   };
 
   const finalPricePreview = useMemo(() => {
@@ -431,45 +645,103 @@ export default function RidePreviewScreen() {
     return formatCurrency(currentRide.estimatedPrice);
   }, [counterOffer, currentRide.clientSuggestedPrice, currentRide.estimatedPrice]);
 
-  const handleCounterOfferChange = (value: string) => {
-    setCounterOfferTouched(true);
-    setCounterOffer(value);
+  const renderNegotiationBanner = () => {
+    const status = currentRide.negotiationStatus || '';
+    const statusLabels: Record<string, string> = {
+      client_suggested: 'Esperando tu respuesta',
+      driver_offered: 'Esperando respuesta del cliente',
+      driver_accepted: 'Aceptaste el precio del cliente',
+      client_accepted: 'El cliente aceptó tu oferta',
+    };
+
+    const driverSuggested =
+      typeof currentRide.driverOfferedPrice === 'number' && !Number.isNaN(currentRide.driverOfferedPrice);
+    const clientSuggested =
+      typeof currentRide.clientSuggestedPrice === 'number' && !Number.isNaN(currentRide.clientSuggestedPrice);
+
+    if (status === 'driver_offered' && driverSuggested) {
+      return (
+        <View
+          style={[
+            styles.clientOfferBanner,
+            {
+              backgroundColor: isDark ? 'rgba(33, 150, 243, 0.18)' : 'rgba(33, 150, 243, 0.12)',
+              borderColor: isDark ? 'rgba(144, 202, 249, 0.6)' : 'rgba(33, 150, 243, 0.35)',
+            },
+          ]}
+        >
+          <Text style={[styles.clientOfferTitle, { color: isDark ? '#90CAF9' : '#1565C0' }]}>
+            Acabas de proponer {formatCurrency(currentRide.driverOfferedPrice)}
+          </Text>
+          <Text style={[styles.clientOfferSubtitle, { color: colors.textSecondary }]}>
+            {statusLabels[status] || 'Esperando respuesta del cliente'}
+          </Text>
+        </View>
+      );
+    }
+
+    if (clientSuggested) {
+      return (
+        <View
+          style={[
+            styles.clientOfferBanner,
+            {
+              backgroundColor: isDark ? 'rgba(76, 175, 80, 0.18)' : 'rgba(76, 175, 80, 0.12)',
+              borderColor: isDark ? 'rgba(129, 199, 132, 0.6)' : 'rgba(76, 175, 80, 0.35)',
+            },
+          ]}
+        >
+          <Text style={[styles.clientOfferTitle, { color: isDark ? '#A5D6A7' : '#2E7D32' }]}>
+            El cliente propuso {formatCurrency(currentRide.clientSuggestedPrice)}
+          </Text>
+          <Text style={[styles.clientOfferSubtitle, { color: colors.textSecondary }]}>
+            {statusLabels[status] || 'Esperando tu respuesta'}
+          </Text>
+        </View>
+      );
+    }
+
+    return null;
   };
 
-  const renderClientOfferBanner = () => {
-    if (!currentRide.clientSuggestedPrice) {
-      return null;
-    }
+  // UI: Card compacta para mostrar la siguiente solicitud cercana (si existe)
+  const renderNearbyCard = () => {
+    if (!nearbyQueue || nearbyQueue.length === 0) return null;
+    const next = nearbyQueue[0] as any;
+    const labelDistance = typeof next?.distanceMeters === 'number'
+      ? `${Math.max(1, Math.round(next.distanceMeters))} m`
+      : (typeof next?.estimatedDistance === 'number' ? `${Math.round((next.estimatedDistance || 0) / 100) / 10} km` : 'Cerca');
+    const priceText = typeof next?.estimatedPrice === 'number' ? `C$${Math.round(next.estimatedPrice)}` : '';
 
     return (
       <View
         style={[
-          styles.clientOfferBanner,
+          styles.nearbyCard,
           {
-            backgroundColor: isDark ? 'rgba(76, 175, 80, 0.18)' : 'rgba(76, 175, 80, 0.12)',
-            borderColor: isDark ? 'rgba(129, 199, 132, 0.6)' : 'rgba(76, 175, 80, 0.35)',
+            backgroundColor: isDark ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.95)',
+            borderColor: colors.border,
           },
         ]}
       >
-        <Text style={[styles.clientOfferTitle, { color: isDark ? '#A5D6A7' : '#2E7D32' }]}>
-          El cliente propuso {formatCurrency(currentRide.clientSuggestedPrice)}
-        </Text>
-        <Text style={[styles.clientOfferSubtitle, { color: colors.textSecondary }]}>
-          Estado:{' '}
-          {currentRide.negotiationStatus === 'client_suggested'
-            ? 'Esperando tu respuesta'
-            : currentRide.negotiationStatus || 'En negociación'}
-        </Text>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.nearbyTitle, { color: colors.text }]}>Solicitud cercana</Text>
+          <Text style={[styles.nearbySubtitle, { color: colors.textSecondary }]} numberOfLines={1}>
+            {labelDistance} • {priceText} • {next?.origin?.address || 'Origen cercano'}
+          </Text>
+        </View>
+        <TouchableOpacity style={[styles.nearbyButton, { backgroundColor: colors.primary }]} onPress={switchToNearby}>
+          <Text style={styles.nearbyButtonText}>Ver</Text>
+        </TouchableOpacity>
       </View>
     );
   };
 
   const renderNegotiationContent = () => (
     <View>
-      {renderClientOfferBanner()}
+      {renderNegotiationBanner()}
       <View style={styles.section}>
         <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>Precio estimado / sugerido por cliente</Text>
-        <Text style={[styles.highlightValue, { color: colors.text }]}> 
+        <Text style={[styles.highlightValue, { color: colors.text }]}>
           {formatCurrency(currentRide.clientSuggestedPrice || currentRide.estimatedPrice)}
         </Text>
       </View>
@@ -538,6 +810,10 @@ export default function RidePreviewScreen() {
             <Text style={[styles.loaderText, { color: colors.textSecondary }]}>Calculando ruta...</Text>
           </View>
         )}
+        {/* Card de proximidad */}
+        <View style={styles.nearbyWrapper} pointerEvents="box-none">
+          {renderNearbyCard()}
+        </View>
       </View>
 
       <TouchableOpacity
@@ -549,7 +825,9 @@ export default function RidePreviewScreen() {
             borderColor: isDark ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.08)',
           },
         ]}
-        onPress={() => navigation.goBack()}
+        onPress={() => {
+          markDismissed().finally(() => navigation.goBack());
+        }}
         activeOpacity={0.9}
       >
         <Image
@@ -670,6 +948,46 @@ const styles = StyleSheet.create({
   },
   mapContainer: {
     flex: 1,
+  },
+  nearbyWrapper: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    bottom: 140,
+  },
+  nearbyCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+  },
+  nearbyTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    marginBottom: 2,
+    letterSpacing: 0.3,
+  },
+  nearbySubtitle: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  nearbyButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  nearbyButtonText: {
+    color: '#fff',
+    fontWeight: '800',
+    fontSize: 13,
   },
   routeLoader: {
     position: 'absolute',

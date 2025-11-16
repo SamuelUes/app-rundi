@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -16,6 +16,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { MapSkeleton } from '../../components/SkeletonLoader';
 import DynamicMap from '../../components/DynamicMap';
 import { useAuth } from '../../context/AuthContext';
+import { useVoiceAssistant } from '../../context/VoiceAssistantContext';
 import { useLocation } from '../../hooks/useLocation';
 import { RideProgressIndicator } from '../../components/RideProgressIndicator';
 import ridesService from '../../services/ridesService';
@@ -37,6 +38,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { user } = useAuth();
+  const { settings: voiceSettings, speak: speakVoice, stopCategory: stopVoiceCategory } = useVoiceAssistant();
   const { coords } = useLocation();
 
   const [ride, setRide] = useState<any | null>(null);
@@ -46,6 +48,8 @@ export default function ActiveRideScreen({ route, navigation }: any) {
   const [paymentMethod, setPaymentMethod] = useState<string>('cash');
   const [routePolyline, setRoutePolyline] = useState<any[]>([]);
   const [clientProfile, setClientProfile] = useState<ClientProfile | null>(null);
+  const lastStatusSpokenRef = useRef<string | null>(null);
+  const lastRideAnnouncedRef = useRef<string | null>(null);
   
   // Bottom sheet state - Alturas ajustadas
   const COLLAPSED_HEIGHT = 250; // Solo header + botones (más alto para ver ambos botónes)
@@ -138,6 +142,18 @@ export default function ActiveRideScreen({ route, navigation }: any) {
     return () => off(rideRef);
   }, [rideId]);
 
+  const handleStopVoice = useCallback(() => {
+    stopVoiceCategory('navigation');
+    stopVoiceCategory('status');
+  }, [stopVoiceCategory]);
+
+  useEffect(() => {
+    return () => {
+      stopVoiceCategory('navigation');
+      stopVoiceCategory('status');
+    };
+  }, [stopVoiceCategory]);
+
   // Cargar perfil del cliente
   useEffect(() => {
     if (!ride?.clientId) return;
@@ -161,6 +177,99 @@ export default function ActiveRideScreen({ route, navigation }: any) {
       cancelled = true;
     };
   }, [ride?.clientId]);
+
+  const getAddressForSpeech = (source?: { address?: string; lat?: number; lng?: number; latitude?: number; longitude?: number }) => {
+    if (!source) return null;
+    if (source.address && typeof source.address === 'string') {
+      return source.address;
+    }
+    const lat = source.lat ?? source.latitude;
+    const lng = source.lng ?? source.longitude;
+    if (typeof lat === 'number' && typeof lng === 'number') {
+      return `${lat.toFixed(4)} por ${lng.toFixed(4)}`;
+    }
+    return null;
+  };
+
+  // Helper: distancia total en km usando puntos secuenciales
+  const computeTotalDistanceKm = (data: any): number | null => {
+    const points: Array<{ lat: number; lng: number }> = [];
+    if (data?.origin) points.push({ lat: data.origin.lat || data.origin.latitude, lng: data.origin.lng || data.origin.longitude });
+    if (Array.isArray(data?.extraDestinations)) {
+      for (const stop of data.extraDestinations) {
+        const lat = stop?.lat || stop?.latitude;
+        const lng = stop?.lng || stop?.longitude;
+        if (typeof lat === 'number' && typeof lng === 'number') points.push({ lat, lng });
+      }
+    }
+    if (data?.destination) points.push({ lat: data.destination.lat || data.destination.latitude, lng: data.destination.lng || data.destination.longitude });
+    if (points.length < 2) return null;
+    const R = 6371; // km
+    const toRad = (d: number) => (d * Math.PI) / 180;
+    let total = 0;
+    for (let i = 1; i < points.length; i++) {
+      const a = points[i - 1];
+      const b = points[i];
+      const dLat = toRad(b.lat - a.lat);
+      const dLon = toRad(b.lng - a.lng);
+      const lat1 = toRad(a.lat);
+      const lat2 = toRad(b.lat);
+      const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+      const c = 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+      total += R * c;
+    }
+    return total;
+  };
+
+  useEffect(() => {
+    if (!voiceSettings.enabled || !ride) {
+      if (!voiceSettings.enabled) {
+        lastRideAnnouncedRef.current = null;
+        lastStatusSpokenRef.current = null;
+      }
+      return;
+    }
+
+    if (lastRideAnnouncedRef.current !== rideId) {
+      lastRideAnnouncedRef.current = rideId;
+      lastStatusSpokenRef.current = null;
+
+      const originSpeech = getAddressForSpeech(ride.origin) || 'el origen asignado';
+      const destinationSpeech = getAddressForSpeech(ride.destination) || 'el destino final';
+      const netPrice = Math.round(Number(ride?.finalFare || ride?.estimatedPrice || 0));
+      const totalKm = computeTotalDistanceKm(ride);
+      const distanceText = typeof totalKm === 'number' && Number.isFinite(totalKm) ? `${totalKm.toFixed(1)} kilómetros` : null;
+
+      const parts: string[] = [];
+      parts.push(`Origen ${originSpeech}`);
+      parts.push(`Destino ${destinationSpeech}`);
+      parts.push(`Precio neto ${netPrice} Cordobas`);
+      if (distanceText) parts.push(`Distancia total ${distanceText}`);
+      speakVoice(`${parts.join('. ')}.`, 'navigation', undefined, true);
+    }
+  }, [voiceSettings.enabled, ride, rideId, speakVoice]);
+
+  useEffect(() => {
+    if (!voiceSettings.enabled || !ride) return;
+
+    const currentStatus = normalizedStatus;
+    if (!currentStatus || lastStatusSpokenRef.current === currentStatus) return;
+
+    lastStatusSpokenRef.current = currentStatus;
+
+    const originSpeech = getAddressForSpeech(ride.origin) || 'el origen asignado';
+    const destinationSpeech = getAddressForSpeech(ride.destination) || 'el destino final';
+    const netPrice = Math.round(Number(ride?.finalFare || ride?.estimatedPrice || 0));
+    const totalKm = computeTotalDistanceKm(ride);
+    const distanceText = typeof totalKm === 'number' && Number.isFinite(totalKm) ? `${totalKm.toFixed(1)} kilómetros` : null;
+
+    const parts: string[] = [];
+    parts.push(`Origen ${originSpeech}`);
+    parts.push(`Destino ${destinationSpeech}`);
+    parts.push(`Precio neto ${netPrice} Cordobas`);
+    if (distanceText) parts.push(`Distancia total ${distanceText}`);
+    speakVoice(`${parts.join('. ')}.`, 'status');
+  }, [voiceSettings.enabled, ride, normalizedStatus, speakVoice]);
 
   // Construir ruta real (OSRM) y fallback simple (conductor → origen → paradas → destino)
   useEffect(() => {
@@ -294,8 +403,13 @@ export default function ActiveRideScreen({ route, navigation }: any) {
   const handleCancelRide = async () => {
     try {
       setUpdating(true);
-      await ridesService.cancelRide(rideId, 'Cancelado por el conductor');
-      navigation.goBack();
+      await ridesService.cancelRide(rideId, 'Cancelado por el conductor', {
+        canceledBy: 'driver',
+      });
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'DriverHome' }],
+      });
     } catch (error: any) {
       alertService.showErrorAlert(error.message || 'No se pudo cancelar el viaje');
     } finally {
@@ -379,6 +493,9 @@ export default function ActiveRideScreen({ route, navigation }: any) {
             </TouchableOpacity>
             <TouchableOpacity onPress={handleCallClient} style={styles.headerAction}>
               <Text style={styles.headerActionText}>📞</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handleStopVoice} style={[styles.headerAction, styles.headerActionSmall]}>
+              <Text style={styles.headerActionText}>🔇</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -612,6 +729,11 @@ const createStyles = (colors: any) => StyleSheet.create({
     backgroundColor: colors.background,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  headerActionSmall: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
   },
   headerActionText: {
     fontSize: 18,

@@ -9,8 +9,43 @@
  */
 import * as functions from 'firebase-functions';
 import { PaymentService } from '../sequelize/services/PaymentService';
+import { DriverPenaltyRepository } from '../sequelize/repositories/DriverPenaltyRepository';
+import * as admin from 'firebase-admin';
+import { MIGRATION_FLAGS } from '../config/migration-flags';
 
 const paymentService = new PaymentService();
+
+// ============================================
+// Single-session enforcement (DENY policy)
+// ============================================
+const SESSION_ACTIVE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
+
+const isRecent = (lastSeen: any): boolean => {
+  if (typeof lastSeen === 'number') {
+    const diff = Date.now() - lastSeen;
+    return diff >= 0 && diff <= SESSION_ACTIVE_THRESHOLD_MS;
+  }
+  return true;
+};
+
+const ensureActiveSession = async (
+  context: functions.https.CallableContext,
+  data: any,
+) => {
+  if (!context.auth?.uid) {
+    throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
+  }
+  const uid = context.auth.uid;
+  const deviceId = typeof data?.deviceId === 'string' ? data.deviceId.trim() : '';
+  if (!deviceId) {
+    throw new functions.https.HttpsError('invalid-argument', 'deviceId requerido');
+  }
+  const sessionSnap = await admin.database().ref(`sessions/${uid}`).once('value');
+  const session = sessionSnap.val();
+  if (session && session.deviceId && session.deviceId !== deviceId && isRecent(session.lastSeen)) {
+    throw new functions.https.HttpsError('failed-precondition', 'SESSION_ACTIVE_ELSEWHERE');
+  }
+};
 
 /**
  * Registrar pago en efectivo
@@ -19,6 +54,8 @@ export const registerCashPayment = functions.https.onCall(async (data, context) 
   if (!context.auth) {
     throw new functions.https.HttpsError("unauthenticated", "Usuario no autenticado");
   }
+  // Enforce single-session (deny)
+  await ensureActiveSession(context, data);
   try {
     const { rideId, tip = 0 } = data;
 
@@ -30,11 +67,13 @@ export const registerCashPayment = functions.https.onCall(async (data, context) 
     // Actualizar Realtime DB
     const admin = require('firebase-admin');
     await admin.database().ref(`paymentStatus/${rideId}`).update({
+      rideId,
       status: 'pending_confirmation',
       method: 'cash',
       provider: 'cash',
+      amount: Number(payment.amount || 0),
       tip: tip,
-      total: payment.amount + tip,
+      total: Number(payment.amount || 0) + Number(tip || 0),
       lastUpdatedBy: 'backend',
       lastUpdatedAt: admin.database.ServerValue.TIMESTAMP,
     });
@@ -63,6 +102,8 @@ export const confirmCashPayment = functions.https.onCall(async (data, context) =
   if (!context.auth) {
     throw new functions.https.HttpsError("unauthenticated", "Usuario no autenticado");
   }
+  // Enforce single-session (deny)
+  await ensureActiveSession(context, data);
 
   try {
     const { rideId, confirmedBy } = data;
@@ -203,6 +244,8 @@ export const completeCashPayment = functions.https.onCall(async (data, context) 
   if (!context.auth) {
     throw new functions.https.HttpsError("unauthenticated", "Usuario no autenticado");
   }
+  // Enforce single-session (deny)
+  await ensureActiveSession(context, data);
 
   try {
     const { rideId } = data;
@@ -243,6 +286,8 @@ export const completeCashPayment = functions.https.onCall(async (data, context) 
     console.log(`🔄 [completeCashPayment] Actualizando paymentStatus.status a 'completed'...`);
     await admin.database().ref(`paymentStatus/${rideId}`).update({
       status: 'completed',
+      finalAmount: Number(payment.amount || 0),
+      amount: Number(payment.amount || 0),
       confirmedAt: admin.database.ServerValue.TIMESTAMP,
       lastUpdatedAt: admin.database.ServerValue.TIMESTAMP,
     });
@@ -281,6 +326,8 @@ export const cancelCashPayment = functions.https.onCall(async (data, context) =>
   if (!context.auth) {
     throw new functions.https.HttpsError("unauthenticated", "Usuario no autenticado");
   }
+  // Enforce single-session (deny)
+  await ensureActiveSession(context, data);
 
   try {
     const { rideId, reason } = data;
@@ -321,6 +368,55 @@ export const cancelCashPayment = functions.https.onCall(async (data, context) =>
       lastUpdatedBy: 'backend',
       lastUpdatedAt: admin.database.ServerValue.TIMESTAMP,
     });
+
+    // ✅ NUEVO: Si el conductor había confirmado, crear penalización por comisión
+    try {
+      const paymentSnapshot = await admin.database().ref(`paymentStatus/${rideId}`).once('value');
+      const paymentData = paymentSnapshot.val();
+      const driverConfirmed = paymentData?.confirmedByDriver === true;
+      if (driverConfirmed) {
+        const rideData = ride || (await admin.database().ref(`completedRides/${rideId}`).once('value')).val() || {};
+        const driverId = rideData?.driverId || rideData?.driver_id || null;
+        if (driverId) {
+          // Obtener pago existente para conocer comisión calculada
+          const existingPayment = await paymentService.getPaymentByRide(rideId);
+          const commission = Number(existingPayment?.commission || 0);
+          if (commission > 0) {
+            const penaltyRepo = new DriverPenaltyRepository();
+            const existingPenalty = await penaltyRepo.findByRideId(rideId);
+            if (!existingPenalty) {
+              await penaltyRepo.create({
+                driver_id: driverId,
+                ride_id: rideId,
+                penalty_type: 'commission_cash_ride',
+                amount: commission,
+                reason: reason || 'Comisión por viaje cancelado sin confirmación de cliente',
+                status: 'pending',
+                created_at: new Date(),
+              } as any);
+            }
+            // Actualizar resumen en Realtime DB (salteable por flag de migración)
+            if (MIGRATION_FLAGS.MIRROR_PENALTIES_TO_RTDB) {
+              try {
+                const all = await penaltyRepo.findByDriverId(driverId);
+                const pendingOnly = (all || []).filter((p: any) => String(p.status).toLowerCase() === 'pending');
+                const pendingCount = pendingOnly.length;
+                const pendingAmount = pendingOnly.reduce((sum: number, p: any) => sum + parseFloat(String(p.amount || 0)), 0);
+                await admin.database().ref(`driverPenalties/${driverId}/summary`).update({
+                  pendingCount,
+                  pendingAmount: Number(pendingAmount.toFixed(2)),
+                  lastUpdatedAt: admin.database.ServerValue.TIMESTAMP,
+                });
+              } catch (sumErr) {
+                console.warn('⚠️ [cancelCashPayment] Error actualizando summary de penalizaciones:', sumErr);
+              }
+            }
+          }
+        }
+      }
+    } catch (penErr) {
+      console.warn('⚠️ [cancelCashPayment] Error creando penalización por cancelación:', penErr);
+    }
 
     return {
       success: true,

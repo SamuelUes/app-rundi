@@ -1,14 +1,14 @@
 export default {
-  name: 'Conduce',
-  slug: 'conduce',
-  version: '1.0.01',
+  name: 'DriveAngel.ni',
+  slug: 'driveangel-ni',
+  version: '1.0.5',
   orientation: 'portrait',
   userInterfaceStyle: 'light',
   updates: {
     enabled: true,
     fallbackToCacheTimeout: 0,
     checkAutomatically: 'ON_LOAD',
-    url: 'https://u.expo.dev/your-project-id'
+    url: 'https://u.expo.dev/e8f4c3b2-9d1a-4e7f-8c5b-2a3d4e5f6a7b'
   },
   assetBundlePatterns: ['**/*'],
   ios: {
@@ -86,7 +86,7 @@ export default {
   ],
   extra: {
     eas: {
-      projectId: 'your-project-id'
+      projectId: 'e8f4c3b2-9d1a-4e7f-8c5b-2a3d4e5f6a7b'
     },
     apiUrl: process.env.API_URL || 'https://api.driveangel.com',
     googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY,
@@ -96,9 +96,6 @@ export default {
   runtimeVersion: {
     policy: 'sdkVersion'
   },
-  updates: {
-    url: 'https://u.expo.dev/your-project-id'
-  },
-  owner: 'youraccount',
+  owner: 'samuelues',
   privacy: 'unlisted'
 };

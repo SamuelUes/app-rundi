@@ -5,7 +5,6 @@ import {
   StyleSheet,
   TextInput,
   TouchableOpacity,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -16,6 +15,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useGoogleAuth } from '../../hooks/useGoogleAuth';
 import GoogleSignInButton from '../../components/GoogleSignInButton';
 import phoneAuthService from '../../services/auth/phoneAuthService';
+import alertService from '../../services/alertService';
 import {
   CountryDialOption,
   formatPhoneNumber,
@@ -73,7 +73,7 @@ export default function LoginScreen({ navigation }: any) {
 
   const handleLogin = async () => {
     if (!email || !password) {
-      Alert.alert('Error', 'Por favor completa todos los campos');
+      alertService.showErrorAlert('Por favor completa todos los campos');
       return;
     }
 
@@ -81,7 +81,10 @@ export default function LoginScreen({ navigation }: any) {
     try {
       await login(email, password);
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Error al iniciar sesión');
+      if (error?.code === 'SESSION_ACTIVE_ELSEWHERE') {
+        return;
+      }
+      alertService.showErrorAlert(error?.message || 'Error al iniciar sesión');
     } finally {
       setLoading(false);
     }
@@ -92,7 +95,7 @@ export default function LoginScreen({ navigation }: any) {
     setNormalizedPhone(normalized);
 
     if (!normalized || !/^\+\d{6,15}$/.test(normalized)) {
-      Alert.alert('Error', 'Por favor ingresa un número telefónico válido en formato internacional (+Código País)');
+      alertService.showErrorAlert('Por favor ingresa un número telefónico válido en formato internacional (+Código País)');
       return;
     }
 
@@ -110,7 +113,7 @@ export default function LoginScreen({ navigation }: any) {
         mode: 'login',
       });
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Error al solicitar código SMS');
+      alertService.showErrorAlert(error?.message || 'Error al solicitar código SMS');
     } finally {
       setLoading(false);
     }
@@ -132,10 +135,10 @@ export default function LoginScreen({ navigation }: any) {
       console.log('✅ Login completado, la navegación se maneja por el contexto');
     } catch (error: any) {
       console.error('❌ Error en Google Login:', error);
-      Alert.alert(
-        'Error',
-        error.message || 'Error al iniciar sesión con Google. Intenta de nuevo.'
-      );
+      if (error?.code === 'SESSION_ACTIVE_ELSEWHERE') {
+        return;
+      }
+      alertService.showErrorAlert(error?.message || 'Error al iniciar sesión con Google. Intenta de nuevo.');
     } finally {
       setLoading(false);
     }

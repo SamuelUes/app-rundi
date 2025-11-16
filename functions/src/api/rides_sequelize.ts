@@ -12,12 +12,55 @@ import { supabaseGetRidesWithLocationsAndPayments } from '../supabase/client';
 import { mapRides } from './rideHistory';
 import { sendNotificationToUser } from '../services/pushNotifications';
 import { RideRepository } from '../sequelize/repositories/RideRepository';
+import { DriverPenaltyRepository } from '../sequelize/repositories/DriverPenaltyRepository';
+import { ServiceRepository } from '../sequelize/repositories/ServiceRepository';
+import { PaymentRepository } from '../sequelize/repositories/PaymentRepository';
+import { calculateRideProgress } from '../utils/rideProgressUtils';
+import { MIGRATION_FLAGS } from '../config/migration-flags';
 
 const rideRepo = new RideRepository();
 const driverRepo = new DriverRepository();
 const locationRepo = new RideLocationRepository();
 const rideService = new RideService();
 const db = admin.database();
+const penaltyRepo = new DriverPenaltyRepository();
+const serviceRepo = new ServiceRepository();
+const paymentRepo = new PaymentRepository();
+
+// ============================================
+// Single-session enforcement (DENY policy)
+// ============================================
+const SESSION_ACTIVE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
+
+const isRecent = (lastSeen: any): boolean => {
+  if (typeof lastSeen === 'number') {
+    const diff = Date.now() - lastSeen;
+    return diff >= 0 && diff <= SESSION_ACTIVE_THRESHOLD_MS;
+  }
+  // If unknown type (e.g. server timestamp placeholder), treat as recent
+  return true;
+};
+
+const ensureActiveSession = async (
+  context: functions.https.CallableContext,
+  data: any,
+) => {
+  if (!context.auth?.uid) {
+    throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
+  }
+
+  const uid = context.auth.uid;
+  const deviceId = typeof data?.deviceId === 'string' ? data.deviceId.trim() : '';
+  if (!deviceId) {
+    throw new functions.https.HttpsError('invalid-argument', 'deviceId requerido');
+  }
+
+  const sessionSnap = await db.ref(`sessions/${uid}`).once('value');
+  const session = sessionSnap.val();
+  if (session && session.deviceId && session.deviceId !== deviceId && isRecent(session.lastSeen)) {
+    throw new functions.https.HttpsError('failed-precondition', 'SESSION_ACTIVE_ELSEWHERE');
+  }
+};
 
 const notifyUserSafe = async (
   userId: string | null | undefined,
@@ -47,6 +90,459 @@ const notifyUserSafe = async (
   }
 };
 
+const fetchClientProfileFromRealtime = async (
+  clientId: string,
+): Promise<{
+  fullName?: string | null;
+  phone?: string | null;
+  rating?: number | null;
+  totalRatings?: number | null;
+} | null> => {
+  try {
+    const snapshot = await db.ref(`clientsInfo/${clientId}`).once('value');
+    const value = snapshot.val();
+    if (!value) {
+      return null;
+    }
+
+    return {
+      fullName: value.fullName ?? value.full_name ?? null,
+      phone: value.phone ?? null,
+      rating: typeof value.rating === 'number' ? value.rating : null,
+      totalRatings: typeof value.totalRatings === 'number' ? value.totalRatings : null,
+    };
+  } catch (error) {
+    console.warn('[hydrateActiveRides] Error leyendo clientsInfo:', { clientId, error });
+    return null;
+  }
+};
+
+const needsEnrichment = (ride: any): boolean => {
+  if (!ride) {
+    return true;
+  }
+  const hasName = typeof ride.clientName === 'string' && ride.clientName.trim().length > 0;
+  const hasPhone = typeof ride.clientPhone === 'string' && ride.clientPhone.trim().length > 0;
+  const hasRating = typeof ride.clientRating === 'number';
+  return !(hasName && hasPhone && hasRating);
+};
+
+export const hydrateActiveRidesClientProfiles = functions.https.onCall(async (data, context) => {
+  if (!context.auth?.uid) {
+    throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
+  }
+  const options = (data && typeof data === 'object') ? data : {};
+  const missingOnly = options.missingOnly !== false;
+  const limit = typeof options.limit === 'number' && Number.isFinite(options.limit)
+    ? Math.min(Math.max(Math.floor(options.limit), 1), 200)
+    : 50;
+
+  const snapshot = await db.ref('activeRides').once('value');
+  const rawValue = snapshot.val() || {};
+  const entries = Object.entries<any>(rawValue);
+
+  let processed = 0;
+  let updated = 0;
+  const errors: Array<{ rideId: string; reason: string }> = [];
+
+  for (const [rideId, ride] of entries) {
+    if (processed >= limit) {
+      break;
+    }
+
+    if (!ride?.clientId) {
+      continue;
+    }
+
+    if (missingOnly && !needsEnrichment(ride)) {
+      continue;
+    }
+
+    processed += 1;
+
+    try {
+      const profile = await fetchClientProfileFromRealtime(ride.clientId);
+      if (!profile) {
+        errors.push({ rideId, reason: 'client_profile_missing' });
+        continue;
+      }
+
+      const updatePayload: Record<string, any> = {
+        clientName: profile.fullName ?? ride.clientName ?? null,
+        clientPhone: profile.phone ?? ride.clientPhone ?? null,
+        clientRating: typeof profile.rating === 'number' ? profile.rating : ride.clientRating ?? null,
+        clientTotalRatings: typeof profile.totalRatings === 'number'
+          ? profile.totalRatings
+          : ride.clientTotalRatings ?? null,
+        updatedAt: admin.database.ServerValue.TIMESTAMP,
+      };
+
+      await db.ref(`activeRides/${rideId}`).update(updatePayload);
+      updated += 1;
+    } catch (error: any) {
+      console.error('[hydrateActiveRides] Error enriqueciendo viaje:', { rideId, error });
+      errors.push({ rideId, reason: error?.message ?? 'unknown_error' });
+    }
+  }
+
+  return {
+    success: true,
+    totalRides: entries.length,
+    updated,
+    errors,
+    remaining: Math.max(entries.length - processed, 0),
+  };
+});
+
+const parseToNumber = (value: any): number | null => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+};
+
+const getNegotiatedFare = (firebaseRide: any, rideRecord: any): number => {
+  const candidates = [
+    firebaseRide?.finalFare,
+    rideRecord?.final_fare,
+    firebaseRide?.driverOfferedPrice,
+    rideRecord?.driver_offered_price,
+    firebaseRide?.clientSuggestedPrice,
+    rideRecord?.client_suggested_price,
+    firebaseRide?.estimatedPrice,
+    rideRecord?.estimated_price,
+  ];
+
+  for (const candidate of candidates) {
+    const parsed = parseToNumber(candidate);
+    if (parsed !== null && parsed > 0) {
+      return Number(parsed.toFixed(2));
+    }
+  }
+
+  return 0;
+};
+
+const getCommissionRateForRide = async (rideRecord: any): Promise<number> => {
+  let commissionRate = parseToNumber((rideRecord as any)?.commission_rate);
+
+  if (commissionRate === null && rideRecord?.service_id) {
+    try {
+      const service = await serviceRepo.findById(rideRecord.service_id);
+      const serviceRate = parseToNumber(service?.commission_rate);
+      if (serviceRate !== null) {
+        commissionRate = serviceRate;
+      }
+    } catch (serviceError) {
+      console.warn('⚠️ [rides] Error obteniendo comisión del servicio:', serviceError);
+    }
+  }
+
+  if (commissionRate === null) {
+    commissionRate = 0.11;
+  }
+
+  return Number(commissionRate.toFixed(4));
+};
+
+const EARTH_RADIUS_METERS = 6_371_000;
+
+const toRadians = (value: number) => (value * Math.PI) / 180;
+
+const haversineDistanceMeters = (
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number,
+): number => {
+  const dLat = toRadians(lat2 - lat1);
+  const dLon = toRadians(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return EARTH_RADIUS_METERS * c;
+};
+
+const normalizeRealtimeRide = (rideId: string, raw: any) => {
+  const toOptionalNumber = (value: any): number | undefined => {
+    const parsed = parseToNumber(value);
+    return parsed !== null ? parsed : undefined;
+  };
+
+  const toTimestamp = (value: any): number | undefined => {
+    if (value === null || value === undefined) {
+      return undefined;
+    }
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+    const parsed = Date.parse(String(value));
+    return Number.isNaN(parsed) ? undefined : parsed;
+  };
+
+  const originSource = raw?.origin || {};
+  const originLat = toOptionalNumber(originSource.lat ?? originSource.latitude ?? raw?.originLat);
+  const originLng = toOptionalNumber(originSource.lng ?? originSource.longitude ?? raw?.originLng);
+  const originAddress = originSource.address ?? raw?.originAddress ?? undefined;
+  const origin = originLat !== undefined && originLng !== undefined
+    ? { lat: originLat, lng: originLng, address: originAddress }
+    : undefined;
+
+  const destinationSource = raw?.destination || {};
+  const destinationLat = toOptionalNumber(destinationSource.lat ?? destinationSource.latitude ?? raw?.destinationLat);
+  const destinationLng = toOptionalNumber(destinationSource.lng ?? destinationSource.longitude ?? raw?.destinationLng);
+  const destinationAddress = destinationSource.address ?? raw?.destinationAddress ?? undefined;
+  const destination = destinationLat !== undefined && destinationLng !== undefined
+    ? { lat: destinationLat, lng: destinationLng, address: destinationAddress }
+    : undefined;
+
+  const extraSource = Array.isArray(raw?.extraDestinations) ? raw.extraDestinations : [];
+  const extraDestinations = extraSource
+    .map((stop: any): { lat: number; lng: number; address?: string } | null => {
+      const stopLat = toOptionalNumber(stop?.lat ?? stop?.latitude);
+      const stopLng = toOptionalNumber(stop?.lng ?? stop?.longitude);
+      if (stopLat === undefined || stopLng === undefined) {
+        return null;
+      }
+      return {
+        lat: stopLat,
+        lng: stopLng,
+        address: stop?.address ?? undefined,
+      };
+    })
+    .filter((item: { lat: number; lng: number; address?: string } | null): item is { lat: number; lng: number; address?: string } => item !== null);
+
+  const estimatedPrice = toOptionalNumber(raw?.estimatedPrice ?? raw?.estimated_price ?? raw?.payment?.estimatedPrice) ?? 0;
+  const clientSuggestedPrice = toOptionalNumber(raw?.clientSuggestedPrice ?? raw?.client_suggested_price ?? raw?.clientSuggestedFare);
+  const driverOfferedPrice = toOptionalNumber(raw?.driverOfferedPrice ?? raw?.driver_offered_price ?? raw?.driverOfferPrice);
+  const estimatedDistance = toOptionalNumber(raw?.estimatedDistance ?? raw?.estimated_distance);
+  const estimatedDuration = toOptionalNumber(raw?.estimatedDuration ?? raw?.estimated_duration);
+  const passengers = toOptionalNumber(raw?.passengers);
+  const waypointsCount = toOptionalNumber(raw?.waypointsCount ?? raw?.waypoints_count);
+  const clientRating = toOptionalNumber(raw?.clientRating ?? raw?.client_rating ?? raw?.client?.rating);
+  const clientTotalRatings = toOptionalNumber(raw?.clientTotalRatings ?? raw?.client_total_ratings ?? raw?.client?.totalRatings);
+
+  let client = raw?.client && typeof raw.client === 'object' ? { ...raw.client } : undefined;
+  if (!client) {
+    client = {
+      name: raw?.clientName ?? 'Cliente',
+      rating: clientRating ?? 0,
+      phone: raw?.clientPhone ?? null,
+    } as any;
+    if (clientTotalRatings !== undefined) {
+      (client as any).totalRatings = clientTotalRatings;
+    }
+  } else {
+    if (clientRating !== undefined) {
+      (client as any).rating = clientRating;
+    }
+    if (clientTotalRatings !== undefined) {
+      (client as any).totalRatings = clientTotalRatings;
+    }
+  }
+
+  const requestedAt = toTimestamp(raw?.requestedAt ?? raw?.requested_at ?? raw?.createdAt ?? raw?.created_at);
+  const updatedAt = toTimestamp(raw?.updatedAt ?? raw?.updated_at);
+
+  return {
+    id: rideId,
+    status: raw?.status ?? 'requested',
+    clientId: raw?.clientId ?? raw?.client_id ?? null,
+    driverId: raw?.driverId ?? raw?.driver_id ?? null,
+    origin,
+    destination,
+    extraDestinations: extraDestinations.length > 0 ? extraDestinations : undefined,
+    estimatedPrice,
+    estimatedDistance,
+    estimatedDuration,
+    clientSuggestedPrice: clientSuggestedPrice ?? undefined,
+    driverOfferedPrice: driverOfferedPrice ?? undefined,
+    passengers: passengers ?? undefined,
+    rideType: raw?.rideType ?? raw?.serviceType ?? 'normal',
+    paymentMethod: raw?.paymentMethod ?? raw?.payment_type ?? raw?.payment?.paymentMethod ?? undefined,
+    negotiationStatus: raw?.negotiationStatus ?? raw?.negotiation_status ?? null,
+    clientName: raw?.clientName ?? client?.name ?? undefined,
+    clientPhone: raw?.clientPhone ?? client?.phone ?? undefined,
+    clientRating: clientRating ?? undefined,
+    clientTotalRatings: clientTotalRatings ?? undefined,
+    client,
+    rejections: raw?.rejections ?? undefined,
+    offers: raw?.offers ?? undefined,
+    requestedAt,
+    updatedAt,
+    waypointsCount: waypointsCount ?? undefined,
+    hasMultipleDestinations: Boolean(raw?.hasMultipleDestinations ?? (extraDestinations.length > 0)),
+    payment: raw?.payment ?? undefined,
+    timeline: raw?.timeline ?? undefined,
+  };
+};
+
+export const getAvailableRides = functions.https.onCall(async (data, context) => {
+  if (!context.auth?.uid) {
+    throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
+  }
+
+  // Enforce single-session
+  await ensureActiveSession(context, data);
+
+  const latitude = typeof data?.latitude === 'number' && Number.isFinite(data.latitude)
+    ? data.latitude
+    : undefined;
+  const longitude = typeof data?.longitude === 'number' && Number.isFinite(data.longitude)
+    ? data.longitude
+    : undefined;
+  const radiusKmParsed = parseToNumber(data?.radius);
+  const radiusKm = radiusKmParsed !== null && radiusKmParsed > 0 ? Math.max(radiusKmParsed, 0.1) : 1.5;
+  const hasCoords = latitude !== undefined && longitude !== undefined;
+  const radiusMeters = hasCoords ? radiusKm * 1000 : undefined;
+  const limit = typeof data?.limit === 'number' && Number.isFinite(data.limit)
+    ? Math.min(Math.max(Math.floor(data.limit), 1), 50)
+    : 25;
+
+  const snapshot = await db.ref('activeRides').once('value');
+  const rawValue = snapshot.val() || {};
+  const entries = Object.entries<any>(rawValue);
+
+  const rides = [] as any[];
+
+  for (const [rideId, rawRide] of entries) {
+    const status = String(rawRide?.status || '').toLowerCase();
+    if (status !== 'requested') {
+      continue;
+    }
+
+    if (rawRide?.driverId) {
+      continue;
+    }
+
+    const normalized = normalizeRealtimeRide(rideId, rawRide);
+
+    let distanceMeters: number | undefined;
+    if (
+      hasCoords &&
+      normalized.origin?.lat !== undefined &&
+      normalized.origin?.lng !== undefined
+    ) {
+      distanceMeters = Math.round(
+        haversineDistanceMeters(
+          latitude as number,
+          longitude as number,
+          normalized.origin.lat,
+          normalized.origin.lng,
+        ),
+      );
+
+      if (radiusMeters !== undefined && distanceMeters > radiusMeters) {
+        continue;
+      }
+    }
+
+    rides.push({
+      ...normalized,
+      distanceMeters,
+    });
+  }
+
+  rides.sort((a, b) => {
+    const distA = a.distanceMeters ?? Number.MAX_SAFE_INTEGER;
+    const distB = b.distanceMeters ?? Number.MAX_SAFE_INTEGER;
+    if (distA !== distB) {
+      return distA - distB;
+    }
+
+    const timeA = typeof a.requestedAt === 'number' ? a.requestedAt : 0;
+    const timeB = typeof b.requestedAt === 'number' ? b.requestedAt : 0;
+    return timeB - timeA;
+  });
+
+  const limited = rides.slice(0, limit);
+
+  console.log('[getAvailableRides] Respondiendo a solicitud', {
+    auth: context.auth.uid,
+    totalFound: rides.length,
+    returned: limited.length,
+    hasCoords,
+    radiusKm: hasCoords ? radiusKm : null,
+    limit,
+  });
+
+  return {
+    success: true,
+    rides: limited,
+    total: rides.length,
+    limit,
+  };
+});
+
+const updateDriverPenaltySummary = async (driverId: string) => {
+  try {
+    const penalties = await penaltyRepo.findByDriverId(driverId);
+    const list = Array.isArray(penalties) ? penalties : [];
+    const pendingOnly = list.filter((p: any) => String(p.status).toLowerCase() === 'pending');
+    const pendingCount = pendingOnly.length;
+    const pendingAmount = pendingOnly.reduce(
+      (sum: number, item: any) => sum + parseFloat(String(item.amount || 0)),
+      0,
+    );
+
+    if (MIGRATION_FLAGS.MIRROR_PENALTIES_TO_RTDB) {
+      await admin
+        .database()
+        .ref(`driverPenalties/${driverId}/summary`)
+        .update({
+          pendingCount,
+          pendingAmount: Number(pendingAmount.toFixed(2)),
+          updatedAt: admin.database.ServerValue.TIMESTAMP,
+        });
+    }
+  } catch (summaryErr) {
+    console.warn('⚠️ [rides] Error actualizando resumen de penalizaciones:', summaryErr);
+  }
+};
+
+const ensureDriverPenalty = async (options: {
+  driverId?: string | null;
+  rideId: string;
+  amount: number;
+  penaltyType: string;
+  reason: string;
+}) => {
+  const { driverId, rideId, amount, penaltyType, reason } = options;
+  const normalizedAmount = Number(Number(amount || 0).toFixed(2));
+  if (!driverId || !rideId || normalizedAmount <= 0) {
+    return;
+  }
+
+  try {
+    const existingPenalty = await penaltyRepo.findByRideId(rideId);
+    if (existingPenalty) {
+      await penaltyRepo.update(existingPenalty.id, {
+        amount: normalizedAmount,
+        penalty_type: penaltyType,
+        reason,
+        status: 'pending',
+      } as any);
+    } else {
+      await penaltyRepo.create({
+        driver_id: driverId,
+        ride_id: rideId,
+        penalty_type: penaltyType,
+        amount: normalizedAmount,
+        reason,
+        status: 'pending',
+      } as any);
+    }
+
+    await updateDriverPenaltySummary(driverId);
+  } catch (penaltyErr) {
+    console.error('⚠️ [rides] Error asegurando penalización:', penaltyErr);
+  }
+};
+
 /**
  * Marcar conductor en camino (driver_on_route)
  */
@@ -54,6 +550,8 @@ export const markDriverOnRoute = functions.https.onCall(async (data, context) =>
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
   }
+  // Enforce single-session
+  await ensureActiveSession(context, data);
 
   try {
     const { rideId } = data;
@@ -114,6 +612,16 @@ export const markDriverOnRoute = functions.https.onCall(async (data, context) =>
     await db.ref(`activeRides/${rideId}`).update(firebaseUpdate);
     console.log(`✅ [markDriverOnRoute] Viaje ${rideId} actualizado en Firebase`);
 
+    // ✅ NUEVO: Marcar conductor como BUSY
+    try {
+      await db.ref(`driverLocations/${driverId}`).update({
+        status: 'busy',
+        updatedAt: admin.database.ServerValue.TIMESTAMP,
+      });
+    } catch (busyErr) {
+      console.warn('⚠️ [markDriverOnRoute] No se pudo marcar BUSY en driverLocations:', (busyErr as any)?.message || busyErr);
+    }
+
     await notifyUserSafe(rideData.clientId, '🚗 Conductor en camino', 'Tu conductor se dirige al punto de recogida.', {
       rideId,
       type: 'ride_driver_on_route',
@@ -143,6 +651,8 @@ export const createRide = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
   }
+  // Enforce single-session
+  await ensureActiveSession(context, data);
   try {
     const clientId = context.auth.uid;
     console.log(`👤 [createRide] Cliente ID: ${clientId}`);
@@ -400,6 +910,8 @@ export const acceptRide = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
   }
+  // Enforce single-session
+  await ensureActiveSession(context, data);
   try {
     const { rideId, vehicleId } = data;
     const driverId = context.auth.uid;
@@ -438,6 +950,31 @@ export const acceptRide = functions.https.onCall(async (data, context) => {
     if (firebaseRideData.driverId === driverId && stableStatuses.includes(firebaseRideData.status)) {
       console.log(`🔁 [acceptRide] Viaje ${rideId} ya está gestionado por este conductor en estado ${firebaseRideData.status}`);
       return { success: true, ride: { id: rideId, status: firebaseRideData.status, driverId } };
+    }
+
+    // ✅ Actualizado: Bloqueo por cantidad de penalizaciones pendientes (server-side)
+    try {
+      const penalties = await penaltyRepo.findByDriverId(driverId);
+      const pendingCount = (Array.isArray(penalties) ? penalties : []).filter((p: any) => String(p.status).toLowerCase() === 'pending').length;
+      if (pendingCount >= 5) {
+        console.warn(`⛔ [acceptRide] Conductor ${driverId} con ${pendingCount} penalizaciones pendientes (umbral=5)`);
+        throw new functions.https.HttpsError('failed-precondition', 'No puedes aceptar viajes: tienes 5 o más comisiones/penalizaciones pendientes. Debes pagarlas para continuar.');
+      }
+    } catch (penErr: any) {
+      if (penErr instanceof functions.https.HttpsError) throw penErr;
+      console.warn('⚠️ [acceptRide] Error verificando penalizaciones:', penErr?.message || penErr);
+    }
+
+    // ✅ NUEVO: Verificar que el conductor no esté BUSY
+    try {
+      const driverLocSnap = await db.ref(`driverLocations/${driverId}`).once('value');
+      const driverStatus = String(driverLocSnap.val()?.status || '').toLowerCase();
+      if (driverStatus === 'busy') {
+        throw new functions.https.HttpsError('failed-precondition', 'DRIVER_BUSY');
+      }
+    } catch (locErr: any) {
+      if (locErr instanceof functions.https.HttpsError) throw locErr;
+      console.warn('⚠️ [acceptRide] Error verificando driverLocations:', locErr?.message || locErr);
     }
 
     const ride = await rideService.acceptRide(rideId, driverId, firebaseRideData?.serviceId);
@@ -582,6 +1119,18 @@ export const acceptRide = functions.https.onCall(async (data, context) => {
         status: 'pending',
         updatedAt: admin.database.ServerValue.TIMESTAMP,
       });
+
+      // ✅ NUEVO: Marcar conductor como BUSY solo si el estado ya implica asignación efectiva
+      try {
+        if (newStatus !== 'driver_offered') {
+          await db.ref(`driverLocations/${driverId}`).update({
+            status: 'busy',
+            updatedAt: admin.database.ServerValue.TIMESTAMP,
+          });
+        }
+      } catch (busyErr) {
+        console.warn('⚠️ [acceptRide] No se pudo marcar BUSY en driverLocations:', (busyErr as any)?.message || busyErr);
+      }
     } catch (firebaseError: any) {
       console.error(`⚠️ [acceptRide] Error sincronizando a Firebase:`, firebaseError.message);
     }
@@ -601,6 +1150,8 @@ export const confirmDriver = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
   }
+  // Enforce single-session
+  await ensureActiveSession(context, data);
 
   try {
     const { rideId, selectedDriverId } = data;
@@ -644,6 +1195,18 @@ export const confirmDriver = functions.https.onCall(async (data, context) => {
       throw new functions.https.HttpsError('failed-precondition', 'El viaje ya está asignado a otro conductor');
     }
 
+    // ✅ NUEVO: Bloquear si el conductor está BUSY
+    try {
+      const locSnap = await db.ref(`driverLocations/${selectedDriverId}`).once('value');
+      const status = String(locSnap.val()?.status || '').toLowerCase();
+      if (status === 'busy') {
+        throw new functions.https.HttpsError('failed-precondition', 'DRIVER_BUSY');
+      }
+    } catch (locErr: any) {
+      if (locErr instanceof functions.https.HttpsError) throw locErr;
+      console.warn('⚠️ [confirmDriver] Error verificando driverLocations:', locErr?.message || locErr);
+    }
+
     // Obtener datos del conductor
     console.log(`👤 [confirmDriver] Obteniendo datos del conductor ${selectedDriverId}...`);
     let driverData: any = null;
@@ -677,16 +1240,32 @@ export const confirmDriver = functions.https.onCall(async (data, context) => {
 
     // Actualizar viaje en Firebase
     console.log(`🔥 [confirmDriver] Actualizando viaje en Firebase...`);
+    const calculatedFinalFare = (() => {
+      const candidates = [
+        rideData.finalFare,
+        rideData.clientSuggestedPrice,
+        rideData.driverOfferedPrice,
+        rideData.estimatedPrice,
+      ];
+      for (const value of candidates) {
+        if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+          return Number(value.toFixed(2));
+        }
+      }
+      return null;
+    })();
+
     const updateData: any = {
       status: 'accepted',
       driverId: selectedDriverId,
       acceptedAt: admin.database.ServerValue.TIMESTAMP,
       updatedAt: admin.database.ServerValue.TIMESTAMP,
+      clientConfirmationPending: false,
       // ✅ Preservar campos de negociación
       clientSuggestedPrice: rideData.clientSuggestedPrice || null,
       driverOfferedPrice: rideData.driverOfferedPrice || null,
-      negotiationStatus: rideData.negotiationStatus || null,
-      finalFare: rideData.finalFare || null,
+      negotiationStatus: 'client_confirmed',
+      finalFare: calculatedFinalFare,
       // ✅ NUEVO: Preservar paradas extras y múltiples destinos
       extraDestinations: rideData.extraDestinations || null,
       hasMultipleDestinations: rideData.hasMultipleDestinations || false,
@@ -700,6 +1279,16 @@ export const confirmDriver = functions.https.onCall(async (data, context) => {
     await db.ref(`activeRides/${rideId}`).update(updateData);
     console.log(`✅ [confirmDriver] Viaje actualizado en Firebase`);
 
+    // ✅ NUEVO: Marcar conductor como BUSY
+    try {
+      await db.ref(`driverLocations/${selectedDriverId}`).update({
+        status: 'busy',
+        updatedAt: admin.database.ServerValue.TIMESTAMP,
+      });
+    } catch (busyErr) {
+      console.warn('⚠️ [confirmDriver] No se pudo marcar BUSY en driverLocations:', (busyErr as any)?.message || busyErr);
+    }
+
     await notifyUserSafe(selectedDriverId, '✅ Viaje asignado', 'El cliente confirmó el viaje. Dirígete al punto de encuentro.', {
       rideId,
       type: 'ride_assigned',
@@ -709,7 +1298,7 @@ export const confirmDriver = functions.https.onCall(async (data, context) => {
     // ✅ NUEVO: Guardar oferta del conductor en offers/{driverId}
     console.log(`💰 [confirmDriver] Guardando oferta del conductor en offers...`);
     try {
-      const offerPrice = rideData.estimatedPrice || rideData.finalFare || 0;
+      const offerPrice = calculatedFinalFare ?? rideData.driverOfferedPrice ?? rideData.estimatedPrice ?? 0;
       
       // Obtener datos completos del conductor desde driversInfo
       let driverInfo: any = null;
@@ -734,6 +1323,7 @@ export const confirmDriver = functions.https.onCall(async (data, context) => {
         driver: offerDriverData,
         acceptedAt: admin.database.ServerValue.TIMESTAMP,
         updatedAt: admin.database.ServerValue.TIMESTAMP,
+        awaitingClientConfirmation: false,
       });
       console.log(`✅ [confirmDriver] Oferta del conductor aceptado actualizada: C$${offerPrice}, Rating: ${offerDriverData.rating}`);
 
@@ -748,9 +1338,11 @@ export const confirmDriver = functions.https.onCall(async (data, context) => {
             if (driverIdKey === selectedDriverId) {
               updates[`${driverIdKey}/status`] = 'accepted';
               updates[`${driverIdKey}/acceptedAt`] = admin.database.ServerValue.TIMESTAMP;
+              updates[`${driverIdKey}/awaitingClientConfirmation`] = false;
             } else {
               updates[`${driverIdKey}/status`] = 'canceled';
               updates[`${driverIdKey}/canceledAt`] = admin.database.ServerValue.TIMESTAMP;
+              updates[`${driverIdKey}/awaitingClientConfirmation`] = false;
             }
             updates[`${driverIdKey}/updatedAt`] = admin.database.ServerValue.TIMESTAMP;
           });
@@ -774,6 +1366,8 @@ export const confirmDriver = functions.https.onCall(async (data, context) => {
         driver_id: selectedDriverId,
         status: 'accepted',
         accepted_at: new Date(),
+        negotiation_status: 'client_confirmed',
+        client_confirmation_pending: false,
       };
       
       // ✅ NUEVO: Agregar service_id si existe en Firebase
@@ -810,6 +1404,8 @@ export const confirmDriver = functions.https.onCall(async (data, context) => {
         id: rideId,
         status: 'accepted',
         driverId: selectedDriverId,
+        finalFare: calculatedFinalFare,
+        negotiationStatus: 'client_confirmed',
       },
     };
   } catch (error: any) {
@@ -825,6 +1421,8 @@ export const startRide = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
   }
+  // Enforce single-session
+  await ensureActiveSession(context, data);
   try {
     const { rideId } = data;
     if (!rideId) {
@@ -853,6 +1451,19 @@ export const startRide = functions.https.onCall(async (data, context) => {
           negotiationStatus: currentData.negotiationStatus || null,
         });
         console.log(`✅ [startRide] Viaje sincronizado a Firebase`);
+
+        // ✅ NUEVO: Marcar conductor como BUSY
+        try {
+          const driverId = currentData.driverId;
+          if (driverId) {
+            await db.ref(`driverLocations/${driverId}`).update({
+              status: 'busy',
+              updatedAt: admin.database.ServerValue.TIMESTAMP,
+            });
+          }
+        } catch (busyErr) {
+          console.warn('⚠️ [startRide] No se pudo marcar BUSY en driverLocations:', (busyErr as any)?.message || busyErr);
+        }
       }
     } catch (firebaseError: any) {
       console.error(`⚠️ [startRide] Error sincronizando a Firebase:`, firebaseError.message);
@@ -872,6 +1483,8 @@ export const completeRide = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
   }
+  // Enforce single-session
+  await ensureActiveSession(context, data);
   try {
     const { rideId, finalFare, driverId } = data;
     if (!rideId || !finalFare) {
@@ -906,6 +1519,19 @@ export const completeRide = functions.https.onCall(async (data, context) => {
       });
       console.log(`✅ [completeRide] Viaje sincronizado a Firebase`);
 
+      // ✅ NUEVO: Marcar conductor como AVAILABLE
+      try {
+        const resolvedDriverId = driverId || currentData.driverId || null;
+        if (resolvedDriverId) {
+          await db.ref(`driverLocations/${resolvedDriverId}`).update({
+            status: 'available',
+            updatedAt: admin.database.ServerValue.TIMESTAMP,
+          });
+        }
+      } catch (availErr) {
+        console.warn('⚠️ [completeRide] No se pudo marcar AVAILABLE en driverLocations:', (availErr as any)?.message || availErr);
+      }
+
       await notifyUserSafe(currentData.clientId, '✅ Viaje finalizado', 'Por favor confirma y realiza el pago.', {
         rideId,
         type: 'ride_completed',
@@ -915,6 +1541,34 @@ export const completeRide = functions.https.onCall(async (data, context) => {
       console.error(`⚠️ [completeRide] Error sincronizando a Firebase:`, firebaseError.message);
     }
     
+    try {
+      const freshRide = await rideRepo.findById(rideId);
+      const paymentRecord = await paymentRepo.findByRideId(rideId);
+      const paymentMethod = paymentRecord?.payment_method || freshRide?.payment_type || 'cash';
+      const commissionRate = await getCommissionRateForRide(freshRide);
+      const commissionDue = Number((finalFare * commissionRate).toFixed(2));
+
+      if (paymentMethod === 'cash' && freshRide?.driver_id) {
+        await ensureDriverPenalty({
+          driverId: freshRide.driver_id,
+          rideId,
+          amount: commissionDue,
+          penaltyType: 'cash_commission_due',
+          reason: 'Comisión por viaje pagado en efectivo',
+        });
+      }
+
+      if (paymentRecord) {
+        await paymentRepo.update(paymentRecord.id, {
+          commission: commissionDue,
+          commission_rate_applied: commissionRate,
+          payment_method: paymentMethod,
+        } as any);
+      }
+    } catch (commissionErr) {
+      console.error('⚠️ [completeRide] Error calculando comisiones en efectivo:', commissionErr);
+    }
+
     return { success: true, ride: { id: ride.id, status: ride.status, finalFare: ride.final_fare, completedAt: ride.completed_at } };
   } catch (error: any) {
     console.error('❌ [completeRide] Error:', error);
@@ -929,6 +1583,8 @@ export const cancelRide = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
   }
+  // Enforce single-session
+  await ensureActiveSession(context, data);
   try {
     const { rideId, reason, canceledBy } = data;
     
@@ -959,21 +1615,84 @@ export const cancelRide = functions.https.onCall(async (data, context) => {
     });
     console.log(`✅ [cancelRide] Información de cancelación guardada en PostgreSQL`);
     
+    // ✅ Obtener tarifa negociada/definitiva
+    const rideRecord = await rideRepo.findById(rideId);
+    const negotiatedFare = getNegotiatedFare(firebaseRide, rideRecord);
+    const commissionRate = await getCommissionRateForRide(rideRecord);
+    console.log(`💰 [cancelRide] negotiatedFare=${negotiatedFare} commissionRate=${commissionRate}`);
+
+    // ✅ Calcular progreso del viaje si ya había iniciado
+    let progressPercentage = 0;
+    if (firebaseRide?.estimatedDistance && rideStatus && ['started', 'in_progress'].includes(rideStatus)) {
+      try {
+        progressPercentage = await calculateRideProgress(rideId, Number(firebaseRide.estimatedDistance));
+      } catch (progressErr) {
+        console.warn('⚠️ [cancelRide] Error calculando progreso:', progressErr);
+        progressPercentage = 0;
+      }
+    }
+
+    console.log(`📏 [cancelRide] progress=${progressPercentage}%`);
+
+    const progressFactor = Math.min(Math.max(progressPercentage, 0), 100) / 100;
+
     // ✅ LÓGICA DE PAGO SEGÚN ESTADO Y QUIÉN CANCELA
     console.log(`💳 [cancelRide] Procesando paymentStatus...`);
     let paymentStatusUpdate: any = {
       updatedAt: admin.database.ServerValue.TIMESTAMP,
+      requiresClientPayment: false,
+      chargeTarget: null,
     };
+    let chargeTarget: 'driver' | 'client' | null = null;
+    let chargeAmount = 0;
+    let commissionDue = 0;
+    let driverPayout = 0;
+    const cancelerDriverId = canceledBy === 'driver' ? (firebaseRide?.driverId || rideRecord?.driver_id || null) : null;
     
     // Si el viaje NO ha iniciado (requested o accepted)
     if (rideStatus === 'requested' || rideStatus === 'pending_confirm' || rideStatus === 'accepted' || rideStatus === 'driver_on_route') {
-      console.log(`✅ [cancelRide] Viaje sin iniciar (estado ${rideStatus}) - Cancelando pago y evitando penalizaciones`);
-      paymentStatusUpdate.status = 'canceled';
+      console.log(`✅ [cancelRide] Viaje sin iniciar (estado ${rideStatus})`);
       paymentStatusUpdate.canceledAt = admin.database.ServerValue.TIMESTAMP;
       paymentStatusUpdate.canceledBy = canceledBy || 'unknown';
-      paymentStatusUpdate.shouldCharge = false;
-      paymentStatusUpdate.chargeType = 'pre_start_cancellation';
       paymentStatusUpdate.cancelReason = reason || 'Sin especificar';
+
+      if (canceledBy === 'client' && rideStatus !== 'requested') {
+        console.log(`💸 [cancelRide] Cliente canceló después de asignar conductor - generando cargo`);
+        paymentStatusUpdate.status = 'pending';
+        paymentStatusUpdate.chargeType = 'client_cancellation_before_start';
+        paymentStatusUpdate.shouldCharge = true;
+        paymentStatusUpdate.requiresClientPayment = true;
+        paymentStatusUpdate.chargeTarget = 'client';
+        chargeTarget = 'client';
+        const fallbackAmountSources = [
+          negotiatedFare,
+          firebaseRide?.finalFare,
+          firebaseRide?.estimatedPrice,
+          rideRecord?.final_fare,
+          rideRecord?.estimated_price,
+          rideRecord?.client_suggested_price,
+          rideRecord?.driver_offered_price,
+        ];
+
+        for (const candidate of fallbackAmountSources) {
+          const numeric = Number(candidate || 0);
+          if (Number.isFinite(numeric) && numeric > 0) {
+            chargeAmount = Number(numeric.toFixed(2));
+            break;
+          }
+        }
+
+        if (!chargeAmount || chargeAmount <= 0) {
+          chargeAmount = 0;
+        }
+
+        commissionDue = Number((chargeAmount * commissionRate).toFixed(2));
+        driverPayout = Number((chargeAmount - commissionDue).toFixed(2));
+      } else {
+        paymentStatusUpdate.status = 'canceled';
+        paymentStatusUpdate.shouldCharge = false;
+        paymentStatusUpdate.chargeType = 'pre_start_cancellation';
+      }
 
       await notifyUserSafe(firebaseRide.clientId, '❌ Viaje cancelado', 'Tu solicitud de viaje fue cancelada.', {
         rideId,
@@ -999,6 +1718,12 @@ export const cancelRide = functions.https.onCall(async (data, context) => {
         paymentStatusUpdate.status = 'pending';
         paymentStatusUpdate.chargeType = 'driver_cancellation';
         paymentStatusUpdate.shouldCharge = true;
+        paymentStatusUpdate.requiresClientPayment = false;
+        paymentStatusUpdate.chargeTarget = 'driver';
+        chargeTarget = 'driver';
+        chargeAmount = negotiatedFare;
+        commissionDue = Number((negotiatedFare * commissionRate).toFixed(2));
+        driverPayout = Number((negotiatedFare - commissionDue).toFixed(2));
       }
       // Si lo cancela el CLIENTE
       else if (canceledBy === 'client') {
@@ -1007,6 +1732,13 @@ export const cancelRide = functions.https.onCall(async (data, context) => {
         paymentStatusUpdate.chargeType = 'client_cancellation';
         paymentStatusUpdate.shouldCharge = true;
         paymentStatusUpdate.requiresClientPayment = true;
+        paymentStatusUpdate.chargeTarget = 'client';
+        chargeTarget = 'client';
+
+        const progressFactor = Math.min(Math.max(progressPercentage, 0), 100) / 100;
+        chargeAmount = Number((negotiatedFare * progressFactor).toFixed(2));
+        commissionDue = Number((chargeAmount * commissionRate).toFixed(2));
+        driverPayout = Number((chargeAmount - commissionDue).toFixed(2));
       }
       
       paymentStatusUpdate.canceledAt = admin.database.ServerValue.TIMESTAMP;
@@ -1023,6 +1755,12 @@ export const cancelRide = functions.https.onCall(async (data, context) => {
         paymentStatusUpdate.status = 'pending';
         paymentStatusUpdate.chargeType = 'driver_cancellation'; // Cargo por cancelación de conductor
         paymentStatusUpdate.shouldCharge = true;
+        paymentStatusUpdate.requiresClientPayment = false;
+        paymentStatusUpdate.chargeTarget = 'driver';
+        chargeTarget = 'driver';
+        commissionDue = Number((negotiatedFare * commissionRate).toFixed(2));
+        chargeAmount = commissionDue;
+        driverPayout = 0;
       }
       // Si lo cancela el CLIENTE
       else if (canceledBy === 'client') {
@@ -1031,6 +1769,11 @@ export const cancelRide = functions.https.onCall(async (data, context) => {
         paymentStatusUpdate.chargeType = 'client_cancellation'; // Cargo por cancelación de cliente
         paymentStatusUpdate.shouldCharge = true;
         paymentStatusUpdate.requiresClientPayment = true;
+        paymentStatusUpdate.chargeTarget = 'client';
+        chargeTarget = 'client';
+        chargeAmount = Number((negotiatedFare * progressFactor).toFixed(2));
+        commissionDue = Number((chargeAmount * commissionRate).toFixed(2));
+        driverPayout = Number((chargeAmount - commissionDue).toFixed(2));
       }
       
       paymentStatusUpdate.canceledAt = admin.database.ServerValue.TIMESTAMP;
@@ -1053,11 +1796,98 @@ export const cancelRide = functions.https.onCall(async (data, context) => {
       console.log(`✅ [cancelRide] Viaje sincronizado a Firebase`);
       
       // Actualizar paymentStatus
+      const effectiveChargeAmount = chargeAmount > 0 ? chargeAmount : 0;
+      const effectiveAmountField = chargeAmount > 0 ? chargeAmount : negotiatedFare;
+
+      paymentStatusUpdate.chargeAmount = Number(effectiveChargeAmount.toFixed(2));
+      paymentStatusUpdate.amount = Number(effectiveAmountField.toFixed(2));
+      paymentStatusUpdate.finalAmount = paymentStatusUpdate.amount;
+      paymentStatusUpdate.negotiatedFare = negotiatedFare;
+      paymentStatusUpdate.progress = Number(progressPercentage.toFixed(2));
+      paymentStatusUpdate.commissionDue = Number(commissionDue.toFixed(2));
+      paymentStatusUpdate.driverPayout = Number(driverPayout.toFixed(2));
+
+      if (chargeTarget === 'client') {
+        if (paymentStatusUpdate.chargeAmount <= 0 && negotiatedFare > 0) {
+          const fallbackCharge = Number(negotiatedFare.toFixed(2));
+          paymentStatusUpdate.chargeAmount = fallbackCharge;
+          paymentStatusUpdate.amount = fallbackCharge;
+          paymentStatusUpdate.finalAmount = fallbackCharge;
+          commissionDue = Number((fallbackCharge * commissionRate).toFixed(2));
+          driverPayout = Number((fallbackCharge - commissionDue).toFixed(2));
+          paymentStatusUpdate.commissionDue = commissionDue;
+          paymentStatusUpdate.driverPayout = driverPayout;
+        }
+
+        paymentStatusUpdate.shouldCharge = paymentStatusUpdate.chargeAmount > 0;
+        paymentStatusUpdate.requiresClientPayment = paymentStatusUpdate.chargeAmount > 0;
+      } else if (chargeTarget === 'driver' && paymentStatusUpdate.chargeAmount <= 0) {
+        paymentStatusUpdate.shouldCharge = false;
+      }
+
       console.log(`💳 [cancelRide] Actualizando paymentStatus con: ${JSON.stringify(paymentStatusUpdate)}`);
+      if (cancelerDriverId) {
+        paymentStatusUpdate.canceledById = cancelerDriverId;
+      }
+
       await db.ref(`paymentStatus/${rideId}`).update(paymentStatusUpdate);
       console.log(`✅ [cancelRide] paymentStatus actualizado`);
+
+      // ✅ NUEVO: Marcar conductor como AVAILABLE si estaba asignado
+      try {
+        const assignedDriverId = firebaseRide?.driverId || rideRecord?.driver_id || null;
+        if (assignedDriverId) {
+          await db.ref(`driverLocations/${assignedDriverId}`).update({
+            status: 'available',
+            updatedAt: admin.database.ServerValue.TIMESTAMP,
+          });
+        }
+      } catch (availErr) {
+        console.warn('⚠️ [cancelRide] No se pudo marcar AVAILABLE en driverLocations:', (availErr as any)?.message || availErr);
+      }
     } catch (firebaseError: any) {
       console.error(`⚠️ [cancelRide] Error sincronizando a Firebase:`, firebaseError.message);
+    }
+
+    // ✅ Penalizaciones y registros de cobro
+    try {
+      if (chargeTarget === 'driver' && commissionDue > 0 && cancelerDriverId) {
+        await ensureDriverPenalty({
+          driverId: cancelerDriverId,
+          rideId,
+          amount: commissionDue,
+          penaltyType: 'driver_cancellation_after_start',
+          reason: reason || 'Cancelación del conductor con viaje iniciado',
+        });
+      }
+
+      if (chargeTarget === 'client' && chargeAmount > 0 && firebaseRide?.clientId) {
+        await admin
+          .database()
+          .ref(`clientCharges/${firebaseRide.clientId}/${rideId}`)
+          .set({
+            amount: Number(chargeAmount.toFixed(2)),
+            commission: Number(commissionDue.toFixed(2)),
+            driverPayout: Number(driverPayout.toFixed(2)),
+            progressPercentage: Number(progressPercentage.toFixed(2)),
+            chargeType: paymentStatusUpdate.chargeType,
+            createdAt: admin.database.ServerValue.TIMESTAMP,
+          });
+      }
+
+      const existingPayment = await paymentRepo.findByRideId(rideId);
+      if (existingPayment) {
+        await paymentRepo.update(existingPayment.id, {
+          amount: Number((chargeAmount > 0 ? chargeAmount : negotiatedFare).toFixed(2)),
+          commission: Number(commissionDue.toFixed(2)),
+          commission_rate_applied: commissionRate,
+          status: paymentStatusUpdate.status,
+          cancel_reason: reason || null,
+          updated_at: new Date(),
+        } as any);
+      }
+    } catch (penaltyErr) {
+      console.error('⚠️ [cancelRide] Error procesando penalizaciones/cargos:', penaltyErr);
     }
     
     return { 
@@ -1145,6 +1975,8 @@ export const getRideDetails = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
   }
+  // Enforce single-session
+  await ensureActiveSession(context, data);
   try {
     const { rideId } = data;
     if (!rideId) {
@@ -1263,6 +2095,8 @@ export const getActiveRides = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
   }
+  // Enforce single-session
+  await ensureActiveSession(context, data);
   try {
     console.log(`🚗 [getActiveRides] Obteniendo viajes activos`);
     const rides = await rideRepo.findByStatus('in_progress');
@@ -1631,6 +2465,8 @@ export const changePaymentMethod = functions.https.onCall(async (data, context) 
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
   }
+  // Enforce single-session
+  await ensureActiveSession(context, data);
 
   try {
     const { rideId, newPaymentMethod, reason } = data;
@@ -1763,6 +2599,82 @@ export const changePaymentMethod = functions.https.onCall(async (data, context) 
     };
   } catch (error: any) {
     console.error('❌ [changePaymentMethod] Error:', error);
+    throw new functions.https.HttpsError('internal', error.message);
+  }
+});
+
+/**
+ * Rechazar una solicitud de viaje para un conductor específico
+ * Oculta el viaje para ese conductor hasta que el precio cambie
+ */
+export const rejectRide = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
+  }
+
+  try {
+    const { rideId, reason } = data || {};
+    const driverId = context.auth.uid;
+
+    if (!rideId) {
+      throw new functions.https.HttpsError('invalid-argument', 'rideId es requerido');
+    }
+
+    // Obtener datos actuales del viaje desde Firebase
+    const rideSnap = await db.ref(`activeRides/${rideId}`).once('value');
+    const rideData = rideSnap.val();
+
+    if (!rideData) {
+      throw new functions.https.HttpsError('not-found', 'Viaje no encontrado');
+    }
+
+    // Permitir rechazo principalmente en solicitudes abiertas, pero registrar en cualquier estado
+    const allowedStatuses = ['requested', 'driver_offered', 'pending_confirm'];
+    if (!allowedStatuses.includes(String(rideData.status))) {
+      console.log(`ℹ️ [rejectRide] Registrando rechazo en estado ${rideData.status}`);
+    }
+
+    // Determinar precio de referencia actual (cliente > estimado)
+    const currentEstimatedPrice = Number(rideData.estimatedPrice || 0) || null;
+    const currentClientSuggestedPrice = (
+      rideData.clientSuggestedPrice !== undefined && rideData.clientSuggestedPrice !== null
+    ) ? Number(rideData.clientSuggestedPrice) : null;
+    const priceAtRejection = (currentClientSuggestedPrice && currentClientSuggestedPrice > 0)
+      ? currentClientSuggestedPrice
+      : (currentEstimatedPrice || null);
+
+    const nowTs = admin.database.ServerValue.TIMESTAMP;
+
+    // Guardar registro de rechazo por conductor
+    const rejectionRef = db.ref(`activeRides/${rideId}/rejections/${driverId}`);
+    await rejectionRef.update({
+      reason: reason || 'not_interested',
+      priceAtRejection: priceAtRejection,
+      clientSuggestedPriceAtRejection: currentClientSuggestedPrice,
+      estimatedPriceAtRejection: currentEstimatedPrice,
+      rejectedAt: nowTs,
+      updatedAt: nowTs,
+    });
+
+    // Marcar oferta del conductor como rechazada (si existe)
+    try {
+      await db.ref(`activeRides/${rideId}/offers/${driverId}`).update({
+        status: 'rejected',
+        updatedAt: nowTs,
+      });
+    } catch (offerErr) {
+      console.warn('⚠️ [rejectRide] No se pudo actualizar offers:', offerErr);
+    }
+
+    console.log(`✅ [rejectRide] Conductor ${driverId} rechazó viaje ${rideId} (precio: ${priceAtRejection ?? 'N/A'})`);
+
+    return {
+      success: true,
+      message: 'Viaje rechazado para este conductor hasta que el precio cambie',
+      ride: { id: rideId },
+    };
+  } catch (error: any) {
+    console.error('❌ [rejectRide] Error:', error);
     throw new functions.https.HttpsError('internal', error.message);
   }
 });

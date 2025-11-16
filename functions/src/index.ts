@@ -31,6 +31,7 @@ import * as clientProfilesAPI from "./api/clientProfiles";
 import * as smsCodesSequelizeAPI from "./api/sms_verification_codes_sequelize";
 import * as commissionHistorySequelizeAPI from "./api/service_commission_history_sequelize";
 import * as authAPI from "./api/auth";
+import * as pendingPaymentsAPI from "./api/pendingPayments_sequelize";
 // ⚠️ COMENTADOS: Archivos .old.ts eliminados
 // import * as usersAPI from "./api/users.old";
 // import * as trackingFunctions from "./api/tracking-functions.old";
@@ -100,6 +101,7 @@ import * as cleanupRealtimeDB from "./scheduled/cleanupRealtimeDB";
 
 // Importar presence functions
 import * as presenceAPI from "./api/presence";
+import * as sessionsAPI from "./api/sessions";
 
 // ============================================
 // API ENDPOINTS
@@ -122,6 +124,8 @@ export const markDriverOnRoute = ridesSequelizeAPI.markDriverOnRoute;
 export const startRide = ridesSequelizeAPI.startRide;
 export const completeRide = ridesSequelizeAPI.completeRide;
 export const cancelRide = ridesSequelizeAPI.cancelRide;
+export const rejectRide = ridesSequelizeAPI.rejectRide;
+export const getAvailableRides = ridesSequelizeAPI.getAvailableRides;
 export const getClientRides = ridesSequelizeAPI.getClientRides;
 export const getDriverRides = ridesSequelizeAPI.getDriverRides;
 export const getRideDetails = ridesSequelizeAPI.getRideDetails;
@@ -179,6 +183,8 @@ export const getClientProfile = clientProfilesAPI.getClientProfile;
 // ============================================
 export const markAppActive = presenceAPI.markAppActive;
 export const markAppClosed = presenceAPI.markAppClosed;
+export const startSession = sessionsAPI.startSession;
+export const endSession = sessionsAPI.endSession;
 
 // ============================================
 // FUNCIONES DEPRECADAS DE STRIPE (STUBS)
@@ -302,6 +308,8 @@ export const getDriverPenalties = penaltiesSequelizeAPI.getDriverPenalties;
 export const getTotalPenalties = penaltiesSequelizeAPI.getTotalPenalties;
 export const markPenaltyAsPaid = penaltiesSequelizeAPI.markPenaltyAsPaid;
 export const deletePenalty = penaltiesSequelizeAPI.deletePenalty;
+export const getDriverPenaltySummary = penaltiesSequelizeAPI.getDriverPenaltySummary;
+export const payAllPenalties = penaltiesSequelizeAPI.payAllPenalties;
 
 // Ride Locations
 export const createRideLocation = rideLocationsSequelizeAPI.createRideLocation;
@@ -357,6 +365,7 @@ export const getUserSmsCodesSeq = smsCodesSequelizeAPI.getUserSmsCodes;
 export const registerFCMToken = fcmAPI.registerFCMToken;
 export const clearFCMToken = fcmAPI.clearFCMToken;
 export const sendTestNotification = fcmAPI.sendTestNotification;
+export const notifyProximityRide = fcmAPI.notifyProximityRide;
 
 // Auth API (HTTP + Callable)
 export const auth = authAPI.auth;
@@ -471,7 +480,7 @@ export const cleanupPresenceHistory = cleanupRealtimeDB.cleanupPresenceHistory;
 // ============================================
 
 // ⚠️ COMENTADOS: Pending Payments - archivos .old.ts eliminados
-// export const getPendingPayments = pendingPaymentsAPI.getPendingPayments;
+export const getPendingPayments = pendingPaymentsAPI.getPendingPayments;
 // export const processPendingPayment = pendingPaymentsAPI.processPendingPayment;
 
 // ============================================

@@ -6,9 +6,9 @@ import {
   Modal,
   TouchableOpacity,
   TextInput,
-  Alert,
 } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
+import alertService from '../services/alertService';
 
 interface Driver {
   id?: string;
@@ -67,30 +67,30 @@ export default function PriceNegotiationModal({
 
   const handleSendCounterOffer = () => {
     const price = parseFloat(counterOffer);
-    
-    console.log('📝 Validando contraoferta:', {
-      counterOffer,
+    console.log('💰 Validando precio:', {
       price,
+      estimatedPrice: numericEstimatedPrice,
       MIN_PRICE,
       MAX_PRICE,
+      counterOffer,
       isValid: price >= MIN_PRICE && price <= MAX_PRICE,
     });
-    
+
     if (isNaN(price)) {
-      Alert.alert('Error', 'Por favor ingresa un precio válido');
+      alertService.showErrorAlert('Por favor ingresa un precio válido');
       return;
     }
-    
+
     if (price < MIN_PRICE) {
-      Alert.alert('Error', `El precio mínimo es C$${MIN_PRICE}`);
+      alertService.showErrorAlert(`El precio mínimo es C$${MIN_PRICE}`);
       return;
     }
-    
+
     if (price > MAX_PRICE) {
-      Alert.alert('Error', `El precio máximo es C$${MAX_PRICE}`);
+      alertService.showErrorAlert(`El precio máximo es C$${MAX_PRICE}`);
       return;
     }
-    
+
     console.log('✅ Contraoferta válida, enviando:', price);
     onSendCounterOffer(price);
     setCounterOffer('');

@@ -101,6 +101,7 @@ export class PaymentService {
       commission_rate_applied: commissionRate,
       payment_method: 'cash',
       status: 'pending',
+      commission_status: 'pending',
       created_at: new Date(),
     });
 
@@ -122,11 +123,68 @@ export class PaymentService {
       commission,
       commission_rate_applied: commissionRate,
       status: 'completed',
+      commission_status: 'pending',
       paid_at: new Date(),
     });
 
     console.log(`✅ Pago completado: ${payment.id}`);
+
     return updated;
+  }
+
+  async getDriverPendingCommissionSummary(driverId: string, excludeRideIds: Set<string> = new Set()) {
+    const payments = await this.paymentRepo.findDriverPendingCommissionPayments(driverId);
+
+    const filtered = payments.filter((payment: any) => {
+      const rideId = String(payment.ride_id || payment.ride?.id || '');
+      if (!rideId) {
+        return true;
+      }
+      return !excludeRideIds.has(rideId);
+    });
+
+    const detail = filtered.map((payment: any) => {
+      const commission = this.parseNumber(payment.commission) || 0;
+      const amount = this.parseNumber(payment.amount) || 0;
+      const tip = this.parseNumber(payment.tip) || 0;
+      return {
+        id: payment.id,
+        rideId: payment.ride_id || payment.ride?.id || null,
+        driverId: payment.ride?.driver_id || null,
+        commission,
+        amount,
+        tip,
+        total: Number((amount + tip).toFixed(2)),
+        paymentMethod: payment.payment_method,
+        commissionRate: this.parseNumber(payment.commission_rate_applied),
+        paidAt: payment.paid_at || null,
+        commissionPaidAt: payment.commission_paid_at || null,
+        commissionStatus: payment.commission_status,
+        status: payment.status,
+        createdAt: payment.created_at || null,
+        updatedAt: payment.updated_at || null,
+      };
+    });
+
+    const totalAmount = detail.reduce((sum: number, item: any) => sum + (item.commission || 0), 0);
+
+    return {
+      count: detail.length,
+      amount: Number(totalAmount.toFixed(2)),
+      payments: detail,
+    };
+  }
+
+  async markDriverCommissionPaymentsAsPaid(paymentIds: string[], paidAt: Date = new Date()) {
+    if (!Array.isArray(paymentIds) || paymentIds.length === 0) {
+      return { updated: 0 };
+    }
+
+    const updated = await this.paymentRepo.markCommissionsAsPaid(paymentIds, paidAt);
+    return {
+      updated,
+      paidAt,
+    };
   }
 
   async cancelPayment(rideId: string, reason: string) {

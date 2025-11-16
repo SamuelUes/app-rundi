@@ -33,11 +33,21 @@ export const markAppClosed = functions.https.onCall(async (data, context) => {
   assertRole(role);
 
   const uid = context.auth.uid;
+  const deviceId = typeof data?.deviceId === 'string' ? data.deviceId : undefined;
 
   if (role === "driver") {
     await cleanupPresenceNodes({ driverIds: [uid] });
   } else {
     await cleanupPresenceNodes({ clientIds: [uid] });
+  }
+
+  // Actualizar sesión (lastSeen) si existe
+  try {
+    if (deviceId) {
+      await db.ref(`sessions/${uid}`).update({ lastSeen: admin.database.ServerValue.TIMESTAMP });
+    }
+  } catch (e) {
+    functions.logger.warn('[markAppClosed] No se pudo actualizar lastSeen de sesión', { uid, error: (e as any)?.message || e });
   }
 
   return { success: true };
@@ -53,12 +63,28 @@ export const markAppActive = functions.https.onCall(async (data, context) => {
 
   const uid = context.auth.uid;
   const now = admin.database.ServerValue.TIMESTAMP;
+  const deviceId = typeof data?.deviceId === 'string' ? data.deviceId : undefined;
 
   try {
+    // Validar sesión activa si se envía deviceId
+    if (deviceId) {
+      const sessionSnap = await db.ref(`sessions/${uid}`).once('value');
+      const session = sessionSnap.val();
+      if (session && session.deviceId && session.deviceId !== deviceId) {
+        // Considerar activa si lastSeen es reciente (<= 2 min)
+        const lastSeen = typeof session.lastSeen === 'number' ? session.lastSeen : Date.now();
+        if (Date.now() - lastSeen <= 2 * 60 * 1000) {
+          throw new functions.https.HttpsError('failed-precondition', 'SESSION_ACTIVE_ELSEWHERE');
+        }
+      }
+      // Mantener lastSeen actualizado
+      await db.ref(`sessions/${uid}`).update({ lastSeen: now, deviceId });
+    }
+
     if (role === "driver") {
       const location: DriverLocationPayload | undefined = data?.location;
+      // No escribir 'status' en driversInfo; solo timestamps
       const driverInfoUpdate = {
-        status: "offline" as const,
         updatedAt: now,
         lastSeen: now,
       };

@@ -63,8 +63,11 @@ export default function WaitingClientConfirmationScreen({ route, navigation }: W
 
       console.log('📊 Estado del viaje:', data.status);
 
-      // Si el cliente aceptó la oferta (y este conductor fue el seleccionado)
-      if (data.status === 'accepted' && data.driverId === user?.id) {
+      // Si el cliente aceptó la oferta (o el viaje avanzó) y este conductor fue el seleccionado
+      if (
+        (data.status === 'accepted' || data.status === 'driver_on_route' || data.status === 'driver_arrived' || data.status === 'in_progress') &&
+        data.driverId === user?.id
+      ) {
         console.log('✅ ¡Cliente aceptó tu oferta!');
         setOfferStatus('accepted');
         

@@ -5,11 +5,38 @@
 import { RideRepository } from '../repositories/RideRepository';
 import { PaymentRepository } from '../repositories/PaymentRepository';
 import { DriverRepository } from '../repositories/DriverRepository';
+import * as admin from 'firebase-admin';
 
 export class RideService {
   private rideRepo = new RideRepository();
   private paymentRepo = new PaymentRepository();
   private driverRepo = new DriverRepository();
+  private realtimeDb = admin.database();
+
+  private async hydrateClientProfile(clientId: string): Promise<{
+    fullName?: string | null;
+    phone?: string | null;
+    rating?: number | null;
+    totalRatings?: number | null;
+  }> {
+    try {
+      const snapshot = await this.realtimeDb.ref(`clientsInfo/${clientId}`).once('value');
+      const value = snapshot.val();
+      if (!value) {
+        return {};
+      }
+
+      return {
+        fullName: value.fullName ?? value.full_name ?? null,
+        phone: value.phone ?? null,
+        rating: typeof value.rating === 'number' ? value.rating : null,
+        totalRatings: typeof value.totalRatings === 'number' ? value.totalRatings : null,
+      };
+    } catch (error) {
+      console.warn('[RideService] No se pudo obtener clientsInfo para', clientId, error);
+      return {};
+    }
+  }
 
   async createRide(data: any) {
     // ✅ Solo client_id es requerido al crear - driver_id se asigna después
@@ -25,6 +52,35 @@ export class RideService {
     });
 
     console.log(`✅ Viaje creado: ${ride.id}`);
+
+    try {
+      const clientProfile = await this.hydrateClientProfile(data.client_id);
+      const clientName = clientProfile.fullName ?? data.client_name ?? null;
+      const clientPhone = clientProfile.phone ?? data.client_phone ?? null;
+      const clientRating = typeof clientProfile.rating === 'number' ? clientProfile.rating : data.client_rating ?? null;
+      const clientTotalRatings = typeof clientProfile.totalRatings === 'number'
+        ? clientProfile.totalRatings
+        : data.client_total_ratings ?? null;
+
+      const activeRideRef = this.realtimeDb.ref(`activeRides/${ride.id}`);
+      const activePayload: Record<string, any> = {
+        clientId: data.client_id,
+        status: 'requested',
+        origin: data.origin ?? null,
+        destination: data.destination ?? null,
+        clientName,
+        clientPhone,
+        clientRating,
+        clientTotalRatings,
+        updatedAt: admin.database.ServerValue.TIMESTAMP,
+        createdAt: admin.database.ServerValue.TIMESTAMP,
+      };
+
+      await activeRideRef.update(activePayload);
+    } catch (activeErr) {
+      console.warn('⚠️ [RideService.createRide] No se pudo actualizar activeRides con datos del cliente:', activeErr);
+    }
+
     return ride;
   }
 

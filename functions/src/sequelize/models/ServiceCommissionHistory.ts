@@ -10,6 +10,8 @@ class ServiceCommissionHistory extends Model {
   declare service_id: string;
   declare old_commission_rate: number;
   declare new_commission_rate: number;
+  declare changed_by: string;
+  declare change_reason: string | null;
   declare changed_at: Date;
 }
 
@@ -31,6 +33,15 @@ ServiceCommissionHistory.init(
     new_commission_rate: {
       type: DataTypes.DECIMAL(5, 4),
       allowNull: false,
+    },
+    changed_by: {
+      type: DataTypes.STRING(255),
+      allowNull: false,
+      defaultValue: 'system',
+    },
+    change_reason: {
+      type: DataTypes.TEXT,
+      allowNull: true,
     },
     changed_at: {
       type: DataTypes.DATE,

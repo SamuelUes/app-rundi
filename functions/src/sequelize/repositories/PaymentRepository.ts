@@ -3,6 +3,7 @@
  */
 
 import Payment from '../models/Payment';
+import Ride from '../models/Ride';
 import { Op } from 'sequelize';
 
 export class PaymentRepository {
@@ -61,5 +62,52 @@ export class PaymentRepository {
       },
     });
     return result || 0;
+  }
+
+  async findDriverPendingCommissionPayments(driverId: string) {
+    return await Payment.findAll({
+      where: {
+        status: 'completed',
+        commission_status: 'pending',
+        commission: {
+          [Op.gt]: 0,
+        },
+      },
+      include: [
+        {
+          model: Ride,
+          as: 'ride',
+          required: true,
+          attributes: ['id', 'driver_id'],
+          where: { driver_id: driverId },
+        },
+      ],
+      order: [
+        ['paid_at', 'DESC'],
+        ['created_at', 'DESC'],
+      ],
+    });
+  }
+
+  async markCommissionsAsPaid(paymentIds: string[], paidAt: Date = new Date()): Promise<number> {
+    if (!Array.isArray(paymentIds) || paymentIds.length === 0) {
+      return 0;
+    }
+
+    const [updatedCount] = await Payment.update(
+      {
+        commission_paid_at: paidAt,
+        commission_status: 'paid',
+      },
+      {
+        where: {
+          id: {
+            [Op.in]: paymentIds,
+          },
+        },
+      }
+    );
+
+    return updatedCount;
   }
 }

@@ -54,6 +54,16 @@ export function useDriverProfileSync() {
             }
           : null;
 
+        const normalizedStatus = String(
+          (profile as any)?.account_status || (profile as any)?.status || ''
+        ).toLowerCase();
+        const accountStatus = (profile as any)?.verifiedAt ||
+          normalizedStatus.includes('active') ||
+          normalizedStatus.includes('verified') ||
+          normalizedStatus.includes('approved')
+          ? 'active'
+          : 'inactive';
+
         const driversInfoPayload: Record<string, any> = {
           firstName: profile.firstName ?? null,
           lastName: profile.lastName ?? null,
@@ -64,7 +74,7 @@ export function useDriverProfileSync() {
           photoURL: profile.profilePhoto ?? null,
           email: profile.email ?? null,
           phone: profile.phone ?? null,
-          status: profile.status ?? 'pending',
+          account_status: accountStatus,
           rating: typeof profile.rating === 'number' ? profile.rating : null,
           totalRides: typeof profile.totalRides === 'number' ? profile.totalRides : 0,
           earnings: typeof profile.earnings === 'number' ? profile.earnings : 0,

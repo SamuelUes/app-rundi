@@ -11,9 +11,11 @@ import {
   Modal,
   TextInput,
   Animated,
+  Switch,
 } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
+import { useVoiceAssistant } from '../../context/VoiceAssistantContext';
 import { safeFormatDate } from '../../utils/safeFormatters';
 import * as ExpoImagePicker from 'expo-image-picker';
 import driversService from '../../services/driversService';
@@ -84,6 +86,7 @@ export default function DriverProfileScreen({ navigation }: any) {
   const styles = useMemo(() => createStyles(colors), [colors]);
 
   const { user } = useAuth();
+  const { settings: voiceSettings, setEnabled: setVoiceAssistantEnabled, initialized: voiceAssistantInitialized } = useVoiceAssistant();
 
   const [loading, setLoading] = useState(true);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -132,6 +135,7 @@ export default function DriverProfileScreen({ navigation }: any) {
   const [addingVehicle, setAddingVehicle] = useState(false);
   const [designatedDriverRequestStatus, setDesignatedDriverRequestStatus] = useState<string | null>(null);
   const [loadingRequestStatus, setLoadingRequestStatus] = useState(false);
+  const [voiceAssistantSwitch, setVoiceAssistantSwitch] = useState<boolean>(voiceSettings.enabled);
   
   // Animaciones
   const cardScaleAnim = useMemo(() => new Animated.Value(0.95), []);
@@ -154,6 +158,11 @@ export default function DriverProfileScreen({ navigation }: any) {
       }),
     ]).start();
   }, [cardScaleAnim, cardOpacityAnim]);
+
+  useEffect(() => {
+    if (!voiceAssistantInitialized) return;
+    setVoiceAssistantSwitch(voiceSettings.enabled);
+  }, [voiceAssistantInitialized, voiceSettings.enabled]);
 
   useEffect(() => {
     loadDriverData();
@@ -203,6 +212,16 @@ export default function DriverProfileScreen({ navigation }: any) {
       }
     } catch (error) {
       console.error('Error cargando estadísticas de ganancias del conductor:', error);
+    }
+  };
+
+  const handleVoiceAssistantToggle = async (value: boolean) => {
+    setVoiceAssistantSwitch(value);
+    try {
+      await setVoiceAssistantEnabled(value);
+    } catch (error) {
+      console.error('❌ Error actualizando asistente de voz:', error);
+      setVoiceAssistantSwitch((prev) => !prev);
     }
   };
 
@@ -885,6 +904,38 @@ export default function DriverProfileScreen({ navigation }: any) {
         </Animated.View>
       </View>
 
+      {/* Asistente de Voz */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>🎙️ Asistente de Voz</Text>
+
+        <View style={styles.voiceAssistantCard}>
+          <View style={styles.voiceAssistantHeader}>
+            <View style={styles.voiceAssistantTitleBlock}>
+              <Text style={styles.voiceAssistantTitle}>Indicaciones habladas</Text>
+              <Text style={styles.voiceAssistantSubtitle}>
+                Recibe avisos de nuevos viajes, recordatorios cuando llegas al cliente y alertas de pago sin mirar la pantalla.
+              </Text>
+            </View>
+            <Switch
+              value={voiceAssistantSwitch}
+              onValueChange={handleVoiceAssistantToggle}
+              thumbColor={voiceAssistantSwitch ? '#ffffff' : '#f4f4f4'}
+              trackColor={{ false: '#bdbdbd', true: colors.primary }}
+            />
+          </View>
+
+          <View style={styles.voiceAssistantBenefits}>
+            <Text style={styles.voiceAssistantBenefit}>• Anuncios de viajes cercanos automáticamente</Text>
+            <Text style={styles.voiceAssistantBenefit}>• Recordatorios al llegar al punto de recogida</Text>
+            <Text style={styles.voiceAssistantBenefit}>• Alertas cuando falta confirmar un pago en efectivo</Text>
+          </View>
+
+          <Text style={styles.voiceAssistantFooter}>
+            Puedes desactivarlo cuando quieras. Recomendado mantenerlo activo para conducir con manos libres.
+          </Text>
+        </View>
+      </View>
+
       {/* Información del Seguro */}
       {vehicles.length > 0 && vehicles[0].insuranceNumber && (
         <View style={styles.section}>
@@ -1387,6 +1438,55 @@ const createStyles = (colors: any) => StyleSheet.create({
     color: colors.text,
     marginBottom: 16,
     letterSpacing: 0.3,
+  },
+  voiceAssistantCard: {
+    backgroundColor: colors.card,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    shadowColor: colors.shadow,
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 4,
+  },
+  voiceAssistantHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  voiceAssistantTitleBlock: {
+    flex: 1,
+    paddingRight: 16,
+  },
+  voiceAssistantTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 6,
+  },
+  voiceAssistantSubtitle: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    lineHeight: 18,
+  },
+  voiceAssistantBenefits: {
+    backgroundColor: colors.surface,
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 12,
+  },
+  voiceAssistantBenefit: {
+    fontSize: 13,
+    color: colors.text,
+    marginBottom: 4,
+  },
+  voiceAssistantFooter: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    lineHeight: 18,
   },
   rechargeButton: {
     backgroundColor: colors.surface,

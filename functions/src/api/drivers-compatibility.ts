@@ -5,8 +5,24 @@
 
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
+import { MIGRATION_FLAGS } from '../config/migration-flags';
+import { DriverServiceRepository } from '../sequelize/repositories/DriverServiceRepository';
+import { ServiceRepository } from '../sequelize/repositories/ServiceRepository';
+import { DriverRepository } from '../sequelize/repositories/DriverRepository';
 
 const db = admin.database();
+const driverServiceRepo = new DriverServiceRepository();
+const serviceRepo = new ServiceRepository();
+const driverRepo = new DriverRepository();
+
+async function getDesignatedServiceId(): Promise<string | null> {
+  try {
+    const svc = await serviceRepo.findByName('designated_driver');
+    return (svc as any)?.id || null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Actualizar ubicación del conductor
@@ -22,12 +38,17 @@ export const updateDriverLocation = functions.https.onCall(async (data, context)
 
     console.log(`📍 [updateDriverLocation] Actualizando ubicación del conductor: ${driverId}`);
 
-    // Actualizar en Realtime DB - driverLocations
-    await db.ref(`driverLocations/${driverId}`).update({
-      status: 'online',
+    // Actualizar en Realtime DB - driverLocations (coords + timestamps; NO disponibilidad aquí)
+    const driverLocPayload: Record<string, any> = {
       lastSeen: admin.database.ServerValue.TIMESTAMP,
       updatedAt: admin.database.ServerValue.TIMESTAMP,
-    });
+    };
+    if (typeof latitude === 'number') driverLocPayload.lat = latitude;
+    if (typeof longitude === 'number') driverLocPayload.lng = longitude;
+    if (typeof heading === 'number') driverLocPayload.heading = heading;
+    if (typeof speed === 'number') driverLocPayload.speed = speed;
+    if (typeof accuracy === 'number') driverLocPayload.accuracy = accuracy;
+    await db.ref(`driverLocations/${driverId}`).update(driverLocPayload);
 
     // Actualizar en Realtime DB - driversInfo
     await db.ref(`driversInfo/${driverId}`).update({
@@ -55,38 +76,46 @@ export const getAvailableDrivers = functions.https.onCall(async (data, context) 
 
     console.log(`🚗 [getAvailableDrivers] Buscando conductores disponibles en: ${latitude}, ${longitude}, vehicleType: ${vehicleType}`);
 
-    // Obtener conductores disponibles de Realtime DB - driversInfo
-    const driversSnapshot = await db.ref('driversInfo').once('value');
+    // Obtener snapshots de driversInfo (metadata) y driverLocations (estado/coords)
+    const [driversSnapshot, locationsSnapshot] = await Promise.all([
+      db.ref('driversInfo').once('value'),
+      db.ref('driverLocations').once('value'),
+    ]);
     const driversInfo = driversSnapshot.val() || {};
+    const driverLocations = locationsSnapshot.val() || {};
 
-    console.log(`📊 [getAvailableDrivers] Total de conductores en driversInfo: ${Object.keys(driversInfo).length}`);
+    console.log(`📊 [getAvailableDrivers] driversInfo: ${Object.keys(driversInfo).length}, driverLocations: ${Object.keys(driverLocations).length}`);
 
-    const availableDrivers = [];
+    const allDriverIds = new Set<string>([
+      ...Object.keys(driversInfo || {}),
+      ...Object.keys(driverLocations || {}),
+    ]);
 
-    for (const [driverId, driverData] of Object.entries(driversInfo)) {
-      const driver = driverData as any;
+    const availableDrivers: any[] = [];
 
-      console.log(`🔍 [getAvailableDrivers] Verificando conductor ${driverId}: status=${driver.status}, type=${driver.vehicle?.type}`);
+    for (const driverId of allDriverIds) {
+      const info = (driversInfo as any)[driverId] || {};
+      const loc = (driverLocations as any)[driverId] || {};
 
-      // Verificar si está disponible (status debe ser 'available')
-      if (driver.status !== 'available') {
-        console.log(`  ⏭️ Saltando: status no es 'available' (es: ${driver.status})`);
+      const status = String(loc?.status || '').toLowerCase();
+      console.log(`🔍 [getAvailableDrivers] ${driverId}: status=${status}, type=${info?.vehicle?.type}`);
+
+      // Verificar disponibilidad solo desde driverLocations
+      if (status !== 'available') {
+        console.log(`  ⏭️ Saltando: status no es 'available' (es: ${status || 'unknown'})`);
         continue;
       }
 
-      // Verificar si tiene ubicación
-      if (!driver.lat || !driver.lng) {
-        console.log(`  ⏭️ Saltando: sin ubicación`);
+      // Coordenadas: preferir driverLocations
+      const lat = Number.isFinite(loc?.lat) ? loc.lat : info?.lat;
+      const lng = Number.isFinite(loc?.lng) ? loc.lng : info?.lng;
+      if (!(Number.isFinite(lat) && Number.isFinite(lng))) {
+        console.log('  ⏭️ Saltando: sin ubicación válida');
         continue;
       }
 
       // Calcular distancia
-      const distance = calculateDistance(
-        latitude,
-        longitude,
-        driver.lat,
-        driver.lng
-      );
+      const distance = calculateDistance(latitude, longitude, lat, lng);
 
       console.log(`  📍 Distancia: ${distance.toFixed(2)}km (radio: ${radius}km)`);
 
@@ -99,8 +128,8 @@ export const getAvailableDrivers = functions.https.onCall(async (data, context) 
       // Filtrar por tipo de vehículo si se especifica
       // "auto" es un tipo genérico que incluye sedan, suv, etc.
       if (vehicleType && vehicleType !== 'auto') {
-        if (driver.vehicle?.type !== vehicleType) {
-          console.log(`  ⏭️ Saltando: tipo de vehículo no coincide (buscando: ${vehicleType}, tiene: ${driver.vehicle?.type})`);
+        if (info?.vehicle?.type !== vehicleType) {
+          console.log(`  ⏭️ Saltando: tipo de vehículo no coincide (buscando: ${vehicleType}, tiene: ${info?.vehicle?.type})`);
           continue;
         }
       }
@@ -109,14 +138,14 @@ export const getAvailableDrivers = functions.https.onCall(async (data, context) 
 
       availableDrivers.push({
         id: driverId,
-        name: driver.fullName || 'Conductor',
-        rating: parseFloat(driver.averageRating) || 0,
-        latitude: driver.lat,
-        longitude: driver.lng,
+        name: info.fullName || info.name || 'Conductor',
+        rating: parseFloat(info.averageRating) || parseFloat(info.rating) || 0,
+        latitude: lat,
+        longitude: lng,
         distance,
-        vehicle: driver.vehicle || {},
+        vehicle: info.vehicle || {},
         isAvailable: true,
-        lastUpdate: driver.lastUpdate,
+        lastUpdate: loc?.updatedAt || info?.lastUpdate || null,
       });
     }
 
@@ -157,7 +186,22 @@ export const getDriverProfile = functions.https.onCall(async (data, context) => 
 
     // Obtener stats de Realtime DB - drivers
     const statsSnapshot = await db.ref(`drivers/${driverId}/stats`).once('value');
-    const stats = statsSnapshot.val() || {};
+    let stats = statsSnapshot.val() || {};
+    // Fallback a Supabase si no existen stats en RTDB
+    if (!stats || Object.keys(stats).length === 0) {
+      try {
+        const driver = await driverRepo.findByUserId(driverId);
+        if (driver) {
+          stats = {
+            totalRides: (driver as any).total_rides ?? 0,
+            totalEarnings: (driver as any).total_earnings ?? 0,
+            averageRating: (driver as any).average_rating ?? 0,
+          };
+        }
+      } catch (err) {
+        console.warn('[getDriverProfile] Fallback a Supabase para stats falló:', err);
+      }
+    }
 
     return {
       success: true,
@@ -172,9 +216,11 @@ export const getDriverProfile = functions.https.onCall(async (data, context) => 
         lng: driverInfo.lng,
         lastUpdate: driverInfo.lastUpdate,
         // Stats
-        total_rides: stats.totalRides || 0,
-        total_earnings: stats.totalEarnings || 0,
-        average_rating: parseFloat(driverInfo.averageRating) || 0,
+        total_rides: Number(stats.totalRides || 0),
+        total_earnings: Number(stats.totalEarnings || 0),
+        average_rating: typeof stats.averageRating === 'number'
+          ? Number(stats.averageRating)
+          : (parseFloat(driverInfo.averageRating) || 0),
       },
     };
   } catch (error: any) {
@@ -274,20 +320,37 @@ export const requestDesignatedDriverAccess = functions.https.onCall(async (data,
 
     console.log(`🚙 [requestDesignatedDriverAccess] Solicitando acceso para conductor: ${driverId}`);
 
-    // Guardar solicitud en Realtime DB
-    await db.ref(`designatedDriverRequests/${driverId}`).set({
-      driverId,
+    // Si mantenemos RTDB para solicitudes
+    if (MIGRATION_FLAGS.USE_RTDB_DESIGNATED_DRIVER_REQUESTS) {
+      await db.ref(`designatedDriverRequests/${driverId}`).set({
+        driverId,
+        status: 'pending',
+        requestedAt: admin.database.ServerValue.TIMESTAMP,
+        approvedAt: null,
+        rejectedAt: null,
+      });
+
+      return { success: true, message: 'Solicitud enviada exitosamente', status: 'pending' };
+    }
+
+    // Migrado a Supabase: crear/asegurar registro en driver_services con estado pending
+    const serviceId = await getDesignatedServiceId();
+    if (!serviceId) {
+      throw new functions.https.HttpsError('failed-precondition', 'Servicio designated_driver no configurado');
+    }
+
+    const existing = await driverServiceRepo.findByDriverAndService(driverId, serviceId);
+    if (existing) {
+      return { success: true, message: 'Solicitud existente', status: (existing as any).status || 'pending' };
+    }
+
+    const created = await driverServiceRepo.create({
+      driver_id: driverId,
+      service_id: serviceId,
       status: 'pending',
-      requestedAt: admin.database.ServerValue.TIMESTAMP,
-      approvedAt: null,
-      rejectedAt: null,
     });
 
-    return {
-      success: true,
-      message: 'Solicitud enviada exitosamente',
-      status: 'pending',
-    };
+    return { success: true, message: 'Solicitud enviada exitosamente', status: created.status || 'pending' };
   } catch (error: any) {
     console.error('❌ [requestDesignatedDriverAccess] Error:', error);
     throw new functions.https.HttpsError('internal', error.message);
@@ -307,24 +370,35 @@ export const getDesignatedDriverRequestStatus = functions.https.onCall(async (da
 
     console.log(`📋 [getDesignatedDriverRequestStatus] Obteniendo estado para conductor: ${driverId}`);
 
-    const snapshot = await db.ref(`designatedDriverRequests/${driverId}`).once('value');
-    const requestData = snapshot.val();
-
-    if (!requestData) {
+    if (MIGRATION_FLAGS.USE_RTDB_DESIGNATED_DRIVER_REQUESTS) {
+      const snapshot = await db.ref(`designatedDriverRequests/${driverId}`).once('value');
+      const requestData = snapshot.val();
+      if (!requestData) {
+        return { success: true, status: 'not_requested', message: 'No hay solicitud previa' };
+      }
       return {
         success: true,
-        status: 'not_requested',
-        message: 'No hay solicitud previa',
+        status: requestData.status || 'unknown',
+        requestedAt: requestData.requestedAt,
+        approvedAt: requestData.approvedAt,
+        rejectedAt: requestData.rejectedAt,
+        message: requestData.rejectionReason || null,
       };
     }
 
+    // Migrado a Supabase
+    const serviceId = await getDesignatedServiceId();
+    if (!serviceId) {
+      throw new functions.https.HttpsError('failed-precondition', 'Servicio designated_driver no configurado');
+    }
+    const existing = await driverServiceRepo.findByDriverAndService(driverId, serviceId);
+    if (!existing) {
+      return { success: true, status: 'not_requested', message: 'No hay solicitud previa' };
+    }
     return {
       success: true,
-      status: requestData.status || 'unknown',
-      requestedAt: requestData.requestedAt,
-      approvedAt: requestData.approvedAt,
-      rejectedAt: requestData.rejectedAt,
-      message: requestData.rejectionReason || null,
+      status: (existing as any).status || 'unknown',
+      approvedAt: (existing as any).approved_at || null,
     };
   } catch (error: any) {
     console.error('❌ [getDesignatedDriverRequestStatus] Error:', error);

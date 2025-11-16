@@ -59,6 +59,19 @@ export const negotiatePrice = functions.https.onCall(async (data, context) => {
       negotiationData.clientSuggestedPrice = suggestedPrice;
       console.log(`✅ [negotiatePrice] Cliente sugirió: C$${suggestedPrice}`);
     } else if (role === 'driver') {
+      // ✅ NUEVO: Bloquear si el conductor está BUSY
+      if (driverId) {
+        try {
+          const locSnap = await db.ref(`driverLocations/${driverId}`).once('value');
+          const status = String(locSnap.val()?.status || '').toLowerCase();
+          if (status === 'busy') {
+            throw new functions.https.HttpsError('failed-precondition', 'DRIVER_BUSY');
+          }
+        } catch (locErr: any) {
+          if (locErr instanceof functions.https.HttpsError) throw locErr;
+          console.warn('⚠️ [negotiatePrice] Error verificando driverLocations:', locErr?.message || locErr);
+        }
+      }
       updateData.driverOfferedPrice = suggestedPrice;
       updateData.negotiationStatus = 'driver_offered';
       negotiationData.driverOfferedPrice = suggestedPrice;
@@ -150,6 +163,18 @@ export const acceptClientPrice = functions.https.onCall(async (data, context) =>
     }
 
     console.log(`✅ [acceptClientPrice] Conductor ${driverId} aceptando precio del cliente para: ${rideId}`);
+
+    // ✅ NUEVO: Bloquear si el conductor está BUSY
+    try {
+      const locSnap = await db.ref(`driverLocations/${driverId}`).once('value');
+      const status = String(locSnap.val()?.status || '').toLowerCase();
+      if (status === 'busy') {
+        throw new functions.https.HttpsError('failed-precondition', 'DRIVER_BUSY');
+      }
+    } catch (locErr: any) {
+      if (locErr instanceof functions.https.HttpsError) throw locErr;
+      console.warn('⚠️ [acceptClientPrice] Error verificando driverLocations:', locErr?.message || locErr);
+    }
 
     // Obtener datos del viaje
     const rideSnapshot = await db.ref(`activeRides/${rideId}`).once('value');
@@ -271,6 +296,20 @@ export const makeCounterOffer = functions.https.onCall(async (data, context) => 
       const driverSnapshot = await db.ref(`driversInfo/${driverId}`).once('value');
       driverInfo = driverSnapshot.val();
       console.log(`📍 Datos del conductor obtenidos:`, driverInfo ? 'OK' : 'NO ENCONTRADO');
+    }
+
+    // ✅ NUEVO: Bloquear si el conductor está BUSY
+    if (driverId) {
+      try {
+        const locSnap = await db.ref(`driverLocations/${driverId}`).once('value');
+        const status = String(locSnap.val()?.status || '').toLowerCase();
+        if (status === 'busy') {
+          throw new functions.https.HttpsError('failed-precondition', 'DRIVER_BUSY');
+        }
+      } catch (locErr: any) {
+        if (locErr instanceof functions.https.HttpsError) throw locErr;
+        console.warn('⚠️ [makeCounterOffer] Error verificando driverLocations:', locErr?.message || locErr);
+      }
     }
 
     // ✅ NUEVO: Guardar contraoferta en offers con datos del conductor

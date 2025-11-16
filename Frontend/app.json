@@ -7,7 +7,7 @@
     "icon": "./assets/icon.png",
     "scheme": "com.driveangel.app",
     "owner": "samuelues",
-    "projectId": "e8f4c3b2-9d1a-4e7f-8c5b-2a3d4e5f6a7b",
+    "projectId": "79fc9fff-5481-4aba-a29a-632db706c382",
     "runtimeVersion": "1.0.1",
     "splash": {
       "image": "./assets/splash.png",
@@ -20,6 +20,7 @@
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
         "CAMERA",
         "READ_EXTERNAL_STORAGE",
         "WRITE_EXTERNAL_STORAGE",
@@ -80,6 +81,9 @@
       ]
     ],
     "extra": {
+      "eas": {
+        "projectId": "79fc9fff-5481-4aba-a29a-632db706c382"
+      },
       "domain": "driveangel.online",
       "apiUrl": "https://api.driveangel.online",
       "wsUrl": "https://api.driveangel.online",

@@ -21,6 +21,7 @@ import { getDatabase, ref, onValue, off } from 'firebase/database';
 import { initializeFirebase } from '../../config/firebase';
 import cardsService from '../../services/cardsService';
 import alertService from '../../services/alertService';
+import sessionService from '../../services/sessionService';
 
 interface PaymentConfirmationScreenProps {
   route: {
@@ -205,11 +206,13 @@ export default function PaymentConfirmationScreen({
       const functions = getFunctions(app);
       const confirmCashPaymentFn = httpsCallable(functions, 'confirmCashPayment');
       
+      const deviceId = await sessionService.getDeviceId();
       const result = await confirmCashPaymentFn({ 
         rideId: rideId,  // ← SIEMPRE usar rideId (Firebase ID)
         amount: numericAmount,
         tip: numericTip,
-        confirmedBy: 'driver'
+        confirmedBy: 'driver',
+        deviceId,
       });
       
       const data = result.data as any;
@@ -250,10 +253,12 @@ export default function PaymentConfirmationScreen({
           
           console.log(`🔄 Cambiando método de pago a ${newMethod}...`);
           console.log(`📍 Usando rideId: ${rideId} (pgRideId: ${pgRideId})`);
+          const deviceId = await sessionService.getDeviceId();
           const result = await changePaymentMethodFn({
             rideId: pgRideId || rideId,  // ✅ Usar pgRideId si está disponible, sino rideId
             newPaymentMethod: newMethod,
-            reason: `Cliente ${paymentMethod === 'cash' ? 'no tiene efectivo' : 'prefiere pagar en efectivo'}`,
+            reason: paymentMethod === 'cash' ? 'no tiene efectivo' : 'prefiere pagar en efectivo',
+            deviceId,
           });
 
           const data = result.data as any;
@@ -322,7 +327,8 @@ export default function PaymentConfirmationScreen({
       const cancelCashPayment = httpsCallable(functions, 'cancelCashPayment');
       
       console.log('🔄 Cancelando pago con razón:', reason);
-      await cancelCashPayment({ rideId, reason });
+      const deviceId = await sessionService.getDeviceId();
+      await cancelCashPayment({ rideId, reason, deviceId });
 
       alertService.showInfoAlert(
         'Pago Cancelado',

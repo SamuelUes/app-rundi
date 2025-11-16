@@ -17,7 +17,7 @@ export const createService = functions.https.onCall(async (data, context) => {
   }
 
   try {
-    const { name, description, commissionRate, basePrice, code } = data;
+    const { name, description, commissionRate, basePrice, code, isActive = true, isFeatured = false, status } = data;
 
     if (!name || commissionRate === undefined) {
       throw new functions.https.HttpsError('invalid-argument', 'name y commissionRate son requeridos');
@@ -31,7 +31,8 @@ export const createService = functions.https.onCall(async (data, context) => {
       description: description || null,
       commission_rate: commissionRate,
       base_price: basePrice ?? null,
-      status: 'active',
+      is_active: status ? String(status).toLowerCase() === 'active' : Boolean(isActive),
+      is_featured: Boolean(isFeatured),
     });
 
     return {
@@ -43,7 +44,10 @@ export const createService = functions.https.onCall(async (data, context) => {
         commissionRate: service.commission_rate,
         basePrice: service.base_price,
         code: service.code,
-        status: service.status,
+        isActive: !!service.is_active,
+        isFeatured: !!service.is_featured,
+        // Back-compat
+        status: service.is_active ? 'active' : 'inactive',
         createdAt: service.created_at,
       },
     };
@@ -78,7 +82,9 @@ export const getServices = functions.https.onCall(async (data, context) => {
           ? parseFloat(s.base_price.toString())
           : null,
         code: s.code,
-        status: s.status,
+        isActive: !!s.is_active,
+        isFeatured: !!s.is_featured,
+        status: s.is_active ? 'active' : 'inactive',
       })),
     };
   } catch (error: any) {
@@ -121,7 +127,9 @@ export const getServiceById = functions.https.onCall(async (data, context) => {
           ? parseFloat(service.base_price.toString())
           : null,
         code: service.code,
-        status: service.status,
+        isActive: !!service.is_active,
+        isFeatured: !!service.is_featured,
+        status: service.is_active ? 'active' : 'inactive',
       },
     };
   } catch (error: any) {
@@ -139,7 +147,7 @@ export const updateService = functions.https.onCall(async (data, context) => {
   }
 
   try {
-    const { serviceId, name, description, commissionRate, status, basePrice, code } = data;
+    const { serviceId, name, description, commissionRate, status, basePrice, code, isActive, isFeatured } = data;
 
     if (!serviceId) {
       throw new functions.https.HttpsError('invalid-argument', 'serviceId es requerido');
@@ -153,7 +161,9 @@ export const updateService = functions.https.onCall(async (data, context) => {
     if (commissionRate !== undefined) updateData.commission_rate = commissionRate;
     if (basePrice !== undefined) updateData.base_price = basePrice;
     if (code !== undefined) updateData.code = code;
-    if (status) updateData.status = status;
+    if (status !== undefined) updateData.is_active = String(status).toLowerCase() === 'active';
+    if (isActive !== undefined) updateData.is_active = Boolean(isActive);
+    if (isFeatured !== undefined) updateData.is_featured = Boolean(isFeatured);
 
     const service = await serviceRepo.update(serviceId, updateData);
 
@@ -167,7 +177,9 @@ export const updateService = functions.https.onCall(async (data, context) => {
           ? parseFloat(service.base_price.toString())
           : null,
         code: service.code,
-        status: service.status,
+        isActive: !!service.is_active,
+        isFeatured: !!service.is_featured,
+        status: service.is_active ? 'active' : 'inactive',
       },
     };
   } catch (error: any) {

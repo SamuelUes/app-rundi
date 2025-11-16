@@ -27,6 +27,7 @@ import { formatCurrency } from '../../utils/formatters';
 // Servicios optimizados
 import alertService from '../../services/alertService';
 import LoadingOverlay from '../../components/LoadingOverlay';
+import sessionService from '../../services/sessionService';
 
 // Crear estilos fuera del componente para mejor rendimiento
 const createStyles = (colors: any) => StyleSheet.create({
@@ -352,11 +353,13 @@ export default function CashPaymentScreen({ route, navigation }: any) {
       const finalAmount = ride?.finalFare || ride?.estimatedPrice || paramAmount || 0;
       const numericAmount = typeof finalAmount === 'string' ? parseFloat(finalAmount) : finalAmount;
       
+      const deviceId = await sessionService.getDeviceId();
       const result = await confirmCashPaymentFn({
         rideId,
         amount: numericAmount,
         tip: 0,
-        confirmedBy: 'client'
+        confirmedBy: 'client',
+        deviceId,
       });
       
       const data = result.data as any;

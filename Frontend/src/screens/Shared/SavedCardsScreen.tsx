@@ -5,12 +5,12 @@ import {
   StyleSheet,
   TouchableOpacity,
   FlatList,
-  Alert,
   ActivityIndicator,
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { initializeFirebase } from '../../config/firebase';
+import alertService from '../../services/alertService';
 
 interface SavedCardsScreenProps {
   navigation: any;
@@ -53,42 +53,39 @@ export default function SavedCardsScreen({ navigation }: SavedCardsScreenProps) 
       }
     } catch (error: any) {
       console.error('Error cargando tarjetas:', error);
-      Alert.alert('Error', 'No se pudieron cargar las tarjetas');
+      alertService.showErrorAlert('No se pudieron cargar las tarjetas');
     } finally {
       setLoading(false);
     }
   };
 
   const handleDeleteCard = async (cardId: string) => {
-    Alert.alert(
+    alertService.showConfirmAlert(
       'Eliminar Tarjeta',
       '¿Estás seguro de que deseas eliminar esta tarjeta?',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Eliminar',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              setDeleting(cardId);
-              const { app } = await initializeFirebase();
-              if (!app) throw new Error('Firebase no inicializado');
+      async () => {
+        try {
+          setDeleting(cardId);
+          const { app } = await initializeFirebase();
+          if (!app) throw new Error('Firebase no inicializado');
 
-              const functions = getFunctions(app);
-              const deleteCardFn = httpsCallable(functions, 'deleteCard');
-              await deleteCardFn({ cardId });
+          const functions = getFunctions(app);
+          const deleteCardFn = httpsCallable(functions, 'deleteCard');
+          await deleteCardFn({ cardId });
 
-              Alert.alert('✅ Éxito', 'Tarjeta eliminada');
-              loadCards();
-            } catch (error: any) {
-              console.error('Error eliminando tarjeta:', error);
-              Alert.alert('Error', 'No se pudo eliminar la tarjeta');
-            } finally {
-              setDeleting(null);
-            }
-          },
-        },
-      ]
+          alertService.showSuccessAlert('✅ Éxito', 'Tarjeta eliminada');
+          loadCards();
+        } catch (error: any) {
+          console.error('Error eliminando tarjeta:', error);
+          alertService.showErrorAlert('No se pudo eliminar la tarjeta');
+        } finally {
+          setDeleting(null);
+        }
+      },
+      undefined,
+      'Eliminar',
+      'Cancelar',
+      true
     );
   };
 
@@ -101,11 +98,11 @@ export default function SavedCardsScreen({ navigation }: SavedCardsScreenProps) 
       const setDefaultCardFn = httpsCallable(functions, 'setDefaultCard');
       await setDefaultCardFn({ cardId });
 
-      Alert.alert('✅ Éxito', 'Tarjeta predeterminada actualizada');
+      alertService.showSuccessAlert('✅ Éxito', 'Tarjeta predeterminada actualizada');
       loadCards();
     } catch (error: any) {
       console.error('Error estableciendo tarjeta predeterminada:', error);
-      Alert.alert('Error', 'No se pudo actualizar la tarjeta predeterminada');
+      alertService.showErrorAlert('No se pudo actualizar la tarjeta predeterminada');
     }
   };
 

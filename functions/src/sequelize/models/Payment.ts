@@ -14,9 +14,11 @@ class Payment extends Model {
   public commission_rate_applied!: number | null;
   public payment_method!: string;
   public status!: string;
+  public commission_status!: string;
   public cancel_reason?: string;
   public created_at!: Date;
   public paid_at?: Date;
+  public commission_paid_at?: Date | null;
   public updated_at?: Date;
 }
 
@@ -59,12 +61,23 @@ Payment.init(
       type: DataTypes.ENUM('pending', 'completed', 'failed', 'canceled'),
       defaultValue: 'pending',
     },
+    commission_status: {
+      type: DataTypes.ENUM('pending', 'paid'),
+      allowNull: false,
+      defaultValue: 'pending',
+      comment: 'Estado de la comisión del conductor',
+    },
     cancel_reason: DataTypes.STRING,
     created_at: {
       type: DataTypes.DATE,
       defaultValue: DataTypes.NOW,
     },
     paid_at: DataTypes.DATE,
+    commission_paid_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      comment: 'Fecha en la que el conductor liquidó la comisión',
+    },
     updated_at: DataTypes.DATE,
   },
   {

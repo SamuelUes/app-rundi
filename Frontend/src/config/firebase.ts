@@ -9,7 +9,7 @@ import {
 } from 'firebase/auth';
 import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore';
 import { getDatabase, connectDatabaseEmulator } from 'firebase/database';
-import { getFunctions, connectFunctionsEmulator } from 'firebase/functions';
+import { getFunctions, connectFunctionsEmulator, type Functions } from 'firebase/functions';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Configuración de Firebase
@@ -29,7 +29,7 @@ let app: FirebaseApp | null = null;
 let auth: Auth | null = null;
 let firestore: any = null;
 let database: any = null;
-let functions: any = null;
+let functions: Functions | null = null;
 let isInitialized = false;
 
 /**
@@ -130,10 +130,15 @@ export async function getFirebaseDatabase() {
 /**
  * Obtener Functions (inicializa si es necesario)
  */
-export async function getFirebaseFunctions() {
+export async function getFirebaseFunctions(): Promise<Functions> {
   if (!functions) {
     await initializeFirebase();
   }
+
+  if (!functions) {
+    throw new Error('Firebase Functions no inicializado');
+  }
+
   return functions;
 }
 

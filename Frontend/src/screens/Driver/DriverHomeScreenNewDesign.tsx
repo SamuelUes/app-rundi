@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ImageSourcePropType } from 'react-native';
+import type { DriverStackParamList } from '../../navigation/DriverStack';
 import {
   View,
   Text,
@@ -9,11 +10,15 @@ import {
   Platform,
   Image,
   ImageBackground,
+  Animated,
+  Dimensions,
+  ActivityIndicator,
 } from 'react-native';
 
 // Contextos y hooks
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
+import { useVoiceAssistant } from '../../context/VoiceAssistantContext';
 import { useLocation } from '../../hooks/useLocation';
 
 // Componentes
@@ -29,6 +34,9 @@ import driverAvailabilityService from '../../services/driverAvailabilityService'
 import earningsService from '../../services/earningsService';
 import { extractVehicleTypeFromInfo, ensureVehicleIconSource } from '../../utils/vehicleIcons';
 import { useAcceptedRideListener } from '../../hooks/useAcceptedRideListener';
+import proximityService from '../../services/proximityService';
+import penaltiesService from '../../services/penaltiesService';
+import penaltiesRealtimeService from '../../services/realtime/penaltiesRealtimeService';
 
 type NearbyDriverMarker = {
   id: string;
@@ -99,7 +107,8 @@ const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: numbe
 };
 
 export default function DriverHomeScreenNewDesign({ navigation }: any) {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const { settings: voiceSettings, speak: speakVoice, stopCategory: stopVoiceCategory } = useVoiceAssistant();
   const { colors } = useTheme();
   const { coords, loading: locationLoading, error, refreshLocation } = useLocation();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -111,17 +120,88 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   const [isDesignatedDriverMode, setIsDesignatedDriverMode] = useState(false);
   const [todayStats, setTodayStats] = useState({ trips: 0, earnings: 0 });
   const [pendingPayments, setPendingPayments] = useState<any[]>([]);
+  const [penaltySummary, setPenaltySummary] = useState<{ pendingCount: number; pendingAmount: number } | null>(null);
   const [nearbyDriversMarkers, setNearbyDriversMarkers] = useState<NearbyDriverMarker[]>([]);
   const [availableRideRequests, setAvailableRideRequests] = useState<any[]>([]);
   const [activeRide, setActiveRide] = useState<any>(null);
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [clientNamesCache, setClientNamesCache] = useState<Record<string, string>>({});
+  const [menuVisible, setMenuVisible] = useState(false);
+  const panelWidthRef = useRef(Math.min(Dimensions.get('window').width * 0.8, 340));
+  const panelWidth = panelWidthRef.current;
+  const menuOpacity = useRef(new Animated.Value(0)).current;
+  const menuTranslate = useRef(new Animated.Value(panelWidth)).current;
+
+  const closeMenu = useCallback(() => {
+    if (!menuVisible) return;
+    Animated.parallel([
+      Animated.timing(menuOpacity, {
+        toValue: 0,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+      Animated.timing(menuTranslate, {
+        toValue: panelWidth,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+    ]).start(({ finished }) => {
+      if (finished) {
+        setMenuVisible(false);
+      }
+    });
+  }, [menuOpacity, menuTranslate, menuVisible, panelWidth]);
+
+  const openMenu = useCallback(() => {
+    menuOpacity.setValue(0);
+    menuTranslate.setValue(panelWidth);
+    setMenuVisible(true);
+    Animated.parallel([
+      Animated.timing(menuOpacity, {
+        toValue: 1,
+        duration: 220,
+        useNativeDriver: true,
+      }),
+      Animated.timing(menuTranslate, {
+        toValue: 0,
+        duration: 220,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [menuOpacity, menuTranslate, panelWidth]);
+
+  const toggleMenu = () => {
+    if (menuVisible) {
+      closeMenu();
+    } else {
+      openMenu();
+    }
+  };
+
+  const handleNavigate = (route: keyof DriverStackParamList) => {
+    closeMenu();
+    navigation.navigate(route);
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+      closeMenu();
+    } catch (error) {
+      console.error('❌ Error cerrando sesión:', error);
+    }
+  };
 
   const notifiedRides = useRef<Set<string>>(new Set());
+  const announcedRideIdsRef = useRef<Set<string>>(new Set());
   const rideStatusCacheRef = useRef<Record<string, string>>({});
   const driverLocationsSignatureRef = useRef<string>('');
   const driverInfoCacheRef = useRef<Record<string, any>>({});
+  const lastPendingActionRef = useRef<string | null>(null);
+  const lastAvailabilityAnnouncementRef = useRef<boolean | null>(null);
+  const lastActiveRideIdRef = useRef<string | null>(null);
+  const initialVoiceWelcomeRef = useRef<boolean>(false);
 
   const [currentVehicleType, setCurrentVehicleType] = useState<string | null>(null);
   const [currentVehicleIconSource, setCurrentVehicleIconSource] = useState<ImageSourcePropType | undefined>(undefined);
@@ -140,6 +220,179 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   useEffect(() => {
     mapsService.fetchProviderFromBackend();
   }, []);
+
+  useEffect(() => {
+    return () => {
+      stopVoiceCategory('navigation');
+      stopVoiceCategory('status');
+    };
+  }, [stopVoiceCategory]);
+
+  useEffect(() => {
+    if (!voiceSettings.enabled) {
+      announcedRideIdsRef.current.clear();
+      lastPendingActionRef.current = null;
+      initialVoiceWelcomeRef.current = false;
+      stopVoiceCategory('navigation');
+      stopVoiceCategory('status');
+      return;
+    }
+
+    if (!initialVoiceWelcomeRef.current) {
+      initialVoiceWelcomeRef.current = true;
+      speakVoice(
+        'Asistente de voz listo. Te avisaré de viajes cercanos y cambios importantes.',
+        'status',
+        undefined,
+        true,
+      );
+    }
+  }, [voiceSettings.enabled, speakVoice, stopVoiceCategory]);
+
+  // 🚀 Proximidad en foreground: si está disponible y NO hay viaje activo, abrir preview
+  useEffect(() => {
+    if (!user?.id || !coords || !isAvailable) return;
+    if (activeRide) return;
+    proximityService.handleLocationForProximity(user.id, coords.latitude, coords.longitude);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, coords?.latitude, coords?.longitude, isAvailable, activeRide?.id]);
+
+  useEffect(() => {
+    if (!voiceSettings.enabled) return;
+
+    if (lastAvailabilityAnnouncementRef.current === null) {
+      lastAvailabilityAnnouncementRef.current = isAvailable;
+      if (isAvailable) {
+        speakVoice('Disponibilidad activada. Esperando nuevos viajes.', 'status');
+      }
+      return;
+    }
+
+    if (lastAvailabilityAnnouncementRef.current !== isAvailable) {
+      lastAvailabilityAnnouncementRef.current = isAvailable;
+      speakVoice(
+        isAvailable ? 'Disponibilidad activada. Esperando nuevos viajes.' : 'Disponibilidad desactivada.',
+        'status',
+      );
+    }
+  }, [isAvailable, voiceSettings.enabled, speakVoice]);
+
+  useEffect(() => {
+    if (!voiceSettings.enabled || !isAvailable || activeRide) {
+      return;
+    }
+
+    const currentIds = new Set(availableRideRequests.map((ride) => ride.id));
+    announcedRideIdsRef.current.forEach((id) => {
+      if (!currentIds.has(id)) {
+        announcedRideIdsRef.current.delete(id);
+      }
+    });
+
+    const haversineKm = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+      const R = 6371; // km
+      const toRad = (deg: number) => (deg * Math.PI) / 180;
+      const dLat = toRad(lat2 - lat1);
+      const dLon = toRad(lon2 - lon1);
+      const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return R * c;
+    };
+
+    availableRideRequests.forEach((ride) => {
+      if (announcedRideIdsRef.current.has(ride.id)) return;
+      announcedRideIdsRef.current.add(ride.id);
+
+      let distanceKm: number | null = typeof ride.distanceKm === 'number' ? ride.distanceKm : null;
+      if ((distanceKm === null || !Number.isFinite(distanceKm)) && coords) {
+        distanceKm = haversineKm(coords.latitude, coords.longitude, ride.latitude, ride.longitude);
+      }
+
+      const priceAmount: number = typeof ride.priceAmount === 'number' ? ride.priceAmount : 0;
+      const roundedPrice = Math.round(priceAmount);
+      const distanceText = Number.isFinite(distanceKm as number) ? `${(distanceKm as number).toFixed(1)} kilómetros` : 'distancia cercana';
+
+      const phrase = `Viaje cercano a ${distanceText}. Precio neto ${roundedPrice} Cordobas.`;
+      speakVoice(phrase, 'navigation');
+    });
+  }, [availableRideRequests, voiceSettings.enabled, isAvailable, activeRide, speakVoice, coords?.latitude, coords?.longitude]);
+
+  useEffect(() => {
+    if (!voiceSettings.enabled || !pendingAction) {
+      if (!pendingAction) {
+        lastPendingActionRef.current = null;
+      }
+      return;
+    }
+
+    const signature = `${pendingAction.type}:${pendingAction.title}:${pendingAction.subtitle}`;
+    if (lastPendingActionRef.current === signature) {
+      return;
+    }
+    lastPendingActionRef.current = signature;
+    speakVoice(`${pendingAction.title}. ${pendingAction.subtitle}`, 'status');
+  }, [pendingAction, voiceSettings.enabled, speakVoice]);
+
+  useEffect(() => {
+    if (!voiceSettings.enabled || !activeRide) {
+      if (!activeRide) {
+        lastActiveRideIdRef.current = null;
+      }
+      return;
+    }
+
+    if (lastActiveRideIdRef.current === activeRide.id) {
+      return;
+    }
+
+    lastActiveRideIdRef.current = activeRide.id;
+
+    const clientName = activeRide.client?.name || activeRide.clientName || 'el cliente';
+    const destinationText =
+      activeRide.destinationAddress ||
+      activeRide.destination?.address ||
+      'el destino asignado';
+
+    speakVoice(
+      `Tienes un viaje activo con ${clientName}. Destino ${destinationText}.`,
+      'status',
+    );
+  }, [activeRide, voiceSettings.enabled, speakVoice]);
+
+  // ✅ Supabase Realtime: resumen de penalizaciones
+  useEffect(() => {
+    if (!user?.id) return;
+    let unsubscribe: (() => void) | null = null;
+    let isActive = true;
+
+    const fetchSummary = async () => {
+      try {
+        const response = await penaltiesService.getDriverPenaltySummary();
+        if (!isActive || !response?.success) return;
+        setPenaltySummary({
+          pendingCount: Number(response.pendingCount || 0),
+          pendingAmount: Number(response.pendingAmount || 0),
+        });
+      } catch (e) {
+        console.error('❌ [DriverHomeScreenNewDesign] Error obteniendo resumen de penalizaciones:', e);
+      }
+    };
+
+    penaltiesRealtimeService
+      .subscribeToDriverPenaltyChanges(user.id, fetchSummary)
+      .then((unsubscribeFn) => {
+        unsubscribe = unsubscribeFn;
+      })
+      .catch((err) => {
+        console.error('❌ [DriverHomeScreenNewDesign] Error suscribiendo a penalizaciones:', err);
+        void fetchSummary();
+      });
+
+    return () => {
+      isActive = false;
+      unsubscribe?.();
+    };
+  }, [user?.id]);
 
   useEffect(() => {
     let isMounted = true;
@@ -188,10 +441,11 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
         title: 'Pago pendiente',
         subtitle: pendingPayments.length === 1 ? 'Confirma el pago pendiente' : `${pendingPayments.length} pagos pendientes`,
         onPress: () => {
-          navigation.navigate('PaymentConfirmation', {
+          navigation.replace('PaymentConfirmation', {
             rideId: firstPayment.rideId,
             amount: firstPayment.finalAmount,
             method: firstPayment.method,
+            fromHome: true,
           });
         },
       });
@@ -205,7 +459,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
         title: copy.title,
         subtitle: copy.subtitle,
         onPress: () => {
-          navigation.navigate('ActiveRide', {
+          navigation.replace('ActiveRide', {
             rideId: activeRide.id,
             clientId: activeRide.clientId,
             origin: activeRide.origin,
@@ -219,6 +473,18 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
 
     setPendingAction(null);
   }, [pendingPayments, activeRide, navigation]);
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', (e: any) => {
+      if (e?.data?.state?.routeNames?.[e.data.state.index] === 'DriverHome') {
+        setPendingAction((prev) => (prev?.type === 'pending_payment' ? null : prev));
+      }
+    });
+
+    return () => {
+      unsubscribe?.();
+    };
+  }, [navigation]);
 
   useEffect(() => {
     let isMounted = true;
@@ -400,6 +666,30 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
           let myActiveRide: any = null;
 
           Object.entries<any>(data).forEach(([rideId, ridePayload]) => {
+            const clientIdRaw =
+              ridePayload?.clientId ??
+              ridePayload?.client_id ??
+              ridePayload?.clientUID ??
+              ridePayload?.clientUid ??
+              ridePayload?.client?.id ??
+              ridePayload?.client?.uid ??
+              ridePayload?.clientInfo?.id ??
+              ridePayload?.clientInfo?.uid ??
+              ridePayload?.userId ??
+              ridePayload?.user_id ??
+              null;
+
+            const clientId =
+              typeof clientIdRaw === 'string'
+                ? clientIdRaw.trim()
+                : clientIdRaw != null
+                  ? String(clientIdRaw).trim()
+                  : '';
+
+            if (!clientId) {
+              return;
+            }
+
             const originLat = parseCoordinate(
               ridePayload?.originLatitude ?? ridePayload?.origin?.latitude ?? ridePayload?.origin?.lat,
             );
@@ -444,6 +734,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
             availableRides.push({
               id: rideId,
               ...ridePayload,
+              clientId,
               distance,
               originLatitude: originLat,
               originLongitude: originLng,
@@ -472,11 +763,17 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
                 latitude,
                 longitude,
                 clientId: ride.clientId,
-                clientName: ride.client?.name || ride.clientName || 'Cliente',
+                clientName:
+                  (typeof ride.clientId === 'string' && ride.clientId && clientNamesCache[ride.clientId]) ||
+                  ride.client?.name ||
+                  ride.clientName ||
+                  'Cliente',
                 originAddress: ride.originAddress || ride.origin?.address || 'Origen',
                 finalDestination: ride.destinationAddress || ride.destination?.address || 'Destino',
                 priceLabel: formatCurrency(price),
+                priceAmount: price,
                 passengers: ride.passengers ?? 1,
+                distanceKm: Number.isFinite(ride.distance) ? Number(ride.distance) : null,
               };
             })
             .filter((item): item is any => Boolean(item));
@@ -597,7 +894,19 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
           }
 
           const pending = Object.entries<any>(data)
-            .filter(([, payment]) => payment.status === 'pending' && payment.driverId === user.id)
+            .filter(([, payment]) => {
+              if (!payment) return false;
+
+              const belongsToDriver = payment.driverId === user.id;
+              if (!belongsToDriver) return false;
+
+              const status = String(payment.status || '').toLowerCase();
+              const isPendingStatus = ['pending', 'pending_confirmation', 'in_progress'].includes(status);
+              if (!isPendingStatus) return false;
+
+              const requiresClientPayment = payment.requiresClientPayment === true || payment.chargeTarget === 'client';
+              return requiresClientPayment;
+            })
             .map(([rideId, payment]) => ({ rideId, ...payment }));
 
           setPendingPayments(pending);
@@ -615,6 +924,21 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   const handleAvailabilityToggle = async (nextValue: boolean) => {
     if (!user || !coords) {
       alertService.showErrorAlert('No se pudo actualizar tu estado');
+      return;
+    }
+
+    // Evitar doble tap mientras se está actualizando
+    if (updatingStatus) {
+      return;
+    }
+
+    // ✅ Bloquear activar disponibilidad si tiene comisiones pendientes
+    if (nextValue && penaltySummary && Number(penaltySummary.pendingAmount) > 0) {
+      alertService.showInfoAlert(
+        'Comisiones pendientes',
+        `Tienes C$${Number(penaltySummary.pendingAmount).toFixed(2)} en comisiones pendientes. Debes pagarlas para activar disponibilidad.`,
+        () => navigation.navigate('PayCommissions')
+      );
       return;
     }
 
@@ -701,16 +1025,27 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
           markerVehicleType={currentVehicleType ?? undefined}
           markerVehicleIconSource={currentVehicleIconSource}
           onRideRequestPress={(ride: any) =>
-            navigation.navigate('AvailableRides', {
-              preselectedRideId: ride.id,
-            })
+            activeRide
+              ? navigation.navigate('ActiveRide', { rideId: activeRide.id })
+              : navigation.navigate('AvailableRides', {
+                  preselectedRideId: ride.id,
+                })
           }
         />
 
         <View style={styles.overlayHeader}>
+          <TouchableOpacity
+            style={styles.menuButton}
+            activeOpacity={0.85}
+            onPress={toggleMenu}
+          >
+            <Image source={require('../../assets/icons/menuicon/menuicon_2x.png')} style={styles.menuIcon} />
+          </TouchableOpacity>
+
           <EmergencyButton
             rideId={activeRide?.id}
-            style={styles.emergencyFloatingButton}
+            style={styles.emergencyHeaderButton}
+            onOpen={closeMenu}
           />
 
           <View style={styles.rightHeaderGroup}>
@@ -734,7 +1069,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
         <TouchableOpacity
           style={styles.activeRideCard}
           onPress={() =>
-            navigation.navigate('ActiveRide', {
+            navigation.replace('ActiveRide', {
               rideId: activeRide.id,
               clientId: activeRide.clientId,
               origin: activeRide.origin,
@@ -754,6 +1089,26 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
             </Text>
           </View>
           <Text style={styles.activeRideArrow}>→</Text>
+        </TouchableOpacity>
+      )}
+
+      {/* ✅ Banner de comisiones pendientes */}
+      {penaltySummary && penaltySummary.pendingAmount > 0 && (
+        <TouchableOpacity
+          style={[styles.pendingBanner, { backgroundColor: '#E53935' }]}
+          onPress={() => navigation.navigate('PayCommissions')}
+          activeOpacity={0.9}
+        >
+          <View style={styles.pendingBannerIcon}>
+            <Text style={styles.pendingBannerEmoji}>⚠️</Text>
+          </View>
+          <View style={styles.pendingBannerContent}>
+            <Text style={styles.pendingBannerTitle}>Comisiones pendientes</Text>
+            <Text style={styles.pendingBannerSubtitle}>
+              {penaltySummary.pendingCount} por C${Number(penaltySummary.pendingAmount).toFixed(2)}
+            </Text>
+          </View>
+          <Text style={styles.pendingBannerArrow}>→</Text>
         </TouchableOpacity>
       )}
 
@@ -806,6 +1161,64 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
         </TouchableOpacity>
       )}
 
+      {menuVisible && (
+        <Animated.View style={[styles.menuOverlay, { opacity: menuOpacity }]}> 
+          <TouchableOpacity style={styles.menuBackdrop} activeOpacity={1} onPress={closeMenu} />
+          <Animated.View
+            style={[
+              styles.menuContainer,
+              {
+                transform: [{ translateX: menuTranslate }],
+                width: panelWidth,
+              },
+            ]}
+          >
+            <View style={styles.menuHeaderRow}>
+              <Text style={styles.menuHeader}>Menú rápido</Text>
+              <TouchableOpacity onPress={closeMenu} style={styles.menuCloseBtn}>
+                <Text style={styles.menuCloseIcon}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.menuSection}>
+              <TouchableOpacity style={styles.menuItem} onPress={() => handleNavigate('Earnings')}>
+                <Text style={styles.menuEmoji}>💵</Text>
+                <Text style={styles.menuLabel}>Ver Ganancias Detalladas</Text>
+              </TouchableOpacity>
+              {(user?.role === 'driver' || user?.role === 'designated_driver') && (
+                <TouchableOpacity style={styles.menuItem} onPress={() => handleNavigate('PayCommissions')}>
+                  <Text style={styles.menuEmoji}>💼</Text>
+                  <Text style={styles.menuLabel}>Pagar Comisiones</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity style={styles.menuItem} onPress={() => handleNavigate('RideHistory')}>
+                <Text style={styles.menuEmoji}>📜</Text>
+                <Text style={styles.menuLabel}>Historial de Viajes</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.menuItem} onPress={() => handleNavigate('PaymentMethods')}>
+                <Text style={styles.menuEmoji}>💳</Text>
+                <Text style={styles.menuLabel}>Métodos de Pago</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.menuItem} onPress={() => handleNavigate('Settings')}>
+                <Text style={styles.menuEmoji}>⚙️</Text>
+                <Text style={styles.menuLabel}>Configuración</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.menuItem} onPress={() => handleNavigate('Help')}>
+                <Text style={styles.menuEmoji}>❓</Text>
+                <Text style={styles.menuLabel}>Ayuda</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.menuDivider} />
+
+            <TouchableOpacity style={[styles.menuItem, styles.logoutItem]} onPress={handleLogout}>
+              <Text style={styles.logoutEmoji}>🚪</Text>
+              <Text style={styles.logoutLabel}>Cerrar sesión</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </Animated.View>
+      )}
+
       <View style={styles.bottomBar} pointerEvents="box-none">
         {user?.role === 'designated_driver' && (
           <View style={styles.iconButtonWrapper}>
@@ -833,14 +1246,21 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
               onPress={() => handleAvailabilityToggle(!isAvailable)}
               disabled={updatingStatus}
             >
-              <Image
-                source={
-                  isAvailable
-                    ? require('../../assets/icons/status/active_status_button2.png')
-                    : require('../../assets/icons/status/desactive_status_button2.png')
-                }
-                style={styles.statusImage}
-              />
+              <View style={styles.statusButtonContainer}>
+                <Image
+                  source={
+                    isAvailable
+                      ? require('../../assets/icons/status/active_status_button2.png')
+                      : require('../../assets/icons/status/desactive_status_button2.png')
+                  }
+                  style={[styles.statusImage, updatingStatus && styles.statusImageDim]}
+                />
+                {updatingStatus && (
+                  <View style={styles.statusLoadingOverlay}>
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  </View>
+                )}
+              </View>
             </TouchableOpacity>
           </View>
 
@@ -892,10 +1312,29 @@ const createStyles = (colors: any) =>
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
+      gap: 12,
     },
-    emergencyFloatingButton: {
-      width: 60,
-      height: 60,
+    menuButton: {
+      width: 48,
+      height: 48,
+      borderRadius: 16,
+      //backgroundColor: 'rgba(15,23,42,0.4)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      //shadowColor: '#000',
+      //shadowOffset: { width: 0, height: 4 },
+      //shadowOpacity: 0.25,
+      //shadowRadius: 8,
+      //elevation: 10,
+    },
+    menuIcon: {
+      width: 22,
+      height: 22,
+      resizeMode: 'contain',
+    },
+    emergencyHeaderButton: {
+      width: 52,
+      height: 52,
     },
     rightHeaderGroup: {
       flexDirection: 'row',
@@ -1093,6 +1532,95 @@ const createStyles = (colors: any) =>
       fontSize: 24,
       fontWeight: '700',
     },
+    menuOverlay: {
+      ...StyleSheet.absoluteFillObject,
+      zIndex: 50,
+      justifyContent: 'flex-start',
+      alignItems: 'flex-end',
+    },
+    menuBackdrop: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: 'rgba(0,0,0,0.35)',
+    },
+    menuContainer: {
+      marginTop: Platform.select({ ios: 70, android: 80 }),
+      marginBottom: Platform.select({ ios: 24, android: 20 }),
+      marginRight: 16,
+      backgroundColor: colors.card,
+      borderRadius: 18,
+      paddingVertical: 18,
+      paddingHorizontal: 20,
+      shadowColor: 'rgba(15,23,42,0.4)',
+      shadowOffset: { width: 0, height: 10 },
+      shadowOpacity: 0.3,
+      shadowRadius: 16,
+      elevation: 20,
+    },
+    menuHeaderRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: 12,
+    },
+    menuHeader: {
+      fontSize: 20,
+      fontWeight: '700',
+      color: colors.text,
+    },
+    menuCloseBtn: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: 'rgba(15,23,42,0.08)',
+    },
+    menuCloseIcon: {
+      fontSize: 18,
+      color: colors.text,
+      fontWeight: '700',
+    },
+    menuSection: {
+      gap: 10,
+    },
+    menuItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 14,
+      backgroundColor: colors.surface,
+      borderRadius: 14,
+      paddingVertical: 14,
+      paddingHorizontal: 16,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    menuEmoji: {
+      fontSize: 18,
+    },
+    menuLabel: {
+      flex: 1,
+      color: colors.text,
+      fontSize: 15,
+      fontWeight: '600',
+    },
+    menuDivider: {
+      height: 1,
+      backgroundColor: colors.border,
+      marginVertical: 18,
+    },
+    logoutItem: {
+      backgroundColor: 'rgba(239,68,68,0.2)',
+      borderColor: 'rgba(239,68,68,0.35)',
+    },
+    logoutEmoji: {
+      fontSize: 18,
+    },
+    logoutLabel: {
+      flex: 1,
+      color: '#EF4444',
+      fontSize: 15,
+      fontWeight: '700',
+    },
     bottomBar: {
       position: 'absolute',
       left: 20,
@@ -1122,6 +1650,27 @@ const createStyles = (colors: any) =>
       width: 60,
       height: 60,
       resizeMode: 'cover',
+    },
+    statusButtonContainer: {
+      width: 60,
+      height: 60,
+      position: 'relative',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    statusImageDim: {
+      opacity: 0.6,
+    },
+    statusLoadingOverlay: {
+      position: 'absolute',
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: 'rgba(0,0,0,0.25)',
+      borderRadius: 20,
     },
     disabledImage: {
       opacity: 0.55,

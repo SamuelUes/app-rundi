@@ -508,6 +508,22 @@ export default function HomeScreen({ navigation }: any) {
       
       console.log(`📊 [HomeScreen] Total pagos pendientes del usuario: ${userPendingPayments.length}`);
       setPendingPayments(userPendingPayments);
+      // ✅ Fallback: derivar flags y total
+      try {
+        const fallbackTotal = userPendingPayments.reduce((sum: number, item: any) => {
+          const amount = Number(
+            item?.payment?.finalAmount ??
+            item?.ride?.finalFare ??
+            item?.ride?.estimatedPrice ??
+            0
+          );
+          return sum + (Number.isFinite(amount) ? amount : 0);
+        }, 0);
+        setHasPendingPayments(userPendingPayments.length > 0);
+        setTotalDebt(Number(fallbackTotal.toFixed(2)));
+      } catch (e) {
+        console.warn('⚠️ [HomeScreen] No se pudo calcular total de deuda de fallback:', e);
+      }
     });
     
     return () => {
@@ -782,7 +798,7 @@ export default function HomeScreen({ navigation }: any) {
   // Navegar a pantalla de pagos pendientes
   const handleViewPendingPayments = useCallback(() => {
     console.log('💰 Navegando a pantalla de pagos pendientes');
-    navigation.navigate('PendingPayments');
+    navigation.replace('PendingPayments');
   }, [navigation]);
 
   const handleManualLocationDragStart = useCallback((startCoords: { latitude: number; longitude: number }) => {
@@ -862,12 +878,12 @@ export default function HomeScreen({ navigation }: any) {
       console.log('🚗 Navegando a viaje activo:', activeRide.id, 'Estado:', activeRide.status);
 
       if (['requested', 'driver_offered', 'pending_confirm', 'driver_assigned'].includes(activeRide.status)) {
-        navigation.navigate('HomeOffers', { rideId: activeRide.id });
+        navigation.replace('HomeOffers', { rideId: activeRide.id });
         return;
       }
 
       if (['accepted', 'driver_on_route', 'in_progress'].includes(activeRide.status)) {
-        navigation.navigate('RideTracking', {
+        navigation.replace('RideTracking', {
           rideId: activeRide.id,
           driverId: activeRide.driverId,
           driverName: activeRide.driver?.name || 'Conductor',
@@ -887,7 +903,7 @@ export default function HomeScreen({ navigation }: any) {
         const driverPhoto = activeRide.driver?.photoURL || undefined;
 
         if (paymentMethod === 'card') {
-          navigation.navigate('Payment', {
+          navigation.replace('Payment', {
             rideId: activeRide.id,
             amount: finalAmount,
             driverId: activeRide.driverId,
@@ -897,7 +913,7 @@ export default function HomeScreen({ navigation }: any) {
             isPendingPayment: true,
           });
         } else {
-          navigation.navigate('CashPayment', {
+          navigation.replace('CashPayment', {
             rideId: activeRide.id,
             amount: finalAmount,
             driverName,

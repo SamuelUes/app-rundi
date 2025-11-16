@@ -9,7 +9,7 @@ interface MapBoxMapProps {
   onMapPress?: (event: { latitude: number; longitude: number }) => void;
   showMarker?: boolean;
   markerPosition?: { latitude: number; longitude: number };
-  markerType?: 'default' | 'car' | 'origin' | 'destination' | 'client'; // Tipo de marcador
+  markerType?: 'default' | 'car' | 'origin' | 'destination' | 'client' | 'manual_origin' | 'manual_origin_hold'; // Tipo de marcador
   originMarker?: { latitude: number; longitude: number };
   destinationMarker?: { latitude: number; longitude: number };
   clientMarker?: { latitude: number; longitude: number };
@@ -120,8 +120,20 @@ export default function MapBoxMap({
             latitude: markerPosition.latitude,
             longitude: markerPosition.longitude,
           }}
-          pinColor={markerType === 'car' ? 'green' : markerType === 'origin' ? 'blue' : markerType === 'client' ? 'orange' : 'red'}
-          title={markerType === 'car' ? 'Conductor' : markerType === 'origin' ? 'Origen' : markerType === 'client' ? 'Cliente' : 'Destino'}
+          pinColor={markerType === 'car'
+            ? 'green'
+            : markerType === 'origin' || markerType === 'manual_origin' || markerType === 'manual_origin_hold'
+            ? 'blue'
+            : markerType === 'client'
+            ? 'orange'
+            : 'red'}
+          title={markerType === 'car'
+            ? 'Conductor'
+            : markerType === 'origin' || markerType === 'manual_origin' || markerType === 'manual_origin_hold'
+            ? 'Origen'
+            : markerType === 'client'
+            ? 'Cliente'
+            : 'Destino'}
           description={markerType === 'car' ? '🚗 Tu conductor' : markerType === 'client' ? '👤 Cliente' : undefined}
         />
       )}

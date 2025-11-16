@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
+import { useVoiceAssistant } from '../../context/VoiceAssistantContext';
 import { getDatabase, ref, onValue } from 'firebase/database';
 import priceNegotiationService from '../../services/priceNegotiationService';
 import ridesService from '../../services/ridesService';
@@ -21,8 +22,91 @@ import { fetchClientProfile, ClientProfile } from '../../services/clientProfiles
 import { hasSavedCard } from '../../utils/cardUtils';
 import { useLocation } from '../../hooks/useLocation';
 import { useAcceptedRideListener } from '../../hooks/useAcceptedRideListener';
+import penaltiesService from '../../services/penaltiesService';
+import penaltiesRealtimeService from '../../services/realtime/penaltiesRealtimeService';
 
 const DEFAULT_COORDINATE: { lat: number; lng: number } = { lat: 0, lng: 0 };
+
+type RawLocation =
+  | { lat?: number; lng?: number; address?: string }
+  | { latitude?: number; longitude?: number; address?: string }
+  | { coords?: { latitude?: number; longitude?: number; address?: string }; address?: string }
+  | undefined
+  | null;
+
+const parseCoordinate = (value: any): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const parsed = parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+};
+
+const normalizeLocation = (
+  raw: RawLocation,
+  fallbackLatValues: any[] = [],
+  fallbackLngValues: any[] = [],
+  fallbackAddress?: string,
+): { lat: number; lng: number; address?: string } => {
+  let lat: number | null = null;
+  let lng: number | null = null;
+  let address: string | undefined = fallbackAddress;
+
+  if (raw && typeof raw === 'object') {
+    if ('coords' in raw && raw.coords) {
+      lat = parseCoordinate(raw.coords?.latitude);
+      lng = parseCoordinate(raw.coords?.longitude);
+      address = raw.address ?? address;
+    } else {
+      lat = parseCoordinate((raw as any).lat ?? (raw as any).latitude);
+      lng = parseCoordinate((raw as any).lng ?? (raw as any).longitude);
+      address = (raw as any).address ?? address;
+    }
+  }
+
+  if (lat === null) {
+    for (const candidate of fallbackLatValues) {
+      const parsed = parseCoordinate(candidate);
+      if (parsed !== null) {
+        lat = parsed;
+        break;
+      }
+    }
+  }
+
+  if (lng === null) {
+    for (const candidate of fallbackLngValues) {
+      const parsed = parseCoordinate(candidate);
+      if (parsed !== null) {
+        lng = parsed;
+        break;
+      }
+    }
+  }
+
+  return {
+    lat: lat ?? DEFAULT_COORDINATE.lat,
+    lng: lng ?? DEFAULT_COORDINATE.lng,
+    address,
+  };
+};
+
+const normalizeStops = (stops: any[] | undefined | null): Array<{ lat: number; lng: number; address?: string }> => {
+  if (!Array.isArray(stops) || stops.length === 0) {
+    return [];
+  }
+
+  return stops
+    .map((stop) =>
+      normalizeLocation(stop as RawLocation, [stop?.lat, stop?.latitude], [stop?.lng, stop?.longitude], stop?.address),
+    )
+    .filter((stop) => Number.isFinite(stop.lat) && Number.isFinite(stop.lng));
+};
 const BACK_ICON = require('../../assets/icons/back_button/back_button2x.png');
 
 interface Ride {
@@ -52,15 +136,72 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
   const { colors, isDark } = useTheme();
   const { user } = useAuth();
   const { coords } = useLocation();
+  const { settings: voiceSettings, speak: speakVoice, stopCategory: stopCategory } = useVoiceAssistant();
 
   const [rides, setRides] = useState<Ride[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedRideId, setSelectedRideId] = useState<string | null>(null);
   const [clientProfiles, setClientProfiles] = useState<Record<string, ClientProfile | null>>({});
+  const [penaltySummary, setPenaltySummary] = useState<{ pendingCount: number; pendingAmount: number } | null>(null);
+  const [activeRideGuard, setActiveRideGuard] = useState<{ id: string } | null>(null);
+  const ridesCountRef = useRef(0);
+  useEffect(() => {
+    ridesCountRef.current = rides.length;
+  }, [rides.length]);
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      if (!voiceSettings.enabled) return;
+      const count = ridesCountRef.current;
+      speakVoice(`Hay ${count} viajes disponibles.`, 'status', undefined, true);
+    });
+    return unsubscribe;
+  }, [navigation, voiceSettings.enabled, speakVoice]);
+
+  useEffect(() => {
+    return () => {
+      stopCategory('navigation');
+      stopCategory('status');
+    };
+  }, [stopCategory]);
 
   // Monitorear rides aceptados globalmente
   useAcceptedRideListener(navigation);
+
+  // 🔒 Guard: Si ya tengo un viaje activo (accepted/driver_on_route/in_progress), redirigir y bloquear esta pantalla
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const db = getDatabase();
+    const activeRef = ref(db, 'activeRides');
+
+    const unsubscribe = onValue(activeRef, (snapshot) => {
+      const data = snapshot.val();
+      if (!data) {
+        setActiveRideGuard(null);
+        return;
+      }
+
+      let found: string | null = null;
+      for (const [id, ride] of Object.entries<any>(data)) {
+        const status = String(ride?.status || '').toLowerCase();
+        if (ride?.driverId === user.id && ['accepted', 'driver_on_route', 'driver_arrived', 'in_progress'].includes(status)) {
+          found = id;
+          break;
+        }
+      }
+
+      if (found) {
+        setActiveRideGuard({ id: found });
+        navigation.replace('ActiveRide', { rideId: found });
+      } else {
+        setActiveRideGuard(null);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [user?.id, navigation]);
 
   useEffect(() => {
     const db = getDatabase();
@@ -81,40 +222,65 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
         const availableRides: Ride[] = [];
 
         Object.entries(data).forEach(([rideId, rideData]: [string, any]) => {
-          // El hook useAcceptedRideListener maneja la navegación cuando se acepta
-          // Aquí solo procesamos rides en estado 'requested'
-          if (rideData.status !== 'requested') {
+          const statusRaw = typeof rideData?.status === 'string' ? rideData.status.trim().toLowerCase() : '';
+          const driverId = rideData?.driverId ?? rideData?.driver_id ?? null;
+
+          const isRequested = statusRaw === 'requested' && !driverId;
+          const isNegotiatingWithMe = Boolean(user?.id) && driverId === user?.id && ['pending_confirm', 'driver_assigned'].includes(statusRaw);
+
+          if (!(isRequested || isNegotiatingWithMe)) {
             return;
           }
 
           const offers = rideData.offers || {};
           const myOffer = user?.id ? offers[user.id] : null;
 
+          const origin = normalizeLocation(
+            rideData.origin as RawLocation,
+            [rideData.originLat, rideData.originLatitude, rideData.pickupLat, rideData.pickupLatitude],
+            [rideData.originLng, rideData.originLongitude, rideData.pickupLng, rideData.pickupLongitude],
+            rideData.originAddress,
+          );
+          const destination = normalizeLocation(
+            rideData.destination as RawLocation,
+            [rideData.destinationLat, rideData.destinationLatitude, rideData.dropoffLat, rideData.dropoffLatitude],
+            [rideData.destinationLng, rideData.destinationLongitude, rideData.dropoffLng, rideData.dropoffLongitude],
+            rideData.destinationAddress,
+          );
+
+          const extraStops = normalizeStops(rideData.extraDestinations || rideData.extra_stops || rideData.additionalStops);
+
+          const requestedAtRaw = rideData.requestedAt ?? rideData.createdAt ?? rideData.created_at ?? Date.now();
+          const requestedAt = typeof requestedAtRaw === 'number' ? requestedAtRaw : parseInt(requestedAtRaw, 10) || 0;
+
           availableRides.push({
             id: rideId,
             clientId: rideData.clientId || '',
             clientName: rideData.clientName || rideData.client?.name || rideData.clientInfo?.name,
             clientPhone: rideData.clientPhone || rideData.client?.phone || rideData.clientInfo?.phone,
-            origin: rideData.origin || DEFAULT_COORDINATE,
-            destination: rideData.destination || DEFAULT_COORDINATE,
+            origin,
+            destination,
             estimatedDistance: rideData.estimatedDistance || 0,
             estimatedDuration: rideData.estimatedDuration || 0,
             estimatedPrice: rideData.estimatedPrice || 0,
-            status: rideData.status || 'requested',
+            status: statusRaw || 'requested',
             clientSuggestedPrice: rideData.clientSuggestedPrice,
             driverOfferedPrice: myOffer?.offeredPrice ?? null,
             driverOfferStatus: myOffer?.status ?? null,
             passengers: rideData.passengers || 1,
             rideType: rideData.rideType || 'normal',
             paymentMethod: rideData.paymentMethod,
-            requestedAt: rideData.requestedAt || Date.now(),
-            extraDestinations: rideData.extraDestinations || [],
-            waypointsCount: rideData.waypointsCount || 0,
-            hasMultipleDestinations: rideData.hasMultipleDestinations || false,
+            requestedAt,
+            extraDestinations: extraStops,
+            waypointsCount: rideData.waypointsCount || extraStops.length || 0,
+            hasMultipleDestinations: rideData.hasMultipleDestinations || extraStops.length > 0,
           });
         });
 
+        availableRides.sort((a, b) => (b.requestedAt || 0) - (a.requestedAt || 0));
+
         setRides(availableRides);
+        setSelectedRideId((current) => (current && availableRides.some((ride) => ride.id === current) ? current : null));
         setLoading(false);
         setRefreshing(false);
       },
@@ -127,6 +293,44 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
 
     return () => {
       unsubscribe();
+    };
+  }, [navigation, user?.id]);
+
+  // ✅ Supabase Realtime: resumen de penalizaciones
+  useEffect(() => {
+    if (!user?.id) return;
+    let unsubscribe: (() => void) | null = null;
+    let isActive = true;
+
+    const fetchSummary = async () => {
+      try {
+        const res = await penaltiesService.getDriverPenaltySummary();
+        if (!isActive || !res?.success) return;
+        setPenaltySummary({
+          pendingCount: Number(res.pendingCount || 0),
+          pendingAmount: Number(res.pendingAmount || 0),
+        });
+      } catch (e) {
+        console.error('❌ [AvailableRidesScreeNewDesign] Error obteniendo resumen de penalizaciones:', e);
+      }
+    };
+
+    penaltiesRealtimeService
+      .subscribeToDriverPenaltyChanges(user.id, fetchSummary)
+      .then((unsubscribeFn) => {
+        unsubscribe = unsubscribeFn;
+      })
+      .catch((err) => {
+        console.error('❌ [AvailableRidesScreeNewDesign] Error suscribiendo a penalizaciones:', err);
+        void fetchSummary();
+      });
+
+    const navUnsubscribe = navigation?.addListener?.('focus', fetchSummary);
+
+    return () => {
+      isActive = false;
+      unsubscribe?.();
+      navUnsubscribe?.();
     };
   }, [navigation, user?.id]);
 
@@ -161,6 +365,26 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
 
   const handleAcceptRide = async (ride: Ride) => {
     try {
+      // 🔒 Bloquear aceptar si ya tengo un viaje activo
+      if (activeRideGuard) {
+        alertService.showInfoAlert(
+          'Tienes un viaje activo',
+          'Debes completar tu viaje actual antes de aceptar uno nuevo.',
+          () => navigation.replace('ActiveRide', { rideId: activeRideGuard.id })
+        );
+        return;
+      }
+
+      // ✅ Bloquear aceptar si hay comisiones pendientes
+      if (penaltySummary && Number(penaltySummary.pendingAmount) > 0) {
+        alertService.showInfoAlert(
+          'Comisiones pendientes',
+          `Tienes C$${Number(penaltySummary.pendingAmount).toFixed(2)} en comisiones pendientes. Debes pagarlas para aceptar viajes.`,
+          () => navigation.navigate('PayCommissions'),
+        );
+        return;
+      }
+
       if (!(await ensureCardForCardPayments(ride))) {
         return;
       }
@@ -171,7 +395,7 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
 
           alertService.showSuccessAlert(
             'Oferta enviada',
-            `Aceptaste el viaje por C$${ride.clientSuggestedPrice}. Esperando confirmación del cliente...`,
+            `Aceptaste el viaje por ${ride.clientSuggestedPrice} Cordobas. Esperando confirmación del cliente...`,
           );
 
           navigation.replace('WaitingClientConfirmation', {

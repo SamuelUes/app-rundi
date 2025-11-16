@@ -12,6 +12,7 @@ import firebaseTrackingService from './firebaseTrackingService';
 import { getFirebaseDatabase } from '../config/firebase';
 import { ref as dbRef, update } from 'firebase/database';
 import { AppState, AppStateStatus, Platform } from 'react-native';
+import proximityService from './proximityService';
 
 // Constantes para las tareas en segundo plano
 const BACKGROUND_LOCATION_TASK = 'background-location-task';
@@ -196,6 +197,19 @@ const defineBackgroundTask = () => {
               },
             });
           }
+
+          // 🚀 Viaje por aproximación: si NO hay viaje activo, revisar solicitudes cercanas
+          if (!trackingState.rideId) {
+            try {
+              await proximityService.handleLocationForProximity(
+                trackingState.userId,
+                location.coords.latitude,
+                location.coords.longitude,
+              );
+            } catch (e) {
+              // No romper la tarea de background
+            }
+          }
         } else if (trackingState.role === 'client' && trackingState.rideId && trackingState.userId) {
           // Para clientes, solo actualizamos su ubicación si hay un viaje activo
           // Primero guardamos la ubicación del cliente en la rama clientLocations
@@ -355,6 +369,27 @@ export async function ensureBackgroundTrackingIntegrity(): Promise<boolean> {
     const isTaskRunning = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
     if (isTaskRunning) {
       return true;
+    }
+
+    const appState = AppState.currentState;
+    if (appState !== 'active') {
+      console.log('App no está activa, programando restauración de tracking cuando vuelva a primer plano');
+
+      scheduleStartWhenForeground({
+        userId: trackingState.userId,
+        role: trackingState.role,
+        rideId: trackingState.rideId || null,
+      });
+
+      await saveTrackingState({
+        isTracking: trackingState.isTracking,
+        userId: trackingState.userId,
+        role: trackingState.role,
+        rideId: trackingState.rideId ?? null,
+        startTime: trackingState.startTime ?? Date.now(),
+      });
+
+      return false;
     }
 
     defineBackgroundTask();

@@ -15,7 +15,7 @@ export function useAcceptedRideListener(navigation: any, rideId?: string) {
   const navigationTriggeredRef = useRef(false);
 
   useEffect(() => {
-    if (!user?.id || user.role !== 'driver') {
+    if (!user?.id || !['driver', 'designated_driver'].includes(user.role as any)) {
       return;
     }
 
@@ -42,7 +42,7 @@ export function useAcceptedRideListener(navigation: any, rideId?: string) {
             // Si es un ride específico
             if (rideId) {
               if (
-                data.status === 'accepted' &&
+                (data.status === 'accepted' || data.status === 'driver_on_route' || data.status === 'driver_arrived' || data.status === 'in_progress') &&
                 data.driverId === user.id
               ) {
                 navigationTriggeredRef.current = true;
@@ -60,7 +60,7 @@ export function useAcceptedRideListener(navigation: any, rideId?: string) {
               Object.entries<any>(data).forEach(([id, rideData]) => {
                 if (
                   !navigationTriggeredRef.current &&
-                  rideData.status === 'accepted' &&
+                  (rideData.status === 'accepted' || rideData.status === 'driver_on_route' || rideData.status === 'driver_arrived' || rideData.status === 'in_progress') &&
                   rideData.driverId === user.id
                 ) {
                   navigationTriggeredRef.current = true;

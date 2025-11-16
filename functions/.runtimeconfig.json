@@ -1,0 +1,23 @@
+{
+  "supabase": {
+    "url": "https://ceytngpresytjhafcadu.supabase.co",
+    "key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNleXRuZ3ByZXN5dGpoYWZjYWR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk5Nzg4NzIsImV4cCI6MjA3NTU1NDg3Mn0.3G9aCmJsjOIL-VG6E49sNnxvKBLITX-I1gFFlWKVslo",
+    "service_role_key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNleXRuZ3ByZXN5dGpoYWZjYWR1Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1OTk3ODg3MiwiZXhwIjoyMDc1NTU0ODcyfQ.v9kebwlmOgWUjDjLsaBBmzp3124uhPRy1bLgNPzZWcE",
+    "database_url": "postgresql://postgres:appdriveangel2025@db.ceytngpresytjhafcadu.supabase.co:5432/postgres"
+  },
+  "google": {
+    "maps_api_key": "AIzaSyAdKfkWZ7y6kpYdZhzktFTsFy1xCYdVKFU"
+  },
+  "twilio": {
+    "account_sid": "ACa549aebf6bb3be1ee05206892bc5cfbf",
+    "auth_token": "5e59d3266e26dcafbe9c2887687c21b8",
+    "phone_number": "+505XXXXXXXX"
+  },
+  "migration_flags": {
+    "mirror_penalties_to_rtdb": true,
+    "log_driver_commission_payments_to_rtdb": true,
+    "use_rtdb_designated_driver_requests": true,
+    "sync_drivers_static_to_rtdb": true,
+    "sync_driver_rides_to_rtdb": true
+  }
+}

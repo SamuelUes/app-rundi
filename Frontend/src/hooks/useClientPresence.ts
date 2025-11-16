@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { httpsCallable } from 'firebase/functions';
 import { getFirebaseAuth, getFirebaseFunctions } from '../config/firebase';
 import { useAuth } from '../context/AuthContext';
+import sessionService from '../services/sessionService';
 
 /**
  * useClientPresence
@@ -37,8 +38,10 @@ export function useClientPresence() {
 
         actionsRef.current = { markActive, markClosed };
 
+        const deviceId = await sessionService.getDeviceId();
         await markActive({
           role: 'client',
+          deviceId,
           location: {
             latitude: 0,
             longitude: 0,
@@ -51,8 +54,10 @@ export function useClientPresence() {
         // Intervalo de heartbeat (55s)
         intervalRef.current = setInterval(async () => {
           try {
+            const devId = await sessionService.getDeviceId();
             await markActive({
               role: 'client',
+              deviceId: devId,
             });
           } catch (err) {
             console.warn('[useClientPresence] Heartbeat error:', (err as any)?.message || err);
@@ -74,7 +79,11 @@ export function useClientPresence() {
 
       const actions = actionsRef.current;
       if (actions) {
-        actions.markClosed({ role: 'client' }).catch((err: any) => {
+        sessionService.getDeviceId().then((deviceId) => {
+          actions.markClosed({ role: 'client', deviceId }).catch((err: any) => {
+            console.warn('[useClientPresence] markAppClosed error:', err?.message || err);
+          });
+        }).catch((err) => {
           console.warn('[useClientPresence] markAppClosed error:', err?.message || err);
         });
       }

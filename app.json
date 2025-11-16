@@ -1,0 +1,15 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "79fc9fff-5481-4aba-a29a-632db706c382"
+      }
+    },
+    "ios": {
+      "bundleIdentifier": "com.samuelues.appuber",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    }
+  }
+}

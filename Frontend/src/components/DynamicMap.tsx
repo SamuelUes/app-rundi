@@ -41,7 +41,7 @@ interface DynamicMapProps {
   onDriverPress?: (driverId: string) => void; // when user taps a driver marker
   showMarker?: boolean;
   markerPosition?: { latitude: number; longitude: number };
-  markerType?: 'default' | 'car' | 'origin' | 'destination' | 'client';
+  markerType?: 'default' | 'car' | 'origin' | 'destination' | 'client' | 'manual_origin' | 'manual_origin_hold';
   originMarker?: { latitude: number; longitude: number };
   destinationMarker?: { latitude: number; longitude: number };
   clientMarker?: { latitude: number; longitude: number };
@@ -65,6 +65,8 @@ interface DynamicMapProps {
   userLocationDarkIcon?: ImageSourcePropType;
   userLocationHoldingLightIcon?: ImageSourcePropType;
   userLocationHoldingDarkIcon?: ImageSourcePropType;
+  manualOriginIcon?: ImageSourcePropType;
+  manualOriginHoldIcon?: ImageSourcePropType;
   onMarkerDragStart?: (location: { latitude: number; longitude: number }) => void;
   // ✅ NUEVO: Burbujas de dirección sobre pines
   originLabel?: string;
@@ -97,6 +99,8 @@ function DynamicMapComponent({
   userLocationDarkIcon,
   userLocationHoldingLightIcon,
   userLocationHoldingDarkIcon,
+  manualOriginIcon,
+  manualOriginHoldIcon,
   onMarkerDragStart,
   ...restProps
 }: DynamicMapProps) {
@@ -127,6 +131,8 @@ function DynamicMapComponent({
         userLocationHoldingLightIcon={userLocationHoldingLightIcon}
         userLocationHoldingDarkIcon={userLocationHoldingDarkIcon}
         onMarkerDragStart={onMarkerDragStart}
+        manualOriginIcon={manualOriginIcon}
+        manualOriginHoldIcon={manualOriginHoldIcon}
       />
     );
   }

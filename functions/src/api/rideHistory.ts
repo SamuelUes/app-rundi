@@ -4,6 +4,7 @@
  */
 
 import * as functions from 'firebase-functions';
+import * as admin from 'firebase-admin';
 import { supabaseGetRidesWithLocationsAndPayments, supabaseGet, supabaseGetDriverWithVehicles } from '../supabase/client';
 import { firestore } from '../config/firebase';
 
@@ -111,6 +112,38 @@ const filterRidesByDateRange = (rides: any[], range: { start: number; end: numbe
 
     return rawTimestamp >= range.start && rawTimestamp <= range.end;
   });
+};
+
+// ============================================
+// Single-session enforcement (DENY policy)
+// ============================================
+const RH_SESSION_ACTIVE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
+
+const rhIsRecent = (lastSeen: any): boolean => {
+  if (typeof lastSeen === 'number') {
+    const diff = Date.now() - lastSeen;
+    return diff >= 0 && diff <= RH_SESSION_ACTIVE_THRESHOLD_MS;
+  }
+  return true;
+};
+
+const ensureActiveSession = async (
+  context: functions.https.CallableContext,
+  data: any,
+) => {
+  if (!context.auth?.uid) {
+    throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
+  }
+  const uid = context.auth.uid;
+  const deviceId = typeof data?.deviceId === 'string' ? data.deviceId.trim() : '';
+  if (!deviceId) {
+    throw new functions.https.HttpsError('invalid-argument', 'deviceId requerido');
+  }
+  const snap = await admin.database().ref(`sessions/${uid}`).once('value');
+  const session = snap.val();
+  if (session && session.deviceId && session.deviceId !== deviceId && rhIsRecent(session.lastSeen)) {
+    throw new functions.https.HttpsError('failed-precondition', 'SESSION_ACTIVE_ELSEWHERE');
+  }
 };
 
 const buildDisplayName = (profile: any): string | null => {
@@ -425,7 +458,9 @@ export const diagnosticRides = functions.https.onCall(async (data, context) => {
 
     // Paso 1: Obtener TODOS los viajes
     console.log(`\n📋 PASO 1: Obteniendo TODOS los viajes...`);
-    const allRides = await supabaseGet('rides', {}, 'id,client_id,driver_id,status,created_at,final_fare');
+    const allRides = await supabaseGet('rides', {}, 'id,client_id,driver_id,status,created_at,final_fare', {
+      requireServiceRole: true,
+    });
     console.log(`✅ Total de viajes en BD: ${allRides.length}`);
     
     if (allRides.length === 0) {
@@ -451,12 +486,16 @@ export const diagnosticRides = functions.https.onCall(async (data, context) => {
     
     // Búsqueda como cliente
     console.log(`   - Buscando como CLIENT_ID...`);
-    const ridesAsClient = await supabaseGet('rides', { client_id: userId }, 'id,client_id,driver_id,status');
+    const ridesAsClient = await supabaseGet('rides', { client_id: userId }, 'id,client_id,driver_id,status', {
+      requireServiceRole: true,
+    });
     console.log(`   ✅ Viajes como cliente: ${ridesAsClient.length}`);
     
     // Búsqueda como conductor
     console.log(`   - Buscando como DRIVER_ID...`);
-    const ridesAsDriver = await supabaseGet('rides', { driver_id: userId }, 'id,client_id,driver_id,status');
+    const ridesAsDriver = await supabaseGet('rides', { driver_id: userId }, 'id,client_id,driver_id,status', {
+      requireServiceRole: true,
+    });
     console.log(`   ✅ Viajes como conductor: ${ridesAsDriver.length}`);
 
     // Paso 3: Analizar qué client_ids y driver_ids hay en la BD
@@ -528,6 +567,7 @@ export const getMyRides = functions.https.onCall(async (data, context) => {
     console.error(`❌ [getMyRides] Usuario no autenticado`);
     throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
   }
+  await ensureActiveSession(context, data);
   try {
     const userId = context.auth.uid;
     const {
@@ -596,6 +636,7 @@ export const getDriverEarnings = functions.https.onCall(async (data, context) =>
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
   }
+  await ensureActiveSession(context, data);
   try {
     const driverId = context.auth.uid;
     console.log(`💰 [getDriverEarnings] Obteniendo ganancias para conductor: ${driverId}`);
@@ -685,6 +726,7 @@ export const getDriverStats = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
   }
+  await ensureActiveSession(context, data);
   try {
     const driverId = context.auth.uid;
     console.log(`📊 [getDriverStats] Obteniendo estadísticas para conductor: ${driverId}`);
@@ -759,6 +801,7 @@ export const getEarningsByDay = functions.https.onCall(async (data, context) => 
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
   }
+  await ensureActiveSession(context, data);
   try {
     const driverId = context.auth.uid;
     const { days = 30 } = data;

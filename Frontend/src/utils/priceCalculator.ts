@@ -70,42 +70,112 @@ const DEFAULT_SERVICE_CONFIGS: Record<string, ServicePricingConfig> = {
   },
 };
 
-/**
- * Obtener config de servicio desde Supabase (REST) o fallback local.
- */
-export async function fetchServiceConfig(serviceCode: string): Promise<ServicePricingConfig> {
-  try {
-    const response = await fetch(
-      `${process.env.EXPO_PUBLIC_SUPABASE_URL}/rest/v1/services?select=code,base_price,price_per_km,price_per_minute,minimum_fare,commission_rate&code=eq.${serviceCode}&is_active=eq.true`,
-      {
-        headers: {
-          apikey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '',
-          Authorization: `Bearer ${process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? ''}`,
-        },
-      }
-    );
+const serviceConfigCache: Map<string, ServicePricingConfig> = new Map();
 
-    if (!response.ok) {
-      throw new Error(`Supabase respondió ${response.status}`);
+const useRestPricingLookup =
+  (process.env.EXPO_PUBLIC_SUPABASE_REST_PRICING ?? '').toLowerCase() === 'true' ||
+  (process.env.SUPABASE_REST_PRICING ?? '').toLowerCase() === 'true';
+
+async function fetchServiceConfigViaRest(serviceCode: string): Promise<ServicePricingConfig | null> {
+  if (!useRestPricingLookup) {
+    return null;
+  }
+
+  const supabaseUrl =
+    process.env.EXPO_PUBLIC_SUPABASE_URL ??
+    process.env.SUPABASE_URL ??
+    '';
+
+  const supabaseAnonKey =
+    process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ??
+    process.env.EXPO_PUBLIC_SUPABASE_KEY ??
+    process.env.SUPABASE_ANON_KEY ??
+    '';
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.warn('⚠️ REST pricing habilitado pero faltan credenciales de Supabase');
+    return null;
+  }
+
+  const response = await fetch(
+    `${supabaseUrl}/rest/v1/services?select=code,base_price,price_per_km,price_per_minute,minimum_fare,commission_rate&code=eq.${serviceCode}&is_active=eq.true`,
+    {
+      headers: {
+        apikey: supabaseAnonKey,
+        Authorization: `Bearer ${supabaseAnonKey}`,
+      },
     }
+  );
 
-    const data = await response.json();
-    if (Array.isArray(data) && data.length > 0) {
-      const row = data[0];
+  if (!response.ok) {
+    throw new Error(`Supabase respondió ${response.status}`);
+  }
+
+  const data = await response.json();
+  if (Array.isArray(data) && data.length > 0) {
+    const row = data[0];
+    return {
+      code: row.code,
+      basePrice: Number(row.base_price ?? 0),
+      pricePerKm: Number(row.price_per_km ?? 0),
+      pricePerMinute: Number(row.price_per_minute ?? 0),
+      minimumFare: Number(row.minimum_fare ?? 0),
+      commissionRate: Number(row.commission_rate ?? 0),
+    };
+  }
+
+  return null;
+}
+
+async function fetchServiceConfigViaCallable(serviceCode: string): Promise<ServicePricingConfig | null> {
+  try {
+    const servicesModule = await import('../services/servicesService');
+    const services = await servicesModule.default.listServices();
+    const matched = services.find((s) => s.code === serviceCode || (!s.code && serviceCode === 'normal'));
+    if (matched) {
       return {
-        code: row.code,
-        basePrice: Number(row.base_price ?? 0),
-        pricePerKm: Number(row.price_per_km ?? 0),
-        pricePerMinute: Number(row.price_per_minute ?? 0),
-        minimumFare: Number(row.minimum_fare ?? 0),
-        commissionRate: Number(row.commission_rate ?? 0),
+        code: matched.code ?? serviceCode,
+        basePrice: matched.basePrice ?? DEFAULT_SERVICE_CONFIGS[serviceCode]?.basePrice ?? 0,
+        pricePerKm: matched.pricePerKm ?? DEFAULT_SERVICE_CONFIGS[serviceCode]?.pricePerKm ?? 0,
+        pricePerMinute: matched.pricePerMinute ?? DEFAULT_SERVICE_CONFIGS[serviceCode]?.pricePerMinute ?? 0,
+        minimumFare: DEFAULT_SERVICE_CONFIGS[serviceCode]?.minimumFare ?? 0,
+        commissionRate: matched.commissionRate,
       };
     }
   } catch (error) {
-    console.warn(`⚠️ No se pudo obtener servicio ${serviceCode} desde Supabase:`, error);
+    console.warn('⚠️ Error consultando getServices callable:', error);
   }
 
-  return DEFAULT_SERVICE_CONFIGS[serviceCode] ?? DEFAULT_SERVICE_CONFIGS.normal;
+  return null;
+}
+
+/**
+ * Obtener config de servicio desde cache → REST → callable → fallback local.
+ */
+export async function fetchServiceConfig(serviceCode: string): Promise<ServicePricingConfig> {
+  if (serviceConfigCache.has(serviceCode)) {
+    return serviceConfigCache.get(serviceCode)!;
+  }
+
+  try {
+    const restConfig = await fetchServiceConfigViaRest(serviceCode);
+    if (restConfig) {
+      serviceConfigCache.set(serviceCode, restConfig);
+      return restConfig;
+    }
+  } catch (error) {
+    console.warn(`⚠️ REST falló para servicio ${serviceCode}:`, error);
+  }
+
+  const callableConfig = await fetchServiceConfigViaCallable(serviceCode);
+  if (callableConfig) {
+    serviceConfigCache.set(serviceCode, callableConfig);
+    return callableConfig;
+  }
+
+  const fallback = DEFAULT_SERVICE_CONFIGS[serviceCode] ?? DEFAULT_SERVICE_CONFIGS.normal;
+  serviceConfigCache.set(serviceCode, fallback);
+  return fallback;
 }
 
 function calculateSubtotal(

@@ -11,6 +11,7 @@ import { AnimatedButton } from '../../components/AnimatedButton';
 import { getDatabase, ref, onValue, off } from 'firebase/database';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { initializeFirebase } from '../../config/firebase';
+import sessionService from '../../services/sessionService';
 
 interface WaitingPaymentScreenProps {
   route: {
@@ -147,13 +148,15 @@ export default function WaitingPaymentScreen({ route, navigation }: WaitingPayme
               if (!app) throw new Error('Firebase no inicializado');
 
               const functions = getFunctions(app);
-              const switchPaymentMethodFn = httpsCallable(functions, 'switchPaymentMethod');
+              const switchPaymentMethodFn = httpsCallable(functions, 'changePaymentMethod');
               
               console.log('🔄 Cambiando método de pago a efectivo...');
+              const deviceId = await sessionService.getDeviceId();
               const result = await switchPaymentMethodFn({
                 rideId,
                 newPaymentMethod: 'cash',
                 reason: 'Cliente prefiere pagar en efectivo',
+                deviceId,
               });
 
               const data = result.data as any;

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, Image, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, Image, ActivityIndicator, Animated } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { useLocation } from '../../hooks/useLocation';
@@ -204,8 +204,16 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
           });
           setOffers(arr);
           setSelectedDriverId((prev) => {
-            if (!prev) return null;
-            return arr.some((offer) => offer.driverId === prev) ? prev : null;
+            if (prev && arr.some((offer) => offer.driverId === prev)) {
+              return prev;
+            }
+
+            const acceptedOffer = arr.find((offer) => offer.status === 'accepted');
+            if (acceptedOffer) {
+              return acceptedOffer.driverId;
+            }
+
+            return null;
           });
         } else {
           setOffers([]);
@@ -309,6 +317,32 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
     [offers, selectedDriverId]
   );
 
+  const primaryActionLabel = selectedOffer?.status === 'accepted' ? 'Confirmar conductor' : 'Seleccionar';
+
+  const acceptedAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (!selectedOffer) {
+      acceptedAnim.setValue(0);
+      return;
+    }
+
+    if (selectedOffer.status === 'accepted') {
+      Animated.spring(acceptedAnim, {
+        toValue: 1,
+        useNativeDriver: true,
+        friction: 6,
+        tension: 80,
+      }).start();
+    } else {
+      Animated.timing(acceptedAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [selectedOffer?.status, acceptedAnim, selectedOffer]);
+
   const openNegotiation = useCallback(() => {
     if (!selectedOffer) return;
     setShowNegotiation(true);
@@ -318,6 +352,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
     if (!rideId || !selectedDriverId) return;
     try {
       await ridesService.confirmDriver(rideId, selectedDriverId);
+      alertService.showSuccessAlert('Conductor confirmado', 'Ahora podrás ver su ubicación en tiempo real.');
       navigation.replace('RideTracking', {
         rideId,
         driverId: selectedDriverId,
@@ -333,6 +368,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
     if (!rideId) return;
     try {
       await ridesService.cancelRide(rideId, 'Cancelado por el cliente desde HomeScreenOffers');
+      alertService.showSuccessAlert('Búsqueda cancelada', 'Regresamos a tu pantalla de inicio.');
       navigation.replace('ClientHome');
     } catch (e: any) {
       alertService.showErrorAlert('No se pudo cancelar la búsqueda.');
@@ -370,11 +406,16 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
             {(() => {
               const photoUri = info?.profilePhoto || info?.photoURL || info?.photoUrl || raw?.profilePhoto || raw?.photoURL || raw?.photoUrl || item.driver?.photoURL || null;
               if (photoUri) {
-                return <Image source={{ uri: photoUri }} style={styles.offerAvatarImage} />;
+                return (
+                  <Image
+                    source={{ uri: photoUri }}
+                    style={styles.offerAvatarPhoto}
+                  />
+                );
               }
               return (
-                <View style={[styles.offerAvatarImage, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#E5E7EB' }]}> 
-                  <Text style={{ color: '#64748B', fontWeight: '700' }}>{(displayName || 'C').charAt(0).toUpperCase()}</Text>
+                <View style={styles.offerAvatarFallback}> 
+                  <Text style={styles.offerAvatarFallbackText}>{(displayName || 'C').charAt(0).toUpperCase()}</Text>
                 </View>
               );
             })()}
@@ -396,11 +437,39 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
           )}
         </View>
         {selected ? (
-          <TouchableOpacity onPress={openNegotiation} style={styles.negotiatePill} activeOpacity={0.9}>
-            <Text style={styles.negotiateText}>Negociar</Text>
-          </TouchableOpacity>
+          item.status === 'accepted' ? (
+            <Animated.View
+              style={[
+                styles.acceptedStatusChip,
+                {
+                  transform: [
+                    {
+                      scale: acceptedAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0.6, 1],
+                      }),
+                    },
+                  ],
+                  opacity: acceptedAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0, 1],
+                  }),
+                },
+              ]}
+            >
+              <Text style={styles.acceptedStatusText}>El conductor aceptó tu precio</Text>
+            </Animated.View>
+          ) : (
+            <TouchableOpacity onPress={openNegotiation} style={styles.negotiatePill} activeOpacity={0.9}>
+              <Text style={styles.negotiateText}>Negociar</Text>
+            </TouchableOpacity>
+          )
+        ) : item.status === 'accepted' ? (
+          <View style={styles.acceptedStatusChipSecondary}>
+            <Text style={styles.acceptedStatusTextSecondary}>El conductor aceptó tu precio</Text>
+          </View>
         ) : (
-          <Text style={styles.offerEta}>{etaText}</Text>
+          <Text style={styles.offerEtaText}>{etaText}</Text>
         )}
       </TouchableOpacity>
     );
@@ -448,7 +517,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
           onPress={confirmSelectedDriver}
           disabled={!selectedDriverId}
         >
-          <Text style={styles.primaryBtnText}>Seleccionar</Text>
+          <Text style={styles.primaryBtnText}>{primaryActionLabel}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -573,14 +642,16 @@ const createStyles = (colors: any) => StyleSheet.create({
     backgroundColor: '#CF9A24',
     borderColor: '#E8B451',
   },
-  offerAvatarWrap: { width: 56, height: 56, marginRight: 10, position: 'relative', justifyContent: 'flex-end', alignItems: 'center' },
-  offerAvatarFrame: { width: 52, height: 52, borderRadius: 12, borderWidth: 3, borderColor: '#FFFFFF', backgroundColor: '#D1D5DB', overflow: 'hidden', justifyContent: 'center', alignItems: 'center' },
-  offerAvatarImage: { width: '100%', height: '100%', resizeMode: 'cover' },
-  offerVehicleOverlay: { position: 'absolute', bottom: -12, left: '50%', transform: [{ translateX: -18 }, { rotate: '270deg' }], width: 36, height: 36, resizeMode: 'contain' },
+  offerAvatarWrap: { width: 60, height: 64, marginRight: 10, position: 'relative', justifyContent: 'flex-end', alignItems: 'center' },
+  offerAvatarFrame: { width: 60, height: 60, borderRadius: 16, borderWidth: 3, borderColor: '#FFFFFF', backgroundColor: '#D1D5DB', overflow: 'hidden', justifyContent: 'center', alignItems: 'center' },
+  offerAvatarPhoto: { width: '100%', height: '100%', resizeMode: 'cover' },
+  offerAvatarFallback: { width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center', backgroundColor: '#E5E7EB' },
+  offerAvatarFallbackText: { color: '#64748B', fontWeight: '700', fontSize: 18 },
+  offerVehicleOverlay: { position: 'absolute', bottom: -6, left: '50%', transform: [{ translateX: -18 }, { rotate: '270deg' }], width: 38, height: 38, resizeMode: 'contain' },
   offerInfo: { flex: 1 },
   offerTitle: { fontSize: 14, fontWeight: '700', color: '#1F2937' },
   offerSubtitle: { fontSize: 12, color: '#4B5563', marginTop: 2 },
-  offerEta: { fontSize: 13, fontWeight: '700', color: '#1F2937', marginLeft: 8 },
+  offerEtaText: { fontSize: 13, fontWeight: '700', color: '#1F2937', marginLeft: 8 },
   priceRow: { marginTop: 4 },
   priceLabel: { fontSize: 12, fontWeight: '700', color: '#F0F0F0' },
   priceHint: { fontSize: 11, color: '#F6F6F6' },
@@ -589,18 +660,37 @@ const createStyles = (colors: any) => StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 18,
-    backgroundColor: '#7E22CE',
+    backgroundColor: '#6B21A8',
   },
-  negotiateText: { color: '#fff', fontWeight: '700' },
+  negotiateText: { color: '#FFFFFF', fontWeight: '700', fontSize: 13 },
+  acceptedStatusChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: 'rgba(33, 150, 83, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(33, 150, 83, 0.45)',
+  },
+  acceptedStatusText: { color: '#166534', fontWeight: '700', fontSize: 13 },
+  acceptedStatusChipSecondary: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 14,
+    backgroundColor: 'rgba(33, 150, 83, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(33, 150, 83, 0.35)',
+  },
+  acceptedStatusTextSecondary: { color: '#166534', fontWeight: '600', fontSize: 11 },
   primaryBtn: {
     marginTop: 8,
+    marginBottom: 10,
     paddingVertical: 12,
     alignItems: 'center',
     borderRadius: 24,
   },
-  primaryBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  primaryBtnText: { color: '#fff', fontWeight: '700', fontSize: 20 },
   cancelBtn: {
-    marginTop: 10,
+    marginTop: 4,
     paddingVertical: 12,
     alignItems: 'center',
     borderRadius: 24,

@@ -18,6 +18,7 @@ import { useLocation } from '../../hooks/useLocation';
 import { useRideNotifications } from '../../hooks/useRideNotifications';
 import ridesService from '../../services/ridesService';
 import DynamicMap from '../../components/DynamicMap';
+import { getDatabase, onValue, ref } from 'firebase/database';
 
 interface RideRequest {
   id: string;
@@ -73,6 +74,40 @@ export default function RideRequestsScreen({ navigation }: any) {
   const [showOfferModal, setShowOfferModal] = useState(false);
   const [customOffer, setCustomOffer] = useState('');
   const [accepting, setAccepting] = useState(false);
+  const [activeRideGuard, setActiveRideGuard] = useState<string | null>(null);
+
+  // 🔒 Guard: Si ya tengo un viaje activo (accepted/driver_on_route/driver_arrived/in_progress), redirigir y bloquear esta pantalla
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const db = getDatabase();
+    const activeRef = ref(db, 'activeRides');
+    const unsubscribe = onValue(activeRef, (snapshot) => {
+      const data = snapshot.val();
+      if (!data) {
+        setActiveRideGuard(null);
+        return;
+      }
+
+      let found: string | null = null;
+      for (const [id, r] of Object.entries<any>(data)) {
+        const status = String(r?.status || '').toLowerCase();
+        if (r?.driverId === user.id && ['accepted', 'driver_on_route', 'driver_arrived', 'in_progress'].includes(status)) {
+          found = id;
+          break;
+        }
+      }
+
+      if (found) {
+        setActiveRideGuard(found);
+        navigation.replace('ActiveRide', { rideId: found });
+      } else {
+        setActiveRideGuard(null);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [user?.id, navigation]);
 
   useEffect(() => {
     loadRideRequests();
@@ -132,6 +167,22 @@ export default function RideRequestsScreen({ navigation }: any) {
 
     try {
       setAccepting(true);
+
+      // 🔒 Bloquear aceptar si ya tengo un viaje activo
+      if (activeRideGuard) {
+        Alert.alert(
+          'Tienes un viaje activo',
+          'Debes completar tu viaje actual antes de aceptar uno nuevo.',
+          [
+            {
+              text: 'Ir al viaje',
+              onPress: () => navigation.replace('ActiveRide', { rideId: activeRideGuard }),
+            },
+            { text: 'OK', style: 'cancel' },
+          ]
+        );
+        return;
+      }
       
       await ridesService.acceptRide(ride.id, {
         driverId: user.id,
@@ -151,7 +202,7 @@ export default function RideRequestsScreen({ navigation }: any) {
         [
           {
             text: 'Ver Viaje',
-            onPress: () => navigation.navigate('ActiveRide', { rideId: ride.id }),
+            onPress: () => navigation.replace('ActiveRide', { rideId: ride.id }),
           },
         ]
       );

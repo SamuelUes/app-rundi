@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, Modal, StyleSheet, Linking, Alert, ActivityIndicator, Image } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 import { useLocation } from '../hooks/useLocation';
@@ -9,17 +9,29 @@ import { useAuth } from '../context/AuthContext';
 interface EmergencyButtonProps {
   rideId?: string;
   style?: any;
+  onOpen?: () => void;
+  onReady?: (openHandler: (() => void) | null) => void;
 }
-export default function EmergencyButton({ rideId, style }: EmergencyButtonProps) {
+export default function EmergencyButton({ rideId, style, onOpen, onReady }: EmergencyButtonProps) {
   const { coords } = useLocation();
   const { colors } = useTheme();
   const { user } = useAuth();
   const [modalVisible, setModalVisible] = useState(false);
   const [calling, setCalling] = useState(false);
 
-  const handleEmergencyPress = () => {
+  const handleEmergencyPress = useCallback(() => {
+    onOpen?.();
     setModalVisible(true);
-  };
+  }, [onOpen]);
+
+  useEffect(() => {
+    if (onReady) {
+      onReady(handleEmergencyPress);
+      return () => {
+        onReady(null);
+      };
+    }
+  }, [handleEmergencyPress, onReady]);
 
   const callEmergency = async (type: 'police' | 'ambulance') => {
     const number = type === 'police' ? '118' : '102';

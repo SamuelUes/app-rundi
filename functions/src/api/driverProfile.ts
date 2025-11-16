@@ -6,6 +6,7 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
 import { supabaseGet, supabaseGetDriverWithVehicles, supabaseUpdate } from '../supabase/client';
+import { MIGRATION_FLAGS } from '../config/migration-flags';
 
 /**
  * Obtener perfil del conductor (combinando Firebase Auth + Supabase)
@@ -206,7 +207,9 @@ export const updateDriverProfileWithSync = functions.https.onCall(async (data, c
 
       if (Object.keys(updateData).length > 0) {
         // Obtener el ID del conductor en Supabase
-        const drivers = await supabaseGet('drivers', { user_id: driverId });
+        const drivers = await supabaseGet('drivers', { user_id: driverId }, '*', {
+          requireServiceRole: true,
+        });
         if (drivers && drivers.length > 0) {
           const driverId_supabase = drivers[0].id;
           await supabaseUpdate('drivers', driverId_supabase, updateData);
@@ -219,21 +222,25 @@ export const updateDriverProfileWithSync = functions.https.onCall(async (data, c
       console.warn(`⚠️ [updateDriverProfile] Error actualizando en Supabase REST API:`, supabaseError.message);
     }
 
-    // 3. Actualizar en Realtime DB (para sincronización)
-    const db = admin.database();
-    const updateData: any = {};
-    if (firstName) updateData.firstName = firstName;
-    if (lastName) updateData.lastName = lastName;
-    if (phone) updateData.phone = phone;
-    if (licenseNumber) updateData.licenseNumber = licenseNumber;
-    if (licenseExpiry) updateData.licenseExpiry = licenseExpiry;
-    if (profilePhoto) updateData.profilePhoto = profilePhoto;
-    if (department) updateData.department = department;
-    if (municipality) updateData.municipality = municipality;
+    // 3. Actualizar en Realtime DB (para sincronización de compatibilidad)
+    if (MIGRATION_FLAGS.SYNC_DRIVERS_STATIC_TO_RTDB) {
+      const db = admin.database();
+      const updateData: any = {};
+      if (firstName) updateData.firstName = firstName;
+      if (lastName) updateData.lastName = lastName;
+      if (phone) updateData.phone = phone;
+      if (licenseNumber) updateData.licenseNumber = licenseNumber;
+      if (licenseExpiry) updateData.licenseExpiry = licenseExpiry;
+      if (profilePhoto) updateData.profilePhoto = profilePhoto;
+      if (department) updateData.department = department;
+      if (municipality) updateData.municipality = municipality;
 
-    if (Object.keys(updateData).length > 0) {
-      await db.ref(`drivers/${driverId}`).update(updateData);
-      console.log(`✅ [updateDriverProfile] Perfil actualizado en Realtime DB`);
+      if (Object.keys(updateData).length > 0) {
+        await db.ref(`drivers/${driverId}`).update(updateData);
+        console.log(`✅ [updateDriverProfile] Perfil actualizado en Realtime DB`);
+      }
+    } else {
+      console.log('⏭️ [updateDriverProfile] SYNC_DRIVERS_STATIC_TO_RTDB=false, no se actualiza drivers/{id}');
     }
 
     return {

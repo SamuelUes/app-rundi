@@ -1,11 +1,14 @@
 import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getFirebaseAuth, getFirebaseDatabase } from '../config/firebase';
-import { ref, set, serverTimestamp } from 'firebase/database';
+import { ref, set, update, serverTimestamp } from 'firebase/database';
 import backendConfig from '../config/backendConfig';
 import firebaseAuthService from '../services/auth/firebaseAuthService';
 import localAuthService from '../services/auth/localAuthService';
 import mainAuthService from '../services/auth/authService';
+import backgroundLocationService from '../services/backgroundLocationService';
+import sessionService from '../services/sessionService';
+import alertService from '../services/alertService';
 
 interface User {
   id: string;
@@ -43,6 +46,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   // Seleccionar el servicio según el modo
   const authService = backendConfig.isFirebase() ? firebaseAuthService : localAuthService;
+
+  const ensureTrackingIfNeeded = async (role?: User['role']) => {
+    if (role === 'driver' || role === 'designated_driver') {
+      try {
+        await backgroundLocationService.ensureBackgroundTrackingIntegrity();
+      } catch (err) {
+        console.warn('⚠️ No se pudo restaurar tracking en segundo plano:', err);
+      }
+    }
+  };
 
   const normalizeUserData = (raw: any): User => {
     if (!raw) {
@@ -126,6 +139,22 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
         
         setUser(parsedUser);
+        await ensureTrackingIfNeeded(parsedUser.role);
+
+        // Intentar iniciar sesión de dispositivo (política DENY)
+        try {
+          await sessionService.startSession({ policy: 'deny' });
+        } catch (err: any) {
+          if (err?.code === 'SESSION_ACTIVE_ELSEWHERE') {
+            // Forzar logout local y Firebase
+            try { await authService.logout(); } catch {}
+            await AsyncStorage.removeItem('user');
+            setUser(null);
+            alertService.showErrorAlert('No puedes acceder: tu cuenta ya está activa en otro dispositivo. Cierra sesión en el otro teléfono para continuar.');
+            setLoading(false);
+            return;
+          }
+        }
       }
     } catch (error) {
       console.error('Error loading user:', error);
@@ -143,6 +172,21 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       await AsyncStorage.setItem('user', JSON.stringify(normalizedUser));
 
       setUser(normalizedUser);
+      await ensureTrackingIfNeeded(normalizedUser.role);
+
+      // Sesión única (DENY)
+      try {
+        await sessionService.startSession({ policy: 'deny' });
+      } catch (err: any) {
+        if (err?.code === 'SESSION_ACTIVE_ELSEWHERE') {
+          // Revertir login
+          try { await authService.logout(); } catch {}
+          await AsyncStorage.removeItem('user');
+          setUser(null);
+          alertService.showErrorAlert('No puedes iniciar sesión: la cuenta ya está activa en otro dispositivo.');
+          throw err;
+        }
+      }
     } catch (error: any) {
       console.error('Login error:', error);
       throw error;
@@ -175,6 +219,20 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const normalizedUser = normalizeUserData(userData);
       await AsyncStorage.setItem('user', JSON.stringify(normalizedUser));
       setUser(normalizedUser);
+      await ensureTrackingIfNeeded(normalizedUser.role);
+
+      // Sesión única (DENY)
+      try {
+        await sessionService.startSession({ policy: 'deny' });
+      } catch (err: any) {
+        if (err?.code === 'SESSION_ACTIVE_ELSEWHERE') {
+          try { await authService.logout(); } catch {}
+          await AsyncStorage.removeItem('user');
+          setUser(null);
+          alertService.showErrorAlert('No puedes completar el registro: la cuenta ya está activa en otro dispositivo.');
+          throw err;
+        }
+      }
     } catch (error) {
       console.error('Register error:', error);
       throw error;
@@ -182,8 +240,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
   const logout = async () => {
     try {
+      // Detener tracking en segundo plano antes de cerrar sesión
+      try {
+        await backgroundLocationService.stopBackgroundLocationTracking();
+      } catch (bgError) {
+        console.log('⚠️ No se pudo detener el tracking en segundo plano, continuando con logout');
+      }
+
+      // Cerrar sesión remota (best-effort)
+      try { await sessionService.endSession(); } catch {}
       // Marcar como offline en Firebase antes de hacer logout (solo conductores)
-      if (user?.role === 'driver' && backendConfig.isFirebase()) {
+      const isDriverRole = user?.role === 'driver' || user?.role === 'designated_driver';
+      if (isDriverRole && backendConfig.isFirebase()) {
         try {
           const auth = await getFirebaseAuth();
           const database = await getFirebaseDatabase();
@@ -192,6 +260,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             const driverLocationRef = ref(database, `driverLocations/${firebaseUser.uid}`);
             await set(driverLocationRef, {
               status: 'offline',
+              updatedAt: serverTimestamp(),
+              lastSeen: serverTimestamp(),
+            });
+            const driverInfoRef = ref(database, `driversInfo/${firebaseUser.uid}`);
+            await update(driverInfoRef, {
               updatedAt: serverTimestamp(),
               lastSeen: serverTimestamp(),
             });
@@ -220,6 +293,20 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       
       await AsyncStorage.setItem('user', JSON.stringify(userData));
       setUser(userData);
+      await ensureTrackingIfNeeded(userData.role);
+
+      // Sesión única (DENY)
+      try {
+        await sessionService.startSession({ policy: 'deny' });
+      } catch (err: any) {
+        if (err?.code === 'SESSION_ACTIVE_ELSEWHERE') {
+          try { await authService.logout(); } catch {}
+          await AsyncStorage.removeItem('user');
+          setUser(null);
+          alertService.showErrorAlert('No puedes iniciar sesión: la cuenta ya está activa en otro dispositivo.');
+          throw err;
+        }
+      }
     } catch (error) {
       console.error('Google login error:', error);
       throw error;
@@ -250,6 +337,20 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
 
       setUser(normalizedUser);
+      await ensureTrackingIfNeeded(normalizedUser.role);
+
+      // Sesión única (DENY)
+      try {
+        await sessionService.startSession({ policy: 'deny' });
+      } catch (err: any) {
+        if (err?.code === 'SESSION_ACTIVE_ELSEWHERE') {
+          try { await authService.logout(); } catch {}
+          await AsyncStorage.removeItem('user');
+          setUser(null);
+          alertService.showErrorAlert('No puedes completar el registro: la cuenta ya está activa en otro dispositivo.');
+          throw err;
+        }
+      }
     } catch (error) {
       console.error('Google register error:', error);
       throw error;
@@ -275,8 +376,22 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
 
       setUser(normalizedUser);
+      await ensureTrackingIfNeeded(normalizedUser.role);
 
       console.log('✅ Login con SMS exitoso');
+
+      // Sesión única (DENY)
+      try {
+        await sessionService.startSession({ policy: 'deny' });
+      } catch (err: any) {
+        if (err?.code === 'SESSION_ACTIVE_ELSEWHERE') {
+          try { await authService.logout(); } catch {}
+          await AsyncStorage.removeItem('user');
+          setUser(null);
+          alertService.showErrorAlert('No puedes iniciar sesión: la cuenta ya está activa en otro dispositivo.');
+          throw err;
+        }
+      }
     } catch (error) {
       console.error('Phone SMS login error:', error);
       throw error;

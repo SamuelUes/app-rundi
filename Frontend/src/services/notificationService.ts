@@ -46,6 +46,9 @@ class NotificationService {
         return null;
       }
 
+      // Configurar canal Android de alta prioridad
+      await this.ensureAndroidChannel();
+
       // Obtener token de Expo Push
       const token = await this.getExpoPushToken();
       this.expoPushToken = token;
@@ -78,6 +81,29 @@ class NotificationService {
     });
 
     return token.data;
+  }
+
+  /**
+   * Crear canal Android de alta prioridad para proximidad
+   */
+  private async ensureAndroidChannel() {
+    try {
+      if (Platform.OS !== 'android') return;
+      // Configurar canal por defecto como alta prioridad
+      await Notifications.setNotificationChannelAsync('default', {
+        name: 'Notificaciones',
+        importance: Notifications.AndroidImportance.HIGH,
+        bypassDnd: true,
+        sound: 'default',
+        vibrationPattern: [0, 250, 250, 250],
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+        enableVibrate: true,
+        enableLights: true,
+        lightColor: '#FF9800',
+      });
+    } catch (e) {
+      // noop
+    }
   }
 
   /**

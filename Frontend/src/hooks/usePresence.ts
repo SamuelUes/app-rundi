@@ -4,6 +4,7 @@ import { getFirebaseFunctions, getFirebaseAuth, getFirebaseDatabase } from '../c
 import { ref, onValue, DataSnapshot } from 'firebase/database';
 import { useAuth } from '../context/AuthContext';
 import { AppState, AppStateStatus } from 'react-native';
+import sessionService from '../services/sessionService';
 
 /**
  * Hook para manejar la presencia del usuario en Firebase Realtime Database
@@ -43,7 +44,8 @@ export function usePresence() {
         const markClosed = httpsCallable(functions, 'markAppClosed');
         actionsRef.current = { markActive, markClosed };
 
-        await markActive({ role: 'driver' });
+        const deviceId = await sessionService.getDeviceId();
+        await markActive({ role: 'driver', deviceId });
 
         console.log('✅ Sistema de presencia configurado vía backend - Status inicial: offline');
       } catch (error: any) {
@@ -65,13 +67,14 @@ export function usePresence() {
 
         const actions = actionsRef.current;
         if (!actions) return;
+        const deviceId = await sessionService.getDeviceId();
         // Si la app pasa a background o inactive, marcar como offline
         if (
           appState.current.match(/active/) &&
           nextAppState.match(/inactive|background/)
         ) {
           console.log('📱 App en background, marcando como offline...');
-          await actions.markClosed({ role: 'driver' });
+          await actions.markClosed({ role: 'driver', deviceId });
         }
 
         // Si la app vuelve a foreground, NO cambiar el estado automáticamente
@@ -81,7 +84,7 @@ export function usePresence() {
           nextAppState === 'active'
         ) {
           console.log('📱 App en foreground');
-          await actions.markActive({ role: 'driver' });
+          await actions.markActive({ role: 'driver', deviceId });
         }
 
         appState.current = nextAppState;
@@ -99,7 +102,11 @@ export function usePresence() {
       
       const actions = actionsRef.current;
       if (actions && user?.role === 'driver') {
-        actions.markClosed({ role: 'driver' }).catch((err: any) => {
+        sessionService.getDeviceId().then((deviceId) => {
+          actions.markClosed({ role: 'driver', deviceId }).catch((err: any) => {
+            console.error('❌ Error en cleanup de presencia (markAppClosed):', err?.message || err);
+          });
+        }).catch((err) => {
           console.error('❌ Error en cleanup de presencia (markAppClosed):', err?.message || err);
         });
       }

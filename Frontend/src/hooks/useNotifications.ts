@@ -7,6 +7,7 @@ import { useEffect, useState, useRef } from 'react';
 import * as Notifications from 'expo-notifications';
 import notificationService from '../services/notificationService';
 import { useAuth } from '../context/AuthContext';
+import { navigate } from '../navigation/NavigationService';
 
 export function useNotifications() {
   const { user } = useAuth();
@@ -55,6 +56,19 @@ export function useNotifications() {
       console.log('💾 Token de notificaciones para usuario:', user.id);
       // await saveTokenToBackend(user.id, token);
     }
+
+    // Manejar notificación que abrió la app (cold start)
+    try {
+      const last = await Notifications.getLastNotificationResponseAsync();
+      if (last && last.notification?.request?.content?.data) {
+        const data: any = last.notification.request.content.data;
+        if (data?.type === 'proximity_ride' && data?.ride) {
+          navigate('RidePreview', { ride: data.ride, nearbyRides: Array.isArray(data.nearbyRides) ? data.nearbyRides : [] });
+        }
+      }
+    } catch (e) {
+      // noop
+    }
   };
 
   const handleNotificationResponse = (response: Notifications.NotificationResponse) => {
@@ -65,6 +79,17 @@ export function useNotifications() {
       case 'new_ride':
         console.log('Navegar a viaje:', data.rideId);
         // navigation.navigate('RideDetails', { rideId: data.rideId });
+        break;
+      case 'proximity_ride':
+        try {
+          const ride = data.ride;
+          const nearbyRides = Array.isArray(data.nearbyRides) ? data.nearbyRides : [];
+          if (ride) {
+            navigate('RidePreview', { ride, nearbyRides });
+          }
+        } catch (e) {
+          // noop
+        }
         break;
       case 'ride_accepted':
         console.log('Viaje aceptado:', data.rideId);

@@ -4,6 +4,7 @@
 
 import { httpsCallable } from 'firebase/functions';
 import { getFirebaseFunctions } from '../config/firebase';
+import sessionService from './sessionService';
 
 export interface EarningsSummary {
   totalEarnings: number;
@@ -111,10 +112,13 @@ class EarningsService {
       const getDriverEarningsFn = httpsCallable(functions, 'getDriverEarnings');
 
       console.log(`📞 [earningsService] Llamando a getDriverEarnings...`);
+      const deviceId = await sessionService.getDeviceId();
+
       const response = await getDriverEarningsFn({
         period,
         startDate,
         endDate,
+        deviceId,
       });
 
       const result = response.data as any;
@@ -181,7 +185,9 @@ class EarningsService {
       const functions = await getFirebaseFunctions();
       const getDriverStatsFn = httpsCallable(functions, 'getDriverEarningsStats');
 
-      const response = await getDriverStatsFn({});
+      const deviceId = await sessionService.getDeviceId();
+
+      const response = await getDriverStatsFn({ deviceId });
       const result = response.data as any;
 
       return result.stats;
@@ -199,7 +205,9 @@ class EarningsService {
       const functions = await getFirebaseFunctions();
       const getEarningsByDayFn = httpsCallable(functions, 'getEarningsByDay');
 
-      const response = await getEarningsByDayFn({ days });
+      const deviceId = await sessionService.getDeviceId();
+
+      const response = await getEarningsByDayFn({ days, deviceId });
       const result = response.data as any;
 
       return result.earningsByDay;
@@ -217,7 +225,9 @@ class EarningsService {
       const functions = await getFirebaseFunctions();
       const getPendingCashRidesFn = httpsCallable(functions, 'getPendingCashRides');
 
-      const response = await getPendingCashRidesFn({});
+      const deviceId = await sessionService.getDeviceId();
+
+      const response = await getPendingCashRidesFn({ deviceId });
       const result = response.data as any;
 
       return result.pendingCashRides;
@@ -240,7 +250,9 @@ class EarningsService {
       const functions = await getFirebaseFunctions();
       const createCashRechargeFn = httpsCallable(functions, 'createCashRecharge');
 
-      const response = await createCashRechargeFn(data);
+      const deviceId = await sessionService.getDeviceId();
+
+      const response = await createCashRechargeFn({ ...data, deviceId });
       const result = response.data as any;
 
       return result.recharge;
@@ -258,7 +270,9 @@ class EarningsService {
       const functions = await getFirebaseFunctions();
       const getDriverRechargesFn = httpsCallable(functions, 'getDriverRecharges');
 
-      const response = await getDriverRechargesFn({});
+      const deviceId = await sessionService.getDeviceId();
+
+      const response = await getDriverRechargesFn({ deviceId });
       const result = response.data as any;
 
       return result.recharges || [];

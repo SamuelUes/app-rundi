@@ -5,6 +5,7 @@
 
 import { getFirebaseFunctions } from '../config/firebase';
 import { httpsCallable } from 'firebase/functions';
+import sessionService from './sessionService';
 
 class RideHistoryService {
   private functions: any = null;
@@ -24,7 +25,8 @@ class RideHistoryService {
       // Usar Firebase Callable Function que consulta Supabase
       const functions = await this.getFunctions();
       const getMyRides = httpsCallable(functions, 'getMyRides');
-      const response = await getMyRides({ limit, offset });
+      const deviceId = await sessionService.getDeviceId();
+      const response = await getMyRides({ limit, offset, deviceId });
       
       const result = response.data as { success: boolean; rides: any[] };
       
@@ -101,7 +103,8 @@ class RideHistoryService {
     try {
       const functions = await this.getFunctions();
       const getRideDetailsFunc = httpsCallable(functions, 'getRideDetails');
-      const response = await getRideDetailsFunc({ rideId });
+      const deviceId = await sessionService.getDeviceId();
+      const response = await getRideDetailsFunc({ rideId, deviceId });
       
       const result = response.data as { success: boolean; ride: any };
       

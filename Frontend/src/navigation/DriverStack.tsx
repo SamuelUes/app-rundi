@@ -24,6 +24,7 @@ import CompleteVehicleInfoScreen from '../screens/Shared/CompleteVehicleInfoScre
 import RideDetailsScreen from '../screens/Shared/RideDetailsScreen';
 import PaymentConfirmationScreen from '../screens/Driver/PaymentConfirmationScreen';
 import WaitingClientConfirmationScreen from '../screens/Driver/WaitingClientConfirmationScreen';
+import PayCommissionsScreen from '../screens/Driver/PayCommissionsScreen';
 
 export type DriverStackParamList = {
   DriverHome: undefined;
@@ -48,6 +49,8 @@ export type DriverStackParamList = {
       driverOfferedPrice?: number | null;
       paymentMethod?: 'cash' | 'card';
     };
+    nearbyRides?: any[]; // Opcional: siguientes solicitudes cercanas para rotar entre ellas
+    proximity?: boolean; // Si viene desde viaje por aproximación
   };
   Earnings: undefined;
   VehicleVerification: {
@@ -89,6 +92,7 @@ export type DriverStackParamList = {
     estimatedFare: number;
     extraDestinations?: Array<{ lat: number; lng: number; address?: string }>;
   };
+  PayCommissions: undefined;
 };
 
 const Stack = createNativeStackNavigator<DriverStackParamList>();
@@ -132,6 +136,7 @@ export default function DriverStack() {
       <Stack.Screen name="RideDetails" component={RideDetailsScreen} options={{ headerShown: true, title: 'Detalles del Viaje' }} />
       <Stack.Screen name="PaymentConfirmation" component={PaymentConfirmationScreen} options={{ headerShown: true, title: 'Confirmación de Pago' }} />
       <Stack.Screen name="WaitingClientConfirmation" component={WaitingClientConfirmationScreen} options={{ headerShown: true, title: 'Esperando Confirmación' }} />
+      <Stack.Screen name="PayCommissions" component={PayCommissionsScreen} options={{ headerShown: false }} />
     </Stack.Navigator>
   );
 }
