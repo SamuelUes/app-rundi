@@ -32,6 +32,8 @@ interface OfferItem {
   };
 }
 
+const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
+
 const preferNonEmpty = (...candidates: Array<string | null | undefined>): string | null => {
   for (const candidate of candidates) {
     if (typeof candidate === 'string') {
@@ -120,6 +122,8 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
   const [rideSnapshot, setRideSnapshot] = useState<any | null>(null);
   const [driverLocations, setDriverLocations] = useState<Record<string, any> | null>(null);
   const [showNegotiation, setShowNegotiation] = useState(false);
+  const [isConfirming, setIsConfirming] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
 
   // driversInfo: datos públicos agregados (nombre, foto, rating, vehículo). Evita leer /drivers (permiso denegado para clientes)
   const { data: driversInfo } = useFirebaseData<any>('driversInfo', { maxCacheAge: 10000 });
@@ -320,6 +324,8 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
   const primaryActionLabel = selectedOffer?.status === 'accepted' ? 'Confirmar conductor' : 'Seleccionar';
 
   const acceptedAnim = useRef(new Animated.Value(0)).current;
+  const confirmBtnAnim = useRef(new Animated.Value(1)).current;
+  const cancelBtnAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     if (!selectedOffer) {
@@ -349,7 +355,13 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
   }, [selectedOffer]);
 
   const confirmSelectedDriver = useCallback(async () => {
-    if (!rideId || !selectedDriverId) return;
+    if (!rideId || !selectedDriverId || isConfirming) return;
+    setIsConfirming(true);
+    Animated.timing(confirmBtnAnim, {
+      toValue: 0.95,
+      duration: 120,
+      useNativeDriver: true,
+    }).start();
     try {
       await ridesService.confirmDriver(rideId, selectedDriverId);
       alertService.showSuccessAlert('Conductor confirmado', 'Ahora podrás ver su ubicación en tiempo real.');
@@ -361,19 +373,39 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
     } catch (e: any) {
       console.error('Error confirming driver', e);
       alertService.showErrorAlert('No se pudo confirmar al conductor. Intenta de nuevo.');
+    } finally {
+      Animated.timing(confirmBtnAnim, {
+        toValue: 1,
+        duration: 160,
+        useNativeDriver: true,
+      }).start();
+      setIsConfirming(false);
     }
-  }, [rideId, selectedDriverId, navigation, offers]);
+  }, [rideId, selectedDriverId, navigation, offers, isConfirming, confirmBtnAnim]);
 
   const cancelSearch = useCallback(async () => {
-    if (!rideId) return;
+    if (!rideId || isCancelling) return;
+    setIsCancelling(true);
+    Animated.timing(cancelBtnAnim, {
+      toValue: 0.95,
+      duration: 120,
+      useNativeDriver: true,
+    }).start();
     try {
       await ridesService.cancelRide(rideId, 'Cancelado por el cliente desde HomeScreenOffers');
       alertService.showSuccessAlert('Búsqueda cancelada', 'Regresamos a tu pantalla de inicio.');
       navigation.replace('ClientHome');
     } catch (e: any) {
       alertService.showErrorAlert('No se pudo cancelar la búsqueda.');
+    } finally {
+      Animated.timing(cancelBtnAnim, {
+        toValue: 1,
+        duration: 160,
+        useNativeDriver: true,
+      }).start();
+      setIsCancelling(false);
     }
-  }, [rideId, navigation]);
+  }, [rideId, navigation, isCancelling, cancelBtnAnim]);
 
   // Location to center map
   const centerLat = coords?.latitude ?? rideSnapshot?.origin?.lat ?? 12.1364;
@@ -512,20 +544,44 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
           />
         )}
 
-        <TouchableOpacity
-          style={[styles.primaryBtn, { backgroundColor: selectedDriverId ? '#CF9A24' : '#BDBDBD' }]}
+        <AnimatedTouchableOpacity
+          style={[
+            styles.primaryBtn,
+            {
+              backgroundColor: selectedDriverId ? '#CF9A24' : '#BDBDBD',
+              transform: [{ scale: confirmBtnAnim }],
+            },
+          ]}
           onPress={confirmSelectedDriver}
-          disabled={!selectedDriverId}
+          disabled={!selectedDriverId || isConfirming}
+          activeOpacity={0.85}
         >
-          <Text style={styles.primaryBtnText}>{primaryActionLabel}</Text>
-        </TouchableOpacity>
+          {isConfirming ? (
+            <ActivityIndicator color="#FFFFFF" />
+          ) : (
+            <Text style={styles.primaryBtnText}>{primaryActionLabel}</Text>
+          )}
+        </AnimatedTouchableOpacity>
 
-        <TouchableOpacity
-          style={[styles.cancelBtn, { backgroundColor: '#E53935' }]}
+        <AnimatedTouchableOpacity
+          style={[
+            styles.cancelBtn,
+            {
+              backgroundColor: '#E53935',
+              transform: [{ scale: cancelBtnAnim }],
+              opacity: isCancelling ? 0.7 : 1,
+            },
+          ]}
           onPress={cancelSearch}
+          disabled={isCancelling}
+          activeOpacity={0.85}
         >
-          <Text style={styles.cancelBtnText}>Cancelar búsqueda</Text>
-        </TouchableOpacity>
+          {isCancelling ? (
+            <ActivityIndicator color="#FFFFFF" />
+          ) : (
+            <Text style={styles.cancelBtnText}>Cancelar búsqueda</Text>
+          )}
+        </AnimatedTouchableOpacity>
       </View>
 
       {/* Modal de Negociación */}

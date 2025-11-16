@@ -7,6 +7,7 @@ import MapView, {
   PROVIDER_GOOGLE,
   MapPressEvent,
   MarkerDragStartEndEvent,
+  Region,
 } from 'react-native-maps';
 import { useTheme } from '../context/ThemeContext';
 
@@ -47,6 +48,8 @@ interface GoogleMapProps {
   longitude: number;
   style?: any;
   onMapPress?: (event: { latitude: number; longitude: number }) => void;
+  onRegionChangeCenter?: (center: { latitude: number; longitude: number }) => void;
+  onRegionChangeCompleteCenter?: (center: { latitude: number; longitude: number }) => void;
   showMarker?: boolean;
   markerPosition?: { latitude: number; longitude: number } | null;
   markerType?: 'default' | 'car' | 'origin' | 'destination' | 'client' | 'manual_origin' | 'manual_origin_hold';
@@ -418,6 +421,8 @@ export default function GoogleMap({
   longitude,
   style,
   onMapPress,
+  onRegionChangeCenter,
+  onRegionChangeCompleteCenter,
   onDriverPress,
   showMarker = true,
   markerPosition,
@@ -696,6 +701,16 @@ export default function GoogleMap({
           longitudeDelta: 0.0421,
         }}
         onPress={handleMapPress}
+        onRegionChange={(region: Region) => {
+          if (onRegionChangeCenter) {
+            onRegionChangeCenter({ latitude: region.latitude, longitude: region.longitude });
+          }
+        }}
+        onRegionChangeComplete={(region: Region) => {
+          if (onRegionChangeCompleteCenter) {
+            onRegionChangeCompleteCenter({ latitude: region.latitude, longitude: region.longitude });
+          }
+        }}
         mapType={mapType || 'standard'}
         customMapStyle={Array.isArray(resolvedMapStyle) ? resolvedMapStyle : LIGHT_MAP_STYLE}
       >

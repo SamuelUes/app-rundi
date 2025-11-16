@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -61,6 +61,20 @@ type MapSelectionState =
   | null;
 
 const formatCoords = (coords: Coords) => `${coords.latitude.toFixed(5)}, ${coords.longitude.toFixed(5)}`;
+
+function metersBetween(a: Coords, b: Coords) {
+  const R = 6371000; // meters
+  const toRad = (v: number) => (v * Math.PI) / 180;
+  const dLat = toRad(b.latitude - a.latitude);
+  const dLon = toRad(b.longitude - a.longitude);
+  const lat1 = toRad(a.latitude);
+  const lat2 = toRad(b.latitude);
+  const sinDLat = Math.sin(dLat / 2);
+  const sinDLon = Math.sin(dLon / 2);
+  const h = sinDLat * sinDLat + Math.cos(lat1) * Math.cos(lat2) * sinDLon * sinDLon;
+  const c = 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+  return R * c;
+}
 
 function extractCoordsFromSuggestion(suggestion: any): Coords | null {
   if (!suggestion) return null;
@@ -195,17 +209,32 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
   const [favoriteLocations, setFavoriteLocations] = useState<SavedLocation[]>([]);
   const [activeSelection, setActiveSelection] = useState<'origin' | 'destination' | number | 'new-stop' | null>(null);
 
-  const [mapSelectionMode, setMapSelectionMode] = useState<MapSelectionState>(null);
+  const [mapSelectionMode, setMapSelectionMode] = useState<MapSelectionState>('origin');
+  const [submittingRequest, setSubmittingRequest] = useState(false);
 
-  const mapSelectionHint = useMemo(() => {
-    if (!mapSelectionMode) return null;
-    if (mapSelectionMode === 'origin') return 'Toca el mapa para colocar el origen.';
-    if (mapSelectionMode === 'destination') return 'Toca el mapa para elegir el destino final.';
-    if (mapSelectionMode === 'extra-new') return `Toca el mapa para agregar la parada ${extraDestinations.length + 1}.`;
-    if (typeof mapSelectionMode === 'object' && mapSelectionMode.type === 'extra-edit') {
-      return `Toca el mapa para actualizar la parada ${mapSelectionMode.index + 1}.`;
+  useEffect(() => {
+    if (!mapSelectionMode) return;
+
+    let title = 'Selecciona una ubicación';
+    let message: string | null = null;
+
+    if (mapSelectionMode === 'origin') {
+      title = 'Fija el origen';
+      message = 'Mueve el mapa hasta tu punto de partida.';
+    } else if (mapSelectionMode === 'destination') {
+      title = 'Selecciona tu destino';
+      message = 'Toca el mapa para elegir tu destino final.';
+    } else if (mapSelectionMode === 'extra-new') {
+      title = 'Nueva parada';
+      message = `Toca el mapa para agregar la parada ${extraDestinations.length + 1}.`;
+    } else if (typeof mapSelectionMode === 'object' && mapSelectionMode.type === 'extra-edit') {
+      title = 'Editar parada';
+      message = `Toca el mapa para actualizar la parada ${mapSelectionMode.index + 1}.`;
     }
-    return null;
+
+    if (message) {
+      alertService.showInfoAlert(title, message);
+    }
   }, [mapSelectionMode, extraDestinations.length]);
 
   const orderedRouteRows = useMemo(() => {
@@ -617,14 +646,12 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
 
   const handleMapPress = useCallback(
     async (event: { latitude: number; longitude: number }) => {
-      const selectedPoint: Coords = { latitude: event.latitude, longitude: event.longitude };
-      const address = (await mapsService.reverseGeocode(selectedPoint)) || formatCoords(selectedPoint);
-
       if (mapSelectionMode === 'origin') {
-        await applySelectionForTarget('origin', address, selectedPoint);
-        setMapSelectionMode(null);
+        // In origin selection mode, we use center-pin + region change, so ignore taps
         return;
       }
+      const selectedPoint: Coords = { latitude: event.latitude, longitude: event.longitude };
+      const address = (await mapsService.reverseGeocode(selectedPoint)) || formatCoords(selectedPoint);
 
       if (mapSelectionMode === 'destination') {
         await applySelectionForTarget('destination', address, selectedPoint);
@@ -696,18 +723,51 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     setManualOriginDraft((prev) => prev ?? startCoords);
   }, []);
 
+  const destinationPromptShownRef = useRef(false);
+  const previousStopsCountRef = useRef(0);
+
+  const promptDestinationSelection = useCallback(() => {
+    if (destinationPromptShownRef.current) return;
+    if (destination?.trim()?.length) return;
+    destinationPromptShownRef.current = true;
+    alertService.showInfoAlert('Selecciona tu destino', 'Ya puedes elegir tu destino final buscándolo o en el mapa.');
+  }, [destination]);
+
+  useEffect(() => {
+    if (!destination && !destinationCoords) {
+      destinationPromptShownRef.current = false;
+    }
+  }, [destination, destinationCoords]);
+
+  useEffect(() => {
+    const stopsWithCoords = extraDestinations.filter((stop) => !!stop.coords).length;
+    if (stopsWithCoords > previousStopsCountRef.current && !destination && !destinationCoords) {
+      promptDestinationSelection();
+    }
+    previousStopsCountRef.current = stopsWithCoords;
+  }, [extraDestinations, destination, destinationCoords, promptDestinationSelection]);
+
   const handleManualOriginDragEnd = useCallback(
     async (newCoords: Coords) => {
       setManualOriginDraft(newCoords);
       setManualOriginDragging(false);
       setManualOriginLoading(true);
       try {
-        const address = (await mapsService.reverseGeocode(newCoords)) || formatCoords(newCoords);
-        setManualOriginAddress(address);
+        const coordLabel = formatCoords(newCoords);
+        let address: string | null = null;
+        try {
+          address = await mapsService.reverseGeocode(newCoords);
+        } catch (reverseError) {
+          console.warn('reverseGeocode origin (drag) failed', reverseError);
+        }
+        const displayAddress = address?.trim()?.length ? address : coordLabel;
+
+        setManualOriginAddress(displayAddress);
         setOriginCoords(newCoords);
-        setOrigin(address);
-        rememberRecentLocation(address, newCoords);
+        setOrigin(displayAddress);
+        rememberRecentLocation(displayAddress, newCoords);
         await recomputeRouteWith(newCoords, undefined, undefined);
+        promptDestinationSelection();
       } catch (error) {
         console.warn('Manual origin geocode failed', error);
         const fallbackAddress = formatCoords(newCoords);
@@ -716,11 +776,14 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         setOrigin(fallbackAddress);
         rememberRecentLocation(fallbackAddress, newCoords);
         await recomputeRouteWith(newCoords, undefined, undefined);
+        promptDestinationSelection();
       } finally {
         setManualOriginLoading(false);
+        // Clear draft to rely on committed originCoords
+        setManualOriginDraft(null);
       }
     },
-    [rememberRecentLocation, recomputeRouteWith],
+    [rememberRecentLocation, recomputeRouteWith, promptDestinationSelection],
   );
 
   const manualOriginMarkerPosition = useMemo(() => {
@@ -729,6 +792,64 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     if (coords) return coords;
     return DEFAULT_FALLBACK_COORDS;
   }, [manualOriginDraft, originCoords, coords]);
+
+  // Static center-pin selection (only for origin)
+  const lastAppliedOriginCenterRef = useRef<Coords | null>(null);
+  const originCenterDebounceRef = useRef<any>(null);
+
+  const handleRegionChangeCenter = useCallback(
+    (center: Coords) => {
+      if (mapSelectionMode !== 'origin') return;
+      setManualOriginDragging(true);
+      setManualOriginDraft(center);
+    },
+    [mapSelectionMode],
+  );
+
+  const handleRegionChangeCompleteCenter = useCallback(
+    (center: Coords) => {
+      if (mapSelectionMode !== 'origin') return;
+      setManualOriginDragging(false);
+      if (originCenterDebounceRef.current) clearTimeout(originCenterDebounceRef.current);
+      originCenterDebounceRef.current = setTimeout(async () => {
+        const last = lastAppliedOriginCenterRef.current;
+        if (last && metersBetween(last, center) < 20) return; // ignore tiny moves
+        setManualOriginLoading(true);
+        try {
+          const coordLabel = formatCoords(center);
+          let address: string | null = null;
+          try {
+            address = await mapsService.reverseGeocode(center);
+          } catch (reverseError) {
+            console.warn('reverseGeocode origin (center pin) failed', reverseError);
+          }
+          const displayAddress = address?.trim()?.length ? address : coordLabel;
+
+          setManualOriginAddress(displayAddress);
+          setOriginCoords(center);
+          setOrigin(displayAddress);
+          rememberRecentLocation(displayAddress, center);
+          lastAppliedOriginCenterRef.current = center;
+          await recomputeRouteWith(center, undefined, undefined);
+          promptDestinationSelection();
+        } catch (err) {
+          console.warn('center-pin origin selection failed', err);
+          const fallback = formatCoords(center);
+          setManualOriginAddress(fallback);
+          setOriginCoords(center);
+          setOrigin(fallback);
+          rememberRecentLocation(fallback, center);
+          await recomputeRouteWith(center, undefined, undefined);
+          promptDestinationSelection();
+        } finally {
+          setManualOriginLoading(false);
+          setMapSelectionMode(null);
+          setManualOriginDraft(null);
+        }
+      }, 300);
+    },
+    [mapSelectionMode, rememberRecentLocation, recomputeRouteWith, promptDestinationSelection],
+  );
 
   const handleTakeVehiclePhoto = useCallback(async () => {
     try {
@@ -772,6 +893,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
   }, []);
 
   const onConfirmRequest = useCallback(async () => {
+    if (submittingRequest) return;
     if (!user) {
       alertService.showErrorAlert('Inicia sesión para solicitar un viaje.');
       return;
@@ -793,6 +915,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     }
 
     try {
+      setSubmittingRequest(true);
       const requestData: any = {
         clientId: user.id,
         origin: {
@@ -841,6 +964,8 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
       navigation?.navigate?.('HomeOffers', { rideId: ride.id });
     } catch (error: any) {
       alertService.showErrorAlert(error?.message || 'No se pudo solicitar el viaje');
+    } finally {
+      setSubmittingRequest(false);
     }
   }, [
     user,
@@ -860,6 +985,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     clientVehiclePhoto,
     servicesCatalog,
     navigation,
+    submittingRequest,
   ]);
 
   const selectionTitle = useMemo(() => {
@@ -891,6 +1017,8 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
           latitude={(originCoords || coords)?.latitude || DEFAULT_FALLBACK_COORDS.latitude}
           longitude={(originCoords || coords)?.longitude || DEFAULT_FALLBACK_COORDS.longitude}
           onMapPress={({ latitude, longitude }) => handleMapPress({ latitude, longitude })}
+          onRegionChangeCenter={mapSelectionMode === 'origin' ? handleRegionChangeCenter : undefined}
+          onRegionChangeCompleteCenter={mapSelectionMode === 'origin' ? handleRegionChangeCompleteCenter : undefined}
           destinationMarker={destinationCoords || undefined}
           extraStopMarkers={extraDestinations
             .map((stop, index) => (stop.coords ? { latitude: stop.coords.latitude, longitude: stop.coords.longitude, index } : null))
@@ -899,7 +1027,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
           showUserLocation
           userLocation={coords || undefined}
           showTraffic
-          showMarker
+          showMarker={mapSelectionMode !== 'origin'}
           markerPosition={manualOriginMarkerPosition}
           markerType="manual_origin"
           draggableMarker
@@ -908,11 +1036,26 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
           onMarkerDragStart={handleManualOriginDragStart}
           onMarkerDragEnd={handleManualOriginDragEnd}
         />
+        {mapSelectionMode === 'origin' && (
+          <View pointerEvents="none" style={styles.centerPinContainer}>
+            <Image
+              source={manualOriginDragging ? MANUAL_ORIGIN_HOLD_ICON : MANUAL_ORIGIN_ICON}
+              style={styles.centerPinImage}
+              resizeMode="contain"
+            />
+          </View>
+        )}
       </View>
 
       <View style={styles.routeBubble}>
-        <Text style={styles.routeBubbleTitle}>Escoge tu viaje</Text>
-        {mapSelectionHint ? <Text style={styles.mapSelectionHint}>{mapSelectionHint}</Text> : null}
+        <View style={styles.routeBubbleHeaderRow}>
+          <Text style={styles.routeBubbleTitle}>Escoge tu viaje</Text>
+          {mapSelectionMode ? (
+            <TouchableOpacity style={styles.inlineCancelButton} onPress={cancelMapSelection}>
+              <Text style={styles.inlineCancelText}>Cancelar</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
 
         <View style={styles.routeTimeline}>
           {orderedRouteRows.map((row, idx) => {
@@ -969,7 +1112,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
 
         {canAddExtraStop ? (
           <TouchableOpacity style={styles.addStopButton} onPress={beginAddExtraStop}>
-            <Text style={styles.addStopButtonText}>¿Quieres otro destino?</Text>
+            <Text style={styles.addStopButtonText}>¿Quieres un destino extra?</Text>
           </TouchableOpacity>
         ) : (
           <Text style={styles.addStopLimitText}>Has alcanzado el máximo de paradas extra.</Text>
@@ -1144,11 +1287,18 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
                 <Text style={styles.secondaryNavText}>Anterior</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.cta, !canConfirmOnStep3 && styles.ctaDisabled]}
-                disabled={!canConfirmOnStep3}
+                style={[styles.cta, (!canConfirmOnStep3 || submittingRequest) && styles.ctaDisabled]}
+                disabled={!canConfirmOnStep3 || submittingRequest}
                 onPress={onConfirmRequest}
               >
-                <Text style={styles.ctaText}>Confirmar y solicitar viaje</Text>
+                {submittingRequest ? (
+                  <View style={styles.ctaLoadingRow}>
+                    <ActivityIndicator color="#fff" size="small" style={{ marginRight: 8 }} />
+                    <Text style={styles.ctaText}>Enviando solicitud…</Text>
+                  </View>
+                ) : (
+                  <Text style={styles.ctaText}>Confirmar y solicitar viaje</Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -1258,14 +1408,15 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         </View>
       )}
 
-      {mapSelectionMode && (
-        <View style={styles.mapSelectionBanner}>
-          <Text style={styles.mapSelectionTitle}>{mapSelectionHint}</Text>
-          <TouchableOpacity style={styles.mapSelectionCancel} onPress={cancelMapSelection}>
-            <Text style={styles.mapSelectionCancelText}>Cancelar</Text>
-          </TouchableOpacity>
+      {submittingRequest && (
+        <View style={styles.submittingOverlay} pointerEvents="none">
+          <View style={styles.submittingCard}>
+            <ActivityIndicator color={colors.primary || '#2196F3'} size="large" />
+            <Text style={styles.submittingLabel}>Enviando tu solicitud…</Text>
+          </View>
         </View>
       )}
+
     </View>
   );
 }
@@ -1292,6 +1443,19 @@ function createStyles(colors: any) {
     },
     backButtonIcon: { width: 18, height: 18 },
 
+    // Center pin overlay for origin selection
+    centerPinContainer: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 10,
+    },
+    centerPinImage: { width: 48, height: 48 },
+
     routeBubble: {
       position: 'absolute',
       top: 45,
@@ -1305,8 +1469,15 @@ function createStyles(colors: any) {
       shadowRadius: 10,
       elevation: 6,
     },
-    routeBubbleTitle: { fontSize: 16, fontWeight: '700', color: colors.text || '#111', marginBottom: 8 },
-    mapSelectionHint: { fontSize: 12, color: colors.primary || '#2196F3', marginBottom: 12 },
+    routeBubbleHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+    routeBubbleTitle: { fontSize: 16, fontWeight: '700', color: colors.text || '#111' },
+    inlineCancelButton: {
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 999,
+      backgroundColor: colors.surface || '#ececec',
+    },
+    inlineCancelText: { fontSize: 12, fontWeight: '600', color: colors.textSecondary || '#555' },
 
     routeTimeline: { marginTop: 4 },
     timelineRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
@@ -1331,23 +1502,10 @@ function createStyles(colors: any) {
       paddingVertical: 6,
       paddingHorizontal: 14,
       borderRadius: 16,
-      backgroundColor: colors.surface || '#f1f1f1',
+      backgroundColor: colors.surface || '#b38737',
     },
-    addStopButtonText: { fontSize: 13, fontWeight: '700', color: colors.textSecondary || '#775E30' },
+    addStopButtonText: { fontSize: 13, fontWeight: '700', color: colors.textSecondary || '#fff' },
     addStopLimitText: { marginTop: 8, fontSize: 12, color: colors.textSecondary || '#666' },
-
-    mapSelectionBanner: {
-      position: 'absolute',
-      top: 16,
-      left: 16,
-      right: 16,
-      padding: 12,
-      borderRadius: 12,
-      backgroundColor: 'rgba(0,0,0,0.7)',
-    },
-    mapSelectionTitle: { color: '#fff', fontSize: 14, fontWeight: '600' },
-    mapSelectionCancel: { marginTop: 6, alignSelf: 'flex-end' },
-    mapSelectionCancelText: { color: '#fff', fontSize: 13, textDecorationLine: 'underline' },
 
     bottomPanel: {
       position: 'absolute',
@@ -1421,6 +1579,7 @@ function createStyles(colors: any) {
     },
     ctaSecondary: { backgroundColor: '#6e44ff' },
     ctaDisabled: { opacity: 0.5 },
+    ctaLoadingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
     ctaText: { color: '#fff', fontSize: 15, fontWeight: '800', textAlign: 'center' },
 
     secondaryNav: { paddingVertical: 12, paddingHorizontal: 16 },
@@ -1467,6 +1626,33 @@ function createStyles(colors: any) {
     availabilityText: { color: colors.textSecondary || '#666' },
     availabilityWarn: { color: colors.warning || '#FFA726', fontWeight: '700' },
     availabilityOk: { color: colors.success || '#4CAF50', fontWeight: '700' },
+
+    submittingOverlay: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: 'rgba(0,0,0,0.25)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 50,
+    },
+    submittingCard: {
+      paddingVertical: 20,
+      paddingHorizontal: 28,
+      borderRadius: 18,
+      backgroundColor: colors.card || '#fff',
+      alignItems: 'center',
+      justifyContent: 'center',
+      shadowColor: '#000',
+      shadowOpacity: 0.18,
+      shadowRadius: 12,
+      shadowOffset: { width: 0, height: 6 },
+      elevation: 8,
+      gap: 12,
+    },
+    submittingLabel: { fontSize: 14, fontWeight: '600', color: colors.text || '#111' },
 
     searchOverlay: {
       ...StyleSheet.absoluteFillObject,

@@ -91,7 +91,10 @@ export async function ensureSupabaseSession(forceRefresh = false): Promise<void>
   });
 
   if (signInError) {
-    console.warn('⚠️ No se pudo sincronizar sesión con Supabase:', signInError.message);
+    console.warn(
+      '⚠️ Supabase auth falló. Verifica que el proveedor Firebase esté habilitado:',
+      signInError.message,
+    );
     lastToken = null;
     return;
   }

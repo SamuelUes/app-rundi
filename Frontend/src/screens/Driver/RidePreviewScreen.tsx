@@ -37,6 +37,8 @@ import proximityService from '../../services/proximityService';
 
 const BACK_ICON = require('../../assets/icons/back_button/back_button2x.png');
 
+const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
+
 interface RideLocation {
   lat: number;
   lng: number;
@@ -89,6 +91,7 @@ export default function RidePreviewScreen() {
 
   // Necesario antes del efecto de auto-cierre
   const [acceptingRide, setAcceptingRide] = useState(false);
+  const [isRejectingRide, setIsRejectingRide] = useState(false);
   const [clientProfile, setClientProfile] = useState<ClientProfile | null>(null);
   const currentRide = rideData;
   const markDismissed = useCallback(async () => {
@@ -98,10 +101,8 @@ export default function RidePreviewScreen() {
       console.warn('[RidePreviewScreen] No se pudo marcar ride como descartado:', err);
     }
   }, [currentRide.id]);
-  const acceptingRideRef = useRef(false);
-  useEffect(() => {
-    acceptingRideRef.current = acceptingRide;
-  }, [acceptingRide]);
+  const acceptButtonScale = useRef(new Animated.Value(1)).current;
+  const rejectButtonScale = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     return () => {
@@ -561,6 +562,10 @@ export default function RidePreviewScreen() {
   };
 
   const handleAcceptRide = async () => {
+    if (acceptingRide) {
+      return;
+    }
+
     // Cancelar auto-dismiss por interacción del usuario
     if (autoDismissTimerRef.current) clearTimeout(autoDismissTimerRef.current);
     try {
@@ -579,6 +584,11 @@ export default function RidePreviewScreen() {
       }
 
       setAcceptingRide(true);
+      Animated.timing(acceptButtonScale, {
+        toValue: 0.95,
+        duration: 130,
+        useNativeDriver: true,
+      }).start();
 
       if (currentRide.clientSuggestedPrice && currentRide.clientSuggestedPrice > 0) {
         await priceNegotiationService.acceptClientPrice(currentRide.id);
@@ -623,13 +633,45 @@ export default function RidePreviewScreen() {
       console.error('[RidePreviewScreen] Error al aceptar viaje:', error);
       alertService.showErrorAlert(error?.message || 'No se pudo aceptar el viaje');
     } finally {
+      Animated.timing(acceptButtonScale, {
+        toValue: 1,
+        duration: 170,
+        useNativeDriver: true,
+      }).start();
       setAcceptingRide(false);
     }
   };
 
   const handleRejectRide = () => {
+    if (isRejectingRide) {
+      return;
+    }
+
     if (autoDismissTimerRef.current) clearTimeout(autoDismissTimerRef.current);
-    markDismissed().finally(() => navigation.goBack());
+    setIsRejectingRide(true);
+    Animated.timing(rejectButtonScale, {
+      toValue: 0.95,
+      duration: 130,
+      useNativeDriver: true,
+    }).start();
+
+    const finishReject = () => {
+      Animated.timing(rejectButtonScale, {
+        toValue: 1,
+        duration: 170,
+        useNativeDriver: true,
+      }).start();
+      setIsRejectingRide(false);
+    };
+
+    markDismissed()
+      .catch((error) => {
+        console.warn('[RidePreviewScreen] No se pudo descartar ride:', error);
+      })
+      .finally(() => {
+        finishReject();
+        navigation.goBack();
+      });
   };
 
   const finalPricePreview = useMemo(() => {
@@ -921,21 +963,44 @@ export default function RidePreviewScreen() {
         </Animated.View>
 
         <View style={styles.actionsRow}>
-          <TouchableOpacity
-            style={[styles.acceptButton, { backgroundColor: colors.warning }]}
+          <AnimatedTouchableOpacity
+            style={[
+              styles.acceptButton,
+              {
+                backgroundColor: colors.warning,
+                transform: [{ scale: acceptButtonScale }],
+                opacity: acceptingRide ? 0.7 : 1,
+              },
+            ]}
             onPress={handleAcceptRide}
-            activeOpacity={0.9}
+            activeOpacity={0.85}
             disabled={acceptingRide}
           >
-            <Text style={styles.actionButtonText}>{acceptingRide ? 'Procesando...' : 'Aceptar Viaje'}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.rejectButton, { backgroundColor: colors.error }]}
+            {acceptingRide ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <Text style={styles.actionButtonText}>Aceptar</Text>
+            )}
+          </AnimatedTouchableOpacity>
+          <AnimatedTouchableOpacity
+            style={[
+              styles.rejectButton,
+              {
+                backgroundColor: colors.error,
+                transform: [{ scale: rejectButtonScale }],
+                opacity: isRejectingRide ? 0.7 : 1,
+              },
+            ]}
             onPress={handleRejectRide}
-            activeOpacity={0.9}
+            activeOpacity={0.85}
+            disabled={isRejectingRide}
           >
-            <Text style={styles.actionButtonText}>Rechazar</Text>
-          </TouchableOpacity>
+            {isRejectingRide ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <Text style={styles.actionButtonText}>Rechazar</Text>
+            )}
+          </AnimatedTouchableOpacity>
         </View>
       </View>
     </View>

@@ -23,6 +23,7 @@ import {
   PanResponder,
   Dimensions,
   ScrollView,
+  ActivityIndicator,
 } from 'react-native';
 
 // Servicios y componentes
@@ -44,6 +45,8 @@ import { ensureVehicleIconSource, extractVehicleTypeFromInfo } from '../../utils
 
 // Iconos
 const BACK_BUTTON = require('../../assets/icons/back_button/back_button2x.png');
+
+const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const PANEL_MIN_HEIGHT = 240; // Panel comprimido
@@ -528,6 +531,8 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
   // Panel retráctil
   const [isPanelExpanded, setIsPanelExpanded] = useState(true);
   const panelTranslateY = useRef(new Animated.Value(0)).current;
+  const [isCancellingRide, setIsCancellingRide] = useState(false);
+  const cancelButtonScale = useRef(new Animated.Value(1)).current;
 
   const panResponder = useRef(
     PanResponder.create({
@@ -657,14 +662,34 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
     }
   }, [driverData, vehicleData]);
   
+  const resetCancelAnimation = useCallback(() => {
+    Animated.timing(cancelButtonScale, {
+      toValue: 1,
+      duration: 170,
+      useNativeDriver: true,
+    }).start();
+    setIsCancellingRide(false);
+  }, [cancelButtonScale]);
+
   const handleCancelRide = useCallback(() => {
+    if (isCancellingRide) {
+      return;
+    }
+
     const canCancel = rideStatus !== 'completed' && rideStatus !== 'canceled';
-    
+
     if (!canCancel) {
       alertService.showInfoAlert('No se puede cancelar', 'Este viaje no puede ser cancelado en este momento.');
       return;
     }
-    
+
+    setIsCancellingRide(true);
+    Animated.timing(cancelButtonScale, {
+      toValue: 0.94,
+      duration: 130,
+      useNativeDriver: true,
+    }).start();
+
     alertService.showConfirmAlert(
       'Cancelar Viaje',
       '¿Estás seguro que deseas cancelar este viaje?',
@@ -683,9 +708,18 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
           }
         } catch (error: any) {
           alertService.showErrorAlert(error?.message || 'No se pudo cancelar el viaje');
+        } finally {
+          resetCancelAnimation();
         }
-      });
-  }, [rideStatus, rideId, navigation]);
+      },
+      () => {
+        resetCancelAnimation();
+      },
+      'Cancelar viaje',
+      'Seguir',
+      true,
+    );
+  }, [cancelButtonScale, isCancellingRide, navigation, resetCancelAnimation, rideId, rideStatus]);
 
   const handleOpenChat = useCallback(() => {
     navigation.navigate('Chat', {
@@ -923,19 +957,25 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
 
         {/* Botones de Acción - siempre visibles */}
         <View style={styles.actionButtons}>
-          <TouchableOpacity 
-            style={[styles.shareButton, { backgroundColor: '#D4AF37' }]}
-            onPress={handleShareTrip}
-          >
-            <Text style={styles.shareButtonText}>Compartir ubicación</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={[styles.cancelButton, { backgroundColor: '#FF4444' }]}
+          <AnimatedTouchableOpacity
+            style={[
+              styles.cancelButton,
+              {
+                backgroundColor: '#FF4444',
+                transform: [{ scale: cancelButtonScale }],
+                opacity: isCancellingRide ? 0.7 : 1,
+              },
+            ]}
             onPress={handleCancelRide}
+            disabled={isCancellingRide}
+            activeOpacity={0.85}
           >
-            <Text style={styles.cancelButtonText}>Cancelar</Text>
-          </TouchableOpacity>
+            {isCancellingRide ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <Text style={styles.cancelButtonText}>Cancelar</Text>
+            )}
+          </AnimatedTouchableOpacity>
         </View>
       </Animated.View>
     </View>

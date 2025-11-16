@@ -24,6 +24,8 @@ import { getDatabase, ref, onValue, off, update, serverTimestamp } from 'firebas
 import { extractVehicleTypeFromInfo, ensureVehicleIconSource } from '../../utils/vehicleIcons';
 import { fetchClientProfile, ClientProfile } from '../../services/clientProfilesService';
 
+const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
+
 // Iconos de ubicación
 const ORIGIN_PIN = require('../../assets/icons/origin_marker/origin_marker.png');
 const MULTI_STOP_PIN = require('../../assets/icons/multiplelocationmarker/multiplelocationmarker.png');
@@ -45,11 +47,13 @@ export default function ActiveRideScreen({ route, navigation }: any) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [updating, setUpdating] = useState(false);
+  const [isCancellingRide, setIsCancellingRide] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<string>('cash');
   const [routePolyline, setRoutePolyline] = useState<any[]>([]);
   const [clientProfile, setClientProfile] = useState<ClientProfile | null>(null);
   const lastStatusSpokenRef = useRef<string | null>(null);
   const lastRideAnnouncedRef = useRef<string | null>(null);
+  const handledCancellationRef = useRef(false);
   
   // Bottom sheet state - Alturas ajustadas
   const COLLAPSED_HEIGHT = 250; // Solo header + botones (más alto para ver ambos botónes)
@@ -400,22 +404,82 @@ export default function ActiveRideScreen({ route, navigation }: any) {
     }
   };
 
-  const handleCancelRide = async () => {
-    try {
-      setUpdating(true);
-      await ridesService.cancelRide(rideId, 'Cancelado por el conductor', {
-        canceledBy: 'driver',
-      });
+  const cancelButtonScale = useRef(new Animated.Value(1)).current;
+
+  const resetCancelAnimation = useCallback(() => {
+    Animated.timing(cancelButtonScale, {
+      toValue: 1,
+      duration: 170,
+      useNativeDriver: true,
+    }).start();
+    setIsCancellingRide(false);
+  }, [cancelButtonScale]);
+
+  const handleCancelRide = useCallback(() => {
+    if (isCancellingRide || updating) {
+      return;
+    }
+
+    setIsCancellingRide(true);
+    Animated.timing(cancelButtonScale, {
+      toValue: 0.95,
+      duration: 120,
+      useNativeDriver: true,
+    }).start();
+
+    alertService.showConfirmAlert(
+      'Cancelar viaje',
+      '¿Seguro que deseas cancelar este viaje?',
+      async () => {
+        try {
+          setUpdating(true);
+          await ridesService.cancelRide(rideId, 'Cancelado por el conductor', {
+            canceledBy: 'driver',
+          });
+          handledCancellationRef.current = true;
+          navigation.reset({
+            index: 0,
+            routes: [{ name: 'DriverHome' }],
+          });
+        } catch (error: any) {
+          alertService.showErrorAlert(error.message || 'No se pudo cancelar el viaje');
+        } finally {
+          setUpdating(false);
+          resetCancelAnimation();
+        }
+      },
+      () => {
+        resetCancelAnimation();
+      },
+      'Cancelar viaje',
+      'Seguir',
+      true,
+    );
+  }, [cancelButtonScale, isCancellingRide, navigation, resetCancelAnimation, rideId, updating]);
+
+  useEffect(() => {
+    if (!ride || handledCancellationRef.current || isCancellingRide) {
+      return;
+    }
+
+    const status = (ride?.status ?? ride?.state ?? '').toString().toLowerCase();
+    if (status !== 'canceled') {
+      return;
+    }
+
+    const canceledBy = (ride?.canceledBy ?? ride?.cancelledBy ?? '').toString().toLowerCase();
+    handledCancellationRef.current = true;
+    const message = canceledBy === 'driver'
+      ? 'El viaje ha sido cancelado.'
+      : 'El cliente canceló el viaje.';
+
+    alertService.showInfoAlert('Viaje cancelado', message, () => {
       navigation.reset({
         index: 0,
         routes: [{ name: 'DriverHome' }],
       });
-    } catch (error: any) {
-      alertService.showErrorAlert(error.message || 'No se pudo cancelar el viaje');
-    } finally {
-      setUpdating(false);
-    }
-  };
+    });
+  }, [ride, isCancellingRide, navigation]);
 
   if (loading || !ride) {
     return (
@@ -581,13 +645,25 @@ export default function ActiveRideScreen({ route, navigation }: any) {
               ) : null;
             })()}
 
-            <TouchableOpacity
-              style={[styles.cancelButton, updating && styles.buttonDisabled]}
+            <AnimatedTouchableOpacity
+              style={[
+                styles.cancelButton,
+                updating && styles.buttonDisabled,
+                {
+                  transform: [{ scale: cancelButtonScale }],
+                  opacity: isCancellingRide ? 0.7 : 1,
+                },
+              ]}
               onPress={handleCancelRide}
-              disabled={updating}
+              disabled={updating || isCancellingRide}
+              activeOpacity={0.85}
             >
-              <Text style={[styles.cancelButtonText, { color: '#f44336' }]}>Cancelar Viaje</Text>
-            </TouchableOpacity>
+              {isCancellingRide ? (
+                <ActivityIndicator color="#f44336" />
+              ) : (
+                <Text style={[styles.cancelButtonText, { color: '#f44336' }]}>Cancelar Viaje</Text>
+              )}
+            </AnimatedTouchableOpacity>
           </ScrollView>
         )}
 
@@ -617,13 +693,25 @@ export default function ActiveRideScreen({ route, navigation }: any) {
               ) : null;
             })()}
 
-            <TouchableOpacity
-              style={[styles.cancelButton, updating && styles.buttonDisabled]}
+            <AnimatedTouchableOpacity
+              style={[
+                styles.cancelButton,
+                updating && styles.buttonDisabled,
+                {
+                  transform: [{ scale: cancelButtonScale }],
+                  opacity: isCancellingRide ? 0.7 : 1,
+                },
+              ]}
               onPress={handleCancelRide}
-              disabled={updating}
+              disabled={updating || isCancellingRide}
+              activeOpacity={0.85}
             >
-              <Text style={[styles.cancelButtonText, { color: '#f44336' }]}>Cancelar Viaje</Text>
-            </TouchableOpacity>
+              {isCancellingRide ? (
+                <ActivityIndicator color="#f44336" />
+              ) : (
+                <Text style={[styles.cancelButtonText, { color: '#f44336' }]}>Cancelar Viaje</Text>
+              )}
+            </AnimatedTouchableOpacity>
           </View>
         )}
       </Animated.View>

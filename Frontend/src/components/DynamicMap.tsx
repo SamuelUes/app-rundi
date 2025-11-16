@@ -38,6 +38,9 @@ interface DynamicMapProps {
   longitude: number;
   style?: any;
   onMapPress?: (event: { latitude: number; longitude: number }) => void;
+  // Center coordinate callbacks when the camera/region changes
+  onRegionChangeCenter?: (center: { latitude: number; longitude: number }) => void;
+  onRegionChangeCompleteCenter?: (center: { latitude: number; longitude: number }) => void;
   onDriverPress?: (driverId: string) => void; // when user taps a driver marker
   showMarker?: boolean;
   markerPosition?: { latitude: number; longitude: number };
