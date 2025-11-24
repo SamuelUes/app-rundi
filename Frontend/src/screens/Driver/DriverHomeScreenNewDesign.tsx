@@ -20,6 +20,8 @@ import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useVoiceAssistant } from '../../context/VoiceAssistantContext';
 import { useLocation } from '../../hooks/useLocation';
+import useDriverProximityTracking from '../../hooks/useDriverProximityTracking';
+import { subscribePreflightResult, getPreflightResult, PreflightAction } from '../../state/preflightStore';
 
 // Componentes
 import LoadingOverlay from '../../components/LoadingOverlay';
@@ -36,7 +38,6 @@ import { extractVehicleTypeFromInfo, ensureVehicleIconSource } from '../../utils
 import { useAcceptedRideListener } from '../../hooks/useAcceptedRideListener';
 import proximityService from '../../services/proximityService';
 import penaltiesService from '../../services/penaltiesService';
-import penaltiesRealtimeService from '../../services/realtime/penaltiesRealtimeService';
 
 type NearbyDriverMarker = {
   id: string;
@@ -62,6 +63,7 @@ type PendingAction =
     };
 
 const ACTIVE_RIDE_STATUSES = ['accepted', 'driver_on_route', 'driver_arrived', 'in_progress'];
+const PENALTIES_LIMIT_CORDOBAS = 150;
 
 const getActiveRidePendingCopy = (ride: any) => {
   const status: string = ride?.status || '';
@@ -107,20 +109,53 @@ const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: numbe
 };
 
 export default function DriverHomeScreenNewDesign({ navigation }: any) {
-  const { user, logout } = useAuth();
+  const { user, logout, logoutInProgress } = useAuth();
   const { settings: voiceSettings, speak: speakVoice, stopCategory: stopVoiceCategory } = useVoiceAssistant();
   const { colors } = useTheme();
   const { coords, loading: locationLoading, error, refreshLocation } = useLocation();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
+  const [loadingMessage, setLoadingMessage] = useState('Preparando tu panel de conductor...');
+  const [initializing, setInitializing] = useState(true);
+  const pendingInitialTasks = useRef(new Set<string>([
+    'location',
+    'pendingPayments',
+    'penaltySummary',
+    'driverInfo',
+    'availabilityState',
+    'todayStats',
+  ]));
+
+  const markTaskCompleted = useCallback((taskName: string) => {
+    if (!pendingInitialTasks.current.has(taskName)) {
+      return;
+    }
+
+    pendingInitialTasks.current.delete(taskName);
+    console.log(`✅ [DriverHome:init] Tarea completada: ${taskName}. Restantes: ${pendingInitialTasks.current.size}`);
+
+    if (pendingInitialTasks.current.size === 0) {
+      console.log('🎉 [DriverHome:init] Todas las tareas iniciales completadas, mostrando pantalla.');
+      setInitializing(false);
+    }
+  }, []);
+
   // Monitorear rides aceptados y navegar automáticamente
   useAcceptedRideListener(navigation);
+
+  // 🚀 Iniciar tracking de background para proximity
+  useEffect(() => {
+    console.log('🏠 [DriverHomeScreen] Componente montado - iniciando proximity tracking');
+  }, []);
+  
+  useDriverProximityTracking();
 
   const [isAvailable, setIsAvailable] = useState(false);
   const [isDesignatedDriverMode, setIsDesignatedDriverMode] = useState(false);
   const [todayStats, setTodayStats] = useState({ trips: 0, earnings: 0 });
   const [pendingPayments, setPendingPayments] = useState<any[]>([]);
   const [penaltySummary, setPenaltySummary] = useState<{ pendingCount: number; pendingAmount: number } | null>(null);
+  const [preflightActions, setPreflightActions] = useState<PreflightAction[]>(() => getPreflightResult()?.actions ?? []);
   const [nearbyDriversMarkers, setNearbyDriversMarkers] = useState<NearbyDriverMarker[]>([]);
   const [availableRideRequests, setAvailableRideRequests] = useState<any[]>([]);
   const [activeRide, setActiveRide] = useState<any>(null);
@@ -185,6 +220,9 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   };
 
   const handleLogout = async () => {
+    if (logoutInProgress) {
+      return;
+    }
     try {
       await logout();
       closeMenu();
@@ -192,6 +230,11 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
       console.error('❌ Error cerrando sesión:', error);
     }
   };
+
+  const handleRefreshLocation = useCallback(() => {
+    setLoadingMessage('Obteniendo tu ubicación...');
+    refreshLocation();
+  }, [refreshLocation]);
 
   const notifiedRides = useRef<Set<string>>(new Set());
   const announcedRideIdsRef = useRef<Set<string>>(new Set());
@@ -202,6 +245,8 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   const lastAvailabilityAnnouncementRef = useRef<boolean | null>(null);
   const lastActiveRideIdRef = useRef<string | null>(null);
   const initialVoiceWelcomeRef = useRef<boolean>(false);
+  const penaltyAlertShownRef = useRef<boolean>(false);
+  const enforcingAvailabilityRef = useRef<boolean>(false);
 
   const [currentVehicleType, setCurrentVehicleType] = useState<string | null>(null);
   const [currentVehicleIconSource, setCurrentVehicleIconSource] = useState<ImageSourcePropType | undefined>(undefined);
@@ -222,7 +267,16 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   }, []);
 
   useEffect(() => {
+    const unsubscribePreflight = subscribePreflightResult((summary) => {
+      if (!summary || summary.role !== 'driver') {
+        setPreflightActions([]);
+        return;
+      }
+      setPreflightActions(summary.actions);
+    });
+
     return () => {
+      unsubscribePreflight();
       stopVoiceCategory('navigation');
       stopVoiceCategory('status');
     };
@@ -359,42 +413,164 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
     );
   }, [activeRide, voiceSettings.enabled, speakVoice]);
 
-  // ✅ Supabase Realtime: resumen de penalizaciones
-  useEffect(() => {
-    if (!user?.id) return;
-    let unsubscribe: (() => void) | null = null;
-    let isActive = true;
+  const enforceOfflineDueToPenalties = useCallback(async () => {
+    if (!user?.id || !coords) {
+      return;
+    }
+    if (!isAvailable) {
+      return;
+    }
+    if (enforcingAvailabilityRef.current) {
+      return;
+    }
 
-    const fetchSummary = async () => {
-      try {
-        const response = await penaltiesService.getDriverPenaltySummary();
-        if (!isActive || !response?.success) return;
-        setPenaltySummary({
-          pendingCount: Number(response.pendingCount || 0),
-          pendingAmount: Number(response.pendingAmount || 0),
-        });
-      } catch (e) {
-        console.error('❌ [DriverHomeScreenNewDesign] Error obteniendo resumen de penalizaciones:', e);
+    enforcingAvailabilityRef.current = true;
+    const shouldManageUpdatingState = !updatingStatus;
+    if (shouldManageUpdatingState) {
+      setUpdatingStatus(true);
+    }
+
+    try {
+      console.log('⚠️ [DriverHomeScreenNewDesign] Forzando estado offline por comisiones pendientes');
+      await driversService.updateStatus('offline', coords);
+      setIsAvailable(false);
+
+      if (isDesignatedDriverMode && user.role === 'designated_driver') {
+        setIsDesignatedDriverMode(false);
+        try {
+          await driversService.updateDesignatedDriverMode(user.id, false);
+        } catch (modeErr) {
+          console.warn('⚠️ [DriverHomeScreenNewDesign] Error desactivando modo designado al forzar offline:', modeErr);
+        }
       }
-    };
 
-    penaltiesRealtimeService
-      .subscribeToDriverPenaltyChanges(user.id, fetchSummary)
-      .then((unsubscribeFn) => {
-        unsubscribe = unsubscribeFn;
-      })
-      .catch((err) => {
-        console.error('❌ [DriverHomeScreenNewDesign] Error suscribiendo a penalizaciones:', err);
-        void fetchSummary();
-      });
+      driverAvailabilityService.stopHeartbeat();
+      try {
+        await driverAvailabilityService.clearAvailabilityState();
+      } catch (storageErr) {
+        console.warn('⚠️ [DriverHomeScreenNewDesign] No se pudo limpiar estado de disponibilidad:', storageErr);
+      }
+    } catch (err) {
+      console.error('❌ [DriverHomeScreenNewDesign] Error forzando offline por comisiones:', err);
+    } finally {
+      if (shouldManageUpdatingState) {
+        setUpdatingStatus(false);
+      }
+      enforcingAvailabilityRef.current = false;
+    }
+  }, [coords, isAvailable, isDesignatedDriverMode, updatingStatus, user?.id, user?.role]);
+
+  // ✅ Resumen de penalizaciones desde Realtime DB
+  useEffect(() => {
+    if (!user?.id) {
+      markTaskCompleted('penaltySummary');
+      return;
+    }
+
+    let isMounted = true;
+    let cleanup: null | (() => void) = null;
+
+    (async () => {
+      try {
+        const { initializeFirebase } = await import('../../config/firebase');
+        const { getDatabase, ref: dbRef, onValue, off } = await import('firebase/database');
+
+        const { app } = await initializeFirebase();
+        if (!app) {
+          console.error('❌ [DriverHomeScreenNewDesign] Firebase no inicializado');
+          markTaskCompleted('penaltySummary');
+          return;
+        }
+
+        const db = getDatabase(app);
+        const summaryRef = dbRef(db, `driverPenalties/${user.id}/summary`);
+
+        const handleSnapshot = (snapshot: any) => {
+          if (!isMounted) return;
+          const data = snapshot.val();
+
+          if (!data) {
+            setPenaltySummary({ pendingCount: 0, pendingAmount: 0 });
+            markTaskCompleted('penaltySummary');
+            return;
+          }
+
+          const pendingAmount = Number(
+            data.pendingAmount ??
+              data.paymentCommissionPendingAmount ??
+              data.paymentPendingAmount ??
+              data.penaltyPendingAmount ??
+              0,
+          );
+
+          const pendingCount = Number(
+            data.pendingCount ??
+              data.paymentCommissionPendingCount ??
+              data.paymentPendingCount ??
+              data.penaltyPendingCount ??
+              0,
+          );
+
+          setPenaltySummary({
+            pendingCount,
+            pendingAmount,
+          });
+          markTaskCompleted('penaltySummary');
+        };
+
+        onValue(summaryRef, handleSnapshot, (err) => {
+          console.error('❌ [DriverHomeScreenNewDesign] Error escuchando driverPenalties summary:', err);
+          if (isMounted) {
+            setPenaltySummary({ pendingCount: 0, pendingAmount: 0 });
+          }
+          markTaskCompleted('penaltySummary');
+        });
+
+        cleanup = () => off(summaryRef, 'value', handleSnapshot);
+      } catch (err) {
+        console.error('❌ [DriverHomeScreenNewDesign] Error iniciando listener de penalizaciones:', err);
+        if (isMounted) {
+          setPenaltySummary({ pendingCount: 0, pendingAmount: 0 });
+        }
+        markTaskCompleted('penaltySummary');
+      }
+    })();
 
     return () => {
-      isActive = false;
-      unsubscribe?.();
+      isMounted = false;
+      cleanup?.();
     };
-  }, [user?.id]);
+  }, [user?.id, markTaskCompleted]);
 
   useEffect(() => {
+    const pendingAmount = Number(penaltySummary?.pendingAmount ?? 0);
+    if (!Number.isFinite(pendingAmount)) {
+      return;
+    }
+
+    if (pendingAmount > PENALTIES_LIMIT_CORDOBAS) {
+      if (!penaltyAlertShownRef.current) {
+        penaltyAlertShownRef.current = true;
+        alertService.showInfoAlert(
+          'Comisiones pendientes',
+          `Tu disponibilidad se desactivó automáticamente porque superaste C$${PENALTIES_LIMIT_CORDOBAS.toFixed(
+            2,
+          )} en comisiones pendientes. Debes pagarlas antes de volver a conectarte.`,
+          () => navigation.navigate('PendingPayments'),
+        );
+      }
+      void enforceOfflineDueToPenalties();
+    } else {
+      penaltyAlertShownRef.current = false;
+    }
+  }, [penaltySummary?.pendingAmount, enforceOfflineDueToPenalties, navigation]);
+
+  useEffect(() => {
+    if (!user?.id) {
+      markTaskCompleted('driverInfo');
+      return;
+    }
+
     let isMounted = true;
     let cleanup: null | (() => void) = null;
 
@@ -415,15 +591,19 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
             setCurrentVehicleType(vehicleType);
             setCurrentVehicleIconSource(vehicleType ? ensureVehicleIconSource(vehicleType) : undefined);
           }
+
+          markTaskCompleted('driverInfo');
         };
 
         onValue(driversInfoRef, handleSnapshot, (err) => {
           console.error('❌ [DriverHomeScreenNewDesign] Error escuchando driversInfo:', err);
+          markTaskCompleted('driverInfo');
         });
 
         cleanup = () => off(driversInfoRef, 'value', handleSnapshot);
       } catch (err) {
         console.error('❌ [DriverHomeScreenNewDesign] Error iniciando listener de driversInfo:', err);
+        markTaskCompleted('driverInfo');
       }
     })();
 
@@ -431,9 +611,10 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
       isMounted = false;
       cleanup?.();
     };
-  }, [user?.id]);
+  }, [user?.id, markTaskCompleted]);
 
   useEffect(() => {
+    // Prioridad 1: Pagos pendientes detectados localmente
     if (pendingPayments.length > 0) {
       const firstPayment = pendingPayments[0];
       setPendingAction({
@@ -452,6 +633,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
       return;
     }
 
+    // Prioridad 2: Viaje activo
     if (activeRide) {
       const copy = getActiveRidePendingCopy(activeRide);
       setPendingAction({
@@ -471,8 +653,33 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
       return;
     }
 
+    // Prioridad 3: Acciones desde preflight (complemento)
+    if (preflightActions.length > 0) {
+      const priority = ['active_ride', 'penalties', 'pending_payment'] as const;
+      const nextAction = priority
+        .map((type) => preflightActions.find((action) => action.type === type))
+        .find((action) => action != null);
+
+      if (nextAction) {
+        const actionType = nextAction.type === 'pending_payment' ? 'pending_payment' : 'active_ride';
+        const subtitle = nextAction.subtitle || 'Revisa esta acción pendiente';
+        
+        setPendingAction({
+          type: actionType,
+          title: nextAction.title,
+          subtitle,
+          onPress: () => {
+            if (nextAction.routeName) {
+              navigation.replace(nextAction.routeName as any, nextAction.routeParams);
+            }
+          },
+        });
+        return;
+      }
+    }
+
     setPendingAction(null);
-  }, [pendingPayments, activeRide, navigation]);
+  }, [pendingPayments, activeRide, preflightActions, navigation]);
 
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', (e: any) => {
@@ -506,36 +713,55 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
       }
     };
 
-    loadTodayStats();
+    loadTodayStats().finally(() => markTaskCompleted('todayStats'));
     const unsubscribe = navigation.addListener('focus', loadTodayStats);
 
     return () => {
       isMounted = false;
       unsubscribe?.();
     };
-  }, [navigation]);
+  }, [navigation, markTaskCompleted]);
 
   useEffect(() => {
-    const restoreAvailabilityState = async () => {
-      const savedState = await driverAvailabilityService.getAvailabilityState();
-      if (!savedState) return;
+    let isActive = true;
 
-      setIsAvailable(savedState.isAvailable);
-      setIsDesignatedDriverMode(savedState.isDesignatedDriverMode);
-
-      if (savedState.isAvailable && coords) {
-        try {
-          await driversService.updateStatus('available', coords);
-        } catch (err) {
-          console.error('❌ Error restaurando estado de disponibilidad:', err);
-        }
+    const finalize = () => {
+      if (isActive) {
+        markTaskCompleted('availabilityState');
       }
     };
 
-    if (coords) {
-      restoreAvailabilityState();
+    if (!coords) {
+      finalize();
+      return;
     }
-  }, [coords]);
+
+    const restoreAvailabilityState = async () => {
+      try {
+        const savedState = await driverAvailabilityService.getAvailabilityState();
+        if (!savedState) return;
+
+        setIsAvailable(savedState.isAvailable);
+        setIsDesignatedDriverMode(savedState.isDesignatedDriverMode);
+
+        if (savedState.isAvailable) {
+          try {
+            await driversService.updateStatus('available', coords);
+          } catch (err) {
+            console.error('❌ Error restaurando estado de disponibilidad:', err);
+          }
+        }
+      } catch (err) {
+        console.error('❌ Error restaurando estado de disponibilidad:', err);
+      }
+    };
+
+    restoreAvailabilityState().finally(finalize);
+
+    return () => {
+      isActive = false;
+    };
+  }, [coords, markTaskCompleted]);
 
   useEffect(() => {
     if (!coords) return;
@@ -652,7 +878,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
         const { getDatabase, ref, onValue, off } = await import('firebase/database');
         const db = getDatabase();
         const activeRidesRef = ref(db, 'activeRides');
-        const SEARCH_RADIUS_KM = 12;
+        const SEARCH_RADIUS_KM = 1.5;
 
         const unsubscribe = onValue(activeRidesRef, (snapshot) => {
           const data = snapshot.val();
@@ -868,10 +1094,12 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   useEffect(() => {
     if (!user?.id) {
       setPendingPayments([]);
+      markTaskCompleted('pendingPayments');
       return;
     }
 
     let unsubscribe: (() => void) | null = null;
+    let isMounted = true;
 
     (async () => {
       try {
@@ -879,47 +1107,81 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
         const { getDatabase, ref: dbRef, onValue } = await import('firebase/database');
         const { app } = await initializeFirebase();
         if (!app) {
-          console.error('❌ [DriverHomeScreenNewDesign] Firebase no inicializado');
+          console.warn('⚠️ [DriverHomeScreenNewDesign] Firebase no inicializado');
+          if (isMounted) {
+            markTaskCompleted('pendingPayments');
+          }
           return;
         }
 
         const db = getDatabase(app);
         const paymentStatusRef = dbRef(db, 'paymentStatus');
 
-        unsubscribe = onValue(paymentStatusRef, (snapshot) => {
-          const data = snapshot.val();
-          if (!data) {
+        unsubscribe = onValue(
+          paymentStatusRef,
+          (snapshot) => {
+            if (!isMounted) return;
+            
+            const data = snapshot.val();
+            if (!data) {
+              setPendingPayments([]);
+              markTaskCompleted('pendingPayments');
+              return;
+            }
+
+            const pending = Object.entries<any>(data)
+              .filter(([, payment]) => {
+                if (!payment) return false;
+
+                const belongsToDriver = payment.driverId === user.id;
+                if (!belongsToDriver) return false;
+
+                const status = String(payment.status || '').toLowerCase();
+                const isPendingStatus = ['pending', 'pending_confirmation', 'in_progress'].includes(status);
+                if (!isPendingStatus) return false;
+
+                const requiresClientPayment = payment.requiresClientPayment === true || payment.chargeTarget === 'client';
+                return requiresClientPayment;
+              })
+              .map(([rideId, payment]) => ({ rideId, ...payment }));
+
+            setPendingPayments(pending);
+            markTaskCompleted('pendingPayments');
+          },
+          (err: any) => {
+            if (!isMounted) return;
+            
+            // Manejar errores de permisos de forma silenciosa
+            const errorMsg = err?.message || String(err);
+            if (errorMsg.includes('permission') || errorMsg.includes('Permission')) {
+              console.warn('⚠️ [DriverHomeScreenNewDesign] Sin permisos para leer paymentStatus, saltando verificación');
+            } else {
+              console.warn('⚠️ [DriverHomeScreenNewDesign] Error escuchando pagos pendientes:', errorMsg);
+            }
+            
             setPendingPayments([]);
-            return;
-          }
-
-          const pending = Object.entries<any>(data)
-            .filter(([, payment]) => {
-              if (!payment) return false;
-
-              const belongsToDriver = payment.driverId === user.id;
-              if (!belongsToDriver) return false;
-
-              const status = String(payment.status || '').toLowerCase();
-              const isPendingStatus = ['pending', 'pending_confirmation', 'in_progress'].includes(status);
-              if (!isPendingStatus) return false;
-
-              const requiresClientPayment = payment.requiresClientPayment === true || payment.chargeTarget === 'client';
-              return requiresClientPayment;
-            })
-            .map(([rideId, payment]) => ({ rideId, ...payment }));
-
-          setPendingPayments(pending);
-        });
-      } catch (err) {
-        console.error('❌ [DriverHomeScreenNewDesign] Error escuchando pagos pendientes:', err);
+            markTaskCompleted('pendingPayments');
+          },
+        );
+      } catch (err: any) {
+        if (!isMounted) return;
+        
+        const errorMsg = err?.message || String(err);
+        if (errorMsg.includes('permission') || errorMsg.includes('Permission')) {
+          console.warn('⚠️ [DriverHomeScreenNewDesign] Sin permisos para configurar listener de pagos');
+        } else {
+          console.warn('⚠️ [DriverHomeScreenNewDesign] Error configurando listener de pagos:', errorMsg);
+        }
+        
+        markTaskCompleted('pendingPayments');
       }
     })();
 
     return () => {
+      isMounted = false;
       unsubscribe?.();
     };
-  }, [user?.id]);
+  }, [user?.id, markTaskCompleted]);
 
   const handleAvailabilityToggle = async (nextValue: boolean) => {
     if (!user || !coords) {
@@ -932,12 +1194,18 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
       return;
     }
 
-    // ✅ Bloquear activar disponibilidad si tiene comisiones pendientes
-    if (nextValue && penaltySummary && Number(penaltySummary.pendingAmount) > 0) {
+    // ✅ Bloquear activar disponibilidad si supera el umbral de comisiones pendientes
+    if (
+      nextValue &&
+      penaltySummary &&
+      Number(penaltySummary.pendingAmount) > PENALTIES_LIMIT_CORDOBAS
+    ) {
       alertService.showInfoAlert(
         'Comisiones pendientes',
-        `Tienes C$${Number(penaltySummary.pendingAmount).toFixed(2)} en comisiones pendientes. Debes pagarlas para activar disponibilidad.`,
-        () => navigation.navigate('PayCommissions')
+        `Tienes C$${Number(penaltySummary.pendingAmount).toFixed(2)} en comisiones pendientes. Debes bajar de C$${PENALTIES_LIMIT_CORDOBAS.toFixed(
+          2,
+        )} para activar disponibilidad.`,
+        () => navigation.navigate('PendingPayments')
       );
       return;
     }
@@ -992,7 +1260,18 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
     }
   };
 
+  useEffect(() => {
+    if (!locationLoading) {
+      markTaskCompleted('location');
+    }
+  }, [locationLoading, markTaskCompleted]);
+
   const hasPendingAction = Boolean(pendingAction);
+
+  if (initializing) {
+    console.log('⏳ [DriverHome:init] Esperando tareas iniciales:', Array.from(pendingInitialTasks.current));
+    return <LoadingOverlay visible message={loadingMessage} />;
+  }
 
   if (locationLoading) {
     return <LoadingOverlay visible message="Obteniendo tu ubicación..." />;
@@ -1004,7 +1283,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
         <Text style={[styles.fallbackText, { color: colors.text }]}>{`❌ ${error || 'No se pudo obtener la ubicación'}`}</Text>
         <TouchableOpacity
           style={[styles.retryButton, { backgroundColor: colors.primary }]}
-          onPress={refreshLocation}
+          onPress={handleRefreshLocation}
         >
           <Text style={styles.retryButtonLabel}>Reintentar</Text>
         </TouchableOpacity>
@@ -1024,6 +1303,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
           rideRequests={availableRideRequests}
           markerVehicleType={currentVehicleType ?? undefined}
           markerVehicleIconSource={currentVehicleIconSource}
+          markerVehicleHeading={typeof coords.heading === 'number' && Number.isFinite(coords.heading) ? coords.heading : undefined}
           onRideRequestPress={(ride: any) =>
             activeRide
               ? navigation.navigate('ActiveRide', { rideId: activeRide.id })
@@ -1034,19 +1314,21 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
         />
 
         <View style={styles.overlayHeader}>
-          <TouchableOpacity
-            style={styles.menuButton}
-            activeOpacity={0.85}
-            onPress={toggleMenu}
-          >
-            <Image source={require('../../assets/icons/menuicon/menuicon_2x.png')} style={styles.menuIcon} />
-          </TouchableOpacity>
+          <View style={styles.leftHeaderGroup}>
+            <TouchableOpacity
+              style={styles.menuButton}
+              activeOpacity={0.85}
+              onPress={toggleMenu}
+            >
+              <Image source={require('../../assets/icons/menuicon/menuicon_2x.png')} style={styles.menuIcon} />
+            </TouchableOpacity>
 
-          <EmergencyButton
-            rideId={activeRide?.id}
-            style={styles.emergencyHeaderButton}
-            onOpen={closeMenu}
-          />
+            <EmergencyButton
+              rideId={activeRide?.id}
+              style={styles.emergencyHeaderButton}
+              onOpen={closeMenu}
+            />
+          </View>
 
           <View style={styles.rightHeaderGroup}>
             <View style={styles.headerNameBlock}>
@@ -1093,15 +1375,13 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
       )}
 
       {/* ✅ Banner de comisiones pendientes */}
-      {penaltySummary && penaltySummary.pendingAmount > 0 && (
+      {penaltySummary && penaltySummary.pendingAmount > PENALTIES_LIMIT_CORDOBAS && (
         <TouchableOpacity
           style={[styles.pendingBanner, { backgroundColor: '#E53935' }]}
-          onPress={() => navigation.navigate('PayCommissions')}
-          activeOpacity={0.9}
+          onPress={() => {
+            navigation.navigate('PendingPayments');
+          }}
         >
-          <View style={styles.pendingBannerIcon}>
-            <Text style={styles.pendingBannerEmoji}>⚠️</Text>
-          </View>
           <View style={styles.pendingBannerContent}>
             <Text style={styles.pendingBannerTitle}>Comisiones pendientes</Text>
             <Text style={styles.pendingBannerSubtitle}>
@@ -1310,22 +1590,29 @@ const createStyles = (colors: any) =>
       left: 20,
       right: 20,
       flexDirection: 'row',
-      alignItems: 'center',
+      alignItems: 'flex-start',
       justifyContent: 'space-between',
       gap: 12,
+    },
+    leftHeaderGroup: {
+      top: 10,
+      flexDirection: 'column',
+      alignItems: 'flex-start',
+      gap: 8,
     },
     menuButton: {
       width: 48,
       height: 48,
       borderRadius: 16,
-      //backgroundColor: 'rgba(15,23,42,0.4)',
+      backgroundColor: colors.isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(238, 213, 166, 0.4)',
       justifyContent: 'center',
       alignItems: 'center',
-      //shadowColor: '#000',
-      //shadowOffset: { width: 0, height: 4 },
-      //shadowOpacity: 0.25,
-      //shadowRadius: 8,
-      //elevation: 10,
+    //  shadowColor: '#000',
+    //  shadowOffset: { width: 0, height: 4 },
+    //  shadowOpacity: 0.3,
+    //  shadowRadius: 8,
+      elevation: 2,
+
     },
     menuIcon: {
       width: 22,
@@ -1337,6 +1624,7 @@ const createStyles = (colors: any) =>
       height: 52,
     },
     rightHeaderGroup: {
+      top: 10,
       flexDirection: 'row',
       alignItems: 'center',
       gap: 14,
@@ -1352,7 +1640,7 @@ const createStyles = (colors: any) =>
       textTransform: 'uppercase',
     },
     headerTitle: {
-      fontSize: 18,
+      fontSize: 20,
       fontWeight: '800',
       color: colors.text,
     },
@@ -1361,10 +1649,11 @@ const createStyles = (colors: any) =>
       height: 25.6,
       justifyContent: 'center',
       alignItems: 'center',
+      tintColor: colors.isDark ?  'rgb(255, 253, 253)' : 'rgb(209, 146, 28)',
     },
     profileImage: {
-      width: 28,
-      height: 28,
+      width: 32,
+      height: 32,
       resizeMode: 'contain',
     },
     fallbackContainer: {

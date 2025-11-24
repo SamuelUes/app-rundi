@@ -14,6 +14,8 @@ interface PushMessage {
   body: string;
   data?: PushData;
   androidChannelId?: string;
+  notificationKey?: string;
+  expiresInMs?: number;
 }
 
 interface TokenEntry {
@@ -33,7 +35,7 @@ const sanitizeData = (data: PushData = {}) => {
 };
 
 const getAndroidChannelId = (message: PushMessage) => {
-  return message.androidChannelId ?? 'driveangel_default';
+  return message.androidChannelId ?? 'rundi_default';
 };
 
 const chunkTokens = (tokens: TokenEntry[]) => {
@@ -87,16 +89,39 @@ const deleteToken = async (userId: string, token: string) => {
 };
 
 const sendToTokens = async (tokens: TokenEntry[], message: PushMessage) => {
+  const expiresInMsRaw = typeof message.expiresInMs === 'number' && Number.isFinite(message.expiresInMs)
+    ? Math.max(1, Math.floor(message.expiresInMs))
+    : 120_000;
+  const expiresInSeconds = Math.max(1, Math.round(expiresInMsRaw / 1000));
+  const sanitizedData = sanitizeData({
+    ...message.data,
+    ...(message.notificationKey ? { notificationKey: message.notificationKey } : {}),
+    expiresInMs: String(expiresInMsRaw),
+  });
+
   const payload = {
     notification: {
       title: message.title,
       body: message.body,
     },
-    data: sanitizeData(message.data),
+    data: sanitizedData,
     android: {
       priority: 'high' as const,
+      ttl: expiresInSeconds,
       notification: {
         channelId: getAndroidChannelId(message),
+        ...(message.notificationKey ? { tag: message.notificationKey } : {}),
+      },
+    },
+    apns: {
+      headers: {
+        'apns-expiration': String(Math.floor(Date.now() / 1000) + expiresInSeconds),
+        ...(message.notificationKey ? { 'apns-collapse-id': message.notificationKey } : {}),
+      },
+      payload: {
+        aps: {
+          sound: 'default',
+        },
       },
     },
   };

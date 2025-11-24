@@ -32,6 +32,7 @@ import LoadingOverlay from '../../components/LoadingOverlay';
 import { useFirebaseData, useFirebaseItem } from '../../hooks/useFirebaseData';
 import mapsService from '../../services/mapsService';
 import { ensureVehicleIconSource, extractVehicleTypeFromInfo } from '../../utils/vehicleIcons';
+import { subscribePreflightResult, getPreflightResult, PreflightAction } from '../../state/preflightStore';
 
 
 // Importaciones para Firebase
@@ -75,19 +76,38 @@ export default function HomeScreen({ navigation }: any) {
     isUsingMockLocation,
   } = useLocation();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  
-  // Estado para UI
-  const [loadingMessage, setLoadingMessage] = useState('Obteniendo ubicación...');
+
+  const [loadingMessage, setLoadingMessage] = useState('Preparando tu experiencia...');
+  const [initializing, setInitializing] = useState(true);
+  const pendingInitialTasks = useRef(new Set<string>([
+    'location',
+    'pendingPayments',
+    'clientLocation',
+    'driversInfo',
+    'driverLocations',
+    'activeRides',
+  ]));
+
+  const markTaskCompleted = useCallback((taskName: string) => {
+    if (!pendingInitialTasks.current.has(taskName)) {
+      return;
+    }
+
+    pendingInitialTasks.current.delete(taskName);
+    console.log(`✅ [HomeScreen:init] Tarea completada: ${taskName}. Restantes: ${pendingInitialTasks.current.size}`);
+
+    if (pendingInitialTasks.current.size === 0) {
+      console.log('🎉 [HomeScreen:init] Todas las tareas iniciales completadas, mostrando pantalla.');
+      setInitializing(false);
+    }
+  }, []);
+
   const [activeRide, setActiveRide] = useState<any>(null);
   const [pendingPayments, setPendingPayments] = useState<any[]>([]);
   const [hasPendingPayments, setHasPendingPayments] = useState(false);
   const [totalDebt, setTotalDebt] = useState(0);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
-  
-  // Log para debug
-  useEffect(() => {
-    console.log('🔔 [HomeScreen] Estado de pendingPayments actualizado:', pendingPayments.length);
-  }, [pendingPayments]);
+  const [preflightActions, setPreflightActions] = useState<PreflightAction[]>(() => getPreflightResult()?.actions ?? []);
 
   // Verificar pagos pendientes al cargar
   useEffect(() => {
@@ -123,8 +143,8 @@ export default function HomeScreen({ navigation }: any) {
       }
     };
 
-    checkPendingPayments();
-  }, [user?.id]);
+    checkPendingPayments().finally(() => markTaskCompleted('pendingPayments'));
+  }, [user?.id, markTaskCompleted]);
   
   // Estado para datos
   const [savedAddress, setSavedAddress] = useState('');
@@ -133,11 +153,16 @@ export default function HomeScreen({ navigation }: any) {
   const [manualOverride, setManualOverride] = useState<ManualOverrideState | null>(null);
   
   // Ubicación guardada del cliente (useFirebaseItem optimizado)
-  const { data: clientLocationData } = useFirebaseItem<any>(
+  const { data: clientLocationData, loading: loadingClientLocation } = useFirebaseItem<any>(
     'clientLocations',
     user?.id || '',
     { once: false }
   );
+  useEffect(() => {
+    if (!loadingClientLocation) {
+      markTaskCompleted('clientLocation');
+    }
+  }, [loadingClientLocation, markTaskCompleted]);
   
   // Datos de conductores disponibles (useFirebaseData optimizado)
   const { 
@@ -145,6 +170,12 @@ export default function HomeScreen({ navigation }: any) {
     loading: loadingDrivers,
     error: driversError
   } = useFirebaseData<any>('driversInfo', { maxCacheAge: 10000 }); // Cache 10s
+
+  useEffect(() => {
+    if (!loadingDrivers) {
+      markTaskCompleted('driversInfo');
+    }
+  }, [loadingDrivers, markTaskCompleted]);
 
   const driverLocationsSignatureRef = useRef<string>('');
 
@@ -250,7 +281,7 @@ export default function HomeScreen({ navigation }: any) {
       }
     };
 
-    startDriverLocationsListener();
+    startDriverLocationsListener().finally(() => markTaskCompleted('driverLocations'));
 
     return () => {
       isMounted = false;
@@ -265,6 +296,12 @@ export default function HomeScreen({ navigation }: any) {
     data: activeRidesData,
     loading: loadingRides
   } = useFirebaseData<Record<string, any>>('activeRides', { maxCacheAge: 5000 }); // Cache 5s
+
+  useEffect(() => {
+    if (!loadingRides) {
+      markTaskCompleted('activeRides');
+    }
+  }, [loadingRides, markTaskCompleted]);
   
   // Reconocer override manual proveniente de Firebase
   useEffect(() => {
@@ -549,7 +586,7 @@ export default function HomeScreen({ navigation }: any) {
     console.log('✅ Iniciando búsqueda de conductores con ubicación:', effectiveLocation);
 
     try {
-      const SEARCH_RADIUS_KM = 12;
+      const SEARCH_RADIUS_KM = 0.7;
 
       const driverIds = new Set<string>();
       if (driversInfo) {
@@ -948,7 +985,23 @@ export default function HomeScreen({ navigation }: any) {
     }
   }, []);
 
+  // Suscribirse al preflight store
   useEffect(() => {
+    const unsubscribePreflight = subscribePreflightResult((summary) => {
+      if (!summary || summary.role !== 'client') {
+        setPreflightActions([]);
+        return;
+      }
+      setPreflightActions(summary.actions);
+    });
+
+    return () => {
+      unsubscribePreflight();
+    };
+  }, []);
+
+  useEffect(() => {
+    // Prioridad 1: Pagos pendientes detectados localmente
     if (hasPendingPayments && pendingPayments.length > 0) {
       setPendingAction({
         type: 'pending_payment',
@@ -958,6 +1011,7 @@ export default function HomeScreen({ navigation }: any) {
       return;
     }
 
+    // Prioridad 2: Viaje activo
     if (activeRide) {
       setPendingAction({
         type: 'active_ride',
@@ -967,8 +1021,30 @@ export default function HomeScreen({ navigation }: any) {
       return;
     }
 
+    // Prioridad 3: Acciones desde preflight (complemento)
+    if (preflightActions.length > 0) {
+      const nextAction = preflightActions.find(
+        (action) => action.type === 'pending_payment' || action.type === 'active_ride'
+      );
+
+      if (nextAction) {
+        const actionType = nextAction.type === 'pending_payment' ? 'pending_payment' : 'active_ride';
+        
+        setPendingAction({
+          type: actionType,
+          title: nextAction.title,
+          onPress: () => {
+            if (nextAction.routeName) {
+              navigation.navigate(nextAction.routeName as any, nextAction.routeParams);
+            }
+          },
+        });
+        return;
+      }
+    }
+
     setPendingAction(null);
-  }, [hasPendingPayments, pendingPayments, activeRide, getActiveRideLabel, handleViewActiveRide, handleViewPendingPayments]);
+  }, [hasPendingPayments, pendingPayments, activeRide, preflightActions, getActiveRideLabel, handleViewActiveRide, handleViewPendingPayments, navigation]);
   
   const storedCoords = clientLocationData?.coords || null;
   const effectiveCoords = useMemo(() => {
@@ -985,6 +1061,17 @@ export default function HomeScreen({ navigation }: any) {
   }, [manualOverride?.active, manualOverride?.coords, coords, storedCoords]);
 
   const waitingForLocation = locationLoading && !coords && !storedCoords;
+
+  useEffect(() => {
+    if (!locationLoading) {
+      markTaskCompleted('location');
+    }
+  }, [locationLoading, markTaskCompleted]);
+
+  if (initializing) {
+    console.log('⏳ [HomeScreen:init] Esperando tareas iniciales:', Array.from(pendingInitialTasks.current));
+    return <LoadingOverlay visible message={loadingMessage} />;
+  }
 
   if (waitingForLocation) {
     console.log('⏳ Esperando coordenadas del cliente...');

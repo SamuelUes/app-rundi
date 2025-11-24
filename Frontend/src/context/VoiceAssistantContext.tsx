@@ -12,7 +12,7 @@ import type { SpeechOptions } from 'expo-speech';
 
 import voiceAssistantService, { type VoiceAssistantCategory } from '../services/voiceAssistantService';
 
-const STORAGE_KEY = '@driveangel_voice_assistant_settings_v1';
+const STORAGE_KEY = '@rundi_voice_assistant_settings_v1';
 
 type VoiceAssistantSettings = {
   enabled: boolean;

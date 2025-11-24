@@ -59,6 +59,7 @@ interface GoogleMapProps {
   userLocation?: { latitude: number; longitude: number } | null;
   extraStopMarkers?: ExtraStopMarker[];
   routeCoordinates?: Array<{ latitude: number; longitude: number }>;
+  autoFitEnabled?: boolean;
   nearbyDrivers?: DriverMarker[];
   onDriverPress?: (driverId: string) => void;
   draggableMarker?: boolean;
@@ -71,6 +72,7 @@ interface GoogleMapProps {
   trafficEnabled?: boolean;
   markerVehicleType?: string;
   markerVehicleIconSource?: ImageSourcePropType;
+  markerVehicleHeading?: number;
   userLocationLightIcon?: ImageSourcePropType;
   userLocationDarkIcon?: ImageSourcePropType;
   userLocationHoldingLightIcon?: ImageSourcePropType;
@@ -444,6 +446,7 @@ export default function GoogleMap({
   trafficEnabled = false,
   markerVehicleType,
   markerVehicleIconSource,
+  markerVehicleHeading,
   userLocationLightIcon,
   userLocationDarkIcon,
   userLocationHoldingLightIcon,
@@ -454,6 +457,7 @@ export default function GoogleMap({
   originLabel,
   destinationLabel,
   showPinBubbles,
+  autoFitEnabled = true,
 }: GoogleMapProps) {
   const mapRef = useRef<MapView>(null);
   const { isDark } = useTheme();
@@ -529,6 +533,189 @@ export default function GoogleMap({
     return true;
   }, [effectiveUserLocation, markerPositionLatLng]);
 
+  const normalizeHeading = (value: number): number => {
+    if (!Number.isFinite(value)) return 0;
+    const normalized = value % 360;
+    return normalized < 0 ? normalized + 360 : normalized;
+  };
+
+  const toHeading = useCallback((from: LatLng, to: LatLng): number => {
+    const toRad = Math.PI / 180;
+    const toDeg = 180 / Math.PI;
+    const lat1 = from.latitude * toRad;
+    const lat2 = to.latitude * toRad;
+    const dLon = (to.longitude - from.longitude) * toRad;
+    const y = Math.sin(dLon) * Math.cos(lat2);
+    const x =
+      Math.cos(lat1) * Math.sin(lat2) -
+      Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+    return normalizeHeading(Math.atan2(y, x) * toDeg);
+  }, []);
+
+  const markerHeadingCacheRef = useRef<{ coord: LatLng | null; heading: number | null }>({
+    coord: null,
+    heading: typeof markerVehicleHeading === 'number' ? normalizeHeading(markerVehicleHeading) : null,
+  });
+  const markerHeadingSmoothRef = useRef<number | null>(null);
+
+  const shortestAngularDifference = (from: number, to: number): number => {
+    const diff = ((to - from + 540) % 360) - 180;
+    return diff;
+  };
+
+  const applyHeadingSmoothing = (candidate?: number): number | undefined => {
+    if (typeof candidate !== 'number' || !Number.isFinite(candidate)) {
+      return markerHeadingSmoothRef.current ?? undefined;
+    }
+
+    const normalizedCandidate = normalizeHeading(candidate);
+    const last = markerHeadingSmoothRef.current;
+
+    if (last == null) {
+      markerHeadingSmoothRef.current = normalizedCandidate;
+      return normalizedCandidate;
+    }
+
+    const diff = shortestAngularDifference(last, normalizedCandidate);
+    const absDiff = Math.abs(diff);
+
+    if (absDiff >= 120) {
+      markerHeadingSmoothRef.current = normalizedCandidate;
+      return normalizedCandidate;
+    }
+
+    if (absDiff <= 8) {
+      markerHeadingSmoothRef.current = normalizedCandidate;
+      return normalizedCandidate;
+    }
+
+    const smoothingFactor = 0.38;
+    const smoothed = normalizeHeading(last + diff * smoothingFactor);
+    markerHeadingSmoothRef.current = smoothed;
+    return smoothed;
+  };
+
+  const routeHeadingAtMarker = useMemo(() => {
+    if (!markerPositionLatLng || routeCoordinates.length < 2) {
+      return undefined;
+    }
+
+    const markerLatRad = markerPositionLatLng.latitude * (Math.PI / 180);
+    const markerLonRad = markerPositionLatLng.longitude * (Math.PI / 180);
+    const cosMarkerLat = Math.cos(markerLatRad);
+    const toXY = (coord: LatLng) => {
+      const latRad = coord.latitude * (Math.PI / 180);
+      const lonRad = coord.longitude * (Math.PI / 180);
+      return {
+        x: (lonRad - markerLonRad) * cosMarkerLat,
+        y: latRad - markerLatRad,
+      };
+    };
+
+    const validRoute = routeCoordinates.filter(isValidCoord).map(toLatLng);
+    if (validRoute.length < 2) {
+      return undefined;
+    }
+
+    let bestHeading: number | undefined;
+    let bestDistSq = Number.POSITIVE_INFINITY;
+
+    for (let i = 0; i < validRoute.length - 1; i += 1) {
+      const start = validRoute[i];
+      const end = validRoute[i + 1];
+      if (!start || !end) continue;
+
+      const startVec = toXY(start);
+      const endVec = toXY(end);
+      const segVec = { x: endVec.x - startVec.x, y: endVec.y - startVec.y };
+      const segLenSq = segVec.x * segVec.x + segVec.y * segVec.y;
+      if (segLenSq < 1e-12) {
+        continue;
+      }
+
+      const markerVec = { x: 0, y: 0 };
+      const tNumerator = (markerVec.x - startVec.x) * segVec.x + (markerVec.y - startVec.y) * segVec.y;
+      const t = Math.min(1, Math.max(0, tNumerator / segLenSq));
+
+      const closestPoint = {
+        x: startVec.x + segVec.x * t,
+        y: startVec.y + segVec.y * t,
+      };
+
+      const distSq = closestPoint.x * closestPoint.x + closestPoint.y * closestPoint.y;
+      if (distSq < bestDistSq) {
+        bestDistSq = distSq;
+        bestHeading = normalizeHeading(toHeading(start, end));
+      }
+    }
+
+    return bestHeading;
+  }, [markerPositionLatLng, routeCoordinates, toHeading]);
+
+  const resolvedMarkerHeading = useMemo(() => {
+    if (effectiveMarkerType !== 'car') {
+      markerHeadingCacheRef.current = { coord: markerPositionLatLng ?? null, heading: null };
+      markerHeadingSmoothRef.current = null;
+      return undefined;
+    }
+
+    const incoming = markerVehicleHeading;
+
+    if (!markerPositionLatLng) {
+      const normalized = typeof incoming === 'number' && Number.isFinite(incoming)
+        ? normalizeHeading(incoming)
+        : null;
+      markerHeadingCacheRef.current = { coord: null, heading: normalized };
+      const smoothed = applyHeadingSmoothing(normalized ?? undefined);
+      return smoothed ?? undefined;
+    }
+
+    let candidate: number | undefined;
+
+    if (typeof incoming === 'number' && Number.isFinite(incoming)) {
+      candidate = normalizeHeading(incoming);
+    } else if (typeof routeHeadingAtMarker === 'number' && Number.isFinite(routeHeadingAtMarker)) {
+      candidate = normalizeHeading(routeHeadingAtMarker);
+    } else {
+      const cache = markerHeadingCacheRef.current;
+      if (cache.coord && !coordsAreClose(cache.coord, markerPositionLatLng)) {
+        candidate = normalizeHeading(toHeading(cache.coord, markerPositionLatLng));
+      } else if (typeof cache.heading === 'number') {
+        candidate = normalizeHeading(cache.heading);
+      }
+    }
+
+    const smoothed = applyHeadingSmoothing(candidate);
+    const headingToPersist = smoothed ?? candidate ?? markerHeadingCacheRef.current.heading ?? null;
+    markerHeadingCacheRef.current = { coord: markerPositionLatLng, heading: headingToPersist };
+    return smoothed ?? candidate ?? undefined;
+  }, [markerPositionLatLng, markerVehicleHeading, effectiveMarkerType, routeHeadingAtMarker, toHeading]);
+
+  const driverHeadingCacheRef = useRef<Record<string, { coord: LatLng; heading: number }>>({});
+
+  const resolveDriverHeading = useCallback(
+    (driver: DriverMarker): number => {
+      const coord = toLatLng(driver);
+      if (typeof driver.heading === 'number' && Number.isFinite(driver.heading)) {
+        const normalized = normalizeHeading(driver.heading);
+        driverHeadingCacheRef.current[driver.id] = { coord, heading: normalized };
+        return normalized;
+      }
+
+      const cached = driverHeadingCacheRef.current[driver.id];
+      if (cached && !coordsAreClose(cached.coord, coord)) {
+        const derived = toHeading(cached.coord, coord);
+        driverHeadingCacheRef.current[driver.id] = { coord, heading: derived };
+        return derived;
+      }
+
+      const fallback = cached?.heading ?? 0;
+      driverHeadingCacheRef.current[driver.id] = { coord, heading: fallback };
+      return fallback;
+    },
+    [toHeading],
+  );
+
   const markersToFit = useMemo<LatLng[]>(() => {
     const coords: LatLng[] = [];
 
@@ -585,6 +772,11 @@ export default function GoogleMap({
 
   useEffect(() => {
     const map = mapRef.current;
+    if (!autoFitEnabled) {
+      lastFitSignatureRef.current = '';
+      return;
+    }
+
     if (!map || markersToFit.length === 0 || selectedRideRequestId) {
       return;
     }
@@ -615,7 +807,7 @@ export default function GoogleMap({
         animated: true,
       });
     }, 350);
-  }, [markersToFit, selectedRideRequestId, cameraFitSignature]);
+  }, [markersToFit, selectedRideRequestId, cameraFitSignature, autoFitEnabled]);
 
   const handleMapPress = (event: MapPressEvent) => {
     if (!onMapPress) return;
@@ -768,6 +960,8 @@ export default function GoogleMap({
             onDragStart={handleMarkerDragStart}
             onDrag={handleMarkerDrag}
             onDragEnd={handleMarkerDragEnd}
+            flat
+            rotation={typeof resolvedMarkerHeading === 'number' ? resolvedMarkerHeading : undefined}
           >
             <Animated.View style={{ transform: [{ scale: markerScale }] }}>
               <MainMarkerContent
@@ -804,11 +998,12 @@ export default function GoogleMap({
 
         {nearbyDrivers.map((driver) => {
           if (!isValidCoord(driver)) return null;
+          const heading = resolveDriverHeading(driver);
           return (
             <Marker
               key={`driver-${driver.id}`}
               coordinate={toLatLng(driver)}
-              rotation={typeof driver.heading === 'number' ? driver.heading : 0}
+              rotation={heading}
               tracksViewChanges={driver.isSelected || !!driver.vehicleIconSource}
               anchor={{ x: 0.5, y: 0.5 }}
               onPress={() => {
@@ -816,6 +1011,7 @@ export default function GoogleMap({
                   onDriverPress(driver.id);
                 }
               }}
+              flat
             >
               {driver.isSelected ? (
                 <View style={markerStyles.driverBubbleWrapper}>
@@ -862,7 +1058,6 @@ export default function GoogleMap({
               onPress={() => {
                 if (selectedRideRequestId === request.id) {
                   setSelectedRideRequestId(null);
-                  onRideRequestPress?.(request);
                 } else {
                   setSelectedRideRequestId(request.id);
                 }

@@ -155,11 +155,12 @@
     
     "chats": {
       "$rideId": {
+        ".write": "auth != null",
         "messages": {
           ".read": "auth != null",
           ".write": "auth != null",
           "$messageId": {
-            ".validate": "newData.hasChildren(['senderId', 'senderName', 'message', 'timestamp', 'rideId'])"
+            ".validate": "!newData.exists() || newData.hasChildren(['senderId', 'senderName', 'message', 'timestamp', 'rideId'])"
           }
         },
         "typing": {
@@ -186,7 +187,7 @@
       "$userId": {
         ".read": "auth != null",
         ".write": "auth != null && auth.uid === $userId",
-        ".validate": "newData.hasChildren(['latitude', 'longitude', 'isManual', 'timestamp'])"
+        ".validate": "!newData.exists() || newData.hasChildren(['latitude', 'longitude', 'isManual', 'timestamp'])"
       }
     },
 
@@ -195,24 +196,31 @@
       "$clientId": {
         ".read": "auth != null",
         ".write": "auth != null && auth.uid === $clientId"
-      },
+      }
+    },
 
-      "driverPenalties": {
-        "$driverId": {
-          ".read": "auth != null && auth.uid === $driverId",
-          ".write": false,
-          "summary": {
-            ".read": "auth != null && auth.uid === $driverId",
-            ".write": false
-          }
-        }
-      },
-  
-      "driverCommissionPayments": {
-        "$driverId": {
+    "driverPenalties": {
+      "$driverId": {
+        ".read": "auth != null && auth.uid === $driverId",
+        ".write": false,
+        "summary": {
           ".read": "auth != null && auth.uid === $driverId",
           ".write": false
         }
+      }
+    },
+
+    "driverCommissionPayments": {
+      "$driverId": {
+        ".read": "auth != null && auth.uid === $driverId",
+        ".write": false
+      }
+    },
+
+    "notifications": {
+      "$userId": {
+        ".read": "auth != null && auth.uid === $userId",
+        ".write": "auth != null && auth.uid === $userId"
       }
     }
   }

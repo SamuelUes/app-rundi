@@ -1,6 +1,6 @@
 /**
  * Calculadora de precios para viajes - Frontend
- * DriveAngel.ni
+ * Rundi
  * 
  * Replica la lógica del backend para mostrar precios en tiempo real
  */

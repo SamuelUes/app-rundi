@@ -44,7 +44,7 @@ if (getRNMinorVersion() >= 75) {
   }
 }
 
-rootProject.name = 'Conduce'
+rootProject.name = 'Rundi'
 
 dependencyResolutionManagement {
   versionCatalogs {

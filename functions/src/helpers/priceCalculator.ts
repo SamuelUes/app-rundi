@@ -1,6 +1,6 @@
 /**
  * Calculadora de precios para viajes
- * DriveAngel.ni
+ * Rundi
  * 
  * COMISIONES:
  * - Moto: 7%

@@ -72,19 +72,52 @@ export default function LoginScreen({ navigation }: any) {
   };
 
   const handleLogin = async () => {
-    if (!email || !password) {
-      alertService.showErrorAlert('Por favor completa todos los campos');
+    const normalizedEmail = email.trim();
+
+    if (!normalizedEmail) {
+      alertService.showErrorAlert('Ingresa tu correo electrónico.');
+      return;
+    }
+
+    if (!password.trim()) {
+      alertService.showErrorAlert('Ingresa tu contraseña para continuar.');
       return;
     }
 
     setLoading(true);
     try {
-      await login(email, password);
+      await login(normalizedEmail, password);
     } catch (error: any) {
       if (error?.code === 'SESSION_ACTIVE_ELSEWHERE') {
         return;
       }
-      alertService.showErrorAlert(error?.message || 'Error al iniciar sesión');
+      let message = 'Error al iniciar sesión. Intenta nuevamente.';
+      const code = error?.code || '';
+
+      switch (code) {
+        case 'auth/user-not-found':
+        case 'auth/wrong-password':
+        case 'auth/invalid-credential':
+        case 'auth/invalid-email':
+        case 'EMAIL_NOT_FOUND':
+        case 'INVALID_PASSWORD':
+          message = 'El correo o la contraseña no son correctos. Verifica e inténtalo otra vez.';
+          break;
+        case 'auth/too-many-requests':
+          message = 'Demasiados intentos fallidos. Espera unos minutos antes de volver a intentar.';
+          break;
+        default:
+          if (typeof error?.message === 'string') {
+            if (error.message.toLowerCase().includes('password')) {
+              message = 'El correo o la contraseña no coinciden con nuestros registros.';
+            } else if (error.message.toLowerCase().includes('network')) {
+              message = 'No pudimos conectarnos. Revisa tu conexión a internet e inténtalo nuevamente.';
+            }
+          }
+          break;
+      }
+
+      alertService.showErrorAlert(message);
     } finally {
       setLoading(false);
     }

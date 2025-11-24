@@ -55,8 +55,8 @@ const darkColors = {
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
-const THEME_STORAGE_KEY = '@driveangel_theme';
-const MAP_TRAFFIC_STORAGE_KEY = '@driveangel_map_traffic';
+const THEME_STORAGE_KEY = '@rundi_theme';
+const MAP_TRAFFIC_STORAGE_KEY = '@rundi_map_traffic';
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>('auto');

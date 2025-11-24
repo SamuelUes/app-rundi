@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import backgroundLocationService from '../services/backgroundLocationService';
+import backgroundLocationService, { checkBackgroundLocationPermission } from '../services/backgroundLocationService';
+import { ensureActivityRecognitionPermission } from '../utils/activityPermission';
 
 /**
  * Inicia tracking de ubicación en segundo plano para conductores
@@ -14,24 +15,58 @@ export default function useDriverProximityTracking() {
 
     const start = async () => {
       try {
-        if (!user?.id) return;
+        console.log('🚀 [useDriverProximityTracking] Inicializando...');
+        
+        if (!user?.id) {
+          console.log('⚠️ [useDriverProximityTracking] No hay user.id');
+          return;
+        }
+        
         const role = user.role === 'driver' || user.role === 'designated_driver' ? 'driver' : 'client';
-        if (role !== 'driver') return;
+        console.log(`🚀 [useDriverProximityTracking] Role: ${role}`);
+        
+        if (role !== 'driver') {
+          console.log('ℹ️ [useDriverProximityTracking] No es conductor, saltando');
+          return;
+        }
+
+        if (role === 'driver') {
+          console.log('🔐 [useDriverProximityTracking] Solicitando permiso de activity recognition...');
+          await ensureActivityRecognitionPermission();
+        }
+
+        console.log('🔐 [useDriverProximityTracking] Verificando permiso de background location...');
+        const hasBackgroundPermission = await checkBackgroundLocationPermission();
+        console.log(`🔐 [useDriverProximityTracking] Background permission: ${hasBackgroundPermission}`);
+        
+        if (!hasBackgroundPermission) {
+          console.log('⚠️ [useDriverProximityTracking] No hay permiso de background location');
+          return;
+        }
 
         // Verifica si ya está activo
+        console.log('🔍 [useDriverProximityTracking] Verificando si tracking ya está activo...');
         const active = await backgroundLocationService.isTrackingActive();
+        console.log(`🔍 [useDriverProximityTracking] Tracking activo: ${active}`);
+        
         if (cancelled) return;
-        if (active) return;
+        if (active) {
+          console.log('ℹ️ [useDriverProximityTracking] Tracking ya activo, saltando');
+          return;
+        }
 
+        console.log('🚀 [useDriverProximityTracking] Iniciando background tracking...');
         await backgroundLocationService.startBackgroundLocationTracking(user.id, 'driver');
+        console.log('✅ [useDriverProximityTracking] Background tracking iniciado correctamente');
       } catch (e) {
-        // noop
+        console.error('❌ [useDriverProximityTracking] Error:', e);
       }
     };
 
     start();
     return () => {
       cancelled = true;
+      console.log('🔇 [useDriverProximityTracking] Hook cleanup');
       // No detenemos tracking para permitir "viaje por aproximación" en background
     };
   }, [user?.id, user?.role]);

@@ -23,6 +23,7 @@ interface OpenStreetMapProps {
   rideRequests?: Array<{ id: string; latitude: number; longitude: number; address?: string; estimatedPrice?: string; passengers?: number }>;
   onRideRequestPress?: (rideRequest: any) => void;
   debugLogs?: boolean;
+  markerVehicleHeading?: number;
 }
 
 export default function OpenStreetMap({
@@ -44,6 +45,7 @@ export default function OpenStreetMap({
   rideRequests = [],
   onRideRequestPress,
   debugLogs = false,
+  markerVehicleHeading,
 }: OpenStreetMapProps) {
   const webViewRef = useRef<WebView>(null);
   const [mapReady, setMapReady] = useState(false);
@@ -159,6 +161,10 @@ if (shouldLog) {
       })),
       enableMapClick: Boolean(onMapPress),
       fitToMarkers: true,
+      markerHeading:
+        typeof markerVehicleHeading === 'number' && Number.isFinite(markerVehicleHeading)
+          ? markerVehicleHeading
+          : undefined,
     }),
     [
       latitude,
@@ -175,6 +181,7 @@ if (shouldLog) {
       nearbyDrivers,
       rideRequests,
       onMapPress,
+      markerVehicleHeading,
     ],
   );
 

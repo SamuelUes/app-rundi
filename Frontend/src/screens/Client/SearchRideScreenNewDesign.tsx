@@ -9,6 +9,9 @@ import {
   Platform,
   ScrollView,
   Image,
+  KeyboardAvoidingView,
+  Animated,
+  useColorScheme,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import DynamicMap from '../../components/DynamicMap';
@@ -30,8 +33,13 @@ const STOP_PIN_ICON = require('../../assets/icons/multiplelocationmarker/multipl
 const BACK_BUTTON_ICON = require('../../assets/icons/back_button/back_button2x.png');
 const DEFAULT_FALLBACK_COORDS = { latitude: 12.1364, longitude: -86.2514 };
 const MAX_EXTRA_STOPS = 3;
+const VEHICLE_TYPES: VehicleType[] = ['moto', 'auto', 'designated_driver'];
 
-type Step = 1 | 2 | 3;
+interface VehicleEstimate {
+  price: number | null;
+  breakdown: PriceBreakdown | null;
+}
+
 type VehicleType = 'moto' | 'auto' | 'designated_driver';
 type PaymentMethod = 'cash' | 'card';
 
@@ -162,7 +170,9 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
   const { user } = useAuth();
   const { colors } = useTheme();
   const { coords } = useLocation();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const colorScheme = useColorScheme();
+  const isDark = colorScheme === 'dark';
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
 
   useLayoutEffect(() => {
     navigation?.setOptions?.({ headerShown: false });
@@ -187,17 +197,28 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
   const [estimatedPrice, setEstimatedPrice] = useState(0);
   const [priceBreakdown, setPriceBreakdown] = useState<PriceBreakdown | null>(null);
 
-  const [uiStep, setUiStep] = useState<Step>(1);
-  const [passengers, setPassengers] = useState(1);
+  const [passengersByVehicle, setPassengersByVehicle] = useState<Record<VehicleType, number>>({
+    moto: 1,
+    auto: 1,
+    designated_driver: 1,
+  });
   const [vehicleType, setVehicleType] = useState<VehicleType>('auto');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
   const [priceSuggestion, setPriceSuggestion] = useState('');
+  const [rideComment, setRideComment] = useState('');
 
   const [clientVehiclePhoto, setClientVehiclePhoto] = useState<string | null>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   const [driversAvailable, setDriversAvailable] = useState<boolean | null>(null);
   const [checkingDrivers, setCheckingDrivers] = useState(false);
+
+  const [vehicleEstimates, setVehicleEstimates] = useState<Record<VehicleType, VehicleEstimate>>({
+    moto: { price: null, breakdown: null },
+    auto: { price: null, breakdown: null },
+    designated_driver: { price: null, breakdown: null },
+  });
+  const [recommendedVehicle, setRecommendedVehicle] = useState<VehicleType | null>(null);
 
   const [showSearchOverlay, setShowSearchOverlay] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -211,6 +232,8 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
 
   const [mapSelectionMode, setMapSelectionMode] = useState<MapSelectionState>('origin');
   const [submittingRequest, setSubmittingRequest] = useState(false);
+  const [bottomPanelExpanded, setBottomPanelExpanded] = useState(true);
+  const bottomPanelAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (!mapSelectionMode) return;
@@ -272,11 +295,11 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
   }, [originCoords, coords, manualOriginDraft, manualOriginAddress, origin]);
 
   useEffect(() => {
-    if (vehicleType === 'moto' && passengers > 1) {
-      setPassengers(1);
+    if (vehicleType === 'moto' && passengersByVehicle.moto > 1) {
+      setPassengersByVehicle(prev => ({ ...prev, moto: 1 }));
       alertService.showInfoAlert('Moto seleccionada', 'Las motos solo pueden llevar 1 pasajero.');
     }
-  }, [vehicleType, passengers]);
+  }, [vehicleType, passengersByVehicle.moto]);
 
   useEffect(() => {
     if (!coords) return;
@@ -302,6 +325,102 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     }),
     [],
   );
+
+  const vehicleOptions = useMemo(() => {
+    const defaults: Record<VehicleType, { label: string; subtitle: string; emoji: string }> = {
+      moto: { label: 'Moto', subtitle: 'Viajes ágiles y económicos', emoji: '🏍️' },
+      auto: { label: 'Auto', subtitle: 'Viajes cómodos para hasta 4', emoji: '🚘' },
+      designated_driver: { label: 'Conductor designado', subtitle: 'Te llevamos a casa en tu auto', emoji: '🧑‍✈️' },
+    };
+
+    const findMatch = (type: VehicleType) => {
+      const target = servicesCatalog.find((service) => {
+        const code = service.code?.toLowerCase() || '';
+        const name = service.name?.toLowerCase() || '';
+        if (type === 'designated_driver') {
+          return code.includes('design') || name.includes('design');
+        }
+        return code.includes(type) || name.includes(type);
+      });
+      return target;
+    };
+
+    return VEHICLE_TYPES.map((type) => {
+      const match = findMatch(type);
+      return {
+        type,
+        label: match?.name ?? defaults[type].label,
+        subtitle: match?.description ?? defaults[type].subtitle,
+        emoji: defaults[type].emoji,
+      };
+    });
+  }, [servicesCatalog]);
+
+  const formatPriceValue = useCallback((value: number | null | undefined) => {
+    if (value == null || Number.isNaN(value)) return 'Calculando…';
+    return `~C$${Math.round(value)}`;
+  }, []);
+
+  const updateVehicleEstimates = useCallback(
+    async (distanceMeters: number, durationSeconds: number, stopsCount: number, startPoint: Coords) => {
+      try {
+        const pricing = await Promise.all(
+          VEHICLE_TYPES.map(async (type) => {
+            try {
+              const breakdown = await calculateRidePrice(
+                distanceMeters,
+                durationSeconds,
+                type === 'moto' ? 'motorcycle' : 'car',
+                type === 'designated_driver' ? 'designated_driver' : 'normal',
+                startPoint.latitude,
+                startPoint.longitude,
+                stopsCount,
+              );
+              return { type, price: breakdown.finalPrice, breakdown } as const;
+            } catch (error) {
+              console.warn('calculateRidePrice failed for', type, error);
+              return { type, price: null, breakdown: null } as const;
+            }
+          }),
+        );
+
+        const mapped = pricing.reduce<Record<VehicleType, VehicleEstimate>>((acc, item) => {
+          acc[item.type] = { price: item.price, breakdown: item.breakdown };
+          return acc;
+        }, { moto: { price: null, breakdown: null }, auto: { price: null, breakdown: null }, designated_driver: { price: null, breakdown: null } });
+
+        setVehicleEstimates(mapped);
+
+        const valid = pricing.filter((item) => typeof item.price === 'number' && item.price !== null && !Number.isNaN(item.price));
+        if (valid.length > 0) {
+          const lowest = valid.reduce((prev, current) => (prev.price! <= current.price! ? prev : current));
+          setRecommendedVehicle(lowest.type);
+        } else {
+          setRecommendedVehicle(null);
+        }
+
+        const current = mapped[vehicleType];
+        if (current?.price != null) {
+          setEstimatedPrice(current.price);
+          setPriceBreakdown(current.breakdown);
+        } else {
+          setEstimatedPrice(0);
+          setPriceBreakdown(null);
+        }
+      } catch (error) {
+        console.warn('updateVehicleEstimates', error);
+      }
+    },
+    [vehicleType],
+  );
+
+  useEffect(() => {
+    const current = vehicleEstimates[vehicleType];
+    if (current?.price != null) {
+      setEstimatedPrice(current.price);
+      setPriceBreakdown(current.breakdown);
+    }
+  }, [vehicleType, vehicleEstimates]);
 
   const calculateRouteWithStops = useCallback(
     async (startPoint: Coords | null, stops: Coords[], endPoint: Coords | null) => {
@@ -342,6 +461,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         );
         setEstimatedPrice(breakdown.finalPrice);
         setPriceBreakdown(breakdown);
+        await updateVehicleEstimates(totalDistance, totalDuration, stops.length, startPoint);
       } catch (error) {
         console.warn('calculateRouteWithStops', error);
         alertService.showErrorAlert('No se pudo calcular la ruta.');
@@ -378,6 +498,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         );
         setEstimatedPrice(breakdown.finalPrice);
         setPriceBreakdown(breakdown);
+        await updateVehicleEstimates(route.distance, route.duration, stopsCount, start);
       } catch (error) {
         console.warn('calculateSimpleRoute', error);
         alertService.showErrorAlert('No se pudo calcular la ruta.');
@@ -934,10 +1055,11 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         rideType: vehicleType === 'designated_driver' ? 'designated_driver' : 'normal',
         vehicleType,
         paymentMethod,
-        passengers,
+        passengers: passengersByVehicle[vehicleType] || 1,
       };
 
       if (clientSuggestedPrice) requestData.clientSuggestedPrice = clientSuggestedPrice;
+      if (rideComment.trim()) requestData.clientComment = rideComment.trim();
       if (extraDestinations.length > 0) {
         requestData.extraDestinations = extraDestinations
           .filter((stop) => stop.coords)
@@ -979,8 +1101,9 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     estimatedPrice,
     vehicleType,
     paymentMethod,
-    passengers,
+    passengersByVehicle,
     priceSuggestion,
+    rideComment,
     extraDestinations,
     clientVehiclePhoto,
     servicesCatalog,
@@ -1001,16 +1124,53 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     if (activeSelection === 'destination') return 'Busca una dirección o elige en el mapa.';
     return 'Puedes buscar o escoger en el mapa la parada intermedia.';
   }, [activeSelection]);
+  const isRequestReady = !!destinationCoords && estimatedPrice > 0;
+  const maxPassengersByType: Record<VehicleType, number> = useMemo(() => ({
+    moto: 1,
+    auto: 4,
+    designated_driver: 4,
+  }), []);
+  
+  const getPassengersForVehicle = (type: VehicleType) => passengersByVehicle[type] || 1;
+  const canDecreasePassengers = (type: VehicleType) => getPassengersForVehicle(type) > 1;
+  const canIncreasePassengers = (type: VehicleType) => getPassengersForVehicle(type) < maxPassengersByType[type];
+  
+  const updatePassengers = (type: VehicleType, delta: number) => {
+    setPassengersByVehicle((prev) => {
+      const current = prev[type] || 1;
+      const newValue = Math.max(1, Math.min(maxPassengersByType[type], current + delta));
+      return { ...prev, [type]: newValue };
+    });
+  };
+  const selectedVehicleOption = useMemo(() => vehicleOptions.find((option) => option.type === vehicleType) || vehicleOptions[0], [vehicleOptions, vehicleType]);
+  const hasRouteSelection = !!originCoords && !!destinationCoords;
+  const hasRouteMetrics = hasRouteSelection && estimatedDistance > 0 && estimatedDuration > 0 && estimatedPrice > 0;
+  const bottomPanelReady = hasRouteMetrics && !calculatingRoute && mapSelectionMode !== 'origin' && !manualOriginDragging;
+  const bottomPanelTranslate = useMemo(
+    () =>
+      bottomPanelAnim.interpolate({
+        inputRange: [0, 1],
+        outputRange: [320, 0],
+      }),
+    [bottomPanelAnim],
+  );
 
-  const canGoNextFromStep1 = passengers >= 1 && passengers <= capacityByVehicle[vehicleType];
-  const canGoNextFromStep2 = !!vehicleType;
-  const canConfirmOnStep3 = !!destinationCoords && estimatedPrice > 0;
+  useEffect(() => {
+    Animated.timing(bottomPanelAnim, {
+      toValue: bottomPanelReady ? 1 : 0,
+      duration: 250,
+      useNativeDriver: true,
+    }).start();
+  }, [bottomPanelAnim, bottomPanelReady]);
+
+  useEffect(() => {
+    if (!bottomPanelReady) {
+      setBottomPanelExpanded(true);
+    }
+  }, [bottomPanelReady]);
 
   return (
     <View style={styles.container}>
-      <TouchableOpacity style={styles.backButton} onPress={() => navigation?.goBack?.()} accessibilityLabel="Regresar">
-        <Image source={BACK_BUTTON_ICON} style={styles.backButtonIcon} resizeMode="contain" />
-      </TouchableOpacity>
 
       <View style={StyleSheet.absoluteFill}>
         <DynamicMap
@@ -1019,6 +1179,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
           onMapPress={({ latitude, longitude }) => handleMapPress({ latitude, longitude })}
           onRegionChangeCenter={mapSelectionMode === 'origin' ? handleRegionChangeCenter : undefined}
           onRegionChangeCompleteCenter={mapSelectionMode === 'origin' ? handleRegionChangeCompleteCenter : undefined}
+          autoFitEnabled={mapSelectionMode !== 'origin' && !manualOriginDragging && !manualOriginLoading}
           destinationMarker={destinationCoords || undefined}
           extraStopMarkers={extraDestinations
             .map((stop, index) => (stop.coords ? { latitude: stop.coords.latitude, longitude: stop.coords.longitude, index } : null))
@@ -1048,19 +1209,12 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
       </View>
 
       <View style={styles.routeBubble}>
-        <View style={styles.routeBubbleHeaderRow}>
-          <Text style={styles.routeBubbleTitle}>Escoge tu viaje</Text>
-          {mapSelectionMode ? (
-            <TouchableOpacity style={styles.inlineCancelButton} onPress={cancelMapSelection}>
-              <Text style={styles.inlineCancelText}>Cancelar</Text>
-            </TouchableOpacity>
-          ) : null}
-        </View>
-
         <View style={styles.routeTimeline}>
           {orderedRouteRows.map((row, idx) => {
             const isLast = idx === orderedRouteRows.length - 1;
             const isExtra = row.kind === 'extra';
+            const isDestinationRow = row.kind === 'destination';
+            const showInlineAdd = isDestinationRow && canAddExtraStop;
             let label = '';
             let subtitle = '';
             if (row.kind === 'origin') {
@@ -1089,16 +1243,27 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
                   {!isLast && <View style={styles.timelineConnector} />}
                 </View>
 
-                <TouchableOpacity style={styles.timelineContent} onPress={() => handleRouteRowPress(row)}>
-                  <Text style={styles.timelineLabel} numberOfLines={1}>
-                    {label}
-                  </Text>
-                  {subtitle ? (
-                    <Text style={styles.timelineSubtitle} numberOfLines={1}>
-                      {subtitle}
+                <View style={styles.timelineCenter}>
+                  <TouchableOpacity style={[styles.timelineContent, showInlineAdd && styles.timelineContentCompact]} onPress={() => handleRouteRowPress(row)}>
+                    <Text style={styles.timelineLabel} numberOfLines={1}>
+                      {label}
                     </Text>
+                    {subtitle ? (
+                      <Text style={styles.timelineSubtitle} numberOfLines={1}>
+                        {subtitle}
+                      </Text>
+                    ) : null}
+                  </TouchableOpacity>
+                  {showInlineAdd ? (
+                    <TouchableOpacity
+                      style={styles.inlineAddStop}
+                      onPress={beginAddExtraStop}
+                      accessibilityLabel="Agregar destino extra"
+                    >
+                      <Text style={styles.inlineAddStopIcon}>＋</Text>
+                    </TouchableOpacity>
                   ) : null}
-                </TouchableOpacity>
+                </View>
 
                 {isExtra && typeof row.index === 'number' ? (
                   <TouchableOpacity style={styles.timelineRemove} onPress={() => handleRemoveStop(row.index!)}>
@@ -1110,200 +1275,264 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
           })}
         </View>
 
-        {canAddExtraStop ? (
-          <TouchableOpacity style={styles.addStopButton} onPress={beginAddExtraStop}>
-            <Text style={styles.addStopButtonText}>¿Quieres un destino extra?</Text>
-          </TouchableOpacity>
-        ) : (
-          <Text style={styles.addStopLimitText}>Has alcanzado el máximo de paradas extra.</Text>
-        )}
       </View>
 
-      <View style={styles.bottomPanel}>
-        <View style={styles.stepper}>
-          <Text style={styles.stepText}>Paso {uiStep}/3</Text>
-        </View>
+      <Animated.View
+        pointerEvents={bottomPanelReady ? 'auto' : 'none'}
+        style={[styles.bottomPanel, { transform: [{ translateY: bottomPanelTranslate }], opacity: bottomPanelAnim }]}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
+          style={styles.bottomAvoiding}
+        >
+          <TouchableOpacity style={styles.backButton} onPress={() => navigation?.goBack?.()} accessibilityLabel="Regresar">
+        <Image source={BACK_BUTTON_ICON} style={styles.backButtonIcon} resizeMode="contain" />
+          </TouchableOpacity>
 
-        {uiStep === 1 && (
-          <View style={styles.stepContent}>
-            <Text style={styles.stepTitle}>Selecciona cuantos pasajeros</Text>
-            <View style={styles.counterRow}>
-              <TouchableOpacity
-                accessibilityLabel="disminuir"
-                style={[styles.counterButton, passengers <= 1 && styles.counterButtonDisabled]}
-                disabled={passengers <= 1}
-                onPress={() => setPassengers(Math.max(1, passengers - 1))}
-              >
-                <Text style={styles.counterButtonText}>-</Text>
-              </TouchableOpacity>
-              <View style={styles.counterValueBox}>
-                <Text style={styles.counterValue}>{passengers}</Text>
-              </View>
-              <TouchableOpacity
-                accessibilityLabel="aumentar"
-                style={[styles.counterButton, passengers >= capacityByVehicle[vehicleType] && styles.counterButtonDisabled]}
-                disabled={passengers >= capacityByVehicle[vehicleType]}
-                onPress={() => setPassengers(Math.min(capacityByVehicle[vehicleType], passengers + 1))}
-              >
-                <Text style={styles.counterButtonText}>+</Text>
-              </TouchableOpacity>
-            </View>
+          <TouchableOpacity style={styles.panelToggle} onPress={() => setBottomPanelExpanded((prev) => !prev)}>
+            <View style={styles.panelHandle} />
+            <Text style={styles.panelToggleText}>{bottomPanelExpanded ? '' : ''}</Text>
+          </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[styles.cta, !canGoNextFromStep1 && styles.ctaDisabled]}
-              disabled={!canGoNextFromStep1}
-              onPress={() => setUiStep(2)}
+          {bottomPanelExpanded ? (
+            <ScrollView
+              style={styles.formScroll}
+              contentContainerStyle={styles.formContent}
+              showsVerticalScrollIndicator
+              keyboardShouldPersistTaps="handled"
+              nestedScrollEnabled
             >
-              <Text style={styles.ctaText}>Confirmar información del viaje</Text>
-            </TouchableOpacity>
-          </View>
-        )}
+              
+            <View style={styles.section}>
 
-        {uiStep === 2 && (
-          <View style={styles.stepContent}>
-            <Text style={styles.stepTitle}>Tipo de vehículo</Text>
-            <View style={styles.vehicleRow}>
-              {(['moto', 'auto', 'designated_driver'] as VehicleType[]).map((type) => (
-                <TouchableOpacity
-                  key={type}
-                  style={[styles.vehicleCard, vehicleType === type && styles.vehicleCardSelected]}
-                  onPress={() => setVehicleType(type)}
-                >
-                  <Text style={styles.vehicleEmoji}>{type === 'moto' ? '🏍️' : type === 'auto' ? '🚘' : '🧑‍✈️'}</Text>
-                  <Text style={styles.vehicleLabel}>{type === 'moto' ? 'Moto' : type === 'auto' ? 'Auto' : 'Conductor Designado'}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+              <View style={styles.vehicleOptionsList}>
+                {vehicleOptions.map((option) => {
+                  const estimate = vehicleEstimates[option.type];
+                  const priceLabel = formatPriceValue(estimate?.price ?? null);
+                  const isSelected = vehicleType === option.type;
+                  const isRecommended = recommendedVehicle === option.type;
+                  const capacity = capacityByVehicle[option.type];
+                  const etaLabel = calculatingRoute
+                    ? 'Calculando…'
+                    : estimatedDuration > 0
+                    ? `~${estimatedDuration} min`
+                    : 'Sin ETA';
 
-            {vehicleType === 'designated_driver' && (
-              <View style={styles.photoRow}>
-                <Text style={styles.photoHint}>Foto del vehículo (opcional para identificación):</Text>
-                <TouchableOpacity style={styles.photoButton} onPress={handleTakeVehiclePhoto} disabled={uploadingPhoto}>
-                  <Text style={styles.photoButtonText}>
-                    {uploadingPhoto ? 'Cargando…' : clientVehiclePhoto ? 'Cambiar foto' : 'Tomar/Seleccionar foto'}
+                  return (
+                    <TouchableOpacity
+                      key={option.type}
+                      style={[styles.vehicleOptionCard, isSelected && styles.vehicleOptionCardSelected]}
+                      onPress={() => setVehicleType(option.type)}
+                      accessibilityLabel={`Seleccionar ${option.label}`}
+                    >
+                      <View style={styles.vehicleOptionTopRow}>
+                        <View style={styles.vehicleOptionTitleBlock}>
+                          <View style={styles.vehicleOptionTitleRow}>
+                            <View style={styles.vehicleOptionIconBubble}>
+                              <Text style={styles.vehicleEmoji}>{option.emoji}</Text>
+                            </View>
+                            <Text style={[styles.vehicleOptionTitle, isSelected && styles.vehicleOptionTitleSelected]} numberOfLines={1}>
+                              {option.label}
+                            </Text>
+                          </View>
+                          <Text style={[styles.vehicleOptionSubtitle, isSelected && styles.vehicleOptionSubtitleSelected]} numberOfLines={2}>
+                            {option.subtitle}
+                          </Text>
+                        </View>
+                        <View style={styles.vehicleOptionPriceBlock}>
+                          {isRecommended ? (
+                            <Text style={styles.vehicleOptionBadge}>Recomendado</Text>
+                          ) : null}
+                          <Text style={styles.vehicleOptionPrice}>{priceLabel}</Text>
+                        </View>
+                      </View>
+
+                      <View style={styles.vehicleOptionInfoRow}>
+                        <Text style={[styles.vehicleOptionMeta, isSelected && styles.vehicleOptionMetaSelected]} numberOfLines={1}>
+                          {etaLabel}
+                        </Text>
+                        {isSelected ? (
+                          <View style={styles.vehicleOptionPassengerControls}>
+                            <TouchableOpacity
+                              style={[styles.vehicleOptionCounterBtn, !canDecreasePassengers(option.type) && styles.vehicleOptionCounterBtnDisabled]}
+                              disabled={!canDecreasePassengers(option.type)}
+                              onPress={() => updatePassengers(option.type, -1)}
+                            >
+                              <Text style={styles.vehicleOptionCounterText}>−</Text>
+                            </TouchableOpacity>
+                            <View style={styles.vehicleOptionPassengerCount}>
+                              <Text style={[styles.vehicleOptionPassengerValue, styles.vehicleOptionPassengerValueSelected]}>{getPassengersForVehicle(option.type)}</Text>
+                              <Text style={styles.vehicleOptionPassengerIcon}>👤</Text>
+                            </View>
+                            <TouchableOpacity
+                              style={[styles.vehicleOptionCounterBtn, !canIncreasePassengers(option.type) && styles.vehicleOptionCounterBtnDisabled]}
+                              disabled={!canIncreasePassengers(option.type)}
+                              onPress={() => updatePassengers(option.type, 1)}
+                            >
+                              <Text style={styles.vehicleOptionCounterText}>+</Text>
+                            </TouchableOpacity>
+                          </View>
+                        ) : (
+                          <View style={styles.vehicleOptionPassengerDisplay}>
+                            <Text style={[styles.vehicleOptionPassengerValue, isSelected && styles.vehicleOptionPassengerValueSelected]}>{getPassengersForVehicle(option.type)}</Text>
+                            <Text style={styles.vehicleOptionPassengerIcon}>👤</Text>
+                          </View>
+                        )}
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {recommendedVehicle && vehicleEstimates[recommendedVehicle]?.price ? (
+                <View style={styles.vehicleRecommendationStrip}>
+                  <Text style={styles.vehicleRecommendationLabel}>Tarifa recomendada</Text>
+                  <Text style={styles.vehicleRecommendationValue}>
+                    {formatPriceValue(vehicleEstimates[recommendedVehicle]?.price ?? null)}
                   </Text>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            <View style={styles.inlineRow}>
-              <TouchableOpacity style={styles.secondaryNav} onPress={() => setUiStep(1)}>
-                <Text style={styles.secondaryNavText}>Anterior</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.cta, styles.ctaSecondary, !canGoNextFromStep2 && styles.ctaDisabled]}
-                disabled={!canGoNextFromStep2}
-                onPress={() => setUiStep(3)}
-              >
-                <Text style={styles.ctaText}>Confirmar tipo de vehículo</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
-
-        {uiStep === 3 && (
-          <View style={styles.stepContent}>
-            <Text style={styles.stepTitle}>Resumen y precio</Text>
-
-            <View style={styles.estimateCard}>
-              {calculatingRoute ? (
-                <View style={styles.centeredRow}>
-                  <ActivityIndicator color={colors.primary} />
-                  <Text style={styles.estimateText}> Calculando ruta…</Text>
                 </View>
-              ) : (
-                <>
-                  <View style={styles.estimateRow}>
-                    <Text style={styles.estimateLabel}>Distancia</Text>
-                    <Text style={styles.estimateValue}>{estimatedDistance.toFixed(2)} km</Text>
-                  </View>
-                  <View style={styles.estimateRow}>
-                    <Text style={styles.estimateLabel}>Tiempo</Text>
-                    <Text style={styles.estimateValue}>{estimatedDuration} min</Text>
-                  </View>
-                  <View style={styles.estimateRow}>
-                    <Text style={styles.estimateLabel}>Estimado</Text>
-                    <Text style={styles.estimateValue}>C${estimatedPrice.toFixed(2)}</Text>
-                  </View>
-                </>
+              ) : null}
+
+              {vehicleType === 'designated_driver' && (
+                <View style={styles.photoRow}>
+                  <Text style={styles.photoHint}>Foto del vehículo (opcional para identificación):</Text>
+                  <TouchableOpacity style={styles.photoButton} onPress={handleTakeVehiclePhoto} disabled={uploadingPhoto}>
+                    <Text style={styles.photoButtonText}>
+                      {uploadingPhoto ? 'Cargando…' : clientVehiclePhoto ? 'Cambiar foto' : 'Tomar/Seleccionar foto'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
               )}
             </View>
 
-            <View style={styles.paymentRow}>
-              <TouchableOpacity
-                style={[styles.paymentChip, paymentMethod === 'cash' && styles.paymentChipSelected]}
-                onPress={() => setPaymentMethod('cash')}
-              >
-                <Text style={[styles.paymentChipText, paymentMethod === 'cash' && styles.paymentChipTextSelected]}>Efectivo</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.paymentChip, paymentMethod === 'card' && styles.paymentChipSelected]}
-                onPress={() => setPaymentMethod('card')}
-              >
-                <Text style={[styles.paymentChipText, paymentMethod === 'card' && styles.paymentChipTextSelected]}>Tarjeta</Text>
-              </TouchableOpacity>
-            </View>
+            <View style={[styles.section, styles.sectionCompact]}>
+              <Text style={styles.sectionTitle}>Resumen y precio</Text>
 
-            <View style={styles.suggestRow}>
-              <Text style={styles.suggestLabel}>Sugerir mi precio (opcional):</Text>
-              <View style={styles.suggestInputRow}>
-                <TextInput
-                  keyboardType={Platform.select({
-                    ios: 'numbers-and-punctuation',
-                    android: 'numeric',
-                    default: 'numeric',
-                  })}
-                  placeholder="C$0.00"
-                  value={priceSuggestion}
-                  onChangeText={setPriceSuggestion}
-                  style={styles.suggestInput}
-                />
-                <TouchableOpacity style={styles.suggestButton}>
-                  <Text style={styles.suggestButtonText}>Guardar</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {priceBreakdown ? (
-              <View style={styles.breakdownBox}>
-                <Text style={styles.breakdownText}>{formatPriceBreakdown(priceBreakdown)}</Text>
-              </View>
-            ) : null}
-
-            <View style={styles.availabilityRow}>
-              {checkingDrivers ? (
-                <Text style={styles.availabilityText}>Buscando conductores cerca…</Text>
-              ) : driversAvailable === false ? (
-                <Text style={styles.availabilityWarn}>Pocos o ningún conductor cercano ahora</Text>
-              ) : driversAvailable === true ? (
-                <Text style={styles.availabilityOk}>Conductores disponibles</Text>
-              ) : (
-                <Text style={styles.availabilityText}>Disponibilidad desconocida</Text>
-              )}
-            </View>
-
-            <View style={styles.inlineRow}>
-              <TouchableOpacity style={styles.secondaryNav} onPress={() => setUiStep(2)}>
-                <Text style={styles.secondaryNavText}>Anterior</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.cta, (!canConfirmOnStep3 || submittingRequest) && styles.ctaDisabled]}
-                disabled={!canConfirmOnStep3 || submittingRequest}
-                onPress={onConfirmRequest}
-              >
-                {submittingRequest ? (
-                  <View style={styles.ctaLoadingRow}>
-                    <ActivityIndicator color="#fff" size="small" style={{ marginRight: 8 }} />
-                    <Text style={styles.ctaText}>Enviando solicitud…</Text>
+              <View style={styles.estimateCard}>
+                {calculatingRoute ? (
+                  <View style={styles.centeredRow}>
+                    <ActivityIndicator color={colors.primary} />
+                    <Text style={styles.estimateText}> Calculando ruta…</Text>
                   </View>
                 ) : (
-                  <Text style={styles.ctaText}>Confirmar y solicitar viaje</Text>
+                  <>
+                    <View style={styles.estimateRow}>
+                      <Text style={styles.estimateLabel}>Distancia</Text>
+                      <Text style={styles.estimateValue}>{estimatedDistance.toFixed(2)} km</Text>
+                    </View>
+                    <View style={styles.estimateRow}>
+                      <Text style={styles.estimateLabel}>Tiempo</Text>
+                      <Text style={styles.estimateValue}>{estimatedDuration} min</Text>
+                    </View>
+                    <View style={styles.estimateRow}>
+                      <Text style={styles.estimateLabel}>Estimado</Text>
+                      <Text style={styles.estimateValue}>C${estimatedPrice.toFixed(2)}</Text>
+                    </View>
+                  </>
                 )}
-              </TouchableOpacity>
+              </View>
+
+              <View style={styles.paymentRow}>
+                <TouchableOpacity
+                  style={[styles.paymentChip, paymentMethod === 'cash' && styles.paymentChipSelected]}
+                  onPress={() => setPaymentMethod('cash')}
+                  accessibilityLabel="Pagar en efectivo"
+                >
+                  <Text style={[styles.paymentChipText, paymentMethod === 'cash' && styles.paymentChipTextSelected]}>Efectivo</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.paymentChip, paymentMethod === 'card' && styles.paymentChipSelected]}
+                  onPress={() => setPaymentMethod('card')}
+                  accessibilityLabel="Pagar con tarjeta"
+                >
+                  <Text style={[styles.paymentChipText, paymentMethod === 'card' && styles.paymentChipTextSelected]}>Tarjeta</Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.priceCommentRow}>
+                <View style={styles.priceCommentColumn}>
+                  <Text style={styles.priceCommentLabel}>Precio sugerido</Text>
+                  <TextInput
+                    keyboardType={Platform.select({
+                      ios: 'numbers-and-punctuation',
+                      android: 'numeric',
+                      default: 'numeric',
+                    })}
+                    placeholder="C$0.00"
+                    placeholderTextColor={colors.textSecondary || '#999'}
+                    value={priceSuggestion}
+                    onChangeText={setPriceSuggestion}
+                    style={styles.priceCommentInput}
+                  />
+                </View>
+                <View style={styles.priceCommentColumn}>
+                  <Text style={styles.priceCommentLabel}>Comentario</Text>
+                  <TextInput
+                    placeholder="Detalles del viaje..."
+                    placeholderTextColor={colors.textSecondary || '#999'}
+                    value={rideComment}
+                    onChangeText={setRideComment}
+                    style={styles.priceCommentInput}
+                    maxLength={100}
+                  />
+                </View>
+              </View>
+
+              {priceBreakdown ? (
+                <View style={styles.breakdownBox}>
+                  <Text style={styles.breakdownText}>{formatPriceBreakdown(priceBreakdown)}</Text>
+                </View>
+              ) : null}
+
+              <View style={styles.availabilityRow}>
+                {checkingDrivers ? (
+                  <Text style={styles.availabilityText}>Buscando conductores cerca…</Text>
+                ) : driversAvailable === false ? (
+                  <Text style={styles.availabilityWarn}>Pocos o ningún conductor cercano ahora</Text>
+                ) : driversAvailable === true ? (
+                  <Text style={styles.availabilityOk}>Conductores disponibles</Text>
+                ) : (
+                  <Text style={styles.availabilityText}>Disponibilidad desconocida</Text>
+                )}
+              </View>
             </View>
+          </ScrollView>
+          ) : (
+            <View style={styles.collapsedSummary}>
+              <View style={styles.collapsedSummaryRow}>
+                <View style={styles.collapsedSummaryIcon}>
+                  <Text style={styles.vehicleEmoji}>{selectedVehicleOption?.emoji ?? '🚘'}</Text>
+                </View>
+                <View style={styles.collapsedSummaryText}>
+                  <Text style={styles.collapsedSummaryTitle}>{selectedVehicleOption?.label ?? 'Servicio'}</Text>
+                  <Text style={styles.collapsedSummaryMeta}>
+                    {selectedVehicleOption?.subtitle ?? ''}
+                  </Text>
+                </View>
+                <Text style={styles.collapsedSummaryPrice}>{formatPriceValue(vehicleEstimates[vehicleType]?.price ?? null)}</Text>
+              </View>
+            </View>
+          )}
+
+          <View style={styles.ctaContainer}>
+            <TouchableOpacity
+              style={[styles.cta, (!isRequestReady || submittingRequest) && styles.ctaDisabled]}
+              disabled={!isRequestReady || submittingRequest}
+              onPress={onConfirmRequest}
+            >
+              {submittingRequest ? (
+                <View style={styles.ctaLoadingRow}>
+                  <ActivityIndicator color="#fff" size="small" style={{ marginRight: 8 }} />
+                  <Text style={styles.ctaText}>Enviando solicitud…</Text>
+                </View>
+              ) : (
+                <Text style={styles.ctaText}>Confirmar y solicitar viaje</Text>
+              )}
+            </TouchableOpacity>
           </View>
-        )}
-      </View>
+        </KeyboardAvoidingView>
+      </Animated.View>
 
       {showSearchOverlay && (
         <View style={styles.searchOverlay}>
@@ -1421,14 +1650,14 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
   );
 }
 
-function createStyles(colors: any) {
+function createStyles(colors: any, isDark: boolean = false) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background || '#fff' },
 
     backButton: {
       position: 'absolute',
-      top: 50,
-      left: 16,
+      top: -70,
+      left: 0,
       width: 48,
       height: 48,
       borderRadius: 24,
@@ -1459,10 +1688,10 @@ function createStyles(colors: any) {
     routeBubble: {
       position: 'absolute',
       top: 45,
-      left: 72,
-      right: 16,
-      padding: 16,
-      borderRadius: 16,
+      left: 14,
+      right: 14,
+      padding: 12,
+      borderRadius: 12,
       backgroundColor: colors.card || 'rgba(255,255,255,0.96)',
       shadowColor: '#000',
       shadowOpacity: 0.12,
@@ -1471,19 +1700,21 @@ function createStyles(colors: any) {
     },
     routeBubbleHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
     routeBubbleTitle: { fontSize: 16, fontWeight: '700', color: colors.text || '#111' },
-    inlineCancelButton: {
-      paddingHorizontal: 12,
-      paddingVertical: 6,
-      borderRadius: 999,
-      backgroundColor: colors.surface || '#ececec',
+    routeBubbleTitleCompact: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: colors.textSecondary || '#555',
+      textAlign: 'center',
+      letterSpacing: 0.6,
+      marginBottom: 6,
     },
-    inlineCancelText: { fontSize: 12, fontWeight: '600', color: colors.textSecondary || '#555' },
 
     routeTimeline: { marginTop: 4 },
     timelineRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
     timelineLeft: { width: 30, alignItems: 'center' },
     timelineIcon: { width: 20, height: 20 },
     timelineConnector: { flex: 1, width: 2, backgroundColor: colors.border || '#ddd', marginTop: 4 },
+    timelineCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 },
     timelineContent: {
       flex: 1,
       marginHorizontal: 12,
@@ -1491,6 +1722,14 @@ function createStyles(colors: any) {
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderColor: colors.border || '#ddd',
     },
+    timelineContentCompact: { marginRight: 4 },
+    inlineAddStop: {
+      paddingVertical: 4,
+      paddingHorizontal: 9,
+      borderRadius: 99,
+      backgroundColor: '#d4a651',
+    },
+    inlineAddStopIcon: { fontSize: 16, fontWeight: '800', color: '#fff' },
     timelineLabel: { fontSize: 14, fontWeight: '600', color: colors.text || '#111' },
     timelineSubtitle: { fontSize: 11, color: colors.textSecondary || '#666', marginTop: 2 },
     timelineRemove: { padding: 8 },
@@ -1512,68 +1751,186 @@ function createStyles(colors: any) {
       left: 0,
       right: 0,
       bottom: 0,
-      paddingTop: 12,
+      paddingTop: 10,
       paddingHorizontal: 16,
-      paddingBottom: 20,
-      borderTopLeftRadius: 20,
-      borderTopRightRadius: 20,
+      paddingBottom: Platform.select({ ios: 14, android: 20, default: 18 }),
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
       backgroundColor: colors.card || '#fff',
       shadowColor: '#000',
       shadowOpacity: 0.15,
       shadowRadius: 12,
       elevation: 12,
+      maxHeight: '45%',
+      minHeight: 260,
+    },
+    bottomAvoiding: { flex: 1, maxHeight: '100%' },
+    formScroll: { flexGrow: 0, flexShrink: 1 },
+    formContent: { paddingBottom: 24, paddingHorizontal: 4, gap: 12 },
+    panelToggle: { alignItems: 'center', marginBottom: 8, paddingTop: 4 },
+    panelHandle: {
+      width: 52,
+      height: 5,
+      borderRadius: 20,
+      backgroundColor: colors.border || '#d0d0d0',
+      marginBottom: 6,
+    },
+    panelToggleText: { fontSize: 12, color: colors.textSecondary || '#666', fontWeight: '600' },
+    collapsedSummary: {
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderRadius: 16,
+      backgroundColor: colors.surface || '#f8f8f8',
+      borderWidth: 1,
+      borderColor: colors.border || '#e0e0e0',
+      marginBottom: 12,
+    },
+    collapsedSummaryRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+    collapsedSummaryIcon: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: '#fff',
+      justifyContent: 'center',
+      alignItems: 'center',
+      shadowColor: '#000',
+      shadowOpacity: Platform.OS === 'ios' ? 0.08 : 0,
+      shadowRadius: 6,
+      shadowOffset: { width: 0, height: 3 },
+      elevation: 3,
+    },
+    collapsedSummaryText: { flex: 1 },
+    collapsedSummaryTitle: { fontSize: 15, fontWeight: '700', color: colors.text || '#111' },
+    collapsedSummaryMeta: { fontSize: 12, color: colors.textSecondary || '#666', marginTop: 2 },
+    collapsedSummaryPrice: { fontSize: 18, fontWeight: '800', color: '#c87a1a' },
+    formOverline: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: colors.textSecondary || '#666',
+      letterSpacing: 0.8,
+      textTransform: 'uppercase',
+      marginBottom: 8,
+      textAlign: 'center',
     },
 
-    stepper: { alignItems: 'center', marginBottom: 8 },
-    stepText: { fontSize: 12, color: colors.textSecondary || '#666' },
-
-    stepContent: {},
-    stepTitle: { fontSize: 16, fontWeight: '700', color: colors.text || '#111', marginBottom: 12, textAlign: 'center' },
-
-    counterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginVertical: 8 },
-    counterButton: { width: 44, height: 44, borderRadius: 8, backgroundColor: '#2b2b2b', alignItems: 'center', justifyContent: 'center' },
-    counterButtonDisabled: { opacity: 0.4 },
+    counterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginVertical: 8, gap: 12 },
+    counterButton: { width: 44, height: 44, borderRadius: 12, backgroundColor: '#2b2b2b', alignItems: 'center', justifyContent: 'center' },
+    counterButtonDisabled: { opacity: 0.35 },
     counterButtonText: { color: '#fff', fontSize: 22, fontWeight: '700' },
     counterValueBox: {
-      marginHorizontal: 12,
-      minWidth: 56,
-      height: 40,
-      borderRadius: 8,
+      minWidth: 76,
+      paddingHorizontal: 16,
+      paddingVertical: 6,
+      borderRadius: 12,
       backgroundColor: colors.background || '#f2f2f2',
       alignItems: 'center',
       justifyContent: 'center',
+      gap: 2,
     },
-    counterValue: { fontSize: 18, fontWeight: '700', color: colors.text || '#111' },
+    counterValue: { fontSize: 20, fontWeight: '700', color: colors.text || '#111' },
+    counterCaption: { fontSize: 11, color: colors.textSecondary || '#666' },
 
-    vehicleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 },
-    vehicleCard: {
-      flex: 1,
-      paddingVertical: 14,
-      paddingHorizontal: 10,
-      borderRadius: 12,
-      backgroundColor: colors.surface || '#f1f1f1',
+    section: { marginBottom: 16 },
+    sectionCompact: { marginBottom: 14 },
+    sectionTitle: { fontSize: 15, fontWeight: '700', color: colors.text || '#111', marginBottom: 6 },
+    sectionHint: { fontSize: 12, color: colors.textSecondary || '#666' },
+    sectionDivider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border || '#ddd', marginVertical: 12 },
+
+    vehicleOptionsList: { gap: 10 },
+    vehicleOptionCard: {
+      paddingVertical: 12,
+      paddingHorizontal: 14,
+      borderRadius: 16,
+      backgroundColor: colors.card || (isDark ? '#2a2a2a' : '#FFFAF5'),
+      borderWidth: 1,
+      borderColor: colors.border || (isDark ? '#444' : '#e1e1e1'),
+      gap: 8,
+    },
+    vehicleOptionCardSelected: {
+      borderColor: isDark ? '#9e8e7a' : '#cfa146',
+      backgroundColor: isDark ? '#3a3520' : '#fff7df',
+      shadowColor: '#cfa146',
+      shadowOpacity: Platform.OS === 'ios' ? 0.12 : 0,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 4 },
+      elevation: 5,
+    },
+    vehicleOptionTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 },
+    vehicleOptionTitleBlock: { flex: 1, gap: 2 },
+    vehicleOptionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    vehicleOptionIconBubble: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      backgroundColor: '#fff',
       alignItems: 'center',
       justifyContent: 'center',
-      borderWidth: 1,
-      borderColor: colors.border || '#e0e0e0',
+      shadowColor: '#000',
+      shadowOpacity: Platform.OS === 'ios' ? 0.05 : 0,
+      shadowRadius: 4,
+      shadowOffset: { width: 0, height: 2 },
+      elevation: 2,
     },
-    vehicleCardSelected: { borderColor: colors.primary || '#2196F3', borderWidth: 2, backgroundColor: colors.surface || '#f1f1f1' },
-    vehicleEmoji: { fontSize: 22, marginBottom: 6 },
-    vehicleLabel: { fontSize: 13, color: colors.text || '#111', fontWeight: '600', textAlign: 'center' },
+    vehicleEmoji: { fontSize: 20 },
+    vehicleOptionTitle: { fontSize: 15, fontWeight: '700', color: colors.text || '#111' },
+    vehicleOptionTitleSelected: { color: '#111' },
+    vehicleOptionSubtitle: { fontSize: 11, color: colors.textSecondary || '#666', marginTop: 1 },
+    vehicleOptionSubtitleSelected: { color: '#222' },
+    vehicleOptionPriceBlock: { alignItems: 'flex-end', gap: 6 },
+    vehicleOptionBadge: {
+      paddingHorizontal: 10,
+      paddingVertical: 2,
+      borderRadius: 999,
+      backgroundColor: '#f3c168',
+      fontSize: 9,
+      fontWeight: '700',
+      color: '#3b2b0f',
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+    },
+    vehicleOptionPrice: { fontSize: 17, fontWeight: '800', color: '#c87a1a' },
+    vehicleOptionInfoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 },
+    vehicleOptionMeta: { fontSize: 11, color: colors.textSecondary || '#666', flex: 1 },
+    vehicleOptionMetaSelected: { color: '#222' },
+    vehicleOptionPassengerControls: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    vehicleOptionCounterBtn: {
+      width: 26,
+      height: 26,
+      borderRadius: 7,
+      backgroundColor: '#2b2b2b',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    vehicleOptionCounterBtnDisabled: { opacity: 0.3 },
+    vehicleOptionCounterText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+    vehicleOptionPassengerCount: { flexDirection: 'row', alignItems: 'center', gap: 3, minWidth: 38, justifyContent: 'center' },
+    vehicleOptionPassengerDisplay: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+    vehicleOptionPassengerValue: { fontSize: 13, fontWeight: '700', color: colors.text || '#111' },
+    vehicleOptionPassengerValueSelected: { color: '#111' },
+    vehicleOptionPassengerIcon: { fontSize: 13 },
+    vehicleRecommendationStrip: {
+      marginTop: 10,
+      paddingVertical: 7,
+      paddingHorizontal: 14,
+      borderRadius: 10,
+      backgroundColor: '#fff2cf',
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    vehicleRecommendationLabel: { fontSize: 11, fontWeight: '600', color: '#6b5223' },
+    vehicleRecommendationValue: { fontSize: 13, fontWeight: '800', color: '#b86d17' },
 
-    photoRow: { marginTop: 12 },
+    photoRow: { marginTop: 8 },
     photoHint: { fontSize: 12, color: colors.textSecondary || '#666', marginBottom: 8, textAlign: 'center' },
     photoButton: { alignSelf: 'center', paddingVertical: 10, paddingHorizontal: 14, borderRadius: 10, backgroundColor: colors.surface || '#f1f1f1' },
     photoButtonText: { color: colors.text || '#111', fontWeight: '600' },
 
-    inlineRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 14 },
-
     cta: {
       flex: 1,
-      marginTop: 12,
       backgroundColor: '#c9782d',
-      paddingVertical: 14,
-      borderRadius: 24,
+      paddingVertical: 16,
+      borderRadius: 28,
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -1582,44 +1939,41 @@ function createStyles(colors: any) {
     ctaLoadingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
     ctaText: { color: '#fff', fontSize: 15, fontWeight: '800', textAlign: 'center' },
 
-    secondaryNav: { paddingVertical: 12, paddingHorizontal: 16 },
-    secondaryNavText: { color: colors.textSecondary || '#666', fontWeight: '600' },
+    ctaContainer: { paddingTop: 12 },
 
-    estimateCard: { borderRadius: 12, padding: 12, backgroundColor: colors.surface || '#f5f5f5', marginBottom: 10 },
+    estimateCard: { borderRadius: 12, padding: 10, backgroundColor: colors.card || (isDark ? '#2a2a2a' : '#f5f5f5'), borderWidth: 1, borderColor: colors.border || (isDark ? '#444' : 'transparent'), marginBottom: 8 },
     centeredRow: { flexDirection: 'row', alignItems: 'center' },
     estimateText: { marginLeft: 8, color: colors.textSecondary || '#666' },
     estimateRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 },
     estimateLabel: { color: colors.textSecondary || '#666' },
     estimateValue: { color: colors.text || '#111', fontWeight: '700' },
 
-    paymentRow: { flexDirection: 'row', justifyContent: 'center', gap: 10, marginVertical: 8 },
-    paymentChip: { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 16, backgroundColor: colors.surface || '#eee' },
+    paymentRow: { flexDirection: 'row', justifyContent: 'center', gap: 8, marginVertical: 6 },
+    paymentChip: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 16, backgroundColor: colors.surface || '#eee' },
     paymentChipSelected: { backgroundColor: colors.primary || '#2196F3' },
     paymentChipText: { color: colors.text || '#111', fontWeight: '600' },
     paymentChipTextSelected: { color: '#fff' },
 
-    suggestRow: { marginTop: 4 },
-    suggestLabel: { color: colors.textSecondary || '#666', marginBottom: 6 },
-    suggestInputRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-    suggestInput: {
-      flex: 1,
+    priceCommentRow: { flexDirection: 'row', gap: 10, marginTop: 10, marginBottom: 4 },
+    priceCommentColumn: { flex: 1 },
+    priceCommentLabel: { 
+      fontSize: 12, 
+      fontWeight: '600', 
+      color: colors.text || '#333', 
+      marginBottom: 6 
+    },
+    priceCommentInput: {
       height: 42,
       borderRadius: 10,
       paddingHorizontal: 12,
-      backgroundColor: colors.surface || '#f1f1f1',
+      backgroundColor: colors.card || (isDark ? '#2a2a2a' : '#f5f5f5'),
+      borderWidth: 1.5,
+      borderColor: colors.border || (isDark ? '#444' : '#ddd'),
       color: colors.text || '#111',
+      fontSize: 14,
     },
-    suggestButton: {
-      paddingHorizontal: 14,
-      height: 42,
-      borderRadius: 10,
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: colors.primary || '#2196F3',
-    },
-    suggestButtonText: { color: '#fff', fontWeight: '700' },
 
-    breakdownBox: { marginTop: 8, padding: 10, borderRadius: 10, backgroundColor: colors.surface || '#f1f1f1' },
+    breakdownBox: { marginTop: 8, padding: 10, borderRadius: 10, backgroundColor: colors.card || (isDark ? '#2a2a2a' : '#f1f1f1'), borderWidth: 1, borderColor: colors.border || (isDark ? '#444' : 'transparent') },
     breakdownText: { color: colors.textSecondary || '#666', fontSize: 12 },
 
     availabilityRow: { marginTop: 10, alignItems: 'center' },

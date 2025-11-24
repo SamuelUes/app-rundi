@@ -18,6 +18,14 @@ interface Location {
   timestamp: number;
 }
 
+interface HeadingCacheEntry {
+  lat: number;
+  lng: number;
+  heading: number | null;
+}
+
+const driverHeadingCache: Record<string, HeadingCacheEntry> = {};
+
 interface Destination {
   lat: number;
   lng: number;
@@ -80,15 +88,56 @@ class FirebaseTrackingService {
       accuracy?: number;
     }
   ): Promise<void> {
+    const normalizeHeading = (value: number): number => {
+      const normalized = value % 360;
+      return normalized < 0 ? normalized + 360 : normalized;
+    };
+
+    const computeHeading = (): number | null => {
+      if (typeof location.heading === 'number' && Number.isFinite(location.heading)) {
+        return normalizeHeading(location.heading);
+      }
+
+      const previous = driverHeadingCache[driverId];
+      if (!previous) {
+        return null;
+      }
+
+      const toRad = (deg: number) => (deg * Math.PI) / 180;
+      const toDeg = (rad: number) => (rad * 180) / Math.PI;
+
+      const lat1 = toRad(previous.lat);
+      const lat2 = toRad(location.latitude);
+      const dLon = toRad(location.longitude - previous.lng);
+
+      const y = Math.sin(dLon) * Math.cos(lat2);
+      const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+
+      if (Math.abs(x) < 1e-12 && Math.abs(y) < 1e-12) {
+        return previous.heading ?? null;
+      }
+
+      const bearing = normalizeHeading(toDeg(Math.atan2(y, x)));
+      return Number.isFinite(bearing) ? bearing : previous.heading ?? null;
+    };
+
     try {
       const database = await getFirebaseDatabase();
       const locationRef = ref(database, `driverLocations/${driverId}`);
-      
+
+      const resolvedHeading = computeHeading();
+
+      driverHeadingCache[driverId] = {
+        lat: location.latitude,
+        lng: location.longitude,
+        heading: resolvedHeading,
+      };
+
       await set(locationRef, {
         lat: location.latitude,
         lng: location.longitude,
         speed: location.speed || 0,
-        heading: location.heading || 0,
+        heading: resolvedHeading,
         accuracy: location.accuracy || 0,
         status: 'available',
         lastUpdate: Date.now(),
@@ -97,35 +146,6 @@ class FirebaseTrackingService {
       console.log(`📍 Ubicación actualizada en Firebase RTDB: ${driverId}`);
     } catch (error) {
       console.error('❌ Error actualizando ubicación:', error);
-      throw error;
-    }
-  }
-  
-  /**
-   * Actualizar ubicación del cliente
-   */
-  async updateClientLocation(
-    clientId: string,
-    location: {
-      latitude: number;
-      longitude: number;
-      accuracy?: number;
-    }
-  ): Promise<void> {
-    try {
-      const database = await getFirebaseDatabase();
-      const locationRef = ref(database, `clientLocations/${clientId}`);
-      
-      await set(locationRef, {
-        lat: location.latitude,
-        lng: location.longitude,
-        accuracy: location.accuracy || 0,
-        lastUpdate: Date.now(),
-      });
-
-      console.log(`📍 Ubicación del cliente actualizada: ${clientId}`);
-    } catch (error) {
-      console.error('❌ Error actualizando ubicación del cliente:', error);
       throw error;
     }
   }

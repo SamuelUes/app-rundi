@@ -12,6 +12,9 @@ import {
   TextInput,
   Animated,
   Switch,
+  Linking,
+  Platform,
+  AppState,
 } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
@@ -24,6 +27,8 @@ import designatedDriverService from '../../services/designatedDriverService';
 import supabaseStorage from '../../services/supabaseStorage';
 import { initializeFirebase } from '../../config/firebase';
 import { getDatabase, ref, get } from 'firebase/database';
+import proximityService from '../../services/proximityService';
+import { overlayManager } from '../../native/overlay';
 
 import { FormattedInput } from '../../components/FormattedInput';
 import ImagePickerComponent from '../../components/ImagePicker';
@@ -136,6 +141,9 @@ export default function DriverProfileScreen({ navigation }: any) {
   const [designatedDriverRequestStatus, setDesignatedDriverRequestStatus] = useState<string | null>(null);
   const [loadingRequestStatus, setLoadingRequestStatus] = useState(false);
   const [voiceAssistantSwitch, setVoiceAssistantSwitch] = useState<boolean>(voiceSettings.enabled);
+  const [overlayToggleEnabled, setOverlayToggleEnabled] = useState<boolean>(false);
+  const [overlayPermissionGranted, setOverlayPermissionGranted] = useState<boolean>(Platform.OS !== 'android');
+  const [overlayCheckingPermission, setOverlayCheckingPermission] = useState<boolean>(false);
   
   // Animaciones
   const cardScaleAnim = useMemo(() => new Animated.Value(0.95), []);
@@ -168,15 +176,38 @@ export default function DriverProfileScreen({ navigation }: any) {
     loadDriverData();
     loadDesignatedDriverStatus();
     loadEarningsStats();
+    loadOverlayPreference();
+
+    let unsubscribeOverlay: (() => void) | undefined;
+    if (Platform.OS === 'android') {
+      unsubscribeOverlay = proximityService.subscribeOverlayEnabled((enabled) => {
+        setOverlayToggleEnabled(enabled);
+      });
+    }
+
+    const appStateListener = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        // Invalidar cache para forzar recarga desde AsyncStorage
+        proximityService.invalidateOverlayCache();
+        loadOverlayPreference();
+      }
+    });
 
     // Escuchar cambios de foco para recargar datos cuando se regrese a la pantalla
     const unsubscribe = navigation.addListener('focus', () => {
       loadDriverData();
       loadDesignatedDriverStatus();
       loadEarningsStats();
+      loadOverlayPreference();
     });
 
-    return unsubscribe;
+    return () => {
+      unsubscribe();
+      if (unsubscribeOverlay) {
+        unsubscribeOverlay();
+      }
+      appStateListener.remove();
+    };
   }, [navigation]);
 
   useEffect(() => {
@@ -212,6 +243,92 @@ export default function DriverProfileScreen({ navigation }: any) {
       }
     } catch (error) {
       console.error('Error cargando estadísticas de ganancias del conductor:', error);
+    }
+  };
+
+  const loadOverlayPreference = async () => {
+    if (Platform.OS !== 'android') {
+      setOverlayToggleEnabled(false);
+      setOverlayPermissionGranted(true);
+      return;
+    }
+
+    try {
+      const [enabled, hasPermission] = await Promise.all([
+        proximityService.getOverlayEnabled(),
+        overlayManager.hasPermission(),
+      ]);
+      if (enabled && !hasPermission) {
+        await proximityService.setOverlayEnabled(false);
+        setOverlayToggleEnabled(false);
+      } else {
+        setOverlayToggleEnabled(enabled);
+      }
+      setOverlayPermissionGranted(hasPermission);
+    } catch (error) {
+      console.warn('⚠️ Error cargando preferencia de overlay:', error);
+    }
+  };
+
+  const handleOverlayToggle = async (nextValue: boolean) => {
+    if (Platform.OS !== 'android') {
+      Alert.alert('No disponible', 'La función de aparecer encima solo está disponible en Android.');
+      return;
+    }
+
+    setOverlayCheckingPermission(true);
+    try {
+      if (nextValue) {
+        // Guardar preferencia ANTES de abrir ajustes
+        await proximityService.setOverlayEnabled(true);
+        setOverlayToggleEnabled(true);
+        
+        Alert.alert(
+          'Activa el permiso',
+          'Abre la pantalla de "Mostrar encima de otras apps" y asegúrate de habilitarlo para Rundi.'
+        );
+        await overlayManager.openSystemSettings();
+        
+        // Invalidar cache y recargar preferencia desde storage después de volver de ajustes
+        proximityService.invalidateOverlayCache();
+        const currentPref = await proximityService.getOverlayEnabled();
+        setOverlayToggleEnabled(currentPref);
+        
+        const hasPermission = await overlayManager.hasPermission();
+        setOverlayPermissionGranted(hasPermission);
+        await proximityService.debugLogOverlayState('activation-post-settings');
+        
+        if (!hasPermission) {
+          await proximityService.setOverlayEnabled(false);
+          setOverlayToggleEnabled(false);
+          Alert.alert(
+            'Permiso no concedido',
+            'No se detectó el permiso activo. Vuelve a intentarlo desde la pantalla de ajustes.'
+          );
+        } else {
+          await proximityService.debugTriggerFallbackOverlay('activation');
+        }
+      } else {
+        Alert.alert(
+          'Desactiva el permiso',
+          'Abre la pantalla de "Mostrar encima de otras apps" y deshabilítalo para Rundi.'
+        );
+        await overlayManager.openSystemSettings();
+        const hasPermission = await overlayManager.hasPermission();
+        await proximityService.debugLogOverlayState('deactivation-post-settings');
+        if (hasPermission) {
+          Alert.alert(
+            'Permiso sigue activo',
+            'El permiso aún está activo. Desactívalo manualmente en la pantalla de ajustes.'
+          );
+        }
+      }
+    } catch (error: any) {
+      console.error('❌ Error actualizando preferencia de overlay:', error);
+      Alert.alert('Error', error?.message || 'No se pudo actualizar la preferencia. Intenta de nuevo.');
+      await loadOverlayPreference();
+    } finally {
+      setOverlayCheckingPermission(false);
     }
   };
 
@@ -780,6 +897,40 @@ export default function DriverProfileScreen({ navigation }: any) {
         >
           <Text style={styles.addVehicleButtonText}>+ Agregar Vehículo</Text>
         </TouchableOpacity>
+      </View>
+
+      {/* Preferencias de notificación avanzada */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>🔔 Alertas de viajes cercanos</Text>
+        <View style={styles.preferenceCard}>
+          <View style={styles.preferenceHeader}>
+            <View style={styles.preferenceIconWrapper}>
+              <Text style={styles.preferenceIcon}>🫧</Text>
+            </View>
+            <View style={styles.preferenceInfo}>
+              <Text style={styles.preferenceTitle}>Burbuja flotante con solicitudes cercanas</Text>
+              <Text style={styles.preferenceSubtitle}>
+                Muestra una tarjeta encima de otras apps cuando haya un viaje cercano. Ideal si usas otras apps de navegación.
+              </Text>
+              {Platform.OS === 'android' ? (
+                <Text style={styles.preferenceHint}>
+                  Requiere el permiso "Mostrar encima de otras apps". {overlayPermissionGranted ? 'Permiso activo.' : 'Ábrelo desde Ajustes → Aplicaciones → Rundi → Mostrar encima.'}
+                </Text>
+              ) : (
+                <Text style={styles.preferenceHint}>
+                  Disponible únicamente en Android.
+                </Text>
+              )}
+            </View>
+            <Switch
+              value={overlayToggleEnabled}
+              onValueChange={handleOverlayToggle}
+              disabled={Platform.OS !== 'android' || overlayCheckingPermission}
+              thumbColor={overlayToggleEnabled ? '#ffffff' : '#f4f4f4'}
+              trackColor={{ false: '#bdbdbd', true: colors.primary }}
+            />
+          </View>
+        </View>
       </View>
 
       {/* Documentos del Conductor */}
@@ -1664,6 +1815,48 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontWeight: '600',
     color: colors.text,
   },
+  preferenceCard: {
+    backgroundColor: colors.card,
+    borderRadius: 18,
+    padding: 18,
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+    marginTop: 16,
+  },
+  preferenceHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  preferenceIconWrapper: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: `${colors.primary}22`,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 18,
+  },
+  preferenceIcon: { fontSize: 26 },
+  preferenceInfo: { flex: 1, marginRight: 12 },
+  preferenceTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 6,
+  },
+  preferenceSubtitle: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    lineHeight: 20,
+  },
+  preferenceHint: {
+    marginTop: 10,
+    fontSize: 13,
+    color: colors.textSecondary,
+  },  
   documentCard: {
     flexDirection: 'row',
     justifyContent: 'space-between',

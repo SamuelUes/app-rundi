@@ -21,18 +21,6 @@
             "package_name": "com.driveangel.app",
             "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
           }
-        },
-        {
-          "client_id": "1040329608349-t11k2f7tu1gtrh8fpogu3n1gmf2gi8p3.apps.googleusercontent.com",
-          "client_type": 1,
-          "android_info": {
-            "package_name": "com.driveangel.app",
-            "certificate_hash": "21452b73988a68628cdb2331f7f3847bcd5174a8"
-          }
-        },
-        {
-          "client_id": "1040329608349-ps6qf1haueqbt2updgvk2908m5jhajfn.apps.googleusercontent.com",
-          "client_type": 3
         }
       ],
       "api_key": [
@@ -44,14 +32,10 @@
         "appinvite_service": {
           "other_platform_oauth_client": [
             {
-              "client_id": "1040329608349-ps6qf1haueqbt2updgvk2908m5jhajfn.apps.googleusercontent.com",
-              "client_type": 3
-            },
-            {
-              "client_id": "1040329608349-tl5cpqbf5gn10atmspkq7ligjivebuji.apps.googleusercontent.com",
+              "client_id": "1040329608349-3h5jti0ftc7c8ei279b75bsgqd1jaaai.apps.googleusercontent.com",
               "client_type": 2,
               "ios_info": {
-                "bundle_id": "com.driveangel.ni"
+                "bundle_id": "com.zoom.com"
               }
             }
           ]

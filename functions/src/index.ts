@@ -1,5 +1,5 @@
 /**
- * DriveAngel.ni - Firebase Functions
+ * Rundi - Firebase Functions
  * Backend completo en Firebase Functions + Supabase PostgreSQL
  */
 

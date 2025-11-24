@@ -73,13 +73,33 @@ const notifyUserSafe = async (
   }
 
   try {
+    const rideIdRaw = data?.rideId ?? data?.ride_id;
+    const normalizedRideId = typeof rideIdRaw === 'string'
+      ? rideIdRaw
+      : typeof rideIdRaw === 'number' && Number.isFinite(rideIdRaw)
+        ? String(rideIdRaw)
+        : '';
+    const explicitNotificationKey = typeof data?.notificationKey === 'string' && data.notificationKey.trim().length
+      ? data.notificationKey.trim()
+      : undefined;
+    const notificationKey = explicitNotificationKey || (normalizedRideId ? `ride-${normalizedRideId}` : undefined);
+    const expiresInMsRaw = data?.expiresInMs ?? data?.expires_in_ms;
+    const parsedExpires = typeof expiresInMsRaw === 'number'
+      ? expiresInMsRaw
+      : typeof expiresInMsRaw === 'string'
+        ? Number(expiresInMsRaw)
+        : NaN;
+    const expiresInMs = Number.isFinite(parsedExpires) && parsedExpires > 0 ? parsedExpires : 120_000;
+
     await sendNotificationToUser(userId, {
       title,
       body,
       data: {
         ...data,
-        rideId: (data.rideId ?? data['rideId'] ?? '') || '',
+        rideId: normalizedRideId || undefined,
       },
+      notificationKey,
+      expiresInMs,
     });
   } catch (error) {
     console.error('❌ [rides] Error enviando notificación push:', {

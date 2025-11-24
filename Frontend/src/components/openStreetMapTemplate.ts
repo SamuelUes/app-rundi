@@ -46,6 +46,8 @@ export function getOpenStreetMapHtml(): string {
               mapClickHandler: null,
             };
 
+            var driverHeadingCache = {};
+
             function clearMarker(marker) {
               if (marker) {
                 map.removeLayer(marker);
@@ -91,10 +93,61 @@ export function getOpenStreetMapHtml(): string {
               '</div>';
             }
 
-            function mainMarkerHtml(type) {
+            function normalizeHeading(value) {
+              if (typeof value !== 'number' || !isFinite(value)) return 0;
+              var normalized = value % 360;
+              return normalized < 0 ? normalized + 360 : normalized;
+            }
+
+            function bearingBetween(from, to) {
+              var toRad = Math.PI / 180;
+              var toDeg = 180 / Math.PI;
+              var lat1 = from.lat * toRad;
+              var lat2 = to.lat * toRad;
+              var dLon = (to.lng - from.lng) * toRad;
+              var y = Math.sin(dLon) * Math.cos(lat2);
+              var x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+              return normalizeHeading(Math.atan2(y, x) * toDeg);
+            }
+
+            function resolveDriverHeading(driver) {
+              var coord = { lat: driver.latitude, lng: driver.longitude };
+              if (typeof driver.heading === 'number' && isFinite(driver.heading)) {
+                var normalized = normalizeHeading(driver.heading);
+                driverHeadingCache[driver.id] = { coord: coord, heading: normalized };
+                return normalized;
+              }
+
+              var cached = driverHeadingCache[driver.id];
+              if (cached && (cached.coord.lat !== coord.lat || cached.coord.lng !== coord.lng)) {
+                var derived = bearingBetween(cached.coord, coord);
+                driverHeadingCache[driver.id] = { coord: coord, heading: derived };
+                return derived;
+              }
+
+              var fallback = cached ? cached.heading : 0;
+              driverHeadingCache[driver.id] = { coord: coord, heading: fallback };
+              return fallback;
+            }
+
+            function rotationStyles(heading) {
+              if (typeof heading !== 'number' || !isFinite(heading)) {
+                return { outer: '', inner: '' };
+              }
+              var normalized = normalizeHeading(heading);
+              return {
+                outer: 'transform: rotate(' + normalized + 'deg);',
+                inner: 'transform: rotate(' + (-normalized) + 'deg);',
+              };
+            }
+
+            function mainMarkerHtml(type, heading) {
+              var rotations = rotationStyles(heading);
               if (type === 'car') {
-                return '<div style="background: linear-gradient(135deg, #4CAF50 0%, #388E3C 100%); border-radius: 50%; width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; font-size: 24px; border: 4px solid white; box-shadow: 0 4px 12px rgba(76,175,80,0.4);">' +
-                  '<span style="font-size: 28px;">🚗</span>' +
+                return '<div style="width: 48px; height: 48px; display: flex; align-items: center; justify-content: center;">' +
+                  '<div style="background: linear-gradient(135deg, #4CAF50 0%, #388E3C 100%); border-radius: 50%; width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; font-size: 24px; border: 4px solid white; box-shadow: 0 4px 12px rgba(76,175,80,0.4); ' + rotations.outer + '">' +
+                    '<span style="display: inline-block; ' + rotations.inner + ' font-size: 28px;">🚗</span>' +
+                  '</div>' +
                 '</div>';
               }
               if (type === 'origin') {
@@ -114,9 +167,12 @@ export function getOpenStreetMapHtml(): string {
             }
 
             function driverHtml(driver) {
-              var heading = driver && typeof driver.heading === 'number' ? driver.heading : 0;
-              return '<div style="background: linear-gradient(135deg, #2196F3 0%, #1565C0 100%); border-radius: 50%; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; font-size: 22px; border: 3px solid white; box-shadow: 0 4px 10px rgba(33,150,243,0.45); transform: rotate(' + heading + 'deg);">' +
-                '<span style="transform: rotate(' + (-heading) + 'deg); display: inline-block;">🚗</span>' +
+              var heading = resolveDriverHeading(driver);
+              var rotations = rotationStyles(heading);
+              return '<div style="width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;">' +
+                '<div style="background: linear-gradient(135deg, #2196F3 0%, #1565C0 100%); border-radius: 50%; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; font-size: 22px; border: 3px solid white; box-shadow: 0 4px 10px rgba(33,150,243,0.45); ' + rotations.outer + '">' +
+                  '<span style="display: inline-block; ' + rotations.inner + '">🚗</span>' +
+                '</div>' +
               '</div>';
             }
 
@@ -308,7 +364,12 @@ export function getOpenStreetMapHtml(): string {
                   state.mainMarker,
                   data.markerPosition,
                   {
-                    icon: createIcon(mainMarkerHtml(data.markerType || 'default'), [48, 48], [24, 24], 'main-marker'),
+                    icon: createIcon(
+                      mainMarkerHtml(data.markerType || 'default', data.markerHeading || 0),
+                      [48, 48],
+                      [24, 24],
+                      'main-marker',
+                    ),
                     draggable: !!data.draggableMarker,
                   },
                   'markerDragEnd',
@@ -316,12 +377,9 @@ export function getOpenStreetMapHtml(): string {
                 if (state.mainMarker) {
                   markersToFit.push(state.mainMarker.getLatLng());
                 }
-              } else {
-                state.mainMarker = clearMarker(state.mainMarker);
               }
-
-              state.extraStopMarkers = clearMarkerList(state.extraStopMarkers);
-              updateExtraStops(data.extraStopMarkers, markersToFit);
+            } else {
+              state.mainMarker = clearMarker(state.mainMarker);
 
               if (state.routeLine) {
                 map.removeLayer(state.routeLine);

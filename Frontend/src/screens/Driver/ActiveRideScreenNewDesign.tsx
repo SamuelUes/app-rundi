@@ -18,11 +18,13 @@ import DynamicMap from '../../components/DynamicMap';
 import { useAuth } from '../../context/AuthContext';
 import { useVoiceAssistant } from '../../context/VoiceAssistantContext';
 import { useLocation } from '../../hooks/useLocation';
+import { useChat } from '../../hooks/useChat';
 import { RideProgressIndicator } from '../../components/RideProgressIndicator';
 import ridesService from '../../services/ridesService';
 import { getDatabase, ref, onValue, off, update, serverTimestamp } from 'firebase/database';
 import { extractVehicleTypeFromInfo, ensureVehicleIconSource } from '../../utils/vehicleIcons';
 import { fetchClientProfile, ClientProfile } from '../../services/clientProfilesService';
+import notificationService from '../../services/notificationService';
 
 const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
 
@@ -42,7 +44,14 @@ export default function ActiveRideScreen({ route, navigation }: any) {
   const { user } = useAuth();
   const { settings: voiceSettings, speak: speakVoice, stopCategory: stopVoiceCategory } = useVoiceAssistant();
   const { coords } = useLocation();
-
+  const driverDisplayName = useMemo(
+    () =>
+      (typeof user?.name === 'string' && user.name?.trim().length ? user.name.trim() : null) ||
+      (typeof user?.email === 'string' ? user.email : null) ||
+      'Conductor',
+    [user?.name, user?.email]
+  );
+  const { messages } = useChat(rideId, user?.id || '', driverDisplayName);
   const [ride, setRide] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -51,10 +60,13 @@ export default function ActiveRideScreen({ route, navigation }: any) {
   const [paymentMethod, setPaymentMethod] = useState<string>('cash');
   const [routePolyline, setRoutePolyline] = useState<any[]>([]);
   const [clientProfile, setClientProfile] = useState<ClientProfile | null>(null);
+  const [voicePaused, setVoicePaused] = useState(false);
   const lastStatusSpokenRef = useRef<string | null>(null);
   const lastRideAnnouncedRef = useRef<string | null>(null);
   const handledCancellationRef = useRef(false);
-  
+  const lastMessageIdSpokenRef = useRef<string | null>(null);
+  const messagesInitializedRef = useRef(false);
+
   // Bottom sheet state - Alturas ajustadas
   const COLLAPSED_HEIGHT = 250; // Solo header + botones (más alto para ver ambos botónes)
   const EXPANDED_HEIGHT = 480; // Más espacio para direcciones
@@ -146,10 +158,15 @@ export default function ActiveRideScreen({ route, navigation }: any) {
     return () => off(rideRef);
   }, [rideId]);
 
-  const handleStopVoice = useCallback(() => {
-    stopVoiceCategory('navigation');
-    stopVoiceCategory('status');
-  }, [stopVoiceCategory]);
+  // Notificación de retorno rápido: visible mientras el viaje está activo
+  useEffect(() => {
+    // Mostrar una notificación local que permita volver a la app con un toque
+    notificationService.showQuickReturnActiveRide(rideId);
+    return () => {
+      // Limpiar al salir de la pantalla o cambiar de viaje
+      void notificationService.clearQuickReturn();
+    };
+  }, [rideId]);
 
   useEffect(() => {
     return () => {
@@ -182,7 +199,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
     };
   }, [ride?.clientId]);
 
-  const getAddressForSpeech = (source?: { address?: string; lat?: number; lng?: number; latitude?: number; longitude?: number }) => {
+  const getAddressForSpeech = useCallback((source?: { address?: string; lat?: number; lng?: number; latitude?: number; longitude?: number }) => {
     if (!source) return null;
     if (source.address && typeof source.address === 'string') {
       return source.address;
@@ -193,10 +210,10 @@ export default function ActiveRideScreen({ route, navigation }: any) {
       return `${lat.toFixed(4)} por ${lng.toFixed(4)}`;
     }
     return null;
-  };
+  }, []);
 
   // Helper: distancia total en km usando puntos secuenciales
-  const computeTotalDistanceKm = (data: any): number | null => {
+  const computeTotalDistanceKm = useCallback((data: any): number | null => {
     const points: Array<{ lat: number; lng: number }> = [];
     if (data?.origin) points.push({ lat: data.origin.lat || data.origin.latitude, lng: data.origin.lng || data.origin.longitude });
     if (Array.isArray(data?.extraDestinations)) {
@@ -223,7 +240,35 @@ export default function ActiveRideScreen({ route, navigation }: any) {
       total += R * c;
     }
     return total;
-  };
+  }, []);
+
+  const announceRideSummary = useCallback(
+    (force = false) => {
+      if (!voiceSettings.enabled || !ride) return;
+      if (voicePaused && !force) return;
+
+      const originSpeech = getAddressForSpeech(ride.origin) || 'el origen asignado';
+      const destinationSpeech = getAddressForSpeech(ride.destination) || 'el destino final';
+      const netPrice = Math.round(Number(ride?.finalFare || ride?.estimatedPrice || 0));
+      const totalKm = computeTotalDistanceKm(ride);
+      const distanceText = typeof totalKm === 'number' && Number.isFinite(totalKm) ? `${totalKm.toFixed(1)} kilómetros` : null;
+      const signature = `${rideId}|${netPrice}|${distanceText ?? 'na'}`;
+
+      if (!force && lastRideAnnouncedRef.current === signature) {
+        return;
+      }
+
+      lastRideAnnouncedRef.current = signature;
+
+      const parts: string[] = [];
+      parts.push(`Origen ${originSpeech}`);
+      parts.push(`Destino ${destinationSpeech}`);
+      parts.push(`Precio neto ${netPrice} Cordobas`);
+      if (distanceText) parts.push(`Distancia total ${distanceText}`);
+      speakVoice(`${parts.join('. ')}.`, 'navigation', undefined, true);
+    },
+    [voiceSettings.enabled, ride, voicePaused, getAddressForSpeech, computeTotalDistanceKm, rideId, speakVoice]
+  );
 
   useEffect(() => {
     if (!voiceSettings.enabled || !ride) {
@@ -234,27 +279,35 @@ export default function ActiveRideScreen({ route, navigation }: any) {
       return;
     }
 
-    if (lastRideAnnouncedRef.current !== rideId) {
-      lastRideAnnouncedRef.current = rideId;
-      lastStatusSpokenRef.current = null;
-
-      const originSpeech = getAddressForSpeech(ride.origin) || 'el origen asignado';
-      const destinationSpeech = getAddressForSpeech(ride.destination) || 'el destino final';
-      const netPrice = Math.round(Number(ride?.finalFare || ride?.estimatedPrice || 0));
-      const totalKm = computeTotalDistanceKm(ride);
-      const distanceText = typeof totalKm === 'number' && Number.isFinite(totalKm) ? `${totalKm.toFixed(1)} kilómetros` : null;
-
-      const parts: string[] = [];
-      parts.push(`Origen ${originSpeech}`);
-      parts.push(`Destino ${destinationSpeech}`);
-      parts.push(`Precio neto ${netPrice} Cordobas`);
-      if (distanceText) parts.push(`Distancia total ${distanceText}`);
-      speakVoice(`${parts.join('. ')}.`, 'navigation', undefined, true);
+    if (voicePaused) {
+      return;
     }
-  }, [voiceSettings.enabled, ride, rideId, speakVoice]);
+
+    announceRideSummary();
+  }, [voiceSettings.enabled, ride, voicePaused, announceRideSummary]);
+
+  const handleVoiceToggle = useCallback(() => {
+    if (voicePaused) {
+      setVoicePaused(false);
+      lastStatusSpokenRef.current = null;
+      announceRideSummary(true);
+      return;
+    }
+
+    setVoicePaused(true);
+    stopVoiceCategory('navigation');
+    stopVoiceCategory('status');
+  }, [voicePaused, stopVoiceCategory, announceRideSummary]);
 
   useEffect(() => {
-    if (!voiceSettings.enabled || !ride) return;
+    if (!voiceSettings.enabled || !ride) {
+      if (!voiceSettings.enabled) {
+        lastStatusSpokenRef.current = null;
+      }
+      return;
+    }
+
+    if (voicePaused) return;
 
     const currentStatus = normalizedStatus;
     if (!currentStatus || lastStatusSpokenRef.current === currentStatus) return;
@@ -273,7 +326,48 @@ export default function ActiveRideScreen({ route, navigation }: any) {
     parts.push(`Precio neto ${netPrice} Cordobas`);
     if (distanceText) parts.push(`Distancia total ${distanceText}`);
     speakVoice(`${parts.join('. ')}.`, 'status');
-  }, [voiceSettings.enabled, ride, normalizedStatus, speakVoice]);
+  }, [voiceSettings.enabled, ride, normalizedStatus, voicePaused, speakVoice, getAddressForSpeech, computeTotalDistanceKm]);
+
+  useEffect(() => {
+    if (!messages || messages.length === 0) {
+      return;
+    }
+
+    const latestMessage = messages[messages.length - 1];
+
+    if (!messagesInitializedRef.current) {
+      messagesInitializedRef.current = true;
+      lastMessageIdSpokenRef.current = latestMessage?.id ?? null;
+      return;
+    }
+
+    if (!latestMessage || latestMessage.isOwn) {
+      return;
+    }
+
+    if (lastMessageIdSpokenRef.current === latestMessage.id) {
+      return;
+    }
+
+    lastMessageIdSpokenRef.current = latestMessage.id;
+
+    const trimmedMessage = typeof latestMessage.message === 'string' ? latestMessage.message.trim() : '';
+    if (trimmedMessage.length === 0) {
+      return;
+    }
+
+    void notificationService.showLocalNotification('Nuevo mensaje del cliente', trimmedMessage, {
+      type: 'chat_message',
+      rideId,
+      senderId: latestMessage.senderId,
+    });
+
+    if (!voiceSettings.enabled || voicePaused) {
+      return;
+    }
+
+    speakVoice(`Mensaje del cliente: ${trimmedMessage}`, 'status', undefined, true);
+  }, [messages, rideId, voiceSettings.enabled, voicePaused, speakVoice]);
 
   // Construir ruta real (OSRM) y fallback simple (conductor → origen → paradas → destino)
   useEffect(() => {
@@ -387,6 +481,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
   const handleCompleteRide = async () => {
     try {
       setUpdating(true);
+      await notificationService.clearQuickReturn();
       await ridesService.updateRideStatus(rideId, 'pending_payment', {
         finalFare: ride?.finalFare || ride?.estimatedPrice,
         completedAt: Date.now(),
@@ -436,6 +531,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
           await ridesService.cancelRide(rideId, 'Cancelado por el conductor', {
             canceledBy: 'driver',
           });
+          await notificationService.clearQuickReturn();
           handledCancellationRef.current = true;
           navigation.reset({
             index: 0,
@@ -504,6 +600,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
             markerPosition={{ latitude: coords.latitude, longitude: coords.longitude }}
             markerType="car"
             markerVehicleIconSource={ensureVehicleIconSource(extractVehicleTypeFromInfo(user))}
+            markerVehicleHeading={typeof coords.heading === 'number' && Number.isFinite(coords.heading) ? coords.heading : undefined}
             originMarker={(isAccepted || isDriverOnRoute) && ride?.origin ? {
               latitude: ride.origin.lat || ride.origin.latitude,
               longitude: ride.origin.lng || ride.origin.longitude,
@@ -558,8 +655,13 @@ export default function ActiveRideScreen({ route, navigation }: any) {
             <TouchableOpacity onPress={handleCallClient} style={styles.headerAction}>
               <Text style={styles.headerActionText}>📞</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={handleStopVoice} style={[styles.headerAction, styles.headerActionSmall]}>
-              <Text style={styles.headerActionText}>🔇</Text>
+            <TouchableOpacity
+              onPress={handleVoiceToggle}
+              style={[styles.headerAction, styles.headerActionSmall, voicePaused && styles.headerActionActive]}
+              accessibilityLabel={voicePaused ? 'Reanudar voz' : 'Silenciar voz'}
+              accessibilityRole="button"
+            >
+              <Text style={styles.headerActionText}>{voicePaused ? '🔊' : '🔇'}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -822,6 +924,9 @@ const createStyles = (colors: any) => StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
+  },
+  headerActionActive: {
+    backgroundColor: colors.primary,
   },
   headerActionText: {
     fontSize: 18,

@@ -4,7 +4,7 @@
  * y recopila los datos básicos antes de continuar con la verificación.
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -67,6 +67,7 @@ export default function RegisterScreen() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [passwordStatus, setPasswordStatus] = useState<'idle' | 'match' | 'mismatch'>('idle');
 
   // Hooks de Google
   const { getGoogleIdToken, loading: googleAuthLoading } = useGoogleAuth(GOOGLE_CLIENT_ID);
@@ -79,10 +80,33 @@ export default function RegisterScreen() {
   // Validaciones básicas
   const isEmailValid = email.includes('@') && email.includes('.');
   const isPasswordValid = password.length >= 6;
-  const passwordsDontMatch = Boolean(confirmPassword) && password !== confirmPassword;
+  const isConfirmFilled = confirmPassword.trim().length > 0;
+  const passwordsDontMatch = isConfirmFilled && password !== confirmPassword;
 
   const isEmailFormValid =
-    name.trim() !== '' && isEmailValid && isPasswordValid && !passwordsDontMatch;
+    name.trim() !== '' &&
+    isEmailValid &&
+    isPasswordValid &&
+    isConfirmFilled &&
+    !passwordsDontMatch;
+
+  useEffect(() => {
+    if (!password && !confirmPassword) {
+      setPasswordStatus('idle');
+      return;
+    }
+
+    if (!isConfirmFilled) {
+      setPasswordStatus('idle');
+      return;
+    }
+
+    if (isPasswordValid && password === confirmPassword) {
+      setPasswordStatus('match');
+    } else {
+      setPasswordStatus('mismatch');
+    }
+  }, [password, confirmPassword, isConfirmFilled, isPasswordValid]);
 
   const isPhoneFormValid =
     name.trim() !== '' && normalizedPhone.startsWith('+') && normalizedPhone.length >= 8;
@@ -137,6 +161,14 @@ export default function RegisterScreen() {
     }
 
     if (!isEmailFormValid) {
+      if (!isConfirmFilled) {
+        Alert.alert('Error', 'Confirma tu contraseña para continuar.');
+        return;
+      }
+      if (passwordsDontMatch) {
+        Alert.alert('Error', 'Las contraseñas deben coincidir.');
+        return;
+      }
       Alert.alert('Error', 'Completa nombre, email y una contraseña válida.');
       return;
     }
@@ -360,7 +392,11 @@ export default function RegisterScreen() {
               <View style={styles.fieldGroup}>
                 <Text style={styles.label}>Contraseña *</Text>
                 <TextInput
-                  style={styles.input}
+                  style={[
+                    styles.input,
+                    passwordStatus === 'match' && styles.inputSuccess,
+                    passwordStatus === 'mismatch' && styles.inputError,
+                  ]}
                   placeholder="Mínimo 6 caracteres"
                   placeholderTextColor={colors.textSecondary}
                   value={password}
@@ -373,7 +409,11 @@ export default function RegisterScreen() {
               <View style={styles.fieldGroup}>
                 <Text style={styles.label}>Confirmar contraseña *</Text>
                 <TextInput
-                  style={[styles.input, passwordsDontMatch && styles.inputError]}
+                  style={[
+                    styles.input,
+                    passwordStatus === 'match' && styles.inputSuccess,
+                    passwordStatus === 'mismatch' && styles.inputError,
+                  ]}
                   placeholder="Repite tu contraseña"
                   placeholderTextColor={colors.textSecondary}
                   value={confirmPassword}
@@ -381,7 +421,10 @@ export default function RegisterScreen() {
                   secureTextEntry
                   editable={!loading && !googleAuthLoading}
                 />
-                {passwordsDontMatch && (
+                {passwordStatus === 'match' && (
+                  <Text style={styles.successText}>✅ Las contraseñas coinciden</Text>
+                )}
+                {passwordStatus === 'mismatch' && (
                   <Text style={styles.errorText}>Las contraseñas no coinciden</Text>
                 )}
               </View>
@@ -515,6 +558,14 @@ const createStyles = (colors: any) =>
       borderWidth: 1,
       borderColor: colors.border,
     },
+    inputSuccess: {
+      borderColor: colors.success,
+      shadowColor: colors.success,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.2,
+      shadowRadius: 4,
+      elevation: 3,
+    },
     helperText: {
       fontSize: 12,
       color: colors.textSecondary,
@@ -525,6 +576,10 @@ const createStyles = (colors: any) =>
     errorText: {
       fontSize: 12,
       color: colors.error,
+    },
+    successText: {
+      fontSize: 12,
+      color: colors.success,
     },
     primaryButton: {
       backgroundColor: colors.primary,

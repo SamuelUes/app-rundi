@@ -116,7 +116,7 @@ android {
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
-        versionName "1.0.01"
+        versionName "Beta - 1.5.9"
     }
     signingConfigs {
         debug {
@@ -194,6 +194,8 @@ dependencies {
     } else {
         implementation jscFlavor
     }
+
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
 }
 
 if (rnVersion < versionToNumber(0, 75, 0)) {

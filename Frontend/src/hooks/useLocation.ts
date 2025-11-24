@@ -1,10 +1,11 @@
 import { useEffect, useState, useRef } from 'react';
 import * as Location from 'expo-location';
-import * as Notifications from 'expo-notifications';
-import { AppState, AppStateStatus, Platform, PermissionsAndroid } from 'react-native';
+import { AppState, AppStateStatus, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import backgroundLocationService from '../services/backgroundLocationService';
 import { useAuth } from '../context/AuthContext';
+import { ensureActivityRecognitionPermission } from '../utils/activityPermission';
+import { requestNotificationsPermissionIfNeeded } from '@/utils/notificationPermission';
 
 export interface Coordinates {
   latitude: number;
@@ -50,8 +51,6 @@ export function useLocation(options: UseLocationOptions = {}) {
   const isRefreshingLocation = useRef(false);
   const lastSuccessfulRefresh = useRef(0);
   const coordsRef = useRef<Coordinates | null>(null);
-  const notificationPermissionRequested = useRef(false);
-
   const updateCoords = (newCoords: Coordinates | null, options?: { isMock?: boolean }) => {
     coordsRef.current = newCoords;
     setCoords(newCoords);
@@ -96,70 +95,6 @@ export function useLocation(options: UseLocationOptions = {}) {
   };
 
   // Obtener ubicación actual (una sola vez)
-  const requestNotificationPermissionSoft = async () => {
-    if (notificationPermissionRequested.current) {
-      return;
-    }
-
-    notificationPermissionRequested.current = true;
-
-    try {
-      if (Platform.OS === 'android') {
-        const androidVersion = typeof Platform.Version === 'number'
-          ? Platform.Version
-          : parseInt(Platform.Version as unknown as string, 10);
-
-        if (Number.isNaN(androidVersion) || androidVersion < 33) {
-          console.log('ℹ️ Permiso de notificaciones no requerido en esta versión de Android');
-          return;
-        }
-
-        if (!PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS) {
-          console.log('ℹ️ POST_NOTIFICATIONS no está disponible en esta build.');
-          return;
-        }
-
-        const alreadyGranted = await PermissionsAndroid.check(
-          PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
-        );
-
-        if (alreadyGranted) {
-          return;
-        }
-
-        const notificationStatus = await PermissionsAndroid.request(
-          PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
-        );
-
-        if (notificationStatus !== PermissionsAndroid.RESULTS.GRANTED) {
-          console.log('⚠️ Permiso de notificaciones denegado por el usuario');
-        }
-
-        return;
-      }
-
-      const settings = await Notifications.getPermissionsAsync();
-      const isGranted =
-        settings.granted ||
-        (settings.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL);
-
-      if (isGranted) {
-        return;
-      }
-
-      const requestResult = await Notifications.requestPermissionsAsync();
-      const grantedAfterRequest =
-        requestResult.granted ||
-        (requestResult.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL);
-
-      if (!grantedAfterRequest) {
-        console.log('⚠️ Permiso de notificaciones denegado');
-      }
-    } catch (notificationError) {
-      console.warn('⚠️ No se pudo solicitar permisos de notificaciones:', notificationError);
-    }
-  };
-
   const getLocation = async () => {
     if (isRefreshingLocation.current) {
       return;
@@ -168,13 +103,12 @@ export function useLocation(options: UseLocationOptions = {}) {
     try {
       isRefreshingLocation.current = true;
       setLoading(true);
-      setError(null);
       setIsUsingMockLocation(false);
 
       // Solicitar permisos
       const { status } = await Location.requestForegroundPermissionsAsync();
       console.log('📍 Permiso de ubicación (foreground):', status);
-      
+
       if (status !== 'granted') {
         console.warn('⚠️ Permiso de ubicación denegado. Usando ubicación mock: Managua');
         setError('Permiso de ubicación denegado');
@@ -182,7 +116,11 @@ export function useLocation(options: UseLocationOptions = {}) {
         return;
       }
 
-      await requestNotificationPermissionSoft();
+      if (user?.role === 'driver' || user?.role === 'designated_driver') {
+        await ensureActivityRecognitionPermission();
+      }
+
+      await requestNotificationsPermissionIfNeeded();
 
       const servicesEnabled = await Location.hasServicesEnabledAsync();
       console.log('📍 Servicios de ubicación activos:', servicesEnabled);
@@ -254,6 +192,10 @@ export function useLocation(options: UseLocationOptions = {}) {
       if (status !== 'granted') {
         setError('Permiso de ubicación denegado');
         return;
+      }
+
+      if (user?.role === 'driver' || user?.role === 'designated_driver') {
+        await ensureActivityRecognitionPermission();
       }
 
       // Iniciar watching de ubicación

@@ -13,10 +13,15 @@ import { getFirebaseDatabase } from '../config/firebase';
 import { ref as dbRef, update } from 'firebase/database';
 import { AppState, AppStateStatus, Platform } from 'react-native';
 import proximityService from './proximityService';
+import { ensureActivityRecognitionPermission } from '../utils/activityPermission';
+import foregroundService from '../native/foregroundService';
+import workManager from '../native/workManager';
+import batteryOptimization from '../native/batteryOptimization';
 
 // Constantes para las tareas en segundo plano
 const BACKGROUND_LOCATION_TASK = 'background-location-task';
 const LOCATION_TRACKING_STORAGE_KEY = 'location-tracking-state';
+const WORK_MANAGER_INTERVAL_MINUTES = 30;
 
 // Función para obtener configuración de ubicación en segundo plano
 // Usamos valores numéricos directos para evitar problemas de inicialización
@@ -109,6 +114,19 @@ const performBackgroundStart = async ({ userId, role, rideId }: PendingStartPara
       getBackgroundLocationOptions()
     );
 
+    if (Platform.OS === 'android') {
+      try {
+        const title = role === 'driver' ? 'Conductor disponible' : 'Viaje en seguimiento';
+        const body = role === 'driver'
+          ? 'Compartiendo tu ubicación para recibir viajes cercanos.'
+          : 'Tu viaje sigue activo y se está monitoreando tu ubicación.';
+        await foregroundService.start({ title, body });
+        await workManager.schedule(WORK_MANAGER_INTERVAL_MINUTES);
+      } catch (serviceError) {
+        console.warn('⚠️ No se pudo iniciar el servicio en primer plano:', serviceError);
+      }
+    }
+
     console.log('Tracking en segundo plano iniciado:', {
       userId,
       role,
@@ -133,6 +151,15 @@ const performBackgroundStop = async (): Promise<void> => {
 
   await saveTrackingState(initialTrackingState);
 
+  if (Platform.OS === 'android') {
+    try {
+      await foregroundService.stop();
+      await workManager.cancel();
+    } catch (error) {
+      console.warn('⚠️ No se pudo detener el soporte de primer plano:', error);
+    }
+  }
+
   console.log('Tracking en segundo plano detenido');
 };
 
@@ -143,13 +170,15 @@ const defineBackgroundTask = () => {
   try {
     // @ts-ignore - La tipificación de Expo para TaskManagerTaskBody no es exacta
     TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
+      console.log('🎯 [background-task] Tarea ejecutándose');
+      
       if (error) {
-        console.error('Error en tarea de ubicación en segundo plano:', error);
+        console.error('❌ [background-task] Error en tarea:', error);
         return;
       }
       
       if (!data) {
-        console.warn('No hay datos de ubicación');
+        console.warn('⚠️ [background-task] No hay datos de ubicación');
         return;
       }
 
@@ -158,21 +187,26 @@ const defineBackgroundTask = () => {
       const { locations } = locationData;
       const location = locations[0];
 
-      // Verificar que aún deberíamos estar trackeando
-      const trackingState = await loadTrackingState();
-      if (!trackingState.isTracking || !trackingState.userId) {
-        console.log('Tracking desactivado, deteniendo tarea en segundo plano');
-        await stopBackgroundLocationTracking();
-        return;
-      }
-
-      console.log('Ubicación recibida en segundo plano:', {
+      console.log('📍 [background-task] Ubicación recibida:', {
         lat: location.coords.latitude,
         lng: location.coords.longitude,
         accuracy: location.coords.accuracy,
-        speed: location.coords.speed,
-        timestamp: new Date(location.timestamp).toISOString(),
       });
+
+      // Verificar que aún deberíamos estar trackeando
+      const trackingState = await loadTrackingState();
+      console.log('🔍 [background-task] TrackingState:', {
+        isTracking: trackingState.isTracking,
+        hasUserId: !!trackingState.userId,
+        hasRideId: !!trackingState.rideId,
+        role: trackingState.role,
+      });
+      
+      if (!trackingState.isTracking || !trackingState.userId) {
+        console.log('⚠️ [background-task] Tracking desactivado, deteniendo tarea');
+        await stopBackgroundLocationTracking();
+        return;
+      }
 
       // Actualizar ubicación según el rol
       try {
@@ -200,34 +234,30 @@ const defineBackgroundTask = () => {
 
           // 🚀 Viaje por aproximación: si NO hay viaje activo, revisar solicitudes cercanas
           if (!trackingState.rideId) {
+            console.log('🚀 [background-task] No hay viaje activo - ejecutando proximity check');
             try {
               await proximityService.handleLocationForProximity(
                 trackingState.userId,
                 location.coords.latitude,
                 location.coords.longitude,
+                { appStateOverride: 'background' }
               );
+              console.log('✅ [background-task] Proximity check completado');
             } catch (e) {
+              console.error('❌ [background-task] Error en proximity check:', e);
               // No romper la tarea de background
             }
+          } else {
+            console.log('ℹ️ [background-task] Hay viaje activo - saltando proximity check');
           }
         } else if (trackingState.role === 'client' && trackingState.rideId && trackingState.userId) {
-          // Para clientes, solo actualizamos su ubicación si hay un viaje activo
-          // Primero guardamos la ubicación del cliente en la rama clientLocations
-          await firebaseTrackingService.updateClientLocation(trackingState.userId, {
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
-            accuracy: location.coords.accuracy || 0,
-          });
-          
-          // NUEVO: Usar Cloud Function en lugar de actualizar directamente
-          // Esto evita problemas de permisos en Firebase Realtime DB
           try {
             const { getFirebaseFunctions } = await import('../config/firebase');
             const { httpsCallable } = await import('firebase/functions');
-            
+
             const functions = await getFirebaseFunctions();
             const updateTrackingFn = httpsCallable(functions, 'updateRideStatus');
-            
+
             await updateTrackingFn({
               rideId: trackingState.rideId,
               status: 'in_progress',
@@ -256,6 +286,11 @@ const defineBackgroundTask = () => {
     console.error('Error definiendo tarea de background:', error);
   }
 };
+
+// Definir la tarea inmediatamente al cargar el módulo para evitar advertencias de TaskManager
+if (Platform.OS !== 'web') {
+  defineBackgroundTask();
+}
 
 /**
  * Cargar estado de tracking desde AsyncStorage
@@ -292,13 +327,13 @@ async function saveTrackingState(state: Partial<TrackingState>): Promise<void> {
  * Retorna true si tenemos permisos, false si no
  */
 export async function checkBackgroundLocationPermission(): Promise<boolean> {
-  const { status: foregroundStatus } = await ExpoLocation.requestForegroundPermissionsAsync();
-  if (foregroundStatus !== 'granted') {
+  const foreground = await ExpoLocation.getForegroundPermissionsAsync();
+  if (foreground.status !== 'granted') {
     return false;
   }
 
-  const { status: backgroundStatus } = await ExpoLocation.requestBackgroundPermissionsAsync();
-  return backgroundStatus === 'granted';
+  const background = await ExpoLocation.getBackgroundPermissionsAsync();
+  return background.status === 'granted';
 }
 
 /**
@@ -310,6 +345,38 @@ export async function startBackgroundLocationTracking(
   rideId?: string
 ): Promise<boolean> {
   try {
+    const servicesEnabled = await ExpoLocation.hasServicesEnabledAsync();
+    if (!servicesEnabled) {
+      console.warn('⚠️ Servicios de ubicación deshabilitados. No se iniciará tracking.');
+      await saveTrackingState({
+        isTracking: false,
+        userId,
+        role,
+        rideId: rideId || null,
+        startTime: Date.now(),
+      });
+      return false;
+    }
+
+    if (role === 'driver') {
+      const activityGranted = await ensureActivityRecognitionPermission();
+      if (!activityGranted) {
+        console.warn('⚠️ No se otorgó permiso de actividad física. El tracking optimizado podría no estar disponible.');
+      }
+    }
+
+    if (Platform.OS === 'android') {
+      try {
+        const ignoring = await batteryOptimization.isIgnoring();
+        if (!ignoring) {
+          console.log('⚠️ Solicitando exclusión de optimización de batería para tracking.');
+          await batteryOptimization.requestIgnore();
+        }
+      } catch (batteryError) {
+        console.warn('⚠️ Error verificando optimizaciones de batería:', batteryError);
+      }
+    }
+
     const appState = AppState.currentState;
 
     if (Platform.OS === 'android' && appState !== 'active') {
@@ -364,6 +431,10 @@ export async function ensureBackgroundTrackingIntegrity(): Promise<boolean> {
 
     if (!trackingState.isTracking || !trackingState.userId || !trackingState.role) {
       return false;
+    }
+
+    if (trackingState.role === 'driver') {
+      await ensureActivityRecognitionPermission();
     }
 
     const isTaskRunning = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);

@@ -3,10 +3,11 @@ import { View, Text, StyleSheet, Switch, TouchableOpacity, ScrollView, Alert } f
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useFCM } from '../../context/FCMContext';
+import LoadingOverlay from '../../components/LoadingOverlay';
 
 export default function SettingsScreen({ navigation }: any) {
   const { theme, setTheme, colors, mapTrafficEnabled, setMapTrafficEnabled } = useTheme();
-  const { user, logout } = useAuth();
+  const { user, logout, logoutInProgress } = useAuth();
   const { isConfigured, hasPermission, isFCMAvailable, configureFCM, sendTestNotification } = useFCM();
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [vibrationEnabled, setVibrationEnabled] = useState(true);
@@ -48,6 +49,9 @@ export default function SettingsScreen({ navigation }: any) {
   };
 
   const handleLogout = () => {
+    if (logoutInProgress) {
+      return;
+    }
     Alert.alert(
       'Cerrar Sesión',
       '¿Estás seguro que deseas cerrar sesión?',
@@ -274,6 +278,7 @@ export default function SettingsScreen({ navigation }: any) {
 
   return (
     <View style={styles.container}>
+      <LoadingOverlay visible={logoutInProgress} message="Cerrando sesión..." />
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Configuración</Text>
         <Text style={styles.headerSubtitle}>
@@ -511,7 +516,7 @@ export default function SettingsScreen({ navigation }: any) {
           </TouchableOpacity>
         </View>
 
-        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+        <TouchableOpacity style={[styles.logoutButton, logoutInProgress && { opacity: 0.7 }]} onPress={handleLogout} disabled={logoutInProgress}>
           <Text style={styles.logoutButtonText}>Cerrar Sesión</Text>
         </TouchableOpacity>
       </ScrollView>

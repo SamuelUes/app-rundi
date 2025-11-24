@@ -41,8 +41,8 @@ service cloud.firestore {
       // Solo el dueño puede actualizar su perfil
       allow update: if isOwner(userId);
       
-      // No permitir eliminar usuarios
-      allow delete: if false;
+      // El dueño puede eliminar su perfil (para eliminar cuenta)
+      allow delete: if isOwner(userId);
     }
     
     // ============================================

@@ -65,6 +65,15 @@ export function useNotifications() {
         if (data?.type === 'proximity_ride' && data?.ride) {
           navigate('RidePreview', { ride: data.ride, nearbyRides: Array.isArray(data.nearbyRides) ? data.nearbyRides : [] });
         }
+        if (data?.type === 'quick_return_active_ride' && typeof data?.rideId === 'string') {
+          // Pequeño delay para asegurar que NavigationContainer esté listo
+          setTimeout(() => {
+            // Por ahora soportamos retorno rápido para conductores
+            if (user?.role === 'driver' || user?.role === 'designated_driver') {
+              navigate('ActiveRide', { rideId: data.rideId });
+            }
+          }, 400);
+        }
       }
     } catch (e) {
       // noop
@@ -89,6 +98,13 @@ export function useNotifications() {
           }
         } catch (e) {
           // noop
+        }
+        break;
+      case 'quick_return_active_ride':
+        if (typeof (data.rideId) === 'string') {
+          if (user?.role === 'driver' || user?.role === 'designated_driver') {
+            navigate('ActiveRide', { rideId: data.rideId });
+          }
         }
         break;
       case 'ride_accepted':

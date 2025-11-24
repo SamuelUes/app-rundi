@@ -22,11 +22,18 @@ import HelpScreen from '../screens/Shared/HelpScreen';
 import ChatScreen from '../screens/Shared/ChatScreen';
 import CompleteVehicleInfoScreen from '../screens/Shared/CompleteVehicleInfoScreen';
 import RideDetailsScreen from '../screens/Shared/RideDetailsScreen';
+import PreflightCheckScreen from '../screens/Shared/PreflightCheckScreen';
+import type { PreflightRouteConfig } from '../types/preflight';
 import PaymentConfirmationScreen from '../screens/Driver/PaymentConfirmationScreen';
 import WaitingClientConfirmationScreen from '../screens/Driver/WaitingClientConfirmationScreen';
 import PayCommissionsScreen from '../screens/Driver/PayCommissionsScreen';
+import PendingPaymentsScreen from '../screens/Client/PendingPaymentsScreen';
+import { useOverlayVisibilityOnBackground } from '../hooks/useOverlayVisibilityOnBackground';
+import { useOverlayDeepLink } from '../hooks/useOverlayDeepLink';
+import proximityService from '../services/proximityService';
 
 export type DriverStackParamList = {
+  DriverPreflight: PreflightRouteConfig | undefined;
   DriverHome: undefined;
   RideRequests: undefined;
   AvailableRides: undefined;
@@ -93,26 +100,75 @@ export type DriverStackParamList = {
     extraDestinations?: Array<{ lat: number; lng: number; address?: string }>;
   };
   PayCommissions: undefined;
+  PendingPayments: undefined;
 };
 
 const Stack = createNativeStackNavigator<DriverStackParamList>();
 
 export default function DriverStack() {
   const { colors } = useTheme();
-  
+  // Sistema de overlay SIMPLIFICADO - Solo cleanup al volver a foreground
+  const [overlayEnabled, setOverlayEnabledState] = React.useState<boolean>(false);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    // Cargar preferencia sin delays innecesarios
+    proximityService.getOverlayEnabled()
+      .then(enabled => {
+        if (!cancelled) {
+          setOverlayEnabledState(enabled);
+          console.log(`✅ [DriverStack] Overlay preference loaded: ${enabled}`);
+        }
+      })
+      .catch(err => {
+        console.warn('[DriverStack] Error loading overlay preference:', err);
+      });
+
+    const unsubscribe = proximityService.subscribeOverlayEnabled((enabled) => {
+      if (!cancelled) {
+        setOverlayEnabledState(enabled);
+        console.log(`🔄 [DriverStack] Overlay preference updated: ${enabled}`);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, []);
+
+  // Hook simplificado - solo limpia al volver a foreground
+  useOverlayVisibilityOnBackground(overlayEnabled);
+  // Hook para detectar cuando se toca la burbuja flotante
+  useOverlayDeepLink();
+
   return (
-    <Stack.Navigator 
-      screenOptions={{ 
-        headerShown: false,
-        headerStyle: {
-          backgroundColor: colors.card,
-        },
-        headerTintColor: colors.text,
-        headerTitleStyle: {
-          fontWeight: '600',
-        },
+      <Stack.Navigator
+        initialRouteName="DriverPreflight"
+        screenOptions={{ 
+          headerShown: false,
+          headerStyle: {
+            backgroundColor: colors.card,
+          },
+          headerTintColor: colors.text,
+          headerTitleStyle: {
+            fontWeight: '600',
+          },
       }}
     >
+      <Stack.Screen
+        name="DriverPreflight"
+        component={PreflightCheckScreen as React.ComponentType<any>}
+        options={{ headerShown: false }}
+        initialParams={{
+          role: 'driver',
+          successRoute: 'DriverHome',
+          activeRideRoute: 'ActiveRide',
+          pendingPaymentsRoute: 'PendingPayments',
+          payCommissionsRoute: 'PayCommissions',
+        }}
+      />
       <Stack.Screen name="DriverHome" component={DriverHomeScreen} options={{ title: 'Conductor' }} />
       <Stack.Screen name="AvailableRides" component={AvailableRidesScreen} options={{ title: 'Viajes Disponibles' }} />
       <Stack.Screen name="ActiveRide" component={ActiveRideScreen} options={{ title: 'Viaje Activo' }} />
@@ -137,6 +193,7 @@ export default function DriverStack() {
       <Stack.Screen name="PaymentConfirmation" component={PaymentConfirmationScreen} options={{ headerShown: true, title: 'Confirmación de Pago' }} />
       <Stack.Screen name="WaitingClientConfirmation" component={WaitingClientConfirmationScreen} options={{ headerShown: true, title: 'Esperando Confirmación' }} />
       <Stack.Screen name="PayCommissions" component={PayCommissionsScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="PendingPayments" component={PendingPaymentsScreen} options={{ headerShown: false }} />
     </Stack.Navigator>
   );
 }

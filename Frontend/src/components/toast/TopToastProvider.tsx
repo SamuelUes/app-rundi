@@ -39,7 +39,7 @@ const TopToastProvider: React.FC<TopToastProviderProps> = ({ children }) => {
   const currentToast = useRef<ToastPayload | null>(null);
 
   const resetAnimations = useCallback(() => {
-    translateY.setValue(-200);
+    translateY.setValue(-100);
     opacity.setValue(0);
   }, [opacity, translateY]);
 
@@ -57,13 +57,13 @@ const TopToastProvider: React.FC<TopToastProviderProps> = ({ children }) => {
 
       Animated.parallel([
         Animated.timing(translateY, {
-          toValue: -200,
-          duration: 220,
+          toValue: -100,
+          duration: 80,
           useNativeDriver: true,
         }),
         Animated.timing(opacity, {
           toValue: 0,
-          duration: 220,
+          duration: 80,
           useNativeDriver: true,
         }),
       ]).start(() => {
@@ -93,12 +93,12 @@ const TopToastProvider: React.FC<TopToastProviderProps> = ({ children }) => {
         Animated.spring(translateY, {
           toValue: 0,
           damping: 18,
-          stiffness: 180,
+          stiffness: 80,
           useNativeDriver: true,
         }),
         Animated.timing(opacity, {
           toValue: 1,
-          duration: 180,
+          duration: 80,
           useNativeDriver: true,
         }),
       ]).start(() => {

@@ -812,6 +812,11 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
           markerType="car"
           markerVehicleType={vehicleData.type || undefined}
           markerVehicleIconSource={vehicleData.type ? ensureVehicleIconSource(vehicleData.type) : undefined}
+          markerVehicleHeading={
+            typeof driverLocation?.heading === 'number' && Number.isFinite(driverLocation.heading)
+              ? driverLocation.heading
+              : undefined
+          }
           destinationMarker={destinationCoords ? destinationCoords : undefined}
           originMarker={isAccepted && originCoords ? originCoords : undefined}
           extraStopMarkers={

@@ -36,6 +36,7 @@ interface AuthContextData {
   registerWithGoogle: (userData: any, token?: string) => Promise<void>;
   logout: () => Promise<void>;
   getToken: () => Promise<string | null>;
+  logoutInProgress: boolean;
 }
 
 const AuthContext = createContext<AuthContextData>({} as AuthContextData);
@@ -43,6 +44,7 @@ const AuthContext = createContext<AuthContextData>({} as AuthContextData);
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [logoutInProgress, setLogoutInProgress] = useState(false);
 
   // Seleccionar el servicio según el modo
   const authService = backendConfig.isFirebase() ? firebaseAuthService : localAuthService;
@@ -239,6 +241,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
   const logout = async () => {
+    setLogoutInProgress(true);
     try {
       // Detener tracking en segundo plano antes de cerrar sesión
       try {
@@ -284,6 +287,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // Forzar logout local aunque falle
       setUser(null);
       await AsyncStorage.removeItem('user');
+    }
+    finally {
+      setLogoutInProgress(false);
     }
   };
 
@@ -408,7 +414,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, loginWithGoogle, loginWithPhoneAndSMS, register, registerWithGoogle, logout, getToken }}>
+    <AuthContext.Provider value={{ user, loading, login, loginWithGoogle, loginWithPhoneAndSMS, register, registerWithGoogle, logout, getToken, logoutInProgress }}>
       {children}
     </AuthContext.Provider>
   );

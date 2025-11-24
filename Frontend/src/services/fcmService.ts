@@ -11,6 +11,7 @@ import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getFirebaseAuth, getFirebaseFunctions } from '../config/firebase';
 import { httpsCallable } from 'firebase/functions';
+import notificationService from './notificationService';
 
 // Importar FCM solo si está disponible (Development Build)
 let messagingModule: any = null;
@@ -90,7 +91,7 @@ class FCMService {
     }
 
     try {
-      await Notifications.setNotificationChannelAsync('driveangel_default', {
+      await Notifications.setNotificationChannelAsync('rundi_default', {
         name: 'Notificaciones de viajes',
         importance: Notifications.AndroidImportance.MAX,
         vibrationPattern: [0, 250, 250, 250],
@@ -299,18 +300,42 @@ class FCMService {
       try {
         await this.ensureAndroidChannel();
 
+        const notificationKey = typeof data?.notificationKey === 'string' && data.notificationKey.trim().length
+          ? data.notificationKey.trim()
+          : data?.rideId
+            ? `ride-${data.rideId}`
+            : undefined;
+        const expiresInMsRaw = data?.expiresInMs ?? data?.expires_in_ms;
+        const parsedExpires = typeof expiresInMsRaw === 'number'
+          ? expiresInMsRaw
+          : typeof expiresInMsRaw === 'string'
+            ? Number(expiresInMsRaw)
+            : NaN;
+        const expiresInMs = Number.isFinite(parsedExpires) && parsedExpires > 0 ? parsedExpires : 120_000;
+
         console.log('🔔 Mostrando notificación local (foreground):', {
           uniqueId,
+          notificationKey,
           title: notification?.title,
           body: notification?.body,
+          expiresInMs,
         });
 
-        await Notifications.presentNotificationAsync({
-          title: notification?.title || 'Nueva notificación',
-          body: notification?.body || '',
-          data: data || {},
-          sound: 'default',
-        });
+        if (notificationKey) {
+          await notificationService.showManagedNotification(
+            notification?.title || 'Nueva notificación',
+            notification?.body || '',
+            data || {},
+            notificationKey,
+            expiresInMs,
+          );
+        } else {
+          await notificationService.showLocalNotification(
+            notification?.title || 'Nueva notificación',
+            notification?.body || '',
+            data || {},
+          );
+        }
       } catch (error) {
         console.error('❌ Error mostrando notificación local:', error);
         Alert.alert(

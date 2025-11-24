@@ -24,8 +24,11 @@ import AddCardScreen from '../screens/Shared/AddCardScreen';
 import InvoiceScreen from '../screens/Shared/InvoiceScreen';
 import { useClientPresence } from '../hooks/useClientPresence';
 import { useInitializeClientProfile } from '../hooks/useClientProfileSync';
+import PreflightCheckScreen from '../screens/Shared/PreflightCheckScreen';
+import type { PreflightRouteConfig } from '../types/preflight';
 
 export type ClientStackParamList = {
+  ClientPreflight: PreflightRouteConfig;
   ClientHome: undefined;
   HomeOffers: { rideId?: string } | undefined;
   SearchRide: undefined;
@@ -94,6 +97,7 @@ export default function ClientStack() {
   
   return (
     <Stack.Navigator 
+      initialRouteName="ClientPreflight"
       screenOptions={{ 
         headerShown: false,
         headerStyle: {
@@ -105,6 +109,18 @@ export default function ClientStack() {
         },
       }}
     >
+      <Stack.Screen
+        name="ClientPreflight"
+        component={PreflightCheckScreen as React.ComponentType<any>}
+        options={{ headerShown: false }}
+        initialParams={{
+          role: 'client',
+          successRoute: 'ClientHome',
+          activeRideRoute: 'RideTracking',
+          pendingPaymentsRoute: 'PendingPayments',
+          rideTrackingRoute: 'RideTracking',
+        }}
+      />
       <Stack.Screen name="ClientHome" component={HomeScreen} />
       <Stack.Screen name="HomeOffers" component={HomeScreenOffers} options={{ headerShown: false }} />
       <Stack.Screen name="SearchRide" component={SearchRideScreenNewDesign} options={{ headerShown: true, title: 'Buscar viaje' }} />

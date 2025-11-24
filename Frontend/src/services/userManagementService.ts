@@ -61,6 +61,18 @@ class UserManagementService {
       const activeRidesRef = ref(database, `activeRides/${user.uid}`);
       await remove(activeRidesRef);
       
+      // Eliminar información del conductor en tiempo real
+      const driversInfoRef = ref(database, `driversInfo/${user.uid}`);
+      await remove(driversInfoRef);
+      const driversRef = ref(database, `drivers/${user.uid}`);
+      await remove(driversRef);
+      
+      // Eliminar información de cliente (si aplica)
+      const clientsInfoRef = ref(database, `clientsInfo/${user.uid}`);
+      await remove(clientsInfoRef);
+      const clientLocationsRef = ref(database, `clientLocations/${user.uid}`);
+      await remove(clientLocationsRef);
+      
       // Eliminar chats (si tiene)
       const chatsRef = ref(database, `chats/${user.uid}`);
       await remove(chatsRef);
@@ -72,6 +84,10 @@ class UserManagementService {
       // Eliminar notificaciones (si tiene)
       const notificationsRef = ref(database, `notifications/${user.uid}`);
       await remove(notificationsRef);
+
+      // Eliminar sesiones activas
+      const sessionsRef = ref(database, `sessions/${user.uid}`);
+      await remove(sessionsRef);
       
       // 5. Eliminar usuario de Firebase Auth
       console.log('🔑 Eliminando usuario de Firebase Auth...');

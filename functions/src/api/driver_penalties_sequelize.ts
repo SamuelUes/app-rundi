@@ -239,6 +239,87 @@ export const payAllPenalties = functions.https.onCall(async (data, context) => {
     // Actualizar resumen
     await updateRealtimeSummary(driverId);
 
+    // ✅ Nuevo: actualizar estados de paymentStatus en Realtime DB
+    const rideIdsToUpdate = new Set<string>();
+
+    pendingPenalties.forEach((penalty: any) => {
+      const rideId = penalty?.ride_id ?? penalty?.rideId;
+      if (rideId) {
+        rideIdsToUpdate.add(String(rideId));
+      }
+    });
+
+    paymentsPending.forEach((payment: any) => {
+      const rideId = payment?.rideId ?? payment?.ride_id;
+      if (rideId) {
+        rideIdsToUpdate.add(String(rideId));
+      }
+    });
+
+    if (rideIdsToUpdate.size > 0) {
+      const db = admin.database();
+      const timestamp = admin.database.ServerValue.TIMESTAMP;
+
+      await Promise.all(
+        Array.from(rideIdsToUpdate).map(async (rideId) => {
+          try {
+            const paymentRef = db.ref(`paymentStatus/${rideId}`);
+            const snapshot = await paymentRef.once('value');
+            const paymentData = snapshot.val();
+
+            if (!paymentData) {
+              return;
+            }
+
+            const status = String(paymentData.status || '').toLowerCase();
+            if (['completed', 'canceled', 'refunded'].includes(status)) {
+              return;
+            }
+
+            const driverMatches =
+              !paymentData.driverId ||
+              paymentData.driverId === driverId ||
+              paymentData.driver_id === driverId;
+
+            if (!driverMatches) {
+              return;
+            }
+
+            const chargeTarget = paymentData.chargeTarget || paymentData.charge_target || '';
+            const requiresDriverPayment = paymentData.requiresDriverPayment === true;
+            const shouldCharge = paymentData.shouldCharge === true;
+            const commissionDue = Number(paymentData.commissionDue || 0);
+
+            const isDriverCharge =
+              chargeTarget === 'driver' ||
+              chargeTarget === 'driver_penalty' ||
+              requiresDriverPayment ||
+              shouldCharge;
+
+            if (!isDriverCharge) {
+              return;
+            }
+
+            await paymentRef.update({
+              status: 'completed',
+              commissionDue: commissionDue > 0 ? 0 : commissionDue,
+              pendingAmount: 0,
+              pendingBalance: 0,
+              requiresClientPayment: false,
+              requiresDriverPayment: false,
+              shouldCharge: false,
+              lastUpdatedAt: timestamp,
+              updatedAt: timestamp,
+              resolvedAt: timestamp,
+              resolvedBy: 'system',
+            });
+          } catch (rtdbErr) {
+            console.warn(`⚠️ [payAllPenalties] No se pudo actualizar paymentStatus/${rideId}:`, rtdbErr);
+          }
+        }),
+      );
+    }
+
     return {
       success: true,
       driverId,

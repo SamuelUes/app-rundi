@@ -5,9 +5,10 @@ import { useTheme } from '../../context/ThemeContext';
 import { ProfileSkeleton } from '../../components/SkeletonLoader';
 import Button from '../../components/Button';
 import driversService from '../../services/driversService';
+import LoadingOverlay from '../../components/LoadingOverlay';
 
 export default function ProfileScreen({ navigation }: any) {
-  const { user, logout } = useAuth();
+  const { user, logout, logoutInProgress } = useAuth();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [driverProfile, setDriverProfile] = useState<any>(null);
@@ -43,6 +44,9 @@ export default function ProfileScreen({ navigation }: any) {
   };
 
   const handleLogout = () => {
+    if (logoutInProgress) {
+      return;
+    }
     Alert.alert(
       'Cerrar sesión',
       '¿Estás seguro que deseas cerrar sesión?',
@@ -70,6 +74,7 @@ export default function ProfileScreen({ navigation }: any) {
 
   return (
     <ScrollView style={styles.container}>
+      <LoadingOverlay visible={logoutInProgress} message="Cerrando sesión..." />
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.avatarContainer}>

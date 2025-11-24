@@ -1,9 +1,10 @@
 export default {
-  name: 'DriveAngel.ni',
-  slug: 'driveangel-ni',
-  version: '1.0.5',
+  name: 'Rundi',
+  slug: 'rundi',
+  version: 'Beta - 1.5.9',
   orientation: 'portrait',
   userInterfaceStyle: 'light',
+  icon: './src/assets/images/icon.png',
   updates: {
     enabled: true,
     fallbackToCacheTimeout: 0,
@@ -14,6 +15,7 @@ export default {
   ios: {
     supportsTablet: true,
     bundleIdentifier: 'com.driveangel.app',
+    icon: './src/assets/images/icon.png',
     config: {
       googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY || 'YOUR_IOS_GOOGLE_MAPS_API_KEY',
       usesNonExemptEncryption: false
@@ -30,6 +32,14 @@ export default {
   android: {
     package: 'com.driveangel.app',
     versionCode: 1,
+    adaptiveIcon: {
+      foregroundImage: './src/assets/images/icon.png',
+      backgroundColor: '#0F2628'
+    },
+    notification: {
+      icon: './src/assets/images/icon.png',
+      color: '#D4AF37'
+    },
     permissions: [
       'ACCESS_COARSE_LOCATION',
       'ACCESS_FINE_LOCATION',
@@ -75,7 +85,7 @@ export default {
     [
       'expo-location',
       {
-        locationAlwaysAndWhenInUsePermission: 'Permitir a DriveAngel acceder a tu ubicación.',
+        locationAlwaysAndWhenInUsePermission: 'Permitir a Rundi acceder a tu ubicación.',
         isAndroidBackgroundLocationEnabled: true,
         isIosBackgroundLocationEnabled: true
       }

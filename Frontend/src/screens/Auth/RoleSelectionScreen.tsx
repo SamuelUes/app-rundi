@@ -90,7 +90,7 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ navigation, r
 
         await login(normalizedEmail, password);
 
-        Alert.alert('✅ Registro completado', 'Bienvenido a DriveAngel.ni');
+        Alert.alert('✅ Registro completado', 'Bienvenido a Rundi');
         navigation.reset({ index: 0, routes: [{ name: 'ClientStack' as never }] });
         return;
       }
@@ -124,50 +124,63 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ navigation, r
         );
       }
 
-      Alert.alert('✅ Registro completado', 'Bienvenido a DriveAngel.ni');
+      Alert.alert('✅ Registro completado', 'Bienvenido a Rundi');
       navigation.reset({ index: 0, routes: [{ name: 'ClientStack' as never }] });
     } catch (error: any) {
       console.error('Error registrando cliente:', error);
-      Alert.alert('Error', error?.message || 'No se pudo completar el registro');
+      const message =
+        error?.message?.includes('Network') || error?.message?.includes('timeout')
+          ? 'No pudimos comunicarnos con el servidor. Verifica tu conexión e inténtalo de nuevo.'
+          : error?.message || 'No se pudo completar el registro';
+      Alert.alert('Error', message);
     } finally {
       setLoadingRole(null);
     }
   };
-  const handleDriverSelection = () => {
+  const handleDriverSelection = async () => {
     if (loadingRole) {
       return;
     }
 
-    if (!phoneVerified) {
-      Alert.alert(
-        'Verificación requerida',
-        'Para registrarte como conductor necesitas un número telefónico verificado.'
-      );
-      return;
+    try {
+      setLoadingRole('driver');
+
+      if (!phoneVerified) {
+        Alert.alert(
+          'Verificación requerida',
+          'Para registrarte como conductor necesitas un número telefónico verificado.'
+        );
+        return;
+      }
+
+      const normalizedEmail = normalizeEmail() || undefined;
+      const normalizedPhone = normalizePhone() || undefined;
+
+      if (!normalizedPhone) {
+        Alert.alert(
+          'Número requerido',
+          'No se pudo determinar un número telefónico verificado. Repite el proceso de verificación.'
+        );
+        return;
+      }
+
+      navigation.navigate('DriverData', {
+        name,
+        email: normalizedEmail,
+        phone: normalizedPhone,
+        password,
+        role: 'driver',
+        method,
+        authProvider,
+        googleIdToken,
+        phoneVerified: true,
+      });
+    } catch (error: any) {
+      console.error('Error al preparar datos de conductor:', error);
+      Alert.alert('Error', error?.message || 'Ocurrió un problema al continuar con el registro de conductor.');
+    } finally {
+      setLoadingRole(null);
     }
-
-    const normalizedEmail = normalizeEmail() || undefined;
-    const normalizedPhone = normalizePhone() || undefined;
-
-    if (!normalizedPhone) {
-      Alert.alert(
-        'Número requerido',
-        'No se pudo determinar un número telefónico verificado. Repite el proceso de verificación.'
-      );
-      return;
-    }
-
-    navigation.navigate('DriverData', {
-      name,
-      email: normalizedEmail,
-      phone: normalizedPhone,
-      password,
-      role: 'driver',
-      method,
-      authProvider,
-      googleIdToken,
-      phoneVerified: true,
-    });
   };
 
   return (
@@ -175,7 +188,7 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ navigation, r
       <View style={styles.header}>
         <Text style={styles.title}>Selecciona tu rol</Text>
         <Text style={styles.subtitle}>
-          Elige cómo deseas usar DriveAngel.ni. Puedes registrarte como cliente o conductor.
+          Elige cómo deseas usar Rundi. Puedes registrarte como cliente o conductor.
         </Text>
       </View>
 

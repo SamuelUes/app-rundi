@@ -18,19 +18,30 @@ Notifications.setNotificationHandler({
 
 class NotificationService {
   private expoPushToken: string | null = null;
+  private quickReturnNotificationId: string | null = null;
+  private managedNotifications = new Map<
+    string,
+    {
+      notificationId: string;
+      timeoutHandle: ReturnType<typeof setTimeout>;
+      expiresAt: number;
+    }
+  >();
 
   /**
    * Inicializar servicio de notificaciones
    */
   async initialize(): Promise<string | null> {
     try {
-      // Verificar si Expo está configurado correctamente
-      const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+      // CRÍTICO: Usar projectId del owner (samuelues) desde app.json
+      const projectId = Constants.expoConfig?.extra?.eas?.projectId || '79fc9fff-5481-4aba-a29a-632db706c382';
       
       if (!projectId || !this.isValidUUID(projectId)) {
         console.log('ℹ️ Expo Push Notifications deshabilitado - usando FCM');
         return null;
       }
+      
+      console.log('🔔 Inicializando notificaciones con projectId:', projectId);
 
       // Solicitar permisos
       const { status: existingStatus } = await Notifications.getPermissionsAsync();
@@ -62,6 +73,86 @@ class NotificationService {
     }
   }
 
+  private clearManagedNotification(notificationKey: string) {
+    const entry = this.managedNotifications.get(notificationKey);
+    if (!entry) {
+      return;
+    }
+
+    try {
+      clearTimeout(entry.timeoutHandle);
+    } catch (_) {
+      // noop
+    }
+
+    this.managedNotifications.delete(notificationKey);
+  }
+
+  async dismissManagedNotification(notificationKey: string) {
+    const entry = this.managedNotifications.get(notificationKey);
+    if (!entry) {
+      return;
+    }
+
+    try {
+      await Notifications.dismissNotificationAsync(entry.notificationId);
+    } catch (error) {
+      console.warn('⚠️ Error descartando notificación administrada:', error);
+    } finally {
+      this.clearManagedNotification(notificationKey);
+    }
+  }
+
+  async showManagedNotification(
+    title: string,
+    body: string,
+    data: any,
+    notificationKey: string,
+    expiresInMs: number = 120_000,
+  ) {
+    if (!notificationKey) {
+      await this.showLocalNotification(title, body, data);
+      return;
+    }
+
+    const normalizedExpires = Number.isFinite(expiresInMs) && expiresInMs > 0 ? expiresInMs : 120_000;
+
+    await this.dismissManagedNotification(notificationKey);
+
+    try {
+      await this.ensureAndroidChannel();
+      const notificationId = await Notifications.presentNotificationAsync({
+        title,
+        body,
+        data: {
+          ...data,
+          notificationKey,
+          expiresInMs: normalizedExpires,
+        },
+        sound: 'default',
+      });
+
+      const timeoutHandle = setTimeout(async () => {
+        try {
+          await Notifications.dismissNotificationAsync(notificationId);
+        } catch (error) {
+          console.warn('⚠️ Error descartando notificación por expiración:', error);
+        } finally {
+          this.managedNotifications.delete(notificationKey);
+        }
+      }, normalizedExpires);
+
+      this.managedNotifications.set(notificationKey, {
+        notificationId,
+        timeoutHandle,
+        expiresAt: Date.now() + normalizedExpires,
+      });
+    } catch (error) {
+      console.error('❌ Error mostrando notificación administrada:', error);
+      await this.showLocalNotification(title, body, data);
+    }
+  }
+
   /**
    * Validar si es un UUID válido
    */
@@ -74,7 +165,10 @@ class NotificationService {
    * Obtener Expo Push Token
    */
   private async getExpoPushToken(): Promise<string> {
-    const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+    // CRÍTICO: Usar el mismo projectId que en initialize()
+    const projectId = Constants.expoConfig?.extra?.eas?.projectId || '79fc9fff-5481-4aba-a29a-632db706c382';
+    
+    console.log('🔑 Obteniendo Expo Push Token con projectId:', projectId);
     
     const token = await Notifications.getExpoPushTokenAsync({
       projectId,
@@ -107,6 +201,26 @@ class NotificationService {
   }
 
   /**
+   * Canal dedicado para "Viaje activo" (Android)
+   */
+  private async ensureActiveRideChannel() {
+    try {
+      if (Platform.OS !== 'android') return;
+      await Notifications.setNotificationChannelAsync('active-ride', {
+        name: 'Viaje activo',
+        importance: Notifications.AndroidImportance.HIGH,
+        vibrationPattern: [0, 250, 250, 250],
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+        enableVibrate: true,
+        enableLights: true,
+        lightColor: '#D4AF37',
+      });
+    } catch (_) {
+      // noop
+    }
+  }
+
+  /**
    * Obtener token actual
    */
   getToken(): string | null {
@@ -134,16 +248,62 @@ class NotificationService {
   }
 
   /**
+   * Mostrar notificación de retorno rápido a la pantalla de viaje activo
+   * Compatible iOS/Android. En Android usa canal dedicado.
+   */
+  async showQuickReturnActiveRide(rideId: string): Promise<string | null> {
+    try {
+      await this.ensureActiveRideChannel();
+      const id = await Notifications.scheduleNotificationAsync({
+        content: {
+          title: 'Viaje activo',
+          body: 'Toca para volver al viaje',
+          data: { type: 'quick_return_active_ride', rideId },
+          sound: true,
+          priority: Notifications.AndroidNotificationPriority.HIGH,
+        },
+        trigger: null,
+      });
+      this.quickReturnNotificationId = id;
+      return id;
+    } catch (error) {
+      console.error('❌ Error creando notificación de retorno rápido:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Limpiar notificación de retorno rápido (usa dismissAll por confiabilidad)
+   */
+  async clearQuickReturn() {
+    try {
+      await Notifications.dismissAllNotificationsAsync();
+      this.quickReturnNotificationId = null;
+      this.managedNotifications.forEach((entry, key) => {
+        try {
+          clearTimeout(entry.timeoutHandle);
+        } catch (_) {
+          // noop
+        }
+        this.managedNotifications.delete(key);
+      });
+    } catch (error) {
+      console.error('❌ Error limpiando notificaciones:', error);
+    }
+  }
+
+  /**
    * Notificar nuevo viaje disponible
    */
   async notifyNewRide(ride: any) {
     const distance = (ride.estimatedDistance / 1000).toFixed(1);
     const price = ride.estimatedPrice.toFixed(0);
 
-    await this.showLocalNotification(
+    await this.showManagedNotification(
       '🚗 Nuevo Viaje Disponible',
       `${distance} km • C$${price} • ${ride.origin.address}`,
-      { type: 'new_ride', rideId: ride.id }
+      { type: 'new_ride', rideId: ride.id },
+      `ride-${ride.id}`,
     );
   }
 
@@ -151,10 +311,11 @@ class NotificationService {
    * Notificar viaje aceptado
    */
   async notifyRideAccepted(ride: any) {
-    await this.showLocalNotification(
+    await this.showManagedNotification(
       '✅ Viaje Aceptado',
       `El conductor ${ride.driver.name} aceptó tu viaje`,
-      { type: 'ride_accepted', rideId: ride.id }
+      { type: 'ride_accepted', rideId: ride.id },
+      `ride-${ride.id}`,
     );
   }
 
@@ -162,10 +323,11 @@ class NotificationService {
    * Notificar viaje iniciado
    */
   async notifyRideStarted(ride: any) {
-    await this.showLocalNotification(
+    await this.showManagedNotification(
       '🚗 Viaje Iniciado',
       'Tu conductor ha iniciado el viaje',
-      { type: 'ride_started', rideId: ride.id }
+      { type: 'ride_started', rideId: ride.id },
+      `ride-${ride.id}`,
     );
   }
 
@@ -173,10 +335,11 @@ class NotificationService {
    * Notificar viaje completado
    */
   async notifyRideCompleted(ride: any) {
-    await this.showLocalNotification(
+    await this.showManagedNotification(
       '✅ Viaje Completado',
       'Tu viaje ha finalizado. ¡Califica tu experiencia!',
-      { type: 'ride_completed', rideId: ride.id }
+      { type: 'ride_completed', rideId: ride.id },
+      `ride-${ride.id}`,
     );
   }
 
@@ -184,10 +347,11 @@ class NotificationService {
    * Notificar viaje cancelado
    */
   async notifyRideCanceled(ride: any, reason?: string) {
-    await this.showLocalNotification(
+    await this.showManagedNotification(
       '❌ Viaje Cancelado',
       reason || 'El viaje ha sido cancelado',
-      { type: 'ride_canceled', rideId: ride.id }
+      { type: 'ride_canceled', rideId: ride.id },
+      `ride-${ride.id}`,
     );
   }
 
@@ -215,6 +379,14 @@ class NotificationService {
   async cancelAllNotifications() {
     try {
       await Notifications.cancelAllScheduledNotificationsAsync();
+      this.managedNotifications.forEach((entry, key) => {
+        try {
+          clearTimeout(entry.timeoutHandle);
+        } catch (_) {
+          // noop
+        }
+        this.managedNotifications.delete(key);
+      });
     } catch (error) {
       console.error('❌ Error cancelando notificaciones:', error);
     }

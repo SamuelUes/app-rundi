@@ -11,10 +11,8 @@ import {
   Easing,
   Image,
   Linking,
-  ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -84,12 +82,11 @@ export default function RidePreviewScreen() {
   const [activeRideGuard, setActiveRideGuard] = useState<string | null>(null);
   const [nearbyQueue, setNearbyQueue] = useState<Array<Partial<RidePreviewData> & { distanceMeters?: number }>>(initialNearby);
   const proximityParam = (route.params as any)?.proximity === true;
-  const proximityMode = proximityParam || initialNearby.length > 0; // abierto por proximidad o con cola de cercanas
+  const proximityMode = proximityParam || initialNearby.length > 0;
   const autoDismissTimerRef = useRef<NodeJS.Timeout | null>(null);
   const lastVoiceSummaryRef = useRef<string | null>(null);
   const lastClientOfferSpokenRef = useRef<number | null>(null);
 
-  // Necesario antes del efecto de auto-cierre
   const [acceptingRide, setAcceptingRide] = useState(false);
   const [isRejectingRide, setIsRejectingRide] = useState(false);
   const [clientProfile, setClientProfile] = useState<ClientProfile | null>(null);
@@ -97,6 +94,7 @@ export default function RidePreviewScreen() {
   const markDismissed = useCallback(async () => {
     try {
       await proximityService.markRideDismissed(currentRide.id);
+      await proximityService.dismissProximityNotification(currentRide.id);
     } catch (err) {
       console.warn('[RidePreviewScreen] No se pudo marcar ride como descartado:', err);
     }
@@ -111,10 +109,8 @@ export default function RidePreviewScreen() {
     };
   }, [stopVoiceCategory]);
 
-  // Monitorear si el cliente acepta este ride específico
   useAcceptedRideListener(navigation, ride.id);
 
-  // 🔒 Guard: Si ya tengo un viaje activo (accepted/driver_on_route/in_progress), redirigir y bloquear esta pantalla
   useEffect(() => {
     if (!user?.id) return;
 
@@ -148,7 +144,6 @@ export default function RidePreviewScreen() {
     return () => unsubscribe();
   }, [user?.id, navigation]);
 
-  // ⏱️ Auto-cierre a los 10s si fue abierto por proximidad y no hay interacción
   useEffect(() => {
     if (!proximityMode) return;
     if (autoDismissTimerRef.current) clearTimeout(autoDismissTimerRef.current);
@@ -160,8 +155,7 @@ export default function RidePreviewScreen() {
     return () => {
       if (autoDismissTimerRef.current) clearTimeout(autoDismissTimerRef.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [proximityMode, rideData.id, acceptingRide, markDismissed]);
+  }, [proximityMode, rideData.id, acceptingRide, markDismissed, navigation]);
 
   const [routeCoordinates, setRouteCoordinates] = useState<Array<{ latitude: number; longitude: number }>>([]);
   const [loadingRoute, setLoadingRoute] = useState(false);
@@ -170,11 +164,12 @@ export default function RidePreviewScreen() {
     ride.driverOfferedPrice ? Math.round(ride.driverOfferedPrice).toString() : ''
   );
   const [counterOfferTouched, setCounterOfferTouched] = useState(false);
+  const [lastSuggestedPrice, setLastSuggestedPrice] = useState<number | null>(
+    typeof ride.driverOfferedPrice === 'number' ? Math.round(ride.driverOfferedPrice) : null,
+  );
   const priceContentAnim = useRef(new Animated.Value(1)).current;
   const [priceContentHeight, setPriceContentHeight] = useState(0);
   const [sendingOffer, setSendingOffer] = useState(false);
-
-  // markDismissed ya declarado arriba
 
   const animatePriceContent = useCallback(
     (expand: boolean, duration: number = 240) => {
@@ -201,7 +196,7 @@ export default function RidePreviewScreen() {
   const totalDistanceKm = useMemo(() => {
     const d = currentRide.estimatedDistance;
     if (typeof d === 'number' && Number.isFinite(d) && d > 0) {
-      return d > 50 ? d / 1000 : d; // heurística: metros->km cuando el valor es grande
+      return d > 50 ? d / 1000 : d;
     }
     const points: Array<{ lat: number; lng: number }> = [];
     if (currentRide.origin) points.push({ lat: currentRide.origin.lat, lng: currentRide.origin.lng });
@@ -211,7 +206,7 @@ export default function RidePreviewScreen() {
     if (currentRide.destination) points.push({ lat: currentRide.destination.lat, lng: currentRide.destination.lng });
     if (points.length < 2) return null;
     const toRad = (deg: number) => (deg * Math.PI) / 180;
-    const R = 6371; // km
+    const R = 6371;
     let sum = 0;
     for (let i = 1; i < points.length; i++) {
       const a = points[i - 1];
@@ -284,7 +279,6 @@ export default function RidePreviewScreen() {
     animatePriceContent(next);
   };
 
-  // Cambiar a otra solicitud cercana
   const switchToNearby = useCallback(() => {
     if (!nearbyQueue || nearbyQueue.length === 0) return;
     const [next, ...rest] = nearbyQueue;
@@ -293,9 +287,9 @@ export default function RidePreviewScreen() {
       clientId: String(next.clientId || currentRide.clientId),
       clientName: next.clientName || currentRide.clientName,
       clientPhone: next.clientPhone || currentRide.clientPhone,
-      origin: next.origin as any || currentRide.origin,
-      destination: next.destination as any || currentRide.destination,
-      extraDestinations: next.extraDestinations as any || currentRide.extraDestinations,
+      origin: (next.origin as any) || currentRide.origin,
+      destination: (next.destination as any) || currentRide.destination,
+      extraDestinations: (next.extraDestinations as any) || currentRide.extraDestinations,
       estimatedPrice: typeof next.estimatedPrice === 'number' ? next.estimatedPrice : currentRide.estimatedPrice,
       estimatedDistance: typeof next.estimatedDistance === 'number' ? next.estimatedDistance : currentRide.estimatedDistance,
       estimatedDuration: typeof next.estimatedDuration === 'number' ? next.estimatedDuration : currentRide.estimatedDuration,
@@ -307,7 +301,6 @@ export default function RidePreviewScreen() {
     };
     setRideData(nextRide);
     setNearbyQueue(rest);
-    // Reiniciar temporizador al cambiar de solicitud por proximidad
     if (proximityMode) {
       if (autoDismissTimerRef.current) clearTimeout(autoDismissTimerRef.current);
       autoDismissTimerRef.current = setTimeout(() => {
@@ -316,7 +309,7 @@ export default function RidePreviewScreen() {
         }
       }, 10_000);
     }
-  }, [nearbyQueue, currentRide]);
+  }, [nearbyQueue, currentRide, proximityMode, navigation, acceptingRide]);
 
   const handleMeasuredContentLayout = useCallback(
     (event: any) => {
@@ -400,8 +393,7 @@ export default function RidePreviewScreen() {
     });
 
     return () => unsubscribe();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ride.id, user?.id, counterOfferTouched]);
+  }, [ride.id, user?.id, counterOfferTouched, rideData.driverOfferedPrice, rideData.driverOfferStatus]);
 
   useEffect(() => {
     const loadRoute = async () => {
@@ -484,6 +476,23 @@ export default function RidePreviewScreen() {
     return Array.from(new Set([low, mid, high]));
   }, [currentRide.estimatedPrice]);
 
+  const automaticSuggestion = useMemo(() => {
+    if (quickSuggestions.length > 1) return quickSuggestions[1];
+    if (quickSuggestions.length > 0) return quickSuggestions[0];
+    return Math.round(currentRide.estimatedPrice);
+  }, [quickSuggestions, currentRide.estimatedPrice]);
+
+  const handleAutomaticSuggestion = useCallback(async () => {
+    if (!automaticSuggestion || Number.isNaN(automaticSuggestion) || automaticSuggestion < 50) {
+      alertService.showInfoAlert('Sin sugerencia', 'No hay precio sugerido disponible.');
+      return;
+    }
+    const value = Math.round(automaticSuggestion);
+    setCounterOfferTouched(true);
+    setCounterOffer(value.toString());
+    await submitCounterOffer(value);
+  }, [automaticSuggestion]);
+
   const formatCurrency = (value?: number | null) => {
     if (value === undefined || value === null) {
       return 'N/D';
@@ -516,28 +525,14 @@ export default function RidePreviewScreen() {
     });
   };
 
-  const handleApplySuggestion = (value: number) => {
+  const handleApplySuggestion = async (value: number) => {
+    const rounded = Math.round(value);
     setCounterOfferTouched(true);
-    setCounterOffer(Math.round(value).toString());
+    setCounterOffer(rounded.toString());
+    await submitCounterOffer(rounded);
   };
 
-  const handleCounterOfferChange = (value: string) => {
-    setCounterOfferTouched(true);
-    setCounterOffer(value);
-  };
-
-  const handleSendCounterOffer = async () => {
-    if (!counterOffer) {
-      alertService.showInfoAlert('Dato requerido', 'Ingresa un precio para sugerir al cliente.');
-      return;
-    }
-
-    const parsed = parseFloat(counterOffer);
-    if (Number.isNaN(parsed) || parsed < 50) {
-      alertService.showInfoAlert('Precio inválido', 'El precio sugerido debe ser un número mayor a C$50.');
-      return;
-    }
-
+  const submitCounterOffer = async (value: number) => {
     if (!user?.id) {
       alertService.showErrorAlert('No se pudo obtener tu información.');
       return;
@@ -547,12 +542,13 @@ export default function RidePreviewScreen() {
       setSendingOffer(true);
       await priceNegotiationService.negotiatePrice(
         currentRide.id,
-        parsed,
+        value,
         'driver',
         currentRide.estimatedPrice,
-        user.id
+        user.id,
       );
-     // alertService.showSuccessAlert('Oferta enviada', 'Se envió tu propuesta al cliente.');
+      setCounterOffer(value.toString());
+      setLastSuggestedPrice(value);
     } catch (error: any) {
       console.error('[RidePreviewScreen] Contraoferta fallida:', error);
       alertService.showErrorAlert(error?.message || 'No se pudo enviar la contraoferta');
@@ -566,10 +562,8 @@ export default function RidePreviewScreen() {
       return;
     }
 
-    // Cancelar auto-dismiss por interacción del usuario
     if (autoDismissTimerRef.current) clearTimeout(autoDismissTimerRef.current);
     try {
-      // 🔒 Bloquear aceptar si ya tengo un viaje activo
       if (activeRideGuard) {
         alertService.showInfoAlert(
           'Tienes un viaje activo',
@@ -746,7 +740,6 @@ export default function RidePreviewScreen() {
     return null;
   };
 
-  // UI: Card compacta para mostrar la siguiente solicitud cercana (si existe)
   const renderNearbyCard = () => {
     if (!nearbyQueue || nearbyQueue.length === 0) return null;
     const next = nearbyQueue[0] as any;
@@ -779,58 +772,90 @@ export default function RidePreviewScreen() {
   };
 
   const renderNegotiationContent = () => (
-    <View>
+    <View style={styles.negotiationWrapper}>
       {renderNegotiationBanner()}
-      <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>Precio estimado / sugerido por cliente</Text>
-        <Text style={[styles.highlightValue, { color: colors.text }]}>
+
+      <View
+        style={[
+          styles.priceCard,
+          {
+            backgroundColor: isDark ? 'rgba(33,33,33,0.9)' : '#FFF6E6',
+            borderColor: isDark ? 'rgba(255,255,255,0.06)' : '#E3C592',
+          },
+        ]}
+      >
+        <Text style={[styles.priceLabel, { color: colors.textSecondary }]}>Precio estimado / sugerido por cliente</Text>
+        <Text style={[styles.priceValue, { color: colors.text }]}>
           {formatCurrency(currentRide.clientSuggestedPrice || currentRide.estimatedPrice)}
         </Text>
-      </View>
 
-      <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>Precio sugerido por conductor</Text>
-        <View style={styles.suggestRow}>
-          <TextInput
-            value={counterOffer}
-            onChangeText={handleCounterOfferChange}
-            keyboardType="numeric"
-            placeholder="C$"
-            style={[styles.counterInput, { borderColor: colors.border, color: colors.text }]}
-          />
-          <TouchableOpacity
-            style={[styles.primaryChip, { backgroundColor: colors.primary }]}
-            onPress={handleSendCounterOffer}
-            disabled={sendingOffer}
-            activeOpacity={0.9}
-          >
-            <Text style={styles.primaryChipText}>{sendingOffer ? 'Enviando...' : 'Sugerir'}</Text>
-          </TouchableOpacity>
+        <View style={styles.suggestionsSection}>
+          {quickSuggestions.length > 0 && (
+            <>
+              <Text style={[styles.suggestionsLabel, { color: colors.textSecondary }]}>Precios sugeridos:</Text>
+              <View style={styles.suggestionsRow}>
+                <View style={styles.chipsRow}>
+                  {quickSuggestions.map((value) => (
+                    <TouchableOpacity
+                      key={value}
+                      style={[styles.chip, { backgroundColor: isDark ? 'rgba(125,230,173,0.18)' : 'rgba(125,230,173,0.25)' }]}
+                      onPress={() => handleApplySuggestion(value)}
+                    >
+                      <Text style={[styles.chipLabel, { color: isDark ? '#7DE6AD' : '#268C5C' }]}>
+                        {formatCurrency(value)}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <TouchableOpacity
+                  style={[styles.suggestButton, styles.inlineSuggestButton, { backgroundColor: colors.primary }]}
+                  onPress={handleAutomaticSuggestion}
+                  disabled={sendingOffer}
+                  activeOpacity={0.9}
+                >
+                  <Text style={styles.suggestButtonText}>
+                    {sendingOffer
+                      ? 'Enviando…'
+                      : formatCurrency(automaticSuggestion || currentRide.estimatedPrice)}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
+
+          {quickSuggestions.length === 0 && (
+            <TouchableOpacity
+              style={[styles.suggestButton, { backgroundColor: colors.primary }]}
+              onPress={handleAutomaticSuggestion}
+              disabled={sendingOffer}
+              activeOpacity={0.9}
+            >
+              <Text style={styles.suggestButtonText}>
+                {sendingOffer
+                  ? 'Enviando…'
+                  : formatCurrency(automaticSuggestion || currentRide.estimatedPrice)}
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
-        {quickSuggestions.length > 0 && (
-          <View style={styles.chipsRow}>
-            {quickSuggestions.map((value) => (
-              <TouchableOpacity
-                key={value}
-                style={styles.secondaryChip}
-                onPress={() => handleApplySuggestion(value)}
-              >
-                <Text style={styles.secondaryChipText}>{formatCurrency(value)}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
-      </View>
 
-      <View style={styles.finalPriceRow}>
-        <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>Precio Final:</Text>
-        <Text style={styles.finalPriceValue}>{finalPricePreview}</Text>
+        <View
+          style={[
+            styles.finalRow,
+            {
+              borderTopColor: isDark ? 'rgba(255,255,255,0.08)' : '#E5D5B8',
+            },
+          ]}
+        >
+          <Text style={[styles.finalLabel, { color: colors.textSecondary }]}>Precio final estimado</Text>
+          <Text style={[styles.finalValue, { color: colors.text }]}>{finalPricePreview}</Text>
+        </View>
       </View>
     </View>
   );
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}> 
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={styles.mapContainer}>
         <GoogleMap
           latitude={currentRide.origin.lat}
@@ -852,7 +877,6 @@ export default function RidePreviewScreen() {
             <Text style={[styles.loaderText, { color: colors.textSecondary }]}>Calculando ruta...</Text>
           </View>
         )}
-        {/* Card de proximidad */}
         <View style={styles.nearbyWrapper} pointerEvents="box-none">
           {renderNearbyCard()}
         </View>
@@ -879,7 +903,7 @@ export default function RidePreviewScreen() {
         />
       </TouchableOpacity>
 
-      <View style={[styles.bottomSheet, { backgroundColor: colors.card }]}> 
+      <View style={[styles.bottomSheet, { backgroundColor: colors.card }]}>
         <TouchableOpacity style={styles.handleArea} onPress={toggleSheet} activeOpacity={0.8}>
           <View style={styles.handleBar} />
         </TouchableOpacity>
@@ -917,7 +941,9 @@ export default function RidePreviewScreen() {
             <Text style={[styles.clientNameText, { color: colors.text }]} numberOfLines={1}>
               {resolvedClientName}
             </Text>
-            <Text style={[styles.clientMetaText, { color: colors.textSecondary }]}>Precio estimado: {formatCurrency(currentRide.estimatedPrice)}</Text>
+            <Text style={[styles.clientMetaText, { color: colors.textSecondary }]}>
+              Precio estimado: {formatCurrency(currentRide.estimatedPrice)}
+            </Text>
           </View>
           <View style={styles.contactActions}>
             <TouchableOpacity
@@ -982,6 +1008,7 @@ export default function RidePreviewScreen() {
               <Text style={styles.actionButtonText}>Aceptar</Text>
             )}
           </AnimatedTouchableOpacity>
+
           <AnimatedTouchableOpacity
             style={[
               styles.rejectButton,
@@ -1163,7 +1190,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: 'rgba(255,255,255,0.12)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1179,42 +1206,69 @@ const styles = StyleSheet.create({
     zIndex: -1,
     pointerEvents: 'none',
   },
-  section: {
-    marginBottom: 16,
+  negotiationWrapper: {
+    gap: 16,
   },
-  sectionTitle: {
+  priceCard: {
+    borderWidth: 1,
+    borderRadius: 20,
+    paddingHorizontal: 18,
+    paddingVertical: 18,
+    gap: 16,
+  },
+  priceLabel: {
     fontSize: 13,
     fontWeight: '600',
-    marginBottom: 6,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
   },
-  highlightValue: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#1f1f1f',
+  priceValue: {
+    fontSize: 22,
+    fontWeight: '800',
   },
-  suggestRow: {
+  manualInputRow: {
+    marginTop: 12,
+  },
+  offerInput: {
+    width: '100%',
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    fontSize: 16,
+  },
+  suggestButton: {
+    borderRadius: 16,
+    paddingHorizontal: 22,
+    paddingVertical: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  inlineSuggestButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+  },
+  suggestButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+    fontSize: 14,
+    letterSpacing: 0.4,
+  },
+  suggestionsSection: {
+    gap: 8,
+    marginTop: 4,
+  },
+  suggestionsRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 12,
   },
-  counterInput: {
-    flex: 1,
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    fontSize: 16,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-  },
-  primaryChip: {
-    borderRadius: 18,
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-  },
-  primaryChipText: {
-    color: '#fff',
-    fontWeight: '700',
-    fontSize: 14,
+  suggestionsLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
   },
   chipsRow: {
     flexDirection: 'row',
@@ -1222,30 +1276,31 @@ const styles = StyleSheet.create({
     gap: 10,
     marginTop: 12,
   },
-  secondaryChip: {
-    borderRadius: 16,
-    paddingHorizontal: 16,
+  chip: {
+    borderRadius: 999,
+    paddingHorizontal: 18,
     paddingVertical: 8,
-    backgroundColor: 'rgba(125, 230, 173, 0.18)',
   },
-  secondaryChipText: {
+  chipLabel: {
     fontWeight: '700',
-    color: '#7de6ad',
+    fontSize: 13,
   },
-  finalPriceRow: {
+  finalRow: {
+    paddingTop: 16,
+    borderTopWidth: 1,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.08)',
   },
-  finalPriceValue: {
-    fontSize: 22,
+  finalLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+  },
+  finalValue: {
+    fontSize: 20,
     fontWeight: '800',
-    color: '#FFFFFF',
   },
   clientOfferBanner: {
     borderWidth: 1,
@@ -1267,6 +1322,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     gap: 14,
+    marginTop: 24,
   },
   acceptButton: {
     flex: 1,

@@ -6,9 +6,8 @@
  */
 
 import supabase from '../config/supabase';
-import { getFunctions } from 'firebase/functions';
 import { httpsCallable } from 'firebase/functions';
-import { initializeFirebase } from '../config/firebase';
+import { getFirebaseFunctions } from '../config/firebase';
 
 // Interfaces para las ubicaciones
 export interface LocationPoint {
@@ -172,7 +171,7 @@ class LocationTrackingService {
    */
   async calculateRoute(routeData: RouteData & { optimize?: boolean }): Promise<any> {
     try {
-      const { functions } = await initializeFirebase();
+      const functions = await getFirebaseFunctions();
       const calculateRouteFunction = httpsCallable(functions, 'calculateRoute');
       
       const result = await calculateRouteFunction({
@@ -211,7 +210,7 @@ class LocationTrackingService {
     lng: number
   ): Promise<{ success: boolean; address?: string; error?: string }> {
     try {
-      const { functions } = await initializeFirebase();
+      const functions = await getFirebaseFunctions();
       const geocodeFunction = httpsCallable(functions, 'reverseGeocode');
       
       const result = await geocodeFunction({ lat, lng });
@@ -241,7 +240,7 @@ class LocationTrackingService {
     address: string
   ): Promise<{ success: boolean; lat?: number; lng?: number; error?: string }> {
     try {
-      const { functions } = await initializeFirebase();
+      const functions = await getFirebaseFunctions();
       const geocodeFunction = httpsCallable(functions, 'geocodeAddress');
       
       const result = await geocodeFunction({ address });
@@ -275,7 +274,7 @@ class LocationTrackingService {
     radius: number = 5000
   ): Promise<{ success: boolean; places?: any[]; error?: string }> {
     try {
-      const { functions } = await initializeFirebase();
+      const functions = await getFirebaseFunctions();
       const searchFunction = httpsCallable(functions, 'searchPlaces');
       
       const result = await searchFunction({
@@ -311,7 +310,7 @@ class LocationTrackingService {
     destination: { lat: number; lng: number }
   ): Promise<{ success: boolean; distance?: number; duration?: number; error?: string }> {
     try {
-      const { functions } = await initializeFirebase();
+      const functions = await getFirebaseFunctions();
       const distanceFunction = httpsCallable(functions, 'calculateDistance');
       
       const result = await distanceFunction({ origin, destination });

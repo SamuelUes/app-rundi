@@ -1,14 +1,14 @@
 {
   "expo": {
-    "name": "DriveAngel.ni",
-    "slug": "driveangel-ni",
-    "version": "1.0.1",
+    "name": "Rundi",
+    "slug": "rundi",
+    "version": "Beta - 1.5.9",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./src/assets/images/icon.png",
     "scheme": "com.driveangel.app",
     "owner": "samuelues",
     "projectId": "79fc9fff-5481-4aba-a29a-632db706c382",
-    "runtimeVersion": "1.0.1",
+    "runtimeVersion": "Beta - 1.5.9",
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
@@ -21,13 +21,14 @@
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
         "ACCESS_BACKGROUND_LOCATION",
+        "ACTIVITY_RECOGNITION",
         "CAMERA",
         "READ_EXTERNAL_STORAGE",
         "WRITE_EXTERNAL_STORAGE",
         "POST_NOTIFICATIONS"
       ],
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./src/assets/images/icon.png",
         "backgroundColor": "#ffffff"
       },
       "config": {
@@ -50,13 +51,16 @@
     },
     "ios": {
       "bundleIdentifier": "com.driveangel.ni",
-      "urlSchemes": ["driveangel", "tel", "mailto", "whatsapp", "waze", "googlemaps"]
+      "urlSchemes": ["driveangel", "tel", "mailto", "whatsapp", "waze", "googlemaps"],
+      "infoPlist": {
+        "NSMotionUsageDescription": "Rundi utiliza tu actividad física para detectar cuándo estás manejando y mejorar la asignación de viajes."
+      }
     },
     "plugins": [
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Permitir a DriveAngel.ni acceder a tu ubicación para rastrear tu viaje."
+          "locationAlwaysAndWhenInUsePermission": "Permitir a Rundi acceder a tu ubicación para rastrear tu viaje."
         }
       ],
       [

@@ -2,19 +2,37 @@ import React, { useRef, useEffect } from 'react';
 import { StyleSheet, Platform } from 'react-native';
 import MapView, { Marker, Polyline, UrlTile } from 'react-native-maps';
 
+type ExtraStopMarker = {
+  latitude: number;
+  longitude: number;
+  index: number;
+  color?: string;
+  label?: string;
+};
+
+type NearbyDriver = {
+  id: string;
+  latitude: number;
+  longitude: number;
+  heading?: number;
+};
 interface MapBoxMapProps {
   latitude: number;
   longitude: number;
   style?: any;
   onMapPress?: (event: { latitude: number; longitude: number }) => void;
+  onRegionChangeCenter?: (center: { latitude: number; longitude: number }) => void;
+  onRegionChangeCompleteCenter?: (center: { latitude: number; longitude: number }) => void;
   showMarker?: boolean;
-  markerPosition?: { latitude: number; longitude: number };
-  markerType?: 'default' | 'car' | 'origin' | 'destination' | 'client' | 'manual_origin' | 'manual_origin_hold'; // Tipo de marcador
-  originMarker?: { latitude: number; longitude: number };
-  destinationMarker?: { latitude: number; longitude: number };
-  clientMarker?: { latitude: number; longitude: number };
+  markerPosition?: { latitude: number; longitude: number } | null;
+  originMarker?: { latitude: number; longitude: number } | null;
+  destinationMarker?: { latitude: number; longitude: number } | null;
+  clientMarker?: { latitude: number; longitude: number } | null;
+  extraStopMarkers?: ExtraStopMarker[];
   routeCoordinates?: Array<{ latitude: number; longitude: number }>;
-  markerVehicleType?: string;
+  autoFitEnabled?: boolean;
+  nearbyDrivers?: NearbyDriver[];
+  markerType?: string;
   markerVehicleIconUri?: string;
 }
 
@@ -30,11 +48,16 @@ export default function MapBoxMap({
   destinationMarker,
   clientMarker,
   routeCoordinates,
+  autoFitEnabled = true,
 }: MapBoxMapProps) {
   const mapRef = useRef<MapView>(null);
 
   // Ajustar el mapa cuando hay ruta
   useEffect(() => {
+    if (!autoFitEnabled) {
+      return;
+    }
+
     if (routeCoordinates && routeCoordinates.length > 0 && mapRef.current) {
       setTimeout(() => {
         mapRef.current?.fitToCoordinates(routeCoordinates, {
@@ -43,7 +66,7 @@ export default function MapBoxMap({
         });
       }, 500);
     }
-  }, [routeCoordinates]);
+  }, [routeCoordinates, autoFitEnabled]);
 
   const handleMapPress = (event: any) => {
     if (onMapPress) {

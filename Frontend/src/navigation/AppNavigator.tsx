@@ -21,8 +21,8 @@ export default function AppNavigator() {
     return <AuthStack />;
   }
 
-  // Si el usuario es conductor, mostrar pantallas de conductor
-  if (user.role === 'driver') {
+  // Si el usuario es conductor (incluye designated_driver), mostrar pantallas de conductor
+  if (user.role === 'driver' || user.role === 'designated_driver') {
     return <DriverStack />;
   }
 

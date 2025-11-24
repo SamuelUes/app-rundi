@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer } from '@react-navigation/native';
 import { StripeProvider } from '@stripe/stripe-react-native';
-import { AuthProvider } from './src/context/AuthContext';
+import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import { VoiceAssistantProvider } from './src/context/VoiceAssistantContext';
 import { FCMProvider } from './src/context/FCMContext';
@@ -16,14 +16,22 @@ import TopToastProvider from './src/components/toast/TopToastProvider';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { navigationRef } from './src/navigation/NavigationService';
 import { useNotifications } from './src/hooks/useNotifications';
+import { useOverlayDeepLink } from './src/hooks/useOverlayDeepLink';
+import LocationPermissionGate from './src/components/permissions/LocationPermissionGate';
 
 // Stripe Publishable Key (desde .env)
 const STRIPE_PUBLISHABLE_KEY = process.env.STRIPE_PUBLIC_KEY || 'pk_test_51SEkQKHVOBNC1WbUcQQAYs6FDD0dYO3wMA8dQzzHFTLFkEJsNpgBXe9V7ZOfQ85uvhivpzT88ntqoITyLoadFDGd00hoCYtolH';
 
 function AppContent() {
   const { isDark } = useTheme();
+  const { user } = useAuth();
+  const requireBackgroundLocation =
+    user?.role === 'driver' || user?.role === 'designated_driver';
   // Inicializar listeners de notificaciones (Expo Notifications)
   useNotifications();
+  
+  // Detectar apertura desde overlay y navegar a RidePreviewScreen
+  useOverlayDeepLink();
   
   // Activar sistema de presencia y sincronización de perfil de conductor
   usePresence();
@@ -52,10 +60,12 @@ function AppContent() {
   return (
     <SafeAreaProvider>
       <TopToastProvider>
-        <NavigationContainer ref={navigationRef}>
-          <StatusBar style={isDark ? 'light' : 'dark'} />
-          <AppNavigator />
-        </NavigationContainer>
+        <LocationPermissionGate requireBackground={requireBackgroundLocation}>
+          <NavigationContainer ref={navigationRef}>
+            <StatusBar style={isDark ? 'light' : 'dark'} />
+            <AppNavigator />
+          </NavigationContainer>
+        </LocationPermissionGate>
       </TopToastProvider>
     </SafeAreaProvider>
   );
@@ -67,8 +77,8 @@ export default function App() {
       <VoiceAssistantProvider>
         <StripeProvider
           publishableKey={STRIPE_PUBLISHABLE_KEY}
-          merchantIdentifier="merchant.com.driveangel.ni"
-          urlScheme="driveangel"
+          merchantIdentifier="merchant.com.rundi"
+          urlScheme="rundi"
         >
           <AuthProvider>
             <FCMProvider>

@@ -176,7 +176,7 @@ class TomTomService {
 
   /**
    * Calcular precio estimado basado en distancia y duración
-   * DriveAngel.ni - Sistema de tarifas para Managua, Nicaragua
+   * Rundi - Sistema de tarifas para Managua, Nicaragua
    * 
    * Tarifas:
    * - Base: C$50 (mínimo)

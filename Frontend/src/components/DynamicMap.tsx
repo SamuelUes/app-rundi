@@ -27,10 +27,6 @@ type NearbyDriver = {
   longitude: number;
   heading?: number;
   vehicleType?: string | null;
-  vehicleIconSource?: ImageSourcePropType;
-  isSelected?: boolean;
-  rating?: number | null;
-  photoURL?: string | null;
 };
 
 interface DynamicMapProps {
@@ -51,6 +47,7 @@ interface DynamicMapProps {
   // ✅ NUEVO: Marcadores de paradas extras con colores
   extraStopMarkers?: Array<{ latitude: number; longitude: number; index: number; color?: string; label?: string }>;
   routeCoordinates?: Array<{ latitude: number; longitude: number }>;
+  autoFitEnabled?: boolean;
   provider?: 'google' | 'mapbox' | 'openstreet' | 'tomtom'; // Proveedor de mapa
   nearbyDrivers?: NearbyDriver[]; // Conductores cercanos
   draggableMarker?: boolean; // Permitir arrastrar el marcador
@@ -64,6 +61,7 @@ interface DynamicMapProps {
   showTraffic?: boolean;
   markerVehicleType?: string;
   markerVehicleIconSource?: ImageSourcePropType;
+  markerVehicleHeading?: number;
   userLocationLightIcon?: ImageSourcePropType;
   userLocationDarkIcon?: ImageSourcePropType;
   userLocationHoldingLightIcon?: ImageSourcePropType;
@@ -98,6 +96,7 @@ function DynamicMapComponent({
   showTraffic,
   markerVehicleType,
   markerVehicleIconSource,
+  markerVehicleHeading,
   userLocationLightIcon,
   userLocationDarkIcon,
   userLocationHoldingLightIcon,
@@ -112,6 +111,7 @@ function DynamicMapComponent({
   const isExpoGo = !Constants.appOwnership || Constants.appOwnership === 'expo';
   const actualProvider = isExpoGo ? 'google' : provider;
   const trafficEnabled = showTraffic ?? mapTrafficEnabled;
+  const effectiveMarkerHeading = restProps.markerType === 'car' ? markerVehicleHeading : undefined;
 
   // Solo loguear cuando cambia el provider (no en cada render)
   React.useEffect(() => {
@@ -129,6 +129,7 @@ function DynamicMapComponent({
         trafficEnabled={trafficEnabled}
         markerVehicleType={markerVehicleType}
         markerVehicleIconSource={markerVehicleIconSource}
+        markerVehicleHeading={effectiveMarkerHeading}
         userLocationLightIcon={userLocationLightIcon}
         userLocationDarkIcon={userLocationDarkIcon}
         userLocationHoldingLightIcon={userLocationHoldingLightIcon}
@@ -144,7 +145,7 @@ function DynamicMapComponent({
     return <MapBoxMap {...restProps} />;
   }
   
-  return <OpenStreetMap {...restProps} />;
+  return <OpenStreetMap {...restProps} markerVehicleHeading={effectiveMarkerHeading} />;
 }
 
 export default DynamicMapComponent;

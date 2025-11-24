@@ -20,7 +20,7 @@ import { userManagementService } from '../../services/userManagementService';
 
 export default function DeleteAccountScreen({ navigation }: any) {
   const { colors } = useTheme();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   
   const [email, setEmail] = useState(user?.email || '');
   const [password, setPassword] = useState('');
@@ -61,6 +61,13 @@ export default function DeleteAccountScreen({ navigation }: any) {
               const result = await userManagementService.deleteUserAccount(email, password);
               
               if (result.success) {
+                try {
+                  console.log('🚪 Cerrando sesión local tras eliminar cuenta...');
+                  await logout();
+                } catch (logoutError) {
+                  console.warn('⚠️ Error cerrando sesión tras eliminar cuenta:', logoutError);
+                }
+
                 Alert.alert(
                   'Cuenta eliminada',
                   result.message,

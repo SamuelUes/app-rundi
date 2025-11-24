@@ -4,13 +4,7 @@
  */
 
 import { httpsCallable } from 'firebase/functions';
-import { initializeFirebase } from '../config/firebase';
-
-// Helper para obtener functions
-async function getFirebaseFunctions() {
-  const { functions } = await initializeFirebase();
-  return functions;
-}
+import { getFirebaseFunctions } from '../config/firebase';
 
 class PriceNegotiationService {
   /**

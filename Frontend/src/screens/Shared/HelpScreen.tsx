@@ -64,11 +64,11 @@ export default function HelpScreen() {
   };
 
   const handleWhatsApp = () => {
-    Linking.openURL('whatsapp://send?phone=50512345678&text=Hola, necesito ayuda con DriveAngel.ni');
+    Linking.openURL('whatsapp://send?phone=50512345678&text=Hola, necesito ayuda con Rundi');
   };
 
   const handleEmail = () => {
-    Linking.openURL('mailto:soporte@driveangel.online?subject=Ayuda DriveAngel.ni');
+    Linking.openURL('mailto:soporte@rundiapp.com?subject=Ayuda Rundi');
   };
 
   return (
@@ -130,7 +130,7 @@ export default function HelpScreen() {
             <Text style={styles.infoIcon}>🌐</Text>
             <View style={styles.infoContent}>
               <Text style={styles.infoTitle}>Sitio Web</Text>
-              <Text style={styles.infoValue}>driveangel.online</Text>
+              <Text style={styles.infoValue}>rundiapp.com</Text>
             </View>
           </View>
 
@@ -138,7 +138,7 @@ export default function HelpScreen() {
             <Text style={styles.infoIcon}>📧</Text>
             <View style={styles.infoContent}>
               <Text style={styles.infoTitle}>Email</Text>
-              <Text style={styles.infoValue}>soporte@driveangel.online</Text>
+              <Text style={styles.infoValue}>soporte@rundiapp.com</Text>
             </View>
           </View>
 
