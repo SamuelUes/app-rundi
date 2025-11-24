@@ -8,6 +8,7 @@ import MapView, {
   MapPressEvent,
   MarkerDragStartEndEvent,
   Region,
+  Camera,
 } from 'react-native-maps';
 import { useTheme } from '../context/ThemeContext';
 
@@ -48,8 +49,8 @@ interface GoogleMapProps {
   longitude: number;
   style?: any;
   onMapPress?: (event: { latitude: number; longitude: number }) => void;
-  onRegionChangeCenter?: (center: { latitude: number; longitude: number }) => void;
-  onRegionChangeCompleteCenter?: (center: { latitude: number; longitude: number }) => void;
+  onRegionChangeCenter?: (center: { latitude: number; longitude: number; altitude?: number }) => void;
+  onRegionChangeCompleteCenter?: (center: { latitude: number; longitude: number; altitude?: number }) => void;
   showMarker?: boolean;
   markerPosition?: { latitude: number; longitude: number } | null;
   markerType?: 'default' | 'car' | 'origin' | 'destination' | 'client' | 'manual_origin' | 'manual_origin_hold';
@@ -84,9 +85,41 @@ interface GoogleMapProps {
   originLabel?: string;
   destinationLabel?: string;
   showPinBubbles?: boolean;
+  disableMarkerPress?: boolean;
 }
 
-const EDGE_PADDING = { top: 60, right: 60, bottom: 60, left: 60 };
+const DEFAULT_ALTITUDE = 100; // metros
+const MIN_ALTITUDE = 5; // metros
+const MAX_ALTITUDE = 1000; // metros
+const EARTH_CIRCUMFERENCE = 40075016.686;
+const GOOGLE_MIN_ZOOM = 2;
+const GOOGLE_MAX_ZOOM = 22;
+
+const clampValue = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+const altitudeFromZoom = (zoom: number, latitude: number) => {
+  const radians = latitude * (Math.PI / 180);
+  const cosLat = Math.max(Math.cos(radians), 1e-6);
+  const safeZoom = Number.isFinite(zoom) ? zoom : GOOGLE_MIN_ZOOM;
+  const power = Math.pow(2, safeZoom);
+  return (EARTH_CIRCUMFERENCE * cosLat) / Math.max(power, 1);
+};
+
+const zoomFromAltitudeRaw = (altitude: number, latitude: number) => {
+  const radians = latitude * (Math.PI / 180);
+  const cosLat = Math.max(Math.cos(radians), 1e-6);
+  const safeAltitude = Math.max(altitude, 0.1);
+  return Math.log2((EARTH_CIRCUMFERENCE * cosLat) / safeAltitude);
+};
+
+const resolveZoomForAltitude = (altitude: number, latitude: number) => {
+  const safeLatitude = Number.isFinite(latitude) ? latitude : 0;
+  const clampedAltitude = clampValue(altitude, MIN_ALTITUDE, MAX_ALTITUDE);
+  let zoom = zoomFromAltitudeRaw(clampedAltitude, safeLatitude);
+  zoom = clampValue(zoom, GOOGLE_MIN_ZOOM, GOOGLE_MAX_ZOOM);
+  const adjustedAltitude = clampValue(altitudeFromZoom(zoom, safeLatitude), MIN_ALTITUDE, MAX_ALTITUDE);
+  return { altitude: adjustedAltitude, zoom };
+};
 const REQUEST_PIN_IMAGE = require('../assets/icons/requests_pin/requests_pin2x.png');
 const DRIVER_PROFILE_BUBBLE_IMAGE = require('../assets/icons/driver-profile-bubble/driverprofilebubble_2x.png');
 // ✅ Iconos personalizados para origen, paradas múltiples y destino final (wireframe)
@@ -457,6 +490,7 @@ export default function GoogleMap({
   originLabel,
   destinationLabel,
   showPinBubbles,
+  disableMarkerPress = false,
   autoFitEnabled = true,
 }: GoogleMapProps) {
   const mapRef = useRef<MapView>(null);
@@ -499,6 +533,85 @@ export default function GoogleMap({
       console.warn('[GoogleMap] No se pudo aplicar el estilo del mapa:', error);
     }
   }, [resolvedMapStyle]);
+
+  const defaultCameraSettings = useMemo(() => resolveZoomForAltitude(DEFAULT_ALTITUDE, latitude), [latitude]);
+  const minZoomSettings = useMemo(() => resolveZoomForAltitude(MIN_ALTITUDE, latitude), [latitude]);
+  const maxZoomSettings = useMemo(() => resolveZoomForAltitude(MAX_ALTITUDE, latitude), [latitude]);
+  const minZoomLevelValue = useMemo(() => Math.min(minZoomSettings.zoom, maxZoomSettings.zoom), [minZoomSettings.zoom, maxZoomSettings.zoom]);
+  const maxZoomLevelValue = useMemo(() => Math.max(minZoomSettings.zoom, maxZoomSettings.zoom), [minZoomSettings.zoom, maxZoomSettings.zoom]);
+  const lastCameraAltitudeRef = useRef<number>(defaultCameraSettings.altitude);
+  const gestureActiveRef = useRef(false);
+  const gestureTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    lastCameraAltitudeRef.current = defaultCameraSettings.altitude;
+  }, [defaultCameraSettings.altitude]);
+
+  useEffect(() => () => {
+    if (gestureTimeoutRef.current) clearTimeout(gestureTimeoutRef.current);
+  }, []);
+
+  const markGestureActive = useCallback(() => {
+    gestureActiveRef.current = true;
+    if (gestureTimeoutRef.current) clearTimeout(gestureTimeoutRef.current);
+    gestureTimeoutRef.current = setTimeout(() => {
+      gestureActiveRef.current = false;
+    }, 250);
+  }, []);
+
+  const updateAltitudeFromCamera = useCallback(async (): Promise<number | undefined> => {
+    const map = mapRef.current as any;
+    if (!map || typeof map.getCamera !== 'function') {
+      return lastCameraAltitudeRef.current;
+    }
+
+    try {
+      const camera = await map.getCamera();
+      if (camera && typeof camera.altitude === 'number') {
+        const clamped = clampValue(camera.altitude, MIN_ALTITUDE, MAX_ALTITUDE);
+        lastCameraAltitudeRef.current = clamped;
+        return clamped;
+      }
+    } catch (error) {
+      console.warn('[GoogleMap] No se pudo obtener la cámara:', error);
+    }
+
+    return lastCameraAltitudeRef.current;
+  }, []);
+
+  const applyCamera = useCallback(
+    (
+      camera: {
+        center?: LatLng;
+        altitudeMeters?: number;
+        heading?: number;
+        pitch?: number;
+      } = {},
+      duration: number = 220,
+    ) => {
+      const map = mapRef.current;
+      if (!map) return;
+
+      const center = camera.center ?? { latitude: latitude || 0, longitude: longitude || 0 };
+      const altitudeBase = camera.altitudeMeters ?? lastCameraAltitudeRef.current ?? defaultCameraSettings.altitude;
+      const { zoom, altitude } = resolveZoomForAltitude(altitudeBase, center.latitude);
+
+      const payload: Camera = {
+        center,
+        pitch: camera.pitch ?? 0,
+        heading: camera.heading ?? 0,
+        altitude,
+        zoom,
+      };
+
+      if (typeof map.animateCamera === 'function') {
+        map.animateCamera(payload, { duration });
+      }
+
+      lastCameraAltitudeRef.current = altitude;
+    },
+    [defaultCameraSettings.altitude, latitude, longitude],
+  );
 
   const rideRequestSignature = useMemo(() => {
     if (rideRequests.length === 0) return '';
@@ -552,6 +665,60 @@ export default function GoogleMap({
     return normalizeHeading(Math.atan2(y, x) * toDeg);
   }, []);
 
+  /**
+   * ✅ Calcula la distancia perpendicular desde un punto a un segmento de línea
+   * Retorna la distancia en metros (aproximado)
+   */
+  const distanceToSegment = useCallback((
+    point: LatLng,
+    segStart: LatLng,
+    segEnd: LatLng
+  ): number => {
+    const R = 6371000; // Radio de la Tierra en metros
+    const toRad = (deg: number) => (deg * Math.PI) / 180;
+    
+    const lat1 = toRad(segStart.latitude);
+    const lon1 = toRad(segStart.longitude);
+    const lat2 = toRad(segEnd.latitude);
+    const lon2 = toRad(segEnd.longitude);
+    const latP = toRad(point.latitude);
+    const lonP = toRad(point.longitude);
+    
+    // Proyección del punto en el segmento
+    const dx = lon2 - lon1;
+    const dy = lat2 - lat1;
+    const dxP = lonP - lon1;
+    const dyP = latP - lat1;
+    
+    const segLenSq = dx * dx + dy * dy;
+    if (segLenSq < 1e-12) {
+      // Segmento muy corto, usar distancia directa
+      const dLat = latP - lat1;
+      const dLon = lonP - lon1;
+      return R * Math.sqrt(dLat * dLat + dLon * dLon);
+    }
+    
+    const t = Math.max(0, Math.min(1, (dxP * dx + dyP * dy) / segLenSq));
+    const projLat = lat1 + t * dy;
+    const projLon = lon1 + t * dx;
+    
+    const dLat = latP - projLat;
+    const dLon = lonP - projLon;
+    return R * Math.sqrt(dLat * dLat + dLon * dLon);
+  }, []);
+
+  /**
+   * ✅ Convierte un heading numérico a punto cardinal
+   * @param heading - Ángulo en grados (0-360)
+   * @returns Punto cardinal (N, NE, E, SE, S, SO, O, NO)
+   */
+  const headingToCardinal = (heading: number): string => {
+    const normalized = normalizeHeading(heading);
+    const directions = ['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'];
+    const index = Math.round(normalized / 45) % 8;
+    return directions[index];
+  };
+
   const markerHeadingCacheRef = useRef<{ coord: LatLng | null; heading: number | null }>({
     coord: null,
     heading: typeof markerVehicleHeading === 'number' ? normalizeHeading(markerVehicleHeading) : null,
@@ -563,13 +730,28 @@ export default function GoogleMap({
     return diff;
   };
 
-  const applyHeadingSmoothing = (candidate?: number): number | undefined => {
+  /**
+   * ✅ MEJORADO: Suavizado adaptativo basado en velocidad
+   * - Alta velocidad (>10 m/s): respuesta rápida (factor 0.65)
+   * - Media velocidad (2-10 m/s): suavizado normal (factor 0.38)
+   * - Baja velocidad (<2 m/s): mantener última orientación confiable
+   */
+  const applyHeadingSmoothing = (
+    candidate?: number,
+    speed?: number
+  ): number | undefined => {
     if (typeof candidate !== 'number' || !Number.isFinite(candidate)) {
       return markerHeadingSmoothRef.current ?? undefined;
     }
 
     const normalizedCandidate = normalizeHeading(candidate);
     const last = markerHeadingSmoothRef.current;
+
+    // ✅ Velocidad muy baja: mantener última orientación
+    if (typeof speed === 'number' && speed < 1.5) {
+      // No actualizar heading si está prácticamente detenido
+      return last ?? normalizedCandidate;
+    }
 
     if (last == null) {
       markerHeadingSmoothRef.current = normalizedCandidate;
@@ -579,22 +761,40 @@ export default function GoogleMap({
     const diff = shortestAngularDifference(last, normalizedCandidate);
     const absDiff = Math.abs(diff);
 
+    // Cambio brusco: aceptar inmediatamente
     if (absDiff >= 120) {
       markerHeadingSmoothRef.current = normalizedCandidate;
       return normalizedCandidate;
     }
 
-    if (absDiff <= 8) {
+    // Cambio muy pequeño: aceptar sin suavizar
+    if (absDiff <= 5) {
       markerHeadingSmoothRef.current = normalizedCandidate;
       return normalizedCandidate;
     }
 
-    const smoothingFactor = 0.38;
+    // ✅ Factor adaptativo según velocidad
+    let smoothingFactor = 0.38; // Default: velocidad media
+    
+    if (typeof speed === 'number') {
+      if (speed > 10) {
+        // Alta velocidad: respuesta rápida
+        smoothingFactor = 0.65;
+      } else if (speed < 2) {
+        // Baja velocidad: suavizado fuerte
+        smoothingFactor = 0.20;
+      }
+    }
+
     const smoothed = normalizeHeading(last + diff * smoothingFactor);
     markerHeadingSmoothRef.current = smoothed;
     return smoothed;
   };
 
+  /**
+   * ✅ MEJORADO: Map-matching con umbral de distancia
+   * Solo usa el heading de la ruta si el marcador está cerca del segmento (<30m)
+   */
   const routeHeadingAtMarker = useMemo(() => {
     if (!markerPositionLatLng || routeCoordinates.length < 2) {
       return undefined;
@@ -619,6 +819,7 @@ export default function GoogleMap({
 
     let bestHeading: number | undefined;
     let bestDistSq = Number.POSITIVE_INFINITY;
+    let bestSegment: { start: LatLng; end: LatLng } | null = null;
 
     for (let i = 0; i < validRoute.length - 1; i += 1) {
       const start = validRoute[i];
@@ -646,12 +847,27 @@ export default function GoogleMap({
       if (distSq < bestDistSq) {
         bestDistSq = distSq;
         bestHeading = normalizeHeading(toHeading(start, end));
+        bestSegment = { start, end };
       }
     }
 
-    return bestHeading;
-  }, [markerPositionLatLng, routeCoordinates, toHeading]);
+    // ✅ Solo usar heading de ruta si está cerca del camino (<30m)
+    if (bestSegment) {
+      const distMeters = distanceToSegment(markerPositionLatLng, bestSegment.start, bestSegment.end);
+      const MAX_SNAP_DISTANCE = 30; // metros
+      
+      if (distMeters <= MAX_SNAP_DISTANCE) {
+        return bestHeading;
+      }
+      // Muy lejos de la ruta: no hacer snap
+    }
 
+    return undefined;
+  }, [markerPositionLatLng, routeCoordinates, toHeading, distanceToSegment]);
+
+  /**
+   * ✅ MEJORADO: Cálculo de heading con velocidad y cardinalización
+   */
   const resolvedMarkerHeading = useMemo(() => {
     if (effectiveMarkerType !== 'car') {
       markerHeadingCacheRef.current = { coord: markerPositionLatLng ?? null, heading: null };
@@ -660,13 +876,15 @@ export default function GoogleMap({
     }
 
     const incoming = markerVehicleHeading;
+    // ✅ Intentar extraer velocidad si está disponible (desde props futuras)
+    const speed = undefined; // TODO: pasar como prop si está disponible
 
     if (!markerPositionLatLng) {
       const normalized = typeof incoming === 'number' && Number.isFinite(incoming)
         ? normalizeHeading(incoming)
         : null;
       markerHeadingCacheRef.current = { coord: null, heading: normalized };
-      const smoothed = applyHeadingSmoothing(normalized ?? undefined);
+      const smoothed = applyHeadingSmoothing(normalized ?? undefined, speed);
       return smoothed ?? undefined;
     }
 
@@ -675,6 +893,7 @@ export default function GoogleMap({
     if (typeof incoming === 'number' && Number.isFinite(incoming)) {
       candidate = normalizeHeading(incoming);
     } else if (typeof routeHeadingAtMarker === 'number' && Number.isFinite(routeHeadingAtMarker)) {
+      // ✅ Priorizar heading de ruta cuando estamos cerca de ella
       candidate = normalizeHeading(routeHeadingAtMarker);
     } else {
       const cache = markerHeadingCacheRef.current;
@@ -685,9 +904,16 @@ export default function GoogleMap({
       }
     }
 
-    const smoothed = applyHeadingSmoothing(candidate);
+    const smoothed = applyHeadingSmoothing(candidate, speed);
     const headingToPersist = smoothed ?? candidate ?? markerHeadingCacheRef.current.heading ?? null;
     markerHeadingCacheRef.current = { coord: markerPositionLatLng, heading: headingToPersist };
+    
+    // ✅ Log de punto cardinal para debugging (opcional)
+    if (typeof headingToPersist === 'number' && __DEV__) {
+      const cardinal = headingToCardinal(headingToPersist);
+      // console.log(`🧭 Heading: ${headingToPersist.toFixed(0)}° (${cardinal})`);
+    }
+    
     return smoothed ?? candidate ?? undefined;
   }, [markerPositionLatLng, markerVehicleHeading, effectiveMarkerType, routeHeadingAtMarker, toHeading]);
 
@@ -770,14 +996,29 @@ export default function GoogleMap({
       .join('|');
   }, [markersToFit]);
 
+  const computeCentroid = useCallback((coords: LatLng[]): LatLng => {
+    const accumulator = coords.reduce(
+      (acc, coord) => {
+        acc.latitude += coord.latitude;
+        acc.longitude += coord.longitude;
+        return acc;
+      },
+      { latitude: 0, longitude: 0 },
+    );
+    const count = coords.length || 1;
+    return {
+      latitude: accumulator.latitude / count,
+      longitude: accumulator.longitude / count,
+    };
+  }, []);
+
   useEffect(() => {
-    const map = mapRef.current;
     if (!autoFitEnabled) {
       lastFitSignatureRef.current = '';
       return;
     }
 
-    if (!map || markersToFit.length === 0 || selectedRideRequestId) {
+    if (markersToFit.length === 0 || selectedRideRequestId) {
       return;
     }
 
@@ -787,29 +1028,14 @@ export default function GoogleMap({
 
     lastFitSignatureRef.current = cameraFitSignature;
 
-    if (markersToFit.length === 1) {
-      const coord = markersToFit[0];
-      map.animateToRegion(
-        {
-          latitude: coord.latitude,
-          longitude: coord.longitude,
-          latitudeDelta: 0.01,
-          longitudeDelta: 0.01,
-        },
-        500,
-      );
-      return;
-    }
-
-    setTimeout(() => {
-      map.fitToCoordinates(markersToFit, {
-        edgePadding: EDGE_PADDING,
-        animated: true,
-      });
-    }, 350);
-  }, [markersToFit, selectedRideRequestId, cameraFitSignature, autoFitEnabled]);
+    const targetCenter = markersToFit.length === 1 ? markersToFit[0] : computeCentroid(markersToFit);
+    applyCamera({ center: targetCenter, altitudeMeters: defaultCameraSettings.altitude }, 420);
+  }, [markersToFit, selectedRideRequestId, cameraFitSignature, autoFitEnabled, computeCentroid, applyCamera, defaultCameraSettings.altitude]);
 
   const handleMapPress = (event: MapPressEvent) => {
+    if (disableMarkerPress || gestureActiveRef.current) {
+      return;
+    }
     if (!onMapPress) return;
     const { latitude: lat, longitude: lng } = event.nativeEvent.coordinate;
     onMapPress({ latitude: lat, longitude: lng });
@@ -826,24 +1052,9 @@ export default function GoogleMap({
 
   const animateCameraToCoordinate = useCallback(
     (coord: LatLng, duration: number = 220) => {
-      const map = mapRef.current as any;
-      if (!map) return;
-
-      if (typeof map.animateCamera === 'function') {
-        map.animateCamera({ center: coord }, { duration });
-      } else if (typeof map.animateToRegion === 'function') {
-        map.animateToRegion(
-          {
-            latitude: coord.latitude,
-            longitude: coord.longitude,
-            latitudeDelta: 0.01,
-            longitudeDelta: 0.01,
-          },
-          duration,
-        );
-      }
+      applyCamera({ center: coord, altitudeMeters: lastCameraAltitudeRef.current }, duration);
     },
-    [],
+    [applyCamera, lastCameraAltitudeRef],
   );
 
   const markerDragFollowThrottleRef = useRef<number>(0);
@@ -876,6 +1087,27 @@ export default function GoogleMap({
     animateCameraToCoordinate(event.nativeEvent.coordinate, 260);
   };
 
+  const handleRegionChange = useCallback(
+    (region: Region) => {
+      markGestureActive();
+      if (onRegionChangeCenter) {
+        onRegionChangeCenter({ latitude: region.latitude, longitude: region.longitude, altitude: lastCameraAltitudeRef.current });
+      }
+    },
+    [markGestureActive, onRegionChangeCenter],
+  );
+
+  const handleRegionChangeComplete = useCallback(
+    async (region: Region) => {
+      markGestureActive();
+      const altitude = (await updateAltitudeFromCamera()) ?? lastCameraAltitudeRef.current;
+      if (onRegionChangeCompleteCenter) {
+        onRegionChangeCompleteCenter({ latitude: region.latitude, longitude: region.longitude, altitude });
+      }
+    },
+    [markGestureActive, updateAltitudeFromCamera, onRegionChangeCompleteCenter],
+  );
+
   return (
     <View style={[styles.container, style]}>
       <MapView
@@ -886,23 +1118,16 @@ export default function GoogleMap({
         showsMyLocationButton
         showsCompass
         showsTraffic={trafficEnabled}
-        initialRegion={{
-          latitude,
-          longitude,
-          latitudeDelta: 0.0922,
-          longitudeDelta: 0.0421,
+        initialCamera={{
+          center: { latitude, longitude },
+          altitude: defaultCameraSettings.altitude,
+          zoom: defaultCameraSettings.zoom,
+          pitch: 0,
+          heading: 0,
         }}
         onPress={handleMapPress}
-        onRegionChange={(region: Region) => {
-          if (onRegionChangeCenter) {
-            onRegionChangeCenter({ latitude: region.latitude, longitude: region.longitude });
-          }
-        }}
-        onRegionChangeComplete={(region: Region) => {
-          if (onRegionChangeCompleteCenter) {
-            onRegionChangeCompleteCenter({ latitude: region.latitude, longitude: region.longitude });
-          }
-        }}
+        onRegionChange={handleRegionChange}
+        onRegionChangeComplete={handleRegionChangeComplete}
         mapType={mapType || 'standard'}
         customMapStyle={Array.isArray(resolvedMapStyle) ? resolvedMapStyle : LIGHT_MAP_STYLE}
       >

@@ -499,6 +499,7 @@ async function handleLocationForProximity(
       
       // 1. Notificación local (administrada con auto-dismiss)
       try {
+        console.log('🔔 [proximity] ANTES de showManagedNotification...');
         await notificationService.showManagedNotification(
           'Solicitud cercana',
           `${distance}m • C$${price} • ${closest.origin.address || 'Cerca de ti'}`,
@@ -509,6 +510,7 @@ async function handleLocationForProximity(
         console.log('📢 [proximity] Notificación administrada mostrada (120s auto-dismiss)');
       } catch (error) {
         console.error('❌ [proximity] Error mostrando notificación:', error);
+        console.error('❌ [proximity] Error stack:', error instanceof Error ? error.stack : 'No stack');
       }
       
       await AsyncStorage.setItem(STORAGE_KEYS.lastRideId, closest.id);
@@ -536,12 +538,16 @@ async function handleLocationForProximity(
             clientName: clientDisplayName,
           };
           console.log('🫧 [proximity] Llamando a overlayManager.showRideOverlay con:', overlayData);
+          console.log('🫧 [proximity] overlayManager object:', overlayManager);
+          console.log('🫧 [proximity] showRideOverlay function:', typeof overlayManager.showRideOverlay);
           
           try {
-            await overlayManager.showRideOverlay(overlayData);
-            console.log('✅ [proximity] overlayManager.showRideOverlay() completado');
+            console.log('🫧 [proximity] ANTES de await overlayManager.showRideOverlay()');
+            const result = await overlayManager.showRideOverlay(overlayData);
+            console.log('✅ [proximity] overlayManager.showRideOverlay() completado con result:', result);
           } catch (error) {
             console.error('❌ [proximity] Error mostrando overlay:', error);
+            console.error('❌ [proximity] Error stack:', error instanceof Error ? error.stack : 'No stack');
           }
         } else {
           console.warn('⚠️ [proximity] No hay permiso de overlay - solo notificación');

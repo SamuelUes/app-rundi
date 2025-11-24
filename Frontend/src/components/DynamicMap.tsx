@@ -35,8 +35,8 @@ interface DynamicMapProps {
   style?: any;
   onMapPress?: (event: { latitude: number; longitude: number }) => void;
   // Center coordinate callbacks when the camera/region changes
-  onRegionChangeCenter?: (center: { latitude: number; longitude: number }) => void;
-  onRegionChangeCompleteCenter?: (center: { latitude: number; longitude: number }) => void;
+  onRegionChangeCenter?: (center: { latitude: number; longitude: number; altitude?: number }) => void;
+  onRegionChangeCompleteCenter?: (center: { latitude: number; longitude: number; altitude?: number }) => void;
   onDriverPress?: (driverId: string) => void; // when user taps a driver marker
   showMarker?: boolean;
   markerPosition?: { latitude: number; longitude: number };
@@ -73,6 +73,7 @@ interface DynamicMapProps {
   originLabel?: string;
   destinationLabel?: string;
   showPinBubbles?: boolean;
+  disableMarkerPress?: boolean;
 }
 
 /**
@@ -137,6 +138,7 @@ function DynamicMapComponent({
         onMarkerDragStart={onMarkerDragStart}
         manualOriginIcon={manualOriginIcon}
         manualOriginHoldIcon={manualOriginHoldIcon}
+        disableMarkerPress={!!restProps.disableMarkerPress}
       />
     );
   }

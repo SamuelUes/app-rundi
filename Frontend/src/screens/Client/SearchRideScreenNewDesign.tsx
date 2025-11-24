@@ -191,6 +191,9 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
   const [manualOriginAddress, setManualOriginAddress] = useState('');
   const [manualOriginLoading, setManualOriginLoading] = useState(false);
   const [manualOriginDragging, setManualOriginDragging] = useState(false);
+  const [manualDestinationDraft, setManualDestinationDraft] = useState<Coords | null>(null);
+  const [manualDestinationLoading, setManualDestinationLoading] = useState(false);
+  const [manualDestinationDragging, setManualDestinationDragging] = useState(false);
 
   const [estimatedDistance, setEstimatedDistance] = useState(0);
   const [estimatedDuration, setEstimatedDuration] = useState(0);
@@ -246,7 +249,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
       message = 'Mueve el mapa hasta tu punto de partida.';
     } else if (mapSelectionMode === 'destination') {
       title = 'Selecciona tu destino';
-      message = 'Toca el mapa para elegir tu destino final.';
+      message = 'Mueve el mapa hasta tu destino final.';
     } else if (mapSelectionMode === 'extra-new') {
       title = 'Nueva parada';
       message = `Toca el mapa para agregar la parada ${extraDestinations.length + 1}.`;
@@ -293,6 +296,23 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
       }
     }
   }, [originCoords, coords, manualOriginDraft, manualOriginAddress, origin]);
+
+  useEffect(() => {
+    if (mapSelectionMode === 'destination') {
+      setManualDestinationDragging(false);
+      if (!manualDestinationDraft) {
+        const baseDestination =
+          destinationCoords ??
+          manualOriginDraft ??
+          originCoords ??
+          coords ??
+          DEFAULT_FALLBACK_COORDS;
+        setManualDestinationDraft(baseDestination);
+      }
+    } else if (manualDestinationDragging) {
+      setManualDestinationDragging(false);
+    }
+  }, [mapSelectionMode, manualDestinationDraft, destinationCoords, manualOriginDraft, originCoords, coords, manualDestinationDragging]);
 
   useEffect(() => {
     if (vehicleType === 'moto' && passengersByVehicle.moto > 1) {
@@ -570,6 +590,9 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         }
         setDestination(sanitizedLabel);
         setDestinationCoords(coordsValue);
+        setManualDestinationDraft(null);
+        setManualDestinationLoading(false);
+        setManualDestinationDragging(false);
         rememberRecentLocation(sanitizedLabel, coordsValue);
         await recomputeRouteWith(undefined, coordsValue, undefined);
         return;
@@ -767,18 +790,12 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
 
   const handleMapPress = useCallback(
     async (event: { latitude: number; longitude: number }) => {
-      if (mapSelectionMode === 'origin') {
+      if (mapSelectionMode === 'origin' || mapSelectionMode === 'destination') {
         // In origin selection mode, we use center-pin + region change, so ignore taps
         return;
       }
       const selectedPoint: Coords = { latitude: event.latitude, longitude: event.longitude };
       const address = (await mapsService.reverseGeocode(selectedPoint)) || formatCoords(selectedPoint);
-
-      if (mapSelectionMode === 'destination') {
-        await applySelectionForTarget('destination', address, selectedPoint);
-        setMapSelectionMode(null);
-        return;
-      }
 
       if (mapSelectionMode === 'extra-new') {
         await applySelectionForTarget('new-stop', address, selectedPoint);
@@ -917,55 +934,99 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
   // Static center-pin selection (only for origin)
   const lastAppliedOriginCenterRef = useRef<Coords | null>(null);
   const originCenterDebounceRef = useRef<any>(null);
+  const lastAppliedDestinationCenterRef = useRef<Coords | null>(null);
+  const destinationCenterDebounceRef = useRef<any>(null);
 
   const handleRegionChangeCenter = useCallback(
     (center: Coords) => {
-      if (mapSelectionMode !== 'origin') return;
-      setManualOriginDragging(true);
-      setManualOriginDraft(center);
+      if (mapSelectionMode === 'origin') {
+        setManualOriginDragging(true);
+        setManualOriginDraft(center);
+      } else if (mapSelectionMode === 'destination') {
+        setManualDestinationDragging(true);
+        setManualDestinationDraft(center);
+      }
     },
     [mapSelectionMode],
   );
 
   const handleRegionChangeCompleteCenter = useCallback(
     (center: Coords) => {
-      if (mapSelectionMode !== 'origin') return;
-      setManualOriginDragging(false);
-      if (originCenterDebounceRef.current) clearTimeout(originCenterDebounceRef.current);
-      originCenterDebounceRef.current = setTimeout(async () => {
-        const last = lastAppliedOriginCenterRef.current;
-        if (last && metersBetween(last, center) < 20) return; // ignore tiny moves
-        setManualOriginLoading(true);
+      if (mapSelectionMode === 'origin') {
+        setManualOriginDragging(false);
+        if (originCenterDebounceRef.current) clearTimeout(originCenterDebounceRef.current);
+        originCenterDebounceRef.current = setTimeout(async () => {
+          const last = lastAppliedOriginCenterRef.current;
+          if (last && metersBetween(last, center) < 20) return; // ignore tiny moves
+          setManualOriginLoading(true);
+          try {
+            const coordLabel = formatCoords(center);
+            let address: string | null = null;
+            try {
+              address = await mapsService.reverseGeocode(center);
+            } catch (reverseError) {
+              console.warn('reverseGeocode origin (center pin) failed', reverseError);
+            }
+            const displayAddress = address?.trim()?.length ? address : coordLabel;
+
+            setManualOriginAddress(displayAddress);
+            setOriginCoords(center);
+            setOrigin(displayAddress);
+            rememberRecentLocation(displayAddress, center);
+            lastAppliedOriginCenterRef.current = center;
+            await recomputeRouteWith(center, undefined, undefined);
+            promptDestinationSelection();
+          } catch (err) {
+            console.warn('center-pin origin selection failed', err);
+            const fallback = formatCoords(center);
+            setManualOriginAddress(fallback);
+            setOriginCoords(center);
+            setOrigin(fallback);
+            rememberRecentLocation(fallback, center);
+            await recomputeRouteWith(center, undefined, undefined);
+            promptDestinationSelection();
+          } finally {
+            setManualOriginLoading(false);
+            setMapSelectionMode(null);
+            setManualOriginDraft(null);
+          }
+        }, 300);
+        return;
+      }
+
+      if (mapSelectionMode !== 'destination') return;
+      setManualDestinationDragging(false);
+      if (destinationCenterDebounceRef.current) clearTimeout(destinationCenterDebounceRef.current);
+      destinationCenterDebounceRef.current = setTimeout(async () => {
+        const last = lastAppliedDestinationCenterRef.current;
+        if (last && metersBetween(last, center) < 20) return;
+        setManualDestinationLoading(true);
         try {
           const coordLabel = formatCoords(center);
           let address: string | null = null;
           try {
             address = await mapsService.reverseGeocode(center);
           } catch (reverseError) {
-            console.warn('reverseGeocode origin (center pin) failed', reverseError);
+            console.warn('reverseGeocode destination (center pin) failed', reverseError);
           }
           const displayAddress = address?.trim()?.length ? address : coordLabel;
 
-          setManualOriginAddress(displayAddress);
-          setOriginCoords(center);
-          setOrigin(displayAddress);
+          setDestination(displayAddress);
+          setDestinationCoords(center);
           rememberRecentLocation(displayAddress, center);
-          lastAppliedOriginCenterRef.current = center;
-          await recomputeRouteWith(center, undefined, undefined);
-          promptDestinationSelection();
+          lastAppliedDestinationCenterRef.current = center;
+          await recomputeRouteWith(undefined, center, undefined);
         } catch (err) {
-          console.warn('center-pin origin selection failed', err);
+          console.warn('center-pin destination selection failed', err);
           const fallback = formatCoords(center);
-          setManualOriginAddress(fallback);
-          setOriginCoords(center);
-          setOrigin(fallback);
+          setDestination(fallback);
+          setDestinationCoords(center);
           rememberRecentLocation(fallback, center);
-          await recomputeRouteWith(center, undefined, undefined);
-          promptDestinationSelection();
+          await recomputeRouteWith(undefined, center, undefined);
         } finally {
-          setManualOriginLoading(false);
+          setManualDestinationLoading(false);
           setMapSelectionMode(null);
-          setManualOriginDraft(null);
+          setManualDestinationDraft(null);
         }
       }, 300);
     },
@@ -1142,10 +1203,25 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
       return { ...prev, [type]: newValue };
     });
   };
+
   const selectedVehicleOption = useMemo(() => vehicleOptions.find((option) => option.type === vehicleType) || vehicleOptions[0], [vehicleOptions, vehicleType]);
   const hasRouteSelection = !!originCoords && !!destinationCoords;
   const hasRouteMetrics = hasRouteSelection && estimatedDistance > 0 && estimatedDuration > 0 && estimatedPrice > 0;
-  const bottomPanelReady = hasRouteMetrics && !calculatingRoute && mapSelectionMode !== 'origin' && !manualOriginDragging;
+  const centerPinActive = mapSelectionMode === 'origin' || mapSelectionMode === 'destination';
+  const autoFitEnabled =
+    !centerPinActive &&
+    !manualOriginDragging &&
+    !manualOriginLoading &&
+    !manualDestinationDragging &&
+    !manualDestinationLoading;
+  const bottomPanelReady =
+    hasRouteMetrics &&
+    !calculatingRoute &&
+    !centerPinActive &&
+    !manualOriginDragging &&
+    !manualDestinationDragging &&
+    !manualOriginLoading &&
+    !manualDestinationLoading;
   const bottomPanelTranslate = useMemo(
     () =>
       bottomPanelAnim.interpolate({
@@ -1177,9 +1253,9 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
           latitude={(originCoords || coords)?.latitude || DEFAULT_FALLBACK_COORDS.latitude}
           longitude={(originCoords || coords)?.longitude || DEFAULT_FALLBACK_COORDS.longitude}
           onMapPress={({ latitude, longitude }) => handleMapPress({ latitude, longitude })}
-          onRegionChangeCenter={mapSelectionMode === 'origin' ? handleRegionChangeCenter : undefined}
-          onRegionChangeCompleteCenter={mapSelectionMode === 'origin' ? handleRegionChangeCompleteCenter : undefined}
-          autoFitEnabled={mapSelectionMode !== 'origin' && !manualOriginDragging && !manualOriginLoading}
+          onRegionChangeCenter={centerPinActive ? handleRegionChangeCenter : undefined}
+          onRegionChangeCompleteCenter={centerPinActive ? handleRegionChangeCompleteCenter : undefined}
+          autoFitEnabled={autoFitEnabled}
           destinationMarker={destinationCoords || undefined}
           extraStopMarkers={extraDestinations
             .map((stop, index) => (stop.coords ? { latitude: stop.coords.latitude, longitude: stop.coords.longitude, index } : null))
@@ -1188,7 +1264,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
           showUserLocation
           userLocation={coords || undefined}
           showTraffic
-          showMarker={mapSelectionMode !== 'origin'}
+          showMarker={!centerPinActive}
           markerPosition={manualOriginMarkerPosition}
           markerType="manual_origin"
           draggableMarker
@@ -1197,10 +1273,16 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
           onMarkerDragStart={handleManualOriginDragStart}
           onMarkerDragEnd={handleManualOriginDragEnd}
         />
-        {mapSelectionMode === 'origin' && (
+        {centerPinActive && (
           <View pointerEvents="none" style={styles.centerPinContainer}>
             <Image
-              source={manualOriginDragging ? MANUAL_ORIGIN_HOLD_ICON : MANUAL_ORIGIN_ICON}
+              source={
+                mapSelectionMode === 'origin'
+                  ? manualOriginDragging
+                    ? MANUAL_ORIGIN_HOLD_ICON
+                    : MANUAL_ORIGIN_ICON
+                  : DESTINATION_PIN_ICON
+              }
               style={styles.centerPinImage}
               resizeMode="contain"
             />
@@ -1221,8 +1303,9 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
               label = manualOriginLoading ? 'Buscando dirección…' : manualOriginAddress || 'Selecciona el origen';
               if (manualOriginDraft) subtitle = formatCoords(manualOriginDraft);
             } else if (row.kind === 'destination') {
-              label = destination || 'Selecciona tu destino';
-              if (destinationCoords) subtitle = formatCoords(destinationCoords);
+              label = manualDestinationLoading ? 'Buscando dirección…' : destination || 'Selecciona tu destino';
+              if (manualDestinationDraft && mapSelectionMode === 'destination') subtitle = formatCoords(manualDestinationDraft);
+              else if (destinationCoords) subtitle = formatCoords(destinationCoords);
             } else if (typeof row.index === 'number') {
               const stop = extraDestinations[row.index];
               label = stop?.address || `Parada ${row.index + 1}`;
@@ -1661,7 +1744,7 @@ function createStyles(colors: any, isDark: boolean = false) {
       width: 48,
       height: 48,
       borderRadius: 24,
-      backgroundColor: colors.card || '#fff',
+      backgroundColor: isDark ? '#2a2a2a' : colors.card || '#fff',
       alignItems: 'center',
       justifyContent: 'center',
       shadowColor: '#000',
@@ -1848,7 +1931,7 @@ function createStyles(colors: any, isDark: boolean = false) {
     },
     vehicleOptionCardSelected: {
       borderColor: isDark ? '#9e8e7a' : '#cfa146',
-      backgroundColor: isDark ? '#3a3520' : '#fff7df',
+      backgroundColor: isDark ? 'rgb(206, 161, 106)'  : '#fff7df',
       shadowColor: '#cfa146',
       shadowOpacity: Platform.OS === 'ios' ? 0.12 : 0,
       shadowRadius: 8,
@@ -1859,22 +1942,22 @@ function createStyles(colors: any, isDark: boolean = false) {
     vehicleOptionTitleBlock: { flex: 1, gap: 2 },
     vehicleOptionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     vehicleOptionIconBubble: {
-      width: 36,
-      height: 36,
-      borderRadius: 18,
-      backgroundColor: '#fff',
+      width: 46,
+      height: 46,
+      borderRadius: 28,
+    //  backgroundColor: '#fff',
       alignItems: 'center',
       justifyContent: 'center',
-      shadowColor: '#000',
+      shadowColor: 'rgba(107, 78, 35, 0.12)',
       shadowOpacity: Platform.OS === 'ios' ? 0.05 : 0,
       shadowRadius: 4,
       shadowOffset: { width: 0, height: 2 },
       elevation: 2,
     },
     vehicleEmoji: { fontSize: 20 },
-    vehicleOptionTitle: { fontSize: 15, fontWeight: '700', color: colors.text || '#111' },
+    vehicleOptionTitle: { fontSize: 20, fontWeight: '700', color: colors.text || '#111' },
     vehicleOptionTitleSelected: { color: '#111' },
-    vehicleOptionSubtitle: { fontSize: 11, color: colors.textSecondary || '#666', marginTop: 1 },
+    vehicleOptionSubtitle: { fontSize: 16, color: colors.textSecondary || '#666', marginTop: 1 },
     vehicleOptionSubtitleSelected: { color: '#222' },
     vehicleOptionPriceBlock: { alignItems: 'flex-end', gap: 6 },
     vehicleOptionBadge: {
@@ -1882,15 +1965,15 @@ function createStyles(colors: any, isDark: boolean = false) {
       paddingVertical: 2,
       borderRadius: 999,
       backgroundColor: '#f3c168',
-      fontSize: 9,
+      fontSize: 15,
       fontWeight: '700',
       color: '#3b2b0f',
       textTransform: 'uppercase',
       letterSpacing: 0.5,
     },
-    vehicleOptionPrice: { fontSize: 17, fontWeight: '800', color: '#c87a1a' },
+    vehicleOptionPrice: { fontSize: 20, fontWeight: '800', color: '#c87a1a' },
     vehicleOptionInfoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 },
-    vehicleOptionMeta: { fontSize: 11, color: colors.textSecondary || '#666', flex: 1 },
+    vehicleOptionMeta: { fontSize: 12, color: colors.textSecondary || '#666', flex: 1 },
     vehicleOptionMetaSelected: { color: '#222' },
     vehicleOptionPassengerControls: { flexDirection: 'row', alignItems: 'center', gap: 6 },
     vehicleOptionCounterBtn: {
@@ -1902,12 +1985,12 @@ function createStyles(colors: any, isDark: boolean = false) {
       justifyContent: 'center',
     },
     vehicleOptionCounterBtnDisabled: { opacity: 0.3 },
-    vehicleOptionCounterText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+    vehicleOptionCounterText: { color: '#fff', fontSize: 22, fontWeight: '700' },
     vehicleOptionPassengerCount: { flexDirection: 'row', alignItems: 'center', gap: 3, minWidth: 38, justifyContent: 'center' },
     vehicleOptionPassengerDisplay: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-    vehicleOptionPassengerValue: { fontSize: 13, fontWeight: '700', color: colors.text || '#111' },
+    vehicleOptionPassengerValue: { fontSize: 15, fontWeight: '700', color: colors.text || '#111' },
     vehicleOptionPassengerValueSelected: { color: '#111' },
-    vehicleOptionPassengerIcon: { fontSize: 13 },
+    vehicleOptionPassengerIcon: { fontSize: 15 },
     vehicleRecommendationStrip: {
       marginTop: 10,
       paddingVertical: 7,
@@ -1918,8 +2001,8 @@ function createStyles(colors: any, isDark: boolean = false) {
       justifyContent: 'space-between',
       alignItems: 'center',
     },
-    vehicleRecommendationLabel: { fontSize: 11, fontWeight: '600', color: '#6b5223' },
-    vehicleRecommendationValue: { fontSize: 13, fontWeight: '800', color: '#b86d17' },
+    vehicleRecommendationLabel: { fontSize: 14, fontWeight: '600', color: '#6b5223' },
+    vehicleRecommendationValue: { fontSize: 16, fontWeight: '800', color: '#b86d17' },
 
     photoRow: { marginTop: 8 },
     photoHint: { fontSize: 12, color: colors.textSecondary || '#666', marginBottom: 8, textAlign: 'center' },
@@ -1946,7 +2029,7 @@ function createStyles(colors: any, isDark: boolean = false) {
     estimateText: { marginLeft: 8, color: colors.textSecondary || '#666' },
     estimateRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 },
     estimateLabel: { color: colors.textSecondary || '#666' },
-    estimateValue: { color: colors.text || '#111', fontWeight: '700' },
+    estimateValue: { color: colors.text || '#111', fontWeight: '700' , fontSize: 20},
 
     paymentRow: { flexDirection: 'row', justifyContent: 'center', gap: 8, marginVertical: 6 },
     paymentChip: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 16, backgroundColor: colors.surface || '#eee' },

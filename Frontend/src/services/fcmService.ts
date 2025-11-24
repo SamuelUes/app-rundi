@@ -41,8 +41,47 @@ try {
               id: remoteMessage?.messageId,
               data: remoteMessage?.data,
             });
+            
+            // Mostrar notificación local en la bandeja del sistema
+            const { notification, data } = remoteMessage;
+            
+            // Construir título y cuerpo desde data si notification está vacío
+            let title = notification?.title || '';
+            let body = notification?.body || '';
+            
+            if (!title && data?.type === 'ride_requested') {
+              title = 'Nueva solicitud de viaje';
+              body = 'Tienes una solicitud de viaje cercana';
+            } else if (!title && data?.type === 'proximity_ride') {
+              title = 'Solicitud cercana';
+              body = 'Hay una solicitud de viaje cerca de ti';
+            } else if (!title) {
+              title = 'Nueva notificación';
+              body = 'Tienes una nueva notificación';
+            }
+            
+            try {
+              console.log('🔔 Mostrando notificación en background:', { title, body, data });
+              
+              // Usar directamente Expo Notifications en background
+              await Notifications.scheduleNotificationAsync({
+                content: {
+                  title,
+                  body,
+                  data: data || {},
+                  sound: 'default',
+                  priority: Notifications.AndroidNotificationPriority.MAX,
+                  vibrate: [0, 250, 250, 250],
+                },
+                trigger: null, // Mostrar inmediatamente
+              });
+              
+              console.log('✅ Notificación local mostrada en background');
+            } catch (notifError) {
+              console.error('❌ Error mostrando notificación local en background:', notifError);
+            }
           } catch (logError) {
-            console.warn('⚠️ Error registrando log de background message:', logError);
+            console.warn('⚠️ Error en background message handler:', logError);
           }
         }
       );
@@ -56,8 +95,47 @@ try {
             id: remoteMessage?.messageId,
             data: remoteMessage?.data,
           });
+          
+          // Mostrar notificación local en la bandeja del sistema
+          const { notification, data } = remoteMessage;
+          
+          // Construir título y cuerpo desde data si notification está vacío
+          let title = notification?.title || '';
+          let body = notification?.body || '';
+          
+          if (!title && data?.type === 'ride_requested') {
+            title = 'Nueva solicitud de viaje';
+            body = 'Tienes una solicitud de viaje cercana';
+          } else if (!title && data?.type === 'proximity_ride') {
+            title = 'Solicitud cercana';
+            body = 'Hay una solicitud de viaje cerca de ti';
+          } else if (!title) {
+            title = 'Nueva notificación';
+            body = 'Tienes una nueva notificación';
+          }
+          
+          try {
+            console.log('🔔 Mostrando notificación en background (compat):', { title, body, data });
+            
+            // Usar directamente Expo Notifications en background
+            await Notifications.scheduleNotificationAsync({
+              content: {
+                title,
+                body,
+                data: data || {},
+                sound: 'default',
+                priority: Notifications.AndroidNotificationPriority.MAX,
+                vibrate: [0, 250, 250, 250],
+              },
+              trigger: null, // Mostrar inmediatamente
+            });
+            
+            console.log('✅ Notificación local mostrada en background (compat)');
+          } catch (notifError) {
+            console.error('❌ Error mostrando notificación local en background (compat):', notifError);
+          }
         } catch (logError) {
-          console.warn('⚠️ Error registrando log de background message (compat):', logError);
+          console.warn('⚠️ Error en background message handler (compat):', logError);
         }
       });
     } catch (fallbackError) {
@@ -381,13 +459,66 @@ class FCMService {
   /**
    * Manejar tap en notificación
    */
-  private handleNotificationTap(remoteMessage: any): void {
+  private async handleNotificationTap(remoteMessage: any): Promise<void> {
     const { data } = remoteMessage;
+    console.log('👆 Tap en notificación FCM:', data);
 
-    if (data?.rideId) {
-      // Navegar a pantalla del viaje
-      // Esto se implementará en el NavigationService
-      console.log('🧭 Navegando a viaje:', data.rideId);
+    if (!data?.rideId) {
+      console.warn('⚠️ No rideId en notificación');
+      return;
+    }
+
+    try {
+      // Importar dinámicamente para evitar dependencias circulares
+      const { navigate, navigationRef } = await import('../navigation/NavigationService');
+      const { getDatabase, ref, get } = await import('firebase/database');
+
+      // Esperar a que navigation esté listo
+      const maxWait = 3000;
+      const startTime = Date.now();
+      while (!navigationRef.isReady() && Date.now() - startTime < maxWait) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+
+      if (!navigationRef.isReady()) {
+        console.warn('⚠️ Navigation no está listo después de 3s');
+        return;
+      }
+
+      // Obtener datos del viaje desde Firebase
+      const db = getDatabase();
+      const rideRef = ref(db, `activeRides/${data.rideId}`);
+      const snapshot = await get(rideRef);
+
+      if (!snapshot.exists()) {
+        console.warn('⚠️ Ride no encontrado:', data.rideId);
+        return;
+      }
+
+      const rideData = snapshot.val();
+
+      // Construir objeto de viaje para RidePreviewScreen
+      const ride = {
+        id: data.rideId,
+        clientId: rideData.clientId || '',
+        clientName: rideData.clientName,
+        clientPhone: rideData.clientPhone,
+        origin: rideData.origin || { lat: 0, lng: 0 },
+        destination: rideData.destination || { lat: 0, lng: 0 },
+        extraDestinations: rideData.extraDestinations || [],
+        estimatedPrice: rideData.estimatedPrice || 0,
+        estimatedDistance: rideData.estimatedDistance,
+        estimatedDuration: rideData.estimatedDuration,
+        clientSuggestedPrice: rideData.clientSuggestedPrice,
+        driverOfferedPrice: rideData.driverOfferedPrice,
+        paymentMethod: rideData.paymentMethod || 'cash',
+        negotiationStatus: rideData.negotiationStatus,
+      };
+
+      console.log('🚀 [FCM] Navegando a RidePreview:', ride.id);
+      navigate('RidePreview', { ride, proximity: true });
+    } catch (error) {
+      console.error('❌ Error manejando tap en notificación:', error);
     }
   }
   /**

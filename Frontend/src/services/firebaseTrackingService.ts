@@ -22,9 +22,17 @@ interface HeadingCacheEntry {
   lat: number;
   lng: number;
   heading: number | null;
+  timestamp: number;
+  speed?: number;
 }
 
-const driverHeadingCache: Record<string, HeadingCacheEntry> = {};
+// ✅ Cache histórico mejorado: mantiene últimas 3 posiciones para mejor cálculo
+interface HeadingHistory {
+  points: HeadingCacheEntry[];
+  maxPoints: number;
+}
+
+const driverHeadingCache: Record<string, HeadingHistory> = {};
 
 interface Destination {
   lat: number;
@@ -76,7 +84,7 @@ class FirebaseTrackingService {
   }
 
   /**
-   * Actualizar ubicación del conductor
+   * ✅ MEJORADO: Actualizar ubicación del conductor con cache histórico
    */
   async updateDriverLocation(
     driverId: string,
@@ -94,31 +102,45 @@ class FirebaseTrackingService {
     };
 
     const computeHeading = (): number | null => {
+      // ✅ Prioridad 1: Usar heading del GPS si está disponible
       if (typeof location.heading === 'number' && Number.isFinite(location.heading)) {
         return normalizeHeading(location.heading);
       }
 
-      const previous = driverHeadingCache[driverId];
-      if (!previous) {
+      // ✅ Prioridad 2: Calcular desde historial de puntos
+      const history = driverHeadingCache[driverId];
+      if (!history || history.points.length === 0) {
         return null;
+      }
+
+      // ✅ Umbral de velocidad: ignorar si está muy lento
+      const speed = location.speed || 0;
+      if (speed < 1.5) {
+        // Muy lento: mantener último heading conocido
+        const lastPoint = history.points[history.points.length - 1];
+        return lastPoint?.heading ?? null;
       }
 
       const toRad = (deg: number) => (deg * Math.PI) / 180;
       const toDeg = (rad: number) => (rad * 180) / Math.PI;
 
-      const lat1 = toRad(previous.lat);
+      // ✅ Usar el punto más antiguo del historial para mejor cálculo
+      const oldestPoint = history.points[0];
+      const lat1 = toRad(oldestPoint.lat);
       const lat2 = toRad(location.latitude);
-      const dLon = toRad(location.longitude - previous.lng);
+      const dLon = toRad(location.longitude - oldestPoint.lng);
 
       const y = Math.sin(dLon) * Math.cos(lat2);
       const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
 
+      // Sin movimiento significativo: mantener último heading
       if (Math.abs(x) < 1e-12 && Math.abs(y) < 1e-12) {
-        return previous.heading ?? null;
+        const lastPoint = history.points[history.points.length - 1];
+        return lastPoint?.heading ?? null;
       }
 
       const bearing = normalizeHeading(toDeg(Math.atan2(y, x)));
-      return Number.isFinite(bearing) ? bearing : previous.heading ?? null;
+      return Number.isFinite(bearing) ? bearing : null;
     };
 
     try {
@@ -126,12 +148,31 @@ class FirebaseTrackingService {
       const locationRef = ref(database, `driverLocations/${driverId}`);
 
       const resolvedHeading = computeHeading();
+      const timestamp = Date.now();
 
-      driverHeadingCache[driverId] = {
+      // ✅ Inicializar historial si no existe
+      if (!driverHeadingCache[driverId]) {
+        driverHeadingCache[driverId] = {
+          points: [],
+          maxPoints: 3, // Mantener últimas 3 posiciones
+        };
+      }
+
+      const history = driverHeadingCache[driverId];
+
+      // ✅ Agregar nuevo punto al historial
+      history.points.push({
         lat: location.latitude,
         lng: location.longitude,
         heading: resolvedHeading,
-      };
+        timestamp,
+        speed: location.speed,
+      });
+
+      // ✅ Mantener solo las últimas N posiciones
+      if (history.points.length > history.maxPoints) {
+        history.points.shift(); // Eliminar el más antiguo
+      }
 
       await set(locationRef, {
         lat: location.latitude,
@@ -140,10 +181,10 @@ class FirebaseTrackingService {
         heading: resolvedHeading,
         accuracy: location.accuracy || 0,
         status: 'available',
-        lastUpdate: Date.now(),
+        lastUpdate: timestamp,
       });
 
-      console.log(`📍 Ubicación actualizada en Firebase RTDB: ${driverId}`);
+      console.log(`📍 Ubicación actualizada en Firebase RTDB: ${driverId} (heading: ${resolvedHeading?.toFixed(0)}°)`);
     } catch (error) {
       console.error('❌ Error actualizando ubicación:', error);
       throw error;

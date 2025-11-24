@@ -1,6 +1,6 @@
 # Environment files
 # IMPORTANTE: Se ignoran todos los .env EXCEPTO el del Frontend
-.env
+#.env
 #.env.local
 #.env.production
 #.env.*.local

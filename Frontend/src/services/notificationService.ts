@@ -121,15 +121,20 @@ class NotificationService {
 
     try {
       await this.ensureAndroidChannel();
-      const notificationId = await Notifications.presentNotificationAsync({
-        title,
-        body,
-        data: {
-          ...data,
-          notificationKey,
-          expiresInMs: normalizedExpires,
+      const notificationId = await Notifications.scheduleNotificationAsync({
+        content: {
+          title,
+          body,
+          data: {
+            ...data,
+            notificationKey,
+            expiresInMs: normalizedExpires,
+          },
+          sound: 'default',
+          priority: Notifications.AndroidNotificationPriority.MAX,
+          vibrate: [0, 250, 250, 250],
         },
-        sound: 'default',
+        trigger: null, // Mostrar inmediatamente
       });
 
       const timeoutHandle = setTimeout(async () => {

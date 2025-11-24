@@ -370,11 +370,17 @@ async function checkOverlay(): Promise<boolean> {
       return true;
     }
 
+    // Sin permiso → reflejar estado en la preferencia antes de solicitarlo
+    await proximityService.setOverlayEnabled(false);
+    console.log('⚠️ [Preflight] Overlay permission faltante, solicitando al usuario');
+
     const granted = await overlayManager.requestPermission();
     if (granted) {
       // Guardar preferencia cuando el usuario acepta el permiso
       await proximityService.setOverlayEnabled(true);
       console.log('✅ [Preflight] Overlay permission concedido, preferencia guardada');
+    } else {
+      console.warn('❌ [Preflight] Overlay permission denegado por el usuario');
     }
     return granted;
   } catch (error) {

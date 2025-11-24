@@ -1105,12 +1105,10 @@ export default function HomeScreen({ navigation }: any) {
         latitude={effectiveCoords.latitude}
         longitude={effectiveCoords.longitude}
         style={styles.map}
-        showMarker={true}
-        markerPosition={{ latitude: effectiveCoords.latitude, longitude: effectiveCoords.longitude }}
-        markerType="origin"
-        nearbyDrivers={availableDrivers}
+        showUserLocation
+        userLocation={coords || undefined}
+        markerVehicleType="car"
         draggableMarker
-        userLocation={{ latitude: effectiveCoords.latitude, longitude: effectiveCoords.longitude }}
         onMarkerDragEnd={handleManualLocationUpdate}
         userLocationLightIcon={USER_LOCATION_LIGHT_ICON}
         userLocationDarkIcon={USER_LOCATION_DARK_ICON}
