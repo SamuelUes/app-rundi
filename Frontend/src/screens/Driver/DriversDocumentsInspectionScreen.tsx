@@ -24,89 +24,75 @@ interface DriversDocumentsInspectionProps {
 
 export default function DriversDocumentsInspectionScreen({ route, navigation }: DriversDocumentsInspectionProps) {
   const { colors } = useTheme();
-  const { user } = useAuth();
   const styles = useMemo(() => createStyles(colors), [colors]);
   
   const [loading, setLoading] = useState(false);
   const [licensePhotoFront, setLicensePhotoFront] = useState<string | null>(null);
   const [licensePhotoBack, setLicensePhotoBack] = useState<string | null>(null);
-  
+
   const [licenseNumber, setLicenseNumber] = useState('');
   const [licenseExpiry, setLicenseExpiry] = useState('');
-  
+  const [documentsStatus, setDocumentsStatus] = useState<string | null>(null);
+
   const [uploadProgress, setUploadProgress] = useState(0);
+  const { user } = useAuth();
   
   // Solicitar permisos para la cámara
   useEffect(() => {
     (async () => {
-      if (Platform.OS !== 'web') {
-        const { status } = await ImagePicker.requestCameraPermissionsAsync();
-        if (status !== 'granted') {
-          Alert.alert(
-            'Permisos necesarios', 
-            'Se requiere acceso a la cámara para tomar fotos de documentos.'
-          );
-        }
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permiso Requerido', 'Necesitamos acceso a la cámara para tomar fotos de tus documentos.');
       }
     })();
   }, []);
 
-  // Cargar datos existentes del conductor
+  // Cargar datos del conductor si ya existen
   useEffect(() => {
-    const loadDriverData = async () => {
-      try {
-        if (!user?.id) {
-          console.log('⚠️ Usuario no disponible');
-          return;
-        }
-
-        console.log('📋 Cargando datos existentes del conductor:', user.id);
-        setLoading(true);
-
-        // ✅ Obtener perfil del conductor autenticado
-        const profile = await driversService.getMyDriverProfile();
-        
-        // ✅ El servicio retorna directamente el objeto driver, no envuelto
-        if (profile) {
-          console.log('✅ Datos del conductor cargados desde backend:', {
-            license_number: profile.licenseNumber || profile.license_number,
-            license_expiry: profile.licenseExpiry || profile.license_expiry,
-            license_photo_front: (profile.license_photo_front || profile.licensePhotoFront) ? '✅' : '❌',
-            license_photo_back: (profile.license_photo_back || profile.licensePhotoBack) ? '✅' : '❌',
-          });
-
-          // Cargar datos existentes en los estados (con fallback a snake_case)
-          if (profile.licenseNumber || profile.license_number) {
-            setLicenseNumber(profile.licenseNumber || profile.license_number);
-          }
-          if (profile.licenseExpiry || profile.license_expiry) {
-            setLicenseExpiry(profile.licenseExpiry || profile.license_expiry);
-          }
-          if (profile.license_photo_front || profile.licensePhotoFront) {
-            setLicensePhotoFront(profile.license_photo_front || profile.licensePhotoFront);
-          }
-          if (profile.license_photo_back || profile.licensePhotoBack) {
-            setLicensePhotoBack(profile.license_photo_back || profile.licensePhotoBack);
-          }
-        } else {
-          console.log('⚠️ No se encontraron datos del conductor');
-        }
-
-        setLoading(false);
-      } catch (error) {
-        console.error('❌ Error cargando datos del conductor:', error);
-        setLoading(false);
-      }
-    };
-
     loadDriverData();
   }, [user?.id]);
 
-  // Verificar si faltan fotos y datos
-  const allDataProvided = licensePhotoFront && licensePhotoBack && licenseNumber && licenseExpiry;
-  
+  const loadDriverData = async () => {
+    if (!user?.id) return;
+    
+    try {
+      const profile = await driversService.getMyDriverProfile();
+      
+      if (profile) {
+        console.log('✅ Datos del conductor cargados desde backend:', {
+          license_number: profile.licenseNumber || profile.license_number,
+          license_expiry: profile.licenseExpiry || profile.license_expiry,
+          license_photo_front: (profile.license_photo_front || profile.licensePhotoFront) ? '✅' : '❌',
+          license_photo_back: (profile.license_photo_back || profile.licensePhotoBack) ? '✅' : '❌',
+        });
+
+        if (profile.documents_status || profile.documentsStatus || profile.status) {
+          setDocumentsStatus(
+            (profile.documents_status || profile.documentsStatus || profile.status || '').toLowerCase(),
+          );
+        }
+
+        // Cargar datos existentes en los estados (con fallback a snake_case)
+        if (profile.licenseNumber || profile.license_number) {
+          setLicenseNumber(profile.licenseNumber || profile.license_number);
+        }
+        if (profile.licenseExpiry || profile.license_expiry) {
+          setLicenseExpiry(profile.licenseExpiry || profile.license_expiry);
+        }
+        if (profile.license_photo_front || profile.licensePhotoFront) {
+          setLicensePhotoFront(profile.license_photo_front || profile.licensePhotoFront);
+        }
+        if (profile.license_photo_back || profile.licensePhotoBack) {
+          setLicensePhotoBack(profile.license_photo_back || profile.licensePhotoBack);
+        }
+      }
+    } catch (error) {
+      console.error('Error al cargar datos del conductor:', error);
+    }
+  };
+
   // Tomar foto con la cámara
-  const takePhoto = async (setPhotoFunction: React.Dispatch<React.SetStateAction<string | null>>) => {
+  const takePhoto = async (setPhotoFunction: (uri: string) => void) => {
     try {
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -190,6 +176,10 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
       Alert.alert('Error', 'No se pudieron subir los documentos. Inténtelo de nuevo.');
     }
   };
+
+  const allDataProvided = licensePhotoFront && licensePhotoBack && licenseNumber && licenseExpiry;
+  const documentsStatusNormalized = (documentsStatus || '').toLowerCase();
+  const documentsVerified = documentsStatusNormalized === 'verified';
 
   return (
     <ScrollView style={styles.container}>
@@ -282,6 +272,11 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.primary} />
           <Text style={styles.loadingText}>Subiendo documentos... {Math.round(uploadProgress * 100)}%</Text>
+        </View>
+      ) : documentsVerified ? (
+        <View style={styles.verifiedNotice}>
+          <Text style={styles.verifiedNoticeText}>Documentos verificados ✅</Text>
+          <Text style={styles.verifiedNoticeSubtitle}>Si necesitas actualizar tu información, contáctanos por soporte.</Text>
         </View>
       ) : (
         <TouchableOpacity 
@@ -437,5 +432,27 @@ const createStyles = (colors: any) => StyleSheet.create({
     marginTop: 12,
     fontSize: 14,
     color: colors.textSecondary,
+  },
+  verifiedNotice: {
+    padding: 20,
+    marginHorizontal: 20,
+    backgroundColor: '#D4EDDA',
+    borderRadius: 8,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#C3E6CB',
+  },
+  verifiedNoticeText: {
+    color: '#155724',
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  verifiedNoticeSubtitle: {
+    color: '#155724',
+    fontSize: 13,
+    textAlign: 'center',
+    lineHeight: 18,
   },
 });

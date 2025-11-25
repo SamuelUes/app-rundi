@@ -5,7 +5,7 @@
 import { RideRepository } from '../repositories/RideRepository';
 import { PaymentRepository } from '../repositories/PaymentRepository';
 import { DriverRepository } from '../repositories/DriverRepository';
-import * as admin from 'firebase-admin';
+import admin from 'firebase-admin';
 
 export class RideService {
   private rideRepo = new RideRepository();

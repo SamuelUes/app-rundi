@@ -3,7 +3,7 @@
  * Mantiene ambas bases de datos sincronizadas
  */
 
-import * as admin from 'firebase-admin';
+import admin from 'firebase-admin';
 import { MIGRATION_FLAGS } from '../../config/migration-flags';
 import { DriverRepository } from '../repositories/DriverRepository';
 import { RideRepository } from '../repositories/RideRepository';

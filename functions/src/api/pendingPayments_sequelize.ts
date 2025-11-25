@@ -3,7 +3,7 @@
  * Scans Realtime DB paymentStatus and correlates with active/completed rides
  */
 import * as functions from 'firebase-functions';
-import * as admin from 'firebase-admin';
+import admin from 'firebase-admin';
 
 export const getPendingPayments = functions.https.onCall(async (data, context) => {
   if (!context.auth) {

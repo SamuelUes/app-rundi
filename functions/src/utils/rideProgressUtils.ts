@@ -2,7 +2,7 @@
  * Utilidades para calcular el progreso del viaje
  */
 
-import * as admin from 'firebase-admin';
+import admin from 'firebase-admin';
 
 /**
  * Calcular progreso del viaje basado en la distancia recorrida

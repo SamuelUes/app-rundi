@@ -5,7 +5,7 @@
  */
 
 import * as functions from 'firebase-functions';
-import * as admin from 'firebase-admin';
+import admin from 'firebase-admin';
 import { RatingService } from '../sequelize/services/RatingService';
 import { RideRepository } from '../sequelize/repositories/RideRepository';
 

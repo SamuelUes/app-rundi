@@ -25,7 +25,7 @@ export function useDriverProfileSync() {
           return;
         }
 
-        const { getDatabase, ref, update } = await import('firebase/database');
+        const { getDatabase, ref, set } = await import('firebase/database');
         const db = getDatabase();
 
         const fullName = [profile.firstName, profile.lastName]
@@ -54,15 +54,26 @@ export function useDriverProfileSync() {
             }
           : null;
 
-        const normalizedStatus = String(
+        const rawAccountStatus = String(
           (profile as any)?.account_status || (profile as any)?.status || ''
         ).toLowerCase();
-        const accountStatus = (profile as any)?.verifiedAt ||
-          normalizedStatus.includes('active') ||
-          normalizedStatus.includes('verified') ||
-          normalizedStatus.includes('approved')
+
+        const accountStatus = rawAccountStatus === 'active' || rawAccountStatus === 'verified' || rawAccountStatus === 'approved'
           ? 'active'
-          : 'inactive';
+          : rawAccountStatus === 'suspended'
+            ? 'suspended'
+            : rawAccountStatus === 'rejected'
+              ? 'rejected'
+              : 'pending';
+
+        const rawDocumentsStatus = String((profile as any)?.documents_status || '').toLowerCase();
+        const documentsStatus = rawDocumentsStatus === 'verified'
+          ? 'verified'
+          : rawDocumentsStatus === 'suspended'
+            ? 'suspended'
+            : rawDocumentsStatus === 'rejected'
+              ? 'rejected'
+              : 'pending';
 
         const driversInfoPayload: Record<string, any> = {
           firstName: profile.firstName ?? null,
@@ -75,6 +86,7 @@ export function useDriverProfileSync() {
           email: profile.email ?? null,
           phone: profile.phone ?? null,
           account_status: accountStatus,
+          documents_status: documentsStatus,
           rating: typeof profile.rating === 'number' ? profile.rating : null,
           totalRides: typeof profile.totalRides === 'number' ? profile.totalRides : 0,
           earnings: typeof profile.earnings === 'number' ? profile.earnings : 0,
@@ -90,11 +102,8 @@ export function useDriverProfileSync() {
           driversInfoPayload.vehicle = vehiclePayload;
         }
 
-        const updates: Record<string, any> = {
-          [`driversInfo/${user.id}`]: driversInfoPayload,
-        };
-
-        await update(ref(db), updates);
+        // Escribir directamente en el path específico, no en la raíz
+        await set(ref(db, `driversInfo/${user.id}`), driversInfoPayload);
         console.log('[useDriverProfileSync] ✅ Perfil de conductor sincronizado en driversInfo');
       } catch (error) {
         console.warn(

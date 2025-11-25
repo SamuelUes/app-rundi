@@ -4,7 +4,7 @@
  */
 
 import * as functions from 'firebase-functions';
-import * as admin from 'firebase-admin';
+import admin from 'firebase-admin';
 import { VehicleRepository } from '../sequelize/repositories/VehicleRepository';
 import Driver from '../sequelize/models/Driver';
 
@@ -220,10 +220,24 @@ export const getDriverVehicles = functions.https.onCall(async (data, context) =>
   }
 
   try {
-    const { driverId } = data;
+    let { driverId } = data;
 
     if (!driverId) {
-      throw new functions.https.HttpsError('invalid-argument', 'driverId es requerido');
+      console.log('ℹ️ [getDriverVehicles] driverId no proporcionado, buscando por user_id...');
+      const driverRecord = await Driver.findOne({
+        where: { user_id: context.auth.uid },
+        attributes: ['id'],
+      });
+
+      if (!driverRecord) {
+        throw new functions.https.HttpsError(
+          'not-found',
+          `Conductor no encontrado con user_id: ${context.auth.uid}`,
+        );
+      }
+
+      driverId = driverRecord.id;
+      console.log(`✅ [getDriverVehicles] driverId derivado: ${driverId}`);
     }
 
     console.log(`🚗 [getDriverVehicles] Obteniendo vehículos del conductor: ${driverId}`);
@@ -243,6 +257,17 @@ export const getDriverVehicles = functions.https.onCall(async (data, context) =>
         color: v.color,
         type: v.type,
         isActive: v.is_active,
+        registrationNumber: v.registration_number,
+        registrationExpiry: v.registration_expiry,
+        registrationPhotoFront: v.registration_photo_front,
+        registrationPhotoBack: v.registration_photo_back,
+        insuranceNumber: v.insurance_number,
+        insuranceCompany: v.insurance_company,
+        insuranceExpiry: v.insurance_expiry,
+        insurancePhoto: v.insurance_photo,
+        vehiclePhoto: v.vehicle_photo,
+        createdAt: v.created_at,
+        updatedAt: v.updated_at,
       })),
     };
   } catch (error: any) {

@@ -13,7 +13,7 @@
  * - archiveCanceledRide() → Usar supabaseArchive.saveCanceledRideToSupabase()
  */
 
-import * as admin from "firebase-admin";
+import admin from "firebase-admin";
 
 /**
  * Helper para construir updates usando server timestamp

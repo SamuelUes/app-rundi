@@ -1,6 +1,7 @@
-import * as functions from "firebase-functions";
-import admin from "../config/firebase";
+import admin from "firebase-admin";
 import { FieldValue } from "firebase-admin/firestore";
+import * as functions from 'firebase-functions';
+import { supabasePost } from '../supabase/client';
 
 interface DriverData {
   licenseNumber?: string;
@@ -236,6 +237,34 @@ async function handleRegister(payload: RegisterPayload): Promise<RegisterResult>
   }
 
   await userRef.set(dataToSave, { merge: true });
+
+  // Si es conductor, crear registro en Supabase
+  if (role === "driver" && !existingDoc.exists) {
+    try {
+      const driverSupabaseData = {
+        user_id: userRecord.uid,
+        profile_photo: null,
+        license_number: null,
+        license_expiry: null,
+        license_photo_front: null,
+        license_photo_back: null,
+        department: null,
+        municipality: null,
+        account_status: 'pending',
+        documents_status: 'pending',
+        verified_at: null,
+        total_rides: 0,
+        average_rating: 5.0,
+        total_earnings: 0,
+      };
+
+      await supabasePost('drivers', driverSupabaseData);
+      functions.logger.info(`✅ Conductor creado en Supabase: ${userRecord.uid}`);
+    } catch (supabaseError: any) {
+      functions.logger.error('❌ Error creando conductor en Supabase:', supabaseError);
+      // No lanzar error, el usuario ya fue creado en Firebase
+    }
+  }
 
   let customToken: string | undefined;
   try {

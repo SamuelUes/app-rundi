@@ -24,6 +24,8 @@ type DriverUpdatePayload = {
   license_number?: string;
   license_expiry?: string;
   profile_photo?: string;
+  documents_status?: string;
+  documentsStatus?: string;
 };
 
 type VehicleUpdatePayload = {

@@ -68,7 +68,8 @@ CREATE TABLE IF NOT EXISTS public.drivers (
   license_photo_back VARCHAR(500) NULL,
   department VARCHAR(100) NULL,
   municipality VARCHAR(100) NULL,
-  status VARCHAR(20) NULL DEFAULT 'pending'::VARCHAR,
+  account_status VARCHAR(20) NULL DEFAULT 'pending'::VARCHAR,
+  documents_status VARCHAR(20) NULL DEFAULT 'pending'::VARCHAR,
   verified_at TIMESTAMP WITHOUT TIME ZONE NULL,
   total_rides INTEGER NULL DEFAULT 0,
   average_rating NUMERIC(3, 2) NULL DEFAULT 0,
@@ -84,7 +85,8 @@ CREATE TABLE IF NOT EXISTS public.drivers (
 COMMENT ON TABLE public.drivers IS 'Datos sensibles de conductores - sincronizado con Firebase Auth';
 COMMENT ON COLUMN public.drivers.user_id IS 'Firebase Auth UID';
 COMMENT ON COLUMN public.drivers.profile_photo IS 'URL de foto de perfil del conductor - OBLIGATORIA para verificación de identidad (Supabase Storage)';
-COMMENT ON COLUMN public.drivers.status IS 'Estado: pending, active, suspended, rejected';
+COMMENT ON COLUMN public.drivers.account_status IS 'Estado: pending, active, suspended, rejected';
+COMMENT ON COLUMN public.drivers.documents_status IS 'Estado de documentos: pending, verified, suspended, rejected';
 COMMENT ON COLUMN public.drivers.average_rating IS 'Promedio de calificaciones recibidas (1-5)';
 COMMENT ON COLUMN public.drivers.license_photo_front IS 'URL de foto frontal de licencia (Supabase Storage)';
 COMMENT ON COLUMN public.drivers.license_photo_back IS 'URL de foto trasera de licencia (Supabase Storage)';
@@ -92,7 +94,8 @@ COMMENT ON COLUMN public.drivers.department IS 'Departamento de residencia del c
 COMMENT ON COLUMN public.drivers.municipality IS 'Municipio de residencia del conductor (ej: Managua, Masaya, Tipitapa)';
 
 CREATE INDEX IF NOT EXISTS idx_drivers_user_id ON public.drivers USING btree (user_id);
-CREATE INDEX IF NOT EXISTS idx_drivers_status ON public.drivers USING btree (status);
+CREATE INDEX IF NOT EXISTS idx_drivers_account_status ON public.drivers USING btree (account_status);
+CREATE INDEX IF NOT EXISTS idx_drivers_documents_status ON public.drivers USING btree (documents_status);
 CREATE INDEX IF NOT EXISTS idx_drivers_department ON public.drivers USING btree (department);
 CREATE INDEX IF NOT EXISTS idx_drivers_municipality ON public.drivers USING btree (municipality);
 -- ✅ ELIMINADOS índices para designated_driver_request_status y designated_driver_role

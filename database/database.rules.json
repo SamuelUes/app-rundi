@@ -69,7 +69,10 @@
       "$driverId": {
         ".write": "auth != null && auth.uid === $driverId",
         "account_status": { 
-          ".validate": "!newData.exists() || (newData.isString() && newData.val().matches(/^(active|inactive)$/))" 
+          ".validate": "!newData.exists() || (newData.isString() && newData.val().matches(/^(pending|active|inactive|suspended|rejected)$/))" 
+        },
+        "documents_status": {
+          ".validate": "!newData.exists() || (newData.isString() && newData.val().matches(/^(pending|verified|suspended|rejected)$/))"
         },
         "status": {
           ".validate": "newData.val() == null"

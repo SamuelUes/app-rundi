@@ -71,12 +71,19 @@ interface DriverData {
   licensePhoto?: string;
   licensePhotoFront?: string;
   licensePhotoBack?: string;
+  documentsStatus?: string;
+  accountStatus?: string;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
   // Campos en snake_case (compatibilidad)
   license_number?: string;
   license_expiry?: string;
   license_photo?: string;
   license_photo_front?: string;
   license_photo_back?: string;
+  documents_status?: string;
+  account_status?: string;
   status?: string;
   totalRides?: number;
   total_rides?: number;
@@ -84,7 +91,40 @@ interface DriverData {
   average_rating?: number;
   totalEarnings?: number;
   total_earnings?: number;
+  first_name?: string;
+  last_name?: string;
 }
+
+const normalizeDocumentsStatus = (driver: DriverData | null) => {
+  if (!driver) {
+    return null;
+  }
+
+  const raw = driver.documentsStatus || driver.documents_status || '';
+  if (!raw) {
+    return null;
+  }
+
+  const normalized = String(raw).toLowerCase();
+
+  if (['verified'].includes(normalized)) {
+    return 'verified';
+  }
+
+  if (['pending', 'pending_verification', 'in_review', 'under_review', 'review', 'verifying'].includes(normalized)) {
+    return 'pending';
+  }
+
+  if (['suspended'].includes(normalized)) {
+    return 'suspended';
+  }
+
+  if (['rejected', 'declined', 'denied'].includes(normalized)) {
+    return 'rejected';
+  }
+
+  return normalized;
+};
 
 export default function DriverProfileScreen({ navigation }: any) {
   const { colors } = useTheme();
@@ -144,6 +184,136 @@ export default function DriverProfileScreen({ navigation }: any) {
   const [overlayToggleEnabled, setOverlayToggleEnabled] = useState<boolean>(false);
   const [overlayPermissionGranted, setOverlayPermissionGranted] = useState<boolean>(Platform.OS !== 'android');
   const [overlayCheckingPermission, setOverlayCheckingPermission] = useState<boolean>(false);
+
+  const normalizedDocumentStatus = normalizeDocumentsStatus(driverData);
+  const normalizedAccountStatus = useMemo(() => {
+    if (!driverData) {
+      return null;
+    }
+
+    const raw = driverData.accountStatus || driverData.account_status || driverData.status || '';
+    if (!raw) {
+      return null;
+    }
+
+    const normalized = String(raw).toLowerCase();
+
+    if (['active', 'verified', 'approved'].includes(normalized)) return 'active';
+    if (['pending', 'pending_verification', 'in_review'].includes(normalized)) return 'pending';
+    if (['suspended'].includes(normalized)) return 'suspended';
+    if (['rejected', 'disabled', 'denied'].includes(normalized)) return 'rejected';
+
+    return 'pending';
+  }, [driverData]);
+  const hasBothLicensePhotos = Boolean(
+    driverData &&
+    ((driverData.license_photo_front || driverData.licensePhotoFront) &&
+      (driverData.license_photo_back || driverData.licensePhotoBack)),
+  );
+
+  const hasSingleLicensePhoto = Boolean(
+    driverData && (driverData.license_photo || driverData.licensePhoto),
+  );
+
+  const hasLicenseNumber = Boolean(
+    driverData && (driverData.license_number || driverData.licenseNumber),
+  );
+
+  const hasLicenseExpiry = Boolean(
+    driverData && (driverData.license_expiry || driverData.licenseExpiry),
+  );
+
+  const hasCompleteDocuments = Boolean(
+    driverData &&
+      (hasBothLicensePhotos || hasSingleLicensePhoto) &&
+      hasLicenseNumber &&
+      hasLicenseExpiry,
+  );
+
+  const driverLicenseExpiry = driverData?.license_expiry || driverData?.licenseExpiry || null;
+
+  const documentStatusColor = normalizedDocumentStatus === 'verified'
+    ? '#4CAF50'
+    : normalizedDocumentStatus === 'rejected' || normalizedDocumentStatus === 'suspended'
+      ? '#f44336'
+      : normalizedDocumentStatus === 'pending'
+        ? '#FF9800'
+        : hasCompleteDocuments
+          ? '#4CAF50'
+          : '#FF9800';
+
+  const documentStatusIcon = normalizedDocumentStatus === 'verified'
+    ? '✓'
+    : normalizedDocumentStatus === 'rejected'
+      ? '✕'
+      : normalizedDocumentStatus === 'suspended'
+        ? '⚠️'
+        : '⏱';
+
+  const documentStatusText = normalizedDocumentStatus === 'verified'
+    ? '✅ Verificado'
+    : normalizedDocumentStatus === 'rejected'
+      ? '❌ Rechazado'
+      : normalizedDocumentStatus === 'suspended'
+        ? '⚠️ Suspendido'
+        : normalizedDocumentStatus === 'pending'
+          ? '⏱ Pendiente de revisión'
+          : hasCompleteDocuments
+            ? '✅ Completo (en revisión)'
+            : '❌ Pendiente';
+
+  const documentButtonLabel = normalizedDocumentStatus === 'verified'
+    ? 'Ver'
+    : normalizedDocumentStatus === 'pending'
+      ? 'Ver detalles'
+      : normalizedDocumentStatus === 'rejected' || normalizedDocumentStatus === 'suspended'
+        ? 'Corregir'
+        : hasCompleteDocuments
+          ? 'Enviar a revisión'
+          : 'Completar';
+
+  const displayFirstName = driverData?.firstName || driverData?.first_name || user?.name?.split(' ')?.[0] || user?.name || 'Conductor';
+  const displayLastName = driverData?.lastName || driverData?.last_name || '';
+  const displayName = [displayFirstName, displayLastName].filter(Boolean).join(' ').trim() || 'Conductor';
+  const displayEmail = driverData?.email || user?.email || null;
+
+  const renderAccountStatusBadge = () => {
+    if (!normalizedAccountStatus) {
+      return null;
+    }
+
+    let label = 'Cuenta';
+    let badgeColor = '#9E9E9E';
+
+    switch (normalizedAccountStatus) {
+      case 'active':
+        label = 'Cuenta activa';
+        badgeColor = '#4CAF50';
+        break;
+      case 'pending':
+        label = 'Cuenta pendiente';
+        badgeColor = '#FF9800';
+        break;
+      case 'suspended':
+        label = 'Cuenta suspendida';
+        badgeColor = '#f44336';
+        break;
+      case 'rejected':
+        label = 'Cuenta rechazada';
+        badgeColor = '#f44336';
+        break;
+      default:
+        label = `Cuenta ${normalizedAccountStatus}`;
+        badgeColor = '#9E9E9E';
+        break;
+    }
+
+    return (
+      <View style={[styles.accountStatusBadge, { backgroundColor: badgeColor }]}>
+        <Text style={styles.accountStatusBadgeText}>{label}</Text>
+      </View>
+    );
+  };
   
   // Animaciones
   const cardScaleAnim = useMemo(() => new Animated.Value(0.95), []);
@@ -777,7 +947,7 @@ export default function DriverProfileScreen({ navigation }: any) {
           ) : (
             <View style={styles.avatarPlaceholder}>
               <Text style={styles.avatarText}>
-                {user?.name?.charAt(0).toUpperCase() || 'C'}
+                {displayName.charAt(0).toUpperCase() || 'C'}
               </Text>
             </View>
           )}
@@ -785,7 +955,9 @@ export default function DriverProfileScreen({ navigation }: any) {
             <Text style={styles.cameraIconText}>📷</Text>
           </View>
         </TouchableOpacity>
-        <Text style={styles.driverName}>{user?.name || 'Conductor'}</Text>
+        <Text style={styles.driverName}>{displayName}</Text>
+        {displayEmail && <Text style={styles.driverEmail}>{displayEmail}</Text>}
+        {renderAccountStatusBadge()}
         <View style={styles.ratingBadge}>
           <Text style={styles.ratingStars}>⭐</Text>
           <Text style={styles.ratingText}>{(typeof stats.averageRating === 'number' ? stats.averageRating : 5.0).toFixed(1)}</Text>
@@ -940,28 +1112,17 @@ export default function DriverProfileScreen({ navigation }: any) {
         {driverData && (
           <View style={styles.documentCard}>
             <View style={styles.documentLeft}>
-              <View style={[
-                styles.statusIndicator,
-                { backgroundColor: ((driverData.license_photo_front && driverData.license_photo_back) || driverData.license_photo) ? '#4CAF50' : '#FF9800' }
-              ]}>
-                {((driverData.license_photo_front && driverData.license_photo_back) || driverData.license_photo) ? <Text style={styles.statusIcon}>✓</Text> : <Text style={styles.statusIcon}>⏱</Text>}
+              <View style={[styles.statusIndicator, { backgroundColor: documentStatusColor }]}>
+                <Text style={styles.statusIcon}>{documentStatusIcon}</Text>
               </View>
               <View style={styles.documentInfo}>
                 <Text style={styles.documentIcon}>🪪</Text>
                 <View>
                   <Text style={styles.documentName}>Licencia de Conducir</Text>
-                  <Text style={[styles.documentStatus, { 
-                    color: (driverData.license_photo_front && driverData.license_photo_back) || driverData.license_photo 
-                      ? '#4CAF50' 
-                      : '#FF9800' 
-                  }]}>
-                    {(driverData.license_photo_front && driverData.license_photo_back) || driverData.license_photo 
-                      ? '✅ Completo' 
-                      : '❌ Pendiente'}
-                  </Text>
-                  {driverData.license_expiry && (
+                  <Text style={[styles.documentStatus, { color: documentStatusColor }]}>{documentStatusText}</Text>
+                  {driverLicenseExpiry && (
                     <Text style={styles.documentExpiry}>
-                      Vence: {safeFormatDate(driverData.license_expiry)}
+                      Vence: {safeFormatDate(driverLicenseExpiry)}
                     </Text>
                   )}
                 </View>
@@ -971,18 +1132,7 @@ export default function DriverProfileScreen({ navigation }: any) {
               style={styles.uploadButton}
               onPress={() => navigation.navigate('DriversDocumentsInspection')}
             >
-              <Text style={styles.uploadButtonText}>
-                {((driverData.licensePhotoFront || driverData.license_photo_front) && 
-                  (driverData.licensePhotoBack || driverData.license_photo_back) && 
-                  (driverData.licenseNumber || driverData.license_number) && 
-                  (driverData.licenseExpiry || driverData.license_expiry)) 
-                  ? 'Ver' 
-                  : ((driverData.licensePhotoFront || driverData.license_photo_front) && 
-                     (driverData.licensePhotoBack || driverData.license_photo_back)) || 
-                    (driverData.licensePhoto || driverData.license_photo)
-                    ? 'Actualizar'
-                    : 'Completar'}
-              </Text>
+              <Text style={styles.uploadButtonText}>{documentButtonLabel}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -1546,8 +1696,6 @@ const createStyles = (colors: any) => StyleSheet.create({
     backgroundColor: colors.card,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 2,
-    borderColor: colors.border,
   },
   cameraIconText: {
     fontSize: 18,
@@ -1556,7 +1704,25 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontSize: 24,
     fontWeight: '800',
     color: colors.text,
+    marginBottom: 4,
+  },
+  driverEmail: {
+    fontSize: 14,
+    color: colors.textSecondary,
     marginBottom: 8,
+  },
+  accountStatusBadge: {
+    alignSelf: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    marginBottom: 12,
+  },
+  accountStatusBadgeText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.3,
   },
   ratingBadge: {
     flexDirection: 'row',

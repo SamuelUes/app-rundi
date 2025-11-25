@@ -4,7 +4,7 @@
  */
 
 import * as functions from 'firebase-functions';
-import * as admin from 'firebase-admin';
+import admin from 'firebase-admin';
 import { DriverPenaltyRepository } from '../sequelize/repositories/DriverPenaltyRepository';
 import { PaymentService } from '../sequelize/services/PaymentService';
 import { MIGRATION_FLAGS } from '../config/migration-flags';

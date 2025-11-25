@@ -10,7 +10,7 @@
 import * as functions from 'firebase-functions';
 import { PaymentService } from '../sequelize/services/PaymentService';
 import { DriverPenaltyRepository } from '../sequelize/repositories/DriverPenaltyRepository';
-import * as admin from 'firebase-admin';
+import admin from 'firebase-admin';
 import { MIGRATION_FLAGS } from '../config/migration-flags';
 
 const paymentService = new PaymentService();

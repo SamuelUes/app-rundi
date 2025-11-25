@@ -4,7 +4,7 @@
  */
 
 import * as functions from 'firebase-functions';
-import * as admin from 'firebase-admin';
+import admin from 'firebase-admin';
 import { supabaseGet, supabaseGetDriverWithVehicles, supabaseUpdate } from '../supabase/client';
 import { MIGRATION_FLAGS } from '../config/migration-flags';
 
@@ -45,7 +45,36 @@ export const getDriverProfileWithFallback = functions.https.onCall(async (data, 
         vehicles = supabaseDriver.vehicles || [];
         console.log(`✅ [getDriverProfile] Perfil de Supabase encontrado con ${vehicles.length} vehículos`);
       } else {
-        console.warn(`⚠️ [getDriverProfile] No se encontró perfil en Supabase`);
+        console.warn(`⚠️ [getDriverProfile] No se encontró perfil en Supabase, creando registro...`);
+        // Crear registro en Supabase si no existe
+        try {
+          const { supabasePost } = await import('../supabase/client');
+
+          const driverSupabaseData = {
+            user_id: driverId,
+            profile_photo: null,
+            license_number: null,
+            license_expiry: null,
+            license_photo_front: null,
+            license_photo_back: null,
+            department: null,
+            municipality: null,
+            account_status: 'pending',
+            documents_status: 'pending',
+            verified_at: null,
+            total_rides: 0,
+            average_rating: 5.0,
+            total_earnings: 0,
+          };
+
+          await supabasePost('drivers', driverSupabaseData);
+          console.log(`✅ [getDriverProfile] Conductor creado en Supabase: ${driverId}`);
+          
+          // Intentar obtener nuevamente
+          supabaseDriver = await supabaseGetDriverWithVehicles(driverId);
+        } catch (createError: any) {
+          console.error(`❌ [getDriverProfile] Error creando conductor en Supabase:`, createError);
+        }
       }
     } catch (supabaseError: any) {
       console.warn(`⚠️ [getDriverProfile] Error en Supabase REST API (${supabaseError.message}). Usando fallback a Realtime DB`);
@@ -72,7 +101,10 @@ export const getDriverProfileWithFallback = functions.https.onCall(async (data, 
         profilePhoto: driverJson.profile_photo || null,
         department: driverJson.department || null,
         municipality: driverJson.municipality || null,
-        status: driverJson.status || 'pending',
+        accountStatus: driverJson.account_status || driverJson.status || 'pending',
+        account_status: driverJson.account_status || driverJson.status || 'pending',
+        documentsStatus: driverJson.documents_status || null,
+        documents_status: driverJson.documents_status || null,
         verifiedAt: driverJson.verified_at || null,
         totalRides: driverJson.total_rides || 0,
         rating: driverJson.average_rating || 5.0,
@@ -142,7 +174,10 @@ export const getDriverProfileWithFallback = functions.https.onCall(async (data, 
         profilePhoto: driverData.profilePhoto,
         department: driverData.department,
         municipality: driverData.municipality,
-        status: driverData.status || 'offline',
+        accountStatus: driverData.accountStatus || driverData.account_status || driverData.status || 'pending',
+        account_status: driverData.account_status || driverData.accountStatus || driverData.status || 'pending',
+        documentsStatus: driverData.documentsStatus || driverData.documents_status || null,
+        documents_status: driverData.documents_status || driverData.documentsStatus || null,
         verifiedAt: driverData.verifiedAt,
         totalRides: driverData.totalRides || 0,
         rating: driverData.rating || 5.0,
