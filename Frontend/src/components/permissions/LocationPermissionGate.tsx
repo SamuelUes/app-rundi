@@ -1,6 +1,14 @@
-import React, { PropsWithChildren, useCallback, useEffect, useMemo, useState } from 'react';
+import React, {
+  PropsWithChildren,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   ActivityIndicator,
+  AppState,
   Linking,
   Platform,
   Pressable,
@@ -37,30 +45,54 @@ const LocationPermissionGate: React.FC<LocationPermissionGateProps> = ({
 }) => {
   const [state, setState] = useState<GateState>(initialState);
   const [requesting, setRequesting] = useState<'foreground' | 'background' | null>(null);
+  const hasLoadedRef = useRef(false);
 
-  const refresh = useCallback(async () => {
-    setState((prev) => ({ ...prev, loading: true }));
-    try {
-      const [foregroundResponse, backgroundResponse, servicesEnabled] = await Promise.all([
-        Location.getForegroundPermissionsAsync(),
-        requireBackground ? Location.getBackgroundPermissionsAsync() : Promise.resolve(null),
-        Location.hasServicesEnabledAsync(),
-      ]);
+  const refresh = useCallback(
+    async (options?: { showLoading?: boolean }) => {
+      const shouldShowLoading = options?.showLoading ?? !hasLoadedRef.current;
+      if (shouldShowLoading) {
+        setState((prev) => ({ ...prev, loading: true }));
+      }
 
-      setState({
-        foreground: foregroundResponse,
-        background: backgroundResponse,
-        servicesEnabled,
-        loading: false,
-      });
-    } catch (error) {
-      console.warn('[LocationPermissionGate] Error checking permissions:', error);
-      setState((prev) => ({ ...prev, loading: false }));
-    }
-  }, [requireBackground]);
+      try {
+        const [foregroundResponse, backgroundResponse, servicesEnabled] = await Promise.all([
+          Location.getForegroundPermissionsAsync(),
+          requireBackground ? Location.getBackgroundPermissionsAsync() : Promise.resolve(null),
+          Location.hasServicesEnabledAsync(),
+        ]);
+
+        setState({
+          foreground: foregroundResponse,
+          background: backgroundResponse,
+          servicesEnabled,
+          loading: false,
+        });
+        hasLoadedRef.current = true;
+      } catch (error) {
+        console.warn('[LocationPermissionGate] Error checking permissions:', error);
+        setState((prev) => ({ ...prev, loading: false }));
+      }
+    },
+    [requireBackground],
+  );
 
   useEffect(() => {
-    refresh();
+    refresh({ showLoading: true });
+  }, [refresh]);
+
+  useEffect(() => {
+    const lastAppStateRef = { current: AppState.currentState };
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      const previous = lastAppStateRef.current;
+      lastAppStateRef.current = nextState;
+      if (nextState === 'active' && previous !== 'active') {
+        refresh();
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
   }, [refresh]);
 
   const openAppSettings = useCallback(async () => {
@@ -96,6 +128,49 @@ const LocationPermissionGate: React.FC<LocationPermissionGateProps> = ({
   }, [refresh]);
 
   const { foreground, background, servicesEnabled, loading } = state;
+  const autoRequestedRef = useRef({ foreground: false, background: false });
+
+  useEffect(() => {
+    if (loading || requesting !== null) {
+      return;
+    }
+
+    if (servicesEnabled === false) {
+      return;
+    }
+
+    const foregroundNeedsRequest =
+      !foreground?.granted && foreground?.canAskAgain !== false && !autoRequestedRef.current.foreground;
+
+    if (foregroundNeedsRequest) {
+      autoRequestedRef.current.foreground = true;
+      requestForeground();
+      return;
+    }
+
+    const shouldRequestBackground =
+      requireBackground &&
+      foreground?.granted &&
+      !background?.granted &&
+      background?.canAskAgain !== false &&
+      !autoRequestedRef.current.background;
+
+    if (shouldRequestBackground) {
+      autoRequestedRef.current.background = true;
+      requestBackground();
+    }
+  }, [
+    background?.canAskAgain,
+    background?.granted,
+    foreground?.canAskAgain,
+    foreground?.granted,
+    loading,
+    requireBackground,
+    requestBackground,
+    requestForeground,
+    requesting,
+    servicesEnabled,
+  ]);
 
   const canRenderChildren = useMemo(() => {
     if (loading) return false;
@@ -134,7 +209,10 @@ const LocationPermissionGate: React.FC<LocationPermissionGateProps> = ({
                   <Pressable style={styles.primaryButton} onPress={openAppSettings}>
                     <Text style={styles.primaryButtonText}>Abrir ajustes</Text>
                   </Pressable>
-                  <Pressable style={styles.secondaryButton} onPress={refresh}>
+                  <Pressable
+                    style={styles.secondaryButton}
+                    onPress={() => refresh({ showLoading: true })}
+                  >
                     <Text style={styles.secondaryButtonText}>Ya lo activé, reintentar</Text>
                   </Pressable>
                 </View>
@@ -160,7 +238,10 @@ const LocationPermissionGate: React.FC<LocationPermissionGateProps> = ({
                       <Text style={styles.primaryButtonText}>Permitir ubicación</Text>
                     </Pressable>
                   )}
-                  <Pressable style={styles.secondaryButton} onPress={refresh}>
+                  <Pressable
+                    style={styles.secondaryButton}
+                    onPress={() => refresh({ showLoading: true })}
+                  >
                     <Text style={styles.secondaryButtonText}>Reintentar</Text>
                   </Pressable>
                 </View>
@@ -186,7 +267,10 @@ const LocationPermissionGate: React.FC<LocationPermissionGateProps> = ({
                       <Text style={styles.primaryButtonText}>Permitir en segundo plano</Text>
                     </Pressable>
                   )}
-                  <Pressable style={styles.secondaryButton} onPress={refresh}>
+                  <Pressable
+                    style={styles.secondaryButton}
+                    onPress={() => refresh({ showLoading: true })}
+                  >
                     <Text style={styles.secondaryButtonText}>Ya lo activé, reintentar</Text>
                   </Pressable>
                 </View>

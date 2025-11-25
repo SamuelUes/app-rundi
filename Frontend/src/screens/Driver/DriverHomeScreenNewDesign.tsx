@@ -19,7 +19,7 @@ import {
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useVoiceAssistant } from '../../context/VoiceAssistantContext';
-import { useLocation } from '../../hooks/useLocation';
+import { useLocation, DRIVER_LOCATION_OPTIONS } from '../../hooks/useLocation';
 import useDriverProximityTracking from '../../hooks/useDriverProximityTracking';
 import { subscribePreflightResult, getPreflightResult, PreflightAction } from '../../state/preflightStore';
 
@@ -112,7 +112,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   const { user, logout, logoutInProgress } = useAuth();
   const { settings: voiceSettings, speak: speakVoice, stopCategory: stopVoiceCategory } = useVoiceAssistant();
   const { colors } = useTheme();
-  const { coords, loading: locationLoading, error, refreshLocation } = useLocation();
+  const { coords, loading: locationLoading, error, refreshLocation } = useLocation(DRIVER_LOCATION_OPTIONS);
   const styles = useMemo(() => createStyles(colors), [colors]);
 
   const [loadingMessage, setLoadingMessage] = useState('Preparando tu panel de conductor...');
@@ -307,7 +307,18 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   useEffect(() => {
     if (!user?.id || !coords || !isAvailable) return;
     if (activeRide) return;
+    
+    // Ejecutar inmediatamente
     proximityService.handleLocationForProximity(user.id, coords.latitude, coords.longitude);
+    
+    // Ejecutar cada 10 segundos para detectar nuevos viajes
+    const interval = setInterval(() => {
+      if (!activeRide) {
+        proximityService.handleLocationForProximity(user.id, coords.latitude, coords.longitude);
+      }
+    }, 10000);
+    
+    return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, coords?.latitude, coords?.longitude, isAvailable, activeRide?.id]);
 

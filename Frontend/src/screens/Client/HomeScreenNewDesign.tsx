@@ -586,7 +586,7 @@ export default function HomeScreen({ navigation }: any) {
     console.log('✅ Iniciando búsqueda de conductores con ubicación:', effectiveLocation);
 
     try {
-      const SEARCH_RADIUS_KM = 0.7;
+      const SEARCH_RADIUS_KM = 3;
 
       const driverIds = new Set<string>();
       if (driversInfo) {

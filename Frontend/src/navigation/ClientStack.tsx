@@ -4,7 +4,7 @@ import { useTheme } from '../context/ThemeContext';
 import HomeScreen from '../screens/Client/HomeScreenNewDesign'; //existe el .old
 import HomeScreenOffers from '../screens/Client/HomeScreenOffers';
 import SearchRideScreenNewDesign from '../screens/Client/SearchRideScreenNewDesign';
-import RideConfirmationScreen from '../screens/Client/RideConfirmationScreen'; //existe el .old
+// import RideConfirmationScreen from '../screens/Client/RideConfirmationScreen'; //existe el .old
 import RideTrackingScreen from '../screens/Client/RideTrackingScreenNewDesign';
 import PaymentScreen from '../screens/Client/PaymentScreen'; //existe el .old
 import CashPaymentScreen from '../screens/Client/CashPaymentScreen'; //existe el .old
@@ -124,7 +124,7 @@ export default function ClientStack() {
       <Stack.Screen name="ClientHome" component={HomeScreen} />
       <Stack.Screen name="HomeOffers" component={HomeScreenOffers} options={{ headerShown: false }} />
       <Stack.Screen name="SearchRide" component={SearchRideScreenNewDesign} options={{ headerShown: true, title: 'Buscar viaje' }} />
-      <Stack.Screen name="RideConfirmation" component={RideConfirmationScreen} options={{ headerShown: true, title: 'Confirmación de Viaje' }} />
+      {/* <Stack.Screen name="RideConfirmation" component={RideConfirmationScreen} options={{ headerShown: true, title: 'Confirmación de Viaje' }} /> */}
       <Stack.Screen name="RideTracking" component={RideTrackingScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Payment" component={PaymentScreen} options={{ headerShown: true, title: 'Pago' }} />
       <Stack.Screen name="CashPayment" component={CashPaymentScreen} options={{ headerShown: true, title: 'Pago en Efectivo' }} />

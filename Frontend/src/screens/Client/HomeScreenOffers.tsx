@@ -411,6 +411,49 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
   const centerLat = coords?.latitude ?? rideSnapshot?.origin?.lat ?? 12.1364;
   const centerLng = coords?.longitude ?? rideSnapshot?.origin?.lng ?? -86.2514;
 
+  // Coordinates for map pins
+  const originCoords = useMemo(() => {
+    const origin = rideSnapshot?.origin || rideSnapshot?.originLocation;
+    if (!origin) return null;
+    const latitude = origin.lat ?? origin.latitude;
+    const longitude = origin.lng ?? origin.longitude;
+    if (typeof latitude === 'number' && typeof longitude === 'number') {
+      return { latitude, longitude };
+    }
+    return null;
+  }, [rideSnapshot?.origin, rideSnapshot?.originLocation]);
+
+  const destinationCoords = useMemo(() => {
+    const destination = rideSnapshot?.destination || rideSnapshot?.destinationLocation;
+    if (!destination) return null;
+    const latitude = destination.lat ?? destination.latitude;
+    const longitude = destination.lng ?? destination.longitude;
+    if (typeof latitude === 'number' && typeof longitude === 'number') {
+      return { latitude, longitude };
+    }
+    return null;
+  }, [rideSnapshot?.destination, rideSnapshot?.destinationLocation]);
+
+  const extraStopMarkers = useMemo(() => {
+    if (!Array.isArray(rideSnapshot?.extraDestinations)) return [];
+
+    return rideSnapshot.extraDestinations
+      .map((stop: any, index: number) => {
+        const latitude = stop?.lat ?? stop?.latitude;
+        const longitude = stop?.lng ?? stop?.longitude;
+        if (typeof latitude !== 'number' || typeof longitude !== 'number') {
+          return null;
+        }
+        return {
+          latitude,
+          longitude,
+          index: index + 1,
+          label: stop?.address || `Parada ${index + 1}`,
+        };
+      })
+      .filter(Boolean) as Array<{ latitude: number; longitude: number; index: number; label?: string }>;
+  }, [rideSnapshot?.extraDestinations]);
+
   const renderOffer = ({ item }: { item: OfferItem }) => {
     const selected = item.driverId === selectedDriverId;
     const eta = etasByDriver[item.driverId];
@@ -519,6 +562,13 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
           userLocation={{ latitude: centerLat, longitude: centerLng }}
           userLocationLightIcon={USER_LOCATION_LIGHT_ICON}
           userLocationDarkIcon={USER_LOCATION_DARK_ICON}
+          originMarker={originCoords || undefined}
+          destinationMarker={destinationCoords || undefined}
+          originLabel={rideSnapshot?.origin?.address || rideSnapshot?.originAddress || undefined}
+          destinationLabel={rideSnapshot?.destination?.address || rideSnapshot?.destinationAddress || undefined}
+          extraStopMarkers={extraStopMarkers}
+          showPinBubbles
+          autoFitEnabled
           provider="google"
         />
       </View>

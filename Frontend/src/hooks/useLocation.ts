@@ -24,12 +24,18 @@ const DEFAULT_LOCATION: Coordinates = {
 
 const LAST_KNOWN_LOCATION_KEY = 'last-known-location';
 
-interface UseLocationOptions {
+export interface UseLocationOptions {
   highAccuracy?: boolean; // Usar alta precisión
   backgroundTracking?: boolean; // Activar tracking en segundo plano
   interval?: number; // Intervalo de actualización en ms
   minDistance?: number; // Distancia mínima entre actualizaciones en metros
 }
+
+export const DRIVER_LOCATION_OPTIONS: UseLocationOptions = {
+  highAccuracy: true,
+  interval: 2500,
+  minDistance: 5,
+};
 
 export function useLocation(options: UseLocationOptions = {}) {
   const { 

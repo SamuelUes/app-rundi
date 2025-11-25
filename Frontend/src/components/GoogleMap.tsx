@@ -500,6 +500,10 @@ export default function GoogleMap({
   const baseUserMarkerIcon = isDark ? userLocationDarkIcon : userLocationLightIcon;
   const holdingUserMarkerIcon = isDark ? userLocationHoldingDarkIcon : userLocationHoldingLightIcon;
   const userMarkerIcon = isMarkerHeld ? holdingUserMarkerIcon || baseUserMarkerIcon : baseUserMarkerIcon;
+  const [currentZoom, setCurrentZoom] = useState<number>(() => {
+    const initial = resolveZoomForAltitude(DEFAULT_ALTITUDE, latitude).zoom;
+    return Number.isFinite(initial) ? initial : 15;
+  });
   const effectiveMarkerType = isMarkerHeld && markerType === 'manual_origin' ? 'manual_origin_hold' : markerType;
   const [selectedRideRequestId, setSelectedRideRequestId] = useState<string | null>(null);
   const lastFitSignatureRef = useRef<string>('');
@@ -718,6 +722,44 @@ export default function GoogleMap({
     const index = Math.round(normalized / 45) % 8;
     return directions[index];
   };
+
+  const baseVehicleZoom = useMemo(() => {
+    const zoom = defaultCameraSettings?.zoom;
+    return Number.isFinite(zoom) ? zoom! : 15;
+  }, [defaultCameraSettings?.zoom]);
+
+  const getVehicleScaleForZoom = useCallback(
+    (zoom: number): number => {
+      if (!Number.isFinite(zoom)) {
+        return 1;
+      }
+
+      if (zoom >= baseVehicleZoom) {
+        return 1;
+      }
+
+      const zoomDiff = zoom - baseVehicleZoom; // negativo cuando hacemos zoom out
+      const scale = Math.pow(2, zoomDiff / 1.9);
+      return clampValue(scale, 0.1, 1);
+    },
+    [baseVehicleZoom],
+  );
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || typeof map.getCamera !== 'function') return;
+
+    (async () => {
+      try {
+        const camera = await map.getCamera();
+        if (camera && typeof camera.zoom === 'number') {
+          setCurrentZoom(camera.zoom);
+        }
+      } catch (error) {
+        // ignorar
+      }
+    })();
+  }, []);
 
   const markerHeadingCacheRef = useRef<{ coord: LatLng | null; heading: number | null }>({
     coord: null,
@@ -1177,29 +1219,40 @@ export default function GoogleMap({
           </Marker>
         )}
 
-        {showMarker && isValidCoord(markerPosition) && (
-          <Marker
-            coordinate={toLatLng(markerPosition)}
-            tracksViewChanges
-            draggable={!!draggableMarker}
-            onDragStart={handleMarkerDragStart}
-            onDrag={handleMarkerDrag}
-            onDragEnd={handleMarkerDragEnd}
-            flat
-            rotation={typeof resolvedMarkerHeading === 'number' ? resolvedMarkerHeading : undefined}
-          >
-            <Animated.View style={{ transform: [{ scale: markerScale }] }}>
-              <MainMarkerContent
-                type={effectiveMarkerType}
-                vehicleIconSource={markerVehicleIconSource}
-                userMarkerIcon={userMarkerIcon}
-                manualOriginIcon={manualOriginIcon}
-                manualOriginHoldIcon={manualOriginHoldIcon}
-                isMarkerHeld={isMarkerHeld}
-              />
-            </Animated.View>
-          </Marker>
-        )}
+        {showMarker && isValidCoord(markerPosition) && (() => {
+          const vehicleScale = effectiveMarkerType === 'car' ? getVehicleScaleForZoom(currentZoom) : 1;
+
+          return (
+            <Marker
+              coordinate={toLatLng(markerPosition)}
+              tracksViewChanges
+              draggable={!!draggableMarker}
+              onDragStart={handleMarkerDragStart}
+              onDrag={handleMarkerDrag}
+              onDragEnd={handleMarkerDragEnd}
+              anchor={{ x: 0.5, y: 0.5 }}
+              centerOffset={{ x: 0, y: 0 }}
+              flat
+              rotation={typeof resolvedMarkerHeading === 'number' ? resolvedMarkerHeading : undefined}
+            >
+              <Animated.View
+                style={{
+                  transform: [{ scale: markerScale }, { scale: vehicleScale }],
+                  overflow: 'visible',
+                }}
+              >
+                <MainMarkerContent
+                  type={effectiveMarkerType}
+                  vehicleIconSource={markerVehicleIconSource}
+                  userMarkerIcon={userMarkerIcon}
+                  manualOriginIcon={manualOriginIcon}
+                  manualOriginHoldIcon={manualOriginHoldIcon}
+                  isMarkerHeld={isMarkerHeld}
+                />
+              </Animated.View>
+            </Marker>
+          );
+        })()}
 
         {extraStopMarkers.map((stop) => {
           if (!isValidCoord(stop)) return null;
@@ -1224,6 +1277,7 @@ export default function GoogleMap({
         {nearbyDrivers.map((driver) => {
           if (!isValidCoord(driver)) return null;
           const heading = resolveDriverHeading(driver);
+          const vehicleScale = driver.vehicleIconSource && !driver.isSelected ? getVehicleScaleForZoom(currentZoom) : 1;
           return (
             <Marker
               key={`driver-${driver.id}`}
@@ -1238,35 +1292,37 @@ export default function GoogleMap({
               }}
               flat
             >
-              {driver.isSelected ? (
-                <View style={markerStyles.driverBubbleWrapper}>
-                  {!!driver.rating && (
-                    <View style={markerStyles.driverRatingBadge}>
-                      <Text style={markerStyles.driverRatingText}>{driver.rating.toFixed(1)}</Text>
-                    </View>
-                  )}
-                  <Image source={DRIVER_PROFILE_BUBBLE_IMAGE} style={markerStyles.driverBubbleImage} />
-                  <View style={markerStyles.driverBubbleAvatar}>
-                    {driver.photoURL ? (
-                      <Image source={{ uri: driver.photoURL }} style={markerStyles.driverBubbleAvatarImage} />
-                    ) : (
-                      <View style={markerStyles.driverBubbleAvatarFallback}>
-                        <Text style={markerStyles.driverBubbleAvatarFallbackText}>
-                          {driver.id?.charAt(0)?.toUpperCase() ?? 'C'}
-                        </Text>
+              <View style={{ transform: [{ scale: vehicleScale }], overflow: 'visible' }}>
+                {driver.isSelected ? (
+                  <View style={markerStyles.driverBubbleWrapper}>
+                    {!!driver.rating && (
+                      <View style={markerStyles.driverRatingBadge}>
+                        <Text style={markerStyles.driverRatingText}>{driver.rating.toFixed(1)}</Text>
                       </View>
                     )}
+                    <Image source={DRIVER_PROFILE_BUBBLE_IMAGE} style={markerStyles.driverBubbleImage} />
+                    <View style={markerStyles.driverBubbleAvatar}>
+                      {driver.photoURL ? (
+                        <Image source={{ uri: driver.photoURL }} style={markerStyles.driverBubbleAvatarImage} />
+                      ) : (
+                        <View style={markerStyles.driverBubbleAvatarFallback}>
+                          <Text style={markerStyles.driverBubbleAvatarFallbackText}>
+                            {driver.id?.charAt(0)?.toUpperCase() ?? 'C'}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
                   </View>
-                </View>
-              ) : driver.vehicleIconSource ? (
-                <View style={markerStyles.vehicleIconWrapper}>
-                  <Image source={driver.vehicleIconSource} style={markerStyles.vehicleIconImage} />
-                </View>
-              ) : (
-                <MarkerBubble backgroundColor="#1565C0" size="medium">
-                  <Text style={markerStyles.driverIcon}>🚗</Text>
-                </MarkerBubble>
-              )}
+                ) : driver.vehicleIconSource ? (
+                  <View style={markerStyles.vehicleIconWrapper}>
+                    <Image source={driver.vehicleIconSource} style={markerStyles.vehicleIconImage} />
+                  </View>
+                ) : (
+                  <MarkerBubble backgroundColor="#1565C0" size="medium">
+                    <Text style={markerStyles.driverIcon}>🚗</Text>
+                  </MarkerBubble>
+                )}
+              </View>
             </Marker>
           );
         })}

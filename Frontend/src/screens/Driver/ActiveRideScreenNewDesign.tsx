@@ -17,7 +17,7 @@ import { MapSkeleton } from '../../components/SkeletonLoader';
 import DynamicMap from '../../components/DynamicMap';
 import { useAuth } from '../../context/AuthContext';
 import { useVoiceAssistant } from '../../context/VoiceAssistantContext';
-import { useLocation } from '../../hooks/useLocation';
+import { useLocation, DRIVER_LOCATION_OPTIONS } from '../../hooks/useLocation';
 import { useChat } from '../../hooks/useChat';
 import { RideProgressIndicator } from '../../components/RideProgressIndicator';
 import ridesService from '../../services/ridesService';
@@ -43,7 +43,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { user } = useAuth();
   const { settings: voiceSettings, speak: speakVoice, stopCategory: stopVoiceCategory } = useVoiceAssistant();
-  const { coords } = useLocation();
+  const { coords } = useLocation(DRIVER_LOCATION_OPTIONS);
   const driverDisplayName = useMemo(
     () =>
       (typeof user?.name === 'string' && user.name?.trim().length ? user.name.trim() : null) ||

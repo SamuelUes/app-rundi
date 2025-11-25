@@ -25,7 +25,10 @@
         "CAMERA",
         "READ_EXTERNAL_STORAGE",
         "WRITE_EXTERNAL_STORAGE",
-        "POST_NOTIFICATIONS"
+        "POST_NOTIFICATIONS",
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE",
+        "WAKE_LOCK"
       ],
       "adaptiveIcon": {
         "foregroundImage": "./src/assets/images/icon.png",
@@ -47,7 +50,8 @@
             "DEFAULT"
           ]
         }
-      ]
+      ],
+      "useNextNotificationsApi": true
     },
     "ios": {
       "bundleIdentifier": "com.driveangel.ni",
@@ -70,6 +74,15 @@
         }
       ],
       [
+        "expo-notifications",
+        {
+          "icon": "./src/assets/images/icon.png",
+          "color": "#FF9800",
+          "sounds": ["./src/assets/sounds/notification.wav"],
+          "mode": "production"
+        }
+      ],
+      [
         "expo-google-app-auth",
         {
           "iosClientId": "1040329608349-tl5cpqbf5gn10atmspkq7ligjivebuji.apps.googleusercontent.com",
@@ -80,7 +93,7 @@
         "react-native-firebase",
         {
           "messaging_android_notification_channel_id": "default",
-          "messaging_android_notification_priority": "priority_default"
+          "messaging_android_notification_priority": "priority_high"
         }
       ]
     ],

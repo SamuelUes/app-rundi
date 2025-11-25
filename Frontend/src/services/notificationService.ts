@@ -190,8 +190,8 @@ class NotificationService {
       if (Platform.OS !== 'android') return;
       // Configurar canal por defecto como alta prioridad
       await Notifications.setNotificationChannelAsync('default', {
-        name: 'Notificaciones',
-        importance: Notifications.AndroidImportance.HIGH,
+        name: 'Viajes Cercanos',
+        importance: Notifications.AndroidImportance.MAX,
         bypassDnd: true,
         sound: 'default',
         vibrationPattern: [0, 250, 250, 250],
@@ -199,6 +199,7 @@ class NotificationService {
         enableVibrate: true,
         enableLights: true,
         lightColor: '#FF9800',
+        showBadge: true,
       });
     } catch (e) {
       // noop

@@ -21,6 +21,7 @@ import { RideCardSkeleton } from '../../components/SkeletonLoader';
 import { NoDriversEmptyState } from '../../components/EmptyState';
 import { RatingDisplay } from '../../components/RatingDisplay';
 import alertService from '../../services/alertService';
+import DynamicMap from '../../components/DynamicMap';
 
 interface RideConfirmationScreenProps {
   route: {
@@ -97,6 +98,63 @@ export default function RideConfirmationScreen({ route, navigation }: RideConfir
   }, [navigation, handleBackPress]);
 
   const [driverInfoCache, setDriverInfoCache] = useState<Record<string, any>>({});
+
+  const originCoords = useMemo(() => {
+    const origin = ride?.origin || ride?.originLocation;
+    if (!origin) return null;
+    const latitude = origin.lat ?? origin.latitude;
+    const longitude = origin.lng ?? origin.longitude;
+    if (typeof latitude === 'number' && typeof longitude === 'number') {
+      return { latitude, longitude };
+    }
+    return null;
+  }, [ride?.origin, ride?.originLocation]);
+
+  const destinationCoords = useMemo(() => {
+    const destination = ride?.destination || ride?.destinationLocation;
+    if (!destination) return null;
+    const latitude = destination.lat ?? destination.latitude;
+    const longitude = destination.lng ?? destination.longitude;
+    if (typeof latitude === 'number' && typeof longitude === 'number') {
+      return { latitude, longitude };
+    }
+    return null;
+  }, [ride?.destination, ride?.destinationLocation]);
+
+  const extraStopMarkers = useMemo(() => {
+    if (!Array.isArray(ride?.extraDestinations)) return [];
+
+    return ride.extraDestinations
+      .map((stop: any, index: number) => {
+        const latitude = stop?.lat ?? stop?.latitude;
+        const longitude = stop?.lng ?? stop?.longitude;
+        if (typeof latitude !== 'number' || typeof longitude !== 'number') {
+          return null;
+        }
+        return {
+          latitude,
+          longitude,
+          index: index + 1,
+          label: stop?.address || `Parada ${index + 1}`,
+        };
+      })
+      .filter(Boolean) as Array<{ latitude: number; longitude: number; index: number; label?: string }>;
+  }, [ride?.extraDestinations]);
+
+  const hasValidCoords = useMemo(
+    () => !!originCoords || !!destinationCoords || extraStopMarkers.length > 0,
+    [originCoords, destinationCoords, extraStopMarkers],
+  );
+
+  const mapCenter = useMemo(() => {
+    if (originCoords) return originCoords;
+    if (destinationCoords) return destinationCoords;
+    if (extraStopMarkers.length > 0) {
+      const first = extraStopMarkers[0];
+      return { latitude: first.latitude, longitude: first.longitude };
+    }
+    return { latitude: 12.136389, longitude: -86.251389 }; // Managua como fallback
+  }, [originCoords, destinationCoords, extraStopMarkers]);
 
  // Listener en tiempo real para ofertas de conductores y estado del viaje
 useEffect(() => {
@@ -358,6 +416,24 @@ useEffect(() => {
           </Text>
         </View>
       </View>
+
+      {hasValidCoords && (
+        <View style={styles.mapPreviewContainer}>
+          <DynamicMap
+            latitude={mapCenter.latitude}
+            longitude={mapCenter.longitude}
+            style={styles.mapPreview}
+            originMarker={originCoords || undefined}
+            destinationMarker={destinationCoords || undefined}
+            originLabel={ride?.origin?.address || ride?.originAddress || undefined}
+            destinationLabel={ride?.destination?.address || ride?.destinationAddress || undefined}
+            extraStopMarkers={extraStopMarkers}
+            showPinBubbles
+            autoFitEnabled
+            provider="google"
+          />
+        </View>
+      )}
 
       {/* ✅ MEJORADO: Lista de Ofertas de Conductores (mostrar en cualquier estado) */}
       {driverOffers.length > 0 && (
@@ -754,6 +830,25 @@ const createStyles = (colors: any) => StyleSheet.create({
     padding: 20,
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
+  },
+  mapPreviewContainer: {
+    height: 260,
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 4,
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  mapPreview: {
+    flex: 1,
   },
   statusContainer: {
     flexDirection: 'row',

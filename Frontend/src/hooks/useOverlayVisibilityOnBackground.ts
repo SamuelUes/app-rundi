@@ -19,6 +19,7 @@ import proximityService from '../services/proximityService';
 export function useOverlayVisibilityOnBackground(enabled: boolean) {
   const appState = useRef<AppStateStatus>(AppState.currentState);
   const isProcessingRef = useRef(false);
+  const activeStabilizeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (Platform.OS !== 'android' || !enabled) {
@@ -27,54 +28,100 @@ export function useOverlayVisibilityOnBackground(enabled: boolean) {
 
     console.log('✅ [overlay:hook] Listener activado - gestión automática de burbuja');
 
+    const ACTIVE_STABILIZE_MS = 2000;
+
+    const isBackgroundLike = (state: AppStateStatus) => state === 'background' || state === 'inactive';
+
+    const clearActiveStabilizationTimer = () => {
+      if (activeStabilizeTimeoutRef.current) {
+        clearTimeout(activeStabilizeTimeoutRef.current);
+        activeStabilizeTimeoutRef.current = null;
+      }
+    };
+
+    const startActiveStabilization = () => {
+      clearActiveStabilizationTimer();
+      activeStabilizeTimeoutRef.current = setTimeout(() => {
+        activeStabilizeTimeoutRef.current = null;
+        console.log('🟢 [overlay:hook] Ventana de estabilización finalizada');
+      }, ACTIVE_STABILIZE_MS);
+      console.log(`🟢 [overlay:hook] Estabilizando estado ACTIVE por ${ACTIVE_STABILIZE_MS}ms`);
+    };
+
+    const hideOverlay = async (reason: string) => {
+      if (isProcessingRef.current) {
+        console.log(`⏭️ [overlay:hook] skip hideOverlayBubble (${reason}) - operación en curso`);
+        return;
+      }
+
+      isProcessingRef.current = true;
+      try {
+        console.log('🧹 [overlay:hook] App volvió a foreground - ocultando burbuja');
+        await proximityService.hideOverlayBubble(reason);
+        console.log('🧹 [overlay:hook] hideOverlayBubble completado');
+      } catch (error) {
+        console.warn('[overlay:hook] Error ocultando overlay:', error);
+      } finally {
+        isProcessingRef.current = false;
+      }
+    };
+
+    const showOverlayForBackground = async (force = false) => {
+      if (!isBackgroundLike(appState.current)) {
+        console.log(`🫧 [overlay:hook] Estado actual ${appState.current}, se cancela mostrar burbuja`);
+        return;
+      }
+
+      if (!force && activeStabilizeTimeoutRef.current) {
+        console.log('⏭️ [overlay:hook] Ignorando overlay porque seguimos en ventana de estabilización');
+        return;
+      }
+
+      if (isProcessingRef.current) {
+        console.log('⏭️ [overlay:hook] Operación en progreso, se omite mostrar burbuja');
+        return;
+      }
+
+      isProcessingRef.current = true;
+      try {
+        console.log('🫧 [overlay:hook] App fue a background - mostrando burbuja');
+        console.log('🫧 [overlay:hook] Llamando a ensureOverlayBubbleForBackground()...');
+        await proximityService.ensureOverlayBubbleForBackground();
+        console.log('🫧 [overlay:hook] ensureOverlayBubbleForBackground() completado');
+      } catch (error) {
+        console.warn('[overlay:hook] Error mostrando overlay en background:', error);
+      } finally {
+        isProcessingRef.current = false;
+      }
+    };
+
     const listener = AppState.addEventListener('change', async (nextState) => {
       const previousState = appState.current;
       appState.current = nextState;
 
       console.log(`📱 [overlay:hook] AppState cambió: ${previousState} → ${nextState}`);
 
-      // Prevenir operaciones concurrentes
-      if (isProcessingRef.current) {
-        console.log('⏭️ [overlay:hook] Operación en progreso, saltando');
+      // App va a background (de active a background/inactive)
+      if (previousState === 'active' && nextState === 'background') {
+        await showOverlayForBackground(true);
         return;
       }
 
-      // App va a background (de active a background/inactive)
-      if (previousState === 'active' && (nextState === 'background' || nextState === 'inactive')) {
-        console.log(`🫧 [overlay:hook] isProcessingRef.current antes: ${isProcessingRef.current}`);
-        isProcessingRef.current = true;
-        try {
-          console.log('🫧 [overlay:hook] App fue a background - mostrando burbuja');
-          console.log('🫧 [overlay:hook] Llamando a ensureOverlayBubbleForBackground()...');
-          await proximityService.ensureOverlayBubbleForBackground();
-          console.log('🫧 [overlay:hook] ensureOverlayBubbleForBackground() completado');
-        } catch (error) {
-          console.warn('[overlay:hook] Error mostrando overlay en background:', error);
-        } finally {
-          console.log('🫧 [overlay:hook] Limpiando isProcessingRef.current');
-          isProcessingRef.current = false;
-        }
+      if (previousState === 'active' && nextState === 'inactive') {
+        await showOverlayForBackground();
+        return;
       }
 
       // App vuelve a foreground (de background/inactive a active)
       if ((previousState === 'background' || previousState === 'inactive') && nextState === 'active') {
-        console.log(`🧹 [overlay:hook] isProcessingRef.current antes de limpiar: ${isProcessingRef.current}`);
-        isProcessingRef.current = true;
-        try {
-          console.log('🧹 [overlay:hook] App volvió a foreground - ocultando burbuja');
-          await proximityService.hideOverlayBubble('appReturnedToForeground');
-          console.log('🧹 [overlay:hook] hideOverlayBubble completado');
-        } catch (error) {
-          console.warn('[overlay:hook] Error ocultando overlay:', error);
-        } finally {
-          console.log('🧹 [overlay:hook] Limpiando isProcessingRef.current');
-          isProcessingRef.current = false;
-        }
+        startActiveStabilization();
+        await hideOverlay('appReturnedToForeground');
       }
     });
 
     return () => {
       listener.remove();
+      clearActiveStabilizationTimer();
       isProcessingRef.current = false;
       console.log('🔇 [overlay:hook] Listener removido');
     };
