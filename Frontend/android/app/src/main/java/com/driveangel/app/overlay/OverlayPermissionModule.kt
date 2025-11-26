@@ -8,6 +8,7 @@ import android.os.Build
 import android.provider.Settings
 import android.util.Log
 import com.facebook.react.bridge.ActivityEventListener
+import com.facebook.react.bridge.LifecycleEventListener
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
@@ -19,7 +20,8 @@ import com.facebook.react.bridge.ReactMethod
  */
 class OverlayPermissionModule(reactContext: ReactApplicationContext) :
   ReactContextBaseJavaModule(reactContext),
-  ActivityEventListener {
+  ActivityEventListener,
+  LifecycleEventListener {
 
   companion object {
     private const val MODULE_NAME = "OverlayPermissionModule"
@@ -32,6 +34,7 @@ class OverlayPermissionModule(reactContext: ReactApplicationContext) :
 
   init {
     reactContext.addActivityEventListener(this)
+    reactContext.addLifecycleEventListener(this)
     Log.d(TAG, "✅ OverlayPermissionModule initialized")
   }
 
@@ -219,22 +222,41 @@ class OverlayPermissionModule(reactContext: ReactApplicationContext) :
     cleanup()
   }
 
+  override fun onHostResume() {
+    // no-op
+  }
+
+  override fun onHostPause() {
+    // no-op
+  }
+
+  override fun onHostDestroy() {
+    Log.d(TAG, "💥 onHostDestroy - Ensuring overlay cleanup")
+    cleanup()
+  }
+
   private fun cleanup() {
     try {
       // Delegar limpieza de overlay a OverlayManager
       overlayManager.cleanup()
-      
-      // Remover listeners
-      try {
-        reactApplicationContext.removeActivityEventListener(this)
-      } catch (e: Exception) {
-        Log.w(TAG, "⚠️ Error removing activity listener", e)
-      }
-      
-      pendingPermissionPromise = null
-      Log.d(TAG, "🧹 Cleanup completed")
     } catch (e: Exception) {
-      Log.w(TAG, "⚠️ Error during cleanup", e)
+      Log.w(TAG, "⚠️ Error calling overlay cleanup", e)
     }
+
+    // Remover listeners una sola vez
+    try {
+      reactApplicationContext.removeActivityEventListener(this)
+    } catch (e: Exception) {
+      Log.w(TAG, "⚠️ Error removing activity listener", e)
+    }
+
+    try {
+      reactApplicationContext.removeLifecycleEventListener(this)
+    } catch (e: Exception) {
+      Log.w(TAG, "⚠️ Error removing lifecycle listener", e)
+    }
+
+    pendingPermissionPromise = null
+    Log.d(TAG, "🧹 Cleanup completed")
   }
 }

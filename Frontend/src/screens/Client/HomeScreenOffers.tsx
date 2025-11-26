@@ -10,6 +10,8 @@ import PriceNegotiationModal from '../../components/PriceNegotiationModal';
 import priceNegotiationService from '../../services/priceNegotiationService';
 import { useFirebaseData } from '../../hooks/useFirebaseData';
 import { extractVehicleTypeFromInfo, ensureVehicleIconSource } from '../../utils/vehicleIcons';
+import mapsService from '../../services/mapsService';
+import { clearClientActiveRideState } from '../../utils/clientRideState';
 
 const USER_LOCATION_LIGHT_ICON = require('../../assets/icons/actuall-position-white/actuallpositionwhite2x.png');
 const USER_LOCATION_DARK_ICON = require('../../assets/icons/actuall-position-black/actuallpositionblack2x.png');
@@ -124,6 +126,8 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
   const [showNegotiation, setShowNegotiation] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
+  const [routeCoordinates, setRouteCoordinates] = useState<Array<{ latitude: number; longitude: number }>>([]);
+  const [loadingRoute, setLoadingRoute] = useState(false);
 
   // driversInfo: datos públicos agregados (nombre, foto, rating, vehículo). Evita leer /drivers (permiso denegado para clientes)
   const { data: driversInfo } = useFirebaseData<any>('driversInfo', { maxCacheAge: 10000 });
@@ -316,6 +320,21 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
     setSelectedDriverId((current) => (current === driverId ? null : driverId));
   };
 
+  const handleMessageDriver = useCallback(
+    (offer: OfferItem) => {
+      if (!rideId) return;
+      const info = driversInfo?.[offer.driverId] || {};
+      const raw = driversRaw?.[offer.driverId] || {};
+      const name = mergeName(info, raw, offer.driver);
+      navigation.navigate('Chat', {
+        rideId,
+        otherUserId: offer.driverId,
+        otherUserName: name,
+      });
+    },
+    [driversInfo, driversRaw, navigation, rideId],
+  );
+
   const selectedOffer: OfferItem | undefined = useMemo(
     () => offers.find(o => o.driverId === selectedDriverId),
     [offers, selectedDriverId]
@@ -393,6 +412,11 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
     }).start();
     try {
       await ridesService.cancelRide(rideId, 'Cancelado por el cliente desde HomeScreenOffers');
+      await clearClientActiveRideState();
+      setRideId(null);
+      setRideSnapshot(null);
+      setOffers([]);
+      setSelectedDriverId(null);
       alertService.showSuccessAlert('Búsqueda cancelada', 'Regresamos a tu pantalla de inicio.');
       navigation.replace('ClientHome');
     } catch (e: any) {
@@ -454,15 +478,112 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
       .filter(Boolean) as Array<{ latitude: number; longitude: number; index: number; label?: string }>;
   }, [rideSnapshot?.extraDestinations]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const normalizePoint = (point: any) => {
+      if (!point) return null;
+      const latitude = typeof point.lat === 'number' ? point.lat : typeof point.latitude === 'number' ? point.latitude : Number(point.lat ?? point.latitude);
+      const longitude = typeof point.lng === 'number' ? point.lng : typeof point.longitude === 'number' ? point.longitude : Number(point.lng ?? point.longitude);
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+      return { latitude, longitude };
+    };
+
+    const computeRoute = async () => {
+      const originPoint = normalizePoint(rideSnapshot?.origin || rideSnapshot?.originLocation);
+      const destinationPoint = normalizePoint(rideSnapshot?.destination || rideSnapshot?.destinationLocation);
+      if (!originPoint || !destinationPoint) {
+        setRouteCoordinates([]);
+        setLoadingRoute(false);
+        return;
+      }
+
+      setLoadingRoute(true);
+      try {
+        const segments: Array<{ latitude: number; longitude: number }> = [];
+        let currentPoint = originPoint;
+        const targets: Array<{ latitude: number; longitude: number }> = [];
+
+        if (Array.isArray(rideSnapshot?.extraDestinations) && rideSnapshot.extraDestinations.length > 0) {
+          rideSnapshot.extraDestinations.forEach((stop: any) => {
+            const normalized = normalizePoint(stop);
+            if (normalized) targets.push(normalized);
+          });
+        }
+        targets.push(destinationPoint);
+
+        for (const target of targets) {
+          const segment = await mapsService.getDirections(currentPoint, target);
+          if (cancelled) return;
+          if (segment?.polyline?.length) {
+            if (segments.length > 0) {
+              const last = segments[segments.length - 1];
+              const first = segment.polyline[0];
+              if (
+                Math.abs(last.latitude - first.latitude) < 1e-6 &&
+                Math.abs(last.longitude - first.longitude) < 1e-6
+              ) {
+                segments.push(...segment.polyline.slice(1));
+              } else {
+                segments.push(...segment.polyline);
+              }
+            } else {
+              segments.push(...segment.polyline);
+            }
+          } else {
+            segments.push(currentPoint, target);
+          }
+          currentPoint = target;
+        }
+
+        if (!cancelled) {
+          setRouteCoordinates(segments);
+        }
+      } catch (error) {
+        console.error('[HomeScreenOffers] Error calculando ruta:', error);
+        if (!cancelled) {
+          setRouteCoordinates([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingRoute(false);
+        }
+      }
+    };
+
+    computeRoute();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [rideSnapshot?.destination, rideSnapshot?.destinationLocation, rideSnapshot?.extraDestinations, rideSnapshot?.origin, rideSnapshot?.originLocation]);
+
+  const negotiationStatusLabel = (status?: string) => {
+    switch (status) {
+      case 'client_suggested':
+        return 'Esperando tu respuesta';
+      case 'driver_offered':
+        return 'Esperando tu respuesta\n';
+      case 'driver_accepted':
+        return 'Aceptaste el precio del cliente';
+      case 'client_accepted':
+        return 'El cliente aceptó tu oferta';
+      default:
+        return null;
+    }
+  };
+
   const renderOffer = ({ item }: { item: OfferItem }) => {
     const selected = item.driverId === selectedDriverId;
     const eta = etasByDriver[item.driverId];
     const etaText = eta ? `${eta.etaMins} min` : 'tiempo estimado';
     const arrivalText = eta ? eta.arrivalLabel : 'Hora de llegada';
     const plate = item.driver?.vehicle?.plate || '—';
-    const displayPrice = (typeof item.offeredPrice === 'number' && item.offeredPrice > 0)
-      ? item.offeredPrice
-      : (rideSnapshot?.estimatedPrice || rideSnapshot?.estimatedFare || 0);
+    const clientPrice =
+      typeof rideSnapshot?.clientSuggestedPrice === 'number' && rideSnapshot.clientSuggestedPrice > 0
+        ? rideSnapshot.clientSuggestedPrice
+        : rideSnapshot?.estimatedPrice || rideSnapshot?.estimatedFare || null;
+    const driverPrice = typeof item.offeredPrice === 'number' && item.offeredPrice > 0 ? item.offeredPrice : null;
     const info = driversInfo?.[item.driverId] || {};
     const raw = driversRaw?.[item.driverId] || {};
     const vehicleType = extractVehicleTypeFromInfo(info) || extractVehicleTypeFromInfo(raw);
@@ -470,6 +591,11 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
     const ratingLabel = ratingNumber !== null && Number.isFinite(ratingNumber) ? ratingNumber.toFixed(1) : null;
     const displayName = mergeName(info, raw, item.driver);
     const vehicleIconSource = ensureVehicleIconSource(vehicleType);
+    const priceTextColor = selected ? '#FFFFFF' : '#1F2937';
+    const priceLabelColor = selected ? 'rgba(255,255,255,0.75)' : '#6B7280';
+    const driverPriceLabel = driverPrice ? `C$${Number(driverPrice).toFixed(2)}` : 'Pendiente';
+    const clientPriceLabel = clientPrice != null ? `C$${Number(clientPrice).toFixed(2)}` : 'N/D';
+    const negotiationLabel = negotiationStatusLabel(rideSnapshot?.negotiationStatus);
     return (
       <TouchableOpacity
         onPress={() => handleSelectFromList(item.driverId)}
@@ -505,46 +631,65 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
             {ratingLabel ? `⭐ ${ratingLabel} • ` : ''}Llega {arrivalText} - {etaText}
           </Text>
           {selected && (
-            <View style={styles.priceRow}> 
-              <Text style={styles.priceLabel}>Precio: </Text>
-              <Text style={styles.priceValue}>C${Number(displayPrice).toFixed(2)}</Text>
+            <View style={styles.priceRow}>
+              <Text style={[styles.priceLabel, { color: priceLabelColor }]}>Precio:</Text>
+              <View style={styles.priceValues}>
+                <View style={styles.priceValueGroup}>
+                  <Text style={[styles.priceValueLabel, { color: priceLabelColor }]}>Tu precio: </Text>
+                  <Text style={[styles.priceValueText, { color: priceTextColor }]}>{clientPriceLabel}</Text>
+                </View>
+                <Text style={[styles.priceDivider, { color: priceLabelColor }]}>•</Text>
+                <View style={styles.priceValueGroup}>
+                  <Text style={[styles.priceValueLabel, { color: priceLabelColor }]}>Sugerencia Conductor: </Text>
+                  <Text style={[styles.priceValueText, { color: priceTextColor }]}>{driverPriceLabel}</Text>
+                </View>
+              </View>
             </View>
           )}
         </View>
         {selected ? (
-          item.status === 'accepted' ? (
-            <Animated.View
-              style={[
-                styles.acceptedStatusChip,
-                {
-                  transform: [
-                    {
-                      scale: acceptedAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [0.6, 1],
-                      }),
-                    },
-                  ],
-                  opacity: acceptedAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [0, 1],
-                  }),
-                },
-              ]}
+          <View style={styles.selectedActions}>
+            <TouchableOpacity
+              onPress={() => handleMessageDriver(item)}
+              style={styles.messageButton}
+              activeOpacity={0.9}
             >
-              <Text style={styles.acceptedStatusText}>El conductor aceptó tu precio</Text>
-            </Animated.View>
-          ) : (
-            <TouchableOpacity onPress={openNegotiation} style={styles.negotiatePill} activeOpacity={0.9}>
-              <Text style={styles.negotiateText}>Negociar</Text>
+              <Text style={styles.iconText}>💬</Text>
             </TouchableOpacity>
-          )
+            {item.status === 'accepted' ? (
+              <Animated.View
+                style={[
+                  styles.acceptedStatusChip,
+                  {
+                    transform: [
+                      {
+                        scale: acceptedAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [0.6, 1],
+                        }),
+                      },
+                    ],
+                    opacity: acceptedAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0, 1],
+                    }),
+                  },
+                ]}
+              >
+                <Text style={styles.acceptedStatusText}>El conductor aceptó tu precio</Text>
+              </Animated.View>
+            ) : (
+              <TouchableOpacity onPress={openNegotiation} style={styles.negotiatePill} activeOpacity={0.9}>
+                <Text style={styles.negotiateText}>Negociar</Text>
+              </TouchableOpacity>
+            )}
+          </View>
         ) : item.status === 'accepted' ? (
           <View style={styles.acceptedStatusChipSecondary}>
             <Text style={styles.acceptedStatusTextSecondary}>El conductor aceptó tu precio</Text>
           </View>
         ) : (
-          <Text style={styles.offerEtaText}>{etaText}</Text>
+          <Text style={styles.offerEtaText}>{negotiationLabel ?? etaText}</Text>
         )}
       </TouchableOpacity>
     );
@@ -745,8 +890,8 @@ const createStyles = (colors: any) => StyleSheet.create({
     borderColor: colors.border,
   },
   offerRowSelected: {
-    backgroundColor: '#CF9A24',
-    borderColor: '#E8B451',
+    backgroundColor: '#e08d21',
+    borderColor: 'rgba(185, 121, 37, 0.12)',
   },
   offerAvatarWrap: { width: 60, height: 64, marginRight: 10, position: 'relative', justifyContent: 'flex-end', alignItems: 'center' },
   offerAvatarFrame: { width: 60, height: 60, borderRadius: 16, borderWidth: 3, borderColor: '#FFFFFF', backgroundColor: '#D1D5DB', overflow: 'hidden', justifyContent: 'center', alignItems: 'center' },
@@ -759,9 +904,21 @@ const createStyles = (colors: any) => StyleSheet.create({
   offerSubtitle: { fontSize: 12, color: '#4B5563', marginTop: 2 },
   offerEtaText: { fontSize: 13, fontWeight: '700', color: '#1F2937', marginLeft: 8 },
   priceRow: { marginTop: 4 },
-  priceLabel: { fontSize: 12, fontWeight: '700', color: '#F0F0F0' },
-  priceHint: { fontSize: 11, color: '#F6F6F6' },
-  priceValue: { fontSize: 14, fontWeight: '800', color: '#FFFFFF' },
+  priceLabel: { fontSize: 12, fontWeight: '700' },
+  priceValues: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    marginTop: 2,
+  },
+  priceValueGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 6,
+  },
+  priceValueLabel: { fontSize: 12, fontWeight: '600' },
+  priceValueText: { fontSize: 14, fontWeight: '800' },
+  priceDivider: { fontSize: 12, fontWeight: '600' },
   negotiatePill: {
     paddingHorizontal: 14,
     paddingVertical: 8,
@@ -769,6 +926,44 @@ const createStyles = (colors: any) => StyleSheet.create({
     backgroundColor: '#6B21A8',
   },
   negotiateText: { color: '#FFFFFF', fontWeight: '700', fontSize: 13 },
+  selectedActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  messageButton: {
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 18,
+    marginRight: 10,
+  },
+  iconText: {
+    fontSize: 20,
+  },
+  messageButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  routeLoadingBadge: {
+    position: 'absolute',
+    top: 14,
+    right: 14,
+    backgroundColor: 'rgba(15, 23, 42, 0.8)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  routeLoadingText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
   acceptedStatusChip: {
     paddingHorizontal: 12,
     paddingVertical: 6,

@@ -28,6 +28,7 @@ import {
 
 // Servicios y componentes
 import alertService from '../../services/alertService';
+import { clearClientActiveRideState } from '../../utils/clientRideState';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import DynamicMap from '../../components/DynamicMap';
 import { useTheme } from '../../context/ThemeContext';
@@ -697,6 +698,7 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
         try {
           const result = await ridesService.cancelRide(rideId, 'Cancelado por el cliente');
           if (result.success) {
+            await clearClientActiveRideState();
             alertService.showSuccessAlert('Viaje Cancelado', result.message, () => {
               navigation.reset({
                 index: 0,

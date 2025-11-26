@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -12,7 +12,7 @@ import {
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useVoiceAssistant } from '../../context/VoiceAssistantContext';
-import { getDatabase, ref, onValue } from 'firebase/database';
+import { getDatabase, ref, onValue, get } from 'firebase/database';
 import priceNegotiationService from '../../services/priceNegotiationService';
 import ridesService from '../../services/ridesService';
 import { RideListSkeleton } from '../../components/SkeletonLoader';
@@ -203,6 +203,120 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
     return () => unsubscribe();
   }, [user?.id, navigation]);
 
+  const applySnapshot = useCallback(
+    (data: Record<string, any> | null | undefined) => {
+      const rideKeys = data ? Object.keys(data) : [];
+      console.log('📦 [AvailableRides] Snapshot recibido', {
+        totalKeys: rideKeys.length,
+        keysPreview: rideKeys.slice(0, 5),
+      });
+
+      if (!data) {
+        setRides([]);
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
+
+      const availableRides: Ride[] = [];
+
+      Object.entries(data).forEach(([rideId, rideData]: [string, any]) => {
+        const statusRaw = typeof rideData?.status === 'string' ? rideData.status.trim().toLowerCase() : '';
+        const driverId = rideData?.driverId ?? rideData?.driver_id ?? null;
+
+        const isCancelled =
+          statusRaw.startsWith('cancel') ||
+          statusRaw === 'cancelled' ||
+          Boolean(rideData?.cancelReason) ||
+          rideData?.paymentCanceled === true ||
+          rideData?.cancelled === true ||
+          rideData?.canceled === true;
+        if (isCancelled) {
+          console.log('⏭️ [AvailableRides] Ride omitido (cancelado)', rideId, {
+            statusRaw,
+            driverId,
+            cancelReason: rideData?.cancelReason,
+            paymentCanceled: rideData?.paymentCanceled,
+          });
+          return;
+        }
+
+        const isRequested = statusRaw === 'requested' && !driverId;
+        const isNegotiatingWithMe = Boolean(user?.id) && driverId === user?.id && ['pending_confirm', 'driver_assigned'].includes(statusRaw);
+
+        if (!(isRequested || isNegotiatingWithMe)) {
+          console.log('⏭️ [AvailableRides] Ride omitido (no elegible)', rideId, {
+            statusRaw,
+            driverId,
+            userId: user?.id,
+            isRequested,
+            isNegotiatingWithMe,
+          });
+          return;
+        }
+
+        const offers = rideData.offers || {};
+        const myOffer = user?.id ? offers[user.id] : null;
+
+        const origin = normalizeLocation(
+          rideData.origin as RawLocation,
+          [rideData.originLat, rideData.originLatitude, rideData.pickupLat, rideData.pickupLatitude],
+          [rideData.originLng, rideData.originLongitude, rideData.pickupLng, rideData.pickupLongitude],
+          rideData.originAddress,
+        );
+        const destination = normalizeLocation(
+          rideData.destination as RawLocation,
+          [rideData.destinationLat, rideData.destinationLatitude, rideData.dropoffLat, rideData.dropoffLatitude],
+          [rideData.destinationLng, rideData.destinationLongitude, rideData.dropoffLng, rideData.dropoffLongitude],
+          rideData.destinationAddress,
+        );
+
+        const extraStops = normalizeStops(rideData.extraDestinations || rideData.extra_stops || rideData.additionalStops);
+
+        const requestedAtRaw = rideData.requestedAt ?? rideData.createdAt ?? rideData.created_at ?? Date.now();
+        const requestedAt = typeof requestedAtRaw === 'number' ? requestedAtRaw : parseInt(requestedAtRaw, 10) || 0;
+
+        availableRides.push({
+          id: rideId,
+          clientId: rideData.clientId || '',
+          clientName: rideData.clientName || rideData.client?.name || rideData.clientInfo?.name,
+          clientPhone: rideData.clientPhone || rideData.client?.phone || rideData.clientInfo?.phone,
+          origin,
+          destination,
+          estimatedDistance: rideData.estimatedDistance || 0,
+          estimatedDuration: rideData.estimatedDuration || 0,
+          estimatedPrice: rideData.estimatedPrice || 0,
+          status: statusRaw || 'requested',
+          clientSuggestedPrice: rideData.clientSuggestedPrice,
+          driverOfferedPrice: myOffer?.offeredPrice ?? null,
+          driverOfferStatus: myOffer?.status ?? null,
+          passengers: rideData.passengers || 1,
+          rideType: rideData.rideType || 'normal',
+          paymentMethod: rideData.paymentMethod,
+          requestedAt,
+          extraDestinations: extraStops,
+          waypointsCount: rideData.waypointsCount || extraStops.length || 0,
+          hasMultipleDestinations: rideData.hasMultipleDestinations || extraStops.length > 0,
+        });
+        console.log('✅ [AvailableRides] Ride agregado a lista', rideId, {
+          statusRaw,
+          driverId,
+          isRequested,
+          isNegotiatingWithMe,
+          negotiationStatus: rideData?.negotiationStatus,
+        });
+      });
+
+      availableRides.sort((a, b) => (b.requestedAt || 0) - (a.requestedAt || 0));
+
+      setRides(availableRides);
+      setSelectedRideId((current) => (current && availableRides.some((ride) => ride.id === current) ? current : null));
+      setLoading(false);
+      setRefreshing(false);
+    },
+    [user?.id],
+  );
+
   useEffect(() => {
     const db = getDatabase();
     const ridesRef = ref(db, 'activeRides');
@@ -210,79 +324,7 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
     const unsubscribe = onValue(
       ridesRef,
       (snapshot) => {
-        const data = snapshot.val();
-
-        if (!data) {
-          setRides([]);
-          setLoading(false);
-          setRefreshing(false);
-          return;
-        }
-
-        const availableRides: Ride[] = [];
-
-        Object.entries(data).forEach(([rideId, rideData]: [string, any]) => {
-          const statusRaw = typeof rideData?.status === 'string' ? rideData.status.trim().toLowerCase() : '';
-          const driverId = rideData?.driverId ?? rideData?.driver_id ?? null;
-
-          const isRequested = statusRaw === 'requested' && !driverId;
-          const isNegotiatingWithMe = Boolean(user?.id) && driverId === user?.id && ['pending_confirm', 'driver_assigned'].includes(statusRaw);
-
-          if (!(isRequested || isNegotiatingWithMe)) {
-            return;
-          }
-
-          const offers = rideData.offers || {};
-          const myOffer = user?.id ? offers[user.id] : null;
-
-          const origin = normalizeLocation(
-            rideData.origin as RawLocation,
-            [rideData.originLat, rideData.originLatitude, rideData.pickupLat, rideData.pickupLatitude],
-            [rideData.originLng, rideData.originLongitude, rideData.pickupLng, rideData.pickupLongitude],
-            rideData.originAddress,
-          );
-          const destination = normalizeLocation(
-            rideData.destination as RawLocation,
-            [rideData.destinationLat, rideData.destinationLatitude, rideData.dropoffLat, rideData.dropoffLatitude],
-            [rideData.destinationLng, rideData.destinationLongitude, rideData.dropoffLng, rideData.dropoffLongitude],
-            rideData.destinationAddress,
-          );
-
-          const extraStops = normalizeStops(rideData.extraDestinations || rideData.extra_stops || rideData.additionalStops);
-
-          const requestedAtRaw = rideData.requestedAt ?? rideData.createdAt ?? rideData.created_at ?? Date.now();
-          const requestedAt = typeof requestedAtRaw === 'number' ? requestedAtRaw : parseInt(requestedAtRaw, 10) || 0;
-
-          availableRides.push({
-            id: rideId,
-            clientId: rideData.clientId || '',
-            clientName: rideData.clientName || rideData.client?.name || rideData.clientInfo?.name,
-            clientPhone: rideData.clientPhone || rideData.client?.phone || rideData.clientInfo?.phone,
-            origin,
-            destination,
-            estimatedDistance: rideData.estimatedDistance || 0,
-            estimatedDuration: rideData.estimatedDuration || 0,
-            estimatedPrice: rideData.estimatedPrice || 0,
-            status: statusRaw || 'requested',
-            clientSuggestedPrice: rideData.clientSuggestedPrice,
-            driverOfferedPrice: myOffer?.offeredPrice ?? null,
-            driverOfferStatus: myOffer?.status ?? null,
-            passengers: rideData.passengers || 1,
-            rideType: rideData.rideType || 'normal',
-            paymentMethod: rideData.paymentMethod,
-            requestedAt,
-            extraDestinations: extraStops,
-            waypointsCount: rideData.waypointsCount || extraStops.length || 0,
-            hasMultipleDestinations: rideData.hasMultipleDestinations || extraStops.length > 0,
-          });
-        });
-
-        availableRides.sort((a, b) => (b.requestedAt || 0) - (a.requestedAt || 0));
-
-        setRides(availableRides);
-        setSelectedRideId((current) => (current && availableRides.some((ride) => ride.id === current) ? current : null));
-        setLoading(false);
-        setRefreshing(false);
+        applySnapshot(snapshot.val());
       },
       (error) => {
         console.error('❌ Error en listener:', error);
@@ -334,12 +376,19 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
     };
   }, [navigation, user?.id]);
 
-  const handleRefresh = () => {
+  const handleRefresh = useCallback(async () => {
     setRefreshing(true);
-    setTimeout(() => {
+    try {
+      const db = getDatabase();
+      const ridesRef = ref(db, 'activeRides');
+      const snapshot = await get(ridesRef);
+      applySnapshot(snapshot.val());
+    } catch (error) {
+      console.error('❌ [AvailableRides] Error refrescando manualmente:', error);
+    } finally {
       setRefreshing(false);
-    }, 1000);
-  };
+    }
+  }, [applySnapshot]);
 
   const ensureCardForCardPayments = async (ride: Ride): Promise<boolean> => {
     const ridePaymentMethod = ride?.paymentMethod || ride?.rideType;

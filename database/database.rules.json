@@ -105,6 +105,7 @@
     },
     
     "paymentStatus": {
+      ".read": "auth != null",
       "$rideId": {
         ".read": "auth != null",
         ".write": "auth != null",

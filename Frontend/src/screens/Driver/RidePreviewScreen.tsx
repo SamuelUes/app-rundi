@@ -13,6 +13,7 @@ import {
   Linking,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -99,6 +100,7 @@ export default function RidePreviewScreen() {
       console.warn('[RidePreviewScreen] No se pudo marcar ride como descartado:', err);
     }
   }, [currentRide.id]);
+  const cancellationHandledRef = useRef(false);
   const acceptButtonScale = useRef(new Animated.Value(1)).current;
   const rejectButtonScale = useRef(new Animated.Value(1)).current;
 
@@ -170,6 +172,8 @@ export default function RidePreviewScreen() {
   const priceContentAnim = useRef(new Animated.Value(1)).current;
   const [priceContentHeight, setPriceContentHeight] = useState(0);
   const [sendingOffer, setSendingOffer] = useState(false);
+  const [customOfferVisible, setCustomOfferVisible] = useState(false);
+  const customOfferInputRef = useRef<TextInput | null>(null);
 
   const animatePriceContent = useCallback(
     (expand: boolean, duration: number = 240) => {
@@ -354,6 +358,24 @@ export default function RidePreviewScreen() {
       const data = snapshot.val();
 
       if (!data) {
+        if (!cancellationHandledRef.current) {
+          cancellationHandledRef.current = true;
+          alertService.showInfoAlert('Viaje cancelado', 'El cliente canceló la solicitud.');
+          markDismissed()
+            .catch((error) => console.warn('[RidePreviewScreen] Error al descartar viaje cancelado:', error))
+            .finally(() => navigation.goBack());
+        }
+        return;
+      }
+
+      const normalizedStatus = String(data.status || '').toLowerCase();
+      if (normalizedStatus === 'canceled' && !cancellationHandledRef.current) {
+        cancellationHandledRef.current = true;
+        const reason = data.cancelReason || 'El cliente canceló la solicitud.';
+        alertService.showInfoAlert('Viaje cancelado', reason);
+        markDismissed()
+          .catch((error) => console.warn('[RidePreviewScreen] Error al descartar viaje cancelado:', error))
+          .finally(() => navigation.goBack());
         return;
       }
 
@@ -394,6 +416,14 @@ export default function RidePreviewScreen() {
 
     return () => unsubscribe();
   }, [ride.id, user?.id, counterOfferTouched, rideData.driverOfferedPrice, rideData.driverOfferStatus]);
+
+  useEffect(() => {
+    if (typeof rideData.driverOfferedPrice === 'number' && !Number.isNaN(rideData.driverOfferedPrice)) {
+      setLastSuggestedPrice(Math.round(rideData.driverOfferedPrice));
+    } else {
+      setLastSuggestedPrice(null);
+    }
+  }, [rideData.driverOfferedPrice]);
 
   useEffect(() => {
     const loadRoute = async () => {
@@ -476,23 +506,6 @@ export default function RidePreviewScreen() {
     return Array.from(new Set([low, mid, high]));
   }, [currentRide.estimatedPrice]);
 
-  const automaticSuggestion = useMemo(() => {
-    if (quickSuggestions.length > 1) return quickSuggestions[1];
-    if (quickSuggestions.length > 0) return quickSuggestions[0];
-    return Math.round(currentRide.estimatedPrice);
-  }, [quickSuggestions, currentRide.estimatedPrice]);
-
-  const handleAutomaticSuggestion = useCallback(async () => {
-    if (!automaticSuggestion || Number.isNaN(automaticSuggestion) || automaticSuggestion < 50) {
-      alertService.showInfoAlert('Sin sugerencia', 'No hay precio sugerido disponible.');
-      return;
-    }
-    const value = Math.round(automaticSuggestion);
-    setCounterOfferTouched(true);
-    setCounterOffer(value.toString());
-    await submitCounterOffer(value);
-  }, [automaticSuggestion]);
-
   const formatCurrency = (value?: number | null) => {
     if (value === undefined || value === null) {
       return 'N/D';
@@ -532,12 +545,13 @@ export default function RidePreviewScreen() {
     await submitCounterOffer(rounded);
   };
 
-  const submitCounterOffer = async (value: number) => {
+  const submitCounterOffer = async (value: number): Promise<boolean> => {
     if (!user?.id) {
       alertService.showErrorAlert('No se pudo obtener tu información.');
-      return;
+      return false;
     }
 
+    let success = false;
     try {
       setSendingOffer(true);
       await priceNegotiationService.negotiatePrice(
@@ -549,13 +563,63 @@ export default function RidePreviewScreen() {
       );
       setCounterOffer(value.toString());
       setLastSuggestedPrice(value);
+      success = true;
     } catch (error: any) {
       console.error('[RidePreviewScreen] Contraoferta fallida:', error);
       alertService.showErrorAlert(error?.message || 'No se pudo enviar la contraoferta');
     } finally {
       setSendingOffer(false);
     }
+    return success;
   };
+
+  const handleCustomOfferPress = useCallback(() => {
+    setCustomOfferVisible((prev) => {
+      const next = !prev;
+      if (next) {
+        setCounterOfferTouched(true);
+        if (!counterOffer) {
+          const baseSource =
+            typeof currentRide.clientSuggestedPrice === 'number' && currentRide.clientSuggestedPrice > 0
+              ? Math.round(currentRide.clientSuggestedPrice)
+              : Math.round(currentRide.estimatedPrice || 0);
+          if (baseSource > 0) {
+            setCounterOffer(baseSource.toString());
+          }
+        }
+        setTimeout(() => customOfferInputRef.current?.focus(), 80);
+      } else {
+        customOfferInputRef.current?.blur();
+      }
+      return next;
+    });
+  }, [counterOffer, currentRide.clientSuggestedPrice, currentRide.estimatedPrice]);
+
+  const handleCustomOfferChange = useCallback((text: string) => {
+    const sanitized = text.replace(/[^0-9]/g, '');
+    setCounterOfferTouched(true);
+    setCounterOffer(sanitized);
+  }, []);
+
+  const handleSendCustomOffer = useCallback(async () => {
+    if (sendingOffer) {
+      return;
+    }
+
+    const numericValue = Number(counterOffer.replace(/[^0-9]/g, ''));
+    if (!Number.isFinite(numericValue) || numericValue <= 0) {
+      alertService.showInfoAlert('Precio inválido', 'Ingresa un monto válido mayor a cero.');
+      return;
+    }
+
+    const roundedValue = Math.round(numericValue);
+    setCounterOffer(roundedValue.toString());
+    const wasSuccessful = await submitCounterOffer(roundedValue);
+    if (wasSuccessful) {
+      setCustomOfferVisible(false);
+      customOfferInputRef.current?.blur();
+    }
+  }, [counterOffer, sendingOffer, submitCounterOffer]);
 
   const handleAcceptRide = async () => {
     if (acceptingRide) {
@@ -771,88 +835,136 @@ export default function RidePreviewScreen() {
     );
   };
 
-  const renderNegotiationContent = () => (
-    <View style={styles.negotiationWrapper}>
-      {renderNegotiationBanner()}
+  const renderNegotiationContent = () => {
+    const customOfferButtonLabel = lastSuggestedPrice
+      ? formatCurrency(lastSuggestedPrice)
+      : 'Tu Oferta';
 
-      <View
-        style={[
-          styles.priceCard,
-          {
-            backgroundColor: isDark ? 'rgba(33,33,33,0.9)' : '#FFF6E6',
-            borderColor: isDark ? 'rgba(255,255,255,0.06)' : '#E3C592',
-          },
-        ]}
-      >
-        <Text style={[styles.priceLabel, { color: colors.textSecondary }]}>Precio estimado / sugerido por cliente</Text>
-        <Text style={[styles.priceValue, { color: colors.text }]}>
-          {formatCurrency(currentRide.clientSuggestedPrice || currentRide.estimatedPrice)}
-        </Text>
-
-        <View style={styles.suggestionsSection}>
-          {quickSuggestions.length > 0 && (
-            <>
-              <Text style={[styles.suggestionsLabel, { color: colors.textSecondary }]}>Precios sugeridos:</Text>
-              <View style={styles.suggestionsRow}>
-                <View style={styles.chipsRow}>
-                  {quickSuggestions.map((value) => (
-                    <TouchableOpacity
-                      key={value}
-                      style={[styles.chip, { backgroundColor: isDark ? 'rgba(125,230,173,0.18)' : 'rgba(125,230,173,0.25)' }]}
-                      onPress={() => handleApplySuggestion(value)}
-                    >
-                      <Text style={[styles.chipLabel, { color: isDark ? '#7DE6AD' : '#268C5C' }]}>
-                        {formatCurrency(value)}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-                <TouchableOpacity
-                  style={[styles.suggestButton, styles.inlineSuggestButton, { backgroundColor: colors.primary }]}
-                  onPress={handleAutomaticSuggestion}
-                  disabled={sendingOffer}
-                  activeOpacity={0.9}
-                >
-                  <Text style={styles.suggestButtonText}>
-                    {sendingOffer
-                      ? 'Enviando…'
-                      : formatCurrency(automaticSuggestion || currentRide.estimatedPrice)}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </>
-          )}
-
-          {quickSuggestions.length === 0 && (
-            <TouchableOpacity
-              style={[styles.suggestButton, { backgroundColor: colors.primary }]}
-              onPress={handleAutomaticSuggestion}
-              disabled={sendingOffer}
-              activeOpacity={0.9}
-            >
-              <Text style={styles.suggestButtonText}>
-                {sendingOffer
-                  ? 'Enviando…'
-                  : formatCurrency(automaticSuggestion || currentRide.estimatedPrice)}
-              </Text>
-            </TouchableOpacity>
-          )}
-        </View>
+    return (
+      <View style={styles.negotiationWrapper}>
+        {renderNegotiationBanner()}
 
         <View
           style={[
-            styles.finalRow,
+            styles.priceCard,
             {
-              borderTopColor: isDark ? 'rgba(255,255,255,0.08)' : '#E5D5B8',
+              backgroundColor: isDark ? 'rgba(33,33,33,0.9)' : '#FFF6E6',
+              borderColor: isDark ? 'rgba(255,255,255,0.06)' : '#E3C592',
             },
           ]}
         >
-          <Text style={[styles.finalLabel, { color: colors.textSecondary }]}>Precio final estimado</Text>
-          <Text style={[styles.finalValue, { color: colors.text }]}>{finalPricePreview}</Text>
+          <Text style={[styles.priceLabel, { color: colors.textSecondary }]}>Precio estimado / sugerido por cliente</Text>
+          <Text style={[styles.priceValue, { color: colors.text }]}>
+            {formatCurrency(currentRide.clientSuggestedPrice || currentRide.estimatedPrice)}
+          </Text>
+
+          <View style={styles.suggestionsSection}>
+            {quickSuggestions.length > 0 && (
+              <>
+                <Text style={[styles.suggestionsLabel, { color: colors.textSecondary }]}>Precios sugeridos:</Text>
+                <View style={styles.suggestionsRow}>
+                  <View style={styles.chipsRow}>
+                    {quickSuggestions.map((value) => (
+                      <TouchableOpacity
+                        key={value}
+                        style={[styles.chip, { backgroundColor: isDark ? 'rgba(125,230,173,0.18)' : 'rgba(125,230,173,0.25)' }]}
+                        onPress={() => handleApplySuggestion(value)}
+                      >
+                        <Text style={[styles.chipLabel, { color: isDark ? '#7DE6AD' : '#268C5C' }]}>
+                          {formatCurrency(value)}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  <TouchableOpacity
+                    style={[
+                      styles.suggestButton,
+                      styles.inlineSuggestButton,
+                      { backgroundColor: colors.primary, opacity: sendingOffer ? 0.7 : 1 },
+                    ]}
+                    onPress={handleCustomOfferPress}
+                    disabled={sendingOffer}
+                    activeOpacity={0.9}
+                  >
+                    <Text style={styles.suggestButtonText}>{customOfferButtonLabel}</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+
+            {quickSuggestions.length === 0 && (
+              <TouchableOpacity
+                style={[styles.suggestButton, { backgroundColor: colors.primary, opacity: sendingOffer ? 0.7 : 1 }]}
+                onPress={handleCustomOfferPress}
+                disabled={sendingOffer}
+                activeOpacity={0.9}
+              >
+                <Text style={styles.suggestButtonText}>{customOfferButtonLabel}</Text>
+              </TouchableOpacity>
+            )}
+
+            {customOfferVisible && (
+              <View
+                style={[
+                  styles.customOfferCard,
+                  {
+                    backgroundColor: isDark ? 'rgba(23,30,38,0.92)' : '#FFFFFF',
+                    borderColor: isDark ? 'rgba(255,255,255,0.16)' : 'rgba(21, 37, 58, 0.12)',
+                  },
+                ]}
+              >
+                <Text style={[styles.customOfferLabel, { color: colors.textSecondary }]}>Ingresa tu oferta personalizada</Text>
+                <TextInput
+                  ref={customOfferInputRef}
+                  style={[
+                    styles.offerInput,
+                    {
+                      borderColor: isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.1)',
+                      backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F7F7F7',
+                      color: colors.text,
+                    },
+                  ]}
+                  value={counterOffer}
+                  onChangeText={handleCustomOfferChange}
+                  keyboardType="numeric"
+                  inputMode="numeric"
+                  placeholder="Ej. 95"
+                  placeholderTextColor={isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.35)'}
+                  returnKeyType="done"
+                  onSubmitEditing={handleSendCustomOffer}
+                  editable={!sendingOffer}
+                />
+                <TouchableOpacity
+                  style={[styles.customOfferSendButton, { backgroundColor: colors.primary, opacity: sendingOffer ? 0.7 : 1 }]}
+                  onPress={handleSendCustomOffer}
+                  activeOpacity={0.9}
+                  disabled={sendingOffer}
+                >
+                  {sendingOffer ? (
+                    <ActivityIndicator color="#FFFFFF" size="small" />
+                  ) : (
+                    <Text style={styles.customOfferSendButtonText}>Enviar</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+
+          <View
+            style={[
+              styles.finalRow,
+              {
+                borderTopColor: isDark ? 'rgba(255,255,255,0.08)' : '#E5D5B8',
+              },
+            ]}
+          >
+            <Text style={[styles.finalLabel, { color: colors.textSecondary }]}>Precio final estimado</Text>
+            <Text style={[styles.finalValue, { color: colors.text }]}>{finalPricePreview}</Text>
+          </View>
         </View>
       </View>
-    </View>
-  );
+    );
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -1236,6 +1348,32 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingVertical: 12,
     fontSize: 16,
+  },
+  customOfferCard: {
+    marginTop: 18,
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    gap: 12,
+  },
+  customOfferLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
+  },
+  customOfferSendButton: {
+    borderRadius: 16,
+    paddingVertical: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  customOfferSendButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
+    letterSpacing: 0.4,
   },
   suggestButton: {
     borderRadius: 16,

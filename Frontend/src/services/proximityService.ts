@@ -1,13 +1,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { AppState, AppStateStatus, Platform } from 'react-native';
-import ridesService from './ridesService';
 import notificationService from './notificationService';
+import ridesService from './ridesService';
 import { navigate, navigationRef } from '../navigation/NavigationService';
-import { getFirebaseAuth, getFirebaseFunctions, getFirebaseDatabase } from '../config/firebase';
-import { httpsCallable } from 'firebase/functions';
-import { get, ref } from 'firebase/database';
-import { signInAnonymously } from 'firebase/auth';
+import { getFirebaseAuth, getFirebaseDatabase } from '../config/firebase';
+import { AppState, AppStateStatus, Platform } from 'react-native';
 import { overlayManager } from '../native/overlay';
+import { get, ref } from 'firebase/database';
+import { NEARBY_RIDES_RADIUS_KM, RIDES_RADIUS_KM } from '../constants/rideRadius';
 
 export interface ProximityRidePreview {
   id: string;
@@ -80,15 +79,15 @@ export const FALLBACK_OVERLAY_RIDE_ID = '__overlay_home__';
 const createFallbackOverlayPayload = (): OverlayPayload => ({
   rideId: FALLBACK_OVERLAY_RIDE_ID,
   price: 0,
-  distanceKm: 0.1,
-  clientName: 'Rundi',
+  distanceKm: 0.03,
+  clientName: '',
   isFallback: true,
 });
 
 const sanitizeOverlayPayload = (payload: OverlayPayload): OverlayPayload => ({
   ...payload,
   price: Number.isFinite(payload.price) ? payload.price : 0,
-  distanceKm: Math.max(0.1, Number.isFinite(payload.distanceKm) ? payload.distanceKm : 0.1),
+  distanceKm: Math.max(0.03, Number.isFinite(payload.distanceKm) ? payload.distanceKm : 0.03),
 });
 
 async function saveOverlayPayload(payload: OverlayPayload | null) {
@@ -305,13 +304,19 @@ function hasPriceChangedForDriver(ride: ProximityRidePreview, driverId: string):
   return !(sameSuggested && sameEstimated);
 }
 
-async function getNearbyRides(lat: number, lng: number, thresholdMeters = 4050, max = 3, driverId?: string): Promise<ProximityRidePreview[]> {
+async function getNearbyRides(
+  lat: number,
+  lng: number,
+  thresholdMeters = RIDES_RADIUS_KM * 1000,
+  max = 3,
+  driverId?: string,
+): Promise<ProximityRidePreview[]> {
   const hasAuth = await ensureFirebaseAuthSession();
 
   // 1) Intentar por Cloud Function (si existe en backend)
   if (hasAuth) {
     try {
-      const rides = await ridesService.getAvailableRides(lat, lng, 0.5);
+      const rides = await ridesService.getAvailableRides(lat, lng, NEARBY_RIDES_RADIUS_KM);
       const withDistance = (rides || [])
         .map((r: any) => {
           const preview = toPreview(r);

@@ -349,7 +349,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
   const vehicleOptions = useMemo(() => {
     const defaults: Record<VehicleType, { label: string; subtitle: string; emoji: string }> = {
       moto: { label: 'Moto', subtitle: 'Viajes ágiles y económicos', emoji: '🏍️' },
-      auto: { label: 'Auto', subtitle: 'Viajes cómodos para hasta 4', emoji: '🚘' },
+      auto: { label: 'Auto', subtitle: 'Viajes cómodos para hasta 4 personas', emoji: '🚘' },
       designated_driver: { label: 'Conductor designado', subtitle: 'Te llevamos a casa en tu auto', emoji: '🧑‍✈️' },
     };
 

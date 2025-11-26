@@ -889,7 +889,8 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
         const { getDatabase, ref, onValue, off } = await import('firebase/database');
         const db = getDatabase();
         const activeRidesRef = ref(db, 'activeRides');
-        const SEARCH_RADIUS_KM = 1.5;
+        const { RIDES_RADIUS_KM } = await import('../../constants/rideRadius');
+        const SEARCH_RADIUS_KM = RIDES_RADIUS_KM;
 
         const unsubscribe = onValue(activeRidesRef, (snapshot) => {
           const data = snapshot.val();
@@ -951,9 +952,20 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
               myActiveRide = { id: rideId, ...ridePayload };
             }
 
-            const isRequested = ridePayload?.status === 'requested' && !ridePayload?.driverId;
+            const statusRaw = typeof ridePayload?.status === 'string' ? ridePayload.status.toLowerCase() : '';
+            const isCancelled =
+              statusRaw.startsWith('cancel') ||
+              statusRaw === 'cancelled' ||
+              ridePayload?.cancelled === true ||
+              ridePayload?.canceled === true ||
+              ridePayload?.paymentCanceled === true;
+            if (isCancelled) {
+              return;
+            }
+
+            const isRequested = statusRaw === 'requested' && !ridePayload?.driverId;
             const isNegotiatingWithMe = ridePayload?.driverId === user?.id &&
-              (ridePayload?.status === 'pending_confirm' || ridePayload?.status === 'driver_assigned');
+              (statusRaw === 'pending_confirm' || statusRaw === 'driver_assigned');
 
             if (!(isRequested || isNegotiatingWithMe)) {
               return;
@@ -1341,20 +1353,21 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
             />
           </View>
 
-          <View style={styles.rightHeaderGroup}>
-            <View style={styles.headerNameBlock}>
-              <Text style={styles.headerTitle}>{user?.name || 'Conductor'}</Text>
-            </View>
-            <TouchableOpacity
-              style={styles.headerProfileButton}
-              onPress={() => navigation.navigate('DriverProfile')}
-            >
+          <TouchableOpacity
+            style={styles.rightHeaderGroup}
+            activeOpacity={0.9}
+            onPress={() => navigation.navigate('DriverProfile')}
+          >
+            <View style={styles.headerNameBubble}>
+              <Text style={styles.headerTitle} numberOfLines={1}>
+                {user?.name || 'Conductor'}
+              </Text>
               <Image
                 source={require('../../assets/icons/profile/profile-icon2.png')}
-                style={styles.profileImage}
+                style={styles.profileBubbleIcon}
               />
-            </TouchableOpacity>
-          </View>
+            </View>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -1615,7 +1628,7 @@ const createStyles = (colors: any) =>
       width: 48,
       height: 48,
       borderRadius: 16,
-      backgroundColor: colors.isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(238, 213, 166, 0.4)',
+      backgroundColor: colors.isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(233, 193, 118, 0.4)',
       justifyContent: 'center',
       alignItems: 'center',
     //  shadowColor: '#000',
@@ -1636,12 +1649,20 @@ const createStyles = (colors: any) =>
     },
     rightHeaderGroup: {
       top: 10,
+    },
+    headerNameBubble: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 14,
-    },
-    headerNameBlock: {
-      alignItems: 'flex-end',
+      gap: 8,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      borderRadius: 18,
+      backgroundColor: colors.isDark ? 'rgba(15,23,42,0.9)' : 'rgba(255,255,255,0.92)',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: colors.isDark ? 0.4 : 0.18,
+      shadowRadius: 10,
+      elevation: 6,
     },
     headerGreeting: {
       fontSize: 12,
@@ -1651,21 +1672,16 @@ const createStyles = (colors: any) =>
       textTransform: 'uppercase',
     },
     headerTitle: {
-      fontSize: 20,
-      fontWeight: '800',
-      color: colors.text,
+      fontSize: 18,
+      fontWeight: '700',
+      color: colors.isDark ? '#F8FAFC' : '#111827',
+      maxWidth: 140,
     },
-    headerProfileButton: {
-      width: 25.6,
-      height: 25.6,
-      justifyContent: 'center',
-      alignItems: 'center',
-      tintColor: colors.isDark ?  'rgb(255, 253, 253)' : 'rgb(209, 146, 28)',
-    },
-    profileImage: {
-      width: 32,
-      height: 32,
+    profileBubbleIcon: {
+      width: 26,
+      height: 26,
       resizeMode: 'contain',
+      tintColor: colors.isDark ? '#F8FAFC' : '#111827',
     },
     fallbackContainer: {
       flex: 1,

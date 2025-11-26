@@ -1071,39 +1071,7 @@ export default function DriverProfileScreen({ navigation }: any) {
         </TouchableOpacity>
       </View>
 
-      {/* Preferencias de notificación avanzada */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>🔔 Alertas de viajes cercanos</Text>
-        <View style={styles.preferenceCard}>
-          <View style={styles.preferenceHeader}>
-            <View style={styles.preferenceIconWrapper}>
-              <Text style={styles.preferenceIcon}>🫧</Text>
-            </View>
-            <View style={styles.preferenceInfo}>
-              <Text style={styles.preferenceTitle}>Burbuja flotante con solicitudes cercanas</Text>
-              <Text style={styles.preferenceSubtitle}>
-                Muestra una tarjeta encima de otras apps cuando haya un viaje cercano. Ideal si usas otras apps de navegación.
-              </Text>
-              {Platform.OS === 'android' ? (
-                <Text style={styles.preferenceHint}>
-                  Requiere el permiso "Mostrar encima de otras apps". {overlayPermissionGranted ? 'Permiso activo.' : 'Ábrelo desde Ajustes → Aplicaciones → Rundi → Mostrar encima.'}
-                </Text>
-              ) : (
-                <Text style={styles.preferenceHint}>
-                  Disponible únicamente en Android.
-                </Text>
-              )}
-            </View>
-            <Switch
-              value={overlayToggleEnabled}
-              onValueChange={handleOverlayToggle}
-              disabled={Platform.OS !== 'android' || overlayCheckingPermission}
-              thumbColor={overlayToggleEnabled ? '#ffffff' : '#f4f4f4'}
-              trackColor={{ false: '#bdbdbd', true: colors.primary }}
-            />
-          </View>
-        </View>
-      </View>
+     
 
       {/* Documentos del Conductor */}
       <View style={styles.section}>
@@ -1203,6 +1171,40 @@ export default function DriverProfileScreen({ navigation }: any) {
             )}
           </TouchableOpacity>
         </Animated.View>
+      </View>
+
+ {/* Preferencias de notificación avanzada */}
+ <View style={styles.section}>
+        <Text style={styles.sectionTitle}>🔔 Alertas de viajes cercanos</Text>
+        <View style={styles.preferenceCard}>
+          <View style={styles.preferenceHeader}>
+            <View style={styles.preferenceIconWrapper}>
+              <Text style={styles.preferenceIcon}>🫧</Text>
+            </View>
+            <View style={styles.preferenceInfo}>
+              <Text style={styles.preferenceTitle}>Burbuja flotante con solicitudes cercanas</Text>
+              <Text style={styles.preferenceSubtitle}>
+                Muestra una tarjeta encima de otras apps cuando haya un viaje cercano. Ideal si usas otras apps de navegación.
+              </Text>
+              {Platform.OS === 'android' ? (
+                <Text style={styles.preferenceHint}>
+                  Requiere el permiso "Mostrar encima de otras apps". {overlayPermissionGranted ? 'Permiso activo.' : 'Ábrelo desde Ajustes → Aplicaciones → Rundi → Mostrar encima.'}
+                </Text>
+              ) : (
+                <Text style={styles.preferenceHint}>
+                  Disponible únicamente en Android.
+                </Text>
+              )}
+            </View>
+            <Switch
+              value={overlayToggleEnabled}
+              onValueChange={handleOverlayToggle}
+              disabled={Platform.OS !== 'android' || overlayCheckingPermission}
+              thumbColor={overlayToggleEnabled ? '#ffffff' : '#f4f4f4'}
+              trackColor={{ false: '#bdbdbd', true: colors.primary }}
+            />
+          </View>
+        </View>
       </View>
 
       {/* Asistente de Voz */}
