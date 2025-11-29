@@ -1,4 +1,4 @@
-package com.driveangel.app
+package com.driveangel.rundidev
 
 import android.os.Build
 import android.os.Bundle

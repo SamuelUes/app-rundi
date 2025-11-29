@@ -7,7 +7,7 @@ import sessionService from '../services/sessionService';
 /**
  * useClientPresence
  * Mantiene un "heartbeat" del cliente en Realtime DB para habilitar lecturas de perfil.
- * - clientLocations/{uid}: { latitude, longitude, isManual, timestamp, lastHeartbeat }
+ * - clientsLocations/{uid}: { latitude, longitude, isManual, timestamp, lastHeartbeat }
  * - presence/{uid}: { lastHeartbeat, role }
  */
 export function useClientPresence() {
@@ -42,11 +42,6 @@ export function useClientPresence() {
         await markActive({
           role: 'client',
           deviceId,
-          location: {
-            latitude: 0,
-            longitude: 0,
-            isManual: false,
-          },
         });
 
         if (cancelled) return;

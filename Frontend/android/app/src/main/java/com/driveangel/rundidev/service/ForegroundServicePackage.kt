@@ -1,4 +1,4 @@
-package com.driveangel.app.service
+package com.driveangel.rundidev.service
 
 import com.facebook.react.ReactPackage
 import com.facebook.react.bridge.NativeModule

@@ -1,10 +1,10 @@
 export default {
   name: 'Rundi',
   slug: 'rundi',
-  version: 'Beta - 1.5.9',
+  version: 'Beta - 1.6.4',
   orientation: 'portrait',
   userInterfaceStyle: 'light',
-  icon: './src/assets/images/icon.png',
+  icon: './src/assets/images/icon_1.2.png',
   updates: {
     enabled: true,
     fallbackToCacheTimeout: 0,
@@ -14,8 +14,8 @@ export default {
   assetBundlePatterns: ['**/*'],
   ios: {
     supportsTablet: true,
-    bundleIdentifier: 'com.driveangel.app',
-    icon: './src/assets/images/icon.png',
+    bundleIdentifier: 'com.driveangel.rundidev',
+    icon: './src/assets/images/icon_1.2.png',
     config: {
       googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY || 'YOUR_IOS_GOOGLE_MAPS_API_KEY',
       usesNonExemptEncryption: false
@@ -30,14 +30,14 @@ export default {
     usesAppleSignIn: true
   },
   android: {
-    package: 'com.driveangel.app',
+    package: 'com.driveangel.rundidev',
     versionCode: 1,
     adaptiveIcon: {
-      foregroundImage: './src/assets/images/icon.png',
+      foregroundImage: './src/assets/images/icon_1.2.png',
       backgroundColor: '#0F2628'
     },
     notification: {
-      icon: './src/assets/images/icon.png',
+      icon: './src/assets/images/icon_1.2.png',
       color: '#D4AF37'
     },
     permissions: [
@@ -77,8 +77,8 @@ export default {
       }
     },
     pwa: {
-      name: 'DriveAngel',
-      shortName: 'DriveAngel'
+      name: 'Rundi',
+      shortName: 'Rundi'
     }
   },
   plugins: [
@@ -98,7 +98,7 @@ export default {
     eas: {
       projectId: 'e8f4c3b2-9d1a-4e7f-8c5b-2a3d4e5f6a7b'
     },
-    apiUrl: process.env.API_URL || 'https://api.driveangel.com',
+    apiUrl: process.env.API_URL || '',
     googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY,
     sentryDsn: process.env.SENTRY_DSN,
     environment: process.env.APP_ENV || 'development'

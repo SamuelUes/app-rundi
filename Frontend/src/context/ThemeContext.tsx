@@ -4,7 +4,7 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Appearance } from 'react-native';
+import { Appearance, useColorScheme } from 'react-native';
 
 type Theme = 'light' | 'dark' | 'auto';
 
@@ -60,8 +60,9 @@ const MAP_TRAFFIC_STORAGE_KEY = '@rundi_map_traffic';
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>('auto');
+  const colorScheme = useColorScheme();
   const [systemTheme, setSystemTheme] = useState<'light' | 'dark'>(
-    Appearance.getColorScheme() || 'light'
+    (colorScheme === 'dark' ? 'dark' : colorScheme === 'light' ? 'light' : Appearance.getColorScheme() || 'light')
   );
   const [mapTrafficEnabled, setMapTrafficEnabledState] = useState<boolean>(true);
 
@@ -70,10 +71,19 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     loadPreferences();
   }, []);
 
-  // Escuchar cambios del sistema
+  // Actualizar inmediatamente cuando useColorScheme detecta cambio
   useEffect(() => {
-    const subscription = Appearance.addChangeListener(({ colorScheme }) => {
-      setSystemTheme(colorScheme || 'light');
+    if (colorScheme === 'dark' || colorScheme === 'light') {
+      setSystemTheme(colorScheme);
+    }
+  }, [colorScheme]);
+
+  // Listener de respaldo para plataformas donde useColorScheme no emite cambios
+  useEffect(() => {
+    const subscription = Appearance.addChangeListener(({ colorScheme: scheme }) => {
+      if (scheme === 'dark' || scheme === 'light') {
+        setSystemTheme(scheme);
+      }
     });
 
     return () => subscription.remove();

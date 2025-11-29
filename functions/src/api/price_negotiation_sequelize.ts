@@ -210,15 +210,24 @@ export const acceptClientPrice = functions.https.onCall(async (data, context) =>
           id: driverId,
         };
 
+    const negotiationNode: any = {
+      ...(rideData.negotiation || {}),
+      status: 'driver_accepted',
+      clientSuggestedPrice: clientPrice,
+      driverId,
+      updatedAt: admin.database.ServerValue.TIMESTAMP,
+    };
+
     const rideUpdate: any = {
       finalFare: clientPrice,
-      negotiationStatus: 'client_accepted',
+      negotiationStatus: 'driver_accepted',
       driverOfferedPrice: null,
       clientSuggestedPrice: 0, // Se limpia para evitar duplicados
       driverId,
       driver: driverPayload,
       status: rideData.status === 'requested' ? 'pending_confirm' : rideData.status,
       updatedAt: admin.database.ServerValue.TIMESTAMP,
+      negotiation: negotiationNode,
     };
 
     // Actualizar viaje: aceptar precio del cliente y adjuntar conductor
@@ -239,7 +248,7 @@ export const acceptClientPrice = functions.https.onCall(async (data, context) =>
       const rideRepo = new RideRepository();
       await rideRepo.update(rideId, {
         final_fare: clientPrice,
-        negotiation_status: 'client_accepted',
+        negotiation_status: 'driver_accepted',
         status: 'pending_confirm',
         driver_id: driverId,
       });
@@ -255,7 +264,7 @@ export const acceptClientPrice = functions.https.onCall(async (data, context) =>
       ride: {
         id: rideId,
         finalFare: clientPrice,
-        negotiationStatus: 'client_accepted',
+        negotiationStatus: 'driver_accepted',
       },
     };
   } catch (error: any) {
@@ -404,7 +413,7 @@ export const acceptCounterOffer = functions.https.onCall(async (data, context) =
     const baseUpdate: any = {
       finalFare: acceptedPrice,
       driverOfferedPrice: acceptedPrice,
-      negotiationStatus: 'accepted',
+      negotiationStatus: 'client_accepted',
       updatedAt: admin.database.ServerValue.TIMESTAMP,
     };
 
@@ -421,7 +430,7 @@ export const acceptCounterOffer = functions.https.onCall(async (data, context) =
 
     // ✅ Actualizar negociación anidada (si existe nodo negotiation)
     baseUpdate['negotiation'] = {
-      status: 'accepted',
+      status: 'client_accepted',
       driverOfferedPrice: acceptedPrice,
       driverId: driverId || null,
       updatedAt: admin.database.ServerValue.TIMESTAMP,
@@ -460,7 +469,7 @@ export const acceptCounterOffer = functions.https.onCall(async (data, context) =
       ride: {
         id: rideId,
         finalFare: acceptedPrice,
-        negotiationStatus: 'accepted',
+        negotiationStatus: 'client_accepted',
       },
     };
   } catch (error: any) {

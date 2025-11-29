@@ -377,36 +377,37 @@ export function getOpenStreetMapHtml(): string {
                 if (state.mainMarker) {
                   markersToFit.push(state.mainMarker.getLatLng());
                 }
-              }
-            } else {
-              state.mainMarker = clearMarker(state.mainMarker);
+              } else {
+                state.mainMarker = clearMarker(state.mainMarker);
 
-              if (state.routeLine) {
-                map.removeLayer(state.routeLine);
-                state.routeLine = null;
-              }
-
-              var routeBounds = null;
-              if (data.routeCoordinates && data.routeCoordinates.length > 1) {
-                var routeLatLngs = data.routeCoordinates
-                  .filter(function (point) {
-                    return typeof point.latitude === 'number' && typeof point.longitude === 'number';
-                  })
-                  .map(function (point) {
-                    return [point.latitude, point.longitude];
-                  });
-
-                if (routeLatLngs.length > 1) {
-                  state.routeLine = L.polyline(routeLatLngs, { color: '#2196F3', weight: 5, opacity: 0.8 }).addTo(map);
-                  routeBounds = state.routeLine.getBounds();
+                if (state.routeLine) {
+                  map.removeLayer(state.routeLine);
+                  state.routeLine = null;
                 }
-              }
 
-              updateDrivers(data.nearbyDrivers, markersToFit);
-              updateRideRequests(data.rideRequests, markersToFit);
+                var routeBounds = null;
+                if (data.routeCoordinates && data.routeCoordinates.length > 1) {
+                  var routeLatLngs = data.routeCoordinates
+                    .filter(function (point) {
+                      return typeof point.latitude === 'number' && typeof point.longitude === 'number';
+                    })
+                    .map(function (point) {
+                      return [point.latitude, point.longitude];
+                    });
 
-              if (data.fitToMarkers) {
-                fitMarkers(markersToFit, routeBounds);
+                  if (routeLatLngs.length > 1) {
+                    var polylineColor = data.routeColor || '#2196F3';
+                    state.routeLine = L.polyline(routeLatLngs, { color: polylineColor, weight: 5, opacity: 0.8 }).addTo(map);
+                    routeBounds = state.routeLine.getBounds();
+                  }
+                }
+
+                updateDrivers(data.nearbyDrivers, markersToFit);
+                updateRideRequests(data.rideRequests, markersToFit);
+
+                if (data.fitToMarkers) {
+                  fitMarkers(markersToFit, routeBounds);
+                }
               }
 
               map.invalidateSize();

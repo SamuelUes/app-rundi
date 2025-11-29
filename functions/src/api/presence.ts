@@ -108,21 +108,33 @@ export const markAppActive = functions.https.onCall(async (data, context) => {
       ]);
     } else {
       const location: ClientLocationPayload | undefined = data?.location;
-      const clientLocationPayload: Record<string, any> = {
-        latitude: typeof location?.latitude === "number" ? location.latitude : 0,
-        longitude: typeof location?.longitude === "number" ? location.longitude : 0,
-        isManual: typeof location?.isManual === "boolean" ? location.isManual : false,
-        timestamp: now,
-        lastHeartbeat: now,
-      };
+      const hasLocation =
+        typeof location?.latitude === "number" &&
+        typeof location?.longitude === "number";
+      const isZeroCoordinates =
+        hasLocation &&
+        location!.latitude === 0 &&
+        location!.longitude === 0;
+
       const updates: Promise<unknown>[] = [
-        db.ref(`clientLocations/${uid}`).update(clientLocationPayload),
         db.ref(`presence/${uid}`).update({
           lastHeartbeat: now,
           role: "client",
           lastSeen: now,
         }),
       ];
+
+      if (hasLocation && !isZeroCoordinates) {
+        const clientLocationPayload: Record<string, any> = {
+          latitude: location!.latitude as number,
+          longitude: location!.longitude as number,
+          isManual: typeof location?.isManual === "boolean" ? location.isManual : false,
+          timestamp: now,
+          lastHeartbeat: now,
+        };
+
+        updates.push(db.ref(`clientsLocations/${uid}`).update(clientLocationPayload));
+      }
 
       try {
         const clientInfoRef = db.ref(`clientsInfo/${uid}`);

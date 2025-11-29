@@ -31,7 +31,7 @@ export async function logAnalyticsEvent(event: AnalyticsEvent): Promise<boolean>
         event.ipAddress || null,
         event.userAgent || null,
         event.platform || 'mobile',
-        event.appVersion || '1.5.9',
+        event.appVersion || '1.6.4',
       ]
     );
     

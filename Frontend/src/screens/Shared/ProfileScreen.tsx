@@ -320,7 +320,7 @@ export default function ProfileScreen({ navigation }: any) {
 
       {/* App Info */}
       <View style={styles.appInfo}>
-        <Text style={styles.appVersion}>conduce v1.0.1</Text>
+        <Text style={styles.appVersion}>Rundi Beta - 1.6.4</Text>
         <Text style={styles.appCopyright}>© 2025 Todos los derechos reservados</Text>
       </View>
     </ScrollView>

@@ -7,8 +7,11 @@ const args = process.argv.slice(2);
 const env = args[0] || 'development';
 
 const envFiles = {
-  development: '.env',
-  production: '.env.production',
+  // Archivos fuente de configuración por entorno
+  // development -> .env.development
+  // production  -> .env.productions (plantilla para el proyecto oficial)
+  development: '.env.development',
+  production: '.env.productions',
 };
 
 const envFile = envFiles[env];

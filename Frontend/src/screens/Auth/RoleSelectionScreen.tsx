@@ -18,6 +18,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import registrationService from '../../services/registrationService';
+import phoneAuthService from '../../services/auth/phoneAuthService';
 import { AuthStackParamList, RegistrationAuthProvider, RegistrationMethod } from '../../navigation/types';
 
 export type RoleSelectionNavigationProp = NativeStackNavigationProp<
@@ -145,22 +146,47 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ navigation, r
     try {
       setLoadingRole('driver');
 
-      if (!phoneVerified) {
-        Alert.alert(
-          'Verificación requerida',
-          'Para registrarte como conductor necesitas un número telefónico verificado.'
-        );
-        return;
-      }
-
       const normalizedEmail = normalizeEmail() || undefined;
       const normalizedPhone = normalizePhone() || undefined;
 
       if (!normalizedPhone) {
-        Alert.alert(
-          'Número requerido',
-          'No se pudo determinar un número telefónico verificado. Repite el proceso de verificación.'
-        );
+        navigation.navigate('DriverPhone', {
+          name,
+          email: normalizedEmail,
+          phone: undefined,
+          password,
+          method: method as RegistrationMethod,
+          authProvider: authProvider as RegistrationAuthProvider,
+          googleIdToken,
+        });
+
+        return;
+      }
+
+      if (!phoneVerified) {
+        try {
+          await phoneAuthService.sendVerificationCode(normalizedPhone);
+        } catch (error: any) {
+          console.error('Error al enviar código SMS para conductor:', error);
+          Alert.alert(
+            'Error',
+            error?.message || 'No se pudo enviar el código SMS. Intenta nuevamente.'
+          );
+          return;
+        }
+
+        navigation.navigate('PhoneVerification', {
+          name,
+          email: normalizedEmail,
+          phone: normalizedPhone,
+          password,
+          method: method as RegistrationMethod,
+          authProvider: authProvider as RegistrationAuthProvider,
+          googleIdToken,
+          role: 'driver',
+          phoneVerified: false,
+        });
+
         return;
       }
 
@@ -177,7 +203,10 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ navigation, r
       });
     } catch (error: any) {
       console.error('Error al preparar datos de conductor:', error);
-      Alert.alert('Error', error?.message || 'Ocurrió un problema al continuar con el registro de conductor.');
+      Alert.alert(
+        'Error',
+        error?.message || 'Ocurrió un problema al continuar con el registro de conductor.'
+      );
     } finally {
       setLoadingRole(null);
     }

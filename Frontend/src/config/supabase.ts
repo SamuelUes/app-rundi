@@ -5,7 +5,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import Constants from 'expo-constants';
-import { getFirebaseAuth } from './firebase';
+ 
 
 const expoExtra =
   Constants.expoConfig?.extra ??
@@ -18,7 +18,7 @@ function resolveSupabaseUrl(): string {
     expoExtra.supabaseUrl ||
     process.env.EXPO_PUBLIC_SUPABASE_URL ||
     process.env.SUPABASE_URL ||
-    'https://ceytngpresytjhafcadu.supabase.co'
+    ''
   );
 }
 
@@ -37,8 +37,10 @@ function resolveSupabaseKey(): string {
 const SUPABASE_URL = resolveSupabaseUrl();
 const SUPABASE_ANON_KEY = resolveSupabaseKey();
 
-if (!expoExtra.EXPO_PUBLIC_SUPABASE_URL && !expoExtra.supabaseUrl && !process.env.EXPO_PUBLIC_SUPABASE_URL) {
-  console.warn('⚠️ `EXPO_PUBLIC_SUPABASE_URL` no está definido en `app.config` ni en variables de entorno. Usando fallback por defecto.');
+if (!SUPABASE_URL) {
+  console.warn(
+    '⚠️ `EXPO_PUBLIC_SUPABASE_URL`/`SUPABASE_URL` no está definido en `app.config` ni en variables de entorno. Debes configurarlo en tu .env o app.config.'
+  );
 }
 
 if (!SUPABASE_ANON_KEY) {
@@ -57,49 +59,9 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   },
 });
 
-let lastToken: string | null = null;
-
-export async function ensureSupabaseSession(forceRefresh = false): Promise<void> {
-  const auth = await getFirebaseAuth();
-  const user = auth.currentUser;
-
-  if (!user) {
-    const { data: sessionData } = await supabase.auth.getSession();
-    if (sessionData?.session) {
-      await supabase.auth.signOut();
-    }
-    lastToken = null;
-    return;
-  }
-
-  const token = await user.getIdToken(forceRefresh);
-
-  if (!forceRefresh && lastToken === token) {
-    return;
-  }
-
-  const { data: currentSession } = await supabase.auth.getSession();
-  const currentAccessToken = currentSession?.session?.access_token;
-
-  if (currentAccessToken && !forceRefresh && lastToken === token) {
-    return;
-  }
-
-  const { error: signInError } = await supabase.auth.signInWithIdToken({
-    provider: 'firebase',
-    token,
-  });
-
-  if (signInError) {
-    console.warn(
-      '⚠️ Supabase auth falló. Verifica que el proveedor Firebase esté habilitado:',
-      signInError.message,
-    );
-    lastToken = null;
-    return;
-  }
-
-  lastToken = token;
+export async function ensureSupabaseSession(_forceRefresh = false): Promise<void> {
+  return;
 }
 
 export default supabase;
+

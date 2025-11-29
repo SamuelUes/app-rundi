@@ -11,16 +11,16 @@ export default function useDriverProximityTracking() {
   const { user } = useAuth();
 
   useEffect(() => {
+    if (!user?.id) {
+      // Esperar a que el usuario esté cargado antes de iniciar el tracking
+      return;
+    }
+
     let cancelled = false;
 
     const start = async () => {
       try {
         console.log('🚀 [useDriverProximityTracking] Inicializando...');
-        
-        if (!user?.id) {
-          console.log('⚠️ [useDriverProximityTracking] No hay user.id');
-          return;
-        }
         
         const role = user.role === 'driver' || user.role === 'designated_driver' ? 'driver' : 'client';
         console.log(`🚀 [useDriverProximityTracking] Role: ${role}`);

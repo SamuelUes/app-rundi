@@ -22,6 +22,12 @@ import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import phoneAuthService from '../../services/auth/phoneAuthService';
 import firebaseAuthService from '../../services/auth/firebaseAuthService';
+import {
+  CountryDialOption,
+  formatPhoneNumber,
+  getCountryDialOptions,
+  normalizePhoneNumber,
+} from '../../utils/phoneUtils';
 
 export default function PhoneVerificationLoginScreen({ navigation, route }: any) {
   const { colors } = useTheme();
@@ -31,11 +37,20 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
   // Datos del login anterior
   const phoneFromRoute = route.params?.phone || '';
   const displayPhoneFromRoute = route.params?.displayPhone || phoneFromRoute;
+  const countryFromRoute: CountryDialOption | undefined = route.params?.country;
+
+  const countryOptions = useMemo(() => getCountryDialOptions(), []);
+  const defaultCountry =
+    countryFromRoute ||
+    countryOptions.find((option) => option.code === 'NI') ||
+    countryOptions[0];
+
+  const [selectedCountry] = useState<CountryDialOption>(defaultCountry);
   
   const [code, setCode] = useState('');
   const [normalizedPhone, setNormalizedPhone] = useState<string>(phoneFromRoute);
   const [displayPhone, setDisplayPhone] = useState<string>('');
-  const [phoneInput, setPhoneInput] = useState('+505 ');
+  const [phoneInput, setPhoneInput] = useState<string>(`${defaultCountry.dialCode} `);
   const [loading, setLoading] = useState(false);
   const [resendLoading, setResendLoading] = useState(false);
   const [timeLeft, setTimeLeft] = useState(60);
@@ -43,62 +58,42 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
   const MAX_ATTEMPTS = 3;
 
   const hiddenInputRef = useRef<TextInput>(null);
-
-  // Función para formatear teléfono: +505 XXXX XXXX
-  const formatPhoneNumber = (text: string) => {
-    // Remover todo excepto números
-    const cleaned = text.replace(/\D/g, '');
-    
-    // Si comienza con 505, mantenerlo, sino agregarlo
-    let formatted = cleaned.startsWith('505') ? cleaned : '505' + cleaned;
-    
-    // Limitar a 11 dígitos (505 + 8 dígitos)
-    formatted = formatted.slice(0, 11);
-    
-    // Formatear como +505 XXXX XXXX
-    if (formatted.length <= 3) {
-      return '+' + formatted;
-    } else if (formatted.length <= 7) {
-      return '+' + formatted.slice(0, 3) + ' ' + formatted.slice(3);
-    } else {
-      return '+' + formatted.slice(0, 3) + ' ' + formatted.slice(3, 7) + ' ' + formatted.slice(7);
-    }
-  };
-
-  const normalizePhone = (text: string) => {
-    const digits = text.replace(/\D/g, '');
-    if (!digits) return '';
-    const withCountry = digits.startsWith('505') ? digits : `505${digits}`;
-    return `+${withCountry.slice(0, 11)}`;
-  };
-
-  const formatPhoneForDisplay = (phone: string) => {
-    if (!phone) {
-      return '+505 ';
-    }
-    const digits = phone.replace(/\D/g, '');
-    return formatPhoneNumber(digits);
-  };
-
+  
   const handlePhoneChange = (text: string) => {
-    const formatted = formatPhoneNumber(text);
-    const normalized = normalizePhone(text);
-    setPhoneInput(formatted);
+    const normalized = normalizePhoneNumber(text, selectedCountry.dialCode);
     setNormalizedPhone(normalized);
-    setDisplayPhone(formatPhoneForDisplay(normalized));
+
+    const formatted = normalized
+      ? formatPhoneNumber(normalized, selectedCountry.dialCode)
+      : formatPhoneNumber(text, selectedCountry.dialCode);
+
+    setPhoneInput(formatted || `${selectedCountry.dialCode} `);
+    setDisplayPhone(formatted || `${selectedCountry.dialCode} `);
   };
 
   useEffect(() => {
-    const initialDisplay = formatPhoneForDisplay(displayPhoneFromRoute || phoneFromRoute);
+    const basePhone = phoneFromRoute || '';
+    let initialDisplay = displayPhoneFromRoute;
+
+    if (!initialDisplay) {
+      initialDisplay = formatPhoneNumber(basePhone, selectedCountry.dialCode);
+    }
+
+    if (!initialDisplay) {
+      initialDisplay = `${selectedCountry.dialCode} `;
+    }
+
     setPhoneInput(initialDisplay);
     setDisplayPhone(initialDisplay);
-    setNormalizedPhone(phoneFromRoute || normalizePhone(initialDisplay));
+    setNormalizedPhone(
+      basePhone || normalizePhoneNumber(initialDisplay, selectedCountry.dialCode)
+    );
     const timeout = setTimeout(() => {
       hiddenInputRef.current?.focus();
     }, 300);
 
     return () => clearTimeout(timeout);
-  }, [phoneFromRoute, displayPhoneFromRoute]);
+  }, [phoneFromRoute, displayPhoneFromRoute, selectedCountry.dialCode]);
 
   // Temporizador para reenviar código
   useEffect(() => {
@@ -176,7 +171,7 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
 
       await phoneAuthService.sendVerificationCode(targetPhone);
 
-      const newDisplay = formatPhoneForDisplay(targetPhone);
+      const newDisplay = formatPhoneNumber(targetPhone, selectedCountry.dialCode) || targetPhone;
       setDisplayPhone(newDisplay);
 
       Alert.alert('✅ Código reenviado', `Se envió un nuevo código a ${newDisplay}`);
@@ -212,7 +207,7 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
             <Text style={styles.label}>Editar número (opcional)</Text>
             <TextInput
               style={styles.phoneInput}
-              placeholder="+505 XXXX XXXX"
+              placeholder={`${selectedCountry.dialCode} 12345678`}
               placeholderTextColor={colors.textSecondary}
               value={phoneInput}
               onChangeText={handlePhoneChange}
@@ -220,7 +215,7 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
               editable={!loading}
               maxLength={17} // +505 XXXX XXXX = 17 caracteres
             />
-            <Text style={styles.phoneFormatHint}>Formato: +505 XXXX XXXX</Text>
+            <Text style={styles.phoneFormatHint}>Formato: {selectedCountry.dialCode} XXXX XXXX</Text>
           </View>
 
           {/* Código Input */}

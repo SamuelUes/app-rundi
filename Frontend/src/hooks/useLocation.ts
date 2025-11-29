@@ -5,7 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import backgroundLocationService from '../services/backgroundLocationService';
 import { useAuth } from '../context/AuthContext';
 import { ensureActivityRecognitionPermission } from '../utils/activityPermission';
-import { requestNotificationsPermissionIfNeeded } from '@/utils/notificationPermission';
+import { requestNotificationsPermissionIfNeeded } from '../utils/notificationPermission';
 
 export interface Coordinates {
   latitude: number;
@@ -29,6 +29,9 @@ export interface UseLocationOptions {
   backgroundTracking?: boolean; // Activar tracking en segundo plano
   interval?: number; // Intervalo de actualización en ms
   minDistance?: number; // Distancia mínima entre actualizaciones en metros
+  // Coordenadas iniciales sugeridas (por ejemplo, desde PreflightRegionInfo)
+  // Se usan solo como seed visual mientras se resuelve la ubicación real.
+  initialCoords?: Coordinates;
 }
 
 export const DRIVER_LOCATION_OPTIONS: UseLocationOptions = {
@@ -42,7 +45,8 @@ export function useLocation(options: UseLocationOptions = {}) {
     highAccuracy = false,
     backgroundTracking = false, 
     interval = 5000, 
-    minDistance = 10 
+    minDistance = 10,
+    initialCoords,
   } = options;
   
   const { user } = useAuth();
@@ -153,16 +157,19 @@ export function useLocation(options: UseLocationOptions = {}) {
         updateCoords(candidate, { isMock: false });
       }
 
-      // Obtener ubicación actual con timeout reducido
-      const locationPromise = Location.getCurrentPositionAsync({
+      // Obtener ubicación actual con timeout controlado por Expo Location (evita fallback prematuro)
+      const currentPositionOptions: Location.LocationOptions & {
+        maximumAge?: number;
+        timeout?: number;
+        mayShowUserSettingsDialog?: boolean;
+      } = {
         accuracy: highAccuracy ? Location.Accuracy.BestForNavigation : Location.Accuracy.Balanced,
-      });
+        maximumAge: 10000,
+        timeout: highAccuracy ? 20000 : 12000,
+        mayShowUserSettingsDialog: true,
+      };
 
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Timeout')), 10000) // Fallback timeout
-      );
-
-      const location = await Promise.race([locationPromise, timeoutPromise]) as Location.LocationObject;
+      const location = await Location.getCurrentPositionAsync(currentPositionOptions);
 
       console.log('✅ Ubicación obtenida:', location.coords.latitude, location.coords.longitude);
       const nextCoords: Coordinates = {
@@ -177,11 +184,24 @@ export function useLocation(options: UseLocationOptions = {}) {
       updateCoords(nextCoords, { isMock: false });
       await persistLastKnownLocation(nextCoords);
     } catch (err: any) {
-      console.warn('⚠️ Error al obtener ubicación GPS. Usando ubicación mock: Managua');
-      console.error('Error details:', err?.message || err);
-      // Usar ubicación por defecto sin mostrar error en consola
-      setError(null);
-      updateCoords(DEFAULT_LOCATION, { isMock: true });
+      const message = err?.message || String(err);
+      const hadPreviousCoords = !!coordsRef.current;
+
+      if (message?.toLowerCase?.().includes('timeout')) {
+        console.warn('⌛ Tiempo de espera agotado al obtener GPS. Reusando última ubicación conocida.');
+      } else {
+        console.warn('⚠️ Error al obtener ubicación GPS:', message);
+      }
+
+      // Si tenemos una ubicación previa válida, la mantenemos para evitar saltar a la mock
+      if (hadPreviousCoords && coordsRef.current) {
+        setError('No se pudo actualizar la ubicación, se mantiene la última válida');
+        updateCoords(coordsRef.current, { isMock: false });
+      } else {
+        console.warn('⚠️ Sin ubicación previa, usando ubicación mock: Managua');
+        setError(null);
+        updateCoords(DEFAULT_LOCATION, { isMock: true });
+      }
     } finally {
       setLoading(false);
       isRefreshingLocation.current = false;
@@ -298,9 +318,28 @@ export function useLocation(options: UseLocationOptions = {}) {
 
   // Inicialización
   useEffect(() => {
-    loadLastKnownLocation().finally(() => {
-      getLocation();
-    });
+    (async () => {
+      // 1) Seed opcional desde initialCoords (por ejemplo, PreflightRegionInfo)
+      if (initialCoords && !coordsRef.current) {
+        const seeded: Coordinates = {
+          latitude: initialCoords.latitude,
+          longitude: initialCoords.longitude,
+          heading: null,
+          speed: null,
+          accuracy: null,
+          timestamp: Date.now(),
+        };
+
+        updateCoords(seeded, { isMock: false });
+        setLoading(false);
+      }
+
+      // 2) Cargar última ubicación conocida desde AsyncStorage
+      await loadLastKnownLocation();
+
+      // 3) Forzar obtención actual vía GPS
+      await getLocation();
+    })();
 
     if (backgroundTracking) {
       // Verificar si el tracking en segundo plano ya está activo

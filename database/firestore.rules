@@ -44,6 +44,21 @@ service cloud.firestore {
       // El dueño puede eliminar su perfil (para eliminar cuenta)
       allow delete: if isOwner(userId);
     }
+
+    // ============================================
+    // SERVICE AREAS
+    // Zonas de servicio y cobertura geográfica
+    // ============================================
+
+    match /service_areas/{areaId} {
+      // Cualquier usuario autenticado puede leer las áreas de servicio
+      allow read: if isAuthenticated();
+
+      // Solo administradores pueden crear/actualizar/eliminar áreas
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
     
     // ============================================
     // NOTIFICATIONS SUBCOLLECTION

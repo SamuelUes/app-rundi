@@ -1,4 +1,4 @@
-import type { PreflightRole } from '../types/preflight';
+import type { PreflightRole, PreflightRegionInfo } from '../types/preflight';
 
 export type PreflightActionType = 'pending_payment' | 'active_ride' | 'penalties';
 
@@ -16,6 +16,7 @@ export type PreflightSummary = {
   role: PreflightRole;
   timestamp: number;
   actions: PreflightAction[];
+  region?: PreflightRegionInfo;
 };
 
 let currentSummary: PreflightSummary | null = null;

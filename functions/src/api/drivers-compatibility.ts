@@ -11,6 +11,7 @@ import { ServiceRepository } from '../sequelize/repositories/ServiceRepository';
 import { DriverRepository } from '../sequelize/repositories/DriverRepository';
 
 const db = admin.database();
+const DEFAULT_SERVICE_AREA_ID = 'ni-managua';
 const driverServiceRepo = new DriverServiceRepository();
 const serviceRepo = new ServiceRepository();
 const driverRepo = new DriverRepository();
@@ -76,15 +77,59 @@ export const getAvailableDrivers = functions.https.onCall(async (data, context) 
 
     console.log(`🚗 [getAvailableDrivers] Buscando conductores disponibles en: ${latitude}, ${longitude}, vehicleType: ${vehicleType}`);
 
-    // Obtener snapshots de driversInfo (metadata) y driverLocations (estado/coords)
-    const [driversSnapshot, locationsSnapshot] = await Promise.all([
-      db.ref('driversInfo').once('value'),
-      db.ref('driverLocations').once('value'),
-    ]);
-    const driversInfo = driversSnapshot.val() || {};
-    const driverLocations = locationsSnapshot.val() || {};
+    // Resolver área de servicio del usuario (si está autenticado)
+    const uid = context.auth?.uid || null;
+    let serviceAreaId = DEFAULT_SERVICE_AREA_ID;
 
-    console.log(`📊 [getAvailableDrivers] driversInfo: ${Object.keys(driversInfo).length}, driverLocations: ${Object.keys(driverLocations).length}`);
+    if (uid) {
+      try {
+        const sessionSnap = await db.ref(`sessions/${uid}`).once('value');
+        const sessionVal = sessionSnap.val();
+        if (sessionVal && typeof sessionVal.serviceAreaId === 'string' && sessionVal.serviceAreaId.trim().length > 0) {
+          serviceAreaId = sessionVal.serviceAreaId.trim();
+        }
+      } catch (e) {
+        console.warn('[getAvailableDrivers] No se pudo leer serviceAreaId de sesión, usando default', {
+          uid,
+          error: (e as any)?.message || e,
+        });
+      }
+    }
+
+    // Obtener driversInfo (metadata) y driverLocations desde shard por área con fallback global
+    const driversSnapshotPromise = db.ref('driversInfo').once('value');
+
+    let driverLocations: any = {};
+    let locationsPath = '';
+
+    try {
+      const areaSnap = await db.ref(`driverLocationsByArea/${serviceAreaId}`).once('value');
+      driverLocations = areaSnap.val() || {};
+      locationsPath = `driverLocationsByArea/${serviceAreaId}`;
+
+      if (!driverLocations || (typeof driverLocations === 'object' && Object.keys(driverLocations).length === 0)) {
+        const fallbackSnap = await db.ref('driverLocations').once('value');
+        driverLocations = fallbackSnap.val() || {};
+        locationsPath = 'driverLocations';
+      }
+    } catch (err) {
+      console.warn('[getAvailableDrivers] Error leyendo driverLocationsByArea, usando driverLocations global', {
+        uid,
+        serviceAreaId,
+        error: (err as any)?.message || err,
+      });
+      const fallbackSnap = await db.ref('driverLocations').once('value');
+      driverLocations = fallbackSnap.val() || {};
+      locationsPath = 'driverLocations';
+    }
+
+    const driversSnapshot = await driversSnapshotPromise;
+    const driversInfo = driversSnapshot.val() || {};
+
+    console.log(`📊 [getAvailableDrivers] driversInfo: ${Object.keys(driversInfo).length}, driverLocations(${locationsPath}): ${Object.keys(driverLocations).length}`, {
+      serviceAreaId,
+      locationsPath,
+    });
 
     const allDriverIds = new Set<string>([
       ...Object.keys(driversInfo || {}),

@@ -1,7 +1,7 @@
 {
-  "name": "conduce-functions",
-  "version": "1.0.01",
-  "description": "Firebase Functions para conduce.ni",
+  "name": "rundi-functions",
+  "version": "1.6.4",
+  "description": "Firebase Functions para rundi-app",
   "scripts": {
     "build": "tsc",
     "build:watch": "tsc --watch",

@@ -11,7 +11,12 @@ import dotenv from 'dotenv';
 import { existsSync, readFileSync } from 'fs';
 import path from 'path';
 
-dotenv.config();
+// Cargar variables de entorno desde archivos locales SOLO en desarrollo
+// En Firebase Functions (producción) las credenciales vienen de functions.config/process.env
+const nodeEnv = process.env.NODE_ENV === 'production' ? 'production' : 'development';
+const envFilePath = nodeEnv === 'production' ? '.env.productions' : '.env.development';
+
+dotenv.config({ path: envFilePath });
 
 // Obtener credenciales de Supabase
 let supabaseUrl: string | undefined;

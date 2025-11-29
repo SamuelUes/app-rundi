@@ -26,6 +26,15 @@ export type AuthStackParamList = {
     googleIdToken: string;
     initialPhone?: string;
   };
+  DriverPhone: {
+    name: string;
+    email?: string;
+    phone?: string;
+    password?: string;
+    method: RegistrationMethod;
+    authProvider: RegistrationAuthProvider;
+    googleIdToken?: string;
+  };
   RoleSelection: {
     name: string;
     email?: string;

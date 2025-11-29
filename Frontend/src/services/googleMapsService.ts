@@ -113,6 +113,7 @@ class GoogleMapsService {
         }));
       }
 
+      console.warn('⚠️ Google Autocomplete respondió', response.data.status, response.data.error_message);
       return [];
     } catch (error) {
       console.error('❌ Google Autocomplete error:', error);
@@ -141,6 +142,7 @@ class GoogleMapsService {
         };
       }
 
+      console.warn('⚠️ Google Place Details respondió', response.data.status, response.data.error_message);
       return null;
     } catch (error) {
       console.error('❌ Google Place Details error:', error);

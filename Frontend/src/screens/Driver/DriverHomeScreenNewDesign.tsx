@@ -38,6 +38,7 @@ import { extractVehicleTypeFromInfo, ensureVehicleIconSource } from '../../utils
 import { useAcceptedRideListener } from '../../hooks/useAcceptedRideListener';
 import proximityService from '../../services/proximityService';
 import penaltiesService from '../../services/penaltiesService';
+import { haversineKm } from '../../utils/distance';
 
 type NearbyDriverMarker = {
   id: string;
@@ -95,24 +96,35 @@ const getActiveRidePendingCopy = (ride: any) => {
 };
 
 const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-  const R = 6371; // km
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
+  return haversineKm(lat1, lon1, lat2, lon2);
 };
 
 export default function DriverHomeScreenNewDesign({ navigation }: any) {
   const { user, logout, logoutInProgress } = useAuth();
   const { settings: voiceSettings, speak: speakVoice, stopCategory: stopVoiceCategory } = useVoiceAssistant();
   const { colors } = useTheme();
-  const { coords, loading: locationLoading, error, refreshLocation } = useLocation(DRIVER_LOCATION_OPTIONS);
+
+  const preflightSummary = getPreflightResult();
+  const initialRegion = preflightSummary?.role === 'driver' ? preflightSummary.region : undefined;
+
+  const initialCoords =
+    initialRegion &&
+    typeof initialRegion.latitude === 'number' &&
+    typeof initialRegion.longitude === 'number'
+      ? {
+          latitude: initialRegion.latitude,
+          longitude: initialRegion.longitude,
+        }
+      : null;
+
+  const { coords, loading: locationLoading, error, refreshLocation } = useLocation(
+    initialCoords
+      ? {
+          ...DRIVER_LOCATION_OPTIONS,
+          initialCoords,
+        }
+      : DRIVER_LOCATION_OPTIONS,
+  );
   const styles = useMemo(() => createStyles(colors), [colors]);
 
   const [loadingMessage, setLoadingMessage] = useState('Preparando tu panel de conductor...');
@@ -155,7 +167,8 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   const [todayStats, setTodayStats] = useState({ trips: 0, earnings: 0 });
   const [pendingPayments, setPendingPayments] = useState<any[]>([]);
   const [penaltySummary, setPenaltySummary] = useState<{ pendingCount: number; pendingAmount: number } | null>(null);
-  const [preflightActions, setPreflightActions] = useState<PreflightAction[]>(() => getPreflightResult()?.actions ?? []);
+  const [preflightActions, setPreflightActions] = useState<PreflightAction[]>(() => preflightSummary?.actions ?? []);
+  const [serviceAreaId] = useState<string | null>(initialRegion?.serviceAreaId ?? null);
   const [nearbyDriversMarkers, setNearbyDriversMarkers] = useState<NearbyDriverMarker[]>([]);
   const [availableRideRequests, setAvailableRideRequests] = useState<any[]>([]);
   const [activeRide, setActiveRide] = useState<any>(null);
@@ -669,7 +682,15 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
       const priority = ['active_ride', 'penalties', 'pending_payment'] as const;
       const nextAction = priority
         .map((type) => preflightActions.find((action) => action.type === type))
-        .find((action) => action != null);
+        .find((action) => {
+          if (!action) return false;
+          // Si la acción es de viaje activo pero YA no hay activeRide en tiempo real,
+          // la ignoramos para no mostrar banners obsoletos.
+          if (action.type === 'active_ride' && !activeRide) {
+            return false;
+          }
+          return true;
+        });
 
       if (nextAction) {
         const actionType = nextAction.type === 'pending_payment' ? 'pending_payment' : 'active_ride';
@@ -805,7 +826,10 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
       try {
         const { getDatabase, ref: dbRef, onValue, off } = await import('firebase/database');
         const db = getDatabase();
-        const driverLocationsRef = dbRef(db, 'driverLocations');
+        const path = serviceAreaId ? `driverLocationsByArea/${serviceAreaId}` : 'driverLocations';
+        const driverLocationsRef = dbRef(db, path);
+
+        console.log('[DriverHome] Escuchando driverLocations desde:', path);
 
         const handleSnapshot = (snapshot: any) => {
           if (!isMounted) return;
@@ -871,7 +895,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
       isMounted = false;
       cleanup?.();
     };
-  }, [coords?.latitude, coords?.longitude, isAvailable, user?.id]);
+  }, [coords?.latitude, coords?.longitude, isAvailable, user?.id, serviceAreaId]);
 
   useEffect(() => {
     if (!coords || !isAvailable) {
@@ -888,7 +912,8 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
       try {
         const { getDatabase, ref, onValue, off } = await import('firebase/database');
         const db = getDatabase();
-        const activeRidesRef = ref(db, 'activeRides');
+        const path = serviceAreaId ? `activeRidesByArea/${serviceAreaId}` : 'activeRides';
+        const activeRidesRef = ref(db, path);
         const { RIDES_RADIUS_KM } = await import('../../constants/rideRadius');
         const SEARCH_RADIUS_KM = RIDES_RADIUS_KM;
 
@@ -1322,7 +1347,6 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
           longitude={coords.longitude}
           markerType="car"
           markerPosition={{ latitude: coords.latitude, longitude: coords.longitude }}
-          nearbyDrivers={nearbyDriversMarkers}
           rideRequests={availableRideRequests}
           markerVehicleType={currentVehicleType ?? undefined}
           markerVehicleIconSource={currentVehicleIconSource}

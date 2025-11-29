@@ -1,4 +1,4 @@
-package com.driveangel.app.service
+package com.driveangel.rundidev.service
 
 import android.content.Context
 import android.content.Intent
@@ -32,10 +32,8 @@ class ForegroundServiceModule(private val appContext: ReactApplicationContext) :
   @ReactMethod
   fun stop(promise: Promise) {
     try {
-      val serviceIntent = Intent(appContext, TrackingForegroundService::class.java).apply {
-        action = TrackingForegroundService.ACTION_STOP
-      }
-      startServiceCompat(appContext, serviceIntent)
+      val serviceIntent = Intent(appContext, TrackingForegroundService::class.java)
+      appContext.stopService(serviceIntent)
       promise.resolve(true)
     } catch (error: Exception) {
       promise.reject("E_FOREGROUND_STOP", error)

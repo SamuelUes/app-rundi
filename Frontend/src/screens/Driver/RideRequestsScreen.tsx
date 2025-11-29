@@ -19,6 +19,7 @@ import { useRideNotifications } from '../../hooks/useRideNotifications';
 import ridesService from '../../services/ridesService';
 import DynamicMap from '../../components/DynamicMap';
 import { getDatabase, onValue, ref } from 'firebase/database';
+import { RIDES_RADIUS_KM } from '../../constants/rideRadius';
 
 interface RideRequest {
   id: string;
@@ -122,7 +123,7 @@ export default function RideRequestsScreen({ navigation }: any) {
       const availableRides = await ridesService.getAvailableRides(
         coords.latitude,
         coords.longitude,
-        12 // 15 km de radio (mayor cobertura en Nicaragua)
+        RIDES_RADIUS_KM // 15 km de radio (mayor cobertura en Nicaragua)
       );
       setRides(availableRides || []);
     } catch (error: any) {
@@ -881,7 +882,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: colors.text,
-    marginBottom: 8,
+    marginBottom: 2,
   },
   priceInput: {
     backgroundColor: colors.surface,

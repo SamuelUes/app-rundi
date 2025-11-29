@@ -110,13 +110,13 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace 'com.driveangel.app'
+    namespace 'com.driveangel.rundidev'
     defaultConfig {
-        applicationId 'com.driveangel.app'
+        applicationId 'com.driveangel.rundidev'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
-        versionName "Beta - 1.5.9"
+        versionName "Beta - 1.6.4"
     }
     signingConfigs {
         debug {

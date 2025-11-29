@@ -5,7 +5,7 @@
 
 import phoneAuthService from './auth/phoneAuthService';
 
-const NICARAGUA_PHONE_REGEX = /^\+505\d{8}$/;
+const E164_PHONE_REGEX = /^\+\d{6,15}$/;
 
 class SmsService {
   private normalizePhone(phone: string): string {
@@ -19,7 +19,7 @@ class SmsService {
 
   validatePhoneFormat(phone: string): boolean {
     const normalized = this.normalizePhone(phone);
-    return NICARAGUA_PHONE_REGEX.test(normalized);
+    return E164_PHONE_REGEX.test(normalized);
   }
 
   formatPhone(phone: string): string {
@@ -32,7 +32,7 @@ class SmsService {
     if (!this.validatePhoneFormat(formattedPhone)) {
       return {
         success: false,
-        message: 'Formato de teléfono inválido. Usa +505 XXXX XXXX',
+        message: 'Formato de teléfono inválido. Usa formato internacional (+Código país y número).',
       };
     }
 
@@ -59,7 +59,7 @@ class SmsService {
     if (!this.validatePhoneFormat(formattedPhone)) {
       return {
         success: false,
-        message: 'Formato de teléfono inválido. Usa +505 XXXX XXXX',
+        message: 'Formato de teléfono inválido. Usa formato internacional (+Código país y número).',
       };
     }
 
@@ -95,7 +95,7 @@ class SmsService {
     if (!this.validatePhoneFormat(formattedPhone)) {
       return {
         success: false,
-        message: 'Formato de teléfono inválido. Usa +505 XXXX XXXX',
+        message: 'Formato de teléfono inválido. Usa formato internacional (+Código país y número).',
       };
     }
 

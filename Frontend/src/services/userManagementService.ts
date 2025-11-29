@@ -70,8 +70,8 @@ class UserManagementService {
       // Eliminar información de cliente (si aplica)
       const clientsInfoRef = ref(database, `clientsInfo/${user.uid}`);
       await remove(clientsInfoRef);
-      const clientLocationsRef = ref(database, `clientLocations/${user.uid}`);
-      await remove(clientLocationsRef);
+      const clientsLocationsRef = ref(database, `clientsLocations/${user.uid}`);
+      await remove(clientsLocationsRef);
       
       // Eliminar chats (si tiene)
       const chatsRef = ref(database, `chats/${user.uid}`);

@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "1040329608349",
+    "firebase_url": "https://driveangel-ni-default-rtdb.firebaseio.com",
+    "project_id": "driveangel-ni",
+    "storage_bucket": "driveangel-ni.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1040329608349:android:e89daa47ceccedca291874",
+        "android_client_info": {
+          "package_name": "com.driveangel.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1040329608349-qgukkk3ebic7n8kaqcjp1en614ne46kd.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.driveangel.app",
+            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+          }
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBv055mp00LWRK9BMegGQ6zYClwEuDOr1s"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1040329608349-3h5jti0ftc7c8ei279b75bsgqd1jaaai.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.zoom.com"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

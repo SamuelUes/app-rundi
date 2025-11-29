@@ -18,11 +18,17 @@ import { PaymentRepository } from '../sequelize/repositories/PaymentRepository';
 import { calculateRideProgress } from '../utils/rideProgressUtils';
 import { MIGRATION_FLAGS } from '../config/migration-flags';
 
+const IS_LOAD_TEST =
+  (process.env.FUNCTIONS_EMULATOR === 'true' ||
+    (process.env.FIREBASE_EMULATOR_RUN_MODE ?? '').toLowerCase() === 'true') &&
+  (process.env.SKIP_DB_FOR_LOADTEST ?? '').toLowerCase() === 'true';
+
 const rideRepo = new RideRepository();
 const driverRepo = new DriverRepository();
 const locationRepo = new RideLocationRepository();
 const rideService = new RideService();
 const db = admin.database();
+const DEFAULT_SERVICE_AREA_ID = 'ni-managua';
 const penaltyRepo = new DriverPenaltyRepository();
 const serviceRepo = new ServiceRepository();
 const paymentRepo = new PaymentRepository();
@@ -423,8 +429,48 @@ export const getAvailableRides = functions.https.onCall(async (data, context) =>
     ? Math.min(Math.max(Math.floor(data.limit), 1), 50)
     : 25;
 
-  const snapshot = await db.ref('activeRides').once('value');
-  const rawValue = snapshot.val() || {};
+  // Resolver área de servicio del conductor desde la sesión (si existe)
+  const uid = context.auth.uid;
+  let serviceAreaId = DEFAULT_SERVICE_AREA_ID;
+
+  try {
+    const sessionSnap = await db.ref(`sessions/${uid}`).once('value');
+    const sessionVal = sessionSnap.val();
+    if (sessionVal && typeof sessionVal.serviceAreaId === 'string' && sessionVal.serviceAreaId.trim().length > 0) {
+      serviceAreaId = sessionVal.serviceAreaId.trim();
+    }
+  } catch (e) {
+    console.warn('[getAvailableRides] No se pudo leer serviceAreaId de sesión, usando default', {
+      uid,
+      error: (e as any)?.message || e,
+    });
+  }
+
+  let rawValue: any = {};
+  let usedPath = '';
+
+  try {
+    const areaSnap = await db.ref(`activeRidesByArea/${serviceAreaId}`).once('value');
+    rawValue = areaSnap.val() || {};
+    usedPath = `activeRidesByArea/${serviceAreaId}`;
+
+    // Fallback a path global si el shard está vacío (compatibilidad)
+    if (!rawValue || (typeof rawValue === 'object' && Object.keys(rawValue).length === 0)) {
+      const fallbackSnap = await db.ref('activeRides').once('value');
+      rawValue = fallbackSnap.val() || {};
+      usedPath = 'activeRides';
+    }
+  } catch (err) {
+    console.warn('[getAvailableRides] Error leyendo activeRidesByArea, usando activeRides global', {
+      uid,
+      serviceAreaId,
+      error: (err as any)?.message || err,
+    });
+    const fallbackSnap = await db.ref('activeRides').once('value');
+    rawValue = fallbackSnap.val() || {};
+    usedPath = 'activeRides';
+  }
+
   const entries = Object.entries<any>(rawValue);
 
   const rides = [] as any[];
@@ -488,6 +534,8 @@ export const getAvailableRides = functions.https.onCall(async (data, context) =>
     hasCoords,
     radiusKm: hasCoords ? radiusKm : null,
     limit,
+    serviceAreaId,
+    usedPath,
   });
 
   return {
@@ -706,6 +754,86 @@ export const createRide = functions.https.onCall(async (data, context) => {
     // Preparar paradas extras (waypoints)
     const extraDestinations = data.extraDestinations || [];
     console.log(`📍 [createRide] Paradas extras recibidas: ${extraDestinations.length}`);
+
+    if (IS_LOAD_TEST) {
+      const rideRef = db.ref('activeRides').push();
+      const rideId = rideRef.key as string;
+
+      const firebaseRideData: any = {
+        id: rideId,
+        clientId,
+        status: 'requested',
+        origin: {
+          lat: origin.lat,
+          lng: origin.lng,
+          address: origin.address || 'Ubicación de origen',
+        },
+        destination: {
+          lat: destination.lat,
+          lng: destination.lng,
+          address: destination.address || 'Ubicación de destino',
+        },
+        estimatedPrice,
+        estimatedDistance,
+        estimatedDuration,
+        rideType,
+        vehicleType,
+        passengers,
+        paymentMethod: data.paymentMethod || 'cash',
+        clientSuggestedPrice: data.clientSuggestedPrice || null,
+        driverOfferedPrice: null,
+        negotiationStatus: data.clientSuggestedPrice ? 'client_suggested' : null,
+        createdAt: admin.database.ServerValue.TIMESTAMP,
+        updatedAt: admin.database.ServerValue.TIMESTAMP,
+      };
+
+      if (extraDestinations.length > 0) {
+        firebaseRideData.extraDestinations = extraDestinations;
+        firebaseRideData.hasMultipleDestinations = true;
+        firebaseRideData.waypointsCount = extraDestinations.length;
+        console.log(`✅ [createRide][LOADTEST] ${extraDestinations.length} paradas agregadas a Firebase`);
+      } else {
+        firebaseRideData.hasMultipleDestinations = false;
+        firebaseRideData.waypointsCount = 0;
+      }
+
+      await db.ref(`activeRides/${rideId}`).set(firebaseRideData);
+      console.log(`✅ [createRide][LOADTEST] Viaje fake sincronizado a Firebase: activeRides/${rideId}`);
+
+      try {
+        await db.ref(`paymentStatus/${rideId}`).set({
+          status: 'pending',
+          amount: estimatedPrice,
+          paymentMethod: data.paymentMethod || 'cash',
+          createdAt: admin.database.ServerValue.TIMESTAMP,
+        });
+        console.log(`✅ [createRide][LOADTEST] paymentStatus creado para viaje fake`);
+      } catch (firebaseError: any) {
+        console.error(`⚠️ [createRide][LOADTEST] Error creando paymentStatus (no es crítico):`, firebaseError.message);
+      }
+
+      await notifyUserSafe(clientId, '🚗 Solicitud enviada', 'Estamos buscando un conductor para tu viaje', {
+        rideId,
+        type: 'ride_requested',
+      });
+
+      return {
+        success: true,
+        ride: {
+          id: rideId,
+          firebaseRideId: rideId,
+          status: 'requested',
+          createdAt: new Date(),
+          clientId,
+          origin,
+          destination,
+          estimatedPrice,
+          rideType,
+          vehicleType,
+          passengers,
+        },
+      };
+    }
 
     // ✅ NUEVO: Mapear vehicleType a service_id
     let serviceId = data.serviceId || null;
@@ -964,6 +1092,43 @@ export const acceptRide = functions.https.onCall(async (data, context) => {
 
     if (firebaseRideData.driverId && firebaseRideData.driverId !== driverId && firebaseRideData.status !== 'requested') {
       throw new functions.https.HttpsError('failed-precondition', 'El viaje ya fue asignado a otro conductor');
+    }
+
+    if (IS_LOAD_TEST) {
+      const currentData = firebaseRideData || {};
+      let newStatus = 'accepted';
+
+      if (!currentData.clientSuggestedPrice && !currentData.driverOfferedPrice) {
+        newStatus = 'driver_offered';
+      }
+
+      const updateData: any = {
+        status: newStatus,
+        driverId,
+        acceptedAt: currentData.acceptedAt || admin.database.ServerValue.TIMESTAMP,
+        updatedAt: admin.database.ServerValue.TIMESTAMP,
+        clientSuggestedPrice: currentData.clientSuggestedPrice || null,
+        driverOfferedPrice: currentData.driverOfferedPrice || null,
+        negotiationStatus: currentData.negotiationStatus || null,
+        extraDestinations: currentData.extraDestinations || null,
+        hasMultipleDestinations: currentData.hasMultipleDestinations || false,
+        waypointsCount: currentData.waypointsCount || 0,
+      };
+
+      await db.ref(`activeRides/${rideId}`).update(updateData);
+
+      try {
+        await db.ref(`paymentStatus/${rideId}`).update({
+          status: 'pending',
+          updatedAt: admin.database.ServerValue.TIMESTAMP,
+        });
+      } catch (paymentErr: any) {
+        console.warn('⚠️ [acceptRide][LOADTEST] Error actualizando paymentStatus:', paymentErr.message || paymentErr);
+      }
+
+      console.log(`✅ [acceptRide][LOADTEST] Viaje aceptado sin Supabase: ${rideId}`);
+
+      return { success: true, ride: { id: rideId, status: newStatus, driverId } };
     }
 
     const stableStatuses = ['driver_offered', 'accepted', 'driver_on_route', 'in_progress', 'pending_payment', 'completed'];
@@ -1263,8 +1428,8 @@ export const confirmDriver = functions.https.onCall(async (data, context) => {
     const calculatedFinalFare = (() => {
       const candidates = [
         rideData.finalFare,
-        rideData.clientSuggestedPrice,
         rideData.driverOfferedPrice,
+        rideData.clientSuggestedPrice,
         rideData.estimatedPrice,
       ];
       for (const value of candidates) {
@@ -1284,7 +1449,6 @@ export const confirmDriver = functions.https.onCall(async (data, context) => {
       // ✅ Preservar campos de negociación
       clientSuggestedPrice: rideData.clientSuggestedPrice || null,
       driverOfferedPrice: rideData.driverOfferedPrice || null,
-      negotiationStatus: 'client_confirmed',
       finalFare: calculatedFinalFare,
       // ✅ NUEVO: Preservar paradas extras y múltiples destinos
       extraDestinations: rideData.extraDestinations || null,
@@ -1386,7 +1550,6 @@ export const confirmDriver = functions.https.onCall(async (data, context) => {
         driver_id: selectedDriverId,
         status: 'accepted',
         accepted_at: new Date(),
-        negotiation_status: 'client_confirmed',
         client_confirmation_pending: false,
       };
       
@@ -1425,7 +1588,6 @@ export const confirmDriver = functions.https.onCall(async (data, context) => {
         status: 'accepted',
         driverId: selectedDriverId,
         finalFare: calculatedFinalFare,
-        negotiationStatus: 'client_confirmed',
       },
     };
   } catch (error: any) {
@@ -1449,6 +1611,49 @@ export const startRide = functions.https.onCall(async (data, context) => {
       throw new functions.https.HttpsError('invalid-argument', 'rideId es requerido');
     }
     console.log(`🚗 [startRide] Iniciando viaje: ${rideId}`);
+
+    if (IS_LOAD_TEST) {
+      try {
+        const currentRide = await db.ref(`activeRides/${rideId}`).once('value');
+        const currentData = currentRide.val() || {};
+
+        if (!currentData.status) {
+          throw new functions.https.HttpsError('not-found', 'Viaje no encontrado en Firebase');
+        }
+
+        if (currentData.status === 'in_progress') {
+          console.log(`🔁 [startRide][LOADTEST] Viaje ${rideId} ya estaba en progreso en Firebase`);
+        } else {
+          await db.ref(`activeRides/${rideId}`).update({
+            status: 'in_progress',
+            startedAt: currentData.startedAt || admin.database.ServerValue.TIMESTAMP,
+            updatedAt: admin.database.ServerValue.TIMESTAMP,
+            // Preservar campos de negociación
+            clientSuggestedPrice: currentData.clientSuggestedPrice || null,
+            driverOfferedPrice: currentData.driverOfferedPrice || null,
+            negotiationStatus: currentData.negotiationStatus || null,
+          });
+          console.log(`✅ [startRide][LOADTEST] Viaje sincronizado a Firebase`);
+
+          try {
+            const driverId = currentData.driverId;
+            if (driverId) {
+              await db.ref(`driverLocations/${driverId}`).update({
+                status: 'busy',
+                updatedAt: admin.database.ServerValue.TIMESTAMP,
+              });
+            }
+          } catch (busyErr: any) {
+            console.warn('⚠️ [startRide][LOADTEST] No se pudo marcar BUSY en driverLocations:', busyErr.message || busyErr);
+          }
+        }
+      } catch (firebaseError: any) {
+        console.error(`⚠️ [startRide][LOADTEST] Error sincronizando a Firebase:`, firebaseError.message);
+      }
+
+      return { success: true, ride: { id: rideId, status: 'in_progress' } };
+    }
+
     const ride = await rideService.startRide(rideId);
     
     // Sincronizar a Firebase Realtime DB
@@ -1511,6 +1716,66 @@ export const completeRide = functions.https.onCall(async (data, context) => {
       throw new functions.https.HttpsError('invalid-argument', 'rideId y finalFare son requeridos');
     }
     console.log(`✅ [completeRide] Completando viaje: ${rideId}`);
+
+    if (IS_LOAD_TEST) {
+      try {
+        const currentRide = await db.ref(`activeRides/${rideId}`).once('value');
+        const currentData = currentRide.val() || {};
+
+        await db.ref(`activeRides/${rideId}`).update({
+          status: 'pending_payment',
+          completedAt: admin.database.ServerValue.TIMESTAMP,
+          finalFare,
+          updatedAt: admin.database.ServerValue.TIMESTAMP,
+          // Preservar campos de negociación
+          clientSuggestedPrice: currentData.clientSuggestedPrice || null,
+          driverOfferedPrice: currentData.driverOfferedPrice || null,
+          negotiationStatus: currentData.negotiationStatus || null,
+        });
+        console.log(`✅ [completeRide][LOADTEST] Viaje sincronizado a Firebase`);
+
+        try {
+          const resolvedDriverId = driverId || currentData.driverId || null;
+          if (resolvedDriverId) {
+            await db.ref(`driverLocations/${resolvedDriverId}`).update({
+              status: 'available',
+              updatedAt: admin.database.ServerValue.TIMESTAMP,
+            });
+          }
+        } catch (availErr: any) {
+          console.warn('⚠️ [completeRide][LOADTEST] No se pudo marcar AVAILABLE en driverLocations:', availErr.message || availErr);
+        }
+
+        try {
+          await db.ref(`paymentStatus/${rideId}`).update({
+            status: 'pending',
+            amount: finalFare,
+            updatedAt: admin.database.ServerValue.TIMESTAMP,
+          });
+        } catch (paymentErr: any) {
+          console.warn('⚠️ [completeRide][LOADTEST] Error actualizando paymentStatus:', paymentErr.message || paymentErr);
+        }
+
+        await notifyUserSafe(currentData.clientId, '✅ Viaje finalizado', 'Por favor confirma y realiza el pago.', {
+          rideId,
+          type: 'ride_completed',
+          finalFare,
+        });
+      } catch (firebaseError: any) {
+        console.error(`⚠️ [completeRide][LOADTEST] Error sincronizando a Firebase:`, firebaseError.message);
+      }
+
+      return {
+        success: true,
+        ride: {
+          id: rideId,
+          status: 'pending_payment',
+          finalFare,
+          completedAt: new Date(),
+        },
+      };
+    }
+
     const ride = await rideService.completeRide(rideId, finalFare);
     if (driverId) {
       const earnings = finalFare * 0.90;

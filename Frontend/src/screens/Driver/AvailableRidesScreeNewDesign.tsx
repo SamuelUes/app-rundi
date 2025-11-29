@@ -24,6 +24,8 @@ import { useLocation } from '../../hooks/useLocation';
 import { useAcceptedRideListener } from '../../hooks/useAcceptedRideListener';
 import penaltiesService from '../../services/penaltiesService';
 import penaltiesRealtimeService from '../../services/realtime/penaltiesRealtimeService';
+import { getPreflightResult } from '../../state/preflightStore';
+import { RIDES_RADIUS_KM } from '../../constants/rideRadius';
 
 const DEFAULT_COORDINATE: { lat: number; lng: number } = { lat: 0, lng: 0 };
 
@@ -138,6 +140,10 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
   const { coords } = useLocation();
   const { settings: voiceSettings, speak: speakVoice, stopCategory: stopCategory } = useVoiceAssistant();
 
+  const preflightSummary = getPreflightResult();
+  const initialRegion = preflightSummary?.role === 'driver' ? preflightSummary.region : undefined;
+  const [serviceAreaId] = useState<string | null>(initialRegion?.serviceAreaId ?? null);
+
   const [rides, setRides] = useState<Ride[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -145,19 +151,30 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
   const [clientProfiles, setClientProfiles] = useState<Record<string, ClientProfile | null>>({});
   const [penaltySummary, setPenaltySummary] = useState<{ pendingCount: number; pendingAmount: number } | null>(null);
   const [activeRideGuard, setActiveRideGuard] = useState<{ id: string } | null>(null);
-  const ridesCountRef = useRef(0);
-  useEffect(() => {
-    ridesCountRef.current = rides.length;
-  }, [rides.length]);
+  const isScreenFocusedRef = useRef(false);
 
   useEffect(() => {
-    const unsubscribe = navigation.addListener('focus', () => {
-      if (!voiceSettings.enabled) return;
-      const count = ridesCountRef.current;
-      speakVoice(`Hay ${count} viajes disponibles.`, 'status', undefined, true);
+    const focusUnsubscribe = navigation.addListener('focus', () => {
+      isScreenFocusedRef.current = true;
     });
-    return unsubscribe;
-  }, [navigation, voiceSettings.enabled, speakVoice]);
+    const blurUnsubscribe = navigation.addListener('blur', () => {
+      isScreenFocusedRef.current = false;
+    });
+
+    return () => {
+      focusUnsubscribe();
+      blurUnsubscribe();
+    };
+  }, [navigation]);
+
+  useEffect(() => {
+    if (!voiceSettings.enabled) return;
+    if (!isScreenFocusedRef.current) return;
+    if (loading) return;
+
+    const count = rides.length;
+    speakVoice(`Hay ${count} viajes disponibles.`, 'status', undefined, true);
+  }, [rides.length, loading, voiceSettings.enabled, speakVoice]);
 
   useEffect(() => {
     return () => {
@@ -174,7 +191,8 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
     if (!user?.id) return;
 
     const db = getDatabase();
-    const activeRef = ref(db, 'activeRides');
+    const path = serviceAreaId ? `activeRidesByArea/${serviceAreaId}` : 'activeRides';
+    const activeRef = ref(db, path);
 
     const unsubscribe = onValue(activeRef, (snapshot) => {
       const data = snapshot.val();
@@ -201,7 +219,7 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
     });
 
     return () => unsubscribe();
-  }, [user?.id, navigation]);
+  }, [user?.id, navigation, serviceAreaId]);
 
   const applySnapshot = useCallback(
     (data: Record<string, any> | null | undefined) => {
@@ -276,6 +294,26 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
         const requestedAtRaw = rideData.requestedAt ?? rideData.createdAt ?? rideData.created_at ?? Date.now();
         const requestedAt = typeof requestedAtRaw === 'number' ? requestedAtRaw : parseInt(requestedAtRaw, 10) || 0;
 
+        // Filtrar por radio de búsqueda del conductor si tenemos coordenadas válidas
+        const driverLat = coords?.latitude ?? null;
+        const driverLng = coords?.longitude ?? null;
+
+        if (
+          driverLat !== null &&
+          driverLng !== null &&
+          Number.isFinite(origin.lat) &&
+          Number.isFinite(origin.lng)
+        ) {
+          const distanceKm = haversineKm(driverLat, driverLng, origin.lat, origin.lng);
+          if (!Number.isFinite(distanceKm) || distanceKm > RIDES_RADIUS_KM) {
+            console.log('⏭️ [AvailableRides] Ride omitido (fuera de radio)', rideId, {
+              distanceKm,
+              RIDES_RADIUS_KM,
+            });
+            return;
+          }
+        }
+
         availableRides.push({
           id: rideId,
           clientId: rideData.clientId || '',
@@ -314,12 +352,13 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
       setLoading(false);
       setRefreshing(false);
     },
-    [user?.id],
+    [user?.id, coords?.latitude, coords?.longitude],
   );
 
   useEffect(() => {
     const db = getDatabase();
-    const ridesRef = ref(db, 'activeRides');
+    const path = serviceAreaId ? `activeRidesByArea/${serviceAreaId}` : 'activeRides';
+    const ridesRef = ref(db, path);
 
     const unsubscribe = onValue(
       ridesRef,
@@ -336,7 +375,7 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
     return () => {
       unsubscribe();
     };
-  }, [navigation, user?.id]);
+  }, [navigation, user?.id, serviceAreaId, applySnapshot]);
 
   // ✅ Supabase Realtime: resumen de penalizaciones
   useEffect(() => {
@@ -380,7 +419,8 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
     setRefreshing(true);
     try {
       const db = getDatabase();
-      const ridesRef = ref(db, 'activeRides');
+      const path = serviceAreaId ? `activeRidesByArea/${serviceAreaId}` : 'activeRides';
+      const ridesRef = ref(db, path);
       const snapshot = await get(ridesRef);
       applySnapshot(snapshot.val());
     } catch (error) {
@@ -388,7 +428,7 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
     } finally {
       setRefreshing(false);
     }
-  }, [applySnapshot]);
+  }, [applySnapshot, serviceAreaId]);
 
   const ensureCardForCardPayments = async (ride: Ride): Promise<boolean> => {
     const ridePaymentMethod = ride?.paymentMethod || ride?.rideType;

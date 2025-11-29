@@ -8,6 +8,7 @@ import { getFirebaseAuth, getFirebaseDatabase, getFirebaseFunctions } from '../c
 import { ref, set, onValue, off, update, remove, serverTimestamp } from 'firebase/database';
 import { httpsCallable } from 'firebase/functions';
 import { signInAnonymously } from 'firebase/auth';
+import { getPreflightResult } from '../state/preflightStore';
 
 interface Location {
   latitude: number;
@@ -61,6 +62,22 @@ interface RideTracking {
 let callableTrackingDisabled = false;
 let callableTrackingRetryAt: number | null = null;
 const CALLABLE_RETRY_INTERVAL_MS = 60_000; // 1 minuto de enfriamiento antes de reintentar
+
+function getCurrentServiceAreaId(): string | null {
+  try {
+    const summary = getPreflightResult();
+    const region = summary?.region;
+    if (region && typeof region.serviceAreaId === 'string') {
+      const trimmed = region.serviceAreaId.trim();
+      if (trimmed.length > 0) {
+        return trimmed;
+      }
+    }
+  } catch (error) {
+    console.warn('[FirebaseTrackingService] No se pudo leer serviceAreaId desde preflight:', error);
+  }
+  return null;
+}
 
 class FirebaseTrackingService {
   private listeners: Map<string, any> = new Map();
@@ -348,12 +365,21 @@ class FirebaseTrackingService {
     callback: (location: Location | null) => void
   ): Promise<() => void> {
     const database = await getFirebaseDatabase();
-    
-    // ✅ NUEVO: Escuchar driverLocations (principal) con fallback a driversInfo
-    const locationRef = ref(database, `driverLocations/${driverId}`);
+
+    const serviceAreaId = getCurrentServiceAreaId();
+
+    // ✅ Escuchar driverLocations shardeado por área cuando sea posible,
+    // con fallback implícito a driversInfo.
+    const basePath = serviceAreaId
+      ? `driverLocationsByArea/${serviceAreaId}/${driverId}`
+      : `driverLocations/${driverId}`;
+
+    const locationRef = ref(database, basePath);
     const driverInfoRef = ref(database, `driversInfo/${driverId}`);
-    
-    console.log(`📍 [subscribeToDriverLocation] Escuchando ubicación del conductor: ${driverId}`);
+
+    console.log(
+      `📍 [subscribeToDriverLocation] Escuchando ubicación del conductor: ${driverId} en ${basePath}`,
+    );
     
     let hasReceivedData = false;
     let unsubscribeInfo: (() => void) | null = null;
@@ -432,8 +458,16 @@ class FirebaseTrackingService {
     callback: (tracking: RideTracking | null) => void
   ): Promise<() => void> {
     const database = await getFirebaseDatabase();
-    const rideRef = ref(database, `activeRides/${rideId}`);
+    const serviceAreaId = getCurrentServiceAreaId();
+    const path = serviceAreaId
+      ? `activeRidesByArea/${serviceAreaId}/${rideId}`
+      : `activeRides/${rideId}`;
+    const rideRef = ref(database, path);
     
+    console.log(
+      `[subscribeToRideTracking] Escuchando tracking de viaje ${rideId} en ${path}`,
+    );
+
     const unsubscribe = onValue(
       rideRef,
       (snapshot) => {

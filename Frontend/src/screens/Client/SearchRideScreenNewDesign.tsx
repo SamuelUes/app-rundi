@@ -18,6 +18,7 @@ import DynamicMap from '../../components/DynamicMap';
 import { useLocation } from '../../hooks/useLocation';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
+import { useFirebaseItem } from '../../hooks/useFirebaseData';
 import mapsService from '../../services/mapsService';
 import driversService from '../../services/driversService';
 import ridesService from '../../services/ridesService';
@@ -34,6 +35,7 @@ const BACK_BUTTON_ICON = require('../../assets/icons/back_button/back_button2x.p
 const DEFAULT_FALLBACK_COORDS = { latitude: 12.1364, longitude: -86.2514 };
 const MAX_EXTRA_STOPS = 3;
 const VEHICLE_TYPES: VehicleType[] = ['moto', 'auto', 'designated_driver'];
+const REGION_IDLE_DELAY_MS = 900;
 
 interface VehicleEstimate {
   price: number | null;
@@ -194,6 +196,9 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
   const [manualDestinationDraft, setManualDestinationDraft] = useState<Coords | null>(null);
   const [manualDestinationLoading, setManualDestinationLoading] = useState(false);
   const [manualDestinationDragging, setManualDestinationDragging] = useState(false);
+  const [hasManualOriginOverride, setHasManualOriginOverride] = useState(false);
+  const [hasPinnedOrigin, setHasPinnedOrigin] = useState(false);
+  const [cameraTarget, setCameraTarget] = useState<Coords | null>(null);
 
   const [estimatedDistance, setEstimatedDistance] = useState(0);
   const [estimatedDuration, setEstimatedDuration] = useState(0);
@@ -233,7 +238,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
   const [favoriteLocations, setFavoriteLocations] = useState<SavedLocation[]>([]);
   const [activeSelection, setActiveSelection] = useState<'origin' | 'destination' | number | 'new-stop' | null>(null);
 
-  const [mapSelectionMode, setMapSelectionMode] = useState<MapSelectionState>('origin');
+  const [mapSelectionMode, setMapSelectionMode] = useState<MapSelectionState | null>(null);
   const [submittingRequest, setSubmittingRequest] = useState(false);
   const [bottomPanelExpanded, setBottomPanelExpanded] = useState(true);
   const bottomPanelAnim = useRef(new Animated.Value(0)).current;
@@ -277,25 +282,57 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     mapsService.fetchProviderFromBackend().catch(() => undefined);
   }, []);
 
-  useEffect(() => {
-    if (coords && !originCoords) {
-      setOriginCoords({ latitude: coords.latitude, longitude: coords.longitude });
-      setOrigin('Mi ubicación actual');
-    }
-  }, [coords, originCoords]);
+  const { data: savedLocation } = useFirebaseItem<any>('clientsLocations', user?.id || '', { once: true });
 
   useEffect(() => {
-    const base = originCoords || coords;
+    if (hasManualOriginOverride) {
+      return;
+    }
+
+    if (savedLocation?.coords) {
+      const firebaseCoords = {
+        latitude: savedLocation.coords.latitude,
+        longitude: savedLocation.coords.longitude,
+      };
+      const sameAsCurrent =
+        originCoords &&
+        Math.abs(originCoords.latitude - firebaseCoords.latitude) < 0.000001 &&
+        Math.abs(originCoords.longitude - firebaseCoords.longitude) < 0.000001;
+      if (!sameAsCurrent) {
+        setOriginCoords(firebaseCoords);
+        const savedAddress = savedLocation.address || formatCoords(firebaseCoords);
+        setOrigin(savedAddress);
+        setManualOriginAddress(savedAddress);
+        setManualOriginDraft(firebaseCoords);
+        setHasPinnedOrigin(true);
+        setCameraTarget(firebaseCoords);
+      }
+      return;
+    }
+
+    if (!originCoords && coords) {
+      const gpsCoords = { latitude: coords.latitude, longitude: coords.longitude };
+      setOriginCoords(gpsCoords);
+      setOrigin('Punto de origen');
+      setManualOriginAddress('Punto de origen');
+      setManualOriginDraft(gpsCoords);
+      setHasPinnedOrigin(true);
+      setCameraTarget(gpsCoords);
+    }
+  }, [coords, hasManualOriginOverride, originCoords, savedLocation]);
+
+  useEffect(() => {
+    const base = originCoords || savedLocation?.coords || coords;
     if (!manualOriginDraft && base) {
       setManualOriginDraft(base);
       if (!manualOriginAddress) {
-        setManualOriginAddress(origin || 'Mi ubicación actual');
+        setManualOriginAddress(origin || formatCoords(base));
       }
-      if (!originCoords) {
-        setOriginCoords(base);
+      if (!hasPinnedOrigin) {
+        setHasPinnedOrigin(true);
       }
     }
-  }, [originCoords, coords, manualOriginDraft, manualOriginAddress, origin]);
+  }, [originCoords, coords, manualOriginDraft, manualOriginAddress, origin, savedLocation?.coords, hasPinnedOrigin]);
 
   useEffect(() => {
     if (mapSelectionMode === 'destination') {
@@ -579,6 +616,9 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         setManualOriginDraft(coordsValue);
         setOriginCoords(coordsValue);
         rememberRecentLocation(sanitizedLabel, coordsValue);
+        setHasPinnedOrigin(true);
+        setHasManualOriginOverride(true);
+        setCameraTarget(coordsValue);
         await recomputeRouteWith(coordsValue, undefined, undefined);
         return;
       }
@@ -594,6 +634,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         setManualDestinationLoading(false);
         setManualDestinationDragging(false);
         rememberRecentLocation(sanitizedLabel, coordsValue);
+        setCameraTarget(coordsValue);
         await recomputeRouteWith(undefined, coordsValue, undefined);
         return;
       }
@@ -606,6 +647,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         const nextStops = [...extraDestinations, { address: sanitizedLabel, coords: coordsValue }];
         setExtraDestinations(nextStops);
         rememberRecentLocation(sanitizedLabel, coordsValue);
+        setCameraTarget(coordsValue);
         await recomputeRouteWith(undefined, undefined, nextStops);
         return;
       }
@@ -620,10 +662,11 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         );
         setExtraDestinations(nextStops);
         rememberRecentLocation(sanitizedLabel, coordsValue);
+        setCameraTarget(coordsValue);
         await recomputeRouteWith(undefined, undefined, nextStops);
       }
     },
-    [extraDestinations, rememberRecentLocation, recomputeRouteWith],
+    [extraDestinations, rememberRecentLocation, recomputeRouteWith, setCameraTarget, setHasPinnedOrigin, setHasManualOriginOverride],
   );
 
   const openLocationSearch = useCallback(
@@ -674,7 +717,9 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     const fetchSuggestions = async () => {
       try {
         setSearchLoading(true);
-        const results = await mapsService.autocomplete(debouncedSearch, coords ?? undefined);
+        const results = await mapsService.autocomplete(debouncedSearch, coords ?? undefined, {
+          forceProvider: 'google',
+        });
         if (!cancelled) {
           setSearchResults(results.map(normalizeSuggestion));
           setSearchError(results.length === 0 ? 'No encontramos coincidencias.' : null);
@@ -711,7 +756,10 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         setSearchLoading(true);
         let coordsValue = suggestion.coords;
         if (!coordsValue && suggestion.placeId) {
-          coordsValue = (await mapsService.getPlaceDetails(suggestion.placeId)) || null;
+          coordsValue =
+            (await mapsService.getPlaceDetails(suggestion.placeId, undefined, {
+              forceProvider: 'google',
+            })) || null;
         }
 
         if (!coordsValue) {
@@ -743,7 +791,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
       return;
     }
     const target = activeSelection || 'origin';
-    const label = target === 'origin' ? 'Mi ubicación actual' : 'Ubicación actual';
+    const label = target === 'origin' ? 'Punto de origen' : 'Ubicación actual';
     await applySelectionForTarget(target, label, coords);
     closeSearchOverlay();
   }, [coords, activeSelection, applySelectionForTarget, closeSearchOverlay]);
@@ -773,7 +821,10 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
 
   const handlePickFromMap = useCallback(() => {
     if (!activeSelection) return;
-    if (activeSelection === 'origin') setMapSelectionMode('origin');
+    if (activeSelection === 'origin') {
+      setHasPinnedOrigin(false);
+      setMapSelectionMode('origin');
+    }
     else if (activeSelection === 'destination') setMapSelectionMode('destination');
     else if (activeSelection === 'new-stop') setMapSelectionMode('extra-new');
     else if (typeof activeSelection === 'number') setMapSelectionMode({ type: 'extra-edit', index: activeSelection });
@@ -890,6 +941,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
       setManualOriginDraft(newCoords);
       setManualOriginDragging(false);
       setManualOriginLoading(true);
+      setHasManualOriginOverride(true);
       try {
         const coordLabel = formatCoords(newCoords);
         let address: string | null = null;
@@ -904,6 +956,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         setOriginCoords(newCoords);
         setOrigin(displayAddress);
         rememberRecentLocation(displayAddress, newCoords);
+        setCameraTarget(newCoords);
         await recomputeRouteWith(newCoords, undefined, undefined);
         promptDestinationSelection();
       } catch (error) {
@@ -913,6 +966,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         setOriginCoords(newCoords);
         setOrigin(fallbackAddress);
         rememberRecentLocation(fallbackAddress, newCoords);
+        setCameraTarget(newCoords);
         await recomputeRouteWith(newCoords, undefined, undefined);
         promptDestinationSelection();
       } finally {
@@ -921,7 +975,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         setManualOriginDraft(null);
       }
     },
-    [rememberRecentLocation, recomputeRouteWith, promptDestinationSelection],
+    [rememberRecentLocation, recomputeRouteWith, promptDestinationSelection, setCameraTarget, setHasManualOriginOverride],
   );
 
   const manualOriginMarkerPosition = useMemo(() => {
@@ -933,29 +987,52 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
 
   // Static center-pin selection (only for origin)
   const lastAppliedOriginCenterRef = useRef<Coords | null>(null);
-  const originCenterDebounceRef = useRef<any>(null);
+  const originCenterIdleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastAppliedDestinationCenterRef = useRef<Coords | null>(null);
-  const destinationCenterDebounceRef = useRef<any>(null);
+  const destinationCenterIdleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearOriginIdleTimeout = useCallback(() => {
+    if (originCenterIdleTimeoutRef.current) {
+      clearTimeout(originCenterIdleTimeoutRef.current);
+      originCenterIdleTimeoutRef.current = null;
+    }
+  }, []);
+
+  const clearDestinationIdleTimeout = useCallback(() => {
+    if (destinationCenterIdleTimeoutRef.current) {
+      clearTimeout(destinationCenterIdleTimeoutRef.current);
+      destinationCenterIdleTimeoutRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      clearOriginIdleTimeout();
+      clearDestinationIdleTimeout();
+    };
+  }, [clearDestinationIdleTimeout, clearOriginIdleTimeout]);
 
   const handleRegionChangeCenter = useCallback(
     (center: Coords) => {
       if (mapSelectionMode === 'origin') {
+        clearOriginIdleTimeout();
         setManualOriginDragging(true);
         setManualOriginDraft(center);
       } else if (mapSelectionMode === 'destination') {
+        clearDestinationIdleTimeout();
         setManualDestinationDragging(true);
         setManualDestinationDraft(center);
       }
     },
-    [mapSelectionMode],
+    [clearDestinationIdleTimeout, clearOriginIdleTimeout, mapSelectionMode],
   );
 
   const handleRegionChangeCompleteCenter = useCallback(
     (center: Coords) => {
       if (mapSelectionMode === 'origin') {
         setManualOriginDragging(false);
-        if (originCenterDebounceRef.current) clearTimeout(originCenterDebounceRef.current);
-        originCenterDebounceRef.current = setTimeout(async () => {
+        clearOriginIdleTimeout();
+        originCenterIdleTimeoutRef.current = setTimeout(async () => {
           const last = lastAppliedOriginCenterRef.current;
           if (last && metersBetween(last, center) < 20) return; // ignore tiny moves
           setManualOriginLoading(true);
@@ -972,6 +1049,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
             setManualOriginAddress(displayAddress);
             setOriginCoords(center);
             setOrigin(displayAddress);
+            setHasManualOriginOverride(true);
             rememberRecentLocation(displayAddress, center);
             lastAppliedOriginCenterRef.current = center;
             await recomputeRouteWith(center, undefined, undefined);
@@ -982,6 +1060,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
             setManualOriginAddress(fallback);
             setOriginCoords(center);
             setOrigin(fallback);
+            setHasManualOriginOverride(true);
             rememberRecentLocation(fallback, center);
             await recomputeRouteWith(center, undefined, undefined);
             promptDestinationSelection();
@@ -989,15 +1068,17 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
             setManualOriginLoading(false);
             setMapSelectionMode(null);
             setManualOriginDraft(null);
+            setHasPinnedOrigin(true);
+            clearOriginIdleTimeout();
           }
-        }, 300);
+        }, REGION_IDLE_DELAY_MS);
         return;
       }
 
       if (mapSelectionMode !== 'destination') return;
       setManualDestinationDragging(false);
-      if (destinationCenterDebounceRef.current) clearTimeout(destinationCenterDebounceRef.current);
-      destinationCenterDebounceRef.current = setTimeout(async () => {
+      clearDestinationIdleTimeout();
+      destinationCenterIdleTimeoutRef.current = setTimeout(async () => {
         const last = lastAppliedDestinationCenterRef.current;
         if (last && metersBetween(last, center) < 20) return;
         setManualDestinationLoading(true);
@@ -1027,10 +1108,18 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
           setManualDestinationLoading(false);
           setMapSelectionMode(null);
           setManualDestinationDraft(null);
+          clearDestinationIdleTimeout();
         }
-      }, 300);
+      }, REGION_IDLE_DELAY_MS);
     },
-    [mapSelectionMode, rememberRecentLocation, recomputeRouteWith, promptDestinationSelection],
+    [
+      clearDestinationIdleTimeout,
+      clearOriginIdleTimeout,
+      mapSelectionMode,
+      rememberRecentLocation,
+      recomputeRouteWith,
+      promptDestinationSelection,
+    ],
   );
 
   const handleTakeVehiclePhoto = useCallback(async () => {
@@ -1264,7 +1353,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
           showUserLocation
           userLocation={coords || undefined}
           showTraffic
-          showMarker={!centerPinActive}
+          showMarker={(!centerPinActive && hasPinnedOrigin) || mapSelectionMode === 'destination'}
           markerPosition={manualOriginMarkerPosition}
           markerType="manual_origin"
           draggableMarker
@@ -1272,6 +1361,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
           manualOriginHoldIcon={MANUAL_ORIGIN_HOLD_ICON}
           onMarkerDragStart={handleManualOriginDragStart}
           onMarkerDragEnd={handleManualOriginDragEnd}
+          cameraTarget={cameraTarget}
         />
         {centerPinActive && (
           <View pointerEvents="none" style={styles.centerPinContainer}>

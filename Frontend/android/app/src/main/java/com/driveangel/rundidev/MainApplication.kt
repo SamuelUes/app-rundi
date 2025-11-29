@@ -1,4 +1,4 @@
-package com.driveangel.app
+package com.driveangel.rundidev
 
 import android.app.Application
 import android.app.NotificationChannel
@@ -16,8 +16,8 @@ import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.load
 import com.facebook.react.defaults.DefaultReactNativeHost
 import com.facebook.soloader.SoLoader
 
-import com.driveangel.app.overlay.OverlayPackage
-import com.driveangel.app.service.ForegroundServicePackage
+import com.driveangel.rundidev.overlay.OverlayPackage
+import com.driveangel.rundidev.service.ForegroundServicePackage
 
 import expo.modules.ApplicationLifecycleDispatcher
 import expo.modules.ReactNativeHostWrapper

@@ -1,4 +1,4 @@
-package com.driveangel.app.overlay
+package com.driveangel.rundidev.overlay
 
 import com.facebook.react.ReactPackage
 import com.facebook.react.bridge.NativeModule

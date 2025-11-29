@@ -32,8 +32,8 @@ export const getClientProfile = functions.https.onCall(async (data, context) => 
 
   functions.logger.info("🔍 Buscando perfil de cliente", { clientId, requester: context.auth.uid });
 
-  // 1) Verificar latido en clientLocations
-  const clientActiveSnapshot = await database.ref(`clientLocations/${clientId}/lastHeartbeat`).once("value");
+  // 1) Verificar latido en clientsLocations
+  const clientActiveSnapshot = await database.ref(`clientsLocations/${clientId}/lastHeartbeat`).once("value");
   let heartbeat = clientActiveSnapshot.val();
   const now = Date.now();
   const HEARTBEAT_TOLERANCE_MS = 120_000; // 2 minutos
@@ -55,7 +55,7 @@ export const getClientProfile = functions.https.onCall(async (data, context) => 
   if (!isActive) {
     functions.logger.info("ℹ️ Cliente no activo, rechazando solicitud", {
       clientId,
-      heartbeatClientLocations: clientActiveSnapshot.val() ?? null,
+      heartbeatclientsLocations: clientActiveSnapshot.val() ?? null,
       heartbeatPresence: presenceHB,
     });
     throw new functions.https.HttpsError(

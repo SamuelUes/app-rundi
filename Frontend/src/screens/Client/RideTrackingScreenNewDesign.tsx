@@ -20,7 +20,6 @@ import {
   Image,
   Share,
   Animated,
-  PanResponder,
   Dimensions,
   ScrollView,
   ActivityIndicator,
@@ -177,19 +176,45 @@ const calculateRealRoute = async (
   start: { latitude: number; longitude: number },
   end: { latitude: number; longitude: number },
 ): Promise<Array<{ latitude: number; longitude: number }>> => {
+  const isValidCoord = (coord: { latitude: number; longitude: number }) =>
+    typeof coord.latitude === 'number' &&
+    typeof coord.longitude === 'number' &&
+    Number.isFinite(coord.latitude) &&
+    Number.isFinite(coord.longitude) &&
+    coord.latitude >= -90 &&
+    coord.latitude <= 90 &&
+    coord.longitude >= -180 &&
+    coord.longitude <= 180;
+
+  if (!isValidCoord(start) || !isValidCoord(end)) {
+    console.warn('⚠️ Coordenadas inválidas para OSRM, usando ruta directa', { start, end });
+    return [start, end];
+  }
+
+  // Si el punto de inicio y fin son iguales, no tiene sentido llamar a OSRM
+  if (start.latitude === end.latitude && start.longitude === end.longitude) {
+    return [start, end];
+  }
+
   const url = `https://router.project-osrm.org/route/v1/driving/${start.longitude},${start.latitude};${end.longitude},${end.latitude}?overview=full&geometries=geojson`;
 
   try {
     const response = await fetch(url);
     if (!response.ok) {
-      throw new Error(`OSRM error ${response.status}`);
+      // Manejar estados 4xx/5xx como una advertencia silenciosa con fallback
+      console.warn('⚠️ OSRM respondió estado no OK, usando ruta directa', {
+        status: response.status,
+        url,
+      });
+      return [start, end];
     }
+
     const data = await response.json();
     const coordinates: Array<[number, number]> = data?.routes?.[0]?.geometry?.coordinates ?? [];
     if (!coordinates.length) return [start, end];
     return coordinates.map(([lng, lat]) => ({ latitude: lat, longitude: lng }));
   } catch (error) {
-    console.error('❌ Error calculando ruta con OSRM', error);
+    console.error('❌ Error de red al llamar OSRM, usando ruta directa', error);
     return [start, end];
   }
 };
@@ -529,124 +554,14 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
   const { driverData, vehicleData } = useDriverAndVehicleData(driverId, { driverName, vehiclePlate, vehicleBrand, vehicleModel, vehicleColor, rideData });
   const { destinationCoords, originCoords, waypointCoords, routeCoordinates, routeDistanceMeters, routeDurationSeconds } = useDestinationAndRoute(rideData);
   
-  // Panel retráctil
+  // Panel retráctil (tap para expandir/contraer)
   const [isPanelExpanded, setIsPanelExpanded] = useState(true);
-  const panelTranslateY = useRef(new Animated.Value(0)).current;
-  const [isCancellingRide, setIsCancellingRide] = useState(false);
   const cancelButtonScale = useRef(new Animated.Value(1)).current;
 
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: (_, gestureState) => Math.abs(gestureState.dy) > 5,
-      onPanResponderMove: (_, gestureState) => {
-        if (gestureState.dy > 0 && isPanelExpanded) {
-          // Limitar el arrastre hacia abajo
-          const maxDrag = PANEL_COLLAPSED_OFFSET;
-          panelTranslateY.setValue(Math.min(gestureState.dy, maxDrag));
-        } else if (gestureState.dy < 0 && !isPanelExpanded) {
-          // Limitar el arrastre hacia arriba
-          const maxDrag = PANEL_COLLAPSED_OFFSET;
-          panelTranslateY.setValue(Math.max(gestureState.dy, -maxDrag));
-        }
-      },
-      onPanResponderRelease: (_, gestureState) => {
-        const threshold = 50;
-        if (gestureState.dy > threshold && isPanelExpanded) {
-          compressPanel();
-        } else if (gestureState.dy < -threshold && !isPanelExpanded) {
-          expandPanel();
-        } else {
-          // Volver a posición actual
-          if (isPanelExpanded) {
-            Animated.spring(panelTranslateY, {
-              toValue: 0,
-              useNativeDriver: true,
-            }).start();
-          } else {
-            Animated.spring(panelTranslateY, {
-              toValue: PANEL_COLLAPSED_OFFSET,
-              useNativeDriver: true,
-            }).start();
-          }
-        }
-      },
-    })
-  ).current;
-
-  const expandPanel = () => {
-    setIsPanelExpanded(true);
-    Animated.spring(panelTranslateY, {
-      toValue: 0,
-      useNativeDriver: true,
-    }).start();
-  };
-
-  const compressPanel = () => {
-    setIsPanelExpanded(false);
-    Animated.spring(panelTranslateY, {
-      toValue: PANEL_COLLAPSED_OFFSET,
-      useNativeDriver: true,
-    }).start();
-  };
-
   const togglePanel = () => {
-    if (isPanelExpanded) {
-      compressPanel();
-    } else {
-      expandPanel();
-    }
+    setIsPanelExpanded((prev) => !prev);
   };
 
-  const isAccepted = rideStatus === 'accepted';
-  const isInProgress = rideStatus === 'in_progress';
-  
-  useEffect(() => {
-    if (rideData && driverLocation) {
-      setLoading(false);
-    } else if (rideLoading) {
-      setLoadingMessage('Cargando detalles del viaje...');
-    }
-  }, [rideData, driverLocation, rideLoading]);
-  
-  useEffect(() => {
-    switch (rideStatus) {
-      case 'pending_payment':
-      case 'completed':
-        setTimeout(() => {
-          if (paymentMethod === 'cash') {
-            navigation.replace('CashPayment', {
-              rideId,
-              amount: finalFare || estimatedFare,
-              driverName: driverData.name || driverName,
-              driverPhoto: driverData.photo || undefined,
-            });
-          } else {
-            navigation.replace('Payment', {
-              rideId,
-              amount: finalFare || estimatedFare,
-              driverName: driverData.name || driverName,
-              driverPhoto: driverData.photo || undefined,
-            });
-          }
-        }, 500);
-        break;
-      case 'pending_rating':
-        navigation.replace('Rating', { rideId });
-        break;
-      case 'canceled':
-        setTimeout(() => {
-          alertService.showInfoAlert('Viaje Cancelado', 'El viaje ha sido cancelado.', () => {
-            navigation.reset({
-              index: 0,
-              routes: [{ name: 'ClientHome' }],
-            });
-          });
-        }, 500);
-        break;
-    }
-  }, [rideStatus, paymentMethod, finalFare, estimatedFare, driverData, driverName, rideId, navigation]);
-  
   const handleGoBack = useCallback(() => {
     navigation.reset({
       index: 0,
@@ -654,23 +569,15 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
     });
   }, [navigation]);
 
-  const handleShareTrip = useCallback(async () => {
-    try {
-      const message = `🚗 Estoy en un viaje con ${driverData.name} (${vehicleData.brand} ${vehicleData.model} - ${vehicleData.color}) - Placa: ${vehicleData.plate}`;
-      await Share.share({ message, title: 'Compartir viaje' });
-    } catch (error) {
-      console.error('Error al compartir viaje:', error);
-    }
-  }, [driverData, vehicleData]);
-  
-  const resetCancelAnimation = useCallback(() => {
-    Animated.timing(cancelButtonScale, {
-      toValue: 1,
-      duration: 170,
-      useNativeDriver: true,
-    }).start();
-    setIsCancellingRide(false);
-  }, [cancelButtonScale]);
+  const handleOpenChat = useCallback(() => {
+    navigation.navigate('Chat', {
+      rideId,
+      otherUserName: driverData.name,
+      otherUserPhone: driverData.phone || undefined,
+    });
+  }, [navigation, rideId, driverData.name, driverData.phone]);
+
+  const [isCancellingRide, setIsCancellingRide] = useState(false);
 
   const handleCancelRide = useCallback(() => {
     if (isCancellingRide) {
@@ -711,26 +618,26 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
         } catch (error: any) {
           alertService.showErrorAlert(error?.message || 'No se pudo cancelar el viaje');
         } finally {
-          resetCancelAnimation();
+          Animated.timing(cancelButtonScale, {
+            toValue: 1,
+            duration: 170,
+            useNativeDriver: true,
+          }).start(() => setIsCancellingRide(false));
         }
       },
       () => {
-        resetCancelAnimation();
+        Animated.timing(cancelButtonScale, {
+          toValue: 1,
+          duration: 170,
+          useNativeDriver: true,
+        }).start(() => setIsCancellingRide(false));
       },
       'Cancelar viaje',
       'Seguir',
       true,
     );
-  }, [cancelButtonScale, isCancellingRide, navigation, resetCancelAnimation, rideId, rideStatus]);
+  }, [cancelButtonScale, isCancellingRide, navigation, rideId, rideStatus]);
 
-  const handleOpenChat = useCallback(() => {
-    navigation.navigate('Chat', {
-      rideId,
-      otherUserName: driverData.name,
-      otherUserPhone: driverData.phone || undefined,
-    });
-  }, [navigation, rideId, driverData.name, driverData.phone]);
-  
   const getStatusColor = () => {
     switch (rideStatus) {
       case 'accepted':
@@ -763,6 +670,116 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
     }
   };
 
+  const isAccepted = rideStatus === 'accepted' || rideStatus === 'driver_on_route';
+  const isInProgress = rideStatus === 'in_progress';
+
+  // Ruta dinámica: antes de recoger al cliente mostrar ruta del conductor al origen en amarillo
+  const [driverToOriginRoute, setDriverToOriginRoute] = useState<LatLngPoint[]>([]);
+  // Ruta dinámica durante el viaje: recalcular desde la posición actual del conductor
+  const [dynamicRouteCoordinates, setDynamicRouteCoordinates] = useState<LatLngPoint[]>([]);
+  const lastDynamicRouteStartRef = useRef<LatLngPoint | null>(null);
+
+  useEffect(() => {
+    if (!isAccepted || !originCoords || !driverLocation) {
+      setDriverToOriginRoute([]);
+      return;
+    }
+
+    let isMounted = true;
+
+    (async () => {
+      try {
+        const start = {
+          latitude: driverLocation.latitude,
+          longitude: driverLocation.longitude,
+        };
+        const end = originCoords;
+        const route = await calculateRealRoute(start, end);
+        if (isMounted) {
+          setDriverToOriginRoute(route);
+        }
+      } catch (error) {
+        console.error('Error calculando ruta conductor → origen', error);
+      }
+    })();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isAccepted, originCoords?.latitude, originCoords?.longitude, driverLocation?.latitude, driverLocation?.longitude]);
+
+  useEffect(() => {
+    if (!isInProgress || !driverLocation) {
+      setDynamicRouteCoordinates([]);
+      lastDynamicRouteStartRef.current = null;
+      return;
+    }
+
+    const targets: LatLngPoint[] = [];
+    if (Array.isArray(waypointCoords) && waypointCoords.length > 0) {
+      targets.push(...waypointCoords);
+    }
+    if (destinationCoords) {
+      targets.push(destinationCoords);
+    }
+
+    if (targets.length === 0) {
+      setDynamicRouteCoordinates([]);
+      lastDynamicRouteStartRef.current = null;
+      return;
+    }
+
+    const start: LatLngPoint = {
+      latitude: driverLocation.latitude,
+      longitude: driverLocation.longitude,
+    };
+
+    const last = lastDynamicRouteStartRef.current;
+    if (last) {
+      const movedMeters = computeDistanceMeters(last, start);
+      if (Number.isFinite(movedMeters) && movedMeters < 25) {
+        return;
+      }
+    }
+
+    let isMounted = true;
+
+    (async () => {
+      try {
+        const allPoints: LatLngPoint[] = [start, ...targets];
+        const combined: LatLngPoint[] = [];
+
+        for (let i = 0; i < allPoints.length - 1; i += 1) {
+          const segment = await calculateRealRoute(allPoints[i], allPoints[i + 1]);
+          segment.forEach((coord, index) => {
+            if (i > 0 && index === 0) return;
+            combined.push(coord);
+          });
+        }
+
+        if (!isMounted) return;
+        setDynamicRouteCoordinates(combined);
+        lastDynamicRouteStartRef.current = start;
+      } catch (error) {
+        console.error('Error recalculando ruta dinámica del viaje', error);
+      }
+    })();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isInProgress, driverLocation?.latitude, driverLocation?.longitude, destinationCoords, waypointCoords]);
+
+  const secondaryRouteCoordinates = useMemo(
+    () => (driverToOriginRoute && driverToOriginRoute.length > 1 ? driverToOriginRoute : []),
+    [driverToOriginRoute],
+  );
+
+  const activeRouteCoordinates = useMemo(
+    () => (isInProgress && dynamicRouteCoordinates.length > 1 ? dynamicRouteCoordinates : routeCoordinates),
+    [isInProgress, dynamicRouteCoordinates, routeCoordinates],
+  );
+
   // Etiquetas dinámicas para ETA, distancia y duración
   const distanceMeters = useMemo(() => {
     if (routeDistanceMeters && routeDistanceMeters > 0) return routeDistanceMeters;
@@ -784,20 +801,30 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
   const distanceLabel = useMemo(() => formatDistanceLabel(distanceMeters), [distanceMeters]);
   const durationLabel = useMemo(() => formatDurationLabel(durationSeconds), [durationSeconds]);
   const tripSummaryLabel = useMemo(() => `${durationLabel} - ${distanceLabel}`, [durationLabel, distanceLabel]);
-  
-  if (loading) {
-    return <LoadingOverlay visible={true} message={loadingMessage} />;
-  }
 
-  if (!isConnected && !driverLocation) {
-    return (
-      <View style={styles.errorContainer}>
-        <Text style={styles.errorText}>Conectando con el conductor...</Text>
-        <Text style={styles.errorDescription}>Por favor espera un momento</Text>
-      </View>
-    );
-  }
-  
+  const handleShareTrip = useCallback(async () => {
+    try {
+      const pickupAddress = rideData?.origin?.address || 'Punto de recogida';
+      const latitude = clientCoords?.latitude || originCoords?.latitude;
+      const longitude = clientCoords?.longitude || originCoords?.longitude;
+
+      const parts = [
+        `Estoy en un viaje con ${driverData.name} (${vehicleData.brand} ${vehicleData.model} - ${vehicleData.color}) - Placa: ${vehicleData.plate}`,
+        `Punto de recogida: ${pickupAddress}`,
+      ];
+
+      if (typeof latitude === 'number' && typeof longitude === 'number') {
+        const mapsUrl = `https://maps.google.com/?q=${latitude},${longitude}`;
+        parts.push(`Mi ubicación en el mapa: ${mapsUrl}`);
+      }
+
+      const message = parts.join('\n');
+      await Share.share({ message, title: 'Compartir ubicación' });
+    } catch (error) {
+      console.error('Error al compartir ubicación del viaje:', error);
+    }
+  }, [driverData, vehicleData, clientCoords, originCoords, rideData]);
+
   return (
     <View style={styles.container}>
       {/* Mapa */}
@@ -807,6 +834,7 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
           longitude={driverLocation?.longitude || clientCoords?.longitude || -86.2514}
           style={styles.map}
           showMarker={!!driverLocation}
+          showUserLocation={false}
           markerPosition={driverLocation ? {
             latitude: driverLocation.latitude,
             longitude: driverLocation.longitude
@@ -823,172 +851,188 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
           originMarker={isAccepted && originCoords ? originCoords : undefined}
           extraStopMarkers={
             waypointCoords && waypointCoords.length > 0
-              ? waypointCoords.map((waypoint: LatLngPoint, index: number) => ({
-                  latitude: waypoint.latitude,
-                  longitude: waypoint.longitude,
-                  index: index + 1,
-                  color: '#FFA500',
-                }))
+              ? waypointCoords.map((waypoint: LatLngPoint, index: number) => {
+                  const extraDest = rideData?.extraDestinations?.[index];
+                  return {
+                    latitude: waypoint.latitude,
+                    longitude: waypoint.longitude,
+                    index: index + 1,
+                    color: '#ffa600b2',
+                    label: extraDest?.address || `Parada ${index + 1}`,
+                  };
+                })
               : undefined
           }
-          routeCoordinates={routeCoordinates && routeCoordinates.length > 0 ? routeCoordinates : undefined}
+          routeCoordinates={activeRouteCoordinates && activeRouteCoordinates.length > 0 ? activeRouteCoordinates : undefined}
+          secondaryRouteCoordinates={secondaryRouteCoordinates && secondaryRouteCoordinates.length > 0 ? secondaryRouteCoordinates : undefined}
+          secondaryRouteColor="#d3850fc0"
+          originLabel={rideData?.origin?.address || 'Punto de origen'}
+          destinationLabel={rideData?.destination?.address || 'Destino'}
+          showPinBubbles
         />
       </View>
 
-      {/* Botón de regresar */}
-      <TouchableOpacity style={styles.backButton} onPress={handleGoBack}>
-        <Image source={BACK_BUTTON} style={styles.backButtonImage} />
+    {/* Botón de regresar */}
+    <TouchableOpacity style={styles.backButton} onPress={handleGoBack}>
+      <Image source={BACK_BUTTON} style={styles.backButtonImage} />
+    </TouchableOpacity>
+
+    {/* Panel inferior retráctil */}
+    <Animated.View 
+      style={[
+        styles.bottomPanel,
+        {
+          height: isPanelExpanded ? PANEL_MAX_HEIGHT : PANEL_MIN_HEIGHT,
+        },
+      ]}
+    >
+      {/* Handle para expandir/contraer */}
+      <TouchableOpacity onPress={togglePanel} activeOpacity={0.8} style={styles.handleContainer}>
+        <View style={styles.handle} />
       </TouchableOpacity>
 
-      {/* Panel inferior retráctil */}
-      <Animated.View 
-        style={[
-          styles.bottomPanel,
-          {
-            transform: [{ translateY: panelTranslateY }],
-          }
-        ]}
-      >
-        {/* Handle para arrastrar */}
-        <View {...panResponder.panHandlers} style={styles.handleContainer}>
-          <View style={styles.handle} />
-        </View>
-
-        {/* ETA siempre visible */}
-        <View style={styles.etaSection}>
-          <View style={styles.etaHeader}>
-            <Text style={[isPanelExpanded ? styles.etaText : styles.etaTextLarge, { color: colors.text }]}>
-              {etaLabel}
-            </Text>
-            <TouchableOpacity
-              style={[styles.statusPill, { backgroundColor: getStatusColor() }]}
-              onPress={togglePanel}
-            >
-              <Text style={styles.statusButtonText}>{getStatusText()}</Text>
-            </TouchableOpacity>
-          </View>
-          <Text style={[styles.tripData, { color: colors.textSecondary }]}>
-            Datos de viaje: {tripSummaryLabel}
+      {/* ETA siempre visible */}
+      <View style={styles.etaSection}>
+        <View style={styles.etaHeader}>
+          <Text style={[isPanelExpanded ? styles.etaText : styles.etaTextLarge, { color: colors.text }]}>
+            {etaLabel}
           </Text>
-        </View>
-
-        {/* Contenido expandido */}
-        {isPanelExpanded && (
-          <ScrollView 
-            style={styles.expandedContent}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingBottom: 20 }}
+          <TouchableOpacity
+            style={[styles.statusPill, { backgroundColor: getStatusColor() }]}
+            onPress={togglePanel}
           >
+            <Text style={styles.statusButtonText}>{getStatusText()}</Text>
+          </TouchableOpacity>
+        </View>
+        <Text style={[styles.tripData, { color: colors.textSecondary }]}>
+          Datos de viaje: {tripSummaryLabel}
+        </Text>
+      </View>
 
-            {/* Info del Conductor */}
-            <View style={styles.driverSection}>
-              {driverData.photo ? (
-                <Image source={{ uri: driverData.photo }} style={styles.driverAvatar} />
-              ) : (
-                <View style={[styles.driverAvatar, { backgroundColor: colors.primary }]}>
-                  <Text style={styles.driverInitial}>
-                    {driverData.name?.[0] || 'C'}
-                  </Text>
-                </View>
-              )}
-              
-              <View style={styles.driverInfo}>
-                <Text style={[styles.driverName, { color: colors.text }]}>
-                  {driverData.name} - {vehicleData.plate}
-                </Text>
-                <Text style={[styles.vehicleInfo, { color: colors.textSecondary }]}>
-                  {vehicleData.brand} {vehicleData.model} - {vehicleData.color}
+      {/* Contenido expandido */}
+      {isPanelExpanded && (
+        <ScrollView 
+          style={styles.expandedContent}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: 20 }}
+        >
+
+          {/* Info del Conductor */}
+          <View style={styles.driverSection}>
+            {driverData.photo ? (
+              <Image source={{ uri: driverData.photo }} style={styles.driverAvatar} />
+            ) : (
+              <View style={[styles.driverAvatar, { backgroundColor: colors.primary }]}>
+                <Text style={styles.driverInitial}>
+                  {driverData.name?.[0] || 'C'}
                 </Text>
               </View>
-
-              {/* Botón de Mensaje */}
-              <TouchableOpacity style={styles.messageButton} onPress={handleOpenChat}>
-                <Text style={styles.messageIcon}>💬</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Ubicaciones */}
-            <View style={styles.locationsContainer}>
-              {originCoords && (
-                <View style={styles.locationItem}>
-                  <Text style={styles.locationIcon}>📍</Text>
-                  <View style={styles.locationContent}>
-                    <Text style={[styles.locationLabel, { color: colors.textSecondary }]}>
-                      Punto de Recogida
-                    </Text>
-                    <Text style={[styles.locationAddress, { color: colors.text }]}>
-                      {rideData?.origin?.address || 'Mi ubicación'}
-                    </Text>
-                  </View>
-                </View>
-              )}
-
-              {waypointCoords && waypointCoords.length > 0 && (
-                <>
-                  {waypointCoords.map((waypoint, index) => {
-                    const extraDest = rideData?.extraDestinations?.[index];
-                    return (
-                      <View key={`waypoint-${index}`} style={styles.locationItem}>
-                        <Text style={styles.locationIcon}>🟠</Text>
-                        <View style={styles.locationContent}>
-                          <Text style={[styles.locationLabel, { color: colors.textSecondary }]}>
-                            Parada {index + 1}
-                          </Text>
-                          <Text style={[styles.locationAddress, { color: colors.text }]}>
-                            {extraDest?.address || `Parada ${index + 1}`}
-                          </Text>
-                        </View>
-                      </View>
-                    );
-                  })}
-                </>
-              )}
-
-              {destinationCoords && (
-                <View style={styles.locationItem}>
-                  <Text style={styles.locationIcon}>🎯</Text>
-                  <View style={styles.locationContent}>
-                    <Text style={[styles.locationLabel, { color: colors.textSecondary }]}>
-                      Destino Final
-                    </Text>
-                    <Text style={[styles.locationAddress, { color: colors.text }]}>
-                      {rideData?.destination?.address || 'Destino'}
-                    </Text>
-                  </View>
-                </View>
-              )}
-            </View>
-
-          </ScrollView>
-        )}
-
-        {/* Botones de Acción - siempre visibles */}
-        <View style={styles.actionButtons}>
-          <AnimatedTouchableOpacity
-            style={[
-              styles.cancelButton,
-              {
-                backgroundColor: '#FF4444',
-                transform: [{ scale: cancelButtonScale }],
-                opacity: isCancellingRide ? 0.7 : 1,
-              },
-            ]}
-            onPress={handleCancelRide}
-            disabled={isCancellingRide}
-            activeOpacity={0.85}
-          >
-            {isCancellingRide ? (
-              <ActivityIndicator color="#FFFFFF" />
-            ) : (
-              <Text style={styles.cancelButtonText}>Cancelar</Text>
             )}
-          </AnimatedTouchableOpacity>
-        </View>
-      </Animated.View>
-    </View>
-  );
-}
+            
+            <View style={styles.driverInfo}>
+              <Text style={[styles.driverName, { color: colors.text }]}>
+                {driverData.name} - {vehicleData.plate}
+              </Text>
+              <Text style={[styles.vehicleInfo, { color: colors.textSecondary }]}>
+                {vehicleData.brand} {vehicleData.model} - {vehicleData.color}
+              </Text>
+            </View>
 
+            {/* Botón de Mensaje */}
+            <TouchableOpacity style={styles.messageButton} onPress={handleOpenChat}>
+              <Text style={styles.messageIcon}>💬</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Ubicaciones */}
+          <View style={styles.locationsContainer}>
+            {originCoords && (
+              <View style={styles.locationItem}>
+                <Text style={styles.locationIcon}>📍</Text>
+                <View style={styles.locationContent}>
+                  <Text style={[styles.locationLabel, { color: colors.textSecondary }]}>
+                    Punto de Recogida
+                  </Text>
+                  <Text style={[styles.locationAddress, { color: colors.text }]}>
+                    {rideData?.origin?.address || 'Mi ubicación'}
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            {waypointCoords && waypointCoords.length > 0 && (
+              <>
+                {waypointCoords.map((waypoint, index) => {
+                  const extraDest = rideData?.extraDestinations?.[index];
+                  return (
+                    <View key={`waypoint-${index}`} style={styles.locationItem}>
+                      <Text style={styles.locationIcon}>🟠</Text>
+                      <View style={styles.locationContent}>
+                        <Text style={[styles.locationLabel, { color: colors.textSecondary }]}>
+                          Parada {index + 1}
+                        </Text>
+                        <Text style={[styles.locationAddress, { color: colors.text }]}>
+                          {extraDest?.address || `Parada ${index + 1}`}
+                        </Text>
+                      </View>
+                    </View>
+                  );
+                })}
+              </>
+            )}
+
+            {destinationCoords && (
+              <View style={styles.locationItem}>
+                <Text style={styles.locationIcon}>🎯</Text>
+                <View style={styles.locationContent}>
+                  <Text style={[styles.locationLabel, { color: colors.textSecondary }]}>
+                    Destino Final
+                  </Text>
+                  <Text style={[styles.locationAddress, { color: colors.text }]}>
+                    {rideData?.destination?.address || 'Destino'}
+                  </Text>
+                </View>
+              </View>
+            )}
+          </View>
+
+        </ScrollView>
+      )}
+
+      {/* Botones de Acción - siempre visibles */}
+      <View style={styles.actionButtons}>
+        <TouchableOpacity
+          style={[styles.shareButton, { backgroundColor: '#609931ff' }]}
+          onPress={handleShareTrip}
+          activeOpacity={0.9}
+        >
+          <Text style={styles.shareButtonText}>Compartir ubicación</Text>
+        </TouchableOpacity>
+
+        <AnimatedTouchableOpacity
+          style={[
+            styles.cancelButton,
+            {
+              backgroundColor: '#FF4444',
+              transform: [{ scale: cancelButtonScale }],
+              opacity: isCancellingRide ? 0.7 : 1,
+            },
+          ]}
+          onPress={handleCancelRide}
+          disabled={isCancellingRide}
+          activeOpacity={0.85}
+        >
+          {isCancellingRide ? (
+            <ActivityIndicator color="#FFFFFF" />
+          ) : (
+            <Text style={styles.cancelButtonText}>Cancelar</Text>
+          )}
+        </AnimatedTouchableOpacity>
+      </View>
+    </Animated.View>
+  </View>
+);
+}
 const createStyles = (colors: any) => StyleSheet.create({
   container: {
     flex: 1,
@@ -1017,7 +1061,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 8,
-    elevation: 5,
+    elevation: 60,
     zIndex: 10,
   },
   backButtonImage: {
@@ -1248,3 +1292,4 @@ const createStyles = (colors: any) => StyleSheet.create({
     textAlign: 'center',
   },
 });
+  

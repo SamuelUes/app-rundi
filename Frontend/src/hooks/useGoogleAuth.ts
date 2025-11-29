@@ -42,17 +42,22 @@ export const useGoogleAuth = (clientId: string): UseGoogleAuthReturn => {
 
   const androidClientId =
     process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID ||
-    process.env.REACT_APP_GOOGLE_CLIENT_ID ||
+    process.env.REACT_APP_GOOGLE_CLIENT_ID_ANDROID_AUTO_GOOGLE ||
+    process.env.REACT_APP_GOOGLE_CLIENT_ID_ANDROID ||
     clientId || '';
 
   const iosClientId =
     process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ||
-    process.env.REACT_APP_GOOGLE_IOS_CLIENT_ID ||
+    process.env.REACT_APP_GOOGLE_CLIENT_ID_IOS_AUTO_GOOGLE ||
+    process.env.REACT_APP_GOOGLE_CLIENT_ID_IOS ||
     undefined;
 
   const webClientId =
     process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ||
-    process.env.REACT_APP_GOOGLE_WEB_CLIENT_ID ||
+    process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID ||
+    process.env.REACT_APP_GOOGLE_CLIENT_AUTO_ID ||
+    process.env.REACT_APP_GOOGLE_CLIENT_ID ||
+    process.env.GOOGLE_CLIENT_ID ||
     undefined;
 
   if (!androidClientId) {

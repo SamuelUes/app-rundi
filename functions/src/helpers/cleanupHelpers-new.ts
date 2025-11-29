@@ -84,7 +84,7 @@ export async function cleanupRideFromRealtime(
     // Limpiar referencias del cliente
     if (resolvedClientId) {
       updates[`clientsInfo/${resolvedClientId}`] = null;
-      updates[`clientLocations/${resolvedClientId}`] = null;
+      updates[`clientsLocations/${resolvedClientId}`] = null;
       updates[`presence/${resolvedClientId}`] = null;
     }
 
@@ -143,7 +143,7 @@ export async function cleanupPresenceNodes(params: {
   }
 
   for (const clientId of clientIds) {
-    updates[`clientLocations/${clientId}`] = null;
+    updates[`clientsLocations/${clientId}`] = null;
     updates[`clientsInfo/${clientId}`] = null;
     updates[`presence/${clientId}`] = null;
   }

@@ -1,4 +1,4 @@
-package com.driveangel.app.overlay
+package com.driveangel.rundidev.overlay
 
 import android.app.Activity
 import android.content.ActivityNotFoundException

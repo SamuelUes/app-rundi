@@ -256,11 +256,7 @@ CREATE TABLE IF NOT EXISTS public.rides (
   updated_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
   
   CONSTRAINT rides_pkey PRIMARY KEY (id),
-  CONSTRAINT rides_canceled_by_check CHECK (canceled_by IN ('client', 'driver')),
-  CONSTRAINT rides_service_id_fkey FOREIGN KEY (service_id) REFERENCES public.services(id) ON DELETE SET NULL,
-  -- ✅ NUEVO (2025-10-25): Foreign keys para ubicaciones
-  CONSTRAINT fk_rides_origin_location FOREIGN KEY (origin_location_id) REFERENCES public.ride_locations(id) ON DELETE SET NULL,
-  CONSTRAINT fk_rides_destination_location FOREIGN KEY (destination_location_id) REFERENCES public.ride_locations(id) ON DELETE SET NULL
+  CONSTRAINT rides_canceled_by_check CHECK (canceled_by IN ('client', 'driver'))
 ) TABLESPACE pg_default;
 
 COMMENT ON TABLE public.rides IS 'Historial completo de viajes - Viajes activos están en Firebase Realtime DB - Ubicaciones en ride_locations';
@@ -355,8 +351,7 @@ CREATE TABLE IF NOT EXISTS public.payments (
   
   CONSTRAINT payments_pkey PRIMARY KEY (id),
   CONSTRAINT payments_local_transaction_id_key UNIQUE (local_transaction_id),
-  CONSTRAINT payments_ride_id_fkey FOREIGN KEY (ride_id) REFERENCES public.rides(id) ON DELETE CASCADE,
-  CONSTRAINT payments_sms_verification_fkey FOREIGN KEY (sms_verification_id) REFERENCES public.sms_verification_codes(id) ON DELETE SET NULL
+  CONSTRAINT payments_ride_id_fkey FOREIGN KEY (ride_id) REFERENCES public.rides(id) ON DELETE CASCADE
 ) TABLESPACE pg_default;
 
 COMMENT ON TABLE public.payments IS 'Historial de pagos: Cash (Efectivo) y Card (Bancos Locales)';
@@ -514,10 +509,234 @@ CREATE INDEX IF NOT EXISTS idx_ride_locations_ride_id ON public.ride_locations U
 CREATE INDEX IF NOT EXISTS idx_ride_locations_type ON public.ride_locations USING btree (location_type);
 CREATE INDEX IF NOT EXISTS idx_ride_locations_order ON public.ride_locations USING btree (ride_id, location_order);
 
--- ✅ NUEVO (2025-10-25): Trigger para actualizar updated_at
+-- Trigger para actualizar updated_at
 CREATE TRIGGER update_ride_locations_updated_at 
 BEFORE UPDATE ON public.ride_locations 
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================
+-- 7.1 FUNCIONES Y VISTAS PARA RUTAS DE VIAJES
+-- ============================================
+
+-- Función helper para actualizar resumen de ruta (waypoints_count, has_multiple_stops)
+CREATE OR REPLACE FUNCTION update_ride_route_summary(p_ride_id UUID)
+RETURNS void AS $$
+BEGIN
+  UPDATE public.rides
+  SET 
+    waypoints_count = COALESCE((
+      SELECT COUNT(*) FROM public.ride_locations
+      WHERE ride_id = p_ride_id AND location_type = 'waypoint'
+    ), 0),
+    has_multiple_stops = COALESCE((
+      SELECT COUNT(*) FROM public.ride_locations
+      WHERE ride_id = p_ride_id AND location_type = 'waypoint'
+    ), 0) > 0,
+    updated_at = NOW()
+  WHERE id = p_ride_id;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Trigger wrapper: actualizar resumen en INSERT de waypoints
+CREATE OR REPLACE FUNCTION trigger_update_ride_summary_on_insert()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW.location_type = 'waypoint' THEN
+    PERFORM update_ride_route_summary(NEW.ride_id);
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Trigger wrapper: actualizar resumen en DELETE de waypoints
+CREATE OR REPLACE FUNCTION trigger_update_ride_summary_on_delete()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF OLD.location_type = 'waypoint' THEN
+    PERFORM update_ride_route_summary(OLD.ride_id);
+  END IF;
+  RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Triggers para mantener waypoints_count / has_multiple_stops
+CREATE TRIGGER update_ride_summary_on_waypoint_insert
+AFTER INSERT ON public.ride_locations
+FOR EACH ROW
+EXECUTE FUNCTION trigger_update_ride_summary_on_insert();
+
+CREATE TRIGGER update_ride_summary_on_waypoint_delete
+AFTER DELETE ON public.ride_locations
+FOR EACH ROW
+EXECUTE FUNCTION trigger_update_ride_summary_on_delete();
+
+-- Vista con ruta completa y waypoints en JSON
+CREATE OR REPLACE VIEW rides_with_complete_route AS
+SELECT 
+  r.*,
+  -- Origen
+  rl_origin.id          AS origin_location_id_detail,
+  rl_origin.latitude    AS origin_latitude,
+  rl_origin.longitude   AS origin_longitude,
+  rl_origin.address     AS origin_address,
+  -- Destino
+  rl_dest.id            AS destination_location_id_detail,
+  rl_dest.latitude      AS destination_latitude,
+  rl_dest.longitude     AS destination_longitude,
+  rl_dest.address       AS destination_address,
+  -- Paradas intermedias
+  COALESCE((
+    SELECT json_agg(
+      json_build_object(
+        'id', w.id,
+        'lat', w.latitude,
+        'lng', w.longitude,
+        'address', w.address,
+        'location_order', w.location_order
+      )
+      ORDER BY w.location_order
+    )
+    FROM public.ride_locations w
+    WHERE w.ride_id = r.id
+      AND w.location_type = 'waypoint'
+  ), '[]'::json) AS waypoints
+FROM public.rides r
+LEFT JOIN public.ride_locations rl_origin
+  ON rl_origin.ride_id = r.id AND rl_origin.location_type = 'origin'
+LEFT JOIN public.ride_locations rl_dest
+  ON rl_dest.ride_id = r.id AND rl_dest.location_type = 'destination';
+
+COMMENT ON VIEW rides_with_complete_route IS 'Vista de viajes con origen, destino y paradas intermedias normalizadas en ride_locations';
+
+-- Función RPC: obtener ruta completa en orden (origen → waypoints → destino)
+CREATE OR REPLACE FUNCTION get_ride_route(p_ride_id UUID)
+RETURNS TABLE (
+  id UUID,
+  ride_id UUID,
+  lat NUMERIC,
+  lng NUMERIC,
+  location_type VARCHAR,
+  address TEXT,
+  place_name TEXT,
+  waypoint_order INTEGER,
+  point_timestamp TIMESTAMP
+) AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    rl.id,
+    rl.ride_id,
+    rl.latitude AS lat,
+    rl.longitude AS lng,
+    rl.location_type,
+    rl.address,
+    NULL::TEXT AS place_name,
+    CASE WHEN rl.location_type = 'waypoint' THEN rl.location_order ELSE NULL::INTEGER END AS waypoint_order,
+    rl.created_at AS point_timestamp
+  FROM public.ride_locations rl
+  WHERE rl.ride_id = p_ride_id
+    AND rl.location_type IN ('origin', 'waypoint', 'destination')
+  ORDER BY rl.location_order ASC;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION get_ride_route IS 'Obtiene la ruta completa de un viaje ordenada (origen → waypoints → destino)';
+
+-- Función RPC: obtener puntos de tracking (si se guardan como location_type = 'tracking')
+CREATE OR REPLACE FUNCTION get_ride_tracking(p_ride_id UUID, p_limit INTEGER DEFAULT 100)
+RETURNS TABLE (
+  id UUID,
+  lat NUMERIC,
+  lng NUMERIC,
+  speed NUMERIC,
+  heading NUMERIC,
+  accuracy NUMERIC,
+  point_timestamp TIMESTAMP
+) AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    rl.id,
+    rl.latitude AS lat,
+    rl.longitude AS lng,
+    NULL::NUMERIC AS speed,
+    NULL::NUMERIC AS heading,
+    NULL::NUMERIC AS accuracy,
+    rl.created_at AS point_timestamp
+  FROM public.ride_locations rl
+  WHERE rl.ride_id = p_ride_id
+    AND rl.location_type = 'tracking'
+  ORDER BY rl.created_at DESC
+  LIMIT p_limit;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION get_ride_tracking IS 'Obtiene los puntos de tracking en tiempo real de un viaje (ordenados por created_at DESC)';
+
+-- Función helper: calcular distancia total de la ruta usando fórmula Haversine
+CREATE OR REPLACE FUNCTION calculate_ride_distance(p_ride_id UUID)
+RETURNS NUMERIC AS $$
+DECLARE
+  total_distance NUMERIC := 0;
+  prev_lat NUMERIC;
+  prev_lng NUMERIC;
+  curr_lat NUMERIC;
+  curr_lng NUMERIC;
+BEGIN
+  FOR prev_lat, prev_lng, curr_lat, curr_lng IN
+    SELECT
+      LAG(latitude) OVER (ORDER BY location_order) AS prev_lat,
+      LAG(longitude) OVER (ORDER BY location_order) AS prev_lng,
+      latitude AS curr_lat,
+      longitude AS curr_lng
+    FROM public.ride_locations
+    WHERE ride_id = p_ride_id
+      AND location_type IN ('origin', 'waypoint', 'destination')
+  LOOP
+    IF prev_lat IS NOT NULL AND prev_lng IS NOT NULL THEN
+      total_distance := total_distance + (
+        6371000 * acos(
+          cos(radians(prev_lat)) * cos(radians(curr_lat)) *
+          cos(radians(curr_lng) - radians(prev_lng)) +
+          sin(radians(prev_lat)) * sin(radians(curr_lat))
+        )
+      );
+    END IF;
+  END LOOP;
+
+  RETURN total_distance;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION calculate_ride_distance IS 'Calcula la distancia total del viaje en metros usando fórmula Haversine sobre ride_locations';
+
+-- Función RPC: obtener solo las paradas intermedias (waypoints)
+CREATE OR REPLACE FUNCTION get_ride_waypoints(p_ride_id UUID)
+RETURNS TABLE (
+  id UUID,
+  waypoint_order INTEGER,
+  lat NUMERIC,
+  lng NUMERIC,
+  address TEXT,
+  place_name TEXT
+) AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    rl.id,
+    rl.location_order AS waypoint_order,
+    rl.latitude AS lat,
+    rl.longitude AS lng,
+    rl.address,
+    NULL::TEXT AS place_name
+  FROM public.ride_locations rl
+  WHERE rl.ride_id = p_ride_id
+    AND rl.location_type = 'waypoint'
+  ORDER BY rl.location_order;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION get_ride_waypoints IS 'Obtiene todas las paradas intermedias de un viaje ordenadas por location_order';
 
 -- ============================================
 -- 8. ANALYTICS_EVENTS TABLE
@@ -647,46 +866,7 @@ CREATE TRIGGER update_designated_driver_inspections_updated_at BEFORE UPDATE ON 
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================
--- VISTAS ÚTILES
--- ============================================
-
--- Vista de viajes completos con información del conductor y vehículo
-CREATE OR REPLACE VIEW rides_complete AS
-SELECT 
-  r.*,
-  d.license_number,
-  d.average_rating as driver_rating,
-  v.plate,
-  v.brand,
-  v.model,
-  v.is_4x4,
-  p.amount as payment_amount,
-  p.status as payment_status,
-  p.payment_method
-FROM public.rides r
-LEFT JOIN public.drivers d ON r.driver_id = d.user_id
-LEFT JOIN public.vehicles v ON d.id = v.driver_id AND v.is_active = TRUE
-LEFT JOIN public.payments p ON r.id = p.ride_id;
-
-COMMENT ON VIEW rides_complete IS 'Vista completa de viajes con información del conductor, vehículo y pago';
-
--- Vista de emergencias con información del viaje
-CREATE OR REPLACE VIEW emergency_calls_complete AS
-SELECT 
-  ec.*,
-  r.status as ride_status,
-  r.origin_address as ride_origin,
-  r.destination_address as ride_destination,
-  r.driver_id,
-  r.client_id
-FROM public.emergency_calls ec
-LEFT JOIN public.rides r ON ec.ride_id = r.id
-ORDER BY ec.created_at DESC;
-
-COMMENT ON VIEW emergency_calls_complete IS 'Vista completa de llamadas de emergencia con información del viaje';
-
--- ============================================
--- 10. SERVICES TABLE
+-- 11. SERVICES TABLE
 -- Catálogo de servicios disponibles
 -- ============================================
 CREATE TABLE IF NOT EXISTS public.services (
@@ -712,6 +892,10 @@ CREATE TABLE IF NOT EXISTS public.services (
   updated_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
   CONSTRAINT services_pkey PRIMARY KEY (id)
 ) TABLESPACE pg_default;
+
+ALTER TABLE public.rides
+  ADD CONSTRAINT rides_service_id_fkey
+  FOREIGN KEY (service_id) REFERENCES public.services(id) ON DELETE SET NULL;
 
 COMMENT ON TABLE public.services IS 'Catálogo de servicios disponibles (Viaje Normal, Conductor Designado, etc)';
 COMMENT ON COLUMN public.services.commission_rate IS 'Tasa de comisión (0.1100 = 11%)';
@@ -751,7 +935,7 @@ SET
   is_featured = EXCLUDED.is_featured;
 
 -- ============================================
--- 11. DRIVER_SERVICES TABLE
+-- 12. DRIVER_SERVICES TABLE
 -- Relación Many-to-Many entre conductores y servicios
 -- ============================================
 CREATE TABLE IF NOT EXISTS public.driver_services (
@@ -789,7 +973,7 @@ CREATE TRIGGER update_driver_services_updated_at BEFORE UPDATE ON public.driver_
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================
--- 12. BIOMETRIC_AUTHENTICATIONS TABLE
+-- 13. BIOMETRIC_AUTHENTICATIONS TABLE
 -- Registro de autenticaciones biométricas (2025-10-25)
 -- ============================================
 CREATE TABLE IF NOT EXISTS public.biometric_authentications (
@@ -823,7 +1007,7 @@ CREATE INDEX IF NOT EXISTS idx_biometric_auth_success ON public.biometric_authen
 CREATE INDEX IF NOT EXISTS idx_biometric_auth_created ON public.biometric_authentications USING btree (created_at DESC);
 
 -- ============================================
--- 13. SMS_VERIFICATION_CODES TABLE
+-- 14. SMS_VERIFICATION_CODES TABLE
 -- Códigos SMS para verificación (2025-10-25)
 -- ============================================
 CREATE TABLE IF NOT EXISTS public.sms_verification_codes (
@@ -843,6 +1027,10 @@ CREATE TABLE IF NOT EXISTS public.sms_verification_codes (
   CONSTRAINT sms_verification_codes_ride_fkey FOREIGN KEY (ride_id) REFERENCES public.rides(id) ON DELETE SET NULL
 ) TABLESPACE pg_default;
 
+ALTER TABLE public.payments
+  ADD CONSTRAINT payments_sms_verification_fkey
+  FOREIGN KEY (sms_verification_id) REFERENCES public.sms_verification_codes(id) ON DELETE SET NULL;
+
 COMMENT ON TABLE public.sms_verification_codes IS 'Códigos SMS para verificación de pagos y otras acciones';
 COMMENT ON COLUMN public.sms_verification_codes.user_id IS 'Firebase Auth UID del usuario';
 COMMENT ON COLUMN public.sms_verification_codes.phone_number IS 'Número de teléfono del usuario';
@@ -860,9 +1048,9 @@ CREATE INDEX IF NOT EXISTS idx_sms_expires ON public.sms_verification_codes USIN
 CREATE INDEX IF NOT EXISTS idx_sms_created ON public.sms_verification_codes USING btree (created_at DESC);
 
 -- ============================================
--- 14. CARDS TABLE
+-- 15. CARDS TABLE
 -- Tarjetas guardadas de usuarios (2025-10-25)
--- ✅ NUEVO: Solo se guardan últimos 4 dígitos, fecha de expiración y banco
+-- NUEVO: Solo se guardan últimos 4 dígitos, fecha de expiración y banco
 -- ============================================
 CREATE TABLE IF NOT EXISTS public.cards (
   id UUID NOT NULL DEFAULT gen_random_uuid(),
@@ -904,7 +1092,7 @@ CREATE INDEX IF NOT EXISTS idx_cards_active ON public.cards USING btree (user_id
 CREATE INDEX IF NOT EXISTS idx_cards_created ON public.cards USING btree (created_at DESC);
 
 -- ============================================
--- 15. SERVICE_COMMISSION_HISTORY TABLE
+-- 16. SERVICE_COMMISSION_HISTORY TABLE
 -- Historial de cambios de comisiones
 -- ============================================
 CREATE TABLE IF NOT EXISTS public.service_commission_history (
@@ -924,6 +1112,106 @@ COMMENT ON TABLE public.service_commission_history IS 'Historial de cambios de c
 
 CREATE INDEX IF NOT EXISTS idx_commission_history_service ON public.service_commission_history USING btree (service_id);
 CREATE INDEX IF NOT EXISTS idx_commission_history_date ON public.service_commission_history USING btree (changed_at DESC);
+
+-- ============================================
+-- 17. FUNCIONES Y VISTAS DE SERVICIOS / COMISIONES
+-- ============================================
+
+-- Función helper: obtener tasa de comisión efectiva para un conductor y servicio
+CREATE OR REPLACE FUNCTION get_driver_commission_rate(p_driver_uid TEXT, p_service_code TEXT)
+RETURNS NUMERIC AS $$
+DECLARE
+  v_driver_id UUID;
+  v_service_id UUID;
+  v_commission NUMERIC(5, 4);
+BEGIN
+  SELECT id INTO v_driver_id
+  FROM public.drivers
+  WHERE user_id = p_driver_uid;
+
+  SELECT id, commission_rate INTO v_service_id, v_commission
+  FROM public.services
+  WHERE code = p_service_code;
+
+  IF v_service_id IS NULL THEN
+    -- Servicio no encontrado, usar valores por defecto
+    IF p_service_code = 'designated_driver' THEN
+      RETURN 0.25;
+    ELSIF p_service_code = 'motorcycle' THEN
+      RETURN 0.075;
+    ELSE
+      RETURN 0.11;
+    END IF;
+  END IF;
+
+  IF v_driver_id IS NOT NULL THEN
+    SELECT COALESCE(ds.custom_commission_rate, s.commission_rate)
+    INTO v_commission
+    FROM public.services s
+    LEFT JOIN public.driver_services ds
+      ON ds.service_id = s.id
+     AND ds.driver_id = v_driver_id
+     AND ds.is_active = TRUE
+     AND ds.is_approved = TRUE
+    WHERE s.id = v_service_id;
+  END IF;
+
+  IF v_commission IS NULL THEN
+    RETURN (
+      CASE p_service_code
+        WHEN 'designated_driver' THEN 0.25
+        WHEN 'motorcycle' THEN 0.075
+        ELSE 0.11
+      END
+    );
+  END IF;
+
+  RETURN v_commission;
+END;
+$$ LANGUAGE plpgsql STABLE;
+
+COMMENT ON FUNCTION get_driver_commission_rate IS 'Obtiene la tasa de comisión aplicable para un conductor y servicio (driver_services.override → services.commission_rate → defaults)';
+
+-- Vista de servicios activos con información de conductores
+CREATE OR REPLACE VIEW driver_active_services AS
+SELECT
+  d.id              AS driver_id,
+  d.user_id         AS driver_uid,
+  s.id              AS service_id,
+  s.code            AS service_code,
+  s.name            AS service_name,
+  COALESCE(ds.custom_commission_rate, s.commission_rate) AS commission_rate,
+  ds.is_active,
+  ds.is_approved,
+  ds.assigned_at,
+  ds.expires_at
+FROM public.driver_services ds
+JOIN public.drivers d   ON ds.driver_id = d.id
+JOIN public.services s  ON ds.service_id = s.id
+WHERE ds.is_active = TRUE
+  AND ds.is_approved = TRUE;
+
+COMMENT ON VIEW driver_active_services IS 'Servicios activos asignados a cada conductor con comisión efectiva';
+
+-- Vista de estadísticas por servicio
+CREATE OR REPLACE VIEW services_stats AS
+SELECT
+  s.id                                 AS service_id,
+  s.code                               AS service_code,
+  s.name                               AS service_name,
+  COUNT(DISTINCT r.id)                 AS total_rides,
+  COUNT(DISTINCT CASE WHEN r.status = 'completed' THEN r.id END) AS completed_rides,
+  COALESCE(SUM(CASE WHEN p.status = 'completed' THEN p.amount ELSE 0 END), 0) AS total_revenue,
+  COALESCE(SUM(CASE WHEN p.status = 'completed' THEN p.commission ELSE 0 END), 0) AS total_commission,
+  COALESCE(AVG(CASE WHEN p.status = 'completed' THEN p.amount END), 0) AS average_fare
+FROM public.services s
+LEFT JOIN public.rides r
+  ON r.service_id = s.id
+LEFT JOIN public.payments p
+  ON p.ride_id = r.id
+GROUP BY s.id, s.code, s.name;
+
+COMMENT ON VIEW services_stats IS 'Estadísticas agregadas por servicio: viajes, ingresos y comisiones';
 
 -- ============================================
 -- DESACTIVAR ROW LEVEL SECURITY (Temporal)
@@ -1015,6 +1303,39 @@ CREATE POLICY vehicles_owner_write ON public.vehicles
 
 REVOKE INSERT ON public.vehicles FROM anon;
 
+-- Driver services
+DROP POLICY IF EXISTS driver_services_read_own ON public.driver_services;
+CREATE POLICY driver_services_read_own ON public.driver_services
+  FOR SELECT USING (
+    driver_id = (
+      SELECT id FROM public.drivers WHERE user_id = public.current_firebase_uid()
+    )
+  );
+
+DROP POLICY IF EXISTS "Only admins can assign services" ON public.driver_services;
+CREATE POLICY "Only admins can assign services" ON public.driver_services
+  FOR ALL
+  TO public
+  USING (
+    EXISTS (
+      SELECT 1
+      FROM auth.users
+      WHERE auth.uid() = users.id
+        AND users.raw_user_meta_data ->> 'role' = 'admin'
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1
+      FROM auth.users
+      WHERE auth.uid() = users.id
+        AND users.raw_user_meta_data ->> 'role' = 'admin'
+    )
+  );
+
+REVOKE INSERT, UPDATE, DELETE ON public.driver_services FROM anon;
+GRANT  INSERT, UPDATE, DELETE ON public.driver_services TO authenticated;
+
 -- Rides lectura propia
 DROP POLICY IF EXISTS rides_read_client_driver ON public.rides;
 CREATE POLICY rides_read_client_driver ON public.rides
@@ -1053,12 +1374,38 @@ CREATE POLICY ride_locations_read_client_driver ON public.ride_locations
 
 REVOKE INSERT, UPDATE, DELETE ON public.ride_locations FROM anon;
 
--- Services lectura pública
+-- Services lectura pública / administración por admins
+DROP POLICY IF EXISTS "Services are viewable by everyone" ON public.services;
+DROP POLICY IF EXISTS "Services are modifiable by admins only" ON public.services;
 DROP POLICY IF EXISTS services_public_read ON public.services;
-CREATE POLICY services_public_read ON public.services
-  FOR SELECT USING (true);
+
+CREATE POLICY "Services are viewable by everyone" ON public.services
+  FOR SELECT
+  TO public
+  USING (is_active = true);
+
+CREATE POLICY "Services are modifiable by admins only" ON public.services
+  FOR ALL
+  TO public
+  USING (
+    EXISTS (
+      SELECT 1
+      FROM auth.users
+      WHERE auth.uid() = users.id
+        AND users.raw_user_meta_data ->> 'role' = 'admin'
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1
+      FROM auth.users
+      WHERE auth.uid() = users.id
+        AND users.raw_user_meta_data ->> 'role' = 'admin'
+    )
+  );
 
 REVOKE INSERT, UPDATE, DELETE ON public.services FROM anon;
+GRANT  INSERT, UPDATE, DELETE ON public.services TO authenticated;
 
 -- Biometría, SMS, penalidades
 DROP POLICY IF EXISTS biometric_auth_read ON public.biometric_authentications;
@@ -1117,13 +1464,23 @@ REVOKE INSERT, UPDATE, DELETE ON public.designated_driver_inspections FROM anon;
 ALTER VIEW public.services_stats SET (security_barrier = true);
 ALTER VIEW public.driver_active_services SET (security_barrier = true);
 
-update auth.config
-set
-  external_firebase_enabled = true,
-  external_firebase_issuer = 'https://securetoken.google.com/driveangel-ni',
-  external_firebase_client_id = 'driveangel-ni';
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.tables
+    WHERE table_schema = 'auth'
+      AND table_name = 'config'
+  ) THEN
+    UPDATE auth.config
+    SET
+      external_firebase_enabled = true,
+      external_firebase_issuer = 'https://securetoken.google.com/rundi-prod',
+      external_firebase_client_id = 'rundi-prod';
+  END IF;
+END;
+$$;
 
-  
 -- ============================================
 -- RESULTADO ESPERADO (2025-10-25):
 -- ============================================

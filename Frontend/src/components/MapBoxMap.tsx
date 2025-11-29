@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from 'react';
-import { StyleSheet, Platform } from 'react-native';
+import { StyleSheet } from 'react-native';
 import MapView, { Marker, Polyline, UrlTile } from 'react-native-maps';
 
 type ExtraStopMarker = {
@@ -21,7 +21,6 @@ interface MapBoxMapProps {
   longitude: number;
   style?: any;
   onMapPress?: (event: { latitude: number; longitude: number }) => void;
-  onRegionChangeCenter?: (center: { latitude: number; longitude: number }) => void;
   onRegionChangeCompleteCenter?: (center: { latitude: number; longitude: number }) => void;
   showMarker?: boolean;
   markerPosition?: { latitude: number; longitude: number } | null;
@@ -59,12 +58,14 @@ export default function MapBoxMap({
     }
 
     if (routeCoordinates && routeCoordinates.length > 0 && mapRef.current) {
-      setTimeout(() => {
+      const timeout = setTimeout(() => {
         mapRef.current?.fitToCoordinates(routeCoordinates, {
           edgePadding: { top: 50, right: 50, bottom: 50, left: 50 },
           animated: true,
         });
       }, 500);
+
+      return () => clearTimeout(timeout);
     }
   }, [routeCoordinates, autoFitEnabled]);
 

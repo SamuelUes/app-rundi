@@ -103,6 +103,7 @@ class GoogleAuthService {
 
       const auth = await getFirebaseAuth();
       const firestore = await getFirebaseFirestore();
+      const functions = await getFirebaseFunctions();
 
       // Crear credencial de Google
       const credential = GoogleAuthProvider.credential(googleIdToken);
@@ -113,11 +114,25 @@ class GoogleAuthService {
 
       console.log('✅ Login con Google exitoso:', user.uid);
 
-      // Obtener perfil de Firestore
-      const userDoc = await getDoc(doc(firestore, 'users', user.uid));
+      const userRef = doc(firestore, 'users', user.uid);
+      const userDoc = await getDoc(userRef);
 
+      // Si el perfil no existe en Firestore, delegamos al frontend para que pase por RoleSelection
       if (!userDoc.exists()) {
-        throw new Error('Perfil de usuario no encontrado. Por favor, regístrate primero.');
+        const displayName =
+          user.displayName || (user.email ? user.email.split('@')[0] : 'Usuario Google');
+
+        if (!user.email) {
+          throw new Error('No se pudo obtener el email de tu cuenta de Google.');
+        }
+
+        return {
+          uid: user.uid,
+          email: user.email,
+          name: displayName,
+          phone: user.phoneNumber || undefined,
+          isNew: true,
+        };
       }
 
       const userData = userDoc.data();
@@ -126,6 +141,7 @@ class GoogleAuthService {
         uid: user.uid,
         email: user.email,
         ...userData,
+        isNew: false,
       };
     } catch (error: any) {
       console.error('❌ Error en login con Google:', error);

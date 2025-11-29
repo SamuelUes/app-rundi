@@ -17,6 +17,7 @@ interface OpenStreetMapProps {
   clientMarker?: { latitude: number; longitude: number };
   extraStopMarkers?: Array<{ latitude: number; longitude: number; index: number; color?: string }>;
   routeCoordinates?: Array<{ latitude: number; longitude: number }>;
+  secondaryRouteCoordinates?: Array<{ latitude: number; longitude: number }>;
   nearbyDrivers?: Array<{ id: string; latitude: number; longitude: number; heading?: number }>;
   draggableMarker?: boolean;
   onMarkerDragEnd?: (newLocation: { latitude: number; longitude: number }) => void;
@@ -24,6 +25,9 @@ interface OpenStreetMapProps {
   onRideRequestPress?: (rideRequest: any) => void;
   debugLogs?: boolean;
   markerVehicleHeading?: number;
+  onMarkerPress?: (coords: { latitude: number; longitude: number }) => void;
+  routeColor?: string;
+  secondaryRouteColor?: string;
 }
 
 export default function OpenStreetMap({
@@ -39,6 +43,7 @@ export default function OpenStreetMap({
   clientMarker,
   extraStopMarkers = [],
   routeCoordinates,
+  secondaryRouteCoordinates,
   nearbyDrivers = [],
   draggableMarker = false,
   onMarkerDragEnd,
@@ -46,6 +51,9 @@ export default function OpenStreetMap({
   onRideRequestPress,
   debugLogs = false,
   markerVehicleHeading,
+  onMarkerPress,
+  routeColor,
+  secondaryRouteColor,
 }: OpenStreetMapProps) {
   const webViewRef = useRef<WebView>(null);
   const [mapReady, setMapReady] = useState(false);
@@ -56,11 +64,6 @@ export default function OpenStreetMap({
   useEffect(() => {
     rideRequestsRef.current = rideRequests;
   }, [rideRequests]);
-
-  const payloadToFlush = pendingPayloadRef.current;
-if (shouldLog) {
-  console.log('🛰️ [OpenStreetMap] Flushing pending payload', payloadToFlush);
-}
 
   const handleMessage = useCallback(
     (event: any) => {
@@ -116,6 +119,7 @@ if (shouldLog) {
       console.error('Error sending message to map:', error);
     }
   }, []);
+
   const handleLoadStart = useCallback(() => {
     setMapReady(false);
   }, []);
@@ -165,6 +169,7 @@ if (shouldLog) {
         typeof markerVehicleHeading === 'number' && Number.isFinite(markerVehicleHeading)
           ? markerVehicleHeading
           : undefined,
+      routeColor: routeColor,
     }),
     [
       latitude,
@@ -182,6 +187,7 @@ if (shouldLog) {
       rideRequests,
       onMapPress,
       markerVehicleHeading,
+      routeColor,
     ],
   );
 

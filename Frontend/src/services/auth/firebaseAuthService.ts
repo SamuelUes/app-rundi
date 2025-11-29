@@ -10,7 +10,7 @@ import {
   onAuthStateChanged,
   User,
 } from 'firebase/auth';
-import { doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, query, updateDoc, where } from 'firebase/firestore';
 import { getFirebaseAuth, getFirebaseFirestore } from '../../config/firebase';
 import client from '../../api/client';
 import { ENDPOINTS } from '../../api/endpoints';
@@ -207,6 +207,45 @@ class FirebaseAuthService {
     } catch (error: any) {
       console.error('❌ Error actualizando perfil:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Verificar si ya existe un usuario con el email y/o teléfono dados
+   */
+  async checkUserExists(params: { email?: string; phone?: string }): Promise<{
+    emailExists: boolean;
+    phoneExists: boolean;
+  }> {
+    const { email, phone } = params;
+
+    const firestore = await getFirebaseFirestore();
+    let emailExists = false;
+    let phoneExists = false;
+
+    try {
+      if (email) {
+        const emailQuery = query(
+          collection(firestore, 'users'),
+          where('email', '==', email.trim().toLowerCase())
+        );
+        const emailSnap = await getDocs(emailQuery);
+        emailExists = !emailSnap.empty;
+      }
+
+      if (phone) {
+        const phoneQuery = query(
+          collection(firestore, 'users'),
+          where('phone', '==', phone.trim())
+        );
+        const phoneSnap = await getDocs(phoneQuery);
+        phoneExists = !phoneSnap.empty;
+      }
+
+      return { emailExists, phoneExists };
+    } catch (error: any) {
+      console.error('❌ Error verificando existencia de usuario:', error);
+      throw new Error(error?.message || 'No se pudo validar la disponibilidad de la cuenta');
     }
   }
 }

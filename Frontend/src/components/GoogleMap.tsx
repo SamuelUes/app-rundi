@@ -60,6 +60,7 @@ interface GoogleMapProps {
   userLocation?: { latitude: number; longitude: number } | null;
   extraStopMarkers?: ExtraStopMarker[];
   routeCoordinates?: Array<{ latitude: number; longitude: number }>;
+  secondaryRouteCoordinates?: Array<{ latitude: number; longitude: number }>;
   autoFitEnabled?: boolean;
   nearbyDrivers?: DriverMarker[];
   onDriverPress?: (driverId: string) => void;
@@ -80,12 +81,17 @@ interface GoogleMapProps {
   userLocationHoldingDarkIcon?: ImageSourcePropType;
   manualOriginIcon?: ImageSourcePropType;
   manualOriginHoldIcon?: ImageSourcePropType;
+  manualOriginBounceValue?: Animated.AnimatedInterpolation<number> | Animated.Value;
   onMarkerDragStart?: (location: { latitude: number; longitude: number }) => void;
   // Small address bubbles
   originLabel?: string;
   destinationLabel?: string;
   showPinBubbles?: boolean;
   disableMarkerPress?: boolean;
+  onMarkerPress?: (coords: { latitude: number; longitude: number }) => void;
+  cameraTarget?: { latitude: number; longitude: number } | null;
+  routeColor?: string;
+  secondaryRouteColor?: string;
 }
 
 const DEFAULT_ALTITUDE = 100; // metros
@@ -360,6 +366,9 @@ const markerStyles = StyleSheet.create({
     fontSize: 12,
     color: '#111827',
   },
+  markerBounceContainer: {
+    paddingBottom: 8,
+  },
 });
 
 function MarkerBubble({
@@ -468,6 +477,7 @@ export default function GoogleMap({
   userLocation,
   extraStopMarkers = [],
   routeCoordinates = [],
+  secondaryRouteCoordinates = [],
   nearbyDrivers = [],
   draggableMarker = false,
   onMarkerDragEnd,
@@ -486,16 +496,22 @@ export default function GoogleMap({
   userLocationHoldingDarkIcon,
   manualOriginIcon,
   manualOriginHoldIcon,
+  manualOriginBounceValue,
   onMarkerDragStart,
   originLabel,
   destinationLabel,
   showPinBubbles,
   disableMarkerPress = false,
+  onMarkerPress,
+  cameraTarget,
   autoFitEnabled = true,
+  routeColor,
+  secondaryRouteColor,
 }: GoogleMapProps) {
   const mapRef = useRef<MapView>(null);
   const { isDark } = useTheme();
   const [isMarkerHeld, setIsMarkerHeld] = useState(false);
+  const [isMapReady, setIsMapReady] = useState(false);
   const markerScale = useRef(new Animated.Value(1)).current;
   const baseUserMarkerIcon = isDark ? userLocationDarkIcon : userLocationLightIcon;
   const holdingUserMarkerIcon = isDark ? userLocationHoldingDarkIcon : userLocationHoldingLightIcon;
@@ -521,28 +537,13 @@ export default function GoogleMap({
     }
     return null;
   }, [customMapStyle, isDark]);
-  useEffect(() => {
-    const mapInstance = mapRef.current as any;
-    if (!mapInstance || typeof mapInstance.setMapStyle !== 'function') {
-      return;
-    }
-
-    try {
-      if (Array.isArray(resolvedMapStyle)) {
-        mapInstance.setMapStyle(resolvedMapStyle);
-      } else {
-        mapInstance.setMapStyle(LIGHT_MAP_STYLE);
-      }
-    } catch (error) {
-      console.warn('[GoogleMap] No se pudo aplicar el estilo del mapa:', error);
-    }
-  }, [resolvedMapStyle]);
+  // Map style se aplica mediante la prop customMapStyle en el componente MapView.
 
   const defaultCameraSettings = useMemo(() => resolveZoomForAltitude(DEFAULT_ALTITUDE, latitude), [latitude]);
   const minZoomSettings = useMemo(() => resolveZoomForAltitude(MIN_ALTITUDE, latitude), [latitude]);
   const maxZoomSettings = useMemo(() => resolveZoomForAltitude(MAX_ALTITUDE, latitude), [latitude]);
   const minZoomLevelValue = useMemo(() => Math.min(minZoomSettings.zoom, maxZoomSettings.zoom), [minZoomSettings.zoom, maxZoomSettings.zoom]);
-  const maxZoomLevelValue = useMemo(() => Math.max(minZoomSettings.zoom, maxZoomSettings.zoom), [minZoomSettings.zoom, maxZoomSettings.zoom]);
+  const maxZoomLevelValue = useMemo(() => Math.max(minZoomSettings.zoom, maxZoomSettings.zoom), [maxZoomSettings.zoom, minZoomSettings.zoom]);
   const lastCameraAltitudeRef = useRef<number>(defaultCameraSettings.altitude);
   const gestureActiveRef = useRef(false);
   const gestureTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -564,6 +565,9 @@ export default function GoogleMap({
   }, []);
 
   const updateAltitudeFromCamera = useCallback(async (): Promise<number | undefined> => {
+    if (!isMapReady) {
+      return lastCameraAltitudeRef.current;
+    }
     const map = mapRef.current as any;
     if (!map || typeof map.getCamera !== 'function') {
       return lastCameraAltitudeRef.current;
@@ -581,7 +585,7 @@ export default function GoogleMap({
     }
 
     return lastCameraAltitudeRef.current;
-  }, []);
+  }, [isMapReady]);
 
   const applyCamera = useCallback(
     (
@@ -617,6 +621,12 @@ export default function GoogleMap({
     [defaultCameraSettings.altitude, latitude, longitude],
   );
 
+  // ✅ Seguir un objetivo puntual (p.ej. nuevo origen/destino seleccionado)
+  useEffect(() => {
+    if (!cameraTarget || !isMapReady) return;
+    applyCamera({ center: toLatLng(cameraTarget) }, 320);
+  }, [cameraTarget, applyCamera, isMapReady]);
+
   const rideRequestSignature = useMemo(() => {
     if (rideRequests.length === 0) return '';
     return rideRequests
@@ -636,12 +646,18 @@ export default function GoogleMap({
     }
   }, [rideRequests.length, selectedRideRequestId]);
 
+  const effectiveMarkerPosition =
+    showMarker && markerPosition && Number.isFinite(markerPosition.latitude) && Number.isFinite(markerPosition.longitude)
+      ? markerPosition
+      : null;
+
   const markerPositionLatLng = useMemo(() => {
-    if (markerPosition && isValidCoord(markerPosition)) {
-      return toLatLng(markerPosition);
+    if (effectiveMarkerPosition && isValidCoord(effectiveMarkerPosition)) {
+      return toLatLng(effectiveMarkerPosition);
     }
     return null;
-  }, [markerPosition]);
+  }, [effectiveMarkerPosition]);
+
   const shouldShowUserMarker = useMemo(() => {
     if (!effectiveUserLocation) return false;
     if (markerPositionLatLng && coordsAreClose(effectiveUserLocation, markerPositionLatLng)) {
@@ -746,6 +762,7 @@ export default function GoogleMap({
   );
 
   useEffect(() => {
+    if (!isMapReady) return;
     const map = mapRef.current;
     if (!map || typeof map.getCamera !== 'function') return;
 
@@ -759,7 +776,7 @@ export default function GoogleMap({
         // ignorar
       }
     })();
-  }, []);
+  }, [isMapReady]);
 
   const markerHeadingCacheRef = useRef<{ coord: LatLng | null; heading: number | null }>({
     coord: null,
@@ -1018,6 +1035,14 @@ export default function GoogleMap({
       );
     }
 
+    if (secondaryRouteCoordinates.length > 0) {
+      coords.push(
+        ...secondaryRouteCoordinates
+          .filter(isValidCoord)
+          .map((coord) => ({ latitude: coord.latitude, longitude: coord.longitude })),
+      );
+    }
+
     return coords;
   }, [
     originMarker,
@@ -1029,6 +1054,7 @@ export default function GoogleMap({
     nearbyDrivers,
     rideRequests,
     routeCoordinates,
+    secondaryRouteCoordinates,
   ]);
 
   const cameraFitSignature = useMemo(() => {
@@ -1055,7 +1081,7 @@ export default function GoogleMap({
   }, []);
 
   useEffect(() => {
-    if (!autoFitEnabled) {
+    if (!autoFitEnabled || !isMapReady) {
       lastFitSignatureRef.current = '';
       return;
     }
@@ -1070,9 +1096,25 @@ export default function GoogleMap({
 
     lastFitSignatureRef.current = cameraFitSignature;
 
+    const map = mapRef.current as any;
+
+    // Intentar primero un auto-fit real usando el bounding box de todos los puntos
+    if (map && typeof map.fitToCoordinates === 'function') {
+      try {
+        map.fitToCoordinates(markersToFit, {
+          edgePadding: { top: 80, right: 40, bottom: 260, left: 40 },
+          animated: true,
+        });
+        return;
+      } catch (error) {
+        console.warn('[GoogleMap] fitToCoordinates falló, usando applyCamera como respaldo:', error);
+      }
+    }
+
+    // Respaldo: centrar en el centroide manteniendo una altitud razonable
     const targetCenter = markersToFit.length === 1 ? markersToFit[0] : computeCentroid(markersToFit);
     applyCamera({ center: targetCenter, altitudeMeters: defaultCameraSettings.altitude }, 420);
-  }, [markersToFit, selectedRideRequestId, cameraFitSignature, autoFitEnabled, computeCentroid, applyCamera, defaultCameraSettings.altitude]);
+  }, [markersToFit, selectedRideRequestId, cameraFitSignature, autoFitEnabled, isMapReady, computeCentroid, applyCamera, defaultCameraSettings.altitude]);
 
   const handleMapPress = (event: MapPressEvent) => {
     if (disableMarkerPress || gestureActiveRef.current) {
@@ -1150,6 +1192,10 @@ export default function GoogleMap({
     [markGestureActive, updateAltitudeFromCamera, onRegionChangeCompleteCenter],
   );
 
+  const handleMapReady = useCallback(() => {
+    setIsMapReady(true);
+  }, []);
+
   return (
     <View style={[styles.container, style]}>
       <MapView
@@ -1160,6 +1206,7 @@ export default function GoogleMap({
         showsMyLocationButton
         showsCompass
         showsTraffic={trafficEnabled}
+        onMapReady={handleMapReady}
         initialCamera={{
           center: { latitude, longitude },
           altitude: defaultCameraSettings.altitude,
@@ -1173,17 +1220,11 @@ export default function GoogleMap({
         mapType={mapType || 'standard'}
         customMapStyle={Array.isArray(resolvedMapStyle) ? resolvedMapStyle : LIGHT_MAP_STYLE}
       >
-        {shouldShowUserMarker && effectiveUserLocation && (
+        {shouldShowUserMarker && effectiveUserLocation && userMarkerIcon && (
           <Marker coordinate={effectiveUserLocation} tracksViewChanges anchor={{ x: 0.5, y: 0.5 }}>
-            {userMarkerIcon ? (
-              <Animated.View style={{ transform: [{ scale: markerScale }] }}>
-                <Image source={userMarkerIcon} style={markerStyles.userMarkerImage} />
-              </Animated.View>
-            ) : (
-              <MarkerBubble backgroundColor="#03A9F4" size="large">
-                <Text style={markerStyles.bubbleText}>📍</Text>
-              </MarkerBubble>
-            )}
+            <Animated.View style={{ transform: [{ scale: markerScale }] }}>
+              <Image source={userMarkerIcon} style={markerStyles.userMarkerImage} />
+            </Animated.View>
           </Marker>
         )}
 
@@ -1221,6 +1262,34 @@ export default function GoogleMap({
 
         {showMarker && isValidCoord(markerPosition) && (() => {
           const vehicleScale = effectiveMarkerType === 'car' ? getVehicleScaleForZoom(currentZoom) : 1;
+          const scaleTransforms: any[] = [{ scale: markerScale }, { scale: vehicleScale }];
+          const renderManualOriginContent = () => {
+            if (manualOriginBounceValue && effectiveMarkerType === 'manual_origin') {
+              return (
+                <Animated.View style={{ transform: [{ translateY: manualOriginBounceValue }] }}>
+                  <MainMarkerContent
+                    type={effectiveMarkerType}
+                    vehicleIconSource={markerVehicleIconSource}
+                    userMarkerIcon={userMarkerIcon}
+                    manualOriginIcon={manualOriginIcon}
+                    manualOriginHoldIcon={manualOriginHoldIcon}
+                    isMarkerHeld={isMarkerHeld}
+                  />
+                </Animated.View>
+              );
+            }
+
+            return (
+              <MainMarkerContent
+                type={effectiveMarkerType}
+                vehicleIconSource={markerVehicleIconSource}
+                userMarkerIcon={userMarkerIcon}
+                manualOriginIcon={manualOriginIcon}
+                manualOriginHoldIcon={manualOriginHoldIcon}
+                isMarkerHeld={isMarkerHeld}
+              />
+            );
+          };
 
           return (
             <Marker
@@ -1230,6 +1299,11 @@ export default function GoogleMap({
               onDragStart={handleMarkerDragStart}
               onDrag={handleMarkerDrag}
               onDragEnd={handleMarkerDragEnd}
+              onPress={() => {
+                if (typeof onMarkerPress === 'function') {
+                  onMarkerPress({ latitude: markerPosition.latitude, longitude: markerPosition.longitude });
+                }
+              }}
               anchor={{ x: 0.5, y: 0.5 }}
               centerOffset={{ x: 0, y: 0 }}
               flat
@@ -1237,18 +1311,11 @@ export default function GoogleMap({
             >
               <Animated.View
                 style={{
-                  transform: [{ scale: markerScale }, { scale: vehicleScale }],
+                  transform: scaleTransforms,
                   overflow: 'visible',
                 }}
               >
-                <MainMarkerContent
-                  type={effectiveMarkerType}
-                  vehicleIconSource={markerVehicleIconSource}
-                  userMarkerIcon={userMarkerIcon}
-                  manualOriginIcon={manualOriginIcon}
-                  manualOriginHoldIcon={manualOriginHoldIcon}
-                  isMarkerHeld={isMarkerHeld}
-                />
+                <View style={markerStyles.markerBounceContainer}>{renderManualOriginContent()}</View>
               </Animated.View>
             </Marker>
           );
@@ -1350,7 +1417,7 @@ export default function GoogleMap({
                     <Text style={markerStyles.requestTitle} numberOfLines={1}>
                       {request.clientName}
                     </Text>
-                    <Text style={markerStyles.requestLine} numberOfLines={1}>
+                    < Text style={markerStyles.requestLine} numberOfLines={1}>
                       📍 {request.originAddress}
                     </Text>
                     <Text style={markerStyles.requestLine} numberOfLines={1}>
@@ -1381,7 +1448,15 @@ export default function GoogleMap({
         {routeCoordinates.length > 0 && (
           <Polyline
             coordinates={routeCoordinates.filter(isValidCoord).map(toLatLng)}
-            strokeColor="#2196F3"
+            strokeColor={routeColor || "#2196F3"}
+            strokeWidth={5}
+          />
+        )}
+
+        {secondaryRouteCoordinates.length > 0 && (
+          <Polyline
+            coordinates={secondaryRouteCoordinates.filter(isValidCoord).map(toLatLng)}
+            strokeColor={secondaryRouteColor || "#FFC107"}
             strokeWidth={5}
           />
         )}

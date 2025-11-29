@@ -23,6 +23,7 @@ import { useTheme } from '../../context/ThemeContext';
 import phoneAuthService from '../../services/auth/phoneAuthService';
 import registrationService from '../../services/registrationService';
 import { AuthStackParamList } from '../../navigation/types';
+import { formatPhoneNumber, getCountryDialOptions } from '../../utils/phoneUtils';
 
 type PhoneVerificationNavigationProp = NativeStackNavigationProp<
   AuthStackParamList,
@@ -50,6 +51,7 @@ export default function PhoneVerificationScreen({ navigation, route }: Props) {
     method,
     authProvider,
     googleIdToken,
+    role,
   } = route.params;
 
   const [code, setCode] = useState('');
@@ -57,6 +59,7 @@ export default function PhoneVerificationScreen({ navigation, route }: Props) {
   const [resendLoading, setResendLoading] = useState(false);
   const [timeLeft, setTimeLeft] = useState(60);
   const [attempts, setAttempts] = useState(0);
+  const [displayPhone, setDisplayPhone] = useState<string>(phone);
 
   useEffect(() => {
     if (timeLeft > 0) {
@@ -64,6 +67,21 @@ export default function PhoneVerificationScreen({ navigation, route }: Props) {
       return () => clearTimeout(timer);
     }
   }, [timeLeft]);
+
+  useEffect(() => {
+    try {
+      const options = getCountryDialOptions();
+      const match = options.find((option) => phone.startsWith(option.dialCode));
+      if (match) {
+        const formatted = formatPhoneNumber(phone, match.dialCode);
+        setDisplayPhone(formatted);
+      } else {
+        setDisplayPhone(phone);
+      }
+    } catch {
+      setDisplayPhone(phone);
+    }
+  }, [phone]);
 
   const handleVerifySuccess = async () => {
     try {
@@ -75,19 +93,34 @@ export default function PhoneVerificationScreen({ navigation, route }: Props) {
         method,
         authProvider,
         googleIdToken,
+        role,
         phoneVerified: true,
       });
 
-      navigation.replace('RoleSelection', {
-        method,
-        name,
-        email,
-        phone,
-        password,
-        authProvider,
-        googleIdToken,
-        phoneVerified: true,
-      });
+      if (role === 'driver') {
+        navigation.replace('DriverData', {
+          name,
+          email,
+          phone,
+          password,
+          role: 'driver',
+          method,
+          authProvider,
+          googleIdToken,
+          phoneVerified: true,
+        });
+      } else {
+        navigation.replace('RoleSelection', {
+          method,
+          name,
+          email,
+          phone,
+          password,
+          authProvider,
+          googleIdToken,
+          phoneVerified: true,
+        });
+      }
     } catch (error: any) {
       console.error('❌ Error guardando datos verificados:', error);
       Alert.alert('Error', error.message || 'No se pudo continuar con el registro');
@@ -127,7 +160,7 @@ export default function PhoneVerificationScreen({ navigation, route }: Props) {
     setResendLoading(true);
     try {
       await phoneAuthService.sendVerificationCode(phone);
-      Alert.alert('✅ Código reenviado', `Se envió un nuevo código a ${phone}`);
+      Alert.alert('✅ Código reenviado', `Se envió un nuevo código a ${displayPhone}`);
       setTimeLeft(60);
       setCode('');
       setAttempts(0);
@@ -150,7 +183,7 @@ export default function PhoneVerificationScreen({ navigation, route }: Props) {
           <Text style={styles.subtitle}>
             Envía el código recibido para continuar con el registro.
           </Text>
-          <Text style={styles.phoneNumber}>{phone}</Text>
+          <Text style={styles.phoneNumber}>{displayPhone}</Text>
 
           <View style={styles.codeSection}>
             <Text style={styles.label}>Código de verificación</Text>

@@ -26,7 +26,11 @@ import {
 
 // Google Client ID desde variables de entorno
 // Android Client ID para Expo
-const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID || '1040329608349-t11k2f7tu1gtrh8fpogu3n1gmf2gi8p3.apps.googleusercontent.com';
+const GOOGLE_CLIENT_ID =
+  process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID ||
+  process.env.REACT_APP_GOOGLE_CLIENT_ID_ANDROID_AUTO_GOOGLE ||
+  process.env.REACT_APP_GOOGLE_CLIENT_ID_ANDROID ||
+  '';
 
 export default function LoginScreen({ navigation }: any) {
   const { colors } = useTheme();
@@ -161,6 +165,27 @@ export default function LoginScreen({ navigation }: any) {
 
       console.log('🔄 Iniciando sesión con Firebase...');
       const userData = await googleLogin(idToken);
+
+      // Si no existe perfil en Firestore, forzar selección de rol
+      if (userData?.isNew) {
+        const displayName =
+          userData.name ||
+          (userData.email ? String(userData.email).split('@')[0] : 'Usuario Google');
+
+        console.log('🆕 Usuario Google sin perfil, navegando a RoleSelection...');
+        navigation.navigate('RoleSelection', {
+          name: displayName,
+          email: userData.email || undefined,
+          phone: userData.phone || undefined,
+          password: undefined,
+          method: 'google',
+          authProvider: 'google',
+          googleIdToken: idToken,
+          phoneVerified: false,
+        });
+
+        return;
+      }
 
       console.log('💾 Guardando datos de usuario...');
       await loginWithGoogle(userData);

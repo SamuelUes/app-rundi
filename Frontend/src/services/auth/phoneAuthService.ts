@@ -20,10 +20,14 @@ class PhoneAuthService {
     const normalized = this.normalizePhone(phone);
 
     if (!this.validatePhoneNumber(normalized)) {
-      throw new Error('Formato de teléfono inválido. Usa +505 XXXX XXXX');
+      throw new Error(
+        'Formato de teléfono inválido. Usa un número en formato internacional (+Código país y número).'
+      );
     }
 
     try {
+      console.log('📱 [phoneAuthService] Enviando código de verificación. Input:', phone);
+      console.log('📱 [phoneAuthService] Número normalizado (E.164):', normalized);
       const confirmation = await auth().signInWithPhoneNumber(normalized);
       this.confirmations.set(normalized, confirmation);
     } catch (error: any) {
@@ -49,6 +53,8 @@ class PhoneAuthService {
     }
 
     try {
+      console.log('📱 [phoneAuthService] Confirmando código para número:', normalized);
+      console.log('📱 [phoneAuthService] Código ingresado:', code);
       const credential = await confirmation.confirm(code);
       if (!credential) {
         throw new Error('No se pudo confirmar el código. Intenta nuevamente.');

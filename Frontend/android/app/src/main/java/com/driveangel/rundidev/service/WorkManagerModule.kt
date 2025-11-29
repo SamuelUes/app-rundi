@@ -1,4 +1,4 @@
-package com.driveangel.app.service
+package com.driveangel.rundidev.service
 
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy

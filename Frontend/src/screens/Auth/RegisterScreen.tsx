@@ -17,41 +17,21 @@ import {
   ScrollView,
   ActivityIndicator,
 } from 'react-native';
+import { Picker } from '@react-native-picker/picker';
 import { useNavigation } from '@react-navigation/native';
-import { Buffer } from 'buffer';
 
 import { useTheme } from '../../context/ThemeContext';
-import { useGoogleAuth } from '../../hooks/useGoogleAuth';
-import GoogleSignInButton from '../../components/GoogleSignInButton';
 import registrationService from '../../services/registrationService';
 import phoneAuthService from '../../services/auth/phoneAuthService';
+import firebaseAuthService from '../../services/auth/firebaseAuthService';
 import { RegistrationMethod, RegistrationAuthProvider } from '../../navigation/types';
-
-// Configuración de Google
-const GOOGLE_CLIENT_ID =
-  process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID ||
-  process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID ||
-  process.env.REACT_APP_GOOGLE_ANDROID_CLIENT_ID ||
-  process.env.REACT_APP_GOOGLE_CLIENT_ID ||
-  process.env.GOOGLE_CLIENT_ID ||
-  '';
-
-const decodeGoogleProfile = (idToken: string) => {
-  try {
-    const [, payload] = idToken.split('.');
-    if (!payload) {
-      return {};
-    }
-
-    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
-    const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), '=');
-    const json = Buffer.from(padded, 'base64').toString('utf8');
-    return JSON.parse(json);
-  } catch (error) {
-    console.warn('⚠️ No se pudo decodificar el token de Google', error);
-    return {};
-  }
-};
+import {
+  CountryDialOption,
+  formatPhoneNumber,
+  getCountryDialOptions,
+  normalizePhoneNumber,
+  extractLocalNumber,
+} from '../../utils/phoneUtils';
 
 export default function RegisterScreen() {
   const navigation = useNavigation<any>();
@@ -62,20 +42,24 @@ export default function RegisterScreen() {
   const [method, setMethod] = useState<RegistrationMethod>('email');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
+
+  const countryOptions = useMemo(() => getCountryDialOptions(), []);
+  const defaultCountry =
+    countryOptions.find((option) => option.code === 'NI') ?? countryOptions[0];
+  const [selectedCountry, setSelectedCountry] = useState<CountryDialOption>(defaultCountry);
+
+  const [phone, setPhone] = useState<string>(
+    formatPhoneNumber('', defaultCountry.dialCode)
+  );
   const [normalizedPhone, setNormalizedPhone] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [passwordStatus, setPasswordStatus] = useState<'idle' | 'match' | 'mismatch'>('idle');
 
-  // Hooks de Google
-  const { getGoogleIdToken, loading: googleAuthLoading } = useGoogleAuth(GOOGLE_CLIENT_ID);
-
   // Métodos activos
   const isEmailMethod = method === 'email';
   const isPhoneMethod = method === 'phone';
-  const isGoogleMethod = method === 'google';
 
   // Validaciones básicas
   const isEmailValid = email.includes('@') && email.includes('.');
@@ -109,16 +93,38 @@ export default function RegisterScreen() {
   }, [password, confirmPassword, isConfirmFilled, isPasswordValid]);
 
   const isPhoneFormValid =
-    name.trim() !== '' && normalizedPhone.startsWith('+') && normalizedPhone.length >= 8;
+    name.trim() !== '' && (normalizedPhone ? /^\+\d{6,15}$/.test(normalizedPhone) : false);
 
-  // Normalizar teléfono (solo números)
-  const sanitizePhone = (value: string) => value.replace(/[^\d+]/g, '');
+  const handleCountryChange = (countryCode: string) => {
+    const nextCountry =
+      countryOptions.find((option) => option.code === countryCode) ?? countryOptions[0];
 
-  const ensurePhoneFormat = (value: string) => {
-    const sanitized = sanitizePhone(value);
-    const formatted = sanitized.startsWith('+') ? sanitized : sanitized ? `+${sanitized}` : sanitized;
-    setNormalizedPhone(formatted);
-    return formatted;
+    const localDigits = extractLocalNumber(
+      normalizedPhone || phone,
+      selectedCountry.dialCode
+    );
+    const newNormalized = localDigits
+      ? normalizePhoneNumber(localDigits, nextCountry.dialCode)
+      : '';
+
+    setSelectedCountry(nextCountry);
+    setNormalizedPhone(newNormalized);
+    setPhone(
+      newNormalized
+        ? formatPhoneNumber(newNormalized, nextCountry.dialCode)
+        : formatPhoneNumber('', nextCountry.dialCode)
+    );
+  };
+
+  const handlePhoneChange = (value: string) => {
+    const normalized = normalizePhoneNumber(value, selectedCountry.dialCode);
+    setNormalizedPhone(normalized);
+
+    const formatted = normalized
+      ? formatPhoneNumber(normalized, selectedCountry.dialCode)
+      : formatPhoneNumber(value, selectedCountry.dialCode);
+
+    setPhone(formatted || `${selectedCountry.dialCode} `);
   };
 
   // Navegación
@@ -175,73 +181,46 @@ export default function RegisterScreen() {
 
     setLoading(true);
     try {
+      const normalizedEmail = email.trim().toLowerCase();
+      const phoneForCheck = normalizedPhone || undefined;
+
+      const { emailExists, phoneExists } = await firebaseAuthService.checkUserExists({
+        email: normalizedEmail,
+        phone: phoneForCheck,
+      });
+
+      if (emailExists) {
+        Alert.alert('Error', 'Ya existe una cuenta registrada con este correo electrónico.');
+        return;
+      }
+
+      if (phoneExists) {
+        Alert.alert('Error', 'Ya existe una cuenta registrada con este número telefónico.');
+        return;
+      }
+
       await registrationService.saveTemporaryData({
         name: name.trim(),
-        email: email.trim(),
-        phone: normalizedPhone || undefined,
+        email: normalizedEmail,
+        phone: phoneForCheck,
         password,
         method: 'email',
         authProvider: 'email/password',
-        phoneVerified: Boolean(normalizedPhone),
+        phoneVerified: false,
       });
 
       navigateToRoleSelection({
         name: name.trim(),
-        email: email.trim(),
-        phone: normalizedPhone || undefined,
+        email: normalizedEmail,
+        phone: phoneForCheck,
         password,
         authProvider: 'email/password',
         method: 'email',
-        phoneVerified: Boolean(normalizedPhone),
+        phoneVerified: false,
       });
     } catch (error: any) {
       console.error('❌ Error registro email:', error);
       Alert.alert('Error', error.message || 'No se pudo iniciar el registro');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Registro con Google
-  const handleRegisterWithGoogle = async () => {
-    setLoading(true);
-    try {
-      const idToken = await getGoogleIdToken();
-      const profile = decodeGoogleProfile(idToken);
-
-      const finalName = (profile.name as string | undefined) || name.trim();
-      const finalEmail = (profile.email as string | undefined) || email.trim();
-      const googlePhone = profile.phone_number as string | undefined;
-
-      setName(finalName);
-      if (finalEmail) setEmail(finalEmail);
-
-      let verifiedPhone = googlePhone || ensurePhoneFormat(phone);
-
-      await registrationService.saveTemporaryData({
-        name: finalName,
-        email: finalEmail,
-        phone: verifiedPhone || undefined,
-        method: 'google',
-        authProvider: 'google',
-        phoneVerified: Boolean(verifiedPhone),
-        googleIdToken: idToken,
-      });
-
-      navigateToRoleSelection({
-        name: finalName,
-        email: finalEmail || undefined,
-        phone: verifiedPhone || undefined,
-        authProvider: 'google',
-        method: 'google',
-        googleIdToken: idToken,
-        phoneVerified: Boolean(verifiedPhone),
-      });
-    } catch (error: any) {
-      if (error?.message !== 'Autenticación cancelada por el usuario') {
-        console.error('❌ Error registro Google:', error);
-        Alert.alert('Error', error?.message || 'No se pudo continuar con Google');
-      }
     } finally {
       setLoading(false);
     }
@@ -255,12 +234,33 @@ export default function RegisterScreen() {
     }
 
     if (!isPhoneFormValid) {
-      Alert.alert('Error', 'Ingresa tu nombre y un número válido con prefijo +505.');
+      Alert.alert(
+        'Error',
+        'Ingresa tu nombre y un número telefónico válido en formato internacional (+Código país).'
+      );
       return;
     }
 
     setLoading(true);
     try {
+      const normalizedEmail = email.trim().toLowerCase() || undefined;
+
+      const { emailExists, phoneExists } = await firebaseAuthService.checkUserExists({
+        email: normalizedEmail,
+        phone: normalizedPhone,
+      });
+
+      if (emailExists) {
+        Alert.alert('Error', 'Ya existe una cuenta registrada con este correo electrónico.');
+        return;
+      }
+
+      if (phoneExists) {
+        Alert.alert('Error', 'Ya existe una cuenta registrada con este número telefónico.');
+        return;
+      }
+
+      console.log('📱 [Register] Enviando código SMS a:', normalizedPhone);
       await phoneAuthService.sendVerificationCode(normalizedPhone);
 
       await registrationService.saveTemporaryData({
@@ -301,7 +301,7 @@ export default function RegisterScreen() {
             <TouchableOpacity
               style={[styles.methodButton, isEmailMethod && styles.methodButtonActive]}
               onPress={() => setMethod('email')}
-              disabled={loading || googleAuthLoading}
+              disabled={loading}
             >
               <Text
                 style={[styles.methodButtonText, isEmailMethod && styles.methodButtonTextActive]}
@@ -313,7 +313,7 @@ export default function RegisterScreen() {
             <TouchableOpacity
               style={[styles.methodButton, isPhoneMethod && styles.methodButtonActive]}
               onPress={() => setMethod('phone')}
-              disabled={loading || googleAuthLoading}
+              disabled={loading}
             >
               <Text
                 style={[styles.methodButtonText, isPhoneMethod && styles.methodButtonTextActive]}
@@ -322,17 +322,6 @@ export default function RegisterScreen() {
               </Text>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[styles.methodButton, isGoogleMethod && styles.methodButtonActive]}
-              onPress={() => setMethod('google')}
-              disabled={loading || googleAuthLoading}
-            >
-              <Text
-                style={[styles.methodButtonText, isGoogleMethod && styles.methodButtonTextActive]}
-              >
-                Google
-              </Text>
-            </TouchableOpacity>
           </View>
 
           {/* Campos base */}
@@ -344,7 +333,7 @@ export default function RegisterScreen() {
               placeholderTextColor={colors.textSecondary}
               value={name}
               onChangeText={setName}
-              editable={!loading && !googleAuthLoading}
+              editable={!loading}
             />
           </View>
 
@@ -358,7 +347,7 @@ export default function RegisterScreen() {
               value={email}
               onChangeText={setEmail}
               keyboardType="email-address"
-              editable={!loading && !googleAuthLoading}
+              editable={!loading}
             />
             <Text style={styles.helperText}>
               {isEmailMethod
@@ -369,15 +358,33 @@ export default function RegisterScreen() {
 
           {/* Teléfono */}
           <View style={styles.fieldGroup}>
+            <Text style={styles.label}>País y Código {isPhoneMethod ? '*' : ''}</Text>
+            <View style={styles.countryPickerContainer}>
+              <Picker
+                selectedValue={selectedCountry.code}
+                onValueChange={handleCountryChange}
+                style={styles.countryPicker}
+                itemStyle={styles.countryPickerItem}
+              >
+                {countryOptions.map((option) => (
+                  <Picker.Item
+                    key={option.code}
+                    label={`${option.name} (${option.dialCode})`}
+                    value={option.code}
+                  />
+                ))}
+              </Picker>
+            </View>
+
             <Text style={styles.label}>Teléfono {isPhoneMethod ? '*' : ''}</Text>
             <TextInput
               style={styles.input}
-              placeholder="+505 XXXX XXXX"
+              placeholder={`${selectedCountry.dialCode} 12345678`}
               placeholderTextColor={colors.textSecondary}
               value={phone}
-              onChangeText={(value) => setPhone(ensurePhoneFormat(value))}
+              onChangeText={handlePhoneChange}
               keyboardType="phone-pad"
-              editable={!loading && !googleAuthLoading}
+              editable={!loading}
             />
             <Text style={styles.helperText}>
               {isPhoneMethod
@@ -402,7 +409,7 @@ export default function RegisterScreen() {
                   value={password}
                   onChangeText={setPassword}
                   secureTextEntry
-                  editable={!loading && !googleAuthLoading}
+                  editable={!loading}
                 />
               </View>
 
@@ -419,10 +426,10 @@ export default function RegisterScreen() {
                   value={confirmPassword}
                   onChangeText={setConfirmPassword}
                   secureTextEntry
-                  editable={!loading && !googleAuthLoading}
+                  editable={!loading}
                 />
                 {passwordStatus === 'match' && (
-                  <Text style={styles.successText}>✅ Las contraseñas coinciden</Text>
+                  <Text style={styles.successText}>Las contraseñas coinciden</Text>
                 )}
                 {passwordStatus === 'mismatch' && (
                   <Text style={styles.errorText}>Las contraseñas no coinciden</Text>
@@ -447,29 +454,22 @@ export default function RegisterScreen() {
           )}
 
           {isPhoneMethod && (
-            <TouchableOpacity
-              style={[
-                styles.primaryButton,
-                (!isPhoneFormValid || loading) && styles.buttonDisabled,
-              ]}
-              onPress={handleRegisterWithPhone}
-              disabled={!isPhoneFormValid || loading}
-            >
-              {loading ? (
-                <ActivityIndicator color="#FFFFFF" />
-              ) : (
-                <Text style={styles.primaryButtonText}>Continuar con Teléfono</Text>
-              )}
-            </TouchableOpacity>
-          )}
-
-          {isGoogleMethod && (
-            <GoogleSignInButton
-              onPress={handleRegisterWithGoogle}
-              loading={googleAuthLoading || loading}
-              disabled={googleAuthLoading || loading}
-              variant="register"
-            />
+            <View style={styles.phoneActionsRow}>
+              <TouchableOpacity
+                style={[
+                  styles.phoneNextButton,
+                  (!isPhoneFormValid || loading) && styles.buttonDisabled,
+                ]}
+                onPress={handleRegisterWithPhone}
+                disabled={!isPhoneFormValid || loading}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.phoneNextIcon}>Siguiente</Text>
+                )}
+              </TouchableOpacity>
+            </View>
           )}
 
           <View style={styles.footerInfo}>
@@ -544,6 +544,19 @@ const createStyles = (colors: any) =>
     fieldGroup: {
       gap: 8,
     },
+    countryPickerContainer: {
+      marginBottom: 8,
+    },
+    countryPicker: {
+      backgroundColor: colors.background,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    countryPickerItem: {
+      fontSize: 14,
+      color: colors.text,
+    },
     label: {
       fontSize: 14,
       fontWeight: '600',
@@ -594,6 +607,24 @@ const createStyles = (colors: any) =>
     },
     buttonDisabled: {
       opacity: 0.5,
+    },
+    phoneActionsRow: {
+      marginTop: 16,
+      flexDirection: 'row',
+      justifyContent: 'flex-end',
+    },
+    phoneNextButton: {
+      width: 320,
+      height: 56,
+      borderRadius: 28,
+      backgroundColor: colors.primary,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    phoneNextIcon: {
+      fontSize: 24,
+      color: '#FFFFFF',
+      fontWeight: '700',
     },
     footerInfo: {
       marginTop: 8,

@@ -2,6 +2,8 @@
   "dependencies": {
     "@googlemaps/google-maps-services-js": "^3.4.2",
     "@mapbox/polyline": "^1.2.1",
+    "dotenv": "^17.2.3",
+    "firebase": "^12.6.0",
     "firebase-admin": "^13.5.0"
   }
 }

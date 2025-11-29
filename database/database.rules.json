@@ -6,7 +6,8 @@
     "sessions": {
       "$uid": {
         ".read": "$uid === auth.uid",
-        ".write": "$uid === auth.uid"
+        ".write": "$uid === auth.uid",
+        "$other": { ".validate": "true" }
       }
     },
     
@@ -42,8 +43,40 @@
           ".validate": "newData.hasChildren(['latitude', 'longitude']) && newData.child('latitude').isNumber() && newData.child('longitude').isNumber()"
         },
 
-        "clientLocation": {
+        "clientsLocation": {
           ".write": "auth != null"
+        }
+      }
+    },
+
+    "activeRidesByArea": {
+      ".read": "auth != null",
+      "$serviceAreaId": {
+        "$rideId": {
+          ".write": "auth != null",
+          ".validate": "data.exists() ? true : newData.hasChildren(['id', 'clientId', 'status', 'origin', 'destination', 'estimatedPrice', 'requestedAt'])",
+
+          "id": { ".validate": "newData.isString()" },
+          "clientId": { ".validate": "newData.isString()" },
+          "driverId": { ".validate": "newData.isString() || newData.val() == null" },
+          "status": { ".validate": "newData.isString() && newData.val().matches(/^(requested|driver_offered|accepted|driver_on_route|driver_arrived|in_progress|pending_payment|pending_rating|completed|canceled)$/)" },
+          "origin": { ".validate": "!newData.exists() || newData.hasChildren(['lat', 'lng'])" },
+          "destination": { ".validate": "!newData.exists() || newData.hasChildren(['lat', 'lng'])" },
+          "estimatedPrice": { ".validate": "!newData.exists() || (newData.isNumber() && newData.val() >= 0)" },
+          "estimatedDistance": { ".validate": "!newData.exists() || (newData.isNumber() && newData.val() >= 0)" },
+          "estimatedDuration": { ".validate": "!newData.exists() || (newData.isNumber() && newData.val() >= 0)" },
+          "distance": { ".validate": "!newData.exists() || (newData.isNumber() && newData.val() >= 0)" },
+          "duration": { ".validate": "!newData.exists() || (newData.isNumber() && newData.val() >= 0)" },
+          "finalFare": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+          "requestedAt": { ".validate": "!newData.exists() || (newData.isNumber() && newData.val() > 0)" },
+          "acceptedAt": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+          "startedAt": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+          "completedAt": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+          "lastUpdate": {
+            ".write": "auth != null",
+            ".validate": "newData.isNumber() && newData.val() > 0"
+          },
+          "$other": { ".validate": "true" }
         }
       }
     },
@@ -61,6 +94,24 @@
         "speed": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
         "accuracy": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
         "$other": { ".validate": "true" }
+      }
+    },
+
+    "driverLocationsByArea": {
+      ".read": "auth != null",
+      "$serviceAreaId": {
+        "$driverId": {
+          ".write": "auth != null && auth.uid === $driverId",
+          "status": {
+            ".validate": "newData.isString() && newData.val().matches(/^(available|busy|offline)$/)"
+          },
+          "lat": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+          "lng": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+          "heading": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+          "speed": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+          "accuracy": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+          "$other": { ".validate": "true" }
+        }
       }
     },
     
@@ -187,11 +238,21 @@
       }
     },
     
-    "clientLocations": {
+    "clientsLocations": {
       "$userId": {
         ".read": "auth != null",
         ".write": "auth != null && auth.uid === $userId",
         ".validate": "!newData.exists() || newData.hasChildren(['latitude', 'longitude', 'isManual', 'timestamp'])"
+      }
+    },
+
+    "clientsLocationsByArea": {
+      "$serviceAreaId": {
+        "$userId": {
+          ".read": "auth != null",
+          ".write": "auth != null && auth.uid === $userId",
+          ".validate": "!newData.exists() || newData.hasChildren(['latitude', 'longitude', 'isManual', 'timestamp'])"
+        }
       }
     },
 

@@ -71,16 +71,25 @@ class MapsService {
       ? [forceProvider] 
       : (useRoutingOrder ? this.routingProviders : this.visualProviders);
     
+    let lastResult: T | null = null;
+
     for (const provider of providersToTry) {
       try {
         console.log(`🗺️ Intentando con ${provider.toUpperCase()}...`);
         const service = this.getService(provider);
         const result = await operation(service);
-        
-        if (result) {
+        const isEmptyArray = Array.isArray(result) && result.length === 0;
+
+        if (result && !isEmptyArray) {
           this.currentProvider = provider;
           console.log(`✅ Éxito con ${provider.toUpperCase()}`);
           return result;
+        }
+
+        if (isEmptyArray) {
+          console.log(`⚠️ ${provider.toUpperCase()} respondió sin coincidencias, probando siguiente proveedor...`);
+          lastResult = result;
+          continue;
         }
       } catch (error) {
         console.warn(`⚠️ ${provider.toUpperCase()} falló:`, error);
@@ -88,7 +97,7 @@ class MapsService {
     }
     
     console.error('❌ Todos los proveedores fallaron');
-    return null;
+    return lastResult;
   }
 
   /**
@@ -201,8 +210,16 @@ class MapsService {
    * Autocomplete - Búsqueda de lugares
    * Usa orden de routing (Mapbox primero)
    */
-  async autocomplete(input: string, location?: Coordinates): Promise<any[]> {
-    const result = await this.tryWithFallback<any[]>(service => service.autocomplete(input, location), undefined, true);
+  async autocomplete(
+    input: string,
+    location?: Coordinates,
+    options?: { forceProvider?: MapProvider }
+  ): Promise<any[]> {
+    const result = await this.tryWithFallback<any[]>(
+      service => service.autocomplete(input, location),
+      options?.forceProvider,
+      true,
+    );
     return result || [];
   }
 
@@ -210,8 +227,16 @@ class MapsService {
    * Place Details - Obtener coordenadas de un place_id
    * Usa orden de routing (Mapbox primero)
    */
-  async getPlaceDetails(placeId: string, position?: any): Promise<Coordinates | null> {
-    return this.tryWithFallback(service => service.getPlaceDetails(placeId, position), undefined, true);
+  async getPlaceDetails(
+    placeId: string,
+    position?: any,
+    options?: { forceProvider?: MapProvider }
+  ): Promise<Coordinates | null> {
+    return this.tryWithFallback(
+      service => service.getPlaceDetails(placeId, position),
+      options?.forceProvider,
+      true,
+    );
   }
 
   /**

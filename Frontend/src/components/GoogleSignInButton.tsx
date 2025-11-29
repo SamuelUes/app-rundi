@@ -80,7 +80,7 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
     variant === 'login'
       ? loading
         ? 'Iniciando sesión...'
-        : 'Iniciar sesión con Google'
+        : 'Iniciar con Google'
       : loading
       ? 'Registrando...'
       : 'Registrarse con Google';

@@ -147,17 +147,34 @@ export default function RidePreviewScreen() {
   }, [user?.id, navigation]);
 
   useEffect(() => {
-    if (!proximityMode) return;
-    if (autoDismissTimerRef.current) clearTimeout(autoDismissTimerRef.current);
-    autoDismissTimerRef.current = setTimeout(() => {
-      if (!acceptingRide) {
-        markDismissed().finally(() => navigation.goBack());
+    const db = getDatabase();
+    const rideRef = ref(db, `rides/${ride.id}`);
+
+    const unsubscribe = onValue(rideRef, (snapshot) => {
+      const data = snapshot.val();
+
+      if (!data) {
+        if (!cancellationHandledRef.current) {
+          cancellationHandledRef.current = true;
+          alertService.showInfoAlert('Viaje cancelado', 'El cliente canceló la solicitud.');
+          markDismissed()
+            .catch((error) => console.warn('[RidePreviewScreen] Error al descartar viaje cancelado:', error))
+            .finally(() => navigation.goBack());
+        }
+        return;
       }
-    }, 10_000);
-    return () => {
-      if (autoDismissTimerRef.current) clearTimeout(autoDismissTimerRef.current);
-    };
-  }, [proximityMode, rideData.id, acceptingRide, markDismissed, navigation]);
+
+      const status = String(data.status || '').toLowerCase();
+      if (status === 'assigned' && data.driverId !== user?.id) {
+        alertService.showInfoAlert('Viaje asignado a otro conductor', 'El cliente asignó el viaje a otro conductor.');
+        markDismissed()
+          .catch((error) => console.warn('[RidePreviewScreen] Error al descartar viaje asignado:', error))
+          .finally(() => navigation.goBack());
+      }
+    });
+
+    return () => unsubscribe();
+  }, [ride.id, user?.id, navigation]);
 
   const [routeCoordinates, setRouteCoordinates] = useState<Array<{ latitude: number; longitude: number }>>([]);
   const [loadingRoute, setLoadingRoute] = useState(false);
@@ -305,15 +322,7 @@ export default function RidePreviewScreen() {
     };
     setRideData(nextRide);
     setNearbyQueue(rest);
-    if (proximityMode) {
-      if (autoDismissTimerRef.current) clearTimeout(autoDismissTimerRef.current);
-      autoDismissTimerRef.current = setTimeout(() => {
-        if (!acceptingRide) {
-          navigation.goBack();
-        }
-      }, 10_000);
-    }
-  }, [nearbyQueue, currentRide, proximityMode, navigation, acceptingRide]);
+  }, [nearbyQueue, currentRide]);
 
   const handleMeasuredContentLayout = useCallback(
     (event: any) => {
@@ -377,6 +386,38 @@ export default function RidePreviewScreen() {
           .catch((error) => console.warn('[RidePreviewScreen] Error al descartar viaje cancelado:', error))
           .finally(() => navigation.goBack());
         return;
+      }
+
+      const assignedDriverId = data.driverId;
+      if (
+        assignedDriverId &&
+        user?.id &&
+        assignedDriverId !== user.id &&
+        !cancellationHandledRef.current
+      ) {
+        const nonRequestedStatuses = [
+          'pending_confirm',
+          'driver_assigned',
+          'accepted',
+          'driver_on_route',
+          'driver_arrived',
+          'in_progress',
+          'completed',
+        ];
+
+        if (nonRequestedStatuses.includes(normalizedStatus)) {
+          cancellationHandledRef.current = true;
+          alertService.showInfoAlert(
+            'Viaje no disponible',
+            'El cliente ya confirmó a otro conductor para este viaje.',
+          );
+          markDismissed()
+            .catch((error) =>
+              console.warn('[RidePreviewScreen] Error al descartar viaje no disponible:', error),
+            )
+            .finally(() => navigation.goBack());
+          return;
+        }
       }
 
       const offers = data.offers || {};
@@ -739,11 +780,40 @@ export default function RidePreviewScreen() {
         return formatCurrency(parsed);
       }
     }
-    if (currentRide.clientSuggestedPrice) {
-      return formatCurrency(currentRide.clientSuggestedPrice);
+    const candidates: number[] = [];
+
+    if (
+      typeof currentRide.driverOfferedPrice === 'number' &&
+      Number.isFinite(currentRide.driverOfferedPrice) &&
+      currentRide.driverOfferedPrice > 0
+    ) {
+      candidates.push(currentRide.driverOfferedPrice);
     }
-    return formatCurrency(currentRide.estimatedPrice);
-  }, [counterOffer, currentRide.clientSuggestedPrice, currentRide.estimatedPrice]);
+
+    if (
+      typeof currentRide.clientSuggestedPrice === 'number' &&
+      Number.isFinite(currentRide.clientSuggestedPrice) &&
+      currentRide.clientSuggestedPrice > 0
+    ) {
+      candidates.push(currentRide.clientSuggestedPrice);
+    }
+
+    if (
+      typeof currentRide.estimatedPrice === 'number' &&
+      Number.isFinite(currentRide.estimatedPrice) &&
+      currentRide.estimatedPrice > 0
+    ) {
+      candidates.push(currentRide.estimatedPrice);
+    }
+
+    const value = candidates.find((v) => v > 0) ?? currentRide.estimatedPrice;
+    return formatCurrency(value || 0);
+  }, [
+    counterOffer,
+    currentRide.driverOfferedPrice,
+    currentRide.clientSuggestedPrice,
+    currentRide.estimatedPrice,
+  ]);
 
   const renderNegotiationBanner = () => {
     const status = currentRide.negotiationStatus || '';
@@ -838,7 +908,7 @@ export default function RidePreviewScreen() {
   const renderNegotiationContent = () => {
     const customOfferButtonLabel = lastSuggestedPrice
       ? formatCurrency(lastSuggestedPrice)
-      : 'Tu Oferta';
+      : 'Ofrece';
 
     return (
       <View style={styles.negotiationWrapper}>
@@ -858,6 +928,19 @@ export default function RidePreviewScreen() {
             {formatCurrency(currentRide.clientSuggestedPrice || currentRide.estimatedPrice)}
           </Text>
 
+                  <TouchableOpacity
+                    style={[
+                      styles.suggestButton,
+                      styles.inlineSuggestButton,
+                      { backgroundColor: colors.primary, opacity: sendingOffer ? 0.7 : 1 },
+                    ]}
+                    onPress={handleCustomOfferPress}
+                    disabled={sendingOffer}
+                    activeOpacity={0.9}
+                  >
+                    <Text style={styles.suggestButtonText}>{customOfferButtonLabel}</Text>
+                  </TouchableOpacity>
+
           <View style={styles.suggestionsSection}>
             {quickSuggestions.length > 0 && (
               <>
@@ -876,18 +959,7 @@ export default function RidePreviewScreen() {
                       </TouchableOpacity>
                     ))}
                   </View>
-                  <TouchableOpacity
-                    style={[
-                      styles.suggestButton,
-                      styles.inlineSuggestButton,
-                      { backgroundColor: colors.primary, opacity: sendingOffer ? 0.7 : 1 },
-                    ]}
-                    onPress={handleCustomOfferPress}
-                    disabled={sendingOffer}
-                    activeOpacity={0.9}
-                  >
-                    <Text style={styles.suggestButtonText}>{customOfferButtonLabel}</Text>
-                  </TouchableOpacity>
+
                 </View>
               </>
             )}
@@ -1364,32 +1436,32 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   customOfferSendButton: {
-    borderRadius: 16,
-    paddingVertical: 12,
+    borderRadius: 18,
+    paddingVertical: 20,
     justifyContent: 'center',
     alignItems: 'center',
   },
   customOfferSendButtonText: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: 20,
     fontWeight: '800',
     letterSpacing: 0.4,
   },
   suggestButton: {
     borderRadius: 16,
-    paddingHorizontal: 22,
-    paddingVertical: 12,
+    paddingHorizontal: 32,
+    paddingVertical: 32,
     justifyContent: 'center',
     alignItems: 'center',
   },
   inlineSuggestButton: {
-    paddingVertical: 10,
-    paddingHorizontal: 18,
+    paddingVertical: 18,
+    paddingHorizontal: 10,
   },
   suggestButtonText: {
     color: '#FFFFFF',
     fontWeight: '800',
-    fontSize: 14,
+    fontSize: 20,
     letterSpacing: 0.4,
   },
   suggestionsSection: {

@@ -9,7 +9,8 @@ import { RuntimeOptions } from 'firebase-functions';
 export const DEFAULT_REGION = 'us-central1';
 
 // Type alias para mejor legibilidad
-type FunctionConfig = RuntimeOptions;
+// concurrency es opcional y solo será usado por Cloud Functions 2nd Gen
+type FunctionConfig = RuntimeOptions & { concurrency?: number };
 
 /**
  * Configuración para funciones de alta demanda (auth, rides, tracking)
@@ -22,6 +23,8 @@ export const highDemandConfig: FunctionConfig = {
   timeoutSeconds: 60,
   minInstances: 3, // 3 instancias siempre activas (balance costo/performance)
   maxInstances: 100, // Escala hasta 100 instancias en picos
+  // Concurrency alto para maximizar conexiones por instancia (HTTP/callables)
+  concurrency: 100,
 };
 
 /**
@@ -33,6 +36,21 @@ export const mediumDemandConfig: FunctionConfig = {
   timeoutSeconds: 120,
   minInstances: 2, // 2 instancias siempre activas
   maxInstances: 50,
+  // Concurrency moderado: suficientes conexiones sin saturar CPU/DB
+  concurrency: 40,
+};
+
+/**
+ * Configuración específica para verificación de región (checkRegionAvailability)
+ * - Sin minInstances para evitar costo mínimo mensual
+ * - Memoria reducida a 256MB
+ */
+export const regionConfig: FunctionConfig = {
+  memory: '256MB',
+  timeoutSeconds: 30,
+  minInstances: 0,
+  maxInstances: 30,
+  concurrency: 40,
 };
 
 /**
@@ -44,6 +62,8 @@ export const lowDemandConfig: FunctionConfig = {
   timeoutSeconds: 300,
   minInstances: 0, // Permite cold starts
   maxInstances: 10,
+  // Poca concurrencia: funciones poco usadas, priorizamos sencillez
+  concurrency: 10,
 };
 
 /**
@@ -55,6 +75,8 @@ export const webhookConfig: FunctionConfig = {
   timeoutSeconds: 60,
   minInstances: 1,
   maxInstances: 20,
+  // Webhooks deben responder rápido pero sin bloquear por solicitud
+  concurrency: 50,
 };
 
 /**
@@ -77,6 +99,8 @@ export const triggerConfig: FunctionConfig = {
   timeoutSeconds: 60,
   minInstances: 1,
   maxInstances: 30,
+  // Triggers de DB: concurrencia moderada para no saturar lecturas/escrituras
+  concurrency: 20,
 };
 
 /**

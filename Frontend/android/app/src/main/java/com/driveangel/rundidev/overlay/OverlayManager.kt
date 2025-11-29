@@ -1,4 +1,4 @@
-package com.driveangel.app.overlay
+package com.driveangel.rundidev.overlay
 
 import android.content.Context
 import android.content.Intent
@@ -11,7 +11,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.LinearLayout
-import com.driveangel.app.MainActivity
+import com.driveangel.rundidev.MainActivity
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.modules.core.DeviceEventManagerModule

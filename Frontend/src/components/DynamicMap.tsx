@@ -1,4 +1,5 @@
 import React from 'react';
+import { Animated, Platform } from 'react-native';
 import type { ImageSourcePropType } from 'react-native';
 import MapBoxMap from './MapBoxMap';
 import OpenStreetMap from './OpenStreetMap';
@@ -47,6 +48,7 @@ interface DynamicMapProps {
   // ✅ NUEVO: Marcadores de paradas extras con colores
   extraStopMarkers?: Array<{ latitude: number; longitude: number; index: number; color?: string; label?: string }>;
   routeCoordinates?: Array<{ latitude: number; longitude: number }>;
+  secondaryRouteCoordinates?: Array<{ latitude: number; longitude: number }>;
   autoFitEnabled?: boolean;
   provider?: 'google' | 'mapbox' | 'openstreet' | 'tomtom'; // Proveedor de mapa
   nearbyDrivers?: NearbyDriver[]; // Conductores cercanos
@@ -56,6 +58,7 @@ interface DynamicMapProps {
   onRideRequestPress?: (rideRequest: RideRequestMarker) => void; // Callback cuando se presiona una solicitud de viaje
   showUserLocation?: boolean;
   userLocation?: { latitude: number; longitude: number };
+  cameraTarget?: { latitude: number; longitude: number } | null;
   mapType?: 'standard' | 'satellite' | 'hybrid' | 'terrain';
   mapStyle?: any;
   showTraffic?: boolean;
@@ -68,12 +71,16 @@ interface DynamicMapProps {
   userLocationHoldingDarkIcon?: ImageSourcePropType;
   manualOriginIcon?: ImageSourcePropType;
   manualOriginHoldIcon?: ImageSourcePropType;
+  manualOriginBounceValue?: Animated.AnimatedInterpolation<number> | Animated.Value;
   onMarkerDragStart?: (location: { latitude: number; longitude: number }) => void;
   // ✅ NUEVO: Burbujas de dirección sobre pines
   originLabel?: string;
   destinationLabel?: string;
   showPinBubbles?: boolean;
   disableMarkerPress?: boolean;
+  onMarkerPress?: (coords: { latitude: number; longitude: number }) => void;
+  routeColor?: string;
+  secondaryRouteColor?: string;
 }
 
 /**
@@ -105,10 +112,11 @@ function DynamicMapComponent({
   manualOriginIcon,
   manualOriginHoldIcon,
   onMarkerDragStart,
+  onMarkerPress,
   ...restProps
 }: DynamicMapProps) {
   const { mapTrafficEnabled } = useTheme();
-  // En Expo Go, siempre usar OpenStreetMap (Mapbox no funciona correctamente)
+  // En Expo Go, usar siempre Google Maps (react-native-maps) para compatibilidad.
   const isExpoGo = !Constants.appOwnership || Constants.appOwnership === 'expo';
   const actualProvider = isExpoGo ? 'google' : provider;
   const trafficEnabled = showTraffic ?? mapTrafficEnabled;
@@ -138,7 +146,13 @@ function DynamicMapComponent({
         onMarkerDragStart={onMarkerDragStart}
         manualOriginIcon={manualOriginIcon}
         manualOriginHoldIcon={manualOriginHoldIcon}
+        manualOriginBounceValue={restProps.manualOriginBounceValue}
         disableMarkerPress={!!restProps.disableMarkerPress}
+        onMarkerPress={onMarkerPress}
+        cameraTarget={restProps.cameraTarget}
+        routeColor={restProps.routeColor}
+        secondaryRouteCoordinates={restProps.secondaryRouteCoordinates}
+        secondaryRouteColor={restProps.secondaryRouteColor}
       />
     );
   }
@@ -147,7 +161,7 @@ function DynamicMapComponent({
     return <MapBoxMap {...restProps} />;
   }
   
-  return <OpenStreetMap {...restProps} markerVehicleHeading={effectiveMarkerHeading} />;
+  return <OpenStreetMap {...restProps} markerVehicleHeading={effectiveMarkerHeading} onMarkerPress={onMarkerPress} routeColor={restProps.routeColor} secondaryRouteCoordinates={restProps.secondaryRouteCoordinates} secondaryRouteColor={restProps.secondaryRouteColor} />;
 }
 
 export default DynamicMapComponent;

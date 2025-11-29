@@ -12,6 +12,7 @@ import { useFirebaseData } from '../../hooks/useFirebaseData';
 import { extractVehicleTypeFromInfo, ensureVehicleIconSource } from '../../utils/vehicleIcons';
 import mapsService from '../../services/mapsService';
 import { clearClientActiveRideState } from '../../utils/clientRideState';
+import { getPreflightResult } from '../../state/preflightStore';
 
 const USER_LOCATION_LIGHT_ICON = require('../../assets/icons/actuall-position-white/actuallpositionwhite2x.png');
 const USER_LOCATION_DARK_ICON = require('../../assets/icons/actuall-position-black/actuallpositionblack2x.png');
@@ -117,6 +118,9 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { coords } = useLocation();
+  const preflightSummary = getPreflightResult();
+  const initialRegion = preflightSummary?.region;
+  const [serviceAreaId] = useState<string | null>(initialRegion?.serviceAreaId ?? null);
   const [rideId, setRideId] = useState<string | null>(route?.params?.rideId || null);
   const [offers, setOffers] = useState<OfferItem[]>([]);
   const [selectedDriverId, setSelectedDriverId] = useState<string | null>(null);
@@ -142,7 +146,8 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
     (async () => {
       const { getDatabase, ref, onValue, off } = await import('firebase/database');
       const db = getDatabase();
-      const activeRidesRef = ref(db, 'activeRides');
+      const path = serviceAreaId ? `activeRidesByArea/${serviceAreaId}` : 'activeRides';
+      const activeRidesRef = ref(db, path);
       const unsub = onValue(activeRidesRef, (snap) => {
         if (!mounted) return;
         const all = snap.val() || {};
@@ -156,7 +161,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
       });
       return () => { try { off(activeRidesRef); } catch {} };
     })();
-  }, [rideId, user?.id]);
+  }, [rideId, user?.id, serviceAreaId]);
 
   // Listen to active ride and its offers
   useEffect(() => {
@@ -166,7 +171,8 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
       if (!rideId) return;
       const { getDatabase, ref, onValue, off, get } = await import('firebase/database');
       const db = getDatabase();
-      const rideRef = ref(db, `activeRides/${rideId}`);
+      const basePath = serviceAreaId ? `activeRidesByArea/${serviceAreaId}` : 'activeRides';
+      const rideRef = ref(db, `${basePath}/${rideId}`);
 
       const onRide = async (snapshot: any) => {
         if (!mounted) return;
@@ -176,7 +182,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
         // read offers from data or nested path
         let offersData = ride?.offers || ride?.driverOffers;
         if (!offersData) {
-          const offersRef = ref(db, `activeRides/${rideId}/offers`);
+          const offersRef = ref(db, `${basePath}/${rideId}/offers`);
           const offersSnap = await get(offersRef);
           if (offersSnap.exists()) offersData = offersSnap.val();
         }
@@ -234,7 +240,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
     })();
 
     return () => { mounted = false; if (cleanup) cleanup(); };
-  }, [rideId, driversInfo, driversRaw]);
+  }, [rideId, driversInfo, driversRaw, serviceAreaId]);
 
   // Listen driverLocations for marker positions
   useEffect(() => {
@@ -243,7 +249,8 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
     (async () => {
       const { getDatabase, ref, onValue, off } = await import('firebase/database');
       const db = getDatabase();
-      const locRef = ref(db, 'driverLocations');
+      const path = serviceAreaId ? `driverLocationsByArea/${serviceAreaId}` : 'driverLocations';
+      const locRef = ref(db, path);
       onValue(locRef, (snap) => {
         if (!mounted) return;
         const val = snap.val();
@@ -252,7 +259,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
       cleanup = () => { try { off(locRef); } catch {} };
     })();
     return () => { mounted = false; if (cleanup) cleanup(); };
-  }, []);
+  }, [serviceAreaId]);
 
   const nearbyDrivers = useMemo(() => {
     if (!offers || offers.length === 0) return [] as any[];
@@ -340,7 +347,49 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
     [offers, selectedDriverId]
   );
 
-  const primaryActionLabel = selectedOffer?.status === 'accepted' ? 'Confirmar conductor' : 'Seleccionar';
+  const primaryActionLabel = useMemo(() => {
+    if (!selectedOffer) {
+      return 'Seleccionar';
+    }
+
+    if (selectedOffer.status === 'accepted') {
+      return 'Confirmar conductor';
+    }
+
+    const negotiationStatus = rideSnapshot?.negotiationStatus;
+    const hasDriverPrice =
+      typeof rideSnapshot?.driverOfferedPrice === 'number' && rideSnapshot.driverOfferedPrice > 0;
+    const hasClientPrice =
+      typeof rideSnapshot?.clientSuggestedPrice === 'number' && rideSnapshot.clientSuggestedPrice > 0;
+    const hasEstimatedPrice =
+      typeof (rideSnapshot?.estimatedPrice ?? rideSnapshot?.estimatedFare) === 'number';
+
+    if (hasDriverPrice && negotiationStatus === 'driver_offered') {
+      return 'Seleccionar y confirmar el precio del conductor';
+    }
+
+    if (
+      hasClientPrice &&
+      (!hasDriverPrice ||
+        negotiationStatus === 'client_suggested' ||
+        negotiationStatus === 'client_accepted')
+    ) {
+      return 'Seleccionar y confirmar tu precio';
+    }
+
+    if (hasEstimatedPrice && !hasDriverPrice && !hasClientPrice) {
+      return 'Seleccionar y confirmar precio estimado';
+    }
+
+    return 'Seleccionar';
+  }, [
+    selectedOffer,
+    rideSnapshot?.negotiationStatus,
+    rideSnapshot?.driverOfferedPrice,
+    rideSnapshot?.clientSuggestedPrice,
+    rideSnapshot?.estimatedPrice,
+    rideSnapshot?.estimatedFare,
+  ]);
 
   const acceptedAnim = useRef(new Animated.Value(0)).current;
   const confirmBtnAnim = useRef(new Animated.Value(1)).current;
@@ -989,10 +1038,10 @@ const createStyles = (colors: any) => StyleSheet.create({
     alignItems: 'center',
     borderRadius: 24,
   },
-  primaryBtnText: { color: '#fff', fontWeight: '700', fontSize: 20 },
+  primaryBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
   cancelBtn: {
     marginTop: 4,
-    paddingVertical: 12,
+    paddingVertical: 14,
     alignItems: 'center',
     borderRadius: 24,
   },

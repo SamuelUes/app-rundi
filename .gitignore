@@ -27,7 +27,7 @@ node_modules/
 
 # Testing
 coverage/
-*.log
+
 
 # Production builds
 dist/
@@ -76,13 +76,14 @@ tmp/
 temp/
 *.tmp
 
-# Firebase runtime config (local emulador)
-#functions/.runtimeconfig.json
-
 # Carpetas ignoradas (legacy)
 Backend/
 docs/
 database/
+tools/
+.env
+storage.rules
+
 
 # Permitidos
 !database/supabase-only.sql

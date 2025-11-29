@@ -103,6 +103,14 @@ export default function PayCommissionsScreen({ navigation }: any) {
     }
   };
 
+  const handleBack = () => {
+    if (navigation?.canGoBack?.() && navigation.canGoBack()) {
+      navigation.goBack();
+    } else {
+      navigation.replace('Earnings');
+    }
+  };
+
   const formatCurrency = (n: number) => `C$${Number(n || 0).toFixed(2)}`;
 
   const renderPaymentMethods = () => {
@@ -166,7 +174,7 @@ export default function PayCommissionsScreen({ navigation }: any) {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+        <TouchableOpacity style={styles.backButton} onPress={handleBack}>
           <Text style={styles.backButtonText}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Pagar comisiones pendientes</Text>

@@ -8,8 +8,9 @@ import PhoneVerificationScreen from '../screens/Auth/PhoneVerificationScreen';
 import PhoneVerificationLoginScreen from '../screens/Auth/PhoneVerificationLoginScreen';
 import GooglePhoneScreen from '../screens/Auth/GooglePhoneScreen';
 import RoleSelectionScreen from '../screens/Auth/RoleSelectionScreen';
+import DriverPhoneScreen from '../screens/Auth/DriverPhoneScreen';
 import DriverDataScreen from '../screens/Auth/DriverDataScreen';
-import RegisterConfirm from '../screens/Auth/RegisterConfirm';
+import RegisterConfirm from '../screens/Auth/RegisterDriverFormConfirm';
 import { AuthStackParamList } from './types';
 
 const Stack = createNativeStackNavigator<AuthStackParamList>();
@@ -49,6 +50,11 @@ export default function AuthStack() {
         name="RoleSelection"
         component={RoleSelectionScreen}
         options={{ title: 'Seleccionar Rol' }}
+      />
+      <Stack.Screen
+        name="DriverPhone"
+        component={DriverPhoneScreen}
+        options={{ title: 'Teléfono para Conductor' }}
       />
       <Stack.Screen
         name="GooglePhone"

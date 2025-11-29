@@ -32,6 +32,7 @@ import * as smsCodesSequelizeAPI from "./api/sms_verification_codes_sequelize";
 import * as commissionHistorySequelizeAPI from "./api/service_commission_history_sequelize";
 import * as authAPI from "./api/auth";
 import * as pendingPaymentsAPI from "./api/pendingPayments_sequelize";
+import * as regionAvailabilityAPI from "./api/region_availability";
 // ⚠️ COMENTADOS: Archivos .old.ts eliminados
 // import * as usersAPI from "./api/users.old";
 // import * as trackingFunctions from "./api/tracking-functions.old";
@@ -102,6 +103,7 @@ import * as cleanupRealtimeDB from "./scheduled/cleanupRealtimeDB";
 // Importar presence functions
 import * as presenceAPI from "./api/presence";
 import * as sessionsAPI from "./api/sessions";
+import * as geoShardingTriggers from "./triggers/geoSharding";
 
 // ============================================
 // API ENDPOINTS
@@ -177,6 +179,10 @@ export const rejectCounterOffer = priceNegotiationSequelizeAPI.rejectCounterOffe
 
 // Client profiles
 export const getClientProfile = clientProfilesAPI.getClientProfile;
+
+// Region availability
+export const checkRegionAvailability = regionAvailabilityAPI.checkRegionAvailability;
+export const checkRegionAvailabilityHttp = regionAvailabilityAPI.checkRegionAvailabilityHttp;
 
 // ============================================
 // FUNCIONES DE PRESENCE
@@ -329,12 +335,17 @@ export const getServicesSeq = servicesSequelizeAPI.getServices;
 export const getServiceByIdSeq = servicesSequelizeAPI.getServiceById;
 export const updateServiceSeq = servicesSequelizeAPI.updateService;
 
+// Add non-suffixed service exports as aliases to the Sequelize implementations
+export const createService = servicesSequelizeAPI.createService;
+export const getServices = servicesSequelizeAPI.getServices;
+export const getServiceById = servicesSequelizeAPI.getServiceById;
+export const updateService = servicesSequelizeAPI.updateService;
+
 // Cards (Sequelize)
 export const addCardSeq = cardsSequelizeAPI.addCard;
 export const getUserCardsSeq = cardsSequelizeAPI.getUserCards;
 export const setDefaultCardSeq = cardsSequelizeAPI.setDefaultCard;
 export const deleteCardSeq = cardsSequelizeAPI.deleteCard;
-
 // Designated Driver Inspections (Sequelize)
 export const createInspectionSeq = designatedDriverInspectionsSequelizeAPI.createInspection;
 export const getRideInspectionSeq = designatedDriverInspectionsSequelizeAPI.getRideInspection;
@@ -419,6 +430,11 @@ export const onUserCreated = authTriggers.onUserCreated;
 // Rides Triggers
 export const onRideStatusChanged = ridesTriggers.onRideStatusChanged;
 export const onRideCreated = ridesTriggers.onRideCreated;
+
+// Geo-sharding triggers para RTDB (activeRidesByArea, driverLocationsByArea, clientsLocationsByArea)
+export const syncActiveRidesByArea = geoShardingTriggers.syncActiveRidesByArea;
+export const syncDriverLocationsByArea = geoShardingTriggers.syncDriverLocationsByArea;
+export const syncClientsLocationsByArea = geoShardingTriggers.syncClientsLocationsByArea;
 
 // Payments Triggers
 // ⚠️ DEPRECADO: onPaymentCompleted (función vacía, solo loguea)
@@ -550,7 +566,7 @@ export const healthCheck = functions.https.onRequest((req, res) => {
   res.json({
     status: "ok",
     timestamp: new Date().toISOString(),
-    service: "Conduce.ni Functions",
-    version: "1.0.1",
+    service: "Rundi Functions",
+    version: "1.6.4",
   });
 });

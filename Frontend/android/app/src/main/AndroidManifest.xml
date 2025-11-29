@@ -34,7 +34,7 @@
     </intent>
   </queries>
   <application android:name=".MainApplication" android:label="@string/app_name" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round" android:allowBackup="true" android:theme="@style/AppTheme">
-    <meta-data android:name="com.google.android.geo.API_KEY" android:value="AIzaSyAdKfkWZ7y6kpYdZhzktFTsFy1xCYdVKFU"/>
+    <meta-data android:name="com.google.android.geo.API_KEY" android:value="AIzaSyBPMDre2HDxDrjEM5QuTgXZYEhnwyFTRcQ"/>
     <meta-data android:name="expo.modules.updates.ENABLED" android:value="true"/>
     <meta-data android:name="expo.modules.updates.EXPO_RUNTIME_VERSION" android:value="@string/expo_runtime_version"/>
     <meta-data android:name="expo.modules.updates.EXPO_UPDATES_CHECK_ON_LAUNCH" android:value="ALWAYS"/>
@@ -50,7 +50,7 @@
         <action android:name="android.intent.action.VIEW"/>
         <category android:name="android.intent.category.DEFAULT"/>
         <category android:name="android.intent.category.BROWSABLE"/>
-        <data android:scheme="com.driveangel.app"/>
+        <data android:scheme="com.driveangel.rundidev"/>
       </intent-filter>
     </activity>
     <activity android:name="com.facebook.react.devsupport.DevSettingsActivity" android:exported="false"/>

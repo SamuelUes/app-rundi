@@ -499,14 +499,14 @@ export default function SettingsScreen({ navigation }: any) {
           <View style={styles.option}>
             <View style={styles.optionLeft}>
               <Text style={styles.optionTitle}>Versión</Text>
-              <Text style={styles.optionDescription}>1.0.01</Text>
+              <Text style={styles.optionDescription}>Beta - 1.6.4</Text>
             </View>
           </View>
 
           <View style={styles.option}>
             <View style={styles.optionLeft}>
               <Text style={styles.optionTitle}>Dominio</Text>
-              <Text style={styles.optionDescription}>conduce.online</Text>
+              <Text style={styles.optionDescription}>rundiapp.com</Text>
             </View>
           </View>
 

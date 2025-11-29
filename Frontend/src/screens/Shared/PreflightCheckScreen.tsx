@@ -16,7 +16,7 @@ import { overlayManager } from '../../native/overlay';
 import { ensureActivityRecognitionPermission } from '../../utils/activityPermission';
 import alertService from '../../services/alertService';
 import { setPreflightResult, PreflightAction, PreflightSummary } from '../../state/preflightStore';
-import type { PreflightRole, PreflightRouteConfig } from '../../types/preflight';
+import type { PreflightRole, PreflightRouteConfig, PreflightRegionInfo } from '../../types/preflight';
 import proximityService from '../../services/proximityService';
 
 type NavigationLike = {
@@ -31,6 +31,44 @@ const PENALTIES_LIMIT_CORDOBAS = 150;
 
 const CRITICAL_CHECKS = ['auth', 'notifications', 'foregroundLocation', 'backgroundLocation', 'overlay'];
 
+const MANAGUA_BOUNDS = {
+  north: 12.2,
+  south: 12.05,
+  east: -86.15,
+  west: -86.35,
+};
+
+const getLocalRegionFallback = (latitude: number, longitude: number): PreflightRegionInfo => {
+  const inBounds =
+    latitude >= MANAGUA_BOUNDS.south &&
+    latitude <= MANAGUA_BOUNDS.north &&
+    longitude >= MANAGUA_BOUNDS.west &&
+    longitude <= MANAGUA_BOUNDS.east;
+
+  if (inBounds) {
+    return {
+      allowed: true,
+      serviceAreaId: 'ni-managua',
+      areaName: 'Managua',
+      message: 'Servicio disponible en Managua (configuración por defecto).',
+      reasonCode: 'OK_FALLBACK_LOCAL',
+      latitude,
+      longitude,
+    };
+  }
+
+  return {
+    allowed: false,
+    serviceAreaId: null,
+    areaName: undefined,
+    message:
+      'Por el momento el servicio solo está disponible dentro de las áreas activas (actualmente Managua).',
+    reasonCode: 'AREA_NOT_SUPPORTED_LOCAL',
+    latitude,
+    longitude,
+  };
+};
+
 const getCheckLabels = (): Record<string, string> => ({
   auth: 'Verificando sesión',
   notifications: 'Verificando notificaciones',
@@ -38,6 +76,7 @@ const getCheckLabels = (): Record<string, string> => ({
   backgroundLocation: 'Verificando ubicación en segundo plano',
   overlay: 'Verificando permisos de superposición',
   activity: 'Verificando permiso de actividad',
+  region: 'Verificando área de servicio',
   pendingPayments: 'Buscando pagos pendientes',
   penalties: 'Verificando comisiones',
   activeRide: 'Buscando viajes activos',
@@ -46,7 +85,7 @@ const getCheckLabels = (): Record<string, string> => ({
 const PreflightCheckScreen = ({ navigation, route }: any) => {
   const nav = navigation as NavigationLike;
   const params = (route?.params ?? {}) as PreflightRouteConfig;
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const { colors } = useTheme();
   
   const role = useMemo<PreflightRole>(() => {
@@ -101,16 +140,19 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
       'auth',
       'notifications',
       'foregroundLocation',
+      'region',
       ...(role === 'driver' ? ['backgroundLocation'] : []),
       ...(role === 'driver' && Platform.OS === 'android' ? ['overlay'] : []),
       ...(role === 'driver' && Platform.OS === 'android' ? ['activity'] : []),
+      'activeRide',
       'pendingPayments',
       ...(role === 'driver' ? ['penalties'] : []),
-      'activeRide',
     ];
 
     const labels = getCheckLabels();
     const totalChecks = checkList.length;
+
+    let regionInfo: PreflightRegionInfo | undefined;
 
     for (let i = 0; i < checkList.length; i++) {
       const checkId = checkList[i];
@@ -133,6 +175,14 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
           case 'foregroundLocation':
             success = await checkForegroundLocation();
             break;
+          case 'region': {
+            const region = await checkRegionAvailabilityPreflight();
+            if (region) {
+              regionInfo = region;
+            }
+            success = true; // No crítico, solo informativo
+            break;
+          }
           case 'backgroundLocation':
             success = await checkBackgroundLocation();
             break;
@@ -162,8 +212,19 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
 
         if (!success && isCritical) {
           console.error(`❌ [Preflight] Check crítico falló: ${checkId}`);
-          setError(`Error en ${labels[checkId]}: Por favor, verifica y reintenta.`);
-          setCanRetry(true);
+
+          if (checkId === 'auth') {
+            console.warn('⚠️ [Preflight] Auth crítico falló, cerrando sesión y volviendo a Login');
+            try {
+              await logout();
+            } catch (logoutError) {
+              console.error('❌ [Preflight] Error durante logout tras fallo de auth:', logoutError);
+            }
+          } else {
+            setError(`Error en ${labels[checkId]}: Por favor, verifica y reintenta.`);
+            setCanRetry(true);
+          }
+
           checksRunRef.current = false;
           return;
         }
@@ -195,6 +256,7 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
       role,
       timestamp: Date.now(),
       actions: actionsRef.current,
+      region: regionInfo,
     };
     setPreflightResult(summary);
 
@@ -307,12 +369,38 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
 // ==================== CHECK FUNCTIONS ====================
 
 async function checkAuth(user: any): Promise<boolean> {
-  if (!user?.id) {
-    console.warn('⚠️ [Preflight] Usuario no autenticado');
+  try {
+    if (!user?.id) {
+      console.warn('⚠️ [Preflight] Usuario no autenticado en AuthContext');
+      return false;
+    }
+
+    const { getFirebaseAuth } = await import('../../config/firebase');
+    const auth = await getFirebaseAuth();
+    const firebaseUser = auth.currentUser;
+
+    if (!firebaseUser) {
+      console.warn('⚠️ [Preflight] No hay sesión Firebase Auth activa');
+      return false;
+    }
+
+    if (firebaseUser.uid !== user.id) {
+      console.warn(
+        '⚠️ [Preflight] Inconsistencia entre AuthContext y Firebase Auth:',
+        'contextId=',
+        user.id,
+        'firebaseUid=',
+        firebaseUser.uid,
+      );
+      return false;
+    }
+
+    console.log(`✅ [Preflight] Usuario autenticado (context + Firebase): ${user.id}`);
+    return true;
+  } catch (error) {
+    console.error('❌ [Preflight] Error verificando sesión Firebase Auth:', error);
     return false;
   }
-  console.log(`✅ [Preflight] Usuario autenticado: ${user.id}`);
-  return true;
 }
 
 async function checkNotifications(): Promise<boolean> {
@@ -327,6 +415,77 @@ async function checkNotifications(): Promise<boolean> {
   } catch (error) {
     console.error('❌ [Preflight] Error verificando notificaciones:', error);
     return false;
+  }
+}
+
+async function checkRegionAvailabilityPreflight(): Promise<PreflightRegionInfo | null> {
+  let latitude: number | null = null;
+  let longitude: number | null = null;
+
+  try {
+    // Intentar usar la última ubicación conocida para acelerar
+    let position = await Location.getLastKnownPositionAsync();
+    if (!position) {
+      position = await Location.getCurrentPositionAsync({});
+    }
+
+    if (!position) {
+      console.warn('⚠️ [Preflight] No se pudo obtener ubicación para verificación de región');
+      return null;
+    }
+
+    latitude = position.coords.latitude;
+    longitude = position.coords.longitude;
+
+    const { default: client } = await import('../../api/client');
+    const { getFirebaseAuth } = await import('../../config/firebase');
+
+    const auth = await getFirebaseAuth();
+    const firebaseUser = auth.currentUser;
+    if (!firebaseUser) {
+      console.warn('[Preflight] No hay sesión Firebase Auth; omitiendo checkRegionAvailability');
+      return null;
+    }
+
+    try {
+      await firebaseUser.getIdToken(true);
+    } catch (tokenError) {
+      console.warn('[Preflight] No se pudo refrescar token antes de checkRegionAvailability:', tokenError);
+    }
+
+    const response = await client.post('/checkRegionAvailabilityHttp', {
+      latitude,
+      longitude,
+      platform: Platform.OS,
+    });
+
+    const data = response.data as any;
+
+    const region: PreflightRegionInfo = {
+      allowed: !!data?.allowed,
+      serviceAreaId:
+        typeof data?.serviceAreaId === 'string' && data.serviceAreaId.trim().length > 0
+          ? data.serviceAreaId.trim()
+          : null,
+      areaName: typeof data?.areaName === 'string' ? data.areaName : undefined,
+      message: typeof data?.message === 'string' ? data.message : undefined,
+      reasonCode: typeof data?.reasonCode === 'string' ? data.reasonCode : undefined,
+      latitude,
+      longitude,
+    };
+
+    console.log('[Preflight] Región detectada:', region);
+    return region;
+  } catch (error: any) {
+    console.error('❌ [Preflight] Error verificando región (HTTP):', error?.response?.data ?? error);
+
+    if (latitude != null && longitude != null) {
+      const region = getLocalRegionFallback(latitude, longitude);
+      console.log('[Preflight] Región fallback local:', region);
+      return region;
+    }
+
+    return null;
   }
 }
 

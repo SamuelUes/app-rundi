@@ -11,8 +11,12 @@ import { Sequelize } from 'sequelize';
 import * as functions from 'firebase-functions';
 import dotenv from 'dotenv';
 
-// Asegurar que las variables de entorno de .env estén disponibles en emulador/desarrollo
-dotenv.config();
+// Asegurar que las variables de entorno estén disponibles en emulador/desarrollo
+// En producción (Firebase) se usan functions.config()/process.env
+const nodeEnv = process.env.NODE_ENV === 'production' ? 'production' : 'development';
+const envFilePath = nodeEnv === 'production' ? '.env.productions' : '.env.development';
+
+dotenv.config({ path: envFilePath });
 
 console.log(`🔧 [Sequelize Config] Inicializando conexión a Supabase...`);
 
@@ -32,9 +36,16 @@ try {
 
 // 2. Fallback: obtener de process.env (para desarrollo local)
 if (!databaseUrl) {
-  databaseUrl = process.env.DATABASE_URL;
-  if (databaseUrl) {
+  // Primero intentar DATABASE_URL clásica
+  if (process.env.DATABASE_URL) {
+    databaseUrl = process.env.DATABASE_URL;
     console.log(`✅ [Sequelize Config] DATABASE_URL obtenida de process.env`);
+  } else if (process.env.DATABASE_TRANS_POOLER) {
+    // Luego intentar DATABASE_TRANS_POOLER (transaction pooler de Supabase)
+    databaseUrl = process.env.DATABASE_TRANS_POOLER;
+    console.log(
+      `✅ [Sequelize Config] DATABASE_URL obtenida de process.env.DATABASE_TRANS_POOLER (transaction pooler)`,
+    );
   }
 }
 
