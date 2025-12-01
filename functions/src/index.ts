@@ -380,7 +380,11 @@ export const notifyProximityRide = fcmAPI.notifyProximityRide;
 
 // Auth API (HTTP + Callable)
 export const auth = authAPI.auth;
-export const register = authAPI.registerCallable;
+export const registerCallable = authAPI.registerCallable;
+export const checkUserAvailability = authAPI.checkUserAvailability;
+export const logSmsVerificationCode = authAPI.logSmsVerificationCode;
+export const exchangeIdTokenForCustomToken = authAPI.exchangeIdTokenForCustomToken;
+export const hasVerifiedRegisterPhoneLog = authAPI.hasVerifiedRegisterPhoneLog;
 
 // Service Commission History (Sequelize)
 export const recordCommissionChangeSeq = commissionHistorySequelizeAPI.recordCommissionChange;

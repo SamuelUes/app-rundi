@@ -10,7 +10,7 @@
 !**/.env.example
 
 # Permitir .env del Frontend (para configuración del cliente)
-!Frontend/.env
+
 !Frontend/.env.local
 !Frontend/.env.production
 !Frontend/android
@@ -83,7 +83,7 @@ database/
 tools/
 .env
 storage.rules
-
+!Frontend/.env
 
 # Permitidos
 !database/supabase-only.sql

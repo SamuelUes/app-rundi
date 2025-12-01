@@ -10,6 +10,7 @@
 import dotenv from 'dotenv';
 import { existsSync, readFileSync } from 'fs';
 import path from 'path';
+import * as functions from 'firebase-functions';
 
 // Cargar variables de entorno desde archivos locales SOLO en desarrollo
 // En Firebase Functions (producción) las credenciales vienen de functions.config/process.env
@@ -31,6 +32,18 @@ type SupabaseRuntimeConfig = {
 };
 
 function loadRuntimeConfig(): SupabaseRuntimeConfig {
+  // 1️⃣ Intentar leer desde firebase-functions config (entorno de Cloud Functions)
+  try {
+    const cfg = (functions as any).config ? (functions as any).config() : undefined;
+    if (cfg?.supabase) {
+      console.log('✅ [Supabase Client] Credenciales obtenidas de functions.config().supabase');
+      return cfg.supabase as SupabaseRuntimeConfig;
+    }
+  } catch (error: any) {
+    console.log('⚠️ [Supabase Client] No se pudo leer functions.config():', error.message);
+  }
+
+  // 2️⃣ Fallback: archivos .runtimeconfig.json locales (desarrollo)
   const candidatePaths = [
     path.resolve(process.cwd(), '.runtimeconfig.json'),
     path.resolve(__dirname, '..', '..', '.runtimeconfig.json'),
@@ -56,11 +69,18 @@ function loadRuntimeConfig(): SupabaseRuntimeConfig {
 }
 
 const runtimeSupabase = loadRuntimeConfig();
+function normalizeEnv(value?: string): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
 
-supabaseUrl = process.env.SUPABASE_URL ?? runtimeSupabase.url;
-supabaseAnonKey = process.env.SUPABASE_ANON_KEY ?? runtimeSupabase.key;
+supabaseUrl = normalizeEnv(process.env.SUPABASE_URL) ?? runtimeSupabase.url;
+supabaseAnonKey = normalizeEnv(process.env.SUPABASE_ANON_KEY) ?? runtimeSupabase.key;
 supabaseServiceRoleKey =
-  process.env.SUPABASE_SERVICE_ROLE_KEY ?? runtimeSupabase.service_role_key ?? runtimeSupabase.service_role;
+  normalizeEnv(process.env.SUPABASE_SERVICE_ROLE_KEY) ??
+  runtimeSupabase.service_role_key ??
+  runtimeSupabase.service_role;
 
 if (!supabaseUrl || (!supabaseAnonKey && !supabaseServiceRoleKey)) {
   console.error(`❌ [Supabase Client] ERROR: Credenciales de Supabase no configuradas`);
@@ -696,7 +716,9 @@ export async function supabasePost(table: string, data: Record<string, any>) {
     });
     
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      const errorText = await response.text();
+      console.error(`❌ [Supabase POST] HTTP ${response.status}:`, errorText);
+      throw new Error(`HTTP ${response.status}: ${errorText}`);
     }
     
     return await response.json();

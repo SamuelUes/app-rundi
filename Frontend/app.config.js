@@ -9,7 +9,7 @@ export default {
     enabled: true,
     fallbackToCacheTimeout: 0,
     checkAutomatically: 'ON_LOAD',
-    url: 'https://u.expo.dev/e8f4c3b2-9d1a-4e7f-8c5b-2a3d4e5f6a7b'
+    url: 'https://u.expo.dev/79fc9fff-5481-4aba-a29a-632db706c382'
   },
   assetBundlePatterns: ['**/*'],
   ios: {
@@ -96,12 +96,20 @@ export default {
   ],
   extra: {
     eas: {
-      projectId: 'e8f4c3b2-9d1a-4e7f-8c5b-2a3d4e5f6a7b'
+      projectId: '79fc9fff-5481-4aba-a29a-632db706c382'
     },
     apiUrl: process.env.API_URL || '',
     googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY,
     sentryDsn: process.env.SENTRY_DSN,
-    environment: process.env.APP_ENV || 'development'
+    environment: process.env.APP_ENV || process.env.NODE_ENV || 'development',
+    EXPO_PUBLIC_SUPABASE_URL:
+      process.env.EXPO_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL,
+    EXPO_PUBLIC_SUPABASE_KEY:
+      process.env.EXPO_PUBLIC_SUPABASE_KEY ||
+      process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ||
+      process.env.SUPABASE_ANON_KEY,
+    supabaseUrl: process.env.SUPABASE_URL || process.env.EXPO_PUBLIC_SUPABASE_URL,
+    supabaseKey: process.env.SUPABASE_ANON_KEY || process.env.EXPO_PUBLIC_SUPABASE_KEY
   },
   runtimeVersion: {
     policy: 'sdkVersion'

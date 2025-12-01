@@ -4,6 +4,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useFCM } from '../../context/FCMContext';
 import LoadingOverlay from '../../components/LoadingOverlay';
+import TermsAndConditionsModal from '../../components/TermsAndConditionsModal';
 
 export default function SettingsScreen({ navigation }: any) {
   const { theme, setTheme, colors, mapTrafficEnabled, setMapTrafficEnabled } = useTheme();
@@ -11,6 +12,7 @@ export default function SettingsScreen({ navigation }: any) {
   const { isConfigured, hasPermission, isFCMAvailable, configureFCM, sendTestNotification } = useFCM();
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [vibrationEnabled, setVibrationEnabled] = useState(true);
+  const [showTermsModal, setShowTermsModal] = useState(false);
 
   const notificationsEnabled = isFCMAvailable && hasPermission && isConfigured;
 
@@ -46,6 +48,10 @@ export default function SettingsScreen({ navigation }: any) {
 
   const handleDeleteAccount = () => {
     navigation.navigate('DeleteAccount');
+  };
+
+  const handleOpenTerms = () => {
+    setShowTermsModal(true);
   };
 
   const handleLogout = () => {
@@ -487,7 +493,7 @@ export default function SettingsScreen({ navigation }: any) {
             <Text style={styles.arrow}>›</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={[styles.option, styles.optionLast]}>
+          <TouchableOpacity style={[styles.option, styles.optionLast]} onPress={handleOpenTerms}>
             <Text style={styles.optionTitle}>Términos y Condiciones</Text>
             <Text style={styles.arrow}>›</Text>
           </TouchableOpacity>
@@ -520,6 +526,15 @@ export default function SettingsScreen({ navigation }: any) {
           <Text style={styles.logoutButtonText}>Cerrar Sesión</Text>
         </TouchableOpacity>
       </ScrollView>
+
+      <TermsAndConditionsModal
+        visible={showTermsModal}
+        requireCheck={false}
+        saving={false}
+        acceptLabel="Aceptar"
+        onAccept={() => setShowTermsModal(false)}
+        onRequestClose={() => setShowTermsModal(false)}
+      />
     </View>
   );
 }

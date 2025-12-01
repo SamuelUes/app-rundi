@@ -17,6 +17,7 @@ import PaymentMethodsScreen from '../screens/Shared/PaymentMethodsScreen';
 import AddCardScreen from '../screens/Shared/AddCardScreen';
 import SavedCardsScreen from '../screens/Shared/SavedCardsScreen';
 import SettingsScreen from '../screens/Shared/SettingsScreen';
+import AccountScreen from '../screens/Shared/AccountScreen';
 import DeleteAccountScreen from '../screens/Shared/DeleteAccountScreen';
 import HelpScreen from '../screens/Shared/HelpScreen';
 import ChatScreen from '../screens/Shared/ChatScreen';
@@ -184,6 +185,7 @@ export default function DriverStack() {
       <Stack.Screen name="PaymentMethods" component={PaymentMethodsScreen} options={{ headerShown: true, title: 'Métodos de Pago' }} />
       <Stack.Screen name="AddCard" component={AddCardScreen} options={{ headerShown: true, title: 'Agregar Tarjeta' }} />
       <Stack.Screen name="SavedCards" component={SavedCardsScreen} options={{ headerShown: true, title: 'Tarjetas Guardadas' }} />
+      <Stack.Screen name="Account" component={AccountScreen} options={{ headerShown: true, title: 'Mi cuenta' }} />
       <Stack.Screen name="Settings" component={SettingsScreen} options={{ headerShown: true, title: 'Configuración' }} />
       <Stack.Screen name="DeleteAccount" component={DeleteAccountScreen} options={{ headerShown: true, title: 'Eliminar Cuenta' }} />
       <Stack.Screen name="Help" component={HelpScreen} options={{ headerShown: true, title: 'Ayuda' }} />

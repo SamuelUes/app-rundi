@@ -92,7 +92,6 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ navigation, r
         await login(normalizedEmail, password);
 
         Alert.alert('✅ Registro completado', 'Bienvenido a Rundi');
-        navigation.reset({ index: 0, routes: [{ name: 'ClientStack' as never }] });
         return;
       }
 
@@ -126,7 +125,6 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ navigation, r
       }
 
       Alert.alert('✅ Registro completado', 'Bienvenido a Rundi');
-      navigation.reset({ index: 0, routes: [{ name: 'ClientStack' as never }] });
     } catch (error: any) {
       console.error('Error registrando cliente:', error);
       const message =

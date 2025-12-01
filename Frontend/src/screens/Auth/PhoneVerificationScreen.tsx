@@ -21,9 +21,11 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { useTheme } from '../../context/ThemeContext';
 import phoneAuthService from '../../services/auth/phoneAuthService';
+import firebaseAuthService from '../../services/auth/firebaseAuthService';
 import registrationService from '../../services/registrationService';
 import { AuthStackParamList } from '../../navigation/types';
 import { formatPhoneNumber, getCountryDialOptions } from '../../utils/phoneUtils';
+import alertService from '../../services/alertService';
 
 type PhoneVerificationNavigationProp = NativeStackNavigationProp<
   AuthStackParamList,
@@ -129,27 +131,50 @@ export default function PhoneVerificationScreen({ navigation, route }: Props) {
 
   const handleVerifyCode = async () => {
     if (!code || code.length !== 6) {
-      Alert.alert('Error', 'Ingresa un código de 6 dígitos.');
+      Alert.alert('Código incompleto', 'Ingresa un código de 6 dígitos para continuar.');
       return;
     }
 
     if (attempts >= MAX_ATTEMPTS) {
-      Alert.alert('Error', 'Has alcanzado el número máximo de intentos.');
+      Alert.alert(
+        'Demasiados intentos',
+        'Por seguridad hemos bloqueado temporalmente la verificación. Toca "Reenviar código" para intentarlo de nuevo.'
+      );
       return;
     }
 
     setLoading(true);
     try {
-      await phoneAuthService.confirmVerificationCode(phone, code, {
+      const credential = await phoneAuthService.confirmVerificationCode(phone, code, {
         signOutAfterConfirm: true,
       });
 
-      Alert.alert('✅ Teléfono verificado', 'Continuemos con tu registro.');
+      try {
+        const userId = credential?.user?.uid;
+        if (userId) {
+          await firebaseAuthService.logSmsVerification({
+            userId,
+            phoneNumber: phone,
+            code,
+            context: 'register_phone',
+            attemptCount: attempts + 1,
+          });
+        }
+      } catch (logError) {
+        console.error('⚠️ No se pudo registrar el log de verificación SMS (registro):', logError);
+      }
+
+      alertService.showSuccessAlert('✅ Teléfono verificado', 'Continuemos con tu registro.', {
+        duration: 2000,
+      });
       await handleVerifySuccess();
     } catch (error: any) {
       console.error('❌ Error verificando código:', error);
       setAttempts((prev) => prev + 1);
-      Alert.alert('Error', error.message || 'Código incorrecto');
+      Alert.alert(
+        'No pudimos verificar el código',
+        error?.message || 'Revisa el SMS y asegúrate de ingresar el último código recibido.'
+      );
       setCode('');
     } finally {
       setLoading(false);

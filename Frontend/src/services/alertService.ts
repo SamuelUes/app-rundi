@@ -51,12 +51,27 @@ export const showErrorAlert = (message: string, callback?: () => void) => {
   });
 };
 
-export const showSuccessAlert = (title: string, message: string, callback?: () => void) => {
+type SuccessAlertOptions = {
+  duration?: number;
+  onClose?: () => void;
+};
+
+export const showSuccessAlert = (
+  title: string,
+  message: string,
+  callbackOrOptions?: (() => void) | SuccessAlertOptions
+) => {
+  const options: SuccessAlertOptions =
+    typeof callbackOrOptions === 'function'
+      ? { onClose: callbackOrOptions }
+      : callbackOrOptions || {};
+
   emitToast({
     type: 'success',
     title,
     message,
-    onClose: callback,
+    duration: options.duration,
+    onClose: options.onClose,
   });
 };
 

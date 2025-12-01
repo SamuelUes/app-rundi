@@ -10,8 +10,9 @@ import {
   onAuthStateChanged,
   User,
 } from 'firebase/auth';
-import { collection, doc, getDoc, getDocs, query, updateDoc, where } from 'firebase/firestore';
-import { getFirebaseAuth, getFirebaseFirestore } from '../../config/firebase';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
+import { getFirebaseAuth, getFirebaseFirestore, getFirebaseFunctions } from '../../config/firebase';
 import client from '../../api/client';
 import { ENDPOINTS } from '../../api/endpoints';
 
@@ -218,34 +219,112 @@ class FirebaseAuthService {
     phoneExists: boolean;
   }> {
     const { email, phone } = params;
-
-    const firestore = await getFirebaseFirestore();
-    let emailExists = false;
-    let phoneExists = false;
+    const functions = await getFirebaseFunctions();
 
     try {
-      if (email) {
-        const emailQuery = query(
-          collection(firestore, 'users'),
-          where('email', '==', email.trim().toLowerCase())
-        );
-        const emailSnap = await getDocs(emailQuery);
-        emailExists = !emailSnap.empty;
-      }
+      const checkFn = httpsCallable(functions, 'checkUserAvailability');
+      const result: any = await checkFn({
+        email: email ? email.trim().toLowerCase() : undefined,
+        phone: phone ? phone.trim() : undefined,
+      });
 
-      if (phone) {
-        const phoneQuery = query(
-          collection(firestore, 'users'),
-          where('phone', '==', phone.trim())
-        );
-        const phoneSnap = await getDocs(phoneQuery);
-        phoneExists = !phoneSnap.empty;
-      }
+      const data = result?.data || result;
 
-      return { emailExists, phoneExists };
+      return {
+        emailExists: Boolean(data?.emailExists),
+        phoneExists: Boolean(data?.phoneExists),
+      };
     } catch (error: any) {
       console.error('❌ Error verificando existencia de usuario:', error);
-      throw new Error(error?.message || 'No se pudo validar la disponibilidad de la cuenta');
+      throw new Error(
+        error?.message ||
+          'No se pudo validar la disponibilidad de la cuenta. Inténtalo nuevamente más tarde.'
+      );
+    }
+  }
+
+  /**
+   * Verificar si existe al menos un log de verificación de registro
+   * para un número telefónico dado (context: register_phone, verified: true).
+   * Se usa para evitar pedir nuevamente SMS cuando ya se verificó antes.
+   */
+  async hasVerifiedRegisterPhoneLog(phoneNumber: string): Promise<boolean> {
+    try {
+      if (!phoneNumber || typeof phoneNumber !== 'string') {
+        return false;
+      }
+
+      const functions = await getFirebaseFunctions();
+      const checkFn = httpsCallable(functions, 'hasVerifiedRegisterPhoneLog');
+      const result: any = await checkFn({ phoneNumber });
+      const data = result?.data || result;
+
+      return Boolean(data?.hasVerified);
+    } catch (error: any) {
+      console.error('❌ Error verificando logs de verificación de registro:', error);
+      // No romper el flujo de usuario: si falla, asumimos que no hay verificación previa
+      return false;
+    }
+  }
+
+  /**
+   * Intercambiar un ID token (por ejemplo, de React Native Firebase Auth)
+   * por un custom token utilizable por Firebase Auth Web.
+   * Esto permite sincronizar la sesión entre ambos SDKs.
+   */
+  async exchangeIdTokenForCustomToken(idToken: string): Promise<string> {
+    if (!idToken || typeof idToken !== 'string') {
+      throw new Error('idToken inválido para generar la sesión compartida');
+    }
+
+    const functions = await getFirebaseFunctions();
+
+    try {
+      const exchangeFn = httpsCallable(functions, 'exchangeIdTokenForCustomToken');
+      const result: any = await exchangeFn({ idToken });
+      const data = result?.data || result;
+
+      const customToken = data?.customToken;
+      if (typeof customToken !== 'string' || !customToken) {
+        throw new Error('La respuesta del servidor no contiene un customToken válido');
+      }
+
+      return customToken;
+    } catch (error: any) {
+      console.error('❌ Error obteniendo custom token desde idToken:', error);
+      throw new Error(
+        error?.message ||
+          'No se pudo sincronizar la sesión con el backend. Inténtalo nuevamente más tarde.'
+      );
+    }
+  }
+
+  /**
+   * Registrar en Supabase una verificación SMS exitosa (log/historial)
+   */
+  async logSmsVerification(params: {
+    userId: string;
+    phoneNumber: string;
+    code?: string;
+    context: 'register_phone' | 'login_phone' | string;
+    attemptCount?: number;
+  }): Promise<void> {
+    const { userId, phoneNumber, code, context, attemptCount } = params;
+
+    const functions = await getFirebaseFunctions();
+
+    try {
+      const logFn = httpsCallable(functions, 'logSmsVerificationCode');
+      await logFn({
+        userId,
+        phoneNumber,
+        code,
+        context,
+        attemptCount: typeof attemptCount === 'number' ? attemptCount : 1,
+      });
+    } catch (error: any) {
+      console.error('❌ Error registrando verificación SMS en Supabase:', error);
+      // No romper el flujo de usuario: esto es solo logging
     }
   }
 }

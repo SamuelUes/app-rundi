@@ -1,7 +1,8 @@
 import admin from "firebase-admin";
 import { FieldValue } from "firebase-admin/firestore";
 import * as functions from 'firebase-functions';
-import { supabasePost } from '../supabase/client';
+import crypto from 'crypto';
+import { supabasePost, supabaseGet } from '../supabase/client';
 
 interface DriverData {
   licenseNumber?: string;
@@ -328,6 +329,199 @@ export const registerCallable = functions
       throw new functions.https.HttpsError(
         "internal",
         error?.message || "Error al registrar usuario"
+      );
+    }
+  });
+
+export const checkUserAvailability = functions
+  .region("us-central1")
+  .https.onCall(async (data) => {
+    const email = normalizeString(data?.email);
+    const phone = normalizeString(data?.phone);
+
+    let emailExists = false;
+    let phoneExists = false;
+
+    try {
+      if (email) {
+        try {
+          await authAdmin.getUserByEmail(email);
+          emailExists = true;
+        } catch (error: any) {
+          if (error.code !== "auth/user-not-found") {
+            throw error;
+          }
+        }
+      }
+
+      if (phone) {
+        try {
+          await authAdmin.getUserByPhoneNumber(phone);
+          phoneExists = true;
+        } catch (error: any) {
+          if (error.code !== "auth/user-not-found") {
+            throw error;
+          }
+        }
+      }
+
+      return { emailExists, phoneExists };
+    } catch (error: any) {
+      functions.logger.error("❌ Error en checkUserAvailability:", error);
+      throw new functions.https.HttpsError(
+        "internal",
+        error?.message || "Error al verificar disponibilidad de usuario"
+      );
+    }
+  });
+
+export const logSmsVerificationCode = functions
+  .region('us-central1')
+  .https.onCall(async (data, context) => {
+    try {
+      const rawUserId = (data?.userId as string | undefined) || (context.auth?.uid as string | undefined);
+      const phoneNumber = (data?.phoneNumber as string | undefined) || undefined;
+      const code = (data?.code as string | undefined) || undefined;
+      const verificationContext = (data?.context as string | undefined) || 'register_phone';
+      const attempts = typeof data?.attemptCount === 'number' ? data.attemptCount : 1;
+
+      if (!rawUserId) {
+        throw new functions.https.HttpsError('invalid-argument', 'userId es requerido para registrar la verificación SMS');
+      }
+
+      if (!phoneNumber) {
+        throw new functions.https.HttpsError('invalid-argument', 'phoneNumber es requerido para registrar la verificación SMS');
+      }
+
+      const userId = rawUserId.trim();
+      const normalizedPhone = phoneNumber.replace(/\s+/g, '');
+
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + 10 * 60 * 1000); // 10 minutos
+
+      const safeCode = (code || '').trim();
+      const codeHash = safeCode
+        ? crypto.createHash('sha256').update(safeCode).digest('hex')
+        : crypto.createHash('sha256').update(`${userId}:${normalizedPhone}:${now.toISOString()}`).digest('hex');
+
+      const payload = {
+        user_id: userId,
+        phone_number: normalizedPhone,
+        context: verificationContext,
+        code: safeCode || null,
+        code_hash: codeHash,
+        verified: true,
+        attempt_count: attempts,
+        expires_at: expiresAt.toISOString(),
+        verified_at: now.toISOString(),
+      };
+
+      functions.logger.info('📲 Registrando verificación SMS en Supabase:', {
+        userId,
+        phoneNumber: normalizedPhone,
+        context: verificationContext,
+      });
+
+      const result = await supabasePost('sms_verification_codes', payload);
+
+      return {
+        success: true,
+        record: Array.isArray(result) && result.length > 0 ? result[0] : result,
+      };
+    } catch (error: any) {
+      if (error instanceof functions.https.HttpsError) {
+        throw error;
+      }
+
+      functions.logger.error('❌ Error en logSmsVerificationCode:', error);
+      throw new functions.https.HttpsError(
+        'internal',
+        error?.message || 'Error al registrar la verificación SMS'
+      );
+    }
+  });
+
+export const exchangeIdTokenForCustomToken = functions
+  .region('us-central1')
+  .https.onCall(async (data, context) => {
+    const idToken = (data?.idToken as string | undefined) || undefined;
+
+    if (!idToken || typeof idToken !== 'string') {
+      throw new functions.https.HttpsError(
+        'invalid-argument',
+        'idToken es requerido para generar un custom token'
+      );
+    }
+
+    try {
+      const decoded = await authAdmin.verifyIdToken(idToken);
+      const uid = decoded.uid;
+
+      const customToken = await authAdmin.createCustomToken(uid);
+
+      return { customToken };
+    } catch (error: any) {
+      functions.logger.error('❌ Error en exchangeIdTokenForCustomToken:', error);
+      throw new functions.https.HttpsError(
+        'internal',
+        error?.message || 'No se pudo generar custom token desde idToken'
+      );
+    }
+  });
+
+export const hasVerifiedRegisterPhoneLog = functions
+  .region('us-central1')
+  .https.onCall(async (data, context) => {
+    try {
+      const rawPhone = (data?.phoneNumber as string | undefined) || undefined;
+      const rawUserId = (data?.userId as string | undefined) || (context.auth?.uid as string | undefined);
+
+      if (!rawPhone && !rawUserId) {
+        throw new functions.https.HttpsError(
+          'invalid-argument',
+          'Debe proporcionarse al menos phoneNumber o userId'
+        );
+      }
+
+      const normalizedPhone = rawPhone ? rawPhone.replace(/\s+/g, '') : undefined;
+
+      const filters: Record<string, any> = {
+        context: 'register_phone',
+        verified: true,
+      };
+
+      if (normalizedPhone) {
+        filters.phone_number = normalizedPhone;
+      }
+
+      if (rawUserId) {
+        filters.user_id = rawUserId.trim();
+      }
+
+      const results: any[] = await supabaseGet(
+        'sms_verification_codes',
+        filters,
+        'id,user_id,phone_number,verified,verified_at,created_at',
+        {
+          requireServiceRole: true,
+          limit: 1,
+        },
+      );
+
+      const hasVerified = Array.isArray(results) && results.length > 0;
+
+      return {
+        success: true,
+        hasVerified,
+      };
+    } catch (error: any) {
+      if (error instanceof functions.https.HttpsError) {
+        throw error;
+      }
+      functions.logger.error('❌ Error en hasVerifiedRegisterPhoneLog:', error);
+      throw new functions.https.HttpsError(
+        'internal',
+        error?.message || 'No se pudo verificar el estado de verificación del teléfono'
       );
     }
   });

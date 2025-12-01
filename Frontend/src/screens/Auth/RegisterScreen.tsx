@@ -24,6 +24,7 @@ import { useTheme } from '../../context/ThemeContext';
 import registrationService from '../../services/registrationService';
 import phoneAuthService from '../../services/auth/phoneAuthService';
 import firebaseAuthService from '../../services/auth/firebaseAuthService';
+import { getFirebaseAuth } from '../../config/firebase';
 import { RegistrationMethod, RegistrationAuthProvider } from '../../navigation/types';
 import {
   CountryDialOption,
@@ -255,7 +256,51 @@ export default function RegisterScreen() {
         return;
       }
 
-      if (phoneExists) {
+      // ✅ Caso especial: el usuario ya está autenticado y tiene una verificación previa de registro
+      // en Supabase para este número → saltar SMS y pasar directo a selección de rol.
+      let handledByVerifiedLog = false;
+      try {
+        const auth = await getFirebaseAuth();
+        const firebaseUser = auth.currentUser;
+
+        if (firebaseUser && firebaseUser.phoneNumber === normalizedPhone) {
+          const hasVerified = await firebaseAuthService.hasVerifiedRegisterPhoneLog(normalizedPhone);
+
+          if (hasVerified) {
+            console.log(
+              '✅ [Register] Teléfono ya verificado previamente (Supabase); saltando a RoleSelection',
+            );
+
+            await registrationService.saveTemporaryData({
+              name: name.trim(),
+              email: normalizedEmail,
+              phone: normalizedPhone,
+              method: 'phone',
+              authProvider: 'phone',
+              phoneVerified: true,
+            });
+
+            navigation.navigate('RoleSelection', {
+              name: name.trim(),
+              email: normalizedEmail,
+              phone: normalizedPhone,
+              password: undefined,
+              method: 'phone',
+              authProvider: 'phone',
+              googleIdToken: undefined,
+              phoneVerified: true,
+            });
+            handledByVerifiedLog = true;
+          }
+        }
+      } catch (checkError) {
+        console.warn(
+          '⚠️ [Register] No se pudo verificar verificación previa de teléfono; continuando con SMS:',
+          checkError,
+        );
+      }
+
+      if (phoneExists && !handledByVerifiedLog) {
         Alert.alert('Error', 'Ya existe una cuenta registrada con este número telefónico.');
         return;
       }

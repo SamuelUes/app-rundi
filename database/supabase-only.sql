@@ -1015,6 +1015,7 @@ CREATE TABLE IF NOT EXISTS public.sms_verification_codes (
   ride_id UUID NULL,
   user_id VARCHAR(255) NOT NULL,
   phone_number VARCHAR(20) NOT NULL,
+  code VARCHAR(6) NULL,
   code_hash VARCHAR(255) NOT NULL,
   context VARCHAR(50) NOT NULL,
   verified BOOLEAN NOT NULL DEFAULT FALSE,

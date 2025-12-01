@@ -28,6 +28,7 @@ import {
   getCountryDialOptions,
   normalizePhoneNumber,
 } from '../../utils/phoneUtils';
+import alertService from '../../services/alertService';
 
 export default function PhoneVerificationLoginScreen({ navigation, route }: any) {
   const { colors } = useTheme();
@@ -105,12 +106,15 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
 
   const handleVerifyCode = async () => {
     if (!code || code.length !== 6) {
-      Alert.alert('Error', 'Por favor ingresa un código de 6 dígitos');
+      Alert.alert('Código incompleto', 'Ingresa un código de 6 dígitos para continuar.');
       return;
     }
 
     if (attempts >= MAX_ATTEMPTS) {
-      Alert.alert('Error', 'Demasiados intentos. Por favor intenta más tarde.');
+      Alert.alert(
+        'Demasiados intentos',
+        'Por seguridad hemos bloqueado temporalmente la verificación. Toca "Reenviar Código" para intentarlo de nuevo.'
+      );
       return;
     }
 
@@ -123,7 +127,7 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
       }
 
       const credential = await phoneAuthService.confirmVerificationCode(normalizedPhone, code, {
-        signOutAfterConfirm: true,
+        signOutAfterConfirm: false,
       });
       const firebaseUser = credential.user;
 
@@ -131,8 +135,26 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
         throw new Error('No se pudo obtener el usuario de Firebase');
       }
 
-      const userProfile = await firebaseAuthService.getUserProfile(firebaseUser.uid);
+      let userProfile: any = null;
+      try {
+        userProfile = await firebaseAuthService.getUserProfile(firebaseUser.uid);
+      } catch (profileError: any) {
+        console.warn('⚠️ No se pudo obtener perfil de usuario para login por SMS:', profileError);
+      }
+
       const idToken = await firebaseUser.getIdToken();
+
+      try {
+        await firebaseAuthService.logSmsVerification({
+          userId: firebaseUser.uid,
+          phoneNumber: normalizedPhone,
+          code,
+          context: 'login_phone',
+          attemptCount: attempts + 1,
+        });
+      } catch (logError) {
+        console.error('⚠️ No se pudo registrar el log de verificación SMS (login):', logError);
+      }
 
       await loginWithPhoneAndSMS(
         {
@@ -146,11 +168,20 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
         idToken
       );
 
-      Alert.alert('✅ Éxito', 'Sesión iniciada correctamente');
+      alertService.showSuccessAlert('✅ Éxito', 'Sesión iniciada correctamente', {
+        duration: 2000,
+      });
     } catch (error: any) {
       console.error('Error verificando código:', error);
-      setAttempts(attempts + 1);
-      Alert.alert('Error', error.message || 'Error al verificar código');
+      setAttempts((prev) => prev + 1);
+
+      let message = error?.message || 'Revisa el SMS y asegúrate de ingresar el último código recibido.';
+      if (typeof message === 'string' && message.includes('Missing or insufficient permissions')) {
+        message =
+          'No pudimos cargar tu perfil por un problema de permisos, pero el código SMS puede ser válido. Intenta nuevamente más tarde o inicia sesión con correo.';
+      }
+
+      Alert.alert('No pudimos verificar el código', message);
       setCode('');
     } finally {
       setLoading(false);

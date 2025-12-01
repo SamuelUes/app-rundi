@@ -18,6 +18,8 @@ import alertService from '../../services/alertService';
 import { setPreflightResult, PreflightAction, PreflightSummary } from '../../state/preflightStore';
 import type { PreflightRole, PreflightRouteConfig, PreflightRegionInfo } from '../../types/preflight';
 import proximityService from '../../services/proximityService';
+import firebaseAuthService from '../../services/auth/firebaseAuthService';
+import TermsAndConditionsModal, { CURRENT_TERMS_VERSION } from '../../components/TermsAndConditionsModal';
 
 type NavigationLike = {
   replace: (routeName: string, params?: any) => void;
@@ -108,6 +110,9 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
   const [error, setError] = useState<string | null>(null);
   const [completed, setCompleted] = useState(false);
   const [canRetry, setCanRetry] = useState(false);
+  const [showTerms, setShowTerms] = useState(false);
+  const [termsChecked, setTermsChecked] = useState(false);
+  const [savingTerms, setSavingTerms] = useState(false);
   
   const progressAnim = useRef(new Animated.Value(0)).current;
   const actionsRef = useRef<PreflightAction[]>([]);
@@ -122,6 +127,49 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
       useNativeDriver: false,
     }).start();
   }, [progressAnim]);
+
+  const handleTermsIfNeeded = useCallback(async (): Promise<boolean> => {
+    try {
+      if (!user?.id) {
+        return true;
+      }
+
+      const profile = await firebaseAuthService.getUserProfile(user.id);
+      const existingVersion = (profile as any)?.termsVersion;
+
+      if (existingVersion === CURRENT_TERMS_VERSION) {
+        return true;
+      }
+
+      setShowTerms(true);
+      setTermsChecked(false);
+      return false;
+    } catch (err: any) {
+      console.error('❌ [Preflight] Error obteniendo perfil para términos:', err);
+
+      const message = String(err?.message || '');
+      const code = (err && (err as any).code) || '';
+
+      if (
+        message.includes('Missing or insufficient permissions') ||
+        code === 'permission-denied' ||
+        code === 'unauthenticated'
+      ) {
+        console.warn(
+          '⚠️ [Preflight] Sin permisos para leer perfil/términos; permitiendo continuar sin bloqueo',
+        );
+        // No bloquear el flujo de navegación por falta de permisos en Firestore
+        return true;
+      }
+
+      if (user?.id) {
+        setShowTerms(true);
+        setTermsChecked(false);
+        return false;
+      }
+      return true;
+    }
+  }, [user?.id]);
 
   const runChecks = useCallback(async () => {
     if (checksRunRef.current) return;
@@ -262,12 +310,14 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
 
     console.log(`✅ [Preflight] Verificaciones completadas. Acciones: ${actionsRef.current.length}`);
 
-    // Auto-navegar después de 1 segundo
-    setTimeout(() => {
-      nav.replace(successRoute as any);
-    }, 1000);
+    const shouldNavigate = await handleTermsIfNeeded();
+    if (shouldNavigate) {
+      setTimeout(() => {
+        nav.replace(successRoute as any);
+      }, 1000);
+    }
 
-  }, [role, user, nav, successRoute, activeRideRoute, pendingPaymentsRoute, payCommissionsRoute, rideTrackingRoute, animateProgress]);
+  }, [role, user, nav, successRoute, activeRideRoute, pendingPaymentsRoute, payCommissionsRoute, rideTrackingRoute, animateProgress, handleTermsIfNeeded]);
 
   useEffect(() => {
     if (!checksRunRef.current) {
@@ -279,6 +329,51 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
     checksRunRef.current = false;
     runChecks();
   }, [runChecks]);
+
+  const handleAcceptTerms = useCallback(async () => {
+    if (!user?.id) {
+      return;
+    }
+    if (!termsChecked || savingTerms) {
+      return;
+    }
+
+    try {
+      setSavingTerms(true);
+      await firebaseAuthService.updateUserProfile(user.id, {
+        termsVersion: CURRENT_TERMS_VERSION,
+        termsAcceptedAt: new Date(),
+      });
+      setShowTerms(false);
+      setTimeout(() => {
+        nav.replace(successRoute as any);
+      }, 300);
+    } catch (err: any) {
+      console.error('❌ [Preflight] Error guardando aceptación de términos:', err);
+      const message = String(err?.message || '');
+      const code = err?.code;
+
+      if (
+        message.includes('Missing or insufficient permissions') ||
+        code === 'permission-denied' ||
+        code === 'unauthenticated'
+      ) {
+        console.warn(
+          '⚠️ [Preflight] Sin permisos para guardar términos; continuando sin actualizar perfil',
+        );
+        setShowTerms(false);
+        setTimeout(() => {
+          nav.replace(successRoute as any);
+        }, 300);
+      } else {
+        alertService.showErrorAlert(
+          'No pudimos guardar tu aceptación de términos. Revisa tu conexión e inténtalo de nuevo.',
+        );
+      }
+    } finally {
+      setSavingTerms(false);
+    }
+  }, [user?.id, termsChecked, savingTerms, nav, successRoute]);
 
   const handleSkip = useCallback(() => {
     alertService.showInfoAlert(
@@ -362,6 +457,20 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
           </TouchableOpacity>
         )}
       </View>
+
+      <TermsAndConditionsModal
+        visible={showTerms}
+        saving={savingTerms}
+        requireCheck
+        checked={termsChecked}
+        acceptLabel="Aceptar y continuar"
+        onToggleChecked={() => {
+          if (!savingTerms) {
+            setTermsChecked(!termsChecked);
+          }
+        }}
+        onAccept={handleAcceptTerms}
+      />
     </View>
   );
 };
@@ -375,6 +484,31 @@ async function checkAuth(user: any): Promise<boolean> {
       return false;
     }
 
+    // 1️⃣ Intentar validar sesión usando React Native Firebase Auth (teléfono SMS, etc.)
+    try {
+      const { default: rnAuth } = await import('@react-native-firebase/auth');
+      const rnUser = rnAuth().currentUser;
+
+      if (rnUser) {
+        if (rnUser.uid === user.id) {
+          console.log(`✅ [Preflight] Usuario autenticado vía RN Firebase Auth: ${user.id}`);
+          return true;
+        }
+
+        console.warn(
+          '⚠️ [Preflight] Inconsistencia entre AuthContext y RN Firebase Auth:',
+          'contextId=',
+          user.id,
+          'rnUid=',
+          rnUser.uid,
+        );
+        // No retornamos aún: intentaremos validar con Firebase web auth más abajo
+      }
+    } catch (rnError) {
+      console.warn('⚠️ [Preflight] No se pudo verificar sesión con RN Firebase Auth:', rnError);
+    }
+
+    // 2️⃣ Fallback: validar usando Firebase Web Auth (config/firebase)
     const { getFirebaseAuth } = await import('../../config/firebase');
     const auth = await getFirebaseAuth();
     const firebaseUser = auth.currentUser;
@@ -395,7 +529,7 @@ async function checkAuth(user: any): Promise<boolean> {
       return false;
     }
 
-    console.log(`✅ [Preflight] Usuario autenticado (context + Firebase): ${user.id}`);
+    console.log(`✅ [Preflight] Usuario autenticado (context + Firebase web): ${user.id}`);
     return true;
   } catch (error) {
     console.error('❌ [Preflight] Error verificando sesión Firebase Auth:', error);
@@ -944,6 +1078,86 @@ const createStyles = (colors: any) =>
       fontSize: 16,
       fontWeight: '700',
       color: '#0F172A',
+    },
+    termsOverlay: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: 'rgba(0,0,0,0.6)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      paddingHorizontal: 24,
+    },
+    termsCard: {
+      width: '100%',
+      maxHeight: '80%',
+      backgroundColor: colors.card,
+      borderRadius: 16,
+      padding: 20,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    termsTitle: {
+      fontSize: 18,
+      fontWeight: '700',
+      color: colors.text,
+      marginBottom: 12,
+      textAlign: 'center',
+    },
+    termsContent: {
+      maxHeight: 260,
+      marginBottom: 16,
+    },
+    termsText: {
+      fontSize: 13,
+      color: colors.textSecondary || 'rgba(255,255,255,0.75)',
+      lineHeight: 18,
+    },
+    termsCheckboxRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: 16,
+    },
+    termsCheckbox: {
+      width: 22,
+      height: 22,
+      borderRadius: 6,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: 8,
+      backgroundColor: colors.background,
+    },
+    termsCheckboxChecked: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
+    },
+    termsCheckboxIcon: {
+      fontSize: 14,
+      color: '#0F172A',
+      fontWeight: '700',
+    },
+    termsCheckboxLabel: {
+      flex: 1,
+      fontSize: 13,
+      color: colors.text,
+    },
+    termsAcceptButton: {
+      backgroundColor: colors.primary,
+      paddingVertical: 14,
+      borderRadius: 12,
+      alignItems: 'center',
+    },
+    termsAcceptButtonText: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: '#0F172A',
+    },
+    buttonDisabled: {
+      opacity: 0.5,
     },
   });
 

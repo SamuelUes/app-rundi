@@ -2,6 +2,7 @@ import React, { createContext, useState, useContext, useEffect, ReactNode } from
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getFirebaseAuth, getFirebaseDatabase } from '../config/firebase';
 import { ref, set, update, serverTimestamp } from 'firebase/database';
+import { signInWithCustomToken } from 'firebase/auth';
 import backendConfig from '../config/backendConfig';
 import firebaseAuthService from '../services/auth/firebaseAuthService';
 import localAuthService from '../services/auth/localAuthService';
@@ -367,8 +368,53 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     try {
       console.log('📱 Iniciando sesión con teléfono y SMS:', userData);
 
+      // Determinar ID efectivo usando todos los campos posibles
+      let effectiveId = userData.id || userData.uid || userData.userId;
+
+      // Caso especial: registro por SMS usando custom token
+      // result.user viene con userId (sin id/uid) y result.token es un custom token
+      if (
+        backendConfig.isFirebase() &&
+        token &&
+        userData.userId &&
+        !userData.id &&
+        !userData.uid
+      ) {
+        try {
+          const auth = await getFirebaseAuth();
+          const credential = await signInWithCustomToken(auth, token);
+          if (credential?.user?.uid) {
+            effectiveId = credential.user.uid;
+          }
+          console.log('✅ Sesión Firebase iniciada con custom token para registro por SMS');
+        } catch (err: any) {
+          console.warn('⚠️ No se pudo iniciar sesión con custom token (registro SMS):', err?.message || err);
+        }
+      } else if (
+        // Caso: login por SMS (token es un ID token de RN Firebase Auth)
+        backendConfig.isFirebase() &&
+        token &&
+        !userData.userId &&
+        (userData.id || userData.uid)
+      ) {
+        try {
+          const customToken = await firebaseAuthService.exchangeIdTokenForCustomToken(token);
+          const auth = await getFirebaseAuth();
+          const credential = await signInWithCustomToken(auth, customToken);
+          if (credential?.user?.uid) {
+            effectiveId = credential.user.uid;
+          }
+          console.log('✅ Sesión Firebase Web iniciada usando idToken de RN (login SMS)');
+        } catch (err: any) {
+          console.warn(
+            '⚠️ No se pudo sincronizar sesión con Firebase Web en login SMS:',
+            err?.message || err,
+          );
+        }
+      }
+
       const normalizedUser = {
-        id: userData.id || userData.uid,
+        id: effectiveId,
         email: userData.email,
         name: userData.name,
         phone: userData.phone,

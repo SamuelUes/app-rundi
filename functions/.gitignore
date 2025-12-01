@@ -14,7 +14,7 @@ node_modules/
 #.env.local
 
 # Firebase cache
-.firebase/
+#.firebase/
 migrations/
 Logs
 *.log
