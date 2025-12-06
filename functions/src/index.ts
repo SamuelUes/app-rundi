@@ -33,6 +33,8 @@ import * as commissionHistorySequelizeAPI from "./api/service_commission_history
 import * as authAPI from "./api/auth";
 import * as pendingPaymentsAPI from "./api/pendingPayments_sequelize";
 import * as regionAvailabilityAPI from "./api/region_availability";
+import * as publicRideTrackingAPI from "./api/WebPage_publicRideTracking";
+
 // ⚠️ COMENTADOS: Archivos .old.ts eliminados
 // import * as usersAPI from "./api/users.old";
 // import * as trackingFunctions from "./api/tracking-functions.old";
@@ -183,6 +185,10 @@ export const getClientProfile = clientProfilesAPI.getClientProfile;
 // Region availability
 export const checkRegionAvailability = regionAvailabilityAPI.checkRegionAvailability;
 export const checkRegionAvailabilityHttp = regionAvailabilityAPI.checkRegionAvailabilityHttp;
+
+// Public ride tracking (Landing page)
+export const getPublicRideTracking = publicRideTrackingAPI.getPublicRideTracking;
+
 
 // ============================================
 // FUNCIONES DE PRESENCE

@@ -689,11 +689,24 @@ export default function RidePreviewScreen() {
         useNativeDriver: true,
       }).start();
 
-      if (currentRide.clientSuggestedPrice && currentRide.clientSuggestedPrice > 0) {
+      const hasClientSuggested =
+        typeof currentRide.clientSuggestedPrice === 'number' &&
+        Number.isFinite(currentRide.clientSuggestedPrice) &&
+        currentRide.clientSuggestedPrice > 0;
+      const hasEstimatedPrice =
+        typeof currentRide.estimatedPrice === 'number' &&
+        Number.isFinite(currentRide.estimatedPrice) &&
+        currentRide.estimatedPrice > 0;
+
+      if (hasClientSuggested || hasEstimatedPrice) {
+        const priceToShow = hasClientSuggested
+          ? currentRide.clientSuggestedPrice
+          : currentRide.estimatedPrice;
+
         await priceNegotiationService.acceptClientPrice(currentRide.id);
         alertService.showSuccessAlert(
           'Oferta enviada',
-          `Aceptaste el viaje por ${formatCurrency(currentRide.clientSuggestedPrice)}. Esperando confirmación del cliente...`
+          `Aceptaste el viaje por ${formatCurrency(priceToShow || 0)}. Esperando confirmación del cliente...`
         );
       } else {
         const acceptData = {

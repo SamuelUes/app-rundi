@@ -157,7 +157,7 @@ Ride.init(
       type: DataTypes.STRING(20),
       allowNull: true,
       defaultValue: 'cash',
-      comment: "Método de pago: cash (efectivo), card_local (bancos locales), stripe",
+      comment: "Método de pago: cash (efectivo), card_local (bancos locales)",
     },
     biometric_acceptance_required: {
       type: DataTypes.BOOLEAN,

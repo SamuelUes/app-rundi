@@ -11,6 +11,7 @@ import {
   Image,
   KeyboardAvoidingView,
   Animated,
+  Easing,
   useColorScheme,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
@@ -71,6 +72,15 @@ type MapSelectionState =
   | null;
 
 const formatCoords = (coords: Coords) => `${coords.latitude.toFixed(5)}, ${coords.longitude.toFixed(5)}`;
+
+function isValidCoordLocal(value: Coords | null | undefined): value is Coords {
+  if (!value) return false;
+  const { latitude, longitude } = value;
+  if (typeof latitude !== 'number' || typeof longitude !== 'number') return false;
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return false;
+  if (Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return false;
+  return true;
+}
 
 function metersBetween(a: Coords, b: Coords) {
   const R = 6371000; // meters
@@ -196,6 +206,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
   const [manualDestinationDraft, setManualDestinationDraft] = useState<Coords | null>(null);
   const [manualDestinationLoading, setManualDestinationLoading] = useState(false);
   const [manualDestinationDragging, setManualDestinationDragging] = useState(false);
+  const [extraStopSelectionLoading, setExtraStopSelectionLoading] = useState(false);
   const [hasManualOriginOverride, setHasManualOriginOverride] = useState(false);
   const [hasPinnedOrigin, setHasPinnedOrigin] = useState(false);
   const [cameraTarget, setCameraTarget] = useState<Coords | null>(null);
@@ -242,6 +253,14 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
   const [submittingRequest, setSubmittingRequest] = useState(false);
   const [bottomPanelExpanded, setBottomPanelExpanded] = useState(true);
   const bottomPanelAnim = useRef(new Animated.Value(0)).current;
+
+  // Pequeña animación de rebote para indicar que se está resolviendo / guardando
+  // la ubicación seleccionada (origen o destino) en el mapa.
+  const markerBounce = useRef(new Animated.Value(0)).current;
+  const markerBounceTranslateY = markerBounce.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, -6],
+  });
 
   useEffect(() => {
     if (!mapSelectionMode) return;
@@ -640,29 +659,31 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
       }
 
       if (target === 'new-stop') {
-        if (!coordsValue) {
+        if (!isValidCoordLocal(coordsValue)) {
           alertService.showInfoAlert('Selecciona un punto válido', 'Necesitas elegir la ubicación exacta de la parada.');
           return;
         }
-        const nextStops = [...extraDestinations, { address: sanitizedLabel, coords: coordsValue }];
+        const safeCoords = coordsValue as Coords;
+        const nextStops = [...extraDestinations, { address: sanitizedLabel, coords: safeCoords }];
         setExtraDestinations(nextStops);
-        rememberRecentLocation(sanitizedLabel, coordsValue);
-        setCameraTarget(coordsValue);
+        rememberRecentLocation(sanitizedLabel, safeCoords);
+        setCameraTarget(safeCoords);
         await recomputeRouteWith(undefined, undefined, nextStops);
         return;
       }
 
       if (typeof target === 'number') {
-        if (!coordsValue) {
+        if (!isValidCoordLocal(coordsValue)) {
           alertService.showInfoAlert('Selecciona un punto válido', 'Necesitas elegir la ubicación exacta de la parada.');
           return;
         }
+        const safeCoords = coordsValue as Coords;
         const nextStops = extraDestinations.map((stop, index) =>
-          index === target ? { address: sanitizedLabel, coords: coordsValue } : stop,
+          index === target ? { address: sanitizedLabel, coords: safeCoords } : stop,
         );
         setExtraDestinations(nextStops);
-        rememberRecentLocation(sanitizedLabel, coordsValue);
-        setCameraTarget(coordsValue);
+        rememberRecentLocation(sanitizedLabel, safeCoords);
+        setCameraTarget(safeCoords);
         await recomputeRouteWith(undefined, undefined, nextStops);
       }
     },
@@ -846,32 +867,46 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         return;
       }
       const selectedPoint: Coords = { latitude: event.latitude, longitude: event.longitude };
-      const address = (await mapsService.reverseGeocode(selectedPoint)) || formatCoords(selectedPoint);
+      const isExtraStopMode =
+        mapSelectionMode === 'extra-new' ||
+        (mapSelectionMode && typeof mapSelectionMode === 'object' && mapSelectionMode.type === 'extra-edit');
 
-      if (mapSelectionMode === 'extra-new') {
-        await applySelectionForTarget('new-stop', address, selectedPoint);
-        setMapSelectionMode(null);
-        return;
+      if (isExtraStopMode) {
+        setExtraStopSelectionLoading(true);
       }
 
-      if (mapSelectionMode && typeof mapSelectionMode === 'object' && mapSelectionMode.type === 'extra-edit') {
-        await applySelectionForTarget(mapSelectionMode.index, address, selectedPoint);
-        setMapSelectionMode(null);
-        return;
-      }
+      try {
+        const address = (await mapsService.reverseGeocode(selectedPoint)) || formatCoords(selectedPoint);
 
-      if (!destinationCoords) {
-        await applySelectionForTarget('destination', address, selectedPoint);
-        return;
-      }
+        if (mapSelectionMode === 'extra-new') {
+          await applySelectionForTarget('new-stop', address, selectedPoint);
+          setMapSelectionMode(null);
+          return;
+        }
 
-      if (!originCoords) {
-        await applySelectionForTarget('origin', address, selectedPoint);
-        return;
-      }
+        if (mapSelectionMode && typeof mapSelectionMode === 'object' && mapSelectionMode.type === 'extra-edit') {
+          await applySelectionForTarget(mapSelectionMode.index, address, selectedPoint);
+          setMapSelectionMode(null);
+          return;
+        }
 
-      if (canAddExtraStop) {
-        await applySelectionForTarget('new-stop', address, selectedPoint);
+        if (!destinationCoords) {
+          await applySelectionForTarget('destination', address, selectedPoint);
+          return;
+        }
+
+        if (!originCoords) {
+          await applySelectionForTarget('origin', address, selectedPoint);
+          return;
+        }
+
+        if (canAddExtraStop) {
+          await applySelectionForTarget('new-stop', address, selectedPoint);
+        }
+      } finally {
+        if (isExtraStopMode) {
+          setExtraStopSelectionLoading(false);
+        }
       }
     },
     [mapSelectionMode, applySelectionForTarget, destinationCoords, originCoords, canAddExtraStop],
@@ -1296,7 +1331,11 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
   const selectedVehicleOption = useMemo(() => vehicleOptions.find((option) => option.type === vehicleType) || vehicleOptions[0], [vehicleOptions, vehicleType]);
   const hasRouteSelection = !!originCoords && !!destinationCoords;
   const hasRouteMetrics = hasRouteSelection && estimatedDistance > 0 && estimatedDuration > 0 && estimatedPrice > 0;
-  const centerPinActive = mapSelectionMode === 'origin' || mapSelectionMode === 'destination';
+  const centerPinActive =
+    mapSelectionMode === 'origin' ||
+    mapSelectionMode === 'destination' ||
+    mapSelectionMode === 'extra-new' ||
+    (typeof mapSelectionMode === 'object' && mapSelectionMode?.type === 'extra-edit');
   const autoFitEnabled =
     !centerPinActive &&
     !manualOriginDragging &&
@@ -1320,6 +1359,36 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     [bottomPanelAnim],
   );
 
+  const isLocationLoading = manualOriginLoading || manualDestinationLoading || extraStopSelectionLoading;
+
+  useEffect(() => {
+    if (isLocationLoading) {
+      markerBounce.setValue(0);
+      const animation = Animated.loop(
+        Animated.sequence([
+          Animated.timing(markerBounce, {
+            toValue: 1,
+            duration: 350,
+            easing: Easing.inOut(Easing.quad),
+            useNativeDriver: true,
+          }),
+          Animated.timing(markerBounce, {
+            toValue: 0,
+            duration: 350,
+            easing: Easing.inOut(Easing.quad),
+            useNativeDriver: true,
+          }),
+        ]),
+      );
+      animation.start();
+      return () => animation.stop();
+    }
+
+    markerBounce.stopAnimation(() => {
+      markerBounce.setValue(0);
+    });
+  }, [isLocationLoading, markerBounce]);
+
   useEffect(() => {
     Animated.timing(bottomPanelAnim, {
       toValue: bottomPanelReady ? 1 : 0,
@@ -1330,7 +1399,10 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
 
   useEffect(() => {
     if (!bottomPanelReady) {
-      setBottomPanelExpanded(true);
+      setBottomPanelExpanded((prev) => {
+        if (prev) return prev;
+        return true;
+      });
     }
   }, [bottomPanelReady]);
 
@@ -1365,15 +1437,20 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         />
         {centerPinActive && (
           <View pointerEvents="none" style={styles.centerPinContainer}>
-            <Image
+            <Animated.Image
               source={
                 mapSelectionMode === 'origin'
                   ? manualOriginDragging
                     ? MANUAL_ORIGIN_HOLD_ICON
                     : MANUAL_ORIGIN_ICON
-                  : DESTINATION_PIN_ICON
+                  : mapSelectionMode === 'destination'
+                  ? DESTINATION_PIN_ICON
+                  : STOP_PIN_ICON
               }
-              style={styles.centerPinImage}
+              style={[
+                styles.centerPinImage,
+                isLocationLoading && { transform: [{ translateY: markerBounceTranslateY }] },
+              ]}
               resizeMode="contain"
             />
           </View>

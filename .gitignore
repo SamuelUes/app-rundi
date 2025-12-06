@@ -81,9 +81,12 @@ Backend/
 docs/
 database/
 tools/
-.env
+#.env
 storage.rules
 !Frontend/.env
+tests/
+web/
+web/page/.next
 
 # Permitidos
 !database/supabase-only.sql

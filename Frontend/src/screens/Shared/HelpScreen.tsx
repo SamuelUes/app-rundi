@@ -31,7 +31,7 @@ export default function HelpScreen() {
     },
     {
       question: '¿Qué es conductor designado?',
-      answer: 'Un conductor designado maneja tu vehículo. Ideal si has tomado alcohol. El conductor llega en moto y maneja tu auto de regreso a casa.',
+      answer: 'Un conductor designado maneja tu vehículo. Ideal si has tomado alcohol o demas ocasiones donde no puedes hacer uso de tu vehiculo. El conductor llega en moto y maneja tu auto de regreso a casa.',
     },
     {
       question: '¿Cómo cancelo un viaje?',
@@ -43,7 +43,7 @@ export default function HelpScreen() {
     },
     {
       question: '¿Qué métodos de pago aceptan?',
-      answer: 'Aceptamos tarjetas de crédito/débito a través de Stripe y efectivo. Puedes gestionar tus métodos de pago en tu perfil.',
+      answer: 'Aceptamos tarjetas de crédito/débito y efectivo. Puedes gestionar tus métodos de pago en tu perfil.',
     },
     {
       question: '¿Cómo me convierto en conductor?',

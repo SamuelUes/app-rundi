@@ -172,6 +172,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   const [nearbyDriversMarkers, setNearbyDriversMarkers] = useState<NearbyDriverMarker[]>([]);
   const [availableRideRequests, setAvailableRideRequests] = useState<any[]>([]);
   const [activeRide, setActiveRide] = useState<any>(null);
+  const [pendingNegotiationRide, setPendingNegotiationRide] = useState<any | null>(null);
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [clientNamesCache, setClientNamesCache] = useState<Record<string, string>>({});
@@ -657,7 +658,69 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
       return;
     }
 
-    // Prioridad 2: Viaje activo
+    // Prioridad 2: Viaje en negociación (esperando confirmación del cliente)
+    if (pendingNegotiationRide) {
+      const ride = pendingNegotiationRide;
+
+      const originLat =
+        parseCoordinate(ride?.origin?.lat ?? ride?.origin?.latitude ?? ride?.originLatitude) ?? 0;
+      const originLng =
+        parseCoordinate(ride?.origin?.lng ?? ride?.origin?.longitude ?? ride?.originLongitude) ?? 0;
+      const destinationLat =
+        parseCoordinate(
+          ride?.destination?.lat ?? ride?.destination?.latitude ?? ride?.destinationLatitude,
+        ) ?? 0;
+      const destinationLng =
+        parseCoordinate(
+          ride?.destination?.lng ?? ride?.destination?.longitude ?? ride?.destinationLongitude,
+        ) ?? 0;
+
+      const originAddress = ride?.origin?.address ?? ride?.originAddress ?? 'Origen';
+      const destinationAddress = ride?.destination?.address ?? ride?.destinationAddress ?? 'Destino';
+
+      const extraDestinations = Array.isArray(ride?.extraDestinations)
+        ? ride.extraDestinations.map((stop: any) => ({
+            lat: parseCoordinate(stop?.lat ?? stop?.latitude) ?? 0,
+            lng: parseCoordinate(stop?.lng ?? stop?.longitude) ?? 0,
+            address: stop?.address,
+          }))
+        : [];
+
+      const estimatedFare = Number.isFinite(ride?.finalFare)
+        ? Number(ride.finalFare)
+        : Number.isFinite(ride?.clientSuggestedPrice)
+          ? Number(ride.clientSuggestedPrice)
+          : Number.isFinite(ride?.estimatedPrice)
+            ? Number(ride.estimatedPrice)
+            : 0;
+
+      setPendingAction({
+        type: 'active_ride',
+        title: 'Esperando confirmacion de cliente',
+        subtitle: 'El cliente está revisando tu oferta',
+        onPress: () => {
+          navigation.replace('WaitingClientConfirmation', {
+            rideId: ride.id,
+            clientId: ride.clientId,
+            origin: {
+              lat: originLat,
+              lng: originLng,
+              address: originAddress,
+            },
+            destination: {
+              lat: destinationLat,
+              lng: destinationLng,
+              address: destinationAddress,
+            },
+            estimatedFare,
+            extraDestinations,
+          });
+        },
+      });
+      return;
+    }
+
+    // Prioridad 3: Viaje activo
     if (activeRide) {
       const copy = getActiveRidePendingCopy(activeRide);
       setPendingAction({
@@ -711,7 +774,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
     }
 
     setPendingAction(null);
-  }, [pendingPayments, activeRide, preflightActions, navigation]);
+  }, [pendingPayments, pendingNegotiationRide, activeRide, preflightActions, navigation]);
 
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', (e: any) => {
@@ -901,6 +964,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
     if (!coords || !isAvailable) {
       setAvailableRideRequests([]);
       setActiveRide(null);
+      setPendingNegotiationRide(null);
       return;
     }
 
@@ -922,11 +986,13 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
           if (!data || typeof data !== 'object') {
             setAvailableRideRequests([]);
             setActiveRide(null);
+            setPendingNegotiationRide(null);
             return;
           }
 
           const availableRides: any[] = [];
           let myActiveRide: any = null;
+          let myPendingNegotiationRide: any = null;
 
           Object.entries<any>(data).forEach(([rideId, ridePayload]) => {
             const clientIdRaw =
@@ -978,6 +1044,12 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
             }
 
             const statusRaw = typeof ridePayload?.status === 'string' ? ridePayload.status.toLowerCase() : '';
+
+            const negotiationStatusValue =
+              ridePayload?.negotiationStatus ?? ridePayload?.negotiation?.negotiationStatus ?? null;
+            const negotiationStatusRaw =
+              typeof negotiationStatusValue === 'string' ? negotiationStatusValue.toLowerCase() : '';
+
             const isCancelled =
               statusRaw.startsWith('cancel') ||
               statusRaw === 'cancelled' ||
@@ -989,7 +1061,23 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
             }
 
             const isRequested = statusRaw === 'requested' && !ridePayload?.driverId;
-            const isNegotiatingWithMe = ridePayload?.driverId === user?.id &&
+
+            const isWaitingClientConfirmation =
+              ridePayload?.driverId === user?.id &&
+              negotiationStatusRaw === 'driver_accepted' &&
+              (statusRaw === 'pending_confirm' || statusRaw === 'driver_assigned');
+
+            if (isWaitingClientConfirmation && !myPendingNegotiationRide) {
+              myPendingNegotiationRide = {
+                id: rideId,
+                ...ridePayload,
+                clientId,
+              };
+              return;
+            }
+
+            const isNegotiatingWithMe =
+              ridePayload?.driverId === user?.id &&
               (statusRaw === 'pending_confirm' || statusRaw === 'driver_assigned');
 
             if (!(isRequested || isNegotiatingWithMe)) {
@@ -1052,8 +1140,11 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
             })
             .filter((item): item is any => Boolean(item));
 
-          setAvailableRideRequests(formatted);
+          const finalAvailable = myPendingNegotiationRide ? [] : formatted;
+
+          setAvailableRideRequests(finalAvailable);
           setActiveRide(myActiveRide);
+          setPendingNegotiationRide(myPendingNegotiationRide);
         });
 
         cleanup = () => {

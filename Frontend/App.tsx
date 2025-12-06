@@ -1,7 +1,6 @@
 import React, { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer } from '@react-navigation/native';
-import { StripeProvider } from '@stripe/stripe-react-native';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import { VoiceAssistantProvider } from './src/context/VoiceAssistantContext';
@@ -75,17 +74,11 @@ export default function App() {
   return (
     <ThemeProvider>
       <VoiceAssistantProvider>
-        <StripeProvider
-          publishableKey={STRIPE_PUBLISHABLE_KEY}
-          merchantIdentifier="merchant.com.rundi"
-          urlScheme="rundi"
-        >
           <AuthProvider>
             <FCMProvider>
               <AppContent />
             </FCMProvider>
           </AuthProvider>
-        </StripeProvider>
       </VoiceAssistantProvider>
     </ThemeProvider>
   );

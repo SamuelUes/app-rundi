@@ -122,6 +122,20 @@ const parseDate = (value: any): Date | null => {
 };
 
 const formatEtaLabel = (rideData: any, durationSeconds: number | null) => {
+  const status = rideData?.status;
+
+  if (status === 'pending_payment') {
+    return 'Viaje finalizado - pendiente de pago';
+  }
+
+  if (status === 'completed') {
+    return 'Viaje completado';
+  }
+
+  if (status === 'canceled') {
+    return 'Viaje cancelado';
+  }
+
   const etaCandidates = [
     rideData?.estimatedArrivalTime,
     rideData?.estimatedArrival,
@@ -557,6 +571,7 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
   // Panel retráctil (tap para expandir/contraer)
   const [isPanelExpanded, setIsPanelExpanded] = useState(true);
   const cancelButtonScale = useRef(new Animated.Value(1)).current;
+  const hasNavigatedToPaymentRef = useRef(false);
 
   const togglePanel = () => {
     setIsPanelExpanded((prev) => !prev);
@@ -568,6 +583,45 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
       routes: [{ name: 'ClientHome' }],
     });
   }, [navigation]);
+
+  const handleGoToPayment = useCallback(() => {
+    if (!rideData) return;
+
+    const paymentMethodFromRide =
+      rideData.paymentMethod || rideData.payment?.method || paymentMethod || 'cash';
+    const amount =
+      rideData.finalFare ||
+      rideData.estimatedPrice ||
+      finalFare ||
+      estimatedFare ||
+      0;
+    const driverDisplayName = rideData.driver?.name || driverData.name || 'Conductor';
+    const driverPhoto = rideData.driver?.photoURL || undefined;
+    const plateFromRide =
+      rideData.vehicle?.plate ||
+      rideData.driver?.vehicle?.plate ||
+      vehicleData.plate ||
+      'N/A';
+
+    if (paymentMethodFromRide === 'card') {
+      navigation.navigate('Payment', {
+        rideId,
+        amount,
+        driverId: rideData.driverId || driverId,
+        driverName: driverDisplayName,
+        vehiclePlate: plateFromRide,
+        driverPhoto,
+        isPendingPayment: true,
+      });
+    } else {
+      navigation.navigate('CashPayment', {
+        rideId,
+        amount,
+        driverName: driverDisplayName,
+        driverPhoto,
+      });
+    }
+  }, [rideData, paymentMethod, finalFare, estimatedFare, driverData.name, vehicleData.plate, navigation, rideId, driverId]);
 
   const handleOpenChat = useCallback(() => {
     navigation.navigate('Chat', {
@@ -645,6 +699,8 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
         return '#FF9800';
       case 'in_progress':
         return '#2196F3';
+      case 'pending_payment':
+        return '#9C27B0';
       case 'completed':
         return '#4CAF50';
       case 'canceled':
@@ -661,6 +717,8 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
         return 'En camino';
       case 'in_progress':
         return 'En viaje';
+      case 'pending_payment':
+        return 'Pago pendiente';
       case 'completed':
         return 'Completado';
       case 'canceled':
@@ -672,6 +730,49 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
 
   const isAccepted = rideStatus === 'accepted' || rideStatus === 'driver_on_route';
   const isInProgress = rideStatus === 'in_progress';
+
+  // Navegar automáticamente a pantalla de pago cuando el viaje queda en pending_payment
+  useEffect(() => {
+    if (hasNavigatedToPaymentRef.current) return;
+    if (rideStatus !== 'pending_payment' || !rideData) return;
+
+    hasNavigatedToPaymentRef.current = true;
+
+    const paymentMethodFromRide =
+      rideData.paymentMethod || rideData.payment?.method || paymentMethod || 'cash';
+    const amount =
+      rideData.finalFare ||
+      rideData.estimatedPrice ||
+      finalFare ||
+      estimatedFare ||
+      0;
+    const driverDisplayName = rideData.driver?.name || driverData.name || 'Conductor';
+    const driverPhoto = rideData.driver?.photoURL || undefined;
+    const plateFromRide =
+      rideData.vehicle?.plate ||
+      rideData.driver?.vehicle?.plate ||
+      vehicleData.plate ||
+      'N/A';
+
+    if (paymentMethodFromRide === 'card') {
+      navigation.replace('Payment', {
+        rideId,
+        amount,
+        driverId: rideData.driverId || driverId,
+        driverName: driverDisplayName,
+        vehiclePlate: plateFromRide,
+        driverPhoto,
+        isPendingPayment: true,
+      });
+    } else {
+      navigation.replace('CashPayment', {
+        rideId,
+        amount,
+        driverName: driverDisplayName,
+        driverPhoto,
+      });
+    }
+  }, [rideStatus, rideData, paymentMethod, finalFare, estimatedFare, driverData.name, vehicleData.plate, navigation, rideId, driverId]);
 
   // Ruta dinámica: antes de recoger al cliente mostrar ruta del conductor al origen en amarillo
   const [driverToOriginRoute, setDriverToOriginRoute] = useState<LatLngPoint[]>([]);
@@ -805,25 +906,20 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
   const handleShareTrip = useCallback(async () => {
     try {
       const pickupAddress = rideData?.origin?.address || 'Punto de recogida';
-      const latitude = clientCoords?.latitude || originCoords?.latitude;
-      const longitude = clientCoords?.longitude || originCoords?.longitude;
+      const trackingUrl = `https://rundiapp.com/tracking?rideId=${rideId}`;
 
       const parts = [
         `Estoy en un viaje con ${driverData.name} (${vehicleData.brand} ${vehicleData.model} - ${vehicleData.color}) - Placa: ${vehicleData.plate}`,
         `Punto de recogida: ${pickupAddress}`,
+        `Sigue mi viaje en tiempo real: ${trackingUrl}`,
       ];
-
-      if (typeof latitude === 'number' && typeof longitude === 'number') {
-        const mapsUrl = `https://maps.google.com/?q=${latitude},${longitude}`;
-        parts.push(`Mi ubicación en el mapa: ${mapsUrl}`);
-      }
 
       const message = parts.join('\n');
       await Share.share({ message, title: 'Compartir ubicación' });
     } catch (error) {
       console.error('Error al compartir ubicación del viaje:', error);
     }
-  }, [driverData, vehicleData, clientCoords, originCoords, rideData]);
+  }, [driverData, vehicleData, rideData, rideId]);
 
   return (
     <View style={styles.container}>
@@ -1001,6 +1097,15 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
 
       {/* Botones de Acción - siempre visibles */}
       <View style={styles.actionButtons}>
+        {rideStatus === 'pending_payment' && (
+          <TouchableOpacity
+            style={styles.paymentButton}
+            onPress={handleGoToPayment}
+            activeOpacity={0.9}
+          >
+            <Text style={styles.paymentButtonText}>Ir a pago</Text>
+          </TouchableOpacity>
+        )}
         <TouchableOpacity
           style={[styles.shareButton, { backgroundColor: '#609931ff' }]}
           onPress={handleShareTrip}
@@ -1249,6 +1354,17 @@ const createStyles = (colors: any) => StyleSheet.create({
   actionButtons: {
     gap: 12,
     marginTop: 8,
+  },
+  paymentButton: {
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    backgroundColor: '#9C27B0',
+  },
+  paymentButtonText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
   },
   shareButton: {
     paddingVertical: 14,

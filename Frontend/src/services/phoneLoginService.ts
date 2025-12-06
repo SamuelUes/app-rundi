@@ -16,10 +16,12 @@ class PhoneLoginService {
     try {
       console.log('📱 Solicitando código SMS para login:', phone);
 
-      // Validar formato de teléfono
-      const phoneRegex = /^\+505\d{8}$/;
+      // Validar formato de teléfono (E.164 genérico)
+      const phoneRegex = /^\+\d{6,15}$/;
       if (!phoneRegex.test(phone.replace(/\s/g, ''))) {
-        throw new Error('Formato de teléfono inválido. Debe ser +505 XXXX XXXX');
+        throw new Error(
+          'Formato de teléfono inválido. Usa formato internacional (+Código país y número).',
+        );
       }
 
       await phoneAuthService.sendVerificationCode(phone);

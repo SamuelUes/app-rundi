@@ -1171,10 +1171,24 @@ export const acceptRide = functions.https.onCall(async (data, context) => {
     
     try {
       const driver = await driverRepo.findByUserId(driverId);
+      let driverName: string | null = null;
+
       if (driver) {
+        const driverJson: any = driver.toJSON ? driver.toJSON() : (driver as any);
+        const firstName = driverJson.first_name || driverJson.firstName || '';
+        const lastName = driverJson.last_name || driverJson.lastName || '';
+        const fullName = `${firstName} ${lastName}`.trim();
+        if (fullName.length > 0) {
+          driverName = fullName;
+        }
+      }
+
+      if (driver) {
+        const safeName = driverName || 'Conductor';
         driverData = {
           id: driver.id,
           userId: driver.user_id,
+          name: safeName,
           rating: driver.average_rating || 0,
           profilePhoto: driver.profile_photo,
         };
@@ -1407,9 +1421,22 @@ export const confirmDriver = functions.https.onCall(async (data, context) => {
       }
       
       if (driver) {
+        const driverJson: any = driver.toJSON ? driver.toJSON() : (driver as any);
+        const firstName = driverJson.first_name || driverJson.firstName || '';
+        const lastName = driverJson.last_name || driverJson.lastName || '';
+        const fullName = `${firstName} ${lastName}`.trim();
+        let safeName = fullName;
+        if (!safeName && rideData?.driver && typeof rideData.driver.name === 'string') {
+          safeName = rideData.driver.name;
+        }
+        if (!safeName) {
+          safeName = 'Conductor';
+        }
+
         driverData = {
           id: driver.id,
           userId: driver.user_id,
+          name: safeName,
           rating: driver.average_rating || 0,
           profilePhoto: driver.profile_photo,
         };
@@ -2480,7 +2507,7 @@ export const acceptClientPrice = functions.https.onCall(async (data, context) =>
       driverId: driverId,  // Asignar este conductor
       status: 'accepted',  // Cambiar estado a accepted
       finalFare: ride.clientSuggestedPrice,
-      negotiationStatus: 'accepted',
+      negotiationStatus: 'driver_accepted',
       acceptedAt: admin.database.ServerValue.TIMESTAMP,
       updatedAt: admin.database.ServerValue.TIMESTAMP,
     });
@@ -2604,7 +2631,7 @@ export const acceptCounterOffer = functions.https.onCall(async (data, context) =
       driverId: driverId,  // Asignar el conductor que hizo la contraoferta
       status: 'accepted',  // Cambiar estado a accepted
       finalFare: acceptedPrice,
-      negotiationStatus: 'accepted',
+      negotiationStatus: 'client_accepted',
       acceptedAt: admin.database.ServerValue.TIMESTAMP,
       updatedAt: admin.database.ServerValue.TIMESTAMP,
     });

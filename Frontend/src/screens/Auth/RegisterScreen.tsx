@@ -31,8 +31,9 @@ import {
   formatPhoneNumber,
   getCountryDialOptions,
   normalizePhoneNumber,
-  extractLocalNumber,
+  getCountryLocalNumberLength,
 } from '../../utils/phoneUtils';
+import PhoneNumberModal from '../../components/PhoneNumberModal';
 
 export default function RegisterScreen() {
   const navigation = useNavigation<any>();
@@ -49,10 +50,12 @@ export default function RegisterScreen() {
     countryOptions.find((option) => option.code === 'NI') ?? countryOptions[0];
   const [selectedCountry, setSelectedCountry] = useState<CountryDialOption>(defaultCountry);
 
+  const [phoneDigits, setPhoneDigits] = useState('');
   const [phone, setPhone] = useState<string>(
     formatPhoneNumber('', defaultCountry.dialCode)
   );
   const [normalizedPhone, setNormalizedPhone] = useState('');
+  const [phoneModalVisible, setPhoneModalVisible] = useState(false);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -100,15 +103,14 @@ export default function RegisterScreen() {
     const nextCountry =
       countryOptions.find((option) => option.code === countryCode) ?? countryOptions[0];
 
-    const localDigits = extractLocalNumber(
-      normalizedPhone || phone,
-      selectedCountry.dialCode
-    );
-    const newNormalized = localDigits
-      ? normalizePhoneNumber(localDigits, nextCountry.dialCode)
+    const maxDigits = getCountryLocalNumberLength(nextCountry);
+    const nextDigits = phoneDigits.slice(0, maxDigits);
+    const newNormalized = nextDigits
+      ? normalizePhoneNumber(nextDigits, nextCountry.dialCode)
       : '';
 
     setSelectedCountry(nextCountry);
+    setPhoneDigits(nextDigits);
     setNormalizedPhone(newNormalized);
     setPhone(
       newNormalized
@@ -117,13 +119,41 @@ export default function RegisterScreen() {
     );
   };
 
-  const handlePhoneChange = (value: string) => {
-    const normalized = normalizePhoneNumber(value, selectedCountry.dialCode);
+  const openPhoneModal = () => {
+    setPhoneModalVisible(true);
+  };
+
+  const handlePhoneModalClose = () => {
+    setPhoneModalVisible(false);
+  };
+
+  const handlePhoneModalConfirm = ({
+    country,
+    digits,
+    normalizedPhone: normalized,
+    formattedPhone: formatted,
+  }: {
+    country: CountryDialOption;
+    digits: string;
+    normalizedPhone: string;
+    formattedPhone: string;
+  }) => {
+    setSelectedCountry(country);
+    setPhoneDigits(digits);
+    setNormalizedPhone(normalized);
+    setPhone(formatted || `${country.dialCode} `);
+    setPhoneModalVisible(false);
+  };
+
+  const handlePhoneChange = (localDigits: string) => {
+    setPhoneDigits(localDigits);
+
+    const normalized = normalizePhoneNumber(localDigits, selectedCountry.dialCode);
     setNormalizedPhone(normalized);
 
     const formatted = normalized
       ? formatPhoneNumber(normalized, selectedCountry.dialCode)
-      : formatPhoneNumber(value, selectedCountry.dialCode);
+      : formatPhoneNumber('', selectedCountry.dialCode);
 
     setPhone(formatted || `${selectedCountry.dialCode} `);
   };
@@ -403,40 +433,47 @@ export default function RegisterScreen() {
 
           {/* Teléfono */}
           <View style={styles.fieldGroup}>
-            <Text style={styles.label}>País y Código {isPhoneMethod ? '*' : ''}</Text>
-            <View style={styles.countryPickerContainer}>
-              <Picker
-                selectedValue={selectedCountry.code}
-                onValueChange={handleCountryChange}
-                style={styles.countryPicker}
-                itemStyle={styles.countryPickerItem}
-              >
-                {countryOptions.map((option) => (
-                  <Picker.Item
-                    key={option.code}
-                    label={`${option.name} (${option.dialCode})`}
-                    value={option.code}
-                  />
-                ))}
-              </Picker>
-            </View>
-
             <Text style={styles.label}>Teléfono {isPhoneMethod ? '*' : ''}</Text>
-            <TextInput
-              style={styles.input}
-              placeholder={`${selectedCountry.dialCode} 12345678`}
-              placeholderTextColor={colors.textSecondary}
-              value={phone}
-              onChangeText={handlePhoneChange}
-              keyboardType="phone-pad"
-              editable={!loading}
-            />
+
+            <TouchableOpacity
+              style={styles.phoneSummary}
+              onPress={openPhoneModal}
+              disabled={loading}
+              activeOpacity={0.8}
+            >
+              <View style={styles.phoneSummaryFlagDial}>
+                <Text style={styles.phoneSummaryDial}>{selectedCountry.dialCode}</Text>
+              </View>
+              <View style={styles.phoneSummaryValueContainer}>
+                <Text
+                  style={
+                    normalizedPhone
+                      ? styles.phoneSummaryValue
+                      : styles.phoneSummaryPlaceholder
+                  }
+                  numberOfLines={1}
+                >
+                  {normalizedPhone ? phone : 'Toca para agregar tu número'}
+                </Text>
+              </View>
+            </TouchableOpacity>
+
             <Text style={styles.helperText}>
               {isPhoneMethod
                 ? 'Es necesario para que podamos contactarte.'
                 : 'Opcional, podrás agregarlo o editarlo después.'}
             </Text>
           </View>
+
+          <PhoneNumberModal
+            visible={phoneModalVisible}
+            onClose={handlePhoneModalClose}
+            onConfirm={handlePhoneModalConfirm}
+            countryOptions={countryOptions}
+            initialCountry={selectedCountry}
+            initialDigits={phoneDigits}
+            loading={loading}
+          />
 
           {/* Contraseñas */}
           {isEmailMethod && (
@@ -532,62 +569,76 @@ export default function RegisterScreen() {
 const createStyles = (colors: any) =>
   StyleSheet.create({
     container: {
-      flex: 1,
+      flex: 2,
       backgroundColor: colors.background,
     },
     scrollContent: {
       flexGrow: 1,
-      padding: 24,
+      paddingVertical: 32,
+      paddingHorizontal: 14,
       justifyContent: 'center',
     },
     card: {
       backgroundColor: colors.card,
-      borderRadius: 20,
-      padding: 24,
+      borderRadius: 28,
+      paddingVertical: 32,
+      paddingHorizontal: 24,
       borderWidth: 1,
       borderColor: colors.border,
-      gap: 16,
+      gap: 20,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.18,
+      shadowRadius: 10,
+      elevation: 6,
     },
     title: {
-      fontSize: 28,
-      fontWeight: '700',
-      color: colors.text,
+      fontSize: 26,
+      fontWeight: '800',
+      color: 'rgba(207, 152, 48, 1)',
+      textAlign: 'center',
+      marginBottom: 4,
     },
     subtitle: {
       fontSize: 14,
       color: colors.textSecondary,
-      marginBottom: 8,
+      textAlign: 'center',
+      marginBottom: 20,
     },
     methodSwitcher: {
       flexDirection: 'row',
+      alignSelf: 'center',
       backgroundColor: colors.background,
-      borderRadius: 12,
+      borderRadius: 999,
       borderWidth: 1,
       borderColor: colors.border,
       padding: 4,
-      gap: 8,
+      gap: 6,
+      marginBottom: 8,
     },
     methodButton: {
       flex: 1,
-      paddingVertical: 12,
-      borderRadius: 8,
+      paddingVertical: 8,
+      paddingHorizontal: 10,
+      borderRadius: 999,
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: 'transparent',
     },
     methodButtonActive: {
-      backgroundColor: colors.primary,
+      backgroundColor: 'rgba(241, 200, 123, 1), 1)' + '20',
     },
     methodButtonText: {
-      fontSize: 12,
+      fontSize: 13,
       fontWeight: '600',
       color: colors.textSecondary,
     },
     methodButtonTextActive: {
-      color: '#FFFFFF',
+      color: 'rgba(172, 127, 44, 1), 1)',
     },
     fieldGroup: {
-      gap: 8,
+      gap: -25,
+      marginBottom: 2,
     },
     countryPickerContainer: {
       marginBottom: 8,
@@ -609,11 +660,12 @@ const createStyles = (colors: any) =>
     },
     input: {
       backgroundColor: colors.background,
-      borderRadius: 10,
-      padding: 14,
-      fontSize: 14,
+      borderRadius: 12,
+      paddingVertical: 12,
+      paddingHorizontal: 14,
+      fontSize: 15,
       color: colors.text,
-      borderWidth: 1,
+      borderWidth: 1.5,
       borderColor: colors.border,
     },
     inputSuccess: {
@@ -626,6 +678,42 @@ const createStyles = (colors: any) =>
     },
     helperText: {
       fontSize: 12,
+      color: colors.textSecondary,
+    },
+    phoneSummary: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 8,
+      paddingHorizontal: 10,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.background,
+      gap: 6,
+    },
+    phoneSummaryFlagDial: {
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 6,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.card,
+    },
+    phoneSummaryDial: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: colors.text,
+    },
+    phoneSummaryValueContainer: {
+      flex: 1,
+      justifyContent: 'center',
+    },
+    phoneSummaryValue: {
+      fontSize: 13,
+      color: colors.text,
+    },
+    phoneSummaryPlaceholder: {
+      fontSize: 13,
       color: colors.textSecondary,
     },
     inputError: {
@@ -642,8 +730,14 @@ const createStyles = (colors: any) =>
     primaryButton: {
       backgroundColor: colors.primary,
       paddingVertical: 14,
-      borderRadius: 12,
+      borderRadius: 999,
       alignItems: 'center',
+      marginTop: 8,
+      shadowColor: colors.primary,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.3,
+      shadowRadius: 6,
+      elevation: 5,
     },
     primaryButtonText: {
       color: '#FFFFFF',
@@ -656,15 +750,20 @@ const createStyles = (colors: any) =>
     phoneActionsRow: {
       marginTop: 16,
       flexDirection: 'row',
-      justifyContent: 'flex-end',
+      justifyContent: 'center',
     },
     phoneNextButton: {
-      width: 320,
-      height: 56,
-      borderRadius: 28,
+      width: '100%',
+      height: 52,
+      borderRadius: 999,
       backgroundColor: colors.primary,
       justifyContent: 'center',
       alignItems: 'center',
+      shadowColor: colors.primary,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.3,
+      shadowRadius: 6,
+      elevation: 5,
     },
     phoneNextIcon: {
       fontSize: 24,
@@ -672,7 +771,8 @@ const createStyles = (colors: any) =>
       fontWeight: '700',
     },
     footerInfo: {
-      marginTop: 8,
+      marginTop: 20,
+      alignItems: 'center',
     },
     footerText: {
       fontSize: 12,

@@ -25,7 +25,9 @@ import {
   getCountryDialOptions,
   normalizePhoneNumber,
   extractLocalNumber,
+  getCountryLocalNumberLength,
 } from '../../utils/phoneUtils';
+import PhoneDigitInput from '../../components/PhoneDigitInput';
 
  type DriverPhoneNavigationProp = NativeStackNavigationProp<AuthStackParamList, 'DriverPhone'>;
  type DriverPhoneRouteProp = RouteProp<AuthStackParamList, 'DriverPhone'>;
@@ -57,42 +59,45 @@ const DriverPhoneScreen: React.FC<Props> = ({ navigation, route }) => {
       ? normalizePhoneNumber(initialPhone, detectedCountry.dialCode)
       : '';
 
-  const [normalizedPhone, setNormalizedPhone] = useState<string>(initialNormalized);
-  const [phoneInput, setPhoneInput] = useState<string>(
-    initialNormalized
-      ? formatPhoneNumber(initialNormalized, detectedCountry.dialCode)
-      : formatPhoneNumber('', detectedCountry.dialCode)
+  const initialLocalDigits = initialNormalized
+    ? extractLocalNumber(initialNormalized, detectedCountry.dialCode)
+    : '';
+
+  const initialDigitsLimited = initialLocalDigits.slice(
+    0,
+    getCountryLocalNumberLength(detectedCountry),
   );
+
+  const [phoneDigits, setPhoneDigits] = useState(initialDigitsLimited);
+
+  const [normalizedPhone, setNormalizedPhone] = useState<string>(
+    initialDigitsLimited
+      ? normalizePhoneNumber(initialDigitsLimited, detectedCountry.dialCode)
+      : initialNormalized,
+  );
+
   const [loading, setLoading] = useState(false);
 
   const handleCountryChange = (countryCode: string) => {
     const nextCountry =
       countryOptions.find((option) => option.code === countryCode) ?? countryOptions[0];
 
-    const localDigits = extractLocalNumber(
-      normalizedPhone || phoneInput,
-      selectedCountry.dialCode
-    );
-    const newNormalized = localDigits
-      ? normalizePhoneNumber(localDigits, nextCountry.dialCode)
+    const maxDigits = getCountryLocalNumberLength(nextCountry);
+    const nextDigits = phoneDigits.slice(0, maxDigits);
+    const newNormalized = nextDigits
+      ? normalizePhoneNumber(nextDigits, nextCountry.dialCode)
       : '';
 
     setSelectedCountry(nextCountry);
+    setPhoneDigits(nextDigits);
     setNormalizedPhone(newNormalized);
-    setPhoneInput(
-      newNormalized
-        ? formatPhoneNumber(newNormalized, nextCountry.dialCode)
-        : formatPhoneNumber('', nextCountry.dialCode)
-    );
   };
 
-  const handlePhoneChange = (value: string) => {
-    const normalized = normalizePhoneNumber(value, selectedCountry.dialCode);
+  const handlePhoneChange = (localDigits: string) => {
+    setPhoneDigits(localDigits);
+
+    const normalized = normalizePhoneNumber(localDigits, selectedCountry.dialCode);
     setNormalizedPhone(normalized);
-    const formatted = normalized
-      ? formatPhoneNumber(normalized, selectedCountry.dialCode)
-      : formatPhoneNumber(value, selectedCountry.dialCode);
-    setPhoneInput(formatted || `${selectedCountry.dialCode} `);
   };
 
   const isPhoneValid = normalizedPhone ? /^\+\d{6,15}$/.test(normalizedPhone) : false;
@@ -185,14 +190,13 @@ const DriverPhoneScreen: React.FC<Props> = ({ navigation, route }) => {
 
           <View style={styles.fieldGroup}>
             <Text style={styles.label}>Phone number</Text>
-            <TextInput
-              style={styles.input}
-              placeholder={`${selectedCountry.dialCode} 12345678`}
-              placeholderTextColor={colors.textSecondary}
-              value={phoneInput}
-              onChangeText={handlePhoneChange}
-              keyboardType="phone-pad"
-              editable={!loading}
+            <PhoneDigitInput
+              countryOptions={countryOptions}
+              selectedCountry={selectedCountry}
+              onCountryChange={handleCountryChange}
+              digits={phoneDigits}
+              onChangeDigits={handlePhoneChange}
+              disabled={loading}
             />
             <Text style={styles.helperText}>
               Usaremos este número para enviarte un código SMS de verificación.

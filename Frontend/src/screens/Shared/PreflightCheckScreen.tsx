@@ -20,6 +20,7 @@ import type { PreflightRole, PreflightRouteConfig, PreflightRegionInfo } from '.
 import proximityService from '../../services/proximityService';
 import firebaseAuthService from '../../services/auth/firebaseAuthService';
 import TermsAndConditionsModal, { CURRENT_TERMS_VERSION } from '../../components/TermsAndConditionsModal';
+import PermissionsExplanation from '../../components/permissions/PermissionsExplanation';
 
 type NavigationLike = {
   replace: (routeName: string, params?: any) => void;
@@ -398,6 +399,8 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
             ? 'Ocurrió un problema'
             : 'Verificamos que todo esté en orden'}
         </Text>
+
+        <PermissionsExplanation role={role} />
 
         {/* Barra de progreso */}
         <View style={styles.progressContainer}>

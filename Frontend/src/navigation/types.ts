@@ -2,6 +2,7 @@ export type RegistrationMethod = 'email' | 'phone' | 'google';
 export type RegistrationAuthProvider = 'email/password' | 'phone' | 'google';
 
 export type AuthStackParamList = {
+  AuthLanding: undefined;
   Login: undefined;
   Register: undefined;
   RegisterNew: undefined;

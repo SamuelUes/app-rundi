@@ -478,13 +478,27 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
         return;
       }
 
-      if (ride.clientSuggestedPrice && ride.clientSuggestedPrice > 0) {
+      if (
+        (typeof ride.clientSuggestedPrice === 'number' &&
+          Number.isFinite(ride.clientSuggestedPrice) &&
+          ride.clientSuggestedPrice > 0) ||
+        (typeof ride.estimatedPrice === 'number' &&
+          Number.isFinite(ride.estimatedPrice) &&
+          ride.estimatedPrice > 0)
+      ) {
         try {
+          const priceToShow =
+            typeof ride.clientSuggestedPrice === 'number' &&
+            Number.isFinite(ride.clientSuggestedPrice) &&
+            ride.clientSuggestedPrice > 0
+              ? ride.clientSuggestedPrice
+              : ride.estimatedPrice;
+
           await priceNegotiationService.acceptClientPrice(ride.id);
 
           alertService.showSuccessAlert(
             'Oferta enviada',
-            `Aceptaste el viaje por ${ride.clientSuggestedPrice} Cordobas. Esperando confirmación del cliente...`,
+            `Aceptaste el viaje por ${priceToShow} Cordobas. Esperando confirmación del cliente...`,
           );
 
           navigation.replace('WaitingClientConfirmation', {

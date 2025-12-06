@@ -90,9 +90,9 @@ export const negotiatePrice = functions.https.onCall(async (data, context) => {
           status: 'pending',
           driver: {
             id: driverId,
-            name: driverInfo?.name || 'Conductor',
-            rating: driverInfo?.rating || 0,
-            photoURL: driverInfo?.photoURL || null,
+            name: driverInfo?.fullName || driverInfo?.name || 'Conductor',
+            rating: driverInfo?.averageRating || driverInfo?.rating || 0,
+            photoURL: driverInfo?.photoURL || driverInfo?.profilePhoto || null,
             lat: driverInfo?.lat || null,
             lng: driverInfo?.lng || null,
             vehicle: driverInfo?.vehicle || null,
@@ -184,10 +184,18 @@ export const acceptClientPrice = functions.https.onCall(async (data, context) =>
       throw new functions.https.HttpsError('not-found', 'Viaje no encontrado');
     }
 
-    const clientPrice = rideData.clientSuggestedPrice;
-    if (clientPrice == null || isNaN(clientPrice)) {
-      throw new functions.https.HttpsError('invalid-argument', 'Precio del cliente inválido o no definido');
+    // Determinar precio del cliente: priorizar clientSuggestedPrice, con fallback a estimatedPrice
+    let clientPriceRaw: any = rideData.clientSuggestedPrice;
+    if (clientPriceRaw == null || isNaN(clientPriceRaw)) {
+      const estimated = rideData.estimatedPrice ?? rideData.estimatedFare ?? rideData.estimated_price;
+      const parsedEstimated = typeof estimated === 'string' ? Number(estimated) : estimated;
+      if (parsedEstimated == null || !Number.isFinite(parsedEstimated)) {
+        throw new functions.https.HttpsError('invalid-argument', 'Precio del cliente inválido o no definido');
+      }
+      clientPriceRaw = parsedEstimated;
     }
+
+    const clientPrice = Number(clientPriceRaw);
 
     // Obtener datos del conductor para adjuntarlos al viaje
     let driverInfo: any = null;
@@ -201,8 +209,8 @@ export const acceptClientPrice = functions.https.onCall(async (data, context) =>
     const driverPayload = driverInfo
       ? {
           id: driverId,
-          name: driverInfo.name || null,
-          rating: driverInfo.rating || null,
+          name: driverInfo.fullName || driverInfo.name || null,
+          rating: driverInfo.averageRating || driverInfo.rating || null,
           photoURL: driverInfo.photoURL || driverInfo.profilePhoto || null,
           vehicle: driverInfo.vehicle || null,
         }
@@ -214,6 +222,7 @@ export const acceptClientPrice = functions.https.onCall(async (data, context) =>
       ...(rideData.negotiation || {}),
       status: 'driver_accepted',
       clientSuggestedPrice: clientPrice,
+      acceptedClientPrice: true,
       driverId,
       updatedAt: admin.database.ServerValue.TIMESTAMP,
     };
@@ -222,7 +231,8 @@ export const acceptClientPrice = functions.https.onCall(async (data, context) =>
       finalFare: clientPrice,
       negotiationStatus: 'driver_accepted',
       driverOfferedPrice: null,
-      clientSuggestedPrice: 0, // Se limpia para evitar duplicados
+      clientSuggestedPrice: clientPrice,
+      acceptedClientPrice: true,
       driverId,
       driver: driverPayload,
       status: rideData.status === 'requested' ? 'pending_confirm' : rideData.status,
@@ -237,6 +247,7 @@ export const acceptClientPrice = functions.https.onCall(async (data, context) =>
     await db.ref(`activeRides/${rideId}/offers/${driverId}`).update({
       offeredPrice: clientPrice,
       status: 'accepted',
+      acceptedClientPrice: true,
       driver: driverPayload,
       updatedAt: admin.database.ServerValue.TIMESTAMP,
       createdAt: admin.database.ServerValue.TIMESTAMP,
@@ -328,9 +339,9 @@ export const makeCounterOffer = functions.https.onCall(async (data, context) => 
         status: 'pending',
         driver: {
           id: driverId,
-          name: driverInfo?.name || 'Conductor',
-          rating: driverInfo?.rating || 0,
-          photoURL: driverInfo?.photoURL || null,
+          name: driverInfo?.fullName || driverInfo?.name || 'Conductor',
+          rating: driverInfo?.averageRating || driverInfo?.rating || 0,
+          photoURL: driverInfo?.photoURL || driverInfo?.profilePhoto || null,
           lat: driverInfo?.lat || null,
           lng: driverInfo?.lng || null,
           vehicle: driverInfo?.vehicle || null,

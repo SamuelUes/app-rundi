@@ -3,13 +3,14 @@
  * Pantalla para validar número telefónico via SMS
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TextInput,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -62,6 +63,7 @@ export default function PhoneVerificationScreen({ navigation, route }: Props) {
   const [timeLeft, setTimeLeft] = useState(60);
   const [attempts, setAttempts] = useState(0);
   const [displayPhone, setDisplayPhone] = useState<string>(phone);
+  const hiddenInputRef = useRef<TextInput>(null);
 
   useEffect(() => {
     if (timeLeft > 0) {
@@ -212,16 +214,37 @@ export default function PhoneVerificationScreen({ navigation, route }: Props) {
 
           <View style={styles.codeSection}>
             <Text style={styles.label}>Código de verificación</Text>
+
             <TextInput
-              style={styles.codeInput}
+              ref={hiddenInputRef}
+              style={styles.hiddenInput}
               value={code}
-              onChangeText={(text) => setCode(text.replace(/[^0-9]/g, '').slice(0, 6))}
+              onChangeText={(text) => {
+                const numeric = text.replace(/[^0-9]/g, '').slice(0, 6);
+                setCode(numeric);
+              }}
               keyboardType="number-pad"
               maxLength={6}
               placeholder="000000"
               placeholderTextColor={colors.textSecondary}
               editable={!loading}
             />
+
+            <TouchableWithoutFeedback onPress={() => hiddenInputRef.current?.focus()}>
+              <View style={styles.codeBoxesContainer}>
+                {[0, 1, 2, 3, 4, 5].map((index) => (
+                  <View
+                    key={index}
+                    style={[
+                      styles.codeBox,
+                      code.length > index && styles.codeBoxFilled,
+                    ]}
+                  >
+                    <Text style={styles.codeBoxText}>{code[index] || ''}</Text>
+                  </View>
+                ))}
+              </View>
+            </TouchableWithoutFeedback>
           </View>
 
           {attempts > 0 && (
@@ -376,6 +399,40 @@ const createStyles = (colors: any) =>
       fontSize: 14,
       color: colors.primary,
       fontWeight: '600',
+    },
+    hiddenInput: {
+      position: 'absolute',
+      width: '100%',
+      height: 60,
+      opacity: 0,
+      top: 0,
+      left: 0,
+    },
+    codeBoxesContainer: {
+      flexDirection: 'row',
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginTop: 20,
+    },
+    codeBox: {
+      width: 26,
+      height: 26,
+      borderRadius: 13,
+      borderWidth: 2,
+      borderColor: colors.border,
+      backgroundColor: colors.background,
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginHorizontal: 4,
+    },
+    codeBoxFilled: {
+      borderColor: colors.primary,
+      backgroundColor: colors.primary + '25',
+    },
+    codeBoxText: {
+      fontSize: 16,
+      fontWeight: '700',
+      color: colors.text,
     },
     infoBox: {
       borderRadius: 12,

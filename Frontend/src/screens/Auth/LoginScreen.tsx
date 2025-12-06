@@ -8,12 +8,14 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Image,
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useGoogleAuth } from '../../hooks/useGoogleAuth';
 import GoogleSignInButton from '../../components/GoogleSignInButton';
+import PhoneDigitInput from '../../components/PhoneDigitInput';
 import phoneAuthService from '../../services/auth/phoneAuthService';
 import alertService from '../../services/alertService';
 import {
@@ -41,7 +43,7 @@ export default function LoginScreen({ navigation }: any) {
   const countryOptions = useMemo(() => getCountryDialOptions(), []);
   const defaultCountry = countryOptions.find((option) => option.code === 'NI') ?? countryOptions[0];
   const [selectedCountry, setSelectedCountry] = useState<CountryDialOption>(defaultCountry);
-  const [phoneInput, setPhoneInput] = useState<string>(formatPhoneNumber('', defaultCountry.dialCode));
+  const [phoneDigits, setPhoneDigits] = useState('');
   const [normalizedPhone, setNormalizedPhone] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [loginMode, setLoginMode] = useState<'email' | 'phone'>('email'); // 'email' o 'phone'
@@ -52,27 +54,20 @@ export default function LoginScreen({ navigation }: any) {
     getGoogleIdToken,
   } = useGoogleAuth(GOOGLE_CLIENT_ID);
 
-  const handlePhoneChange = (text: string) => {
-    const normalized = normalizePhoneNumber(text, selectedCountry.dialCode);
+  const handlePhoneChange = (localDigits: string) => {
+    setPhoneDigits(localDigits);
+    const normalized = normalizePhoneNumber(localDigits, selectedCountry.dialCode);
     setNormalizedPhone(normalized);
-    const formatted = normalized
-      ? formatPhoneNumber(normalized, selectedCountry.dialCode)
-      : formatPhoneNumber(text, selectedCountry.dialCode);
-    setPhoneInput(formatted || `${selectedCountry.dialCode} `);
   };
 
   const handleCountryChange = (countryCode: string) => {
     const nextCountry = countryOptions.find((option) => option.code === countryCode) ?? countryOptions[0];
-    const localDigits = extractLocalNumber(normalizedPhone || phoneInput, selectedCountry.dialCode);
+    const localDigits = phoneDigits || extractLocalNumber(normalizedPhone || '', selectedCountry.dialCode);
     const newNormalized = localDigits ? normalizePhoneNumber(localDigits, nextCountry.dialCode) : '';
 
     setSelectedCountry(nextCountry);
+    setPhoneDigits(localDigits || '');
     setNormalizedPhone(newNormalized);
-    setPhoneInput(
-      newNormalized
-        ? formatPhoneNumber(newNormalized, nextCountry.dialCode)
-        : formatPhoneNumber('', nextCountry.dialCode)
-    );
   };
 
   const handleLogin = async () => {
@@ -128,7 +123,7 @@ export default function LoginScreen({ navigation }: any) {
   };
 
   const handlePhoneLogin = async () => {
-    const normalized = normalizePhoneNumber(phoneInput, selectedCountry.dialCode);
+    const normalized = normalizePhoneNumber(phoneDigits, selectedCountry.dialCode);
     setNormalizedPhone(normalized);
 
     if (!normalized || !/^\+\d{6,15}$/.test(normalized)) {
@@ -210,27 +205,30 @@ export default function LoginScreen({ navigation }: any) {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={styles.content}>
-          <Text style={styles.title}>Bienvenido</Text>
-          <Text style={styles.subtitle}>Inicia sesión para continuar</Text>
+        <View style={styles.bannerContainer}>
+          <Image
+            source={require('../../assets/images/campaña2/promo_1-2.png')}
+            style={styles.bannerImage}
+          />
+        </View>
+
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <Text style={styles.title}>Bienvenido</Text>
+            <Text style={styles.subtitle}>Inicia sesión para continuar</Text>
+          </View>
 
           {/* Tabs para cambiar entre Email y Teléfono */}
           <View style={styles.tabsContainer}>
-            <TouchableOpacity
-              style={[styles.tab, loginMode === 'email' && styles.tabActive]}
-              onPress={() => setLoginMode('email')}
-            >
-              <Text style={[styles.tabText, loginMode === 'email' && styles.tabTextActive]}>
-                📧 Email
-              </Text>
+            <TouchableOpacity style={styles.tab} onPress={() => setLoginMode('email')}>
+              <Text style={[styles.tabText, loginMode === 'email' && styles.tabTextActive]}>Email</Text>
+              {loginMode === 'email' && <View style={styles.tabUnderline} />}
             </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.tab, loginMode === 'phone' && styles.tabActive]}
-              onPress={() => setLoginMode('phone')}
-            >
+            <TouchableOpacity style={styles.tab} onPress={() => setLoginMode('phone')}>
               <Text style={[styles.tabText, loginMode === 'phone' && styles.tabTextActive]}>
-                📱 Teléfono
+                Teléfono
               </Text>
+              {loginMode === 'phone' && <View style={styles.tabUnderline} />}
             </TouchableOpacity>
           </View>
 
@@ -270,33 +268,17 @@ export default function LoginScreen({ navigation }: any) {
               </>
             ) : (
               <>
-                <Text style={styles.label}>País y Código</Text>
-                <View style={styles.countryPickerContainer}>
-                  <Picker
-                    selectedValue={selectedCountry.code}
-                    onValueChange={handleCountryChange}
-                    style={styles.countryPicker}
-                    itemStyle={styles.countryPickerItem}
-                  >
-                    {countryOptions.map((option) => (
-                      <Picker.Item
-                        key={option.code}
-                        label={`${option.name} (${option.dialCode})`}
-                        value={option.code}
-                      />
-                    ))}
-                  </Picker>
-                </View>
                 <Text style={styles.label}>Número Telefónico</Text>
-                <TextInput
-                  style={styles.phoneInput}
-                  placeholder={`${selectedCountry.dialCode} 12345678`}
-                  placeholderTextColor={colors.textSecondary}
-                  value={phoneInput}
-                  onChangeText={handlePhoneChange}
-                  keyboardType="phone-pad"
-                  maxLength={20}
-                />
+                <View style={styles.countryPickerContainer}>
+                  <PhoneDigitInput
+                    countryOptions={countryOptions}
+                    selectedCountry={selectedCountry}
+                    onCountryChange={handleCountryChange}
+                    digits={phoneDigits}
+                    onChangeDigits={handlePhoneChange}
+                    disabled={loading || googleLoading}
+                  />
+                </View>
                 <Text style={styles.helperText}>
                   Recibirás un código SMS para verificar tu identidad. Ingresa el número en formato internacional.
                 </Text>
@@ -355,6 +337,35 @@ const createStyles = (colors: any) => StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
+    backgroundColor: 'rgba(201, 201, 201, 1)',
+  },
+  bannerContainer: {
+    width: '100%',
+    height: 250,
+    marginTop: 0,
+  },
+  bannerImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  card: {
+    flex: 1,
+    marginTop: 5,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    backgroundColor: colors.card,
+    paddingHorizontal: 20,
+    paddingTop: 24,
+    paddingBottom: 32,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  cardHeader: {
+    marginBottom: 16,
   },
   content: {
     flex: 1,
@@ -486,29 +497,31 @@ const createStyles = (colors: any) => StyleSheet.create({
   tabsContainer: {
     flexDirection: 'row',
     marginBottom: 24,
-    borderRadius: 12,
-    backgroundColor: colors.card,
-    padding: 4,
+    columnGap: 24,
   },
   tab: {
-    flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
+    paddingVertical: 4,
+    alignItems: 'flex-start',
+    justifyContent: 'flex-start',
   },
   tabActive: {
-    backgroundColor: '#D4AF37',
+    // Mantener por compatibilidad, ya no se usa fondo para el tab activo
   },
   tabText: {
-    fontSize: 13,
-    fontWeight: '700',
+    fontSize: 15,
+    fontWeight: '600',
     color: colors.textSecondary,
     letterSpacing: 0.2,
   },
   tabTextActive: {
-    color: colors.background,
+    color: '#D4AF37',
+  },
+  tabUnderline: {
+    marginTop: 2,
+    height: 2,
+    borderRadius: 999,
+    backgroundColor: '#D4AF37',
+    alignSelf: 'stretch',
   },
   helperText: {
     fontSize: 12,

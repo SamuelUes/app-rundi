@@ -4,6 +4,7 @@ import { useTheme } from '../context/ThemeContext';
 import LoginScreen from '../screens/Auth/LoginScreen';
 //import RegisterScreen from '../screens/Auth/RegisterScreen';
 import RegisterScreenNew from '../screens/Auth/RegisterScreen';
+import AuthLandingScreen from '../screens/Auth/AuthLandingScreen';
 import PhoneVerificationScreen from '../screens/Auth/PhoneVerificationScreen';
 import PhoneVerificationLoginScreen from '../screens/Auth/PhoneVerificationLoginScreen';
 import GooglePhoneScreen from '../screens/Auth/GooglePhoneScreen';
@@ -20,6 +21,7 @@ export default function AuthStack() {
 
   return (
     <Stack.Navigator 
+      initialRouteName="AuthLanding"
       screenOptions={{ 
         headerShown: false,
         headerStyle: {
@@ -31,6 +33,11 @@ export default function AuthStack() {
         },
       }}
     >
+      <Stack.Screen 
+        name="AuthLanding" 
+        component={AuthLandingScreen} 
+        options={{ title: 'Bienvenido' }} 
+      />
       <Stack.Screen 
         name="Login" 
         component={LoginScreen} 

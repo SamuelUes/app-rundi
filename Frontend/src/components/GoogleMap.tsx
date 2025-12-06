@@ -134,13 +134,13 @@ const MULTI_STOP_PIN_IMAGE = require('../assets/icons/select-extra-destination/s
 const DESTINATION_PIN_IMAGE = require('../assets/icons/desti_locationmarker/desti_locationmarker.png');
 
 function isValidCoord(value: any): value is { latitude: number; longitude: number } {
-  return (
-    !!value &&
-    typeof value.latitude === 'number' &&
-    !Number.isNaN(value.latitude) &&
-    typeof value.longitude === 'number' &&
-    !Number.isNaN(value.longitude)
-  );
+  if (!value) return false;
+  const { latitude: lat, longitude: lng } = value;
+  if (typeof lat !== 'number' || typeof lng !== 'number') return false;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  if (lat < -90 || lat > 90) return false;
+  if (lng < -180 || lng > 180) return false;
+  return true;
 }
 
 function toLatLng(coord: { latitude: number; longitude: number }): LatLng {
@@ -520,6 +520,10 @@ export default function GoogleMap({
     const initial = resolveZoomForAltitude(DEFAULT_ALTITUDE, latitude).zoom;
     return Number.isFinite(initial) ? initial : 15;
   });
+  const safeInitialCenter = useMemo(
+    () => (isValidCoord({ latitude, longitude }) ? { latitude, longitude } : { latitude: 0, longitude: 0 }),
+    [latitude, longitude],
+  );
   const effectiveMarkerType = isMarkerHeld && markerType === 'manual_origin' ? 'manual_origin_hold' : markerType;
   const [selectedRideRequestId, setSelectedRideRequestId] = useState<string | null>(null);
   const lastFitSignatureRef = useRef<string>('');
@@ -600,7 +604,10 @@ export default function GoogleMap({
       const map = mapRef.current;
       if (!map) return;
 
-      const center = camera.center ?? { latitude: latitude || 0, longitude: longitude || 0 };
+      const fallbackCenter = isValidCoord({ latitude, longitude })
+        ? { latitude, longitude }
+        : { latitude: 0, longitude: 0 };
+      const center = camera.center && isValidCoord(camera.center) ? camera.center : fallbackCenter;
       const altitudeBase = camera.altitudeMeters ?? lastCameraAltitudeRef.current ?? defaultCameraSettings.altitude;
       const { zoom, altitude } = resolveZoomForAltitude(altitudeBase, center.latitude);
 
@@ -623,7 +630,7 @@ export default function GoogleMap({
 
   // ✅ Seguir un objetivo puntual (p.ej. nuevo origen/destino seleccionado)
   useEffect(() => {
-    if (!cameraTarget || !isMapReady) return;
+    if (!cameraTarget || !isMapReady || !isValidCoord(cameraTarget)) return;
     applyCamera({ center: toLatLng(cameraTarget) }, 320);
   }, [cameraTarget, applyCamera, isMapReady]);
 
@@ -1136,6 +1143,7 @@ export default function GoogleMap({
 
   const animateCameraToCoordinate = useCallback(
     (coord: LatLng, duration: number = 220) => {
+      if (!isValidCoord(coord)) return;
       applyCamera({ center: coord, altitudeMeters: lastCameraAltitudeRef.current }, duration);
     },
     [applyCamera, lastCameraAltitudeRef],
@@ -1208,7 +1216,7 @@ export default function GoogleMap({
         showsTraffic={trafficEnabled}
         onMapReady={handleMapReady}
         initialCamera={{
-          center: { latitude, longitude },
+          center: safeInitialCenter,
           altitude: defaultCameraSettings.altitude,
           zoom: defaultCameraSettings.zoom,
           pitch: 0,

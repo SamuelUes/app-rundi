@@ -186,6 +186,11 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
           const offersSnap = await get(offersRef);
           if (offersSnap.exists()) offersData = offersSnap.val();
         }
+        if (!offersData) {
+          const offersRef = ref(db, `activeRides/${rideId}/offers`);
+          const offersSnap = await get(offersRef);
+          if (offersSnap.exists()) offersData = offersSnap.val();
+        }
 
         // transform offers to array and enrich with driversInfo
         if (offersData && typeof offersData === 'object') {
@@ -673,7 +678,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
           <Image source={vehicleIconSource} style={styles.offerVehicleOverlay} />
         </View>
         <View style={styles.offerInfo}>
-          <Text style={styles.offerTitle} numberOfLines={1}>
+          <Text style={styles.offerTitle} numberOfLines={selected ? 2 : 1}>
             {displayName} - {plate}
           </Text>
           <Text style={styles.offerSubtitle} numberOfLines={1}>
@@ -687,7 +692,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
                   <Text style={[styles.priceValueLabel, { color: priceLabelColor }]}>Tu precio: </Text>
                   <Text style={[styles.priceValueText, { color: priceTextColor }]}>{clientPriceLabel}</Text>
                 </View>
-                <Text style={[styles.priceDivider, { color: priceLabelColor }]}>•</Text>
+                <Text style={[styles.priceDivider, { color: priceLabelColor }]}>•••</Text>
                 <View style={styles.priceValueGroup}>
                   <Text style={[styles.priceValueLabel, { color: priceLabelColor }]}>Sugerencia Conductor: </Text>
                   <Text style={[styles.priceValueText, { color: priceTextColor }]}>{driverPriceLabel}</Text>
@@ -927,7 +932,7 @@ const createStyles = (colors: any) => StyleSheet.create({
   emptyText: { color: colors.textSecondary },
   offerRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     paddingVertical: 10,
     paddingHorizontal: 8,
     borderRadius: 12,
@@ -948,7 +953,7 @@ const createStyles = (colors: any) => StyleSheet.create({
   offerAvatarFallback: { width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center', backgroundColor: '#E5E7EB' },
   offerAvatarFallbackText: { color: '#64748B', fontWeight: '700', fontSize: 18 },
   offerVehicleOverlay: { position: 'absolute', bottom: -6, left: '50%', transform: [{ translateX: -18 }, { rotate: '270deg' }], width: 38, height: 38, resizeMode: 'contain' },
-  offerInfo: { flex: 1 },
+  offerInfo: { flex: 1, paddingRight: 8 },
   offerTitle: { fontSize: 14, fontWeight: '700', color: '#1F2937' },
   offerSubtitle: { fontSize: 12, color: '#4B5563', marginTop: 2 },
   offerEtaText: { fontSize: 13, fontWeight: '700', color: '#1F2937', marginLeft: 8 },
@@ -976,9 +981,9 @@ const createStyles = (colors: any) => StyleSheet.create({
   },
   negotiateText: { color: '#FFFFFF', fontWeight: '700', fontSize: 13 },
   selectedActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 10,
+    flexDirection: 'column',
+    alignItems: 'flex-end',
+    marginTop: 8,
   },
   messageButton: {
     backgroundColor: 'rgba(255,255,255,0.12)',

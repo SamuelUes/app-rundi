@@ -75,6 +75,7 @@ export type DriverStackParamList = {
   AddCard: undefined;
   SavedCards: undefined;
   Settings: undefined;
+  Account: undefined;
   DeleteAccount: undefined;
   Help: undefined;
   Chat: {

@@ -6,6 +6,8 @@ import {
   ActivityIndicator,
   TouchableOpacity,
   Alert,
+  SafeAreaView,
+  ScrollView,
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
@@ -166,94 +168,99 @@ export default function WaitingClientConfirmationScreen({ route, navigation }: W
   };
 
   return (
-    <View style={styles.container}>
-      {offerStatus === 'pending' && (
-        <>
-          {/* Animación de espera */}
-          <View style={styles.animationContainer}>
-            <ActivityIndicator size="large" color={colors.primary} />
-            <Text style={styles.waitingIcon}>⏳</Text>
-          </View>
-
-          {/* Título */}
-          <Text style={styles.title}>Esperando Confirmación</Text>
-          <Text style={styles.subtitle}>
-            El cliente está revisando tu oferta
-          </Text>
-
-          {/* Tiempo de espera */}
-          <View style={styles.timerContainer}>
-            <Text style={styles.timerLabel}>Tiempo de espera:</Text>
-            <Text style={styles.timerValue}>{formatTime(timeWaiting)}</Text>
-          </View>
-
-          {/* Detalles del viaje */}
-          <View style={styles.detailsCard}>
-            <Text style={styles.detailsTitle}>Detalles del Viaje</Text>
-            
-            <View style={styles.locationRow}>
-              <Text style={styles.locationIcon}>🔵</Text>
-              <View style={styles.locationInfo}>
-                <Text style={styles.locationLabel}>Origen</Text>
-                <Text style={styles.locationAddress}>{origin.address}</Text>
-              </View>
+    <SafeAreaView style={styles.container}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {offerStatus === 'pending' && (
+          <>
+            {/* Animación de espera */}
+            <View style={styles.animationContainer}>
+              <ActivityIndicator size="large" color={colors.primary} />
+              <Text style={styles.waitingIcon}>⏳</Text>
             </View>
 
-            <View style={styles.divider} />
+            {/* Título */}
+            <Text style={styles.title}>Esperando Confirmación</Text>
+            <Text style={styles.subtitle}>
+              El cliente está revisando tu oferta
+            </Text>
 
-            {extraDestinations.map((stop: { lat: number; lng: number; address?: string }, index: number) => (
-              <View key={`extra-stop-${index}`} style={styles.locationRow}>
-                <Text style={styles.locationIcon}>🟠</Text>
+            {/* Tiempo de espera */}
+            <View style={styles.timerContainer}>
+              <Text style={styles.timerLabel}>Tiempo de espera:</Text>
+              <Text style={styles.timerValue}>{formatTime(timeWaiting)}</Text>
+            </View>
+
+            {/* Detalles del viaje */}
+            <View style={styles.detailsCard}>
+              <Text style={styles.detailsTitle}>Detalles del Viaje</Text>
+              
+              <View style={styles.locationRow}>
+                <Text style={styles.locationIcon}>🔵</Text>
                 <View style={styles.locationInfo}>
-                  <Text style={styles.locationLabel}>{`Parada ${index + 1}`}</Text>
-                  <Text style={styles.locationAddress}>{stop.address || 'Parada adicional'}</Text>
+                  <Text style={styles.locationLabel}>Origen</Text>
+                  <Text style={styles.locationAddress}>{origin.address}</Text>
                 </View>
               </View>
-            ))}
 
-            {extraDestinations.length > 0 && <View style={styles.divider} />}
+              <View style={styles.divider} />
 
-            <View style={styles.locationRow}>
-              <Text style={styles.locationIcon}>🔴</Text>
-              <View style={styles.locationInfo}>
-                <Text style={styles.locationLabel}>Destino Final</Text>
-                <Text style={styles.locationAddress}>{destination.address}</Text>
+              {extraDestinations.map((stop: { lat: number; lng: number; address?: string }, index: number) => (
+                <View key={`extra-stop-${index}`} style={styles.locationRow}>
+                  <Text style={styles.locationIcon}>🟠</Text>
+                  <View style={styles.locationInfo}>
+                    <Text style={styles.locationLabel}>{`Parada ${index + 1}`}</Text>
+                    <Text style={styles.locationAddress}>{stop.address || 'Parada adicional'}</Text>
+                  </View>
+                </View>
+              ))}
+
+              {extraDestinations.length > 0 && <View style={styles.divider} />}
+
+              <View style={styles.locationRow}>
+                <Text style={styles.locationIcon}>🔴</Text>
+                <View style={styles.locationInfo}>
+                  <Text style={styles.locationLabel}>Destino Final</Text>
+                  <Text style={styles.locationAddress}>{destination.address}</Text>
+                </View>
+              </View>
+
+              <View style={styles.fareContainer}>
+                <Text style={styles.fareLabel}>Tarifa Acordada:</Text>
+                <Text style={styles.fareValue}>C${estimatedFare}</Text>
               </View>
             </View>
 
-            <View style={styles.fareContainer}>
-              <Text style={styles.fareLabel}>Tarifa Acordada:</Text>
-              <Text style={styles.fareValue}>C${estimatedFare}</Text>
+            {/* Consejos */}
+            <View style={styles.tipsContainer}>
+              <Text style={styles.tipsTitle}>💡 Mientras esperas:</Text>
+              <Text style={styles.tipText}>• Mantén tu vehículo listo</Text>
+              <Text style={styles.tipText}>• Verifica tu ubicación GPS</Text>
+              <Text style={styles.tipText}>• El cliente puede elegir otro conductor</Text>
             </View>
+
+            {/* Botón cancelar */}
+            <TouchableOpacity
+              style={styles.cancelButton}
+              onPress={handleCancelOffer}
+            >
+              <Text style={styles.cancelButtonText}>Cancelar Oferta</Text>
+            </TouchableOpacity>
+          </>
+        )}
+
+        {offerStatus === 'accepted' && (
+          <View style={styles.successContainer}>
+            <Text style={styles.successIcon}>✅</Text>
+            <Text style={styles.successTitle}>¡Cliente Te Eligió!</Text>
+            <Text style={styles.successSubtitle}>Preparando viaje...</Text>
+            <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 20 }} />
           </View>
-
-          {/* Consejos */}
-          <View style={styles.tipsContainer}>
-            <Text style={styles.tipsTitle}>💡 Mientras esperas:</Text>
-            <Text style={styles.tipText}>• Mantén tu vehículo listo</Text>
-            <Text style={styles.tipText}>• Verifica tu ubicación GPS</Text>
-            <Text style={styles.tipText}>• El cliente puede elegir otro conductor</Text>
-          </View>
-
-          {/* Botón cancelar */}
-          <TouchableOpacity
-            style={styles.cancelButton}
-            onPress={handleCancelOffer}
-          >
-            <Text style={styles.cancelButtonText}>Cancelar Oferta</Text>
-          </TouchableOpacity>
-        </>
-      )}
-
-      {offerStatus === 'accepted' && (
-        <View style={styles.successContainer}>
-          <Text style={styles.successIcon}>✅</Text>
-          <Text style={styles.successTitle}>¡Cliente Te Eligió!</Text>
-          <Text style={styles.successSubtitle}>Preparando viaje...</Text>
-          <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 20 }} />
-        </View>
-      )}
-    </View>
+        )}
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
@@ -261,8 +268,11 @@ const createStyles = (colors: any) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
-    padding: 20,
-    justifyContent: 'center',
+  },
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingVertical: 24,
+    paddingBottom: 40,
   },
   animationContainer: {
     alignItems: 'center',

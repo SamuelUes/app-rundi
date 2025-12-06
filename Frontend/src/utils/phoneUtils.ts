@@ -25,7 +25,41 @@ const COUNTRY_DIAL_OPTIONS: CountryDialOption[] = [
   { code: 'DO', dialCode: '+1809', name: 'República Dominicana' },
 ];
 
+const COUNTRY_LOCAL_LENGTH: Record<string, number> = {
+  NI: 8,
+  US: 10,
+  CA: 10,
+  MX: 10,
+  SV: 8,
+  HN: 8,
+  CR: 8,
+  PA: 8,
+  CO: 10,
+  AR: 10,
+  CL: 9,
+  VE: 10,
+  ES: 9,
+  BR: 10,
+  PE: 9,
+  EC: 9,
+  GT: 8,
+  DO: 10,
+};
+
 export const getCountryDialOptions = (): CountryDialOption[] => COUNTRY_DIAL_OPTIONS;
+
+export const getCountryLocalNumberLength = (country: CountryDialOption | string): number => {
+  const code = typeof country === 'string' ? country : country.code;
+  const configured = COUNTRY_LOCAL_LENGTH[code];
+  if (configured) {
+    return configured;
+  }
+
+  const dial = COUNTRY_DIAL_OPTIONS.find((c) => c.code === code)?.dialCode ?? '+';
+  const dialDigits = dial.replace(/\D/g, '');
+  const defaultLength = Math.max(6, 15 - dialDigits.length);
+  return defaultLength;
+};
 
 export const normalizePhoneNumber = (value: string, dialCode: string): string => {
   if (!value) {

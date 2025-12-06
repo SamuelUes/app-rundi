@@ -550,14 +550,18 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
   }
 
   const totalAmount = rideAmount + tip;
+  const headerTitle = isPendingPayment ? 'Pago pendiente' : 'Pago del Viaje';
+  const headerSubtitle = isPendingPayment
+    ? 'Tu viaje ha finalizado. Completa el pago para continuar.'
+    : 'Completa tu pago de forma segura';
 
   return (
     <ScrollView style={styles.container}>
       <View style={styles.content}>
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.title}>Pago del Viaje</Text>
-          <Text style={styles.subtitle}>Completa tu pago de forma segura</Text>
+          <Text style={styles.title}>{headerTitle}</Text>
+          <Text style={styles.subtitle}>{headerSubtitle}</Text>
         </View>
 
         {/* Resumen del viaje */}
@@ -786,7 +790,11 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
 
         {/* Botón de pago */}
         <TouchableOpacity
-          style={[styles.payButton, processing && styles.payButtonDisabled]}
+          style={[
+            styles.payButton,
+            isPendingPayment && styles.payButtonPending,
+            processing && styles.payButtonDisabled,
+          ]}
           onPress={handlePayment}
           disabled={processing}
         >
@@ -794,7 +802,11 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
             <ActivityIndicator color="#fff" />
           ) : (
             <Text style={styles.payButtonText}>
-              {paymentMethod === 'card' ? 'Pagar con Tarjeta' : 'Confirmar Pago en Efectivo'}
+              {paymentMethod === 'card'
+                ? isPendingPayment
+                  ? 'Pagar ahora'
+                  : 'Pagar con Tarjeta'
+                : 'Confirmar Pago en Efectivo'}
             </Text>
           )}
         </TouchableOpacity>
@@ -1189,6 +1201,9 @@ const createStyles = (colors: any) => StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     marginBottom: 16,
+  },
+  payButtonPending: {
+    backgroundColor: '#9C27B0',
   },
   payButtonDisabled: {
     opacity: 0.5,

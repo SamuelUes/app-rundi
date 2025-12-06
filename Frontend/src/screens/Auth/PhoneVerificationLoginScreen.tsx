@@ -27,8 +27,11 @@ import {
   formatPhoneNumber,
   getCountryDialOptions,
   normalizePhoneNumber,
+  getCountryLocalNumberLength,
+  extractLocalNumber,
 } from '../../utils/phoneUtils';
 import alertService from '../../services/alertService';
+import PhoneDigitInput from '../../components/PhoneDigitInput';
 
 export default function PhoneVerificationLoginScreen({ navigation, route }: any) {
   const { colors } = useTheme();
@@ -47,11 +50,21 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
     countryOptions[0];
 
   const [selectedCountry] = useState<CountryDialOption>(defaultCountry);
-  
+
+  const localLength = getCountryLocalNumberLength(defaultCountry);
+  const initialLocalDigits = phoneFromRoute
+    ? extractLocalNumber(phoneFromRoute, defaultCountry.dialCode).slice(0, localLength)
+    : '';
+
+  const [phoneDigits, setPhoneDigits] = useState(initialLocalDigits);
+
   const [code, setCode] = useState('');
-  const [normalizedPhone, setNormalizedPhone] = useState<string>(phoneFromRoute);
+  const [normalizedPhone, setNormalizedPhone] = useState<string>(
+    initialLocalDigits
+      ? normalizePhoneNumber(initialLocalDigits, defaultCountry.dialCode)
+      : phoneFromRoute,
+  );
   const [displayPhone, setDisplayPhone] = useState<string>('');
-  const [phoneInput, setPhoneInput] = useState<string>(`${defaultCountry.dialCode} `);
   const [loading, setLoading] = useState(false);
   const [resendLoading, setResendLoading] = useState(false);
   const [timeLeft, setTimeLeft] = useState(60);
@@ -59,24 +72,26 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
   const MAX_ATTEMPTS = 3;
 
   const hiddenInputRef = useRef<TextInput>(null);
-  
-  const handlePhoneChange = (text: string) => {
-    const normalized = normalizePhoneNumber(text, selectedCountry.dialCode);
+
+  const handlePhoneDigitsChange = (localDigits: string) => {
+    setPhoneDigits(localDigits);
+
+    const normalized = normalizePhoneNumber(localDigits, selectedCountry.dialCode);
     setNormalizedPhone(normalized);
 
     const formatted = normalized
       ? formatPhoneNumber(normalized, selectedCountry.dialCode)
-      : formatPhoneNumber(text, selectedCountry.dialCode);
+      : formatPhoneNumber('', selectedCountry.dialCode);
 
-    setPhoneInput(formatted || `${selectedCountry.dialCode} `);
-    setDisplayPhone(formatted || `${selectedCountry.dialCode} `);
+    const nextDisplay = formatted || `${selectedCountry.dialCode} `;
+    setDisplayPhone(nextDisplay);
   };
 
   useEffect(() => {
-    const basePhone = phoneFromRoute || '';
+    const basePhone = normalizedPhone || phoneFromRoute || '';
     let initialDisplay = displayPhoneFromRoute;
 
-    if (!initialDisplay) {
+    if (!initialDisplay && basePhone) {
       initialDisplay = formatPhoneNumber(basePhone, selectedCountry.dialCode);
     }
 
@@ -84,17 +99,13 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
       initialDisplay = `${selectedCountry.dialCode} `;
     }
 
-    setPhoneInput(initialDisplay);
     setDisplayPhone(initialDisplay);
-    setNormalizedPhone(
-      basePhone || normalizePhoneNumber(initialDisplay, selectedCountry.dialCode)
-    );
     const timeout = setTimeout(() => {
       hiddenInputRef.current?.focus();
     }, 300);
 
     return () => clearTimeout(timeout);
-  }, [phoneFromRoute, displayPhoneFromRoute, selectedCountry.dialCode]);
+  }, [normalizedPhone, phoneFromRoute, displayPhoneFromRoute, selectedCountry.dialCode]);
 
   // Temporizador para reenviar código
   useEffect(() => {
@@ -236,15 +247,11 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
           {/* Editar Número Telefónico */}
           <View style={styles.phoneEditSection}>
             <Text style={styles.label}>Editar número (opcional)</Text>
-            <TextInput
-              style={styles.phoneInput}
-              placeholder={`${selectedCountry.dialCode} 12345678`}
-              placeholderTextColor={colors.textSecondary}
-              value={phoneInput}
-              onChangeText={handlePhoneChange}
-              keyboardType="phone-pad"
-              editable={!loading}
-              maxLength={17} // +505 XXXX XXXX = 17 caracteres
+            <PhoneDigitInput
+              selectedCountry={selectedCountry}
+              digits={phoneDigits}
+              onChangeDigits={handlePhoneDigitsChange}
+              disabled={loading}
             />
             <Text style={styles.phoneFormatHint}>Formato: {selectedCountry.dialCode} XXXX XXXX</Text>
           </View>
@@ -529,25 +536,27 @@ const createStyles = (colors: any) => StyleSheet.create({
   },
   codeBoxesContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
+    alignItems: 'center',
     marginTop: 20,
   },
   codeBox: {
-    width: '15%',
-    aspectRatio: 1,
-    borderRadius: 12,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     borderWidth: 2,
     borderColor: colors.border,
     backgroundColor: colors.background,
     justifyContent: 'center',
     alignItems: 'center',
+    marginHorizontal: 4,
   },
   codeBoxFilled: {
     borderColor: colors.primary,
-    backgroundColor: colors.primary + '15',
+    backgroundColor: colors.primary + '25',
   },
   codeBoxText: {
-    fontSize: 20,
+    fontSize: 16,
     fontWeight: '700',
     color: colors.text,
   },

@@ -52,6 +52,7 @@ export type ClientStackParamList = {
     driverName?: string;
     vehiclePlate?: string;
     driverPhoto?: string;
+    isPendingPayment?: boolean;
   };
   CashPayment: {
     rideId: string;
