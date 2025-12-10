@@ -22,6 +22,8 @@ import RideDetailsScreen from '../screens/Shared/RideDetailsScreen';
 import SavedCardsScreen from '../screens/Shared/SavedCardsScreen';
 import AddCardScreen from '../screens/Shared/AddCardScreen';
 import InvoiceScreen from '../screens/Shared/InvoiceScreen';
+import PhoneVerificationScreen from '../screens/Auth/PhoneVerificationScreen';
+import type { RegistrationMethod, RegistrationAuthProvider } from './types';
 import { useClientPresence } from '../hooks/useClientPresence';
 import { useInitializeClientProfile } from '../hooks/useClientProfileSync';
 import PreflightCheckScreen from '../screens/Shared/PreflightCheckScreen';
@@ -85,6 +87,18 @@ export type ClientStackParamList = {
   Invoice: {
     rideId: string;
   };
+  PhoneVerification: {
+    name: string;
+    email?: string;
+    phone: string;
+    password?: string;
+    role?: 'client' | 'driver';
+    method: RegistrationMethod;
+    authProvider: RegistrationAuthProvider;
+    googleIdToken?: string;
+    phoneVerified?: boolean;
+    context?: 'register_phone' | 'add_phone';
+  };
 };
 
 const Stack = createNativeStackNavigator<ClientStackParamList>();
@@ -130,12 +144,12 @@ export default function ClientStack() {
       <Stack.Screen name="Payment" component={PaymentScreen} options={{ headerShown: true, title: 'Pago' }} />
       <Stack.Screen name="CashPayment" component={CashPaymentScreen} options={{ headerShown: true, title: 'Pago en Efectivo' }} />
       <Stack.Screen name="PendingPayments" component={PendingPaymentsScreen} options={{ headerShown: false }} />
-      <Stack.Screen name="Profile" component={ProfileScreen} options={{ headerShown: true, title: 'Perfil' }} />
+      <Stack.Screen name="Profile" component={ProfileScreen} options={{ headerShown: false }} />
       <Stack.Screen name="RideHistory" component={ClientRideHistoryScreen} options={{ headerShown: true, title: 'Historial de Viajes' }} />
       <Stack.Screen name="Rating" component={RatingScreen} options={{ headerShown: true, title: 'Calificar Viaje' }} />
       <Stack.Screen name="PaymentMethods" component={PaymentMethodsScreen} options={{ headerShown: true, title: 'Métodos de Pago' }} />
       <Stack.Screen name="Settings" component={SettingsScreen} options={{ headerShown: true, title: 'Configuración' }} />
-      <Stack.Screen name="Account" component={AccountScreen} options={{ headerShown: true, title: 'Mi cuenta' }} />
+      <Stack.Screen name="Account" component={AccountScreen} options={{ headerShown: false }} />
       <Stack.Screen name="DeleteAccount" component={DeleteAccountScreen} options={{ headerShown: true, title: 'Eliminar Cuenta' }} />
       <Stack.Screen name="Help" component={HelpScreen} options={{ headerShown: true, title: 'Ayuda' }} />
       <Stack.Screen name="Chat" component={ChatScreen} options={{ headerShown: true, title: 'Chat' }} />
@@ -143,6 +157,11 @@ export default function ClientStack() {
       <Stack.Screen name="SavedCards" component={SavedCardsScreen} options={{ headerShown: false }} />
       <Stack.Screen name="AddCard" component={AddCardScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Invoice" component={InvoiceScreen} options={{ headerShown: true, title: 'Factura' }} />
+      <Stack.Screen
+        name="PhoneVerification"
+        component={PhoneVerificationScreen as React.ComponentType<any>}
+        options={{ headerShown: false }}
+      />
     </Stack.Navigator>
   );
 }

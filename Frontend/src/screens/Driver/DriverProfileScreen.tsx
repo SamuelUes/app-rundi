@@ -521,8 +521,10 @@ export default function DriverProfileScreen({ navigation }: any) {
       console.log('📋 Cargando estado de solicitud de Conductor Designado...');
       const status = await designatedDriverService.getDesignatedDriverRequestStatus();
       
-      console.log('✅ Estado de solicitud obtenido:', status.requestStatus);
-      setDesignatedDriverRequestStatus(status.requestStatus);
+      console.log('✅ Estado de solicitud obtenido:', status);
+      // Backend devuelve: { success, status, ... }
+      // Guardamos solo el campo status (pending, not_requested, approved, etc.)
+      setDesignatedDriverRequestStatus(status?.status ?? null);
     } catch (error) {
       console.error('⚠️ Error cargando estado de solicitud:', error);
       // Si hay error, asumir que no hay solicitud
@@ -931,81 +933,130 @@ export default function DriverProfileScreen({ navigation }: any) {
   return (
     <>
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      {/* Header con foto de perfil */}
+      {/* Header estilo ProfileScreen */}
       <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.avatarContainer}
-          onPress={() => handleUploadPhoto('profile')}
-          disabled={uploadingPhoto}
-        >
-          {uploadingPhoto ? (
-            <View style={styles.avatarPlaceholder}>
-              <ActivityIndicator size="large" color={colors.primary} />
-            </View>
-          ) : profilePhoto ? (
-            <Image source={{ uri: profilePhoto }} style={styles.avatar} />
-          ) : (
-            <View style={styles.avatarPlaceholder}>
-              <Text style={styles.avatarText}>
-                {displayName.charAt(0).toUpperCase() || 'C'}
-              </Text>
-            </View>
-          )}
-          <View style={styles.cameraIcon}>
-            <Text style={styles.cameraIconText}>📷</Text>
-          </View>
-        </TouchableOpacity>
-        <Text style={styles.driverName}>{displayName}</Text>
-        {displayEmail && <Text style={styles.driverEmail}>{displayEmail}</Text>}
-        {renderAccountStatusBadge()}
-        <View style={styles.ratingBadge}>
-          <Text style={styles.ratingStars}>⭐</Text>
-          <Text style={styles.ratingText}>{(typeof stats.averageRating === 'number' ? stats.averageRating : 5.0).toFixed(1)}</Text>
-        </View>
-      </View>
-
-      {/* Cartera / Ganancias */}
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>💰 Cartera</Text>
-          <TouchableOpacity style={styles.rechargeButton}>
-            <Text style={styles.rechargeButtonText}>Recargas de saldo, bonus y más</Text>
+        <View style={styles.headerTopRow}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => navigation.goBack()}
+          >
+            <Image
+              source={require('../../assets/icons/back_button/back_button.png')}
+              style={styles.backIcon}
+            />
           </TouchableOpacity>
+          <Text style={styles.headerTitle}>Mi Perfil</Text>
+          <View style={styles.headerTopSpacer} />
         </View>
 
-        <View style={styles.walletCard}>
-          <View style={styles.walletRow}>
-            <View style={styles.walletItem}>
-              <Text style={styles.walletLabel}>Ganancias Totales</Text>
+        <View style={styles.headerMainRow}>
+          <TouchableOpacity
+            style={styles.avatarContainer}
+            onPress={() => handleUploadPhoto('profile')}
+            disabled={uploadingPhoto}
+          >
+            {uploadingPhoto ? (
+              <View style={styles.avatarPlaceholder}>
+                <ActivityIndicator size="large" color="#fff" />
+              </View>
+            ) : profilePhoto ? (
+              <Image source={{ uri: profilePhoto }} style={styles.avatar} />
+            ) : (
+              <View style={styles.avatarPlaceholder}>
+                <Text style={styles.avatarText}>
+                  {displayName.charAt(0).toUpperCase() || 'C'}
+                </Text>
+              </View>
+            )}
+            <View style={styles.cameraIcon}>
+              <Text style={styles.cameraIconText}>📷</Text>
             </View>
-            <View style={styles.walletDivider} />
-            <View style={styles.walletItem}>
-              <Text style={styles.walletLabel}>Viajes Completados</Text>
-              <Text style={styles.walletValue}>{stats.totalRides}</Text>
+          </TouchableOpacity>
+
+          <View style={styles.headerContent}>
+            <Text style={styles.driverName}>{displayName}</Text>
+            {displayEmail && <Text style={styles.driverEmail}>{displayEmail}</Text>}
+            <Text style={styles.memberId}>ID: {user?.id}</Text>
+
+            <View style={styles.headerBottomRow}>
+              {renderAccountStatusBadge()}
+              <View style={styles.ratingBadge}>
+                <Text style={styles.ratingStars}>⭐</Text>
+                <Text style={styles.ratingText}>{(typeof stats.averageRating === 'number' ? stats.averageRating : 5.0).toFixed(1)}</Text>
+              </View>
             </View>
-          </View>
-          <View style={styles.walletRowSecondary}>
-            <View style={styles.walletItem}>
-              <Text style={styles.walletLabel}>Ganancias Hoy</Text>
-              <Text style={styles.walletValue}>{formatCurrency(dailyStats.earnings)}</Text>
-            </View>
-            <View style={styles.walletDivider} />
-            <View style={styles.walletItem}>
-              <Text style={styles.walletLabel}>Viajes Hoy</Text>
-              <Text style={styles.walletValue}>{dailyStats.rides}</Text>
-            </View>
-            <View style={styles.walletDivider} />
-            <View style={styles.walletItem}>
-              <Text style={styles.walletLabel}>Calificación</Text>
-              <Text style={styles.walletValue}> ⭐ {(typeof stats.averageRating === 'number' ? stats.averageRating : 5).toFixed(1)}
-              </Text>
-            </View>
+
+            <TouchableOpacity onPress={() => navigation.navigate('Account')}>
+              <View style={styles.editProfileBadge}>
+                  <Text style={styles.editProfileText}>Editar perfil</Text>
+               </View>
+            </TouchableOpacity>
           </View>
         </View>
       </View>
+
+      {/* Content Card */}
+      <View style={styles.contentCard}>
+        {/* Cartera / Ganancias - Cards Flotantes */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Cartera</Text>
+            <TouchableOpacity style={styles.rechargeButton}>
+              <Text style={styles.rechargeButtonText}>Recargas de saldo, bonus y más</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Cards flotantes individuales */}
+          <View style={styles.earningsCardsContainer}>
+            {/* Fila superior: Ganancias Totales + Ganancias Hoy, centradas */}
+            <View style={styles.earningsCardsRowTop}>
+              <View style={styles.earningCard}>
+                <View style={styles.earningCardIcon}>
+                  <Text style={styles.earningCardIconText}>💵</Text>
+                </View>
+                <Text style={styles.earningCardValue}>{formatCurrency(stats.totalEarnings)}</Text>
+                <Text style={styles.earningCardLabel}>Ganancias Totales</Text>
+              </View>
+              <View style={styles.earningCard}>
+                <View style={styles.earningCardIconGreen}>
+                  <Text style={styles.earningCardIconText}>💰</Text>
+                </View>
+                <Text style={styles.earningCardValue}>{formatCurrency(dailyStats.earnings)}</Text>
+                <Text style={styles.earningCardLabel}>Ganancias Hoy</Text>
+              </View>
+            </View>
+
+            {/* Fila inferior: Viajes Hechos + Viajes Hoy + Calificación, en una sola línea */}
+            <View style={styles.earningsCardsRow}>
+              <View style={styles.earningCard}>
+                <View style={styles.earningCardIcon}>
+                  <Text style={styles.earningCardIconText}>🚗</Text>
+                </View>
+                <Text style={styles.earningCardValue}>{stats.totalRides}</Text>
+                <Text style={styles.earningCardLabel}>Viajes Hechos</Text>
+              </View>
+
+              <View style={styles.earningCard}>
+                <View style={styles.earningCardIconBlue}>
+                  <Text style={styles.earningCardIconText}>📍</Text>
+                </View>
+                <Text style={styles.earningCardValue}>{dailyStats.rides}</Text>
+                <Text style={styles.earningCardLabel}>Viajes Hoy</Text>
+              </View>
+
+              <View style={styles.earningCard}>
+                <View style={styles.earningCardIconYellow}>
+                  <Text style={styles.earningCardIconText}>⭐</Text>
+                </View>
+                <Text style={styles.earningCardValue}>{(typeof stats.averageRating === 'number' ? stats.averageRating : 5).toFixed(1)}</Text>
+                <Text style={styles.earningCardLabel}>Calificación</Text>
+              </View>
+            </View>
+          </View>
+        </View>
       {/* Mis Vehículos */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>🚗 Mis Vehículos</Text>
+        <Text style={styles.sectionTitle}>Mis Vehículos</Text>
         
         {vehicles && vehicles.length > 0 ? (
           <>
@@ -1015,22 +1066,24 @@ export default function DriverProfileScreen({ navigation }: any) {
 
               return (
                 <View key={vehicle.id} style={[styles.vehicleCard, isSelectedVehicle && styles.vehicleCardActive]}>
-                  <View style={styles.vehicleIcon}>
-                    <Text style={styles.vehicleIconText}>🚗</Text>
-                  </View>
-                  <View style={styles.vehicleInfo}>
-                    <Text style={styles.vehicleName}>
-                      {vehicle.brand} {vehicle.model}
-                    </Text>
-                    <Text style={styles.vehicleDetails}>
-                      {vehicle.color} • {vehicle.year} • {vehicle.plate}
-                    </Text>
-                    {isSelectedVehicle && (
-                      <Text style={styles.activeVehicleLabel}>Vehículo seleccionado</Text>
-                    )}
-                    {!isApproved && (
-                      <Text style={styles.pendingVehicleLabel}>En revisión administrativa</Text>
-                    )}
+                  <View style={styles.vehicleMainInfo}>
+                    <View style={styles.vehicleIcon}>
+                      <Text style={styles.vehicleIconText}>🚗</Text>
+                    </View>
+                    <View style={styles.vehicleInfo}>
+                      <Text style={styles.vehicleName}>
+                        {vehicle.brand} {vehicle.model}
+                      </Text>
+                      <Text style={styles.vehicleDetails}>
+                        {vehicle.color} • {vehicle.year} • {vehicle.plate}
+                      </Text>
+                      {isSelectedVehicle && (
+                        <Text style={styles.activeVehicleLabel}>Vehículo seleccionado</Text>
+                      )}
+                      {!isApproved && (
+                        <Text style={styles.pendingVehicleLabel}>En revisión administrativa</Text>
+                      )}
+                    </View>
                   </View>
                   <View style={styles.vehicleButtonsContainer}>
                     <TouchableOpacity 
@@ -1075,7 +1128,7 @@ export default function DriverProfileScreen({ navigation }: any) {
 
       {/* Documentos del Conductor */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>📋 Documentos del Conductor</Text>
+        <Text style={styles.sectionTitle}>Documentos del Conductor</Text>
 
         {driverData && (
           <View style={styles.documentCard}>
@@ -1108,17 +1161,9 @@ export default function DriverProfileScreen({ navigation }: any) {
 
       {/* Solicitar Conductor Designado */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>🚙 Conductor Designado</Text>
+        <Text style={styles.sectionTitle}>Conductor Designado</Text>
         
-        <Animated.View 
-          style={[
-            styles.designatedDriverCard,
-            {
-              transform: [{ scale: cardScaleAnim }],
-              opacity: cardOpacityAnim,
-            }
-          ]}
-        >
+        <View style={styles.designatedDriverCard}>
           <View style={styles.designatedDriverContent}>
             <Text style={styles.designatedDriverTitle}>Amplía tus oportunidades</Text>
             <Text style={styles.designatedDriverDescription}>
@@ -1170,12 +1215,12 @@ export default function DriverProfileScreen({ navigation }: any) {
               </Text>
             )}
           </TouchableOpacity>
-        </Animated.View>
+        </View>
       </View>
 
  {/* Preferencias de notificación avanzada */}
  <View style={styles.section}>
-        <Text style={styles.sectionTitle}>🔔 Alertas de viajes cercanos</Text>
+        <Text style={styles.sectionTitle}>Alertas de viajes cercanos</Text>
         <View style={styles.preferenceCard}>
           <View style={styles.preferenceHeader}>
             <View style={styles.preferenceIconWrapper}>
@@ -1209,7 +1254,7 @@ export default function DriverProfileScreen({ navigation }: any) {
 
       {/* Asistente de Voz */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>🎙️ Asistente de Voz</Text>
+        <Text style={styles.sectionTitle}>Asistente de Voz</Text>
 
         <View style={styles.voiceAssistantCard}>
           <View style={styles.voiceAssistantHeader}>
@@ -1242,7 +1287,7 @@ export default function DriverProfileScreen({ navigation }: any) {
       {/* Información del Seguro */}
       {vehicles.length > 0 && vehicles[0].insuranceNumber && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>🛡️ Información del Seguro</Text>
+          <Text style={styles.sectionTitle}>Información del Seguro</Text>
 
           <View style={styles.insuranceCard}>
             <View style={styles.insuranceRow}>
@@ -1280,25 +1325,35 @@ export default function DriverProfileScreen({ navigation }: any) {
           style={styles.optionCard}
           onPress={() => navigation.navigate('Earnings')}
         >
-          <Text style={styles.optionIcon}>💵</Text>
+           <Image
+              source={require('../../assets/icons/profit-icon/profiticon.png')}
+              style={styles.optionIconImage}
+            />
           <Text style={styles.optionText}>Ver Ganancias Detalladas</Text>
           <Text style={styles.optionArrow}>›</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.optionCard}
-          onPress={() => navigation.navigate('RideHistory')}
-        >
-          <Text style={styles.optionIcon}>📜</Text>
-          <Text style={styles.optionText}>Historial de Viajes</Text>
-          <Text style={styles.optionArrow}>›</Text>
-        </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.optionCard}
+            onPress={() => navigation.navigate('RideHistory')}
+          >
+            <Image
+              source={require('../../assets/icons/historial-icon/historialicon2.png')}
+              style={styles.optionIconImage}
+            />
+            <Text style={styles.optionText}>Historial de Viajes</Text>
+            <Text style={styles.optionArrow}>›</Text>
+          </TouchableOpacity>
+
 
         <TouchableOpacity
           style={styles.optionCard}
           onPress={() => navigation.navigate('PaymentMethods')}
         >
-          <Text style={styles.optionIcon}>💳</Text>
+           <Image
+              source={require('../../assets/icons/payment-icon/paymenticon.png')}
+              style={styles.optionIconImage}
+            />
           <Text style={styles.optionText}>Métodos de Pago</Text>
           <Text style={styles.optionArrow}>›</Text>
         </TouchableOpacity>
@@ -1307,7 +1362,10 @@ export default function DriverProfileScreen({ navigation }: any) {
           style={styles.optionCard}
           onPress={() => navigation.navigate('Settings')}
         >
-          <Text style={styles.optionIcon}>⚙️</Text>
+           <Image
+              source={require('../../assets/icons/settings-icon/settingsicon.png')}
+              style={styles.optionIconImage}
+            />
           <Text style={styles.optionText}>Configuración</Text>
           <Text style={styles.optionArrow}>›</Text>
         </TouchableOpacity>
@@ -1316,13 +1374,17 @@ export default function DriverProfileScreen({ navigation }: any) {
           style={styles.optionCard}
           onPress={() => navigation.navigate('Help')}
         >
-          <Text style={styles.optionIcon}>❓</Text>
+            <Image
+              source={require('../../assets/icons/help-icon/helpicon.png')}
+              style={styles.optionIconImage}
+            />
           <Text style={styles.optionText}>Ayuda</Text>
           <Text style={styles.optionArrow}>›</Text>
         </TouchableOpacity>
       </View>
 
       <View style={{ height: 40 }} />
+      </View>
     </ScrollView>
 
     {/* Modal para agregar vehículo */}
@@ -1344,7 +1406,7 @@ export default function DriverProfileScreen({ navigation }: any) {
           <ScrollView style={styles.modalForm}>
             {/* SECCIÓN: INFORMACIÓN BÁSICA */}
             <View style={styles.formSection}>
-              <Text style={styles.formSectionTitle}>📋 Información Básica</Text>
+              <Text style={styles.formSectionTitle}>Información Básica</Text>
               
               <Text style={styles.formLabel}>Placa *</Text>
               <TextInput
@@ -1645,7 +1707,7 @@ export default function DriverProfileScreen({ navigation }: any) {
 const createStyles = (colors: any) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: 'rgba(204, 180, 136, 0.91)',
   },
   loadingContainer: {
     flex: 1,
@@ -1658,33 +1720,109 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontSize: 16,
     color: colors.textSecondary,
   },
+  // Header estilo ProfileScreen
   header: {
-    backgroundColor: colors.card,
-    paddingVertical: 32,
+    backgroundColor: 'rgba(211, 153, 46, 0.81)',
+    paddingVertical: 45,
     paddingHorizontal: 24,
+    alignItems: 'stretch',
+    marginBottom: -10,
+    borderRadius: 14,
+  },
+  headerTopRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  headerMainRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerContent: {
+    flex: 1,
+  },
+  headerBottomRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    gap: 8,
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#fff',
+    marginBottom: 10,
+  },
+  headerTopSpacer: {
+    width: 50,
+    height: 50,
+  },
+  backButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: colors.button || colors.card,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  backIcon: {
+    width: 24,
+    height: 24,
+    resizeMode: 'contain',
+  },
+  memberId: {
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 1)',
+  },
+  editProfileBadge: {
+    backgroundColor: 'rgba(26, 29, 173, 0.51)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 18,
+    alignSelf: 'flex-start',
+    marginTop: 8,
+  },
+  editProfileText: {
+    fontSize: 12,
+    color: '#fff',
+    fontWeight: '600',
+  },
+  // Content Card
+  contentCard: {
+    flex: 1,
+    backgroundColor: colors.card,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingTop: 16,
+    paddingBottom: 32,
+    marginTop: -16,
+    marginHorizontal: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 6,
   },
   avatarContainer: {
     position: 'relative',
-    marginBottom: 16,
+    marginRight: 16,
   },
   avatar: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+    width: 110,
+    height: 110,
+    borderRadius: 55,
   },
   avatarPlaceholder: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+    width: 110,
+    height: 80,
+    borderRadius: 40,
     backgroundColor: colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
   },
   avatarText: {
-    fontSize: 40,
+    fontSize: 32,
     fontWeight: '800',
     color: '#fff',
   },
@@ -1692,33 +1830,31 @@ const createStyles = (colors: any) => StyleSheet.create({
     position: 'absolute',
     bottom: 0,
     right: 0,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: colors.card,
     justifyContent: 'center',
     alignItems: 'center',
   },
   cameraIconText: {
-    fontSize: 18,
+    fontSize: 14,
   },
   driverName: {
     fontSize: 24,
     fontWeight: '800',
-    color: colors.text,
+    color: '#fff',
     marginBottom: 4,
   },
   driverEmail: {
     fontSize: 14,
-    color: colors.textSecondary,
-    marginBottom: 8,
+    color: 'rgba(255, 255, 255, 1)',
+    marginBottom: 4,
   },
   accountStatusBadge: {
-    alignSelf: 'center',
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 4,
     borderRadius: 20,
-    marginBottom: 12,
   },
   accountStatusBadgeText: {
     color: '#fff',
@@ -1729,19 +1865,19 @@ const createStyles = (colors: any) => StyleSheet.create({
   ratingBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.surface,
-    paddingHorizontal: 16,
-    paddingVertical: 6,
+    backgroundColor: 'rgba(230, 230, 230, 0.18)',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
     borderRadius: 20,
   },
   ratingStars: {
-    fontSize: 16,
-    marginRight: 6,
+    fontSize: 14,
+    marginRight: 4,
   },
   ratingText: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '700',
-    color: colors.text,
+    color: '#fff',
   },
   section: {
     paddingHorizontal: 16,
@@ -1757,6 +1893,106 @@ const createStyles = (colors: any) => StyleSheet.create({
     color: colors.text,
     marginBottom: 16,
     letterSpacing: 0.3,
+  },
+  // Cards flotantes para ganancias
+  earningsCardsContainer: {
+    gap: 12,
+  },
+  earningsCardsRowTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignSelf: 'center',
+    width: '75%',
+  },
+  earningsCardsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  earningsCardsRowSingle: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+  },
+  earningCard: {
+    flex: 1,
+    backgroundColor: colors.card,
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  earningCardWide: {
+    flex: 1,
+    backgroundColor: colors.card,
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  earningCardIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 152, 0, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  earningCardIconGreen: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: 'rgba(76, 175, 80, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  earningCardIconBlue: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: 'rgba(33, 150, 243, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  earningCardIconYellow: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 193, 7, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  earningCardIconText: {
+    fontSize: 22,
+  },
+  earningCardValue: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: colors.text,
+    marginBottom: 4,
+  },
+  earningCardLabel: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    fontWeight: '500',
   },
   voiceAssistantCard: {
     backgroundColor: colors.card,
@@ -1818,56 +2054,10 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontSize: 12,
     color: colors.textSecondary,
   },
-  walletRowSecondary: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: 'transparent',
-    paddingVertical: 8,
-    borderRadius: 8,
-  },  
-  walletCard: {
-    backgroundColor: colors.card,
-    borderRadius: 16,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: colors.border,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  walletRow: {
-    flexDirection: 'row',
-    marginBottom: 18,
-  },
-  walletItem: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  walletDivider: {
-    width: 1,
-    backgroundColor: colors.border,
-    marginHorizontal: 14,
-  },
-  walletLabel: {
-    fontSize: 11,
-    color: colors.textSecondary,
-    marginBottom: 8,
-    textAlign: 'center',
-    fontWeight: '600',
-    letterSpacing: 0.2,
-  },
-  walletValue: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: colors.text,
-    letterSpacing: 0.3,
-  },
   vehicleCard: {
     flexDirection: 'row',
-    alignItems: 'center',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
     backgroundColor: colors.card,
     borderRadius: 14,
     padding: 14,
@@ -1879,6 +2069,12 @@ const createStyles = (colors: any) => StyleSheet.create({
     shadowOpacity: 0.06,
     shadowRadius: 3,
     elevation: 1,
+  },
+  vehicleMainInfo: {
+    flexDirection: 'row',
+    flex: 1,
+    alignItems: 'flex-start',
+    marginRight: 12,
   },
   vehicleIcon: {
     width: 60,
@@ -1939,6 +2135,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     alignItems: 'center',
+    alignSelf: 'center',
   },
   verifyButton: {
     backgroundColor: '#2196F3',
@@ -2106,27 +2303,32 @@ const createStyles = (colors: any) => StyleSheet.create({
     letterSpacing: 0.2,
   },
   optionCard: {
+    paddingVertical: 24,
+    paddingHorizontal: 20,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.card,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
   optionIcon: {
-    fontSize: 24,
-    marginRight: 16,
+    fontSize: 20,
+    marginRight: 14,
+  },
+  optionIconImage: {
+    width: 25,
+    height: 25,
+    marginRight: 14,
+    resizeMode: 'contain',
+    tintColor: colors.text,
   },
   optionText: {
     flex: 1,
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 15,
+    fontWeight: '500',
     color: colors.text,
   },
   optionArrow: {
-    fontSize: 20,
+    fontSize: 18,
     color: colors.textSecondary,
   },
   insuranceCard: {
@@ -2273,15 +2475,15 @@ const createStyles = (colors: any) => StyleSheet.create({
   designatedDriverCard: {
     backgroundColor: colors.card,
     borderRadius: 16,
-    padding: 18,
-    borderWidth: 2,
+    padding: 16,
+    borderWidth: 1,
     borderColor: '#2196F3',
     shadowColor: '#2196F3',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 6,
-    marginHorizontal: 0,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 4,
+    marginTop: 12,
   },
   designatedDriverContent: {
     marginBottom: 18,

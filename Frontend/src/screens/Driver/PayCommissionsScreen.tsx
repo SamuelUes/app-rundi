@@ -10,9 +10,12 @@ import {
   ScrollView,
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
+import { useAuth } from '../../context/AuthContext';
 import penaltiesService, { DriverPenaltySummary, PayAllPenaltiesResult } from '../../services/penaltiesService';
 import cardsService, { Card } from '../../services/cardsService';
 import { maskCardNumber } from '../../utils/cardUtils';
+import BiometricService from '../../services/biometricService';
+import { supabase } from '../../config/supabase';
 
 const EMPTY_SUMMARY: DriverPenaltySummary = {
   success: false,
@@ -27,6 +30,7 @@ const EMPTY_SUMMARY: DriverPenaltySummary = {
 export default function PayCommissionsScreen({ navigation }: any) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const { user } = useAuth();
 
   const [loading, setLoading] = useState(true);
   const [summary, setSummary] = useState<DriverPenaltySummary>(EMPTY_SUMMARY);
@@ -77,6 +81,40 @@ export default function PayCommissionsScreen({ navigation }: any) {
       return;
     }
     try {
+      const totalToPay = summary.pendingAmount || 0;
+
+      const biometricResult = await BiometricService.authenticate(
+        `Confirma tu identidad para pagar tus comisiones por C$${totalToPay.toFixed(2)}`
+      );
+
+      if (!biometricResult.success) {
+        if (
+          biometricResult.error === 'Dispositivo no soporta biometría' ||
+          biometricResult.error === 'No hay biometría registrada'
+        ) {
+          console.log('Biometría no disponible o no registrada. Continuando sin autenticación biométrica.');
+        } else {
+          Alert.alert('Error', biometricResult.error || 'No se pudo confirmar tu identidad. Intenta de nuevo.');
+          return;
+        }
+      } else {
+        try {
+          if (user?.id) {
+            await supabase.from('biometric_authentications').insert({
+              ride_id: null,
+              user_id: user.id,
+              user_type: 'driver',
+              biometric_type: biometricResult.biometryType || 'biometric',
+              context: 'commission_payment',
+              success: true,
+              attempt_number: 1,
+            });
+          }
+        } catch (logError) {
+          console.error('❌ Error registrando autenticación biométrica en Supabase (commissions):', logError);
+        }
+      }
+
       setSubmitting(true);
       const res: PayAllPenaltiesResult = await penaltiesService.payAllPenalties({
         reference: reference || undefined,
@@ -115,28 +153,18 @@ export default function PayCommissionsScreen({ navigation }: any) {
 
   const renderPaymentMethods = () => {
     const hasCards = cards.length > 0;
+
     return (
       <View style={styles.methodsContainer}>
         <Text style={styles.methodsTitle}>Elige cómo quieres pagar</Text>
 
+        {/* Método principal: Tarjeta guardada */}
         <TouchableOpacity
-          style={[styles.methodOption, selectedMethod === 'bank_transfer' && styles.methodOptionSelected]}
-          onPress={() => setSelectedMethod('bank_transfer')}
-          activeOpacity={0.8}
-        >
-          <View style={styles.methodOptionHeader}>
-            <Text style={styles.methodOptionLabel}>Transferencia bancaria</Text>
-            {selectedMethod === 'bank_transfer' && <Text style={styles.methodOptionCheck}>✓</Text>}
-          </View>
-          <Text style={styles.methodOptionDescription}>
-            Transfiere desde tu cuenta hacia la cuenta de la empresa. Los datos estarán en el panel administrativo.
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.methodOption, !hasCards && styles.methodOptionDisabled, selectedMethod === 'card' && styles.methodOptionSelected]}
-          disabled={!hasCards}
-          onPress={() => hasCards && setSelectedMethod('card')}
+          style={[
+            styles.methodOption,
+            selectedMethod === 'card' && styles.methodOptionSelected,
+          ]}
+          onPress={() => setSelectedMethod('card')}
           activeOpacity={0.8}
         >
           <View style={styles.methodOptionHeader}>
@@ -144,7 +172,7 @@ export default function PayCommissionsScreen({ navigation }: any) {
             {selectedMethod === 'card' && <Text style={styles.methodOptionCheck}>✓</Text>}
           </View>
           <Text style={styles.methodOptionDescription}>
-            Usa una de tus tarjetas guardadas para registrar el pago. {hasCards ? '' : 'Añade una tarjeta en Métodos de pago.'}
+            Usa una de tus tarjetas guardadas para registrar el pago.
           </Text>
 
           {hasCards && selectedMethod === 'card' && (
@@ -166,6 +194,39 @@ export default function PayCommissionsScreen({ navigation }: any) {
               })}
             </View>
           )}
+
+          {!hasCards && (
+            <View style={{ marginTop: 8 }}>
+              <Text style={styles.methodOptionDescription}>
+                Aún no tienes tarjetas guardadas. Agrega una para poder pagar con tarjeta.
+              </Text>
+              <TouchableOpacity
+                style={{ marginTop: 8 }}
+                onPress={() => navigation.navigate('PaymentMethods')}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.cardItemLabel, { color: colors.primary }]}>Ir a Métodos de pago →</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </TouchableOpacity>
+
+        {/* Método secundario: Transferencia bancaria */}
+        <TouchableOpacity
+          style={[
+            styles.methodOption,
+            selectedMethod === 'bank_transfer' && styles.methodOptionSelected,
+          ]}
+          onPress={() => setSelectedMethod('bank_transfer')}
+          activeOpacity={0.8}
+        >
+          <View style={styles.methodOptionHeader}>
+            <Text style={styles.methodOptionLabel}>Transferencia bancaria</Text>
+            {selectedMethod === 'bank_transfer' && <Text style={styles.methodOptionCheck}>✓</Text>}
+          </View>
+          <Text style={styles.methodOptionDescription}>
+            Transfiere desde tu cuenta hacia la cuenta de la empresa. Los datos estarán en el panel administrativo.
+          </Text>
         </TouchableOpacity>
       </View>
     );

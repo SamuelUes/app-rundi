@@ -131,7 +131,7 @@ const DRIVER_PROFILE_BUBBLE_IMAGE = require('../assets/icons/driver-profile-bubb
 // ✅ Iconos personalizados para origen, paradas múltiples y destino final (wireframe)
 const ORIGIN_PIN_IMAGE = require('../assets/icons/origin_marker/origin_marker.png');
 const MULTI_STOP_PIN_IMAGE = require('../assets/icons/select-extra-destination/selectextradestination.png');
-const DESTINATION_PIN_IMAGE = require('../assets/icons/desti_locationmarker/desti_locationmarker.png');
+const DESTINATION_PIN_IMAGE = require('../assets/icons/select-final-destination/selectfinaldestination.png');
 
 function isValidCoord(value: any): value is { latitude: number; longitude: number } {
   if (!value) return false;
@@ -1022,13 +1022,11 @@ export default function GoogleMap({
       }
     });
 
-    nearbyDrivers.forEach((driver) => {
-      if (isValidCoord(driver)) {
-        coords.push(toLatLng(driver));
-      }
-    });
+    // Nota: intencionalmente no incluimos nearbyDrivers en markersToFit
+    // para evitar animaciones de cámara frecuentes con muchos marcadores dinámicos.
+    // Sí incluimos un subconjunto de rideRequests para que la cámara las encuadre.
 
-    rideRequests.forEach((request) => {
+    rideRequests.slice(0, 3).forEach((request) => {
       if (isValidCoord(request)) {
         coords.push(toLatLng(request));
       }
@@ -1058,7 +1056,6 @@ export default function GoogleMap({
     markerPosition,
     showMarker,
     extraStopMarkers,
-    nearbyDrivers,
     rideRequests,
     routeCoordinates,
     secondaryRouteCoordinates,
@@ -1409,11 +1406,14 @@ export default function GoogleMap({
             <Marker
               key={`ride-request-${request.id}`}
               coordinate={toLatLng(request)}
-              tracksViewChanges
+              tracksViewChanges={false}
               anchor={{ x: 0.5, y: 1 }}
               onPress={() => {
                 if (selectedRideRequestId === request.id) {
                   setSelectedRideRequestId(null);
+                  if (typeof onRideRequestPress === 'function') {
+                    onRideRequestPress(request);
+                  }
                 } else {
                   setSelectedRideRequestId(request.id);
                 }
@@ -1425,7 +1425,7 @@ export default function GoogleMap({
                     <Text style={markerStyles.requestTitle} numberOfLines={1}>
                       {request.clientName}
                     </Text>
-                    < Text style={markerStyles.requestLine} numberOfLines={1}>
+                    <Text style={markerStyles.requestLine} numberOfLines={1}>
                       📍 {request.originAddress}
                     </Text>
                     <Text style={markerStyles.requestLine} numberOfLines={1}>

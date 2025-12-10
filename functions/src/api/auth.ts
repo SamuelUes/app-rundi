@@ -2,7 +2,7 @@ import admin from "firebase-admin";
 import { FieldValue } from "firebase-admin/firestore";
 import * as functions from 'firebase-functions';
 import crypto from 'crypto';
-import { supabasePost, supabaseGet } from '../supabase/client';
+import { supabasePost, supabaseGet, supabaseUpdate } from '../supabase/client';
 
 interface DriverData {
   licenseNumber?: string;
@@ -74,6 +74,11 @@ async function getOrCreateUserByEmail(
     if (error.code === "auth/email-already-exists") {
       return await authAdmin.getUserByEmail(email);
     }
+
+    if (error.code === "auth/phone-number-already-exists" && createRequest.phoneNumber) {
+      return await authAdmin.getUserByPhoneNumber(createRequest.phoneNumber);
+    }
+
     throw error;
   }
 }
@@ -88,7 +93,15 @@ async function getOrCreateUserByPhone(
     if (error.code !== "auth/user-not-found") {
       throw error;
     }
+  }
+
+  try {
     return await authAdmin.createUser(createRequest);
+  } catch (error: any) {
+    if (error.code === "auth/phone-number-already-exists") {
+      return await authAdmin.getUserByPhoneNumber(phoneNumber);
+    }
+    throw error;
   }
 }
 
@@ -98,6 +111,53 @@ function normalizeString(value?: string | null) {
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function mergePlusSeparated(previous?: string, current?: string, order: string[] = []): string | undefined {
+  const parts = new Set<string>();
+
+  const addParts = (value?: string) => {
+    if (!value || typeof value !== "string") {
+      return;
+    }
+    value
+      .split("+")
+      .map((p) => p.trim())
+      .filter((p) => p.length > 0)
+      .forEach((p) => parts.add(p));
+  };
+
+  addParts(previous);
+  addParts(current);
+
+  if (parts.size === 0) {
+    return undefined;
+  }
+
+  const ordered: string[] = [];
+
+  for (const key of order) {
+    if (parts.has(key)) {
+      ordered.push(key);
+      parts.delete(key);
+    }
+  }
+
+  for (const rest of parts) {
+    ordered.push(rest);
+  }
+
+  return ordered.join("+");
+}
+
+function mergeAuthProviders(previous?: string, current?: string): string | undefined {
+  const order = ["google", "email/password", "phone"];
+  return mergePlusSeparated(previous, current, order);
+}
+
+function mergeMethods(previous?: string, current?: string): string | undefined {
+  const order = ["google", "email", "phone"];
+  return mergePlusSeparated(previous, current, order);
 }
 
 async function handleRegister(payload: RegisterPayload): Promise<RegisterResult> {
@@ -192,6 +252,12 @@ async function handleRegister(payload: RegisterPayload): Promise<RegisterResult>
         phoneNumber: phone,
         emailVerified: true,
       });
+
+      if (phone && userRecord.phoneNumber !== phone) {
+        userRecord = await authAdmin.updateUser(userRecord.uid, {
+          phoneNumber: phone,
+        });
+      }
     }
 
     if (userRecord.displayName !== name) {
@@ -210,14 +276,29 @@ async function handleRegister(payload: RegisterPayload): Promise<RegisterResult>
   const userRef = firestore.collection("users").doc(userRecord.uid);
   const existingDoc = await userRef.get();
 
+  let mergedAuthProvider: string | undefined = authProvider;
+  let mergedMethod: string | undefined = method;
+
+  if (existingDoc.exists) {
+    const existingData = existingDoc.data() || {};
+    const previousAuthProvider =
+      typeof existingData.authProvider === "string" ? existingData.authProvider : undefined;
+    const previousMethod =
+      typeof existingData.method === "string" ? existingData.method : undefined;
+
+    mergedAuthProvider =
+      mergeAuthProviders(previousAuthProvider, authProvider) || authProvider;
+    mergedMethod = mergeMethods(previousMethod, method) || method;
+  }
+
   const dataToSave: FirebaseFirestore.DocumentData = {
     id: userRecord.uid,
     name,
     email: email || userRecord.email || null,
     phone: phone || userRecord.phoneNumber || null,
     role,
-    authProvider,
-    method,
+    authProvider: mergedAuthProvider,
+    method: mergedMethod,
     phoneVerified: Boolean(payload.phoneVerified || authProvider === "phone"),
     updatedAt: FieldValue.serverTimestamp(),
   };
@@ -240,29 +321,149 @@ async function handleRegister(payload: RegisterPayload): Promise<RegisterResult>
   await userRef.set(dataToSave, { merge: true });
 
   // Si es conductor, crear registro en Supabase
-  if (role === "driver" && !existingDoc.exists) {
+  if (role === "driver") {
     try {
-      const driverSupabaseData = {
+      const existingDrivers: any[] = await supabaseGet(
+        'drivers',
+        { user_id: userRecord.uid },
+        '*',
+        {
+          requireServiceRole: true,
+          limit: 1,
+        },
+      );
+
+      const hasDriver = Array.isArray(existingDrivers) && existingDrivers.length > 0;
+      const existingDriver = hasDriver ? existingDrivers[0] : null;
+
+      const driverDataPayload = payload.driverData || {};
+      const licenseNumberValue = normalizeString(driverDataPayload.licenseNumber);
+      const licenseExpiryValue = normalizeString(driverDataPayload.licenseExpiry);
+      const departmentValue = normalizeString(driverDataPayload.department);
+      const municipalityValue = normalizeString(driverDataPayload.municipality);
+
+      const baseDriverData: any = {
         user_id: userRecord.uid,
-        profile_photo: null,
-        license_number: null,
-        license_expiry: null,
-        license_photo_front: null,
-        license_photo_back: null,
-        department: null,
-        municipality: null,
-        account_status: 'pending',
-        documents_status: 'pending',
-        verified_at: null,
-        total_rides: 0,
-        average_rating: 5.0,
-        total_earnings: 0,
+        profile_photo: existingDriver ? existingDriver.profile_photo : null,
+        license_number:
+          licenseNumberValue !== undefined
+            ? licenseNumberValue
+            : existingDriver
+            ? existingDriver.license_number
+            : null,
+        license_expiry:
+          licenseExpiryValue !== undefined
+            ? licenseExpiryValue
+            : existingDriver
+            ? existingDriver.license_expiry
+            : null,
+        license_photo_front: existingDriver ? existingDriver.license_photo_front : null,
+        license_photo_back: existingDriver ? existingDriver.license_photo_back : null,
+        department:
+          departmentValue !== undefined
+            ? departmentValue
+            : existingDriver
+            ? existingDriver.department
+            : null,
+        municipality:
+          municipalityValue !== undefined
+            ? municipalityValue
+            : existingDriver
+            ? existingDriver.municipality
+            : null,
+        account_status:
+          existingDriver && (existingDriver.account_status || existingDriver.status)
+            ? existingDriver.account_status || existingDriver.status
+            : 'pending',
+        documents_status:
+          existingDriver && existingDriver.documents_status
+            ? existingDriver.documents_status
+            : 'pending',
+        verified_at: existingDriver ? existingDriver.verified_at : null,
+        total_rides: existingDriver ? existingDriver.total_rides : 0,
+        average_rating: existingDriver ? existingDriver.average_rating : 5.0,
+        total_earnings: existingDriver ? existingDriver.total_earnings : 0,
       };
 
-      await supabasePost('drivers', driverSupabaseData);
-      functions.logger.info(`✅ Conductor creado en Supabase: ${userRecord.uid}`);
+      let driverRow: any = existingDriver;
+
+      if (hasDriver) {
+        const updatedDrivers = await supabaseUpdate('drivers', existingDriver.id, baseDriverData);
+        driverRow =
+          Array.isArray(updatedDrivers) && updatedDrivers.length > 0
+            ? updatedDrivers[0]
+            : existingDriver;
+        functions.logger.info(`✅ Conductor actualizado en Supabase: ${userRecord.uid}`);
+      } else {
+        const insertedDrivers = await supabasePost('drivers', baseDriverData);
+        driverRow =
+          Array.isArray(insertedDrivers) && insertedDrivers.length > 0
+            ? insertedDrivers[0]
+            : insertedDrivers;
+        functions.logger.info(`✅ Conductor creado en Supabase: ${userRecord.uid}`);
+      }
+
+      const driverIdForVehicle: string | undefined = driverRow?.id;
+
+      if (driverIdForVehicle && payload.vehicleData) {
+        try {
+          const existingVehicles: any[] = await supabaseGet(
+            'vehicles',
+            { driver_id: driverIdForVehicle },
+            'id,plate,is_active',
+            {
+              requireServiceRole: true,
+              limit: 10,
+            },
+          );
+
+          const hasVehicles = Array.isArray(existingVehicles) && existingVehicles.length > 0;
+
+          if (!hasVehicles) {
+            const vehiclePayload: any = payload.vehicleData || {};
+            const yearValue =
+              typeof vehiclePayload.year === 'number'
+                ? vehiclePayload.year
+                : vehiclePayload.year
+                ? parseInt(String(vehiclePayload.year), 10)
+                : null;
+            const passengersValue =
+              vehiclePayload.passengers !== undefined && vehiclePayload.passengers !== null
+                ? parseInt(String(vehiclePayload.passengers), 10)
+                : null;
+
+            const vehicleSupabaseData: any = {
+              driver_id: driverIdForVehicle,
+              plate: vehiclePayload.plate
+                ? String(vehiclePayload.plate).toUpperCase()
+                : null,
+              brand: vehiclePayload.brand || null,
+              model: vehiclePayload.model || null,
+              year: yearValue,
+              color: vehiclePayload.color || null,
+              type: vehiclePayload.type || null,
+              passengers: passengersValue,
+              is_active: false,
+            };
+
+            const insertedVehicles = await supabasePost('vehicles', vehicleSupabaseData);
+            const vehicleRow =
+              Array.isArray(insertedVehicles) && insertedVehicles.length > 0
+                ? insertedVehicles[0]
+                : insertedVehicles;
+
+            functions.logger.info(
+              `✅ Vehículo inicial creado en Supabase para conductor ${userRecord.uid}: ${
+                vehicleRow?.id || ''
+              }`,
+            );
+          }
+        } catch (vehicleError: any) {
+          functions.logger.error('❌ Error creando vehículo inicial en Supabase:', vehicleError);
+        }
+      }
     } catch (supabaseError: any) {
-      functions.logger.error('❌ Error creando conductor en Supabase:', supabaseError);
+      functions.logger.error('❌ Error gestionando conductor en Supabase:', supabaseError);
       // No lanzar error, el usuario ya fue creado en Firebase
     }
   }
@@ -281,8 +482,8 @@ async function handleRegister(payload: RegisterPayload): Promise<RegisterResult>
       name,
       role,
       phone: userRecord.phoneNumber || phone || null,
-      authProvider,
-      method,
+      authProvider: mergedAuthProvider || authProvider,
+      method: mergedMethod || method,
       phoneVerified: Boolean(payload.phoneVerified || authProvider === "phone"),
     },
     token: customToken,

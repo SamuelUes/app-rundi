@@ -18,4 +18,5 @@ export type PreflightRouteConfig = {
   rideTrackingRoute?: string;
   pendingPaymentsRoute?: string;
   payCommissionsRoute?: string;
+  pendingApprovalRoute?: string;
 };

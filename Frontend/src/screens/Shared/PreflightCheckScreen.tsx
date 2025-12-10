@@ -11,12 +11,14 @@ import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
+import { useFCM } from '../../context/FCMContext';
 import { checkBackgroundLocationPermission } from '../../services/backgroundLocationService';
 import { overlayManager } from '../../native/overlay';
 import { ensureActivityRecognitionPermission } from '../../utils/activityPermission';
 import alertService from '../../services/alertService';
 import { setPreflightResult, PreflightAction, PreflightSummary } from '../../state/preflightStore';
 import type { PreflightRole, PreflightRouteConfig, PreflightRegionInfo } from '../../types/preflight';
+import { fetchDriverProfile } from '../../services/driverProfilesService';
 import proximityService from '../../services/proximityService';
 import firebaseAuthService from '../../services/auth/firebaseAuthService';
 import TermsAndConditionsModal, { CURRENT_TERMS_VERSION } from '../../components/TermsAndConditionsModal';
@@ -25,6 +27,16 @@ import PermissionsExplanation from '../../components/permissions/PermissionsExpl
 type NavigationLike = {
   replace: (routeName: string, params?: any) => void;
   navigate: (routeName: string, params?: any) => void;
+};
+
+type NormalizedAccountStatus = 'active' | 'pending' | 'suspended' | 'rejected';
+type NormalizedDocumentsStatus = 'verified' | 'pending' | 'suspended' | 'rejected';
+
+type DriverApprovalResult = {
+  allowed: boolean;
+  accountStatus: NormalizedAccountStatus;
+  documentsStatus: NormalizedDocumentsStatus;
+  hasActiveVehicle: boolean;
 };
 
 const ACTIVE_DRIVER_STATUSES = ['accepted', 'driver_on_route', 'driver_arrived', 'in_progress'];
@@ -90,6 +102,7 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
   const params = (route?.params ?? {}) as PreflightRouteConfig;
   const { user, logout } = useAuth();
   const { colors } = useTheme();
+  const { isFCMAvailable, configureFCM } = useFCM();
   
   const role = useMemo<PreflightRole>(() => {
     const paramRole = params?.role;
@@ -105,6 +118,7 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
   const pendingPaymentsRoute = params?.pendingPaymentsRoute ?? 'PendingPayments';
   const payCommissionsRoute = params?.payCommissionsRoute ?? (role === 'driver' ? 'PayCommissions' : undefined);
   const rideTrackingRoute = params?.rideTrackingRoute ?? 'RideTracking';
+  const pendingApprovalRoute = params?.pendingApprovalRoute;
 
   const [progress, setProgress] = useState(0);
   const [currentCheckLabel, setCurrentCheckLabel] = useState('Iniciando...');
@@ -128,6 +142,24 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
       useNativeDriver: false,
     }).start();
   }, [progressAnim]);
+
+  const navigateAfterChecks = useCallback(async () => {
+    try {
+      if (role === 'driver' && user?.id) {
+        const approval = await checkDriverApprovalStatus(user.id);
+        if (approval && !approval.allowed) {
+          const targetRoute = pendingApprovalRoute || 'DriverPendingApproval';
+          nav.replace(targetRoute as any, { approvalInfo: approval });
+          return;
+        }
+      }
+
+      nav.replace(successRoute as any);
+    } catch (err) {
+      console.error('❌ [Preflight] Error en navegación post-checks:', err);
+      nav.replace(successRoute as any);
+    }
+  }, [role, user?.id, nav, successRoute, pendingApprovalRoute]);
 
   const handleTermsIfNeeded = useCallback(async (): Promise<boolean> => {
     try {
@@ -219,7 +251,10 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
             success = await checkAuth(user);
             break;
           case 'notifications':
-            success = await checkNotifications();
+            success = await checkNotifications({
+              isFCMAvailable,
+              configureFCM,
+            });
             break;
           case 'foregroundLocation':
             success = await checkForegroundLocation();
@@ -314,11 +349,11 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
     const shouldNavigate = await handleTermsIfNeeded();
     if (shouldNavigate) {
       setTimeout(() => {
-        nav.replace(successRoute as any);
+        navigateAfterChecks();
       }, 1000);
     }
 
-  }, [role, user, nav, successRoute, activeRideRoute, pendingPaymentsRoute, payCommissionsRoute, rideTrackingRoute, animateProgress, handleTermsIfNeeded]);
+  }, [role, user, nav, successRoute, activeRideRoute, pendingPaymentsRoute, payCommissionsRoute, rideTrackingRoute, animateProgress, handleTermsIfNeeded, navigateAfterChecks]);
 
   useEffect(() => {
     if (!checksRunRef.current) {
@@ -347,7 +382,7 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
       });
       setShowTerms(false);
       setTimeout(() => {
-        nav.replace(successRoute as any);
+        navigateAfterChecks();
       }, 300);
     } catch (err: any) {
       console.error('❌ [Preflight] Error guardando aceptación de términos:', err);
@@ -364,7 +399,7 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
         );
         setShowTerms(false);
         setTimeout(() => {
-          nav.replace(successRoute as any);
+          navigateAfterChecks();
         }, 300);
       } else {
         alertService.showErrorAlert(
@@ -374,7 +409,7 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
     } finally {
       setSavingTerms(false);
     }
-  }, [user?.id, termsChecked, savingTerms, nav, successRoute]);
+  }, [user?.id, termsChecked, savingTerms, navigateAfterChecks]);
 
   const handleSkip = useCallback(() => {
     alertService.showInfoAlert(
@@ -540,15 +575,37 @@ async function checkAuth(user: any): Promise<boolean> {
   }
 }
 
-async function checkNotifications(): Promise<boolean> {
+async function checkNotifications(params?: {
+  isFCMAvailable?: boolean;
+  configureFCM?: () => Promise<void>;
+}): Promise<boolean> {
   try {
+    const { isFCMAvailable, configureFCM } = params || {};
+
     const permissions = await Notifications.getPermissionsAsync();
-    if (permissions.status === 'granted') {
-      return true;
+    let granted = permissions.status === 'granted';
+
+    if (!granted) {
+      const result = await Notifications.requestPermissionsAsync();
+      granted = result.status === 'granted';
     }
 
-    const result = await Notifications.requestPermissionsAsync();
-    return result.status === 'granted';
+    if (!granted) {
+      return false;
+    }
+
+    // Si FCM está disponible, intentar configurar FCM también para que
+    // el contexto de FCM refleje el estado real (hasPermission/isConfigured)
+    if (isFCMAvailable && configureFCM) {
+      try {
+        await configureFCM();
+      } catch (fcmError) {
+        console.error('❌ [Preflight] Error configurando FCM tras conceder notificaciones:', fcmError);
+        // No bloquear el preflight por fallo de FCM; las notificaciones del sistema sí están concedidas
+      }
+    }
+
+    return true;
   } catch (error) {
     console.error('❌ [Preflight] Error verificando notificaciones:', error);
     return false;
@@ -561,18 +618,26 @@ async function checkRegionAvailabilityPreflight(): Promise<PreflightRegionInfo |
 
   try {
     // Intentar usar la última ubicación conocida para acelerar
-    let position = await Location.getLastKnownPositionAsync();
-    if (!position) {
-      position = await Location.getCurrentPositionAsync({});
-    }
+    try {
+      let position = await Location.getLastKnownPositionAsync();
+      if (!position) {
+        position = await Location.getCurrentPositionAsync({});
+      }
 
-    if (!position) {
-      console.warn('⚠️ [Preflight] No se pudo obtener ubicación para verificación de región');
+      if (!position) {
+        console.warn('⚠️ [Preflight] No se pudo obtener ubicación para verificación de región');
+        return null;
+      }
+
+      latitude = position.coords.latitude;
+      longitude = position.coords.longitude;
+    } catch (locError: any) {
+      console.warn(
+        '⚠️ [Preflight] Ubicación actual no disponible. Verifica que los servicios de ubicación estén activos:',
+        locError?.message || locError,
+      );
       return null;
     }
-
-    latitude = position.coords.latitude;
-    longitude = position.coords.longitude;
 
     const { default: client } = await import('../../api/client');
     const { getFirebaseAuth } = await import('../../config/firebase');
@@ -751,17 +816,40 @@ async function checkDriverPendingPayments(
     const pendingItems = Object.entries<any>(data)
       .filter(([, payment]) => {
         if (!payment) return false;
-        if (payment.driverId !== driverId) return false;
+
+        const rawDriverId =
+          payment.driverId ??
+          payment.driver_id ??
+          (payment.ride && (payment.ride.driverId || payment.ride.driver_id)) ??
+          null;
+        const normalizedDriverId =
+          rawDriverId != null ? String(rawDriverId).trim() : '';
+        if (normalizedDriverId !== driverId) return false;
+
         const status = String(payment.status || '').toLowerCase();
-        const isPending = ['pending', 'pending_confirmation', 'in_progress'].includes(status);
-        const requiresClientPayment = payment.requiresClientPayment === true || payment.chargeTarget === 'client';
-        return isPending && requiresClientPayment;
+        const isPending = ['pending', 'pending_confirmation', 'in_progress', 'processing', 'pending_capture'].includes(status);
+        if (!isPending) return false;
+
+        const chargeTargetRaw = payment.chargeTarget || payment.charge_target || null;
+        const requiresClientPaymentFlag =
+          payment.requiresClientPayment ?? payment.requires_client_payment;
+
+        if (requiresClientPaymentFlag === false) return false;
+        if (chargeTargetRaw === 'driver') return false;
+
+        return true;
       })
       .map(([rideId, payment]) => ({ rideId, ...payment }));
 
     if (pendingItems.length === 0) return undefined;
 
     const firstPayment = pendingItems[0];
+    const baseAmount =
+      typeof firstPayment.finalAmount === 'number'
+        ? firstPayment.finalAmount
+        : typeof firstPayment.amount === 'number'
+          ? firstPayment.amount
+          : 0;
     return {
       type: 'pending_payment',
       title: pendingItems.length === 1 ? 'Pago pendiente' : `${pendingItems.length} pagos pendientes`,
@@ -770,8 +858,9 @@ async function checkDriverPendingPayments(
       routeName: 'PaymentConfirmation',
       routeParams: {
         rideId: firstPayment.rideId,
-        amount: firstPayment.finalAmount,
-        method: firstPayment.method,
+        amount: baseAmount,
+        paymentMethod: firstPayment.method || firstPayment.paymentMethod || 'cash',
+        clientName: 'Cliente',
         fromHome: true,
       },
       metadata: { count: pendingItems.length },
@@ -952,6 +1041,60 @@ async function checkActiveRide(
   } catch (error) {
     console.error('❌ [Preflight] Error verificando viaje activo:', error);
     return undefined;
+  }
+}
+
+async function checkDriverApprovalStatus(driverId: string): Promise<DriverApprovalResult | null> {
+  try {
+    const profile = await fetchDriverProfile(driverId, { forceRefresh: true });
+    if (!profile) {
+      return null;
+    }
+
+    const rawAccountStatus = String(
+      (profile as any)?.account_status || (profile as any)?.status || '',
+    ).toLowerCase();
+
+    let accountStatus: NormalizedAccountStatus;
+    if (['active', 'verified', 'approved'].includes(rawAccountStatus)) {
+      accountStatus = 'active';
+    } else if (rawAccountStatus === 'suspended') {
+      accountStatus = 'suspended';
+    } else if (['rejected', 'disabled', 'denied'].includes(rawAccountStatus)) {
+      accountStatus = 'rejected';
+    } else {
+      accountStatus = 'pending';
+    }
+
+    const rawDocumentsStatus = String((profile as any)?.documents_status || '').toLowerCase();
+    let documentsStatus: NormalizedDocumentsStatus;
+    if (rawDocumentsStatus === 'verified') {
+      documentsStatus = 'verified';
+    } else if (rawDocumentsStatus === 'suspended') {
+      documentsStatus = 'suspended';
+    } else if (rawDocumentsStatus === 'rejected') {
+      documentsStatus = 'rejected';
+    } else {
+      documentsStatus = 'pending';
+    }
+
+    const vehicles: any[] | undefined = (profile as any)?.vehicles;
+    const hasActiveVehicle = Array.isArray(vehicles)
+      ? vehicles.some((v) => v && (v.isActive === true || (v as any).is_active === true))
+      : false;
+
+    const allowed = accountStatus === 'active' && documentsStatus === 'verified' && hasActiveVehicle;
+
+    return {
+      allowed,
+      accountStatus,
+      documentsStatus,
+      hasActiveVehicle,
+    };
+  } catch (error) {
+    console.error('❌ [Preflight] Error verificando aprobación de conductor:', error);
+    // Si falla este check, no bloquear el flujo principal
+    return null;
   }
 }
 

@@ -81,7 +81,7 @@ Backend/
 docs/
 database/
 tools/
-#.env
+.env
 storage.rules
 !Frontend/.env
 tests/

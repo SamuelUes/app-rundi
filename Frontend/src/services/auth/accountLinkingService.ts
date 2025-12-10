@@ -8,7 +8,11 @@ import {
 } from 'firebase/auth';
 import { getFirebaseAuth } from '../../config/firebase';
 import { getApp } from '@react-native-firebase/app';
-import { getAuth as getNativeAuth, PhoneAuthProvider as NativePhoneAuthProvider } from '@react-native-firebase/auth';
+import {
+  getAuth as getNativeAuth,
+  PhoneAuthProvider as NativePhoneAuthProvider,
+  verifyPhoneNumber as nativeVerifyPhoneNumber,
+} from '@react-native-firebase/auth';
 
 interface PhoneLinkSession {
   phone: string;
@@ -88,14 +92,54 @@ class AccountLinkingService {
     }
 
     const user = await this.ensureCurrentUser();
+    console.log('[AccountLinkingService] sendPhoneLinkCode:start', {
+      uid: user.uid,
+      phone: normalizedPhone,
+    });
+
     const nativeAuth = getNativeAuth(getApp());
-    const phoneProvider = new NativePhoneAuthProvider(nativeAuth);
-    const verificationId = await phoneProvider.verifyPhoneNumber(normalizedPhone);
+    let verificationId: string | undefined;
+
+    try {
+      // timeout de auto-verificación de 60 segundos (valor razonable por defecto)
+      const confirmation = await nativeVerifyPhoneNumber(nativeAuth, normalizedPhone, 60);
+      const snapshot: any = confirmation as any;
+      verificationId = snapshot?.verificationId;
+
+      console.log('[AccountLinkingService] sendPhoneLinkCode:afterVerifyPhoneNumber', {
+        uid: user.uid,
+        phone: normalizedPhone,
+        confirmation: snapshot,
+        verificationId,
+      });
+    } catch (error: any) {
+      console.error('[AccountLinkingService] sendPhoneLinkCode:error', {
+        uid: user.uid,
+        phone: normalizedPhone,
+        code: error?.code,
+        message: error?.message,
+        error,
+      });
+      throw new Error(
+        error?.message || 'No se pudo iniciar la verificación del teléfono. Intenta nuevamente.',
+      );
+    }
+
+    if (!verificationId) {
+      console.error('[AccountLinkingService] sendPhoneLinkCode:missingVerificationId');
+      throw new Error('No se pudo iniciar la verificación del teléfono. Intenta nuevamente.');
+    }
 
     this.phoneLinkSessions.set(user.uid, {
       phone: normalizedPhone,
       verificationId,
       createdAt: Date.now(),
+    });
+
+    console.log('[AccountLinkingService] sendPhoneLinkCode:sessionStored', {
+      uid: user.uid,
+      phone: normalizedPhone,
+      verificationId,
     });
 
     return { phone: normalizedPhone };
@@ -114,15 +158,27 @@ class AccountLinkingService {
     }
 
     try {
+      console.log('[AccountLinkingService] confirmPhoneLinkCode:start', {
+        uid: user.uid,
+        phone: session.phone,
+      });
       const credential = PhoneAuthProvider.credential(session.verificationId, code);
       await linkWithCredential(user, credential);
       await user.reload();
+
+      const providers = user.providerData.map((provider) => provider.providerId);
+
+      console.log('[AccountLinkingService] confirmPhoneLinkCode:linked', {
+        uid: user.uid,
+        phone: session.phone,
+        providers,
+      });
 
       this.phoneLinkSessions.delete(user.uid);
 
       return {
         phone: session.phone,
-        providers: user.providerData.map((provider) => provider.providerId),
+        providers,
       };
     } catch (error: any) {
       this.phoneLinkSessions.delete(user.uid);

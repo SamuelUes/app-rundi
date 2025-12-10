@@ -1154,12 +1154,12 @@ const createStyles = (colors: any) => StyleSheet.create({
   // Botón de regresar
   backButton: {
     position: 'absolute',
-    top: Platform.OS === 'ios' ? 64 : 28,
+    top: Platform.OS === 'ios' ? 64 : 58,
     left: 16,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.card + 'F5',
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: colors.button + 'F5',
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
@@ -1170,8 +1170,8 @@ const createStyles = (colors: any) => StyleSheet.create({
     zIndex: 10,
   },
   backButtonImage: {
-    width: 24,
-    height: 24,
+    width: 34,
+    height: 34,
     resizeMode: 'contain',
   },
   

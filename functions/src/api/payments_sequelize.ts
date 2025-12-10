@@ -64,9 +64,29 @@ export const registerCashPayment = functions.https.onCall(async (data, context) 
     }
     const payment = await paymentService.registerCashPayment(rideId, tip);
 
-    // Actualizar Realtime DB
     const admin = require('firebase-admin');
-    await admin.database().ref(`paymentStatus/${rideId}`).update({
+    const db = admin.database();
+
+    const rideSnapshot = await db.ref(`activeRides/${rideId}`).once('value');
+    const rideData = rideSnapshot.val() || {};
+
+    const rawDriverId =
+      rideData.driverId ||
+      rideData.driver_id ||
+      (rideData.driver && (rideData.driver.id || rideData.driver.uid)) ||
+      null;
+    const rawClientId =
+      rideData.clientId ||
+      rideData.client_id ||
+      rideData.userId ||
+      rideData.user_id ||
+      (rideData.client && (rideData.client.id || rideData.client.uid)) ||
+      null;
+
+    const driverId = rawDriverId != null ? String(rawDriverId).trim() : null;
+    const clientId = rawClientId != null ? String(rawClientId).trim() : null;
+
+    await db.ref(`paymentStatus/${rideId}`).update({
       rideId,
       status: 'pending_confirmation',
       method: 'cash',
@@ -74,6 +94,10 @@ export const registerCashPayment = functions.https.onCall(async (data, context) 
       amount: Number(payment.amount || 0),
       tip: tip,
       total: Number(payment.amount || 0) + Number(tip || 0),
+      driverId,
+      clientId,
+      requiresClientPayment: true,
+      chargeTarget: 'client',
       lastUpdatedBy: 'backend',
       lastUpdatedAt: admin.database.ServerValue.TIMESTAMP,
     });
@@ -106,7 +130,7 @@ export const confirmCashPayment = functions.https.onCall(async (data, context) =
   await ensureActiveSession(context, data);
 
   try {
-    const { rideId, confirmedBy } = data;
+    const { rideId, confirmedBy, authenticationMethod, biometricType } = data;
 
     if (!rideId) {
       throw new functions.https.HttpsError("invalid-argument", "rideId es requerido");
@@ -114,6 +138,9 @@ export const confirmCashPayment = functions.https.onCall(async (data, context) =
 
     const admin = require('firebase-admin');
     const db = admin.database();
+
+    const authMethod = typeof authenticationMethod === 'string' ? String(authenticationMethod) : undefined;
+    const bioType = typeof biometricType === 'string' ? String(biometricType) : undefined;
     
     // Obtener estado actual del pago
     const paymentSnapshot = await db.ref(`paymentStatus/${rideId}`).once('value');
@@ -128,11 +155,21 @@ export const confirmCashPayment = functions.https.onCall(async (data, context) =
       console.log(`💳 [confirmCashPayment] Conductor confirmando pago para rideId: ${rideId}`);
       
       // Marcar que el conductor confirmó
-      await db.ref(`paymentStatus/${rideId}`).update({
+      const driverUpdatePayload: any = {
         confirmedByDriver: true,
         driverConfirmedAt: admin.database.ServerValue.TIMESTAMP,
         lastUpdatedAt: admin.database.ServerValue.TIMESTAMP,
-      });
+      };
+
+      if (authMethod === 'biometric') {
+        driverUpdatePayload.authentication_method = 'biometric';
+        driverUpdatePayload.biometric_authenticated = true;
+        if (bioType) {
+          driverUpdatePayload.biometric_type = bioType;
+        }
+      }
+
+      await db.ref(`paymentStatus/${rideId}`).update(driverUpdatePayload);
 
       console.log(`✅ [confirmCashPayment] Pago confirmado por conductor`);
       
@@ -170,11 +207,21 @@ export const confirmCashPayment = functions.https.onCall(async (data, context) =
       console.log(`💳 [confirmCashPayment] Cliente confirmando pago para rideId: ${rideId}`);
 
       // Marcar que el cliente confirmó
-      await db.ref(`paymentStatus/${rideId}`).update({
+      const clientUpdatePayload: any = {
         confirmedByClient: true,
         clientConfirmedAt: admin.database.ServerValue.TIMESTAMP,
         lastUpdatedAt: admin.database.ServerValue.TIMESTAMP,
-      });
+      };
+
+      if (authMethod === 'biometric') {
+        clientUpdatePayload.authentication_method = 'biometric';
+        clientUpdatePayload.biometric_authenticated = true;
+        if (bioType) {
+          clientUpdatePayload.biometric_type = bioType;
+        }
+      }
+
+      await db.ref(`paymentStatus/${rideId}`).update(clientUpdatePayload);
 
       // Actualizar estado del viaje a 'completed' en activeRides
       console.log(`🔄 [confirmCashPayment] Actualizando estado del viaje a 'completed'`);

@@ -186,7 +186,21 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
       console.error('Error verificando código:', error);
       setAttempts((prev) => prev + 1);
 
-      let message = error?.message || 'Revisa el SMS y asegúrate de ingresar el último código recibido.';
+      const rawMessage: string = error?.message || '';
+      const rawCode: string = (error as any)?.code || '';
+
+      if (
+        rawCode === 'SESSION_ACTIVE_ELSEWHERE' ||
+        (typeof rawMessage === 'string' && rawMessage.includes('SESSION_ACTIVE_ELSEWHERE'))
+      ) {
+        alertService.showErrorAlert(
+          'No puedes iniciar sesión porque tu cuenta ya está activa en otro dispositivo. Cierra sesión en el otro teléfono para continuar.',
+        );
+        setCode('');
+        return;
+      }
+
+      let message = rawMessage || 'Revisa el SMS y asegúrate de ingresar el último código recibido.';
       if (typeof message === 'string' && message.includes('Missing or insufficient permissions')) {
         message =
           'No pudimos cargar tu perfil por un problema de permisos, pero el código SMS puede ser válido. Intenta nuevamente más tarde o inicia sesión con correo.';
@@ -538,25 +552,25 @@ const createStyles = (colors: any) => StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 20,
+    marginTop: 24,
   },
   codeBox: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    width: 40,
+    height: 40,
+    borderRadius: 10,
     borderWidth: 2,
     borderColor: colors.border,
     backgroundColor: colors.background,
     justifyContent: 'center',
     alignItems: 'center',
-    marginHorizontal: 4,
+    marginHorizontal: 6,
   },
   codeBoxFilled: {
     borderColor: colors.primary,
     backgroundColor: colors.primary + '25',
   },
   codeBoxText: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '700',
     color: colors.text,
   },

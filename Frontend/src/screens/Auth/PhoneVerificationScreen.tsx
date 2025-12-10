@@ -16,7 +16,9 @@ import {
   Platform,
   ScrollView,
   ActivityIndicator,
+  Image,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
@@ -24,6 +26,7 @@ import { useTheme } from '../../context/ThemeContext';
 import phoneAuthService from '../../services/auth/phoneAuthService';
 import firebaseAuthService from '../../services/auth/firebaseAuthService';
 import registrationService from '../../services/registrationService';
+import accountLinkingService from '../../services/auth/accountLinkingService';
 import { AuthStackParamList } from '../../navigation/types';
 import { formatPhoneNumber, getCountryDialOptions } from '../../utils/phoneUtils';
 import alertService from '../../services/alertService';
@@ -42,6 +45,20 @@ interface Props {
 
 const MAX_ATTEMPTS = 3;
 
+const buildAuthProviderField = (providers: string[]) => {
+  if (!providers.length) {
+    return 'desconocido';
+  }
+  return providers
+    .map((provider) => {
+      if (provider === 'google.com') return 'google';
+      if (provider === 'password') return 'email/password';
+      if (provider === 'phone') return 'phone';
+      return provider;
+    })
+    .join('+');
+};
+
 export default function PhoneVerificationScreen({ navigation, route }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -55,7 +72,11 @@ export default function PhoneVerificationScreen({ navigation, route }: Props) {
     authProvider,
     googleIdToken,
     role,
+    context,
   } = route.params;
+
+  const verificationContext: 'register_phone' | 'add_phone' | string =
+    context ?? 'register_phone';
 
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
@@ -147,6 +168,100 @@ export default function PhoneVerificationScreen({ navigation, route }: Props) {
 
     setLoading(true);
     try {
+      if (verificationContext === 'add_phone') {
+        try {
+          const { phone: linkedPhone, providers } =
+            await accountLinkingService.confirmPhoneLinkCode(code);
+
+          const currentUser = await firebaseAuthService.getCurrentUser();
+          const userId = currentUser?.uid;
+
+          if (userId && linkedPhone) {
+            try {
+              await firebaseAuthService.logSmsVerification({
+                userId,
+                phoneNumber: linkedPhone,
+                code,
+                context: 'add_phone',
+                attemptCount: attempts + 1,
+              });
+            } catch (logError) {
+              console.error(
+                '⚠️ No se pudo registrar el log de verificación SMS (add_phone):',
+                logError,
+              );
+            }
+
+            try {
+              const authProviderLabel = buildAuthProviderField(providers || []);
+              await firebaseAuthService.updateUserProfile(userId, {
+                phone: linkedPhone,
+                phoneVerified: true,
+                authProvider: authProviderLabel,
+                method: authProviderLabel,
+              });
+            } catch (updateError) {
+              console.error('❌ Error actualizando perfil con teléfono vinculado:', updateError);
+              throw updateError;
+            }
+
+            try {
+              const stored = await AsyncStorage.getItem('user');
+              if (stored) {
+                const parsed = JSON.parse(stored);
+                await AsyncStorage.setItem(
+                  'user',
+                  JSON.stringify({
+                    ...parsed,
+                    phone: linkedPhone,
+                  }),
+                );
+              }
+            } catch (cacheError) {
+              console.warn(
+                '⚠️ No se pudo actualizar caché local del usuario con teléfono verificado:',
+                cacheError,
+              );
+            }
+          }
+
+          alertService.showSuccessAlert(
+            '✅ Teléfono verificado',
+            'Tu número ha sido vinculado correctamente.',
+            {
+              duration: 2000,
+            },
+          );
+
+          navigation.goBack();
+        } catch (error: any) {
+          console.error('❌ Error vinculando teléfono a la cuenta actual:', error);
+          setAttempts((prev) => prev + 1);
+          Alert.alert(
+            'No pudimos vincular tu teléfono',
+            error?.message ||
+              'Revisa el SMS y asegúrate de ingresar el último código recibido.',
+          );
+          setCode('');
+        }
+        return;
+      }
+
+      // Verificar si el número ya existe en Firebase Auth antes de continuar
+      try {
+        const availability = await firebaseAuthService.checkUserExists({ phone });
+        if (availability.phoneExists) {
+          Alert.alert(
+            'Teléfono ya registrado',
+            'Este número de teléfono ya está asociado a una cuenta existente. Usa otro número o inicia sesión con la cuenta vinculada a este teléfono.'
+          );
+          setLoading(false);
+          return;
+        }
+      } catch (availabilityError) {
+        console.error('⚠️ No se pudo validar disponibilidad del teléfono antes de verificar código:', availabilityError);
+      }
+
       const credential = await phoneAuthService.confirmVerificationCode(phone, code, {
         signOutAfterConfirm: true,
       });
@@ -186,7 +301,12 @@ export default function PhoneVerificationScreen({ navigation, route }: Props) {
   const handleResendCode = async () => {
     setResendLoading(true);
     try {
-      await phoneAuthService.sendVerificationCode(phone);
+      if (verificationContext === 'add_phone') {
+        await accountLinkingService.sendPhoneLinkCode(phone);
+      } else {
+        await phoneAuthService.sendVerificationCode(phone);
+      }
+
       Alert.alert('✅ Código reenviado', `Se envió un nuevo código a ${displayPhone}`);
       setTimeLeft(60);
       setCode('');
@@ -208,7 +328,9 @@ export default function PhoneVerificationScreen({ navigation, route }: Props) {
         <View style={styles.card}>
           <Text style={styles.title}>Verificar tu número</Text>
           <Text style={styles.subtitle}>
-            Envía el código recibido para continuar con el registro.
+            {verificationContext === 'add_phone'
+              ? 'Ingresa el código para confirmar tu nuevo número.'
+              : 'Envía el código recibido para continuar con el registro.'}
           </Text>
           <Text style={styles.phoneNumber}>{displayPhone}</Text>
 
@@ -294,7 +416,10 @@ export default function PhoneVerificationScreen({ navigation, route }: Props) {
           </View>
 
           <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-            <Text style={styles.backButtonText}>← Cambiar número</Text>
+            <Image
+              source={require('../../assets/icons/back_button/back_button.png')}
+              style={styles.backIcon}
+            />
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -412,25 +537,25 @@ const createStyles = (colors: any) =>
       flexDirection: 'row',
       justifyContent: 'center',
       alignItems: 'center',
-      marginTop: 20,
+      marginTop: 24,
     },
     codeBox: {
-      width: 26,
-      height: 26,
-      borderRadius: 13,
+      width: 40,
+      height: 40,
+      borderRadius: 10,
       borderWidth: 2,
       borderColor: colors.border,
       backgroundColor: colors.background,
       justifyContent: 'center',
       alignItems: 'center',
-      marginHorizontal: 4,
+      marginHorizontal: 6,
     },
     codeBoxFilled: {
       borderColor: colors.primary,
       backgroundColor: colors.primary + '25',
     },
     codeBoxText: {
-      fontSize: 16,
+      fontSize: 18,
       fontWeight: '700',
       color: colors.text,
     },
@@ -452,12 +577,19 @@ const createStyles = (colors: any) =>
       color: colors.textSecondary,
     },
     backButton: {
-      paddingVertical: 12,
+      width: 60,
+      height: 50,
+      borderRadius: 15,
+      backgroundColor: 'rgba(231, 168, 86, 1)',
+      paddingVertical: 7.5,
+      paddingHorizontal: 10,
+      alignSelf: 'center',
+      justifyContent: 'center',
       alignItems: 'center',
     },
-    backButtonText: {
-      fontSize: 14,
-      color: colors.primary,
-      fontWeight: '600',
+    backIcon: {
+      width: 35,
+      height: 35,
+      tintColor: '#000000ff',
     },
   });

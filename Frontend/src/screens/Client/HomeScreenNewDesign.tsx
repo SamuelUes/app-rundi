@@ -208,6 +208,55 @@ export default function HomeScreen({ navigation }: any) {
     checkPendingPayments().finally(() => markTaskCompleted('pendingPayments'));
   }, [user?.id, markTaskCompleted]);
 
+  // Listener dedicado para deudas históricas del cliente
+  useEffect(() => {
+    if (!user?.id) {
+      return;
+    }
+
+    let isMounted = true;
+    let cleanup: null | (() => void) = null;
+
+    (async () => {
+      try {
+        const { getDatabase, ref, onValue, off } = await import('firebase/database');
+        const db = getDatabase();
+        const summaryRef = ref(db, `clientPendingPayments/${user.id}/summary`);
+
+        const handleSnapshot = (snapshot: any) => {
+          if (!isMounted) return;
+          const data = snapshot.val();
+          if (!data) {
+            return;
+          }
+
+          const hasPending = !!data.hasPendingPayments;
+          const debt = Number(data.totalDebt ?? 0);
+
+          setHasPendingPayments(hasPending);
+          setTotalDebt(Number.isFinite(debt) ? debt : 0);
+        };
+
+        onValue(summaryRef, handleSnapshot, (err) => {
+          console.error('❌ [HomeScreen] Error escuchando clientPendingPayments summary:', err);
+        });
+
+        cleanup = () => {
+          off(summaryRef, 'value', handleSnapshot);
+        };
+      } catch (err) {
+        console.error('❌ [HomeScreen] Error iniciando listener de clientPendingPayments summary:', err);
+      }
+    })();
+
+    return () => {
+      isMounted = false;
+      if (cleanup) {
+        cleanup();
+      }
+    };
+  }, [user?.id]);
+
   // Estado para datos
   const [savedAddress, setSavedAddress] = useState('');
   const [availableDrivers, setAvailableDrivers] = useState<any[]>([]);

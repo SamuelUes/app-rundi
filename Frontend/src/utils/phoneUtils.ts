@@ -27,7 +27,7 @@ const COUNTRY_DIAL_OPTIONS: CountryDialOption[] = [
 
 const COUNTRY_LOCAL_LENGTH: Record<string, number> = {
   NI: 8,
-  US: 10,
+  US: 12,
   CA: 10,
   MX: 10,
   SV: 8,
@@ -39,11 +39,16 @@ const COUNTRY_LOCAL_LENGTH: Record<string, number> = {
   CL: 9,
   VE: 10,
   ES: 9,
-  BR: 10,
+  BR: 11,
   PE: 9,
   EC: 9,
   GT: 8,
   DO: 10,
+};
+
+const COUNTRY_AREA_LENGTH: Record<string, number> = {
+  US: 3,
+  CA: 3,
 };
 
 export const getCountryDialOptions = (): CountryDialOption[] => COUNTRY_DIAL_OPTIONS;
@@ -59,6 +64,11 @@ export const getCountryLocalNumberLength = (country: CountryDialOption | string)
   const dialDigits = dial.replace(/\D/g, '');
   const defaultLength = Math.max(6, 15 - dialDigits.length);
   return defaultLength;
+};
+
+export const getCountryAreaCodeLength = (country: CountryDialOption | string): number => {
+  const code = typeof country === 'string' ? country : country.code;
+  return COUNTRY_AREA_LENGTH[code] ?? 0;
 };
 
 export const normalizePhoneNumber = (value: string, dialCode: string): string => {

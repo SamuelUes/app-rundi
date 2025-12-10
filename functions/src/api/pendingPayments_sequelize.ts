@@ -101,11 +101,15 @@ export const getPendingPayments = functions.https.onCall(async (data, context) =
       }
     }
 
+    const count = result.length;
+    const hasPendingPayments = count > 0;
+    const normalizedTotalDebt = Number(totalDebt.toFixed(2));
+
     return {
       success: true,
-      count: result.length,
-      hasPendingPayments: result.length > 0,
-      totalDebt: Number(totalDebt.toFixed(2)),
+      count,
+      hasPendingPayments,
+      totalDebt: normalizedTotalDebt,
       payments: result,
     };
   } catch (error: any) {

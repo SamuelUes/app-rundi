@@ -191,7 +191,7 @@ export default function DriverDataScreen({ navigation, route }: Props) {
                   activeTab === 'license' && styles.tabTextActive,
                 ]}
               >
-                📋 Licencia
+                Licencia
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -204,7 +204,7 @@ export default function DriverDataScreen({ navigation, route }: Props) {
                   activeTab === 'vehicle' && styles.tabTextActive,
                 ]}
               >
-                🚗 Vehículo
+                Vehículo
               </Text>
             </TouchableOpacity>
           </View>
@@ -401,7 +401,7 @@ export default function DriverDataScreen({ navigation, route }: Props) {
               onPress={() => navigation.goBack()}
               disabled={loading}
             >
-              <Text style={styles.backButtonText}>← Volver</Text>
+              <Text style={styles.backButtonText}>Volver</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -412,7 +412,7 @@ export default function DriverDataScreen({ navigation, route }: Props) {
               {loading ? (
                 <ActivityIndicator color="#FFFFFF" />
               ) : (
-                <Text style={styles.continueButtonText}>Continuar →</Text>
+                <Text style={styles.continueButtonText}>Continuar</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -467,7 +467,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     borderBottomColor: 'transparent',
   },
   tabActive: {
-    borderBottomColor: colors.primary,
+    borderBottomColor: 'rgba(212, 156, 35, 1)',
   },
   tabText: {
     fontSize: 14,
@@ -475,7 +475,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     color: colors.textSecondary,
   },
   tabTextActive: {
-    color: colors.primary,
+    color: 'rgba(212, 156, 35, 1)',
   },
   section: {
     marginBottom: 24,
@@ -549,7 +549,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     flex: 1,
     paddingVertical: 12,
     borderRadius: 8,
-    backgroundColor: colors.primary,
+    backgroundColor: 'rgba(201, 149, 36, 1)',
     alignItems: 'center',
   },
   continueButtonText: {

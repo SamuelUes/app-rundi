@@ -2,6 +2,7 @@ export type RegistrationMethod = 'email' | 'phone' | 'google';
 export type RegistrationAuthProvider = 'email/password' | 'phone' | 'google';
 
 export type AuthStackParamList = {
+  Onboarding: undefined;
   AuthLanding: undefined;
   Login: undefined;
   Register: undefined;
@@ -16,6 +17,7 @@ export type AuthStackParamList = {
     authProvider: RegistrationAuthProvider;
     googleIdToken?: string;
     phoneVerified?: boolean;
+    context?: 'register_phone' | 'add_phone';
   };
   PhoneVerificationLogin: {
     phone: string;

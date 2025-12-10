@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
+import { useFonts } from 'expo-font';
 import { NavigationContainer } from '@react-navigation/native';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
@@ -24,6 +25,9 @@ const STRIPE_PUBLISHABLE_KEY = process.env.STRIPE_PUBLIC_KEY || 'pk_test_51SEkQK
 function AppContent() {
   const { isDark } = useTheme();
   const { user } = useAuth();
+  const [fontsLoaded] = useFonts({
+    Montserrat: require('./src/assets/fonts/Montserrat-VariableFont_wght.ttf'),
+  });
   const requireBackgroundLocation =
     user?.role === 'driver' || user?.role === 'designated_driver';
   // Inicializar listeners de notificaciones (Expo Notifications)
@@ -55,6 +59,10 @@ function AppContent() {
 
     initializeFCM();
   }, []);
+  
+  if (!fontsLoaded) {
+    return null;
+  }
   
   return (
     <SafeAreaProvider>

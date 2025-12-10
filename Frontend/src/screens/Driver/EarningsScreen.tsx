@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, CommonActions } from '@react-navigation/native';
 import {
   View,
   Text,
@@ -125,6 +125,25 @@ export default function EarningsScreen() {
       setPenaltySummary(EMPTY_PENALTY_SUMMARY);
     }
   };
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', (e: any) => {
+      const actionType = e?.data?.action?.type;
+      if (actionType !== 'GO_BACK' && actionType !== 'POP') {
+        return;
+      }
+
+      e.preventDefault();
+      navigation.dispatch(
+        CommonActions.reset({
+          index: 0,
+          routes: [{ name: 'DriverHome' }],
+        }),
+      );
+    });
+
+    return unsubscribe;
+  }, [navigation]);
 
   const loadCommissionBreakdown = async () => {
     try {

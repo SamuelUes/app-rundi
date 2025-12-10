@@ -28,6 +28,8 @@ import { formatCurrency } from '../../utils/formatters';
 import alertService from '../../services/alertService';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import sessionService from '../../services/sessionService';
+import BiometricService from '../../services/biometricService';
+import { supabase } from '../../config/supabase';
 
 // Crear estilos fuera del componente para mejor rendimiento
 const createStyles = (colors: any) => StyleSheet.create({
@@ -196,6 +198,7 @@ export default function CashPaymentScreen({ route, navigation }: any) {
   const [confirming, setConfirming] = useState(false);
   const [paymentStatus, setPaymentStatus] = useState<string>('pending');
   const [driverPhotoURL, setDriverPhotoURL] = useState<string | null>(null);
+  const [biometricRequested, setBiometricRequested] = useState(false);
   const [currentPaymentMethod, setCurrentPaymentMethod] = useState<string>('cash');
   const currentPaymentMethodRef = useRef<string>('cash');
   const isNavigatingRef = useRef(false);
@@ -323,21 +326,90 @@ export default function CashPaymentScreen({ route, navigation }: any) {
     };
   }, [rideId, navigation]);
   
+  useEffect(() => {
+    if (biometricRequested) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      if (biometricRequested) {
+        return;
+      }
+
+      if (paymentStatus === 'pending' || paymentStatus === 'pending_capture') {
+        setBiometricRequested(true);
+        handleConfirmPayment();
+      } else {
+        setBiometricRequested(true);
+      }
+    }, 1200);
+
+    return () => clearTimeout(timer);
+  }, [paymentStatus, biometricRequested]);
+  
   // Confirmar pago en efectivo
   const handleConfirmPayment = async () => {
+    if (confirming) {
+      return;
+    }
+
     try {
-      setConfirming(true);
       console.log('💳 Cliente confirmando pago para rideId:', rideId);
+
+      const finalAmount = ride?.finalFare || ride?.estimatedPrice || paramAmount || 0;
+      const numericAmount = typeof finalAmount === 'string' ? parseFloat(finalAmount) : finalAmount;
+
+      const biometricResult = await BiometricService.authenticate(
+        `Confirma tu identidad para registrar el pago de C$${numericAmount.toFixed(2)}`
+      );
+
+      let authenticationMethod: 'biometric' | 'manual' = 'manual';
+      let biometricType: string | null = null;
+
+      if (!biometricResult.success) {
+        if (
+          biometricResult.error === 'Dispositivo no soporta biometría' ||
+          biometricResult.error === 'No hay biometría registrada'
+        ) {
+          console.log('Biometría no disponible o no registrada. Continuando sin autenticación biométrica.');
+        } else {
+          alertService.showErrorAlert(
+            biometricResult.error || 'No se pudo confirmar tu identidad. Intenta de nuevo.'
+          );
+          return;
+        }
+      } else {
+        authenticationMethod = 'biometric';
+        biometricType = biometricResult.biometryType || 'biometric';
+
+        try {
+          const authInstance = getAuth();
+          const uid = authInstance.currentUser?.uid;
+          if (uid) {
+            await supabase.from('biometric_authentications').insert({
+              ride_id: null,
+              user_id: uid,
+              user_type: 'client',
+              biometric_type: biometricType,
+              context: 'cash_payment_confirmation',
+              success: true,
+              attempt_number: 1,
+            });
+          }
+        } catch (logError) {
+          console.error('❌ Error registrando autenticación biométrica en Supabase:', logError);
+        }
+      }
+
+      setConfirming(true);
       
       const auth = getAuth();
       
       if (!auth.currentUser) {
         alertService.showErrorAlert('Debes iniciar sesión para confirmar el pago');
-        setConfirming(false);
         return;
       }
       
-      // Llamar a la función del backend
       const { getFunctions, httpsCallable } = await import('firebase/functions');
       const { initializeFirebase } = await import('../../config/firebase');
       
@@ -349,10 +421,6 @@ export default function CashPaymentScreen({ route, navigation }: any) {
       const functions = getFunctions(app);
       const confirmCashPaymentFn = httpsCallable(functions, 'confirmCashPayment');
       
-      // Convertir amount a número
-      const finalAmount = ride?.finalFare || ride?.estimatedPrice || paramAmount || 0;
-      const numericAmount = typeof finalAmount === 'string' ? parseFloat(finalAmount) : finalAmount;
-      
       const deviceId = await sessionService.getDeviceId();
       const result = await confirmCashPaymentFn({
         rideId,
@@ -360,13 +428,14 @@ export default function CashPaymentScreen({ route, navigation }: any) {
         tip: 0,
         confirmedBy: 'client',
         deviceId,
+        authenticationMethod,
+        biometricType,
       });
       
       const data = result.data as any;
       console.log('✅ Respuesta del backend:', data);
       
       if (data.bothConfirmed) {
-        // Ambos confirmaron → Ir a calificación
         alertService.showSuccessAlert(
           'Pago Confirmado',
           'El pago fue confirmado por ambas partes',
@@ -375,7 +444,6 @@ export default function CashPaymentScreen({ route, navigation }: any) {
           }
         );
       } else {
-        // Solo cliente confirmó → Esperar conductor
         alertService.showSuccessAlert(
           'Confirmación Registrada',
           'Esperando que el conductor confirme que recibió el pago'
@@ -383,13 +451,12 @@ export default function CashPaymentScreen({ route, navigation }: any) {
         setPaymentStatus('pending_confirmation');
       }
       
-      setConfirming(false);
-      
     } catch (error: any) {
       console.error('❌ Error confirmando pago:', error);
       alertService.showErrorAlert(
         error.message || 'No se pudo confirmar el pago. Intenta de nuevo.'
       );
+    } finally {
       setConfirming(false);
     }
   };

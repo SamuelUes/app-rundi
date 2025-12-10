@@ -382,6 +382,12 @@ export async function savePaymentToSupabase(
     const tip = pickNumber(paymentStatus.tip) || 0;
     const commission = calculateCommission(amount); // 11% de comisión
 
+    const biometricAuthenticated = !!paymentStatus.biometric_authenticated;
+    const biometricType = paymentStatus.biometric_type || null;
+    const authenticationMethod = paymentStatus.authentication_method || (biometricAuthenticated ? 'biometric' : 'manual');
+    const smsCodeVerified = !!paymentStatus.sms_code_verified;
+    const smsVerificationId = paymentStatus.sms_verification_id || null;
+
     console.log(`\n💳 [savePaymentToSupabase] Guardando pago para ride: ${pgRideId} (status: ${paymentStatusValue})`);
 
     console.log(`   📊 Datos a guardar:`, {
@@ -392,6 +398,11 @@ export async function savePaymentToSupabase(
       payment_method: paymentStatus.method || 'cash',
       status: paymentStatusValue,
       cancel_reason: paymentStatus.cancelReason || null,
+      biometric_authenticated: biometricAuthenticated,
+      biometric_type: biometricType,
+      authentication_method: authenticationMethod,
+      sms_code_verified: smsCodeVerified,
+      sms_verification_id: smsVerificationId,
     });
 
     const existingPaymentResult = await client.query(
@@ -412,9 +423,14 @@ export async function savePaymentToSupabase(
              payment_provider = $5,
              status = $6,
              cancel_reason = $7,
-             paid_at = $8,
+             biometric_authenticated = $8,
+             biometric_type = $9,
+             authentication_method = $10,
+             sms_code_verified = $11,
+             sms_verification_id = $12,
+             paid_at = $13,
              updated_at = NOW()
-         WHERE id = $9`,
+         WHERE id = $14`,
         [
           amount,
           tip,
@@ -423,6 +439,11 @@ export async function savePaymentToSupabase(
           'cash',
           paymentStatusValue,
           paymentStatus.cancelReason || null,
+          biometricAuthenticated,
+          biometricType,
+          authenticationMethod,
+          smsCodeVerified,
+          smsVerificationId,
           paymentStatusValue === 'completed' ? new Date() : null,
           paymentId,
         ]
@@ -441,11 +462,16 @@ export async function savePaymentToSupabase(
           payment_provider,
           status,
           cancel_reason,
+          biometric_authenticated,
+          biometric_type,
+          authentication_method,
+          sms_code_verified,
+          sms_verification_id,
           paid_at,
           created_at,
           updated_at
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
         )`,
         [
           pgRideId,
@@ -456,6 +482,11 @@ export async function savePaymentToSupabase(
           'cash',
           paymentStatusValue,
           paymentStatus.cancelReason || null,
+          biometricAuthenticated,
+          biometricType,
+          authenticationMethod,
+          smsCodeVerified,
+          smsVerificationId,
           paymentStatusValue === 'completed' ? new Date() : null,
           new Date(),
           new Date(),

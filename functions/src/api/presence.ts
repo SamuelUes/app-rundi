@@ -84,7 +84,7 @@ export const markAppActive = functions.https.onCall(async (data, context) => {
     if (role === "driver") {
       const location: DriverLocationPayload | undefined = data?.location;
       // No escribir 'status' en driversInfo; solo timestamps
-      const driverInfoUpdate = {
+      const driverInfoUpdate: Record<string, any> = {
         updatedAt: now,
         lastSeen: now,
       };
@@ -101,6 +101,43 @@ export const markAppActive = functions.https.onCall(async (data, context) => {
       if (typeof location?.longitude === "number") {
         driverLocationUpdate.lng = location.longitude;
       }
+
+      let profileData: Record<string, any> | null = null;
+      try {
+        const userDoc = await admin.firestore().collection("users").doc(uid).get();
+        profileData = userDoc.exists ? userDoc.data() ?? null : null;
+      } catch (firestoreError: any) {
+        functions.logger.warn("[markAppActive] No se pudo leer usuario en Firestore", {
+          uid,
+          error: firestoreError?.message || firestoreError,
+        });
+      }
+
+      const normalizedProfile = {
+        fullName:
+          profileData?.fullName ??
+          profileData?.name ??
+          profileData?.displayName ??
+          profileData?.firstName ??
+          null,
+        photoUrl:
+          profileData?.photoUrl ??
+          profileData?.photoURL ??
+          profileData?.avatarUrl ??
+          profileData?.avatar ??
+          null,
+        phone:
+          profileData?.phone ??
+          profileData?.phoneNumber ??
+          profileData?.phone_number ??
+          null,
+        updatedAt: now,
+        cachedFrom: profileData ? "firestore" : "bootstrap",
+      } as const;
+
+      driverInfoUpdate.fullName = normalizedProfile.fullName;
+      driverInfoUpdate.photoUrl = normalizedProfile.photoUrl;
+      driverInfoUpdate.phone = normalizedProfile.phone;
 
       await Promise.all([
         db.ref(`driversInfo/${uid}`).update(driverInfoUpdate),

@@ -210,10 +210,33 @@ export class SyncService {
     try {
       console.log(`🔄 [SyncService] Sincronizando pago para viaje: ${rideId}`);
       
-      // ✅ Conversión de tipos: Supabase → Realtime DB
-      const amount = parseFloat(paymentData.amount?.toString() || '0'); // NUMERIC → number
-      const tip = parseFloat((paymentData.tip || 0).toString()); // NUMERIC → number
-      
+      const amount = parseFloat(paymentData.amount?.toString() || '0');
+      const tip = parseFloat((paymentData.tip || 0).toString());
+
+      const rawDriverId =
+        paymentData.driver_id ||
+        paymentData.driverId ||
+        (paymentData.ride && (paymentData.ride.driver_id || paymentData.ride.driverId)) ||
+        null;
+      const rawClientId =
+        paymentData.client_id ||
+        paymentData.clientId ||
+        (paymentData.ride && (paymentData.ride.client_id || paymentData.ride.clientId)) ||
+        null;
+
+      const driverId = rawDriverId != null ? String(rawDriverId).trim() : null;
+      const clientId = rawClientId != null ? String(rawClientId).trim() : null;
+
+      const chargeTarget =
+        paymentData.charge_target ||
+        paymentData.chargeTarget ||
+        'client';
+
+      const requiresClientPayment =
+        paymentData.requires_client_payment ??
+        paymentData.requiresClientPayment ??
+        (chargeTarget !== 'driver');
+
       const syncData = {
         rideId,
         status: paymentData.status,
@@ -222,7 +245,11 @@ export class SyncService {
         total: amount + tip,
         method: paymentData.payment_method || 'cash',
         provider: paymentData.payment_provider || 'cash',
-        createdAt: paymentData.created_at ? new Date(paymentData.created_at).getTime() : Date.now(), // TIMESTAMP → unix timestamp
+        driverId,
+        clientId,
+        chargeTarget,
+        requiresClientPayment,
+        createdAt: paymentData.created_at ? new Date(paymentData.created_at).getTime() : Date.now(),
         updatedAt: admin.database.ServerValue.TIMESTAMP,
       };
 

@@ -573,7 +573,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
       return;
     }
 
-    if (pendingAmount > PENALTIES_LIMIT_CORDOBAS) {
+    if (pendingAmount >= PENALTIES_LIMIT_CORDOBAS) {
       if (!penaltyAlertShownRef.current) {
         penaltyAlertShownRef.current = true;
         alertService.showInfoAlert(
@@ -642,15 +642,26 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
     // Prioridad 1: Pagos pendientes detectados localmente
     if (pendingPayments.length > 0) {
       const firstPayment = pendingPayments[0];
+      const baseAmount =
+        typeof firstPayment.finalAmount === 'number'
+          ? firstPayment.finalAmount
+          : typeof firstPayment.amount === 'number'
+            ? firstPayment.amount
+            : 0;
+
       setPendingAction({
         type: 'pending_payment',
         title: 'Pago pendiente',
-        subtitle: pendingPayments.length === 1 ? 'Confirma el pago pendiente' : `${pendingPayments.length} pagos pendientes`,
+        subtitle:
+          pendingPayments.length === 1
+            ? 'Confirma el pago pendiente'
+            : `${pendingPayments.length} pagos pendientes`,
         onPress: () => {
           navigation.replace('PaymentConfirmation', {
             rideId: firstPayment.rideId,
-            amount: firstPayment.finalAmount,
-            method: firstPayment.method,
+            amount: baseAmount,
+            paymentMethod: firstPayment.method || firstPayment.paymentMethod || 'cash',
+            clientName: 'Cliente',
             fromHome: true,
           });
         },
@@ -750,6 +761,9 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
           // Si la acción es de viaje activo pero YA no hay activeRide en tiempo real,
           // la ignoramos para no mostrar banners obsoletos.
           if (action.type === 'active_ride' && !activeRide) {
+            return false;
+          }
+          if (action.type === 'pending_payment' && pendingPayments.length === 0) {
             return false;
           }
           return true;
@@ -961,7 +975,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   }, [coords?.latitude, coords?.longitude, isAvailable, user?.id, serviceAreaId]);
 
   useEffect(() => {
-    if (!coords || !isAvailable) {
+    if (!user?.id) {
       setAvailableRideRequests([]);
       setActiveRide(null);
       setPendingNegotiationRide(null);
@@ -1084,6 +1098,11 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
               return;
             }
 
+            // Para solicitudes disponibles cercanas sí necesitamos coords y disponibilidad
+            if (!coords || !isAvailable) {
+              return;
+            }
+
             if (originLat === null || originLng === null) {
               return;
             }
@@ -1120,6 +1139,22 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
                   ? Number(ride.estimatedPrice)
                   : 0;
 
+              const destinationLat =
+                parseCoordinate(
+                  ride?.destinationLatitude ??
+                    ride?.destinationLat ??
+                    ride?.destination?.latitude ??
+                    ride?.destination?.lat,
+                ) ?? undefined;
+
+              const destinationLng =
+                parseCoordinate(
+                  ride?.destinationLongitude ??
+                    ride?.destinationLng ??
+                    ride?.destination?.longitude ??
+                    ride?.destination?.lng,
+                ) ?? undefined;
+
               return {
                 id: ride.id,
                 latitude,
@@ -1136,6 +1171,8 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
                 priceAmount: price,
                 passengers: ride.passengers ?? 1,
                 distanceKm: Number.isFinite(ride.distance) ? Number(ride.distance) : null,
+                destinationLat: destinationLat,
+                destinationLng: destinationLng,
               };
             })
             .filter((item): item is any => Boolean(item));
@@ -1159,7 +1196,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
     return () => {
       cleanup?.();
     };
-  }, [coords, isAvailable, user?.id]);
+  }, [coords?.latitude, coords?.longitude, isAvailable, user?.id, serviceAreaId]);
 
   // Resolver nombres de clientes desde clientsInfo en Realtime DB
   useEffect(() => {
@@ -1272,15 +1309,27 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
               .filter(([, payment]) => {
                 if (!payment) return false;
 
-                const belongsToDriver = payment.driverId === user.id;
-                if (!belongsToDriver) return false;
+                const rawDriverId =
+                  payment.driverId ??
+                  payment.driver_id ??
+                  (payment.ride && (payment.ride.driverId || payment.ride.driver_id)) ??
+                  null;
+                const normalizedDriverId =
+                  rawDriverId != null ? String(rawDriverId).trim() : '';
+                if (normalizedDriverId !== user.id) return false;
 
                 const status = String(payment.status || '').toLowerCase();
-                const isPendingStatus = ['pending', 'pending_confirmation', 'in_progress'].includes(status);
+                const isPendingStatus = ['pending', 'pending_confirmation', 'in_progress', 'processing', 'pending_capture'].includes(status);
                 if (!isPendingStatus) return false;
 
-                const requiresClientPayment = payment.requiresClientPayment === true || payment.chargeTarget === 'client';
-                return requiresClientPayment;
+                const chargeTargetRaw = payment.chargeTarget || payment.charge_target || null;
+                const requiresClientPaymentFlag =
+                  payment.requiresClientPayment ?? payment.requires_client_payment;
+
+                if (requiresClientPaymentFlag === false) return false;
+                if (chargeTargetRaw === 'driver') return false;
+
+                return true;
               })
               .map(([rideId, payment]) => ({ rideId, ...payment }));
 
@@ -1337,7 +1386,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
     if (
       nextValue &&
       penaltySummary &&
-      Number(penaltySummary.pendingAmount) > PENALTIES_LIMIT_CORDOBAS
+      Number(penaltySummary.pendingAmount) >= PENALTIES_LIMIT_CORDOBAS
     ) {
       alertService.showInfoAlert(
         'Comisiones pendientes',
@@ -1442,13 +1491,42 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
           markerVehicleType={currentVehicleType ?? undefined}
           markerVehicleIconSource={currentVehicleIconSource}
           markerVehicleHeading={typeof coords.heading === 'number' && Number.isFinite(coords.heading) ? coords.heading : undefined}
-          onRideRequestPress={(ride: any) =>
-            activeRide
-              ? navigation.navigate('ActiveRide', { rideId: activeRide.id })
-              : navigation.navigate('AvailableRides', {
-                  preselectedRideId: ride.id,
-                })
-          }
+          onRideRequestPress={(ride: any) => {
+            if (activeRide) {
+              navigation.navigate('ActiveRide', { rideId: activeRide.id });
+              return;
+            }
+
+            const origin = {
+              lat: ride.latitude,
+              lng: ride.longitude,
+              address: ride.originAddress || 'Origen',
+            };
+
+            const destination = {
+              lat: ride.destinationLat ?? ride.destination?.lat ?? ride.latitude,
+              lng: ride.destinationLng ?? ride.destination?.lng ?? ride.longitude,
+              address: ride.finalDestination || ride.destinationAddress || ride.destination?.address || 'Destino',
+            };
+
+            const ridePreview = {
+              id: String(ride.id),
+              clientId: String(ride.clientId || ''),
+              clientName: ride.clientName,
+              origin,
+              destination,
+              estimatedPrice: Number.isFinite(ride.priceAmount) ? Number(ride.priceAmount) : 0,
+              estimatedDistance: typeof ride.distanceKm === 'number' ? ride.distanceKm : undefined,
+              clientSuggestedPrice: Number.isFinite(ride.clientSuggestedPrice) ? Number(ride.clientSuggestedPrice) : undefined,
+              driverOfferedPrice: null,
+              paymentMethod: ride.paymentMethod,
+            };
+
+            navigation.navigate('RidePreview', {
+              ride: ridePreview,
+              proximity: true,
+            });
+          }}
         />
 
         <View style={styles.overlayHeader}>
@@ -1514,7 +1592,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
       )}
 
       {/* ✅ Banner de comisiones pendientes */}
-      {penaltySummary && penaltySummary.pendingAmount > PENALTIES_LIMIT_CORDOBAS && (
+      {penaltySummary && penaltySummary.pendingAmount >= PENALTIES_LIMIT_CORDOBAS && (
         <TouchableOpacity
           style={[styles.pendingBanner, { backgroundColor: '#E53935' }]}
           onPress={() => {

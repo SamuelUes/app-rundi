@@ -5,7 +5,7 @@
     "version": "Beta - 1.6.4",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
-    "icon": "./src/assets/images/icon_1.2.png",
+    "icon": "./src/assets/images/jpg",
     "scheme": "com.driveangel.rundidev",
     "owner": "samuelues",
     "projectId": "79fc9fff-5481-4aba-a29a-632db706c382",
@@ -32,7 +32,7 @@
         "WAKE_LOCK"
       ],
       "adaptiveIcon": {
-        "foregroundImage": "./src/assets/images/icon_1.2.png",
+        "foregroundImage": "./src/assets/images/icon_1.2.jpg",
         "backgroundColor": "#ffffff"
       },
       "config": {
@@ -78,7 +78,7 @@
       [
         "expo-notifications",
         {
-          "icon": "./src/assets/images/icon_1.2.png",
+          "icon": "./src/assets/images/icon_1.2.jpg",
           "color": "#FF9800",
           "sounds": ["./src/assets/sounds/notification.wav"],
           "mode": "production"

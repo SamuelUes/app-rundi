@@ -10,6 +10,7 @@ import {
   Platform,
   KeyboardAvoidingView,
   Image,
+  TextInput,
 } from 'react-native';
 
 import { useTheme } from '../context/ThemeContext';
@@ -18,6 +19,7 @@ import {
   normalizePhoneNumber,
   formatPhoneNumber,
   getCountryLocalNumberLength,
+  getCountryAreaCodeLength,
 } from '../utils/phoneUtils';
 import PhoneDigitInput from './PhoneDigitInput';
 
@@ -53,11 +55,71 @@ const PhoneNumberModal: React.FC<Props> = ({
   const styles = useMemo(() => createStyles(colors), [colors]);
 
   const [selectedCountry, setSelectedCountry] = useState<CountryDialOption>(initialCountry);
+  const [areaDigits, setAreaDigits] = useState('');
   const [digits, setDigits] = useState(initialDigits);
   const [normalizedPhone, setNormalizedPhone] = useState('');
   const [formattedPhone, setFormattedPhone] = useState('');
 
   const sheetAnim = useRef(new Animated.Value(0)).current;
+
+  const computeFromFullLocal = (
+    country: CountryDialOption,
+    fullLocalDigits: string,
+  ) => {
+    const maxLocal = getCountryLocalNumberLength(country);
+    const areaLength = getCountryAreaCodeLength(country);
+    const numeric = (fullLocalDigits || '').replace(/\D/g, '').slice(0, maxLocal);
+
+    const areaPart = areaLength > 0 ? numeric.slice(0, areaLength) : '';
+    const linePart = areaLength > 0 ? numeric.slice(areaLength) : numeric;
+    const combined = areaPart + linePart;
+
+    const normalized = combined
+      ? normalizePhoneNumber(combined, country.dialCode)
+      : '';
+    const formatted = normalized
+      ? formatPhoneNumber(normalized, country.dialCode)
+      : `${country.dialCode} `;
+
+    return {
+      areaDigits: areaPart,
+      lineDigits: linePart,
+      normalized,
+      formatted,
+    };
+  };
+
+  const computeFromParts = (
+    country: CountryDialOption,
+    rawArea: string,
+    rawLine: string,
+  ) => {
+    const maxLocal = getCountryLocalNumberLength(country);
+    const areaLength = getCountryAreaCodeLength(country);
+
+    const numericArea =
+      areaLength > 0 ? (rawArea || '').replace(/\D/g, '').slice(0, areaLength) : '';
+    const remainingForLine = Math.max(0, maxLocal - numericArea.length);
+    const numericLine = (rawLine || '')
+      .replace(/\D/g, '')
+      .slice(0, remainingForLine);
+
+    const combined = numericArea + numericLine;
+
+    const normalized = combined
+      ? normalizePhoneNumber(combined, country.dialCode)
+      : '';
+    const formatted = normalized
+      ? formatPhoneNumber(normalized, country.dialCode)
+      : `${country.dialCode} `;
+
+    return {
+      areaDigits: numericArea,
+      lineDigits: numericLine,
+      normalized,
+      formatted,
+    };
+  };
 
   useEffect(() => {
     let country = initialCountry;
@@ -65,19 +127,13 @@ const PhoneNumberModal: React.FC<Props> = ({
       country = countryOptions[0];
     }
 
-    const maxDigits = getCountryLocalNumberLength(country);
-    const safeDigits = (initialDigits || '').slice(0, maxDigits);
-    const normalized = safeDigits
-      ? normalizePhoneNumber(safeDigits, country.dialCode)
-      : '';
-    const formatted = normalized
-      ? formatPhoneNumber(normalized, country.dialCode)
-      : `${country.dialCode} `;
+    const result = computeFromFullLocal(country, initialDigits || '');
 
     setSelectedCountry(country);
-    setDigits(safeDigits);
-    setNormalizedPhone(normalized);
-    setFormattedPhone(formatted);
+    setAreaDigits(result.areaDigits);
+    setDigits(result.lineDigits);
+    setNormalizedPhone(result.normalized);
+    setFormattedPhone(result.formatted);
   }, [initialCountry, initialDigits, countryOptions]);
 
   useEffect(() => {
@@ -100,36 +156,31 @@ const PhoneNumberModal: React.FC<Props> = ({
     const nextCountry =
       countryOptions.find((c) => c.code === code) ?? selectedCountry;
 
-    const maxDigits = getCountryLocalNumberLength(nextCountry);
-    const nextDigits = digits.slice(0, maxDigits);
-
-    const normalized = nextDigits
-      ? normalizePhoneNumber(nextDigits, nextCountry.dialCode)
-      : '';
-    const formatted = normalized
-      ? formatPhoneNumber(normalized, nextCountry.dialCode)
-      : `${nextCountry.dialCode} `;
+    const result = computeFromFullLocal(nextCountry, areaDigits + digits);
 
     setSelectedCountry(nextCountry);
-    setDigits(nextDigits);
-    setNormalizedPhone(normalized);
-    setFormattedPhone(formatted);
+    setAreaDigits(result.areaDigits);
+    setDigits(result.lineDigits);
+    setNormalizedPhone(result.normalized);
+    setFormattedPhone(result.formatted);
   };
 
   const handleDigitsChange = (nextDigits: string) => {
-    const maxDigits = getCountryLocalNumberLength(selectedCountry);
-    const safe = nextDigits.slice(0, maxDigits);
+    const result = computeFromParts(selectedCountry, areaDigits, nextDigits);
 
-    const normalized = safe
-      ? normalizePhoneNumber(safe, selectedCountry.dialCode)
-      : '';
-    const formatted = normalized
-      ? formatPhoneNumber(normalized, selectedCountry.dialCode)
-      : `${selectedCountry.dialCode} `;
+    setAreaDigits(result.areaDigits);
+    setDigits(result.lineDigits);
+    setNormalizedPhone(result.normalized);
+    setFormattedPhone(result.formatted);
+  };
 
-    setDigits(safe);
-    setNormalizedPhone(normalized);
-    setFormattedPhone(formatted);
+  const handleAreaChange = (nextArea: string) => {
+    const result = computeFromParts(selectedCountry, nextArea, digits);
+
+    setAreaDigits(result.areaDigits);
+    setDigits(result.lineDigits);
+    setNormalizedPhone(result.normalized);
+    setFormattedPhone(result.formatted);
   };
 
   const handleConfirm = () => {
@@ -139,11 +190,27 @@ const PhoneNumberModal: React.FC<Props> = ({
 
     onConfirm({
       country: selectedCountry,
-      digits,
+      digits: areaDigits + digits,
       normalizedPhone,
       formattedPhone,
     });
   };
+
+  const handleClear = () => {
+    if (loading) {
+      return;
+    }
+    onConfirm({
+      country: selectedCountry,
+      digits: '',
+      normalizedPhone: '',
+      formattedPhone: '',
+    });
+  };
+
+  const maxLocalDigits = getCountryLocalNumberLength(selectedCountry);
+  const maxLineDigits = Math.max(0, maxLocalDigits - areaDigits.length);
+  const areaLength = getCountryAreaCodeLength(selectedCountry);
 
   const sheetStyle = {
     transform: [
@@ -196,6 +263,19 @@ const PhoneNumberModal: React.FC<Props> = ({
           </View>
 
           <View style={styles.inputRow}>
+            {areaLength > 0 && (
+              <View style={styles.areaInputRow}>
+                <Text style={styles.areaLabel}>Código de área</Text>
+                <TextInput
+                  style={styles.areaInput}
+                  value={areaDigits}
+                  onChangeText={handleAreaChange}
+                  keyboardType="number-pad"
+                  maxLength={areaLength}
+                  editable={!loading}
+                />
+              </View>
+            )}
             <PhoneDigitInput
               countryOptions={countryOptions}
               selectedCountry={selectedCountry}
@@ -203,6 +283,7 @@ const PhoneNumberModal: React.FC<Props> = ({
               digits={digits}
               onChangeDigits={handleDigitsChange}
               disabled={!!loading}
+              maxDigitsOverride={maxLineDigits}
             />
           </View>
 
@@ -218,6 +299,15 @@ const PhoneNumberModal: React.FC<Props> = ({
             >
               <Text style={styles.confirmButtonText}>Usar este número</Text>
             </TouchableOpacity>
+            {(initialDigits || normalizedPhone) ? (
+              <TouchableOpacity
+                style={styles.clearButton}
+                onPress={handleClear}
+                disabled={!!loading}
+              >
+                <Text style={styles.clearButtonText}>Quitar número</Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
         </Animated.View>
       </KeyboardAvoidingView>
@@ -299,8 +389,30 @@ const createStyles = (colors: any) => {
     inputRow: {
       marginTop: 8,
     },
+    areaInputRow: {
+      marginBottom: 8,
+    },
+    areaLabel: {
+      fontSize: 12,
+      color: colors.textSecondary,
+      marginBottom: 4,
+    },
+    areaInput: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 10,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      minWidth: 90,
+      color: colors.text,
+      backgroundColor: colors.card,
+    },
     actionsRow: {
       marginTop: 12,
+    },
+    clearButton: {
+      marginTop: 8,
+      alignItems: 'center',
     },
     confirmButton: {
       width: '100%',
@@ -314,6 +426,11 @@ const createStyles = (colors: any) => {
       color: '#FFFFFF',
       fontSize: 15,
       fontWeight: '700',
+    },
+    clearButtonText: {
+      color: colors.textSecondary,
+      fontSize: 13,
+      fontWeight: '500',
     },
     buttonDisabled: {
       opacity: 0.5,

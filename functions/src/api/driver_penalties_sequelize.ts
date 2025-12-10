@@ -8,6 +8,7 @@ import admin from 'firebase-admin';
 import { DriverPenaltyRepository } from '../sequelize/repositories/DriverPenaltyRepository';
 import { PaymentService } from '../sequelize/services/PaymentService';
 import { MIGRATION_FLAGS } from '../config/migration-flags';
+import { cleanupRideFromRealtime } from '../helpers/cleanupHelpers-new';
 
 const penaltyRepo = new DriverPenaltyRepository();
 const paymentService = new PaymentService();
@@ -315,6 +316,16 @@ export const payAllPenalties = functions.https.onCall(async (data, context) => {
             });
           } catch (rtdbErr) {
             console.warn(`⚠️ [payAllPenalties] No se pudo actualizar paymentStatus/${rideId}:`, rtdbErr);
+          }
+        }),
+      );
+
+      await Promise.all(
+        Array.from(rideIdsToUpdate).map(async (rideId) => {
+          try {
+            await cleanupRideFromRealtime(rideId, driverId, null, { skipPresenceCleanup: true });
+          } catch (cleanupErr) {
+            console.warn(`⚠️ [payAllPenalties] No se pudo limpiar nodos de viaje ${rideId}:`, cleanupErr);
           }
         }),
       );

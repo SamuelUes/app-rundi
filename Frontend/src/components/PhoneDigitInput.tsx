@@ -20,6 +20,7 @@ export type PhoneDigitInputProps = {
   digits: string;
   onChangeDigits: (digits: string) => void;
   disabled?: boolean;
+  maxDigitsOverride?: number;
 };
 
 const PhoneDigitInput: React.FC<PhoneDigitInputProps> = ({
@@ -29,6 +30,7 @@ const PhoneDigitInput: React.FC<PhoneDigitInputProps> = ({
   digits,
   onChangeDigits,
   disabled,
+  maxDigitsOverride,
 }) => {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -38,7 +40,7 @@ const PhoneDigitInput: React.FC<PhoneDigitInputProps> = ({
   const blinkAnim = useRef(new Animated.Value(0)).current;
   const blinkLoopRef = useRef<Animated.CompositeAnimation | null>(null);
 
-  const maxDigits = getCountryLocalNumberLength(selectedCountry);
+  const maxDigits = maxDigitsOverride ?? getCountryLocalNumberLength(selectedCountry);
   const safeDigits = digits.slice(0, maxDigits);
 
   const handleChangeText = (text: string) => {
@@ -285,6 +287,7 @@ const createStyles = (colors: any) =>
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'flex-start',
+      flex: 1,
     },
     boxesRowFocused: {
       borderWidth: 1,

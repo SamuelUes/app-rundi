@@ -91,6 +91,7 @@ import * as authTriggers from "./triggers/auth";
 import * as ridesTriggers from "./triggers/rides";
 import * as onPaymentCompletedTrigger from "./triggers/onPaymentCompleted";
 import * as onRideCanceledTrigger from "./triggers/onRideCanceled";
+import * as onRatingCompletedTrigger from "./triggers/onRatingCompleted";
 
 // Importar notificaciones
 // import * as notificationsAPI from "./api/notifications";
@@ -560,6 +561,7 @@ setImmediate(() => {
 export const onPaymentCompletedAutomatic = onPaymentCompletedTrigger.onPaymentCompleted;
 export const onPaymentCanceledAutomatic = onPaymentCompletedTrigger.onPaymentCanceled;
 export const onRideCanceledAutomatic = onRideCanceledTrigger.onRideCanceled;
+export const onRatingCompletedAutomatic = onRatingCompletedTrigger.onRatingCompleted;
 
 // Notificaciones Push Triggers
 //export const onDriverFoundNotification = notificationsAPI.onDriverFound;

@@ -207,18 +207,9 @@ export default function SettingsScreen({ navigation }: any) {
       alignItems: 'center',
       justifyContent: 'space-between',
       paddingHorizontal: 20,
-      paddingVertical: 16,
-      backgroundColor: colors.card,
-      marginHorizontal: 20,
-      marginBottom: 8,
-      borderRadius: 12,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.05,
-      shadowRadius: 3,
-      elevation: 2,
-      borderWidth: 1,
-      borderColor: colors.border,
+      paddingVertical: 18,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
     },
     optionLast: {
       marginBottom: 20,
@@ -294,47 +285,6 @@ export default function SettingsScreen({ navigation }: any) {
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Apariencia</Text>
-
-          <View style={styles.option}>
-            <View style={styles.optionLeft}>
-              <Text style={styles.optionTitle}>Tema</Text>
-              <Text style={styles.optionDescription}>
-                {theme === 'light' ? 'Claro' : theme === 'dark' ? 'Oscuro' : 'Automático'}
-              </Text>
-              <View style={styles.themeOptions}>
-                <TouchableOpacity
-                  style={[styles.themeButton, theme === 'light' && styles.themeButtonActive]}
-                  onPress={() => handleThemeChange('light')}
-                >
-                  <Text style={[styles.themeButtonText, theme === 'light' && styles.themeButtonTextActive]}>
-                    ☀️ Claro
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.themeButton, theme === 'dark' && styles.themeButtonActive]}
-                  onPress={() => handleThemeChange('dark')}
-                >
-                  <Text style={[styles.themeButtonText, theme === 'dark' && styles.themeButtonTextActive]}>
-                    🌙 Oscuro
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.themeButton, theme === 'auto' && styles.themeButtonActive]}
-                  onPress={() => handleThemeChange('auto')}
-                >
-                  <Text style={[styles.themeButtonText, theme === 'auto' && styles.themeButtonTextActive]}>
-                    🔄 Auto
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.section}>
           <Text style={styles.sectionTitle}>Cuenta</Text>
 
           <TouchableOpacity style={styles.option} onPress={handleNavigateToAccount}>
@@ -352,137 +302,6 @@ export default function SettingsScreen({ navigation }: any) {
             </View>
             <Text style={styles.arrow}>›</Text>
           </TouchableOpacity>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Notificaciones</Text>
-
-          <View style={styles.notificationCard}>
-            <View style={styles.notificationHeader}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.optionTitle}>Notificaciones Push</Text>
-                <Text style={styles.notificationDescription}>
-                  Recibe alertas en tiempo real sobre viajes, mensajes y actualizaciones importantes.
-                </Text>
-              </View>
-              <Switch
-                value={notificationsEnabled}
-                onValueChange={handleToggleNotifications}
-                trackColor={{ false: colors.border, true: colors.primary }}
-                thumbColor="#fff"
-              />
-            </View>
-
-            <View style={styles.notificationStatusRow}>
-              <View
-                style={[styles.statusIndicator, notificationsEnabled && styles.statusIndicatorActive]}
-              >
-                <Text style={styles.statusIndicatorText}>
-                  {notificationsEnabled ? 'Activas' : 'Inactivas'}
-                </Text>
-              </View>
-              <Text style={styles.notificationStatusText}>
-                {notificationsEnabled
-                  ? 'Recibirás notificaciones cuando asignemos un conductor, cambie el estado del viaje o llegue un mensaje.'
-                  : 'Activa las notificaciones para recibir avisos cuando encontremos conductor o haya novedades de tu viaje.'}
-              </Text>
-            </View>
-
-            {!isFCMAvailable && (
-              <View style={styles.noteBox}>
-                <Text style={styles.noteTitle}>Expo Go detectado</Text>
-                <Text style={styles.noteText}>
-                  Compila la app con un build de desarrollo o producción para habilitar las notificaciones push.
-                </Text>
-              </View>
-            )}
-
-            {isFCMAvailable && !notificationsEnabled && (
-              <TouchableOpacity
-                style={[styles.notificationButton, styles.notificationButtonSecondary]}
-                onPress={() => handleToggleNotifications(true)}
-              >
-                <Text
-                  style={[styles.notificationButtonText, styles.notificationButtonSecondaryText]}
-                >
-                  Activar notificaciones
-                </Text>
-              </TouchableOpacity>
-            )}
-
-            {notificationsEnabled && (
-              <TouchableOpacity style={styles.notificationButton} onPress={sendTestNotification}>
-                <Text style={styles.notificationButtonText}>Probar notificación</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Sonido y Vibración</Text>
-
-          <View style={styles.option}>
-            <View style={styles.optionLeft}>
-              <Text style={styles.optionTitle}>Sonido</Text>
-              <Text style={styles.optionDescription}>Reproducir sonido con notificaciones</Text>
-            </View>
-            <Switch
-              value={soundEnabled}
-              onValueChange={setSoundEnabled}
-              trackColor={{ false: colors.border, true: colors.primary }}
-              thumbColor="#fff"
-              disabled={!notificationsEnabled}
-            />
-          </View>
-
-          <View style={[styles.option, styles.optionLast]}>
-            <View style={styles.optionLeft}>
-              <Text style={styles.optionTitle}>Vibración</Text>
-              <Text style={styles.optionDescription}>Vibrar con notificaciones</Text>
-            </View>
-            <Switch
-              value={vibrationEnabled}
-              onValueChange={setVibrationEnabled}
-              trackColor={{ false: colors.border, true: colors.primary }}
-              thumbColor="#fff"
-              disabled={!notificationsEnabled}
-            />
-          </View>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Mapas y ubicación</Text>
-
-          <View style={styles.option}>
-            <View style={styles.optionLeft}>
-              <Text style={styles.optionTitle}>Tráfico en el mapa</Text>
-              <Text style={styles.optionDescription}>
-                Muestra la capa de tráfico en tiempo real en Google Maps
-              </Text>
-            </View>
-            <Switch
-              value={mapTrafficEnabled}
-              onValueChange={setMapTrafficEnabled}
-              trackColor={{ false: colors.border, true: colors.primary }}
-              thumbColor="#fff"
-            />
-          </View>
-
-          <View style={[styles.option, styles.optionLast]}>
-            <View style={styles.optionLeft}>
-              <Text style={styles.optionTitle}>Ubicación en segundo plano</Text>
-              <Text style={styles.optionDescription}>
-                Permitir acceso a ubicación cuando la app está cerrada
-              </Text>
-            </View>
-            <Switch
-              value={false}
-              onValueChange={() => {}}
-              trackColor={{ false: colors.border, true: colors.primary }}
-              thumbColor="#fff"
-              disabled
-            />
-          </View>
         </View>
 
         <View style={styles.section}>

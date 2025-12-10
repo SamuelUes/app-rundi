@@ -4,7 +4,7 @@ export default {
   version: 'Beta - 1.6.4',
   orientation: 'portrait',
   userInterfaceStyle: 'light',
-  icon: './src/assets/images/icon_1.2.png',
+  icon: './src/assets/images/icon_1.2.jpg',
   updates: {
     enabled: true,
     fallbackToCacheTimeout: 0,
@@ -15,7 +15,7 @@ export default {
   ios: {
     supportsTablet: true,
     bundleIdentifier: 'com.driveangel.rundidev',
-    icon: './src/assets/images/icon_1.2.png',
+    icon: './src/assets/images/icon_1.2.jpg',
     config: {
       googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY || 'YOUR_IOS_GOOGLE_MAPS_API_KEY',
       usesNonExemptEncryption: false
@@ -33,11 +33,11 @@ export default {
     package: 'com.driveangel.rundidev',
     versionCode: 1,
     adaptiveIcon: {
-      foregroundImage: './src/assets/images/icon_1.2.png',
+      foregroundImage: './src/assets/images/icon_1.2.jpg',
       backgroundColor: '#0F2628'
     },
     notification: {
-      icon: './src/assets/images/icon_1.2.png',
+      icon: './src/assets/images/icon_1.2.jpg',
       color: '#D4AF37'
     },
     permissions: [

@@ -7,6 +7,8 @@ import {
   TextInput,
   TouchableOpacity,
   ActivityIndicator,
+  Image,
+  Alert,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../../context/ThemeContext';
@@ -15,6 +17,14 @@ import backendConfig from '../../config/backendConfig';
 import alertService from '../../services/alertService';
 import accountLinkingService from '../../services/auth/accountLinkingService';
 import firebaseAuthService from '../../services/auth/firebaseAuthService';
+import PhoneNumberModal, { type PhoneNumberModalResult } from '../../components/PhoneNumberModal';
+import LoadingOverlay from '../../components/LoadingOverlay';
+import {
+  type CountryDialOption,
+  getCountryDialOptions,
+  formatPhoneNumber,
+  extractLocalNumber,
+} from '../../utils/phoneUtils';
 
 type ProvidersState = {
   values: string[];
@@ -71,7 +81,7 @@ const buildAuthProviderField = (providers: string[]) => {
     .join('+');
 };
 
-export default function AccountScreen() {
+export default function AccountScreen({ navigation }: any) {
   const { colors } = useTheme();
   const { user } = useAuth();
 
@@ -97,12 +107,50 @@ export default function AccountScreen() {
     confirming: false,
   });
   const [accountError, setAccountError] = useState<string | null>(null);
+  const [profileName, setProfileName] = useState<string>(user?.name || '');
+  const [birthDate, setBirthDate] = useState<string>('');
+  const [profileEmail, setProfileEmail] = useState<string>(user?.email || '');
+  const [profilePhone, setProfilePhone] = useState<string>('');
+  const [savingProfile, setSavingProfile] = useState<boolean>(false);
+  const [phoneModalVisible, setPhoneModalVisible] = useState(false);
+  const [phoneUpdating, setPhoneUpdating] = useState(false);
+
+  const countryOptions = useMemo(() => getCountryDialOptions(), []);
+  const defaultCountry = useMemo(
+    () => countryOptions.find((option) => option.code === 'NI') ?? countryOptions[0],
+    [countryOptions],
+  );
+
+  const currentPhoneCountry = useMemo<CountryDialOption>(() => {
+    if (!profilePhone) return defaultCountry;
+    const match = countryOptions.find((option) => profilePhone.startsWith(option.dialCode));
+    return match ?? defaultCountry;
+  }, [profilePhone, countryOptions, defaultCountry]);
+
+  const currentPhoneDigits = useMemo(() => {
+    if (!profilePhone) return '';
+    return extractLocalNumber(profilePhone, currentPhoneCountry.dialCode);
+  }, [profilePhone, currentPhoneCountry]);
+
+  const displayPhone = useMemo(() => {
+    if (!profilePhone) return '';
+    return formatPhoneNumber(profilePhone, currentPhoneCountry.dialCode);
+  }, [profilePhone, currentPhoneCountry]);
 
   const isFirebaseBackend = backendConfig.isFirebase();
 
-  const hasGoogleProvider = useMemo(() => providersState.values.includes('google.com'), [providersState.values]);
-  const hasEmailPasswordProvider = useMemo(() => providersState.values.includes('password'), [providersState.values]);
-  const hasPhoneProvider = useMemo(() => providersState.values.includes('phone'), [providersState.values]);
+  const hasGoogleProvider = useMemo(
+    () => providersState.values.includes('google.com'),
+    [providersState.values],
+  );
+  const hasEmailPasswordProvider = useMemo(
+    () => providersState.values.includes('password'),
+    [providersState.values],
+  );
+  const hasPhoneProvider = useMemo(
+    () => providersState.values.includes('phone'),
+    [providersState.values],
+  );
 
   const styles = StyleSheet.create({
     container: {
@@ -111,24 +159,68 @@ export default function AccountScreen() {
     },
     content: {
       paddingHorizontal: 20,
-      paddingVertical: 24,
+      paddingVertical: 32,
     },
-    header: {
-      marginBottom: 16,
+    headerRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingTop: 26,
+      marginBottom: 26,
+    },
+    backButton: {
+      paddingRight: 8,
+      paddingVertical: 4,
+    },
+    backIcon: {
+      width: 28,
+      height: 28,
+      tintColor: colors.text,
+      resizeMode: 'contain',
     },
     headerTitle: {
-      fontSize: 26,
+      fontSize: 20,
       fontWeight: '700',
       color: colors.text,
+      marginLeft: 4,
     },
-    headerSubtitle: {
-      marginTop: 4,
-      color: colors.textSecondary,
+    profileEditSection: {
+      alignItems: 'center',
+      marginBottom: 24,
+    },
+    avatarWrapper: {
+      marginBottom: 16,
+      position: 'relative',
+    },
+    avatarCircle: {
+      width: 116,
+      height: 116,
+      borderRadius: 58,
+      backgroundColor: colors.primary + '22',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    avatarInitial: {
+      fontSize: 32,
+      fontWeight: '700',
+      color: '#fff',
+    },
+    avatarEditButton: {
+      position: 'absolute',
+      right: -2,
+      bottom: -2,
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      backgroundColor: colors.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    avatarEditIcon: {
+      color: '#fff',
       fontSize: 14,
     },
-    helperText: {
-      fontSize: 12,
-      color: colors.textSecondary,
+    profileFormCard: {
+      width: '100%',
       marginTop: 8,
     },
     accountCard: {
@@ -155,6 +247,17 @@ export default function AccountScreen() {
       color: colors.textSecondary,
       marginBottom: 12,
       lineHeight: 18,
+    },
+    helperText: {
+      fontSize: 12,
+      color: colors.textSecondary,
+      marginTop: 8,
+    },
+    accountSummarySection: {
+      marginTop: 16,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+      paddingTop: 12,
     },
     infoLabel: {
       fontSize: 12,
@@ -197,8 +300,21 @@ export default function AccountScreen() {
       marginBottom: 12,
       fontSize: 14,
     },
+    phoneButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    phoneValue: {
+      fontSize: 14,
+      color: colors.text,
+    },
+    phonePlaceholder: {
+      fontSize: 14,
+      color: colors.textSecondary,
+    },
     button: {
-      backgroundColor: colors.primary,
+      backgroundColor: 'rgba(202, 151, 57, 1)',
       borderRadius: 10,
       paddingVertical: 12,
       alignItems: 'center',
@@ -262,6 +378,10 @@ export default function AccountScreen() {
 
       if (profileData) {
         setProfile(profileData);
+        setProfileName(profileData.name || user?.name || '');
+        setBirthDate(profileData.birthDate || '');
+        setProfileEmail(profileData.email || user?.email || '');
+        setProfilePhone(profileData.phone || '');
         setEmailForm((prev) => ({ ...prev, email: profileData.email || user?.email || prev.email }));
         setPhoneForm((prev) => ({ ...prev, phone: profileData.phone || prev.phone }));
       }
@@ -350,88 +470,221 @@ export default function AccountScreen() {
     }
   };
 
-  const handleSendPhoneCode = async () => {
-    if (!phoneForm.phone) {
-      alertService.showErrorAlert('Ingresa el número de teléfono con formato +505 XXXX XXXX.');
+  const handlePhoneModalConfirm = async ({ normalizedPhone }: PhoneNumberModalResult) => {
+    if (!user?.id) {
+      setPhoneModalVisible(false);
       return;
     }
 
-    setPhoneForm((prev) => ({ ...prev, sendingCode: true }));
-
     try {
-      const result = await accountLinkingService.sendPhoneLinkCode(phoneForm.phone);
-      alertService.showSuccessAlert('Código enviado', `Se envió un código al número ${result.phone}.`);
-      setPhoneForm((prev) => ({ ...prev, codeSent: true }));
-    } catch (error: any) {
-      console.error('❌ Error enviando código de teléfono:', error);
-      const message = error?.message || 'No se pudo enviar el código SMS. Intenta nuevamente.';
-      alertService.showErrorAlert(message);
+      console.log('[AccountScreen] handlePhoneModalConfirm', {
+        normalizedPhone,
+        isFirebaseBackend,
+        userId: user.id,
+      });
+      setPhoneUpdating(true);
+      setPhoneModalVisible(false);
+
+      if (!normalizedPhone) {
+        setProfilePhone('');
+
+        if (isFirebaseBackend) {
+          await syncFirestoreProfile({ phone: '' });
+        }
+
+        await updateLocalUserCache({ phone: '' });
+        alertService.showSuccessAlert(
+          'Teléfono eliminado',
+          'Tu número se ha eliminado de tu perfil.',
+        );
+        await refreshAccountData();
+        return;
+      }
+
+      if (isFirebaseBackend) {
+        try {
+          const availability = await firebaseAuthService.checkUserExists({ phone: normalizedPhone });
+          console.log('[AccountScreen] Phone availability check (add_phone)', availability);
+          if (availability.phoneExists) {
+            alertService.showErrorAlert(
+              'Este número ya está asociado a otra cuenta. Usa otro número o inicia sesión con la cuenta vinculada a este teléfono.',
+            );
+            return;
+          }
+        } catch (availabilityError: any) {
+          console.error('⚠️ Error validando disponibilidad de teléfono antes de enviar SMS:', availabilityError);
+          alertService.showErrorAlert(
+            availabilityError?.message ||
+              'No se pudo validar la disponibilidad de este número. Intenta nuevamente más tarde.',
+          );
+          return;
+        }
+      }
+
+      setProfilePhone(normalizedPhone);
+
+      if (!isFirebaseBackend) {
+        console.log('[AccountScreen] Phone modal confirm - non Firebase backend, no SMS flow');
+        await updateLocalUserCache({ phone: normalizedPhone });
+        alertService.showSuccessAlert(
+          'Teléfono actualizado',
+          'Tu número se ha guardado correctamente.',
+        );
+        await refreshAccountData();
+        return;
+      }
+
+      console.log('[AccountScreen] Phone modal confirm - Firebase backend, sending SMS & navigating');
+      await accountLinkingService.sendPhoneLinkCode(normalizedPhone);
+
+      alertService.showSuccessAlert(
+        'Código enviado',
+        'Te enviamos un SMS para verificar tu número. Ingresa el código para completar la vinculación.',
+      );
+
+      const effectiveName = profileName.trim() || user.name;
+      const effectiveEmail = profileEmail.trim() || user.email;
+      const role: 'client' | 'driver' =
+        user.role === 'driver' || user.role === 'designated_driver' ? 'driver' : 'client';
+
+      navigation.navigate('PhoneVerification', {
+        name: effectiveName,
+        email: effectiveEmail,
+        phone: normalizedPhone,
+        password: undefined,
+        role,
+        method: 'phone',
+        authProvider: 'phone',
+        googleIdToken: undefined,
+        phoneVerified: false,
+        context: 'add_phone',
+      });
+    } catch (error) {
+      console.error('❌ Error actualizando teléfono desde modal:', error);
+      alertService.showErrorAlert(
+        'No se pudo iniciar la verificación de tu número. Intenta nuevamente.',
+      );
     } finally {
-      setPhoneForm((prev) => ({ ...prev, sendingCode: false }));
+      setPhoneUpdating(false);
     }
   };
 
-  const handleConfirmPhoneCode = async () => {
-    if (!phoneForm.code) {
-      alertService.showErrorAlert('Ingresa el código de 6 dígitos enviado a tu teléfono.');
+  const handleSaveProfile = async () => {
+    if (!user?.id) {
       return;
     }
 
-    setPhoneForm((prev) => ({ ...prev, confirming: true }));
+    const data: Record<string, any> = {
+      name: profileName.trim() || user.name,
+      email: profileEmail.trim() || user.email,
+      phone: profilePhone.trim(),
+      birthDate: birthDate.trim(),
+    };
 
     try {
-      const result = await accountLinkingService.confirmPhoneLinkCode(phoneForm.code);
-      const providers = await accountLinkingService.getLinkedProviders();
-      const authProviderLabel = buildAuthProviderField(providers);
-
-      await syncFirestoreProfile({
-        phone: result.phone,
-        phoneVerified: true,
-        authProvider: authProviderLabel,
-        method: authProviderLabel,
+      setSavingProfile(true);
+      if (isFirebaseBackend) {
+        await syncFirestoreProfile(data);
+      }
+      await updateLocalUserCache({
+        name: data.name,
+        email: data.email,
+        phone: data.phone,
       });
-
-      await updateLocalUserCache({ phone: result.phone });
-
-      alertService.showSuccessAlert('Teléfono vinculado', 'Tu número se agregó y quedó verificado.');
-      setProvidersState({ values: providers, loading: false });
-      setPhoneForm((prev) => ({ ...prev, code: '', codeSent: false }));
-      accountLinkingService.clearPhoneLinkSession();
+      alertService.showSuccessAlert('Perfil actualizado', 'Tus datos se han guardado correctamente.');
       await refreshAccountData();
-    } catch (error: any) {
-      console.error('❌ Error confirmando código de teléfono:', error);
-      const message = error?.message || 'No se pudo verificar el código. Intenta nuevamente.';
-      alertService.showErrorAlert(message);
+    } catch (error) {
+      console.error('❌ Error actualizando perfil básico:', error);
+      alertService.showErrorAlert('No se pudo actualizar tu perfil. Intenta nuevamente.');
     } finally {
-      setPhoneForm((prev) => ({ ...prev, confirming: false }));
+      setSavingProfile(false);
     }
   };
 
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>Mi cuenta</Text>
-          <Text style={styles.headerSubtitle}>
-            {user?.name ? user.name : 'Gestiona accesos y datos vinculados'}
-          </Text>
+        <View style={styles.headerRow}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => {
+              Alert.alert(
+                'Descartar cambios',
+                'Si sales ahora podrías perder cambios no guardados. ¿Deseas regresar?',
+                [
+                  { text: 'Cancelar', style: 'cancel' },
+                  { text: 'Salir', style: 'destructive', onPress: () => navigation.goBack() },
+                ],
+              );
+            }}
+          >
+            <Image
+              source={require('../../assets/icons/back_button/back_button.png')}
+              style={styles.backIcon}
+            />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Editar perfil</Text>
         </View>
 
-        {isFirebaseBackend && (
-          <View style={styles.accountCard}>
-            <Text style={styles.accountTitle}>Resumen de cuenta</Text>
-            {profileLoading ? (
-              <ActivityIndicator color={colors.primary} />
-            ) : (
-              <>
-                <Text style={styles.infoLabel}>Correo</Text>
-                <Text style={styles.infoText}>{profile?.email || user?.email || 'No registrado'}</Text>
+        <View style={styles.profileEditSection}>
+          <View style={styles.avatarWrapper}>
+            <View style={styles.avatarCircle}>
+              <Text style={styles.avatarInitial}>
+                {user?.name ? user.name.charAt(0).toUpperCase() : '?'}
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={styles.avatarEditButton}
+              onPress={() => {
+                Alert.alert('Subir foto', 'La carga de foto de perfil estará disponible próximamente.');
+              }}
+            >
+              <Text style={styles.avatarEditIcon}>✏️</Text>
+            </TouchableOpacity>
+          </View>
 
-                <Text style={styles.infoLabel}>Teléfono</Text>
-                <Text style={styles.infoText}>{profile?.phone || 'No registrado'}</Text>
+          <View style={styles.profileFormCard}>
+            <TextInput
+              style={styles.input}
+              placeholder="Nombre completo"
+              placeholderTextColor={colors.textSecondary}
+              value={profileName}
+              onChangeText={setProfileName}
+            />
+            <TextInput
+              style={styles.input}
+              placeholder="Fecha de nacimiento (DD/MM/AAAA)"
+              placeholderTextColor={colors.textSecondary}
+              value={birthDate}
+              onChangeText={setBirthDate}
+              keyboardType="numeric"
+            />
+            <TextInput
+              style={styles.input}
+              placeholder="Correo electrónico"
+              placeholderTextColor={colors.textSecondary}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              value={profileEmail}
+              onChangeText={setProfileEmail}
+            />
+            <TouchableOpacity
+              style={[styles.input, styles.phoneButton]}
+              onPress={() => setPhoneModalVisible(true)}
+              disabled={phoneUpdating}
+            >
+              <Text
+                style={profilePhone ? styles.phoneValue : styles.phonePlaceholder}
+                numberOfLines={1}
+              >
+                {profilePhone ? displayPhone : 'Toca para agregar tu número'}
+              </Text>
+            </TouchableOpacity>
 
+            {isFirebaseBackend && (
+              <View style={styles.accountSummarySection}>
                 <Text style={styles.infoLabel}>Proveedores vinculados</Text>
-                {providersState.loading ? (
+                {profileLoading || providersState.loading ? (
                   <ActivityIndicator color={colors.primary} />
                 ) : (
                   <Text style={styles.infoText}>{buildProviderSummary(providersState.values)}</Text>
@@ -450,10 +703,22 @@ export default function AccountScreen() {
                     ))}
                   </View>
                 )}
-              </>
+              </View>
             )}
+
+            <TouchableOpacity
+              style={[styles.button, savingProfile && styles.buttonDisabled]}
+              disabled={savingProfile}
+              onPress={handleSaveProfile}
+            >
+              {savingProfile ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.buttonText}>Guardar cambios</Text>
+              )}
+            </TouchableOpacity>
           </View>
-        )}
+        </View>
 
         {hasGoogleProvider && !hasEmailPasswordProvider && (
           <View style={styles.accountCard}>
@@ -488,58 +753,6 @@ export default function AccountScreen() {
                 <Text style={styles.buttonText}>Guardar contraseña</Text>
               )}
             </TouchableOpacity>
-          </View>
-        )}
-
-        {hasGoogleProvider && (!profile?.phone || !hasPhoneProvider) && (
-          <View style={styles.accountCard}>
-            <Text style={styles.accountTitle}>Agregar teléfono</Text>
-            <Text style={styles.accountDescription}>
-              Vincula un número para recibir notificaciones y usar autenticación por SMS.
-            </Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Número de teléfono (+505 XXXX XXXX)"
-              placeholderTextColor={colors.textSecondary}
-              keyboardType="phone-pad"
-              value={phoneForm.phone}
-              onChangeText={(text) => setPhoneForm((prev) => ({ ...prev, phone: text }))}
-            />
-            {!phoneForm.codeSent ? (
-              <TouchableOpacity
-                style={[styles.button, phoneForm.sendingCode && styles.buttonDisabled]}
-                disabled={phoneForm.sendingCode}
-                onPress={handleSendPhoneCode}
-              >
-                {phoneForm.sendingCode ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <Text style={styles.buttonText}>Enviar código SMS</Text>
-                )}
-              </TouchableOpacity>
-            ) : (
-              <>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Código de 6 dígitos"
-                  placeholderTextColor={colors.textSecondary}
-                  keyboardType="number-pad"
-                  value={phoneForm.code}
-                  onChangeText={(text) => setPhoneForm((prev) => ({ ...prev, code: text }))}
-                />
-                <TouchableOpacity
-                  style={[styles.button, phoneForm.confirming && styles.buttonDisabled]}
-                  disabled={phoneForm.confirming}
-                  onPress={handleConfirmPhoneCode}
-                >
-                  {phoneForm.confirming ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text style={styles.buttonText}>Confirmar teléfono</Text>
-                  )}
-                </TouchableOpacity>
-              </>
-            )}
           </View>
         )}
 
@@ -587,6 +800,21 @@ export default function AccountScreen() {
             </TouchableOpacity>
           </View>
         )}
+
+        <PhoneNumberModal
+          visible={phoneModalVisible}
+          onClose={() => !phoneUpdating && setPhoneModalVisible(false)}
+          onConfirm={handlePhoneModalConfirm}
+          countryOptions={countryOptions}
+          initialCountry={currentPhoneCountry}
+          initialDigits={currentPhoneDigits}
+          loading={phoneUpdating}
+        />
+
+        <LoadingOverlay
+          visible={phoneUpdating}
+          message="Preparando verificación de tu número..."
+        />
       </ScrollView>
     </View>
   );

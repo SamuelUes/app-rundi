@@ -30,8 +30,8 @@ import alertService from '../../services/alertService';
 const MANUAL_ORIGIN_ICON = require('../../assets/icons/select-origin-position/selectoriginposition_2x.png');
 const MANUAL_ORIGIN_HOLD_ICON = require('../../assets/icons/select-origin-position-holding/selectoriginpositionholding_2x.png');
 const ORIGIN_PIN_ICON = require('../../assets/icons/origin_marker/origin_marker.png');
-const DESTINATION_PIN_ICON = require('../../assets/icons/desti_locationmarker/desti_locationmarker.png');
-const STOP_PIN_ICON = require('../../assets/icons/multiplelocationmarker/multiplelocationmarker.png');
+const DESTINATION_PIN_ICON = require('../../assets/icons/select-final-destination/selectfinaldestination.png');
+const STOP_PIN_ICON = require('../../assets/icons/select-extra-destination/selectextradestination.png');
 const BACK_BUTTON_ICON = require('../../assets/icons/back_button/back_button2x.png');
 const DEFAULT_FALLBACK_COORDS = { latitude: 12.1364, longitude: -86.2514 };
 const MAX_EXTRA_STOPS = 3;
@@ -1342,6 +1342,9 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     !manualOriginLoading &&
     !manualDestinationDragging &&
     !manualDestinationLoading;
+  const showManualOriginMarker =
+    (!centerPinActive && (hasPinnedOrigin || !!originCoords || !!manualOriginDraft)) ||
+    mapSelectionMode === 'destination';
   const bottomPanelReady =
     hasRouteMetrics &&
     !calculatingRoute &&
@@ -1425,7 +1428,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
           showUserLocation
           userLocation={coords || undefined}
           showTraffic
-          showMarker={(!centerPinActive && hasPinnedOrigin) || mapSelectionMode === 'destination'}
+          showMarker={showManualOriginMarker}
           markerPosition={manualOriginMarkerPosition}
           markerType="manual_origin"
           draggableMarker
@@ -1911,7 +1914,7 @@ function createStyles(colors: any, isDark: boolean = false) {
       width: 48,
       height: 48,
       borderRadius: 24,
-      backgroundColor: isDark ? '#2a2a2a' : colors.card || '#fff',
+      backgroundColor: isDark ? 'rgba(95, 93, 93, 0.34)' : colors.card || '#fff',
       alignItems: 'center',
       justifyContent: 'center',
       shadowColor: '#000',

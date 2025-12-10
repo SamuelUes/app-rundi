@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, View } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useTheme } from '../context/ThemeContext';
 import LoginScreen from '../screens/Auth/LoginScreen';
@@ -12,16 +13,52 @@ import RoleSelectionScreen from '../screens/Auth/RoleSelectionScreen';
 import DriverPhoneScreen from '../screens/Auth/DriverPhoneScreen';
 import DriverDataScreen from '../screens/Auth/DriverDataScreen';
 import RegisterConfirm from '../screens/Auth/RegisterDriverFormConfirm';
+import OnboardingScreen from '../screens/Auth/OnboardingScreen';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AuthStackParamList } from './types';
 
 const Stack = createNativeStackNavigator<AuthStackParamList>();
 
 export default function AuthStack() {
   const { colors } = useTheme();
+  const [initialRouteName, setInitialRouteName] = useState<keyof AuthStackParamList | null>(null);
+
+  useEffect(() => {
+    const checkOnboarding = async () => {
+      try {
+        const hasSeenOnboarding = await AsyncStorage.getItem('@rundi_has_seen_onboarding');
+        if (hasSeenOnboarding === 'true') {
+          setInitialRouteName('AuthLanding');
+        } else {
+          setInitialRouteName('Onboarding');
+        }
+      } catch (error) {
+        console.warn('Error reading onboarding flag', error);
+        setInitialRouteName('AuthLanding');
+      }
+    };
+
+    checkOnboarding();
+  }, []);
+
+  if (!initialRouteName) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          justifyContent: 'center',
+          alignItems: 'center',
+          backgroundColor: colors.card,
+        }}
+      >
+        <ActivityIndicator size="large" color="#D4AF37" />
+      </View>
+    );
+  }
 
   return (
     <Stack.Navigator 
-      initialRouteName="AuthLanding"
+      initialRouteName={initialRouteName}
       screenOptions={{ 
         headerShown: false,
         headerStyle: {
@@ -33,6 +70,11 @@ export default function AuthStack() {
         },
       }}
     >
+      <Stack.Screen
+        name="Onboarding"
+        component={OnboardingScreen}
+        options={{ title: 'Bienvenido a Rundi' }}
+      />
       <Stack.Screen 
         name="AuthLanding" 
         component={AuthLandingScreen} 

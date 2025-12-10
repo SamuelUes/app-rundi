@@ -306,7 +306,7 @@ class FirebaseAuthService {
     userId: string;
     phoneNumber: string;
     code?: string;
-    context: 'register_phone' | 'login_phone' | string;
+    context: 'register_phone' | 'login_phone' | 'add_phone' | string;
     attemptCount?: number;
   }): Promise<void> {
     const { userId, phoneNumber, code, context, attemptCount } = params;

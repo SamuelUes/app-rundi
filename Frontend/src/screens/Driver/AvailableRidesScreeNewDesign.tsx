@@ -27,6 +27,10 @@ import penaltiesRealtimeService from '../../services/realtime/penaltiesRealtimeS
 import { getPreflightResult } from '../../state/preflightStore';
 import { RIDES_RADIUS_KM } from '../../constants/rideRadius';
 
+const SCREEN_ENTRY_WINDOW_MS = 3000;
+let screenEntryCountInWindow = 0;
+let screenEntryWindowStartTs = 0;
+
 const DEFAULT_COORDINATE: { lat: number; lng: number } = { lat: 0, lng: 0 };
 
 type RawLocation =
@@ -156,6 +160,21 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
   useEffect(() => {
     const focusUnsubscribe = navigation.addListener('focus', () => {
       isScreenFocusedRef.current = true;
+
+      const now = Date.now();
+      if (!screenEntryWindowStartTs || now - screenEntryWindowStartTs > SCREEN_ENTRY_WINDOW_MS) {
+        screenEntryWindowStartTs = now;
+        screenEntryCountInWindow = 1;
+      } else {
+        screenEntryCountInWindow += 1;
+      }
+
+      console.log('🟣 [AvailableRidesScreeNewDesign] ENTRADAS AL SCREEN EN VENTANA DE 3s', {
+        countInWindow: screenEntryCountInWindow,
+        windowStartedAt: screenEntryWindowStartTs,
+        now,
+        elapsedMsSinceWindowStart: now - screenEntryWindowStartTs,
+      });
     });
     const blurUnsubscribe = navigation.addListener('blur', () => {
       isScreenFocusedRef.current = false;

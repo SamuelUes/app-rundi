@@ -16,6 +16,8 @@ import { initializeFirebase } from '../../config/firebase';
 import { validateAndSaveCard, getCardsList, formatCardNumber, formatExpiryDate, isValidExpiryFormat, isValidCVV } from '../../utils/cardUtils';
 import alertService from '../../services/alertService';
 import sessionService from '../../services/sessionService';
+import BiometricService from '../../services/biometricService';
+import { supabase } from '../../config/supabase';
 import type { Card as SavedCard } from '../../services/cardsService';
 
 interface PaymentScreenProps {
@@ -340,6 +342,42 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
 
   const processCardPayment = async () => {
     try {
+      const totalToPay = rideAmount + tip;
+
+      const biometricResult = await BiometricService.authenticate(
+        `Confirma tu identidad para pagar C$${totalToPay.toFixed(2)}`
+      );
+
+      if (!biometricResult.success) {
+        if (
+          biometricResult.error === 'Dispositivo no soporta biometría' ||
+          biometricResult.error === 'No hay biometría registrada'
+        ) {
+          console.log('Biometría no disponible o no registrada. Continuando sin autenticación biométrica.');
+        } else {
+          alertService.showErrorAlert(
+            biometricResult.error || 'No se pudo confirmar tu identidad. Intenta de nuevo.'
+          );
+          return;
+        }
+      } else {
+        try {
+          if (user?.id) {
+            await supabase.from('biometric_authentications').insert({
+              ride_id: null,
+              user_id: user.id,
+              user_type: 'client',
+              biometric_type: biometricResult.biometryType || 'biometric',
+              context: 'card_payment_confirmation',
+              success: true,
+              attempt_number: 1,
+            });
+          }
+        } catch (logError) {
+          console.error('❌ Error registrando autenticación biométrica en Supabase (card):', logError);
+        }
+      }
+
       setProcessing(true);
 
       const { app } = await initializeFirebase();

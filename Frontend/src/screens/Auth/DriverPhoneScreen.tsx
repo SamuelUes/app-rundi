@@ -10,6 +10,7 @@ import {
   Platform,
   ScrollView,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -18,6 +19,7 @@ import { RouteProp } from '@react-navigation/native';
 import { useTheme } from '../../context/ThemeContext';
 import phoneAuthService from '../../services/auth/phoneAuthService';
 import registrationService from '../../services/registrationService';
+import firebaseAuthService from '../../services/auth/firebaseAuthService';
 import { AuthStackParamList } from '../../navigation/types';
 import {
   CountryDialOption,
@@ -110,6 +112,24 @@ const DriverPhoneScreen: React.FC<Props> = ({ navigation, route }) => {
 
     setLoading(true);
     try {
+      // Verificar si el número ya existe en Firebase Auth antes de enviar el SMS
+      try {
+        const availability = await firebaseAuthService.checkUserExists({ phone: normalizedPhone });
+        if (availability.phoneExists) {
+          Alert.alert(
+            'Teléfono ya registrado',
+            'Este número de teléfono ya está asociado a una cuenta existente. Usa otro número o inicia sesión con la cuenta vinculada a este teléfono.',
+          );
+          setLoading(false);
+          return;
+        }
+      } catch (availabilityError) {
+        console.error(
+          '⚠️ No se pudo validar disponibilidad del teléfono antes de enviar código:',
+          availabilityError,
+        );
+      }
+
       await phoneAuthService.sendVerificationCode(normalizedPhone);
 
       await registrationService.saveTemporaryData({
@@ -168,7 +188,7 @@ const DriverPhoneScreen: React.FC<Props> = ({ navigation, route }) => {
             ) : null}
           </View>
 
-          <View style={styles.fieldGroup}>
+          {/* <View style={styles.fieldGroup}>
             <Text style={styles.label}>Country</Text>
             <View style={styles.countryPickerContainer}>
               <Picker
@@ -186,7 +206,7 @@ const DriverPhoneScreen: React.FC<Props> = ({ navigation, route }) => {
                 ))}
               </Picker>
             </View>
-          </View>
+          </View> */}
 
           <View style={styles.fieldGroup}>
             <Text style={styles.label}>Phone number</Text>
@@ -209,7 +229,10 @@ const DriverPhoneScreen: React.FC<Props> = ({ navigation, route }) => {
               onPress={() => navigation.goBack()}
               disabled={loading}
             >
-              <Text style={styles.backButtonText}>← Volver</Text>
+              <Image
+                source={require('../../assets/icons/back_button/back_button.png')}
+                style={styles.backIcon}
+              />
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -220,7 +243,10 @@ const DriverPhoneScreen: React.FC<Props> = ({ navigation, route }) => {
               {loading ? (
                 <ActivityIndicator color="#FFFFFF" />
               ) : (
-                <Text style={styles.nextButtonIcon}>→</Text>
+                <Image
+                  source={require('../../assets/icons/continue_button/continue_button.png')}
+                  style={styles.continueIcon}
+                />
               )}
             </TouchableOpacity>
           </View>
@@ -237,9 +263,10 @@ const createStyles = (colors: any) =>
       backgroundColor: colors.background,
     },
     scrollContent: {
-      flexGrow: 1,
-      padding: 24,
+      flexGrow: 2,
+      //padding: 15,
       justifyContent: 'center',
+      
     },
     card: {
       backgroundColor: colors.card,
@@ -337,8 +364,17 @@ const createStyles = (colors: any) =>
       justifyContent: 'space-between',
     },
     backButton: {
-      paddingVertical: 12,
-      paddingHorizontal: 4,
+      width: 60,
+      height: 50,
+      borderRadius: 15,
+      backgroundColor: 'rgba(231, 168, 86, 1)',
+      paddingVertical: 7.5,
+      paddingHorizontal: 10,
+    },
+    backIcon: {
+      width: 35,
+      height: 35,
+      tintColor: 'rgba(0, 0, 0, 1)',
     },
     backButtonText: {
       fontSize: 14,
@@ -346,12 +382,17 @@ const createStyles = (colors: any) =>
       fontWeight: '600',
     },
     nextButton: {
-      width: 56,
-      height: 56,
-      borderRadius: 28,
-      backgroundColor: colors.primary,
+      width: 60,
+      height: 50,
+      borderRadius: 15,
+      backgroundColor: 'rgba(231, 168, 86, 1)',
       justifyContent: 'center',
       alignItems: 'center',
+    },
+    continueIcon: {
+      width: 35,
+      height: 35,
+      tintColor: '#000000ff',
     },
     nextButtonIcon: {
       fontSize: 24,

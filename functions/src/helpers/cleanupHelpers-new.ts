@@ -29,7 +29,8 @@ type NullableUpdate = { [key: string]: null };
 export async function cleanupRideFromRealtime(
   rideId: string,
   driverId?: string | null,
-  clientId?: string | null
+  clientId?: string | null,
+  options?: { skipPresenceCleanup?: boolean }
 ): Promise<void> {
   try {
     console.log(`🧹 Limpiando viaje ${rideId} del Realtime Database...`);
@@ -56,8 +57,10 @@ export async function cleanupRideFromRealtime(
       [`chats/${rideId}`]: null,
     };
 
+    const shouldCleanupPresence = !options?.skipPresenceCleanup;
+
     // Limpiar referencias del conductor
-    if (resolvedDriverId) {
+    if (shouldCleanupPresence && resolvedDriverId) {
       const driverInfoRef = db.ref(`driversInfo/${resolvedDriverId}`);
       const driverLocationRef = db.ref(`driverLocations/${resolvedDriverId}`);
 
@@ -82,7 +85,7 @@ export async function cleanupRideFromRealtime(
     }
 
     // Limpiar referencias del cliente
-    if (resolvedClientId) {
+    if (shouldCleanupPresence && resolvedClientId) {
       updates[`clientsInfo/${resolvedClientId}`] = null;
       updates[`clientsLocations/${resolvedClientId}`] = null;
       updates[`presence/${resolvedClientId}`] = null;

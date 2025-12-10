@@ -31,7 +31,7 @@ const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpaci
 // Iconos de ubicación
 const ORIGIN_PIN = require('../../assets/icons/origin_marker/origin_marker.png');
 const MULTI_STOP_PIN = require('../../assets/icons/multiplelocationmarker/multiplelocationmarker.png');
-const DEST_PIN = require('../../assets/icons/desti_locationmarker/desti_locationmarker.png');
+const DEST_PIN = require('../../assets/icons/select-final-destination/selectfinaldestination.png');
 
 interface RouteParams {
   rideId: string;

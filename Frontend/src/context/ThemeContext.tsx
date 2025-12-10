@@ -33,6 +33,7 @@ const lightColors = {
   shadow: '#000000',
   overlay: 'rgba(0, 0, 0, 0.5)',
   disabled: '#CCCCCC',
+  button: 'rgba(95, 93, 93, 0.34)',
 };
 
 const darkColors = {
@@ -51,6 +52,7 @@ const darkColors = {
   shadow: '#000000',
   overlay: 'rgba(0, 0, 0, 0.7)',
   disabled: '#555555',
+  button: 'rgba(95, 93, 93, 0.34)',
 };
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);

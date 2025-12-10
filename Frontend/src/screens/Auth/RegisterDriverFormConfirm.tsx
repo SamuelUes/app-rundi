@@ -37,7 +37,7 @@ interface Props {
 export default function RegisterConfirmScreen({ navigation, route }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const { register, registerWithGoogle } = useAuth();
+  const { register, registerWithGoogle, loginWithPhoneAndSMS } = useAuth();
 
   const {
     name,
@@ -68,7 +68,7 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
       // Crear usuario
       const safeEmail = email?.trim() || '';
 
-      const userData = await registrationService.createUser({
+      const result = await registrationService.createUser({
         name,
         email: safeEmail,
         phone,
@@ -82,11 +82,19 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
         googleIdToken,
       });
 
-      console.log('✅ Usuario creado:', userData);
+      console.log('✅ Usuario creado:', result);
 
       // Hacer login automático
       if (authProvider === 'google') {
-        await registerWithGoogle(userData);
+        await registerWithGoogle(result);
+      } else if (authProvider === 'phone') {
+        await loginWithPhoneAndSMS(
+          {
+            ...result.user,
+            phone,
+          },
+          result.token,
+        );
       } else {
         if (!safeEmail || !password) {
           throw new Error('Correo y contraseña requeridos para completar el registro.');
@@ -106,7 +114,9 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
       Alert.alert('✅ ¡Bienvenido!', `Cuenta creada exitosamente para ${role === 'driver' ? 'conductor' : 'cliente'}`);
 
       // Redirigir a HomeScreen
-      navigation.reset({ index: 0, routes: [{ name: 'Login' as never }] });
+      if (role !== 'driver') {
+        navigation.reset({ index: 0, routes: [{ name: 'Login' as never }] });
+      }
     } catch (error: any) {
       console.error('Error creando usuario:', error);
       Alert.alert('Error', error.message || 'Error al crear usuario');
@@ -134,7 +144,7 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
           <View style={styles.summaryContainer}>
             {/* Datos Básicos */}
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>📋 Datos Básicos</Text>
+              <Text style={styles.sectionTitle}>Datos Básicos</Text>
 
               <View style={styles.dataRow}>
                 <Text style={styles.dataLabel}>Nombre:</Text>
@@ -154,7 +164,7 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
               <View style={styles.dataRow}>
                 <Text style={styles.dataLabel}>Rol:</Text>
                 <Text style={styles.dataValue}>
-                  {role === 'driver' ? '🚗 Conductor' : '👤 Cliente'}
+                  {role === 'driver' ? 'Conductor' : 'Cliente'}
                 </Text>
               </View>
 
@@ -176,7 +186,7 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
             {/* Datos del Conductor (si aplica) */}
             {role === 'driver' && driverData && (
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>🪪 Datos de Licencia</Text>
+                <Text style={styles.sectionTitle}>Datos de Licencia</Text>
 
                 <View style={styles.dataRow}>
                   <Text style={styles.dataLabel}>Número de Licencia:</Text>
@@ -203,7 +213,7 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
             {/* Datos del Vehículo (si aplica) */}
             {role === 'driver' && vehicleData && (
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>🚗 Datos del Vehículo</Text>
+                <Text style={styles.sectionTitle}>Datos del Vehículo</Text>
 
                 <View style={styles.dataRow}>
                   <Text style={styles.dataLabel}>Placa:</Text>
@@ -271,7 +281,7 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
               onPress={() => navigation.goBack()}
               disabled={loading}
             >
-              <Text style={styles.backButtonText}>← Volver</Text>
+              <Text style={styles.backButtonText}>Volver</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -397,13 +407,13 @@ const createStyles = (colors: any) => StyleSheet.create({
   backButtonText: {
     fontSize: 14,
     fontWeight: '600',
-    color: colors.primary,
+    color: 'rgba(10, 28, 129, 1))',
   },
   confirmButton: {
     flex: 1,
     paddingVertical: 12,
     borderRadius: 8,
-    backgroundColor: colors.primary,
+    backgroundColor: 'rgba(231, 168, 86, 1)',
     alignItems: 'center',
   },
   confirmButtonText: {
@@ -423,7 +433,7 @@ const createStyles = (colors: any) => StyleSheet.create({
   },
   progressBar: {
     height: '100%',
-    backgroundColor: colors.primary,
+    backgroundColor: 'rgba(231, 168, 86, 1)',
   },
   progressText: {
     fontSize: 12,

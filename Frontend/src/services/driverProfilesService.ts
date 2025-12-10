@@ -47,10 +47,13 @@ export interface DriverProfile {
 
 const driverProfileCache = new Map<string, DriverProfile | null>();
 
-export async function fetchDriverProfile(driverId?: string | null): Promise<DriverProfile | null> {
+export async function fetchDriverProfile(
+  driverId?: string | null,
+  options?: { forceRefresh?: boolean },
+): Promise<DriverProfile | null> {
   if (!driverId) return null;
 
-  if (driverProfileCache.has(driverId)) {
+  if (!options?.forceRefresh && driverProfileCache.has(driverId)) {
     return driverProfileCache.get(driverId) ?? null;
   }
 
