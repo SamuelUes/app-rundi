@@ -32,6 +32,7 @@ export default {
   android: {
     package: 'com.driveangel.rundidev',
     versionCode: 1,
+    allowBackup: false,
     adaptiveIcon: {
       foregroundImage: './src/assets/images/icon_1.2.jpg',
       backgroundColor: '#0F2628'
@@ -90,6 +91,7 @@ export default {
         isIosBackgroundLocationEnabled: true
       }
     ],
+    'expo-secure-store',
     'expo-font',
     'expo-asset',
     'expo-splash-screen'

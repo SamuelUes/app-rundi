@@ -8,6 +8,7 @@ import {
   Pressable,
   RefreshControl,
   Image,
+  Modal,
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
@@ -136,6 +137,7 @@ interface Ride {
   extraDestinations?: Array<{ lat: number; lng: number; address?: string }>;
   waypointsCount?: number;
   hasMultipleDestinations?: boolean;
+  clientVehiclePhoto?: string | null;
 }
 
 export default function AvailableRidesScreeNewDesign({ navigation }: any) {
@@ -156,6 +158,7 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
   const [penaltySummary, setPenaltySummary] = useState<{ pendingCount: number; pendingAmount: number } | null>(null);
   const [activeRideGuard, setActiveRideGuard] = useState<{ id: string } | null>(null);
   const isScreenFocusedRef = useRef(false);
+  const [photoModalUrl, setPhotoModalUrl] = useState<string | null>(null);
 
   useEffect(() => {
     const focusUnsubscribe = navigation.addListener('focus', () => {
@@ -354,6 +357,7 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
           extraDestinations: extraStops,
           waypointsCount: rideData.waypointsCount || extraStops.length || 0,
           hasMultipleDestinations: rideData.hasMultipleDestinations || extraStops.length > 0,
+          clientVehiclePhoto: rideData.clientVehiclePhoto || null,
         });
         console.log('✅ [AvailableRides] Ride agregado a lista', rideId, {
           statusRaw,
@@ -681,6 +685,8 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
       clientSuggestedPrice: ride.clientSuggestedPrice,
       driverOfferedPrice: ride.driverOfferedPrice,
       paymentMethod: ride.paymentMethod,
+      rideType: ride.rideType,
+      clientVehiclePhoto: ride.clientVehiclePhoto || null,
     };
 
     navigation.navigate('RidePreview', { ride: payload });
@@ -716,7 +722,17 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
   const renderRideItem = ({ item }: { item: RideListItem }) => {
     if ((item as any).type === 'section') {
       return (
-        <Text style={styles.sectionLabel}>Viajes de Conductor Designado</Text>
+        <View
+          style={[
+            styles.designatedSection,
+            isDark ? styles.designatedSectionDark : styles.designatedSectionLight,
+          ]}
+        >
+          <Text style={styles.sectionLabel}>Viajes de Conductor Designado</Text>
+          <Text style={[styles.sectionSubLabel, { color: colors.text + '99' }]}>
+            Solo visibles cuando activas el modo de conductor designado
+          </Text>
+        </View>
       );
     }
 
@@ -735,6 +751,8 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
 
     const price = ride.clientSuggestedPrice ?? ride.estimatedPrice ?? 0;
     const stopsCount = (ride.extraDestinations || []).length;
+    const isDesignatedRide = (ride.rideType || '').toLowerCase() === 'designated_driver';
+    const clientVehiclePhoto = ride.clientVehiclePhoto;
 
     // Distancia y ETA del conductor al origen del viaje
     const driverLat = coords?.latitude ?? null;
@@ -753,7 +771,8 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
         style={[
           styles.rideCard,
           isDark ? styles.rideCardDark : styles.rideCardLight,
-          isSelected && { borderColor: '#D4AF37', borderWidth: 1.5, shadowColor: '#D4AF37', shadowOpacity: 0.25, elevation: 2 },
+          isDesignatedRide && (isDark ? styles.designatedCardDark : styles.designatedCard),
+          isSelected && styles.selectedCardHighlight,
         ]}
         onPress={() => handleSelectRide(ride.id)}
       >
@@ -794,21 +813,40 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
           </View>
 
           <View style={styles.metaColumn}>
-            <Text style={[styles.distanceLabel, { color: colors.text }]}>
-              {distanceToOriginKm > 0 ? `${distanceToOriginKm.toFixed(1)} km al origen` : 'Calculando distancia...'}
-            </Text>
-            <Text style={[styles.distanceLabel, { color: colors.text + '99' }]}>
+            <View
+              style={[
+                styles.distancePill,
+                isDark ? styles.distancePillDark : styles.distancePillLight,
+              ]}
+            >
+              <Text style={[styles.distancePillText, { color: isDark ? '#FFD666' : '#5D4B00' }]}
+              >
+                {distanceToOriginKm > 0 ? `${distanceToOriginKm.toFixed(1)} km al origen` : 'Calculando...'}
+              </Text>
+            </View>
+            <Text style={[styles.distanceSubLabel, { color: colors.text + '99' }]}>
               {distanceToOriginKm > 0 ? `~${etaToOriginMin} min para llegar` : ''}
             </Text>
-            {isSelected && (
-              <TouchableOpacity
-                onPress={() => handleViewRideDetails(ride)}
-                style={[styles.viewButton, { backgroundColor: colors.primary, borderColor: colors.primary }]}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.viewButtonText}>Ver</Text>
-              </TouchableOpacity>
-            )}
+            <View style={styles.metaActions}>
+              {isDesignatedRide && clientVehiclePhoto ? (
+                <TouchableOpacity
+                  style={[styles.vehicleButton, { borderColor: colors.primary }]}
+                  onPress={() => setPhotoModalUrl(clientVehiclePhoto)}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.vehicleButtonText, { color: colors.primary }]}>Ver vehículo</Text>
+                </TouchableOpacity>
+              ) : null}
+              {isSelected && (
+                <TouchableOpacity
+                  onPress={() => handleViewRideDetails(ride)}
+                  style={[styles.viewButton, { backgroundColor: colors.primary, borderColor: colors.primary }]}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.viewButtonText}>Ver</Text>
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
         </View>
       </Pressable>
@@ -846,6 +884,25 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
           <NoRidesEmptyState onAction={handleRefresh} />
         )}
       />
+
+      <Modal visible={!!photoModalUrl} transparent animationType="fade" onRequestClose={() => setPhotoModalUrl(null)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: isDark ? '#1F1F1F' : '#FFFFFF' }]}
+          >
+            <Image
+              source={{ uri: photoModalUrl || undefined }}
+              style={styles.modalImage}
+              resizeMode="contain"
+            />
+            <TouchableOpacity
+              style={[styles.closeModalButton, { backgroundColor: colors.primary }]}
+              onPress={() => setPhotoModalUrl(null)}
+            >
+              <Text style={styles.closeModalText}>Cerrar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -890,11 +947,28 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginRight: 40,
   },
+  designatedSection: {
+    padding: 14,
+    borderRadius: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+  },
+  designatedSectionLight: {
+    backgroundColor: '#FFF7E5',
+    borderColor: '#F5D38C',
+  },
+  designatedSectionDark: {
+    backgroundColor: 'rgba(209,138,27,0.15)',
+    borderColor: '#D18A1B',
+  },
   sectionLabel: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 15,
+    fontWeight: '700',
     color: '#D18A1B',
-    marginVertical: 12,
+  },
+  sectionSubLabel: {
+    fontSize: 12,
+    marginTop: 4,
   },
   rideCard: {
     borderRadius: 14,
@@ -916,6 +990,21 @@ const styles = StyleSheet.create({
     backgroundColor: '#1F1F1F',
     borderColor: '#303030',
     shadowOpacity: 0.2,
+  },
+  designatedCard: {
+    borderColor: '#E3C580',
+    backgroundColor: '#FFF9F0',
+  },
+  designatedCardDark: {
+    borderColor: '#D4AF37',
+    backgroundColor: '#2B2007',
+  },
+  selectedCardHighlight: {
+    borderColor: '#D4AF37',
+    borderWidth: 1.5,
+    shadowColor: '#D4AF37',
+    shadowOpacity: 0.25,
+    elevation: 2,
   },
   cardRow: {
     flexDirection: 'row',
@@ -958,13 +1047,32 @@ const styles = StyleSheet.create({
   },
   metaColumn: {
     alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    height: '100%',
     paddingLeft: 12,
+    gap: 6,
   },
-  distanceLabel: {
-    fontSize: 12,
-    fontWeight: '600',
+  metaActions: {
+    width: '100%',
+    alignItems: 'flex-end',
+    gap: 8,
+  },
+  distancePill: {
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    marginBottom: 4,
+  },
+  distancePillLight: {
+    backgroundColor: '#FFF1CC',
+  },
+  distancePillDark: {
+    backgroundColor: 'rgba(212,175,55,0.25)',
+  },
+  distancePillText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  distanceSubLabel: {
+    fontSize: 11,
     marginBottom: 8,
   },
   viewButton: {
@@ -973,9 +1081,50 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     borderWidth: 1,
   },
+  vehicleButton: {
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 18,
+    paddingVertical: 6,
+    backgroundColor: 'transparent',
+  },
+  vehicleButtonText: {
+    fontWeight: '700',
+    fontSize: 13,
+  },
   viewButtonText: {
     color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '700',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+  },
+  modalContent: {
+    width: '100%',
+    borderRadius: 16,
+    padding: 16,
+    alignItems: 'center',
+  },
+  modalImage: {
+    width: '100%',
+    height: 320,
+    borderRadius: 12,
+    marginBottom: 16,
+    backgroundColor: '#000',
+  },
+  closeModalButton: {
+    borderRadius: 24,
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+  },
+  closeModalText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 16,
   },
 });

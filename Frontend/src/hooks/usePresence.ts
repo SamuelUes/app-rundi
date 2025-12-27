@@ -15,7 +15,7 @@ import sessionService from '../services/sessionService';
  * - Pierde conexión a internet
  */
 export function usePresence() {
-  const { user } = useAuth();
+  const { user, userMode } = useAuth();
   const appState = useRef(AppState.currentState);
   const actionsRef = useRef<null | {
     markActive: ReturnType<typeof httpsCallable>;
@@ -23,8 +23,9 @@ export function usePresence() {
   }>(null);
 
   useEffect(() => {
-    // Solo configurar presencia para conductores autenticados
-    if (!user?.id || user.role !== 'driver') {
+    const isDriverCapable = user?.role === 'driver' || user?.role === 'designated_driver';
+    // Solo configurar presencia para conductores autenticados en modo conductor
+    if (!user?.id || !isDriverCapable || userMode !== 'driver') {
       return;
     }
 
@@ -99,19 +100,24 @@ export function usePresence() {
     // Cleanup
     return () => {
       subscription.remove();
-      
+
       const actions = actionsRef.current;
-      if (actions && user?.role === 'driver') {
-        sessionService.getDeviceId().then((deviceId) => {
-          actions.markClosed({ role: 'driver', deviceId }).catch((err: any) => {
+      if (actions && isDriverCapable) {
+        sessionService
+          .getDeviceId()
+          .then((deviceId) => {
+            actions
+              .markClosed({ role: 'driver', deviceId })
+              .catch((err: any) => {
+                console.error('❌ Error en cleanup de presencia (markAppClosed):', err?.message || err);
+              });
+          })
+          .catch((err) => {
             console.error('❌ Error en cleanup de presencia (markAppClosed):', err?.message || err);
           });
-        }).catch((err) => {
-          console.error('❌ Error en cleanup de presencia (markAppClosed):', err?.message || err);
-        });
       }
     };
-  }, [user?.id, user?.role]);
+  }, [user?.id, user?.role, userMode]);
 
   return null;
 }

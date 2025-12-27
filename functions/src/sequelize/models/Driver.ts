@@ -18,6 +18,7 @@ class Driver extends Model {
   public status!: string; // Mapeado a account_status en la base de datos
   public documents_status?: string; // Mapeado a documents_status en la base de datos
   public verified_at?: Date;
+  public designated_rol_requested?: string;
   public total_rides!: number;
   public average_rating!: number;
   public total_earnings!: number;
@@ -76,6 +77,11 @@ Driver.init(
       allowNull: true,
       defaultValue: 'pending',
       field: 'documents_status',
+    },
+    designated_rol_requested: {
+      type: DataTypes.STRING(20),
+      allowNull: true,
+      defaultValue: 'pending',
     },
     verified_at: {
       type: DataTypes.DATE,

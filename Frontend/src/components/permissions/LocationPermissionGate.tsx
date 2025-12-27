@@ -67,6 +67,13 @@ const LocationPermissionGate: React.FC<LocationPermissionGateProps> = ({
           servicesEnabled,
           loading: false,
         });
+        console.log('[LocationPermissionGate] State after refresh:', {
+          servicesEnabled,
+          foregroundStatus: foregroundResponse.status,
+          foregroundCanAskAgain: (foregroundResponse as any).canAskAgain,
+          backgroundStatus: backgroundResponse ? backgroundResponse.status : null,
+          backgroundCanAskAgain: backgroundResponse ? (backgroundResponse as any).canAskAgain : null,
+        });
         hasLoadedRef.current = true;
       } catch (error) {
         console.warn('[LocationPermissionGate] Error checking permissions:', error);
@@ -143,6 +150,10 @@ const LocationPermissionGate: React.FC<LocationPermissionGateProps> = ({
       !foreground?.granted && foreground?.canAskAgain !== false && !autoRequestedRef.current.foreground;
 
     if (foregroundNeedsRequest) {
+      console.log('[LocationPermissionGate] Auto-requesting foreground permission...', {
+        status: foreground?.status,
+        canAskAgain: foreground?.canAskAgain,
+      });
       autoRequestedRef.current.foreground = true;
       requestForeground();
       return;
@@ -156,6 +167,10 @@ const LocationPermissionGate: React.FC<LocationPermissionGateProps> = ({
       !autoRequestedRef.current.background;
 
     if (shouldRequestBackground) {
+      console.log('[LocationPermissionGate] Auto-requesting background permission...', {
+        status: background?.status,
+        canAskAgain: background?.canAskAgain,
+      });
       autoRequestedRef.current.background = true;
       requestBackground();
     }

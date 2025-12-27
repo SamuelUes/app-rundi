@@ -9,12 +9,37 @@ import { MIGRATION_FLAGS } from '../config/migration-flags';
 import { DriverServiceRepository } from '../sequelize/repositories/DriverServiceRepository';
 import { ServiceRepository } from '../sequelize/repositories/ServiceRepository';
 import { DriverRepository } from '../sequelize/repositories/DriverRepository';
+import { supabaseUpdate } from '../supabase/client';
 
 const db = admin.database();
 const DEFAULT_SERVICE_AREA_ID = 'ni-managua';
 const driverServiceRepo = new DriverServiceRepository();
 const serviceRepo = new ServiceRepository();
 const driverRepo = new DriverRepository();
+
+async function markDesignatedRoleRequested(userId: string) {
+  try {
+    await driverRepo.updateByUserId(userId, { designated_rol_requested: 'requested' });
+    console.log(`✅ [requestDesignatedDriverAccess] Flag actualizado en drivers.designated_rol_requested`);
+  } catch (error: any) {
+    console.warn('⚠️ [requestDesignatedDriverAccess] No se pudo actualizar vía Sequelize, intentando Supabase REST', {
+      userId,
+      message: error?.message || error,
+    });
+
+    try {
+      const driverRecord = await driverRepo.findByUserId(userId);
+      const driverId = (driverRecord as any)?.id;
+      if (driverId) {
+        await supabaseUpdate('drivers', driverId, { designated_rol_requested: 'requested' });
+        console.log('✅ [requestDesignatedDriverAccess] Flag actualizado vía Supabase REST');
+        return;
+      }
+    } catch (fallbackError: any) {
+      console.error('❌ [requestDesignatedDriverAccess] Fallback Supabase falló', fallbackError);
+    }
+  }
+}
 
 async function getDesignatedServiceId(): Promise<string | null> {
   try {
@@ -73,7 +98,7 @@ export const updateDriverLocation = functions.https.onCall(async (data, context)
  */
 export const getAvailableDrivers = functions.https.onCall(async (data, context) => {
   try {
-    const { latitude, longitude, radius = 15, vehicleType } = data;
+    const { latitude, longitude, radius = 15, vehicleType, designatedDriverVehicle } = data;
 
     console.log(`🚗 [getAvailableDrivers] Buscando conductores disponibles en: ${latitude}, ${longitude}, vehicleType: ${vehicleType}`);
 
@@ -170,12 +195,36 @@ export const getAvailableDrivers = functions.https.onCall(async (data, context) 
         continue;
       }
 
-      // Filtrar por tipo de vehículo si se especifica
-      // "auto" es un tipo genérico que incluye sedan, suv, etc.
-      if (vehicleType && vehicleType !== 'auto') {
-        if (info?.vehicle?.type !== vehicleType) {
-          console.log(`  ⏭️ Saltando: tipo de vehículo no coincide (buscando: ${vehicleType}, tiene: ${info?.vehicle?.type})`);
-          continue;
+      const driverVehicleType = String(info?.vehicle?.type || '').toLowerCase();
+      const isDesignatedDriverMode = Boolean(info?.isDesignatedDriverMode);
+
+      if (vehicleType) {
+        if (vehicleType === 'designated_driver') {
+          if (!isDesignatedDriverMode) {
+            console.log('  ⏭️ Saltando: conductor no está en modo designado');
+            continue;
+          }
+
+          if (designatedDriverVehicle) {
+            if (!driverVehicleType) {
+              console.log('  ⏭️ Saltando: conductor sin tipo de vehículo definido para designado');
+              continue;
+            }
+
+            if (driverVehicleType !== designatedDriverVehicle) {
+              console.log(
+                `  ⏭️ Saltando: conductor designado no coincide. Cliente: ${designatedDriverVehicle}, conductor: ${driverVehicleType}`,
+              );
+              continue;
+            }
+          }
+        } else if (vehicleType !== 'auto') {
+          if (driverVehicleType !== vehicleType) {
+            console.log(
+              `  ⏭️ Saltando: tipo de vehículo no coincide (buscando: ${vehicleType}, tiene: ${driverVehicleType || 'desconocido'})`,
+            );
+            continue;
+          }
         }
       }
 
@@ -375,6 +424,7 @@ export const requestDesignatedDriverAccess = functions.https.onCall(async (data,
         rejectedAt: null,
       });
 
+      await markDesignatedRoleRequested(driverId);
       return { success: true, message: 'Solicitud enviada exitosamente', status: 'pending' };
     }
 
@@ -386,6 +436,7 @@ export const requestDesignatedDriverAccess = functions.https.onCall(async (data,
 
     const existing = await driverServiceRepo.findByDriverAndService(driverId, serviceId);
     if (existing) {
+      await markDesignatedRoleRequested(driverId);
       return { success: true, message: 'Solicitud existente', status: (existing as any).status || 'pending' };
     }
 
@@ -395,6 +446,7 @@ export const requestDesignatedDriverAccess = functions.https.onCall(async (data,
       status: 'pending',
     });
 
+    await markDesignatedRoleRequested(driverId);
     return { success: true, message: 'Solicitud enviada exitosamente', status: created.status || 'pending' };
   } catch (error: any) {
     console.error('❌ [requestDesignatedDriverAccess] Error:', error);

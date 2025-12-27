@@ -1159,7 +1159,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: colors.button + 'F5',
+    backgroundColor: colors.button,
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',

@@ -66,7 +66,7 @@ const AuthLandingScreen: React.FC<Props> = ({ navigation }) => {
   };
 
   const handleRegisterPress = () => {
-    navigation.navigate('RegisterNew');
+    navigation.navigate('RegistrationCheckpoint');
   };
 
   return (

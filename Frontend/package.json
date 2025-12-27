@@ -43,6 +43,7 @@
     "expo-local-authentication": "~14.0.1",
     "expo-location": "~17.0.1",
     "expo-notifications": "~0.28.19",
+    "expo-secure-store": "~13.0.2",
     "expo-sensors": "~13.0.1",
     "expo-speech": "~13.0.1",
     "expo-splash-screen": "~0.27.7",

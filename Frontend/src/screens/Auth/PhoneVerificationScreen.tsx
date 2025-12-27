@@ -120,7 +120,13 @@ export default function PhoneVerificationScreen({ navigation, route }: Props) {
         googleIdToken,
         role,
         phoneVerified: true,
+        lastStep: 'phoneVerification',
       });
+
+      const driverScreensContext: 'register_driver' | 'register_upgrade_driver' =
+        verificationContext === 'register_upgrade_driver'
+          ? 'register_upgrade_driver'
+          : 'register_driver';
 
       if (role === 'driver') {
         navigation.replace('DriverData', {
@@ -133,6 +139,7 @@ export default function PhoneVerificationScreen({ navigation, route }: Props) {
           authProvider,
           googleIdToken,
           phoneVerified: true,
+          context: driverScreensContext,
         });
       } else {
         navigation.replace('RoleSelection', {
@@ -247,19 +254,21 @@ export default function PhoneVerificationScreen({ navigation, route }: Props) {
         return;
       }
 
-      // Verificar si el número ya existe en Firebase Auth antes de continuar
-      try {
-        const availability = await firebaseAuthService.checkUserExists({ phone });
-        if (availability.phoneExists) {
-          Alert.alert(
-            'Teléfono ya registrado',
-            'Este número de teléfono ya está asociado a una cuenta existente. Usa otro número o inicia sesión con la cuenta vinculada a este teléfono.'
-          );
-          setLoading(false);
-          return;
+      if (verificationContext === 'register_phone') {
+        // Verificar si el número ya existe en Firebase Auth antes de continuar
+        try {
+          const availability = await firebaseAuthService.checkUserExists({ phone });
+          if (availability.phoneExists) {
+            Alert.alert(
+              'Teléfono ya registrado',
+              'Este número de teléfono ya está asociado a una cuenta existente. Usa otro número o inicia sesión con la cuenta vinculada a este teléfono.'
+            );
+            setLoading(false);
+            return;
+          }
+        } catch (availabilityError) {
+          console.error('⚠️ No se pudo validar disponibilidad del teléfono antes de verificar código:', availabilityError);
         }
-      } catch (availabilityError) {
-        console.error('⚠️ No se pudo validar disponibilidad del teléfono antes de verificar código:', availabilityError);
       }
 
       const credential = await phoneAuthService.confirmVerificationCode(phone, code, {
@@ -267,13 +276,28 @@ export default function PhoneVerificationScreen({ navigation, route }: Props) {
       });
 
       try {
-        const userId = credential?.user?.uid;
-        if (userId) {
+        let logUserId = credential?.user?.uid;
+
+        if (verificationContext === 'register_upgrade_driver') {
+          try {
+            const currentUser = await firebaseAuthService.getCurrentUser();
+            if (currentUser?.uid) {
+              logUserId = currentUser.uid;
+            }
+          } catch (currentUserError) {
+            console.warn(
+              '⚠️ No se pudo obtener usuario actual para log de verificación SMS (upgrade):',
+              currentUserError,
+            );
+          }
+        }
+
+        if (logUserId) {
           await firebaseAuthService.logSmsVerification({
-            userId,
+            userId: logUserId,
             phoneNumber: phone,
             code,
-            context: 'register_phone',
+            context: verificationContext || 'register_phone',
             attemptCount: attempts + 1,
           });
         }

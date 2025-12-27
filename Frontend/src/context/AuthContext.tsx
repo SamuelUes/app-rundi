@@ -1,21 +1,24 @@
 import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getFirebaseAuth, getFirebaseDatabase } from '../config/firebase';
-import { ref, set, update, serverTimestamp } from 'firebase/database';
+import { ref, set, update, serverTimestamp, get } from 'firebase/database';
 import { signInWithCustomToken } from 'firebase/auth';
 import backendConfig from '../config/backendConfig';
 import firebaseAuthService from '../services/auth/firebaseAuthService';
 import localAuthService from '../services/auth/localAuthService';
 import mainAuthService from '../services/auth/authService';
 import backgroundLocationService from '../services/backgroundLocationService';
+import proximityService from '../services/proximityService';
 import sessionService from '../services/sessionService';
 import alertService from '../services/alertService';
+import storageCleanupService from '../services/storageCleanupService';
 
 interface User {
   id: string;
   email: string;
   name: string;
   role: 'client' | 'driver' | 'admin' | 'designated_driver';
+  phone?: string;
   /**
    * Roles disponibles:
    * - client: Usuario normal que puede solicitar viajes
@@ -38,6 +41,8 @@ interface AuthContextData {
   logout: () => Promise<void>;
   getToken: () => Promise<string | null>;
   logoutInProgress: boolean;
+  userMode: 'client' | 'driver';
+  setUserMode: (mode: 'client' | 'driver') => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextData>({} as AuthContextData);
@@ -46,6 +51,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [logoutInProgress, setLogoutInProgress] = useState(false);
+  const [userMode, setUserModeState] = useState<'client' | 'driver'>('client');
 
   // Seleccionar el servicio según el modo
   const authService = backendConfig.isFirebase() ? firebaseAuthService : localAuthService;
@@ -60,6 +66,90 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
+  const cleanupRealtimeDataForModeChange = async (userId: string, mode: 'client' | 'driver') => {
+    if (!backendConfig.isFirebase()) {
+      return;
+    }
+
+    try {
+      const database = await getFirebaseDatabase();
+      const rootRef = ref(database);
+      const updates: Record<string, null> = {};
+
+      if (mode === 'client') {
+        // Al pasar a modo cliente, limpiar nodos de conductor
+        updates[`driversInfo/${userId}`] = null;
+        updates[`driverLocations/${userId}`] = null;
+
+        try {
+          const byAreaRef = ref(database, 'driverLocationsByArea');
+          const snapshot = await get(byAreaRef);
+          if (snapshot.exists()) {
+            snapshot.forEach((areaSnap) => {
+              const areaId = areaSnap.key;
+              if (areaId) {
+                updates[`driverLocationsByArea/${areaId}/${userId}`] = null;
+              }
+            });
+          }
+        } catch (areaErr) {
+          console.warn('⚠️ Error limpiando driverLocationsByArea al cambiar de modo:', areaErr);
+        }
+      } else {
+        // Al pasar a modo conductor, limpiar nodos de cliente
+        updates[`clientsInfo/${userId}`] = null;
+        updates[`clientsLocations/${userId}`] = null;
+      }
+
+      if (Object.keys(updates).length > 0) {
+        await update(rootRef, updates);
+        console.log('🧹 Limpieza de Realtime DB al cambiar de modo:', mode, updates);
+      }
+    } catch (err) {
+      console.warn('⚠️ Error limpiando datos de Realtime DB al cambiar de modo:', err);
+    }
+  };
+
+  const applyDefaultUserMode = (role: User['role']) => {
+    if (role === 'driver' || role === 'designated_driver') {
+      setUserModeState('driver');
+    } else {
+      setUserModeState('client');
+    }
+  };
+
+  const updateUserMode = async (mode: 'client' | 'driver') => {
+    setUserModeState(mode);
+    try {
+      await AsyncStorage.setItem('userMode', mode);
+    } catch (err) {
+      console.warn('⚠️ Error guardando userMode en AsyncStorage:', err);
+    }
+
+    if (user?.id) {
+      // Best-effort: limpiar datos viejos de RTDB asociados al otro rol
+      cleanupRealtimeDataForModeChange(user.id, mode).catch((cleanupError) => {
+        console.warn('⚠️ Error en cleanupRealtimeDataForModeChange:', cleanupError);
+      });
+    }
+
+    // Efectos secundarios adicionales al cambiar de modo
+    if (mode === 'client') {
+      // Al pasar a modo cliente, detener tracking de conductor y ocultar burbuja de overlay
+      try {
+        await backgroundLocationService.stopBackgroundLocationTracking();
+      } catch (err) {
+        console.warn('⚠️ Error deteniendo tracking en cambio a modo cliente:', err);
+      }
+
+      try {
+        await proximityService.hideOverlayBubble('userModeChangeToClient');
+      } catch (err) {
+        console.warn('⚠️ Error ocultando overlay al cambiar a modo cliente:', err);
+      }
+    }
+  };
+
   const normalizeUserData = (raw: any): User => {
     if (!raw) {
       throw new Error('Datos de usuario inválidos');
@@ -69,17 +159,26 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const email = raw.email || '';
     const name = raw.name || '';
     const role = raw.role as User['role'];
+    const phone = raw.phone;
 
     if (!id || !role) {
       throw new Error('Respuesta de usuario incompleta');
     }
 
-    return { id, email, name, role };
+    return { id, email, name, role, phone };
   };
 
   useEffect(() => {
-    loadUser();
-    
+    // Limpieza agresiva de almacenamiento en la primera ejecución de esta versión
+    storageCleanupService
+      .ensureFreshInstallCleanup()
+      .catch((err) => {
+        console.warn('⚠️ [AuthContext] Error en ensureFreshInstallCleanup:', err);
+      })
+      .finally(() => {
+        loadUser();
+      });
+
     // Si es Firebase, escuchar cambios de auth
     if (backendConfig.isFirebase()) {
       const setupAuthListener = async () => {
@@ -87,14 +186,17 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           const unsubscribe = await firebaseAuthService.onAuthStateChange(async (firebaseUser) => {
             if (firebaseUser) {
               const userData = await firebaseAuthService.getUserProfile(firebaseUser.uid);
+              const role = userData.role as User['role'];
               setUser({
                 id: firebaseUser.uid,
                 email: firebaseUser.email || '',
                 name: userData.name,
-                role: userData.role,
+                role,
+                phone: userData.phone,
               });
             } else {
               setUser(null);
+              setUserModeState('client');
             }
           });
           
@@ -142,6 +244,17 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
         
         setUser(parsedUser);
+        try {
+          const storedMode = await AsyncStorage.getItem('userMode');
+          if (storedMode === 'client' || storedMode === 'driver') {
+            setUserModeState(storedMode);
+          } else {
+            applyDefaultUserMode(parsedUser.role as User['role']);
+          }
+        } catch (modeError) {
+          console.warn('⚠️ Error leyendo userMode desde AsyncStorage:', modeError);
+          applyDefaultUserMode(parsedUser.role as User['role']);
+        }
         await ensureTrackingIfNeeded(parsedUser.role);
 
         // Intentar iniciar sesión de dispositivo (política DENY)
@@ -175,6 +288,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       await AsyncStorage.setItem('user', JSON.stringify(normalizedUser));
 
       setUser(normalizedUser);
+      await updateUserMode(
+        normalizedUser.role === 'driver' || normalizedUser.role === 'designated_driver'
+          ? 'driver'
+          : 'client',
+      );
       await ensureTrackingIfNeeded(normalizedUser.role);
 
       // Sesión única (DENY)
@@ -222,6 +340,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const normalizedUser = normalizeUserData(userData);
       await AsyncStorage.setItem('user', JSON.stringify(normalizedUser));
       setUser(normalizedUser);
+      await updateUserMode(
+        normalizedUser.role === 'driver' || normalizedUser.role === 'designated_driver'
+          ? 'driver'
+          : 'client',
+      );
       await ensureTrackingIfNeeded(normalizedUser.role);
 
       // Sesión única (DENY)
@@ -283,6 +406,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       await authService.logout();
       await AsyncStorage.removeItem('user');
       setUser(null);
+      setUserModeState('client');
+      try {
+        await AsyncStorage.removeItem('userMode');
+      } catch (err) {
+        console.warn('⚠️ Error limpiando userMode en logout:', err);
+      }
     } catch (error) {
       console.error('Logout error:', error);
       // Forzar logout local aunque falle
@@ -300,6 +429,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       
       await AsyncStorage.setItem('user', JSON.stringify(userData));
       setUser(userData);
+      await updateUserMode(
+        userData.role === 'driver' || userData.role === 'designated_driver'
+          ? 'driver'
+          : 'client',
+      );
       await ensureTrackingIfNeeded(userData.role);
 
       // Sesión única (DENY)
@@ -344,6 +478,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
 
       setUser(normalizedUser);
+      await updateUserMode(
+        normalizedUser.role === 'driver' || normalizedUser.role === 'designated_driver'
+          ? 'driver'
+          : 'client',
+      );
       await ensureTrackingIfNeeded(normalizedUser.role);
 
       // Sesión única (DENY)
@@ -428,6 +567,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
 
       setUser(normalizedUser);
+      await updateUserMode(
+        normalizedUser.role === 'driver' || normalizedUser.role === 'designated_driver'
+          ? 'driver'
+          : 'client',
+      );
       await ensureTrackingIfNeeded(normalizedUser.role);
 
       console.log('✅ Login con SMS exitoso');
@@ -460,7 +604,22 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, loginWithGoogle, loginWithPhoneAndSMS, register, registerWithGoogle, logout, getToken, logoutInProgress }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        loading,
+        login,
+        loginWithGoogle,
+        loginWithPhoneAndSMS,
+        register,
+        registerWithGoogle,
+        logout,
+        getToken,
+        logoutInProgress,
+        userMode,
+        setUserMode: updateUserMode,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

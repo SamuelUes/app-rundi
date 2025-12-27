@@ -49,7 +49,7 @@ export function useLocation(options: UseLocationOptions = {}) {
     initialCoords,
   } = options;
   
-  const { user } = useAuth();
+  const { user, userMode } = useAuth();
   const [coords, setCoords] = useState<Coordinates | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -116,8 +116,8 @@ export function useLocation(options: UseLocationOptions = {}) {
       setIsUsingMockLocation(false);
 
       // Solicitar permisos
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      console.log('📍 Permiso de ubicación (foreground):', status);
+      const { status, canAskAgain } = await Location.requestForegroundPermissionsAsync();
+      console.log('📍 Permiso de ubicación (foreground):', status, 'canAskAgain:', canAskAgain);
 
       if (status !== 'granted') {
         console.warn('⚠️ Permiso de ubicación denegado. Usando ubicación mock: Managua');
@@ -126,7 +126,8 @@ export function useLocation(options: UseLocationOptions = {}) {
         return;
       }
 
-      if (user?.role === 'driver' || user?.role === 'designated_driver') {
+      const isDriverCapable = user?.role === 'driver' || user?.role === 'designated_driver';
+      if (isDriverCapable && userMode === 'driver') {
         await ensureActivityRecognitionPermission();
       }
 
@@ -278,9 +279,11 @@ export function useLocation(options: UseLocationOptions = {}) {
         return true;
       }
 
+      const isDriverCapable = user.role === 'driver' || user.role === 'designated_driver';
+      const trackingRole = isDriverCapable && userMode === 'driver' ? 'driver' : 'client';
       const started = await backgroundLocationService.startBackgroundLocationTracking(
         user.id,
-        user.role === 'driver' || user.role === 'designated_driver' ? 'driver' : 'client',
+        trackingRole,
         rideId
       );
 

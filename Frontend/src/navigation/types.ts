@@ -7,6 +7,7 @@ export type AuthStackParamList = {
   Login: undefined;
   Register: undefined;
   RegisterNew: undefined;
+  RegistrationCheckpoint: undefined;
   PhoneVerification: {
     name: string;
     email?: string;
@@ -17,7 +18,7 @@ export type AuthStackParamList = {
     authProvider: RegistrationAuthProvider;
     googleIdToken?: string;
     phoneVerified?: boolean;
-    context?: 'register_phone' | 'add_phone';
+    context?: 'register_phone' | 'add_phone' | 'register_upgrade_driver';
   };
   PhoneVerificationLogin: {
     phone: string;
@@ -37,6 +38,7 @@ export type AuthStackParamList = {
     method: RegistrationMethod;
     authProvider: RegistrationAuthProvider;
     googleIdToken?: string;
+    context?: 'register_phone' | 'register_upgrade_driver';
   };
   RoleSelection: {
     name: string;
@@ -58,6 +60,7 @@ export type AuthStackParamList = {
     authProvider: RegistrationAuthProvider;
     googleIdToken?: string;
     phoneVerified: boolean;
+    context?: 'register_driver' | 'register_upgrade_driver';
   };
   RegisterConfirm: {
     name: string;
@@ -71,5 +74,6 @@ export type AuthStackParamList = {
     googleIdToken?: string;
     driverData?: any;
     vehicleData?: any;
+    context?: 'register_driver' | 'register_upgrade_driver';
   };
 };

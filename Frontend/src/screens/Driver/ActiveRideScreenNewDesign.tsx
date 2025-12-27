@@ -61,6 +61,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
   const [routePolyline, setRoutePolyline] = useState<any[]>([]);
   const [clientProfile, setClientProfile] = useState<ClientProfile | null>(null);
   const [voicePaused, setVoicePaused] = useState(false);
+  const [progressNow, setProgressNow] = useState(() => Date.now());
   const lastStatusSpokenRef = useRef<string | null>(null);
   const lastRideAnnouncedRef = useRef<string | null>(null);
   const handledCancellationRef = useRef(false);
@@ -137,6 +138,45 @@ export default function ActiveRideScreen({ route, navigation }: any) {
   const isInProgress = normalizedStatus === 'in_progress';
   const isCompleted = normalizedStatus === 'completed';
   const isCanceled = normalizedStatus === 'canceled';
+
+  useEffect(() => {
+    if (!isInProgress) {
+      return;
+    }
+    const id = setInterval(() => {
+      setProgressNow(Date.now());
+    }, 20000);
+    return () => {
+      clearInterval(id);
+    };
+  }, [isInProgress]);
+
+  useEffect(() => {
+    if (!ride) return;
+
+    const rawMethod =
+      (ride.payment && (ride.payment.method || ride.payment.paymentMethod)) ||
+      ride.paymentMethod ||
+      ride.payment_type ||
+      ride.paymentType;
+
+    if (rawMethod === 'cash' || rawMethod === 'card') {
+      setPaymentMethod(rawMethod);
+    }
+  }, [ride]);
+
+  const haversineDistanceMeters = useCallback((lat1: number, lon1: number, lat2: number, lon2: number) => {
+    const toRad = (value: number) => (value * Math.PI) / 180;
+    const R = 6371000;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  }, []);
 
   // Cargar datos del viaje
   useEffect(() => {
@@ -241,6 +281,95 @@ export default function ActiveRideScreen({ route, navigation }: any) {
     }
     return total;
   }, []);
+
+  const dynamicProgress = useMemo(() => {
+    if (!isInProgress || !ride) {
+      return 0;
+    }
+
+    let estimatedDistanceM: number | null = null;
+    if (typeof ride.estimatedDistance === 'number' && Number.isFinite(ride.estimatedDistance) && ride.estimatedDistance > 0) {
+      estimatedDistanceM = ride.estimatedDistance;
+    } else {
+      const totalKm = computeTotalDistanceKm(ride);
+      if (typeof totalKm === 'number' && Number.isFinite(totalKm) && totalKm > 0) {
+        estimatedDistanceM = totalKm * 1000;
+      }
+    }
+
+    const destLat = ride?.destination?.lat ?? ride?.destination?.latitude;
+    const destLng = ride?.destination?.lng ?? ride?.destination?.longitude;
+
+    let remainingDistanceM: number | null = null;
+    if (
+      coords &&
+      typeof coords.latitude === 'number' &&
+      typeof coords.longitude === 'number' &&
+      typeof destLat === 'number' &&
+      typeof destLng === 'number'
+    ) {
+      remainingDistanceM = haversineDistanceMeters(
+        coords.latitude,
+        coords.longitude,
+        destLat,
+        destLng,
+      );
+    }
+
+    let distanceProgress: number | null = null;
+    if (estimatedDistanceM && remainingDistanceM !== null) {
+      distanceProgress = 1 - remainingDistanceM / estimatedDistanceM;
+    }
+
+    let estimatedDurationSec: number | null = null;
+    if (typeof ride.estimatedDuration === 'number' && Number.isFinite(ride.estimatedDuration) && ride.estimatedDuration > 0) {
+      estimatedDurationSec = ride.estimatedDuration;
+    }
+
+    let startedAtMs: number | null = null;
+    const startedAtValue = ride.startedAt;
+    if (typeof startedAtValue === 'number' && Number.isFinite(startedAtValue)) {
+      startedAtMs = startedAtValue;
+    } else if (startedAtValue && typeof startedAtValue === 'object') {
+      if (typeof startedAtValue._seconds === 'number') {
+        startedAtMs = startedAtValue._seconds * 1000;
+      } else if (typeof startedAtValue.seconds === 'number') {
+        startedAtMs = startedAtValue.seconds * 1000;
+      }
+    }
+
+    let durationProgress: number | null = null;
+    if (estimatedDurationSec && startedAtMs) {
+      const elapsedSec = Math.max(0, (progressNow - startedAtMs) / 1000);
+      durationProgress = elapsedSec / estimatedDurationSec;
+    }
+
+    let combined = 0;
+    if (distanceProgress !== null && durationProgress !== null) {
+      combined = (distanceProgress + durationProgress) / 2;
+    } else if (distanceProgress !== null) {
+      combined = distanceProgress;
+    } else if (durationProgress !== null) {
+      combined = durationProgress;
+    }
+
+    let percent = Math.min(Math.max(combined * 100, 0), 100);
+
+    if (
+      percent >= 95 &&
+      remainingDistanceM !== null &&
+      remainingDistanceM > 2000 &&
+      estimatedDurationSec &&
+      startedAtMs
+    ) {
+      const elapsedSec = Math.max(0, (progressNow - startedAtMs) / 1000);
+      if (elapsedSec > estimatedDurationSec) {
+        percent = Math.max(percent - 10, 0);
+      }
+    }
+
+    return percent;
+  }, [isInProgress, ride, coords?.latitude, coords?.longitude, haversineDistanceMeters, computeTotalDistanceKm, progressNow]);
 
   const announceRideSummary = useCallback(
     (force = false) => {
@@ -716,7 +845,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
             {/* Progreso */}
             <View style={styles.progressIndicator}>
               <RideProgressIndicator 
-                progress={isInProgress ? 50 : isAccepted ? 25 : 0}
+                progress={dynamicProgress}
                 role="driver"
                 rideStatus={ride.status}
                 paymentMethod={paymentMethod as 'cash' | 'card'}

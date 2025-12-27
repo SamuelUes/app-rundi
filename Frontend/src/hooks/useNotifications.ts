@@ -6,6 +6,7 @@
 import { useEffect, useState, useRef } from 'react';
 import * as Notifications from 'expo-notifications';
 import notificationService from '../services/notificationService';
+import liveRideNotificationService from '../services/liveRideNotificationService';
 import { useAuth } from '../context/AuthContext';
 import { navigate } from '../navigation/NavigationService';
 
@@ -80,7 +81,7 @@ export function useNotifications() {
     }
   };
 
-  const handleNotificationResponse = (response: Notifications.NotificationResponse) => {
+  const handleNotificationResponse = async (response: Notifications.NotificationResponse) => {
     const data = response.notification.request.content.data;
 
     // Manejar diferentes tipos de notificaciones
@@ -117,6 +118,13 @@ export function useNotifications() {
       case 'ride_completed':
         console.log('Viaje completado:', data.rideId);
         // navigation.navigate('RateRide', { rideId: data.rideId });
+        break;
+      case 'ride_live_update':
+        try {
+          await liveRideNotificationService.presentFromPush(data);
+        } catch (error) {
+          console.warn('[useNotifications] Error mostrando live update:', error);
+        }
         break;
       default:
         console.log('Notificación desconocida:', data);

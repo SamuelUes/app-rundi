@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import {
   Animated,
+  AppState,
   Platform,
   StyleSheet,
   Text,
@@ -23,6 +24,7 @@ import proximityService from '../../services/proximityService';
 import firebaseAuthService from '../../services/auth/firebaseAuthService';
 import TermsAndConditionsModal, { CURRENT_TERMS_VERSION } from '../../components/TermsAndConditionsModal';
 import PermissionsExplanation from '../../components/permissions/PermissionsExplanation';
+import type { User as FirebaseUser } from 'firebase/auth';
 
 type NavigationLike = {
   replace: (routeName: string, params?: any) => void;
@@ -100,7 +102,7 @@ const getCheckLabels = (): Record<string, string> => ({
 const PreflightCheckScreen = ({ navigation, route }: any) => {
   const nav = navigation as NavigationLike;
   const params = (route?.params ?? {}) as PreflightRouteConfig;
-  const { user, logout } = useAuth();
+  const { user, logout, userMode, setUserMode } = useAuth();
   const { colors } = useTheme();
   const { isFCMAvailable, configureFCM } = useFCM();
   
@@ -237,7 +239,9 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
 
     for (let i = 0; i < checkList.length; i++) {
       const checkId = checkList[i];
-      const isCritical = CRITICAL_CHECKS.includes(checkId);
+      const isCritical =
+        CRITICAL_CHECKS.includes(checkId) &&
+        !(role === 'client' && checkId === 'foregroundLocation');
       
       setCurrentCheckLabel(labels[checkId] || checkId);
       console.log(`🔸 [Preflight] Verificando ${checkId} (${i + 1}/${totalChecks})`);
@@ -355,16 +359,42 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
 
   }, [role, user, nav, successRoute, activeRideRoute, pendingPaymentsRoute, payCommissionsRoute, rideTrackingRoute, animateProgress, handleTermsIfNeeded, navigateAfterChecks]);
 
+  const handleRetry = useCallback(() => {
+    checksRunRef.current = false;
+    runChecks();
+  }, [runChecks]);
+
+  const handleSwitchToClientModeFromPreflight = useCallback(async () => {
+    if (role !== 'driver') {
+      return;
+    }
+
+    try {
+      await setUserMode('client');
+    } catch (err: any) {
+      console.error('❌ [Preflight] Error cambiando a modo cliente desde preflight:', err);
+      alertService.showErrorAlert('No se pudo cambiar a modo cliente. Intenta nuevamente.');
+    }
+  }, [role, setUserMode]);
+
   useEffect(() => {
     if (!checksRunRef.current) {
       runChecks();
     }
   }, [runChecks]);
 
-  const handleRetry = useCallback(() => {
-    checksRunRef.current = false;
-    runChecks();
-  }, [runChecks]);
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active' && error && canRetry && !checksRunRef.current) {
+        console.log('🔄 [Preflight] App volvió a primer plano, reintentando verificaciones...');
+        handleRetry();
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [error, canRetry, handleRetry]);
 
   const handleAcceptTerms = useCallback(async () => {
     if (!user?.id) {
@@ -494,6 +524,16 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
             <Text style={styles.retryButtonText}>Reintentar</Text>
           </TouchableOpacity>
         )}
+        {role === 'driver' && (
+          <TouchableOpacity
+            style={styles.secondaryButton}
+            onPress={handleSwitchToClientModeFromPreflight}
+          >
+            <Text style={styles.secondaryButtonText}>
+              {userMode === 'client' ? 'Continuar como cliente' : 'Usar como cliente'}
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       <TermsAndConditionsModal
@@ -514,6 +554,41 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
 };
 
 // ==================== CHECK FUNCTIONS ====================
+
+async function waitForFirebaseWebUser(timeoutMs = 2500): Promise<FirebaseUser | null> {
+  const { getFirebaseAuth } = await import('../../config/firebase');
+  const auth = await getFirebaseAuth();
+
+  if (auth.currentUser) {
+    return auth.currentUser;
+  }
+
+  return await new Promise<FirebaseUser | null>((resolve) => {
+    let resolved = false;
+    let unsubscribe: (() => void) | null = null;
+
+    const finish = (firebaseUser: any) => {
+      if (resolved) {
+        return;
+      }
+      resolved = true;
+      clearTimeout(timer);
+      if (unsubscribe) {
+        unsubscribe();
+      }
+      resolve((firebaseUser as FirebaseUser | null) ?? null);
+    };
+
+    const timer = setTimeout(() => {
+      console.warn('⚠️ [Preflight] Timeout esperando restauración de Firebase Auth');
+      finish(null);
+    }, timeoutMs);
+
+    unsubscribe = auth.onAuthStateChanged((firebaseUser) => {
+      finish(firebaseUser);
+    });
+  });
+}
 
 async function checkAuth(user: any): Promise<boolean> {
   try {
@@ -547,9 +622,7 @@ async function checkAuth(user: any): Promise<boolean> {
     }
 
     // 2️⃣ Fallback: validar usando Firebase Web Auth (config/firebase)
-    const { getFirebaseAuth } = await import('../../config/firebase');
-    const auth = await getFirebaseAuth();
-    const firebaseUser = auth.currentUser;
+    const firebaseUser = await waitForFirebaseWebUser();
 
     if (!firebaseUser) {
       console.warn('⚠️ [Preflight] No hay sesión Firebase Auth activa');
@@ -694,11 +767,20 @@ async function checkRegionAvailabilityPreflight(): Promise<PreflightRegionInfo |
 async function checkForegroundLocation(): Promise<boolean> {
   try {
     const permissions = await Location.getForegroundPermissionsAsync();
+    console.log('[Preflight] Foreground permission current status:', {
+      status: permissions.status,
+      canAskAgain: (permissions as any).canAskAgain,
+    });
+
     if (permissions.status === 'granted') {
       return true;
     }
 
     const result = await Location.requestForegroundPermissionsAsync();
+    console.log('[Preflight] Foreground permission request result:', {
+      status: result.status,
+      canAskAgain: (result as any).canAskAgain,
+    });
     return result.status === 'granted';
   } catch (error) {
     console.error('❌ [Preflight] Error verificando ubicación foreground:', error);
@@ -709,11 +791,17 @@ async function checkForegroundLocation(): Promise<boolean> {
 async function checkBackgroundLocation(): Promise<boolean> {
   try {
     const granted = await checkBackgroundLocationPermission();
+    console.log('[Preflight] Background permission existing:', granted);
+
     if (granted) {
       return true;
     }
 
     const result = await Location.requestBackgroundPermissionsAsync();
+    console.log('[Preflight] Background permission request result:', {
+      status: result.status,
+      canAskAgain: (result as any).canAskAgain,
+    });
     return result.status === 'granted';
   } catch (error) {
     console.error('❌ [Preflight] Error verificando ubicación background:', error);
@@ -936,7 +1024,8 @@ async function checkPenalties(
         0,
     );
 
-    if (!pendingAmount || pendingAmount <= 0) return undefined;
+    // Solo considerar acción de comisiones cuando se alcanza o supera el umbral definido
+    if (!pendingAmount || pendingAmount < PENALTIES_LIMIT_CORDOBAS) return undefined;
 
     return {
       type: 'penalties',
@@ -944,7 +1033,7 @@ async function checkPenalties(
       subtitle: `C$${pendingAmount.toFixed(2)} pendientes`,
       ctaLabel: 'Pagar comisiones',
       routeName: payCommissionsRoute,
-      metadata: { pendingAmount, pendingCount, blocking: pendingAmount > PENALTIES_LIMIT_CORDOBAS },
+      metadata: { pendingAmount, pendingCount, blocking: pendingAmount >= PENALTIES_LIMIT_CORDOBAS },
     };
   } catch (error) {
     console.error('❌ [Preflight] Error verificando comisiones:', error);
@@ -1211,20 +1300,6 @@ const createStyles = (colors: any) =>
       fontStyle: 'italic',
       marginTop: 4,
     },
-    footer: {
-      paddingTop: 24,
-    },
-    retryButton: {
-      backgroundColor: colors.primary,
-      paddingVertical: 16,
-      borderRadius: 16,
-      alignItems: 'center',
-    },
-    retryButtonText: {
-      fontSize: 16,
-      fontWeight: '700',
-      color: '#0F172A',
-    },
     termsOverlay: {
       position: 'absolute',
       top: 0,
@@ -1301,6 +1376,42 @@ const createStyles = (colors: any) =>
       fontSize: 16,
       fontWeight: '600',
       color: '#0F172A',
+    },
+    footer: {
+      paddingHorizontal: 24,
+      paddingVertical: 16,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: 'rgba(148, 163, 184, 0.3)',
+      backgroundColor: colors.background,
+      flexDirection: 'row',
+      justifyContent: 'flex-end',
+      gap: 12,
+    },
+    retryButton: {
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: '#EF4444',
+      backgroundColor: '#FEF2F2',
+    },
+    retryButtonText: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: '#B91C1C',
+    },
+    secondaryButton: {
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: colors.primary,
+      backgroundColor: colors.card,
+    },
+    secondaryButtonText: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: colors.primary,
     },
     buttonDisabled: {
       opacity: 0.5,

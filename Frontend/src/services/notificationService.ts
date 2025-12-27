@@ -354,7 +354,7 @@ class NotificationService {
    */
   async notifyRideCanceled(ride: any, reason?: string) {
     await this.showManagedNotification(
-      '❌ Viaje Cancelado',
+      'Viaje Cancelado',
       reason || 'El viaje ha sido cancelado',
       { type: 'ride_canceled', rideId: ride.id },
       `ride-${ride.id}`,

@@ -632,45 +632,46 @@ export async function supabaseGetRidesWithDetails(userId: string, userType: 'dri
 export async function supabaseGetDriverWithVehicles(userId: string) {
   try {
     // Seleccionar campos del conductor y sus vehículos relacionados
-    const select = `
-      id,
-      user_id,
-      profile_photo,
-      license_number,
-      license_expiry,
-      license_photo_front,
-      license_photo_back,
-      department,
-      municipality,
-      account_status,
-      documents_status,
-      verified_at,
-      total_rides,
-      average_rating,
-      total_earnings,
-      created_at,
-      updated_at,
-      vehicles(
-        id,
-        driver_id,
-        plate,
-        brand,
-        model,
-        year,
-        color,
-        type,
-        is_active,
-        registration_number,
-        registration_expiry,
-        registration_photo_front,
-        registration_photo_back,
-        insurance_number,
-        insurance_company,
-        insurance_expiry,
-        insurance_photo,
-        vehicle_photo
-      )
-    `.replace(/\s+/g, '');
+    const select = [
+      'id',
+      'user_id',
+      'profile_photo',
+      'license_number',
+      'license_expiry',
+      'license_photo_front',
+      'license_photo_back',
+      'department',
+      'municipality',
+      'account_status',
+      'documents_status',
+      'designated_rol_requested',
+      'verified_at',
+      'total_rides',
+      'average_rating',
+      'total_earnings',
+      'created_at',
+      'updated_at',
+      'vehicles(' + [
+        'id',
+        'driver_id',
+        'plate',
+        'brand',
+        'model',
+        'year',
+        'color',
+        'type',
+        'is_active',
+        'registration_number',
+        'registration_expiry',
+        'registration_photo_front',
+        'registration_photo_back',
+        'insurance_number',
+        'insurance_company',
+        'insurance_expiry',
+        'insurance_photo',
+        'vehicle_photo'
+      ].join(',') + ')'
+    ].join(',');
     
     console.log(`👤 [supabaseGetDriverWithVehicles] Obteniendo conductor con vehículos: ${userId}`);
     

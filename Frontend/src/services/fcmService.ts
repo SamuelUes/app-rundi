@@ -42,26 +42,29 @@ try {
               data: remoteMessage?.data,
             });
             
-            // Mostrar notificación local en la bandeja del sistema
             const { notification, data } = remoteMessage;
             
-            // Construir título y cuerpo desde data si notification está vacío
-            let title = notification?.title || '';
-            let body = notification?.body || '';
+            if (notification?.title || notification?.body) {
+              console.log('ℹ️ Notificación ya manejada por FCM (con payload visual), se omite réplica local');
+              return;
+            }
+
+            let title = '';
+            let body = '';
             
-            if (!title && data?.type === 'ride_requested') {
+            if (data?.type === 'ride_requested') {
               title = 'Nueva solicitud de viaje';
               body = 'Tienes una solicitud de viaje cercana';
-            } else if (!title && data?.type === 'proximity_ride') {
+            } else if (data?.type === 'proximity_ride') {
               title = 'Solicitud cercana';
               body = 'Hay una solicitud de viaje cerca de ti';
-            } else if (!title) {
+            } else {
               title = 'Nueva notificación';
               body = 'Tienes una nueva notificación';
             }
             
             try {
-              console.log('🔔 Mostrando notificación en background:', { title, body, data });
+              console.log('🔔 Mostrando notificación local en background (data-only):', { title, body, data });
               
               // Usar directamente Expo Notifications en background
               await Notifications.scheduleNotificationAsync({
@@ -99,23 +102,27 @@ try {
           // Mostrar notificación local en la bandeja del sistema
           const { notification, data } = remoteMessage;
           
-          // Construir título y cuerpo desde data si notification está vacío
-          let title = notification?.title || '';
-          let body = notification?.body || '';
+          if (notification?.title || notification?.body) {
+            console.log('ℹ️ Notificación ya manejada por FCM (compat), se omite réplica local');
+            return;
+          }
+
+          let title = '';
+          let body = '';
           
-          if (!title && data?.type === 'ride_requested') {
+          if (data?.type === 'ride_requested') {
             title = 'Nueva solicitud de viaje';
             body = 'Tienes una solicitud de viaje cercana';
-          } else if (!title && data?.type === 'proximity_ride') {
+          } else if (data?.type === 'proximity_ride') {
             title = 'Solicitud cercana';
             body = 'Hay una solicitud de viaje cerca de ti';
-          } else if (!title) {
+          } else {
             title = 'Nueva notificación';
             body = 'Tienes una nueva notificación';
           }
           
           try {
-            console.log('🔔 Mostrando notificación en background (compat):', { title, body, data });
+            console.log('🔔 Mostrando notificación en background (compat, data-only):', { title, body, data });
             
             // Usar directamente Expo Notifications en background
             await Notifications.scheduleNotificationAsync({

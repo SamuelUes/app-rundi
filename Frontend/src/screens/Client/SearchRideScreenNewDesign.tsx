@@ -26,6 +26,9 @@ import ridesService from '../../services/ridesService';
 import servicesService, { ServiceItem } from '../../services/servicesService';
 import { calculateRidePrice, formatPriceBreakdown, type PriceBreakdown } from '../../utils/priceCalculator';
 import alertService from '../../services/alertService';
+import { uploadClientVehiclePhoto } from '../../services/supabaseStorage';
+import BiometricService from '../../services/biometricService';
+import client from '../../api/client';
 
 const MANUAL_ORIGIN_ICON = require('../../assets/icons/select-origin-position/selectoriginposition_2x.png');
 const MANUAL_ORIGIN_HOLD_ICON = require('../../assets/icons/select-origin-position-holding/selectoriginpositionholding_2x.png');
@@ -44,6 +47,7 @@ interface VehicleEstimate {
 }
 
 type VehicleType = 'moto' | 'auto' | 'designated_driver';
+type DesignatedDriverMode = 'auto' | 'moto';
 type PaymentMethod = 'cash' | 'card';
 
 interface Coords {
@@ -54,6 +58,13 @@ interface Coords {
 interface SavedLocation {
   label: string;
   coords: Coords;
+}
+
+interface LocationValidationResult {
+  allowed: boolean;
+  serviceAreaId: string | null;
+  areaName?: string;
+  message?: string;
 }
 
 interface NormalizedSuggestion {
@@ -197,6 +208,9 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
   const [destinationCoords, setDestinationCoords] = useState<Coords | null>(null);
   const [extraDestinations, setExtraDestinations] = useState<Array<{ address: string; coords: Coords | null }>>([]);
   const [routeCoordinates, setRouteCoordinates] = useState<Coords[]>([]);
+  const locationValidationCacheRef = useRef<Record<string, LocationValidationResult>>({});
+  const [originServiceAreaId, setOriginServiceAreaId] = useState<string | null>(null);
+  const [destinationServiceAreaId, setDestinationServiceAreaId] = useState<string | null>(null);
   const [calculatingRoute, setCalculatingRoute] = useState(false);
 
   const [manualOriginDraft, setManualOriginDraft] = useState<Coords | null>(null);
@@ -222,11 +236,13 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     designated_driver: 1,
   });
   const [vehicleType, setVehicleType] = useState<VehicleType>('auto');
+  const [designatedDriverMode, setDesignatedDriverMode] = useState<DesignatedDriverMode>('auto');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
   const [priceSuggestion, setPriceSuggestion] = useState('');
   const [rideComment, setRideComment] = useState('');
 
   const [clientVehiclePhoto, setClientVehiclePhoto] = useState<string | null>(null);
+  const [clientVehiclePhotoLocalUri, setClientVehiclePhotoLocalUri] = useState<string | null>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   const [driversAvailable, setDriversAvailable] = useState<boolean | null>(null);
@@ -236,6 +252,10 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     moto: { price: null, breakdown: null },
     auto: { price: null, breakdown: null },
     designated_driver: { price: null, breakdown: null },
+  });
+  const [designatedDriverEstimates, setDesignatedDriverEstimates] = useState<Record<DesignatedDriverMode, VehicleEstimate>>({
+    auto: { price: null, breakdown: null },
+    moto: { price: null, breakdown: null },
   });
   const [recommendedVehicle, setRecommendedVehicle] = useState<VehicleType | null>(null);
 
@@ -300,6 +320,66 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     servicesService.listServices().then(setServicesCatalog).catch(() => undefined);
     mapsService.fetchProviderFromBackend().catch(() => undefined);
   }, []);
+
+  const ensureLocationAllowed = useCallback(
+    async (coordsToCheck: Coords): Promise<LocationValidationResult> => {
+      const cacheKey = `${coordsToCheck.latitude.toFixed(5)},${coordsToCheck.longitude.toFixed(5)}`;
+      const cached = locationValidationCacheRef.current[cacheKey];
+      if (cached) {
+        return cached;
+      }
+
+      try {
+        const response = await client.post('/checkRegionAvailabilityHttp', {
+          latitude: coordsToCheck.latitude,
+          longitude: coordsToCheck.longitude,
+          platform: Platform.OS,
+        });
+        const data = response.data || {};
+        const result: LocationValidationResult = {
+          allowed: !!data.allowed,
+          serviceAreaId:
+            typeof data.serviceAreaId === 'string' && data.serviceAreaId.trim().length > 0
+              ? data.serviceAreaId.trim()
+              : null,
+          areaName: typeof data.areaName === 'string' ? data.areaName : undefined,
+          message: typeof data.message === 'string' ? data.message : undefined,
+        };
+        locationValidationCacheRef.current[cacheKey] = result;
+        return result;
+      } catch (error: any) {
+        console.warn('[SearchRide] Error verificando área de servicio:', error?.response?.data || error);
+        return {
+          allowed: false,
+          serviceAreaId: null,
+          message: 'No se pudo validar la zona seleccionada. Verifica tu conexión e intenta nuevamente.',
+        };
+      }
+    },
+    [],
+  );
+
+  const validateLocationForContext = useCallback(
+    async (coordsToCheck: Coords, context: 'origin' | 'destination' | 'stop') => {
+      const validation = await ensureLocationAllowed(coordsToCheck);
+      if (!validation.allowed) {
+        alertService.showInfoAlert(
+          'Zona no disponible',
+          validation.message || 'Por el momento no podemos operar en esa ubicación.',
+        );
+        return null;
+      }
+
+      if (context === 'origin') {
+        setOriginServiceAreaId(validation.serviceAreaId ?? null);
+      } else if (context === 'destination') {
+        setDestinationServiceAreaId(validation.serviceAreaId ?? null);
+      }
+
+      return validation;
+    },
+    [ensureLocationAllowed],
+  );
 
   const { data: savedLocation } = useFirebaseItem<any>('clientsLocations', user?.id || '', { once: true });
 
@@ -382,7 +462,14 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     const check = async () => {
       setCheckingDrivers(true);
       try {
-        const result = await driversService.checkAvailableDrivers(coords, 15, vehicleType);
+        const designatedDriverVehicle =
+          vehicleType === 'designated_driver' ? designatedDriverMode : undefined;
+        const result = await driversService.checkAvailableDrivers(
+          coords,
+          15,
+          vehicleType,
+          designatedDriverVehicle,
+        );
         setDriversAvailable(result.available && result.count > 0);
       } catch {
         setDriversAvailable(null);
@@ -391,15 +478,15 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
       }
     };
     check();
-  }, [coords, vehicleType]);
+  }, [coords, vehicleType, designatedDriverMode]);
 
   const capacityByVehicle: Record<VehicleType, number> = useMemo(
     () => ({
       moto: 1,
       auto: 4,
-      designated_driver: 4,
+      designated_driver: designatedDriverMode === 'moto' ? 1 : 4,
     }),
-    [],
+    [designatedDriverMode],
   );
 
   const vehicleOptions = useMemo(() => {
@@ -467,6 +554,31 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
 
         setVehicleEstimates(mapped);
 
+        let designatedDriverMotoBreakdown: PriceBreakdown | null = null;
+        try {
+          designatedDriverMotoBreakdown = await calculateRidePrice(
+            distanceMeters,
+            durationSeconds,
+            'motorcycle',
+            'designated_driver',
+            startPoint.latitude,
+            startPoint.longitude,
+            stopsCount,
+          );
+        } catch (error) {
+          console.warn('calculateRidePrice failed for designated_driver moto', error);
+        }
+
+        const designatedDriverAutoEstimate = mapped.designated_driver || { price: null, breakdown: null };
+        const designatedDriverMotoEstimate: VehicleEstimate = {
+          price: designatedDriverMotoBreakdown?.finalPrice ?? null,
+          breakdown: designatedDriverMotoBreakdown,
+        };
+        setDesignatedDriverEstimates({
+          auto: designatedDriverAutoEstimate,
+          moto: designatedDriverMotoEstimate,
+        });
+
         const valid = pricing.filter((item) => typeof item.price === 'number' && item.price !== null && !Number.isNaN(item.price));
         if (valid.length > 0) {
           const lowest = valid.reduce((prev, current) => (prev.price! <= current.price! ? prev : current));
@@ -475,7 +587,13 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
           setRecommendedVehicle(null);
         }
 
-        const current = mapped[vehicleType];
+        const current =
+          vehicleType === 'designated_driver'
+            ? designatedDriverMode === 'moto'
+              ? designatedDriverMotoEstimate
+              : designatedDriverAutoEstimate
+            : mapped[vehicleType];
+
         if (current?.price != null) {
           setEstimatedPrice(current.price);
           setPriceBreakdown(current.breakdown);
@@ -487,16 +605,28 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         console.warn('updateVehicleEstimates', error);
       }
     },
-    [vehicleType],
+    [vehicleType, designatedDriverMode],
   );
 
   useEffect(() => {
+    if (vehicleType === 'designated_driver') {
+      const current = designatedDriverEstimates[designatedDriverMode];
+      if (current?.price != null) {
+        setEstimatedPrice(current.price);
+        setPriceBreakdown(current.breakdown);
+      } else {
+        setEstimatedPrice(0);
+        setPriceBreakdown(null);
+      }
+      return;
+    }
+
     const current = vehicleEstimates[vehicleType];
     if (current?.price != null) {
       setEstimatedPrice(current.price);
       setPriceBreakdown(current.breakdown);
     }
-  }, [vehicleType, vehicleEstimates]);
+  }, [vehicleType, vehicleEstimates, designatedDriverMode, designatedDriverEstimates]);
 
   const calculateRouteWithStops = useCallback(
     async (startPoint: Coords | null, stops: Coords[], endPoint: Coords | null) => {
@@ -524,7 +654,8 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         setEstimatedDistance(Number(distanceKm.toFixed(2)));
         setEstimatedDuration(durationMin);
 
-        const vehicleTypeForCalc = vehicleType === 'moto' ? 'motorcycle' : 'car';
+        const useMotorcycle = vehicleType === 'moto' || (vehicleType === 'designated_driver' && designatedDriverMode === 'moto');
+        const vehicleTypeForCalc = useMotorcycle ? 'motorcycle' : 'car';
         const rideTypeForCalc = vehicleType === 'designated_driver' ? 'designated_driver' : 'normal';
         const breakdown = await calculateRidePrice(
           totalDistance,
@@ -630,6 +761,10 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
           alertService.showInfoAlert('Selecciona un punto válido', 'Necesitas elegir la ubicación exacta del origen.');
           return;
         }
+        const validation = await validateLocationForContext(coordsValue, 'origin');
+        if (!validation) {
+          return;
+        }
         setOrigin(sanitizedLabel);
         setManualOriginAddress(sanitizedLabel);
         setManualOriginDraft(coordsValue);
@@ -645,6 +780,10 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
       if (target === 'destination') {
         if (!coordsValue) {
           alertService.showInfoAlert('Selecciona un punto válido', 'Necesitas elegir la ubicación exacta del destino.');
+          return;
+        }
+        const validation = await validateLocationForContext(coordsValue, 'destination');
+        if (!validation) {
           return;
         }
         setDestination(sanitizedLabel);
@@ -664,6 +803,10 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
           return;
         }
         const safeCoords = coordsValue as Coords;
+        const validation = await validateLocationForContext(safeCoords, 'stop');
+        if (!validation) {
+          return;
+        }
         const nextStops = [...extraDestinations, { address: sanitizedLabel, coords: safeCoords }];
         setExtraDestinations(nextStops);
         rememberRecentLocation(sanitizedLabel, safeCoords);
@@ -678,6 +821,10 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
           return;
         }
         const safeCoords = coordsValue as Coords;
+        const validation = await validateLocationForContext(safeCoords, 'stop');
+        if (!validation) {
+          return;
+        }
         const nextStops = extraDestinations.map((stop, index) =>
           index === target ? { address: sanitizedLabel, coords: safeCoords } : stop,
         );
@@ -687,7 +834,15 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         await recomputeRouteWith(undefined, undefined, nextStops);
       }
     },
-    [extraDestinations, rememberRecentLocation, recomputeRouteWith, setCameraTarget, setHasPinnedOrigin, setHasManualOriginOverride],
+    [
+      extraDestinations,
+      rememberRecentLocation,
+      recomputeRouteWith,
+      setCameraTarget,
+      setHasPinnedOrigin,
+      setHasManualOriginOverride,
+      validateLocationForContext,
+    ],
   );
 
   const openLocationSearch = useCallback(
@@ -916,7 +1071,8 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     const start = originCoords || coords;
     if (!start || !destinationCoords) return;
 
-    const vehicleTypeForCalc = vehicleType === 'moto' ? 'motorcycle' : 'car';
+    const useMotorcycle = vehicleType === 'moto' || (vehicleType === 'designated_driver' && designatedDriverMode === 'moto');
+    const vehicleTypeForCalc = useMotorcycle ? 'motorcycle' : 'car';
     const rideTypeForCalc = vehicleType === 'designated_driver' ? 'designated_driver' : 'normal';
 
     const distMeters = Math.max(1, Math.round(estimatedDistance * 1000));
@@ -934,13 +1090,20 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     );
     setEstimatedPrice(breakdown.finalPrice);
     setPriceBreakdown(breakdown);
-  }, [originCoords, coords, destinationCoords, vehicleType, estimatedDistance, estimatedDuration, extraDestinations]);
+  }, [originCoords, coords, destinationCoords, vehicleType, designatedDriverMode, estimatedDistance, estimatedDuration, extraDestinations]);
 
   useEffect(() => {
     if (estimatedDistance > 0 && (originCoords || coords)) {
       recalcPriceOnly();
     }
-  }, [vehicleType]);
+  }, [vehicleType, designatedDriverMode]);
+
+  useEffect(() => {
+    if (vehicleType === 'designated_driver' && designatedDriverMode === 'moto' && passengersByVehicle.designated_driver > 1) {
+      setPassengersByVehicle((prev) => ({ ...prev, designated_driver: 1 }));
+      alertService.showInfoAlert('Conductor designado en moto', 'Las motos solo pueden llevar 1 pasajero.');
+    }
+  }, [vehicleType, designatedDriverMode, passengersByVehicle.designated_driver]);
 
   const handleManualOriginDragStart = useCallback((startCoords: Coords) => {
     setManualOriginDragging(true);
@@ -978,6 +1141,10 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
       setManualOriginLoading(true);
       setHasManualOriginOverride(true);
       try {
+        const validation = await validateLocationForContext(newCoords, 'origin');
+        if (!validation) {
+          return;
+        }
         const coordLabel = formatCoords(newCoords);
         let address: string | null = null;
         try {
@@ -1010,7 +1177,14 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         setManualOriginDraft(null);
       }
     },
-    [rememberRecentLocation, recomputeRouteWith, promptDestinationSelection, setCameraTarget, setHasManualOriginOverride],
+    [
+      rememberRecentLocation,
+      recomputeRouteWith,
+      promptDestinationSelection,
+      setCameraTarget,
+      setHasManualOriginOverride,
+      validateLocationForContext,
+    ],
   );
 
   const manualOriginMarkerPosition = useMemo(() => {
@@ -1072,6 +1246,10 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
           if (last && metersBetween(last, center) < 20) return; // ignore tiny moves
           setManualOriginLoading(true);
           try {
+            const validation = await validateLocationForContext(center, 'origin');
+            if (!validation) {
+              return;
+            }
             const coordLabel = formatCoords(center);
             let address: string | null = null;
             try {
@@ -1158,6 +1336,11 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
   );
 
   const handleTakeVehiclePhoto = useCallback(async () => {
+    if (!user?.id) {
+      alertService.showErrorAlert('Inicia sesión para subir la foto de tu vehículo.');
+      return;
+    }
+
     try {
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
       if (status !== 'granted') {
@@ -1166,7 +1349,6 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
       }
 
       const pickFrom = async (fromCamera: boolean) => {
-        setUploadingPhoto(true);
         try {
           const result = fromCamera
             ? await ImagePicker.launchCameraAsync({
@@ -1181,7 +1363,9 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
               });
 
           if (!result.canceled && result.assets?.[0]) {
-            setClientVehiclePhoto(result.assets[0].uri);
+            setClientVehiclePhotoLocalUri(result.assets[0].uri);
+            setClientVehiclePhoto(null);
+            alertService.showSuccessAlert('Foto seleccionada', 'Se subirá cuando confirmes tu viaje.', { duration: 2000 });
           }
         } finally {
           setUploadingPhoto(false);
@@ -1198,6 +1382,61 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     }
   }, []);
 
+  const runDesignatedDriverBiometricVerification = useCallback(async () => {
+    try {
+      const result = await BiometricService.authenticateAndLog({
+        reason: 'Confirma tu identidad con huella',
+        fallbackLabel: Platform.OS === 'ios' ? 'Ingresar código' : 'Cancelar',
+        context: 'designated_driver_request',
+        userType: 'client',
+      });
+
+      if (!result.success) {
+        const errorMessage = result.error || '';
+        const noBiometricError =
+          errorMessage.includes('no soporta biometría') ||
+          errorMessage.includes('No hay biometría registrada');
+
+        if (noBiometricError) {
+          alertService.showInfoAlert(
+            'Biometría no disponible',
+            'Tu dispositivo no tiene biometría configurada. Continuaremos con un registro manual.',
+          );
+          const fallbackTimestamp = new Date().toISOString();
+          return {
+            biometricAcceptanceRequired: true,
+            biometricAcceptanceType: 'device_biometric_not_found',
+            biometricAcceptanceVerified: false,
+            biometricAcceptanceAt: fallbackTimestamp,
+          };
+        }
+
+        alertService.showInfoAlert('Verificación requerida', errorMessage || 'Debes confirmar tu identidad con tu huella.');
+        return null;
+      }
+
+      if (result.biometryType !== 'fingerprint') {
+        alertService.showInfoAlert(
+          'Huella digital requerida',
+          'Tu dispositivo debe confirmar la identidad con huella digital para solicitar este servicio.',
+        );
+        return null;
+      }
+
+      const verifiedAt = result.verifiedAt || new Date().toISOString();
+      return {
+        biometricAcceptanceRequired: true,
+        biometricAcceptanceType: 'fingerprint',
+        biometricAcceptanceVerified: true,
+        biometricAcceptanceAt: verifiedAt,
+      };
+    } catch (error) {
+      console.warn('[biometric] Error verificando huella', error);
+      alertService.showErrorAlert('No se pudo verificar tu huella. Intenta nuevamente.');
+      return null;
+    }
+  }, []);
+
   const onConfirmRequest = useCallback(async () => {
     if (submittingRequest) return;
     if (!user) {
@@ -1210,6 +1449,16 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
       return;
     }
 
+    const validatedOrigin = await validateLocationForContext(startPoint, 'origin');
+    if (!validatedOrigin) {
+      return;
+    }
+
+    const validatedDestination = await validateLocationForContext(destinationCoords, 'destination');
+    if (!validatedDestination) {
+      return;
+    }
+
     let clientSuggestedPrice: number | undefined;
     if (priceSuggestion.trim().length > 0) {
       const value = Number(priceSuggestion);
@@ -1218,6 +1467,43 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         return;
       }
       clientSuggestedPrice = value;
+    }
+
+    let biometricAcceptancePayload: Record<string, any> | null = null;
+    let vehiclePhotoUrl = clientVehiclePhoto;
+    if (vehicleType === 'designated_driver') {
+      if (uploadingPhoto) {
+        alertService.showInfoAlert('Estamos procesando tu foto', 'Espera a que finalice el procesamiento antes de confirmar.');
+        return;
+      }
+      if (!vehiclePhotoUrl && !clientVehiclePhotoLocalUri) {
+        alertService.showErrorAlert('Debes tomar o seleccionar una foto de tu vehículo para solicitar un conductor designado.');
+        return;
+      }
+      biometricAcceptancePayload = await runDesignatedDriverBiometricVerification();
+      if (!biometricAcceptancePayload) {
+        return;
+      }
+
+      if (!vehiclePhotoUrl && clientVehiclePhotoLocalUri) {
+        setUploadingPhoto(true);
+        try {
+          vehiclePhotoUrl = await uploadClientVehiclePhoto(user.id, clientVehiclePhotoLocalUri);
+          setClientVehiclePhoto(vehiclePhotoUrl);
+          alertService.showSuccessAlert('Foto subida', 'Tu vehículo quedó registrado en la nube.', { duration: 2000 });
+        } catch (uploadError) {
+          console.error('[vehiclePhotoUpload] Error', uploadError);
+          alertService.showErrorAlert('No se pudo subir la foto de tu vehículo. Intenta nuevamente.');
+          setUploadingPhoto(false);
+          return;
+        }
+        setUploadingPhoto(false);
+      }
+
+      if (!vehiclePhotoUrl) {
+        alertService.showErrorAlert('No se pudo registrar la foto de tu vehículo. Intenta nuevamente.');
+        return;
+      }
     }
 
     try {
@@ -1241,6 +1527,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         vehicleType,
         paymentMethod,
         passengers: passengersByVehicle[vehicleType] || 1,
+        serviceAreaId: validatedOrigin.serviceAreaId ?? validatedDestination.serviceAreaId ?? null,
       };
 
       if (clientSuggestedPrice) requestData.clientSuggestedPrice = clientSuggestedPrice;
@@ -1254,9 +1541,13 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
             address: stop.address,
           }));
       }
-      if (vehicleType === 'designated_driver' && clientVehiclePhoto) {
-        requestData.clientVehiclePhoto = clientVehiclePhoto;
+      if (vehicleType === 'designated_driver' && vehiclePhotoUrl) {
+        requestData.clientVehiclePhoto = vehiclePhotoUrl;
         requestData.notes = 'Conductor Designado';
+        requestData.designatedDriverVehicle = designatedDriverMode;
+      }
+      if (biometricAcceptancePayload) {
+        Object.assign(requestData, biometricAcceptancePayload);
       }
 
       const codeMap: Record<VehicleType, string> = {
@@ -1291,9 +1582,12 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     rideComment,
     extraDestinations,
     clientVehiclePhoto,
+    clientVehiclePhotoLocalUri,
     servicesCatalog,
     navigation,
     submittingRequest,
+    uploadingPhoto,
+    runDesignatedDriverBiometricVerification,
   ]);
 
   const selectionTitle = useMemo(() => {
@@ -1309,12 +1603,20 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     if (activeSelection === 'destination') return 'Busca una dirección o elige en el mapa.';
     return 'Puedes buscar o escoger en el mapa la parada intermedia.';
   }, [activeSelection]);
-  const isRequestReady = !!destinationCoords && estimatedPrice > 0;
-  const maxPassengersByType: Record<VehicleType, number> = useMemo(() => ({
-    moto: 1,
-    auto: 4,
-    designated_driver: 4,
-  }), []);
+  const requiresVehiclePhoto = vehicleType === 'designated_driver';
+  const hasVehiclePhotoSelection = !!clientVehiclePhoto || !!clientVehiclePhotoLocalUri;
+  const isRequestReady =
+    !!destinationCoords &&
+    estimatedPrice > 0 &&
+    (!requiresVehiclePhoto || (hasVehiclePhotoSelection && !uploadingPhoto));
+  const maxPassengersByType: Record<VehicleType, number> = useMemo(
+    () => ({
+      moto: 1,
+      auto: 4,
+      designated_driver: designatedDriverMode === 'moto' ? 1 : 4,
+    }),
+    [designatedDriverMode],
+  );
   
   const getPassengersForVehicle = (type: VehicleType) => passengersByVehicle[type] || 1;
   const canDecreasePassengers = (type: VehicleType) => getPassengersForVehicle(type) > 1;
@@ -1562,7 +1864,8 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
               <View style={styles.vehicleOptionsList}>
                 {vehicleOptions.map((option) => {
                   const estimate = vehicleEstimates[option.type];
-                  const priceLabel = formatPriceValue(estimate?.price ?? null);
+                  const designatedEstimate = option.type === 'designated_driver' ? designatedDriverEstimates[designatedDriverMode] : null;
+                  const priceLabel = formatPriceValue((designatedEstimate ?? estimate)?.price ?? null);
                   const isSelected = vehicleType === option.type;
                   const isRecommended = recommendedVehicle === option.type;
                   const capacity = capacityByVehicle[option.type];
@@ -1633,6 +1936,27 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
                           </View>
                         )}
                       </View>
+                      {option.type === 'designated_driver' && isSelected ? (
+                        <View style={styles.designatedDriverModeContainer}>
+                          <Text style={styles.designatedDriverModeLabel}>Conductor designado para:</Text>
+                          <View style={styles.designatedDriverModeChips}>
+                            {(['auto', 'moto'] as DesignatedDriverMode[]).map((mode) => {
+                              const selected = designatedDriverMode === mode;
+                              return (
+                                <TouchableOpacity
+                                  key={mode}
+                                  style={[styles.designatedDriverModeChip, selected && styles.designatedDriverModeChipSelected]}
+                                  onPress={() => setDesignatedDriverMode(mode)}
+                                >
+                                  <Text style={[styles.designatedDriverModeChipText, selected && styles.designatedDriverModeChipTextSelected]}>
+                                    {mode === 'auto' ? 'Auto' : 'Moto'}
+                                  </Text>
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </View>
+                        </View>
+                      ) : null}
                     </TouchableOpacity>
                   );
                 })}
@@ -1649,10 +1973,14 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
 
               {vehicleType === 'designated_driver' && (
                 <View style={styles.photoRow}>
-                  <Text style={styles.photoHint}>Foto del vehículo (opcional para identificación):</Text>
+                  <Text style={styles.photoHint}>Foto del vehículo (obligatoria para conductor designado):</Text>
                   <TouchableOpacity style={styles.photoButton} onPress={handleTakeVehiclePhoto} disabled={uploadingPhoto}>
                     <Text style={styles.photoButtonText}>
-                      {uploadingPhoto ? 'Cargando…' : clientVehiclePhoto ? 'Cambiar foto' : 'Tomar/Seleccionar foto'}
+                      {uploadingPhoto
+                        ? 'Procesando…'
+                        : hasVehiclePhotoSelection
+                        ? 'Cambiar foto'
+                        : 'Tomar/Seleccionar foto'}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -2173,6 +2501,50 @@ function createStyles(colors: any, isDark: boolean = false) {
     },
     vehicleRecommendationLabel: { fontSize: 14, fontWeight: '600', color: '#6b5223' },
     vehicleRecommendationValue: { fontSize: 16, fontWeight: '800', color: '#b86d17' },
+
+    designatedDriverModeContainer: {
+      marginTop: 12,
+      paddingTop: 10,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border || '#ddd',
+      gap: 10,
+    },
+    designatedDriverModeLabel: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: colors.text || '#222',
+    },
+    designatedDriverModeChips: {
+      flexDirection: 'row',
+      gap: 10,
+    },
+    designatedDriverModeChip: {
+      flex: 1,
+      paddingVertical: 10,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.border || '#d8d8d8',
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.card || (isDark ? '#2a2a2a' : '#fafafa'),
+    },
+    designatedDriverModeChipSelected: {
+      borderColor: '#cfa146',
+      backgroundColor: '#fff3d6',
+      shadowColor: '#cfa146',
+      shadowOpacity: Platform.OS === 'ios' ? 0.12 : 0,
+      shadowRadius: 6,
+      shadowOffset: { width: 0, height: 3 },
+      elevation: Platform.OS === 'android' ? 4 : 0,
+    },
+    designatedDriverModeChipText: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: colors.textSecondary || '#555',
+    },
+    designatedDriverModeChipTextSelected: {
+      color: '#9a5c0c',
+    },
 
     photoRow: { marginTop: 8 },
     photoHint: { fontSize: 12, color: colors.textSecondary || '#666', marginBottom: 8, textAlign: 'center' },

@@ -18,6 +18,7 @@
     "android": {
       "package": "com.driveangel.rundidev",
       "userInterfaceStyle": "automatic",
+      "allowBackup": false,
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",

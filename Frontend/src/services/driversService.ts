@@ -26,6 +26,8 @@ type DriverUpdatePayload = {
   profile_photo?: string;
   documents_status?: string;
   documentsStatus?: string;
+  designated_rol_requested?: string;
+  designatedRolRequested?: string;
 };
 
 type VehicleUpdatePayload = {
@@ -126,6 +128,7 @@ class DriversService {
     location: Location,
     radius: number = 10,
     vehicleType?: string,
+    designatedDriverVehicle?: 'auto' | 'moto',
   ): Promise<AvailableDriversResponse> {
     console.log('🚗 [driversService] Llamando getAvailableDrivers con:', {
       latitude: location.latitude,
@@ -134,12 +137,21 @@ class DriversService {
       vehicleType,
     });
 
-    const result = await this.callFunction<AvailableDriversResponse>('getAvailableDrivers', {
+    const payload: Record<string, any> = {
       latitude: location.latitude,
       longitude: location.longitude,
       radius,
-      vehicleType,
-    });
+    };
+
+    if (vehicleType) {
+      payload.vehicleType = vehicleType;
+    }
+
+    if (designatedDriverVehicle) {
+      payload.designatedDriverVehicle = designatedDriverVehicle;
+    }
+
+    const result = await this.callFunction<AvailableDriversResponse>('getAvailableDrivers', payload);
 
     console.log('✅ [driversService] Respuesta recibida:', result);
     return result;

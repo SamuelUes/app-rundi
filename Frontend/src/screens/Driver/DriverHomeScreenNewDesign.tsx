@@ -1443,6 +1443,21 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
       const next = !isDesignatedDriverMode;
       setIsDesignatedDriverMode(next);
       await driversService.updateDesignatedDriverMode(user.id, next);
+      const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+      const savedState = await driverAvailabilityService.getAvailabilityState();
+      const coordsSnapshot = coords ? { latitude: coords.latitude, longitude: coords.longitude } : savedState?.coords;
+      await driverAvailabilityService.saveAvailabilityState({
+        isAvailable: savedState?.isAvailable ?? isAvailable,
+        isDesignatedDriverMode: next,
+        lastUpdate: new Date().toISOString(),
+        coords: coordsSnapshot,
+      });
+      if (next) {
+        console.log('✅ [DriverHomeScreenNewDesign] Modo Conductor Designado activado', {
+          driverId: user.id,
+          timestamp: new Date().toISOString(),
+        });
+      }
     } catch (err) {
       console.error('❌ Error actualizando modo designado:', err);
     }
@@ -2008,18 +2023,19 @@ const createStyles = (colors: any) =>
     },
     pendingActionImage: {
       width: '100%',
-      minHeight: 68,
+      height: '100%',
       justifyContent: 'center',
     },
     pendingActionImageInner: {
-      borderRadius: 20,
+      borderRadius: 18,
     },
     pendingActionContent: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingHorizontal: 24,
-      paddingVertical: 14,
+      paddingLeft: 12,
+      paddingRight: 20,
+      paddingVertical: 10,
       gap: 16,
     },
     pendingActionTextBlock: {

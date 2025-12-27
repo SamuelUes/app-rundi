@@ -37,8 +37,20 @@ export default function DriverDataScreen({ navigation, route }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
-  const { name, email, phone, password, method, authProvider, googleIdToken, phoneVerified } =
-    route.params;
+  const {
+    name,
+    email,
+    phone,
+    password,
+    method,
+    authProvider,
+    googleIdToken,
+    phoneVerified,
+    context,
+  } = route.params;
+
+  const driverContext: 'register_driver' | 'register_upgrade_driver' =
+    context === 'register_upgrade_driver' ? 'register_upgrade_driver' : 'register_driver';
 
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'license' | 'vehicle'>('license');
@@ -77,35 +89,38 @@ export default function DriverDataScreen({ navigation, route }: Props) {
     try {
       console.log('💾 Guardando datos del conductor...');
 
-      // Guardar datos temporales
-      await registrationService.saveTemporaryData({
-        name,
-        email,
-        phone,
-        password,
-        role: 'driver',
-        method,
-        authProvider,
-        phoneVerified,
-        driverData: {
-          licenseNumber,
-          licenseExpiry,
-          department,
-          municipality,
-        },
-        vehicleData: {
-          plate: plate.toUpperCase(),
-          brand,
-          model,
-          year: parseInt(year, 10),
-          color,
-          type: type as 'sedan' | 'suv' | 'van' | 'moto',
-          passengers: passengers || undefined,
-        },
-        googleIdToken,
-      });
+      // Guardar datos temporales solo para flujo de registro inicial
+      if (driverContext === 'register_driver') {
+        await registrationService.saveTemporaryData({
+          name,
+          email,
+          phone,
+          password,
+          role: 'driver',
+          method,
+          authProvider,
+          phoneVerified,
+          driverData: {
+            licenseNumber,
+            licenseExpiry,
+            department,
+            municipality,
+          },
+          vehicleData: {
+            plate: plate.toUpperCase(),
+            brand,
+            model,
+            year: parseInt(year, 10),
+            color,
+            type: type as 'sedan' | 'suv' | 'van' | 'moto',
+            passengers: passengers || undefined,
+          },
+          googleIdToken,
+          lastStep: 'driverData',
+        });
 
-      console.log('✅ Datos guardados');
+        console.log('✅ Datos guardados');
+      }
 
       // Navegar a pantalla de confirmación
       
@@ -134,6 +149,7 @@ export default function DriverDataScreen({ navigation, route }: Props) {
           type: type as 'sedan' | 'suv' | 'van' | 'moto',
           passengers: passengers || undefined,
         },
+        context: driverContext,
       });
     } catch (error: any) {
       console.error('Error guardando datos:', error);

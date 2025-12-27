@@ -48,7 +48,7 @@ export const useRouteTracking = ({
   highAccuracy = true,
   useBackgroundTracking = Platform.OS !== 'web', // Activar en móviles por defecto
 }: UseRouteTrackingProps): UseRouteTrackingReturn => {
-  const { user } = useAuth();
+  const { user, userMode } = useAuth();
   
   // Si usamos background tracking, no necesitamos activar el tracking en primer plano
   const locationHook = useLocation({
@@ -160,7 +160,8 @@ export const useRouteTracking = ({
       await startForegroundTracking();
 
       if (useBackgroundTracking && user?.id) {
-        const role = user.role === 'driver' || user.role === 'designated_driver' ? 'driver' : 'client';
+        const isDriverCapable = user.role === 'driver' || user.role === 'designated_driver';
+        const role = isDriverCapable && userMode === 'driver' ? 'driver' : 'client';
         const started = await backgroundLocationService.startBackgroundLocationTracking(
           user.id,
           role,

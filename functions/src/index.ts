@@ -368,6 +368,9 @@ export const deactivateDriverServiceSeq = driverServicesSequelizeAPI.deactivateD
 export const createBiometricAuthSeq = biometricAuthSequelizeAPI.createBiometricAuth;
 export const getUserBiometricAuthsSeq = biometricAuthSequelizeAPI.getUserBiometricAuths;
 export const updateBiometricAuthStatusSeq = biometricAuthSequelizeAPI.updateBiometricAuthStatus;
+export const createBiometricAuth = biometricAuthSequelizeAPI.createBiometricAuth;
+export const getUserBiometricAuths = biometricAuthSequelizeAPI.getUserBiometricAuths;
+export const updateBiometricAuthStatus = biometricAuthSequelizeAPI.updateBiometricAuthStatus;
 
 // Analytics (Sequelize)
 export const logAnalyticsEventSeq = analyticsSequelizeAPI.logAnalyticsEvent;
@@ -392,6 +395,7 @@ export const checkUserAvailability = authAPI.checkUserAvailability;
 export const logSmsVerificationCode = authAPI.logSmsVerificationCode;
 export const exchangeIdTokenForCustomToken = authAPI.exchangeIdTokenForCustomToken;
 export const hasVerifiedRegisterPhoneLog = authAPI.hasVerifiedRegisterPhoneLog;
+export const upgradeClientToDriver = authAPI.upgradeClientToDriver;
 
 // Service Commission History (Sequelize)
 export const recordCommissionChangeSeq = commissionHistorySequelizeAPI.recordCommissionChange;

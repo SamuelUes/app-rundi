@@ -23,6 +23,9 @@ import SavedCardsScreen from '../screens/Shared/SavedCardsScreen';
 import AddCardScreen from '../screens/Shared/AddCardScreen';
 import InvoiceScreen from '../screens/Shared/InvoiceScreen';
 import PhoneVerificationScreen from '../screens/Auth/PhoneVerificationScreen';
+import DriverPhoneScreen from '../screens/Auth/DriverPhoneScreen';
+import DriverDataScreen from '../screens/Auth/DriverDataScreen';
+import RegisterConfirm from '../screens/Auth/RegisterDriverFormConfirm';
 import type { RegistrationMethod, RegistrationAuthProvider } from './types';
 import { useClientPresence } from '../hooks/useClientPresence';
 import { useInitializeClientProfile } from '../hooks/useClientProfileSync';
@@ -97,7 +100,43 @@ export type ClientStackParamList = {
     authProvider: RegistrationAuthProvider;
     googleIdToken?: string;
     phoneVerified?: boolean;
-    context?: 'register_phone' | 'add_phone';
+    context?: 'register_phone' | 'add_phone' | 'register_upgrade_driver';
+  };
+  DriverPhone: {
+    name: string;
+    email?: string;
+    phone?: string;
+    password?: string;
+    method: RegistrationMethod;
+    authProvider: RegistrationAuthProvider;
+    googleIdToken?: string;
+    context?: 'register_phone' | 'register_upgrade_driver';
+  };
+  DriverData: {
+    name: string;
+    email?: string;
+    phone: string;
+    password?: string;
+    role: 'driver';
+    method: RegistrationMethod;
+    authProvider: RegistrationAuthProvider;
+    googleIdToken?: string;
+    phoneVerified: boolean;
+    context?: 'register_driver' | 'register_upgrade_driver';
+  };
+  RegisterConfirm: {
+    name: string;
+    email?: string;
+    phone?: string;
+    password?: string;
+    role: 'client' | 'driver';
+    method: RegistrationMethod;
+    authProvider: RegistrationAuthProvider;
+    phoneVerified?: boolean;
+    googleIdToken?: string;
+    driverData?: any;
+    vehicleData?: any;
+    context?: 'register_driver' | 'register_upgrade_driver';
   };
 };
 
@@ -161,6 +200,21 @@ export default function ClientStack() {
         name="PhoneVerification"
         component={PhoneVerificationScreen as React.ComponentType<any>}
         options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="DriverPhone"
+        component={DriverPhoneScreen as React.ComponentType<any>}
+        options={{ headerShown: true, title: 'Teléfono para Conductor' }}
+      />
+      <Stack.Screen
+        name="DriverData"
+        component={DriverDataScreen as React.ComponentType<any>}
+        options={{ headerShown: true, title: 'Datos del Conductor' }}
+      />
+      <Stack.Screen
+        name="RegisterConfirm"
+        component={RegisterConfirm as React.ComponentType<any>}
+        options={{ headerShown: true, title: 'Confirmar Registro de Conductor' }}
       />
     </Stack.Navigator>
   );

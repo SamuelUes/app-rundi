@@ -238,6 +238,7 @@ export default function RegisterScreen() {
         method: 'email',
         authProvider: 'email/password',
         phoneVerified: false,
+        lastStep: 'register',
       });
 
       navigateToRoleSelection({
@@ -308,6 +309,7 @@ export default function RegisterScreen() {
               method: 'phone',
               authProvider: 'phone',
               phoneVerified: true,
+              lastStep: 'register',
             });
 
             navigation.navigate('RoleSelection', {
@@ -344,6 +346,7 @@ export default function RegisterScreen() {
         method: 'phone',
         authProvider: 'phone',
         phoneVerified: false,
+        lastStep: 'register',
       });
 
       navigation.navigate('PhoneVerification', {

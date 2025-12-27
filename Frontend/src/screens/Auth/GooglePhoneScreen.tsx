@@ -100,6 +100,7 @@ const GooglePhoneScreen: React.FC<GooglePhoneScreenProps> = ({ navigation, route
         authProvider: 'google',
         phoneVerified: false,
         googleIdToken,
+        lastStep: 'googlePhone',
       });
 
       Alert.alert('✅ Código enviado', `Se envió un código a ${normalized}`);

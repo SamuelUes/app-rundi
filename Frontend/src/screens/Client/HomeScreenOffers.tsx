@@ -268,25 +268,48 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
 
   const nearbyDrivers = useMemo(() => {
     if (!offers || offers.length === 0) return [] as any[];
-    return offers.map((o) => {
-      const loc = driverLocations?.[o.driverId] || {};
-      const latitude = loc?.lat ?? loc?.latitude ?? loc?.coords?.latitude;
-      const longitude = loc?.lng ?? loc?.longitude ?? loc?.coords?.longitude;
-      const info = driversInfo?.[o.driverId] || {};
-      const raw = driversRaw?.[o.driverId] || {};
-      const type = extractVehicleTypeFromInfo(info) || extractVehicleTypeFromInfo(raw);
-      const ratingParsed = mergeRating(info, raw, o.driver);
-      return {
-        id: o.driverId,
-        latitude: typeof latitude === 'number' ? latitude : (latitude ? parseFloat(latitude) : 0),
-        longitude: typeof longitude === 'number' ? longitude : (longitude ? parseFloat(longitude) : 0),
-        heading: typeof loc?.heading === 'number' ? loc.heading : undefined,
-        vehicleIconSource: ensureVehicleIconSource(type),
-        isSelected: o.driverId === selectedDriverId,
-        rating: (ratingParsed !== null && Number.isFinite(ratingParsed) ? ratingParsed : null) as number | null,
-        photoURL: (info?.profilePhoto || info?.photoURL || info?.photoUrl || raw?.profilePhoto || raw?.photoURL || raw?.photoUrl || o.driver?.photoURL || null) as string | null,
-      };
-    }).filter(d => Number.isFinite(d.latitude) && Number.isFinite(d.longitude));
+
+    return offers
+      .map((o) => {
+        const loc = driverLocations?.[o.driverId] || {};
+        const rawLat = loc?.lat ?? loc?.latitude ?? loc?.coords?.latitude;
+        const rawLng = loc?.lng ?? loc?.longitude ?? loc?.coords?.longitude;
+
+        const latitude =
+          typeof rawLat === 'number'
+            ? rawLat
+            : typeof rawLat === 'string'
+            ? parseFloat(rawLat)
+            : NaN;
+
+        const longitude =
+          typeof rawLng === 'number'
+            ? rawLng
+            : typeof rawLng === 'string'
+            ? parseFloat(rawLng)
+            : NaN;
+
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+          return null;
+        }
+
+        const info = driversInfo?.[o.driverId] || {};
+        const raw = driversRaw?.[o.driverId] || {};
+        const type = extractVehicleTypeFromInfo(info) || extractVehicleTypeFromInfo(raw);
+        const ratingParsed = mergeRating(info, raw, o.driver);
+
+        return {
+          id: o.driverId,
+          latitude,
+          longitude,
+          heading: typeof loc?.heading === 'number' && Number.isFinite(loc.heading) ? loc.heading : undefined,
+          vehicleIconSource: ensureVehicleIconSource(type),
+          isSelected: o.driverId === selectedDriverId,
+          rating: (ratingParsed !== null && Number.isFinite(ratingParsed) ? ratingParsed : null) as number | null,
+          photoURL: (info?.profilePhoto || info?.photoURL || info?.photoUrl || raw?.profilePhoto || raw?.photoURL || raw?.photoUrl || o.driver?.photoURL || null) as string | null,
+        };
+      })
+      .filter((d): d is NonNullable<typeof d> => !!d);
   }, [offers, driverLocations, selectedDriverId, driversInfo, driversRaw]);
 
   // Calcular ETA aproximada y hora de llegada (basado en distancia y velocidad promedio)
@@ -645,8 +668,8 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
     const ratingLabel = ratingNumber !== null && Number.isFinite(ratingNumber) ? ratingNumber.toFixed(1) : null;
     const displayName = mergeName(info, raw, item.driver);
     const vehicleIconSource = ensureVehicleIconSource(vehicleType);
-    const priceTextColor = selected ? '#FFFFFF' : '#1F2937';
-    const priceLabelColor = selected ? 'rgba(255,255,255,0.75)' : '#6B7280';
+    const priceTextColor = selected ? '#ddddddff' : colors.text;
+    const priceLabelColor = selected ? 'rgba(255, 255, 255, 1)' : colors.textSecondary;
     const driverPriceLabel = driverPrice ? `C$${Number(driverPrice).toFixed(2)}` : 'Pendiente';
     const clientPriceLabel = clientPrice != null ? `C$${Number(clientPrice).toFixed(2)}` : 'N/D';
     const negotiationLabel = negotiationStatusLabel(rideSnapshot?.negotiationStatus);
@@ -678,11 +701,23 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
           <Image source={vehicleIconSource} style={styles.offerVehicleOverlay} />
         </View>
         <View style={styles.offerInfo}>
-          <Text style={styles.offerTitle} numberOfLines={selected ? 2 : 1}>
+          <Text
+            style={[
+              styles.offerTitle,
+              selected ? styles.offerTitleSelected : styles.offerTitleDefault,
+            ]}
+            numberOfLines={selected ? 2 : 1}
+          >
             {displayName} - {plate}
           </Text>
-          <Text style={styles.offerSubtitle} numberOfLines={1}>
-            {ratingLabel ? `⭐ ${ratingLabel} • ` : ''}Llega {arrivalText} - {etaText}
+          <Text
+            style={[
+              styles.offerSubtitle,
+              selected ? styles.offerSubtitleSelected : styles.offerSubtitleDefault,
+            ]}
+            numberOfLines={1}
+          >
+            {ratingLabel ? `⭐ ${ratingLabel} • ` : ''}Llega: {arrivalText} - {etaText}
           </Text>
           {selected && (
             <View style={styles.priceRow}>
@@ -692,7 +727,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
                   <Text style={[styles.priceValueLabel, { color: priceLabelColor }]}>Tu precio: </Text>
                   <Text style={[styles.priceValueText, { color: priceTextColor }]}>{clientPriceLabel}</Text>
                 </View>
-                <Text style={[styles.priceDivider, { color: priceLabelColor }]}>•••</Text>
+                {/*<Text style={[styles.priceDivider, { color: priceLabelColor }]}>•••</Text>*/}
                 <View style={styles.priceValueGroup}>
                   <Text style={[styles.priceValueLabel, { color: priceLabelColor }]}>Sugerencia Conductor: </Text>
                   <Text style={[styles.priceValueText, { color: priceTextColor }]}>{driverPriceLabel}</Text>
@@ -730,7 +765,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
                   },
                 ]}
               >
-                <Text style={styles.acceptedStatusText}>El conductor aceptó tu precio</Text>
+                <Text style={styles.acceptedStatusText}>Conductor aceptó tu precio</Text>
               </Animated.View>
             ) : (
               <TouchableOpacity onPress={openNegotiation} style={styles.negotiatePill} activeOpacity={0.9}>
@@ -797,7 +832,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
           style={[
             styles.primaryBtn,
             {
-              backgroundColor: selectedDriverId ? '#CF9A24' : '#BDBDBD',
+              backgroundColor: selectedDriverId ? '#D39838' : '#BDBDBD',
               transform: [{ scale: confirmBtnAnim }],
             },
           ]}
@@ -922,18 +957,19 @@ const createStyles = (colors: any) => StyleSheet.create({
     marginBottom: 10,
   },
   sheetTitle: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 20,
+    fontWeight: '800',
     color: colors.text,
-    marginBottom: 10,
+    marginBottom: 15,
+    paddingBottom: 6,
   },
-  loadingBox: { paddingVertical: 20, alignItems: 'center' },
+  loadingBox: { paddingVertical: 20, alignItems: 'center', borderRadius: 22 },
   emptyBox: { paddingVertical: 20, alignItems: 'center' },
-  emptyText: { color: colors.textSecondary },
+  emptyText: { color: colors.textSecondary, borderRadius: 42 },
   offerRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    paddingVertical: 10,
+    paddingVertical: 20,
     paddingHorizontal: 8,
     borderRadius: 12,
     borderWidth: 1,
@@ -941,27 +977,62 @@ const createStyles = (colors: any) => StyleSheet.create({
   },
   offerRowDefault: {
     backgroundColor: colors.surface,
-    borderColor: colors.border,
+    borderColor: '#EFBC06',
   },
   offerRowSelected: {
-    backgroundColor: '#e08d21',
+    backgroundColor: '#D39838',
     borderColor: 'rgba(185, 121, 37, 0.12)',
   },
-  offerAvatarWrap: { width: 60, height: 64, marginRight: 10, position: 'relative', justifyContent: 'flex-end', alignItems: 'center' },
-  offerAvatarFrame: { width: 60, height: 60, borderRadius: 16, borderWidth: 3, borderColor: '#FFFFFF', backgroundColor: '#D1D5DB', overflow: 'hidden', justifyContent: 'center', alignItems: 'center' },
+  offerAvatarWrap: {
+    width: 70,
+    height: 70,
+    marginRight: 10,
+    position: 'relative',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+  },
+  offerAvatarFrame: {
+    width: 64,
+    height: 64,
+    borderRadius: 18,
+    borderWidth: 3,
+    borderColor: '#FFFFFF',
+    backgroundColor: '#D1D5DB',
+    overflow: 'hidden',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.18,
+    shadowRadius: 6,
+    elevation: 4,
+  },
   offerAvatarPhoto: { width: '100%', height: '100%', resizeMode: 'cover' },
   offerAvatarFallback: { width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center', backgroundColor: '#E5E7EB' },
   offerAvatarFallbackText: { color: '#64748B', fontWeight: '700', fontSize: 18 },
-  offerVehicleOverlay: { position: 'absolute', bottom: -6, left: '50%', transform: [{ translateX: -18 }, { rotate: '270deg' }], width: 38, height: 38, resizeMode: 'contain' },
+  offerVehicleOverlay: {
+    position: 'absolute',
+    bottom: -25,
+    left: '50%',
+    transform: [{ translateX: -25 }, { rotate: '90deg' }],
+    width: 52,
+    height: 52,
+    resizeMode: 'contain',
+  },
   offerInfo: { flex: 1, paddingRight: 8 },
-  offerTitle: { fontSize: 14, fontWeight: '700', color: '#1F2937' },
-  offerSubtitle: { fontSize: 12, color: '#4B5563', marginTop: 2 },
-  offerEtaText: { fontSize: 13, fontWeight: '700', color: '#1F2937', marginLeft: 8 },
+  offerTitle: { fontSize: 18, fontWeight: '800' },
+  offerTitleDefault: { color: colors.text },
+  offerTitleSelected: { color: '#FFFFFFFF' },
+  offerSubtitle: { fontSize: 14, fontWeight: '700', marginTop: 2 },
+  offerSubtitleDefault: { color: colors.textSecondary },
+  offerSubtitleSelected: { color: '#E5E7EB' },
+  offerEtaText: { fontSize: 13, fontWeight: '700', color: colors.text, marginLeft: 8 },
   priceRow: { marginTop: 4 },
-  priceLabel: { fontSize: 12, fontWeight: '700' },
+  priceLabel: { fontSize: 16, fontWeight: '700' },
   priceValues: {
     flexDirection: 'row',
-    alignItems: 'center',
+    //alignItems: 'center',
+    marginLeft: -70,
     flexWrap: 'wrap',
     marginTop: 2,
   },
@@ -970,20 +1041,22 @@ const createStyles = (colors: any) => StyleSheet.create({
     alignItems: 'center',
     marginRight: 6,
   },
-  priceValueLabel: { fontSize: 12, fontWeight: '600' },
-  priceValueText: { fontSize: 14, fontWeight: '800' },
+  priceValueLabel: { fontSize: 16, fontWeight: '600' },
+  priceValueText: { fontSize: 16, fontWeight: '800' },
   priceDivider: { fontSize: 12, fontWeight: '600' },
   negotiatePill: {
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 18,
-    backgroundColor: '#6B21A8',
+    backgroundColor: '#8330c7ff',
+    paddingBottom: 8,
   },
-  negotiateText: { color: '#FFFFFF', fontWeight: '700', fontSize: 13 },
+  negotiateText: { color: '#FFFFFF', fontWeight: '700', fontSize: 13},
   selectedActions: {
     flexDirection: 'column',
     alignItems: 'flex-end',
     marginTop: 8,
+    gap: 8,
   },
   messageButton: {
     backgroundColor: 'rgba(255,255,255,0.12)',
@@ -996,7 +1069,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontSize: 20,
   },
   messageButtonText: {
-    color: '#FFFFFF',
+    color: '#00000060',
     fontWeight: '700',
     fontSize: 13,
   },
@@ -1019,36 +1092,43 @@ const createStyles = (colors: any) => StyleSheet.create({
     marginLeft: 8,
   },
   acceptedStatusChip: {
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 16,
     backgroundColor: 'rgba(33, 150, 83, 0.15)',
     borderWidth: 1,
     borderColor: 'rgba(33, 150, 83, 0.45)',
+    marginVertical: '10%',
   },
   acceptedStatusText: { color: '#166534', fontWeight: '700', fontSize: 13 },
   acceptedStatusChipSecondary: {
     paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 14,
+    paddingVertical: 6,
+    borderRadius: 16,
     backgroundColor: 'rgba(33, 150, 83, 0.15)',
     borderWidth: 1,
     borderColor: 'rgba(33, 150, 83, 0.35)',
+    marginVertical: 20,
   },
-  acceptedStatusTextSecondary: { color: '#166534', fontWeight: '600', fontSize: 11 },
+  acceptedStatusTextSecondary: { 
+    color: '#166534', 
+    fontWeight: '600', 
+    fontSize: 11
+  },
+
   primaryBtn: {
     marginTop: 8,
     marginBottom: 10,
-    paddingVertical: 12,
+    paddingVertical: 16,
     alignItems: 'center',
-    borderRadius: 24,
+    borderRadius: 28,
   },
-  primaryBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  primaryBtnText: { color: '#fff', fontWeight: '700', fontSize: 18 },
   cancelBtn: {
     marginTop: 4,
-    paddingVertical: 14,
+    paddingVertical: 16,
     alignItems: 'center',
-    borderRadius: 24,
+    borderRadius: 28,
   },
-  cancelBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  cancelBtnText: { color: '#fff', fontWeight: '700', fontSize: 18 },
 });

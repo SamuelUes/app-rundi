@@ -6,6 +6,7 @@ const vehicleIconMap: Record<string, ImageSourcePropType> = {
   van: require('../assets/icons/vehicles/VAN/Icon_VAN_2x.png'),
   pickup: require('../assets/icons/vehicles/pickup_4x4/pickup_4x4_2x.png'),
   convertible: require('../assets/icons/vehicles/Convertible_Car_Sedan/Convertible_Car_Sedan2x.png'),
+  moto: require('../assets/icons/vehicles/moto/moto_icon.png'),
   default: require('../assets/icons/vehicles/sedan_V2/Icon_sedan2x.png'),
 };
 
@@ -33,6 +34,14 @@ const SYNONYM_MAP: Record<string, string> = {
   coupé: 'convertible',
   convertible: 'convertible',
   cabrio: 'convertible',
+  moto: 'moto',
+  motocicleta: 'moto',
+  mototaxi: 'moto',
+  'moto taxi': 'moto',
+  motorcycle: 'moto',
+  motorbike: 'moto',
+  motoBike: 'moto',
+  bike: 'moto',
 };
 
 export const normalizeVehicleType = (rawType?: string | null): string | null => {
@@ -47,6 +56,7 @@ export const normalizeVehicleType = (rawType?: string | null): string | null => 
   if (lower.includes('suv') || lower.includes('crossover')) return 'suv';
   if (lower.includes('van') || lower.includes('bus')) return 'van';
   if (lower.includes('convert') || lower.includes('cabrio') || lower.includes('coupe')) return 'convertible';
+  if (lower.includes('moto') || lower.includes('motorcycle') || lower.includes('bike')) return 'moto';
   if (lower.includes('sedan') || lower.includes('saloon') || lower.includes('car')) return 'sedan';
 
   return lower;

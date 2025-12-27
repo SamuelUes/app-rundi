@@ -67,19 +67,36 @@ export const uploadImage = async (
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+        'apikey': SUPABASE_ANON_KEY,
         'x-upsert': 'true',
       },
       body: formData,
     });
 
     if (!uploadResponse.ok) {
-      const errorData = await uploadResponse.json();
-      console.error('❌ Error en respuesta:', errorData);
-      throw new Error(`Error al subir imagen: ${errorData.message || uploadResponse.statusText}`);
+      let errorPayload: any = null;
+      try {
+        errorPayload = await uploadResponse.json();
+      } catch {
+        errorPayload = await uploadResponse.text();
+      }
+      console.error('❌ Error en respuesta:', errorPayload);
+      if (typeof errorPayload === 'object' && errorPayload !== null && errorPayload.message) {
+        throw new Error(`Error al subir imagen: ${errorPayload.message}`);
+      }
+      throw new Error(`Error al subir imagen: ${uploadResponse.statusText}`);
     }
 
-    const uploadData = await uploadResponse.json();
-    console.log('✅ Imagen subida exitosamente:', uploadData);
+    let uploadData: any = null;
+    const rawText = await uploadResponse.text();
+    if (rawText) {
+      try {
+        uploadData = JSON.parse(rawText);
+      } catch {
+        uploadData = rawText;
+      }
+    }
+    console.log('✅ Imagen subida exitosamente:', uploadData ?? '(respuesta vacía)');
 
     // Generar URL pública
     const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/${bucket}/${path}`;
@@ -164,6 +181,21 @@ export const uploadInsurancePhoto = async (
 };
 
 /**
+ * Subir foto del vehículo del cliente (Conductor Designado)
+ * @param userId - ID del usuario (cliente)
+ * @param uri - URI local de la imagen
+ * @returns URL pública de la imagen
+ */
+export const uploadClientVehiclePhoto = async (
+  userId: string,
+  uri: string,
+): Promise<string> => {
+  const timestamp = Date.now();
+  const path = `client-vehicles/${userId}/vehicle_${timestamp}.jpg`;
+  return uploadImage(uri, 'rides-documents', path);
+};
+
+/**
  * Eliminar imagen de Supabase Storage
  * @param bucket - Nombre del bucket
  * @param path - Ruta de la imagen
@@ -212,6 +244,7 @@ export default {
   uploadLicensePhoto,
   uploadRegistrationPhoto,
   uploadInsurancePhoto,
+  uploadClientVehiclePhoto,
   uploadVehicleInspectionPhoto,
   deleteImage,
 };

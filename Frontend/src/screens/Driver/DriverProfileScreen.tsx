@@ -93,6 +93,9 @@ interface DriverData {
   total_earnings?: number;
   first_name?: string;
   last_name?: string;
+  designatedRoleRequested?: string;
+  designated_rol_requested?: string;
+  designatedRolRequested?: string;
 }
 
 const normalizeDocumentsStatus = (driver: DriverData | null) => {
@@ -130,7 +133,7 @@ export default function DriverProfileScreen({ navigation }: any) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
-  const { user } = useAuth();
+  const { user, userMode, setUserMode } = useAuth();
   const { settings: voiceSettings, setEnabled: setVoiceAssistantEnabled, initialized: voiceAssistantInitialized } = useVoiceAssistant();
 
   const [loading, setLoading] = useState(true);
@@ -185,7 +188,15 @@ export default function DriverProfileScreen({ navigation }: any) {
   const [overlayPermissionGranted, setOverlayPermissionGranted] = useState<boolean>(Platform.OS !== 'android');
   const [overlayCheckingPermission, setOverlayCheckingPermission] = useState<boolean>(false);
 
+  const extractDesignatedRequestStatus = (driver: DriverData | null | undefined) =>
+    driver?.designated_rol_requested || driver?.designatedRoleRequested || driver?.designatedRolRequested || null;
+
   const normalizedDocumentStatus = normalizeDocumentsStatus(driverData);
+  const isDriverCapable = user?.role === 'driver' || user?.role === 'designated_driver';
+  const hasActiveVehicle = useMemo(
+    () => Array.isArray(vehicles) && vehicles.some((vehicle) => (vehicle.is_active ?? vehicle.isActive) === true),
+    [vehicles],
+  );
   const normalizedAccountStatus = useMemo(() => {
     if (!driverData) {
       return null;
@@ -276,6 +287,55 @@ export default function DriverProfileScreen({ navigation }: any) {
   const displayLastName = driverData?.lastName || driverData?.last_name || '';
   const displayName = [displayFirstName, displayLastName].filter(Boolean).join(' ').trim() || 'Conductor';
   const displayEmail = driverData?.email || user?.email || null;
+
+  const normalizedDesignatedRequestStatus = designatedDriverRequestStatus
+    ? String(designatedDriverRequestStatus).toLowerCase()
+    : null;
+
+  const isDesignatedRequestPending = normalizedDesignatedRequestStatus === 'requested';
+  const isDesignatedDriverApproved = normalizedDesignatedRequestStatus === 'approved' || normalizedDesignatedRequestStatus === 'verified';
+  const isDesignatedRequestRejected = normalizedDesignatedRequestStatus === 'rejected' || normalizedDesignatedRequestStatus === 'revoked';
+
+  const designatedStatusLabelMap: Record<string, string> = {
+    pending: 'Sin solicitud enviada',
+    requested: 'Solicitud en revisión',
+    approved: 'Conductor designado activo',
+    verified: 'Conductor designado activo',
+    rejected: 'Solicitud rechazada',
+    revoked: 'Rol revocado',
+  };
+
+  const designatedStatusHelperMap: Record<string, string> = {
+    pending: 'Envía tu solicitud para acceder a viajes premium.',
+    requested: 'Nuestro equipo revisará tu información en un plazo máximo de 24 horas.',
+    approved: 'Disfruta de los beneficios del programa.',
+    verified: 'Disfruta de los beneficios del programa.',
+    rejected: 'Revisa tus documentos o contacta a soporte para más información.',
+    revoked: 'Tu acceso fue revocado. Contacta a soporte para más información.',
+  };
+
+  const designatedStatusLabel = normalizedDesignatedRequestStatus
+    ? designatedStatusLabelMap[normalizedDesignatedRequestStatus] || 'Estado desconocido'
+    : 'Sin solicitud enviada';
+  const designatedStatusHelper = normalizedDesignatedRequestStatus
+    ? designatedStatusHelperMap[normalizedDesignatedRequestStatus] || 'Actualiza tus datos para acceder al programa.'
+    : 'Envía tu solicitud para acceder a viajes premium.';
+
+  const designatedButtonLabel = (() => {
+    if (isDesignatedDriverApproved) {
+      return 'Conductor designado activo';
+    }
+    if (isDesignatedRequestPending) {
+      return 'Solicitud enviada';
+    }
+    if (isDesignatedRequestRejected) {
+      return 'Solicitud rechazada';
+    }
+    return 'Solicitar Acceso';
+  })();
+
+  const designatedButtonDisabled =
+    loadingRequestStatus || isDesignatedRequestPending || isDesignatedDriverApproved || isDesignatedRequestRejected;
 
   const renderAccountStatusBadge = () => {
     if (!normalizedAccountStatus) {
@@ -512,23 +572,96 @@ export default function DriverProfileScreen({ navigation }: any) {
     }
   };
 
+  const handleModeButtonPress = async () => {
+    if (!user) {
+      return;
+    }
+
+    const targetMode: 'client' | 'driver' = userMode === 'driver' ? 'client' : 'driver';
+
+    if (targetMode === userMode) {
+      return;
+    }
+
+    if (targetMode === 'driver') {
+      if (!isDriverCapable) {
+        Alert.alert(
+          'No disponible',
+          'Tu cuenta aún no está configurada como conductor. Completa tu registro como conductor y espera la aprobación.',
+        );
+        return;
+      }
+
+      if (!driverData || vehicles.length === 0) {
+        Alert.alert(
+          'Cargando información',
+          'Estamos cargando el estado de tu cuenta de conductor. Intenta nuevamente en unos segundos.',
+        );
+        return;
+      }
+
+      const accountOk = normalizedAccountStatus === 'active';
+      const documentsOk = normalizedDocumentStatus === 'verified';
+      const vehicleOk = hasActiveVehicle;
+
+      if (!accountOk || !documentsOk || !vehicleOk) {
+        const reasons: string[] = [];
+        if (!accountOk) {
+          reasons.push('• Tu cuenta de conductor aún no está activa.');
+        }
+        if (!documentsOk) {
+          reasons.push('• Tus documentos de conductor están pendientes o fueron rechazados.');
+        }
+        if (!vehicleOk) {
+          reasons.push('• No tienes ningún vehículo activo aprobado.');
+        }
+
+        const message = `${reasons.join('\n')}\n\nCompleta tu información para activar el modo conductor.`;
+        const buttons: { text: string; style?: 'cancel'; onPress?: () => void }[] = [
+          { text: 'Cerrar', style: 'cancel' },
+        ];
+
+        if (!documentsOk) {
+          buttons.push({
+            text: 'Ver documentos',
+            onPress: () => navigation.navigate('DriversDocumentsInspection'),
+          });
+        }
+
+        if (!vehicleOk) {
+          buttons.push({
+            text: 'Ver vehículos',
+            onPress: () => navigation.navigate('CompleteVehicleInfo'),
+          });
+        }
+
+        Alert.alert('No puedes activar modo conductor', message, buttons);
+        return;
+      }
+    }
+
+    try {
+      await setUserMode(targetMode);
+    } catch (error: any) {
+      console.error('❌ Error actualizando modo de usuario:', error);
+      Alert.alert('Error', 'No se pudo cambiar el modo. Intenta nuevamente.');
+    }
+  };
+
   // Cargar estado de solicitud de Conductor Designado
   const loadDesignatedDriverStatus = async () => {
     try {
       if (!user?.id) return;
-      
 
-      console.log('📋 Cargando estado de solicitud de Conductor Designado...');
-      const status = await designatedDriverService.getDesignatedDriverRequestStatus();
-      
-      console.log('✅ Estado de solicitud obtenido:', status);
-      // Backend devuelve: { success, status, ... }
-      // Guardamos solo el campo status (pending, not_requested, approved, etc.)
-      setDesignatedDriverRequestStatus(status?.status ?? null);
+      console.log('📋 Refrescando estado de Conductor Designado desde Supabase...');
+      const profile = await driversService.getMyDriverProfile();
+      const status = extractDesignatedRequestStatus(profile) || 'pending';
+
+      console.log('✅ Estado de solicitud actualizado:', status);
+      setDesignatedDriverRequestStatus(status);
     } catch (error) {
       console.error('⚠️ Error cargando estado de solicitud:', error);
-      // Si hay error, asumir que no hay solicitud
-      setDesignatedDriverRequestStatus(null);
+      setDesignatedDriverRequestStatus((prev) => prev || 'pending');
     }
   };
 
@@ -551,6 +684,7 @@ export default function DriverProfileScreen({ navigation }: any) {
       // ✅ El servicio retorna directamente el objeto driver, no envuelto
       if (profile) {
         setDriverData(profile);
+        setDesignatedDriverRequestStatus(extractDesignatedRequestStatus(profile) || 'pending');
 
         // Actualizar estadísticas desde los datos reales
         setStats({
@@ -903,16 +1037,13 @@ export default function DriverProfileScreen({ navigation }: any) {
       
       console.log('🚙 Solicitando acceso a Conductor Designado...');
       const result = await designatedDriverService.requestDesignatedDriverAccess();
-      
+      await driversService.updateDriver({
+        designated_rol_requested: 'requested',
+      });
+      await loadDesignatedDriverStatus();
+      await loadDriverData();
       console.log('✅ Solicitud enviada:', result);
-      
-      // Actualizar estado local
-      setDesignatedDriverRequestStatus('pending');
-      
-      Alert.alert(
-        'Solicitud Enviada',
-        'Tu solicitud ha sido enviada correctamente.\n\nNuestro equipo la revisará en 24 horas y te notificaremos cuando sea aprobada.'
-      );
+      setDesignatedDriverRequestStatus('requested');
     } catch (error: any) {
       console.error('❌ Error solicitando acceso:', error);
       Alert.alert('Error', error.message || 'Error al enviar solicitud');
@@ -1181,14 +1312,30 @@ export default function DriverProfileScreen({ navigation }: any) {
           <TouchableOpacity
             style={[
               styles.designatedDriverButton,
-              designatedDriverRequestStatus === 'pending' && styles.designatedDriverButtonDisabled
+              designatedButtonDisabled && styles.designatedDriverButtonDisabled
             ]}
             onPress={() => {
               // Si ya hay solicitud pendiente, no permitir enviar otra
-              if (designatedDriverRequestStatus === 'pending') {
+              if (isDesignatedRequestPending) {
                 Alert.alert(
                   'Solicitud Pendiente',
                   'Ya tienes una solicitud pendiente. Nuestro equipo la revisará en 24 horas.'
+                );
+                return;
+              }
+
+              if (isDesignatedDriverApproved) {
+                Alert.alert(
+                  'Ya aprobado',
+                  'Tu cuenta ya forma parte del programa de conductor designado.'
+                );
+                return;
+              }
+
+              if (isDesignatedRequestRejected) {
+                Alert.alert(
+                  'Solicitud rechazada',
+                  'Tu solicitud fue rechazada. Revisa tus documentos o contáctanos si necesitas ayuda.'
                 );
                 return;
               }
@@ -1205,26 +1352,58 @@ export default function DriverProfileScreen({ navigation }: any) {
                 ]
               );
             }}
-            disabled={designatedDriverRequestStatus === 'pending' || loadingRequestStatus}
+            disabled={designatedButtonDisabled}
           >
             {loadingRequestStatus ? (
               <ActivityIndicator color="#fff" />
             ) : (
               <Text style={styles.designatedDriverButtonText}>
-                {designatedDriverRequestStatus === 'pending' ? 'Solicitud Enviada' : 'Solicitar Acceso'}
+                {designatedButtonLabel}
               </Text>
             )}
           </TouchableOpacity>
         </View>
       </View>
 
- {/* Preferencias de notificación avanzada */}
- <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Alertas de viajes cercanos</Text>
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Modo de uso</Text>
         <View style={styles.preferenceCard}>
           <View style={styles.preferenceHeader}>
             <View style={styles.preferenceIconWrapper}>
-              <Text style={styles.preferenceIcon}>🫧</Text>
+              <Text style={styles.preferenceIcon}>🚘</Text>
+            </View>
+            <View style={styles.preferenceInfo}>
+              <Text style={styles.preferenceTitle}>Usar la app como</Text>
+              <Text style={styles.preferenceSubtitle}>
+                Cambia entre vista de cliente y de conductor con tu misma cuenta.
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={[
+                styles.modeToggleButton,
+                userMode === 'driver' ? styles.modeToggleButtonActive : null,
+              ]}
+              onPress={handleModeButtonPress}
+            >
+              <Text
+                style={[
+                  styles.modeToggleButtonText,
+                  userMode === 'driver' ? styles.modeToggleButtonTextActive : null,
+                ]}
+              >
+                {userMode === 'driver' ? 'Usar como cliente' : 'Usar como conductor'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Notificaciones avanzadas</Text>
+        <View style={styles.preferenceCard}>
+          <View style={styles.preferenceHeader}>
+            <View style={styles.preferenceIconWrapper}>
+              <Text style={styles.preferenceIcon}>🔔</Text>
             </View>
             <View style={styles.preferenceInfo}>
               <Text style={styles.preferenceTitle}>Burbuja flotante con solicitudes cercanas</Text>
@@ -2221,7 +2400,26 @@ const createStyles = (colors: any) => StyleSheet.create({
     marginTop: 10,
     fontSize: 13,
     color: colors.textSecondary,
-  },  
+  },
+  modeToggleButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: colors.primary,
+  },
+  modeToggleButtonActive: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.primary,
+  },
+  modeToggleButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  modeToggleButtonTextActive: {
+    color: colors.primary,
+  },
   documentCard: {
     flexDirection: 'row',
     justifyContent: 'space-between',

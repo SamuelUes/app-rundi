@@ -33,6 +33,8 @@
         "acceptedAt": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
         "startedAt": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
         "completedAt": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+        "clientVehiclePhoto": { ".validate": "!newData.exists() || newData.isString() || newData.val() == null" },
+        "designatedDriverVehiclePhoto": { ".validate": "!newData.exists() || newData.isString() || newData.val() == null" },
         "lastUpdate": {
           ".write": "auth != null",
           ".validate": "newData.isNumber() && newData.val() > 0"
@@ -72,6 +74,8 @@
           "acceptedAt": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
           "startedAt": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
           "completedAt": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+          "clientVehiclePhoto": { ".validate": "!newData.exists() || newData.isString() || newData.val() == null" },
+          "designatedDriverVehiclePhoto": { ".validate": "!newData.exists() || newData.isString() || newData.val() == null" },
           "lastUpdate": {
             ".write": "auth != null",
             ".validate": "newData.isNumber() && newData.val() > 0"

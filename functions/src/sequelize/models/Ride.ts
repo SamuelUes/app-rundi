@@ -24,6 +24,7 @@ class Ride extends Model {
   public notes?: string;
   public ride_type?: string;
   public vehicle_type?: string;
+  public designated_driver_vehicle?: string;
   public client_vehicle_photo?: string;
   public waypoints_count?: number;
   public has_multiple_stops?: boolean;
@@ -120,6 +121,11 @@ Ride.init(
       type: DataTypes.STRING(50),
       allowNull: true,
       defaultValue: 'auto',
+    },
+    designated_driver_vehicle: {
+      type: DataTypes.STRING(10),
+      allowNull: true,
+      comment: "Para viajes de conductor designado, indica si el cliente requiere 'auto' o 'moto'",
     },
     client_vehicle_photo: {
       type: DataTypes.TEXT,

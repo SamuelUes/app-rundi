@@ -29,7 +29,6 @@ import alertService from '../../services/alertService';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import sessionService from '../../services/sessionService';
 import BiometricService from '../../services/biometricService';
-import { supabase } from '../../config/supabase';
 
 // Crear estilos fuera del componente para mejor rendimiento
 const createStyles = (colors: any) => StyleSheet.create({
@@ -381,24 +380,6 @@ export default function CashPaymentScreen({ route, navigation }: any) {
       } else {
         authenticationMethod = 'biometric';
         biometricType = biometricResult.biometryType || 'biometric';
-
-        try {
-          const authInstance = getAuth();
-          const uid = authInstance.currentUser?.uid;
-          if (uid) {
-            await supabase.from('biometric_authentications').insert({
-              ride_id: null,
-              user_id: uid,
-              user_type: 'client',
-              biometric_type: biometricType,
-              context: 'cash_payment_confirmation',
-              success: true,
-              attempt_number: 1,
-            });
-          }
-        } catch (logError) {
-          console.error('❌ Error registrando autenticación biométrica en Supabase:', logError);
-        }
       }
 
       setConfirming(true);

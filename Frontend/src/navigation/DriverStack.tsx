@@ -125,7 +125,7 @@ export type DriverStackParamList = {
     authProvider: RegistrationAuthProvider;
     googleIdToken?: string;
     phoneVerified?: boolean;
-    context?: 'register_phone' | 'add_phone';
+    context?: 'register_phone' | 'add_phone' | 'register_upgrade_driver';
   };
 };
 

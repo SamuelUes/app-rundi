@@ -11,7 +11,7 @@ import sessionService from '../services/sessionService';
  * - presence/{uid}: { lastHeartbeat, role }
  */
 export function useClientPresence() {
-  const { user } = useAuth();
+  const { user, userMode } = useAuth();
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const actionsRef = useRef<null | {
     markActive: ReturnType<typeof httpsCallable>;
@@ -19,8 +19,8 @@ export function useClientPresence() {
   }>(null);
 
   useEffect(() => {
-    // Solo para clientes autenticados
-    if (!user?.id || user.role !== 'client') {
+    // Solo para usuarios autenticados en modo cliente
+    if (!user?.id || userMode !== 'client') {
       return;
     }
 
@@ -83,7 +83,7 @@ export function useClientPresence() {
         });
       }
     };
-  }, [user?.id, user?.role]);
+  }, [user?.id, userMode]);
 
   return null;
 }

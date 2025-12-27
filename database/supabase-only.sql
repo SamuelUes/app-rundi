@@ -55,6 +55,119 @@ END;
 $$ language 'plpgsql';
 
 -- ============================================
+-- STORAGE BUCKETS (drivers-documents, rides-documents)
+-- ============================================
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('drivers-documents', 'drivers-documents', TRUE)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('rides-documents', 'rides-documents', TRUE)
+ON CONFLICT (id) DO NOTHING;
+
+COMMENT ON TABLE storage.buckets IS 'Buckets utilizados por la aplicación móvil';
+COMMENT ON COLUMN storage.buckets.public IS 'TRUE = archivos accesibles con URL pública';
+
+-- Eliminar políticas previas para evitar duplicados al aplicar el script
+DROP POLICY IF EXISTS "drivers_docs_insert_own" ON storage.objects;
+DROP POLICY IF EXISTS "drivers_docs_read_own" ON storage.objects;
+DROP POLICY IF EXISTS "drivers_docs_update_own" ON storage.objects;
+DROP POLICY IF EXISTS "drivers_docs_delete_own" ON storage.objects;
+
+DROP POLICY IF EXISTS "rides_docs_insert_own" ON storage.objects;
+DROP POLICY IF EXISTS "rides_docs_read_own" ON storage.objects;
+DROP POLICY IF EXISTS "rides_docs_update_own" ON storage.objects;
+DROP POLICY IF EXISTS "rides_docs_delete_own" ON storage.objects;
+DROP POLICY IF EXISTS "rides_docs_insert_public_paths" ON storage.objects;
+
+-- Políticas drivers-documents (rol anon porque los uploads usan anon key)
+CREATE POLICY "drivers_docs_insert_own"
+ON storage.objects
+FOR INSERT
+TO anon
+WITH CHECK (
+  bucket_id = 'drivers-documents'
+  AND name LIKE '%' || public.current_firebase_uid() || '/%'
+);
+
+CREATE POLICY "drivers_docs_read_own"
+ON storage.objects
+FOR SELECT
+TO anon
+USING (
+  bucket_id = 'drivers-documents'
+  AND name LIKE '%' || public.current_firebase_uid() || '/%'
+);
+
+CREATE POLICY "drivers_docs_update_own"
+ON storage.objects
+FOR UPDATE
+TO anon
+USING (
+  bucket_id = 'drivers-documents'
+  AND name LIKE '%' || public.current_firebase_uid() || '/%'
+);
+
+CREATE POLICY "drivers_docs_delete_own"
+ON storage.objects
+FOR DELETE
+TO anon
+USING (
+  bucket_id = 'drivers-documents'
+  AND name LIKE '%' || public.current_firebase_uid() || '/%'
+);
+
+-- Políticas rides-documents
+CREATE POLICY "rides_docs_insert_own"
+ON storage.objects
+FOR INSERT
+TO anon
+WITH CHECK (
+  bucket_id = 'rides-documents'
+  AND name LIKE '%' || public.current_firebase_uid() || '%'
+);
+
+CREATE POLICY "rides_docs_read_own"
+ON storage.objects
+FOR SELECT
+TO anon
+USING (
+  bucket_id = 'rides-documents'
+  AND name LIKE '%' || public.current_firebase_uid() || '%'
+);
+
+CREATE POLICY "rides_docs_update_own"
+ON storage.objects
+FOR UPDATE
+TO anon
+USING (
+  bucket_id = 'rides-documents'
+  AND name LIKE '%' || public.current_firebase_uid() || '%'
+);
+
+CREATE POLICY "rides_docs_delete_own"
+ON storage.objects
+FOR DELETE
+TO anon
+USING (
+  bucket_id = 'rides-documents'
+  AND name LIKE '%' || public.current_firebase_uid() || '%'
+);
+
+-- Fallback para clientes móviles (anon key) limitado a prefijos permitidos
+CREATE POLICY "rides_docs_insert_public_paths"
+ON storage.objects
+FOR INSERT
+TO anon
+WITH CHECK (
+  bucket_id = 'rides-documents'
+  AND (
+    name LIKE 'client-vehicles/%'
+    OR name LIKE 'rides-inspection/%'
+  )
+);
+
+-- ============================================
 -- 1. DRIVERS TABLE
 -- Datos sensibles de conductores
 -- ============================================
@@ -70,6 +183,7 @@ CREATE TABLE IF NOT EXISTS public.drivers (
   municipality VARCHAR(100) NULL,
   account_status VARCHAR(20) NULL DEFAULT 'pending'::VARCHAR,
   documents_status VARCHAR(20) NULL DEFAULT 'pending'::VARCHAR,
+  designated_rol_requested VARCHAR(20) NULL DEFAULT 'pending'::VARCHAR,
   verified_at TIMESTAMP WITHOUT TIME ZONE NULL,
   total_rides INTEGER NULL DEFAULT 0,
   average_rating NUMERIC(3, 2) NULL DEFAULT 0,
@@ -87,6 +201,7 @@ COMMENT ON COLUMN public.drivers.user_id IS 'Firebase Auth UID';
 COMMENT ON COLUMN public.drivers.profile_photo IS 'URL de foto de perfil del conductor - OBLIGATORIA para verificación de identidad (Supabase Storage)';
 COMMENT ON COLUMN public.drivers.account_status IS 'Estado: pending, active, suspended, rejected';
 COMMENT ON COLUMN public.drivers.documents_status IS 'Estado de documentos: pending, verified, suspended, rejected';
+COMMENT ON COLUMN public.drivers.designated_rol_requested IS 'Flujo para conductor designado: pending, verified, rejected, revoked';
 COMMENT ON COLUMN public.drivers.average_rating IS 'Promedio de calificaciones recibidas (1-5)';
 COMMENT ON COLUMN public.drivers.license_photo_front IS 'URL de foto frontal de licencia (Supabase Storage)';
 COMMENT ON COLUMN public.drivers.license_photo_back IS 'URL de foto trasera de licencia (Supabase Storage)';
@@ -98,6 +213,7 @@ CREATE INDEX IF NOT EXISTS idx_drivers_account_status ON public.drivers USING bt
 CREATE INDEX IF NOT EXISTS idx_drivers_documents_status ON public.drivers USING btree (documents_status);
 CREATE INDEX IF NOT EXISTS idx_drivers_department ON public.drivers USING btree (department);
 CREATE INDEX IF NOT EXISTS idx_drivers_municipality ON public.drivers USING btree (municipality);
+CREATE INDEX IF NOT EXISTS idx_drivers_designated_rol_requested ON public.drivers USING btree (designated_rol_requested);
 -- ✅ ELIMINADOS índices para designated_driver_request_status y designated_driver_role
 
 CREATE TRIGGER update_drivers_updated_at BEFORE UPDATE ON public.drivers
@@ -218,6 +334,7 @@ CREATE TABLE IF NOT EXISTS public.rides (
   notes TEXT NULL,
   ride_type VARCHAR(20) NULL DEFAULT 'normal'::VARCHAR,
   vehicle_type VARCHAR(50) NULL DEFAULT 'auto'::VARCHAR,
+  designated_driver_vehicle VARCHAR(10) NULL,
   client_vehicle_photo TEXT NULL,
   
   -- ✅ NUEVO (2025-10-25): Contadores de paradas
@@ -269,6 +386,7 @@ COMMENT ON COLUMN public.rides.origin_location_id IS 'Referencia a la ubicación
 COMMENT ON COLUMN public.rides.destination_location_id IS 'Referencia a la ubicación de destino en ride_locations';
 COMMENT ON COLUMN public.rides.driver_offered_price IS 'Precio ofrecido por el conductor (si es diferente al estimado)';
 COMMENT ON COLUMN public.rides.vehicle_type IS 'Tipo de vehículo solicitado: moto, auto, designated_driver';
+COMMENT ON COLUMN public.rides.designated_driver_vehicle IS "Para conductor designado: 'auto' o 'moto'";
 COMMENT ON COLUMN public.rides.client_vehicle_photo IS 'URL de la foto del vehículo del cliente (solo para conductor designado)';
 COMMENT ON COLUMN public.rides.service_id IS 'Referencia al servicio ofrecido (normal, designated_driver, night, motorcycle, etc)';
 COMMENT ON COLUMN public.rides.payment_type IS 'Método de pago: cash (efectivo), card_local (bancos locales), stripe';
@@ -1505,3 +1623,135 @@ $$;
 -- ============================================
 -- TOTAL: 15 TABLAS (+ 1 nueva de tarjetas)
 -- ============================================
+
+-- ============================================
+-- 31. CMS TABLES: QUEJAS Y ACCIONES DE OPERADOR
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS public.cms_complaints (
+  id UUID NOT NULL DEFAULT gen_random_uuid(),
+  ride_id UUID NULL,
+  client_id VARCHAR(255) NULL,
+  driver_id VARCHAR(255) NULL,
+  created_by_user_id VARCHAR(255) NOT NULL,
+  created_by_role VARCHAR(20) NOT NULL,
+  assigned_to_user_id VARCHAR(255) NULL,
+  category VARCHAR(50) NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'open'::VARCHAR,
+  priority VARCHAR(20) NULL,
+  title TEXT NOT NULL,
+  description TEXT NULL,
+  resolution_notes TEXT NULL,
+  resolved_at TIMESTAMP WITHOUT TIME ZONE NULL,
+  created_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
+  updated_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
+  CONSTRAINT cms_complaints_pkey PRIMARY KEY (id)
+) TABLESPACE pg_default;
+
+COMMENT ON TABLE public.cms_complaints IS 'Quejas registradas desde el CMS (clientes, conductores, operadores)';
+COMMENT ON COLUMN public.cms_complaints.ride_id IS 'Referencia opcional al viaje relacionado (public.rides.id)';
+COMMENT ON COLUMN public.cms_complaints.client_id IS 'Firebase UID del cliente relacionado con la queja (si aplica)';
+COMMENT ON COLUMN public.cms_complaints.driver_id IS 'Firebase UID del conductor relacionado con la queja (si aplica)';
+COMMENT ON COLUMN public.cms_complaints.created_by_user_id IS 'Firebase UID de quien creó la queja (cliente, conductor, operador o admin)';
+COMMENT ON COLUMN public.cms_complaints.created_by_role IS 'Rol de quien creó la queja: client, driver, operator, admin';
+COMMENT ON COLUMN public.cms_complaints.assigned_to_user_id IS 'Firebase UID del operador/admin asignado a la queja';
+COMMENT ON COLUMN public.cms_complaints.category IS 'Categoría de la queja: service, driver, payment, app, other';
+COMMENT ON COLUMN public.cms_complaints.status IS 'Estado: open, in_progress, resolved, rejected';
+COMMENT ON COLUMN public.cms_complaints.priority IS 'Prioridad: low, normal, high, urgent';
+
+CREATE INDEX IF NOT EXISTS idx_cms_complaints_ride_id ON public.cms_complaints USING btree (ride_id);
+CREATE INDEX IF NOT EXISTS idx_cms_complaints_client_id ON public.cms_complaints USING btree (client_id);
+CREATE INDEX IF NOT EXISTS idx_cms_complaints_driver_id ON public.cms_complaints USING btree (driver_id);
+CREATE INDEX IF NOT EXISTS idx_cms_complaints_status ON public.cms_complaints USING btree (status);
+CREATE INDEX IF NOT EXISTS idx_cms_complaints_created_at ON public.cms_complaints USING btree (created_at DESC);
+
+CREATE TRIGGER update_cms_complaints_updated_at
+BEFORE UPDATE ON public.cms_complaints
+FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TABLE IF NOT EXISTS public.cms_operator_actions (
+  id UUID NOT NULL DEFAULT gen_random_uuid(),
+  user_id VARCHAR(255) NOT NULL,
+  user_role VARCHAR(20) NOT NULL,
+  action_type VARCHAR(50) NOT NULL,
+  target_type VARCHAR(50) NULL,
+  target_id VARCHAR(255) NULL,
+  metadata JSONB NULL,
+  ip_address VARCHAR(45) NULL,
+  user_agent TEXT NULL,
+  created_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
+  CONSTRAINT cms_operator_actions_pkey PRIMARY KEY (id)
+) TABLESPACE pg_default;
+
+COMMENT ON TABLE public.cms_operator_actions IS 'Bitácora de acciones realizadas por usuarios del CMS (admin y operadores)';
+COMMENT ON COLUMN public.cms_operator_actions.user_id IS 'Firebase UID del usuario del CMS que ejecutó la acción';
+COMMENT ON COLUMN public.cms_operator_actions.user_role IS 'Rol del usuario del CMS: admin u operator';
+COMMENT ON COLUMN public.cms_operator_actions.action_type IS 'Tipo de acción: update_driver_status, complete_ride, register_cash_payment, etc.';
+COMMENT ON COLUMN public.cms_operator_actions.target_type IS 'Tipo de entidad afectada: ride, driver, client, payment, service, complaint, other';
+COMMENT ON COLUMN public.cms_operator_actions.target_id IS 'Identificador de la entidad afectada (UUID o Firebase UID)';
+
+CREATE INDEX IF NOT EXISTS idx_cms_operator_actions_user_id ON public.cms_operator_actions USING btree (user_id);
+CREATE INDEX IF NOT EXISTS idx_cms_operator_actions_action_type ON public.cms_operator_actions USING btree (action_type);
+CREATE INDEX IF NOT EXISTS idx_cms_operator_actions_target_type ON public.cms_operator_actions USING btree (target_type);
+CREATE INDEX IF NOT EXISTS idx_cms_operator_actions_created_at ON public.cms_operator_actions USING btree (created_at DESC);
+
+ALTER TABLE public.cms_complaints ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cms_operator_actions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS cms_complaints_own_read ON public.cms_complaints;
+CREATE POLICY cms_complaints_own_read ON public.cms_complaints
+  FOR SELECT USING (
+    created_by_user_id = public.current_firebase_uid()
+  );
+
+DROP POLICY IF EXISTS cms_complaints_own_insert ON public.cms_complaints;
+CREATE POLICY cms_complaints_own_insert ON public.cms_complaints
+  FOR INSERT
+  WITH CHECK (
+    created_by_user_id = public.current_firebase_uid()
+  );
+
+DROP POLICY IF EXISTS cms_complaints_admin_all ON public.cms_complaints;
+CREATE POLICY cms_complaints_admin_all ON public.cms_complaints
+  FOR ALL
+  TO public
+  USING (
+    EXISTS (
+      SELECT 1
+      FROM auth.users
+      WHERE auth.uid() = users.id
+        AND users.raw_user_meta_data ->> 'role' = 'admin'
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1
+      FROM auth.users
+      WHERE auth.uid() = users.id
+        AND users.raw_user_meta_data ->> 'role' = 'admin'
+    )
+  );
+
+DROP POLICY IF EXISTS cms_operator_actions_admin_only ON public.cms_operator_actions;
+CREATE POLICY cms_operator_actions_admin_only ON public.cms_operator_actions
+  FOR ALL
+  TO public
+  USING (
+    EXISTS (
+      SELECT 1
+      FROM auth.users
+      WHERE auth.uid() = users.id
+        AND users.raw_user_meta_data ->> 'role' = 'admin'
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1
+      FROM auth.users
+      WHERE auth.uid() = users.id
+        AND users.raw_user_meta_data ->> 'role' = 'admin'
+    )
+  );
+
+REVOKE INSERT, UPDATE, DELETE ON public.cms_complaints FROM anon;
+REVOKE INSERT, UPDATE, DELETE ON public.cms_operator_actions FROM anon;

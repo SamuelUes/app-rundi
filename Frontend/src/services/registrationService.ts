@@ -4,6 +4,7 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 import client from '../api/client';
 import { ENDPOINTS } from '../api/endpoints';
 import { httpsCallable } from 'firebase/functions';
@@ -22,6 +23,14 @@ interface RegistrationData {
   method?: RegistrationMethod;
   authProvider?: RegistrationAuthProvider;
   phoneVerified?: boolean;
+  lastStep?:
+    | 'register'
+    | 'roleSelection'
+    | 'googlePhone'
+    | 'driverPhone'
+    | 'phoneVerification'
+    | 'driverData'
+    | 'registerConfirm';
   googleIdToken?: string;
   driverData?: {
     licenseNumber: string;
@@ -72,12 +81,7 @@ class RegistrationService {
     try {
       const existingData = await this.getTemporaryData();
       const mergedData = { ...existingData, ...data };
-      
-      await AsyncStorage.setItem(
-        this.TEMP_STORAGE_KEY,
-        JSON.stringify(mergedData)
-      );
-      
+      await SecureStore.setItemAsync(this.TEMP_STORAGE_KEY, JSON.stringify(mergedData));
       console.log('✅ Datos temporales guardados');
     } catch (error) {
       console.error('❌ Error guardando datos temporales:', error);
@@ -90,8 +94,12 @@ class RegistrationService {
    */
   async getTemporaryData(): Promise<Partial<RegistrationData>> {
     try {
-      const data = await AsyncStorage.getItem(this.TEMP_STORAGE_KEY);
-      return data ? JSON.parse(data) : {};
+      const secureData = await SecureStore.getItemAsync(this.TEMP_STORAGE_KEY);
+      if (secureData) {
+        return JSON.parse(secureData);
+      }
+      const legacyData = await AsyncStorage.getItem(this.TEMP_STORAGE_KEY);
+      return legacyData ? JSON.parse(legacyData) : {};
     } catch (error) {
       console.error('❌ Error obteniendo datos temporales:', error);
       return {};
@@ -103,6 +111,7 @@ class RegistrationService {
    */
   async clearTemporaryData(): Promise<void> {
     try {
+      await SecureStore.deleteItemAsync(this.TEMP_STORAGE_KEY);
       await AsyncStorage.removeItem(this.TEMP_STORAGE_KEY);
       console.log('✅ Datos temporales limpios');
     } catch (error) {
@@ -245,6 +254,60 @@ class RegistrationService {
 
       throw new Error(
         error.message || 'Error al completar registro de conductor'
+      );
+    }
+  }
+
+  /**
+   * Actualizar una cuenta existente de cliente a conductor (upgrade)
+   * Usa la Cloud Function upgradeClientToDriver
+   */
+  async upgradeClientToDriver(driverData: any, vehicleData: any): Promise<any> {
+    try {
+      console.log('📝 Iniciando upgrade de cliente a conductor...');
+
+      if (!driverData || !vehicleData) {
+        throw new Error('Datos de conductor y vehículo requeridos');
+      }
+
+      const functions = await getFirebaseFunctions();
+      const upgradeFn = httpsCallable(functions, 'upgradeClientToDriver');
+      const result: any = await upgradeFn({
+        driverData,
+        vehicleData,
+      });
+
+      const data = result?.data || result;
+      console.log('✅ Upgrade cliente→conductor completado:', data);
+
+      return data;
+    } catch (error: any) {
+      console.error('❌ Error en upgrade cliente→conductor:', error);
+
+      const code = error?.code || '';
+      const message = error?.message || '';
+
+      if (
+        typeof message === 'string' &&
+        message === 'PHONE_VERIFICATION_REQUIRED'
+      ) {
+        throw new Error(
+          'Debes verificar tu número de teléfono antes de completar el registro de conductor.',
+        );
+      }
+
+      if (typeof message === 'string' && message.length > 0) {
+        throw new Error(message);
+      }
+
+      if (typeof code === 'string' && code.includes('failed-precondition')) {
+        throw new Error(
+          'No se pudo completar la actualización de tu cuenta. Verifica tu información e inténtalo de nuevo.',
+        );
+      }
+
+      throw new Error(
+        'Error al actualizar tu cuenta para ser conductor. Inténtalo nuevamente más tarde.',
       );
     }
   }

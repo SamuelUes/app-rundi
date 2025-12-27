@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useFCM } from '../../context/FCMContext';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import TermsAndConditionsModal from '../../components/TermsAndConditionsModal';
+import phoneAuthService from '../../services/auth/phoneAuthService';
 
 export default function SettingsScreen({ navigation }: any) {
   const { theme, setTheme, colors, mapTrafficEnabled, setMapTrafficEnabled } = useTheme();
@@ -52,6 +53,61 @@ export default function SettingsScreen({ navigation }: any) {
 
   const handleOpenTerms = () => {
     setShowTermsModal(true);
+  };
+
+  const handleUpgradeToDriver = async () => {
+    if (!user) {
+      return;
+    }
+
+    if (user.role !== 'client') {
+      Alert.alert(
+        'No disponible',
+        'Solo las cuentas de cliente pueden iniciar el registro como conductor desde aquí.',
+      );
+      return;
+    }
+
+    const name = user.name || '';
+    const email = user.email || '';
+    const phone = user.phone || '';
+    const normalizedPhone = phone.trim();
+
+    try {
+      if (normalizedPhone) {
+        await phoneAuthService.sendVerificationCode(normalizedPhone);
+
+        navigation.navigate('PhoneVerification', {
+          name,
+          email,
+          phone: normalizedPhone,
+          password: undefined,
+          method: 'phone',
+          authProvider: 'phone',
+          googleIdToken: undefined,
+          role: 'driver',
+          phoneVerified: false,
+          context: 'register_upgrade_driver',
+        });
+      } else {
+        navigation.navigate('DriverPhone', {
+          name,
+          email,
+          phone: undefined,
+          password: undefined,
+          method: 'phone',
+          authProvider: 'phone',
+          googleIdToken: undefined,
+          context: 'register_upgrade_driver',
+        });
+      }
+    } catch (error: any) {
+      console.error('Error al enviar código SMS para upgrade a conductor:', error);
+      Alert.alert(
+        'Error',
+        error?.message || 'No se pudo enviar el código SMS. Intenta nuevamente.',
+      );
+    }
   };
 
   const handleLogout = () => {
@@ -294,6 +350,18 @@ export default function SettingsScreen({ navigation }: any) {
             </View>
             <Text style={styles.arrow}>›</Text>
           </TouchableOpacity>
+
+          {user?.role === 'client' && (
+            <TouchableOpacity style={styles.option} onPress={handleUpgradeToDriver}>
+              <View style={styles.optionLeft}>
+                <Text style={styles.optionTitle}>Quiero ser conductor</Text>
+                <Text style={styles.optionDescription}>
+                  Completa tus datos y documentos para ofrecer viajes en Rundi.
+                </Text>
+              </View>
+              <Text style={styles.arrow}>›</Text>
+            </TouchableOpacity>
+          )}
 
           <TouchableOpacity style={[styles.option, styles.optionLast]} onPress={handleDeleteAccount}>
             <View style={styles.optionLeft}>

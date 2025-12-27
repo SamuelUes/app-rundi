@@ -6,6 +6,8 @@ import LoginScreen from '../screens/Auth/LoginScreen';
 //import RegisterScreen from '../screens/Auth/RegisterScreen';
 import RegisterScreenNew from '../screens/Auth/RegisterScreen';
 import AuthLandingScreen from '../screens/Auth/AuthLandingScreen';
+import RegistrationCheckpointScreen from '../screens/Auth/RegistrationCheckpointScreen';
+import registrationService from '../services/registrationService';
 import PhoneVerificationScreen from '../screens/Auth/PhoneVerificationScreen';
 import PhoneVerificationLoginScreen from '../screens/Auth/PhoneVerificationLoginScreen';
 import GooglePhoneScreen from '../screens/Auth/GooglePhoneScreen';
@@ -24,21 +26,38 @@ export default function AuthStack() {
   const [initialRouteName, setInitialRouteName] = useState<keyof AuthStackParamList | null>(null);
 
   useEffect(() => {
-    const checkOnboarding = async () => {
+    const initAuthStack = async () => {
       try {
         const hasSeenOnboarding = await AsyncStorage.getItem('@rundi_has_seen_onboarding');
-        if (hasSeenOnboarding === 'true') {
-          setInitialRouteName('AuthLanding');
-        } else {
+
+        // Si el usuario aún no ha visto el onboarding, siempre lo mostramos primero
+        if (hasSeenOnboarding !== 'true') {
           setInitialRouteName('Onboarding');
+          return;
         }
+
+        // Onboarding ya visto → revisar si hay un registro pendiente para mostrar el checkpoint
+        try {
+          const tempData = await registrationService.getTemporaryData();
+          const hasPendingRegistration = tempData && Object.keys(tempData).length > 0 && (tempData as any).name;
+
+          if (hasPendingRegistration) {
+            setInitialRouteName('RegistrationCheckpoint');
+            return;
+          }
+        } catch (checkpointError) {
+          console.warn('Error checking pending registration', checkpointError);
+        }
+
+        // Sin registro pendiente → ir al landing normal de auth
+        setInitialRouteName('AuthLanding');
       } catch (error) {
         console.warn('Error reading onboarding flag', error);
         setInitialRouteName('AuthLanding');
       }
     };
 
-    checkOnboarding();
+    initAuthStack();
   }, []);
 
   if (!initialRouteName) {
@@ -79,6 +98,11 @@ export default function AuthStack() {
         name="AuthLanding" 
         component={AuthLandingScreen} 
         options={{ title: 'Bienvenido' }} 
+      />
+      <Stack.Screen
+        name="RegistrationCheckpoint"
+        component={RegistrationCheckpointScreen}
+        options={{ title: 'Continuar registro' }}
       />
       <Stack.Screen 
         name="Login" 

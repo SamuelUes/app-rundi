@@ -15,7 +15,8 @@ import penaltiesService, { DriverPenaltySummary, PayAllPenaltiesResult } from '.
 import cardsService, { Card } from '../../services/cardsService';
 import { maskCardNumber } from '../../utils/cardUtils';
 import BiometricService from '../../services/biometricService';
-import { supabase } from '../../config/supabase';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { initializeFirebase } from '../../config/firebase';
 
 const EMPTY_SUMMARY: DriverPenaltySummary = {
   success: false,
@@ -99,19 +100,19 @@ export default function PayCommissionsScreen({ navigation }: any) {
         }
       } else {
         try {
-          if (user?.id) {
-            await supabase.from('biometric_authentications').insert({
-              ride_id: null,
-              user_id: user.id,
-              user_type: 'driver',
-              biometric_type: biometricResult.biometryType || 'biometric',
+          const { app } = await initializeFirebase();
+          if (app) {
+            const functions = getFunctions(app);
+            const createBiometricAuthFn = httpsCallable(functions, 'createBiometricAuthSeq');
+            await createBiometricAuthFn({
+              rideId: null,
+              biometricType: biometricResult.biometryType || 'biometric',
               context: 'commission_payment',
-              success: true,
-              attempt_number: 1,
+              userType: 'driver',
             });
           }
         } catch (logError) {
-          console.error('❌ Error registrando autenticación biométrica en Supabase (commissions):', logError);
+          console.error('❌ Error registrando autenticación biométrica (commissions) vía Cloud Function:', logError);
         }
       }
 

@@ -43,8 +43,16 @@ const DriverPhoneScreen: React.FC<Props> = ({ navigation, route }) => {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
-  const { name, email, phone: initialPhone, password, method, authProvider, googleIdToken } =
-    route.params;
+  const {
+    name,
+    email,
+    phone: initialPhone,
+    password,
+    method,
+    authProvider,
+    googleIdToken,
+    context,
+  } = route.params;
   const countryOptions = useMemo(() => getCountryDialOptions(), []);
   const defaultCountry =
     countryOptions.find((option) => option.code === 'NI') ?? countryOptions[0];
@@ -142,6 +150,7 @@ const DriverPhoneScreen: React.FC<Props> = ({ navigation, route }) => {
         googleIdToken,
         role: 'driver',
         phoneVerified: false,
+        lastStep: 'driverPhone',
       });
 
       navigation.navigate('PhoneVerification', {
@@ -154,6 +163,7 @@ const DriverPhoneScreen: React.FC<Props> = ({ navigation, route }) => {
         googleIdToken,
         role: 'driver',
         phoneVerified: false,
+        context: context || 'register_phone',
       });
     } catch (error: any) {
       console.error('❌ Error enviando código para conductor:', error);

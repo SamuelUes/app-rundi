@@ -32,7 +32,7 @@ type Slide = {
 const slides: Slide[] = [
   {
     id: '1',
-    title: 'Viaja de forma sencillas',
+    title: 'Viaja de forma sencilla',
     subtitle: 'A como desees',
     image: require('../../assets/images/campaña2/ride_2.png'),
   },

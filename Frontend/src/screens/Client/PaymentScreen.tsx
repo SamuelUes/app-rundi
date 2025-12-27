@@ -17,7 +17,6 @@ import { validateAndSaveCard, getCardsList, formatCardNumber, formatExpiryDate, 
 import alertService from '../../services/alertService';
 import sessionService from '../../services/sessionService';
 import BiometricService from '../../services/biometricService';
-import { supabase } from '../../config/supabase';
 import type { Card as SavedCard } from '../../services/cardsService';
 
 interface PaymentScreenProps {
@@ -362,19 +361,19 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
         }
       } else {
         try {
-          if (user?.id) {
-            await supabase.from('biometric_authentications').insert({
-              ride_id: null,
-              user_id: user.id,
-              user_type: 'client',
-              biometric_type: biometricResult.biometryType || 'biometric',
+          const { app } = await initializeFirebase();
+          if (app) {
+            const functions = getFunctions(app);
+            const createBiometricAuthFn = httpsCallable(functions, 'createBiometricAuthSeq');
+            await createBiometricAuthFn({
+              rideId,
+              biometricType: biometricResult.biometryType || 'biometric',
               context: 'card_payment_confirmation',
-              success: true,
-              attempt_number: 1,
+              userType: 'client',
             });
           }
         } catch (logError) {
-          console.error('❌ Error registrando autenticación biométrica en Supabase (card):', logError);
+          console.error('❌ Error registrando autenticación biométrica (card) vía Cloud Function:', logError);
         }
       }
 

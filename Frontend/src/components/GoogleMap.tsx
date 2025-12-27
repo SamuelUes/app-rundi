@@ -205,11 +205,11 @@ const markerStyles = StyleSheet.create({
   },
   driverBubbleAvatar: {
     position: 'absolute',
-    top: 8,
-    left: 8,
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    top: 6,
+    left: 6,
+    width: 52,
+    height: 52,
+    borderRadius: 14,
     borderWidth: 2,
     borderColor: '#fff',
     overflow: 'hidden',
@@ -232,11 +232,13 @@ const markerStyles = StyleSheet.create({
   },
   driverRatingBadge: {
     position: 'absolute',
-    top: -10,
+    top: -16,
+    left: '50%',
+    transform: [{ translateX: -18 }],
     backgroundColor: '#F59E0B',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.08)',
   },
@@ -244,6 +246,37 @@ const markerStyles = StyleSheet.create({
     color: '#fff',
     fontWeight: '700',
     fontSize: 11,
+  },
+  driverSelectedOverlay: {
+    position: 'absolute',
+    bottom: 46,
+    left: '50%',
+    transform: [{ translateX: -32 }],
+    width: 64,
+    height: 72,
+    alignItems: 'center',
+  },
+  driverBubbleVehicleContainer: {
+    position: 'absolute',
+    bottom: -10,
+    left: '50%',
+    transform: [{ translateX: -22 }],
+    width: 44,
+    height: 24,
+    borderRadius: 8,
+    backgroundColor: '#D39838',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  driverBubbleVehicleImage: {
+    width: 40,
+    height: 20,
+    resizeMode: 'contain',
   },
   requestWrapper: {
     alignItems: 'center',
@@ -528,10 +561,12 @@ export default function GoogleMap({
   const [selectedRideRequestId, setSelectedRideRequestId] = useState<string | null>(null);
   const lastFitSignatureRef = useRef<string>('');
   const effectiveUserLocation = useMemo(() => {
+    // Si explícitamente no se debe mostrar la ubicación del usuario, no retornamos nada
+    if (!showUserLocation) return null;
     if (isValidCoord(userLocation)) return toLatLng(userLocation);
     if (isValidCoord(clientMarker)) return toLatLng(clientMarker);
     return null;
-  }, [userLocation, clientMarker]);
+  }, [showUserLocation, userLocation, clientMarker]);
   const resolvedMapStyle = useMemo(() => {
     if (Array.isArray(customMapStyle) && customMapStyle.length > 0) {
       return customMapStyle;
@@ -666,12 +701,12 @@ export default function GoogleMap({
   }, [effectiveMarkerPosition]);
 
   const shouldShowUserMarker = useMemo(() => {
-    if (!effectiveUserLocation) return false;
+    if (!showUserLocation || !effectiveUserLocation) return false;
     if (markerPositionLatLng && coordsAreClose(effectiveUserLocation, markerPositionLatLng)) {
       return false;
     }
     return true;
-  }, [effectiveUserLocation, markerPositionLatLng]);
+  }, [showUserLocation, effectiveUserLocation, markerPositionLatLng]);
 
   const normalizeHeading = (value: number): number => {
     if (!Number.isFinite(value)) return 0;
@@ -1090,6 +1125,11 @@ export default function GoogleMap({
       return;
     }
 
+    // No hacer auto-fit mientras el usuario está interactuando con el mapa
+    if (gestureActiveRef.current) {
+      return;
+    }
+
     if (markersToFit.length === 0 || selectedRideRequestId) {
       return;
     }
@@ -1358,42 +1398,46 @@ export default function GoogleMap({
               tracksViewChanges={driver.isSelected || !!driver.vehicleIconSource}
               anchor={{ x: 0.5, y: 0.5 }}
               onPress={() => {
-                if (typeof (onDriverPress) === 'function') {
+                if (typeof onDriverPress === 'function') {
                   onDriverPress(driver.id);
                 }
               }}
               flat
             >
               <View style={{ transform: [{ scale: vehicleScale }], overflow: 'visible' }}>
-                {driver.isSelected ? (
-                  <View style={markerStyles.driverBubbleWrapper}>
-                    {!!driver.rating && (
-                      <View style={markerStyles.driverRatingBadge}>
-                        <Text style={markerStyles.driverRatingText}>{driver.rating.toFixed(1)}</Text>
-                      </View>
-                    )}
-                    <Image source={DRIVER_PROFILE_BUBBLE_IMAGE} style={markerStyles.driverBubbleImage} />
-                    <View style={markerStyles.driverBubbleAvatar}>
-                      {driver.photoURL ? (
-                        <Image source={{ uri: driver.photoURL }} style={markerStyles.driverBubbleAvatarImage} />
-                      ) : (
-                        <View style={markerStyles.driverBubbleAvatarFallback}>
-                          <Text style={markerStyles.driverBubbleAvatarFallbackText}>
-                            {driver.id?.charAt(0)?.toUpperCase() ?? 'C'}
-                          </Text>
+                <View style={markerStyles.driverBubbleWrapper}>
+                  {driver.vehicleIconSource ? (
+                    <View style={markerStyles.vehicleIconWrapper}>
+                      <Image source={driver.vehicleIconSource} style={markerStyles.vehicleIconImage} />
+                    </View>
+                  ) : (
+                    <MarkerBubble backgroundColor="#1565C0" size="medium">
+                      <Text style={markerStyles.driverIcon}>🚗</Text>
+                    </MarkerBubble>
+                  )}
+
+                  {driver.isSelected && (
+                    <View style={markerStyles.driverSelectedOverlay}>
+                      {typeof driver.rating === 'number' && Number.isFinite(driver.rating) && (
+                        <View style={markerStyles.driverRatingBadge}>
+                          <Text style={markerStyles.driverRatingText}>{`⭐ ${driver.rating.toFixed(1)}`}</Text>
                         </View>
                       )}
+                      <Image source={DRIVER_PROFILE_BUBBLE_IMAGE} style={markerStyles.driverBubbleImage} />
+                      <View style={markerStyles.driverBubbleAvatar}>
+                        {driver.photoURL ? (
+                          <Image source={{ uri: driver.photoURL }} style={markerStyles.driverBubbleAvatarImage} />
+                        ) : (
+                          <View style={markerStyles.driverBubbleAvatarFallback}>
+                            <Text style={markerStyles.driverBubbleAvatarFallbackText}>
+                              {driver.id?.charAt(0)?.toUpperCase() ?? 'C'}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
                     </View>
-                  </View>
-                ) : driver.vehicleIconSource ? (
-                  <View style={markerStyles.vehicleIconWrapper}>
-                    <Image source={driver.vehicleIconSource} style={markerStyles.vehicleIconImage} />
-                  </View>
-                ) : (
-                  <MarkerBubble backgroundColor="#1565C0" size="medium">
-                    <Text style={markerStyles.driverIcon}>🚗</Text>
-                  </MarkerBubble>
-                )}
+                  )}
+                </View>
               </View>
             </Marker>
           );

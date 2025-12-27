@@ -607,6 +607,14 @@ export const getDriverPenaltySummary = functions.https.onCall(async (data, conte
     const combinedPendingCount = paymentCount + penaltyCancellationsCount;
     const combinedPendingAmount = Number((paymentAmount + penaltyCancellationsAmount).toFixed(2));
 
+    if (MIGRATION_FLAGS.MIRROR_PENALTIES_TO_RTDB) {
+      try {
+        await updateRealtimeSummary(driverId);
+      } catch (err) {
+        console.warn('⚠️ [getDriverPenaltySummary] No se pudo actualizar resumen en Realtime DB:', err);
+      }
+    }
+
     return {
       success: true,
       driverId,

@@ -12,7 +12,7 @@
           "email": "string",
           "name": "string",
           "phone": "string",
-          "role": "string (client | driver | admin)",
+          "role": "string (client | driver)",
           "profilePhoto": "string | null",
           "driverStatus": "string | null (offline | available | busy)",
           "currentRideId": "string | null",
@@ -46,6 +46,33 @@
           "create": "auth != null && request.auth.uid == userId",
           "update": "auth != null && request.auth.uid == userId",
           "delete": "false"
+        }
+      },
+
+      "cms-users": {
+        "description": "Usuarios del CMS (admins y operadores, separados de usuarios finales)",
+        "document_structure": {
+          "id": "string (Firebase UID)",
+          "email": "string",
+          "name": "string",
+          "role": "string (admin | operator)",
+          "assigned_service_areas": [
+            "string (ID de service_areas asignada al operador)"
+          ],
+          "createdAt": "timestamp",
+          "updatedAt": "timestamp"
+        },
+        "indexes": [
+          {
+            "fields": ["role"],
+            "description": "Listar usuarios del CMS por rol"
+          }
+        ],
+        "security_rules": {
+          "read": "auth != null",
+          "create": "isAdmin() (solo via backend/Admin)",
+          "update": "isAdmin()",
+          "delete": "isAdmin()"
         }
       },
 

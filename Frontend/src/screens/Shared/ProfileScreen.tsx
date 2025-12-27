@@ -7,9 +7,11 @@ import { ProfileSkeleton } from '../../components/SkeletonLoader';
 import Button from '../../components/Button';
 import driversService from '../../services/driversService';
 import LoadingOverlay from '../../components/LoadingOverlay';
+import phoneAuthService from '../../services/auth/phoneAuthService';
+import { fetchDriverProfile } from '../../services/driverProfilesService';
 
 export default function ProfileScreen({ navigation }: any) {
-  const { user, logout, logoutInProgress } = useAuth();
+  const { user, logout, logoutInProgress, userMode, setUserMode } = useAuth();
   const { theme, setTheme, colors, mapTrafficEnabled, setMapTrafficEnabled } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [driverProfile, setDriverProfile] = useState<any>(null);
@@ -18,24 +20,26 @@ export default function ProfileScreen({ navigation }: any) {
   const notificationsEnabled = isFCMAvailable && hasPermission && isConfigured;
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [vibrationEnabled, setVibrationEnabled] = useState(true);
+  const isDriverCapable = user?.role === 'driver' || user?.role === 'designated_driver';
+  const [switchingToDriver, setSwitchingToDriver] = useState(false);
 
-  // Cargar perfil del conductor si es conductor
+  // Cargar perfil del conductor solo cuando el usuario es conductor y está en modo conductor
   useEffect(() => {
     const loadDriverProfile = async () => {
-      if (user?.role === 'driver' && user?.id) {
+      if (isDriverCapable && userMode === 'driver' && user?.id) {
         await loadDriverProfileData();
       }
     };
 
     loadDriverProfile();
-  }, [user]);
+  }, [isDriverCapable, userMode, user]);
 
   const loadDriverProfileData = async () => {
     if (!user?.id) return;
 
     setLoadingProfile(true);
     try {
-      // ✅ Obtener perfil del conductor autenticado
+      // Obtener perfil del conductor autenticado
       const profile = await driversService.getMyDriverProfile();
       console.log('Perfil de conductor cargado:', profile);
       console.log('Datos del vehículo:', profile?.driver?.vehicle);
@@ -72,6 +76,138 @@ export default function ProfileScreen({ navigation }: any) {
 
   const handleThemeChange = (value: 'light' | 'dark' | 'auto') => {
     setTheme(value);
+  };
+
+  const checkDriverApprovalForModeSwitch = async (driverId: string) => {
+    try {
+      const profile = await fetchDriverProfile(driverId, { forceRefresh: true });
+      if (!profile) {
+        return null;
+      }
+
+      const rawAccountStatus = String(
+        (profile as any)?.account_status || (profile as any)?.status || '',
+      ).toLowerCase();
+
+      const accountActive = ['active', 'verified', 'approved'].includes(rawAccountStatus);
+
+      const rawDocumentsStatus = String((profile as any)?.documents_status || '').toLowerCase();
+      const documentsVerified = rawDocumentsStatus === 'verified';
+
+      const vehicles: any[] | undefined = (profile as any)?.vehicles;
+      const hasActiveVehicle = Array.isArray(vehicles)
+        ? vehicles.some((v) => v && (v.isActive === true || (v as any).is_active === true))
+        : false;
+
+      return {
+        allowed: accountActive && documentsVerified && hasActiveVehicle,
+        accountActive,
+        documentsVerified,
+        hasActiveVehicle,
+      };
+    } catch (error) {
+      console.error('Error verificando aprobación de conductor desde perfil:', error);
+      return null;
+    }
+  };
+
+  const handleUpgradeToDriver = async () => {
+    if (!user) {
+      return;
+    }
+
+    if (user.role !== 'client') {
+      Alert.alert(
+        'No disponible',
+        'Solo las cuentas de cliente pueden iniciar el registro como conductor desde aquí.',
+      );
+      return;
+    }
+
+    const name = user.name || '';
+    const email = user.email || '';
+    const phone = user.phone || '';
+    const normalizedPhone = phone.trim();
+
+    try {
+      if (normalizedPhone) {
+        await phoneAuthService.sendVerificationCode(normalizedPhone);
+
+        navigation.navigate('PhoneVerification', {
+          name,
+          email,
+          phone: normalizedPhone,
+          password: undefined,
+          method: 'phone',
+          authProvider: 'phone',
+          googleIdToken: undefined,
+          role: 'driver',
+          phoneVerified: false,
+          context: 'register_upgrade_driver',
+        });
+      } else {
+        navigation.navigate('DriverPhone', {
+          name,
+          email,
+          phone: undefined,
+          password: undefined,
+          method: 'phone',
+          authProvider: 'phone',
+          googleIdToken: undefined,
+          context: 'register_upgrade_driver',
+        });
+      }
+    } catch (error: any) {
+      console.error('Error al enviar código SMS para upgrade a conductor desde perfil:', error);
+      Alert.alert(
+        'Error',
+        error?.message || 'No se pudo enviar el código SMS. Intenta nuevamente.',
+      );
+    }
+  };
+
+  const handleSwitchToDriverMode = async () => {
+    if (!user || switchingToDriver) {
+      return;
+    }
+
+    if (!isDriverCapable) {
+      await handleUpgradeToDriver();
+      return;
+    }
+
+    try {
+      setSwitchingToDriver(true);
+
+      const approval = user.id ? await checkDriverApprovalForModeSwitch(user.id) : null;
+
+      if (approval && !approval.allowed) {
+        const reasons: string[] = [];
+
+        if (!approval.accountActive) {
+          reasons.push('• Tu cuenta de conductor aún no está activa.');
+        }
+        if (!approval.documentsVerified) {
+          reasons.push('• Tus documentos de conductor están pendientes o fueron rechazados.');
+        }
+        if (!approval.hasActiveVehicle) {
+          reasons.push('• No tienes ningún vehículo activo aprobado.');
+        }
+
+        Alert.alert(
+          'No puedes usar modo conductor',
+          `${reasons.join('\n')}\n\nRevisa tus documentos y vehículos para completar la aprobación.`,
+        );
+        return;
+      }
+
+      await setUserMode('driver');
+    } catch (error: any) {
+      console.error('Error cambiando a modo conductor desde perfil:', error);
+      Alert.alert('Error', 'No se pudo cambiar al modo conductor. Intenta nuevamente.');
+    } finally {
+      setSwitchingToDriver(false);
+    }
   };
 
   const handleLogout = () => {
@@ -111,7 +247,15 @@ export default function ProfileScreen({ navigation }: any) {
         <View style={styles.headerTopRow}>
           <TouchableOpacity
             style={styles.backButton}
-            onPress={() => navigation.goBack()}
+            onPress={() => {
+              if (navigation.canGoBack && navigation.canGoBack()) {
+                navigation.goBack();
+              } else if (userMode === 'driver') {
+                navigation.navigate('DriverHome');
+              } else {
+                navigation.navigate('ClientHome');
+              }
+            }}
           >
             <Image
               source={require('../../assets/icons/back_button/back_button.png')}
@@ -151,8 +295,36 @@ export default function ProfileScreen({ navigation }: any) {
         </View>
       </View>
       <View style={styles.contentCard}>
-        {/* Información del Vehículo (solo conductores) */}
-        {user.role === 'driver' && (
+        {userMode === 'client' && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>
+              {isDriverCapable ? 'Modo de uso' : 'Conduce con Rundi'}
+            </Text>
+            <View style={styles.optionCard}>
+              <View style={styles.modeUseTextContainer}>
+                <Text style={styles.optionText}>
+                  {isDriverCapable
+                    ? 'Cambia a la vista de conductor para recibir viajes.'
+                    : 'Regístrate como conductor y empieza a recibir viajes.'}
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={[
+                  styles.modeUseButton,
+                  switchingToDriver ? styles.modeUseButtonDisabled : null,
+                ]}
+                onPress={isDriverCapable ? handleSwitchToDriverMode : handleUpgradeToDriver}
+                disabled={switchingToDriver}
+              >
+                <Text style={styles.modeUseButtonText}>
+                  {isDriverCapable ? 'Usar como conductor' : 'Quiero ser conductor'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+        {/* Información del Vehículo (solo modo conductor) */}
+        {false && userMode === 'driver' && isDriverCapable && (
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>🚗 Información del Vehículo</Text>
@@ -757,6 +929,26 @@ const createStyles = (colors: any) => StyleSheet.create({
     color: '#fff',
     fontSize: 12,
     fontWeight: '600',
+  },
+  modeUseTextContainer: {
+    flex: 1,
+    paddingRight: 16,
+  },
+  modeUseButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.primary,
+  },
+  modeUseButtonDisabled: {
+    opacity: 0.7,
+  },
+  modeUseButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.primary,
   },
   optionCard: {
     paddingVertical: 24,

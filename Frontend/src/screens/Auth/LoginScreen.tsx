@@ -316,7 +316,7 @@ export default function LoginScreen({ navigation }: any) {
 
             <TouchableOpacity
               style={styles.registerButton}
-              onPress={() => navigation.navigate('RegisterNew')}
+              onPress={() => navigation.navigate('RegistrationCheckpoint')}
               disabled={loading || googleLoading}
             >
               <Text style={styles.registerButtonText}>

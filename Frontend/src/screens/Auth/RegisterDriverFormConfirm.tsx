@@ -51,6 +51,7 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
     driverData,
     vehicleData,
     googleIdToken,
+    context,
   } = route.params;
 
   const [loading, setLoading] = useState(false);
@@ -63,6 +64,29 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
 
     setLoading(true);
     try {
+      const registrationContext: 'register_driver' | 'register_upgrade_driver' =
+        context === 'register_upgrade_driver' ? 'register_upgrade_driver' : 'register_driver';
+
+      if (registrationContext === 'register_upgrade_driver') {
+        console.log('📝 Iniciando upgrade de cliente a conductor...');
+
+        if (!driverData || !vehicleData) {
+          throw new Error('Faltan datos de conductor o vehículo para completar la actualización.');
+        }
+
+        const result = await registrationService.upgradeClientToDriver(driverData, vehicleData);
+
+        console.log('✅ Upgrade cliente→conductor completado:', result);
+
+        Alert.alert(
+          '✅ Datos enviados',
+          'Hemos recibido tu información de conductor. Revisaremos tus documentos y te avisaremos cuando tu cuenta esté lista.',
+        );
+
+        navigation.goBack();
+        return;
+      }
+
       console.log('📝 Creando usuario...');
 
       // Crear usuario

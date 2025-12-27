@@ -9,10 +9,15 @@ import { fetchDriverProfile } from '../services/driverProfilesService';
  * Esto asegura que otras pantallas (cliente/driver) puedan consumir la data normalizada.
  */
 export function useDriverProfileSync() {
-  const { user } = useAuth();
+  const { user, userMode } = useAuth();
 
   useEffect(() => {
-    if (!user?.id || user.role !== 'driver') {
+    const isDriverCapable = user?.role === 'driver' || user?.role === 'designated_driver';
+
+    // Solo sincronizar cuando el usuario es conductor (o designated_driver)
+    // y el modo activo de la app es "driver". Esto asegura que al cambiar
+    // de cliente -> conductor se vuelva a poblar driversInfo.
+    if (!user?.id || !isDriverCapable || userMode !== 'driver') {
       return;
     }
 
@@ -20,7 +25,7 @@ export function useDriverProfileSync() {
 
     const syncProfile = async () => {
       try {
-        const profile = await fetchDriverProfile(user.id);
+        const profile = await fetchDriverProfile(user.id, { forceRefresh: true });
         if (!profile || cancelled) {
           return;
         }
@@ -118,7 +123,7 @@ export function useDriverProfileSync() {
     return () => {
       cancelled = true;
     };
-  }, [user?.id, user?.role]);
+  }, [user?.id, user?.role, userMode]);
 
   return null;
 }

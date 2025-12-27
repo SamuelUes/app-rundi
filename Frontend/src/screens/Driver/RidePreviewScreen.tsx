@@ -16,6 +16,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  Modal,
 } from 'react-native';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -60,6 +61,8 @@ interface RidePreviewData {
   driverOfferStatus?: string | null;
   paymentMethod?: 'cash' | 'card';
   negotiationStatus?: string | null;
+  rideType?: string | null;
+  clientVehiclePhoto?: string | null;
 }
 
 interface RidePreviewParams {
@@ -77,7 +80,7 @@ export default function RidePreviewScreen() {
   const { user } = useAuth();
   const { settings: voiceSettings, speak: speakVoice, stopCategory: stopVoiceCategory } = useVoiceAssistant();
 
-  const { ride } = route.params;
+  const { ride } = route.params as RidePreviewParams;
   const initialNearby = (route.params as RidePreviewParams)?.nearbyRides || [];
   const [rideData, setRideData] = useState<RidePreviewData>(ride);
   const [activeRideGuard, setActiveRideGuard] = useState<string | null>(null);
@@ -91,6 +94,7 @@ export default function RidePreviewScreen() {
   const [acceptingRide, setAcceptingRide] = useState(false);
   const [isRejectingRide, setIsRejectingRide] = useState(false);
   const [clientProfile, setClientProfile] = useState<ClientProfile | null>(null);
+  const [photoModalUrl, setPhotoModalUrl] = useState<string | null>(ride.clientVehiclePhoto || null);
   const currentRide = rideData;
   const markDismissed = useCallback(async () => {
     try {
@@ -212,6 +216,11 @@ export default function RidePreviewScreen() {
   const resolvedClientPhone = useMemo(
     () => clientProfile?.phone || currentRide.clientPhone || null,
     [clientProfile?.phone, currentRide.clientPhone]
+  );
+
+  const isDesignatedRide = useMemo(
+    () => (currentRide.rideType || '').toLowerCase() === 'designated_driver',
+    [currentRide.rideType]
   );
 
   const totalDistanceKm = useMemo(() => {
@@ -448,6 +457,8 @@ export default function RidePreviewScreen() {
         paymentMethod: data.paymentMethod || prev.paymentMethod,
         clientName: data.clientName || prev.clientName,
         clientPhone: data.clientPhone || prev.clientPhone,
+        clientVehiclePhoto: data.clientVehiclePhoto ?? prev.clientVehiclePhoto ?? null,
+        rideType: data.rideType || prev.rideType || null,
       }));
 
       if (!counterOfferTouched && typeof updatedDriverOfferedPrice === 'number') {
@@ -972,7 +983,14 @@ export default function RidePreviewScreen() {
                       </TouchableOpacity>
                     ))}
                   </View>
-
+            {isDesignatedRide && currentRide.clientVehiclePhoto ? (
+              <TouchableOpacity
+                style={[styles.iconButton, styles.vehiclePhotoButton, { backgroundColor: 'rgba(115,230,173,0.25)' }]}
+                onPress={() => setPhotoModalUrl(currentRide.clientVehiclePhoto || null)}
+              >
+                <Text style={[styles.iconText, { color: '#FFFFFF' }]}>🚗</Text>
+              </TouchableOpacity>
+            ) : null}
                 </View>
               </>
             )}
@@ -1138,7 +1156,8 @@ export default function RidePreviewScreen() {
             <Text style={[styles.clientNameText, { color: colors.text }]} numberOfLines={1}>
               {resolvedClientName}
             </Text>
-            <Text style={[styles.clientMetaText, { color: colors.textSecondary }]}>
+            <Text style={[styles.clientMetaText, { color: colors.textSecondary }]}
+            >
               Precio estimado: {formatCurrency(currentRide.estimatedPrice)}
             </Text>
           </View>
@@ -1165,6 +1184,7 @@ export default function RidePreviewScreen() {
             >
               <Text style={styles.iconText}>📞</Text>
             </TouchableOpacity>
+
           </View>
         </View>
 
@@ -1227,6 +1247,30 @@ export default function RidePreviewScreen() {
           </AnimatedTouchableOpacity>
         </View>
       </View>
+
+      <Modal
+        visible={!!photoModalUrl}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPhotoModalUrl(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: isDark ? '#1F1F1F' : '#FFFFFF' }]}
+          >
+            <Image
+              source={{ uri: photoModalUrl || undefined }}
+              style={styles.modalImage}
+              resizeMode="contain"
+            />
+            <TouchableOpacity
+              style={[styles.closeModalButton, { backgroundColor: colors.primary }]}
+              onPress={() => setPhotoModalUrl(null)}
+            >
+              <Text style={styles.closeModalText}>Cerrar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1384,15 +1428,19 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   iconButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
+    marginLeft: 12,
+  },
+  vehiclePhotoButton: {
+    width: 48,
+    height: 40,
   },
   iconText: {
-    fontSize: 20,
+    fontSize: 18,
   },
   collapsibleContainer: {
     overflow: 'hidden',
@@ -1560,10 +1608,42 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
   },
   actionButtonText: {
-    color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '700',
+    color: '#0D0D0D',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+  },
+  modalContent: {
+    width: '100%',
+    borderRadius: 16,
+    padding: 16,
+    alignItems: 'center',
+  },
+  modalImage: {
+    width: '100%',
+    height: 340,
+    borderRadius: 12,
+    marginBottom: 16,
+    backgroundColor: '#000',
+  },
+  closeModalButton: {
+    borderRadius: 24,
+    paddingHorizontal: 28,
+    paddingVertical: 12,
+  },
+  closeModalText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 16,
   },
 });

@@ -15,7 +15,6 @@ import { getFunctions, httpsCallable } from 'firebase/functions';
 import { getDatabase, ref, update, onValue, off } from 'firebase/database';
 import { initializeFirebase } from '../../config/firebase';
 import BiometricService from '../../services/biometricService';
-import { supabase } from '../../config/supabase';
 import sessionService from '../../services/sessionService';
 
 interface ConfirmCashPaymentScreenProps {
@@ -101,17 +100,6 @@ export default function ConfirmCashPaymentScreen({ route, navigation }: ConfirmC
         Alert.alert('Error', result.error || 'Autenticación fallida');
         return;
       }
-
-      // Guardar en Supabase
-      await supabase.from('biometric_authentications').insert({
-        ride_id: rideId,
-        user_id: 'driver_id', // TODO: obtener del contexto
-        user_type: 'driver',
-        biometric_type: 'fingerprint',
-        context: 'payment_confirmation',
-        success: true,
-        attempt_number: 1,
-      });
 
       // Actualizar Firebase
       const { app } = await initializeFirebase();

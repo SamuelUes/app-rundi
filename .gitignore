@@ -86,6 +86,8 @@ storage.rules
 !Frontend/.env
 tests/
 web/
+web/page
+web/functions
 web/page/.next
 
 # Permitidos

@@ -1,6 +1,7 @@
 import { getFirebaseFunctions } from '../config/firebase';
 import { httpsCallable } from 'firebase/functions';
 import sessionService from './sessionService';
+import analyticsService, { AnalyticsEvents } from './analyticsService';
 
 export interface Location {
   latitude: number;
@@ -38,6 +39,7 @@ export interface RequestRideData {
   notes?: string;
   paymentMethod?: 'cash' | 'card'; // Método de pago: cash (efectivo) o card (bancos nacionales)
   serviceId?: string; // ✅ NUEVO: ID del servicio (normal, motorcycle, night, designated_driver)
+  designatedDriverVehicle?: 'auto' | 'moto';
 }
 
 export interface AcceptRideData {
@@ -118,6 +120,7 @@ export interface Ride {
   passengers?: number;
   rideType?: string;
   vehicleType?: string;
+  designatedDriverVehicle?: 'auto' | 'moto';
   paymentType?: string;
   estimatedPrice?: number;
   estimatedFare?: number;
@@ -309,6 +312,7 @@ const normalizeRide = (raw: any): Ride => {
     passengers: raw?.passengers !== undefined ? Number(raw.passengers) : undefined,
     rideType: raw?.rideType ?? raw?.ride_type ?? undefined,
     vehicleType: raw?.vehicleType ?? raw?.vehicle_type ?? undefined,
+    designatedDriverVehicle: raw?.designatedDriverVehicle ?? raw?.designated_driver_vehicle ?? undefined,
     paymentType: raw?.paymentType ?? raw?.payment_type ?? undefined,
     estimatedPrice: raw?.estimatedPrice !== undefined ? toNumber(raw.estimatedPrice, 0) : (raw?.estimated_price !== undefined ? toNumber(raw.estimated_price, 0) : undefined),
     estimatedFare: raw?.estimatedFare !== undefined ? toNumber(raw.estimatedFare, 0) : undefined,
@@ -398,6 +402,12 @@ class RidesService {
         throw new Error('Respuesta inválida del servidor');
       }
       
+      await analyticsService.logRideEvent(AnalyticsEvents.RIDE_REQUESTED, result.ride.id, {
+        estimatedPrice: data.estimatedPrice,
+        rideType: data.rideType || 'normal',
+        vehicleType: data.vehicleType || 'auto',
+      });
+
       return result.ride;
     } catch (error: any) {
       console.error('Error en requestRide:', error);
@@ -500,7 +510,16 @@ class RidesService {
 
     const deviceId = await sessionService.getDeviceId();
     const response = await cancelRideFunction({ ...payload, deviceId });
-    return response.data as any;
+    const data = response.data as any;
+
+    if (data?.success && data.ride?.id) {
+      await analyticsService.logRideEvent(AnalyticsEvents.RIDE_CANCELED, data.ride.id, {
+        canceledBy: data.canceledBy,
+        reason: reason || null,
+      });
+    }
+
+    return data;
   }
 
   async findAvailableDrivers(location: Location): Promise<Driver[]> {
@@ -573,6 +592,14 @@ class RidesService {
     const deviceId = await sessionService.getDeviceId();
     const response = await acceptRideFunction({ rideId, ...data, deviceId });
     const result = response.data as { success: boolean; ride: any };
+
+    if (result.success && result.ride?.id) {
+      await analyticsService.logRideEvent(AnalyticsEvents.RIDE_ACCEPTED, result.ride.id, {
+        driverId: data.driverId,
+        vehicleId: data.vehicleId,
+      });
+    }
+
     return result.ride;
   }
 
@@ -585,6 +612,7 @@ class RidesService {
     if (!result.success || !result.ride) {
       throw new Error('No se pudo actualizar el estado del viaje');
     }
+    await analyticsService.logRideEvent(AnalyticsEvents.RIDE_DRIVER_ON_ROUTE, rideId);
     return result.ride;
   }
 
@@ -598,6 +626,13 @@ class RidesService {
       deviceId,
     });
     const result = response.data as { success: boolean; ride: any };
+
+    if (result.success && result.ride?.id) {
+      await analyticsService.logRideEvent(AnalyticsEvents.CLIENT_CONFIRMED_DRIVER, result.ride.id, {
+        driverId: selectedDriverId,
+      });
+    }
+
     return result.ride;
   }
 
@@ -609,7 +644,13 @@ class RidesService {
     const functions = await this.getFunctions();
     const rejectRideFunction = httpsCallable(functions, 'rejectRide');
     const response = await rejectRideFunction({ rideId, reason });
-    return response.data as RejectRideResponse;
+    const data = response.data as RejectRideResponse;
+
+    if (data.success) {
+      await analyticsService.logRideEvent(AnalyticsEvents.DRIVER_REJECTED_RIDE, rideId, { reason: reason || null });
+    }
+
+    return data;
   }
 
   async rejectDriver(rideId: string, reason?: string): Promise<void> {
@@ -625,7 +666,9 @@ class RidesService {
       const startRideFunction = httpsCallable(functions, 'startRide');
       const deviceId = await sessionService.getDeviceId();
       const response = await startRideFunction({ rideId, deviceId });
-      return response.data as Ride;
+      const ride = response.data as Ride;
+      await analyticsService.logRideEvent(AnalyticsEvents.RIDE_STARTED, rideId);
+      return ride;
     } else if (status === 'completed' || status === 'pending_payment') {
       // Ambos estados usan completeRide (el backend decide el estado final según el método de pago)
       const completeRideFunction = httpsCallable(functions, 'completeRide');
@@ -640,23 +683,21 @@ class RidesService {
       
       // ✅ NUEVO: Retornar pgRideId junto con el ride
       const data = response.data as any;
-      return {
+      const summary = {
         ...data,
         pgRideId: data.pgRideId,  // ← Extraer pgRideId
         ride: data.ride,
       };
+      await analyticsService.logRideEvent(AnalyticsEvents.RIDE_COMPLETED, rideId, {
+        finalFare: additionalData?.finalFare || 0,
+        pgRideId: data.pgRideId,
+      });
+      return summary;
     }
     
     throw new Error(`Estado no soportado: ${status}`);
   }
 
-  /**
-   * Calcular precio estimado del viaje
-   * @param distanceInMeters - Distancia en metros
-   * @param extraStops - Número de paradas adicionales
-   * @param isDesignatedDriver - Si es servicio de conductor designado (multiplica por 1.5)
-   * @returns Precio calculado por el backend
-   */
   async calculatePrice(distanceInMeters: number, extraStops: number = 0, isDesignatedDriver: boolean = false): Promise<{
     price: number;
     basePrice: number;

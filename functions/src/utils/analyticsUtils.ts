@@ -52,9 +52,11 @@ export const AnalyticsEvents = {
   // Rides
   RIDE_REQUESTED: 'ride_requested',
   RIDE_ACCEPTED: 'ride_accepted',
+  RIDE_DRIVER_ON_ROUTE: 'ride_driver_on_route',
   RIDE_STARTED: 'ride_started',
   RIDE_COMPLETED: 'ride_completed',
   RIDE_CANCELED: 'ride_canceled',
+  CLIENT_CONFIRMED_DRIVER: 'client_confirmed_driver',
   
   // Price Negotiation
   PRICE_SUGGESTED: 'price_suggested',

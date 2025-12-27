@@ -5,8 +5,6 @@
 
 import * as functions from 'firebase-functions';
 import admin from 'firebase-admin';
-import { DriverPenaltyRepository } from '../sequelize/repositories/DriverPenaltyRepository';
-import { PaymentService } from '../sequelize/services/PaymentService';
 
 const db = admin.database();
 
@@ -31,31 +29,34 @@ export const updateStatus = functions.https.onCall(async (data, context) => {
 
     console.log(`📍 [updateStatus] Actualizando estado del conductor: ${driverId} -> ${status}`);
 
-    // ✅ Actualizado: Bloqueo si tiene 10 o más comisiones/penalizaciones pendientes en total
+    // ✅ Actualizado: Bloqueo basado en MONTO pendiente usando el summary de RTDB (mismo criterio que el frontend)
     try {
       const requested = String(status || '').toLowerCase();
       if (requested === 'available') {
-        const penaltyRepo = new DriverPenaltyRepository();
-        const paymentService = new PaymentService();
+        const snapshot = await db.ref(`driverPenalties/${driverId}/summary`).once('value');
+        const summary = snapshot.val() || {};
 
-        const { total: totalPendingPenalties, commission: commissionPenalties } = await penaltyRepo.getPendingSummary(driverId);
-
-        const excludeRideIds = new Set(
-          commissionPenalties
-            .map((penalty: any) => (penalty.ride_id ? String(penalty.ride_id) : null))
-            .filter((rideId: string | null): rideId is string => Boolean(rideId))
+        const pendingAmount = Number(
+          summary.pendingAmount ??
+            summary.paymentCommissionPendingAmount ??
+            summary.paymentPendingAmount ??
+            summary.penaltyPendingAmount ??
+            0,
         );
 
-        const paymentSummary = await paymentService.getDriverPendingCommissionSummary(driverId, excludeRideIds);
-        const paymentPendingCount = paymentSummary?.count || 0;
+        const PENALTIES_LIMIT_CORDOBAS = 150;
 
-        const totalPending = totalPendingPenalties + paymentPendingCount;
-
-        if (totalPending >= 10) {
-          console.warn(`⛔ [updateStatus] Conductor ${driverId} con ${totalPending} comisiones/penalizaciones pendientes (umbral=10)`);
+        if (Number.isFinite(pendingAmount) && pendingAmount >= PENALTIES_LIMIT_CORDOBAS) {
+          console.warn(
+            `⛔ [updateStatus] Conductor ${driverId} con C$${pendingAmount.toFixed(
+              2,
+            )} en comisiones pendientes (umbral=${PENALTIES_LIMIT_CORDOBAS})`,
+          );
           throw new functions.https.HttpsError(
             'failed-precondition',
-            'No puedes activar disponibilidad: tienes 10 o más comisiones o penalizaciones pendientes. Liquida las comisiones para continuar.'
+            `No puedes activar disponibilidad: tienes C$${pendingAmount.toFixed(
+              2,
+            )} en comisiones pendientes. Liquida las comisiones para continuar.`,
           );
         }
       }

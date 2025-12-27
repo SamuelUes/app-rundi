@@ -64,6 +64,150 @@ const firestore = admin.firestore();
 const allowedRoles = new Set(["client", "driver"]);
 const allowedProviders = new Set(["email/password", "phone", "google"]);
 
+async function upsertDriverAndVehicleInSupabase(
+  userId: string,
+  driverDataInput?: DriverData | null,
+  vehicleDataInput?: VehicleData | null,
+) {
+  const driverDataPayload = driverDataInput || {};
+
+  const existingDrivers: any[] = await supabaseGet(
+    'drivers',
+    { user_id: userId },
+    '*',
+    {
+      requireServiceRole: true,
+      limit: 1,
+    },
+  );
+
+  const hasDriver = Array.isArray(existingDrivers) && existingDrivers.length > 0;
+  const existingDriver = hasDriver ? existingDrivers[0] : null;
+
+  const licenseNumberValue = normalizeString(driverDataPayload.licenseNumber);
+  const licenseExpiryValue = normalizeString(driverDataPayload.licenseExpiry);
+  const departmentValue = normalizeString(driverDataPayload.department);
+  const municipalityValue = normalizeString(driverDataPayload.municipality);
+
+  const baseDriverData: any = {
+    user_id: userId,
+    profile_photo: existingDriver ? existingDriver.profile_photo : null,
+    license_number:
+      licenseNumberValue !== undefined
+        ? licenseNumberValue
+        : existingDriver
+        ? existingDriver.license_number
+        : null,
+    license_expiry:
+      licenseExpiryValue !== undefined
+        ? licenseExpiryValue
+        : existingDriver
+        ? existingDriver.license_expiry
+        : null,
+    license_photo_front: existingDriver ? existingDriver.license_photo_front : null,
+    license_photo_back: existingDriver ? existingDriver.license_photo_back : null,
+    department:
+      departmentValue !== undefined
+        ? departmentValue
+        : existingDriver
+        ? existingDriver.department
+        : null,
+    municipality:
+      municipalityValue !== undefined
+        ? municipalityValue
+        : existingDriver
+        ? existingDriver.municipality
+        : null,
+    account_status:
+      existingDriver && (existingDriver.account_status || existingDriver.status)
+        ? existingDriver.account_status || existingDriver.status
+        : 'pending',
+    documents_status:
+      existingDriver && existingDriver.documents_status
+        ? existingDriver.documents_status
+        : 'pending',
+    verified_at: existingDriver ? existingDriver.verified_at : null,
+    total_rides: existingDriver ? existingDriver.total_rides : 0,
+    average_rating: existingDriver ? existingDriver.average_rating : 5.0,
+    total_earnings: existingDriver ? existingDriver.total_earnings : 0,
+  };
+
+  let driverRow: any = existingDriver;
+
+  if (hasDriver) {
+    const updatedDrivers = await supabaseUpdate('drivers', existingDriver.id, baseDriverData);
+    driverRow =
+      Array.isArray(updatedDrivers) && updatedDrivers.length > 0
+        ? updatedDrivers[0]
+        : existingDriver;
+    functions.logger.info(`✅ Conductor actualizado en Supabase: ${userId}`);
+  } else {
+    const insertedDrivers = await supabasePost('drivers', baseDriverData);
+    driverRow =
+      Array.isArray(insertedDrivers) && insertedDrivers.length > 0
+        ? insertedDrivers[0]
+        : insertedDrivers;
+    functions.logger.info(`✅ Conductor creado en Supabase: ${userId}`);
+  }
+
+  const driverIdForVehicle: string | undefined = driverRow?.id;
+
+  if (driverIdForVehicle && vehicleDataInput) {
+    const vehiclePayload: any = vehicleDataInput || {};
+
+    const existingVehicles: any[] = await supabaseGet(
+      'vehicles',
+      { driver_id: driverIdForVehicle },
+      'id,plate,is_active',
+      {
+        requireServiceRole: true,
+        limit: 10,
+      },
+    );
+
+    const hasVehicles = Array.isArray(existingVehicles) && existingVehicles.length > 0;
+
+    if (!hasVehicles) {
+      const yearValue =
+        typeof vehiclePayload.year === 'number'
+          ? vehiclePayload.year
+          : vehiclePayload.year
+          ? parseInt(String(vehiclePayload.year), 10)
+          : null;
+      const passengersValue =
+        vehiclePayload.passengers !== undefined && vehiclePayload.passengers !== null
+          ? parseInt(String(vehiclePayload.passengers), 10)
+          : null;
+
+      const vehicleSupabaseData: any = {
+        driver_id: driverIdForVehicle,
+        plate: vehiclePayload.plate
+          ? String(vehiclePayload.plate).toUpperCase()
+          : null,
+        brand: vehiclePayload.brand || null,
+        model: vehiclePayload.model || null,
+        year: yearValue,
+        color: vehiclePayload.color || null,
+        type: vehiclePayload.type || null,
+        passengers: passengersValue,
+        is_active: false,
+      };
+
+      const insertedVehicles = await supabasePost('vehicles', vehicleSupabaseData);
+      const vehicleRow =
+        Array.isArray(insertedVehicles) && insertedVehicles.length > 0
+          ? insertedVehicles[0]
+          : insertedVehicles;
+
+      functions.logger.info(
+        `✅ Vehículo inicial creado en Supabase para conductor ${userId}: ${
+          vehicleRow?.id || ''
+        }`,
+      );
+    }
+  }
+}
+
 async function getOrCreateUserByEmail(
   email: string,
   createRequest: admin.auth.CreateRequest
@@ -320,151 +464,11 @@ async function handleRegister(payload: RegisterPayload): Promise<RegisterResult>
 
   await userRef.set(dataToSave, { merge: true });
 
-  // Si es conductor, crear registro en Supabase
   if (role === "driver") {
     try {
-      const existingDrivers: any[] = await supabaseGet(
-        'drivers',
-        { user_id: userRecord.uid },
-        '*',
-        {
-          requireServiceRole: true,
-          limit: 1,
-        },
-      );
-
-      const hasDriver = Array.isArray(existingDrivers) && existingDrivers.length > 0;
-      const existingDriver = hasDriver ? existingDrivers[0] : null;
-
-      const driverDataPayload = payload.driverData || {};
-      const licenseNumberValue = normalizeString(driverDataPayload.licenseNumber);
-      const licenseExpiryValue = normalizeString(driverDataPayload.licenseExpiry);
-      const departmentValue = normalizeString(driverDataPayload.department);
-      const municipalityValue = normalizeString(driverDataPayload.municipality);
-
-      const baseDriverData: any = {
-        user_id: userRecord.uid,
-        profile_photo: existingDriver ? existingDriver.profile_photo : null,
-        license_number:
-          licenseNumberValue !== undefined
-            ? licenseNumberValue
-            : existingDriver
-            ? existingDriver.license_number
-            : null,
-        license_expiry:
-          licenseExpiryValue !== undefined
-            ? licenseExpiryValue
-            : existingDriver
-            ? existingDriver.license_expiry
-            : null,
-        license_photo_front: existingDriver ? existingDriver.license_photo_front : null,
-        license_photo_back: existingDriver ? existingDriver.license_photo_back : null,
-        department:
-          departmentValue !== undefined
-            ? departmentValue
-            : existingDriver
-            ? existingDriver.department
-            : null,
-        municipality:
-          municipalityValue !== undefined
-            ? municipalityValue
-            : existingDriver
-            ? existingDriver.municipality
-            : null,
-        account_status:
-          existingDriver && (existingDriver.account_status || existingDriver.status)
-            ? existingDriver.account_status || existingDriver.status
-            : 'pending',
-        documents_status:
-          existingDriver && existingDriver.documents_status
-            ? existingDriver.documents_status
-            : 'pending',
-        verified_at: existingDriver ? existingDriver.verified_at : null,
-        total_rides: existingDriver ? existingDriver.total_rides : 0,
-        average_rating: existingDriver ? existingDriver.average_rating : 5.0,
-        total_earnings: existingDriver ? existingDriver.total_earnings : 0,
-      };
-
-      let driverRow: any = existingDriver;
-
-      if (hasDriver) {
-        const updatedDrivers = await supabaseUpdate('drivers', existingDriver.id, baseDriverData);
-        driverRow =
-          Array.isArray(updatedDrivers) && updatedDrivers.length > 0
-            ? updatedDrivers[0]
-            : existingDriver;
-        functions.logger.info(`✅ Conductor actualizado en Supabase: ${userRecord.uid}`);
-      } else {
-        const insertedDrivers = await supabasePost('drivers', baseDriverData);
-        driverRow =
-          Array.isArray(insertedDrivers) && insertedDrivers.length > 0
-            ? insertedDrivers[0]
-            : insertedDrivers;
-        functions.logger.info(`✅ Conductor creado en Supabase: ${userRecord.uid}`);
-      }
-
-      const driverIdForVehicle: string | undefined = driverRow?.id;
-
-      if (driverIdForVehicle && payload.vehicleData) {
-        try {
-          const existingVehicles: any[] = await supabaseGet(
-            'vehicles',
-            { driver_id: driverIdForVehicle },
-            'id,plate,is_active',
-            {
-              requireServiceRole: true,
-              limit: 10,
-            },
-          );
-
-          const hasVehicles = Array.isArray(existingVehicles) && existingVehicles.length > 0;
-
-          if (!hasVehicles) {
-            const vehiclePayload: any = payload.vehicleData || {};
-            const yearValue =
-              typeof vehiclePayload.year === 'number'
-                ? vehiclePayload.year
-                : vehiclePayload.year
-                ? parseInt(String(vehiclePayload.year), 10)
-                : null;
-            const passengersValue =
-              vehiclePayload.passengers !== undefined && vehiclePayload.passengers !== null
-                ? parseInt(String(vehiclePayload.passengers), 10)
-                : null;
-
-            const vehicleSupabaseData: any = {
-              driver_id: driverIdForVehicle,
-              plate: vehiclePayload.plate
-                ? String(vehiclePayload.plate).toUpperCase()
-                : null,
-              brand: vehiclePayload.brand || null,
-              model: vehiclePayload.model || null,
-              year: yearValue,
-              color: vehiclePayload.color || null,
-              type: vehiclePayload.type || null,
-              passengers: passengersValue,
-              is_active: false,
-            };
-
-            const insertedVehicles = await supabasePost('vehicles', vehicleSupabaseData);
-            const vehicleRow =
-              Array.isArray(insertedVehicles) && insertedVehicles.length > 0
-                ? insertedVehicles[0]
-                : insertedVehicles;
-
-            functions.logger.info(
-              `✅ Vehículo inicial creado en Supabase para conductor ${userRecord.uid}: ${
-                vehicleRow?.id || ''
-              }`,
-            );
-          }
-        } catch (vehicleError: any) {
-          functions.logger.error('❌ Error creando vehículo inicial en Supabase:', vehicleError);
-        }
-      }
+      await upsertDriverAndVehicleInSupabase(userRecord.uid, payload.driverData, payload.vehicleData);
     } catch (supabaseError: any) {
       functions.logger.error('❌ Error gestionando conductor en Supabase:', supabaseError);
-      // No lanzar error, el usuario ya fue creado en Firebase
     }
   }
 
@@ -725,4 +729,99 @@ export const hasVerifiedRegisterPhoneLog = functions
         error?.message || 'No se pudo verificar el estado de verificación del teléfono'
       );
     }
+  });
+
+export const upgradeClientToDriver = functions
+  .region('us-central1')
+  .https.onCall(async (data, context) => {
+    if (!context.auth?.uid) {
+      throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
+    }
+
+    const uid = context.auth.uid;
+
+    const driverData = (data?.driverData as DriverData | undefined) || undefined;
+    const vehicleData = (data?.vehicleData as VehicleData | undefined) || undefined;
+
+    if (!driverData || !vehicleData) {
+      throw new functions.https.HttpsError(
+        'invalid-argument',
+        'driverData y vehicleData son requeridos para actualizar el perfil de conductor',
+      );
+    }
+
+    try {
+      const logs: any[] = await supabaseGet(
+        'sms_verification_codes',
+        {
+          user_id: uid,
+          context: 'register_upgrade_driver',
+          verified: true,
+        },
+        'id,user_id,phone_number,verified,verified_at,created_at',
+        {
+          requireServiceRole: true,
+          limit: 1,
+        },
+      );
+
+      const hasVerified = Array.isArray(logs) && logs.length > 0;
+
+      if (!hasVerified) {
+        throw new functions.https.HttpsError(
+          'failed-precondition',
+          'PHONE_VERIFICATION_REQUIRED',
+        );
+      }
+    } catch (error: any) {
+      if (error instanceof functions.https.HttpsError) {
+        throw error;
+      }
+      functions.logger.error('❌ Error verificando logs de SMS para upgradeClientToDriver:', error);
+      throw new functions.https.HttpsError(
+        'internal',
+        error?.message || 'No se pudo verificar el estado de verificación del teléfono',
+      );
+    }
+
+    const userRef = firestore.collection('users').doc(uid);
+    const userSnap = await userRef.get();
+
+    if (!userSnap.exists) {
+      throw new functions.https.HttpsError(
+        'failed-precondition',
+        'USER_DOCUMENT_NOT_FOUND',
+      );
+    }
+
+    const userData = userSnap.data() || {};
+    const previousRole = typeof userData.role === 'string' ? String(userData.role) : 'client';
+
+    const newData: FirebaseFirestore.DocumentData = {
+      role: 'driver',
+      driverData,
+      vehicleData,
+      updatedAt: FieldValue.serverTimestamp(),
+    };
+
+    if (!userData.driverStatus) {
+      newData.driverStatus = 'pending';
+    }
+
+    await userRef.set(newData, { merge: true });
+
+    try {
+      await upsertDriverAndVehicleInSupabase(uid, driverData, vehicleData);
+    } catch (supabaseError: any) {
+      functions.logger.error('❌ Error gestionando conductor en Supabase (upgradeClientToDriver):', supabaseError);
+    }
+
+    return {
+      success: true,
+      user: {
+        id: uid,
+        previousRole,
+        role: 'driver',
+      },
+    };
   });

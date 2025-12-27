@@ -399,21 +399,22 @@ async function handleLocationForProximity(
 
     const overlayEnabled = await getOverlayEnabled();
     console.log('🔍 [proximity] overlayEnabled:', overlayEnabled);
-    
-    const nearby = await getNearbyRides(lat, lng, undefined as any, 3, userId);
+
+    const maxNearbyDistanceMeters = NEARBY_RIDES_RADIUS_KM * 1000;
+    const nearby = await getNearbyRides(lat, lng, maxNearbyDistanceMeters, 3, userId);
     console.log('🔍 [proximity] nearby rides found:', nearby?.length || 0);
-    
+
     if (!nearby || nearby.length === 0) {
       console.log('⚠️ [proximity] No hay viajes cercanos');
-      
+
       // Siempre guardar fallback para que se muestre cuando la app se minimice
       await saveOverlayPayload(createFallbackOverlayPayload());
-      
+
       // Si la app está en foreground, ocultar la burbuja
       if (overlayEnabled && effectiveAppState === 'active') {
         await hideOverlayBubble('noNearbyRides');
       }
-      
+
       await markCheck(false);
       return;
     }
@@ -424,15 +425,15 @@ async function handleLocationForProximity(
 
     if (availableRides.length === 0) {
       console.log('⚠️ [proximity] Todas las solicitudes disponibles fueron rechazadas recientemente.');
-      
+
       // Siempre guardar fallback para que se muestre cuando la app se minimice
       await saveOverlayPayload(createFallbackOverlayPayload());
-      
+
       // Si la app está en foreground, ocultar la burbuja
       if (overlayEnabled && effectiveAppState === 'active') {
         await hideOverlayBubble('allRidesDismissed');
       }
-      
+
       await markCheck(false);
       return;
     }
@@ -475,7 +476,7 @@ async function handleLocationForProximity(
       }
       await AsyncStorage.setItem(STORAGE_KEYS.lastRideId, closest.id);
       await AsyncStorage.setItem(STORAGE_KEYS.lastShownAt, String(Date.now()));
-      
+
       // Guardar payload del viaje actual para cuando la app se minimice
       const overlayPayload: OverlayPayload = {
         rideId: closest.id,
@@ -484,7 +485,7 @@ async function handleLocationForProximity(
         clientName: clientDisplayName,
       };
       await saveOverlayPayload(overlayPayload);
-      
+
       // Ocultar burbuja si está mostrándose (app en foreground)
       if (overlayEnabled) {
         await hideOverlayBubble('foregroundRideNavigation');
@@ -498,10 +499,10 @@ async function handleLocationForProximity(
         price: closestPrice,
         clientName: clientDisplayName,
       });
-      
+
       const distance = Math.max(1, Math.round((closest.distanceMeters || 0)));
       const price = Math.round(closest.estimatedPrice || 0);
-      
+
       // 1. Notificación local (administrada con auto-dismiss)
       try {
         console.log('🔔 [proximity] ANTES de showManagedNotification...');
@@ -517,7 +518,7 @@ async function handleLocationForProximity(
         console.error('❌ [proximity] Error mostrando notificación:', error);
         console.error('❌ [proximity] Error stack:', error instanceof Error ? error.stack : 'No stack');
       }
-      
+
       await AsyncStorage.setItem(STORAGE_KEYS.lastRideId, closest.id);
 
       const overlayPayload: OverlayPayload = {
@@ -534,7 +535,7 @@ async function handleLocationForProximity(
         console.log('🫧 [proximity] Overlay habilitado - Verificando permiso...');
         const hasPermission = await overlayManager.hasPermission();
         console.log(`🫧 [proximity] hasPermission: ${hasPermission}`);
-        
+
         if (hasPermission) {
           const overlayData = {
             rideId: closest.id,
@@ -545,7 +546,7 @@ async function handleLocationForProximity(
           console.log('🫧 [proximity] Llamando a overlayManager.showRideOverlay con:', overlayData);
           console.log('🫧 [proximity] overlayManager object:', overlayManager);
           console.log('🫧 [proximity] showRideOverlay function:', typeof overlayManager.showRideOverlay);
-          
+
           try {
             console.log('🫧 [proximity] ANTES de await overlayManager.showRideOverlay()');
             const result = await overlayManager.showRideOverlay(overlayData);

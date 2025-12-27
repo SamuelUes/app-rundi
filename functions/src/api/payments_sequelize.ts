@@ -10,10 +10,12 @@
 import * as functions from 'firebase-functions';
 import { PaymentService } from '../sequelize/services/PaymentService';
 import { DriverPenaltyRepository } from '../sequelize/repositories/DriverPenaltyRepository';
+import { BiometricAuthenticationRepository } from '../sequelize/repositories/BiometricAuthenticationRepository';
 import admin from 'firebase-admin';
 import { MIGRATION_FLAGS } from '../config/migration-flags';
 
 const paymentService = new PaymentService();
+const biometricAuthRepo = new BiometricAuthenticationRepository();
 
 // ============================================
 // Single-session enforcement (DENY policy)
@@ -222,6 +224,25 @@ export const confirmCashPayment = functions.https.onCall(async (data, context) =
       }
 
       await db.ref(`paymentStatus/${rideId}`).update(clientUpdatePayload);
+
+      if (authMethod === 'biometric') {
+        try {
+          const userId = context.auth?.uid;
+          if (userId) {
+            await biometricAuthRepo.create({
+              ride_id: rideId,
+              user_id: userId,
+              user_type: 'client',
+              biometric_type: bioType || 'biometric',
+              context: 'cash_payment_confirmation',
+              success: true,
+              attempt_number: 1,
+            });
+          }
+        } catch (bioErr) {
+          console.warn('⚠️ [confirmCashPayment] Error registrando autenticación biométrica:', bioErr);
+        }
+      }
 
       // Actualizar estado del viaje a 'completed' en activeRides
       console.log(`🔄 [confirmCashPayment] Actualizando estado del viaje a 'completed'`);

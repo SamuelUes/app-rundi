@@ -20,8 +20,14 @@ export const RideProgressIndicator: React.FC<RideProgressIndicatorProps> = ({
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
-  // Solo mostrar si el viaje está en progreso
-  if (rideStatus !== 'in_progress') {
+  const normalizedStatus = (rideStatus ?? '').toString().trim().toLowerCase();
+  const isActiveRide =
+    normalizedStatus === 'accepted' ||
+    normalizedStatus === 'driver_on_route' ||
+    normalizedStatus === 'in_progress';
+
+  // Solo mostrar mientras el viaje está activo (aceptado, en camino o en curso)
+  if (!isActiveRide) {
     return null;
   }
 

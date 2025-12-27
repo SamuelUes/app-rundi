@@ -8,11 +8,12 @@ import { ensureActivityRecognitionPermission } from '../utils/activityPermission
  * para habilitar "viaje por aproximación" aún con pantalla apagada.
  */
 export default function useDriverProximityTracking() {
-  const { user } = useAuth();
+  const { user, userMode } = useAuth();
 
   useEffect(() => {
-    if (!user?.id) {
-      // Esperar a que el usuario esté cargado antes de iniciar el tracking
+    const isDriverCapable = user?.role === 'driver' || user?.role === 'designated_driver';
+    if (!user?.id || !isDriverCapable || userMode !== 'driver') {
+      // Esperar a que el usuario esté en modo conductor antes de iniciar el tracking
       return;
     }
 
@@ -22,18 +23,10 @@ export default function useDriverProximityTracking() {
       try {
         console.log('🚀 [useDriverProximityTracking] Inicializando...');
         
-        const role = user.role === 'driver' || user.role === 'designated_driver' ? 'driver' : 'client';
-        console.log(`🚀 [useDriverProximityTracking] Role: ${role}`);
-        
-        if (role !== 'driver') {
-          console.log('ℹ️ [useDriverProximityTracking] No es conductor, saltando');
-          return;
-        }
+        console.log('🚀 [useDriverProximityTracking] Role: driver (modo activo)');
 
-        if (role === 'driver') {
-          console.log('🔐 [useDriverProximityTracking] Solicitando permiso de activity recognition...');
-          await ensureActivityRecognitionPermission();
-        }
+        console.log('🔐 [useDriverProximityTracking] Solicitando permiso de activity recognition...');
+        await ensureActivityRecognitionPermission();
 
         console.log('🔐 [useDriverProximityTracking] Verificando permiso de background location...');
         const hasBackgroundPermission = await checkBackgroundLocationPermission();
@@ -69,5 +62,5 @@ export default function useDriverProximityTracking() {
       console.log('🔇 [useDriverProximityTracking] Hook cleanup');
       // No detenemos tracking para permitir "viaje por aproximación" en background
     };
-  }, [user?.id, user?.role]);
+  }, [user?.id, user?.role, userMode]);
 }
