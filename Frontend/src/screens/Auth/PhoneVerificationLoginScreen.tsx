@@ -32,11 +32,13 @@ import {
 } from '../../utils/phoneUtils';
 import alertService from '../../services/alertService';
 import PhoneDigitInput from '../../components/PhoneDigitInput';
+import { useTranslation } from 'react-i18next';
 
 export default function PhoneVerificationLoginScreen({ navigation, route }: any) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { loginWithPhoneAndSMS } = useAuth();
+  const { t } = useTranslation();
   
   // Datos del login anterior
   const phoneFromRoute = route.params?.phone || '';
@@ -117,14 +119,17 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
 
   const handleVerifyCode = async () => {
     if (!code || code.length !== 6) {
-      Alert.alert('Código incompleto', 'Ingresa un código de 6 dígitos para continuar.');
+      Alert.alert(
+        t('authScreens.phoneVerificationLogin.alerts.codeIncompleteTitle'),
+        t('authScreens.phoneVerificationLogin.alerts.codeIncompleteMessage'),
+      );
       return;
     }
 
     if (attempts >= MAX_ATTEMPTS) {
       Alert.alert(
-        'Demasiados intentos',
-        'Por seguridad hemos bloqueado temporalmente la verificación. Toca "Reenviar Código" para intentarlo de nuevo.'
+        t('authScreens.phoneVerificationLogin.alerts.tooManyAttemptsTitle'),
+        t('authScreens.phoneVerificationLogin.alerts.tooManyAttemptsMessage'),
       );
       return;
     }
@@ -134,7 +139,7 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
       console.log('🔐 Verificando código para login:', code);
 
       if (!normalizedPhone) {
-        throw new Error('Número telefónico inválido. Edita el número y reenvía el código.');
+        throw new Error('NUMBER_INVALID');
       }
 
       const credential = await phoneAuthService.confirmVerificationCode(normalizedPhone, code, {
@@ -143,7 +148,7 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
       const firebaseUser = credential.user;
 
       if (!firebaseUser) {
-        throw new Error('No se pudo obtener el usuario de Firebase');
+        throw new Error('USER_NOT_FOUND');
       }
 
       let userProfile: any = null;
@@ -179,7 +184,10 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
         idToken
       );
 
-      alertService.showSuccessAlert('✅ Éxito', 'Sesión iniciada correctamente', {
+      alertService.showSuccessAlert(
+        t('authScreens.phoneVerificationLogin.alerts.successTitle'),
+        t('authScreens.phoneVerificationLogin.alerts.successMessage'),
+        {
         duration: 2000,
       });
     } catch (error: any) {
@@ -194,19 +202,26 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
         (typeof rawMessage === 'string' && rawMessage.includes('SESSION_ACTIVE_ELSEWHERE'))
       ) {
         alertService.showErrorAlert(
-          'No puedes iniciar sesión porque tu cuenta ya está activa en otro dispositivo. Cierra sesión en el otro teléfono para continuar.',
+          t('authScreens.phoneVerificationLogin.alerts.sessionActiveMessage'),
         );
         setCode('');
         return;
       }
 
-      let message = rawMessage || 'Revisa el SMS y asegúrate de ingresar el último código recibido.';
-      if (typeof message === 'string' && message.includes('Missing or insufficient permissions')) {
-        message =
-          'No pudimos cargar tu perfil por un problema de permisos, pero el código SMS puede ser válido. Intenta nuevamente más tarde o inicia sesión con correo.';
+      let translatedMessage = t('authScreens.phoneVerificationLogin.alerts.genericError');
+      if (rawMessage === 'NUMBER_INVALID') {
+        translatedMessage = t('authScreens.phoneVerificationLogin.alerts.invalidPhoneMessage');
+      } else if (
+        typeof rawMessage === 'string' &&
+        rawMessage.includes('Missing or insufficient permissions')
+      ) {
+        translatedMessage = t('authScreens.phoneVerificationLogin.alerts.permissionsError');
       }
 
-      Alert.alert('No pudimos verificar el código', message);
+      Alert.alert(
+        t('authScreens.phoneVerificationLogin.alerts.verificationErrorTitle'),
+        translatedMessage,
+      );
       setCode('');
     } finally {
       setLoading(false);
@@ -219,7 +234,10 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
       const targetPhone = normalizedPhone || phoneFromRoute;
 
       if (!targetPhone) {
-        Alert.alert('Error', 'Ingresa un número válido antes de reenviar el código.');
+        Alert.alert(
+          t('authScreens.phoneVerificationLogin.alerts.resendErrorTitle'),
+          t('authScreens.phoneVerificationLogin.alerts.invalidPhoneMessage'),
+        );
         return;
       }
 
@@ -230,13 +248,19 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
       const newDisplay = formatPhoneNumber(targetPhone, selectedCountry.dialCode) || targetPhone;
       setDisplayPhone(newDisplay);
 
-      Alert.alert('✅ Código reenviado', `Se envió un nuevo código a ${newDisplay}`);
+      Alert.alert(
+        t('authScreens.phoneVerificationLogin.alerts.resendSuccessTitle'),
+        t('authScreens.phoneVerificationLogin.alerts.resendSuccessMessage', { phone: newDisplay }),
+      );
       setTimeLeft(60);
       setCode('');
       setAttempts(0);
     } catch (error: any) {
       console.error('Error reenviando código:', error);
-      Alert.alert('Error', error.message || 'Error al reenviar código');
+      Alert.alert(
+        t('authScreens.phoneVerificationLogin.alerts.resendErrorTitle'),
+        error.message || t('authScreens.phoneVerificationLogin.alerts.resendErrorMessage'),
+      );
     } finally {
       setResendLoading(false);
     }
@@ -251,34 +275,42 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
         <View style={styles.content}>
           {/* Header */}
           <View style={styles.header}>
-            <Text style={styles.title}>Verificar Número</Text>
+            <Text style={styles.title}>{t('authScreens.phoneVerificationLogin.title')}</Text>
             <Text style={styles.subtitle}>
-              Hemos enviado un código SMS a:
+              {t('authScreens.phoneVerificationLogin.subtitle')}
             </Text>
             <Text style={styles.phoneNumber}>{displayPhone}</Text>
           </View>
 
           {/* Editar Número Telefónico */}
           <View style={styles.phoneEditSection}>
-            <Text style={styles.label}>Editar número (opcional)</Text>
+            <Text style={styles.label}>
+              {t('authScreens.phoneVerificationLogin.editLabel')}
+            </Text>
             <PhoneDigitInput
               selectedCountry={selectedCountry}
               digits={phoneDigits}
               onChangeDigits={handlePhoneDigitsChange}
               disabled={loading}
             />
-            <Text style={styles.phoneFormatHint}>Formato: {selectedCountry.dialCode} XXXX XXXX</Text>
+            <Text style={styles.phoneFormatHint}>
+              {t('authScreens.phoneVerificationLogin.formatHint', {
+                dialCode: selectedCountry.dialCode,
+              })}
+            </Text>
           </View>
 
           {/* Código Input */}
           <View style={styles.codeSection}>
-            <Text style={styles.label}>Código de Verificación (6 dígitos)</Text>
+            <Text style={styles.label}>
+              {t('authScreens.phoneVerificationLogin.codeSectionLabel')}
+            </Text>
             
             {/* Input oculto para capturar el texto */}
             <TextInput
               ref={hiddenInputRef}
               style={styles.hiddenInput}
-              placeholder="000000"
+              placeholder={t('authScreens.phoneVerificationLogin.codePlaceholder')}
               placeholderTextColor={colors.textSecondary}
               value={code}
               onChangeText={(text) => {
@@ -316,7 +348,10 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
           {attempts > 0 && (
             <View style={styles.attemptsWarning}>
               <Text style={styles.attemptsText}>
-                Intentos restantes: {MAX_ATTEMPTS - attempts}/{MAX_ATTEMPTS}
+                {t('authScreens.phoneVerificationLogin.attemptsLabel', {
+                  remaining: MAX_ATTEMPTS - attempts,
+                  max: MAX_ATTEMPTS,
+                })}
               </Text>
             </View>
           )}
@@ -330,16 +365,20 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
             {loading ? (
               <ActivityIndicator color="#FFFFFF" />
             ) : (
-              <Text style={styles.verifyButtonText}>Verificar Código</Text>
+              <Text style={styles.verifyButtonText}>
+                {t('authScreens.phoneVerificationLogin.verifyButton')}
+              </Text>
             )}
           </TouchableOpacity>
 
           {/* Reenviar Código */}
           <View style={styles.resendSection}>
-            <Text style={styles.resendText}>¿No recibiste el código?</Text>
+            <Text style={styles.resendText}>
+              {t('authScreens.phoneVerificationLogin.resend.question')}
+            </Text>
             {timeLeft > 0 ? (
               <Text style={styles.resendTimer}>
-                Reenviar en {timeLeft}s
+                {t('authScreens.phoneVerificationLogin.resend.timer', { seconds: timeLeft })}
               </Text>
             ) : (
               <TouchableOpacity
@@ -349,7 +388,9 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
                 {resendLoading ? (
                   <ActivityIndicator color={colors.primary} />
                 ) : (
-                  <Text style={styles.resendButton}>Reenviar Código</Text>
+                  <Text style={styles.resendButton}>
+                    {t('authScreens.phoneVerificationLogin.resend.button')}
+                  </Text>
                 )}
               </TouchableOpacity>
             )}
@@ -357,15 +398,17 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
 
           {/* Información */}
           <View style={styles.infoBox}>
-            <Text style={styles.infoTitle}>💡 Información</Text>
-            <Text style={styles.infoText}>
-              • El código es válido por 10 minutos
+            <Text style={styles.infoTitle}>
+              {t('authScreens.phoneVerificationLogin.info.title')}
             </Text>
             <Text style={styles.infoText}>
-              • Tienes {MAX_ATTEMPTS} intentos para ingresar el código
+              {t('authScreens.phoneVerificationLogin.info.codeValidity')}
             </Text>
             <Text style={styles.infoText}>
-              • Verifica que el número sea correcto
+              {t('authScreens.phoneVerificationLogin.info.attempts', { max: MAX_ATTEMPTS })}
+            </Text>
+            <Text style={styles.infoText}>
+              {t('authScreens.phoneVerificationLogin.info.checkNumber')}
             </Text>
           </View>
 
@@ -374,7 +417,9 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
             style={styles.backButton}
             onPress={() => navigation.goBack()}
           >
-            <Text style={styles.backButtonText}>← Volver</Text>
+            <Text style={styles.backButtonText}>
+              {t('authScreens.phoneVerificationLogin.backButton')}
+            </Text>
           </TouchableOpacity>
         </View>
       </ScrollView>

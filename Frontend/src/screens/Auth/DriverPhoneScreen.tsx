@@ -30,6 +30,7 @@ import {
   getCountryLocalNumberLength,
 } from '../../utils/phoneUtils';
 import PhoneDigitInput from '../../components/PhoneDigitInput';
+import { useTranslation } from 'react-i18next';
 
  type DriverPhoneNavigationProp = NativeStackNavigationProp<AuthStackParamList, 'DriverPhone'>;
  type DriverPhoneRouteProp = RouteProp<AuthStackParamList, 'DriverPhone'>;
@@ -42,6 +43,7 @@ import PhoneDigitInput from '../../components/PhoneDigitInput';
 const DriverPhoneScreen: React.FC<Props> = ({ navigation, route }) => {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const { t } = useTranslation();
 
   const {
     name,
@@ -114,7 +116,10 @@ const DriverPhoneScreen: React.FC<Props> = ({ navigation, route }) => {
 
   const handleSendCode = async () => {
     if (!isPhoneValid) {
-      Alert.alert('Error', 'Ingresa un número válido con prefijo internacional (ej. +505).');
+      Alert.alert(
+        t('authScreens.driverPhone.alerts.errorTitle'),
+        t('authScreens.driverPhone.alerts.invalidPhone'),
+      );
       return;
     }
 
@@ -125,8 +130,8 @@ const DriverPhoneScreen: React.FC<Props> = ({ navigation, route }) => {
         const availability = await firebaseAuthService.checkUserExists({ phone: normalizedPhone });
         if (availability.phoneExists) {
           Alert.alert(
-            'Teléfono ya registrado',
-            'Este número de teléfono ya está asociado a una cuenta existente. Usa otro número o inicia sesión con la cuenta vinculada a este teléfono.',
+            t('authScreens.driverPhone.alerts.phoneExistsTitle'),
+            t('authScreens.driverPhone.alerts.phoneExistsMessage'),
           );
           setLoading(false);
           return;
@@ -167,7 +172,10 @@ const DriverPhoneScreen: React.FC<Props> = ({ navigation, route }) => {
       });
     } catch (error: any) {
       console.error('❌ Error enviando código para conductor:', error);
-      Alert.alert('Error', error?.message || 'No se pudo enviar el código SMS. Intenta nuevamente.');
+      Alert.alert(
+        t('authScreens.driverPhone.alerts.errorTitle'),
+        error?.message || t('authScreens.driverPhone.alerts.sendFailed'),
+      );
     } finally {
       setLoading(false);
     }
@@ -181,18 +189,24 @@ const DriverPhoneScreen: React.FC<Props> = ({ navigation, route }) => {
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.card}>
           <View style={styles.header}>
-            <Text style={styles.title}>Tu número de teléfono</Text>
+            <Text style={styles.title}>
+              {t('authScreens.driverPhone.title')}
+            </Text>
             <Text style={styles.subtitle}>
-              Confirma tu código de país e ingresa tu número para continuar.
+              {t('authScreens.driverPhone.subtitle')}
             </Text>
           </View>
 
           <View style={styles.infoBox}>
-            <Text style={styles.infoLabel}>Nombre</Text>
+            <Text style={styles.infoLabel}>
+              {t('authScreens.driverPhone.info.name')}
+            </Text>
             <Text style={styles.infoValue}>{name}</Text>
             {email ? (
               <>
-                <Text style={[styles.infoLabel, { marginTop: 8 }]}>Email</Text>
+                <Text style={[styles.infoLabel, { marginTop: 8 }]}>
+                  {t('authScreens.driverPhone.info.email')}
+                </Text>
                 <Text style={styles.infoValue}>{email}</Text>
               </>
             ) : null}
@@ -219,7 +233,9 @@ const DriverPhoneScreen: React.FC<Props> = ({ navigation, route }) => {
           </View> */}
 
           <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Phone number</Text>
+            <Text style={styles.label}>
+              {t('authScreens.driverPhone.field.label')}
+            </Text>
             <PhoneDigitInput
               countryOptions={countryOptions}
               selectedCountry={selectedCountry}
@@ -229,7 +245,7 @@ const DriverPhoneScreen: React.FC<Props> = ({ navigation, route }) => {
               disabled={loading}
             />
             <Text style={styles.helperText}>
-              Usaremos este número para enviarte un código SMS de verificación.
+              {t('authScreens.driverPhone.field.helper')}
             </Text>
           </View>
 

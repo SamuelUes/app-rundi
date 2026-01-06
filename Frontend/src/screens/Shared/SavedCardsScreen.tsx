@@ -11,6 +11,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { initializeFirebase } from '../../config/firebase';
 import alertService from '../../services/alertService';
+import { useTranslation } from 'react-i18next';
 
 interface SavedCardsScreenProps {
   navigation: any;
@@ -29,6 +30,7 @@ interface Card {
 export default function SavedCardsScreen({ navigation }: SavedCardsScreenProps) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const { t } = useTranslation();
   const [cards, setCards] = useState<Card[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -41,7 +43,7 @@ export default function SavedCardsScreen({ navigation }: SavedCardsScreenProps) 
     try {
       setLoading(true);
       const { app } = await initializeFirebase();
-      if (!app) throw new Error('Firebase no inicializado');
+      if (!app) throw new Error('Firebase not initialized');
 
       const functions = getFunctions(app);
       const getCardsFn = httpsCallable(functions, 'getCards');
@@ -52,8 +54,8 @@ export default function SavedCardsScreen({ navigation }: SavedCardsScreenProps) 
         setCards(data.cards);
       }
     } catch (error: any) {
-      console.error('Error cargando tarjetas:', error);
-      alertService.showErrorAlert('No se pudieron cargar las tarjetas');
+      console.error('Error loading cards:', error);
+      alertService.showErrorAlert(t('shared.savedCards.alerts.loadError'));
     } finally {
       setLoading(false);
     }
@@ -61,30 +63,33 @@ export default function SavedCardsScreen({ navigation }: SavedCardsScreenProps) 
 
   const handleDeleteCard = async (cardId: string) => {
     alertService.showConfirmAlert(
-      'Eliminar Tarjeta',
-      '¿Estás seguro de que deseas eliminar esta tarjeta?',
+      t('shared.savedCards.alerts.deleteTitle'),
+      t('shared.savedCards.alerts.deleteMessage'),
       async () => {
         try {
           setDeleting(cardId);
           const { app } = await initializeFirebase();
-          if (!app) throw new Error('Firebase no inicializado');
+          if (!app) throw new Error('Firebase not initialized');
 
           const functions = getFunctions(app);
           const deleteCardFn = httpsCallable(functions, 'deleteCard');
           await deleteCardFn({ cardId });
 
-          alertService.showSuccessAlert('✅ Éxito', 'Tarjeta eliminada');
+          alertService.showSuccessAlert(
+            t('shared.savedCards.alerts.deleteSuccessTitle'),
+            t('shared.savedCards.alerts.deleteSuccessMessage'),
+          );
           loadCards();
         } catch (error: any) {
-          console.error('Error eliminando tarjeta:', error);
-          alertService.showErrorAlert('No se pudo eliminar la tarjeta');
+          console.error('Error deleting card:', error);
+          alertService.showErrorAlert(t('shared.savedCards.alerts.deleteError'));
         } finally {
           setDeleting(null);
         }
       },
       undefined,
-      'Eliminar',
-      'Cancelar',
+      t('shared.savedCards.alerts.deleteConfirm'),
+      t('shared.savedCards.alerts.deleteCancel'),
       true
     );
   };
@@ -92,17 +97,20 @@ export default function SavedCardsScreen({ navigation }: SavedCardsScreenProps) 
   const handleSetDefault = async (cardId: string) => {
     try {
       const { app } = await initializeFirebase();
-      if (!app) throw new Error('Firebase no inicializado');
+      if (!app) throw new Error('Firebase not initialized');
 
       const functions = getFunctions(app);
       const setDefaultCardFn = httpsCallable(functions, 'setDefaultCard');
       await setDefaultCardFn({ cardId });
 
-      alertService.showSuccessAlert('✅ Éxito', 'Tarjeta predeterminada actualizada');
+      alertService.showSuccessAlert(
+        t('shared.savedCards.alerts.defaultSuccessTitle'),
+        t('shared.savedCards.alerts.defaultSuccessMessage'),
+      );
       loadCards();
     } catch (error: any) {
-      console.error('Error estableciendo tarjeta predeterminada:', error);
-      alertService.showErrorAlert('No se pudo actualizar la tarjeta predeterminada');
+      console.error('Error setting default card:', error);
+      alertService.showErrorAlert(t('shared.savedCards.alerts.defaultError'));
     }
   };
 
@@ -115,9 +123,9 @@ export default function SavedCardsScreen({ navigation }: SavedCardsScreenProps) 
   };
 
   const getProviderName = (provider: string) => {
-    if (provider === 'stripe') return 'Internacional';
-    if (provider === 'visanet') return 'Local (Visanet)';
-    return provider;
+    if (provider === 'stripe') return t('shared.savedCards.cards.provider.stripe');
+    if (provider === 'visanet') return t('shared.savedCards.cards.provider.visanet');
+    return t('shared.savedCards.cards.provider.fallback', { provider });
   };
 
   const renderCard = ({ item }: { item: Card }) => (
@@ -129,13 +137,18 @@ export default function SavedCardsScreen({ navigation }: SavedCardsScreenProps) 
             <Text style={styles.cardBrand}>{item.brand.toUpperCase()}</Text>
             {item.isDefault && (
               <View style={styles.defaultBadge}>
-                <Text style={styles.defaultBadgeText}>Predeterminada</Text>
+                <Text style={styles.defaultBadgeText}>
+                  {t('shared.savedCards.cards.defaultBadge')}
+                </Text>
               </View>
             )}
           </View>
           <Text style={styles.cardNumber}>•••• {item.last4}</Text>
           <Text style={styles.cardExpiry}>
-            Vence: {String(item.expMonth).padStart(2, '0')}/{item.expYear}
+            {t('shared.savedCards.cards.expires', {
+              month: String(item.expMonth).padStart(2, '0'),
+              year: item.expYear,
+            })}
           </Text>
           <Text style={styles.cardProvider}>{getProviderName(item.provider)}</Text>
         </View>
@@ -147,7 +160,9 @@ export default function SavedCardsScreen({ navigation }: SavedCardsScreenProps) 
             style={styles.actionButton}
             onPress={() => handleSetDefault(item.id)}
           >
-            <Text style={styles.actionButtonText}>⭐ Predeterminada</Text>
+            <Text style={styles.actionButtonText}>
+              {t('shared.savedCards.cards.actions.setDefault')}
+            </Text>
           </TouchableOpacity>
         )}
         
@@ -159,7 +174,9 @@ export default function SavedCardsScreen({ navigation }: SavedCardsScreenProps) 
           {deleting === item.id ? (
             <ActivityIndicator size="small" color="#fff" />
           ) : (
-            <Text style={styles.deleteButtonText}>🗑️ Eliminar</Text>
+            <Text style={styles.deleteButtonText}>
+              {t('shared.savedCards.cards.actions.delete')}
+            </Text>
           )}
         </TouchableOpacity>
       </View>
@@ -170,7 +187,7 @@ export default function SavedCardsScreen({ navigation }: SavedCardsScreenProps) 
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Cargando tarjetas...</Text>
+        <Text style={styles.loadingText}>{t('shared.savedCards.loading')}</Text>
       </View>
     );
   }
@@ -182,7 +199,7 @@ export default function SavedCardsScreen({ navigation }: SavedCardsScreenProps) 
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <Text style={styles.backButtonText}>←</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Mis Tarjetas</Text>
+        <Text style={styles.headerTitle}>{t('shared.savedCards.header.title')}</Text>
         <View style={{ width: 40 }} />
       </View>
 
@@ -190,10 +207,8 @@ export default function SavedCardsScreen({ navigation }: SavedCardsScreenProps) 
       {cards.length === 0 ? (
         <View style={styles.emptyContainer}>
           <Text style={styles.emptyIcon}>💳</Text>
-          <Text style={styles.emptyTitle}>No tienes tarjetas guardadas</Text>
-          <Text style={styles.emptyText}>
-            Agrega una tarjeta para pagar más rápido en tus próximos viajes
-          </Text>
+          <Text style={styles.emptyTitle}>{t('shared.savedCards.empty.title')}</Text>
+          <Text style={styles.emptyText}>{t('shared.savedCards.empty.description')}</Text>
         </View>
       ) : (
         <FlatList
@@ -210,16 +225,13 @@ export default function SavedCardsScreen({ navigation }: SavedCardsScreenProps) 
         style={styles.addButton}
         onPress={() => navigation.navigate('AddCard')}
       >
-        <Text style={styles.addButtonText}>+ Agregar Tarjeta</Text>
+        <Text style={styles.addButtonText}>{t('shared.savedCards.buttons.addCard')}</Text>
       </TouchableOpacity>
 
       {/* Info de seguridad */}
       <View style={styles.securityInfo}>
         <Text style={styles.securityIcon}>🔒</Text>
-        <Text style={styles.securityText}>
-          Tus tarjetas están protegidas con encriptación de nivel bancario.
-          No guardamos tu CVV.
-        </Text>
+        <Text style={styles.securityText}>{t('shared.savedCards.security.message')}</Text>
       </View>
     </View>
   );

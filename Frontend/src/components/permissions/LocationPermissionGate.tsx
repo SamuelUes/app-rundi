@@ -18,6 +18,7 @@ import {
   View,
 } from 'react-native';
 import * as Location from 'expo-location';
+import { useTranslation } from 'react-i18next';
 
 interface LocationPermissionGateProps extends PropsWithChildren {
   requireBackground: boolean;
@@ -46,6 +47,7 @@ const LocationPermissionGate: React.FC<LocationPermissionGateProps> = ({
   const [state, setState] = useState<GateState>(initialState);
   const [requesting, setRequesting] = useState<'foreground' | 'background' | null>(null);
   const hasLoadedRef = useRef(false);
+  const { t } = useTranslation();
 
   const refresh = useCallback(
     async (options?: { showLoading?: boolean }) => {
@@ -210,39 +212,41 @@ const LocationPermissionGate: React.FC<LocationPermissionGateProps> = ({
           {showSpinner ? (
             <View style={styles.spinnerContainer}>
               <ActivityIndicator size="large" color="#e58b1e" />
-              <Text style={styles.spinnerLabel}>Verificando permisos de ubicación…</Text>
+              <Text style={styles.spinnerLabel}>{t('shared.permissions.gate.spinner')}</Text>
             </View>
           ) : (
             <>
               {!servicesEnabled && (
                 <View style={styles.section}>
-                  <Text style={styles.title}>Activa los servicios de ubicación</Text>
-                  <Text style={styles.message}>
-                    Para continuar, enciende los servicios de ubicación del sistema. Sin ellos no podremos
-                    compartir tu ubicación en primer plano ni en segundo plano.
-                  </Text>
+                  <Text style={styles.title}>{t('shared.permissions.gate.services.title')}</Text>
+                  <Text style={styles.message}>{t('shared.permissions.gate.services.description')}</Text>
                   <Pressable style={styles.primaryButton} onPress={openAppSettings}>
-                    <Text style={styles.primaryButtonText}>Abrir ajustes</Text>
+                    <Text style={styles.primaryButtonText}>
+                      {t('shared.permissions.gate.services.primary')}
+                    </Text>
                   </Pressable>
                   <Pressable
                     style={styles.secondaryButton}
                     onPress={() => refresh({ showLoading: true })}
                   >
-                    <Text style={styles.secondaryButtonText}>Ya lo activé, reintentar</Text>
+                    <Text style={styles.secondaryButtonText}>
+                      {t('shared.permissions.gate.services.secondary')}
+                    </Text>
                   </Pressable>
                 </View>
               )}
 
               {servicesEnabled && !foreground?.granted && (
                 <View style={styles.section}>
-                  <Text style={styles.title}>Permiso de ubicación requerido</Text>
+                  <Text style={styles.title}>{t('shared.permissions.gate.foreground.title')}</Text>
                   <Text style={styles.message}>
-                    Necesitamos acceso a tu ubicación mientras usas la app para poder asignarte viajes y mostrar
-                    la información correcta en el mapa.
+                    {t('shared.permissions.gate.foreground.description')}
                   </Text>
                   {foregroundDeniedPermanently ? (
                     <Pressable style={styles.primaryButton} onPress={openAppSettings}>
-                      <Text style={styles.primaryButtonText}>Abrir ajustes del sistema</Text>
+                      <Text style={styles.primaryButtonText}>
+                        {t('shared.permissions.gate.foreground.primarySettings')}
+                      </Text>
                     </Pressable>
                   ) : (
                     <Pressable
@@ -250,28 +254,33 @@ const LocationPermissionGate: React.FC<LocationPermissionGateProps> = ({
                       onPress={requestForeground}
                       disabled={requesting === 'foreground'}
                     >
-                      <Text style={styles.primaryButtonText}>Permitir ubicación</Text>
+                      <Text style={styles.primaryButtonText}>
+                        {t('shared.permissions.gate.foreground.primary')}
+                      </Text>
                     </Pressable>
                   )}
                   <Pressable
                     style={styles.secondaryButton}
                     onPress={() => refresh({ showLoading: true })}
                   >
-                    <Text style={styles.secondaryButtonText}>Reintentar</Text>
+                    <Text style={styles.secondaryButtonText}>
+                      {t('shared.permissions.gate.foreground.secondary')}
+                    </Text>
                   </Pressable>
                 </View>
               )}
 
               {servicesEnabled && foreground?.granted && requireBackground && !background?.granted && (
                 <View style={styles.section}>
-                  <Text style={styles.title}>Activa la ubicación en segundo plano</Text>
+                  <Text style={styles.title}>{t('shared.permissions.gate.background.title')}</Text>
                   <Text style={styles.message}>
-                    Cuando la app está en segundo plano seguimos compartiendo tu ubicación para notificarte
-                    viajes cercanos y continuar los trayectos en curso. Actívalo para seguir usando la app.
+                    {t('shared.permissions.gate.background.description')}
                   </Text>
                   {backgroundDeniedPermanently ? (
                     <Pressable style={styles.primaryButton} onPress={openAppSettings}>
-                      <Text style={styles.primaryButtonText}>Abrir ajustes del sistema</Text>
+                      <Text style={styles.primaryButtonText}>
+                        {t('shared.permissions.gate.background.primary')}
+                      </Text>
                     </Pressable>
                   ) : (
                     <Pressable
@@ -279,14 +288,18 @@ const LocationPermissionGate: React.FC<LocationPermissionGateProps> = ({
                       onPress={requestBackground}
                       disabled={requesting === 'background'}
                     >
-                      <Text style={styles.primaryButtonText}>Permitir en segundo plano</Text>
+                      <Text style={styles.primaryButtonText}>
+                        {t('shared.permissions.gate.background.primary')}
+                      </Text>
                     </Pressable>
                   )}
                   <Pressable
                     style={styles.secondaryButton}
                     onPress={() => refresh({ showLoading: true })}
                   >
-                    <Text style={styles.secondaryButtonText}>Ya lo activé, reintentar</Text>
+                    <Text style={styles.secondaryButtonText}>
+                      {t('shared.permissions.gate.background.secondary')}
+                    </Text>
                   </Pressable>
                 </View>
               )}

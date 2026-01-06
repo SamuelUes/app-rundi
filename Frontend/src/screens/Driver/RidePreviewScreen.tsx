@@ -34,6 +34,7 @@ import { DriverStackParamList } from '../../navigation/DriverStack';
 import { useAcceptedRideListener } from '../../hooks/useAcceptedRideListener';
 import { getDatabase, onValue, ref } from 'firebase/database';
 import proximityService from '../../services/proximityService';
+import { useTranslation } from 'react-i18next';
 
 const BACK_ICON = require('../../assets/icons/back_button/back_button2x.png');
 
@@ -79,6 +80,7 @@ export default function RidePreviewScreen() {
   const { colors, isDark } = useTheme();
   const { user } = useAuth();
   const { settings: voiceSettings, speak: speakVoice, stopCategory: stopVoiceCategory } = useVoiceAssistant();
+  const { t } = useTranslation();
 
   const { ride } = route.params as RidePreviewParams;
   const initialNearby = (route.params as RidePreviewParams)?.nearbyRides || [];
@@ -160,7 +162,10 @@ export default function RidePreviewScreen() {
       if (!data) {
         if (!cancellationHandledRef.current) {
           cancellationHandledRef.current = true;
-          alertService.showInfoAlert('Viaje cancelado', 'El cliente canceló la solicitud.');
+          alertService.showInfoAlert(
+            t('driver.ridePreview.alerts.canceledTitle'),
+            t('driver.ridePreview.alerts.canceledBody'),
+          );
           markDismissed()
             .catch((error) => console.warn('[RidePreviewScreen] Error al descartar viaje cancelado:', error))
             .finally(() => navigation.goBack());
@@ -170,7 +175,10 @@ export default function RidePreviewScreen() {
 
       const status = String(data.status || '').toLowerCase();
       if (status === 'assigned' && data.driverId !== user?.id) {
-        alertService.showInfoAlert('Viaje asignado a otro conductor', 'El cliente asignó el viaje a otro conductor.');
+        alertService.showInfoAlert(
+          t('driver.ridePreview.alerts.assignedTitle'),
+          t('driver.ridePreview.alerts.assignedBody'),
+        );
         markDismissed()
           .catch((error) => console.warn('[RidePreviewScreen] Error al descartar viaje asignado:', error))
           .finally(() => navigation.goBack());
@@ -209,8 +217,8 @@ export default function RidePreviewScreen() {
   );
 
   const resolvedClientName = useMemo(
-    () => clientProfile?.fullName || currentRide.clientName || 'Cliente',
-    [clientProfile?.fullName, currentRide.clientName]
+    () => clientProfile?.fullName || currentRide.clientName || t('driver.ridePreview.labels.clientFallback'),
+    [clientProfile?.fullName, currentRide.clientName, t]
   );
 
   const resolvedClientPhone = useMemo(
@@ -272,11 +280,23 @@ export default function RidePreviewScreen() {
     if (lastVoiceSummaryRef.current === signature) return;
     lastVoiceSummaryRef.current = signature;
 
-    const parts: string[] = [];
-    parts.push(`Precio neto ${netPrice} Cordobas`);
-    if (distanceFix) parts.push(`Distancia total ${distanceFix} kilómetros`);
-    speakVoice(`${parts.join('. ')}.`, 'navigation', undefined, true);
-  }, [voiceSettings.enabled, currentRide.id, currentRide.clientSuggestedPrice, currentRide.estimatedPrice, totalDistanceKm, speakVoice]);
+    const summaryKey = distanceFix
+      ? 'driver.ridePreview.voice.summaryWithDistance'
+      : 'driver.ridePreview.voice.summary';
+    const voiceMessage = t(summaryKey, {
+      price: netPrice,
+      distance: distanceFix,
+    });
+    speakVoice(voiceMessage, 'navigation', undefined, true);
+  }, [
+    voiceSettings.enabled,
+    currentRide.id,
+    currentRide.clientSuggestedPrice,
+    currentRide.estimatedPrice,
+    totalDistanceKm,
+    speakVoice,
+    t,
+  ]);
 
   useEffect(() => {
     if (!voiceSettings.enabled) {
@@ -300,8 +320,8 @@ export default function RidePreviewScreen() {
     }
 
     lastClientOfferSpokenRef.current = rounded;
-    speakVoice(`Oferta del cliente ${rounded} Cordobas.`, 'status', undefined, true);
-  }, [voiceSettings.enabled, currentRide.negotiationStatus, currentRide.clientSuggestedPrice, speakVoice]);
+    speakVoice(t('driver.ridePreview.voice.clientOffer', { amount: rounded }), 'status', undefined, true);
+  }, [voiceSettings.enabled, currentRide.negotiationStatus, currentRide.clientSuggestedPrice, speakVoice, t]);
 
   const toggleSheet = () => {
     const next = !isSheetExpanded;
@@ -357,12 +377,12 @@ export default function RidePreviewScreen() {
     }
 
     alertService.showConfirmAlert(
-      'Tarjeta requerida',
-      'Para aceptar viajes con pago por tarjeta necesitas registrar al menos una tarjeta bancaria. Agrega una tarjeta antes de continuar.',
+      t('driver.ridePreview.alerts.cardRequiredTitle'),
+      t('driver.ridePreview.alerts.cardRequiredBody'),
       () => navigation.navigate('PaymentMethods'),
       undefined,
-      'Ir a métodos',
-      'Cancelar',
+      t('driver.ridePreview.alerts.cardRequiredConfirm'),
+      t('driver.ridePreview.alerts.cardRequiredCancel'),
     );
 
     return false;
@@ -378,7 +398,10 @@ export default function RidePreviewScreen() {
       if (!data) {
         if (!cancellationHandledRef.current) {
           cancellationHandledRef.current = true;
-          alertService.showInfoAlert('Viaje cancelado', 'El cliente canceló la solicitud.');
+          alertService.showInfoAlert(
+            t('driver.ridePreview.alerts.canceledTitle'),
+            t('driver.ridePreview.alerts.canceledBody'),
+          );
           markDismissed()
             .catch((error) => console.warn('[RidePreviewScreen] Error al descartar viaje cancelado:', error))
             .finally(() => navigation.goBack());
@@ -389,8 +412,8 @@ export default function RidePreviewScreen() {
       const normalizedStatus = String(data.status || '').toLowerCase();
       if (normalizedStatus === 'canceled' && !cancellationHandledRef.current) {
         cancellationHandledRef.current = true;
-        const reason = data.cancelReason || 'El cliente canceló la solicitud.';
-        alertService.showInfoAlert('Viaje cancelado', reason);
+        const reason = data.cancelReason || t('driver.ridePreview.alerts.canceledOtherReason');
+        alertService.showInfoAlert(t('driver.ridePreview.alerts.canceledTitle'), reason);
         markDismissed()
           .catch((error) => console.warn('[RidePreviewScreen] Error al descartar viaje cancelado:', error))
           .finally(() => navigation.goBack());
@@ -417,8 +440,8 @@ export default function RidePreviewScreen() {
         if (nonRequestedStatuses.includes(normalizedStatus)) {
           cancellationHandledRef.current = true;
           alertService.showInfoAlert(
-            'Viaje no disponible',
-            'El cliente ya confirmó a otro conductor para este viaje.',
+            t('driver.ridePreview.alerts.unavailableTitle'),
+            t('driver.ridePreview.alerts.unavailableBody'),
           );
           markDismissed()
             .catch((error) =>
@@ -512,8 +535,8 @@ export default function RidePreviewScreen() {
       } catch (error) {
         console.error('[RidePreviewScreen] Error calculando ruta:', error);
         alertService.showInfoAlert(
-          'Ruta incompleta',
-          'No pudimos calcular la ruta completa. Mostraremos un recorrido aproximado.'
+          t('driver.ridePreview.alerts.routeErrorTitle'),
+          t('driver.ridePreview.alerts.routeErrorBody'),
         );
         setRouteCoordinates([
           { latitude: currentRide.destination.lat, longitude: currentRide.destination.lng },
@@ -560,25 +583,28 @@ export default function RidePreviewScreen() {
 
   const formatCurrency = (value?: number | null) => {
     if (value === undefined || value === null) {
-      return 'N/D';
+      return t('driver.ridePreview.labels.notAvailable');
     }
-    return `C$${Math.round(value)}`;
+    return t('driver.ridePreview.labels.currency', { amount: Math.round(value) });
   };
 
   const handleCallClient = () => {
     if (!resolvedClientPhone) {
-      alertService.showInfoAlert('Información', 'Número de teléfono del cliente no disponible');
+      alertService.showInfoAlert(
+        t('driver.ridePreview.alerts.infoTitle'),
+        t('driver.ridePreview.alerts.noPhone'),
+      );
       return;
     }
 
     const url = `tel:${resolvedClientPhone}`;
     Linking.canOpenURL(url).then((supported) => {
       if (!supported) {
-        alertService.showErrorAlert('No se pudo iniciar la llamada');
+        alertService.showErrorAlert(t('driver.ridePreview.alerts.callError'));
         return;
       }
       Linking.openURL(url).catch(() =>
-        alertService.showErrorAlert('No se pudo iniciar la llamada')
+        alertService.showErrorAlert(t('driver.ridePreview.alerts.callError')),
       );
     });
   };
@@ -599,7 +625,7 @@ export default function RidePreviewScreen() {
 
   const submitCounterOffer = async (value: number): Promise<boolean> => {
     if (!user?.id) {
-      alertService.showErrorAlert('No se pudo obtener tu información.');
+      alertService.showErrorAlert(t('driver.ridePreview.alerts.missingUser'));
       return false;
     }
 
@@ -618,7 +644,7 @@ export default function RidePreviewScreen() {
       success = true;
     } catch (error: any) {
       console.error('[RidePreviewScreen] Contraoferta fallida:', error);
-      alertService.showErrorAlert(error?.message || 'No se pudo enviar la contraoferta');
+      alertService.showErrorAlert(error?.message || t('driver.ridePreview.alerts.counterOfferError'));
     } finally {
       setSendingOffer(false);
     }
@@ -660,7 +686,10 @@ export default function RidePreviewScreen() {
 
     const numericValue = Number(counterOffer.replace(/[^0-9]/g, ''));
     if (!Number.isFinite(numericValue) || numericValue <= 0) {
-      alertService.showInfoAlert('Precio inválido', 'Ingresa un monto válido mayor a cero.');
+      alertService.showInfoAlert(
+        t('driver.ridePreview.alerts.invalidPriceTitle'),
+        t('driver.ridePreview.alerts.invalidPriceBody'),
+      );
       return;
     }
 
@@ -682,9 +711,9 @@ export default function RidePreviewScreen() {
     try {
       if (activeRideGuard) {
         alertService.showInfoAlert(
-          'Tienes un viaje activo',
-          'Debes completar tu viaje actual antes de aceptar uno nuevo.',
-          () => navigation.replace('ActiveRide', { rideId: activeRideGuard })
+          t('driver.ridePreview.alerts.activeRideTitle'),
+          t('driver.ridePreview.alerts.activeRideBody'),
+          () => navigation.replace('ActiveRide', { rideId: activeRideGuard }),
         );
         return;
       }
@@ -716,8 +745,10 @@ export default function RidePreviewScreen() {
 
         await priceNegotiationService.acceptClientPrice(currentRide.id);
         alertService.showSuccessAlert(
-          'Oferta enviada',
-          `Aceptaste el viaje por ${formatCurrency(priceToShow || 0)}. Esperando confirmación del cliente...`
+          t('driver.ridePreview.alerts.offerSentTitle'),
+          t('driver.ridePreview.alerts.offerAcceptedBody', {
+            amount: formatCurrency(priceToShow || 0),
+          }),
         );
       } else {
         const acceptData = {
@@ -727,8 +758,8 @@ export default function RidePreviewScreen() {
         };
         await ridesService.acceptRide(currentRide.id, acceptData);
         alertService.showSuccessAlert(
-          'Oferta enviada',
-          'Hemos notificado al cliente. Esperando confirmación...'
+          t('driver.ridePreview.alerts.offerSentTitle'),
+          t('driver.ridePreview.alerts.offerNotifiedBody'),
         );
       }
 
@@ -738,12 +769,12 @@ export default function RidePreviewScreen() {
         origin: {
           lat: currentRide.origin.lat,
           lng: currentRide.origin.lng,
-          address: currentRide.origin.address || 'Origen',
+          address: currentRide.origin.address || t('driver.ridePreview.labels.originFallback'),
         },
         destination: {
           lat: currentRide.destination.lat,
           lng: currentRide.destination.lng,
-          address: currentRide.destination.address || 'Destino',
+          address: currentRide.destination.address || t('driver.ridePreview.labels.destinationFallback'),
         },
         estimatedFare: currentRide.clientSuggestedPrice || currentRide.estimatedPrice,
         extraDestinations: (currentRide.extraDestinations || []).map((stop) => ({
@@ -754,7 +785,7 @@ export default function RidePreviewScreen() {
       });
     } catch (error: any) {
       console.error('[RidePreviewScreen] Error al aceptar viaje:', error);
-      alertService.showErrorAlert(error?.message || 'No se pudo aceptar el viaje');
+      alertService.showErrorAlert(error?.message || t('driver.ridePreview.alerts.acceptRideError'));
     } finally {
       Animated.timing(acceptButtonScale, {
         toValue: 1,
@@ -840,18 +871,18 @@ export default function RidePreviewScreen() {
   ]);
 
   const renderNegotiationBanner = () => {
-    const status = currentRide.negotiationStatus || '';
-    const statusLabels: Record<string, string> = {
-      client_suggested: 'Esperando tu respuesta',
-      driver_offered: 'Esperando respuesta del cliente',
-      driver_accepted: 'Aceptaste el precio del cliente',
-      client_accepted: 'El cliente aceptó tu oferta',
-    };
-
+    const status = (currentRide.negotiationStatus || '').toLowerCase();
     const driverSuggested =
       typeof currentRide.driverOfferedPrice === 'number' && !Number.isNaN(currentRide.driverOfferedPrice);
     const clientSuggested =
       typeof currentRide.clientSuggestedPrice === 'number' && !Number.isNaN(currentRide.clientSuggestedPrice);
+
+    const statusText = t(`driver.ridePreview.negotiation.status.${status}`, {
+      defaultValue:
+        status === 'driver_offered'
+          ? t('driver.ridePreview.negotiation.status.defaultDriver')
+          : t('driver.ridePreview.negotiation.status.defaultClient'),
+    });
 
     if (status === 'driver_offered' && driverSuggested) {
       return (
@@ -865,11 +896,11 @@ export default function RidePreviewScreen() {
           ]}
         >
           <Text style={[styles.clientOfferTitle, { color: isDark ? '#90CAF9' : '#1565C0' }]}>
-            Acabas de proponer {formatCurrency(currentRide.driverOfferedPrice)}
+            {t('driver.ridePreview.negotiation.driverOfferTitle', {
+              amount: formatCurrency(currentRide.driverOfferedPrice),
+            })}
           </Text>
-          <Text style={[styles.clientOfferSubtitle, { color: colors.textSecondary }]}>
-            {statusLabels[status] || 'Esperando respuesta del cliente'}
-          </Text>
+          <Text style={[styles.clientOfferSubtitle, { color: colors.textSecondary }]}>{statusText}</Text>
         </View>
       );
     }
@@ -886,11 +917,11 @@ export default function RidePreviewScreen() {
           ]}
         >
           <Text style={[styles.clientOfferTitle, { color: isDark ? '#A5D6A7' : '#2E7D32' }]}>
-            El cliente propuso {formatCurrency(currentRide.clientSuggestedPrice)}
+            {t('driver.ridePreview.negotiation.clientOfferTitle', {
+              amount: formatCurrency(currentRide.clientSuggestedPrice),
+            })}
           </Text>
-          <Text style={[styles.clientOfferSubtitle, { color: colors.textSecondary }]}>
-            {statusLabels[status] || 'Esperando tu respuesta'}
-          </Text>
+          <Text style={[styles.clientOfferSubtitle, { color: colors.textSecondary }]}>{statusText}</Text>
         </View>
       );
     }
@@ -901,10 +932,21 @@ export default function RidePreviewScreen() {
   const renderNearbyCard = () => {
     if (!nearbyQueue || nearbyQueue.length === 0) return null;
     const next = nearbyQueue[0] as any;
-    const labelDistance = typeof next?.distanceMeters === 'number'
-      ? `${Math.max(1, Math.round(next.distanceMeters))} m`
-      : (typeof next?.estimatedDistance === 'number' ? `${Math.round((next.estimatedDistance || 0) / 100) / 10} km` : 'Cerca');
-    const priceText = typeof next?.estimatedPrice === 'number' ? `C$${Math.round(next.estimatedPrice)}` : '';
+    const labelDistance =
+      typeof next?.distanceMeters === 'number'
+        ? t('driver.ridePreview.nearby.distanceMeters', {
+            distance: Math.max(1, Math.round(next.distanceMeters)),
+          })
+        : typeof next?.estimatedDistance === 'number'
+          ? t('driver.ridePreview.nearby.distanceKilometers', {
+              distance: Math.round((next.estimatedDistance || 0) / 100) / 10,
+            })
+          : t('driver.ridePreview.nearby.distanceFallback');
+    const priceText =
+      typeof next?.estimatedPrice === 'number'
+        ? formatCurrency(next.estimatedPrice)
+        : t('driver.ridePreview.nearby.priceFallback');
+    const originText = next?.origin?.address || t('driver.ridePreview.nearby.originFallback');
 
     return (
       <View
@@ -917,13 +959,18 @@ export default function RidePreviewScreen() {
         ]}
       >
         <View style={{ flex: 1 }}>
-          <Text style={[styles.nearbyTitle, { color: colors.text }]}>Solicitud cercana</Text>
+          <Text style={[styles.nearbyTitle, { color: colors.text }]}>
+            {t('driver.ridePreview.nearby.title')}
+          </Text>
           <Text style={[styles.nearbySubtitle, { color: colors.textSecondary }]} numberOfLines={1}>
-            {labelDistance} • {priceText} • {next?.origin?.address || 'Origen cercano'}
+            {labelDistance} • {priceText} • {originText}
           </Text>
         </View>
-        <TouchableOpacity style={[styles.nearbyButton, { backgroundColor: colors.primary }]} onPress={switchToNearby}>
-          <Text style={styles.nearbyButtonText}>Ver</Text>
+        <TouchableOpacity
+          style={[styles.nearbyButton, { backgroundColor: colors.primary }]}
+          onPress={switchToNearby}
+        >
+          <Text style={styles.nearbyButtonText}>{t('driver.ridePreview.nearby.view')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -932,7 +979,7 @@ export default function RidePreviewScreen() {
   const renderNegotiationContent = () => {
     const customOfferButtonLabel = lastSuggestedPrice
       ? formatCurrency(lastSuggestedPrice)
-      : 'Ofrece';
+      : t('driver.ridePreview.negotiation.customOfferButton');
 
     return (
       <View style={styles.negotiationWrapper}>
@@ -947,7 +994,9 @@ export default function RidePreviewScreen() {
             },
           ]}
         >
-          <Text style={[styles.priceLabel, { color: colors.textSecondary }]}>Precio estimado / sugerido por cliente</Text>
+          <Text style={[styles.priceLabel, { color: colors.textSecondary }]}>
+            {t('driver.ridePreview.negotiation.estimatedLabel')}
+          </Text>
           <Text style={[styles.priceValue, { color: colors.text }]}>
             {formatCurrency(currentRide.clientSuggestedPrice || currentRide.estimatedPrice)}
           </Text>
@@ -968,7 +1017,9 @@ export default function RidePreviewScreen() {
           <View style={styles.suggestionsSection}>
             {quickSuggestions.length > 0 && (
               <>
-                <Text style={[styles.suggestionsLabel, { color: colors.textSecondary }]}>Precios sugeridos:</Text>
+                <Text style={[styles.suggestionsLabel, { color: colors.textSecondary }]}>
+                  {t('driver.ridePreview.negotiation.suggestionsLabel')}
+                </Text>
                 <View style={styles.suggestionsRow}>
                   <View style={styles.chipsRow}>
                     {quickSuggestions.map((value) => (
@@ -1016,7 +1067,9 @@ export default function RidePreviewScreen() {
                   },
                 ]}
               >
-                <Text style={[styles.customOfferLabel, { color: colors.textSecondary }]}>Ingresa tu oferta personalizada</Text>
+                <Text style={[styles.customOfferLabel, { color: colors.textSecondary }]}>
+                  {t('driver.ridePreview.negotiation.customLabel')}
+                </Text>
                 <TextInput
                   ref={customOfferInputRef}
                   style={[
@@ -1031,7 +1084,7 @@ export default function RidePreviewScreen() {
                   onChangeText={handleCustomOfferChange}
                   keyboardType="numeric"
                   inputMode="numeric"
-                  placeholder="Ej. 95"
+                  placeholder={t('driver.ridePreview.negotiation.placeholderExample')}
                   placeholderTextColor={isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.35)'}
                   returnKeyType="done"
                   onSubmitEditing={handleSendCustomOffer}
@@ -1046,7 +1099,9 @@ export default function RidePreviewScreen() {
                   {sendingOffer ? (
                     <ActivityIndicator color="#FFFFFF" size="small" />
                   ) : (
-                    <Text style={styles.customOfferSendButtonText}>Enviar</Text>
+                    <Text style={styles.customOfferSendButtonText}>
+                      {t('driver.ridePreview.negotiation.send')}
+                    </Text>
                   )}
                 </TouchableOpacity>
               </View>
@@ -1061,7 +1116,9 @@ export default function RidePreviewScreen() {
               },
             ]}
           >
-            <Text style={[styles.finalLabel, { color: colors.textSecondary }]}>Precio final estimado</Text>
+            <Text style={[styles.finalLabel, { color: colors.textSecondary }]}>
+              {t('driver.ridePreview.negotiation.finalLabel')}
+            </Text>
             <Text style={[styles.finalValue, { color: colors.text }]}>{finalPricePreview}</Text>
           </View>
         </View>
@@ -1089,7 +1146,9 @@ export default function RidePreviewScreen() {
         {loadingRoute && (
           <View style={styles.routeLoader}>
             <ActivityIndicator color={colors.primary} />
-            <Text style={[styles.loaderText, { color: colors.textSecondary }]}>Calculando ruta...</Text>
+            <Text style={[styles.loaderText, { color: colors.textSecondary }]}>
+              {t('driver.ridePreview.loader.calculatingRoute')}
+            </Text>
           </View>
         )}
         <View style={styles.nearbyWrapper} pointerEvents="box-none">
@@ -1156,9 +1215,10 @@ export default function RidePreviewScreen() {
             <Text style={[styles.clientNameText, { color: colors.text }]} numberOfLines={1}>
               {resolvedClientName}
             </Text>
-            <Text style={[styles.clientMetaText, { color: colors.textSecondary }]}
-            >
-              Precio estimado: {formatCurrency(currentRide.estimatedPrice)}
+            <Text style={[styles.clientMetaText, { color: colors.textSecondary }]}>
+              {t('driver.ridePreview.labels.estimatedPrice', {
+                amount: formatCurrency(currentRide.estimatedPrice),
+              })}
             </Text>
           </View>
           <View style={styles.contactActions}>
@@ -1222,7 +1282,7 @@ export default function RidePreviewScreen() {
             {acceptingRide ? (
               <ActivityIndicator color="#FFFFFF" />
             ) : (
-              <Text style={styles.actionButtonText}>Aceptar</Text>
+              <Text style={styles.actionButtonText}>{t('driver.ridePreview.buttons.accept')}</Text>
             )}
           </AnimatedTouchableOpacity>
 
@@ -1242,7 +1302,7 @@ export default function RidePreviewScreen() {
             {isRejectingRide ? (
               <ActivityIndicator color="#FFFFFF" />
             ) : (
-              <Text style={styles.actionButtonText}>Rechazar</Text>
+              <Text style={styles.actionButtonText}>{t('driver.ridePreview.buttons.reject')}</Text>
             )}
           </AnimatedTouchableOpacity>
         </View>
@@ -1266,7 +1326,7 @@ export default function RidePreviewScreen() {
               style={[styles.closeModalButton, { backgroundColor: colors.primary }]}
               onPress={() => setPhotoModalUrl(null)}
             >
-              <Text style={styles.closeModalText}>Cerrar</Text>
+              <Text style={styles.closeModalText}>{t('driver.ridePreview.modal.close')}</Text>
             </TouchableOpacity>
           </View>
         </View>

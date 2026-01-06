@@ -1,3 +1,4 @@
+import i18n from '../i18n';
 import notificationService from './notificationService';
 
 export type LiveRideStatus =
@@ -17,33 +18,6 @@ export interface LiveRideUpdatePayload {
   progress?: number | null;
   expiresInMs?: number;
 }
-
-const STATUS_COPY: Record<LiveRideStatus, { title: string; subtitle: string }> = {
-  driver_assigned: {
-    title: 'Conductor confirmado',
-    subtitle: 'Estamos preparando tu viaje',
-  },
-  driver_on_route: {
-    title: 'Conductor en camino',
-    subtitle: 'Dirigiéndose al punto de recogida',
-  },
-  arrived_pickup: {
-    title: 'Conductor llegó',
-    subtitle: 'Sal a su encuentro',
-  },
-  trip_in_progress: {
-    title: 'Viaje en progreso',
-    subtitle: 'En camino a tu destino',
-  },
-  completed: {
-    title: 'Viaje finalizado',
-    subtitle: 'Revisa y califica tu experiencia',
-  },
-  canceled: {
-    title: 'Viaje cancelado',
-    subtitle: 'La solicitud fue cancelada',
-  },
-};
 
 const DEFAULT_PROGRESS: Record<LiveRideStatus, number> = {
   driver_assigned: 0.15,
@@ -67,18 +41,25 @@ const parseNumber = (value: any): number | null => {
   return null;
 };
 
+const getStatusCopy = (status: LiveRideStatus) => ({
+  title: i18n.t(`shared.notifications.live.statuses.${status}.title`) as string,
+  subtitle: i18n.t(`shared.notifications.live.statuses.${status}.subtitle`) as string,
+});
+
 const formatEta = (etaMinutes?: number | null) => {
   if (!etaMinutes || !Number.isFinite(etaMinutes)) {
     return null;
   }
-  return `${Math.max(1, Math.round(etaMinutes))} min`;
+  const minutes = Math.max(1, Math.round(etaMinutes));
+  const minutesLabel = i18n.t('shared.notifications.live.metrics.minutes', { count: minutes }) as string;
+  return i18n.t('shared.notifications.live.metrics.etaLabel', { value: minutesLabel }) as string;
 };
 
 const formatDistance = (distanceKm?: number | null) => {
   if (typeof distanceKm !== 'number' || !Number.isFinite(distanceKm)) {
     return null;
   }
-  return `${distanceKm.toFixed(1)} km`;
+  return i18n.t('shared.notifications.live.metrics.distance', { value: distanceKm.toFixed(1) }) as string;
 };
 
 const buildProgressBar = (progress?: number | null) => {
@@ -154,7 +135,7 @@ class LiveRideNotificationService {
   }
 
   private async showNotification(payload: LiveRideUpdatePayload) {
-    const statusCopy = STATUS_COPY[payload.status];
+    const statusCopy = getStatusCopy(payload.status);
     const etaText = formatEta(payload.etaMinutes);
     const distanceText = formatDistance(payload.distanceKm);
     const progress = typeof payload.progress === 'number' ? clamp(payload.progress) : DEFAULT_PROGRESS[payload.status];

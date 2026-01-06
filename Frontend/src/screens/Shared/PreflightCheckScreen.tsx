@@ -25,6 +25,7 @@ import firebaseAuthService from '../../services/auth/firebaseAuthService';
 import TermsAndConditionsModal, { CURRENT_TERMS_VERSION } from '../../components/TermsAndConditionsModal';
 import PermissionsExplanation from '../../components/permissions/PermissionsExplanation';
 import type { User as FirebaseUser } from 'firebase/auth';
+import { useTranslation } from 'react-i18next';
 
 type NavigationLike = {
   replace: (routeName: string, params?: any) => void;
@@ -55,7 +56,11 @@ const MANAGUA_BOUNDS = {
   west: -86.35,
 };
 
-const getLocalRegionFallback = (latitude: number, longitude: number): PreflightRegionInfo => {
+const getLocalRegionFallback = (
+  t: (key: string, opts?: any) => string,
+  latitude: number,
+  longitude: number,
+): PreflightRegionInfo => {
   const inBounds =
     latitude >= MANAGUA_BOUNDS.south &&
     latitude <= MANAGUA_BOUNDS.north &&
@@ -67,7 +72,7 @@ const getLocalRegionFallback = (latitude: number, longitude: number): PreflightR
       allowed: true,
       serviceAreaId: 'ni-managua',
       areaName: 'Managua',
-      message: 'Servicio disponible en Managua (configuración por defecto).',
+      message: t('shared.preflight.regionFallback.available'),
       reasonCode: 'OK_FALLBACK_LOCAL',
       latitude,
       longitude,
@@ -78,25 +83,24 @@ const getLocalRegionFallback = (latitude: number, longitude: number): PreflightR
     allowed: false,
     serviceAreaId: null,
     areaName: undefined,
-    message:
-      'Por el momento el servicio solo está disponible dentro de las áreas activas (actualmente Managua).',
+    message: t('shared.preflight.regionFallback.unavailable'),
     reasonCode: 'AREA_NOT_SUPPORTED_LOCAL',
     latitude,
     longitude,
   };
 };
 
-const getCheckLabels = (): Record<string, string> => ({
-  auth: 'Verificando sesión',
-  notifications: 'Verificando notificaciones',
-  foregroundLocation: 'Verificando ubicación',
-  backgroundLocation: 'Verificando ubicación en segundo plano',
-  overlay: 'Verificando permisos de superposición',
-  activity: 'Verificando permiso de actividad',
-  region: 'Verificando área de servicio',
-  pendingPayments: 'Buscando pagos pendientes',
-  penalties: 'Verificando comisiones',
-  activeRide: 'Buscando viajes activos',
+const getCheckLabels = (t: (key: string, opts?: any) => string): Record<string, string> => ({
+  auth: t('shared.preflight.checks.auth'),
+  notifications: t('shared.preflight.checks.notifications'),
+  foregroundLocation: t('shared.preflight.checks.foregroundLocation'),
+  backgroundLocation: t('shared.preflight.checks.backgroundLocation'),
+  overlay: t('shared.preflight.checks.overlay'),
+  activity: t('shared.preflight.checks.activity'),
+  region: t('shared.preflight.checks.region'),
+  pendingPayments: t('shared.preflight.checks.pendingPayments'),
+  penalties: t('shared.preflight.checks.penalties'),
+  activeRide: t('shared.preflight.checks.activeRide'),
 });
 
 const PreflightCheckScreen = ({ navigation, route }: any) => {
@@ -105,6 +109,7 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
   const { user, logout, userMode, setUserMode } = useAuth();
   const { colors } = useTheme();
   const { isFCMAvailable, configureFCM } = useFCM();
+  const { t } = useTranslation();
   
   const role = useMemo<PreflightRole>(() => {
     const paramRole = params?.role;
@@ -120,10 +125,11 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
   const pendingPaymentsRoute = params?.pendingPaymentsRoute ?? 'PendingPayments';
   const payCommissionsRoute = params?.payCommissionsRoute ?? (role === 'driver' ? 'PayCommissions' : undefined);
   const rideTrackingRoute = params?.rideTrackingRoute ?? 'RideTracking';
+  const waitingRideRoute = params?.waitingRideRoute ?? 'HomeOffers';
   const pendingApprovalRoute = params?.pendingApprovalRoute;
 
   const [progress, setProgress] = useState(0);
-  const [currentCheckLabel, setCurrentCheckLabel] = useState('Iniciando...');
+  const [currentCheckLabel, setCurrentCheckLabel] = useState<string>(t('shared.preflight.checks.starting'));
   const [error, setError] = useState<string | null>(null);
   const [completed, setCompleted] = useState(false);
   const [canRetry, setCanRetry] = useState(false);
@@ -232,7 +238,7 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
       ...(role === 'driver' ? ['penalties'] : []),
     ];
 
-    const labels = getCheckLabels();
+    const labels = getCheckLabels(t);
     const totalChecks = checkList.length;
 
     let regionInfo: PreflightRegionInfo | undefined;
@@ -264,7 +270,7 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
             success = await checkForegroundLocation();
             break;
           case 'region': {
-            const region = await checkRegionAvailabilityPreflight();
+            const region = await checkRegionAvailabilityPreflight(t);
             if (region) {
               regionInfo = region;
             }
@@ -289,7 +295,7 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
             success = true; // No crítico
             break;
           case 'activeRide':
-            action = await checkActiveRide(role, user?.id, nav, activeRideRoute, rideTrackingRoute);
+            action = await checkActiveRide(role, user?.id, nav, activeRideRoute, rideTrackingRoute, waitingRideRoute);
             success = true; // No crítico
             break;
         }
@@ -309,7 +315,11 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
               console.error('❌ [Preflight] Error durante logout tras fallo de auth:', logoutError);
             }
           } else {
-            setError(`Error en ${labels[checkId]}: Por favor, verifica y reintenta.`);
+            setError(
+              t('shared.preflight.errors.checkFailed', {
+                label: labels[checkId] || checkId,
+              }),
+            );
             setCanRetry(true);
           }
 
@@ -325,7 +335,11 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
         console.error(`❌ [Preflight] Error en check ${checkId}:`, err);
         
         if (isCritical) {
-          setError(`Error inesperado: ${err?.message || 'Intenta nuevamente'}`);
+          setError(
+            t('shared.preflight.errors.unexpected', {
+              message: err?.message || t('shared.preflight.errors.generic'),
+            }),
+          );
           setCanRetry(true);
           checksRunRef.current = false;
           return;
@@ -337,7 +351,7 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
     setProgress(100);
     animateProgress(100);
     setCompleted(true);
-    setCurrentCheckLabel('Verificación completada');
+    setCurrentCheckLabel(t('shared.preflight.progress.completedLabel'));
 
     // Guardar resultado en el store
     const summary: PreflightSummary = {
@@ -373,7 +387,7 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
       await setUserMode('client');
     } catch (err: any) {
       console.error('❌ [Preflight] Error cambiando a modo cliente desde preflight:', err);
-      alertService.showErrorAlert('No se pudo cambiar a modo cliente. Intenta nuevamente.');
+      alertService.showErrorAlert(t('shared.preflight.alerts.switchToClientError'));
     }
   }, [role, setUserMode]);
 
@@ -432,9 +446,7 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
           navigateAfterChecks();
         }, 300);
       } else {
-        alertService.showErrorAlert(
-          'No pudimos guardar tu aceptación de términos. Revisa tu conexión e inténtalo de nuevo.',
-        );
+        alertService.showErrorAlert(t('shared.preflight.alerts.termsSaveError'));
       }
     } finally {
       setSavingTerms(false);
@@ -443,8 +455,8 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
 
   const handleSkip = useCallback(() => {
     alertService.showInfoAlert(
-      'No se puede continuar',
-      'Debes completar las verificaciones requeridas antes de usar la aplicación.'
+      t('shared.preflight.alerts.cannotContinueTitle'),
+      t('shared.preflight.alerts.cannotContinueMessage'),
     );
   }, []);
 
@@ -456,13 +468,13 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
   return (
     <View style={styles.container}>
       <View style={styles.content}>
-        <Text style={styles.title}>Preparando tu experiencia</Text>
+        <Text style={styles.title}>{t('shared.preflight.title')}</Text>
         <Text style={styles.subtitle}>
           {completed
-            ? '¡Todo listo! Redirigiendo...'
+            ? t('shared.preflight.subtitle.completed')
             : error
-            ? 'Ocurrió un problema'
-            : 'Verificamos que todo esté en orden'}
+            ? t('shared.preflight.subtitle.error')
+            : t('shared.preflight.subtitle.default')}
         </Text>
 
         <PermissionsExplanation role={role} />
@@ -501,7 +513,7 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
         {/* Acciones detectadas */}
         {completed && actionsRef.current.length > 0 && (
           <View style={styles.actionsContainer}>
-            <Text style={styles.actionsTitle}>Acciones pendientes detectadas:</Text>
+            <Text style={styles.actionsTitle}>{t('shared.preflight.actionsSummary.title')}</Text>
             {actionsRef.current.slice(0, 3).map((action, idx) => (
               <View key={idx} style={styles.actionItem}>
                 <Text style={styles.actionBullet}>•</Text>
@@ -510,7 +522,7 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
             ))}
             {actionsRef.current.length > 3 && (
               <Text style={styles.actionsMore}>
-                +{actionsRef.current.length - 3} más
+                {t('shared.preflight.actionsSummary.more', { count: actionsRef.current.length - 3 })}
               </Text>
             )}
           </View>
@@ -521,7 +533,7 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
       <View style={styles.footer}>
         {canRetry && (
           <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
-            <Text style={styles.retryButtonText}>Reintentar</Text>
+            <Text style={styles.retryButtonText}>{t('shared.preflight.buttons.retry')}</Text>
           </TouchableOpacity>
         )}
         {role === 'driver' && (
@@ -530,7 +542,9 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
             onPress={handleSwitchToClientModeFromPreflight}
           >
             <Text style={styles.secondaryButtonText}>
-              {userMode === 'client' ? 'Continuar como cliente' : 'Usar como cliente'}
+              {userMode === 'client'
+                ? t('shared.preflight.buttons.continueAsClient')
+                : t('shared.preflight.buttons.useAsClient')}
             </Text>
           </TouchableOpacity>
         )}
@@ -541,7 +555,7 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
         saving={savingTerms}
         requireCheck
         checked={termsChecked}
-        acceptLabel="Aceptar y continuar"
+        acceptLabel={t('shared.preflight.terms.accept')}
         onToggleChecked={() => {
           if (!savingTerms) {
             setTermsChecked(!termsChecked);
@@ -685,7 +699,9 @@ async function checkNotifications(params?: {
   }
 }
 
-async function checkRegionAvailabilityPreflight(): Promise<PreflightRegionInfo | null> {
+async function checkRegionAvailabilityPreflight(
+  t: (key: string, opts?: any) => string,
+): Promise<PreflightRegionInfo | null> {
   let latitude: number | null = null;
   let longitude: number | null = null;
 
@@ -755,7 +771,7 @@ async function checkRegionAvailabilityPreflight(): Promise<PreflightRegionInfo |
     console.error('❌ [Preflight] Error verificando región (HTTP):', error?.response?.data ?? error);
 
     if (latitude != null && longitude != null) {
-      const region = getLocalRegionFallback(latitude, longitude);
+      const region = getLocalRegionFallback(t, latitude, longitude);
       console.log('[Preflight] Región fallback local:', region);
       return region;
     }
@@ -1047,6 +1063,7 @@ async function checkActiveRide(
   navigation: NavigationLike,
   activeRideRoute: string,
   rideTrackingRoute: string,
+  waitingRideRoute: string,
 ): Promise<PreflightAction | undefined> {
   if (!userId) return undefined;
 
@@ -1098,13 +1115,15 @@ async function checkActiveRide(
     }
 
     // Client
-    if (CLIENT_WAITING_STATUSES.includes(status.toLowerCase())) {
+    const isWaiting = CLIENT_WAITING_STATUSES.includes(status.toLowerCase());
+
+    if (isWaiting) {
       return {
         type: 'active_ride',
         title: 'Viaje en espera',
         subtitle: `Estado: ${status}`,
         ctaLabel: 'Ver viaje',
-        routeName: 'RideConfirmation',
+        routeName: waitingRideRoute,
         routeParams: { rideId },
         metadata: { rideId, status },
       };

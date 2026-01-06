@@ -211,20 +211,20 @@ export default function DriverStack() {
       <Stack.Screen name="Earnings" component={EarningsScreen} options={{ title: 'Ganancias' }} />
       <Stack.Screen name="DriverProfile" component={DriverProfileScreen} options={{title: 'Mi Perfil' }} />
       <Stack.Screen name="Profile" component={ProfileScreen} options={{ headerShown: false }} />
-      <Stack.Screen name="RideHistory" component={RideHistoryScreen} options={{ headerShown: true, title: 'Historial de Viajes' }} />
-      <Stack.Screen name="Rating" component={RatingScreen} options={{ headerShown: true, title: 'Calificar' }} />
-      <Stack.Screen name="PaymentMethods" component={PaymentMethodsScreen} options={{ headerShown: true, title: 'Métodos de Pago' }} />
-      <Stack.Screen name="AddCard" component={AddCardScreen} options={{ headerShown: true, title: 'Agregar Tarjeta' }} />
-      <Stack.Screen name="SavedCards" component={SavedCardsScreen} options={{ headerShown: true, title: 'Tarjetas Guardadas' }} />
+      <Stack.Screen name="RideHistory" component={RideHistoryScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="Rating" component={RatingScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="PaymentMethods" component={PaymentMethodsScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="AddCard" component={AddCardScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="SavedCards" component={SavedCardsScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Account" component={AccountScreen} options={{ headerShown: false }} />
-      <Stack.Screen name="Settings" component={SettingsScreen} options={{ headerShown: true, title: 'Configuración' }} />
-      <Stack.Screen name="DeleteAccount" component={DeleteAccountScreen} options={{ headerShown: true, title: 'Eliminar Cuenta' }} />
-      <Stack.Screen name="Help" component={HelpScreen} options={{ headerShown: true, title: 'Ayuda' }} />
+      <Stack.Screen name="Settings" component={SettingsScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="DeleteAccount" component={DeleteAccountScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="Help" component={HelpScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Chat" component={ChatScreen} options={{ headerShown: true, title: 'Chat' }} />
-      <Stack.Screen name="CompleteVehicleInfo" component={CompleteVehicleInfoScreen} options={{ headerShown: true, title: 'Completar Información' }} />
-      <Stack.Screen name="RideDetails" component={RideDetailsScreen} options={{ headerShown: true, title: 'Detalles del Viaje' }} />
-      <Stack.Screen name="PaymentConfirmation" component={PaymentConfirmationScreen} options={{ headerShown: true, title: 'Confirmación de Pago' }} />
-      <Stack.Screen name="WaitingClientConfirmation" component={WaitingClientConfirmationScreen} options={{ headerShown: true, title: 'Esperando Confirmación' }} />
+      <Stack.Screen name="CompleteVehicleInfo" component={CompleteVehicleInfoScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="RideDetails" component={RideDetailsScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="PaymentConfirmation" component={PaymentConfirmationScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="WaitingClientConfirmation" component={WaitingClientConfirmationScreen} options={{ headerShown:false }} />
       <Stack.Screen name="PayCommissions" component={PayCommissionsScreen} options={{ headerShown: false }} />
       <Stack.Screen name="PendingPayments" component={PendingPaymentsScreen} options={{ headerShown: false }} />
       <Stack.Screen

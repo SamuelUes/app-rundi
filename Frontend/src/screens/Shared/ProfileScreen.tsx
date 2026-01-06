@@ -9,6 +9,7 @@ import driversService from '../../services/driversService';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import phoneAuthService from '../../services/auth/phoneAuthService';
 import { fetchDriverProfile } from '../../services/driverProfilesService';
+import { useTranslation } from 'react-i18next';
 
 export default function ProfileScreen({ navigation }: any) {
   const { user, logout, logoutInProgress, userMode, setUserMode } = useAuth();
@@ -22,6 +23,43 @@ export default function ProfileScreen({ navigation }: any) {
   const [vibrationEnabled, setVibrationEnabled] = useState(true);
   const isDriverCapable = user?.role === 'driver' || user?.role === 'designated_driver';
   const [switchingToDriver, setSwitchingToDriver] = useState(false);
+  const { t } = useTranslation();
+
+  const getVehicleTypeLabel = (type?: string | null) => {
+    const normalized = type?.toLowerCase();
+    switch (normalized) {
+      case 'sedan':
+        return t('shared.profile.vehicle.typeLabels.sedan');
+      case 'suv':
+        return t('shared.profile.vehicle.typeLabels.suv');
+      case 'van':
+        return t('shared.profile.vehicle.typeLabels.van');
+      case 'moto':
+      case 'motorcycle':
+        return t('shared.profile.vehicle.typeLabels.moto');
+      default:
+        return normalized
+          ? t('shared.profile.vehicle.typeLabels.other', { type })
+          : t('shared.profile.vehicle.typeLabels.other', { type: t('shared.profile.vehicle.infoLabels.type') });
+    }
+  };
+
+  const headerTitle = t('shared.profile.header.title');
+  const headerEditLabel = t('shared.profile.header.edit');
+  const userIdLabel = t('shared.profile.header.userId', { id: user?.id ?? '' });
+  const roleLabel =
+    user?.role === 'driver' || user?.role === 'designated_driver'
+      ? t('shared.profile.header.role.driver')
+      : t('shared.profile.header.role.client');
+  const modeTitle = isDriverCapable ? t('shared.profile.mode.titleDriver') : t('shared.profile.mode.titleClient');
+  const modeDescription = isDriverCapable
+    ? t('shared.profile.mode.descriptionDriver')
+    : t('shared.profile.mode.descriptionClient');
+  const modeButtonLabel = switchingToDriver
+    ? t('shared.profile.mode.switching')
+    : isDriverCapable
+    ? t('shared.profile.mode.buttonDriver')
+    : t('shared.profile.mode.buttonClient');
 
   // Cargar perfil del conductor solo cuando el usuario es conductor y está en modo conductor
   useEffect(() => {
@@ -56,18 +94,12 @@ export default function ProfileScreen({ navigation }: any) {
     try {
       if (value) {
         if (!isFCMAvailable) {
-          Alert.alert(
-            'Compila la app',
-            'Las notificaciones push solo funcionan en una compilación de desarrollo o producción. Usa “npx expo run:android” o “npx expo run:ios”.',
-          );
+          Alert.alert(t('shared.profile.alerts.buildTitle'), t('shared.profile.alerts.buildMessage'));
           return;
         }
         await configureFCM();
       } else if (notificationsEnabled) {
-        Alert.alert(
-          'Desactivar notificaciones',
-          'Para desactivar las notificaciones push debes abrir los ajustes del sistema y revocar los permisos de la app.',
-        );
+        Alert.alert(t('shared.profile.alerts.disableTitle'), t('shared.profile.alerts.disableMessage'));
       }
     } catch (error) {
       console.warn('Error actualizando notificaciones', error);
@@ -118,8 +150,8 @@ export default function ProfileScreen({ navigation }: any) {
 
     if (user.role !== 'client') {
       Alert.alert(
-        'No disponible',
-        'Solo las cuentas de cliente pueden iniciar el registro como conductor desde aquí.',
+        t('shared.profile.alerts.upgradeNotAvailableTitle'),
+        t('shared.profile.alerts.upgradeNotAvailableMessage'),
       );
       return;
     }
@@ -160,8 +192,8 @@ export default function ProfileScreen({ navigation }: any) {
     } catch (error: any) {
       console.error('Error al enviar código SMS para upgrade a conductor desde perfil:', error);
       Alert.alert(
-        'Error',
-        error?.message || 'No se pudo enviar el código SMS. Intenta nuevamente.',
+        t('shared.profile.alerts.smsErrorTitle'),
+        error?.message || t('shared.profile.alerts.smsErrorMessage'),
       );
     }
   };
@@ -185,18 +217,18 @@ export default function ProfileScreen({ navigation }: any) {
         const reasons: string[] = [];
 
         if (!approval.accountActive) {
-          reasons.push('• Tu cuenta de conductor aún no está activa.');
+          reasons.push(t('shared.profile.alerts.driverModeReasons.accountInactive'));
         }
         if (!approval.documentsVerified) {
-          reasons.push('• Tus documentos de conductor están pendientes o fueron rechazados.');
+          reasons.push(t('shared.profile.alerts.driverModeReasons.documentsPending'));
         }
         if (!approval.hasActiveVehicle) {
-          reasons.push('• No tienes ningún vehículo activo aprobado.');
+          reasons.push(t('shared.profile.alerts.driverModeReasons.vehicleMissing'));
         }
 
         Alert.alert(
-          'No puedes usar modo conductor',
-          `${reasons.join('\n')}\n\nRevisa tus documentos y vehículos para completar la aprobación.`,
+          t('shared.profile.alerts.driverModeBlockedTitle'),
+          `${reasons.join('\n')}\n\n${t('shared.profile.alerts.driverModeFooter')}`,
         );
         return;
       }
@@ -204,7 +236,7 @@ export default function ProfileScreen({ navigation }: any) {
       await setUserMode('driver');
     } catch (error: any) {
       console.error('Error cambiando a modo conductor desde perfil:', error);
-      Alert.alert('Error', 'No se pudo cambiar al modo conductor. Intenta nuevamente.');
+      Alert.alert('Error', t('shared.profile.alerts.driverModeError'));
     } finally {
       setSwitchingToDriver(false);
     }
@@ -214,34 +246,29 @@ export default function ProfileScreen({ navigation }: any) {
     if (logoutInProgress) {
       return;
     }
-    Alert.alert(
-      'Cerrar sesión',
-      '¿Estás seguro que deseas cerrar sesión?',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Salir',
-          style: 'destructive',
-          onPress: async () => {
-            await logout();
-            // La navegación se maneja automáticamente por AppNavigator
-          },
+    Alert.alert(t('shared.profile.alerts.logoutTitle'), t('shared.profile.alerts.logoutMessage'), [
+      { text: t('shared.profile.alerts.logoutCancel'), style: 'cancel' },
+      {
+        text: t('shared.profile.alerts.logoutConfirm'),
+        style: 'destructive',
+        onPress: async () => {
+          await logout();
         },
-      ],
-    );
+      },
+    ]);
   };
 
   if (!user) {
     return (
       <View style={styles.container}>
-        <Text>No hay usuario autenticado</Text>
+        <Text>{t('shared.profile.messages.noUser')}</Text>
       </View>
     );
   }
 
   return (
     <ScrollView style={styles.container}>
-      <LoadingOverlay visible={logoutInProgress} message="Cerrando sesión..." />
+      <LoadingOverlay visible={logoutInProgress} message={t('shared.profile.loading.logout')} />
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerTopRow}>
@@ -262,7 +289,7 @@ export default function ProfileScreen({ navigation }: any) {
               style={styles.backIcon}
             />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Perfil</Text>
+          <Text style={styles.headerTitle}>{headerTitle}</Text>
           <View style={styles.headerTopSpacer} />
         </View>
 
@@ -276,18 +303,16 @@ export default function ProfileScreen({ navigation }: any) {
           <View style={styles.headerContent}>
             <Text style={styles.name}>{user.name}</Text>
             <Text style={styles.email}>{user.email}</Text>
-            <Text style={styles.memberId}>ID de Usuario: {user.id}</Text>
+            <Text style={styles.memberId}>{userIdLabel}</Text>
 
             <View style={styles.headerBottomRow}>
               <View style={styles.roleBadge}>
-                <Text style={styles.roleText}>
-                  {user.role === 'client' ? 'Cliente' : 'Conductor'}
-                </Text>
+                <Text style={styles.roleText}>{roleLabel}</Text>
               </View>
 
               <TouchableOpacity onPress={() => navigation.navigate('Account')}>
                 <View style={styles.editProfileBadge}>
-                <Text style={styles.editProfileText}>Editar perfil</Text>
+                  <Text style={styles.editProfileText}>{headerEditLabel}</Text>
                 </View>
               </TouchableOpacity>
             </View>
@@ -298,14 +323,12 @@ export default function ProfileScreen({ navigation }: any) {
         {userMode === 'client' && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>
-              {isDriverCapable ? 'Modo de uso' : 'Conduce con Rundi'}
+              {modeTitle}
             </Text>
             <View style={styles.optionCard}>
               <View style={styles.modeUseTextContainer}>
                 <Text style={styles.optionText}>
-                  {isDriverCapable
-                    ? 'Cambia a la vista de conductor para recibir viajes.'
-                    : 'Regístrate como conductor y empieza a recibir viajes.'}
+                  {modeDescription}
                 </Text>
               </View>
               <TouchableOpacity
@@ -316,9 +339,7 @@ export default function ProfileScreen({ navigation }: any) {
                 onPress={isDriverCapable ? handleSwitchToDriverMode : handleUpgradeToDriver}
                 disabled={switchingToDriver}
               >
-                <Text style={styles.modeUseButtonText}>
-                  {isDriverCapable ? 'Usar como conductor' : 'Quiero ser conductor'}
-                </Text>
+                <Text style={styles.modeUseButtonText}>{modeButtonLabel}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -327,7 +348,7 @@ export default function ProfileScreen({ navigation }: any) {
         {false && userMode === 'driver' && isDriverCapable && (
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>🚗 Información del Vehículo</Text>
+              <Text style={styles.sectionTitle}>{t('shared.profile.vehicle.title')}</Text>
               <TouchableOpacity 
                 style={styles.refreshIcon}
                 onPress={loadDriverProfileData}
@@ -342,8 +363,8 @@ export default function ProfileScreen({ navigation }: any) {
             {loadingProfile ? (
               <View style={styles.loadingContainer}>
                 <ActivityIndicator size="small" color={colors.primary} />
-                <Text style={styles.loadingText}>Cargando información del vehículo...</Text>
-                <Text style={styles.loadingSubtext}>Verificando datos en la base de datos</Text>
+                <Text style={styles.loadingText}>{t('shared.profile.loading.vehicle')}</Text>
+                <Text style={styles.loadingSubtext}>{t('shared.profile.vehicle.loadingSubtitle')}</Text>
               </View>
             ) : driverProfile?.driver?.vehicle ? (
               <>
@@ -352,10 +373,8 @@ export default function ProfileScreen({ navigation }: any) {
                   <View style={styles.successCard}>
                     <Text style={styles.successIcon}>✅</Text>
                     <View style={styles.successContent}>
-                      <Text style={styles.successTitle}>Conductor Verificado</Text>
-                      <Text style={styles.successText}>
-                        Tu información ha sido verificada correctamente. Ya puedes recibir viajes.
-                      </Text>
+                      <Text style={styles.successTitle}>{t('shared.profile.vehicle.successTitle')}</Text>
+                      <Text style={styles.successText}>{t('shared.profile.vehicle.successText')}</Text>
                     </View>
                   </View>
                 )}
@@ -368,27 +387,26 @@ export default function ProfileScreen({ navigation }: any) {
                   <View style={styles.warningCard}>
                     <Text style={styles.warningIcon}>⚠️</Text>
                     <View style={styles.warningContent}>
-                      <Text style={styles.warningTitle}>Información Incompleta</Text>
-                      <Text style={styles.warningText}>
-                        Falta completar información importante de tu vehículo. 
-                        Es urgente que completes los siguientes datos:
-                      </Text>
+                      <Text style={styles.warningTitle}>{t('shared.profile.vehicle.warningTitle')}</Text>
+                      <Text style={styles.warningText}>{t('shared.profile.vehicle.warningText')}</Text>
                       {!driverProfile?.driver?.vehicle?.vehicle_photo && (
                         <Text style={styles.warningItem}>
-                          📷 Foto del vehículo ({driverProfile?.driver?.vehicle?.type === 'moto' ? 'lateral' : 'frontal'})
+                          {driverProfile?.driver?.vehicle?.type === 'moto'
+                            ? t('shared.profile.vehicle.missingPhotoMoto')
+                            : t('shared.profile.vehicle.missingPhotoCar')}
                         </Text>
                       )}
                       {(!driverProfile?.driver?.vehicle?.registration_photo_front || !driverProfile?.driver?.vehicle?.registration_photo_back) && (
-                        <Text style={styles.warningItem}>📄 Foto de matrícula</Text>
+                        <Text style={styles.warningItem}>{t('shared.profile.vehicle.missingRegistration')}</Text>
                       )}
                       {!driverProfile?.driver?.vehicle?.insurance_photo && (
-                        <Text style={styles.warningItem}>🛡️ Foto de seguro</Text>
+                        <Text style={styles.warningItem}>{t('shared.profile.vehicle.missingInsurance')}</Text>
                       )}
                       <TouchableOpacity 
                         style={styles.completeButton}
                         onPress={() => navigation.navigate('CompleteVehicleInfo')}
                       >
-                        <Text style={styles.completeButtonText}>Completar Ahora</Text>
+                        <Text style={styles.completeButtonText}>{t('shared.profile.vehicle.completeButton')}</Text>
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -396,48 +414,43 @@ export default function ProfileScreen({ navigation }: any) {
 
                 <View style={styles.infoCard}>
                   <View style={styles.infoRow}>
-                    <Text style={styles.infoLabel}>🚙 Marca</Text>
+                    <Text style={styles.infoLabel}>🚙 {t('shared.profile.vehicle.infoLabels.brand')}</Text>
                     <Text style={styles.infoValue}>{driverProfile.driver.vehicle.brand}</Text>
                   </View>
                 </View>
 
                 <View style={styles.infoCard}>
                   <View style={styles.infoRow}>
-                    <Text style={styles.infoLabel}>🚗 Modelo</Text>
+                    <Text style={styles.infoLabel}>🚗 {t('shared.profile.vehicle.infoLabels.model')}</Text>
                     <Text style={styles.infoValue}>{driverProfile.driver.vehicle.model}</Text>
                   </View>
                 </View>
 
                 <View style={styles.infoCard}>
                   <View style={styles.infoRow}>
-                    <Text style={styles.infoLabel}>📅 Año</Text>
+                    <Text style={styles.infoLabel}>📅 {t('shared.profile.vehicle.infoLabels.year')}</Text>
                     <Text style={styles.infoValue}>{driverProfile.driver.vehicle.year}</Text>
                   </View>
                 </View>
 
                 <View style={styles.infoCard}>
                   <View style={styles.infoRow}>
-                    <Text style={styles.infoLabel}>🎨 Color</Text>
+                    <Text style={styles.infoLabel}>🎨 {t('shared.profile.vehicle.infoLabels.color')}</Text>
                     <Text style={styles.infoValue}>{driverProfile.driver.vehicle.color}</Text>
                   </View>
                 </View>
 
                 <View style={styles.infoCard}>
                   <View style={styles.infoRow}>
-                    <Text style={styles.infoLabel}>🔢 Placa</Text>
+                    <Text style={styles.infoLabel}>🔢 {t('shared.profile.vehicle.infoLabels.plate')}</Text>
                     <Text style={styles.infoValue}>{driverProfile.driver.vehicle.plate}</Text>
                   </View>
                 </View>
 
                 <View style={styles.infoCard}>
                   <View style={styles.infoRow}>
-                    <Text style={styles.infoLabel}>🚘 Tipo</Text>
-                    <Text style={styles.infoValue}>
-                      {driverProfile.driver.vehicle.type === 'sedan' ? 'Sedán' :
-                       driverProfile.driver.vehicle.type === 'suv' ? 'SUV' :
-                       driverProfile.driver.vehicle.type === 'van' ? 'Van' :
-                       driverProfile.driver.vehicle.type === 'moto' ? 'Moto' : driverProfile.driver.vehicle.type}
-                    </Text>
+                    <Text style={styles.infoLabel}>🚘 {t('shared.profile.vehicle.infoLabels.type')}</Text>
+                    <Text style={styles.infoValue}>{getVehicleTypeLabel(driverProfile.driver.vehicle.type)}</Text>
                   </View>
                 </View>
               </>
@@ -445,10 +458,8 @@ export default function ProfileScreen({ navigation }: any) {
               <View style={styles.warningCard}>
                 <Text style={styles.warningIcon}>⚠️</Text>
                 <View style={styles.warningContent}>
-                  <Text style={styles.warningTitle}>Sin Información del Vehículo</Text>
-                  <Text style={styles.warningText}>
-                    No hay información de tu vehículo registrada. Es urgente que completes esta información para poder recibir viajes.
-                  </Text>
+                  <Text style={styles.warningTitle}>{t('shared.profile.vehicle.emptyTitle')}</Text>
+                  <Text style={styles.warningText}>{t('shared.profile.vehicle.emptyText')}</Text>
                   <View style={styles.warningButtons}>
                     <TouchableOpacity 
                       style={styles.refreshButton}
@@ -456,14 +467,14 @@ export default function ProfileScreen({ navigation }: any) {
                       disabled={loadingProfile}
                     >
                       <Text style={styles.refreshButtonText}>
-                        {loadingProfile ? '🔄 Cargando...' : '🔄 Refrescar'}
+                        {loadingProfile ? `🔄 ${t('shared.profile.vehicle.refresh')}` : `🔄 ${t('shared.profile.vehicle.refresh')}`}
                       </Text>
                     </TouchableOpacity>
                     <TouchableOpacity 
                       style={styles.completeButton}
                       onPress={() => navigation.navigate('CompleteVehicleInfo')}
                     >
-                      <Text style={styles.completeButtonText}>Registrar Vehículo</Text>
+                      <Text style={styles.completeButtonText}>{t('shared.profile.vehicle.register')}</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -474,36 +485,42 @@ export default function ProfileScreen({ navigation }: any) {
 
         {/* Opciones */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Configuración</Text>
+          <Text style={styles.sectionTitle}>{t('shared.profile.config.title')}</Text>
 
           {/* Tema rápido */}
           <View style={styles.optionCard}>
-            <Text style={styles.optionText}>Tema</Text>
+            <Text style={styles.optionText}>{t('shared.profile.config.theme')}</Text>
             <View style={styles.themeChipsRow}>
               <TouchableOpacity
                 style={[styles.themeChip, theme === 'light' && styles.themeChipActive]}
                 onPress={() => handleThemeChange('light')}
               >
-                <Text style={[styles.themeChipText, theme === 'light' && styles.themeChipTextActive]}>Claro</Text>
+                <Text style={[styles.themeChipText, theme === 'light' && styles.themeChipTextActive]}>
+                  {t('shared.profile.config.themeOptions.light')}
+                </Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.themeChip, theme === 'dark' && styles.themeChipActive]}
                 onPress={() => handleThemeChange('dark')}
               >
-                <Text style={[styles.themeChipText, theme === 'dark' && styles.themeChipTextActive]}>Oscuro</Text>
+                <Text style={[styles.themeChipText, theme === 'dark' && styles.themeChipTextActive]}>
+                  {t('shared.profile.config.themeOptions.dark')}
+                </Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.themeChip, theme === 'auto' && styles.themeChipActive]}
                 onPress={() => handleThemeChange('auto')}
               >
-                <Text style={[styles.themeChipText, theme === 'auto' && styles.themeChipTextActive]}>Auto</Text>
+                <Text style={[styles.themeChipText, theme === 'auto' && styles.themeChipTextActive]}>
+                  {t('shared.profile.config.themeOptions.auto')}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
 
           {/* Notificaciones Push */}
           <View style={styles.optionCard}>
-            <Text style={styles.optionText}>Notificaciones Push</Text>
+            <Text style={styles.optionText}>{t('shared.profile.config.notifications')}</Text>
             <Switch
               value={notificationsEnabled}
               onValueChange={handleToggleNotifications}
@@ -514,7 +531,7 @@ export default function ProfileScreen({ navigation }: any) {
 
           {/* Tráfico en el mapa */}
           <View style={styles.optionCard}>
-            <Text style={styles.optionText}>Tráfico en el mapa</Text>
+            <Text style={styles.optionText}>{t('shared.profile.config.traffic')}</Text>
             <Switch
               value={mapTrafficEnabled}
               onValueChange={setMapTrafficEnabled}
@@ -525,7 +542,7 @@ export default function ProfileScreen({ navigation }: any) {
 
           {/* Sonidos de la app (agrupa sonido + vibración) */}
           <View style={styles.optionCard}>
-            <Text style={styles.optionText}>Sonidos de la app</Text>
+            <Text style={styles.optionText}>{t('shared.profile.config.sounds')}</Text>
             <Switch
               value={soundEnabled && vibrationEnabled}
               onValueChange={(value) => {
@@ -547,7 +564,7 @@ export default function ProfileScreen({ navigation }: any) {
               source={require('../../assets/icons/settings-icon/settingsicon.png')}
               style={styles.optionIconImage}
             />
-            <Text style={styles.optionText}>Configuración avanzada</Text>
+            <Text style={styles.optionText}>{t('shared.profile.config.advanced')}</Text>
             <Text style={styles.optionArrow}>›</Text>
           </TouchableOpacity>
 
@@ -559,7 +576,7 @@ export default function ProfileScreen({ navigation }: any) {
               source={require('../../assets/icons/historial-icon/historialicon2.png')}
               style={styles.optionIconImage}
             />
-            <Text style={styles.optionText}>Historial de Viajes</Text>
+            <Text style={styles.optionText}>{t('shared.profile.config.rideHistory')}</Text>
             <Text style={styles.optionArrow}>›</Text>
           </TouchableOpacity>
 
@@ -571,7 +588,7 @@ export default function ProfileScreen({ navigation }: any) {
               source={require('../../assets/icons/payment-icon/paymenticon.png')}
               style={styles.optionIconImage}
             />
-            <Text style={styles.optionText}>Métodos de Pago</Text>
+            <Text style={styles.optionText}>{t('shared.profile.config.payments')}</Text>
             <Text style={styles.optionArrow}>›</Text>
           </TouchableOpacity>
 
@@ -583,7 +600,7 @@ export default function ProfileScreen({ navigation }: any) {
               source={require('../../assets/icons/help-icon/helpicon.png')}
               style={styles.optionIconImage}
             />
-            <Text style={styles.optionText}>Ayuda</Text>
+            <Text style={styles.optionText}>{t('shared.profile.config.help')}</Text>
             <Text style={styles.optionArrow}>›</Text>
           </TouchableOpacity>
         </View>
@@ -591,7 +608,7 @@ export default function ProfileScreen({ navigation }: any) {
         {/* Botón Cerrar Sesión */}
         <View style={styles.logoutContainer}>
           <Button
-            title="Cerrar Sesión"
+            title={t('shared.profile.buttons.logout')}
             onPress={handleLogout}
             style={styles.logoutButton}
           />
@@ -599,8 +616,8 @@ export default function ProfileScreen({ navigation }: any) {
 
         {/* App Info */}
         <View style={styles.appInfo}>
-          <Text style={styles.appVersion}>Rundi Beta - 1.6.4</Text>
-          <Text style={styles.appCopyright}>© 2025 Todos los derechos reservados</Text>
+          <Text style={styles.appVersion}>{t('shared.profile.appInfo.version')}</Text>
+          <Text style={styles.appCopyright}>{t('shared.profile.appInfo.copyright')}</Text>
         </View>
       </View>
     </ScrollView>

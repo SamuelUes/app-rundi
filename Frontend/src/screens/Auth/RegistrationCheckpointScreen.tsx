@@ -6,6 +6,7 @@ import { RouteProp } from '@react-navigation/native';
 import { useTheme } from '../../context/ThemeContext';
 import registrationService from '../../services/registrationService';
 import { AuthStackParamList, RegistrationAuthProvider, RegistrationMethod } from '../../navigation/types';
+import { useTranslation } from 'react-i18next';
 
 type RegistrationCheckpointNavigationProp = NativeStackNavigationProp<
   AuthStackParamList,
@@ -46,6 +47,7 @@ type TempRegistrationData = {
 const RegistrationCheckpointScreen: React.FC<Props> = ({ navigation }) => {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const { t } = useTranslation();
 
   const [loading, setLoading] = useState(true);
   const [tempData, setTempData] = useState<TempRegistrationData | null>(null);
@@ -77,47 +79,47 @@ const RegistrationCheckpointScreen: React.FC<Props> = ({ navigation }) => {
     const step = data?.lastStep;
 
     if (!step) {
-      return 'Datos básicos';
+      return t('authScreens.registrationCheckpoint.stepLabels.default');
     }
 
     if (step === 'register') {
       if (data?.method === 'google') {
-        return 'Selección de rol con Google';
+        return t('authScreens.registrationCheckpoint.stepLabels.register.google');
       }
       if (data?.method === 'phone') {
-        return 'Selección de rol con teléfono';
+        return t('authScreens.registrationCheckpoint.stepLabels.register.phone');
       }
-      return 'Datos básicos de registro';
+      return t('authScreens.registrationCheckpoint.stepLabels.register.default');
     }
 
     if (step === 'googlePhone') {
-      return 'Agregar teléfono para cuenta Google';
+      return t('authScreens.registrationCheckpoint.stepLabels.googlePhone');
     }
 
     if (step === 'driverPhone') {
-      return 'Teléfono para conductor';
+      return t('authScreens.registrationCheckpoint.stepLabels.driverPhone');
     }
 
     if (step === 'phoneVerification') {
       if (data?.role === 'driver') {
-        return 'Verificación de teléfono para conductor';
+        return t('authScreens.registrationCheckpoint.stepLabels.phoneVerification.driver');
       }
-      return 'Verificación de teléfono';
+      return t('authScreens.registrationCheckpoint.stepLabels.phoneVerification.default');
     }
 
     if (step === 'driverData') {
-      return 'Datos de licencia y vehículo';
+      return t('authScreens.registrationCheckpoint.stepLabels.driverData');
     }
 
     if (step === 'roleSelection') {
-      return 'Selección de rol';
+      return t('authScreens.registrationCheckpoint.stepLabels.roleSelection');
     }
 
     if (step === 'registerConfirm') {
-      return 'Confirmación final de registro';
+      return t('authScreens.registrationCheckpoint.stepLabels.registerConfirm');
     }
 
-    return 'Datos básicos';
+    return t('authScreens.registrationCheckpoint.stepLabels.default');
   };
 
   const handleStartOver = async () => {
@@ -340,23 +342,29 @@ const RegistrationCheckpointScreen: React.FC<Props> = ({ navigation }) => {
   return (
     <View style={styles.container}>
       <View style={styles.card}>
-        <Text style={styles.title}>Retomar tu registro</Text>
+        <Text style={styles.title}>{t('authScreens.registrationCheckpoint.title')}</Text>
         <Text style={styles.subtitle}>
-          Detectamos un registro pendiente para {tempData.name}. Te quedaste en:
+          {t('authScreens.registrationCheckpoint.subtitle', { name: tempData.name ?? '' })}
         </Text>
         <Text style={styles.stepLabel}>{stepLabel}</Text>
 
         <View style={styles.infoBox}>
-          <Text style={styles.infoText}>Puedes continuar donde lo dejaste o empezar de cero.</Text>
+          <Text style={styles.infoText}>
+            {t('authScreens.registrationCheckpoint.info')}
+          </Text>
         </View>
 
         <View style={styles.actions}>
           <TouchableOpacity style={styles.primaryButton} onPress={handleContinue}>
-            <Text style={styles.primaryButtonText}>Continuar registro</Text>
+            <Text style={styles.primaryButtonText}>
+              {t('authScreens.registrationCheckpoint.buttons.continue')}
+            </Text>
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.secondaryButton} onPress={handleStartOver}>
-            <Text style={styles.secondaryButtonText}>Empezar desde cero</Text>
+            <Text style={styles.secondaryButtonText}>
+              {t('authScreens.registrationCheckpoint.buttons.startOver')}
+            </Text>
           </TouchableOpacity>
         </View>
       </View>

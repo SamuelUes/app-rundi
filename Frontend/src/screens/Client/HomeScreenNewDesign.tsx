@@ -10,31 +10,22 @@
  * - Alertas consistentes con alertService
  */
 
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Animated,
-  BackHandler,
-  Easing,
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
   Image,
   ImageBackground,
-  Linking,
+  Animated,
   Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+  Easing,
 } from 'react-native';
-import DynamicMap from '../../components/DynamicMap';
-import { useLocation } from '../../hooks/useLocation';
-import { useAuth } from '../../context/AuthContext';
+import MapView from 'react-native-maps';
+import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { useTheme } from '../../context/ThemeContext';
+import { useAuth } from '../../context/AuthContext';
 import { httpsCallable } from 'firebase/functions';
 import { getFirebaseFunctions } from '../../config/firebase';
 import { haversineKm } from '../../utils/distance';
@@ -46,6 +37,10 @@ import { useFirebaseData, useFirebaseItem } from '../../hooks/useFirebaseData';
 import mapsService from '../../services/mapsService';
 import { ensureVehicleIconSource, extractVehicleTypeFromInfo } from '../../utils/vehicleIcons';
 import { subscribePreflightResult, getPreflightResult, PreflightAction } from '../../state/preflightStore';
+import { useTranslation } from 'react-i18next';
+import { useLocation } from '../../hooks/useLocation';
+import TopToastProvider from '../../components/toast/TopToastProvider';
+import DynamicMap from '../../components/DynamicMap';
 
 // Importaciones para Firebase
 
@@ -80,7 +75,7 @@ const areCoordsEqual = (
 };
 
 const PROFILE_ICON_IMAGE = require('../../assets/icons/profile/profile-icon2.png');
-const REQUEST_BUTTON_IMAGE = require('../../assets/icons/make_request_button/make_request_button3x.png');
+//const REQUEST_BUTTON_IMAGE = require('../../assets/icons/make_request_button/make_request_button3x.png');
 const PENDING_ACTION_IMAGE = require('../../assets/icons/pending_acction/pending_acction2x.png');
 const USER_LOCATION_LIGHT_ICON = require('../../assets/icons/actuall-position-white/actuallpositionwhite2x.png');
 const USER_LOCATION_DARK_ICON = require('../../assets/icons/actuall-position-black/actuallpositionblack2x.png');
@@ -96,6 +91,7 @@ type PendingAction = {
 export default function HomeScreen({ navigation }: any) {
   const { user } = useAuth();
   const { colors, isDark } = useTheme();
+  const { t } = useTranslation();
 
   const preflightSummary = getPreflightResult();
   const initialRegion = preflightSummary?.region;
@@ -119,7 +115,7 @@ export default function HomeScreen({ navigation }: any) {
   } = useLocation(initialCoords ? { initialCoords } : {});
   const styles = useMemo(() => createStyles(colors), [colors]);
 
-  const [loadingMessage, setLoadingMessage] = useState('Preparando tu experiencia...');
+  const [loadingMessage, setLoadingMessage] = useState(t('client.home.loading.preparing'));
   const [initializing, setInitializing] = useState(true);
   const pendingInitialTasks = useRef(new Set<string>([
     'location',
@@ -263,7 +259,7 @@ export default function HomeScreen({ navigation }: any) {
   const [driverLocationsSnapshot, setDriverLocationsSnapshot] = useState<Record<string, any> | null>(null);
   const [manualOverride, setManualOverride] = useState<ManualOverrideState | null>(null);
   const [mapCenter, setMapCenter] = useState<{ latitude: number; longitude: number } | null>(null);
-  const [pendingAddress, setPendingAddress] = useState('Cargando ubicación…');
+  const [pendingAddress, setPendingAddress] = useState(() => t('client.home.map.loadingAddress'));
   const [hasPendingManualSelection, setHasPendingManualSelection] = useState(false);
   const [isResolvingAddress, setIsResolvingAddress] = useState(false);
   const [isSavingLocation, setIsSavingLocation] = useState(false);
@@ -613,7 +609,7 @@ export default function HomeScreen({ navigation }: any) {
         // locationTrackingService.saveLocationHistory(locationHistory);
       } catch (error) {
         console.error('❌ Error guardando ubicación:', error);
-        alertService.showErrorAlert('No se pudo guardar tu ubicación. Intenta de nuevo.');
+        alertService.showErrorAlert(t('client.home.alerts.locationSaveError'));
         throw error;
       }
     },
@@ -941,7 +937,7 @@ export default function HomeScreen({ navigation }: any) {
 
           // Verificar que el viaje pertenece al usuario
           if (rideData.clientId === user.id) {
-            console.log(`💰 [HomeScreen] ✅ Pago pendiente encontrado: ${rideId}`);
+            console.log(`💰 [HomeScreen] ✅ ${t('client.home.pendingAction.paymentSingle')} encontrado: ${rideId}`);
             userPendingPayments.push({
               rideId,
               payment,
@@ -1222,11 +1218,11 @@ export default function HomeScreen({ navigation }: any) {
       }
 
       setIsSavingLocation(true);
-      setLoadingMessage('Guardando ubicación...');
+      setLoadingMessage(t('client.home.loading.savingLocation'));
 
       try {
         let addressToSave = preferredAddress;
-        if (!addressToSave || addressToSave === 'Cargando ubicación…') {
+        if (!addressToSave || addressToSave === t('client.home.map.loadingAddress')) {
           addressToSave =
             (await mapsService.reverseGeocode({
               latitude: coordsToSave.latitude,
@@ -1257,14 +1253,17 @@ export default function HomeScreen({ navigation }: any) {
         setHasPendingManualSelection(false);
         setIsPinLocked(true);
 
-        alertService.showSuccessAlert('Ubicación actualizada', 'Tu ubicación actual se ha guardado correctamente.');
+        alertService.showSuccessAlert(
+          t('client.home.alerts.locationSavedTitle'),
+          t('client.home.alerts.locationSavedMessage'),
+        );
       } catch (error) {
         console.error('❌ [HomeScreen] Error guardando nueva ubicación:', error);
-        alertService.showErrorAlert('No se pudo guardar tu nueva ubicación. Intenta de nuevo.');
+        alertService.showErrorAlert(t('client.home.alerts.locationSaveError'));
       } finally {
         setIsHoldingPin(false);
         setIsSavingLocation(false);
-        setLoadingMessage('Preparando tu experiencia...');
+        setLoadingMessage(t('client.home.loading.preparing'));
       }
     },
     [alertService, isSavingLocation, mapsService, resolveAddressText, saveClientLocation, savedAddress],
@@ -1427,7 +1426,7 @@ export default function HomeScreen({ navigation }: any) {
       console.log('📍 Solicitud de actualización de ubicación enviada');
     } catch (error) {
       console.error('❌ Error actualizando ubicación:', error);
-      alertService.showErrorAlert('No se pudo actualizar la ubicación');
+      alertService.showErrorAlert(t('client.home.alerts.locationUpdateError'));
     }
   }, [refreshLocation]);
 
@@ -1435,8 +1434,8 @@ export default function HomeScreen({ navigation }: any) {
   const handleRequestRide = useCallback(() => {
     if (isOutsideSupportedArea) {
       alertService.showInfoAlert(
-        'Región no disponible',
-        regionStatus.message || 'Por el momento no puedes solicitar viajes porque te encuentras fuera del área de cobertura activa.',
+        t('client.home.alerts.regionUnavailableTitle'),
+        regionStatus.message || t('client.home.alerts.regionUnavailableMessage'),
       );
       return;
     }
@@ -1511,26 +1510,28 @@ export default function HomeScreen({ navigation }: any) {
     }
   }, [activeRide, navigation]);
 
-  const getActiveRideLabel = useCallback((status: string) => {
-    switch (status) {
-      case 'requested':
-        return 'Buscando conductor';
-      case 'pending_confirm':
-      case 'driver_offered':
-      case 'driver_assigned':
-        return 'Confirma tu viaje';
-      case 'accepted':
-        return 'Conductor en camino';
-      case 'driver_on_route':
-        return 'Conductor en camino';
-      case 'in_progress':
-        return 'Viaje en curso';
-      case 'pending_payment':
-        return 'Pago pendiente';
-      default:
-        return 'Viaje activo';
-    }
-  }, []);
+  const getActiveRideLabel = useCallback(
+    (status: string) => {
+      switch (status) {
+        case 'requested':
+          return t('client.home.activeRide.requested');
+        case 'pending_confirm':
+        case 'driver_offered':
+        case 'driver_assigned':
+          return t('client.home.activeRide.confirm');
+        case 'accepted':
+        case 'driver_on_route':
+          return t('client.home.activeRide.driverOnRoute');
+        case 'in_progress':
+          return t('client.home.activeRide.inProgress');
+        case 'pending_payment':
+          return t('client.home.activeRide.pendingPayment');
+        default:
+          return t('client.home.activeRide.default');
+      }
+    },
+    [t],
+  );
 
   // Suscribirse al preflight store
   useEffect(() => {
@@ -1562,7 +1563,10 @@ export default function HomeScreen({ navigation }: any) {
     if (hasPendingPayments && pendingPayments.length > 0) {
       setPendingAction({
         type: 'pending_payment',
-        title: pendingPayments.length === 1 ? 'Pago pendiente' : `${pendingPayments.length} pagos pendientes`,
+        title:
+          pendingPayments.length === 1
+            ? t('client.home.pendingAction.paymentSingle')
+            : t('client.home.pendingAction.paymentMultiple', { count: pendingPayments.length }),
         onPress: handleViewPendingPayments,
       });
       return;
@@ -1614,9 +1618,8 @@ export default function HomeScreen({ navigation }: any) {
 
     hasShownUnsupportedAlertRef.current = true;
     alertService.showInfoAlert(
-      'Región no disponible',
-      regionStatus.message ||
-        'Por el momento el servicio solo está disponible dentro de las áreas activas (actualmente Managua).',
+      t('client.home.alerts.regionUnavailableTitle'),
+      regionStatus.message || t('client.home.alerts.regionUnavailableGeneral'),
     );
   }, [isOutsideSupportedArea, regionStatus.message]);
 
@@ -1648,30 +1651,28 @@ export default function HomeScreen({ navigation }: any) {
   if (locationError && !coords && !storedCoords) {
     return (
       <View style={styles.errorContainer}>
-        <Text style={styles.errorText}>No se pudo acceder a tu ubicación</Text>
-        <Text style={styles.errorDescription}>
-          Verifica los permisos de ubicación y asegúrate de tener el GPS activado
-        </Text>
+        <Text style={styles.errorText}>{t('client.home.errors.locationAccessTitle')}</Text>
+        <Text style={styles.errorDescription}>{t('client.home.errors.locationAccessDescription')}</Text>
         <TouchableOpacity
           style={styles.retryButton}
           onPress={() => {
-            setLoadingMessage('Obteniendo ubicación...');
+            setLoadingMessage(t('client.home.loading.obtainingLocation'));
             refreshLocation();
           }}
         >
-          <Text style={styles.retryText}>Reintentar</Text>
+          <Text style={styles.retryText}>{t('client.home.errors.retry')}</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
   const locationStatusHint = isPinLocked
-    ? 'Ubicacion seleccionada. Toca el pin para mover en el mapa y seleccionar una nueva ubicación.'
+    ? t('client.home.locationStatus.locked')
     : hasPendingManualSelection
     ? isSavingLocation
-      ? 'Guardando nueva ubicación…'
-      : 'Mueve el mapa y suelta o toca el pin para guardar.'
-    : 'Toca el pin para bloquear su posición.';
+      ? t('client.home.locationStatus.saving')
+      : t('client.home.locationStatus.dragging')
+    : t('client.home.locationStatus.unlocked');
 
   const markerIcon = isDark ? USER_LOCATION_DARK_ICON : USER_LOCATION_LIGHT_ICON;
   const markerHoldIcon = isDark ? USER_LOCATION_HOLDING_DARK_ICON : USER_LOCATION_HOLDING_LIGHT_ICON;
@@ -1680,7 +1681,8 @@ export default function HomeScreen({ navigation }: any) {
   const showCenterPinOverlay = !isPinLocked;
 
   return (
-    <View style={styles.container}>
+    <TopToastProvider>
+      <View style={styles.container}>
       {/* Mapa con ubicación actual */}
       <DynamicMap
         latitude={displayCoords.latitude}
@@ -1697,7 +1699,7 @@ export default function HomeScreen({ navigation }: any) {
         onRegionChangeCenter={handleRegionChangeCenter}
         onRegionChangeCompleteCenter={handleRegionChangeCompleteCenter}
         showPinBubbles
-        originLabel={isResolvingAddress ? 'Buscando dirección…' : pendingAddress}
+        originLabel={isResolvingAddress ? t('client.home.map.searchingAddress') : pendingAddress}
         userLocationLightIcon={USER_LOCATION_LIGHT_ICON}
         userLocationDarkIcon={USER_LOCATION_DARK_ICON}
         userLocationHoldingLightIcon={USER_LOCATION_HOLDING_LIGHT_ICON}
@@ -1729,7 +1731,7 @@ export default function HomeScreen({ navigation }: any) {
         </Text>*/}
         <Text style={styles.locationStatusHint}>{locationStatusHint}</Text>
         {isSavingLocation && (
-          <Text style={styles.locationStatusSaving}>Guardando ubicación…</Text>
+          <Text style={styles.locationStatusSaving}>{t('client.home.locationStatus.savingLabel')}</Text>
         )}
       </View>
 
@@ -1738,7 +1740,7 @@ export default function HomeScreen({ navigation }: any) {
         activeOpacity={0.85}
         onPress={() => navigation.navigate('Profile')}
       >
-        <Text style={styles.profileName}>{user?.name || 'Usuario'}</Text>
+        <Text style={styles.profileName}>{user?.name || t('client.home.profile.fallbackName')}</Text>
         <Image source={PROFILE_ICON_IMAGE} style={styles.profileAvatar} />
       </TouchableOpacity>
 
@@ -1762,7 +1764,9 @@ export default function HomeScreen({ navigation }: any) {
             imageStyle={styles.pendingActionBackgroundInner}
             resizeMode="stretch"
           >
-            <Text style={styles.pendingActionLabel}>{pendingAction.title}</Text>
+            <View style={styles.requestButtonContent}>
+              <Text style={styles.requestButtonLabel}>{pendingAction.title}</Text>
+            </View>
           </ImageBackground>
         </TouchableOpacity>
       ) : (
@@ -1777,27 +1781,31 @@ export default function HomeScreen({ navigation }: any) {
             disabled={isOutsideSupportedArea}
           >
             <ImageBackground
-              source={REQUEST_BUTTON_IMAGE}
+              source={PENDING_ACTION_IMAGE}
               style={styles.requestButtonBackground}
               imageStyle={styles.requestButtonBackgroundInner}
               resizeMode="stretch"
-            />
+            >
+              <View style={styles.requestButtonContent}>
+                <Text style={styles.requestButtonLabel}>{t('client.home.requestRide')}</Text>
+              </View>
+            </ImageBackground>
           </TouchableOpacity>
           <View style={styles.regionHintContainer}>
             <Text style={styles.regionHintText} numberOfLines={2}>
               {!regionStatus.checked
-                ? 'Verificando área de cobertura...'
+                ? t('client.home.region.checking')
                 : regionStatus.allowed
                 ? regionStatus.areaName
-                  ? `Servicio disponible en ${regionStatus.areaName}`
-                  : 'Servicio disponible en tu zona actual'
-                : regionStatus.message ||
-                  'Por el momento el servicio solo está disponible dentro de las áreas activas.'}
+                  ? t('client.home.region.availableNamed', { area: regionStatus.areaName })
+                  : t('client.home.region.availableGeneric')
+                : regionStatus.message || t('client.home.region.unavailableFallback')}
             </Text>
           </View>
         </>
       )}
     </View>
+    </TopToastProvider>
   );
 }
 
@@ -1937,6 +1945,24 @@ const createStyles = (colors: any) => StyleSheet.create({
   },
   requestButtonBackgroundInner: {
     borderRadius: 24,
+  },
+  requestButtonContent: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 24,
+  },
+  requestButtonLabel: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+    alignItems: 'center'
+  },
+  requestButtonArrow: {
+    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: '700',
   },
   regionHintContainer: {
     position: 'absolute',

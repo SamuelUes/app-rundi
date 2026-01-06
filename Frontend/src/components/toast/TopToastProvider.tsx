@@ -3,6 +3,7 @@ import { Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../context/ThemeContext';
 import { ToastAction, ToastPayload, setToastHandler } from '../../services/alertService';
+ import { useTranslation } from 'react-i18next';
 
 type ToastActionVariant = 'default' | 'primary' | 'destructive';
 
@@ -32,6 +33,7 @@ const TopToastProvider: React.FC<TopToastProviderProps> = ({ children }) => {
   const { colors, isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const [toast, setToast] = useState<ToastPayload | null>(null);
+  const { t } = useTranslation();
 
   const translateY = useRef(new Animated.Value(-200)).current;
   const opacity = useRef(new Animated.Value(0)).current;
@@ -173,7 +175,7 @@ const TopToastProvider: React.FC<TopToastProviderProps> = ({ children }) => {
               <TouchableOpacity
                 onPress={() => closeToast()}
                 accessibilityRole="button"
-                accessibilityLabel="Cerrar notificación"
+                accessibilityLabel={t('shared.toast.closeLabel')}
                 style={styles.closeButton}
               >
                 <Text style={styles.closeIcon}>✕</Text>

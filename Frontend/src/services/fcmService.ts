@@ -12,11 +12,45 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getFirebaseAuth, getFirebaseFunctions } from '../config/firebase';
 import { httpsCallable } from 'firebase/functions';
 import notificationService from './notificationService';
+import i18n from '../i18n';
 
 // Importar FCM solo si está disponible (Development Build)
 let messagingModule: any = null;
 let messagingInstance: any = null;
 let AuthorizationStatusEnum: any = null;
+
+type NotificationCopy = {
+  title: string;
+  body: string;
+};
+
+const getFCMNotificationCopy = (type?: string | null): NotificationCopy => {
+  const normalized = (type || '').toLowerCase();
+
+  if (normalized === 'ride_requested') {
+    return {
+      title: i18n.t('shared.notifications.fcm.rideRequested.title'),
+      body: i18n.t('shared.notifications.fcm.rideRequested.body'),
+    };
+  }
+
+  if (normalized === 'proximity_ride') {
+    return {
+      title: i18n.t('shared.notifications.fcm.proximityRide.title'),
+      body: i18n.t('shared.notifications.fcm.proximityRide.body'),
+    };
+  }
+
+  return {
+    title: i18n.t('shared.notifications.fcm.fallback.title'),
+    body: i18n.t('shared.notifications.fcm.fallback.body'),
+  };
+};
+
+const getGenericNotificationCopy = (): NotificationCopy => ({
+  title: i18n.t('shared.notifications.generic.defaultTitle'),
+  body: i18n.t('shared.notifications.generic.defaultBody'),
+});
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -49,28 +83,19 @@ try {
               return;
             }
 
-            let title = '';
-            let body = '';
-            
-            if (data?.type === 'ride_requested') {
-              title = 'Nueva solicitud de viaje';
-              body = 'Tienes una solicitud de viaje cercana';
-            } else if (data?.type === 'proximity_ride') {
-              title = 'Solicitud cercana';
-              body = 'Hay una solicitud de viaje cerca de ti';
-            } else {
-              title = 'Nueva notificación';
-              body = 'Tienes una nueva notificación';
-            }
+            const copy = getFCMNotificationCopy(data?.type);
             
             try {
-              console.log('🔔 Mostrando notificación local en background (data-only):', { title, body, data });
+              console.log('🔔 Mostrando notificación local en background (data-only):', {
+                copy,
+                data,
+              });
               
               // Usar directamente Expo Notifications en background
               await Notifications.scheduleNotificationAsync({
                 content: {
-                  title,
-                  body,
+                  title: copy.title,
+                  body: copy.body,
                   data: data || {},
                   sound: 'default',
                   priority: Notifications.AndroidNotificationPriority.MAX,
@@ -107,28 +132,19 @@ try {
             return;
           }
 
-          let title = '';
-          let body = '';
-          
-          if (data?.type === 'ride_requested') {
-            title = 'Nueva solicitud de viaje';
-            body = 'Tienes una solicitud de viaje cercana';
-          } else if (data?.type === 'proximity_ride') {
-            title = 'Solicitud cercana';
-            body = 'Hay una solicitud de viaje cerca de ti';
-          } else {
-            title = 'Nueva notificación';
-            body = 'Tienes una nueva notificación';
-          }
+          const copy = getFCMNotificationCopy(data?.type);
           
           try {
-            console.log('🔔 Mostrando notificación en background (compat, data-only):', { title, body, data });
+            console.log('🔔 Mostrando notificación en background (compat, data-only):', {
+              copy,
+              data,
+            });
             
             // Usar directamente Expo Notifications en background
             await Notifications.scheduleNotificationAsync({
               content: {
-                title,
-                body,
+                title: copy.title,
+                body: copy.body,
                 data: data || {},
                 sound: 'default',
                 priority: Notifications.AndroidNotificationPriority.MAX,
@@ -355,6 +371,27 @@ class FCMService {
     console.log('✅ Listeners de notificaciones configurados');
   }
 
+  teardownNotificationListeners(): void {
+    try {
+      this.onMessageUnsubscribe?.();
+    } catch (error) {
+      console.warn('⚠️ Error eliminando listener onMessage:', error);
+    } finally {
+      this.onMessageUnsubscribe = null;
+    }
+
+    try {
+      this.onNotificationOpenedUnsubscribe?.();
+    } catch (error) {
+      console.warn('⚠️ Error eliminando listener onNotificationOpenedApp:', error);
+    } finally {
+      this.onNotificationOpenedUnsubscribe = null;
+    }
+
+    this.listenersConfigured = false;
+    this.recentForegroundMessageIds.clear();
+  }
+
   /**
    * Manejar notificación en foreground
    */
@@ -382,6 +419,9 @@ class FCMService {
     });
 
     const presentNotification = async () => {
+      let resolvedTitle = i18n.t('shared.notifications.generic.defaultTitle');
+      let resolvedBody = i18n.t('shared.notifications.generic.defaultBody');
+
       try {
         await this.ensureAndroidChannel();
 
@@ -398,69 +438,48 @@ class FCMService {
             : NaN;
         const expiresInMs = Number.isFinite(parsedExpires) && parsedExpires > 0 ? parsedExpires : 120_000;
 
+        const copy = notification?.title || notification?.body ? undefined : getGenericNotificationCopy();
+        resolvedTitle = notification?.title || copy?.title || resolvedTitle;
+        resolvedBody = notification?.body || copy?.body || resolvedBody;
+
         console.log('🔔 Mostrando notificación local (foreground):', {
           uniqueId,
           notificationKey,
-          title: notification?.title,
-          body: notification?.body,
+          title: resolvedTitle,
+          body: resolvedBody,
           expiresInMs,
         });
 
         if (notificationKey) {
           await notificationService.showManagedNotification(
-            notification?.title || 'Nueva notificación',
-            notification?.body || '',
+            resolvedTitle,
+            resolvedBody,
             data || {},
             notificationKey,
             expiresInMs,
           );
         } else {
           await notificationService.showLocalNotification(
-            notification?.title || 'Nueva notificación',
-            notification?.body || '',
+            resolvedTitle,
+            resolvedBody,
             data || {},
           );
         }
       } catch (error) {
         console.error('❌ Error mostrando notificación local:', error);
-        Alert.alert(
-          notification?.title || 'Nueva notificación',
-          notification?.body || '',
-          [
-            {
-              text: 'Ver',
-              onPress: () => this.handleNotificationTap(remoteMessage),
-            },
-            { text: 'Cerrar', style: 'cancel' },
-          ]
-        );
+        Alert.alert(resolvedTitle, resolvedBody, [
+          {
+            text: i18n.t('common.actions.accept'),
+            onPress: () => this.handleNotificationTap(remoteMessage),
+          },
+          { text: i18n.t('common.actions.close'), style: 'cancel' },
+        ]);
       }
     };
 
     presentNotification().catch((error) => {
       console.error('❌ Error presentando notificación:', error);
     });
-  }
-
-  teardownNotificationListeners(): void {
-    try {
-      this.onMessageUnsubscribe?.();
-    } catch (error) {
-      console.warn('⚠️ Error eliminando listener onMessage:', error);
-    } finally {
-      this.onMessageUnsubscribe = null;
-    }
-
-    try {
-      this.onNotificationOpenedUnsubscribe?.();
-    } catch (error) {
-      console.warn('⚠️ Error eliminando listener onNotificationOpenedApp:', error);
-    } finally {
-      this.onNotificationOpenedUnsubscribe = null;
-    }
-
-    this.listenersConfigured = false;
-    this.recentForegroundMessageIds.clear();
   }
 
   /**
@@ -536,7 +555,10 @@ class FCMService {
       const auth = await this.getAuth();
       const user = auth.currentUser;
       if (!user) {
-        Alert.alert('Error', 'Usuario no autenticado');
+        Alert.alert(
+          i18n.t('shared.notifications.fcm.alerts.authErrorTitle'),
+          i18n.t('shared.notifications.fcm.alerts.authErrorMessage'),
+        );
         return;
       }
 
@@ -544,10 +566,16 @@ class FCMService {
       const sendTestNotificationFunction = httpsCallable(functions, 'sendTestNotification');
       await sendTestNotificationFunction({ userId: user.uid });
 
-      Alert.alert('Éxito', 'Notificación de prueba enviada');
+      Alert.alert(
+        i18n.t('shared.notifications.fcm.alerts.testSuccessTitle'),
+        i18n.t('shared.notifications.fcm.alerts.testSuccessMessage'),
+      );
     } catch (error) {
       console.error('❌ Error enviando notificación de prueba:', error);
-      Alert.alert('Error', 'No se pudo enviar la notificación');
+      Alert.alert(
+        i18n.t('shared.notifications.fcm.alerts.testErrorTitle'),
+        i18n.t('shared.notifications.fcm.alerts.testErrorMessage'),
+      );
     }
   }
 

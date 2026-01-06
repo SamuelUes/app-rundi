@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import uploadService from '../services/uploadService';
+import { useTranslation } from 'react-i18next';
 
 interface ImagePickerButtonProps {
   label: string;
@@ -25,29 +26,37 @@ export default function ImagePickerButton({
 }: ImagePickerButtonProps) {
   const [uploading, setUploading] = useState(false);
   const [imageUri, setImageUri] = useState<string | undefined>(currentImage);
+  const { t } = useTranslation();
 
   const handleSelectImage = () => {
-    Alert.alert('Seleccionar Imagen', 'Elige una opción', [
-      {
-        text: 'Cámara',
-        onPress: handleTakePhoto,
-      },
-      {
-        text: 'Galería',
-        onPress: handlePickFromGallery,
-      },
-      {
-        text: 'Cancelar',
-        style: 'cancel',
-      },
-    ]);
+    Alert.alert(
+      t('common.components.imagePickerButton.alerts.pickTitle'),
+      t('common.components.imagePickerButton.alerts.pickMessage'),
+      [
+        {
+          text: t('common.components.imagePickerButton.alerts.cameraOption'),
+          onPress: handleTakePhoto,
+        },
+        {
+          text: t('common.components.imagePickerButton.alerts.galleryOption'),
+          onPress: handlePickFromGallery,
+        },
+        {
+          text: t('common.components.imagePickerButton.alerts.cancelOption'),
+          style: 'cancel',
+        },
+      ],
+    );
   };
 
   const handleTakePhoto = async () => {
     try {
       const hasPermission = await uploadService.requestPermissions();
       if (!hasPermission) {
-        Alert.alert('Permisos', 'Se requieren permisos de cámara para continuar');
+        Alert.alert(
+          t('common.components.imagePickerButton.alerts.permissionTitle'),
+          t('common.components.imagePickerButton.alerts.permissionMessage'),
+        );
         return;
       }
 
@@ -56,7 +65,10 @@ export default function ImagePickerButton({
         await uploadImage(image.uri);
       }
     } catch (error) {
-      Alert.alert('Error', 'Error al tomar la foto');
+      Alert.alert(
+        t('common.components.imagePickerButton.alerts.uploadErrorTitle'),
+        t('common.components.imagePickerButton.alerts.takePhotoError'),
+      );
     }
   };
 
@@ -64,7 +76,10 @@ export default function ImagePickerButton({
     try {
       const hasPermission = await uploadService.requestPermissions();
       if (!hasPermission) {
-        Alert.alert('Permisos', 'Se requieren permisos de galería para continuar');
+        Alert.alert(
+          t('common.components.imagePickerButton.alerts.permissionTitle'),
+          t('common.components.imagePickerButton.alerts.permissionGalleryMessage'),
+        );
         return;
       }
 
@@ -73,7 +88,10 @@ export default function ImagePickerButton({
         await uploadImage(image.uri);
       }
     } catch (error) {
-      Alert.alert('Error', 'Error al seleccionar la imagen');
+      Alert.alert(
+        t('common.components.imagePickerButton.alerts.uploadErrorTitle'),
+        t('common.components.imagePickerButton.alerts.pickError'),
+      );
     }
   };
 
@@ -85,9 +103,15 @@ export default function ImagePickerButton({
       const result = await uploadService.uploadImage(uri, folder);
       onImageSelected(result.url);
 
-      Alert.alert('Éxito', 'Imagen subida correctamente');
+      Alert.alert(
+        t('common.components.imagePickerButton.alerts.uploadSuccessTitle'),
+        t('common.components.imagePickerButton.alerts.uploadSuccessMessage'),
+      );
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Error al subir la imagen');
+      Alert.alert(
+        t('common.components.imagePickerButton.alerts.uploadErrorTitle'),
+        error.message || t('common.components.imagePickerButton.alerts.uploadErrorMessage'),
+      );
       setImageUri(undefined);
     } finally {
       setUploading(false);
@@ -109,7 +133,9 @@ export default function ImagePickerButton({
         ) : (
           <View style={styles.placeholder}>
             <Text style={styles.placeholderText}>📷</Text>
-            <Text style={styles.placeholderSubtext}>Toca para seleccionar</Text>
+            <Text style={styles.placeholderSubtext}>
+              {t('common.components.imagePickerButton.placeholder.label')}
+            </Text>
           </View>
         )}
       </TouchableOpacity>

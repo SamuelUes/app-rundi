@@ -6,6 +6,7 @@
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
+import i18n from '../i18n';
 
 // Configurar cómo se muestran las notificaciones
 Notifications.setNotificationHandler({
@@ -190,7 +191,7 @@ class NotificationService {
       if (Platform.OS !== 'android') return;
       // Configurar canal por defecto como alta prioridad
       await Notifications.setNotificationChannelAsync('default', {
-        name: 'Viajes Cercanos',
+        name: this.tr('channels.default'),
         importance: Notifications.AndroidImportance.MAX,
         bypassDnd: true,
         sound: 'default',
@@ -213,7 +214,7 @@ class NotificationService {
     try {
       if (Platform.OS !== 'android') return;
       await Notifications.setNotificationChannelAsync('active-ride', {
-        name: 'Viaje activo',
+        name: this.tr('channels.activeRide'),
         importance: Notifications.AndroidImportance.HIGH,
         vibrationPattern: [0, 250, 250, 250],
         lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
@@ -255,21 +256,6 @@ class NotificationService {
 
   /**
    * Mostrar notificación de retorno rápido a la pantalla de viaje activo
-   * Compatible iOS/Android. En Android usa canal dedicado.
-   */
-  async showQuickReturnActiveRide(rideId: string): Promise<string | null> {
-    try {
-      await this.ensureActiveRideChannel();
-      const id = await Notifications.scheduleNotificationAsync({
-        content: {
-          title: 'Viaje activo',
-          body: 'Toca para volver al viaje',
-          data: { type: 'quick_return_active_ride', rideId },
-          sound: true,
-          priority: Notifications.AndroidNotificationPriority.HIGH,
-        },
-        trigger: null,
-      });
       this.quickReturnNotificationId = id;
       return id;
     } catch (error) {
@@ -302,12 +288,17 @@ class NotificationService {
    * Notificar nuevo viaje disponible
    */
   async notifyNewRide(ride: any) {
-    const distance = (ride.estimatedDistance / 1000).toFixed(1);
-    const price = ride.estimatedPrice.toFixed(0);
+    const distance = this.formatDistanceKm(ride.estimatedDistance);
+    const price = this.formatPriceCordoba(ride.estimatedPrice);
+    const origin = ride?.origin?.address || this.tr('newRide.originFallback');
 
     await this.showManagedNotification(
-      '🚗 Nuevo Viaje Disponible',
-      `${distance} km • C$${price} • ${ride.origin.address}`,
+      this.tr('newRide.title'),
+      this.tr('newRide.body', {
+        distance: distance ?? '',
+        price,
+        origin,
+      }),
       { type: 'new_ride', rideId: ride.id },
       `ride-${ride.id}`,
     );
@@ -317,9 +308,10 @@ class NotificationService {
    * Notificar viaje aceptado
    */
   async notifyRideAccepted(ride: any) {
+    const driverName = ride?.driver?.name || this.tr('rideAccepted.driverFallback');
     await this.showManagedNotification(
-      '✅ Viaje Aceptado',
-      `El conductor ${ride.driver.name} aceptó tu viaje`,
+      this.tr('rideAccepted.title'),
+      this.tr('rideAccepted.body', { driverName }),
       { type: 'ride_accepted', rideId: ride.id },
       `ride-${ride.id}`,
     );
@@ -330,8 +322,8 @@ class NotificationService {
    */
   async notifyRideStarted(ride: any) {
     await this.showManagedNotification(
-      '🚗 Viaje Iniciado',
-      'Tu conductor ha iniciado el viaje',
+      this.tr('rideStarted.title'),
+      this.tr('rideStarted.body'),
       { type: 'ride_started', rideId: ride.id },
       `ride-${ride.id}`,
     );
@@ -342,8 +334,8 @@ class NotificationService {
    */
   async notifyRideCompleted(ride: any) {
     await this.showManagedNotification(
-      '✅ Viaje Completado',
-      'Tu viaje ha finalizado. ¡Califica tu experiencia!',
+      this.tr('rideCompleted.title'),
+      this.tr('rideCompleted.body'),
       { type: 'ride_completed', rideId: ride.id },
       `ride-${ride.id}`,
     );
@@ -354,8 +346,8 @@ class NotificationService {
    */
   async notifyRideCanceled(ride: any, reason?: string) {
     await this.showManagedNotification(
-      'Viaje Cancelado',
-      reason || 'El viaje ha sido cancelado',
+      this.tr('rideCanceled.title'),
+      reason || this.tr('rideCanceled.body'),
       { type: 'ride_canceled', rideId: ride.id },
       `ride-${ride.id}`,
     );
@@ -410,6 +402,29 @@ class NotificationService {
    */
   addNotificationResponseListener(callback: (response: Notifications.NotificationResponse) => void) {
     return Notifications.addNotificationResponseReceivedListener(callback);
+  }
+
+  private tr(path: string, options?: Record<string, any>) {
+    return i18n.t(`shared.notifications.${path}`, options) as string;
+  }
+
+  private formatPriceCordoba(amount?: number | string | null) {
+    const numeric =
+      typeof amount === 'number'
+        ? amount
+        : typeof amount === 'string' && amount.trim().length
+          ? Number(amount)
+          : NaN;
+    const value = Number.isFinite(numeric) ? Number(numeric) : 0;
+    return this.tr('formats.priceCordoba', { amount: value.toFixed(0) });
+  }
+
+  private formatDistanceKm(distanceMeters?: number | null) {
+    if (typeof distanceMeters !== 'number' || !Number.isFinite(distanceMeters)) {
+      return null;
+    }
+    const value = distanceMeters / 1000;
+    return this.tr('formats.distanceKm', { value: value.toFixed(1) });
   }
 }
 

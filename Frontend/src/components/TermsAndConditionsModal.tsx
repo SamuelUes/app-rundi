@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
+import { useTranslation } from 'react-i18next';
 
 export const CURRENT_TERMS_VERSION = '2025-11-29';
 
@@ -20,12 +21,13 @@ const TermsAndConditionsModal: React.FC<TermsAndConditionsModalProps> = ({
   saving = false,
   requireCheck = false,
   checked = false,
-  acceptLabel = 'Aceptar',
+  acceptLabel,
   onToggleChecked,
   onAccept,
   onRequestClose,
 }) => {
   const { colors } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
   if (!visible) {
@@ -38,21 +40,13 @@ const TermsAndConditionsModal: React.FC<TermsAndConditionsModalProps> = ({
   return (
     <View style={styles.overlay}>
       <View style={styles.card}>
-        <Text style={styles.title}>Términos y condiciones</Text>
-        <Text style={styles.version}>Versión {CURRENT_TERMS_VERSION}</Text>
+        <Text style={styles.title}>{t('common.components.termsModal.title')}</Text>
+        <Text style={styles.version}>
+          {t('common.components.termsModal.version', { version: CURRENT_TERMS_VERSION })}
+        </Text>
         <ScrollView style={styles.content}>
           <Text style={styles.text}>
-            Contrato de Términos y Condiciones
-
-            Términos y Condiciones del Servicio Conductor Designado
-            1. Definición del Servicio. Driveangel proporciona un conductor designado que se desplaza hasta la ubicación del Cliente para conducir el vehículo de propiedad del Cliente hasta un destino acordado. El Conductor de Driveangel actúa como agente independiente del Cliente durante la prestación del servicio.
-            2. Responsabilidad del Cliente. El Cliente declara ser el propietario legítimo del vehículo o tener su permiso expreso para su uso. El Cliente garantiza que el vehículo cuenta con un seguro de responsabilidad civil vigente que cubre la conducción por parte de terceros con permiso. El Cliente es responsable de verificar que no quedan objetos personales de valor en el vehículo al finalizar el servicio.
-            3. Exoneración y Limitación de Responsabilidad.
-            a. Objetos Personales. Driveangel no se responsabiliza por la pérdida, daño o robo de cualquier objeto personal que no esté debidamente detallado en el acta de objetos que se levantará al inicio del servicio. El Cliente asume todo el riesgo sobre sus pertenencias.
-            b. Daños al Vehículo. Driveangel responderá únicamente por los daños al vehículo que sean consecuencia directa de una negligencia grave o dolo demostrable de su Conductor. Quedan excluidos los daños por uso normal o preexistentes.
-            c. Accidentes. En caso de accidente, la responsabilidad se determinará conforme a la legislación de seguros aplicable. Los conductores afiliados a la plataforma mantienen una póliza de responsabilidad civil, pero la cobertura primaria recae sobre el seguro del vehículo del Cliente.
-            4. Aceptación de Riesgo. El Cliente reconoce que el servicio se presta mientras se encuentra en estado de ebriedad y, en consecuencia, exonera a Driveangel de cualquier reclamación que pudiera derivarse de su estado, siempre que Driveangel haya cumplido con el servicio de forma diligente.
-            5. Protección de Datos. El Cliente consiente el tratamiento de sus datos personales para la gestión del servicio, conforme a nuestra Política de Privacidad.
+            {t('common.components.termsModal.body')}
           </Text>
         </ScrollView>
 
@@ -71,7 +65,7 @@ const TermsAndConditionsModal: React.FC<TermsAndConditionsModalProps> = ({
               {checked && <Text style={styles.checkboxIcon}>✓</Text>}
             </View>
             <Text style={styles.checkboxLabel}>
-              He leído y acepto los términos y condiciones
+              {t('common.components.termsModal.checkboxLabel')}
             </Text>
           </TouchableOpacity>
         )}
@@ -83,7 +77,9 @@ const TermsAndConditionsModal: React.FC<TermsAndConditionsModalProps> = ({
             disabled={disabled}
           >
             <Text style={styles.acceptButtonText}>
-              {saving ? 'Guardando...' : acceptLabel}
+              {saving
+                ? t('common.components.termsModal.saving')
+                : acceptLabel || t('common.components.termsModal.acceptButton')}
             </Text>
           </TouchableOpacity>
         )}
@@ -94,7 +90,9 @@ const TermsAndConditionsModal: React.FC<TermsAndConditionsModalProps> = ({
             onPress={onRequestClose}
             disabled={saving}
           >
-          {/* <Text style={styles.closeLinkText}>Cerrar</Text> */}
+            <Text style={styles.closeLinkText}>
+              {t('common.components.termsModal.close')}
+            </Text>
           </TouchableOpacity>
         )}
       </View>

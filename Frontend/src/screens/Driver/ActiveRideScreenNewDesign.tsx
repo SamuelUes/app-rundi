@@ -25,6 +25,7 @@ import { getDatabase, ref, onValue, off, update, serverTimestamp } from 'firebas
 import { extractVehicleTypeFromInfo, ensureVehicleIconSource } from '../../utils/vehicleIcons';
 import { fetchClientProfile, ClientProfile } from '../../services/clientProfilesService';
 import notificationService from '../../services/notificationService';
+import { useTranslation } from 'react-i18next';
 
 const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
 
@@ -40,6 +41,7 @@ interface RouteParams {
 export default function ActiveRideScreen({ route, navigation }: any) {
   const { rideId } = route.params as RouteParams;
   const { colors } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { user } = useAuth();
   const { settings: voiceSettings, speak: speakVoice, stopCategory: stopVoiceCategory } = useVoiceAssistant();
@@ -48,8 +50,8 @@ export default function ActiveRideScreen({ route, navigation }: any) {
     () =>
       (typeof user?.name === 'string' && user.name?.trim().length ? user.name.trim() : null) ||
       (typeof user?.email === 'string' ? user.email : null) ||
-      'Conductor',
-    [user?.name, user?.email]
+      t('driver.activeRide.labels.driverFallback'),
+    [user?.name, user?.email, t]
   );
   const { messages } = useChat(rideId, user?.id || '', driverDisplayName);
   const [ride, setRide] = useState<any | null>(null);
@@ -68,6 +70,38 @@ export default function ActiveRideScreen({ route, navigation }: any) {
   const lastMessageIdSpokenRef = useRef<string | null>(null);
   const messagesInitializedRef = useRef(false);
 
+  const formatCurrency = useCallback(
+    (value?: number | null) =>
+      t('driver.activeRide.labels.currency', { amount: Math.round(value ?? 0) }),
+    [t],
+  );
+
+  const formatEstimatedMinutes = useCallback(
+    (minutes?: number | null) =>
+      t('driver.activeRide.labels.estimatedMinutes', { minutes: Math.max(0, Math.ceil(minutes ?? 0)) }),
+    [t],
+  );
+
+  const formatEstimatedDistance = useCallback(
+    (kilometers?: number | null) =>
+      t('driver.activeRide.labels.estimatedDistance', {
+        distance: (kilometers ?? 0).toFixed(1),
+      }),
+    [t],
+  );
+
+  const resolvedClientName = useMemo(
+    () => clientProfile?.fullName || ride?.clientName || t('driver.activeRide.labels.clientFallback'),
+    [clientProfile?.fullName, ride?.clientName, t],
+  );
+
+  const resolvedClientInitial = useMemo(() => {
+    const value = resolvedClientName?.trim?.();
+    return value && value.length > 0
+      ? value.charAt(0).toUpperCase()
+      : t('driver.activeRide.labels.initialFallback');
+  }, [resolvedClientName, t]);
+
   // Bottom sheet state - Alturas ajustadas
   const COLLAPSED_HEIGHT = 250; // Solo header + botones (más alto para ver ambos botónes)
   const EXPANDED_HEIGHT = 480; // Más espacio para direcciones
@@ -75,24 +109,13 @@ export default function ActiveRideScreen({ route, navigation }: any) {
   const panelHeight = useRef(new Animated.Value(EXPANDED_HEIGHT)).current;
 
   // Estado legible del viaje
-  const getStatusLabel = (status: string): string => {
-    switch (status) {
-      case 'pending_confirm':
-        return 'Esperando confirmación';
-      case 'accepted':
-        return 'Viaje aceptado';
-      case 'driver_on_route':
-        return 'En camino al origen';
-      case 'in_progress':
-        return 'Viaje en curso';
-      case 'completed':
-        return 'Viaje completado';
-      case 'canceled':
-        return 'Viaje cancelado';
-      default:
-        return status || '';
-    }
-  };
+  const getStatusLabel = useCallback(
+    (status: string): string =>
+      t(`driver.activeRide.status.${status}`, {
+        defaultValue: t('driver.activeRide.status.default'),
+      }),
+    [t],
+  );
 
   // Marcar 'driver_on_route' (Ir en camino)
   const handleGoOnRoute = async () => {
@@ -111,7 +134,9 @@ export default function ActiveRideScreen({ route, navigation }: any) {
         });
         setRide((prev: any) => (prev ? { ...prev, status: 'driver_on_route' } : prev));
       } catch (dbErr: any) {
-        alertService.showErrorAlert(dbErr?.message || error?.message || 'No se pudo marcar En camino');
+        alertService.showErrorAlert(
+          dbErr?.message || error?.message || t('driver.activeRide.alerts.goOnRouteError'),
+        );
       }
     } finally {
       setUpdating(false);
@@ -190,7 +215,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
         setRide(data);
         setLoading(false);
       } else {
-        setLoadError('No se encontró el viaje');
+        setLoadError(t('driver.activeRide.alerts.rideNotFound'));
         setLoading(false);
       }
     });
@@ -228,7 +253,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
           setClientProfile(profile);
         }
       } catch (error) {
-        console.warn('Error cargando perfil del cliente:', error);
+        console.warn(t('driver.activeRide.alerts.clientProfileError'), error);
       }
     };
 
@@ -239,18 +264,32 @@ export default function ActiveRideScreen({ route, navigation }: any) {
     };
   }, [ride?.clientId]);
 
-  const getAddressForSpeech = useCallback((source?: { address?: string; lat?: number; lng?: number; latitude?: number; longitude?: number }) => {
-    if (!source) return null;
-    if (source.address && typeof source.address === 'string') {
-      return source.address;
-    }
-    const lat = source.lat ?? source.latitude;
-    const lng = source.lng ?? source.longitude;
-    if (typeof lat === 'number' && typeof lng === 'number') {
-      return `${lat.toFixed(4)} por ${lng.toFixed(4)}`;
-    }
-    return null;
-  }, []);
+  const getAddressForSpeech = useCallback(
+    (
+      source?: {
+        address?: string;
+        lat?: number;
+        lng?: number;
+        latitude?: number;
+        longitude?: number;
+      },
+    ) => {
+      if (!source) return null;
+      if (source.address && typeof source.address === 'string') {
+        return source.address;
+      }
+      const lat = source.lat ?? source.latitude;
+      const lng = source.lng ?? source.longitude;
+      if (typeof lat === 'number' && typeof lng === 'number') {
+        return t('driver.activeRide.voice.coords', {
+          lat: lat.toFixed(4),
+          lng: lng.toFixed(4),
+        });
+      }
+      return null;
+    },
+    [t],
+  );
 
   // Helper: distancia total en km usando puntos secuenciales
   const computeTotalDistanceKm = useCallback((data: any): number | null => {
@@ -376,12 +415,18 @@ export default function ActiveRideScreen({ route, navigation }: any) {
       if (!voiceSettings.enabled || !ride) return;
       if (voicePaused && !force) return;
 
-      const originSpeech = getAddressForSpeech(ride.origin) || 'el origen asignado';
-      const destinationSpeech = getAddressForSpeech(ride.destination) || 'el destino final';
+      const originSpeech =
+        getAddressForSpeech(ride.origin) || t('driver.activeRide.voice.originFallback');
+      const destinationSpeech =
+        getAddressForSpeech(ride.destination) ||
+        t('driver.activeRide.voice.destinationFallback');
       const netPrice = Math.round(Number(ride?.finalFare || ride?.estimatedPrice || 0));
       const totalKm = computeTotalDistanceKm(ride);
-      const distanceText = typeof totalKm === 'number' && Number.isFinite(totalKm) ? `${totalKm.toFixed(1)} kilómetros` : null;
-      const signature = `${rideId}|${netPrice}|${distanceText ?? 'na'}`;
+      const distanceSpeech =
+        typeof totalKm === 'number' && Number.isFinite(totalKm)
+          ? t('driver.activeRide.voice.totalDistance', { distance: totalKm.toFixed(1) })
+          : null;
+      const signature = `${rideId}|${netPrice}|${distanceSpeech ?? 'na'}`;
 
       if (!force && lastRideAnnouncedRef.current === signature) {
         return;
@@ -390,13 +435,22 @@ export default function ActiveRideScreen({ route, navigation }: any) {
       lastRideAnnouncedRef.current = signature;
 
       const parts: string[] = [];
-      parts.push(`Origen ${originSpeech}`);
-      parts.push(`Destino ${destinationSpeech}`);
-      parts.push(`Precio neto ${netPrice} Cordobas`);
-      if (distanceText) parts.push(`Distancia total ${distanceText}`);
+      parts.push(t('driver.activeRide.voice.origin', { origin: originSpeech }));
+      parts.push(t('driver.activeRide.voice.destination', { destination: destinationSpeech }));
+      parts.push(t('driver.activeRide.voice.netFare', { amount: netPrice }));
+      if (distanceSpeech) parts.push(distanceSpeech);
       speakVoice(`${parts.join('. ')}.`, 'navigation', undefined, true);
     },
-    [voiceSettings.enabled, ride, voicePaused, getAddressForSpeech, computeTotalDistanceKm, rideId, speakVoice]
+    [
+      voiceSettings.enabled,
+      ride,
+      voicePaused,
+      getAddressForSpeech,
+      computeTotalDistanceKm,
+      rideId,
+      speakVoice,
+      t,
+    ],
   );
 
   useEffect(() => {
@@ -443,19 +497,34 @@ export default function ActiveRideScreen({ route, navigation }: any) {
 
     lastStatusSpokenRef.current = currentStatus;
 
-    const originSpeech = getAddressForSpeech(ride.origin) || 'el origen asignado';
-    const destinationSpeech = getAddressForSpeech(ride.destination) || 'el destino final';
+    const originSpeech =
+      getAddressForSpeech(ride.origin) || t('driver.activeRide.voice.originFallback');
+    const destinationSpeech =
+      getAddressForSpeech(ride.destination) ||
+      t('driver.activeRide.voice.destinationFallback');
     const netPrice = Math.round(Number(ride?.finalFare || ride?.estimatedPrice || 0));
     const totalKm = computeTotalDistanceKm(ride);
-    const distanceText = typeof totalKm === 'number' && Number.isFinite(totalKm) ? `${totalKm.toFixed(1)} kilómetros` : null;
+    const distanceSpeech =
+      typeof totalKm === 'number' && Number.isFinite(totalKm)
+        ? t('driver.activeRide.voice.totalDistance', { distance: totalKm.toFixed(1) })
+        : null;
 
     const parts: string[] = [];
-    parts.push(`Origen ${originSpeech}`);
-    parts.push(`Destino ${destinationSpeech}`);
-    parts.push(`Precio neto ${netPrice} Cordobas`);
-    if (distanceText) parts.push(`Distancia total ${distanceText}`);
+    parts.push(t('driver.activeRide.voice.origin', { origin: originSpeech }));
+    parts.push(t('driver.activeRide.voice.destination', { destination: destinationSpeech }));
+    parts.push(t('driver.activeRide.voice.netFare', { amount: netPrice }));
+    if (distanceSpeech) parts.push(distanceSpeech);
     speakVoice(`${parts.join('. ')}.`, 'status');
-  }, [voiceSettings.enabled, ride, normalizedStatus, voicePaused, speakVoice, getAddressForSpeech, computeTotalDistanceKm]);
+  }, [
+    voiceSettings.enabled,
+    ride,
+    normalizedStatus,
+    voicePaused,
+    speakVoice,
+    getAddressForSpeech,
+    computeTotalDistanceKm,
+    t,
+  ]);
 
   useEffect(() => {
     if (!messages || messages.length === 0) {
@@ -485,18 +554,27 @@ export default function ActiveRideScreen({ route, navigation }: any) {
       return;
     }
 
-    void notificationService.showLocalNotification('Nuevo mensaje del cliente', trimmedMessage, {
-      type: 'chat_message',
-      rideId,
-      senderId: latestMessage.senderId,
-    });
+    void notificationService.showLocalNotification(
+      t('driver.activeRide.notifications.newMessageTitle'),
+      trimmedMessage,
+      {
+        type: 'chat_message',
+        rideId,
+        senderId: latestMessage.senderId,
+      },
+    );
 
     if (!voiceSettings.enabled || voicePaused) {
       return;
     }
 
-    speakVoice(`Mensaje del cliente: ${trimmedMessage}`, 'status', undefined, true);
-  }, [messages, rideId, voiceSettings.enabled, voicePaused, speakVoice]);
+    speakVoice(
+      t('driver.activeRide.voice.messagePrefix', { message: trimmedMessage }),
+      'status',
+      undefined,
+      true,
+    );
+  }, [messages, rideId, voiceSettings.enabled, voicePaused, speakVoice, t]);
 
   // Construir ruta real (OSRM) y fallback simple (conductor → origen → paradas → destino)
   useEffect(() => {
@@ -566,24 +644,24 @@ export default function ActiveRideScreen({ route, navigation }: any) {
   const handleOpenChat = () => {
     navigation.navigate('Chat', {
       rideId,
-      otherUserName: ride?.clientName || 'Cliente',
+      otherUserName: resolvedClientName,
     });
   };
 
   const handleNavigate = () => {
     alertService.showOptionsAlert(
-      'Navegar con GPS',
-      'Elige tu app de navegación preferida',
+      t('driver.activeRide.navigation.title'),
+      t('driver.activeRide.navigation.subtitle'),
       [
         {
-          text: '🗺️ Google Maps',
+          text: t('driver.activeRide.navigation.googleMaps'),
           onPress: () => {
             const url = `https://www.google.com/maps/dir/?api=1&destination=${ride?.destination?.lat},${ride?.destination?.lng}`;
             Linking.openURL(url);
           },
         },
         {
-          text: '🚗 Waze',
+          text: t('driver.activeRide.navigation.waze'),
           onPress: () => {
             const url = `waze://?ll=${ride?.destination?.lat},${ride?.destination?.lng}&navigate=yes`;
             Linking.canOpenURL(url).then((supported) => {
@@ -591,7 +669,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
             });
           },
         },
-        { text: 'Cancelar', style: 'cancel' },
+        { text: t('driver.activeRide.navigation.cancel'), style: 'cancel' },
       ]
     );
   };
@@ -601,7 +679,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
       setUpdating(true);
       await ridesService.updateRideStatus(rideId, 'in_progress');
     } catch (error) {
-      alertService.showErrorAlert('No se pudo iniciar el viaje');
+      alertService.showErrorAlert(t('driver.activeRide.alerts.startRideError'));
     } finally {
       setUpdating(false);
     }
@@ -618,11 +696,11 @@ export default function ActiveRideScreen({ route, navigation }: any) {
       navigation.replace('PaymentConfirmation', {
         rideId,
         amount: ride?.finalFare || ride?.estimatedPrice,
-        clientName: ride?.clientName || 'Cliente',
+        clientName: ride?.clientName || t('driver.activeRide.labels.clientFallback'),
         paymentMethod: paymentMethod as 'cash' | 'card',
       });
     } catch (error: any) {
-      alertService.showErrorAlert(error.message || 'No se pudo completar el viaje');
+      alertService.showErrorAlert(error.message || t('driver.activeRide.alerts.completeRideError'));
     } finally {
       setUpdating(false);
     }
@@ -652,12 +730,12 @@ export default function ActiveRideScreen({ route, navigation }: any) {
     }).start();
 
     alertService.showConfirmAlert(
-      'Cancelar viaje',
-      '¿Seguro que deseas cancelar este viaje?',
+      t('driver.activeRide.alerts.cancelRideTitle'),
+      t('driver.activeRide.alerts.cancelRideMessage'),
       async () => {
         try {
           setUpdating(true);
-          await ridesService.cancelRide(rideId, 'Cancelado por el conductor', {
+          await ridesService.cancelRide(rideId, t('driver.activeRide.notifications.canceledByDriver'), {
             canceledBy: 'driver',
           });
           await notificationService.clearQuickReturn();
@@ -667,7 +745,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
             routes: [{ name: 'DriverHome' }],
           });
         } catch (error: any) {
-          alertService.showErrorAlert(error.message || 'No se pudo cancelar el viaje');
+          alertService.showErrorAlert(error.message || t('driver.activeRide.alerts.cancelRideError'));
         } finally {
           setUpdating(false);
           resetCancelAnimation();
@@ -676,8 +754,8 @@ export default function ActiveRideScreen({ route, navigation }: any) {
       () => {
         resetCancelAnimation();
       },
-      'Cancelar viaje',
-      'Seguir',
+      t('driver.activeRide.alerts.cancelRideConfirm'),
+      t('driver.activeRide.alerts.cancelRideKeep'),
       true,
     );
   }, [cancelButtonScale, isCancellingRide, navigation, resetCancelAnimation, rideId, updating]);
@@ -694,11 +772,13 @@ export default function ActiveRideScreen({ route, navigation }: any) {
 
     const canceledBy = (ride?.canceledBy ?? ride?.cancelledBy ?? '').toString().toLowerCase();
     handledCancellationRef.current = true;
-    const message = canceledBy === 'driver'
-      ? 'El viaje ha sido cancelado.'
-      : 'El cliente canceló el viaje.';
+    const canceledTitle = t('driver.activeRide.alerts.canceledTitle');
+    const message =
+      canceledBy === 'driver'
+        ? t('driver.activeRide.alerts.canceledByDriverMessage')
+        : t('driver.activeRide.alerts.canceledByClientMessage');
 
-    alertService.showInfoAlert('Viaje cancelado', message, () => {
+    alertService.showInfoAlert(canceledTitle, message, () => {
       navigation.reset({
         index: 0,
         routes: [{ name: 'DriverHome' }],
@@ -711,7 +791,9 @@ export default function ActiveRideScreen({ route, navigation }: any) {
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={colors.primary} />
         <Text style={[styles.loadingText, { color: colors.text }]}>
-          {loading ? 'Cargando detalles...' : 'Esperando datos del viaje...'}
+          {loading
+            ? t('driver.activeRide.loader.loadingDetails')
+            : t('driver.activeRide.loader.waitingData')}
         </Text>
       </View>
     );
@@ -738,12 +820,18 @@ export default function ActiveRideScreen({ route, navigation }: any) {
               latitude: ride.destination.lat || ride.destination.latitude,
               longitude: ride.destination.lng || ride.destination.longitude,
             } : undefined}
-            extraStopMarkers={Array.isArray(ride?.extraDestinations) ? ride!.extraDestinations.map((stop: any, idx: number) => ({
-              latitude: stop?.lat || stop?.latitude,
-              longitude: stop?.lng || stop?.longitude,
-              index: idx + 1,
-              label: stop?.address || `Parada ${idx + 1}`,
-            })) : []}
+            extraStopMarkers={
+              Array.isArray(ride?.extraDestinations)
+                ? ride!.extraDestinations.map((stop: any, idx: number) => ({
+                    latitude: stop?.lat || stop?.latitude,
+                    longitude: stop?.lng || stop?.longitude,
+                    index: idx + 1,
+                    label:
+                      stop?.address ||
+                      t('driver.activeRide.labels.stopLabel', { index: idx + 1 }),
+                  }))
+                : []
+            }
             originLabel={ride?.origin?.address}
             destinationLabel={ride?.destination?.address}
             showPinBubbles={true}
@@ -768,12 +856,16 @@ export default function ActiveRideScreen({ route, navigation }: any) {
               <Image source={{ uri: clientProfile.photoUrl as string }} style={styles.clientPhoto} />
             ) : (
               <View style={[styles.clientPhoto, { backgroundColor: colors.card }]}>
-                <Text style={styles.clientInitial}>{(clientProfile?.fullName || ride?.clientName)?.[0] || 'C'}</Text>
+                <Text style={styles.clientInitial}>{resolvedClientInitial}</Text>
               </View>
             )}
             <View style={styles.headerText}>
-              <Text style={[styles.clientName, { color: colors.text }]}>{clientProfile?.fullName || ride?.clientName || 'Cliente'}</Text>
-              <Text style={[styles.priceRow, { color: colors.textSecondary }]}>Precio: C${ride?.finalFare || ride?.estimatedPrice || 0}</Text>
+              <Text style={[styles.clientName, { color: colors.text }]}>{resolvedClientName}</Text>
+              <Text style={[styles.priceRow, { color: colors.textSecondary }]}>
+                {t('driver.activeRide.labels.fare', {
+                  amount: formatCurrency(ride?.finalFare || ride?.estimatedPrice || 0),
+                })}
+              </Text>
               <Text style={[styles.statusPill, { color: colors.textSecondary }]}>{getStatusLabel(normalizedStatus)}</Text>
             </View>
           </View>
@@ -787,7 +879,11 @@ export default function ActiveRideScreen({ route, navigation }: any) {
             <TouchableOpacity
               onPress={handleVoiceToggle}
               style={[styles.headerAction, styles.headerActionSmall, voicePaused && styles.headerActionActive]}
-              accessibilityLabel={voicePaused ? 'Reanudar voz' : 'Silenciar voz'}
+              accessibilityLabel={
+                voicePaused
+                  ? t('driver.activeRide.accessibility.resumeVoice')
+                  : t('driver.activeRide.accessibility.muteVoice')
+              }
               accessibilityRole="button"
             >
               <Text style={styles.headerActionText}>{voicePaused ? '🔊' : '🔇'}</Text>
@@ -810,33 +906,39 @@ export default function ActiveRideScreen({ route, navigation }: any) {
               <View style={styles.addressesRightCol}>
                 <View style={styles.addressRow}>
                   <Text numberOfLines={2} style={[styles.addressRowText, { color: colors.text }]}>
-                    {ride?.origin?.address || 'Origen'}
+                    {ride?.origin?.address || t('driver.activeRide.labels.originFallback')}
                   </Text>
                 </View>
                 {ride?.extraDestinations?.map?.((w: any, i: number) => (
                   <View key={`addr-${i}`} style={styles.addressRow}>
                     <Text numberOfLines={2} style={[styles.addressRowText, { color: colors.text }]}>
-                      {w?.address || `Parada ${i + 1}`}
+                      {w?.address ||
+                        t('driver.activeRide.labels.stopLabel', { index: i + 1 })}
                     </Text>
                   </View>
                 ))}
                 <View style={styles.addressRow}>
                   <Text numberOfLines={2} style={[styles.addressRowText, { color: colors.text }]}>
-                    {ride?.destination?.address || 'Destino'}
+                    {ride?.destination?.address ||
+                      t('driver.activeRide.labels.destinationFallback')}
                   </Text>
                 </View>
               </View>
               <View style={styles.addressesSideActions}>
                 <TouchableOpacity style={[styles.navButtonGreen, { backgroundColor: '#4CAF50' }]} onPress={handleNavigate}>
-                  <Text style={styles.navButtonText}>Navegar</Text>
+                  <Text style={styles.navButtonText}>
+                    {t('driver.activeRide.navigation.button')}
+                  </Text>
                 </TouchableOpacity>
                 <View style={[styles.etaMiniCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                  <Text style={[styles.etaTitle, { color: colors.textSecondary }]}>Estimado</Text>
+                  <Text style={[styles.etaTitle, { color: colors.textSecondary }]}>
+                    {t('driver.activeRide.labels.estimatedTitle')}
+                  </Text>
                   <Text style={[styles.etaValue, { color: colors.text }]}>
-                    {Math.ceil((ride?.estimatedDuration || 0) / 60)} min
+                    {formatEstimatedMinutes((ride?.estimatedDuration || 0) / 60)}
                   </Text>
                   <Text style={[styles.etaMeta, { color: colors.textSecondary }]}>
-                    {((ride?.estimatedDistance || 0) / 1000).toFixed(1)} km
+                    {formatEstimatedDistance((ride?.estimatedDistance || 0) / 1000)}
                   </Text>
                 </View>
               </View>
@@ -856,10 +958,16 @@ export default function ActiveRideScreen({ route, navigation }: any) {
             {(() => {
               const show = (isAccepted || isDriverOnRoute || isInProgress) && !isCompleted && !isCanceled;
               const label = isInProgress
-                ? (updating ? 'Completando...' : 'Completar Viaje')
+                ? (updating
+                    ? t('driver.activeRide.cta.completeRidePending')
+                    : t('driver.activeRide.cta.completeRide'))
                 : isDriverOnRoute
-                ? (updating ? 'Iniciando...' : 'Iniciar Viaje')
-                : (updating ? 'Marcando...' : 'Ir en camino');
+                  ? (updating
+                      ? t('driver.activeRide.cta.startRidePending')
+                      : t('driver.activeRide.cta.startRide'))
+                  : (updating
+                      ? t('driver.activeRide.cta.goOnRoutePending')
+                      : t('driver.activeRide.cta.goOnRoute'));
               const onPress = isInProgress
                 ? handleCompleteRide
                 : isDriverOnRoute
@@ -892,7 +1000,9 @@ export default function ActiveRideScreen({ route, navigation }: any) {
               {isCancellingRide ? (
                 <ActivityIndicator color="#f44336" />
               ) : (
-                <Text style={[styles.cancelButtonText, { color: '#f44336' }]}>Cancelar Viaje</Text>
+                <Text style={[styles.cancelButtonText, { color: '#f44336' }]}>
+                  {t('driver.activeRide.buttons.cancelRide')}
+                </Text>
               )}
             </AnimatedTouchableOpacity>
           </ScrollView>
@@ -904,10 +1014,16 @@ export default function ActiveRideScreen({ route, navigation }: any) {
             {(() => {
               const show = (isAccepted || isDriverOnRoute || isInProgress) && !isCompleted && !isCanceled;
               const label = isInProgress
-                ? (updating ? 'Completando...' : 'Completar Viaje')
+                ? (updating
+                    ? t('driver.activeRide.cta.completeRidePending')
+                    : t('driver.activeRide.cta.completeRide'))
                 : isDriverOnRoute
-                ? (updating ? 'Iniciando...' : 'Iniciar Viaje')
-                : (updating ? 'Marcando...' : 'Ir en camino');
+                  ? (updating
+                      ? t('driver.activeRide.cta.startRidePending')
+                      : t('driver.activeRide.cta.startRide'))
+                  : (updating
+                      ? t('driver.activeRide.cta.goOnRoutePending')
+                      : t('driver.activeRide.cta.goOnRoute'));
               const onPress = isInProgress
                 ? handleCompleteRide
                 : isDriverOnRoute
@@ -940,7 +1056,9 @@ export default function ActiveRideScreen({ route, navigation }: any) {
               {isCancellingRide ? (
                 <ActivityIndicator color="#f44336" />
               ) : (
-                <Text style={[styles.cancelButtonText, { color: '#f44336' }]}>Cancelar Viaje</Text>
+                <Text style={[styles.cancelButtonText, { color: '#f44336' }]}>
+                  {t('driver.activeRide.buttons.cancelRide')}
+                </Text>
               )}
             </AnimatedTouchableOpacity>
           </View>

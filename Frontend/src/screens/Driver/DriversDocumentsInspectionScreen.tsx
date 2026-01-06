@@ -11,6 +11,7 @@ import {
   Platform,
   TextInput
 } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import * as ImagePicker from 'expo-image-picker';
@@ -25,6 +26,8 @@ interface DriversDocumentsInspectionProps {
 export default function DriversDocumentsInspectionScreen({ route, navigation }: DriversDocumentsInspectionProps) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const { t } = useTranslation();
+  const diNS = 'driver.documentInspection';
   
   const [loading, setLoading] = useState(false);
   const [licensePhotoFront, setLicensePhotoFront] = useState<string | null>(null);
@@ -42,7 +45,10 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
     (async () => {
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permiso Requerido', 'Necesitamos acceso a la cámara para tomar fotos de tus documentos.');
+        Alert.alert(
+          t(`${diNS}.alerts.permissionTitle`),
+          t(`${diNS}.alerts.permissionMessage`)
+        );
       }
     })();
   }, []);
@@ -105,7 +111,10 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
         setPhotoFunction(result.assets[0].uri);
       }
     } catch (error) {
-      Alert.alert('Error', 'No se pudo tomar la foto');
+      Alert.alert(
+        t(`${diNS}.alerts.cameraErrorTitle`),
+        t(`${diNS}.alerts.cameraErrorMessage`)
+      );
       console.error('Error al tomar foto:', error);
     }
   };
@@ -113,7 +122,10 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
   // Subir fotos y datos a Supabase
   const uploadDocumentsAndContinue = async () => {
     if (!user || !allDataProvided) {
-      Alert.alert('Error', 'Faltan datos o fotos para continuar');
+      Alert.alert(
+        t(`${diNS}.alerts.missingDataTitle`),
+        t(`${diNS}.alerts.missingDataMessage`)
+      );
       return;
     }
 
@@ -160,10 +172,10 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
 
       setLoading(false);
       Alert.alert(
-        'Éxito', 
-        'Documentos del conductor actualizados correctamente.',
+        t(`${diNS}.alerts.successTitle`), 
+        t(`${diNS}.alerts.successMessage`),
         [{ 
-          text: 'Aceptar', 
+          text: t(`${diNS}.alerts.successButton`), 
           onPress: () => {
             navigation.goBack();
           }
@@ -173,7 +185,10 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
     } catch (error) {
       console.error('Error al subir documentos:', error);
       setLoading(false);
-      Alert.alert('Error', 'No se pudieron subir los documentos. Inténtelo de nuevo.');
+      Alert.alert(
+        t(`${diNS}.alerts.uploadErrorTitle`),
+        t(`${diNS}.alerts.uploadErrorMessage`)
+      );
     }
   };
 
@@ -184,27 +199,27 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
   return (
     <ScrollView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>📋 Documentos del Conductor</Text>
-        <Text style={styles.subtitle}>Por favor completa tu información de licencia de conducir y sube las fotos del frente y reverso.</Text>
+        <Text style={styles.title}>{t(`${diNS}.header.title`)}</Text>
+        <Text style={styles.subtitle}>{t(`${diNS}.header.subtitle`)}</Text>
       </View>
       
       {/* Datos de Licencia */}
       <View style={styles.dataSection}>
-        <Text style={styles.sectionTitle}>Información de Licencia</Text>
+        <Text style={styles.sectionTitle}>{t(`${diNS}.licenseSection.title`)}</Text>
         
-        <Text style={styles.label}>Número de Licencia *</Text>
+        <Text style={styles.label}>{t(`${diNS}.licenseSection.numberLabel`)}</Text>
         <TextInput
           style={styles.input}
-          placeholder="Ej: B21332434"
+          placeholder={t(`${diNS}.licenseSection.numberPlaceholder`)}
           value={licenseNumber}
           onChangeText={setLicenseNumber}
           placeholderTextColor={colors.textSecondary}
         />
 
-        <Text style={styles.label}>Fecha de Vencimiento (YYYY-MM-DD) *</Text>
+        <Text style={styles.label}>{t(`${diNS}.licenseSection.expiryLabel`)}</Text>
         <TextInput
           style={styles.input}
-          placeholder="Ej: 2030-02-12"
+          placeholder={t(`${diNS}.licenseSection.expiryPlaceholder`)}
           value={licenseExpiry}
           onChangeText={setLicenseExpiry}
           placeholderTextColor={colors.textSecondary}
@@ -213,11 +228,11 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
 
       {/* Fotos de Licencia */}
       <View style={styles.photoSection}>
-        <Text style={styles.sectionTitle}>Fotos de Licencia</Text>
+        <Text style={styles.sectionTitle}>{t(`${diNS}.photosSection.title`)}</Text>
         
         {/* Foto Frontal */}
         <View style={styles.photoContainer}>
-          <Text style={styles.photoTitle}>1. Frente de la Licencia</Text>
+          <Text style={styles.photoTitle}>{t(`${diNS}.photosSection.frontTitle`)}</Text>
           {licensePhotoFront ? (
             <View style={styles.previewContainer}>
               <Image source={{ uri: licensePhotoFront }} style={styles.photoPreview} />
@@ -225,7 +240,7 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
                 style={styles.retakeButton}
                 onPress={() => takePhoto(setLicensePhotoFront)}
               >
-                <Text style={styles.retakeButtonText}>Volver a tomar</Text>
+                <Text style={styles.retakeButtonText}>{t(`${diNS}.photosSection.retakePhoto`)}</Text>
               </TouchableOpacity>
             </View>
           ) : (
@@ -233,14 +248,14 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
               style={styles.photoButton}
               onPress={() => takePhoto(setLicensePhotoFront)}
             >
-              <Text style={styles.photoButtonText}>📷 Tomar Foto</Text>
+              <Text style={styles.photoButtonText}>{t(`${diNS}.photosSection.takePhoto`)}</Text>
             </TouchableOpacity>
           )}
         </View>
 
         {/* Foto Trasera */}
         <View style={styles.photoContainer}>
-          <Text style={styles.photoTitle}>2. Reverso de la Licencia</Text>
+          <Text style={styles.photoTitle}>{t(`${diNS}.photosSection.backTitle`)}</Text>
           {licensePhotoBack ? (
             <View style={styles.previewContainer}>
               <Image source={{ uri: licensePhotoBack }} style={styles.photoPreview} />
@@ -248,7 +263,7 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
                 style={styles.retakeButton}
                 onPress={() => takePhoto(setLicensePhotoBack)}
               >
-                <Text style={styles.retakeButtonText}>Volver a tomar</Text>
+                <Text style={styles.retakeButtonText}>{t(`${diNS}.photosSection.retakePhoto`)}</Text>
               </TouchableOpacity>
             </View>
           ) : (
@@ -256,7 +271,7 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
               style={styles.photoButton}
               onPress={() => takePhoto(setLicensePhotoBack)}
             >
-              <Text style={styles.photoButtonText}>📷 Tomar Foto</Text>
+              <Text style={styles.photoButtonText}>{t(`${diNS}.photosSection.takePhoto`)}</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -264,19 +279,21 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
 
       <View style={styles.noticeContainer}>
         <Text style={styles.noticeText}>
-          ⚠️ Asegúrate de que las fotos sean claras y legibles. Estos documentos serán verificados por nuestro equipo.
+          {t(`${diNS}.notice.text`)}
         </Text>
       </View>
 
       {loading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loadingText}>Subiendo documentos... {Math.round(uploadProgress * 100)}%</Text>
+          <Text style={styles.loadingText}>
+            {t(`${diNS}.loading.uploading`, { progress: Math.round(uploadProgress * 100) })}
+          </Text>
         </View>
       ) : documentsVerified ? (
         <View style={styles.verifiedNotice}>
-          <Text style={styles.verifiedNoticeText}>Documentos verificados ✅</Text>
-          <Text style={styles.verifiedNoticeSubtitle}>Si necesitas actualizar tu información, contáctanos por soporte.</Text>
+          <Text style={styles.verifiedNoticeText}>{t(`${diNS}.verified.title`)}</Text>
+          <Text style={styles.verifiedNoticeSubtitle}>{t(`${diNS}.verified.subtitle`)}</Text>
         </View>
       ) : (
         <TouchableOpacity 
@@ -285,7 +302,9 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
           disabled={!allDataProvided}
         >
           <Text style={styles.submitButtonText}>
-            {allDataProvided ? 'Guardar Documentos' : 'Complete todos los datos y fotos'}
+            {allDataProvided
+              ? t(`${diNS}.buttons.save`)
+              : t(`${diNS}.buttons.missingData`)}
           </Text>
         </TouchableOpacity>
       )}

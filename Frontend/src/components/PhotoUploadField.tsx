@@ -10,6 +10,7 @@ import {
   Platform,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import { useTranslation } from 'react-i18next';
 
 interface PhotoUploadFieldProps {
   label: string;
@@ -27,13 +28,17 @@ export const PhotoUploadField: React.FC<PhotoUploadFieldProps> = ({
   colors,
 }) => {
   const [loading, setLoading] = useState(false);
+  const { t } = useTranslation();
 
   const pickImage = async () => {
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       
       if (status !== 'granted') {
-        Alert.alert('Permiso Denegado', 'Necesitamos acceso a tu galería');
+        Alert.alert(
+          t('common.components.photoUploadField.alerts.permissionDeniedTitle'),
+          t('common.components.photoUploadField.alerts.galleryPermission'),
+        );
         return;
       }
 
@@ -48,7 +53,10 @@ export const PhotoUploadField: React.FC<PhotoUploadFieldProps> = ({
         onPhotoSelected(result.assets[0].uri);
       }
     } catch (error) {
-      Alert.alert('Error', 'No se pudo seleccionar la imagen');
+      Alert.alert(
+        t('common.components.photoUploadField.alerts.errorTitle'),
+        t('common.components.photoUploadField.alerts.selectError'),
+      );
     }
   };
 
@@ -57,7 +65,10 @@ export const PhotoUploadField: React.FC<PhotoUploadFieldProps> = ({
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
       
       if (status !== 'granted') {
-        Alert.alert('Permiso Denegado', 'Necesitamos acceso a la cámara');
+        Alert.alert(
+          t('common.components.photoUploadField.alerts.permissionDeniedTitle'),
+          t('common.components.photoUploadField.alerts.cameraPermission'),
+        );
         return;
       }
 
@@ -71,18 +82,21 @@ export const PhotoUploadField: React.FC<PhotoUploadFieldProps> = ({
         onPhotoSelected(result.assets[0].uri);
       }
     } catch (error) {
-      Alert.alert('Error', 'No se pudo tomar la foto');
+      Alert.alert(
+        t('common.components.photoUploadField.alerts.errorTitle'),
+        t('common.components.photoUploadField.alerts.captureError'),
+      );
     }
   };
 
   const showPhotoOptions = () => {
     Alert.alert(
-      'Seleccionar Foto',
-      'Elige cómo deseas agregar la foto',
+      t('common.components.photoUploadField.options.title'),
+      t('common.components.photoUploadField.options.message'),
       [
-        { text: 'Cancelar', style: 'cancel' },
-        { text: 'Galería', onPress: pickImage },
-        { text: 'Cámara', onPress: takePhoto },
+        { text: t('common.components.photoUploadField.options.cancel'), style: 'cancel' },
+        { text: t('common.components.photoUploadField.options.gallery'), onPress: pickImage },
+        { text: t('common.components.photoUploadField.options.camera'), onPress: takePhoto },
       ]
     );
   };
@@ -109,7 +123,9 @@ export const PhotoUploadField: React.FC<PhotoUploadFieldProps> = ({
             style={styles.changeButton}
             onPress={showPhotoOptions}
           >
-            <Text style={styles.changeButtonText}>Cambiar Foto</Text>
+            <Text style={styles.changeButtonText}>
+              {t('common.components.photoUploadField.buttons.change')}
+            </Text>
           </TouchableOpacity>
         </View>
       ) : (
@@ -123,7 +139,9 @@ export const PhotoUploadField: React.FC<PhotoUploadFieldProps> = ({
           ) : (
             <>
               <Text style={styles.uploadIcon}>📷</Text>
-              <Text style={styles.uploadText}>Agregar Foto</Text>
+              <Text style={styles.uploadText}>
+                {t('common.components.photoUploadField.buttons.add')}
+              </Text>
             </>
           )}
         </TouchableOpacity>

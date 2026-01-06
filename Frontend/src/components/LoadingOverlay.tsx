@@ -17,6 +17,7 @@ import {
   TextStyle
 } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
+import { useTranslation } from 'react-i18next';
 
 interface LoadingOverlayProps {
   visible: boolean;
@@ -29,13 +30,14 @@ interface LoadingOverlayProps {
 
 const LoadingOverlay = ({
   visible,
-  message = 'Cargando...',
+  message,
   transparent = true,
   spinnerSize = 'large',
   showProgress = false,
   progress = 0
 }: LoadingOverlayProps) => {
   const { colors } = useTheme();
+  const { t } = useTranslation();
   const opacity = new Animated.Value(0);
 
   useEffect(() => {
@@ -72,7 +74,9 @@ const LoadingOverlay = ({
           color={colors.primary}
           style={styles.spinner}
         />
-        <Text style={[styles.message, { color: colors.text }]}>{message}</Text>
+        <Text style={[styles.message, { color: colors.text }]}>
+          {message ?? t('common.components.loadingOverlay.defaultMessage')}
+        </Text>
         
         {showProgress && (
           <View style={styles.progressContainer}>
@@ -83,7 +87,9 @@ const LoadingOverlay = ({
               ]} 
             />
             <Text style={[styles.progressText, { color: colors.textSecondary }]}>
-              {`${Math.round(progress)}%`}
+              {t('common.components.loadingOverlay.progressValue', {
+                value: Math.round(progress),
+              })}
             </Text>
           </View>
         )}

@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import * as ExpoImagePicker from 'expo-image-picker';
 import { useTheme } from '../context/ThemeContext';
+import { useTranslation } from 'react-i18next';
 
 interface ImagePickerProps {
   label: string;
@@ -27,6 +28,7 @@ export default function ImagePicker({
   required = false,
 }: ImagePickerProps) {
   const { colors } = useTheme();
+  const { t } = useTranslation();
 
   const requestPermissions = async () => {
     const { status: cameraStatus } = await ExpoImagePicker.requestCameraPermissionsAsync();
@@ -34,8 +36,8 @@ export default function ImagePicker({
 
     if (cameraStatus !== 'granted' || libraryStatus !== 'granted') {
       Alert.alert(
-        'Permisos Requeridos',
-        'Necesitamos permisos de cámara y galería para continuar'
+        t('common.components.imagePicker.alerts.permissionsTitle'),
+        t('common.components.imagePicker.alerts.permissionsMessage'),
       );
       return false;
     }
@@ -65,25 +67,28 @@ export default function ImagePicker({
       }
     } catch (error) {
       console.error('Error seleccionando imagen:', error);
-      Alert.alert('Error', 'No se pudo seleccionar la imagen');
+      Alert.alert(
+        t('common.components.imagePicker.alerts.errorTitle'),
+        t('common.components.imagePicker.alerts.selectError'),
+      );
     }
   };
 
   const showOptions = () => {
     Alert.alert(
-      'Seleccionar Imagen',
-      'Elige una opción',
+      t('common.components.imagePicker.alerts.selectTitle'),
+      t('common.components.imagePicker.alerts.selectMessage'),
       [
         {
-          text: '📷 Tomar Foto',
+          text: t('common.components.imagePicker.alerts.cameraOption'),
           onPress: () => pickImage(true),
         },
         {
-          text: '🖼️ Galería',
+          text: t('common.components.imagePicker.alerts.galleryOption'),
           onPress: () => pickImage(false),
         },
         {
-          text: 'Cancelar',
+          text: t('common.components.imagePicker.alerts.cancelOption'),
           style: 'cancel',
         },
       ]
@@ -115,7 +120,7 @@ export default function ImagePicker({
           <View style={styles.placeholderContainer}>
             <Text style={styles.placeholderIcon}>📷</Text>
             <Text style={[styles.placeholderText, { color: colors.textSecondary }]}>
-              Tomar/Seleccionar Foto
+              {t('common.components.imagePicker.placeholder')}
             </Text>
           </View>
         )}
@@ -127,7 +132,7 @@ export default function ImagePicker({
           onPress={showOptions}
         >
           <Text style={[styles.changeButtonText, { color: colors.primary }]}>
-            Cambiar Foto
+            {t('common.components.imagePicker.changeButton')}
           </Text>
         </TouchableOpacity>
       )}

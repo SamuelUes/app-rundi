@@ -25,6 +25,7 @@ import {
   normalizePhoneNumber,
   extractLocalNumber,
 } from '../../utils/phoneUtils';
+import { useTranslation } from 'react-i18next';
 
 // Google Client ID desde variables de entorno
 // Android Client ID para Expo
@@ -38,6 +39,7 @@ export default function LoginScreen({ navigation }: any) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { login, loginWithGoogle } = useAuth();
+  const { t } = useTranslation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const countryOptions = useMemo(() => getCountryDialOptions(), []);
@@ -74,12 +76,12 @@ export default function LoginScreen({ navigation }: any) {
     const normalizedEmail = email.trim();
 
     if (!normalizedEmail) {
-      alertService.showErrorAlert('Ingresa tu correo electrónico.');
+      alertService.showErrorAlert(t('authScreens.login.alerts.emailRequired'));
       return;
     }
 
     if (!password.trim()) {
-      alertService.showErrorAlert('Ingresa tu contraseña para continuar.');
+      alertService.showErrorAlert(t('authScreens.login.alerts.passwordRequired'));
       return;
     }
 
@@ -90,7 +92,7 @@ export default function LoginScreen({ navigation }: any) {
       if (error?.code === 'SESSION_ACTIVE_ELSEWHERE') {
         return;
       }
-      let message = 'Error al iniciar sesión. Intenta nuevamente.';
+      let message = t('authScreens.login.alerts.genericError');
       const code = error?.code || '';
 
       switch (code) {
@@ -100,17 +102,17 @@ export default function LoginScreen({ navigation }: any) {
         case 'auth/invalid-email':
         case 'EMAIL_NOT_FOUND':
         case 'INVALID_PASSWORD':
-          message = 'El correo o la contraseña no son correctos. Verifica e inténtalo otra vez.';
+          message = t('authScreens.login.alerts.invalidCredentials');
           break;
         case 'auth/too-many-requests':
-          message = 'Demasiados intentos fallidos. Espera unos minutos antes de volver a intentar.';
+          message = t('authScreens.login.alerts.tooManyAttempts');
           break;
         default:
           if (typeof error?.message === 'string') {
             if (error.message.toLowerCase().includes('password')) {
-              message = 'El correo o la contraseña no coinciden con nuestros registros.';
+              message = t('authScreens.login.alerts.invalidCredentials');
             } else if (error.message.toLowerCase().includes('network')) {
-              message = 'No pudimos conectarnos. Revisa tu conexión a internet e inténtalo nuevamente.';
+              message = t('authScreens.login.alerts.genericError');
             }
           }
           break;
@@ -127,7 +129,9 @@ export default function LoginScreen({ navigation }: any) {
     setNormalizedPhone(normalized);
 
     if (!normalized || !/^\+\d{6,15}$/.test(normalized)) {
-      alertService.showErrorAlert('Por favor ingresa un número telefónico válido en formato internacional (+Código País)');
+      alertService.showErrorAlert(
+        t('authScreens.login.alerts.phoneInvalid'),
+      );
       return;
     }
 
@@ -145,7 +149,9 @@ export default function LoginScreen({ navigation }: any) {
         mode: 'login',
       });
     } catch (error: any) {
-      alertService.showErrorAlert(error?.message || 'Error al solicitar código SMS');
+      alertService.showErrorAlert(
+        error?.message || t('authScreens.login.alerts.smsError'),
+      );
     } finally {
       setLoading(false);
     }
@@ -214,19 +220,23 @@ export default function LoginScreen({ navigation }: any) {
 
         <View style={styles.card}>
           <View style={styles.cardHeader}>
-            <Text style={styles.title}>Bienvenido</Text>
-            <Text style={styles.subtitle}>Inicia sesión para continuar</Text>
+            <Text style={styles.title}>{t('authScreens.login.title')}</Text>
+            <Text style={styles.subtitle}>
+              {t('authScreens.login.subtitle')}
+            </Text>
           </View>
 
           {/* Tabs para cambiar entre Email y Teléfono */}
           <View style={styles.tabsContainer}>
             <TouchableOpacity style={styles.tab} onPress={() => setLoginMode('email')}>
-              <Text style={[styles.tabText, loginMode === 'email' && styles.tabTextActive]}>Email</Text>
+              <Text style={[styles.tabText, loginMode === 'email' && styles.tabTextActive]}>
+                {t('authScreens.login.tabs.email')}
+              </Text>
               {loginMode === 'email' && <View style={styles.tabUnderline} />}
             </TouchableOpacity>
             <TouchableOpacity style={styles.tab} onPress={() => setLoginMode('phone')}>
               <Text style={[styles.tabText, loginMode === 'phone' && styles.tabTextActive]}>
-                Teléfono
+                {t('authScreens.login.tabs.phone')}
               </Text>
               {loginMode === 'phone' && <View style={styles.tabUnderline} />}
             </TouchableOpacity>
@@ -235,10 +245,12 @@ export default function LoginScreen({ navigation }: any) {
           <View style={styles.form}>
             {loginMode === 'email' ? (
               <>
-                <Text style={styles.label}>Email</Text>
+                <Text style={styles.label}>
+                  {t('authScreens.login.fields.emailLabel')}
+                </Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="tu@email.com"
+                  placeholder={t('authScreens.login.fields.emailPlaceholder')}
                   placeholderTextColor={colors.textSecondary}
                   value={email}
                   onChangeText={setEmail}
@@ -246,10 +258,12 @@ export default function LoginScreen({ navigation }: any) {
                   autoCapitalize="none"
                 />
 
-                <Text style={styles.label}>Contraseña</Text>
+                <Text style={styles.label}>
+                  {t('authScreens.login.fields.passwordLabel')}
+                </Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="••••••••"
+                  placeholder={t('authScreens.login.fields.passwordPlaceholder')}
                   placeholderTextColor={colors.textSecondary}
                   value={password}
                   onChangeText={setPassword}
@@ -262,13 +276,17 @@ export default function LoginScreen({ navigation }: any) {
                   disabled={loading || googleLoading}
                 >
                   <Text style={styles.loginButtonText}>
-                    {loading ? 'Iniciando...' : 'Iniciar Sesión'}
+                    {loading
+                      ? t('authScreens.login.buttons.loginEmail.loading')
+                      : t('authScreens.login.buttons.loginEmail.idle')}
                   </Text>
                 </TouchableOpacity>
               </>
             ) : (
               <>
-                <Text style={styles.label}>Número Telefónico</Text>
+                <Text style={styles.label}>
+                  {t('authScreens.login.fields.phoneLabel')}
+                </Text>
                 <View style={styles.countryPickerContainer}>
                   <PhoneDigitInput
                     countryOptions={countryOptions}
@@ -280,7 +298,7 @@ export default function LoginScreen({ navigation }: any) {
                   />
                 </View>
                 <Text style={styles.helperText}>
-                  Recibirás un código SMS para verificar tu identidad. Ingresa el número en formato internacional.
+                  {t('authScreens.login.fields.phoneHelper')}
                 </Text>
 
                 <TouchableOpacity
@@ -293,7 +311,9 @@ export default function LoginScreen({ navigation }: any) {
                   }
                 >
                   <Text style={styles.loginButtonText}>
-                    {loading ? 'Enviando...' : 'Enviar Código SMS'}
+                    {loading
+                      ? t('authScreens.login.buttons.loginPhone.loading')
+                      : t('authScreens.login.buttons.loginPhone.idle')}
                   </Text>
                 </TouchableOpacity>
               </>
@@ -302,7 +322,9 @@ export default function LoginScreen({ navigation }: any) {
             {/* Separador */}
             <View style={styles.dividerContainer}>
               <View style={styles.divider} />
-              <Text style={styles.dividerText}>O</Text>
+              <Text style={styles.dividerText}>
+                {t('authScreens.login.divider')}
+              </Text>
               <View style={styles.divider} />
             </View>
 
@@ -320,7 +342,7 @@ export default function LoginScreen({ navigation }: any) {
               disabled={loading || googleLoading}
             >
               <Text style={styles.registerButtonText}>
-                ¿No tienes cuenta? Regístrate
+                {t('authScreens.login.buttons.register')}
               </Text>
             </TouchableOpacity>
           </View>

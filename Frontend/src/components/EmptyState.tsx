@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
+import { useTranslation } from 'react-i18next';
 
 interface EmptyStateProps {
   icon?: string;
@@ -44,74 +45,96 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
 /**
  * Empty State para Viajes
  */
-export const NoRidesEmptyState: React.FC<{ onAction?: () => void }> = ({ onAction }) => (
-  <EmptyState
-    icon="🚗"
-    title="No hay viajes disponibles"
-    message="Cuando haya nuevos viajes, aparecerán aquí"
-    actionText={onAction ? "Actualizar" : undefined}
-    onAction={onAction}
-  />
-);
+export const NoRidesEmptyState: React.FC<{ onAction?: () => void }> = ({ onAction }) => {
+  const { t } = useTranslation();
+  return (
+    <EmptyState
+      icon="🚗"
+      title={t('common.components.emptyState.noRides.title')}
+      message={t('common.components.emptyState.noRides.message')}
+      actionText={onAction ? t('common.components.emptyState.noRides.action') : undefined}
+      onAction={onAction}
+    />
+  );
+};
 
 /**
  * Empty State para Historial
  */
-export const NoHistoryEmptyState: React.FC<{ onAction?: () => void }> = ({ onAction }) => (
-  <EmptyState
-    icon="📋"
-    title="Sin historial de viajes"
-    message="Tus viajes completados aparecerán aquí"
-    actionText={onAction ? "Solicitar viaje" : undefined}
-    onAction={onAction}
-  />
-);
+export const NoHistoryEmptyState: React.FC<{ onAction?: () => void }> = ({ onAction }) => {
+  const { t } = useTranslation();
+  return (
+    <EmptyState
+      icon="📋"
+      title={t('common.components.emptyState.noHistory.title')}
+      message={t('common.components.emptyState.noHistory.message')}
+      actionText={onAction ? t('common.components.emptyState.noHistory.action') : undefined}
+      onAction={onAction}
+    />
+  );
+};
 
 /**
  * Empty State para Notificaciones
  */
-export const NoNotificationsEmptyState: React.FC = () => (
-  <EmptyState
-    icon="🔔"
-    title="No tienes notificaciones"
-    message="Te avisaremos cuando haya algo nuevo"
-  />
-);
+export const NoNotificationsEmptyState: React.FC = () => {
+  const { t } = useTranslation();
+  return (
+    <EmptyState
+      icon="🔔"
+      title={t('common.components.emptyState.noNotifications.title')}
+      message={t('common.components.emptyState.noNotifications.message')}
+    />
+  );
+};
 
 /**
  * Empty State para Búsqueda
  */
-export const NoSearchResultsEmptyState: React.FC<{ searchTerm?: string }> = ({ searchTerm }) => (
-  <EmptyState
-    icon="🔍"
-    title="Sin resultados"
-    message={searchTerm ? `No encontramos resultados para "${searchTerm}"` : "Intenta con otra búsqueda"}
-  />
-);
+export const NoSearchResultsEmptyState: React.FC<{ searchTerm?: string }> = ({ searchTerm }) => {
+  const { t } = useTranslation();
+  return (
+    <EmptyState
+      icon="🔍"
+      title={t('common.components.emptyState.noSearchResults.title')}
+      message={
+        searchTerm
+          ? t('common.components.emptyState.noSearchResults.message', { term: searchTerm })
+          : t('common.components.emptyState.noSearchResults.genericMessage')
+      }
+    />
+  );
+};
 
 /**
  * Empty State para Conductores
  */
-export const NoDriversEmptyState: React.FC = () => (
-  <EmptyState
-    icon="👨‍✈️"
-    title="No hay conductores disponibles"
-    message="Intenta de nuevo en unos momentos"
-  />
-);
+export const NoDriversEmptyState: React.FC = () => {
+  const { t } = useTranslation();
+  return (
+    <EmptyState
+      icon="👨‍✈️"
+      title={t('common.components.emptyState.noDrivers.title')}
+      message={t('common.components.emptyState.noDrivers.message')}
+    />
+  );
+};
 
 /**
  * Empty State para Conexión
  */
-export const NoConnectionEmptyState: React.FC<{ onRetry?: () => void }> = ({ onRetry }) => (
-  <EmptyState
-    icon="📡"
-    title="Sin conexión"
-    message="Verifica tu conexión a internet e intenta de nuevo"
-    actionText={onRetry ? "Reintentar" : undefined}
-    onAction={onRetry}
-  />
-);
+export const NoConnectionEmptyState: React.FC<{ onRetry?: () => void }> = ({ onRetry }) => {
+  const { t } = useTranslation();
+  return (
+    <EmptyState
+      icon="📡"
+      title={t('common.components.emptyState.noConnection.title')}
+      message={t('common.components.emptyState.noConnection.message')}
+      actionText={onRetry ? t('common.components.emptyState.noConnection.action') : undefined}
+      onAction={onRetry}
+    />
+  );
+};
 
 const styles = StyleSheet.create({
   container: {

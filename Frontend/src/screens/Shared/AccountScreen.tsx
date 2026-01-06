@@ -25,6 +25,9 @@ import {
   formatPhoneNumber,
   extractLocalNumber,
 } from '../../utils/phoneUtils';
+import { useTranslation } from 'react-i18next';
+
+const BACK_BUTTON_ICON = require('../../assets/icons/back_button/back_button.png');
 
 type ProvidersState = {
   values: string[];
@@ -52,18 +55,16 @@ type PhoneFormState = {
   confirming: boolean;
 };
 
-const PROVIDER_LABELS: Record<string, string> = {
-  'google.com': 'Google',
-  password: 'Correo/Contraseña',
-  phone: 'Teléfono',
-};
-
-const buildProviderSummary = (providers: string[]) => {
+const buildProviderSummary = (
+  providers: string[],
+  providerLabels: Record<string, string>,
+  emptyLabel: string,
+) => {
   if (!providers.length) {
-    return 'No vinculado';
+    return emptyLabel;
   }
   return providers
-    .map((provider) => PROVIDER_LABELS[provider] || provider)
+    .map((provider) => providerLabels[provider] || provider)
     .join(' + ');
 };
 
@@ -84,6 +85,7 @@ const buildAuthProviderField = (providers: string[]) => {
 export default function AccountScreen({ navigation }: any) {
   const { colors } = useTheme();
   const { user } = useAuth();
+  const { t } = useTranslation();
 
   const [profile, setProfile] = useState<any | null>(null);
   const [profileLoading, setProfileLoading] = useState<boolean>(true);
@@ -150,6 +152,15 @@ export default function AccountScreen({ navigation }: any) {
   const hasPhoneProvider = useMemo(
     () => providersState.values.includes('phone'),
     [providersState.values],
+  );
+
+  const providerLabels = useMemo<Record<string, string>>(
+    () => ({
+      'google.com': t('shared.account.providers.google'),
+      password: t('shared.account.providers.password'),
+      phone: t('shared.account.providers.phone'),
+    }),
+    [t],
   );
 
   const styles = StyleSheet.create({
@@ -366,12 +377,12 @@ export default function AccountScreen({ navigation }: any) {
       const [profileData, providers] = await Promise.all([
         firebaseAuthService.getUserProfile(user.id).catch((error) => {
           console.error('❌ Error cargando perfil:', error);
-          setAccountError('No se pudo cargar el perfil');
+          setAccountError(t('shared.account.alerts.accountLoadError'));
           return null;
         }),
         accountLinkingService.getLinkedProviders().catch((error) => {
           console.error('❌ Error obteniendo proveedores vinculados:', error);
-          setAccountError('No se pudo obtener la configuración de autenticación');
+          setAccountError(t('shared.account.alerts.providersLoadError'));
           return [] as string[];
         }),
       ]);
@@ -402,15 +413,15 @@ export default function AccountScreen({ navigation }: any) {
 
   const handleLinkEmailForPhoneAccount = async () => {
     if (!emailForm.email) {
-      alertService.showErrorAlert('Debes ingresar un correo electrónico válido.');
+      alertService.showErrorAlert(t('shared.account.alerts.emailRequired'));
       return;
     }
     if (!emailForm.password) {
-      alertService.showErrorAlert('Ingresa una contraseña para vincular tu cuenta.');
+      alertService.showErrorAlert(t('shared.account.alerts.passwordRequired'));
       return;
     }
     if (emailForm.password !== emailForm.confirmPassword) {
-      alertService.showErrorAlert('Asegúrate de que ambas contraseñas sean iguales.');
+      alertService.showErrorAlert(t('shared.account.alerts.passwordMismatch'));
       return;
     }
 
@@ -424,12 +435,15 @@ export default function AccountScreen({ navigation }: any) {
       await syncFirestoreProfile({ email: result.email, authProvider: authProviderLabel, method: authProviderLabel });
       await updateLocalUserCache({ email: result.email });
 
-      alertService.showSuccessAlert('Correo vinculado', 'Tu cuenta ahora tiene acceso por correo y contraseña.');
+      alertService.showSuccessAlert(
+        t('shared.account.alerts.linkEmailSuccessTitle'),
+        t('shared.account.alerts.linkEmailSuccessMessage'),
+      );
       setProvidersState({ values: providers, loading: false });
       await refreshAccountData();
     } catch (error: any) {
       console.error('❌ Error vinculando correo:', error);
-      const message = error?.message || 'No se pudo vincular el correo. Intenta nuevamente.';
+      const message = error?.message || t('shared.account.alerts.linkEmailError');
       alertService.showErrorAlert(message);
     } finally {
       setEmailForm((prev) => ({ ...prev, submitting: false, password: '', confirmPassword: '' }));
@@ -438,15 +452,15 @@ export default function AccountScreen({ navigation }: any) {
 
   const handleCreatePasswordForGoogle = async () => {
     if (!user?.email) {
-      alertService.showErrorAlert('Tu cuenta de Google no tiene un correo asociado.');
+      alertService.showErrorAlert(t('shared.account.alerts.googleEmailMissing'));
       return;
     }
     if (!passwordForm.password) {
-      alertService.showErrorAlert('Ingresa una contraseña para agregar acceso por correo.');
+      alertService.showErrorAlert(t('shared.account.alerts.passwordRequired'));
       return;
     }
     if (passwordForm.password !== passwordForm.confirmPassword) {
-      alertService.showErrorAlert('Asegúrate de que ambas contraseñas sean iguales.');
+      alertService.showErrorAlert(t('shared.account.alerts.passwordMismatch'));
       return;
     }
 
@@ -459,11 +473,14 @@ export default function AccountScreen({ navigation }: any) {
 
       await syncFirestoreProfile({ authProvider: authProviderLabel, method: authProviderLabel });
 
-      alertService.showSuccessAlert('Contraseña creada', 'Ahora puedes iniciar sesión con tu correo y contraseña.');
+      alertService.showSuccessAlert(
+        t('shared.account.alerts.createPasswordSuccessTitle'),
+        t('shared.account.alerts.createPasswordSuccessMessage'),
+      );
       setProvidersState({ values: providers, loading: false });
     } catch (error: any) {
       console.error('❌ Error creando contraseña:', error);
-      const message = error?.message || 'No se pudo crear la contraseña. Intenta nuevamente.';
+      const message = error?.message || t('shared.account.alerts.createPasswordError');
       alertService.showErrorAlert(message);
     } finally {
       setPasswordForm({ password: '', confirmPassword: '', submitting: false });
@@ -494,8 +511,8 @@ export default function AccountScreen({ navigation }: any) {
 
         await updateLocalUserCache({ phone: '' });
         alertService.showSuccessAlert(
-          'Teléfono eliminado',
-          'Tu número se ha eliminado de tu perfil.',
+          t('shared.account.phone.removedTitle'),
+          t('shared.account.phone.removedMessage'),
         );
         await refreshAccountData();
         return;
@@ -506,16 +523,13 @@ export default function AccountScreen({ navigation }: any) {
           const availability = await firebaseAuthService.checkUserExists({ phone: normalizedPhone });
           console.log('[AccountScreen] Phone availability check (add_phone)', availability);
           if (availability.phoneExists) {
-            alertService.showErrorAlert(
-              'Este número ya está asociado a otra cuenta. Usa otro número o inicia sesión con la cuenta vinculada a este teléfono.',
-            );
+            alertService.showErrorAlert(t('shared.account.phone.duplicateError'));
             return;
           }
         } catch (availabilityError: any) {
           console.error('⚠️ Error validando disponibilidad de teléfono antes de enviar SMS:', availabilityError);
           alertService.showErrorAlert(
-            availabilityError?.message ||
-              'No se pudo validar la disponibilidad de este número. Intenta nuevamente más tarde.',
+            availabilityError?.message || t('shared.account.phone.availabilityError'),
           );
           return;
         }
@@ -527,8 +541,8 @@ export default function AccountScreen({ navigation }: any) {
         console.log('[AccountScreen] Phone modal confirm - non Firebase backend, no SMS flow');
         await updateLocalUserCache({ phone: normalizedPhone });
         alertService.showSuccessAlert(
-          'Teléfono actualizado',
-          'Tu número se ha guardado correctamente.',
+          t('shared.account.phone.updatedTitle'),
+          t('shared.account.phone.updatedMessage'),
         );
         await refreshAccountData();
         return;
@@ -538,8 +552,8 @@ export default function AccountScreen({ navigation }: any) {
       await accountLinkingService.sendPhoneLinkCode(normalizedPhone);
 
       alertService.showSuccessAlert(
-        'Código enviado',
-        'Te enviamos un SMS para verificar tu número. Ingresa el código para completar la vinculación.',
+        t('shared.account.phone.codeSentTitle'),
+        t('shared.account.phone.codeSentMessage'),
       );
 
       const effectiveName = profileName.trim() || user.name;
@@ -561,9 +575,7 @@ export default function AccountScreen({ navigation }: any) {
       });
     } catch (error) {
       console.error('❌ Error actualizando teléfono desde modal:', error);
-      alertService.showErrorAlert(
-        'No se pudo iniciar la verificación de tu número. Intenta nuevamente.',
-      );
+      alertService.showErrorAlert(t('shared.account.phone.startVerificationError'));
     } finally {
       setPhoneUpdating(false);
     }
@@ -591,11 +603,14 @@ export default function AccountScreen({ navigation }: any) {
         email: data.email,
         phone: data.phone,
       });
-      alertService.showSuccessAlert('Perfil actualizado', 'Tus datos se han guardado correctamente.');
+      alertService.showSuccessAlert(
+        t('shared.account.alerts.profileUpdatedTitle'),
+        t('shared.account.alerts.profileUpdatedMessage'),
+      );
       await refreshAccountData();
     } catch (error) {
       console.error('❌ Error actualizando perfil básico:', error);
-      alertService.showErrorAlert('No se pudo actualizar tu perfil. Intenta nuevamente.');
+      alertService.showErrorAlert(t('shared.account.alerts.profileUpdateError'));
     } finally {
       setSavingProfile(false);
     }
@@ -609,21 +624,22 @@ export default function AccountScreen({ navigation }: any) {
             style={styles.backButton}
             onPress={() => {
               Alert.alert(
-                'Descartar cambios',
-                'Si sales ahora podrías perder cambios no guardados. ¿Deseas regresar?',
+                t('shared.account.header.discardTitle'),
+                t('shared.account.header.discardMessage'),
                 [
-                  { text: 'Cancelar', style: 'cancel' },
-                  { text: 'Salir', style: 'destructive', onPress: () => navigation.goBack() },
+                  { text: t('shared.account.header.discardCancel'), style: 'cancel' },
+                  {
+                    text: t('shared.account.header.discardExit'),
+                    style: 'destructive',
+                    onPress: () => navigation.goBack(),
+                  },
                 ],
               );
             }}
           >
-            <Image
-              source={require('../../assets/icons/back_button/back_button.png')}
-              style={styles.backIcon}
-            />
+            <Image source={BACK_BUTTON_ICON} style={styles.backIcon} />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Editar perfil</Text>
+          <Text style={styles.headerTitle}>{t('shared.account.header.title')}</Text>
         </View>
 
         <View style={styles.profileEditSection}>
@@ -636,7 +652,10 @@ export default function AccountScreen({ navigation }: any) {
             <TouchableOpacity
               style={styles.avatarEditButton}
               onPress={() => {
-                Alert.alert('Subir foto', 'La carga de foto de perfil estará disponible próximamente.');
+                Alert.alert(
+                  t('shared.account.profile.avatarTitle'),
+                  t('shared.account.profile.avatarMessage'),
+                );
               }}
             >
               <Text style={styles.avatarEditIcon}>✏️</Text>
@@ -646,14 +665,14 @@ export default function AccountScreen({ navigation }: any) {
           <View style={styles.profileFormCard}>
             <TextInput
               style={styles.input}
-              placeholder="Nombre completo"
+              placeholder={t('shared.account.profile.namePlaceholder')}
               placeholderTextColor={colors.textSecondary}
               value={profileName}
               onChangeText={setProfileName}
             />
             <TextInput
               style={styles.input}
-              placeholder="Fecha de nacimiento (DD/MM/AAAA)"
+              placeholder={t('shared.account.profile.birthPlaceholder')}
               placeholderTextColor={colors.textSecondary}
               value={birthDate}
               onChangeText={setBirthDate}
@@ -661,7 +680,7 @@ export default function AccountScreen({ navigation }: any) {
             />
             <TextInput
               style={styles.input}
-              placeholder="Correo electrónico"
+              placeholder={t('shared.account.profile.emailPlaceholder')}
               placeholderTextColor={colors.textSecondary}
               keyboardType="email-address"
               autoCapitalize="none"
@@ -677,17 +696,23 @@ export default function AccountScreen({ navigation }: any) {
                 style={profilePhone ? styles.phoneValue : styles.phonePlaceholder}
                 numberOfLines={1}
               >
-                {profilePhone ? displayPhone : 'Toca para agregar tu número'}
+                {profilePhone ? displayPhone : t('shared.account.profile.phonePlaceholder')}
               </Text>
             </TouchableOpacity>
 
             {isFirebaseBackend && (
               <View style={styles.accountSummarySection}>
-                <Text style={styles.infoLabel}>Proveedores vinculados</Text>
+                <Text style={styles.infoLabel}>{t('shared.account.providers.title')}</Text>
                 {profileLoading || providersState.loading ? (
                   <ActivityIndicator color={colors.primary} />
                 ) : (
-                  <Text style={styles.infoText}>{buildProviderSummary(providersState.values)}</Text>
+                  <Text style={styles.infoText}>
+                    {buildProviderSummary(
+                      providersState.values,
+                      providerLabels,
+                      t('shared.account.providers.none'),
+                    )}
+                  </Text>
                 )}
 
                 {!!accountError && (
@@ -698,7 +723,7 @@ export default function AccountScreen({ navigation }: any) {
                   <View style={styles.badgeRow}>
                     {providersState.values.map((provider) => (
                       <View key={provider} style={styles.badge}>
-                        <Text style={styles.badgeText}>{PROVIDER_LABELS[provider] || provider}</Text>
+                        <Text style={styles.badgeText}>{providerLabels[provider] || provider}</Text>
                       </View>
                     ))}
                   </View>
@@ -714,7 +739,7 @@ export default function AccountScreen({ navigation }: any) {
               {savingProfile ? (
                 <ActivityIndicator color="#fff" />
               ) : (
-                <Text style={styles.buttonText}>Guardar cambios</Text>
+                <Text style={styles.buttonText}>{t('shared.account.profile.saveButton')}</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -722,13 +747,13 @@ export default function AccountScreen({ navigation }: any) {
 
         {hasGoogleProvider && !hasEmailPasswordProvider && (
           <View style={styles.accountCard}>
-            <Text style={styles.accountTitle}>Agregar contraseña</Text>
+            <Text style={styles.accountTitle}>{t('shared.account.cards.addPassword.title')}</Text>
             <Text style={styles.accountDescription}>
-              Crea una contraseña para que puedas iniciar sesión con tu correo cuando no tengas acceso a Google.
+              {t('shared.account.cards.addPassword.description')}
             </Text>
             <TextInput
               style={styles.input}
-              placeholder="Nueva contraseña"
+              placeholder={t('shared.account.cards.addPassword.newPlaceholder')}
               placeholderTextColor={colors.textSecondary}
               secureTextEntry
               value={passwordForm.password}
@@ -736,7 +761,7 @@ export default function AccountScreen({ navigation }: any) {
             />
             <TextInput
               style={styles.input}
-              placeholder="Confirmar contraseña"
+              placeholder={t('shared.account.cards.addPassword.confirmPlaceholder')}
               placeholderTextColor={colors.textSecondary}
               secureTextEntry
               value={passwordForm.confirmPassword}
@@ -750,7 +775,7 @@ export default function AccountScreen({ navigation }: any) {
               {passwordForm.submitting ? (
                 <ActivityIndicator color="#fff" />
               ) : (
-                <Text style={styles.buttonText}>Guardar contraseña</Text>
+                <Text style={styles.buttonText}>{t('shared.account.cards.addPassword.button')}</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -758,13 +783,13 @@ export default function AccountScreen({ navigation }: any) {
 
         {hasPhoneProvider && !hasEmailPasswordProvider && (
           <View style={styles.accountCard}>
-            <Text style={styles.accountTitle}>Agregar correo y contraseña</Text>
+            <Text style={styles.accountTitle}>{t('shared.account.cards.linkEmail.title')}</Text>
             <Text style={styles.accountDescription}>
-              Vincula un correo electrónico y contraseña para iniciar sesión si no tienes tu teléfono disponible.
+              {t('shared.account.cards.linkEmail.description')}
             </Text>
             <TextInput
               style={styles.input}
-              placeholder="Correo electrónico"
+              placeholder={t('shared.account.cards.linkEmail.emailPlaceholder')}
               placeholderTextColor={colors.textSecondary}
               keyboardType="email-address"
               autoCapitalize="none"
@@ -773,7 +798,7 @@ export default function AccountScreen({ navigation }: any) {
             />
             <TextInput
               style={styles.input}
-              placeholder="Contraseña"
+              placeholder={t('shared.account.cards.linkEmail.passwordPlaceholder')}
               placeholderTextColor={colors.textSecondary}
               secureTextEntry
               value={emailForm.password}
@@ -781,7 +806,7 @@ export default function AccountScreen({ navigation }: any) {
             />
             <TextInput
               style={styles.input}
-              placeholder="Confirmar contraseña"
+              placeholder={t('shared.account.cards.linkEmail.confirmPlaceholder')}
               placeholderTextColor={colors.textSecondary}
               secureTextEntry
               value={emailForm.confirmPassword}
@@ -795,7 +820,7 @@ export default function AccountScreen({ navigation }: any) {
               {emailForm.submitting ? (
                 <ActivityIndicator color="#fff" />
               ) : (
-                <Text style={styles.buttonText}>Guardar credenciales</Text>
+                <Text style={styles.buttonText}>{t('shared.account.cards.linkEmail.button')}</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -813,7 +838,7 @@ export default function AccountScreen({ navigation }: any) {
 
         <LoadingOverlay
           visible={phoneUpdating}
-          message="Preparando verificación de tu número..."
+          message={t('shared.account.phone.loading')}
         />
       </ScrollView>
     </View>

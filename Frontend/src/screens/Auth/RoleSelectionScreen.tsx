@@ -20,6 +20,7 @@ import { useAuth } from '../../context/AuthContext';
 import registrationService from '../../services/registrationService';
 import phoneAuthService from '../../services/auth/phoneAuthService';
 import { AuthStackParamList, RegistrationAuthProvider, RegistrationMethod } from '../../navigation/types';
+import { useTranslation } from 'react-i18next';
 
 export type RoleSelectionNavigationProp = NativeStackNavigationProp<
   AuthStackParamList,
@@ -37,6 +38,7 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ navigation, r
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { login, registerWithGoogle, loginWithPhoneAndSMS } = useAuth();
+  const { t } = useTranslation();
 
   const {
     method,
@@ -63,7 +65,7 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ navigation, r
       setLoadingRole('client');
 
       if (!name) {
-        throw new Error('Falta el nombre completo del usuario');
+        throw new Error('MISSING_NAME');
       }
 
       const normalizedEmail = normalizeEmail() || undefined;
@@ -71,7 +73,7 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ navigation, r
 
       if (authProvider === 'email/password') {
         if (!normalizedEmail || !password) {
-          throw new Error('Correo y contraseña son obligatorios para este método');
+          throw new Error('MISSING_EMAIL_PASSWORD');
         }
 
         const result = await registrationService.createUser({
@@ -91,14 +93,17 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ navigation, r
 
         await login(normalizedEmail, password);
 
-        Alert.alert('✅ Registro completado', 'Bienvenido a Rundi');
+        Alert.alert(
+          t('authScreens.roleSelection.alerts.successTitle'),
+          t('authScreens.roleSelection.alerts.successMessage'),
+        );
         return;
       }
 
       const requiresVerifiedPhone = authProvider === 'phone';
 
       if (requiresVerifiedPhone && !normalizedPhone) {
-        throw new Error('No se pudo obtener un número telefónico verificado.');
+        throw new Error('MISSING_VERIFIED_PHONE');
       }
 
       const result = await registrationService.createUser({
@@ -124,14 +129,31 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ navigation, r
         );
       }
 
-      Alert.alert('✅ Registro completado', 'Bienvenido a Rundi');
+      Alert.alert(
+        t('authScreens.roleSelection.alerts.successTitle'),
+        t('authScreens.roleSelection.alerts.successMessage'),
+      );
     } catch (error: any) {
       console.error('Error registrando cliente:', error);
-      const message =
-        error?.message?.includes('Network') || error?.message?.includes('timeout')
-          ? 'No pudimos comunicarnos con el servidor. Verifica tu conexión e inténtalo de nuevo.'
-          : error?.message || 'No se pudo completar el registro';
-      Alert.alert('Error', message);
+      let message: string;
+      switch (error?.message) {
+        case 'MISSING_NAME':
+          message = t('authScreens.roleSelection.alerts.missingName');
+          break;
+        case 'MISSING_EMAIL_PASSWORD':
+          message = t('authScreens.roleSelection.alerts.missingEmailPassword');
+          break;
+        case 'MISSING_VERIFIED_PHONE':
+          message = t('authScreens.roleSelection.alerts.missingVerifiedPhone');
+          break;
+        default:
+          if (error?.message?.includes('Network') || error?.message?.includes('timeout')) {
+            message = t('authScreens.roleSelection.alerts.networkError');
+          } else {
+            message = error?.message || t('authScreens.roleSelection.alerts.genericError');
+          }
+      }
+      Alert.alert(t('authScreens.roleSelection.alerts.errorTitle'), message);
     } finally {
       setLoadingRole(null);
     }
@@ -167,8 +189,8 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ navigation, r
         } catch (error: any) {
           console.error('Error al enviar código SMS para conductor:', error);
           Alert.alert(
-            'Error',
-            error?.message || 'No se pudo enviar el código SMS. Intenta nuevamente.'
+            t('authScreens.roleSelection.alerts.errorTitle'),
+            error?.message || t('authScreens.roleSelection.alerts.smsSendError'),
           );
           return;
         }
@@ -202,48 +224,64 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ navigation, r
     } catch (error: any) {
       console.error('Error al preparar datos de conductor:', error);
       Alert.alert(
-        'Error',
-        error?.message || 'Ocurrió un problema al continuar con el registro de conductor.'
+        t('authScreens.roleSelection.alerts.errorTitle'),
+        error?.message || t('authScreens.roleSelection.alerts.driverFlowError'),
       );
     } finally {
       setLoadingRole(null);
     }
   };
 
+  const methodLabel = (() => {
+    if (method === 'email') {
+      return t('authScreens.roleSelection.methodLabels.email');
+    }
+    if (method === 'phone') {
+      return t('authScreens.roleSelection.methodLabels.phone');
+    }
+    return t('authScreens.roleSelection.methodLabels.google');
+  })();
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Selecciona tu rol</Text>
+        <Text style={styles.title}>{t('authScreens.roleSelection.header.title')}</Text>
         <Text style={styles.subtitle}>
-          Elige cómo deseas usar Rundi. Puedes registrarte como cliente o conductor.
+          {t('authScreens.roleSelection.header.subtitle')}
         </Text>
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Tu información</Text>
+        <Text style={styles.sectionTitle}>
+          {t('authScreens.roleSelection.section.title')}
+        </Text>
         <View style={styles.infoRow}>
-          <Text style={styles.label}>Nombre:</Text>
+          <Text style={styles.label}>
+            {`${t('authScreens.roleSelection.section.nameLabel')}:`}
+          </Text>
           <Text style={styles.value}>{name}</Text>
         </View>
         {normalizeEmail() ? (
           <View style={styles.infoRow}>
-            <Text style={styles.label}>Correo:</Text>
+            <Text style={styles.label}>
+              {`${t('authScreens.roleSelection.section.emailLabel')}:`}
+            </Text>
             <Text style={styles.value}>{normalizeEmail()}</Text>
           </View>
         ) : null}
         {normalizePhone() ? (
           <View style={styles.infoRow}>
-            <Text style={styles.label}>Teléfono:</Text>
+            <Text style={styles.label}>
+              {`${t('authScreens.roleSelection.section.phoneLabel')}:`}
+            </Text>
             <Text style={styles.value}>{normalizePhone()}</Text>
           </View>
         ) : null}
         <View style={styles.infoRow}>
-          <Text style={styles.label}>Método:</Text>
-          <Text style={styles.value}>
-            {method === 'email' && 'Email y contraseña'}
-            {method === 'phone' && 'Teléfono (SMS)'}
-            {method === 'google' && 'Google'}
+          <Text style={styles.label}>
+            {`${t('authScreens.roleSelection.section.methodLabel')}:`}
           </Text>
+          <Text style={styles.value}>{methodLabel}</Text>
         </View>
       </View>
 
@@ -256,7 +294,9 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ navigation, r
           {loadingRole === 'client' ? (
             <ActivityIndicator color="#FFFFFF" />
           ) : (
-            <Text style={styles.optionText}>Quiero ser Cliente</Text>
+            <Text style={styles.optionText}>
+              {t('authScreens.roleSelection.buttons.client')}
+            </Text>
           )}
         </TouchableOpacity>
 
@@ -268,7 +308,9 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ navigation, r
           {loadingRole === 'driver' ? (
             <ActivityIndicator color="#FFFFFF" />
           ) : (
-            <Text style={styles.optionText}>Quiero ser Conductor</Text>
+            <Text style={styles.optionText}>
+              {t('authScreens.roleSelection.buttons.driver')}
+            </Text>
           )}
         </TouchableOpacity>
       </View>

@@ -22,6 +22,7 @@ import { initializeFirebase } from '../../config/firebase';
 import cardsService from '../../services/cardsService';
 import alertService from '../../services/alertService';
 import sessionService from '../../services/sessionService';
+import { useTranslation } from 'react-i18next';
 
 interface PaymentConfirmationScreenProps {
   route: {
@@ -45,7 +46,84 @@ export default function PaymentConfirmationScreen({
   const { rideId, pgRideId, amount, tip = 0, clientName, paymentMethod: initialMethod } = route.params;
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  
+  const { t } = useTranslation();
+  const loadingText = t('driver.paymentConfirmation.loading');
+  const headerTexts = t('driver.paymentConfirmation.header', { returnObjects: true }) as {
+    cashTitle: string;
+    cardTitle: string;
+    cashSubtitle: string;
+    cardSubtitle: string;
+  };
+  const breakdownTexts = t('driver.paymentConfirmation.breakdown', { returnObjects: true }) as {
+    title: string;
+    fare: string;
+    tip: string;
+    total: string;
+    methodLabel: string;
+    methodCash: string;
+    methodCard: string;
+  };
+  const cashStatusTexts = t('driver.paymentConfirmation.cashStatus', { returnObjects: true }) as {
+    confirmedTitle: string;
+    confirmedSubtitle: string;
+    waitingTitle: string;
+    waitingSubtitle: string;
+  };
+  const instructionsTexts = t('driver.paymentConfirmation.instructions', {
+    returnObjects: true,
+  }) as { title: string; text: string };
+  const cardStatusTexts = t('driver.paymentConfirmation.cardStatus', { returnObjects: true }) as {
+    processing: string;
+    pending: string;
+    verifying: string;
+    description: string;
+    infoMessage: string;
+  };
+  const buttonTexts = t('driver.paymentConfirmation.buttons', { returnObjects: true }) as {
+    confirmCash: string;
+    switchToCard: string;
+    switchToCash: string;
+    reportIssue: string;
+  };
+  const methodBadgeTexts = t('driver.paymentConfirmation.methodBadge', { returnObjects: true }) as {
+    label: string;
+    cash: string;
+    card: string;
+  };
+  const switchDisabledTexts = t('driver.paymentConfirmation.switchDisabled', {
+    returnObjects: true,
+  }) as { title: string; subtitle: string };
+  const alertsTexts = t('driver.paymentConfirmation.alerts', { returnObjects: true }) as {
+    waitTitle: string;
+    waitMessage: string;
+    cardRequiredTitle: string;
+    cardRequiredMessage: string;
+    cardRequiredAction: string;
+    paymentCompletedTitle: string;
+    paymentCompletedMessage: string;
+    cashConfirmedTitle: string;
+    cashConfirmedMessage: string;
+    methodChangeTitle: string;
+    methodChangeMessage: string;
+    methodChangeSuccessTitle: string;
+    methodChangeSuccessMessage: string;
+    cancelSuccessTitle: string;
+    cancelSuccessMessage: string;
+    genericError: string;
+    reportTitle: string;
+    reportMessage: string;
+    reportOptions: {
+      noPay: string;
+      wrongAmount: string;
+      cardIssue: string;
+      other: string;
+      cancel: string;
+    };
+  };
+  const methodNames = t('driver.paymentConfirmation.methodNames', {
+    returnObjects: true,
+  }) as { cash: string; card: string; cashLower: string; cardLower: string };
+
   // Estados
   const [loading, setLoading] = useState(true);
   const [confirming, setConfirming] = useState(false);
@@ -77,11 +155,11 @@ export default function PaymentConfirmationScreen({
 
       if (!hasCards) {
         alertService.showConfirmAlert(
-          'Tarjeta requerida',
-          'Para recibir pagos con tarjeta necesitas registrar al menos una tarjeta bancaria. Puedes agregarla en Métodos de pago.',
+          alertsTexts.cardRequiredTitle,
+          alertsTexts.cardRequiredMessage,
           () => navigation.navigate('PaymentMethods'),
           undefined,
-          'Ir a métodos'
+          alertsTexts.cardRequiredAction
         );
       }
 
@@ -150,10 +228,10 @@ export default function PaymentConfirmationScreen({
             if (data.status === 'completed' || data.status === 'confirmed') {
               console.log('✅ Pago completado');
               alertService.showSuccessAlert(
-                '¡Pago Completado!',
-                'El pago ha sido confirmado exitosamente',
-                () => navigation.replace('AvailableRides')
-              );
+              alertsTexts.paymentCompletedTitle,
+              alertsTexts.paymentCompletedMessage,
+              () => navigation.replace('AvailableRides')
+            );
             }
           }
           
@@ -186,8 +264,8 @@ export default function PaymentConfirmationScreen({
   const handleConfirmCashPayment = async () => {
     if (!clientConfirmed) {
       alertService.showInfoAlert(
-        'Espera',
-        'El cliente debe confirmar primero que realizó el pago en efectivo'
+        alertsTexts.waitTitle,
+        alertsTexts.waitMessage
       );
       return;
     }
@@ -220,8 +298,8 @@ export default function PaymentConfirmationScreen({
 
       if (data.bothConfirmed) {
         alertService.showSuccessAlert(
-          '¡Pago Confirmado!',
-          'El pago en efectivo ha sido confirmado por ambas partes',
+          alertsTexts.cashConfirmedTitle,
+          alertsTexts.cashConfirmedMessage,
           () => navigation.replace('AvailableRides')
         );
       }
@@ -236,11 +314,12 @@ export default function PaymentConfirmationScreen({
   // Cambiar método de pago
   const handleSwitchPaymentMethod = () => {
     const newMethod = paymentMethod === 'cash' ? 'card' : 'cash';
-    const methodName = newMethod === 'cash' ? 'Efectivo' : 'Tarjeta';
+    const methodName = newMethod === 'cash' ? methodNames.cash : methodNames.card;
+    const methodLower = newMethod === 'cash' ? methodNames.cashLower : methodNames.cardLower;
     
     alertService.showConfirmAlert(
-      `Cambiar a ${methodName}`,
-      `¿Deseas cambiar el método de pago a ${methodName.toLowerCase()}?`,
+      t('driver.paymentConfirmation.alerts.methodChangeTitle', { method: methodName }),
+      t('driver.paymentConfirmation.alerts.methodChangeMessage', { methodLower }),
       async () => {
         try {
           setSwitching(true);
@@ -272,12 +351,12 @@ export default function PaymentConfirmationScreen({
           setClientConfirmed(false); // Reset confirmación
 
           alertService.showSuccessAlert(
-            '✅ Método Cambiado',
-            `El método de pago se cambió a ${methodName.toLowerCase()}. El cliente recibirá una notificación.`
+            alertsTexts.methodChangeSuccessTitle,
+            t('driver.paymentConfirmation.alerts.methodChangeSuccessMessage', { methodLower })
           );
         } catch (error: any) {
           console.error('❌ Error cambiando método de pago:', error);
-          alertService.showErrorAlert(error.message || 'No se pudo cambiar el método de pago');
+          alertService.showErrorAlert(error.message || alertsTexts.genericError);
         } finally {
           setSwitching(false);
         }
@@ -288,27 +367,27 @@ export default function PaymentConfirmationScreen({
   // Reportar problema
   const handleReportIssue = () => {
     alertService.showOptionsAlert(
-      'Reportar Problema',
-      '¿Qué sucedió con el pago?',
+      alertsTexts.reportTitle,
+      alertsTexts.reportMessage,
       [
         {
-          text: 'Cliente no pagó',
+          text: alertsTexts.reportOptions.noPay,
           onPress: () => handleCancelPayment('Cliente no pagó el monto acordado'),
         },
         {
-          text: 'Monto incorrecto',
+          text: alertsTexts.reportOptions.wrongAmount,
           onPress: () => handleCancelPayment('Cliente pagó un monto diferente'),
         },
         {
-          text: 'Problema con tarjeta',
+          text: alertsTexts.reportOptions.cardIssue,
           onPress: () => handleCancelPayment('Problema procesando pago con tarjeta'),
         },
         {
-          text: 'Otro problema',
+          text: alertsTexts.reportOptions.other,
           onPress: () => handleCancelPayment('Otro problema con el pago'),
         },
         {
-          text: 'Cancelar',
+          text: alertsTexts.reportOptions.cancel,
           style: 'cancel',
         },
       ],
@@ -331,13 +410,13 @@ export default function PaymentConfirmationScreen({
       await cancelCashPayment({ rideId, reason, deviceId });
 
       alertService.showInfoAlert(
-        'Pago Cancelado',
-        'El problema ha sido reportado. El equipo de soporte revisará el caso.',
+        alertsTexts.cancelSuccessTitle,
+        alertsTexts.cancelSuccessMessage,
         () => navigation.replace('AvailableRides')
       );
     } catch (error: any) {
       console.error('Error cancelando pago:', error);
-      alertService.showErrorAlert(error.message || 'No se pudo reportar el problema');
+      alertService.showErrorAlert(error.message || alertsTexts.genericError);
     } finally {
       setConfirming(false);
     }
@@ -347,7 +426,7 @@ export default function PaymentConfirmationScreen({
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Cargando información de pago...</Text>
+        <Text style={styles.loadingText}>{loadingText}</Text>
       </View>
     );
   }
@@ -360,25 +439,27 @@ export default function PaymentConfirmationScreen({
           {paymentMethod === 'cash' ? '💵' : '💳'}
         </Text>
         <Text style={styles.title}>
-          {paymentMethod === 'cash' ? 'Pago en Efectivo' : 'Pago con Tarjeta'}
+          {paymentMethod === 'cash' ? headerTexts.cashTitle : headerTexts.cardTitle}
         </Text>
         <Text style={styles.subtitle}>
-          {clientName} debe pagar {paymentMethod === 'cash' ? 'en efectivo' : 'con tarjeta'}
+          {paymentMethod === 'cash'
+            ? t('driver.paymentConfirmation.header.cashSubtitle', { name: clientName })
+            : t('driver.paymentConfirmation.header.cardSubtitle', { name: clientName })}
         </Text>
       </View>
 
       {/* Amount Breakdown */}
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>Desglose del Pago</Text>
+        <Text style={styles.cardTitle}>{breakdownTexts.title}</Text>
         
         <View style={styles.row}>
-          <Text style={styles.label}>Tarifa del viaje</Text>
+          <Text style={styles.label}>{breakdownTexts.fare}</Text>
           <Text style={styles.value}>C${numericAmount.toFixed(2)}</Text>
         </View>
 
         {numericTip > 0 && (
           <View style={styles.row}>
-            <Text style={styles.label}>Propina</Text>
+            <Text style={styles.label}>{breakdownTexts.tip}</Text>
             <Text style={styles.valueGreen}>+C${numericTip.toFixed(2)}</Text>
           </View>
         )}
@@ -386,7 +467,7 @@ export default function PaymentConfirmationScreen({
         <View style={styles.divider} />
 
         <View style={styles.row}>
-          <Text style={styles.totalLabel}>Total a Recibir</Text>
+          <Text style={styles.totalLabel}>{breakdownTexts.total}</Text>
           <Text style={styles.totalValue}>C${totalAmount.toFixed(2)}</Text>
         </View>
       </View>
@@ -394,7 +475,9 @@ export default function PaymentConfirmationScreen({
       {/* Payment Method Badge */}
       <View style={styles.methodBadge}>
         <Text style={styles.methodBadgeText}>
-          Método: {paymentMethod === 'cash' ? 'Efectivo 💵' : 'Tarjeta 💳'}
+          {t('driver.paymentConfirmation.methodBadge.label', {
+            value: paymentMethod === 'cash' ? methodBadgeTexts.cash : methodBadgeTexts.card,
+          })}
         </Text>
       </View>
 
@@ -405,31 +488,26 @@ export default function PaymentConfirmationScreen({
           {clientConfirmed ? (
             <View style={[styles.statusCard, styles.statusCardSuccess]}>
               <Text style={styles.statusIcon}>✅</Text>
-              <Text style={styles.statusTextSuccess}>Cliente confirmó el pago</Text>
-              <Text style={styles.statusSubtext}>Puedes confirmar que recibiste el dinero</Text>
+              <Text style={styles.statusTextSuccess}>{cashStatusTexts.confirmedTitle}</Text>
+              <Text style={styles.statusSubtext}>{cashStatusTexts.confirmedSubtitle}</Text>
             </View>
           ) : (
             <View style={[styles.statusCard, styles.statusCardWarning]}>
               <Text style={styles.statusIcon}>⏳</Text>
-              <Text style={styles.statusTextWarning}>Esperando confirmación del cliente</Text>
-              <Text style={styles.statusSubtext}>El cliente debe confirmar primero que realizó el pago</Text>
+              <Text style={styles.statusTextWarning}>{cashStatusTexts.waitingTitle}</Text>
+              <Text style={styles.statusSubtext}>{cashStatusTexts.waitingSubtitle}</Text>
             </View>
           )}
 
           {/* Instructions */}
           <View style={styles.instructionsCard}>
-            <Text style={styles.instructionsTitle}>📋 Instrucciones</Text>
-            <Text style={styles.instructionsText}>
-              1. Espera a que el cliente confirme el pago{'\n'}
-              2. Verifica que te entregue el monto exacto{'\n'}
-              3. Cuenta el dinero cuidadosamente{'\n'}
-              4. Confirma el pago solo si recibiste el monto completo
-            </Text>
+            <Text style={styles.instructionsTitle}>{instructionsTexts.title}</Text>
+            <Text style={styles.instructionsText}>{instructionsTexts.text}</Text>
           </View>
 
           {/* Confirm Button */}
           <AnimatedButton
-            title="✓ Confirmar - Recibí el Pago"
+            title={buttonTexts.confirmCash}
             onPress={handleConfirmCashPayment}
             loading={confirming}
             disabled={confirming || switching}
@@ -447,23 +525,21 @@ export default function PaymentConfirmationScreen({
               <View style={styles.statusDot} />
               <Text style={styles.statusText}>
                 {paymentStatus?.status === 'processing'
-                  ? 'Procesando pago con tarjeta...'
+                  ? cardStatusTexts.processing
                   : paymentStatus?.status === 'pending'
-                  ? 'Esperando confirmación...'
-                  : 'Verificando pago...'}
+                  ? cardStatusTexts.pending
+                  : cardStatusTexts.verifying}
               </Text>
             </View>
             <Text style={styles.statusDescription}>
-              El pago se confirmará automáticamente cuando el cliente complete el proceso
+              {cardStatusTexts.description}
             </Text>
           </View>
 
           {/* Info */}
           <View style={styles.infoCard}>
             <Text style={styles.infoIcon}>ℹ️</Text>
-            <Text style={styles.infoText}>
-              No cierres esta pantalla. Te notificaremos cuando el pago sea confirmado.
-            </Text>
+            <Text style={styles.infoText}>{cardStatusTexts.infoMessage}</Text>
           </View>
         </>
       )}
@@ -471,7 +547,7 @@ export default function PaymentConfirmationScreen({
       {/* Switch Payment Method Button */}
       {!clientConfirmed ? (
         <AnimatedButton
-          title={paymentMethod === 'cash' ? '💳 Cambiar a Tarjeta' : '💵 Cambiar a Efectivo'}
+          title={paymentMethod === 'cash' ? buttonTexts.switchToCard : buttonTexts.switchToCash}
           onPress={handleSwitchPaymentMethod}
           variant="secondary"
           loading={switching}
@@ -482,17 +558,17 @@ export default function PaymentConfirmationScreen({
         <View style={styles.disabledSwitchCard}>
           <Text style={styles.disabledSwitchIcon}>🔒</Text>
           <Text style={styles.disabledSwitchText}>
-            No se puede cambiar el método de pago
+            {switchDisabledTexts.title}
           </Text>
           <Text style={styles.disabledSwitchSubtext}>
-            El cliente ya confirmó su pago
+            {switchDisabledTexts.subtitle}
           </Text>
         </View>
       )}
 
       {/* Report Problem Button */}
       <AnimatedButton
-        title="⚠️ Reportar Problema"
+        title={buttonTexts.reportIssue}
         onPress={handleReportIssue}
         variant="outline"
         disabled={confirming || switching}

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ImageSourcePropType } from 'react-native';
 import type { DriverStackParamList } from '../../navigation/DriverStack';
+import type { TFunction } from 'i18next';
 import {
   View,
   Text,
@@ -22,6 +23,7 @@ import { useVoiceAssistant } from '../../context/VoiceAssistantContext';
 import { useLocation, DRIVER_LOCATION_OPTIONS } from '../../hooks/useLocation';
 import useDriverProximityTracking from '../../hooks/useDriverProximityTracking';
 import { subscribePreflightResult, getPreflightResult, PreflightAction } from '../../state/preflightStore';
+import { useTranslation } from 'react-i18next';
 
 // Componentes
 import LoadingOverlay from '../../components/LoadingOverlay';
@@ -66,31 +68,35 @@ type PendingAction =
 const ACTIVE_RIDE_STATUSES = ['accepted', 'driver_on_route', 'driver_arrived', 'in_progress'];
 const PENALTIES_LIMIT_CORDOBAS = 150;
 
-const getActiveRidePendingCopy = (ride: any) => {
+const getActiveRidePendingCopy = (ride: any, t: TFunction) => {
   const status: string = ride?.status || '';
-  const clientName = ride?.client?.name || ride?.clientName || 'Cliente';
+  const clientName = ride?.client?.name || ride?.clientName || t('driver.home.ride.clientFallback');
+  const destinationText =
+    ride?.destinationAddress ||
+    ride?.destination?.address ||
+    t('driver.home.ride.destinationFallback');
 
   switch (status) {
     case 'driver_on_route':
       return {
-        title: 'En camino al cliente',
-        subtitle: `Dirígete a ${clientName}`,
+        title: t('driver.home.activeRideStatus.driverOnRoute.title'),
+        subtitle: t('driver.home.activeRideStatus.driverOnRoute.subtitle', { client: clientName }),
       };
     case 'driver_arrived':
       return {
-        title: 'Cliente esperando',
-        subtitle: `Confirma la recogida de ${clientName}`,
+        title: t('driver.home.activeRideStatus.driverArrived.title'),
+        subtitle: t('driver.home.activeRideStatus.driverArrived.subtitle', { client: clientName }),
       };
     case 'in_progress':
       return {
-        title: 'Viaje en curso',
-        subtitle: ride?.destinationAddress || ride?.destination?.address || 'Continúa el viaje',
+        title: t('driver.home.activeRideStatus.inProgress.title'),
+        subtitle: destinationText,
       };
     case 'accepted':
     default:
       return {
-        title: 'Viaje aceptado',
-        subtitle: `Abre el viaje con ${clientName}`,
+        title: t('driver.home.activeRideStatus.accepted.title'),
+        subtitle: t('driver.home.activeRideStatus.accepted.subtitle', { client: clientName }),
       };
   }
 };
@@ -100,6 +106,7 @@ const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: numbe
 };
 
 export default function DriverHomeScreenNewDesign({ navigation }: any) {
+  const { t } = useTranslation();
   const { user, logout, logoutInProgress } = useAuth();
   const { settings: voiceSettings, speak: speakVoice, stopCategory: stopVoiceCategory } = useVoiceAssistant();
   const { colors } = useTheme();
@@ -127,7 +134,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   );
   const styles = useMemo(() => createStyles(colors), [colors]);
 
-  const [loadingMessage, setLoadingMessage] = useState('Preparando tu panel de conductor...');
+  const [loadingMessage, setLoadingMessage] = useState(t('driver.home.loading.initializing'));
   const [initializing, setInitializing] = useState(true);
   const pendingInitialTasks = useRef(new Set<string>([
     'location',
@@ -246,9 +253,9 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   };
 
   const handleRefreshLocation = useCallback(() => {
-    setLoadingMessage('Obteniendo tu ubicación...');
+    setLoadingMessage(t('driver.home.loading.locating'));
     refreshLocation();
-  }, [refreshLocation]);
+  }, [refreshLocation, t]);
 
   const notifiedRides = useRef<Set<string>>(new Set());
   const announcedRideIdsRef = useRef<Set<string>>(new Set());
@@ -308,14 +315,9 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
 
     if (!initialVoiceWelcomeRef.current) {
       initialVoiceWelcomeRef.current = true;
-      speakVoice(
-        'Asistente de voz listo. Te avisaré de viajes cercanos y cambios importantes.',
-        'status',
-        undefined,
-        true,
-      );
+      speakVoice(t('driver.home.voice.ready'), 'status', undefined, true);
     }
-  }, [voiceSettings.enabled, speakVoice, stopVoiceCategory]);
+  }, [voiceSettings.enabled, speakVoice, stopVoiceCategory, t]);
 
   // 🚀 Proximidad en foreground: si está disponible y NO hay viaje activo, abrir preview
   useEffect(() => {
@@ -342,7 +344,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
     if (lastAvailabilityAnnouncementRef.current === null) {
       lastAvailabilityAnnouncementRef.current = isAvailable;
       if (isAvailable) {
-        speakVoice('Disponibilidad activada. Esperando nuevos viajes.', 'status');
+        speakVoice(t('driver.home.voice.availabilityOn'), 'status');
       }
       return;
     }
@@ -350,11 +352,11 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
     if (lastAvailabilityAnnouncementRef.current !== isAvailable) {
       lastAvailabilityAnnouncementRef.current = isAvailable;
       speakVoice(
-        isAvailable ? 'Disponibilidad activada. Esperando nuevos viajes.' : 'Disponibilidad desactivada.',
+        isAvailable ? t('driver.home.voice.availabilityOn') : t('driver.home.voice.availabilityOff'),
         'status',
       );
     }
-  }, [isAvailable, voiceSettings.enabled, speakVoice]);
+  }, [isAvailable, voiceSettings.enabled, speakVoice, t]);
 
   useEffect(() => {
     if (!voiceSettings.enabled || !isAvailable || activeRide) {
@@ -389,12 +391,19 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
 
       const priceAmount: number = typeof ride.priceAmount === 'number' ? ride.priceAmount : 0;
       const roundedPrice = Math.round(priceAmount);
-      const distanceText = Number.isFinite(distanceKm as number) ? `${(distanceKm as number).toFixed(1)} kilómetros` : 'distancia cercana';
+      const distanceText = Number.isFinite(distanceKm as number)
+        ? t('driver.home.voice.nearbyRideDistance', {
+            distance: (distanceKm as number).toFixed(1),
+          })
+        : t('driver.home.voice.nearbyRideDistanceFallback');
 
-      const phrase = `Viaje cercano a ${distanceText}. Precio neto ${roundedPrice} Cordobas.`;
+      const phrase = t('driver.home.voice.nearbyRide', {
+        distance: distanceText,
+        price: roundedPrice,
+      });
       speakVoice(phrase, 'navigation');
     });
-  }, [availableRideRequests, voiceSettings.enabled, isAvailable, activeRide, speakVoice, coords?.latitude, coords?.longitude]);
+  }, [availableRideRequests, voiceSettings.enabled, isAvailable, activeRide, speakVoice, coords?.latitude, coords?.longitude, t]);
 
   useEffect(() => {
     if (!voiceSettings.enabled || !pendingAction) {
@@ -426,17 +435,20 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
 
     lastActiveRideIdRef.current = activeRide.id;
 
-    const clientName = activeRide.client?.name || activeRide.clientName || 'el cliente';
+    const clientName = activeRide.client?.name || activeRide.clientName || t('driver.home.voice.clientFallback');
     const destinationText =
       activeRide.destinationAddress ||
       activeRide.destination?.address ||
-      'el destino asignado';
+      t('driver.home.voice.destinationFallback');
 
     speakVoice(
-      `Tienes un viaje activo con ${clientName}. Destino ${destinationText}.`,
+      t('driver.home.voice.activeRide', {
+        client: clientName,
+        destination: destinationText,
+      }),
       'status',
     );
-  }, [activeRide, voiceSettings.enabled, speakVoice]);
+  }, [activeRide, voiceSettings.enabled, speakVoice, t]);
 
   const enforceOfflineDueToPenalties = useCallback(async () => {
     if (!user?.id || !coords) {
@@ -577,10 +589,10 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
       if (!penaltyAlertShownRef.current) {
         penaltyAlertShownRef.current = true;
         alertService.showInfoAlert(
-          'Comisiones pendientes',
-          `Tu disponibilidad se desactivó automáticamente porque superaste C$${PENALTIES_LIMIT_CORDOBAS.toFixed(
-            2,
-          )} en comisiones pendientes. Debes pagarlas antes de volver a conectarte.`,
+          t('driver.home.alerts.penaltiesTitle'),
+          t('driver.home.alerts.penaltiesAutoDisabled', {
+            limit: PENALTIES_LIMIT_CORDOBAS.toFixed(2),
+          }),
           () => navigation.navigate('PendingPayments'),
         );
       }
@@ -588,7 +600,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
     } else {
       penaltyAlertShownRef.current = false;
     }
-  }, [penaltySummary?.pendingAmount, enforceOfflineDueToPenalties, navigation]);
+  }, [penaltySummary?.pendingAmount, enforceOfflineDueToPenalties, navigation, t]);
 
   useEffect(() => {
     if (!user?.id) {
@@ -651,17 +663,19 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
 
       setPendingAction({
         type: 'pending_payment',
-        title: 'Pago pendiente',
+        title: t('driver.home.pendingAction.paymentTitle'),
         subtitle:
           pendingPayments.length === 1
-            ? 'Confirma el pago pendiente'
-            : `${pendingPayments.length} pagos pendientes`,
+            ? t('driver.home.pendingAction.paymentSingleSubtitle')
+            : t('driver.home.pendingAction.paymentMultipleSubtitle', {
+                count: pendingPayments.length,
+              }),
         onPress: () => {
           navigation.replace('PaymentConfirmation', {
             rideId: firstPayment.rideId,
             amount: baseAmount,
             paymentMethod: firstPayment.method || firstPayment.paymentMethod || 'cash',
-            clientName: 'Cliente',
+            clientName: t('driver.home.ride.clientFallback'),
             fromHome: true,
           });
         },
@@ -686,8 +700,10 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
           ride?.destination?.lng ?? ride?.destination?.longitude ?? ride?.destinationLongitude,
         ) ?? 0;
 
-      const originAddress = ride?.origin?.address ?? ride?.originAddress ?? 'Origen';
-      const destinationAddress = ride?.destination?.address ?? ride?.destinationAddress ?? 'Destino';
+      const originAddress =
+        ride?.origin?.address ?? ride?.originAddress ?? t('driver.home.ride.originFallback');
+      const destinationAddress =
+        ride?.destination?.address ?? ride?.destinationAddress ?? t('driver.home.ride.destinationFallback');
 
       const extraDestinations = Array.isArray(ride?.extraDestinations)
         ? ride.extraDestinations.map((stop: any) => ({
@@ -707,8 +723,8 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
 
       setPendingAction({
         type: 'active_ride',
-        title: 'Esperando confirmacion de cliente',
-        subtitle: 'El cliente está revisando tu oferta',
+        title: t('driver.home.pendingAction.negotiationTitle'),
+        subtitle: t('driver.home.pendingAction.negotiationSubtitle'),
         onPress: () => {
           navigation.replace('WaitingClientConfirmation', {
             rideId: ride.id,
@@ -733,7 +749,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
 
     // Prioridad 3: Viaje activo
     if (activeRide) {
-      const copy = getActiveRidePendingCopy(activeRide);
+      const copy = getActiveRidePendingCopy(activeRide, t);
       setPendingAction({
         type: 'active_ride',
         title: copy.title,
@@ -771,8 +787,8 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
 
       if (nextAction) {
         const actionType = nextAction.type === 'pending_payment' ? 'pending_payment' : 'active_ride';
-        const subtitle = nextAction.subtitle || 'Revisa esta acción pendiente';
-        
+        const subtitle = nextAction.subtitle || t('driver.home.pendingAction.genericSubtitle');
+
         setPendingAction({
           type: actionType,
           title: nextAction.title,
@@ -1373,7 +1389,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
 
   const handleAvailabilityToggle = async (nextValue: boolean) => {
     if (!user || !coords) {
-      alertService.showErrorAlert('No se pudo actualizar tu estado');
+      alertService.showErrorAlert(t('driver.home.alerts.availabilityUpdateFailed'));
       return;
     }
 
@@ -1389,10 +1405,11 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
       Number(penaltySummary.pendingAmount) >= PENALTIES_LIMIT_CORDOBAS
     ) {
       alertService.showInfoAlert(
-        'Comisiones pendientes',
-        `Tienes C$${Number(penaltySummary.pendingAmount).toFixed(2)} en comisiones pendientes. Debes bajar de C$${PENALTIES_LIMIT_CORDOBAS.toFixed(
-          2,
-        )} para activar disponibilidad.`,
+        t('driver.home.alerts.penaltiesTitle'),
+        t('driver.home.alerts.penaltiesBlockActivation', {
+          amount: Number(penaltySummary.pendingAmount).toFixed(2),
+          limit: PENALTIES_LIMIT_CORDOBAS.toFixed(2),
+        }),
         () => navigation.navigate('PendingPayments')
       );
       return;
@@ -1428,7 +1445,9 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
         await driverAvailabilityService.clearAvailabilityState();
       }
     } catch (err: any) {
-      alertService.showErrorAlert(err?.message || 'Error actualizando estado');
+      alertService.showErrorAlert(
+        err?.message || t('driver.home.alerts.availabilityUpdateFailed'),
+      );
     } finally {
       setUpdatingStatus(false);
     }
@@ -1477,18 +1496,20 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   }
 
   if (locationLoading) {
-    return <LoadingOverlay visible message="Obteniendo tu ubicación..." />;
+    return <LoadingOverlay visible message={t('driver.home.loading.locating')} />;
   }
 
   if (error || !coords) {
     return (
       <View style={[styles.fallbackContainer, { backgroundColor: colors.background }]}> 
-        <Text style={[styles.fallbackText, { color: colors.text }]}>{`❌ ${error || 'No se pudo obtener la ubicación'}`}</Text>
+        <Text style={[styles.fallbackText, { color: colors.text }]}>{`❌ ${
+          error || t('driver.home.errors.location')
+        }`}</Text>
         <TouchableOpacity
           style={[styles.retryButton, { backgroundColor: colors.primary }]}
           onPress={handleRefreshLocation}
         >
-          <Text style={styles.retryButtonLabel}>Reintentar</Text>
+          <Text style={styles.retryButtonLabel}>{t('driver.home.buttons.retry')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -1515,13 +1536,17 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
             const origin = {
               lat: ride.latitude,
               lng: ride.longitude,
-              address: ride.originAddress || 'Origen',
+              address: ride.originAddress || t('driver.home.ride.originFallback'),
             };
 
             const destination = {
               lat: ride.destinationLat ?? ride.destination?.lat ?? ride.latitude,
               lng: ride.destinationLng ?? ride.destination?.lng ?? ride.longitude,
-              address: ride.finalDestination || ride.destinationAddress || ride.destination?.address || 'Destino',
+              address:
+                ride.finalDestination ||
+                ride.destinationAddress ||
+                ride.destination?.address ||
+                t('driver.home.ride.destinationFallback'),
             };
 
             const ridePreview = {
@@ -1568,7 +1593,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
           >
             <View style={styles.headerNameBubble}>
               <Text style={styles.headerTitle} numberOfLines={1}>
-                {user?.name || 'Conductor'}
+                {user?.name || t('driver.home.header.profileFallback')}
               </Text>
               <Image
                 source={require('../../assets/icons/profile/profile-icon2.png')}
@@ -1596,10 +1621,12 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
             <Text style={styles.activeRideEmoji}>🚗</Text>
           </View>
           <View style={styles.activeRideContent}>
-            <Text style={styles.activeRideTitle}>Viaje en curso</Text>
+            <Text style={styles.activeRideTitle}>
+              {t('driver.home.banners.activeRideTitle')}
+            </Text>
             <Text style={styles.activeRideSubtitle} numberOfLines={1}>
-              {activeRide?.client?.name || activeRide?.clientName || 'Cliente'} ·{' '}
-              {activeRide?.destinationAddress || 'Destino'}
+              {activeRide?.client?.name || activeRide?.clientName || t('driver.home.ride.clientFallback')} ·{' '}
+              {activeRide?.destinationAddress || t('driver.home.ride.destinationFallback')}
             </Text>
           </View>
           <Text style={styles.activeRideArrow}>→</Text>
@@ -1615,9 +1642,14 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
           }}
         >
           <View style={styles.pendingBannerContent}>
-            <Text style={styles.pendingBannerTitle}>Comisiones pendientes</Text>
+            <Text style={styles.pendingBannerTitle}>
+              {t('driver.home.banners.penaltiesTitle')}
+            </Text>
             <Text style={styles.pendingBannerSubtitle}>
-              {penaltySummary.pendingCount} por C${Number(penaltySummary.pendingAmount).toFixed(2)}
+              {t('driver.home.banners.penaltiesSubtitle', {
+                count: penaltySummary.pendingCount,
+                amount: Number(penaltySummary.pendingAmount).toFixed(2),
+              })}
             </Text>
           </View>
           <Text style={styles.pendingBannerArrow}>→</Text>
@@ -1640,9 +1672,13 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
             <Text style={styles.pendingBannerEmoji}>💳</Text>
           </View>
           <View style={styles.pendingBannerContent}>
-            <Text style={styles.pendingBannerTitle}>Pagos pendientes</Text>
+            <Text style={styles.pendingBannerTitle}>
+              {t('driver.home.banners.paymentsTitle')}
+            </Text>
             <Text style={styles.pendingBannerSubtitle}>
-              {pendingPayments.length} {pendingPayments.length === 1 ? 'pago por confirmar' : 'pagos por confirmar'}
+              {pendingPayments.length === 1
+                ? t('driver.home.banners.paymentsSubtitleSingle')
+                : t('driver.home.banners.paymentsSubtitleOther', { count: pendingPayments.length })}
             </Text>
           </View>
           <Text style={styles.pendingBannerArrow}>→</Text>
@@ -1686,7 +1722,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
             ]}
           >
             <View style={styles.menuHeaderRow}>
-              <Text style={styles.menuHeader}>Menú rápido</Text>
+              <Text style={styles.menuHeader}>{t('driver.home.menu.title')}</Text>
               <TouchableOpacity onPress={closeMenu} style={styles.menuCloseBtn}>
                 <Text style={styles.menuCloseIcon}>✕</Text>
               </TouchableOpacity>
@@ -1695,29 +1731,29 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
             <View style={styles.menuSection}>
               <TouchableOpacity style={styles.menuItem} onPress={() => handleNavigate('Earnings')}>
                 <Text style={styles.menuEmoji}>💵</Text>
-                <Text style={styles.menuLabel}>Ver Ganancias Detalladas</Text>
+                <Text style={styles.menuLabel}>{t('driver.home.menu.earnings')}</Text>
               </TouchableOpacity>
               {(user?.role === 'driver' || user?.role === 'designated_driver') && (
                 <TouchableOpacity style={styles.menuItem} onPress={() => handleNavigate('PayCommissions')}>
                   <Text style={styles.menuEmoji}>💼</Text>
-                  <Text style={styles.menuLabel}>Pagar Comisiones</Text>
+                  <Text style={styles.menuLabel}>{t('driver.home.menu.commissions')}</Text>
                 </TouchableOpacity>
               )}
               <TouchableOpacity style={styles.menuItem} onPress={() => handleNavigate('RideHistory')}>
                 <Text style={styles.menuEmoji}>📜</Text>
-                <Text style={styles.menuLabel}>Historial de Viajes</Text>
+                <Text style={styles.menuLabel}>{t('driver.home.menu.history')}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.menuItem} onPress={() => handleNavigate('PaymentMethods')}>
                 <Text style={styles.menuEmoji}>💳</Text>
-                <Text style={styles.menuLabel}>Métodos de Pago</Text>
+                <Text style={styles.menuLabel}>{t('driver.home.menu.paymentMethods')}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.menuItem} onPress={() => handleNavigate('Settings')}>
                 <Text style={styles.menuEmoji}>⚙️</Text>
-                <Text style={styles.menuLabel}>Configuración</Text>
+                <Text style={styles.menuLabel}>{t('driver.home.menu.settings')}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.menuItem} onPress={() => handleNavigate('Help')}>
                 <Text style={styles.menuEmoji}>❓</Text>
-                <Text style={styles.menuLabel}>Ayuda</Text>
+                <Text style={styles.menuLabel}>{t('driver.home.menu.help')}</Text>
               </TouchableOpacity>
             </View>
 
@@ -1725,7 +1761,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
 
             <TouchableOpacity style={[styles.menuItem, styles.logoutItem]} onPress={handleLogout}>
               <Text style={styles.logoutEmoji}>🚪</Text>
-              <Text style={styles.logoutLabel}>Cerrar sesión</Text>
+              <Text style={styles.logoutLabel}>{t('driver.home.menu.logout')}</Text>
             </TouchableOpacity>
           </Animated.View>
         </Animated.View>
@@ -1733,21 +1769,29 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
 
       <View style={styles.bottomBar} pointerEvents="box-none">
         {user?.role === 'designated_driver' && (
-          <View style={styles.iconButtonWrapper}>
-            <TouchableOpacity
-              activeOpacity={0.8}
-              disabled={!isAvailable}
-              onPress={handleDesignatedToggle}
-            >
-              <Image
-                source={
-                  isDesignatedDriverMode
-                    ? require('../../assets/icons/status/active_designado.png')
-                    : require('../../assets/icons/status/desactive_status_button.png')
-                }
-                style={[styles.statusImage, !isAvailable && styles.disabledImage]}
-              />
-            </TouchableOpacity>
+          <View style={styles.designatedToggleContainer}>
+            <View style={styles.iconButtonWrapper}>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                disabled={!isAvailable}
+                onPress={handleDesignatedToggle}
+              >
+                <View style={styles.designatedButton}>
+                  <Image
+                    source={
+                      isDesignatedDriverMode
+                      
+                        ? require('../../assets/icons/ready_status/readydesignado3x.png' )
+                        : require('../../assets/icons/ready_status/unready3x.png')
+                    }
+                    style={[styles.statusImage, !isAvailable && styles.disabledImage]}
+                  />
+                  {isDesignatedDriverMode && (
+                    <Text style={styles.designatedStatusLabel}>{t('driver.home.designated.activeLabel')}</Text>
+                  )}
+                </View>
+              </TouchableOpacity>
+            </View>
           </View>
         )}
 
@@ -1762,8 +1806,8 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
                 <Image
                   source={
                     isAvailable
-                      ? require('../../assets/icons/status/active_status_button2.png')
-                      : require('../../assets/icons/status/desactive_status_button2.png')
+                      ? require('../../assets/icons/ready_status/ready3x.png')
+                      : require('../../assets/icons/ready_status/unready3x.png')
                   }
                   style={[styles.statusImage, updatingStatus && styles.statusImageDim]}
                 />
@@ -1777,29 +1821,40 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
           </View>
 
           {!hasPendingAction && (
-            <TouchableOpacity
-              style={styles.earningsButton}
-              activeOpacity={0.85}
-              onPress={() => navigation.navigate('AvailableRides')}
-            >
-              <ImageBackground
-                source={require('../../assets/icons/requests_button/solicitudes_button2.png')}
-                style={styles.earningsImage}
-                imageStyle={styles.earningsImageInner}
-                resizeMode="stretch"
-              >
-                <View style={styles.earningsRow}>
+            <View style={styles.earningsSplitContainer}>
+              <View style={[styles.earningsButton, styles.earningsStatsCard]}>
+                <ImageBackground
+                  source={require('../../assets/icons/driver_home_bar/driver_home_net2x.png')}
+                  style={styles.earningsImage}
+                  imageStyle={styles.earningsImageInner}
+                  resizeMode="stretch"
+                >
                   <View style={styles.earningsLeft}>
                     <View style={styles.earningsBadge}>
-                      <Text style={styles.earningsBadgeLabel}>Total hoy</Text>
+                      <Text style={styles.earningsBadgeLabel}>{t('driver.home.stats.totalToday')}</Text>
                     </View>
                     <Text style={styles.earningsValue}>{formatCurrency(todayStats.earnings)}</Text>
                   </View>
-                  <View style={styles.earningsRight}>
+                </ImageBackground>
+              </View>
+
+              <TouchableOpacity
+                style={[styles.earningsButton, styles.requestsButton]}
+                activeOpacity={0.85}
+                onPress={() => navigation.navigate('AvailableRides')}
+              >
+                <ImageBackground
+                  source={require('../../assets/icons/driver_home_bar/driver_requests2x.png')}
+                  style={styles.earningsImage}
+                  imageStyle={styles.earningsImageInner}
+                  resizeMode="stretch"
+                >
+                  <View style={styles.earningsRequestsContent}>
+                    <Text style={styles.earningsCta}>{t('driver.home.cta.viewRequests')}</Text>
                   </View>
-                </View>
-              </ImageBackground>
-            </TouchableOpacity>
+                </ImageBackground>
+              </TouchableOpacity>
+            </View>
           )}
         </View>
       </View>
@@ -2151,9 +2206,9 @@ const createStyles = (colors: any) =>
       left: 20,
       right: 20,
       bottom: Platform.select({ ios: 24, android: 20 }),
-      gap: 12,
+      gap: 6, 
       zIndex: 30,
-      pointerEvents: 'box-none',
+      //pointerEvents: 'box-none',
     },
     controlsRow: {
       flexDirection: 'row',
@@ -2164,11 +2219,11 @@ const createStyles = (colors: any) =>
     },
     iconButtonWrapper: {
       shadowColor: 'rgba(15,23,42,0.4)',
-      shadowOffset: { width: 0, height: 6 },
+      shadowOffset: { width: 0, height: 8 },
       shadowOpacity: 0.3,
       shadowRadius: 10,
-      elevation: 14,
-      borderRadius: 20,
+      elevation: 4,
+      //borderRadius: 20,
       overflow: 'hidden',
     },
     statusImage: {
@@ -2200,16 +2255,46 @@ const createStyles = (colors: any) =>
     disabledImage: {
       opacity: 0.55,
     },
+    designatedToggleContainer: {
+      gap: 8,
+    },
+    designatedButton: {
+      backgroundColor: 'transparent',
+      borderRadius: 0,
+      paddingVertical: 0,
+    },
+    designatedStatusLabel: {
+      color: '#FFFFFF',
+      fontFamily: 'PlusJakartSans',
+      fontSize: 10,
+      fontWeight: '600',
+      alignItems: 'center',
+      letterSpacing: 0.3,
+      top: -56,
+    },
+    earningsSplitContainer: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'stretch',
+      gap: 12,
+    },
+    earningsStatsCard: {
+      flexBasis: '100%',
+      maxWidth: 80,
+    },
     earningsButton: {
       flex: 1,
-      borderRadius: 18,
+      borderRadius: 1,
       overflow: 'hidden',
       shadowColor: 'rgba(15,23,42,0.38)',
       shadowOffset: { width: 0, height: 8 },
       shadowOpacity: 0.3,
       shadowRadius: 12,
       elevation: 16,
-      minHeight: 40,
+      minHeight: 56,
+    },
+    requestsButton: {
+      flexBasis: 'auto',
     },
     earningsImage: {
       flex: 1,
@@ -2218,7 +2303,7 @@ const createStyles = (colors: any) =>
       justifyContent: 'center',
     },
     earningsImageInner: {
-      borderRadius: 18,
+      borderRadius: 1,
     },
     earningsRow: {
       flexDirection: 'row',
@@ -2233,23 +2318,35 @@ const createStyles = (colors: any) =>
       alignItems: 'flex-start',
       gap: 2,
     },
+    earningsRequestsContent: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 25,
+      paddingVertical: 12,
+      gap: 16,
+    },
     earningsBadge: {
       backgroundColor: 'transparent',
       borderRadius: 0,
-      paddingHorizontal: 2,
+      paddingHorizontal: 7,
       paddingVertical: 0,
+      alignItems: 'center',
     },
     earningsBadgeLabel: {
       color: '#FFFFFF',
+      fontFamily: 'PlusJakartSans',
       fontSize: 11,
-      fontWeight: '400',
-      textTransform: 'uppercase',
+      fontWeight: '600',
+      alignItems: 'center',
       letterSpacing: 0.3,
     },
     earningsValue: {
       color: '#FFFFFF',
-      fontSize: 14,
-      fontWeight: '500',
+      fontFamily: 'PlusJakartSans',
+      fontSize: 16,
+      fontWeight: '800',
+      paddingHorizontal: 10,
     },
     earningsRight: {
       alignItems: 'flex-end',
@@ -2257,13 +2354,10 @@ const createStyles = (colors: any) =>
     },
     earningsCta: {
       color: '#FFFFFF',
-      fontSize: 15,
-      fontWeight: '700',
-    },
-    earningsArrow: {
-      color: '#FFFFFF',
-      fontSize: 20,
-      fontWeight: '700',
+      fontFamily: 'PlusJakartSans',
+      fontSize: 17,
+      paddingVertical: 6,
+      fontWeight: '800',
     },
     chipDisabled: {
       opacity: 0.4,

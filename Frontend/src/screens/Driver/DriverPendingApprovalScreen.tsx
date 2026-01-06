@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Linking } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useTranslation } from 'react-i18next';
 
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
@@ -23,6 +24,8 @@ export default function DriverPendingApprovalScreen({ navigation, route }: Props
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { logout } = useAuth();
+  const { t } = useTranslation();
+  const ns = 'driver.driverPendingApproval';
 
   const approvalInfo: DriverApprovalInfo | undefined = route.params?.approvalInfo;
 
@@ -35,13 +38,13 @@ export default function DriverPendingApprovalScreen({ navigation, route }: Props
 
   const title = isHardBlock
     ? accountStatus === 'suspended'
-      ? 'Cuenta suspendida'
-      : 'Cuenta rechazada'
-    : 'Tu cuenta está en revisión';
+      ? t(`${ns}.header.suspendedTitle`)
+      : t(`${ns}.header.rejectedTitle`)
+    : t(`${ns}.header.pendingTitle`);
 
   const description = isHardBlock
-    ? 'Tu cuenta no puede usarse por el momento. Por favor contacta a soporte para revisar tu caso.'
-    : 'Estamos verificando tus documentos y vehículo. Este proceso puede tomar entre 24 y 48 horas.';
+    ? t(`${ns}.header.blockedDescription`)
+    : t(`${ns}.header.pendingDescription`);
 
   const handleCallSupport = () => {
     Linking.openURL(`tel:${SUPPORT_PHONE}`);
@@ -99,68 +102,54 @@ export default function DriverPendingApprovalScreen({ navigation, route }: Props
 
         <View style={styles.statusContainer}>
           {renderStatusBadge(
-            'Estado de cuenta',
-            accountStatus === 'active'
-              ? 'Activa'
-              : accountStatus === 'pending'
-              ? 'Pendiente'
-              : accountStatus === 'suspended'
-              ? 'Suspendida'
-              : 'Rechazada',
+            t(`${ns}.status.accountLabel`),
+            t(`${ns}.status.accountValues.${accountStatus}`),
             accountColor,
           )}
 
           {renderStatusBadge(
-            'Documentos',
-            documentsStatus === 'verified'
-              ? 'Verificados'
-              : documentsStatus === 'pending'
-              ? 'Pendientes'
-              : documentsStatus === 'suspended'
-              ? 'Suspendidos'
-              : 'Rechazados',
+            t(`${ns}.status.documentsLabel`),
+            t(`${ns}.status.documentsValues.${documentsStatus}`),
             documentsColor,
           )}
 
           {renderStatusBadge(
-            'Vehículos',
-            hasActiveVehicle ? 'Al menos un vehículo activo' : 'Sin vehículo activo aprobado',
+            t(`${ns}.status.vehicleLabel`),
+            hasActiveVehicle
+              ? t(`${ns}.status.vehicleValues.active`)
+              : t(`${ns}.status.vehicleValues.none`),
             vehicleColor,
           )}
         </View>
 
         {isHardBlock && (
           <View style={styles.supportBox}>
-            <Text style={styles.supportTitle}>Necesitas ayuda de soporte</Text>
-            <Text style={styles.supportText}>
-              Comunícate con nuestro equipo para revisar el estado de tu cuenta y tus documentos.
-            </Text>
+            <Text style={styles.supportTitle}>{t(`${ns}.support.title`)}</Text>
+            <Text style={styles.supportText}>{t(`${ns}.support.description`)}</Text>
 
             <TouchableOpacity style={styles.supportButton} onPress={handleCallSupport}>
-              <Text style={styles.supportButtonText}>Llamar a soporte</Text>
+              <Text style={styles.supportButtonText}>{t(`${ns}.support.button`)}</Text>
             </TouchableOpacity>
           </View>
         )}
 
         {!isHardBlock && (
           <View style={styles.infoBox}>
-            <Text style={styles.infoText}>
-              Te notificaremos cuando tu cuenta esté lista para comenzar a recibir viajes.
-            </Text>
+            <Text style={styles.infoText}>{t(`${ns}.info.text`)}</Text>
           </View>
         )}
 
         <TouchableOpacity style={styles.refreshButton} onPress={handleReload}>
-          <Text style={styles.refreshButtonText}>Recarga para actualizar</Text>
+          <Text style={styles.refreshButtonText}>{t(`${ns}.buttons.refresh`)}</Text>
         </TouchableOpacity>
       </View>
 
       <View style={styles.footerButtons}>
         <TouchableOpacity style={styles.secondaryButton} onPress={handleOpenProfile}>
-          <Text style={styles.secondaryButtonText}>Ver mi perfil</Text>
+          <Text style={styles.secondaryButtonText}>{t(`${ns}.buttons.viewProfile`)}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.primaryButton} onPress={handleLogout}>
-          <Text style={styles.primaryButtonText}>Cerrar sesión</Text>
+          <Text style={styles.primaryButtonText}>{t(`${ns}.buttons.logout`)}</Text>
         </TouchableOpacity>
       </View>
     </View>

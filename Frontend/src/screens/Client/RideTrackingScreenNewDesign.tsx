@@ -35,6 +35,7 @@ import { useLocation } from '../../hooks/useLocation';
 import ridesService from '../../services/ridesService';
 import { useFirebaseItem } from '../../hooks/useFirebaseData';
 import firebaseTrackingService from '../../services/firebaseTrackingService';
+import { useTranslation } from 'react-i18next';
 
 // Navegación
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -83,17 +84,23 @@ const calculatePolylineDistance = (coords: Array<{ latitude: number; longitude: 
   return total;
 };
 
-const formatDistanceLabel = (meters?: number | null) => {
-  if (!meters || meters <= 0) return '-- km';
+const formatDistanceLabel = (
+  meters: number | null | undefined,
+  tr: (path: string, options?: Record<string, any>) => string,
+) => {
+  if (!meters || meters <= 0) return tr('labels.distanceFallback');
   const km = meters / 1000;
   const decimals = km >= 100 ? 0 : km >= 10 ? 1 : 2;
-  return `${km.toFixed(decimals)} km`;
+  return tr('labels.distanceValue', { value: km.toFixed(decimals) });
 };
 
-const formatDurationLabel = (seconds?: number | null) => {
-  if (!seconds || seconds <= 0) return '-- min';
+const formatDurationLabel = (
+  seconds: number | null | undefined,
+  tr: (path: string, options?: Record<string, any>) => string,
+) => {
+  if (!seconds || seconds <= 0) return tr('labels.durationFallback');
   const minutes = Math.max(1, Math.round(seconds / 60));
-  return `${minutes} min`;
+  return tr('labels.durationValue', { value: minutes });
 };
 
 const parseDate = (value: any): Date | null => {
@@ -121,19 +128,23 @@ const parseDate = (value: any): Date | null => {
   return null;
 };
 
-const formatEtaLabel = (rideData: any, durationSeconds: number | null) => {
+const formatEtaLabel = (
+  rideData: any,
+  durationSeconds: number | null,
+  tr: (path: string, options?: Record<string, any>) => string,
+) => {
   const status = rideData?.status;
 
   if (status === 'pending_payment') {
-    return 'Viaje finalizado - pendiente de pago';
+    return tr('eta.pendingPayment');
   }
 
   if (status === 'completed') {
-    return 'Viaje completado';
+    return tr('eta.completed');
   }
 
   if (status === 'canceled') {
-    return 'Viaje cancelado';
+    return tr('eta.canceled');
   }
 
   const etaCandidates = [
@@ -148,10 +159,12 @@ const formatEtaLabel = (rideData: any, durationSeconds: number | null) => {
   for (const candidate of etaCandidates) {
     const date = parseDate(candidate);
     if (date) {
-      return `Llega a las ${date.toLocaleTimeString('es-ES', {
-        hour: '2-digit',
-        minute: '2-digit',
-      })}`;
+      return tr('eta.arrivesAt', {
+        time: date.toLocaleTimeString(undefined, {
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
+      });
     }
   }
 
@@ -161,17 +174,19 @@ const formatEtaLabel = (rideData: any, durationSeconds: number | null) => {
       parseDate(rideData?.acceptedAt) ||
       new Date();
     const etaDate = new Date(startDate.getTime() + durationSeconds * 1000);
-    return `Llega a las ${etaDate.toLocaleTimeString('es-ES', {
-      hour: '2-digit',
-      minute: '2-digit',
-    })}`;
+    return tr('eta.arrivesAt', {
+      time: etaDate.toLocaleTimeString(undefined, {
+        hour: '2-digit',
+        minute: '2-digit',
+      }),
+    });
   }
 
   if (rideData?.status === 'accepted') {
-    return 'Conductor en camino';
+    return tr('eta.driverOnTheWay');
   }
 
-  return 'Calculando...';
+  return tr('eta.calculating');
 };
 
 const deriveVehicleType = (vehicleDataType: string | null, rideData: any): string | null => {
@@ -322,13 +337,13 @@ const useDriverAndVehicleData = (
   rideData?: any,
 ) => {
   const [driverData, setDriverData] = useState({
-    name: initialData.driverName || 'Conductor',
+    name: initialData.driverName || '',
     phone: initialData.driverPhone ?? null,
     photo: null as string | null,
   });
 
   const [vehicleData, setVehicleData] = useState({
-    plate: initialData.vehiclePlate || 'N/A',
+    plate: initialData.vehiclePlate || '',
     brand: initialData.vehicleBrand || '',
     model: initialData.vehicleModel || '',
     color: initialData.vehicleColor || '',
@@ -548,11 +563,16 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { coords: clientCoords } = useLocation();
+  const { t } = useTranslation();
+  const tr = useCallback(
+    (path: string, options?: Record<string, any>) => t(`shared.rideTracking.${path}`, options),
+    [t],
+  );
 
   const { 
     rideId, 
     driverId, 
-    driverName = 'Conductor',
+    driverName = '',
     vehiclePlate = '',
     vehicleBrand = '',
     vehicleModel = '', 
@@ -561,7 +581,7 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
   } = route.params;
 
   const [loading, setLoading] = useState(true);
-  const [loadingMessage, setLoadingMessage] = useState('Conectando con el conductor...');
+  const [loadingMessage, setLoadingMessage] = useState(tr('loading.connectingDriver'));
   
   const { driverLocation, isConnected } = useDriverLocation(driverId);
   const { rideStatus, paymentMethod, finalFare, rideData, loading: rideLoading } = useRideStatus(rideId);
@@ -595,13 +615,13 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
       finalFare ||
       estimatedFare ||
       0;
-    const driverDisplayName = rideData.driver?.name || driverData.name || 'Conductor';
+    const driverDisplayName = rideData.driver?.name || driverData.name || tr('labels.driverUnknown');
     const driverPhoto = rideData.driver?.photoURL || undefined;
     const plateFromRide =
       rideData.vehicle?.plate ||
       rideData.driver?.vehicle?.plate ||
       vehicleData.plate ||
-      'N/A';
+      tr('labels.vehiclePlateFallback');
 
     if (paymentMethodFromRide === 'card') {
       navigation.navigate('Payment', {
@@ -641,7 +661,7 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
     const canCancel = rideStatus !== 'completed' && rideStatus !== 'canceled';
 
     if (!canCancel) {
-      alertService.showInfoAlert('No se puede cancelar', 'Este viaje no puede ser cancelado en este momento.');
+      alertService.showInfoAlert(tr('alerts.cannotCancelTitle'), tr('alerts.cannotCancelMessage'));
       return;
     }
 
@@ -653,24 +673,24 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
     }).start();
 
     alertService.showConfirmAlert(
-      'Cancelar Viaje',
-      '¿Estás seguro que deseas cancelar este viaje?',
+      tr('alerts.cancelRideTitle'),
+      tr('alerts.cancelRideMessage'),
       async () => {
         try {
-          const result = await ridesService.cancelRide(rideId, 'Cancelado por el cliente');
+          const result = await ridesService.cancelRide(rideId, tr('alerts.cancelRideReason'));
           if (result.success) {
             await clearClientActiveRideState();
-            alertService.showSuccessAlert('Viaje Cancelado', result.message, () => {
+            alertService.showSuccessAlert(tr('alerts.cancelRideSuccessTitle'), result.message, () => {
               navigation.reset({
                 index: 0,
                 routes: [{ name: 'ClientHome' }],
               });
             });
           } else {
-            alertService.showErrorAlert(result.message || 'No se pudo cancelar el viaje');
+            alertService.showErrorAlert(result.message || tr('alerts.cancelRideError'));
           }
         } catch (error: any) {
-          alertService.showErrorAlert(error?.message || 'No se pudo cancelar el viaje');
+          alertService.showErrorAlert(error?.message || tr('alerts.cancelRideError'));
         } finally {
           Animated.timing(cancelButtonScale, {
             toValue: 1,
@@ -686,8 +706,8 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
           useNativeDriver: true,
         }).start(() => setIsCancellingRide(false));
       },
-      'Cancelar viaje',
-      'Seguir',
+      tr('buttons.confirmCancel'),
+      tr('buttons.continue'),
       true,
     );
   }, [cancelButtonScale, isCancellingRide, navigation, rideId, rideStatus]);
@@ -714,17 +734,17 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
     switch (rideStatus) {
       case 'accepted':
       case 'driver_on_route':
-        return 'En camino';
+        return tr('status.accepted');
       case 'in_progress':
-        return 'En viaje';
+        return tr('status.in_progress');
       case 'pending_payment':
-        return 'Pago pendiente';
+        return tr('status.pending_payment');
       case 'completed':
-        return 'Completado';
+        return tr('status.completed');
       case 'canceled':
-        return 'Cancelado';
+        return tr('status.canceled');
       default:
-        return 'Status';
+        return tr('status.default');
     }
   };
 
@@ -898,26 +918,37 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
     return null;
   }, [routeDurationSeconds, rideData?.duration, rideData?.estimatedDuration, rideData?.driverEta?.duration, rideData?.driverEta?.durationSeconds]);
 
-  const etaLabel = useMemo(() => formatEtaLabel(rideData, durationSeconds), [rideData, durationSeconds]);
-  const distanceLabel = useMemo(() => formatDistanceLabel(distanceMeters), [distanceMeters]);
-  const durationLabel = useMemo(() => formatDurationLabel(durationSeconds), [durationSeconds]);
-  const tripSummaryLabel = useMemo(() => `${durationLabel} - ${distanceLabel}`, [durationLabel, distanceLabel]);
+  const etaLabel = useMemo(() => formatEtaLabel(rideData, durationSeconds, tr), [rideData, durationSeconds, tr]);
+  const distanceLabel = useMemo(
+    () => formatDistanceLabel(distanceMeters, tr),
+    [distanceMeters, tr],
+  );
+  const durationLabel = useMemo(
+    () => formatDurationLabel(durationSeconds, tr),
+    [durationSeconds, tr],
+  );
+  const tripSummaryLabel = useMemo(
+    () => tr('labels.tripSummary', { duration: durationLabel, distance: distanceLabel }),
+    [durationLabel, distanceLabel, tr],
+  );
 
   const handleShareTrip = useCallback(async () => {
     try {
-      const pickupAddress = rideData?.origin?.address || 'Punto de recogida';
+      const pickupAddress = rideData?.origin?.address || tr('labels.pickupFallback');
       const trackingUrl = `https://rundiapp.com/tracking?rideId=${rideId}`;
-
-      const parts = [
-        `Estoy en un viaje con ${driverData.name} (${vehicleData.brand} ${vehicleData.model} - ${vehicleData.color}) - Placa: ${vehicleData.plate}`,
-        `Punto de recogida: ${pickupAddress}`,
-        `Sigue mi viaje en tiempo real: ${trackingUrl}`,
-      ];
-
-      const message = parts.join('\n');
-      await Share.share({ message, title: 'Compartir ubicación' });
+      const message = tr('labels.shareMessage', {
+        driver: driverData.name || tr('labels.driverUnknown'),
+        vehicleBrand: vehicleData.brand,
+        vehicleModel: vehicleData.model,
+        vehicleColor: vehicleData.color,
+        plate: vehicleData.plate || tr('labels.vehiclePlateFallback'),
+        pickup: pickupAddress,
+        url: trackingUrl,
+      });
+      await Share.share({ message, title: tr('labels.shareTitle') });
     } catch (error) {
       console.error('Error al compartir ubicación del viaje:', error);
+      alertService.showErrorAlert(tr('labels.shareError'));
     }
   }, [driverData, vehicleData, rideData, rideId]);
 
@@ -954,7 +985,7 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
                     longitude: waypoint.longitude,
                     index: index + 1,
                     color: '#ffa600b2',
-                    label: extraDest?.address || `Parada ${index + 1}`,
+                    label: extraDest?.address || tr('labels.stopLabel', { index: index + 1 }),
                   };
                 })
               : undefined
@@ -962,8 +993,8 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
           routeCoordinates={activeRouteCoordinates && activeRouteCoordinates.length > 0 ? activeRouteCoordinates : undefined}
           secondaryRouteCoordinates={secondaryRouteCoordinates && secondaryRouteCoordinates.length > 0 ? secondaryRouteCoordinates : undefined}
           secondaryRouteColor="#d3850fc0"
-          originLabel={rideData?.origin?.address || 'Punto de origen'}
-          destinationLabel={rideData?.destination?.address || 'Destino'}
+          originLabel={rideData?.origin?.address || tr('labels.routeOriginFallback')}
+          destinationLabel={rideData?.destination?.address || tr('labels.routeDestinationFallback')}
           showPinBubbles
         />
       </View>
@@ -1001,7 +1032,7 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
           </TouchableOpacity>
         </View>
         <Text style={[styles.tripData, { color: colors.textSecondary }]}>
-          Datos de viaje: {tripSummaryLabel}
+          {tr('eta.tripData', { summary: tripSummaryLabel })}
         </Text>
       </View>
 
@@ -1047,10 +1078,10 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
                 <Text style={styles.locationIcon}>📍</Text>
                 <View style={styles.locationContent}>
                   <Text style={[styles.locationLabel, { color: colors.textSecondary }]}>
-                    Punto de Recogida
+                    {tr('labels.pickupLabel')}
                   </Text>
                   <Text style={[styles.locationAddress, { color: colors.text }]}>
-                    {rideData?.origin?.address || 'Mi ubicación'}
+                    {rideData?.origin?.address || tr('labels.pickupFallback')}
                   </Text>
                 </View>
               </View>
@@ -1065,10 +1096,10 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
                       <Text style={styles.locationIcon}>🟠</Text>
                       <View style={styles.locationContent}>
                         <Text style={[styles.locationLabel, { color: colors.textSecondary }]}>
-                          Parada {index + 1}
+                          {tr('labels.stopLabel', { index: index + 1 })}
                         </Text>
                         <Text style={[styles.locationAddress, { color: colors.text }]}>
-                          {extraDest?.address || `Parada ${index + 1}`}
+                          {extraDest?.address || tr('labels.stopLabel', { index: index + 1 })}
                         </Text>
                       </View>
                     </View>
@@ -1082,10 +1113,10 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
                 <Text style={styles.locationIcon}>🎯</Text>
                 <View style={styles.locationContent}>
                   <Text style={[styles.locationLabel, { color: colors.textSecondary }]}>
-                    Destino Final
+                    {tr('labels.destinationLabel')}
                   </Text>
                   <Text style={[styles.locationAddress, { color: colors.text }]}>
-                    {rideData?.destination?.address || 'Destino'}
+                    {rideData?.destination?.address || tr('labels.destinationFallback')}
                   </Text>
                 </View>
               </View>
@@ -1103,7 +1134,7 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
             onPress={handleGoToPayment}
             activeOpacity={0.9}
           >
-            <Text style={styles.paymentButtonText}>Ir a pago</Text>
+            <Text style={styles.paymentButtonText}>{tr('buttons.goToPayment')}</Text>
           </TouchableOpacity>
         )}
         <TouchableOpacity
@@ -1111,7 +1142,7 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
           onPress={handleShareTrip}
           activeOpacity={0.9}
         >
-          <Text style={styles.shareButtonText}>Compartir ubicación</Text>
+          <Text style={styles.shareButtonText}>{tr('buttons.shareLocation')}</Text>
         </TouchableOpacity>
 
         <AnimatedTouchableOpacity
@@ -1130,7 +1161,7 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
           {isCancellingRide ? (
             <ActivityIndicator color="#FFFFFF" />
           ) : (
-            <Text style={styles.cancelButtonText}>Cancelar</Text>
+            <Text style={styles.cancelButtonText}>{tr('buttons.cancel')}</Text>
           )}
         </AnimatedTouchableOpacity>
       </View>

@@ -16,6 +16,7 @@ import { getDatabase, ref, update, onValue, off } from 'firebase/database';
 import { initializeFirebase } from '../../config/firebase';
 import BiometricService from '../../services/biometricService';
 import sessionService from '../../services/sessionService';
+import { useTranslation } from 'react-i18next';
 
 interface ConfirmCashPaymentScreenProps {
   route: {
@@ -33,6 +34,76 @@ export default function ConfirmCashPaymentScreen({ route, navigation }: ConfirmC
   const { rideId, amount, tip, clientName } = route.params;
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const { t } = useTranslation();
+  const strings = useMemo(
+    () => ({
+      loading: t('driver.confirmCashPayment.loading'),
+      headerTitle: t('driver.confirmCashPayment.header.title'),
+      headerSubtitle: t('driver.confirmCashPayment.header.subtitle', { name: clientName }),
+      breakdown: {
+        title: t('driver.confirmCashPayment.breakdown.title'),
+        fare: t('driver.confirmCashPayment.breakdown.fare'),
+        tip: t('driver.confirmCashPayment.breakdown.tip'),
+        total: t('driver.confirmCashPayment.breakdown.total'),
+      },
+      status: {
+        verifying: t('driver.confirmCashPayment.status.verifying'),
+        confirmedTitle: t('driver.confirmCashPayment.status.confirmedTitle'),
+        confirmedSubtitle: t('driver.confirmCashPayment.status.confirmedSubtitle'),
+        waitingTitle: t('driver.confirmCashPayment.status.waitingTitle'),
+        waitingSubtitle: t('driver.confirmCashPayment.status.waitingSubtitle'),
+      },
+      instructions: {
+        title: t('driver.confirmCashPayment.instructions.title'),
+        text: t('driver.confirmCashPayment.instructions.text'),
+      },
+      warningText: t('driver.confirmCashPayment.warning.text'),
+      buttons: {
+        confirm: t('driver.confirmCashPayment.buttons.confirm'),
+        switchToCard: t('driver.confirmCashPayment.buttons.switchToCard'),
+        report: t('driver.confirmCashPayment.buttons.report'),
+        useSms: t('driver.confirmCashPayment.buttons.useSms'),
+        verifySms: t('driver.confirmCashPayment.buttons.verifySms'),
+      },
+      sms: {
+        placeholder: t('driver.confirmCashPayment.sms.placeholder'),
+        attemptsWarning: (attemptsLeft: number) =>
+          t('driver.confirmCashPayment.sms.attemptsWarning', { attempts: attemptsLeft }),
+        tooManyAttempts: t('driver.confirmCashPayment.sms.tooManyAttempts'),
+        invalidLength: t('driver.confirmCashPayment.sms.invalidLength'),
+        sentTitle: t('driver.confirmCashPayment.sms.sentTitle'),
+        sentMessage: t('driver.confirmCashPayment.sms.sentMessage'),
+      },
+      alerts: {
+        waitTitle: t('driver.confirmCashPayment.alerts.waitTitle'),
+        waitMessage: t('driver.confirmCashPayment.alerts.waitMessage'),
+        biometricPrompt: (amountValue: string) =>
+          t('driver.confirmCashPayment.alerts.biometricPrompt', { amount: amountValue }),
+        biometricErrorTitle: t('driver.confirmCashPayment.alerts.biometricErrorTitle'),
+        biometricErrorMessage: t('driver.confirmCashPayment.alerts.biometricErrorMessage'),
+        successTitle: t('driver.confirmCashPayment.alerts.successTitle'),
+        successMessage: t('driver.confirmCashPayment.alerts.successMessage'),
+        reportTitle: t('driver.confirmCashPayment.alerts.reportTitle'),
+        reportMessage: t('driver.confirmCashPayment.alerts.reportMessage'),
+        reportOptions: {
+          noPay: t('driver.confirmCashPayment.alerts.reportOptions.noPay'),
+          wrongAmount: t('driver.confirmCashPayment.alerts.reportOptions.wrongAmount'),
+          other: t('driver.confirmCashPayment.alerts.reportOptions.other'),
+          cancel: t('driver.confirmCashPayment.alerts.reportOptions.cancel'),
+        },
+        reportSuccessTitle: t('driver.confirmCashPayment.alerts.reportSuccessTitle'),
+        reportSuccessMessage: t('driver.confirmCashPayment.alerts.reportSuccessMessage'),
+        switchTitle: t('driver.confirmCashPayment.alerts.switchTitle'),
+        switchMessage: t('driver.confirmCashPayment.alerts.switchMessage'),
+        switchSuccessTitle: t('driver.confirmCashPayment.alerts.switchSuccessTitle'),
+        switchSuccessMessage: t('driver.confirmCashPayment.alerts.switchSuccessMessage'),
+        genericError: t('driver.confirmCashPayment.alerts.genericError'),
+        smsError: t('driver.confirmCashPayment.alerts.smsError'),
+        smsVerifyError: t('driver.confirmCashPayment.alerts.smsVerifyError'),
+      },
+    }),
+    [t, clientName]
+  );
   const [confirming, setConfirming] = useState(false);
   const [clientConfirmed, setClientConfirmed] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -42,7 +113,7 @@ export default function ConfirmCashPaymentScreen({ route, navigation }: ConfirmC
   const [smsExpiresAt, setSmsExpiresAt] = useState<Date | null>(null);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
 
-  console.log('💵 [ConfirmCashPaymentScreen] Params:', { rideId, amount, tip, clientName });
+  console.log(' [ConfirmCashPaymentScreen] Params:', { rideId, amount, tip, clientName });
 
   // Convertir a números si vienen como strings
   const numericAmount = typeof amount === 'string' ? parseFloat(amount) : (amount || 0);
@@ -55,23 +126,23 @@ export default function ConfirmCashPaymentScreen({ route, navigation }: ConfirmC
       try {
         const { app } = await initializeFirebase();
         if (!app) {
-          console.error('❌ Firebase no inicializado');
+          console.error(' Firebase no inicializado');
           setLoading(false);
           return;
         }
         const db = getDatabase(app);
         const paymentRef = ref(db, `paymentStatus/${rideId}`);
 
-        console.log('👂 [ConfirmCashPaymentScreen] Escuchando confirmación del cliente...');
+        console.log(' [ConfirmCashPaymentScreen] Escuchando confirmación del cliente...');
 
         const unsubscribe = onValue(paymentRef, (snapshot) => {
           const paymentData = snapshot.val();
-          console.log('📦 [ConfirmCashPaymentScreen] paymentStatus:', paymentData);
+          console.log(' [ConfirmCashPaymentScreen] paymentStatus:', paymentData);
 
           if (paymentData) {
             const confirmed = paymentData.confirmedByClient === true;
             setClientConfirmed(confirmed);
-            console.log(`${confirmed ? '✅' : '⏳'} Cliente ${confirmed ? 'confirmó' : 'no ha confirmado'} el pago`);
+            console.log(`${confirmed ? ' ' : ' '} Cliente ${confirmed ? 'confirmó' : 'no ha confirmado'} el pago`);
           }
           setLoading(false);
         });
@@ -80,7 +151,7 @@ export default function ConfirmCashPaymentScreen({ route, navigation }: ConfirmC
           off(paymentRef);
         };
       } catch (error) {
-        console.error('❌ Error configurando listener:', error);
+        console.error(' Error configurando listener:', error);
         setLoading(false);
       }
     };
@@ -92,12 +163,10 @@ export default function ConfirmCashPaymentScreen({ route, navigation }: ConfirmC
     try {
       setIsAuthenticating(true);
 
-      const result = await BiometricService.authenticate(
-        `Confirma tu huella para completar el pago de C$${totalAmount.toFixed(2)}`
-      );
+      const result = await BiometricService.authenticate(strings.alerts.biometricPrompt(totalAmount.toFixed(2)));
 
       if (!result.success) {
-        Alert.alert('Error', result.error || 'Autenticación fallida');
+        Alert.alert(strings.alerts.biometricErrorTitle, result.error || strings.alerts.biometricErrorMessage);
         return;
       }
 
@@ -123,12 +192,12 @@ export default function ConfirmCashPaymentScreen({ route, navigation }: ConfirmC
       const deviceId = await sessionService.getDeviceId();
       await completeCashPayment({ rideId, deviceId });
 
-      Alert.alert('Éxito', 'Pago confirmado correctamente');
+      Alert.alert(strings.alerts.successTitle, strings.alerts.successMessage);
       navigation.replace('AvailableRides');
 
     } catch (error: any) {
       console.error('❌ Error:', error);
-      Alert.alert('Error', error.message || 'Error procesando pago');
+      Alert.alert('Error', error.message || strings.alerts.genericError);
     } finally {
       setIsAuthenticating(false);
     }
@@ -157,11 +226,11 @@ export default function ConfirmCashPaymentScreen({ route, navigation }: ConfirmC
       setSmsAttempts(0);
       setShowSmsInput(true);
       
-      Alert.alert('SMS Enviado', 'Revisa tu teléfono para el código');
+      Alert.alert(strings.sms.sentTitle, strings.sms.sentMessage);
 
     } catch (error: any) {
       console.error('❌ Error:', error);
-      Alert.alert('Error', 'Error enviando SMS');
+      Alert.alert('Error', strings.alerts.smsError);
     } finally {
       setIsAuthenticating(false);
     }
@@ -172,7 +241,7 @@ export default function ConfirmCashPaymentScreen({ route, navigation }: ConfirmC
       setIsAuthenticating(true);
 
       if (smsCode.length !== 6) {
-        Alert.alert('Error', 'Ingresa 6 dígitos');
+        Alert.alert('Error', strings.sms.invalidLength);
         return;
       }
 
@@ -195,10 +264,10 @@ export default function ConfirmCashPaymentScreen({ route, navigation }: ConfirmC
         setSmsAttempts(smsAttempts + 1);
         
         if (smsAttempts >= 2) {
-          Alert.alert('Error', 'Demasiados intentos. Intenta de nuevo en 5 minutos');
+          Alert.alert('Error', strings.sms.tooManyAttempts);
           setShowSmsInput(false);
         } else {
-          Alert.alert('Error', `Código incorrecto. Intentos restantes: ${3 - smsAttempts - 1}`);
+          Alert.alert('Error', strings.sms.attemptsWarning(3 - smsAttempts - 1));
         }
         return;
       }
@@ -220,12 +289,12 @@ export default function ConfirmCashPaymentScreen({ route, navigation }: ConfirmC
       const completeCashPayment = httpsCallable(functions, 'completeCashPayment');
       await completeCashPayment({ rideId });
 
-      Alert.alert('Éxito', 'Pago confirmado correctamente');
+      Alert.alert(strings.alerts.successTitle, strings.alerts.successMessage);
       navigation.replace('AvailableRides');
 
     } catch (error: any) {
       console.error('❌ Error:', error);
-      Alert.alert('Error', error.message || 'Error verificando código');
+      Alert.alert('Error', error.message || strings.alerts.smsVerifyError);
     } finally {
       setIsAuthenticating(false);
     }
@@ -234,11 +303,7 @@ export default function ConfirmCashPaymentScreen({ route, navigation }: ConfirmC
   const handleConfirmPayment = async () => {
     // Verificar si el cliente ya confirmó
     if (!clientConfirmed) {
-      Alert.alert(
-        'Espera',
-        'El cliente debe confirmar primero que realizó el pago',
-        [{ text: 'OK' }]
-      );
+      Alert.alert(strings.alerts.waitTitle, strings.alerts.waitMessage, [{ text: 'OK' }]);
       return;
     }
 
@@ -248,23 +313,23 @@ export default function ConfirmCashPaymentScreen({ route, navigation }: ConfirmC
 
   const handleReportIssue = () => {
     Alert.alert(
-      'Reportar Problema',
-      '¿Qué sucedió con el pago?',
+      strings.alerts.reportTitle,
+      strings.alerts.reportMessage,
       [
         {
-          text: 'Cliente no pagó',
+          text: strings.alerts.reportOptions.noPay,
           onPress: () => handleCancelPayment('Cliente no pagó el monto acordado'),
         },
         {
-          text: 'Monto incorrecto',
+          text: strings.alerts.reportOptions.wrongAmount,
           onPress: () => handleCancelPayment('Cliente pagó un monto diferente'),
         },
         {
-          text: 'Otro problema',
+          text: strings.alerts.reportOptions.other,
           onPress: () => handleCancelPayment('Otro problema con el pago'),
         },
         {
-          text: 'Cancelar',
+          text: strings.alerts.reportOptions.cancel,
           style: 'cancel',
         },
       ]
@@ -288,8 +353,8 @@ export default function ConfirmCashPaymentScreen({ route, navigation }: ConfirmC
       await cancelCashPayment({ rideId, reason, deviceId: deviceId4 });
 
       Alert.alert(
-        'Pago Cancelado',
-        'El problema ha sido reportado. El equipo de soporte revisará el caso.',
+        strings.alerts.reportSuccessTitle,
+        strings.alerts.reportSuccessMessage,
         [
           {
             text: 'Entendido',
@@ -365,24 +430,22 @@ export default function ConfirmCashPaymentScreen({ route, navigation }: ConfirmC
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.icon}>💵</Text>
-        <Text style={styles.title}>Confirmar Pago en Efectivo</Text>
-        <Text style={styles.subtitle}>
-          {clientName} debe pagarte en efectivo
-        </Text>
+        <Text style={styles.title}>{strings.headerTitle}</Text>
+        <Text style={styles.subtitle}>{strings.headerSubtitle}</Text>
       </View>
 
       {/* Amount Breakdown */}
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>Desglose del Pago</Text>
+        <Text style={styles.cardTitle}>{strings.breakdown.title}</Text>
         
         <View style={styles.row}>
-          <Text style={styles.label}>Tarifa del viaje</Text>
+          <Text style={styles.label}>{strings.breakdown.fare}</Text>
           <Text style={styles.value}>C${numericAmount.toFixed(2)}</Text>
         </View>
 
         {numericTip > 0 && (
           <View style={styles.row}>
-            <Text style={styles.label}>Propina</Text>
+            <Text style={styles.label}>{strings.breakdown.tip}</Text>
             <Text style={styles.valueGreen}>+C${numericTip.toFixed(2)}</Text>
           </View>
         )}
@@ -390,53 +453,46 @@ export default function ConfirmCashPaymentScreen({ route, navigation }: ConfirmC
         <View style={styles.divider} />
 
         <View style={styles.row}>
-          <Text style={styles.totalLabel}>Total a Recibir</Text>
+          <Text style={styles.totalLabel}>{strings.breakdown.total}</Text>
           <Text style={styles.totalValue}>C${totalAmount.toFixed(2)}</Text>
         </View>
       </View>
 
       {/* Estado de confirmación del cliente */}
       {loading ? (
-        <View style={styles.statusCard}>
-          <ActivityIndicator size="small" color={colors.primary} />
-          <Text style={styles.statusText}>Verificando estado del pago...</Text>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={styles.loadingText}>{strings.loading}</Text>
         </View>
       ) : clientConfirmed ? (
         <View style={[styles.statusCard, styles.statusCardSuccess]}>
           <Text style={styles.statusIcon}>✅</Text>
-          <Text style={styles.statusTextSuccess}>Cliente confirmó el pago</Text>
-          <Text style={styles.statusSubtext}>Puedes confirmar que recibiste el dinero</Text>
+          <Text style={styles.statusTextSuccess}>{strings.status.confirmedTitle}</Text>
+          <Text style={styles.statusSubtext}>{strings.status.confirmedSubtitle}</Text>
         </View>
       ) : (
         <View style={[styles.statusCard, styles.statusCardWarning]}>
           <Text style={styles.statusIcon}>⏳</Text>
-          <Text style={styles.statusTextWarning}>Esperando confirmación del cliente</Text>
-          <Text style={styles.statusSubtext}>El cliente debe confirmar primero que realizó el pago</Text>
+          <Text style={styles.statusTextWarning}>{strings.status.waitingTitle}</Text>
+          <Text style={styles.statusSubtext}>{strings.status.waitingSubtitle}</Text>
         </View>
       )}
 
       {/* Instructions */}
       <View style={styles.instructionsCard}>
-        <Text style={styles.instructionsTitle}>📋 Instrucciones</Text>
-        <Text style={styles.instructionsText}>
-          1. Espera a que el cliente confirme el pago{'\n'}
-          2. Verifica que te entregue el monto exacto{'\n'}
-          3. Cuenta el dinero cuidadosamente{'\n'}
-          4. Confirma el pago solo si recibiste el monto completo
-        </Text>
+        <Text style={styles.instructionsTitle}>{strings.instructions.title}</Text>
+        <Text style={styles.instructionsText}>{strings.instructions.text}</Text>
       </View>
 
       {/* Warning */}
       <View style={styles.warningCard}>
         <Text style={styles.warningIcon}>⚠️</Text>
-        <Text style={styles.warningText}>
-          Si el cliente no te paga o hay algún problema, presiona "Reportar Problema" antes de confirmar.
-        </Text>
+        <Text style={styles.warningText}>{strings.warningText}</Text>
       </View>
 
       {/* Buttons */}
       <AnimatedButton
-        title="✓ Confirmar - Recibí el Pago"
+        title={strings.buttons.confirm}
         onPress={handleConfirmPayment}
         loading={confirming}
         disabled={confirming}
@@ -444,7 +500,7 @@ export default function ConfirmCashPaymentScreen({ route, navigation }: ConfirmC
       />
 
       <AnimatedButton
-        title="💳 Cambiar a Pago con Tarjeta"
+        title={strings.buttons.switchToCard}
         onPress={handleSwitchToCard}
         variant="secondary"
         disabled={confirming}
@@ -452,7 +508,7 @@ export default function ConfirmCashPaymentScreen({ route, navigation }: ConfirmC
       />
 
       <AnimatedButton
-        title="⚠️ Reportar Problema"
+        title={strings.buttons.report}
         onPress={handleReportIssue}
         variant="outline"
         disabled={confirming}

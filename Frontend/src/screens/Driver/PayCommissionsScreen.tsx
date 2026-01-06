@@ -17,6 +17,7 @@ import { maskCardNumber } from '../../utils/cardUtils';
 import BiometricService from '../../services/biometricService';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { initializeFirebase } from '../../config/firebase';
+import { useTranslation } from 'react-i18next';
 
 const EMPTY_SUMMARY: DriverPenaltySummary = {
   success: false,
@@ -32,6 +33,45 @@ export default function PayCommissionsScreen({ navigation }: any) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { user } = useAuth();
+  const { t } = useTranslation();
+  const headerTitle = t('driver.payComission.header.title');
+  const loadingText = t('driver.payComission.loading');
+  const summaryTexts = t('driver.payComission.summary', {
+    returnObjects: true,
+  }) as {
+    title: string;
+    paymentsTitle: string;
+    paymentsCaption: string;
+    penaltiesTitle: string;
+    penaltiesCaption: string;
+    hint: string;
+  };
+  const methodsTexts = t('driver.payComission.methods', {
+    returnObjects: true,
+  }) as {
+    title: string;
+    cardTitle: string;
+    cardDescription: string;
+    cardEmpty: string;
+    cardManageLink: string;
+    bankTitle: string;
+    bankDescription: string;
+  };
+  const infoTexts = t('driver.payComission.info', { returnObjects: true }) as { title: string };
+  const inputTexts = t('driver.payComission.input', { returnObjects: true }) as {
+    label: string;
+    placeholder: string;
+  };
+  const buttonTexts = t('driver.payComission.button', { returnObjects: true }) as { pay: string };
+  const alertsTexts = t('driver.payComission.alerts', {
+    returnObjects: true,
+  }) as Record<string, string>;
+  const cardsTexts = t('driver.payComission.cards', {
+    returnObjects: true,
+  }) as { defaultBadge?: string };
+  const navigationTexts = t('driver.payComission.navigation', {
+    returnObjects: true,
+  }) as { goToPaymentMethods: string };
 
   const [loading, setLoading] = useState(true);
   const [summary, setSummary] = useState<DriverPenaltySummary>(EMPTY_SUMMARY);
@@ -74,18 +114,20 @@ export default function PayCommissionsScreen({ navigation }: any) {
 
   const handlePay = async () => {
     if (!summary || summary.pendingAmount <= 0) {
-      Alert.alert('Sin comisiones pendientes', 'No tienes comisiones por pagar');
+      Alert.alert(alertsTexts.noCommissionsTitle, alertsTexts.noCommissionsMessage);
       return;
     }
     if (selectedMethod === 'card' && !selectedCardId) {
-      Alert.alert('Selecciona una tarjeta', 'Debes elegir una tarjeta para pagar con tarjeta.');
+      Alert.alert(alertsTexts.selectCardTitle, alertsTexts.selectCardMessage);
       return;
     }
     try {
       const totalToPay = summary.pendingAmount || 0;
 
       const biometricResult = await BiometricService.authenticate(
-        `Confirma tu identidad para pagar tus comisiones por C$${totalToPay.toFixed(2)}`
+        t('driver.payComission.alerts.biometricPrompt', {
+          amount: formatCurrency(totalToPay),
+        })
       );
 
       if (!biometricResult.success) {
@@ -95,7 +137,7 @@ export default function PayCommissionsScreen({ navigation }: any) {
         ) {
           console.log('Biometría no disponible o no registrada. Continuando sin autenticación biométrica.');
         } else {
-          Alert.alert('Error', biometricResult.error || 'No se pudo confirmar tu identidad. Intenta de nuevo.');
+          Alert.alert(alertsTexts.biometricErrorTitle, biometricResult.error || alertsTexts.biometricErrorMessage);
           return;
         }
       } else {
@@ -125,18 +167,28 @@ export default function PayCommissionsScreen({ navigation }: any) {
       if (res?.success) {
         const penaltiesPaid = res.breakdown?.penaltiesPaid ?? 0;
         const paymentsPaid = res.breakdown?.paymentCommissionsPaid ?? 0;
-        const detailMessage = `Penalizaciones: ${penaltiesPaid} · C$${(res.breakdown?.penaltiesAmount ?? 0).toFixed(2)}\nComisiones Supabase: ${paymentsPaid} · C$${(res.breakdown?.paymentCommissionsAmount ?? 0).toFixed(2)}`;
-        Alert.alert('Pago registrado', `Se registró el pago de C$${res.totalPaid.toFixed(2)} (${res.changed} conceptos)\n\n${detailMessage}`, [
+        const detailMessage = t('driver.payComission.alerts.detailTemplate', {
+          penaltiesCount: penaltiesPaid,
+          penaltiesAmount: formatCurrency(res.breakdown?.penaltiesAmount ?? 0),
+          commissionsCount: paymentsPaid,
+          commissionsAmount: formatCurrency(res.breakdown?.paymentCommissionsAmount ?? 0),
+        });
+        const successMessage = t('driver.payComission.alerts.paymentSuccessMessage', {
+          amount: formatCurrency(res.totalPaid ?? 0),
+          concepts: res.changed ?? 0,
+          details: detailMessage,
+        });
+        Alert.alert(alertsTexts.paymentSuccessTitle, successMessage, [
           {
-            text: 'OK',
+            text: alertsTexts.paymentSuccessButton,
             onPress: () => navigation.replace('Earnings'),
           },
         ]);
       } else {
-        Alert.alert('Error', 'No se pudo registrar el pago');
+        Alert.alert(alertsTexts.paymentErrorTitle, alertsTexts.paymentErrorMessage);
       }
     } catch (e: any) {
-      Alert.alert('Error', e?.message || 'No se pudo registrar el pago');
+      Alert.alert(alertsTexts.paymentErrorTitle, e?.message || alertsTexts.paymentErrorMessage);
     } finally {
       setSubmitting(false);
     }
@@ -157,7 +209,7 @@ export default function PayCommissionsScreen({ navigation }: any) {
 
     return (
       <View style={styles.methodsContainer}>
-        <Text style={styles.methodsTitle}>Elige cómo quieres pagar</Text>
+        <Text style={styles.methodsTitle}>{methodsTexts.title}</Text>
 
         {/* Método principal: Tarjeta guardada */}
         <TouchableOpacity
@@ -169,11 +221,11 @@ export default function PayCommissionsScreen({ navigation }: any) {
           activeOpacity={0.8}
         >
           <View style={styles.methodOptionHeader}>
-            <Text style={styles.methodOptionLabel}>Tarjeta guardada</Text>
+            <Text style={styles.methodOptionLabel}>{methodsTexts.cardTitle}</Text>
             {selectedMethod === 'card' && <Text style={styles.methodOptionCheck}>✓</Text>}
           </View>
           <Text style={styles.methodOptionDescription}>
-            Usa una de tus tarjetas guardadas para registrar el pago.
+            {methodsTexts.cardDescription}
           </Text>
 
           {hasCards && selectedMethod === 'card' && (
@@ -188,7 +240,7 @@ export default function PayCommissionsScreen({ navigation }: any) {
                   >
                     <Text style={styles.cardItemLabel}>
                       {`${card.brand.toUpperCase()} ${maskCardNumber(card.last4)} · Exp ${card.expMonth}/${card.expYear}`}
-                      {card.isDefault ? ' (Predeterminada)' : ''}
+                      {card.isDefault ? cardsTexts.defaultBadge ?? '' : ''}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -199,14 +251,16 @@ export default function PayCommissionsScreen({ navigation }: any) {
           {!hasCards && (
             <View style={{ marginTop: 8 }}>
               <Text style={styles.methodOptionDescription}>
-                Aún no tienes tarjetas guardadas. Agrega una para poder pagar con tarjeta.
+                {methodsTexts.cardEmpty}
               </Text>
               <TouchableOpacity
                 style={{ marginTop: 8 }}
                 onPress={() => navigation.navigate('PaymentMethods')}
                 activeOpacity={0.8}
               >
-                <Text style={[styles.cardItemLabel, { color: colors.primary }]}>Ir a Métodos de pago →</Text>
+                <Text style={[styles.cardItemLabel, { color: colors.primary }]}>
+                  {navigationTexts.goToPaymentMethods}
+                </Text>
               </TouchableOpacity>
             </View>
           )}
@@ -222,11 +276,11 @@ export default function PayCommissionsScreen({ navigation }: any) {
           activeOpacity={0.8}
         >
           <View style={styles.methodOptionHeader}>
-            <Text style={styles.methodOptionLabel}>Transferencia bancaria</Text>
+            <Text style={styles.methodOptionLabel}>{methodsTexts.bankTitle}</Text>
             {selectedMethod === 'bank_transfer' && <Text style={styles.methodOptionCheck}>✓</Text>}
           </View>
           <Text style={styles.methodOptionDescription}>
-            Transfiere desde tu cuenta hacia la cuenta de la empresa. Los datos estarán en el panel administrativo.
+            {methodsTexts.bankDescription}
           </Text>
         </TouchableOpacity>
       </View>
@@ -239,32 +293,34 @@ export default function PayCommissionsScreen({ navigation }: any) {
         <TouchableOpacity style={styles.backButton} onPress={handleBack}>
           <Text style={styles.backButtonText}>←</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Pagar comisiones pendientes</Text>
+        <Text style={styles.headerTitle}>{headerTitle}</Text>
         <View style={styles.backButton} />
       </View>
 
       {loading ? (
         <View style={styles.centerBox}>
           <ActivityIndicator color={colors.primary} size="large" />
-          <Text style={styles.loadingText}>Cargando resumen...</Text>
+          <Text style={styles.loadingText}>{loadingText}</Text>
         </View>
       ) : (
         <ScrollView style={styles.content} contentContainerStyle={{ padding: 16 }}>
           <View style={styles.summaryCard}>
-            <Text style={styles.summaryTitle}>Resumen de comisiones</Text>
+            <Text style={styles.summaryTitle}>{summaryTexts.title}</Text>
 
             <View style={styles.summaryHighlight}>
               <Text style={styles.summaryHighlightAmount}>{formatCurrency(summary?.pendingAmount ?? 0)}</Text>
               <Text style={styles.summaryHighlightLabel}>
-                {summary?.pendingCount ?? 0} {summary?.pendingCount === 1 ? 'concepto pendiente' : 'conceptos pendientes'}
+                {t('driver.payComission.summary.highlightLabel', {
+                  count: summary?.pendingCount ?? 0,
+                })}
               </Text>
             </View>
 
             <View style={styles.summaryBreakdown}>
               <View style={styles.summaryBreakdownItem}>
                 <View style={styles.summaryBreakdownText}>
-                  <Text style={styles.summaryBreakdownLabel}>Viajes cobrados</Text>
-                  <Text style={styles.summaryBreakdownCaption}>Comisiones retenidas por viajes completados en efectivo.</Text>
+                  <Text style={styles.summaryBreakdownLabel}>{summaryTexts.paymentsTitle}</Text>
+                  <Text style={styles.summaryBreakdownCaption}>{summaryTexts.paymentsCaption}</Text>
                 </View>
                 <Text style={styles.summaryBreakdownValue}>
                   {`${summary?.payments.count ?? 0} · ${formatCurrency(summary?.payments.amount ?? 0)}`}
@@ -273,8 +329,8 @@ export default function PayCommissionsScreen({ navigation }: any) {
 
               <View style={styles.summaryBreakdownItem}>
                 <View style={styles.summaryBreakdownText}>
-                  <Text style={styles.summaryBreakdownLabel}>Ajustes por cancelación</Text>
-                  <Text style={styles.summaryBreakdownCaption}>Cargos cuando un viaje se cancela después de haber iniciado.</Text>
+                  <Text style={styles.summaryBreakdownLabel}>{summaryTexts.penaltiesTitle}</Text>
+                  <Text style={styles.summaryBreakdownCaption}>{summaryTexts.penaltiesCaption}</Text>
                 </View>
                 <Text style={styles.summaryBreakdownValue}>
                   {`${summary?.penalties.count ?? 0} · ${formatCurrency(summary?.penalties.amount ?? 0)}`}
@@ -282,20 +338,20 @@ export default function PayCommissionsScreen({ navigation }: any) {
               </View>
             </View>
 
-            <Text style={styles.summaryHint}>Liquida el monto total para mantener tu cuenta activa y evitar restricciones.</Text>
+            <Text style={styles.summaryHint}>{summaryTexts.hint}</Text>
           </View>
 
           <View style={styles.infoCard}>
-            <Text style={styles.infoTitle}>Método de pago</Text>
+            <Text style={styles.infoTitle}>{infoTexts.title}</Text>
             {renderPaymentMethods()}
           </View>
 
           <View style={styles.inputCard}>
-            <Text style={styles.inputLabel}>Referencia de transferencia (opcional)</Text>
+            <Text style={styles.inputLabel}>{inputTexts.label}</Text>
             <TextInput
               value={reference}
               onChangeText={setReference}
-              placeholder="Ej. #FT-12345678"
+              placeholder={inputTexts.placeholder}
               placeholderTextColor={colors.textSecondary}
               style={styles.input}
               autoCapitalize="characters"
@@ -315,7 +371,11 @@ export default function PayCommissionsScreen({ navigation }: any) {
             {submitting ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <Text style={styles.payButtonText}>Pagar {formatCurrency(summary?.pendingAmount ?? 0)}</Text>
+              <Text style={styles.payButtonText}>
+                {t('driver.payComission.button.pay', {
+                  amount: formatCurrency(summary?.pendingAmount ?? 0),
+                })}
+              </Text>
             )}
           </TouchableOpacity>
         </ScrollView>

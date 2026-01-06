@@ -7,6 +7,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Animated } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 import { haversineKm } from '../utils/distance';
+import { useTranslation } from 'react-i18next';
 
 interface DeviationAlertProps {
   currentLat: number;
@@ -24,6 +25,7 @@ const DeviationAlert: React.FC<DeviationAlertProps> = ({
   onDeviation,
 }) => {
   const { colors } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
   const [isDeviated, setIsDeviated] = useState(false);
@@ -129,10 +131,14 @@ const DeviationAlert: React.FC<DeviationAlertProps> = ({
 
         <View style={styles.textContainer}>
           <Text style={styles.title}>
-            {severity === 'danger' ? 'Desvío Importante' : 'Posible Desvío'}
+            {severity === 'danger'
+              ? t('common.components.deviationAlert.title.danger')
+              : t('common.components.deviationAlert.title.warning')}
           </Text>
           <Text style={styles.message}>
-            El conductor está a {formatDistance(deviationDistance)} de la ruta esperada
+            {t('common.components.deviationAlert.message', {
+              distance: formatDistance(deviationDistance),
+            })}
           </Text>
         </View>
       </View>

@@ -6,7 +6,7 @@ import { RideService } from '../sequelize/services/RideService';
 import { supabaseGetRidesWithLocationsAndPayments } from '../supabase/client';
 import { mapRides } from './rideHistory';
 import { sendNotificationToUser } from '../services/pushNotifications';
-import { notifyLiveRideUpdate } from '../services/liveRideNotifications';
+import { notifyLiveRideUpdate, LiveRideNotificationPayload } from '../services/liveRideNotifications';
 import { RideRepository } from '../sequelize/repositories/RideRepository';
 import { DriverPenaltyRepository } from '../sequelize/repositories/DriverPenaltyRepository';
 import { ServiceRepository } from '../sequelize/repositories/ServiceRepository';
@@ -20,6 +20,9 @@ const IS_LOAD_TEST =
   (process.env.FUNCTIONS_EMULATOR === 'true' ||
     (process.env.FIREBASE_EMULATOR_RUN_MODE ?? '').toLowerCase() === 'true') &&
   (process.env.SKIP_DB_FOR_LOADTEST ?? '').toLowerCase() === 'true';
+
+const FUNCTIONS_PUSH_NOTIFICATIONS_ENABLED =
+  (process.env.FUNCTIONS_PUSH_NOTIFICATIONS ?? 'false').toLowerCase() === 'true';
 
 const rideRepo = new RideRepository();
 const driverRepo = new DriverRepository();
@@ -44,6 +47,21 @@ const safeLogRideEvent = async (
     await logRideEvent(eventType, rideId, normalizedUserId, additionalData);
   } catch (error) {
     console.warn(`⚠️ [analytics] Error registrando ${eventType} para ride ${rideId}`, error);
+  }
+};
+
+const notifyLiveRideUpdateSafe = async (payload: LiveRideNotificationPayload) => {
+  if (!FUNCTIONS_PUSH_NOTIFICATIONS_ENABLED) {
+    return;
+  }
+
+  try {
+    await notifyLiveRideUpdate(payload);
+  } catch (error) {
+    console.error('❌ [rides] Error enviando live ride notification push:', {
+      payload,
+      error,
+    });
   }
 };
 
@@ -88,6 +106,10 @@ const notifyUserSafe = async (
   body: string,
   data: Record<string, string | number | boolean | null | undefined> = {},
 ) => {
+  if (!FUNCTIONS_PUSH_NOTIFICATIONS_ENABLED) {
+    return;
+  }
+
   if (!userId) {
     return;
   }
@@ -864,7 +886,7 @@ export const markDriverOnRoute = functions.https.onCall(async (data, context) =>
       driverId,
     });
 
-    await notifyLiveRideUpdate({
+    await notifyLiveRideUpdateSafe({
       userId: rideData.clientId,
       rideId,
       status: 'driver_on_route',
@@ -1816,7 +1838,7 @@ export const confirmDriver = functions.https.onCall(async (data, context) => {
       clientId,
     });
 
-    await notifyLiveRideUpdate({
+    await notifyLiveRideUpdateSafe({
       userId: clientId,
       rideId,
       status: 'driver_assigned',
@@ -1966,37 +1988,28 @@ export const startRide = functions.https.onCall(async (data, context) => {
       try {
         const currentRide = await db.ref(`activeRides/${rideId}`).once('value');
         const currentData = currentRide.val() || {};
-        latestActiveRideSnapshot = currentData;
 
-        if (!currentData.status) {
-          throw new functions.https.HttpsError('not-found', 'Viaje no encontrado en Firebase');
-        }
+        await db.ref(`activeRides/${rideId}`).update({
+          status: 'in_progress',
+          startedAt: currentData.startedAt || admin.database.ServerValue.TIMESTAMP,
+          updatedAt: admin.database.ServerValue.TIMESTAMP,
+          // Preservar campos de negociación
+          clientSuggestedPrice: currentData.clientSuggestedPrice || null,
+          driverOfferedPrice: currentData.driverOfferedPrice || null,
+          negotiationStatus: currentData.negotiationStatus || null,
+        });
+        console.log(`✅ [startRide][LOADTEST] Viaje sincronizado a Firebase`);
 
-        if (currentData.status === 'in_progress') {
-          console.log(`🔁 [startRide][LOADTEST] Viaje ${rideId} ya estaba en progreso en Firebase`);
-        } else {
-          await db.ref(`activeRides/${rideId}`).update({
-            status: 'in_progress',
-            startedAt: currentData.startedAt || admin.database.ServerValue.TIMESTAMP,
-            updatedAt: admin.database.ServerValue.TIMESTAMP,
-            // Preservar campos de negociación
-            clientSuggestedPrice: currentData.clientSuggestedPrice || null,
-            driverOfferedPrice: currentData.driverOfferedPrice || null,
-            negotiationStatus: currentData.negotiationStatus || null,
-          });
-          console.log(`✅ [startRide][LOADTEST] Viaje sincronizado a Firebase`);
-
-          try {
-            const driverId = currentData.driverId;
-            if (driverId) {
-              await db.ref(`driverLocations/${driverId}`).update({
-                status: 'busy',
-                updatedAt: admin.database.ServerValue.TIMESTAMP,
-              });
-            }
-          } catch (busyErr: any) {
-            console.warn('⚠️ [startRide][LOADTEST] No se pudo marcar BUSY en driverLocations:', busyErr.message || busyErr);
+        try {
+          const driverId = currentData.driverId;
+          if (driverId) {
+            await db.ref(`driverLocations/${driverId}`).update({
+              status: 'busy',
+              updatedAt: admin.database.ServerValue.TIMESTAMP,
+            });
           }
+        } catch (busyErr: any) {
+          console.warn('⚠️ [startRide][LOADTEST] No se pudo marcar BUSY en driverLocations:', busyErr.message || busyErr);
         }
       } catch (firebaseError: any) {
         console.error(`⚠️ [startRide][LOADTEST] Error sincronizando a Firebase:`, firebaseError.message);
@@ -2054,11 +2067,12 @@ export const startRide = functions.https.onCall(async (data, context) => {
       const clientId = latestActiveRideSnapshot?.clientId || ride.client_id || null;
       if (clientId) {
         const driverName =
+          latestActiveRideSnapshot?.driver?.full_name ||
+          latestActiveRideSnapshot?.driver?.fullName ||
           latestActiveRideSnapshot?.driver?.name ||
-          latestActiveRideSnapshot?.driverName ||
           (ride as any)?.driver_name ||
           null;
-        await notifyLiveRideUpdate({
+        await notifyLiveRideUpdateSafe({
           userId: clientId,
           rideId,
           status: 'trip_in_progress',
@@ -2131,17 +2145,17 @@ export const completeRide = functions.https.onCall(async (data, context) => {
           console.warn('⚠️ [completeRide][LOADTEST] Error actualizando paymentStatus:', paymentErr.message || paymentErr);
         }
 
-        await notifyUserSafe(currentData.clientId, '✅ Viaje finalizado', 'Por favor confirma y realiza el pago.', {
+        await notifyUserSafe(currentData.clientId, 'Viaje finalizado', 'Por favor confirma y realiza el pago.', {
           rideId,
           type: 'ride_completed',
           finalFare,
         });
 
-        await notifyLiveRideUpdate({
+        await notifyLiveRideUpdateSafe({
           userId: currentData.clientId,
           rideId,
           status: 'completed',
-          driverName: currentData?.driver?.name || null,
+          driverName: currentData?.driver?.full_name || currentData?.driver?.fullName || currentData?.driver?.name || null,
         });
       } catch (firebaseError: any) {
         console.error(`⚠️ [completeRide][LOADTEST] Error sincronizando a Firebase:`, firebaseError.message);
@@ -2207,11 +2221,11 @@ export const completeRide = functions.https.onCall(async (data, context) => {
         finalFare,
       });
 
-      await notifyLiveRideUpdate({
+      await notifyLiveRideUpdateSafe({
         userId: currentData.clientId,
         rideId,
         status: 'completed',
-        driverName: currentData?.driver?.name || null,
+        driverName: currentData?.driver?.full_name || currentData?.driver?.fullName || currentData?.driver?.name || null,
       });
     } catch (firebaseError: any) {
       console.error(`⚠️ [completeRide] Error sincronizando a Firebase:`, firebaseError.message);
@@ -2353,11 +2367,11 @@ export const cancelRide = functions.https.onCall(async (data, context) => {
         canceledBy: canceledBy || 'unknown',
       });
 
-      await notifyLiveRideUpdate({
+      await notifyLiveRideUpdateSafe({
         userId: firebaseRide.clientId,
         rideId,
         status: 'canceled',
-        driverName: firebaseRide?.driver?.name || firebaseRide?.driverName || null,
+        driverName: firebaseRide?.driver?.full_name || firebaseRide?.driver?.fullName || firebaseRide?.driver?.name || null,
       });
 
       if (firebaseRide.driverId) {

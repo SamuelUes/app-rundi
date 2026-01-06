@@ -29,6 +29,7 @@ import {
   normalizePhoneNumber,
   extractLocalNumber,
 } from '../../utils/phoneUtils';
+import { useTranslation } from 'react-i18next';
 
 export type GooglePhoneScreenNavigationProp = NativeStackNavigationProp<
   AuthStackParamList,
@@ -48,6 +49,7 @@ const GooglePhoneScreen: React.FC<GooglePhoneScreenProps> = ({ navigation, route
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { name, email, googleIdToken, initialPhone } = route.params;
+  const { t } = useTranslation();
 
   const countryOptions = useMemo(() => getCountryDialOptions(), []);
   const defaultCountry =
@@ -83,7 +85,10 @@ const GooglePhoneScreen: React.FC<GooglePhoneScreenProps> = ({ navigation, route
     const normalized = normalizePhoneNumber(phoneInput, selectedCountry.dialCode);
 
     if (!normalized || !/^\+\d{6,15}$/.test(normalized)) {
-      Alert.alert('Error', 'Por favor ingresa un número telefónico válido');
+      Alert.alert(
+        t('authScreens.googlePhone.alerts.errorTitle'),
+        t('authScreens.googlePhone.alerts.invalidPhone'),
+      );
       return;
     }
 
@@ -103,7 +108,10 @@ const GooglePhoneScreen: React.FC<GooglePhoneScreenProps> = ({ navigation, route
         lastStep: 'googlePhone',
       });
 
-      Alert.alert('✅ Código enviado', `Se envió un código a ${normalized}`);
+      Alert.alert(
+        t('authScreens.googlePhone.alerts.successTitle'),
+        t('authScreens.googlePhone.alerts.successMessage', { phone: normalized }),
+      );
 
       navigation.replace('PhoneVerification', {
         name,
@@ -116,7 +124,10 @@ const GooglePhoneScreen: React.FC<GooglePhoneScreenProps> = ({ navigation, route
       });
     } catch (error: any) {
       console.error('Error enviando código post-Google:', error);
-      Alert.alert('Error', error.message || 'No se pudo enviar el código SMS');
+      Alert.alert(
+        t('authScreens.googlePhone.alerts.errorTitle'),
+        error.message || t('authScreens.googlePhone.alerts.sendFailed'),
+      );
     } finally {
       setLoading(false);
     }
@@ -129,19 +140,27 @@ const GooglePhoneScreen: React.FC<GooglePhoneScreenProps> = ({ navigation, route
     >
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.content}>
-          <Text style={styles.title}>Necesitamos tu número</Text>
+          <Text style={styles.title}>
+            {t('authScreens.googlePhone.title')}
+          </Text>
           <Text style={styles.subtitle}>
-            Completa tu número telefónico para verificarlo y terminar el registro
+            {t('authScreens.googlePhone.subtitle')}
           </Text>
 
           <View style={styles.card}>
-            <Text style={styles.label}>Nombre</Text>
+            <Text style={styles.label}>
+              {t('authScreens.googlePhone.labels.name')}
+            </Text>
             <Text style={styles.value}>{name}</Text>
 
-            <Text style={styles.label}>Email</Text>
+            <Text style={styles.label}>
+              {t('authScreens.googlePhone.labels.email')}
+            </Text>
             <Text style={styles.value}>{email}</Text>
 
-            <Text style={[styles.label, styles.sectionLabel]}>Teléfono</Text>
+            <Text style={[styles.label, styles.sectionLabel]}>
+              {t('authScreens.googlePhone.labels.phone')}
+            </Text>
 
             <View style={styles.phoneRow}>
               <TextInput
@@ -151,7 +170,7 @@ const GooglePhoneScreen: React.FC<GooglePhoneScreenProps> = ({ navigation, route
               />
               <TextInput
                 style={[styles.input, styles.phoneInput]}
-                placeholder="Tu número"
+                placeholder={t('authScreens.googlePhone.labels.placeholder')}
                 placeholderTextColor={colors.textSecondary}
                 value={phoneInput.replace(selectedCountry.dialCode, '').trim()}
                 onChangeText={(text) => handlePhoneChange(`${selectedCountry.dialCode} ${text}`)}
@@ -186,7 +205,9 @@ const GooglePhoneScreen: React.FC<GooglePhoneScreenProps> = ({ navigation, route
               {loading ? (
                 <ActivityIndicator color="#FFFFFF" />
               ) : (
-                <Text style={styles.continueButtonText}>Enviar código</Text>
+                <Text style={styles.continueButtonText}>
+                  {t('authScreens.googlePhone.buttons.send')}
+                </Text>
               )}
             </TouchableOpacity>
 
@@ -195,7 +216,9 @@ const GooglePhoneScreen: React.FC<GooglePhoneScreenProps> = ({ navigation, route
               onPress={() => navigation.goBack()}
               disabled={loading}
             >
-              <Text style={styles.cancelButtonText}>Cancelar</Text>
+              <Text style={styles.cancelButtonText}>
+                {t('authScreens.googlePhone.buttons.cancel')}
+              </Text>
             </TouchableOpacity>
           </View>
         </View>

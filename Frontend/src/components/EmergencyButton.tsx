@@ -1,10 +1,21 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, Modal, StyleSheet, Linking, Alert, ActivityIndicator, Image } from 'react-native';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  Modal,
+  StyleSheet,
+  Linking,
+  Alert,
+  ActivityIndicator,
+  Image,
+} from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 import { useLocation } from '../hooks/useLocation';
 import { getFirebaseFunctions } from '../config/firebase';
 import { httpsCallable } from 'firebase/functions';
 import { useAuth } from '../context/AuthContext';
+import { useTranslation } from 'react-i18next';
 
 interface EmergencyButtonProps {
   rideId?: string;
@@ -16,6 +27,7 @@ export default function EmergencyButton({ rideId, style, onOpen, onReady }: Emer
   const { coords } = useLocation();
   const { colors } = useTheme();
   const { user } = useAuth();
+  const { t } = useTranslation();
   const [modalVisible, setModalVisible] = useState(false);
   const [calling, setCalling] = useState(false);
 
@@ -33,9 +45,14 @@ export default function EmergencyButton({ rideId, style, onOpen, onReady }: Emer
     }
   }, [handleEmergencyPress, onReady]);
 
+  const getEmergencyDetails = (type: 'police' | 'ambulance') => ({
+    title: t(`common.components.emergencyButton.options.${type}.title`),
+    description: t(`common.components.emergencyButton.options.${type}.description`),
+    number: t(`common.components.emergencyButton.options.${type}.number`),
+  });
+
   const callEmergency = async (type: 'police' | 'ambulance') => {
-    const number = type === 'police' ? '118' : '102';
-    const name = type === 'police' ? 'Policía' : 'Ambulancia';
+    const { title, number } = getEmergencyDetails(type);
 
     setCalling(true);
     setModalVisible(false);
@@ -67,16 +84,25 @@ export default function EmergencyButton({ rideId, style, onOpen, onReady }: Emer
       if (canOpen) {
         await Linking.openURL(phoneUrl);
         Alert.alert(
-          '🚨 Emergencia',
-          `Llamando a ${name} (${number})\n\nLa llamada ha sido registrada.`,
-          [{ text: 'OK' }]
+          t('common.components.emergencyButton.alerts.callingTitle'),
+          t('common.components.emergencyButton.alerts.callingMessage', {
+            name: title,
+            number,
+          }),
+          [{ text: 'OK' }],
         );
       } else {
-        Alert.alert('Error', 'No se puede realizar la llamada');
+        Alert.alert(
+          t('common.components.emergencyButton.alerts.errorTitle'),
+          t('common.components.emergencyButton.alerts.cannotCall'),
+        );
       }
     } catch (error) {
       console.error('Error al llamar:', error);
-      Alert.alert('Error', 'No se pudo realizar la llamada de emergencia');
+      Alert.alert(
+        t('common.components.emergencyButton.alerts.errorTitle'),
+        t('common.components.emergencyButton.alerts.errorMessage'),
+      );
     } finally {
       setCalling(false);
     }
@@ -193,19 +219,25 @@ export default function EmergencyButton({ rideId, style, onOpen, onReady }: Emer
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>🚨 Emergencia</Text>
+            <Text style={styles.modalTitle}>
+              {t('common.components.emergencyButton.modalTitle')}
+            </Text>
             <Text style={styles.modalSubtitle}>
-              Selecciona el servicio de emergencia
+              {t('common.components.emergencyButton.modalSubtitle')}
             </Text>
 
             <TouchableOpacity
               style={styles.emergencyOption}
               onPress={() => callEmergency('police')}
             >
-              <Text style={styles.emergencyOptionTitle}>👮 Policía</Text>
-              <Text style={styles.emergencyOptionNumber}>118</Text>
+              <Text style={styles.emergencyOptionTitle}>
+                {t('common.components.emergencyButton.options.police.title')}
+              </Text>
+              <Text style={styles.emergencyOptionNumber}>
+                {t('common.components.emergencyButton.options.police.number')}
+              </Text>
               <Text style={styles.emergencyOptionDescription}>
-                Emergencias policiales, robos, accidentes
+                {t('common.components.emergencyButton.options.police.description')}
               </Text>
             </TouchableOpacity>
 
@@ -213,10 +245,14 @@ export default function EmergencyButton({ rideId, style, onOpen, onReady }: Emer
               style={styles.emergencyOption}
               onPress={() => callEmergency('ambulance')}
             >
-              <Text style={styles.emergencyOptionTitle}>🚑 Ambulancia</Text>
-              <Text style={styles.emergencyOptionNumber}>102</Text>
+              <Text style={styles.emergencyOptionTitle}>
+                {t('common.components.emergencyButton.options.ambulance.title')}
+              </Text>
+              <Text style={styles.emergencyOptionNumber}>
+                {t('common.components.emergencyButton.options.ambulance.number')}
+              </Text>
               <Text style={styles.emergencyOptionDescription}>
-                Emergencias médicas, accidentes, lesiones
+                {t('common.components.emergencyButton.options.ambulance.description')}
               </Text>
             </TouchableOpacity>
 
@@ -224,7 +260,9 @@ export default function EmergencyButton({ rideId, style, onOpen, onReady }: Emer
               style={styles.cancelButton}
               onPress={() => setModalVisible(false)}
             >
-              <Text style={styles.cancelButtonText}>Cancelar</Text>
+              <Text style={styles.cancelButtonText}>
+                {t('common.components.emergencyButton.cancelLabel')}
+              </Text>
             </TouchableOpacity>
           </View>
         </View>

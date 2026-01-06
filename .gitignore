@@ -81,12 +81,13 @@ Backend/
 docs/
 database/
 tools/
-.env
+#.env
 storage.rules
 !Frontend/.env
 tests/
 web/
 web/page
+web/plataform
 web/functions
 web/page/.next
 

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Platform, StyleSheet, Text, View } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
+import { useTranslation } from 'react-i18next';
 
 export type PermissionsExplanationProps = {
   role: 'driver' | 'client';
@@ -9,6 +10,7 @@ export type PermissionsExplanationProps = {
 const PermissionsExplanation: React.FC<PermissionsExplanationProps> = ({ role }) => {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const { t } = useTranslation();
 
   const isDriver = role === 'driver';
 
@@ -20,12 +22,11 @@ const PermissionsExplanation: React.FC<PermissionsExplanationProps> = ({ role })
         id: 'location',
         renderContent: () => (
           <>
-            <Text style={styles.permissionTitle}>📍 Ubicación en todo momento</Text>
+            <Text style={styles.permissionTitle}>{t('shared.permissions.items.location.title')}</Text>
             <Text style={styles.permissionText}>
-              Usamos tu ubicación para mostrar el mapa, calcular rutas y tiempos estimados, y encontrar viajes cercanos.
               {isDriver
-                ? ' Como conductor, también la usamos en segundo plano para detectar viajes cercanos, mantener el viaje activo aunque la app no esté en primer plano y para funciones de seguridad.'
-                : ' Como cliente, la usamos principalmente mientras la app está en uso para encontrar conductores cercanos y compartir tu ubicación durante el viaje.'}
+                ? t('shared.permissions.items.location.descriptionDriver')
+                : t('shared.permissions.items.location.descriptionClient')}
             </Text>
           </>
         ),
@@ -36,16 +37,10 @@ const PermissionsExplanation: React.FC<PermissionsExplanationProps> = ({ role })
           id: 'overlay',
           renderContent: () => (
             <>
-              <Text style={styles.permissionTitle}>🫧 Mostrar encima de otras apps (solo conductores)</Text>
-              <Text style={styles.permissionText}>
-                Este permiso nos permite mostrar una pequeña burbuja flotante cuando tienes un viaje activo o estás disponible
-                como conductor, incluso si cambias a otra app. Así puedes volver rápidamente al viaje y mantener el seguimiento
-                sin perder información importante.
-              </Text>
+              <Text style={styles.permissionTitle}>{t('shared.permissions.items.overlay.title')}</Text>
+              <Text style={styles.permissionText}>{t('shared.permissions.items.overlay.description')}</Text>
               {Platform.OS === 'android' && (
-                <Text style={styles.permissionNote}>
-                  En Android, este permiso se llama "Aparecer encima de otras apps" o "Mostrar sobre otras aplicaciones".
-                </Text>
+                <Text style={styles.permissionNote}>{t('shared.permissions.items.overlay.noteAndroid')}</Text>
               )}
             </>
           ),
@@ -56,14 +51,14 @@ const PermissionsExplanation: React.FC<PermissionsExplanationProps> = ({ role })
         id: 'notifications',
         renderContent: () => (
           <>
-            <Text style={styles.permissionTitle}>🔔 Notificaciones</Text>
-            <Text style={styles.permissionText}>
-              Usamos las notificaciones para avisarte cuando:
-            </Text>
-            <Text style={styles.bullet}>• Se crea, acepta o actualiza un viaje.</Text>
-            <Text style={styles.bullet}>• Llega tu conductor o cambia el estado del viaje.</Text>
-            {isDriver && <Text style={styles.bullet}>• Hay viajes nuevos disponibles cerca de tu ubicación.</Text>}
-            <Text style={styles.bullet}>• Hay mensajes importantes sobre tu cuenta o seguridad.</Text>
+            <Text style={styles.permissionTitle}>{t('shared.permissions.items.notifications.title')}</Text>
+            <Text style={styles.permissionText}>{t('shared.permissions.items.notifications.intro')}</Text>
+            <Text style={styles.bullet}>• {t('shared.permissions.items.notifications.bulletTrip')}</Text>
+            <Text style={styles.bullet}>• {t('shared.permissions.items.notifications.bulletDriverArrived')}</Text>
+            {isDriver && (
+              <Text style={styles.bullet}>• {t('shared.permissions.items.notifications.bulletDriverNew')}</Text>
+            )}
+            <Text style={styles.bullet}>• {t('shared.permissions.items.notifications.bulletAccount')}</Text>
           </>
         ),
       });
@@ -73,12 +68,8 @@ const PermissionsExplanation: React.FC<PermissionsExplanationProps> = ({ role })
           id: 'activity',
           renderContent: () => (
             <>
-              <Text style={styles.permissionTitle}>🏃 Actividad física / reconocimiento de actividad</Text>
-              <Text style={styles.permissionText}>
-                En algunos dispositivos Android, el permiso de actividad física se usa junto con la ubicación para mejorar la
-                detección del movimiento del dispositivo y optimizar el uso de batería mientras se rastrean los viajes.
-                No usamos estos datos para fines de salud, solo para mejorar la precisión y estabilidad del seguimiento del viaje.
-              </Text>
+              <Text style={styles.permissionTitle}>{t('shared.permissions.items.activity.title')}</Text>
+              <Text style={styles.permissionText}>{t('shared.permissions.items.activity.description')}</Text>
             </>
           ),
         });
@@ -86,7 +77,7 @@ const PermissionsExplanation: React.FC<PermissionsExplanationProps> = ({ role })
 
       return items;
     },
-    [isDriver, styles],
+    [isDriver, styles, t],
   );
 
   const groups = useMemo(() => {
@@ -137,10 +128,8 @@ const PermissionsExplanation: React.FC<PermissionsExplanationProps> = ({ role })
 
   return (
     <View style={styles.container}>
-      <Text style={styles.sectionTitle}>Permisos que usamos y por qué</Text>
-      <Text style={styles.sectionSubtitle}>
-        Solo pedimos los permisos necesarios para que la app funcione de forma segura y confiable.
-      </Text>
+      <Text style={styles.sectionTitle}>{t('shared.permissions.explanation.title')}</Text>
+      <Text style={styles.sectionSubtitle}>{t('shared.permissions.explanation.subtitle')}</Text>
       <Animated.View style={[styles.permissionsCarousel, { opacity }]}>
         {currentGroup.map(permission => (
           <View key={permission.id} style={styles.permissionBlock}>

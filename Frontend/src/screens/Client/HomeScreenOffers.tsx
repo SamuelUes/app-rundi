@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, FlatList, Image, ActivityIndicator, Animated } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { useLocation } from '../../hooks/useLocation';
@@ -61,14 +62,14 @@ const extractNameFromSource = (source: any): string | null => {
   );
 };
 
-const mergeName = (...sources: Array<any | null | undefined>): string => {
+const mergeName = (fallback: string, ...sources: Array<any | null | undefined>): string => {
   for (const source of sources) {
     const candidate = extractNameFromSource(source);
     if (candidate) {
       return candidate;
     }
   }
-  return 'Conductor';
+  return fallback;
 };
 
 const extractRatingValue = (value: any): number | null => {
@@ -114,6 +115,8 @@ const mergeRating = (...sources: Array<any | null | undefined>): number | null =
 };
 
 export default function HomeScreenOffers({ navigation, route }: Props) {
+  const { t } = useTranslation();
+  const driverFallbackName = t('common.roles.driver');
   const { user } = useAuth();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -197,7 +200,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
           const arr: OfferItem[] = Object.entries<any>(offersData).map(([driverId, offer]) => {
             const info = driversInfo?.[driverId] || {};
             const raw = driversRaw?.[driverId] || {};
-            const fullName = mergeName(info, raw, offer?.driver);
+            const fullName = mergeName(driverFallbackName, info, raw, offer?.driver);
             const rating = mergeRating(info, raw, offer?.driver ?? offer);
             const photoURL = info?.profilePhoto || info?.photoURL || info?.photoUrl || raw?.profilePhoto || raw?.photoURL || raw?.photoUrl || offer?.driver?.photoURL || null;
             const vehicle = info?.vehicle || info?.activeVehicle || info?.currentVehicle || raw?.vehicle || raw?.activeVehicle || offer?.driver?.vehicle || undefined;
@@ -360,7 +363,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
       if (!rideId) return;
       const info = driversInfo?.[offer.driverId] || {};
       const raw = driversRaw?.[offer.driverId] || {};
-      const name = mergeName(info, raw, offer.driver);
+      const name = mergeName(driverFallbackName, info, raw, offer.driver);
       navigation.navigate('Chat', {
         rideId,
         otherUserId: offer.driverId,
@@ -372,16 +375,16 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
 
   const selectedOffer: OfferItem | undefined = useMemo(
     () => offers.find(o => o.driverId === selectedDriverId),
-    [offers, selectedDriverId]
+    [offers, selectedDriverId],
   );
 
   const primaryActionLabel = useMemo(() => {
     if (!selectedOffer) {
-      return 'Seleccionar';
+      return t('client.homeOffers.primaryAction.select');
     }
 
     if (selectedOffer.status === 'accepted') {
-      return 'Confirmar conductor';
+      return t('client.homeOffers.primaryAction.confirmDriver');
     }
 
     const negotiationStatus = rideSnapshot?.negotiationStatus;
@@ -393,7 +396,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
       typeof (rideSnapshot?.estimatedPrice ?? rideSnapshot?.estimatedFare) === 'number';
 
     if (hasDriverPrice && negotiationStatus === 'driver_offered') {
-      return 'Seleccionar y confirmar el precio del conductor';
+      return t('client.homeOffers.primaryAction.confirmDriverPrice');
     }
 
     if (
@@ -402,14 +405,14 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
         negotiationStatus === 'client_suggested' ||
         negotiationStatus === 'client_accepted')
     ) {
-      return 'Seleccionar y confirmar tu precio';
+      return t('client.homeOffers.primaryAction.confirmClientPrice');
     }
 
     if (hasEstimatedPrice && !hasDriverPrice && !hasClientPrice) {
-      return 'Seleccionar y confirmar precio estimado';
+      return t('client.homeOffers.primaryAction.confirmEstimate');
     }
 
-    return 'Seleccionar';
+    return t('client.homeOffers.primaryAction.select');
   }, [
     selectedOffer,
     rideSnapshot?.negotiationStatus,
@@ -417,6 +420,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
     rideSnapshot?.clientSuggestedPrice,
     rideSnapshot?.estimatedPrice,
     rideSnapshot?.estimatedFare,
+    t,
   ]);
 
   const acceptedAnim = useRef(new Animated.Value(0)).current;
@@ -460,15 +464,27 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
     }).start();
     try {
       await ridesService.confirmDriver(rideId, selectedDriverId);
-      alertService.showSuccessAlert('Conductor confirmado', 'Ahora podrás ver su ubicación en tiempo real.');
-      navigation.replace('RideTracking', {
-        rideId,
-        driverId: selectedDriverId,
-        driverName: offers.find(o => o.driverId === selectedDriverId)?.driver?.name || 'Conductor',
-      });
+      alertService.showSuccessAlert(
+        t('client.homeOffers.alerts.confirmSuccessTitle'),
+        t('client.homeOffers.alerts.confirmSuccessMessage'),
+      );
+      setShowNegotiation(false);
+      if (navigation?.replace) {
+        navigation.replace('RideTracking', {
+          rideId,
+          driverId: selectedDriverId,
+          driverName: offers.find(o => o.driverId === selectedDriverId)?.driver?.name || driverFallbackName,
+        });
+      } else {
+        navigation?.navigate?.('RideTracking', {
+          rideId,
+          driverId: selectedDriverId,
+          driverName: offers.find(o => o.driverId === selectedDriverId)?.driver?.name || driverFallbackName,
+        });
+      }
     } catch (e: any) {
       console.error('Error confirming driver', e);
-      alertService.showErrorAlert('No se pudo confirmar al conductor. Intenta de nuevo.');
+      alertService.showErrorAlert(e?.message || t('client.homeOffers.alerts.confirmError'));
     } finally {
       Animated.timing(confirmBtnAnim, {
         toValue: 1,
@@ -477,7 +493,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
       }).start();
       setIsConfirming(false);
     }
-  }, [rideId, selectedDriverId, navigation, offers, isConfirming, confirmBtnAnim]);
+  }, [confirmBtnAnim, driverFallbackName, isConfirming, navigation, offers, rideId, selectedDriverId, t]);
 
   const cancelSearch = useCallback(async () => {
     if (!rideId || isCancelling) return;
@@ -488,16 +504,19 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
       useNativeDriver: true,
     }).start();
     try {
-      await ridesService.cancelRide(rideId, 'Cancelado por el cliente desde HomeScreenOffers');
+      await ridesService.cancelRide(rideId, t('client.homeOffers.cancelReason'));
       await clearClientActiveRideState();
       setRideId(null);
       setRideSnapshot(null);
       setOffers([]);
       setSelectedDriverId(null);
-      alertService.showSuccessAlert('Búsqueda cancelada', 'Regresamos a tu pantalla de inicio.');
+      alertService.showSuccessAlert(
+        t('client.homeOffers.alerts.cancelSuccessTitle'),
+        t('client.homeOffers.alerts.cancelSuccessMessage'),
+      );
       navigation.replace('ClientHome');
     } catch (e: any) {
-      alertService.showErrorAlert('No se pudo cancelar la búsqueda.');
+      alertService.showErrorAlert(e?.message || t('client.homeOffers.alerts.cancelError'));
     } finally {
       Animated.timing(cancelBtnAnim, {
         toValue: 1,
@@ -549,11 +568,11 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
           latitude,
           longitude,
           index: index + 1,
-          label: stop?.address || `Parada ${index + 1}`,
+          label: stop?.address || t('client.homeOffers.extraStopLabel', { index: index + 1 }),
         };
       })
       .filter(Boolean) as Array<{ latitude: number; longitude: number; index: number; label?: string }>;
-  }, [rideSnapshot?.extraDestinations]);
+  }, [rideSnapshot?.extraDestinations, t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -635,26 +654,33 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
     };
   }, [rideSnapshot?.destination, rideSnapshot?.destinationLocation, rideSnapshot?.extraDestinations, rideSnapshot?.origin, rideSnapshot?.originLocation]);
 
-  const negotiationStatusLabel = (status?: string) => {
-    switch (status) {
-      case 'client_suggested':
-        return 'Esperando tu respuesta';
-      case 'driver_offered':
-        return 'Esperando tu respuesta\n';
-      case 'driver_accepted':
-        return 'Aceptaste el precio del cliente';
-      case 'client_accepted':
-        return 'El cliente aceptó tu oferta';
-      default:
-        return null;
-    }
-  };
+  const negotiationStatusLabel = useCallback(
+    (status?: string) => {
+      switch (status) {
+        case 'client_suggested':
+          return t('client.homeOffers.negotiation.status.clientSuggested');
+        case 'driver_offered':
+          return t('client.homeOffers.negotiation.status.driverOffered');
+        case 'driver_accepted':
+          return t('client.homeOffers.negotiation.status.driverAccepted');
+        case 'client_accepted':
+          return t('client.homeOffers.negotiation.status.clientAccepted');
+        default:
+          return null;
+      }
+    },
+    [t],
+  );
 
   const renderOffer = ({ item }: { item: OfferItem }) => {
     const selected = item.driverId === selectedDriverId;
     const eta = etasByDriver[item.driverId];
-    const etaText = eta ? `${eta.etaMins} min` : 'tiempo estimado';
-    const arrivalText = eta ? eta.arrivalLabel : 'Hora de llegada';
+    const etaValueText = eta
+      ? t('client.homeOffers.list.etaMinutes', { count: eta.etaMins })
+      : t('client.homeOffers.list.etaFallback');
+    const arrivalLabel = eta
+      ? t('client.homeOffers.list.arrivalLabel', { arrival: eta.arrivalLabel, eta: etaValueText })
+      : t('client.homeOffers.list.arrivalFallback');
     const plate = item.driver?.vehicle?.plate || '—';
     const clientPrice =
       typeof rideSnapshot?.clientSuggestedPrice === 'number' && rideSnapshot.clientSuggestedPrice > 0
@@ -666,12 +692,16 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
     const vehicleType = extractVehicleTypeFromInfo(info) || extractVehicleTypeFromInfo(raw);
     const ratingNumber = mergeRating(info, raw, item.driver);
     const ratingLabel = ratingNumber !== null && Number.isFinite(ratingNumber) ? ratingNumber.toFixed(1) : null;
-    const displayName = mergeName(info, raw, item.driver);
+    const ratingPrefix = ratingLabel ? t('client.homeOffers.list.ratingPrefix', { rating: ratingLabel }) : '';
+    const displayName = mergeName(driverFallbackName, info, raw, item.driver);
     const vehicleIconSource = ensureVehicleIconSource(vehicleType);
     const priceTextColor = selected ? '#ddddddff' : colors.text;
     const priceLabelColor = selected ? 'rgba(255, 255, 255, 1)' : colors.textSecondary;
-    const driverPriceLabel = driverPrice ? `C$${Number(driverPrice).toFixed(2)}` : 'Pendiente';
-    const clientPriceLabel = clientPrice != null ? `C$${Number(clientPrice).toFixed(2)}` : 'N/D';
+    const driverPriceLabel = driverPrice
+      ? `C$${Number(driverPrice).toFixed(2)}`
+      : t('client.homeOffers.list.driverPricePending');
+    const clientPriceLabel =
+      clientPrice != null ? `C$${Number(clientPrice).toFixed(2)}` : t('client.homeOffers.list.clientPriceMissing');
     const negotiationLabel = negotiationStatusLabel(rideSnapshot?.negotiationStatus);
     return (
       <TouchableOpacity
@@ -715,21 +745,26 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
               styles.offerSubtitle,
               selected ? styles.offerSubtitleSelected : styles.offerSubtitleDefault,
             ]}
-            numberOfLines={1}
+            numberOfLines={2}
           >
-            {ratingLabel ? `⭐ ${ratingLabel} • ` : ''}Llega: {arrivalText} - {etaText}
+            {ratingLabel ? `${ratingPrefix} • ` : ''}
+            {arrivalLabel}
           </Text>
           {selected && (
             <View style={styles.priceRow}>
-              <Text style={[styles.priceLabel, { color: priceLabelColor }]}>Precio:</Text>
+              <Text style={[styles.priceLabel, { color: priceLabelColor }]}>{t('client.homeOffers.list.priceLabel')}</Text>
               <View style={styles.priceValues}>
                 <View style={styles.priceValueGroup}>
-                  <Text style={[styles.priceValueLabel, { color: priceLabelColor }]}>Tu precio: </Text>
+                  <Text style={[styles.priceValueLabel, { color: priceLabelColor }]}>
+                    {t('client.homeOffers.list.clientPriceLabel')}{' '}
+                  </Text>
                   <Text style={[styles.priceValueText, { color: priceTextColor }]}>{clientPriceLabel}</Text>
                 </View>
                 {/*<Text style={[styles.priceDivider, { color: priceLabelColor }]}>•••</Text>*/}
                 <View style={styles.priceValueGroup}>
-                  <Text style={[styles.priceValueLabel, { color: priceLabelColor }]}>Sugerencia Conductor: </Text>
+                  <Text style={[styles.priceValueLabel, { color: priceLabelColor }]}>
+                    {t('client.homeOffers.list.driverPriceLabel')}{' '}
+                  </Text>
                   <Text style={[styles.priceValueText, { color: priceTextColor }]}>{driverPriceLabel}</Text>
                 </View>
               </View>
@@ -765,20 +800,20 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
                   },
                 ]}
               >
-                <Text style={styles.acceptedStatusText}>Conductor aceptó tu precio</Text>
+                <Text style={styles.acceptedStatusText}>{t('client.homeOffers.list.acceptedPrimary')}</Text>
               </Animated.View>
             ) : (
               <TouchableOpacity onPress={openNegotiation} style={styles.negotiatePill} activeOpacity={0.9}>
-                <Text style={styles.negotiateText}>Negociar</Text>
+                <Text style={styles.negotiateText}>{t('client.homeOffers.negotiation.pill')}</Text>
               </TouchableOpacity>
             )}
           </View>
         ) : item.status === 'accepted' ? (
           <View style={styles.acceptedStatusChipSecondary}>
-            <Text style={styles.acceptedStatusTextSecondary}>El conductor aceptó tu precio</Text>
+            <Text style={styles.acceptedStatusTextSecondary}>{t('client.homeOffers.list.acceptedSecondary')}</Text>
           </View>
         ) : (
-          <Text style={styles.offerEtaText}>{negotiationLabel ?? etaText}</Text>
+          <Text style={styles.offerEtaText}>{negotiationLabel ?? etaValueText}</Text>
         )}
       </TouchableOpacity>
     );
@@ -809,7 +844,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
 
       <View style={[styles.sheet, { backgroundColor: colors.card }] }>
         <View style={styles.sheetHandle} />
-        <Text style={styles.sheetTitle}>Ofertas Cercanas</Text>
+        <Text style={styles.sheetTitle}>{t('client.homeOffers.title')}</Text>
 
         {loading ? (
           <View style={styles.loadingBox}>
@@ -817,7 +852,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
           </View>
         ) : offers.length === 0 ? (
           <View style={styles.emptyBox}>
-            <Text style={styles.emptyText}>Aún no hay conductores interesados…</Text>
+            <Text style={styles.emptyText}>{t('client.homeOffers.empty')}</Text>
           </View>
         ) : (
           <FlatList
@@ -863,7 +898,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
           {isCancelling ? (
             <ActivityIndicator color="#FFFFFF" />
           ) : (
-            <Text style={styles.cancelBtnText}>Cancelar búsqueda</Text>
+            <Text style={styles.cancelBtnText}>{t('client.homeOffers.buttons.cancelSearch')}</Text>
           )}
         </AnimatedTouchableOpacity>
       </View>
@@ -893,13 +928,21 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
             // Confirm driver after accepting price
             await ridesService.confirmDriver(rideId, selectedOffer.driverId);
             setShowNegotiation(false);
-            navigation.replace('RideTracking', {
-              rideId,
-              driverId: selectedOffer.driverId,
-              driverName: selectedOffer.driver?.name || 'Conductor',
-            });
+            if (navigation?.replace) {
+              navigation.replace('RideTracking', {
+                rideId,
+                driverId: selectedOffer.driverId,
+                driverName: selectedOffer.driver?.name || driverFallbackName,
+              });
+            } else {
+              navigation?.navigate?.('RideTracking', {
+                rideId,
+                driverId: selectedOffer.driverId,
+                driverName: selectedOffer.driver?.name || driverFallbackName,
+              });
+            }
           } catch (e: any) {
-            alertService.showErrorAlert(e?.message || 'No se pudo aceptar la oferta');
+            alertService.showErrorAlert(e?.message || t('client.homeOffers.alerts.acceptOfferError'));
           }
         }}
         onSendCounterOffer={async (price: number) => {
@@ -912,7 +955,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
               rideSnapshot?.estimatedPrice || rideSnapshot?.estimatedFare || 0,
             );
           } catch (e: any) {
-            alertService.showErrorAlert(e?.message || 'No se pudo enviar la contraoferta');
+            alertService.showErrorAlert(e?.message || t('client.homeOffers.alerts.counterOfferError'));
           }
         }}
         onAcceptAndStartRide={async () => {
@@ -920,13 +963,13 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
           try {
             await ridesService.confirmDriver(rideId, selectedOffer.driverId);
             setShowNegotiation(false);
-            navigation.replace('RideTracking', {
+            navigation.navigate('RideTracking', {
               rideId,
               driverId: selectedOffer.driverId,
-              driverName: selectedOffer.driver?.name || 'Conductor',
+              driverName: selectedOffer?.driver?.name || 'Conductor',
             });
           } catch (e: any) {
-            alertService.showErrorAlert(e?.message || 'No se pudo confirmar el conductor');
+            alertService.showErrorAlert(e?.message || t('client.homeOffers.alerts.confirmFromModalError'));
           }
         }}
       />

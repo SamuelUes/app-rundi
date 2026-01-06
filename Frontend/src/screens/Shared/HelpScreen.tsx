@@ -6,69 +6,80 @@ import {
   ScrollView,
   TouchableOpacity,
   Linking,
-  Alert,
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
+import { useTranslation } from 'react-i18next';
 
 interface FAQItem {
   question: string;
   answer: string;
 }
 
+const SUPPORT_PHONE = '+50512345678';
+const WHATSAPP_NUMBER = '50512345678';
+const SUPPORT_EMAIL = 'soporte@rundiapp.com';
+
 export default function HelpScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const { t } = useTranslation();
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
 
-  const faqs: FAQItem[] = [
-    {
-      question: '¿Cómo solicito un viaje?',
-      answer: 'Ingresa tu destino en la pantalla principal, confirma la ubicación en el mapa y selecciona "Confirmar Viaje". Un conductor cercano recibirá tu solicitud.',
-    },
-    {
-      question: '¿Cómo funciona el precio?',
-      answer: 'El precio base es C$50 + C$35 por kilómetro. Se aplican recargos en horas pico (6-9am, 5-8pm) y para conductor designado (+50%).',
-    },
-    {
-      question: '¿Qué es conductor designado?',
-      answer: 'Un conductor designado maneja tu vehículo. Ideal si has tomado alcohol o demas ocasiones donde no puedes hacer uso de tu vehiculo. El conductor llega en moto y maneja tu auto de regreso a casa.',
-    },
-    {
-      question: '¿Cómo cancelo un viaje?',
-      answer: 'Puedes cancelar desde la pantalla de confirmación antes de que el conductor llegue. Después de 5 minutos puede aplicar cargo de cancelación.',
-    },
-    {
-      question: '¿Cómo califico mi viaje?',
-      answer: 'Al finalizar el viaje, recibirás una notificación para calificar. También puedes hacerlo desde el historial de viajes.',
-    },
-    {
-      question: '¿Qué métodos de pago aceptan?',
-      answer: 'Aceptamos tarjetas de crédito/débito y efectivo. Puedes gestionar tus métodos de pago en tu perfil.',
-    },
-    {
-      question: '¿Cómo me convierto en conductor?',
-      answer: 'Regístrate como conductor, sube tus documentos (licencia, circulación, seguro) y espera la aprobación. Recibirás un email cuando estés activo.',
-    },
-    {
-      question: '¿Puedo compartir mi viaje?',
-      answer: 'Sí, durante el viaje puedes compartir un enlace de tracking en tiempo real con familiares o amigos para que vean tu ubicación.',
-    },
-  ];
+  const faqs: FAQItem[] = useMemo(
+    () => [
+      {
+        question: t('shared.help.faqs.requestRide.question'),
+        answer: t('shared.help.faqs.requestRide.answer'),
+      },
+      {
+        question: t('shared.help.faqs.pricing.question'),
+        answer: t('shared.help.faqs.pricing.answer'),
+      },
+      {
+        question: t('shared.help.faqs.designatedDriver.question'),
+        answer: t('shared.help.faqs.designatedDriver.answer'),
+      },
+      {
+        question: t('shared.help.faqs.cancelRide.question'),
+        answer: t('shared.help.faqs.cancelRide.answer'),
+      },
+      {
+        question: t('shared.help.faqs.rateRide.question'),
+        answer: t('shared.help.faqs.rateRide.answer'),
+      },
+      {
+        question: t('shared.help.faqs.paymentMethods.question'),
+        answer: t('shared.help.faqs.paymentMethods.answer'),
+      },
+      {
+        question: t('shared.help.faqs.becomeDriver.question'),
+        answer: t('shared.help.faqs.becomeDriver.answer'),
+      },
+      {
+        question: t('shared.help.faqs.shareRide.question'),
+        answer: t('shared.help.faqs.shareRide.answer'),
+      },
+    ],
+    [t]
+  );
 
   const toggleFAQ = (index: number) => {
     setExpandedIndex(expandedIndex === index ? null : index);
   };
 
   const handleCall = () => {
-    Linking.openURL('tel:+50512345678');
+    Linking.openURL(`tel:${SUPPORT_PHONE}`);
   };
 
   const handleWhatsApp = () => {
-    Linking.openURL('whatsapp://send?phone=50512345678&text=Hola, necesito ayuda con Rundi');
+    const message = encodeURIComponent(t('shared.help.contact.whatsappMessage'));
+    Linking.openURL(`whatsapp://send?phone=${WHATSAPP_NUMBER}&text=${message}`);
   };
 
   const handleEmail = () => {
-    Linking.openURL('mailto:soporte@rundiapp.com?subject=Ayuda Rundi');
+    const subject = encodeURIComponent(t('shared.help.contact.emailSubject'));
+    const body = encodeURIComponent(t('shared.help.contact.emailBody'));
+    Linking.openURL(`mailto:${SUPPORT_EMAIL}?subject=${subject}&body=${body}`);
   };
 
   return (
@@ -76,34 +87,48 @@ export default function HelpScreen() {
       <View style={styles.content}>
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.title}>Centro de Ayuda</Text>
+          <Text style={styles.title}>{t('shared.help.header.title')}</Text>
           <Text style={styles.subtitle}>
-            Encuentra respuestas a tus preguntas
+            {t('shared.help.header.subtitle')}
           </Text>
         </View>
 
         {/* Contacto rápido */}
         <View style={styles.contactSection}>
-          <Text style={styles.sectionTitle}>Contacto Rápido</Text>
+          <Text style={styles.sectionTitle}>{t('shared.help.contact.title')}</Text>
           <View style={styles.contactButtons}>
-            <TouchableOpacity style={styles.contactButton} onPress={handleCall}>
-              <Text style={styles.contactIcon}>📞</Text>
-              <Text style={styles.contactText}>Llamar</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.contactButton} onPress={handleWhatsApp}>
-              <Text style={styles.contactIcon}>💬</Text>
-              <Text style={styles.contactText}>WhatsApp</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.contactButton} onPress={handleEmail}>
-              <Text style={styles.contactIcon}>📧</Text>
-              <Text style={styles.contactText}>Email</Text>
-            </TouchableOpacity>
+            {[
+              {
+                icon: '📞',
+                label: t('shared.help.contact.call'),
+                onPress: handleCall,
+              },
+              {
+                icon: '💬',
+                label: t('shared.help.contact.whatsapp'),
+                onPress: handleWhatsApp,
+              },
+              {
+                icon: '📧',
+                label: t('shared.help.contact.email'),
+                onPress: handleEmail,
+              },
+            ].map((option) => (
+              <TouchableOpacity
+                key={option.label}
+                style={styles.contactButton}
+                onPress={option.onPress}
+              >
+                <Text style={styles.contactIcon}>{option.icon}</Text>
+                <Text style={styles.contactText}>{option.label}</Text>
+              </TouchableOpacity>
+            ))}
           </View>
         </View>
 
         {/* Preguntas Frecuentes */}
         <View style={styles.faqSection}>
-          <Text style={styles.sectionTitle}>Preguntas Frecuentes</Text>
+          <Text style={styles.sectionTitle}>{t('shared.help.sections.faq')}</Text>
           {faqs.map((faq, index) => (
             <View key={index} style={styles.faqCard}>
               <TouchableOpacity
@@ -124,39 +149,38 @@ export default function HelpScreen() {
 
         {/* Información adicional */}
         <View style={styles.infoSection}>
-          <Text style={styles.sectionTitle}>Información</Text>
+          <Text style={styles.sectionTitle}>{t('shared.help.sections.info')}</Text>
           
-          <View style={styles.infoCard}>
-            <Text style={styles.infoIcon}>🌐</Text>
-            <View style={styles.infoContent}>
-              <Text style={styles.infoTitle}>Sitio Web</Text>
-              <Text style={styles.infoValue}>rundiapp.com</Text>
+          {[
+            {
+              icon: '🌐',
+              title: t('shared.help.info.website.label'),
+              value: t('shared.help.info.website.value'),
+            },
+            {
+              icon: '📧',
+              title: t('shared.help.info.email.label'),
+              value: t('shared.help.info.email.value'),
+            },
+            {
+              icon: '📱',
+              title: t('shared.help.info.phone.label'),
+              value: t('shared.help.info.phone.value'),
+            },
+            {
+              icon: '⏰',
+              title: t('shared.help.info.schedule.label'),
+              value: t('shared.help.info.schedule.value'),
+            },
+          ].map((item) => (
+            <View key={item.title} style={styles.infoCard}>
+              <Text style={styles.infoIcon}>{item.icon}</Text>
+              <View style={styles.infoContent}>
+                <Text style={styles.infoTitle}>{item.title}</Text>
+                <Text style={styles.infoValue}>{item.value}</Text>
+              </View>
             </View>
-          </View>
-
-          <View style={styles.infoCard}>
-            <Text style={styles.infoIcon}>📧</Text>
-            <View style={styles.infoContent}>
-              <Text style={styles.infoTitle}>Email</Text>
-              <Text style={styles.infoValue}>soporte@rundiapp.com</Text>
-            </View>
-          </View>
-
-          <View style={styles.infoCard}>
-            <Text style={styles.infoIcon}>📱</Text>
-            <View style={styles.infoContent}>
-              <Text style={styles.infoTitle}>Teléfono</Text>
-              <Text style={styles.infoValue}>+505 1234-5678</Text>
-            </View>
-          </View>
-
-          <View style={styles.infoCard}>
-            <Text style={styles.infoIcon}>⏰</Text>
-            <View style={styles.infoContent}>
-              <Text style={styles.infoTitle}>Horario de Atención</Text>
-              <Text style={styles.infoValue}>24/7 - Siempre disponible</Text>
-            </View>
-          </View>
+          ))}
         </View>
       </View>
     </ScrollView>

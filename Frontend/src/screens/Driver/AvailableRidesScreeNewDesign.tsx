@@ -27,6 +27,7 @@ import penaltiesService from '../../services/penaltiesService';
 import penaltiesRealtimeService from '../../services/realtime/penaltiesRealtimeService';
 import { getPreflightResult } from '../../state/preflightStore';
 import { RIDES_RADIUS_KM } from '../../constants/rideRadius';
+import { useTranslation } from 'react-i18next';
 
 const SCREEN_ENTRY_WINDOW_MS = 3000;
 let screenEntryCountInWindow = 0;
@@ -141,6 +142,7 @@ interface Ride {
 }
 
 export default function AvailableRidesScreeNewDesign({ navigation }: any) {
+  const { t } = useTranslation();
   const { colors, isDark } = useTheme();
   const { user } = useAuth();
   const { coords } = useLocation();
@@ -195,7 +197,7 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
     if (loading) return;
 
     const count = rides.length;
-    speakVoice(`Hay ${count} viajes disponibles.`, 'status', undefined, true);
+    speakVoice(t('driver.available.voice.ridesAvailable', { count }), 'status', undefined, true);
   }, [rides.length, loading, voiceSettings.enabled, speakVoice]);
 
   useEffect(() => {
@@ -464,12 +466,12 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
     }
 
     alertService.showConfirmAlert(
-      'Tarjeta requerida',
-      'Para aceptar viajes con pago por tarjeta necesitas registrar al menos una tarjeta bancaria. Agrega una tarjeta antes de continuar.',
+      t('driver.available.alerts.cardRequiredTitle'),
+      t('driver.available.alerts.cardRequiredBody'),
       () => navigation.navigate('PaymentMethods'),
       undefined,
-      'Ir a métodos',
-      'Cancelar',
+      t('driver.available.alerts.cardRequiredConfirm'),
+      t('driver.available.alerts.cardRequiredCancel'),
     );
 
     return false;
@@ -480,8 +482,8 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
       // 🔒 Bloquear aceptar si ya tengo un viaje activo
       if (activeRideGuard) {
         alertService.showInfoAlert(
-          'Tienes un viaje activo',
-          'Debes completar tu viaje actual antes de aceptar uno nuevo.',
+          t('driver.available.alerts.activeRideTitle'),
+          t('driver.available.alerts.activeRideBody'),
           () => navigation.replace('ActiveRide', { rideId: activeRideGuard.id })
         );
         return;
@@ -489,9 +491,10 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
 
       // ✅ Bloquear aceptar si hay comisiones pendientes
       if (penaltySummary && Number(penaltySummary.pendingAmount) > 0) {
+        const pendingAmount = Number(penaltySummary.pendingAmount).toFixed(2);
         alertService.showInfoAlert(
-          'Comisiones pendientes',
-          `Tienes C$${Number(penaltySummary.pendingAmount).toFixed(2)} en comisiones pendientes. Debes pagarlas para aceptar viajes.`,
+          t('driver.available.alerts.penaltiesTitle'),
+          t('driver.available.alerts.penaltiesBody', { amount: pendingAmount }),
           () => navigation.navigate('PayCommissions'),
         );
         return;
@@ -520,8 +523,8 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
           await priceNegotiationService.acceptClientPrice(ride.id);
 
           alertService.showSuccessAlert(
-            'Oferta enviada',
-            `Aceptaste el viaje por ${priceToShow} Cordobas. Esperando confirmación del cliente...`,
+            t('driver.available.alerts.offerSentTitle'),
+            t('driver.available.alerts.offerAcceptedBody', { amount: Number(priceToShow).toFixed(2) }),
           );
 
           navigation.replace('WaitingClientConfirmation', {
@@ -538,7 +541,7 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
           });
         } catch (error: any) {
           console.error('❌ Error completo:', error);
-          alertService.showErrorAlert(error.message || 'No se pudo enviar la oferta');
+          alertService.showErrorAlert(error?.message || t('driver.available.alerts.errorSendOffer'));
         }
       } else {
         try {
@@ -551,8 +554,8 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
           await ridesService.acceptRide(ride.id, acceptData);
 
           alertService.showSuccessAlert(
-            'Oferta enviada',
-            'Hemos notificado al cliente. Esperando confirmación...',
+            t('driver.available.alerts.offerSentTitle'),
+            t('driver.available.alerts.offerGenericBody'),
           );
 
           navigation.replace('WaitingClientConfirmation', {
@@ -568,11 +571,11 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
             })),
           });
         } catch (error: any) {
-          alertService.showErrorAlert(error.message || 'No se pudo aceptar el viaje');
+          alertService.showErrorAlert(error?.message || t('driver.available.alerts.errorAcceptRide'));
         }
       }
     } catch (error: any) {
-      alertService.showErrorAlert(error.message || 'No se pudo aceptar el viaje');
+      alertService.showErrorAlert(error?.message || t('driver.available.alerts.errorAcceptRide'));
     }
   };
 
@@ -667,12 +670,12 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
       origin: {
         lat: originLat,
         lng: originLng,
-        address: ride.origin?.address || 'Origen',
+        address: ride.origin?.address || t('driver.available.rideCard.placeholders.originAddress'),
       },
       destination: {
         lat: destinationLat,
         lng: destinationLng,
-        address: ride.destination?.address || 'Destino',
+        address: ride.destination?.address || t('driver.available.rideCard.placeholders.destinationAddress'),
       },
       extraDestinations: (ride.extraDestinations || []).map((stop) => ({
         lat: stop.lat,
@@ -692,8 +695,8 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
     navigation.navigate('RidePreview', { ride: payload });
   };
 
-  const getInitials = (name?: string) => {
-    if (!name) return 'CL';
+  const getInitials = (name?: string, fallback: string = 'CL') => {
+    if (!name) return fallback;
     const parts = name.trim().split(' ');
     if (parts.length === 1) {
       return parts[0].charAt(0).toUpperCase();
@@ -728,9 +731,9 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
             isDark ? styles.designatedSectionDark : styles.designatedSectionLight,
           ]}
         >
-          <Text style={styles.sectionLabel}>Viajes de Conductor Designado</Text>
+          <Text style={styles.sectionLabel}>{t('driver.available.sections.designatedTitle')}</Text>
           <Text style={[styles.sectionSubLabel, { color: colors.text + '99' }]}>
-            Solo visibles cuando activas el modo de conductor designado
+            {t('driver.available.sections.designatedSubtitle')}
           </Text>
         </View>
       );
@@ -738,7 +741,7 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
 
     const ride = item as Ride;
     const profile = ride.clientId ? clientProfiles[ride.clientId] : undefined;
-    const name = profile?.fullName || ride.clientName || 'Cliente';
+    const name = profile?.fullName || ride.clientName || t('driver.available.rideCard.clientFallback');
     const photoUrl = profile?.photoUrl || null;
 
     const originLat = ride?.origin?.lat ?? 0;
@@ -787,7 +790,7 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
               <Image source={{ uri: photoUrl }} style={styles.avatarImage} />
             ) : (
               <Text style={[styles.avatarInitials, { color: colors.text }]}>
-                {getInitials(name)}
+                {getInitials(name, t('driver.available.rideCard.initialFallback'))}
               </Text>
             )}
           </View>
@@ -797,18 +800,18 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
               {name}
             </Text>
             <Text style={[styles.detailLine, { color: colors.text + '99' }]} numberOfLines={1}>
-              Origen: {originAddress}
+              {t('driver.available.rideCard.origin', { address: originAddress })}
             </Text>
             <Text style={[styles.detailLine, { color: colors.text + '99' }]} numberOfLines={1}>
-              Destino: {destinationAddress}
+              {t('driver.available.rideCard.destination', { address: destinationAddress })}
             </Text>
             {stopsCount > 0 ? (
               <Text style={[styles.detailLine, { color: colors.text + '99' }]} numberOfLines={1}>
-                Paradas: {stopsCount}
+                {t('driver.available.rideCard.stops', { count: stopsCount })}
               </Text>
             ) : null}
             <Text style={[styles.detailLine, { color: colors.text + '99' }]} numberOfLines={1}>
-              Precio: C${price}
+              {t('driver.available.rideCard.price', { amount: Number(price).toFixed(2) })}
             </Text>
           </View>
 
@@ -821,11 +824,13 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
             >
               <Text style={[styles.distancePillText, { color: isDark ? '#FFD666' : '#5D4B00' }]}
               >
-                {distanceToOriginKm > 0 ? `${distanceToOriginKm.toFixed(1)} km al origen` : 'Calculando...'}
+                {distanceToOriginKm > 0
+                  ? t('driver.available.rideCard.distanceToOrigin', { distance: distanceToOriginKm.toFixed(1) })
+                  : t('driver.available.rideCard.calculating')}
               </Text>
             </View>
             <Text style={[styles.distanceSubLabel, { color: colors.text + '99' }]}>
-              {distanceToOriginKm > 0 ? `~${etaToOriginMin} min para llegar` : ''}
+              {distanceToOriginKm > 0 ? t('driver.available.rideCard.etaToOrigin', { minutes: etaToOriginMin }) : ''}
             </Text>
             <View style={styles.metaActions}>
               {isDesignatedRide && clientVehiclePhoto ? (
@@ -834,7 +839,7 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
                   onPress={() => setPhotoModalUrl(clientVehiclePhoto)}
                   activeOpacity={0.85}
                 >
-                  <Text style={[styles.vehicleButtonText, { color: colors.primary }]}>Ver vehículo</Text>
+                  <Text style={[styles.vehicleButtonText, { color: colors.primary }]}>{t('driver.available.rideCard.viewVehicle')}</Text>
                 </TouchableOpacity>
               ) : null}
               {isSelected && (
@@ -843,7 +848,7 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
                   style={[styles.viewButton, { backgroundColor: colors.primary, borderColor: colors.primary }]}
                   activeOpacity={0.85}
                 >
-                  <Text style={styles.viewButtonText}>Ver</Text>
+                  <Text style={styles.viewButtonText}>{t('driver.available.rideCard.view')}</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -863,7 +868,7 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
         > 
           <Image source={BACK_ICON} style={[styles.backIconImage, { tintColor: isDark ? '#FFFFFF' : colors.text }]} resizeMode="contain" />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Viajes Disponibles</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>{t('driver.available.header.title')}</Text>
       </View>
 
       <FlatList
@@ -898,7 +903,7 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
               style={[styles.closeModalButton, { backgroundColor: colors.primary }]}
               onPress={() => setPhotoModalUrl(null)}
             >
-              <Text style={styles.closeModalText}>Cerrar</Text>
+              <Text style={styles.closeModalText}>{t('driver.available.modal.close')}</Text>
             </TouchableOpacity>
           </View>
         </View>

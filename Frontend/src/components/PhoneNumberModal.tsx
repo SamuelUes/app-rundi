@@ -11,9 +11,11 @@ import {
   KeyboardAvoidingView,
   Image,
   TextInput,
+  Alert,
 } from 'react-native';
 
 import { useTheme } from '../context/ThemeContext';
+import { useTranslation } from 'react-i18next';
 import {
   CountryDialOption,
   normalizePhoneNumber,
@@ -52,6 +54,7 @@ const PhoneNumberModal: React.FC<Props> = ({
   onConfirm,
 }) => {
   const { colors } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
   const [selectedCountry, setSelectedCountry] = useState<CountryDialOption>(initialCountry);
@@ -185,6 +188,10 @@ const PhoneNumberModal: React.FC<Props> = ({
 
   const handleConfirm = () => {
     if (!normalizedPhone || !E164_REGEX.test(normalizedPhone)) {
+      Alert.alert(
+        t('common.components.phoneNumberModal.alerts.invalidTitle'),
+        t('common.components.phoneNumberModal.alerts.invalidMessage'),
+      );
       return;
     }
 
@@ -250,22 +257,26 @@ const PhoneNumberModal: React.FC<Props> = ({
             </TouchableOpacity>
 
             <View style={styles.headerTextContainer}>
-              <Text style={styles.sheetTitle}>Número de teléfono</Text>
+              <Text style={styles.sheetTitle}>{t('common.components.phoneNumberModal.title')}</Text>
               <Text style={styles.sheetSubtitle}>
-                Selecciona tu país y completa los dígitos.
+                {t('common.components.phoneNumberModal.subtitle')}
               </Text>
             </View>
           </View>
 
           <View style={styles.phonePreview}>
-            <Text style={styles.phonePreviewLabel}>Número actual</Text>
+            <Text style={styles.phonePreviewLabel}>
+              {t('common.components.phoneNumberModal.previewLabel')}
+            </Text>
             <Text style={styles.phonePreviewValue}>{formattedPhone}</Text>
           </View>
 
           <View style={styles.inputRow}>
             {areaLength > 0 && (
               <View style={styles.areaInputRow}>
-                <Text style={styles.areaLabel}>Código de área</Text>
+                <Text style={styles.areaLabel}>
+                  {t('common.components.phoneNumberModal.areaLabel')}
+                </Text>
                 <TextInput
                   style={styles.areaInput}
                   value={areaDigits}
@@ -297,7 +308,9 @@ const PhoneNumberModal: React.FC<Props> = ({
               onPress={handleConfirm}
               disabled={!normalizedPhone || !E164_REGEX.test(normalizedPhone) || !!loading}
             >
-              <Text style={styles.confirmButtonText}>Usar este número</Text>
+              <Text style={styles.confirmButtonText}>
+                {t('common.components.phoneNumberModal.actions.useNumber')}
+              </Text>
             </TouchableOpacity>
             {(initialDigits || normalizedPhone) ? (
               <TouchableOpacity
@@ -305,7 +318,9 @@ const PhoneNumberModal: React.FC<Props> = ({
                 onPress={handleClear}
                 disabled={!!loading}
               >
-                <Text style={styles.clearButtonText}>Quitar número</Text>
+                <Text style={styles.clearButtonText}>
+                  {t('common.components.phoneNumberModal.actions.clearNumber')}
+                </Text>
               </TouchableOpacity>
             ) : null}
           </View>

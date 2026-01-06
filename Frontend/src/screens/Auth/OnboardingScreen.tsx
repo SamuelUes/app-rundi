@@ -15,6 +15,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { useTheme } from '../../context/ThemeContext';
 import { AuthStackParamList } from '../../navigation/types';
+import { useTranslation } from 'react-i18next';
 
 type OnboardingNavigationProp = NativeStackNavigationProp<AuthStackParamList, 'Onboarding'>;
 
@@ -24,28 +25,28 @@ type Props = {
 
 type Slide = {
   id: string;
-  title: string;
-  subtitle: string;
+  titleKey: string;
+  subtitleKey: string;
   image: ImageSourcePropType;
 };
 
 const slides: Slide[] = [
   {
     id: '1',
-    title: 'Viaja de forma sencilla',
-    subtitle: 'A como desees',
+    titleKey: 'authScreens.onboarding.slides.first.title',
+    subtitleKey: 'authScreens.onboarding.slides.first.subtitle',
     image: require('../../assets/images/campaña2/ride_2.png'),
   },
   {
     id: '2',
-    title: 'Llega a un nuevo lugar',
-    subtitle: 'A cualquier destino',
+    titleKey: 'authScreens.onboarding.slides.second.title',
+    subtitleKey: 'authScreens.onboarding.slides.second.subtitle',
     image: require('../../assets/images/campaña2/moto_ride.png'),
   },
   {
     id: '3',
-    title: 'Haz tu conexión en Rundi',
-    subtitle: 'Con el viaje de tus sueños',
+    titleKey: 'authScreens.onboarding.slides.third.title',
+    subtitleKey: 'authScreens.onboarding.slides.third.subtitle',
     image: require('../../assets/images/campaña2/ride_3.png'),
   },
 ];
@@ -55,6 +56,7 @@ const { width } = Dimensions.get('window');
 const OnboardingScreen: React.FC<Props> = ({ navigation }) => {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const { t } = useTranslation();
   const [currentIndex, setCurrentIndex] = useState(0);
   const flatListRef = useRef<FlatList<Slide>>(null);
 
@@ -101,8 +103,8 @@ const OnboardingScreen: React.FC<Props> = ({ navigation }) => {
         </View>
 
         <View style={styles.textContainer}>
-          <Text style={styles.title}>{item.title}</Text>
-          <Text style={styles.subtitle}>{item.subtitle}</Text>
+          <Text style={styles.title}>{t(item.titleKey)}</Text>
+          <Text style={styles.subtitle}>{t(item.subtitleKey)}</Text>
         </View>
 
         <View style={styles.bottomRow}>

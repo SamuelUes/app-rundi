@@ -6,6 +6,9 @@ import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import { VoiceAssistantProvider } from './src/context/VoiceAssistantContext';
 import { FCMProvider } from './src/context/FCMContext';
+import { LanguageProvider, useLanguage } from './src/context/LanguageContext';
+import { I18nextProvider } from 'react-i18next';
+import i18n from './src/i18n';
 import { usePresence } from './src/hooks/usePresence';
 import { useDriverProfileSync } from './src/hooks/useDriverProfileSync';
 import useDriverProximityTracking from './src/hooks/useDriverProximityTracking';
@@ -25,8 +28,10 @@ const STRIPE_PUBLISHABLE_KEY = process.env.STRIPE_PUBLIC_KEY || 'pk_test_51SEkQK
 function AppContent() {
   const { isDark } = useTheme();
   const { user } = useAuth();
+  const { isReady: isLanguageReady } = useLanguage();
   const [fontsLoaded] = useFonts({
     Montserrat: require('./src/assets/fonts/Montserrat-VariableFont_wght.ttf'),
+    PlusJakartSans: require('./src/assets/fonts/PlusJakartaSans-VariableFont_wght.ttf'),
   });
   const requireBackgroundLocation =
     user?.role === 'driver' || user?.role === 'designated_driver';
@@ -60,7 +65,7 @@ function AppContent() {
     initializeFCM();
   }, []);
   
-  if (!fontsLoaded) {
+  if (!fontsLoaded || !isLanguageReady) {
     return null;
   }
   
@@ -80,14 +85,18 @@ function AppContent() {
 
 export default function App() {
   return (
-    <ThemeProvider>
-      <VoiceAssistantProvider>
-          <AuthProvider>
-            <FCMProvider>
-              <AppContent />
-            </FCMProvider>
-          </AuthProvider>
-      </VoiceAssistantProvider>
-    </ThemeProvider>
+    <I18nextProvider i18n={i18n}>
+      <LanguageProvider>
+        <ThemeProvider>
+          <VoiceAssistantProvider>
+            <AuthProvider>
+              <FCMProvider>
+                <AppContent />
+              </FCMProvider>
+            </AuthProvider>
+          </VoiceAssistantProvider>
+        </ThemeProvider>
+      </LanguageProvider>
+    </I18nextProvider>
   );
 }

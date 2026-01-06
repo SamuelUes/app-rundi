@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   View,
   Text,
@@ -150,7 +151,7 @@ function extractCoordsFromSuggestion(suggestion: any): Coords | null {
   return null;
 }
 
-function normalizeSuggestion(suggestion: any): NormalizedSuggestion {
+function normalizeSuggestion(suggestion: any, fallbackLabel: string): NormalizedSuggestion {
   const structured = suggestion?.structured_formatting || suggestion?.structuredFormatting;
   const descriptor =
     suggestion?.description ||
@@ -169,7 +170,7 @@ function normalizeSuggestion(suggestion: any): NormalizedSuggestion {
     suggestion?.title ||
     suggestion?.name ||
     descriptor ||
-    'Ubicación';
+    fallbackLabel;
 
   const secondaryText =
     structured?.secondary_text ||
@@ -190,12 +191,25 @@ function normalizeSuggestion(suggestion: any): NormalizedSuggestion {
 }
 
 export default function SearchRideScreenNewDesign({ navigation }: any) {
+  const { t, i18n } = useTranslation();
   const { user } = useAuth();
   const { colors } = useTheme();
   const { coords } = useLocation();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
   const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
+  const tr = useCallback((path: string, options?: Record<string, any>) => t(`shared.searchRide.${path}`, options), [t]);
+  const defaultLabels = useMemo(
+    () => ({
+      origin: tr('defaults.origin'),
+      destination: tr('defaults.destination'),
+      locationFallback: tr('defaults.locationFallback'),
+      currentLocation: tr('defaults.currentLocation'),
+      myLocation: tr('defaults.myLocation'),
+      service: tr('defaults.serviceFallback'),
+    }),
+    [tr],
+  );
 
   useLayoutEffect(() => {
     navigation?.setOptions?.({ headerShown: false });
@@ -285,21 +299,21 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
   useEffect(() => {
     if (!mapSelectionMode) return;
 
-    let title = 'Selecciona una ubicación';
+    let title = tr('mapSelection.defaultTitle');
     let message: string | null = null;
 
     if (mapSelectionMode === 'origin') {
-      title = 'Fija el origen';
-      message = 'Mueve el mapa hasta tu punto de partida.';
+      title = tr('mapSelection.originTitle');
+      message = tr('mapSelection.originMessage');
     } else if (mapSelectionMode === 'destination') {
-      title = 'Selecciona tu destino';
-      message = 'Mueve el mapa hasta tu destino final.';
+      title = tr('mapSelection.destinationTitle');
+      message = tr('mapSelection.destinationMessage');
     } else if (mapSelectionMode === 'extra-new') {
-      title = 'Nueva parada';
-      message = `Toca el mapa para agregar la parada ${extraDestinations.length + 1}.`;
+      title = tr('mapSelection.newStopTitle');
+      message = tr('mapSelection.newStopMessage', { index: extraDestinations.length + 1 });
     } else if (typeof mapSelectionMode === 'object' && mapSelectionMode.type === 'extra-edit') {
-      title = 'Editar parada';
-      message = `Toca el mapa para actualizar la parada ${mapSelectionMode.index + 1}.`;
+      title = tr('mapSelection.editStopTitle');
+      message = tr('mapSelection.editStopMessage', { index: mapSelectionMode.index + 1 });
     }
 
     if (message) {
@@ -352,11 +366,11 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         return {
           allowed: false,
           serviceAreaId: null,
-          message: 'No se pudo validar la zona seleccionada. Verifica tu conexión e intenta nuevamente.',
+          message: tr('alerts.serviceValidationFailed'),
         };
       }
     },
-    [],
+    [tr],
   );
 
   const validateLocationForContext = useCallback(
@@ -364,8 +378,8 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
       const validation = await ensureLocationAllowed(coordsToCheck);
       if (!validation.allowed) {
         alertService.showInfoAlert(
-          'Zona no disponible',
-          validation.message || 'Por el momento no podemos operar en esa ubicación.',
+          tr('alerts.unavailableZoneTitle'),
+          validation.message || tr('alerts.unavailableZoneMessage'),
         );
         return null;
       }
@@ -378,7 +392,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
 
       return validation;
     },
-    [ensureLocationAllowed],
+    [ensureLocationAllowed, tr],
   );
 
   const { data: savedLocation } = useFirebaseItem<any>('clientsLocations', user?.id || '', { once: true });
@@ -412,13 +426,13 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     if (!originCoords && coords) {
       const gpsCoords = { latitude: coords.latitude, longitude: coords.longitude };
       setOriginCoords(gpsCoords);
-      setOrigin('Punto de origen');
-      setManualOriginAddress('Punto de origen');
+      setOrigin(defaultLabels.origin);
+      setManualOriginAddress(defaultLabels.origin);
       setManualOriginDraft(gpsCoords);
       setHasPinnedOrigin(true);
       setCameraTarget(gpsCoords);
     }
-  }, [coords, hasManualOriginOverride, originCoords, savedLocation]);
+  }, [coords, hasManualOriginOverride, originCoords, savedLocation, defaultLabels.origin]);
 
   useEffect(() => {
     const base = originCoords || savedLocation?.coords || coords;
@@ -453,9 +467,9 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
   useEffect(() => {
     if (vehicleType === 'moto' && passengersByVehicle.moto > 1) {
       setPassengersByVehicle(prev => ({ ...prev, moto: 1 }));
-      alertService.showInfoAlert('Moto seleccionada', 'Las motos solo pueden llevar 1 pasajero.');
+      alertService.showInfoAlert(tr('alerts.motoSelectedTitle'), tr('alerts.singlePassengerMessage'));
     }
-  }, [vehicleType, passengersByVehicle.moto]);
+  }, [vehicleType, passengersByVehicle.moto, tr]);
 
   useEffect(() => {
     if (!coords) return;
@@ -489,11 +503,16 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     [designatedDriverMode],
   );
 
+  const preferServiceCatalogCopy = useMemo(() => {
+    const lang = i18n.language || 'en';
+    return lang.toLowerCase().startsWith('es');
+  }, [i18n.language]);
+
   const vehicleOptions = useMemo(() => {
     const defaults: Record<VehicleType, { label: string; subtitle: string; emoji: string }> = {
-      moto: { label: 'Moto', subtitle: 'Viajes ágiles y económicos', emoji: '🏍️' },
-      auto: { label: 'Auto', subtitle: 'Viajes cómodos para hasta 4 personas', emoji: '🚘' },
-      designated_driver: { label: 'Conductor designado', subtitle: 'Te llevamos a casa en tu auto', emoji: '🧑‍✈️' },
+      moto: { label: tr('vehicle.motoLabel'), subtitle: tr('vehicle.motoSubtitle'), emoji: '🏍️' },
+      auto: { label: tr('vehicle.autoLabel'), subtitle: tr('vehicle.autoSubtitle'), emoji: '🚘' },
+      designated_driver: { label: tr('vehicle.designatedLabel'), subtitle: tr('vehicle.designatedSubtitle'), emoji: '🧑‍✈️' },
     };
 
     const findMatch = (type: VehicleType) => {
@@ -510,19 +529,23 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
 
     return VEHICLE_TYPES.map((type) => {
       const match = findMatch(type);
+      const shouldUseCatalogCopy = preferServiceCatalogCopy && match;
       return {
         type,
-        label: match?.name ?? defaults[type].label,
-        subtitle: match?.description ?? defaults[type].subtitle,
+        label: shouldUseCatalogCopy && match?.name ? match.name : defaults[type].label,
+        subtitle: shouldUseCatalogCopy && match?.description ? match.description : defaults[type].subtitle,
         emoji: defaults[type].emoji,
       };
     });
-  }, [servicesCatalog]);
+  }, [servicesCatalog, tr, preferServiceCatalogCopy]);
 
-  const formatPriceValue = useCallback((value: number | null | undefined) => {
-    if (value == null || Number.isNaN(value)) return 'Calculando…';
-    return `~C$${Math.round(value)}`;
-  }, []);
+  const formatPriceValue = useCallback(
+    (value: number | null | undefined) => {
+      if (value == null || Number.isNaN(value)) return tr('labels.calculating');
+      return tr('labels.priceApproximation', { value: Math.round(value) });
+    },
+    [tr],
+  );
 
   const updateVehicleEstimates = useCallback(
     async (distanceMeters: number, durationSeconds: number, stopsCount: number, startPoint: Coords) => {
@@ -671,7 +694,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         await updateVehicleEstimates(totalDistance, totalDuration, stops.length, startPoint);
       } catch (error) {
         console.warn('calculateRouteWithStops', error);
-        alertService.showErrorAlert('No se pudo calcular la ruta.');
+        alertService.showErrorAlert(tr('alerts.priceCalculationFailed'));
       } finally {
         setCalculatingRoute(false);
       }
@@ -708,7 +731,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         await updateVehicleEstimates(route.distance, route.duration, stopsCount, start);
       } catch (error) {
         console.warn('calculateSimpleRoute', error);
-        alertService.showErrorAlert('No se pudo calcular la ruta.');
+        alertService.showErrorAlert(tr('alerts.priceCalculationFailed'));
       } finally {
         setCalculatingRoute(false);
       }
@@ -754,11 +777,14 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
   const applySelectionForTarget = useCallback(
     async (target: 'origin' | 'destination' | number | 'new-stop', label: string, coordsValue: Coords | null) => {
       if (!target) return;
-      const sanitizedLabel = label.trim() || 'Ubicación seleccionada';
+      const sanitizedLabel = label.trim() || defaultLabels.locationFallback;
 
       if (target === 'origin') {
         if (!coordsValue) {
-          alertService.showInfoAlert('Selecciona un punto válido', 'Necesitas elegir la ubicación exacta del origen.');
+          alertService.showInfoAlert(
+            tr('alerts.selectValidPointTitle'),
+            tr('alerts.selectValidOriginMessage'),
+          );
           return;
         }
         const validation = await validateLocationForContext(coordsValue, 'origin');
@@ -779,7 +805,10 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
 
       if (target === 'destination') {
         if (!coordsValue) {
-          alertService.showInfoAlert('Selecciona un punto válido', 'Necesitas elegir la ubicación exacta del destino.');
+          alertService.showInfoAlert(
+            tr('alerts.selectValidPointTitle'),
+            tr('alerts.selectValidDestinationMessage'),
+          );
           return;
         }
         const validation = await validateLocationForContext(coordsValue, 'destination');
@@ -799,7 +828,10 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
 
       if (target === 'new-stop') {
         if (!isValidCoordLocal(coordsValue)) {
-          alertService.showInfoAlert('Selecciona un punto válido', 'Necesitas elegir la ubicación exacta de la parada.');
+          alertService.showInfoAlert(
+            tr('alerts.selectValidPointTitle'),
+            tr('alerts.selectValidStopMessage'),
+          );
           return;
         }
         const safeCoords = coordsValue as Coords;
@@ -817,7 +849,10 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
 
       if (typeof target === 'number') {
         if (!isValidCoordLocal(coordsValue)) {
-          alertService.showInfoAlert('Selecciona un punto válido', 'Necesitas elegir la ubicación exacta de la parada.');
+          alertService.showInfoAlert(
+            tr('alerts.selectValidPointTitle'),
+            tr('alerts.selectValidStopMessage'),
+          );
           return;
         }
         const safeCoords = coordsValue as Coords;
@@ -897,13 +932,13 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
           forceProvider: 'google',
         });
         if (!cancelled) {
-          setSearchResults(results.map(normalizeSuggestion));
-          setSearchError(results.length === 0 ? 'No encontramos coincidencias.' : null);
+          setSearchResults(results.map((item) => normalizeSuggestion(item, defaultLabels.locationFallback)));
+          setSearchError(results.length === 0 ? tr('labels.noResults') : null);
         }
       } catch (error) {
         console.warn('autocomplete failed', error);
         if (!cancelled) {
-          setSearchError('No se pudo buscar ubicaciones.');
+          setSearchError(tr('search.error'));
           setSearchResults([]);
         }
       } finally {
@@ -915,7 +950,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     return () => {
       cancelled = true;
     };
-  }, [showSearchOverlay, debouncedSearch, coords]);
+  }, [showSearchOverlay, debouncedSearch, coords, tr, defaultLabels.locationFallback]);
 
   const closeSearchOverlay = useCallback(() => {
     setShowSearchOverlay(false);
@@ -939,7 +974,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         }
 
         if (!coordsValue) {
-          alertService.showErrorAlert('No se pudo obtener la ubicación seleccionada. Intenta con otra búsqueda.');
+          alertService.showErrorAlert(tr('alerts.locationFetchFailed'));
           return;
         }
 
@@ -963,11 +998,14 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
 
   const handleUseCurrentLocation = useCallback(async () => {
     if (!coords) {
-      alertService.showInfoAlert('Ubicación no disponible', 'Activa tu ubicación o intenta nuevamente.');
+      alertService.showInfoAlert(
+        tr('alerts.locationUnavailableTitle'),
+        tr('alerts.locationUnavailableMessage'),
+      );
       return;
     }
     const target = activeSelection || 'origin';
-    const label = target === 'origin' ? 'Punto de origen' : 'Ubicación actual';
+    const label = target === 'origin' ? defaultLabels.origin : defaultLabels.currentLocation;
     await applySelectionForTarget(target, label, coords);
     closeSearchOverlay();
   }, [coords, activeSelection, applySelectionForTarget, closeSearchOverlay]);
@@ -1101,9 +1139,12 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
   useEffect(() => {
     if (vehicleType === 'designated_driver' && designatedDriverMode === 'moto' && passengersByVehicle.designated_driver > 1) {
       setPassengersByVehicle((prev) => ({ ...prev, designated_driver: 1 }));
-      alertService.showInfoAlert('Conductor designado en moto', 'Las motos solo pueden llevar 1 pasajero.');
+      alertService.showInfoAlert(
+        tr('alerts.designatedDriverMotoTitle'),
+        tr('alerts.singlePassengerMessage'),
+      );
     }
-  }, [vehicleType, designatedDriverMode, passengersByVehicle.designated_driver]);
+  }, [vehicleType, designatedDriverMode, passengersByVehicle.designated_driver, tr]);
 
   const handleManualOriginDragStart = useCallback((startCoords: Coords) => {
     setManualOriginDragging(true);
@@ -1117,8 +1158,8 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     if (destinationPromptShownRef.current) return;
     if (destination?.trim()?.length) return;
     destinationPromptShownRef.current = true;
-    alertService.showInfoAlert('Selecciona tu destino', 'Ya puedes elegir tu destino final buscándolo o en el mapa.');
-  }, [destination]);
+    alertService.showInfoAlert(tr('alerts.destinationPromptTitle'), tr('alerts.destinationPromptMessage'));
+  }, [destination, tr]);
 
   useEffect(() => {
     if (!destination && !destinationCoords) {
@@ -1337,14 +1378,14 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
 
   const handleTakeVehiclePhoto = useCallback(async () => {
     if (!user?.id) {
-      alertService.showErrorAlert('Inicia sesión para subir la foto de tu vehículo.');
+      alertService.showErrorAlert(tr('alerts.photoLoginRequired'));
       return;
     }
 
     try {
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
       if (status !== 'granted') {
-        alertService.showInfoAlert('Permisos necesarios', 'Se requiere acceso a la cámara.');
+        alertService.showInfoAlert(tr('alerts.photoPermissionsTitle'), tr('alerts.photoPermissionsMessage'));
         return;
       }
 
@@ -1365,28 +1406,28 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
           if (!result.canceled && result.assets?.[0]) {
             setClientVehiclePhotoLocalUri(result.assets[0].uri);
             setClientVehiclePhoto(null);
-            alertService.showSuccessAlert('Foto seleccionada', 'Se subirá cuando confirmes tu viaje.', { duration: 2000 });
+            alertService.showSuccessAlert(tr('alerts.photoSelectedTitle'), tr('alerts.photoSelectedMessage'), { duration: 2000 });
           }
         } finally {
           setUploadingPhoto(false);
         }
       };
 
-      alertService.showOptionsAlert('Foto del vehículo', 'Selecciona una opción', [
-        { text: 'Tomar foto', onPress: () => pickFrom(true) },
-        { text: 'Galería', onPress: () => pickFrom(false) },
-        { text: 'Cancelar', style: 'cancel' },
+      alertService.showOptionsAlert(tr('alerts.photoOptionsTitle'), tr('alerts.photoOptionsMessage'), [
+        { text: tr('alerts.photoOptionsCamera'), onPress: () => pickFrom(true) },
+        { text: tr('alerts.photoOptionsGallery'), onPress: () => pickFrom(false) },
+        { text: tr('alerts.photoOptionsCancel'), style: 'cancel' },
       ]);
     } catch (error) {
-      alertService.showErrorAlert('No se pudo tomar la foto');
+      alertService.showErrorAlert(tr('alerts.photoCaptureFailed'));
     }
-  }, []);
+  }, [tr, user?.id]);
 
   const runDesignatedDriverBiometricVerification = useCallback(async () => {
     try {
       const result = await BiometricService.authenticateAndLog({
-        reason: 'Confirma tu identidad con huella',
-        fallbackLabel: Platform.OS === 'ios' ? 'Ingresar código' : 'Cancelar',
+        reason: tr('alerts.identityRequired'),
+        fallbackLabel: Platform.OS === 'ios' ? tr('alerts.biometricFallbackLabel') : tr('alerts.photoOptionsCancel'),
         context: 'designated_driver_request',
         userType: 'client',
       });
@@ -1398,10 +1439,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
           errorMessage.includes('No hay biometría registrada');
 
         if (noBiometricError) {
-          alertService.showInfoAlert(
-            'Biometría no disponible',
-            'Tu dispositivo no tiene biometría configurada. Continuaremos con un registro manual.',
-          );
+          alertService.showInfoAlert(tr('alerts.biometricUnavailableTitle'), tr('alerts.biometricUnavailableMessage'));
           const fallbackTimestamp = new Date().toISOString();
           return {
             biometricAcceptanceRequired: true,
@@ -1411,15 +1449,12 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
           };
         }
 
-        alertService.showInfoAlert('Verificación requerida', errorMessage || 'Debes confirmar tu identidad con tu huella.');
+        alertService.showInfoAlert(tr('alerts.biometricRequiredTitle'), errorMessage || tr('alerts.identityRequired'));
         return null;
       }
 
       if (result.biometryType !== 'fingerprint') {
-        alertService.showInfoAlert(
-          'Huella digital requerida',
-          'Tu dispositivo debe confirmar la identidad con huella digital para solicitar este servicio.',
-        );
+        alertService.showInfoAlert(tr('alerts.biometricRequiredTitle'), tr('alerts.biometricRequiredMessage'));
         return null;
       }
 
@@ -1432,20 +1467,20 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
       };
     } catch (error) {
       console.warn('[biometric] Error verificando huella', error);
-      alertService.showErrorAlert('No se pudo verificar tu huella. Intenta nuevamente.');
+      alertService.showErrorAlert(tr('alerts.biometricGenericError'));
       return null;
     }
-  }, []);
+  }, [tr]);
 
   const onConfirmRequest = useCallback(async () => {
     if (submittingRequest) return;
     if (!user) {
-      alertService.showErrorAlert('Inicia sesión para solicitar un viaje.');
+      alertService.showErrorAlert(tr('alerts.loginRequired'));
       return;
     }
     const startPoint = originCoords || coords;
     if (!startPoint || !destinationCoords) {
-      alertService.showErrorAlert('Selecciona tu destino tocando el mapa.');
+      alertService.showErrorAlert(tr('alerts.destinationRequired'));
       return;
     }
 
@@ -1463,7 +1498,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     if (priceSuggestion.trim().length > 0) {
       const value = Number(priceSuggestion);
       if (!Number.isFinite(value) || value <= 0) {
-        alertService.showErrorAlert('Ingresa un monto válido.');
+        alertService.showErrorAlert(tr('alerts.invalidAmount'));
         return;
       }
       clientSuggestedPrice = value;
@@ -1473,11 +1508,11 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     let vehiclePhotoUrl = clientVehiclePhoto;
     if (vehicleType === 'designated_driver') {
       if (uploadingPhoto) {
-        alertService.showInfoAlert('Estamos procesando tu foto', 'Espera a que finalice el procesamiento antes de confirmar.');
+        alertService.showInfoAlert(tr('alerts.vehiclePhotoProcessTitle'), tr('alerts.vehiclePhotoProcess'));
         return;
       }
       if (!vehiclePhotoUrl && !clientVehiclePhotoLocalUri) {
-        alertService.showErrorAlert('Debes tomar o seleccionar una foto de tu vehículo para solicitar un conductor designado.');
+        alertService.showErrorAlert(tr('alerts.vehiclePhotoRequired'));
         return;
       }
       biometricAcceptancePayload = await runDesignatedDriverBiometricVerification();
@@ -1490,10 +1525,10 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         try {
           vehiclePhotoUrl = await uploadClientVehiclePhoto(user.id, clientVehiclePhotoLocalUri);
           setClientVehiclePhoto(vehiclePhotoUrl);
-          alertService.showSuccessAlert('Foto subida', 'Tu vehículo quedó registrado en la nube.', { duration: 2000 });
+          alertService.showSuccessAlert(tr('alerts.photoUploadedTitle'), tr('alerts.photoUploadedMessage'), { duration: 2000 });
         } catch (uploadError) {
           console.error('[vehiclePhotoUpload] Error', uploadError);
-          alertService.showErrorAlert('No se pudo subir la foto de tu vehículo. Intenta nuevamente.');
+          alertService.showErrorAlert(tr('alerts.photoUploadFailed'));
           setUploadingPhoto(false);
           return;
         }
@@ -1501,7 +1536,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
       }
 
       if (!vehiclePhotoUrl) {
-        alertService.showErrorAlert('No se pudo registrar la foto de tu vehículo. Intenta nuevamente.');
+        alertService.showErrorAlert(tr('alerts.photoUploadFailed'));
         return;
       }
     }
@@ -1513,12 +1548,12 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         origin: {
           lat: startPoint.latitude,
           lng: startPoint.longitude,
-          address: origin || 'Mi ubicación',
+          address: origin || defaultLabels.myLocation,
         },
         destination: {
           lat: destinationCoords.latitude,
           lng: destinationCoords.longitude,
-          address: destination || 'Destino',
+          address: destination || defaultLabels.destination,
         },
         estimatedDistance: Math.max(1, Math.round(estimatedDistance * 1000)),
         estimatedDuration: Math.max(1, Math.round(estimatedDuration * 60)),
@@ -1543,7 +1578,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
       }
       if (vehicleType === 'designated_driver' && vehiclePhotoUrl) {
         requestData.clientVehiclePhoto = vehiclePhotoUrl;
-        requestData.notes = 'Conductor Designado';
+        requestData.notes = tr('notes.designatedDriver');
         requestData.designatedDriverVehicle = designatedDriverMode;
       }
       if (biometricAcceptancePayload) {
@@ -1561,7 +1596,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
       const ride = await ridesService.requestRide(requestData);
       navigation?.navigate?.('HomeOffers', { rideId: ride.id });
     } catch (error: any) {
-      alertService.showErrorAlert(error?.message || 'No se pudo solicitar el viaje');
+      alertService.showErrorAlert(error?.message || tr('alerts.requestError'));
     } finally {
       setSubmittingRequest(false);
     }
@@ -1588,21 +1623,29 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     submittingRequest,
     uploadingPhoto,
     runDesignatedDriverBiometricVerification,
+    defaultLabels.destination,
+    defaultLabels.myLocation,
+    tr,
   ]);
 
   const selectionTitle = useMemo(() => {
-    if (activeSelection === 'origin') return 'Origen';
-    if (activeSelection === 'destination') return 'Destino final';
-    if (activeSelection === 'new-stop') return `Nueva parada (${extraDestinations.length + 1}/${MAX_EXTRA_STOPS})`;
-    if (typeof activeSelection === 'number') return `Editar parada ${activeSelection + 1}`;
-    return 'Ubicación';
-  }, [activeSelection, extraDestinations.length]);
+    if (activeSelection === 'origin') return tr('search.selectionOriginTitle');
+    if (activeSelection === 'destination') return tr('search.selectionDestinationTitle');
+    if (activeSelection === 'new-stop') {
+      return tr('search.selectionNewStopTitle', { current: extraDestinations.length + 1, max: MAX_EXTRA_STOPS });
+    }
+    if (typeof activeSelection === 'number') {
+      return tr('search.selectionEditStopTitle', { index: activeSelection + 1 });
+    }
+    return tr('search.selectionGenericTitle');
+  }, [activeSelection, extraDestinations.length, tr]);
 
   const selectionDescription = useMemo(() => {
-    if (activeSelection === 'origin') return 'Escribe una dirección o usa tu ubicación actual.';
-    if (activeSelection === 'destination') return 'Busca una dirección o elige en el mapa.';
-    return 'Puedes buscar o escoger en el mapa la parada intermedia.';
-  }, [activeSelection]);
+    if (activeSelection === 'origin') return tr('search.descriptionOrigin');
+    if (activeSelection === 'destination') return tr('search.descriptionDestination');
+    if (activeSelection === 'new-stop' || typeof activeSelection === 'number') return tr('search.descriptionExtra');
+    return tr('search.descriptionGeneric');
+  }, [activeSelection, tr]);
   const requiresVehiclePhoto = vehicleType === 'designated_driver';
   const hasVehiclePhotoSelection = !!clientVehiclePhoto || !!clientVehiclePhotoLocalUri;
   const isRequestReady =
@@ -1772,15 +1815,15 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
             let label = '';
             let subtitle = '';
             if (row.kind === 'origin') {
-              label = manualOriginLoading ? 'Buscando dirección…' : manualOriginAddress || 'Selecciona el origen';
+              label = manualOriginLoading ? tr('labels.searching') : manualOriginAddress || tr('labels.originPlaceholder');
               if (manualOriginDraft) subtitle = formatCoords(manualOriginDraft);
             } else if (row.kind === 'destination') {
-              label = manualDestinationLoading ? 'Buscando dirección…' : destination || 'Selecciona tu destino';
+              label = manualDestinationLoading ? tr('labels.searching') : destination || tr('labels.destinationPlaceholder');
               if (manualDestinationDraft && mapSelectionMode === 'destination') subtitle = formatCoords(manualDestinationDraft);
               else if (destinationCoords) subtitle = formatCoords(destinationCoords);
             } else if (typeof row.index === 'number') {
               const stop = extraDestinations[row.index];
-              label = stop?.address || `Parada ${row.index + 1}`;
+              label = stop?.address || tr('labels.stopLabel', { index: row.index + 1 });
               if (stop?.coords) subtitle = formatCoords(stop.coords);
             }
 
@@ -1813,7 +1856,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
                     <TouchableOpacity
                       style={styles.inlineAddStop}
                       onPress={beginAddExtraStop}
-                      accessibilityLabel="Agregar destino extra"
+                      accessibilityLabel={tr('accessibility.addExtraStop')}
                     >
                       <Text style={styles.inlineAddStopIcon}>＋</Text>
                     </TouchableOpacity>
@@ -1841,14 +1884,18 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
           keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
           style={styles.bottomAvoiding}
         >
-          <TouchableOpacity style={styles.backButton} onPress={() => navigation?.goBack?.()} accessibilityLabel="Regresar">
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => navigation?.goBack?.()}
+            accessibilityLabel={tr('accessibility.back')}
+          >
         <Image source={BACK_BUTTON_ICON} style={styles.backButtonIcon} resizeMode="contain" />
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.panelToggle} onPress={() => setBottomPanelExpanded((prev) => !prev)}>
-            <View style={styles.panelHandle} />
-            <Text style={styles.panelToggleText}>{bottomPanelExpanded ? '' : ''}</Text>
-          </TouchableOpacity>
+            <TouchableOpacity style={styles.panelToggle} onPress={() => setBottomPanelExpanded((prev) => !prev)}>
+              <View style={styles.panelHandle} />
+              <Text style={styles.panelToggleText}>{bottomPanelExpanded ? '' : ''}</Text>
+            </TouchableOpacity>
 
           {bottomPanelExpanded ? (
             <ScrollView
@@ -1870,17 +1917,17 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
                   const isRecommended = recommendedVehicle === option.type;
                   const capacity = capacityByVehicle[option.type];
                   const etaLabel = calculatingRoute
-                    ? 'Calculando…'
+                    ? tr('labels.calculating')
                     : estimatedDuration > 0
-                    ? `~${estimatedDuration} min`
-                    : 'Sin ETA';
+                    ? tr('labels.etaValue', { minutes: estimatedDuration })
+                    : tr('labels.etaUnavailable');
 
                   return (
                     <TouchableOpacity
                       key={option.type}
                       style={[styles.vehicleOptionCard, isSelected && styles.vehicleOptionCardSelected]}
                       onPress={() => setVehicleType(option.type)}
-                      accessibilityLabel={`Seleccionar ${option.label}`}
+                      accessibilityLabel={tr('vehicle.selectOption', { label: option.label })}
                     >
                       <View style={styles.vehicleOptionTopRow}>
                         <View style={styles.vehicleOptionTitleBlock}>
@@ -1898,7 +1945,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
                         </View>
                         <View style={styles.vehicleOptionPriceBlock}>
                           {isRecommended ? (
-                            <Text style={styles.vehicleOptionBadge}>Recomendado</Text>
+                            <Text style={styles.vehicleOptionBadge}>{tr('vehicle.recommendedBadge')}</Text>
                           ) : null}
                           <Text style={styles.vehicleOptionPrice}>{priceLabel}</Text>
                         </View>
@@ -1938,7 +1985,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
                       </View>
                       {option.type === 'designated_driver' && isSelected ? (
                         <View style={styles.designatedDriverModeContainer}>
-                          <Text style={styles.designatedDriverModeLabel}>Conductor designado para:</Text>
+                          <Text style={styles.designatedDriverModeLabel}>{tr('vehicle.modeLabel')}</Text>
                           <View style={styles.designatedDriverModeChips}>
                             {(['auto', 'moto'] as DesignatedDriverMode[]).map((mode) => {
                               const selected = designatedDriverMode === mode;
@@ -1949,7 +1996,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
                                   onPress={() => setDesignatedDriverMode(mode)}
                                 >
                                   <Text style={[styles.designatedDriverModeChipText, selected && styles.designatedDriverModeChipTextSelected]}>
-                                    {mode === 'auto' ? 'Auto' : 'Moto'}
+                                    {mode === 'auto' ? tr('vehicle.modeAuto') : tr('vehicle.modeMoto')}
                                   </Text>
                                 </TouchableOpacity>
                               );
@@ -1964,7 +2011,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
 
               {recommendedVehicle && vehicleEstimates[recommendedVehicle]?.price ? (
                 <View style={styles.vehicleRecommendationStrip}>
-                  <Text style={styles.vehicleRecommendationLabel}>Tarifa recomendada</Text>
+                  <Text style={styles.vehicleRecommendationLabel}>{tr('vehicle.recommendationLabel')}</Text>
                   <Text style={styles.vehicleRecommendationValue}>
                     {formatPriceValue(vehicleEstimates[recommendedVehicle]?.price ?? null)}
                   </Text>
@@ -1973,14 +2020,14 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
 
               {vehicleType === 'designated_driver' && (
                 <View style={styles.photoRow}>
-                  <Text style={styles.photoHint}>Foto del vehículo (obligatoria para conductor designado):</Text>
+                  <Text style={styles.photoHint}>{tr('photo.hint')}</Text>
                   <TouchableOpacity style={styles.photoButton} onPress={handleTakeVehiclePhoto} disabled={uploadingPhoto}>
                     <Text style={styles.photoButtonText}>
                       {uploadingPhoto
-                        ? 'Procesando…'
+                        ? tr('photo.buttonProcessing')
                         : hasVehiclePhotoSelection
-                        ? 'Cambiar foto'
-                        : 'Tomar/Seleccionar foto'}
+                        ? tr('photo.buttonChange')
+                        : tr('photo.buttonDefault')}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -1988,26 +2035,26 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
             </View>
 
             <View style={[styles.section, styles.sectionCompact]}>
-              <Text style={styles.sectionTitle}>Resumen y precio</Text>
+              <Text style={styles.sectionTitle}>{tr('summary.title')}</Text>
 
               <View style={styles.estimateCard}>
                 {calculatingRoute ? (
                   <View style={styles.centeredRow}>
                     <ActivityIndicator color={colors.primary} />
-                    <Text style={styles.estimateText}> Calculando ruta…</Text>
+                    <Text style={styles.estimateText}>{` ${tr('summary.calculatingRoute')}`}</Text>
                   </View>
                 ) : (
                   <>
                     <View style={styles.estimateRow}>
-                      <Text style={styles.estimateLabel}>Distancia</Text>
+                      <Text style={styles.estimateLabel}>{tr('summary.distance')}</Text>
                       <Text style={styles.estimateValue}>{estimatedDistance.toFixed(2)} km</Text>
                     </View>
                     <View style={styles.estimateRow}>
-                      <Text style={styles.estimateLabel}>Tiempo</Text>
+                      <Text style={styles.estimateLabel}>{tr('summary.duration')}</Text>
                       <Text style={styles.estimateValue}>{estimatedDuration} min</Text>
                     </View>
                     <View style={styles.estimateRow}>
-                      <Text style={styles.estimateLabel}>Estimado</Text>
+                      <Text style={styles.estimateLabel}>{tr('summary.estimate')}</Text>
                       <Text style={styles.estimateValue}>C${estimatedPrice.toFixed(2)}</Text>
                     </View>
                   </>
@@ -2018,29 +2065,33 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
                 <TouchableOpacity
                   style={[styles.paymentChip, paymentMethod === 'cash' && styles.paymentChipSelected]}
                   onPress={() => setPaymentMethod('cash')}
-                  accessibilityLabel="Pagar en efectivo"
+                  accessibilityLabel={tr('accessibility.payCash')}
                 >
-                  <Text style={[styles.paymentChipText, paymentMethod === 'cash' && styles.paymentChipTextSelected]}>Efectivo</Text>
+                  <Text style={[styles.paymentChipText, paymentMethod === 'cash' && styles.paymentChipTextSelected]}>
+                    {tr('payment.cash')}
+                  </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.paymentChip, paymentMethod === 'card' && styles.paymentChipSelected]}
                   onPress={() => setPaymentMethod('card')}
-                  accessibilityLabel="Pagar con tarjeta"
+                  accessibilityLabel={tr('accessibility.payCard')}
                 >
-                  <Text style={[styles.paymentChipText, paymentMethod === 'card' && styles.paymentChipTextSelected]}>Tarjeta</Text>
+                  <Text style={[styles.paymentChipText, paymentMethod === 'card' && styles.paymentChipTextSelected]}>
+                    {tr('payment.card')}
+                  </Text>
                 </TouchableOpacity>
               </View>
 
               <View style={styles.priceCommentRow}>
                 <View style={styles.priceCommentColumn}>
-                  <Text style={styles.priceCommentLabel}>Precio sugerido</Text>
+                  <Text style={styles.priceCommentLabel}>{tr('labels.priceSuggestion')}</Text>
                   <TextInput
                     keyboardType={Platform.select({
                       ios: 'numbers-and-punctuation',
                       android: 'numeric',
                       default: 'numeric',
                     })}
-                    placeholder="C$0.00"
+                    placeholder={tr('labels.pricePlaceholder')}
                     placeholderTextColor={colors.textSecondary || '#999'}
                     value={priceSuggestion}
                     onChangeText={setPriceSuggestion}
@@ -2048,9 +2099,9 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
                   />
                 </View>
                 <View style={styles.priceCommentColumn}>
-                  <Text style={styles.priceCommentLabel}>Comentario</Text>
+                  <Text style={styles.priceCommentLabel}>{tr('labels.comment')}</Text>
                   <TextInput
-                    placeholder="Detalles del viaje..."
+                    placeholder={tr('labels.commentPlaceholder')}
                     placeholderTextColor={colors.textSecondary || '#999'}
                     value={rideComment}
                     onChangeText={setRideComment}
@@ -2068,13 +2119,13 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
 
               <View style={styles.availabilityRow}>
                 {checkingDrivers ? (
-                  <Text style={styles.availabilityText}>Buscando conductores cerca…</Text>
+                  <Text style={styles.availabilityText}>{tr('availability.checking')}</Text>
                 ) : driversAvailable === false ? (
-                  <Text style={styles.availabilityWarn}>Pocos o ningún conductor cercano ahora</Text>
+                  <Text style={styles.availabilityWarn}>{tr('availability.low')}</Text>
                 ) : driversAvailable === true ? (
-                  <Text style={styles.availabilityOk}>Conductores disponibles</Text>
+                  <Text style={styles.availabilityOk}>{tr('availability.ok')}</Text>
                 ) : (
-                  <Text style={styles.availabilityText}>Disponibilidad desconocida</Text>
+                  <Text style={styles.availabilityText}>{tr('availability.unknown')}</Text>
                 )}
               </View>
             </View>
@@ -2086,7 +2137,9 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
                   <Text style={styles.vehicleEmoji}>{selectedVehicleOption?.emoji ?? '🚘'}</Text>
                 </View>
                 <View style={styles.collapsedSummaryText}>
-                  <Text style={styles.collapsedSummaryTitle}>{selectedVehicleOption?.label ?? 'Servicio'}</Text>
+                  <Text style={styles.collapsedSummaryTitle}>
+                    {selectedVehicleOption?.label ?? defaultLabels.service}
+                  </Text>
                   <Text style={styles.collapsedSummaryMeta}>
                     {selectedVehicleOption?.subtitle ?? ''}
                   </Text>
@@ -2105,10 +2158,10 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
               {submittingRequest ? (
                 <View style={styles.ctaLoadingRow}>
                   <ActivityIndicator color="#fff" size="small" style={{ marginRight: 8 }} />
-                  <Text style={styles.ctaText}>Enviando solicitud…</Text>
+                  <Text style={styles.ctaText}>{tr('cta.loading')}</Text>
                 </View>
               ) : (
-                <Text style={styles.ctaText}>Confirmar y solicitar viaje</Text>
+                <Text style={styles.ctaText}>{tr('cta.primary')}</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -2124,16 +2177,23 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
                 <Text style={styles.searchDescription}>{selectionDescription}</Text>
               </View>
               <TouchableOpacity onPress={closeSearchOverlay} style={styles.searchCloseButton}>
-                <Text style={styles.searchCloseText}>Cerrar</Text>
+                <Text style={styles.searchCloseText}>{tr('search.close')}</Text>
               </TouchableOpacity>
             </View>
 
             <View style={styles.searchInputWrapper}>
-              <Text style={styles.searchInputLabel}>Buscar ubicación</Text>
+              <Text style={styles.searchInputLabel}>{tr('search.inputLabel')}</Text>
               <View style={styles.searchInputContainer}>
                 <TextInput
                   style={styles.searchInput}
-                  placeholder={`Buscar ${selectionTitle.toLowerCase()}…`}
+                  placeholder={(() => {
+                    if (activeSelection === 'origin') return tr('search.placeholderOrigin');
+                    if (activeSelection === 'destination') return tr('search.placeholderDestination');
+                    if (activeSelection === 'new-stop' || typeof activeSelection === 'number') {
+                      return tr('search.placeholderStop');
+                    }
+                    return tr('search.placeholderGeneric');
+                  })()}
                   placeholderTextColor={colors.textSecondary || '#999'}
                   value={searchQuery}
                   onChangeText={(text) => {
@@ -2148,17 +2208,17 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
 
             <View style={styles.searchActionsRow}>
               <TouchableOpacity style={[styles.searchActionChip, styles.searchActionPrimary]} onPress={handleUseCurrentLocation}>
-                <Text style={[styles.searchActionText, styles.searchActionTextPrimary]}>Usar mi ubicación</Text>
+                <Text style={[styles.searchActionText, styles.searchActionTextPrimary]}>{tr('search.useCurrentLocation')}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.searchActionChip} onPress={handlePickFromMap}>
-                <Text style={styles.searchActionText}>Seleccionar en mapa</Text>
+                <Text style={styles.searchActionText}>{tr('search.pickOnMap')}</Text>
               </TouchableOpacity>
             </View>
 
             <ScrollView style={styles.searchScroll} keyboardShouldPersistTaps="handled">
               {favoriteLocations.length > 0 && (
                 <View style={styles.savedSection}>
-                  <Text style={styles.savedSectionTitle}>Favoritos</Text>
+                  <Text style={styles.savedSectionTitle}>{tr('labels.favorites')}</Text>
                   {favoriteLocations.map((location, index) => (
                     <TouchableOpacity
                       key={`fav-${index}`}
@@ -2174,7 +2234,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
 
               {recentLocations.length > 0 && (
                 <View style={styles.savedSection}>
-                  <Text style={styles.savedSectionTitle}>Recientes</Text>
+                  <Text style={styles.savedSectionTitle}>{tr('labels.recent')}</Text>
                   {recentLocations.map((location, index) => (
                     <TouchableOpacity
                       key={`recent-${index}`}
@@ -2192,7 +2252,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
                 {searchLoading && (
                   <View style={styles.searchLoadingRow}>
                     <ActivityIndicator color={colors.primary || '#2196F3'} />
-                    <Text style={styles.searchLoadingText}>Buscando ubicaciones…</Text>
+                    <Text style={styles.searchLoadingText}>{tr('search.loading')}</Text>
                   </View>
                 )}
 
@@ -2222,7 +2282,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         <View style={styles.submittingOverlay} pointerEvents="none">
           <View style={styles.submittingCard}>
             <ActivityIndicator color={colors.primary || '#2196F3'} size="large" />
-            <Text style={styles.submittingLabel}>Enviando tu solicitud…</Text>
+            <Text style={styles.submittingLabel}>{tr('cta.submittingOverlay')}</Text>
           </View>
         </View>
       )}

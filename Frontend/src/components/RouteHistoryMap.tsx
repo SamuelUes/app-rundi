@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, ActivityIndicator, Text } from 'react-native';
 import MapView, { Polyline, Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import backendConfig from '../config/backendConfig';
+import { useTranslation } from 'react-i18next';
 
 interface RoutePoint {
   latitude: number;
@@ -27,6 +28,7 @@ const RouteHistoryMap: React.FC<RouteHistoryMapProps> = ({
   const [route, setRoute] = useState<RoutePoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { t } = useTranslation();
 
   // Obtener historial de ruta
   useEffect(() => {
@@ -44,7 +46,7 @@ const RouteHistoryMap: React.FC<RouteHistoryMapProps> = ({
         }
       } catch (err: any) {
         console.error('Error cargando ruta:', err);
-        setError('Error cargando ruta');
+        setError(t('common.components.routeHistoryMap.errors.load'));
       } finally {
         setLoading(false);
       }
@@ -57,7 +59,7 @@ const RouteHistoryMap: React.FC<RouteHistoryMapProps> = ({
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#4CAF50" />
-        <Text style={styles.loadingText}>Cargando ruta...</Text>
+        <Text style={styles.loadingText}>{t('common.components.routeHistoryMap.loading')}</Text>
       </View>
     );
   }
@@ -66,7 +68,7 @@ const RouteHistoryMap: React.FC<RouteHistoryMapProps> = ({
     return (
       <View style={styles.errorContainer}>
         <Text style={styles.errorText}>
-          {error || 'No hay datos de ruta disponibles'}
+          {error || t('common.components.routeHistoryMap.empty')}
         </Text>
       </View>
     );
@@ -125,8 +127,8 @@ const RouteHistoryMap: React.FC<RouteHistoryMapProps> = ({
               latitude: startPoint.latitude,
               longitude: startPoint.longitude,
             }}
-            title="Inicio"
-            description="Punto de partida"
+            title={t('common.components.routeHistoryMap.markers.startTitle')}
+            description={t('common.components.routeHistoryMap.markers.startDescription')}
             pinColor="green"
           />
         )}
@@ -138,8 +140,8 @@ const RouteHistoryMap: React.FC<RouteHistoryMapProps> = ({
               latitude: endPoint.latitude,
               longitude: endPoint.longitude,
             }}
-            title="Fin"
-            description="Punto de llegada"
+            title={t('common.components.routeHistoryMap.markers.endTitle')}
+            description={t('common.components.routeHistoryMap.markers.endDescription')}
             pinColor="red"
           />
         )}
@@ -148,7 +150,7 @@ const RouteHistoryMap: React.FC<RouteHistoryMapProps> = ({
       {/* Info de la ruta */}
       <View style={styles.infoContainer}>
         <Text style={styles.infoText}>
-          📍 {route.length} puntos GPS registrados
+          {t('common.components.routeHistoryMap.info', { count: route.length })}
         </Text>
       </View>
     </View>

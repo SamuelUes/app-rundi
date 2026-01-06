@@ -11,6 +11,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { useTheme } from '../../context/ThemeContext';
 import { AuthStackParamList } from '../../navigation/types';
+import { useTranslation } from 'react-i18next';
 
 type AuthLandingNavigationProp = NativeStackNavigationProp<AuthStackParamList, 'AuthLanding'>;
 
@@ -21,6 +22,7 @@ type Props = {
 const AuthLandingScreen: React.FC<Props> = ({ navigation }) => {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const { t } = useTranslation();
 
   const logoAnim = useRef(new Animated.Value(0)).current;
   const buttonsAnim = useRef(new Animated.Value(0)).current;
@@ -78,17 +80,23 @@ const AuthLandingScreen: React.FC<Props> = ({ navigation }) => {
             style={styles.logo}
             resizeMode="contain"
           />
-          <Text style={styles.title}>Bienvenido</Text>
-          <Text style={styles.subtitle}>Tu viaje comienza aquí</Text>
+          <Text style={styles.title}>{t('authScreens.landing.title')}</Text>
+          <Text style={styles.subtitle}>
+            {t('authScreens.landing.subtitle')}
+          </Text>
         </Animated.View>
 
         <Animated.View style={[styles.actionsContainer, buttonsStyle]}>
           <TouchableOpacity style={styles.primaryButton} onPress={handleLoginPress}>
-            <Text style={styles.primaryButtonText}>Iniciar sesión</Text>
+            <Text style={styles.primaryButtonText}>
+              {t('authScreens.landing.login')}
+            </Text>
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.secondaryButton} onPress={handleRegisterPress}>
-            <Text style={styles.secondaryButtonText}>Crear cuenta</Text>
+            <Text style={styles.secondaryButtonText}>
+              {t('authScreens.landing.register')}
+            </Text>
           </TouchableOpacity>
         </Animated.View>
       </View>

@@ -11,6 +11,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { SpeechOptions } from 'expo-speech';
 
 import voiceAssistantService, { type VoiceAssistantCategory } from '../services/voiceAssistantService';
+import { useLanguage } from './LanguageContext';
+import type { SupportedLanguage } from '../i18n';
 
 const STORAGE_KEY = '@rundi_voice_assistant_settings_v1';
 
@@ -27,6 +29,15 @@ const DEFAULT_SETTINGS: VoiceAssistantSettings = {
   rate: 1,
   pitch: 1,
 };
+
+const LANGUAGE_TO_VOICE_LOCALE: Record<SupportedLanguage, string> = {
+  en: 'en-US',
+  es: 'es-NI',
+  zh: 'zh-CN',
+};
+
+const resolveVoiceLocale = (language: SupportedLanguage): string =>
+  LANGUAGE_TO_VOICE_LOCALE[language] ?? DEFAULT_SETTINGS.locale;
 
 type VoiceAssistantContextValue = {
   settings: VoiceAssistantSettings;
@@ -46,6 +57,7 @@ type VoiceAssistantContextValue = {
 const VoiceAssistantContext = createContext<VoiceAssistantContextValue | undefined>(undefined);
 
 export function VoiceAssistantProvider({ children }: { children: ReactNode }) {
+  const { language } = useLanguage();
   const [settings, setSettings] = useState<VoiceAssistantSettings>(DEFAULT_SETTINGS);
   const [initialized, setInitialized] = useState(false);
   const [hasLoadedFromStorage, setHasLoadedFromStorage] = useState(false);
@@ -88,6 +100,15 @@ export function VoiceAssistantProvider({ children }: { children: ReactNode }) {
       });
     }
   }, [settings, initialized, hasLoadedFromStorage]);
+
+  useEffect(() => {
+    if (!initialized) {
+      return;
+    }
+
+    const targetLocale = resolveVoiceLocale(language);
+    setSettings((prev) => (prev.locale === targetLocale ? prev : { ...prev, locale: targetLocale }));
+  }, [language, initialized]);
 
   const setEnabled = useCallback(async (enabled: boolean) => {
     setSettings((prev) => ({ ...prev, enabled }));

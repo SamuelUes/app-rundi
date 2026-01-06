@@ -22,6 +22,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import registrationService from '../../services/registrationService';
 import { AuthStackParamList } from '../../navigation/types';
+import { useTranslation } from 'react-i18next';
 
 type RegisterConfirmNavigationProp = NativeStackNavigationProp<
   AuthStackParamList,
@@ -38,6 +39,7 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { register, registerWithGoogle, loginWithPhoneAndSMS } = useAuth();
+  const { t } = useTranslation();
 
   const {
     name,
@@ -58,7 +60,10 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
 
   const handleConfirmAndRegister = async () => {
     if (!phoneVerified) {
-      Alert.alert('Error', 'El número telefónico no ha sido verificado');
+      Alert.alert(
+        t('authScreens.registerConfirm.alerts.phoneNotVerifiedTitle'),
+        t('authScreens.registerConfirm.alerts.phoneNotVerifiedMessage'),
+      );
       return;
     }
 
@@ -71,7 +76,7 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
         console.log('📝 Iniciando upgrade de cliente a conductor...');
 
         if (!driverData || !vehicleData) {
-          throw new Error('Faltan datos de conductor o vehículo para completar la actualización.');
+          throw new Error('MISSING_DRIVER_DATA');
         }
 
         const result = await registrationService.upgradeClientToDriver(driverData, vehicleData);
@@ -79,8 +84,8 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
         console.log('✅ Upgrade cliente→conductor completado:', result);
 
         Alert.alert(
-          '✅ Datos enviados',
-          'Hemos recibido tu información de conductor. Revisaremos tus documentos y te avisaremos cuando tu cuenta esté lista.',
+          t('authScreens.registerConfirm.alerts.upgradeSuccessTitle'),
+          t('authScreens.registerConfirm.alerts.upgradeSuccessMessage'),
         );
 
         navigation.goBack();
@@ -121,7 +126,7 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
         );
       } else {
         if (!safeEmail || !password) {
-          throw new Error('Correo y contraseña requeridos para completar el registro.');
+          throw new Error('EMAIL_PASSWORD_REQUIRED');
         }
         await register({
           email: safeEmail,
@@ -135,7 +140,12 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
         });
       }
 
-      Alert.alert('✅ ¡Bienvenido!', `Cuenta creada exitosamente para ${role === 'driver' ? 'conductor' : 'cliente'}`);
+      Alert.alert(
+        t('authScreens.registerConfirm.alerts.registerSuccessTitle'),
+        role === 'driver'
+          ? t('authScreens.registerConfirm.alerts.registerSuccessMessageDriver')
+          : t('authScreens.registerConfirm.alerts.registerSuccessMessageClient'),
+      );
 
       // Redirigir a HomeScreen
       if (role !== 'driver') {
@@ -143,7 +153,17 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
       }
     } catch (error: any) {
       console.error('Error creando usuario:', error);
-      Alert.alert('Error', error.message || 'Error al crear usuario');
+      if (error?.message === 'MISSING_DRIVER_DATA') {
+        Alert.alert(
+          t('authScreens.registerConfirm.alerts.missingDriverDataTitle'),
+          t('authScreens.registerConfirm.alerts.missingDriverDataMessage'),
+        );
+      } else {
+        Alert.alert(
+          t('authScreens.registerConfirm.alerts.genericErrorTitle'),
+          error?.message || t('authScreens.registerConfirm.alerts.genericErrorMessage'),
+        );
+      }
     } finally {
       setLoading(false);
     }
@@ -158,9 +178,9 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
         <View style={styles.content}>
           {/* Header */}
           <View style={styles.header}>
-            <Text style={styles.title}>Confirmar Registro</Text>
+            <Text style={styles.title}>{t('authScreens.registerConfirm.header.title')}</Text>
             <Text style={styles.subtitle}>
-              Revisa tus datos antes de continuar
+              {t('authScreens.registerConfirm.header.subtitle')}
             </Text>
           </View>
 
@@ -168,41 +188,63 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
           <View style={styles.summaryContainer}>
             {/* Datos Básicos */}
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Datos Básicos</Text>
+              <Text style={styles.sectionTitle}>
+                {t('authScreens.registerConfirm.sections.basic')}
+              </Text>
 
               <View style={styles.dataRow}>
-                <Text style={styles.dataLabel}>Nombre:</Text>
+                <Text style={styles.dataLabel}>
+                  {t('authScreens.registerConfirm.data.name')}:
+                </Text>
                 <Text style={styles.dataValue}>{name}</Text>
               </View>
 
               <View style={styles.dataRow}>
-                <Text style={styles.dataLabel}>Email:</Text>
+                <Text style={styles.dataLabel}>
+                  {t('authScreens.registerConfirm.data.email')}:
+                </Text>
                 <Text style={styles.dataValue}>{email}</Text>
               </View>
 
               <View style={styles.dataRow}>
-                <Text style={styles.dataLabel}>Teléfono:</Text>
+                <Text style={styles.dataLabel}>
+                  {t('authScreens.registerConfirm.data.phone')}:
+                </Text>
                 <Text style={styles.dataValue}>{phone}</Text>
               </View>
 
               <View style={styles.dataRow}>
-                <Text style={styles.dataLabel}>Rol:</Text>
+                <Text style={styles.dataLabel}>
+                  {t('authScreens.registerConfirm.data.role')}:
+                </Text>
                 <Text style={styles.dataValue}>
-                  {role === 'driver' ? 'Conductor' : 'Cliente'}
+                  {role === 'driver'
+                    ? t('authScreens.registerConfirm.data.roleLabel.driver')
+                    : t('authScreens.registerConfirm.data.roleLabel.client')}
                 </Text>
               </View>
 
               <View style={styles.dataRow}>
-                <Text style={styles.dataLabel}>Autenticación:</Text>
+                <Text style={styles.dataLabel}>
+                  {t('authScreens.registerConfirm.data.authMethod')}:
+                </Text>
                 <Text style={styles.dataValue}>
-                  {authProvider === 'google' ? '🔐 Google' : '🔑 Email/Password'}
+                  {authProvider === 'google'
+                    ? t('authScreens.registerConfirm.data.authMethodLabel.google')
+                    : authProvider === 'phone'
+                      ? t('authScreens.registerConfirm.data.authMethodLabel.phone')
+                      : t('authScreens.registerConfirm.data.authMethodLabel.emailPassword')}
                 </Text>
               </View>
 
               <View style={styles.dataRow}>
-                <Text style={styles.dataLabel}>Teléfono Verificado:</Text>
+                <Text style={styles.dataLabel}>
+                  {t('authScreens.registerConfirm.data.phoneVerified')}:
+                </Text>
                 <Text style={[styles.dataValue, { color: phoneVerified ? colors.success : colors.error }]}>
-                  {phoneVerified ? '✅ Sí' : '❌ No'}
+                  {phoneVerified
+                    ? t('authScreens.registerConfirm.data.phoneVerifiedYes')
+                    : t('authScreens.registerConfirm.data.phoneVerifiedNo')}
                 </Text>
               </View>
             </View>
@@ -210,25 +252,35 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
             {/* Datos del Conductor (si aplica) */}
             {role === 'driver' && driverData && (
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Datos de Licencia</Text>
+                <Text style={styles.sectionTitle}>
+                  {t('authScreens.registerConfirm.sections.license')}
+                </Text>
 
                 <View style={styles.dataRow}>
-                  <Text style={styles.dataLabel}>Número de Licencia:</Text>
+                  <Text style={styles.dataLabel}>
+                    {t('authScreens.registerConfirm.data.licenseNumber')}:
+                  </Text>
                   <Text style={styles.dataValue}>{driverData.licenseNumber}</Text>
                 </View>
 
                 <View style={styles.dataRow}>
-                  <Text style={styles.dataLabel}>Vencimiento:</Text>
+                  <Text style={styles.dataLabel}>
+                    {t('authScreens.registerConfirm.data.expiration')}:
+                  </Text>
                   <Text style={styles.dataValue}>{driverData.licenseExpiry}</Text>
                 </View>
 
                 <View style={styles.dataRow}>
-                  <Text style={styles.dataLabel}>Departamento:</Text>
+                  <Text style={styles.dataLabel}>
+                    {t('authScreens.registerConfirm.data.department')}:
+                  </Text>
                   <Text style={styles.dataValue}>{driverData.department}</Text>
                 </View>
 
                 <View style={styles.dataRow}>
-                  <Text style={styles.dataLabel}>Municipio:</Text>
+                  <Text style={styles.dataLabel}>
+                    {t('authScreens.registerConfirm.data.municipality')}:
+                  </Text>
                   <Text style={styles.dataValue}>{driverData.municipality}</Text>
                 </View>
               </View>
@@ -237,46 +289,62 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
             {/* Datos del Vehículo (si aplica) */}
             {role === 'driver' && vehicleData && (
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Datos del Vehículo</Text>
+                <Text style={styles.sectionTitle}>
+                  {t('authScreens.registerConfirm.sections.vehicle')}
+                </Text>
 
                 <View style={styles.dataRow}>
-                  <Text style={styles.dataLabel}>Placa:</Text>
+                  <Text style={styles.dataLabel}>
+                    {t('authScreens.registerConfirm.data.plate')}:
+                  </Text>
                   <Text style={styles.dataValue}>{vehicleData.plate}</Text>
                 </View>
 
                 <View style={styles.dataRow}>
-                  <Text style={styles.dataLabel}>Marca:</Text>
+                  <Text style={styles.dataLabel}>
+                    {t('authScreens.registerConfirm.data.brand')}:
+                  </Text>
                   <Text style={styles.dataValue}>{vehicleData.brand}</Text>
                 </View>
 
                 <View style={styles.dataRow}>
-                  <Text style={styles.dataLabel}>Modelo:</Text>
+                  <Text style={styles.dataLabel}>
+                    {t('authScreens.registerConfirm.data.model')}:
+                  </Text>
                   <Text style={styles.dataValue}>{vehicleData.model}</Text>
                 </View>
 
                 <View style={styles.dataRow}>
-                  <Text style={styles.dataLabel}>Año:</Text>
+                  <Text style={styles.dataLabel}>
+                    {t('authScreens.registerConfirm.data.year')}:
+                  </Text>
                   <Text style={styles.dataValue}>{vehicleData.year}</Text>
                 </View>
 
                 <View style={styles.dataRow}>
-                  <Text style={styles.dataLabel}>Color:</Text>
+                  <Text style={styles.dataLabel}>
+                    {t('authScreens.registerConfirm.data.color')}:
+                  </Text>
                   <Text style={styles.dataValue}>{vehicleData.color}</Text>
                 </View>
 
                 <View style={styles.dataRow}>
-                  <Text style={styles.dataLabel}>Tipo:</Text>
+                  <Text style={styles.dataLabel}>
+                    {t('authScreens.registerConfirm.data.type')}:
+                  </Text>
                   <Text style={styles.dataValue}>
-                    {vehicleData.type === 'sedan' && '🚗 Sedán'}
-                    {vehicleData.type === 'suv' && '🚙 SUV'}
-                    {vehicleData.type === 'van' && '🚐 Van'}
-                    {vehicleData.type === 'moto' && '🏍️ Moto'}
+                    {vehicleData.type === 'sedan' && t('authScreens.registerConfirm.data.typeLabel.sedan')}
+                    {vehicleData.type === 'suv' && t('authScreens.registerConfirm.data.typeLabel.suv')}
+                    {vehicleData.type === 'van' && t('authScreens.registerConfirm.data.typeLabel.van')}
+                    {vehicleData.type === 'moto' && t('authScreens.registerConfirm.data.typeLabel.moto')}
                   </Text>
                 </View>
 
                 {vehicleData.passengers && (
                   <View style={styles.dataRow}>
-                    <Text style={styles.dataLabel}>Pasajeros:</Text>
+                    <Text style={styles.dataLabel}>
+                      {t('authScreens.registerConfirm.data.passengers')}:
+                    </Text>
                     <Text style={styles.dataValue}>{vehicleData.passengers}</Text>
                   </View>
                 )}
@@ -285,15 +353,17 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
 
             {/* Información Importante */}
             <View style={styles.infoBox}>
-              <Text style={styles.infoTitle}>⚠️ Información Importante</Text>
-              <Text style={styles.infoText}>
-                • Al confirmar, aceptas nuestros Términos de Servicio
+              <Text style={styles.infoTitle}>
+                {t('authScreens.registerConfirm.sections.importantInfo')}
               </Text>
               <Text style={styles.infoText}>
-                • Tu cuenta será verificada por nuestro equipo
+                {t('authScreens.registerConfirm.infoBox.line1')}
               </Text>
               <Text style={styles.infoText}>
-                • Los conductores serán verificados en 24-48 horas
+                {t('authScreens.registerConfirm.infoBox.line2')}
+              </Text>
+              <Text style={styles.infoText}>
+                {t('authScreens.registerConfirm.infoBox.line3')}
               </Text>
             </View>
           </View>
@@ -305,7 +375,9 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
               onPress={() => navigation.goBack()}
               disabled={loading}
             >
-              <Text style={styles.backButtonText}>Volver</Text>
+              <Text style={styles.backButtonText}>
+                {t('authScreens.registerConfirm.buttons.back')}
+              </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -316,7 +388,9 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
               {loading ? (
                 <ActivityIndicator color="#FFFFFF" />
               ) : (
-                <Text style={styles.confirmButtonText}>Confirmar y Registrar</Text>
+                <Text style={styles.confirmButtonText}>
+                  {t('authScreens.registerConfirm.buttons.confirm')}
+                </Text>
               )}
             </TouchableOpacity>
           </View>
@@ -325,7 +399,9 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
           <View style={styles.progressContainer}>
             <View style={[styles.progressBar, { width: '100%' }]} />
           </View>
-          <Text style={styles.progressText}>Paso 4 de 4</Text>
+          <Text style={styles.progressText}>
+            {t('authScreens.registerConfirm.progress', { current: 4, total: 4 })}
+          </Text>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>

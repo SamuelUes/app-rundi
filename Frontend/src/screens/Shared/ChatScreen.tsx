@@ -18,6 +18,7 @@ import { EmptyState } from '../../components/EmptyState';
 import { useAuth } from '../../context/AuthContext';
 import { useChat } from '../../hooks/useChat';
 import ChatBubble from '../../components/ChatBubble';
+import { useTranslation } from 'react-i18next';
 
 export default function ChatScreen({ route }: any) {
   const { rideId, otherUserName, otherUserPhone } = route.params;
@@ -29,20 +30,26 @@ export default function ChatScreen({ route }: any) {
     user!.id,
     user!.name
   );
+  const { t } = useTranslation();
 
   const [inputText, setInputText] = useState('');
   const flatListRef = useRef<FlatList>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Mensajes predefinidos
-  const quickMessages = [
-    '👍 Ok',
-    '⏱️ Llegando en 5 min',
-    '📍 Ya llegué',
-    '🚗 En camino',
-    '✅ Perfecto',
-    '❓ ¿Dónde estás?',
-  ];
+  const quickMessages = useMemo(
+    () =>
+      ((t('shared.chat.quickMessages', {
+        returnObjects: true,
+      }) as string[]) ?? []),
+    [t]
+  );
+  const statusLabels = t('shared.chat.status', {
+    returnObjects: true,
+  }) as Record<string, string>;
+  const chatAlerts = t('shared.chat.alerts', {
+    returnObjects: true,
+  }) as Record<string, string>;
+  const emptyMessage = t('shared.chat.empty.message', { name: otherUserName });
 
   useEffect(() => {
     // Scroll al final cuando lleguen nuevos mensajes
@@ -80,17 +87,17 @@ export default function ChatScreen({ route }: any) {
 
   const handleCall = () => {
     if (!otherUserPhone) {
-      Alert.alert('Error', 'Número de teléfono no disponible');
+      Alert.alert(chatAlerts.noPhoneTitle, chatAlerts.noPhoneMessage);
       return;
     }
 
     Alert.alert(
-      '📞 Llamar',
-      `¿Deseas llamar a ${otherUserName}?\n${otherUserPhone}`,
+      chatAlerts.callTitle,
+      t('shared.chat.alerts.callMessage', { name: otherUserName, phone: otherUserPhone }),
       [
-        { text: 'Cancelar', style: 'cancel' },
+        { text: chatAlerts.cancel, style: 'cancel' },
         {
-          text: 'Llamar',
+          text: chatAlerts.callButton,
           onPress: async () => {
             try {
               const phoneUrl = `tel:${otherUserPhone}`;
@@ -99,11 +106,11 @@ export default function ChatScreen({ route }: any) {
               if (canOpen) {
                 await Linking.openURL(phoneUrl);
               } else {
-                Alert.alert('Error', 'No se puede realizar la llamada en este dispositivo');
+                Alert.alert(chatAlerts.deviceErrorTitle, chatAlerts.cannotCallDevice);
               }
             } catch (error) {
               console.error('Error al intentar llamar:', error);
-              Alert.alert('Error', 'No se pudo realizar la llamada');
+              Alert.alert(chatAlerts.callFailedTitle, chatAlerts.callFailedMessage);
             }
           },
         },
@@ -125,7 +132,7 @@ export default function ChatScreen({ route }: any) {
             <View style={styles.statusContainer}>
               <View style={[styles.statusDot, connected ? styles.statusConnected : styles.statusDisconnected]} />
               <Text style={styles.statusText}>
-                {connected ? 'En línea' : 'Desconectado'}
+                {connected ? statusLabels.online : statusLabels.offline}
               </Text>
             </View>
           </View>
@@ -152,9 +159,7 @@ export default function ChatScreen({ route }: any) {
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyIcon}>💬</Text>
-            <Text style={styles.emptyText}>
-              Inicia la conversación con {otherUserName}
-            </Text>
+            <Text style={styles.emptyText}>{emptyMessage}</Text>
           </View>
         }
         onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
@@ -164,7 +169,9 @@ export default function ChatScreen({ route }: any) {
       {isTyping && typingUser && (
         <View style={styles.typingIndicator}>
           <ActivityIndicator size="small" color="#666" />
-          <Text style={styles.typingText}>{typingUser} está escribiendo...</Text>
+          <Text style={styles.typingText}>
+            {t('shared.chat.typing', { name: typingUser })}
+          </Text>
         </View>
       )}
 
@@ -191,7 +198,7 @@ export default function ChatScreen({ route }: any) {
       <View style={styles.inputContainer}>
         <TextInput
           style={styles.input}
-          placeholder="Escribe un mensaje..."
+          placeholder={t('shared.chat.input.placeholder')}
           placeholderTextColor="#999"
           value={inputText}
           onChangeText={handleTextChange}

@@ -12,10 +12,13 @@ import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import ridesService, { Ride } from '../../services/ridesService';
 import { formatNicaraguaRelativeDate } from '../../utils/dateUtils';
+import { useTranslation } from 'react-i18next';
+import { formatCurrency } from '../../utils/formatters';
 
 export default function ClientRideHistoryScreen({ navigation }: any) {
   const { user } = useAuth();
   const { colors } = useTheme();
+  const { t } = useTranslation();
   const [rides, setRides] = useState<Ride[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -58,20 +61,14 @@ export default function ClientRideHistoryScreen({ navigation }: any) {
 
   const formatDate = (dateString: string | undefined | null): string => {
     if (!dateString) {
-      return 'Sin fecha';
+      return t('client.rideHistory.labels.noDate');
     }
     return formatNicaraguaRelativeDate(dateString);
   };
 
   const getStatusText = (status: string): string => {
-    const statusMap: { [key: string]: string } = {
-      completed: 'Completado',
-      canceled: 'Cancelado',
-      requested: 'Solicitado',
-      accepted: 'Aceptado',
-      started: 'En curso',
-    };
-    return statusMap[status] || status;
+    const key = `client.rideHistory.statuses.${status}`;
+    return t(key, { defaultValue: t('client.rideHistory.statuses.other', { status }) });
   };
 
   const getStatusColor = (status: string): string => {
@@ -96,13 +93,13 @@ export default function ClientRideHistoryScreen({ navigation }: any) {
     const tip = item.primaryPayment?.tip ?? 0;
     const netAmount = price - commission;
     const paymentStatus =
-      item.primaryPayment?.status ?? item.paymentType ?? 'Sin datos de pago';
+      item.primaryPayment?.status ?? item.paymentType ?? t('client.rideHistory.labels.paymentMissing');
     const paymentMethodRaw =
       item.primaryPayment?.paymentMethod ?? item.paymentType;
     const paymentMethod =
       typeof paymentMethodRaw === 'string' && paymentMethodRaw.trim().length > 0
         ? paymentMethodRaw.toUpperCase()
-        : 'No informado';
+        : t('client.rideHistory.labels.paymentMethodMissing');
     const updatedAt =
       item.updatedAt || item.completedAt || item.createdAt || '';
     const driver = item.driver;
@@ -155,7 +152,7 @@ export default function ClientRideHistoryScreen({ navigation }: any) {
                       style={[styles.locationText, { color: colors.text }]}
                       numberOfLines={1}
                     >
-                      {address || 'Ubicación desconocida'}
+                      {address || t('client.rideHistory.labels.unknownAddress')}
                     </Text>
                   </View>
                   {idx < totalStops - 1 && <View style={styles.locationDivider} />}
@@ -173,7 +170,7 @@ export default function ClientRideHistoryScreen({ navigation }: any) {
                   {typeof item.originAddress === 'string' &&
                   item.originAddress.trim().length > 0
                     ? item.originAddress
-                    : 'Origen'}
+                    : t('client.rideHistory.labels.originFallback')}
                 </Text>
               </View>
               <View style={styles.locationDivider} />
@@ -186,7 +183,7 @@ export default function ClientRideHistoryScreen({ navigation }: any) {
                   {typeof item.destinationAddress === 'string' &&
                   item.destinationAddress.trim().length > 0
                     ? item.destinationAddress
-                    : 'Destino desconocido'}
+                    : t('client.rideHistory.labels.destinationFallback')}
                 </Text>
               </View>
             </>
@@ -197,18 +194,20 @@ export default function ClientRideHistoryScreen({ navigation }: any) {
         <View style={styles.info}>
           <View style={styles.infoItem}>
             <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>
-              Distancia
+              {t('client.rideHistory.labels.distance')}
             </Text>
             <Text style={[styles.infoValue, { color: colors.text }]}>
-              {(distanceMeters / 1000).toFixed(1) + ' km'}
+              {t('client.rideHistory.distanceValue', {
+                value: (distanceMeters / 1000).toFixed(1),
+              })}
             </Text>
           </View>
           <View style={styles.infoItem}>
             <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>
-              Total
+              {t('client.rideHistory.labels.total')}
             </Text>
             <Text style={[styles.infoValue, { color: colors.text }]}>
-              C${price.toFixed(2)}
+              {formatCurrency(price)}
             </Text>
           </View>
         </View>
@@ -218,7 +217,7 @@ export default function ClientRideHistoryScreen({ navigation }: any) {
           <View style={styles.paymentInfo}>
             <View style={styles.paymentRow}>
               <Text style={[styles.paymentLabel, { color: colors.textSecondary }]}>
-                Método
+                {t('client.rideHistory.labels.method')}
               </Text>
               <Text style={[styles.paymentValue, { color: colors.text }]}>
                 {paymentMethod}
@@ -226,7 +225,7 @@ export default function ClientRideHistoryScreen({ navigation }: any) {
             </View>
             <View style={styles.paymentRow}>
               <Text style={[styles.paymentLabel, { color: colors.textSecondary }]}>
-                Estado
+                {t('client.rideHistory.labels.status')}
               </Text>
               <View
                 style={[
@@ -239,10 +238,10 @@ export default function ClientRideHistoryScreen({ navigation }: any) {
               >
                 <Text style={styles.paymentStatusText}>
                   {paymentStatus === 'completed'
-                    ? 'Pagado'
+                    ? t('client.rideHistory.paymentStatus.paid')
                     : paymentStatus === 'pending'
-                    ? 'Pendiente'
-                    : paymentStatus}
+                    ? t('client.rideHistory.paymentStatus.pending')
+                    : t('client.rideHistory.paymentStatus.other', { status: paymentStatus })}
                 </Text>
               </View>
             </View>
@@ -250,10 +249,10 @@ export default function ClientRideHistoryScreen({ navigation }: any) {
             {commission > 0 && (
               <View style={styles.paymentRow}>
                 <Text style={[styles.paymentLabel, { color: colors.textSecondary }]}>
-                  Comisión
+                  {t('client.rideHistory.labels.commission')}
                 </Text>
                 <Text style={[styles.paymentValue, { color: colors.text }]}>
-                  -C${commission.toFixed(2)}
+                  -{formatCurrency(commission)}
                 </Text>
               </View>
             )}
@@ -261,10 +260,10 @@ export default function ClientRideHistoryScreen({ navigation }: any) {
             {tip > 0 && (
               <View style={styles.paymentRow}>
                 <Text style={[styles.paymentLabel, { color: colors.textSecondary }]}>
-                  Propina
+                  {t('client.rideHistory.labels.tip')}
                 </Text>
                 <Text style={[styles.paymentValue, { color: colors.text }]}>
-                  +C${tip.toFixed(2)}
+                  +{formatCurrency(tip)}
                 </Text>
               </View>
             )}
@@ -272,10 +271,10 @@ export default function ClientRideHistoryScreen({ navigation }: any) {
             {commission > 0 && (
               <View style={styles.paymentRow}>
                 <Text style={[styles.paymentLabel, { color: colors.textSecondary }]}>
-                  Neto
+                  {t('client.rideHistory.labels.net')}
                 </Text>
                 <Text style={[styles.paymentValueNet, { color: colors.text }]}>
-                  C${netAmount.toFixed(2)}
+                  {formatCurrency(netAmount)}
                 </Text>
               </View>
             )}
@@ -286,7 +285,7 @@ export default function ClientRideHistoryScreen({ navigation }: any) {
         {driverName && (
           <View style={styles.driverInfo}>
             <Text style={[styles.driverLabel, { color: colors.textSecondary }]}>
-              Conductor:
+              {t('client.rideHistory.labels.driver')}
             </Text>
             <View style={styles.driverDetails}>
               <Text style={[styles.driverName, { color: colors.text }]}>
@@ -329,7 +328,7 @@ export default function ClientRideHistoryScreen({ navigation }: any) {
               { color: filter === 'all' ? '#FFF' : colors.text },
             ]}
           >
-            Todos
+            {t('client.rideHistory.filters.all')}
           </Text>
         </TouchableOpacity>
 
@@ -346,7 +345,7 @@ export default function ClientRideHistoryScreen({ navigation }: any) {
               { color: filter === 'completed' ? '#FFF' : colors.text },
             ]}
           >
-            Completados
+            {t('client.rideHistory.filters.completed')}
           </Text>
         </TouchableOpacity>
 
@@ -363,7 +362,7 @@ export default function ClientRideHistoryScreen({ navigation }: any) {
               { color: filter === 'canceled' ? '#FFF' : colors.text },
             ]}
           >
-            Cancelados
+            {t('client.rideHistory.filters.canceled')}
           </Text>
         </TouchableOpacity>
       </View>
@@ -385,14 +384,14 @@ export default function ClientRideHistoryScreen({ navigation }: any) {
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyIcon}>📋</Text>
             <Text style={[styles.emptyTitle, { color: colors.text }]}>
-              Sin viajes
+              {t('client.rideHistory.empty.title')}
             </Text>
             <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
               {filter === 'all'
-                ? 'Aún no tienes viajes en tu historial'
+                ? t('client.rideHistory.empty.subtitle.all')
                 : filter === 'completed'
-                ? 'No tienes viajes completados'
-                : 'No tienes viajes cancelados'}
+                ? t('client.rideHistory.empty.subtitle.completed')
+                : t('client.rideHistory.empty.subtitle.canceled')}
             </Text>
           </View>
         }

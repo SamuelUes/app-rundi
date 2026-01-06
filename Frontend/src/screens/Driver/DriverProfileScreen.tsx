@@ -29,10 +29,12 @@ import { initializeFirebase } from '../../config/firebase';
 import { getDatabase, ref, get } from 'firebase/database';
 import proximityService from '../../services/proximityService';
 import { overlayManager } from '../../native/overlay';
+import { ensureVehicleIconSource } from '../../utils/vehicleIcons';
 
 import { FormattedInput } from '../../components/FormattedInput';
 import ImagePickerComponent from '../../components/ImagePicker';
 import earningsService from '../../services/earningsService';
+import { useTranslation } from 'react-i18next';
 
 interface DriverStats {
   totalRides: number;
@@ -130,6 +132,7 @@ const normalizeDocumentsStatus = (driver: DriverData | null) => {
 };
 
 export default function DriverProfileScreen({ navigation }: any) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
@@ -187,6 +190,7 @@ export default function DriverProfileScreen({ navigation }: any) {
   const [overlayToggleEnabled, setOverlayToggleEnabled] = useState<boolean>(false);
   const [overlayPermissionGranted, setOverlayPermissionGranted] = useState<boolean>(Platform.OS !== 'android');
   const [overlayCheckingPermission, setOverlayCheckingPermission] = useState<boolean>(false);
+  const currentYear = useMemo(() => new Date().getFullYear(), []);
 
   const extractDesignatedRequestStatus = (driver: DriverData | null | undefined) =>
     driver?.designated_rol_requested || driver?.designatedRoleRequested || driver?.designatedRolRequested || null;
@@ -261,31 +265,40 @@ export default function DriverProfileScreen({ navigation }: any) {
         ? '⚠️'
         : '⏱';
 
-  const documentStatusText = normalizedDocumentStatus === 'verified'
-    ? '✅ Verificado'
-    : normalizedDocumentStatus === 'rejected'
-      ? '❌ Rechazado'
-      : normalizedDocumentStatus === 'suspended'
-        ? '⚠️ Suspendido'
-        : normalizedDocumentStatus === 'pending'
-          ? '⏱ Pendiente de revisión'
+  const documentStatusText =
+    normalizedDocumentStatus === 'verified'
+      ? t('driver.profile.documents.status.verified')
+      : normalizedDocumentStatus === 'rejected'
+        ? t('driver.profile.documents.status.rejected')
+        : normalizedDocumentStatus === 'suspended'
+          ? t('driver.profile.documents.status.suspended')
+          : normalizedDocumentStatus === 'pending'
+            ? t('driver.profile.documents.status.pending')
+            : hasCompleteDocuments
+              ? t('driver.profile.documents.status.complete')
+              : t('driver.profile.documents.status.missing');
+
+  const documentButtonLabel =
+    normalizedDocumentStatus === 'verified'
+      ? t('driver.profile.documents.button.view')
+      : normalizedDocumentStatus === 'pending'
+        ? t('driver.profile.documents.button.details')
+        : normalizedDocumentStatus === 'rejected' || normalizedDocumentStatus === 'suspended'
+          ? t('driver.profile.documents.button.fix')
           : hasCompleteDocuments
-            ? '✅ Completo (en revisión)'
-            : '❌ Pendiente';
+            ? t('driver.profile.documents.button.submit')
+            : t('driver.profile.documents.button.complete');
 
-  const documentButtonLabel = normalizedDocumentStatus === 'verified'
-    ? 'Ver'
-    : normalizedDocumentStatus === 'pending'
-      ? 'Ver detalles'
-      : normalizedDocumentStatus === 'rejected' || normalizedDocumentStatus === 'suspended'
-        ? 'Corregir'
-        : hasCompleteDocuments
-          ? 'Enviar a revisión'
-          : 'Completar';
-
-  const displayFirstName = driverData?.firstName || driverData?.first_name || user?.name?.split(' ')?.[0] || user?.name || 'Conductor';
+  const displayFirstName =
+    driverData?.firstName ||
+    driverData?.first_name ||
+    user?.name?.split(' ')?.[0] ||
+    user?.name ||
+    t('driver.profile.header.nameFallback');
   const displayLastName = driverData?.lastName || driverData?.last_name || '';
-  const displayName = [displayFirstName, displayLastName].filter(Boolean).join(' ').trim() || 'Conductor';
+  const displayName =
+    [displayFirstName, displayLastName].filter(Boolean).join(' ').trim() ||
+    t('driver.profile.header.nameFallback');
   const displayEmail = driverData?.email || user?.email || null;
 
   const normalizedDesignatedRequestStatus = designatedDriverRequestStatus
@@ -297,41 +310,43 @@ export default function DriverProfileScreen({ navigation }: any) {
   const isDesignatedRequestRejected = normalizedDesignatedRequestStatus === 'rejected' || normalizedDesignatedRequestStatus === 'revoked';
 
   const designatedStatusLabelMap: Record<string, string> = {
-    pending: 'Sin solicitud enviada',
-    requested: 'Solicitud en revisión',
-    approved: 'Conductor designado activo',
-    verified: 'Conductor designado activo',
-    rejected: 'Solicitud rechazada',
-    revoked: 'Rol revocado',
+    pending: t('driver.profile.designated.statusLabel.pending'),
+    requested: t('driver.profile.designated.statusLabel.requested'),
+    approved: t('driver.profile.designated.statusLabel.approved'),
+    verified: t('driver.profile.designated.statusLabel.verified'),
+    rejected: t('driver.profile.designated.statusLabel.rejected'),
+    revoked: t('driver.profile.designated.statusLabel.revoked'),
   };
 
   const designatedStatusHelperMap: Record<string, string> = {
-    pending: 'Envía tu solicitud para acceder a viajes premium.',
-    requested: 'Nuestro equipo revisará tu información en un plazo máximo de 24 horas.',
-    approved: 'Disfruta de los beneficios del programa.',
-    verified: 'Disfruta de los beneficios del programa.',
-    rejected: 'Revisa tus documentos o contacta a soporte para más información.',
-    revoked: 'Tu acceso fue revocado. Contacta a soporte para más información.',
+    pending: t('driver.profile.designated.statusHelper.pending'),
+    requested: t('driver.profile.designated.statusHelper.requested'),
+    approved: t('driver.profile.designated.statusHelper.approved'),
+    verified: t('driver.profile.designated.statusHelper.verified'),
+    rejected: t('driver.profile.designated.statusHelper.rejected'),
+    revoked: t('driver.profile.designated.statusHelper.revoked'),
   };
 
   const designatedStatusLabel = normalizedDesignatedRequestStatus
-    ? designatedStatusLabelMap[normalizedDesignatedRequestStatus] || 'Estado desconocido'
-    : 'Sin solicitud enviada';
+    ? designatedStatusLabelMap[normalizedDesignatedRequestStatus] ||
+      t('driver.profile.designated.statusLabel.unknown')
+    : t('driver.profile.designated.statusLabel.pending');
   const designatedStatusHelper = normalizedDesignatedRequestStatus
-    ? designatedStatusHelperMap[normalizedDesignatedRequestStatus] || 'Actualiza tus datos para acceder al programa.'
-    : 'Envía tu solicitud para acceder a viajes premium.';
+    ? designatedStatusHelperMap[normalizedDesignatedRequestStatus] ||
+      t('driver.profile.designated.statusHelper.default')
+    : t('driver.profile.designated.statusHelper.default');
 
   const designatedButtonLabel = (() => {
     if (isDesignatedDriverApproved) {
-      return 'Conductor designado activo';
+      return t('driver.profile.designated.button.approved');
     }
     if (isDesignatedRequestPending) {
-      return 'Solicitud enviada';
+      return t('driver.profile.designated.button.pending');
     }
     if (isDesignatedRequestRejected) {
-      return 'Solicitud rechazada';
+      return t('driver.profile.designated.button.rejected');
     }
-    return 'Solicitar Acceso';
+    return t('driver.profile.designated.button.default');
   })();
 
   const designatedButtonDisabled =
@@ -342,28 +357,28 @@ export default function DriverProfileScreen({ navigation }: any) {
       return null;
     }
 
-    let label = 'Cuenta';
+    let label = t('driver.profile.accountStatus.label');
     let badgeColor = '#9E9E9E';
 
     switch (normalizedAccountStatus) {
       case 'active':
-        label = 'Cuenta activa';
+        label = t('driver.profile.accountStatus.active');
         badgeColor = '#4CAF50';
         break;
       case 'pending':
-        label = 'Cuenta pendiente';
+        label = t('driver.profile.accountStatus.pending');
         badgeColor = '#FF9800';
         break;
       case 'suspended':
-        label = 'Cuenta suspendida';
+        label = t('driver.profile.accountStatus.suspended');
         badgeColor = '#f44336';
         break;
       case 'rejected':
-        label = 'Cuenta rechazada';
+        label = t('driver.profile.accountStatus.rejected');
         badgeColor = '#f44336';
         break;
       default:
-        label = `Cuenta ${normalizedAccountStatus}`;
+        label = t('driver.profile.accountStatus.other', { status: normalizedAccountStatus });
         badgeColor = '#9E9E9E';
         break;
     }
@@ -502,7 +517,10 @@ export default function DriverProfileScreen({ navigation }: any) {
 
   const handleOverlayToggle = async (nextValue: boolean) => {
     if (Platform.OS !== 'android') {
-      Alert.alert('No disponible', 'La función de aparecer encima solo está disponible en Android.');
+      Alert.alert(
+        t('driver.profile.overlay.alerts.notAvailableTitle'),
+        t('driver.profile.overlay.alerts.notAvailableBody'),
+      );
       return;
     }
 
@@ -514,8 +532,8 @@ export default function DriverProfileScreen({ navigation }: any) {
         setOverlayToggleEnabled(true);
         
         Alert.alert(
-          'Activa el permiso',
-          'Abre la pantalla de "Mostrar encima de otras apps" y asegúrate de habilitarlo para Rundi.'
+          t('driver.profile.overlay.alerts.enableTitle'),
+          t('driver.profile.overlay.alerts.enableBody'),
         );
         await overlayManager.openSystemSettings();
         
@@ -532,30 +550,33 @@ export default function DriverProfileScreen({ navigation }: any) {
           await proximityService.setOverlayEnabled(false);
           setOverlayToggleEnabled(false);
           Alert.alert(
-            'Permiso no concedido',
-            'No se detectó el permiso activo. Vuelve a intentarlo desde la pantalla de ajustes.'
+            t('driver.profile.overlay.alerts.permissionMissingTitle'),
+            t('driver.profile.overlay.alerts.permissionMissingBody'),
           );
         } else {
           await proximityService.debugTriggerFallbackOverlay('activation');
         }
       } else {
         Alert.alert(
-          'Desactiva el permiso',
-          'Abre la pantalla de "Mostrar encima de otras apps" y deshabilítalo para Rundi.'
+          t('driver.profile.overlay.alerts.disableTitle'),
+          t('driver.profile.overlay.alerts.disableBody'),
         );
         await overlayManager.openSystemSettings();
         const hasPermission = await overlayManager.hasPermission();
         await proximityService.debugLogOverlayState('deactivation-post-settings');
         if (hasPermission) {
           Alert.alert(
-            'Permiso sigue activo',
-            'El permiso aún está activo. Desactívalo manualmente en la pantalla de ajustes.'
+            t('driver.profile.overlay.alerts.permissionStillOnTitle'),
+            t('driver.profile.overlay.alerts.permissionStillOnBody'),
           );
         }
       }
     } catch (error: any) {
       console.error('❌ Error actualizando preferencia de overlay:', error);
-      Alert.alert('Error', error?.message || 'No se pudo actualizar la preferencia. Intenta de nuevo.');
+      Alert.alert(
+        t('driver.profile.overlay.alerts.errorTitle'),
+        error?.message || t('driver.profile.overlay.alerts.errorBody'),
+      );
       await loadOverlayPreference();
     } finally {
       setOverlayCheckingPermission(false);
@@ -586,16 +607,16 @@ export default function DriverProfileScreen({ navigation }: any) {
     if (targetMode === 'driver') {
       if (!isDriverCapable) {
         Alert.alert(
-          'No disponible',
-          'Tu cuenta aún no está configurada como conductor. Completa tu registro como conductor y espera la aprobación.',
+          t('driver.profile.mode.alerts.unavailableTitle'),
+          t('driver.profile.mode.alerts.unavailableBody'),
         );
         return;
       }
 
       if (!driverData || vehicles.length === 0) {
         Alert.alert(
-          'Cargando información',
-          'Estamos cargando el estado de tu cuenta de conductor. Intenta nuevamente en unos segundos.',
+          t('driver.profile.mode.alerts.loadingTitle'),
+          t('driver.profile.mode.alerts.loadingBody'),
         );
         return;
       }
@@ -607,35 +628,35 @@ export default function DriverProfileScreen({ navigation }: any) {
       if (!accountOk || !documentsOk || !vehicleOk) {
         const reasons: string[] = [];
         if (!accountOk) {
-          reasons.push('• Tu cuenta de conductor aún no está activa.');
+          reasons.push(t('driver.profile.mode.alerts.reasons.account'));
         }
         if (!documentsOk) {
-          reasons.push('• Tus documentos de conductor están pendientes o fueron rechazados.');
+          reasons.push(t('driver.profile.mode.alerts.reasons.documents'));
         }
         if (!vehicleOk) {
-          reasons.push('• No tienes ningún vehículo activo aprobado.');
+          reasons.push(t('driver.profile.mode.alerts.reasons.vehicle'));
         }
 
-        const message = `${reasons.join('\n')}\n\nCompleta tu información para activar el modo conductor.`;
+        const message = `${reasons.join('\n')}\n\n${t('driver.profile.mode.alerts.requirementsBody')}`;
         const buttons: { text: string; style?: 'cancel'; onPress?: () => void }[] = [
-          { text: 'Cerrar', style: 'cancel' },
+          { text: t('driver.profile.mode.alerts.close'), style: 'cancel' },
         ];
 
         if (!documentsOk) {
           buttons.push({
-            text: 'Ver documentos',
+            text: t('driver.profile.mode.alerts.viewDocuments'),
             onPress: () => navigation.navigate('DriversDocumentsInspection'),
           });
         }
 
         if (!vehicleOk) {
           buttons.push({
-            text: 'Ver vehículos',
+            text: t('driver.profile.mode.alerts.viewVehicles'),
             onPress: () => navigation.navigate('CompleteVehicleInfo'),
           });
         }
 
-        Alert.alert('No puedes activar modo conductor', message, buttons);
+        Alert.alert(t('driver.profile.mode.alerts.cannotEnableTitle'), message, buttons);
         return;
       }
     }
@@ -644,7 +665,10 @@ export default function DriverProfileScreen({ navigation }: any) {
       await setUserMode(targetMode);
     } catch (error: any) {
       console.error('❌ Error actualizando modo de usuario:', error);
-      Alert.alert('Error', 'No se pudo cambiar el modo. Intenta nuevamente.');
+      Alert.alert(
+        t('driver.profile.mode.alerts.errorTitle'),
+        error?.message || t('driver.profile.mode.alerts.errorBody'),
+      );
     }
   };
 
@@ -776,7 +800,10 @@ export default function DriverProfileScreen({ navigation }: any) {
     const { status } = await ExpoImagePicker.requestMediaLibraryPermissionsAsync();
     
     if (status !== 'granted') {
-      Alert.alert('Permiso Denegado', 'Necesitamos acceso a tu galería para subir fotos');
+      Alert.alert(
+        t('driver.profile.alerts.permissions.galleryTitle'),
+        t('driver.profile.alerts.permissions.galleryBody'),
+      );
       return;
     }
 
@@ -811,11 +838,17 @@ export default function DriverProfileScreen({ navigation }: any) {
           });
           
           console.log('✅ Foto de perfil actualizada en BD');
-          Alert.alert('Éxito', 'Foto de perfil actualizada correctamente');
+          Alert.alert(
+            t('driver.profile.alerts.upload.successTitle'),
+            t('driver.profile.alerts.upload.successBody'),
+          );
         }
       } catch (error: any) {
         console.error('❌ Error subiendo foto:', error);
-        Alert.alert('Error', error.message || 'No se pudo subir la foto. Intenta nuevamente.');
+        Alert.alert(
+          t('driver.profile.alerts.upload.errorTitle'),
+          error?.message || t('driver.profile.alerts.upload.errorBody'),
+        );
       } finally {
         setUploadingPhoto(false);
       }
@@ -832,16 +865,23 @@ export default function DriverProfileScreen({ navigation }: any) {
 
   const getDocumentName = (type: string) => {
     switch (type) {
-      case 'license': return 'Licencia de Conducir';
-      case 'registration': return 'Matrícula del Vehículo';
-      case 'insurance': return 'Seguro del Vehículo';
-      default: return 'Documento';
+      case 'license':
+        return t('driver.profile.documents.types.license');
+      case 'registration':
+        return t('driver.profile.documents.types.registration');
+      case 'insurance':
+        return t('driver.profile.documents.types.insurance');
+      default:
+        return t('driver.profile.documents.types.default');
     }
   };
 
   const handleAddVehicle = async () => {
     if (!vehicleFormData.plate || !vehicleFormData.brand || !vehicleFormData.model || !vehicleFormData.color) {
-      Alert.alert('Error', 'Por favor completa todos los campos requeridos');
+      Alert.alert(
+        t('driver.profile.alerts.vehicles.formErrorTitle'),
+        t('driver.profile.alerts.vehicles.formErrorBody'),
+      );
       return;
     }
 
@@ -918,10 +958,16 @@ export default function DriverProfileScreen({ navigation }: any) {
       });
       setShowAddVehicleModal(false);
       
-      Alert.alert('Éxito', 'Vehículo agregado correctamente');
+      Alert.alert(
+        t('driver.profile.alerts.vehicles.addSuccessTitle'),
+        t('driver.profile.alerts.vehicles.addSuccessBody'),
+      );
     } catch (error: any) {
       console.error('❌ Error agregando vehículo:', error);
-      Alert.alert('Error', error.message || 'Error al agregar vehículo');
+      Alert.alert(
+        t('driver.profile.alerts.vehicles.addErrorTitle'),
+        error?.message || t('driver.profile.alerts.vehicles.genericFormError'),
+      );
     } finally {
       setAddingVehicle(false);
     }
@@ -939,10 +985,14 @@ export default function DriverProfileScreen({ navigation }: any) {
 
   const getStatusText = (status: string) => {
     switch (status) {
-      case 'verified': return 'Verificado';
-      case 'pending': return 'Pendiente';
-      case 'rejected': return 'Rechazado';
-      default: return 'Sin estado';
+      case 'verified':
+        return t('driver.profile.documents.status.verified');
+      case 'pending':
+        return t('driver.profile.documents.status.pending');
+      case 'rejected':
+        return t('driver.profile.documents.status.rejected');
+      default:
+        return t('driver.profile.documents.status.missing');
     }
   };
 
@@ -961,16 +1011,16 @@ export default function DriverProfileScreen({ navigation }: any) {
     const issues: string[] = [];
     
     if (!vehicle.plate || !vehicle.brand || !vehicle.model || !vehicle.year || !vehicle.color || !vehicle.type) {
-      issues.push('Información básica incompleta');
+      issues.push(t('driver.profile.alerts.vehicles.issues.basicInfo'));
     }
     if (!vehicle.registrationNumber || !vehicle.registrationExpiry || !vehicle.registrationPhotoFront || !vehicle.registrationPhotoBack) {
-      issues.push('Datos de registro incompletos');
+      issues.push(t('driver.profile.alerts.vehicles.issues.registration'));
     }
     if (!vehicle.insuranceNumber || !vehicle.insuranceCompany || !vehicle.insuranceExpiry || !vehicle.insurancePhoto) {
-      issues.push('Datos de seguro incompletos');
+      issues.push(t('driver.profile.alerts.vehicles.issues.insurance'));
     }
     if (!vehicle.vehiclePhoto) {
-      issues.push('Foto del vehículo faltante');
+      issues.push(t('driver.profile.alerts.vehicles.issues.vehiclePhoto'));
     }
     
     return issues.join(', ');
@@ -982,24 +1032,30 @@ export default function DriverProfileScreen({ navigation }: any) {
       const vehicleToSwitch = vehicles.find(v => v.id === vehicleId);
       
       if (!vehicleToSwitch) {
-        Alert.alert('Error', 'Vehículo no encontrado');
+        Alert.alert(
+          t('driver.profile.alerts.vehicles.notFoundTitle'),
+          t('driver.profile.alerts.vehicles.notFoundBody'),
+        );
         return;
       }
 
       if (!vehicleToSwitch.is_active && !vehicleToSwitch.isActive) {
-        Alert.alert('Vehículo no autorizado', 'Este vehículo aún no ha sido aprobado por el equipo administrativo.');
+        Alert.alert(
+          t('driver.profile.alerts.vehicles.notApprovedTitle'),
+          t('driver.profile.alerts.vehicles.notApprovedBody'),
+        );
         return;
       }
 
       if (!isVehicleComplete(vehicleToSwitch)) {
         const reason = getIncompleteReason(vehicleToSwitch);
         Alert.alert(
-          'Vehículo incompleto',
-          `No puedes cambiar a este vehículo porque:\n\n${reason}\n\nPor favor, completa la información en la pantalla de verificación.`,
+          t('driver.profile.alerts.vehicles.incompleteTitle'),
+          t('driver.profile.alerts.vehicles.incompleteBody', { reason }),
           [
-            { text: 'Cancelar', style: 'cancel' },
+            { text: t('driver.profile.alerts.vehicles.cancel'), style: 'cancel' },
             {
-              text: 'Completar información',
+              text: t('driver.profile.alerts.vehicles.viewDocuments'),
               onPress: () => navigation.navigate('VehicleVerification', { vehicleId: vehicleToSwitch.id })
             }
           ]
@@ -1026,7 +1082,10 @@ export default function DriverProfileScreen({ navigation }: any) {
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Error desconocido al cambiar vehículo';
       console.error('❌ Error cambiando vehículo:', message);
-      Alert.alert('Error', message || 'No se pudo cambiar el vehículo');
+      Alert.alert(
+        t('driver.profile.alerts.vehicles.switchErrorTitle'),
+        message || t('driver.profile.alerts.vehicles.switchErrorBody'),
+      );
     }
   };
 
@@ -1046,7 +1105,10 @@ export default function DriverProfileScreen({ navigation }: any) {
       setDesignatedDriverRequestStatus('requested');
     } catch (error: any) {
       console.error('❌ Error solicitando acceso:', error);
-      Alert.alert('Error', error.message || 'Error al enviar solicitud');
+      Alert.alert(
+        t('driver.profile.designated.alerts.errorTitle'),
+        error?.message || t('driver.profile.designated.alerts.errorBody'),
+      );
     } finally {
       setLoadingRequestStatus(false);
     }
@@ -1056,7 +1118,7 @@ export default function DriverProfileScreen({ navigation }: any) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Cargando perfil...</Text>
+        <Text style={styles.loadingText}>{t('driver.profile.loading.message')}</Text>
       </View>
     );
   }
@@ -1076,7 +1138,7 @@ export default function DriverProfileScreen({ navigation }: any) {
               style={styles.backIcon}
             />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Mi Perfil</Text>
+          <Text style={styles.headerTitle}>{t('driver.profile.header.title')}</Text>
           <View style={styles.headerTopSpacer} />
         </View>
 
@@ -1095,7 +1157,7 @@ export default function DriverProfileScreen({ navigation }: any) {
             ) : (
               <View style={styles.avatarPlaceholder}>
                 <Text style={styles.avatarText}>
-                  {displayName.charAt(0).toUpperCase() || 'C'}
+                  {displayName.charAt(0).toUpperCase() || t('driver.profile.header.initialFallback')}
                 </Text>
               </View>
             )}
@@ -1107,7 +1169,7 @@ export default function DriverProfileScreen({ navigation }: any) {
           <View style={styles.headerContent}>
             <Text style={styles.driverName}>{displayName}</Text>
             {displayEmail && <Text style={styles.driverEmail}>{displayEmail}</Text>}
-            <Text style={styles.memberId}>ID: {user?.id}</Text>
+            <Text style={styles.memberId}>{t('driver.profile.header.memberId', { id: user?.id ?? '' })}</Text>
 
             <View style={styles.headerBottomRow}>
               {renderAccountStatusBadge()}
@@ -1119,8 +1181,8 @@ export default function DriverProfileScreen({ navigation }: any) {
 
             <TouchableOpacity onPress={() => navigation.navigate('Account')}>
               <View style={styles.editProfileBadge}>
-                  <Text style={styles.editProfileText}>Editar perfil</Text>
-               </View>
+                  <Text style={styles.editProfileText}>{t('driver.profile.header.edit')}</Text>
+              </View>
             </TouchableOpacity>
           </View>
         </View>
@@ -1131,9 +1193,9 @@ export default function DriverProfileScreen({ navigation }: any) {
         {/* Cartera / Ganancias - Cards Flotantes */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Cartera</Text>
+            <Text style={styles.sectionTitle}>{t('driver.profile.stats.walletTitle')}</Text>
             <TouchableOpacity style={styles.rechargeButton}>
-              <Text style={styles.rechargeButtonText}>Recargas de saldo, bonus y más</Text>
+              <Text style={styles.rechargeButtonText}>{t('driver.profile.stats.walletCta')}</Text>
             </TouchableOpacity>
           </View>
 
@@ -1146,14 +1208,14 @@ export default function DriverProfileScreen({ navigation }: any) {
                   <Text style={styles.earningCardIconText}>💵</Text>
                 </View>
                 <Text style={styles.earningCardValue}>{formatCurrency(stats.totalEarnings)}</Text>
-                <Text style={styles.earningCardLabel}>Ganancias Totales</Text>
+                <Text style={styles.earningCardLabel}>{t('driver.profile.stats.totalEarnings')}</Text>
               </View>
               <View style={styles.earningCard}>
                 <View style={styles.earningCardIconGreen}>
                   <Text style={styles.earningCardIconText}>💰</Text>
                 </View>
                 <Text style={styles.earningCardValue}>{formatCurrency(dailyStats.earnings)}</Text>
-                <Text style={styles.earningCardLabel}>Ganancias Hoy</Text>
+                <Text style={styles.earningCardLabel}>{t('driver.profile.stats.todaysEarnings')}</Text>
               </View>
             </View>
 
@@ -1164,7 +1226,7 @@ export default function DriverProfileScreen({ navigation }: any) {
                   <Text style={styles.earningCardIconText}>🚗</Text>
                 </View>
                 <Text style={styles.earningCardValue}>{stats.totalRides}</Text>
-                <Text style={styles.earningCardLabel}>Viajes Hechos</Text>
+                <Text style={styles.earningCardLabel}>{t('driver.profile.stats.totalRides')}</Text>
               </View>
 
               <View style={styles.earningCard}>
@@ -1172,7 +1234,7 @@ export default function DriverProfileScreen({ navigation }: any) {
                   <Text style={styles.earningCardIconText}>📍</Text>
                 </View>
                 <Text style={styles.earningCardValue}>{dailyStats.rides}</Text>
-                <Text style={styles.earningCardLabel}>Viajes Hoy</Text>
+                <Text style={styles.earningCardLabel}>{t('driver.profile.stats.todaysRides')}</Text>
               </View>
 
               <View style={styles.earningCard}>
@@ -1180,14 +1242,14 @@ export default function DriverProfileScreen({ navigation }: any) {
                   <Text style={styles.earningCardIconText}>⭐</Text>
                 </View>
                 <Text style={styles.earningCardValue}>{(typeof stats.averageRating === 'number' ? stats.averageRating : 5).toFixed(1)}</Text>
-                <Text style={styles.earningCardLabel}>Calificación</Text>
+                <Text style={styles.earningCardLabel}>{t('driver.profile.stats.rating')}</Text>
               </View>
             </View>
           </View>
         </View>
       {/* Mis Vehículos */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Mis Vehículos</Text>
+        <Text style={styles.sectionTitle}>{t('driver.profile.vehicles.title')}</Text>
         
         {vehicles && vehicles.length > 0 ? (
           <>
@@ -1199,7 +1261,7 @@ export default function DriverProfileScreen({ navigation }: any) {
                 <View key={vehicle.id} style={[styles.vehicleCard, isSelectedVehicle && styles.vehicleCardActive]}>
                   <View style={styles.vehicleMainInfo}>
                     <View style={styles.vehicleIcon}>
-                      <Text style={styles.vehicleIconText}>🚗</Text>
+                      <Image source={ensureVehicleIconSource(vehicle.type)} style={styles.vehicleIconImage} />
                     </View>
                     <View style={styles.vehicleInfo}>
                       <Text style={styles.vehicleName}>
@@ -1209,10 +1271,10 @@ export default function DriverProfileScreen({ navigation }: any) {
                         {vehicle.color} • {vehicle.year} • {vehicle.plate}
                       </Text>
                       {isSelectedVehicle && (
-                        <Text style={styles.activeVehicleLabel}>Vehículo seleccionado</Text>
+                        <Text style={styles.activeVehicleLabel}>{t('driver.profile.vehicles.selectedLabel')}</Text>
                       )}
                       {!isApproved && (
-                        <Text style={styles.pendingVehicleLabel}>En revisión administrativa</Text>
+                        <Text style={styles.pendingVehicleLabel}>{t('driver.profile.vehicles.pendingLabel')}</Text>
                       )}
                     </View>
                   </View>
@@ -1222,7 +1284,9 @@ export default function DriverProfileScreen({ navigation }: any) {
                       onPress={() => navigation.navigate('VehicleVerification', { vehicleId: vehicle.id })}
                     >
                       <Text style={styles.verifyButtonText}>
-                        {isVehicleComplete(vehicle) ? 'Ver' : 'Verificar'}
+                        {isVehicleComplete(vehicle)
+                          ? t('driver.profile.vehicles.view')
+                          : t('driver.profile.vehicles.verify')}
                       </Text>
                     </TouchableOpacity>
                     {vehicles.length > 1 && (
@@ -1232,7 +1296,11 @@ export default function DriverProfileScreen({ navigation }: any) {
                         disabled={isSelectedVehicle || !isApproved}
                       >
                         <Text style={[styles.changeButtonText, isSelectedVehicle && styles.changeButtonTextActive, (!isApproved && !isSelectedVehicle) && styles.changeButtonTextDisabled]}>
-                          {isSelectedVehicle ? 'Seleccionado' : isApproved ? 'Cambiar' : 'No disponible'}
+                          {isSelectedVehicle
+                            ? t('driver.profile.vehicles.selected')
+                            : isApproved
+                              ? t('driver.profile.vehicles.switch')
+                              : t('driver.profile.vehicles.unavailable')}
                         </Text>
                       </TouchableOpacity>
                     )}
@@ -1243,7 +1311,7 @@ export default function DriverProfileScreen({ navigation }: any) {
           </>
         ) : (
           <View style={styles.emptyVehiclesContainer}>
-            <Text style={styles.emptyVehiclesText}>No hay vehículos registrados</Text>
+            <Text style={styles.emptyVehiclesText}>{t('driver.profile.vehicles.empty')}</Text>
           </View>
         )}
 
@@ -1251,7 +1319,7 @@ export default function DriverProfileScreen({ navigation }: any) {
           style={styles.addVehicleButton}
           onPress={() => setShowAddVehicleModal(true)}
         >
-          <Text style={styles.addVehicleButtonText}>+ Agregar Vehículo</Text>
+          <Text style={styles.addVehicleButtonText}>{t('driver.profile.vehicles.addButton')}</Text>
         </TouchableOpacity>
       </View>
 
@@ -1259,7 +1327,7 @@ export default function DriverProfileScreen({ navigation }: any) {
 
       {/* Documentos del Conductor */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Documentos del Conductor</Text>
+        <Text style={styles.sectionTitle}>{t('driver.profile.documents.title')}</Text>
 
         {driverData && (
           <View style={styles.documentCard}>
@@ -1270,11 +1338,11 @@ export default function DriverProfileScreen({ navigation }: any) {
               <View style={styles.documentInfo}>
                 <Text style={styles.documentIcon}>🪪</Text>
                 <View>
-                  <Text style={styles.documentName}>Licencia de Conducir</Text>
+                  <Text style={styles.documentName}>{t('driver.profile.documents.licenseName')}</Text>
                   <Text style={[styles.documentStatus, { color: documentStatusColor }]}>{documentStatusText}</Text>
                   {driverLicenseExpiry && (
                     <Text style={styles.documentExpiry}>
-                      Vence: {safeFormatDate(driverLicenseExpiry)}
+                      {t('driver.profile.documents.expires', { date: safeFormatDate(driverLicenseExpiry) })}
                     </Text>
                   )}
                 </View>
@@ -1292,20 +1360,20 @@ export default function DriverProfileScreen({ navigation }: any) {
 
       {/* Solicitar Conductor Designado */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Conductor Designado</Text>
+        <Text style={styles.sectionTitle}>{t('driver.profile.designated.title')}</Text>
         
         <View style={styles.designatedDriverCard}>
           <View style={styles.designatedDriverContent}>
-            <Text style={styles.designatedDriverTitle}>Amplía tus oportunidades</Text>
+            <Text style={styles.designatedDriverTitle}>{t('driver.profile.designated.heroTitle')}</Text>
             <Text style={styles.designatedDriverDescription}>
-              Conviértete en conductor designado y accede a viajes premium donde el cliente proporciona el vehículo. Gana más con viajes de lujo.
+              {t('driver.profile.designated.heroDescription')}
             </Text>
             
             <View style={styles.designatedDriverBenefits}>
-              <Text style={styles.benefitItem}>✓ Viajes de conductor designado</Text>
-              <Text style={styles.benefitItem}>✓ Mayor tarifa por viaje</Text>
-              <Text style={styles.benefitItem}>✓ Clientes premium</Text>
-              <Text style={styles.benefitItem}>✓ Mantén tus viajes normales</Text>
+              <Text style={styles.benefitItem}>{t('driver.profile.designated.benefits.rides')}</Text>
+              <Text style={styles.benefitItem}>{t('driver.profile.designated.benefits.higherFare')}</Text>
+              <Text style={styles.benefitItem}>{t('driver.profile.designated.benefits.premiumClients')}</Text>
+              <Text style={styles.benefitItem}>{t('driver.profile.designated.benefits.keepRegular')}</Text>
             </View>
           </View>
 
@@ -1318,35 +1386,35 @@ export default function DriverProfileScreen({ navigation }: any) {
               // Si ya hay solicitud pendiente, no permitir enviar otra
               if (isDesignatedRequestPending) {
                 Alert.alert(
-                  'Solicitud Pendiente',
-                  'Ya tienes una solicitud pendiente. Nuestro equipo la revisará en 24 horas.'
+                  t('driver.profile.designated.alerts.pendingTitle'),
+                  t('driver.profile.designated.alerts.pendingBody'),
                 );
                 return;
               }
 
               if (isDesignatedDriverApproved) {
                 Alert.alert(
-                  'Ya aprobado',
-                  'Tu cuenta ya forma parte del programa de conductor designado.'
+                  t('driver.profile.designated.alerts.approvedTitle'),
+                  t('driver.profile.designated.alerts.approvedBody'),
                 );
                 return;
               }
 
               if (isDesignatedRequestRejected) {
                 Alert.alert(
-                  'Solicitud rechazada',
-                  'Tu solicitud fue rechazada. Revisa tus documentos o contáctanos si necesitas ayuda.'
+                  t('driver.profile.designated.alerts.rejectedTitle'),
+                  t('driver.profile.designated.alerts.rejectedBody'),
                 );
                 return;
               }
 
               Alert.alert(
-                'Solicitar Conductor Designado',
-                '¿Deseas solicitar acceso al programa de conductor designado?\n\nRequisitos:\n• Vehículo 4x4 o SUV\n• Licencia válida\n• Documentos verificados\n• Calificación mínima 4.8 estrellas',
+                t('driver.profile.designated.alerts.confirmTitle'),
+                t('driver.profile.designated.alerts.confirmBody'),
                 [
-                  { text: 'Cancelar', style: 'cancel' },
+                  { text: t('driver.profile.designated.alerts.confirmCancel'), style: 'cancel' },
                   {
-                    text: 'Solicitar',
+                    text: t('driver.profile.designated.alerts.confirmSubmit'),
                     onPress: handleRequestDesignatedDriverAccess
                   }
                 ]
@@ -1366,16 +1434,16 @@ export default function DriverProfileScreen({ navigation }: any) {
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Modo de uso</Text>
+        <Text style={styles.sectionTitle}>{t('driver.profile.mode.title')}</Text>
         <View style={styles.preferenceCard}>
           <View style={styles.preferenceHeader}>
             <View style={styles.preferenceIconWrapper}>
               <Text style={styles.preferenceIcon}>🚘</Text>
             </View>
             <View style={styles.preferenceInfo}>
-              <Text style={styles.preferenceTitle}>Usar la app como</Text>
+              <Text style={styles.preferenceTitle}>{t('driver.profile.mode.title')}</Text>
               <Text style={styles.preferenceSubtitle}>
-                Cambia entre vista de cliente y de conductor con tu misma cuenta.
+                {t('driver.profile.mode.description')}
               </Text>
             </View>
             <TouchableOpacity
@@ -1391,7 +1459,9 @@ export default function DriverProfileScreen({ navigation }: any) {
                   userMode === 'driver' ? styles.modeToggleButtonTextActive : null,
                 ]}
               >
-                {userMode === 'driver' ? 'Usar como cliente' : 'Usar como conductor'}
+                {userMode === 'driver'
+                  ? t('driver.profile.mode.switchToClient')
+                  : t('driver.profile.mode.switchToDriver')}
               </Text>
             </TouchableOpacity>
           </View>
@@ -1399,24 +1469,26 @@ export default function DriverProfileScreen({ navigation }: any) {
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Notificaciones avanzadas</Text>
+        <Text style={styles.sectionTitle}>{t('driver.profile.overlay.title')}</Text>
         <View style={styles.preferenceCard}>
           <View style={styles.preferenceHeader}>
             <View style={styles.preferenceIconWrapper}>
               <Text style={styles.preferenceIcon}>🔔</Text>
             </View>
             <View style={styles.preferenceInfo}>
-              <Text style={styles.preferenceTitle}>Burbuja flotante con solicitudes cercanas</Text>
+              <Text style={styles.preferenceTitle}>{t('driver.profile.overlay.subtitle')}</Text>
               <Text style={styles.preferenceSubtitle}>
-                Muestra una tarjeta encima de otras apps cuando haya un viaje cercano. Ideal si usas otras apps de navegación.
+                {t('driver.profile.overlay.description')}
               </Text>
               {Platform.OS === 'android' ? (
                 <Text style={styles.preferenceHint}>
-                  Requiere el permiso "Mostrar encima de otras apps". {overlayPermissionGranted ? 'Permiso activo.' : 'Ábrelo desde Ajustes → Aplicaciones → Rundi → Mostrar encima.'}
+                  {overlayPermissionGranted
+                    ? t('driver.profile.overlay.hintAndroidGranted')
+                    : t('driver.profile.overlay.hintAndroidMissing')}
                 </Text>
               ) : (
                 <Text style={styles.preferenceHint}>
-                  Disponible únicamente en Android.
+                  {t('driver.profile.overlay.hintIos')}
                 </Text>
               )}
             </View>
@@ -1433,14 +1505,14 @@ export default function DriverProfileScreen({ navigation }: any) {
 
       {/* Asistente de Voz */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Asistente de Voz</Text>
+        <Text style={styles.sectionTitle}>{t('driver.profile.voice.title')}</Text>
 
         <View style={styles.voiceAssistantCard}>
           <View style={styles.voiceAssistantHeader}>
             <View style={styles.voiceAssistantTitleBlock}>
-              <Text style={styles.voiceAssistantTitle}>Indicaciones habladas</Text>
+              <Text style={styles.voiceAssistantTitle}>{t('driver.profile.voice.cardTitle')}</Text>
               <Text style={styles.voiceAssistantSubtitle}>
-                Recibe avisos de nuevos viajes, recordatorios cuando llegas al cliente y alertas de pago sin mirar la pantalla.
+                {t('driver.profile.voice.subtitle')}
               </Text>
             </View>
             <Switch
@@ -1452,13 +1524,13 @@ export default function DriverProfileScreen({ navigation }: any) {
           </View>
 
           <View style={styles.voiceAssistantBenefits}>
-            <Text style={styles.voiceAssistantBenefit}>• Anuncios de viajes cercanos automáticamente</Text>
-            <Text style={styles.voiceAssistantBenefit}>• Recordatorios al llegar al punto de recogida</Text>
-            <Text style={styles.voiceAssistantBenefit}>• Alertas cuando falta confirmar un pago en efectivo</Text>
+            <Text style={styles.voiceAssistantBenefit}>{t('driver.profile.voice.benefits.rides')}</Text>
+            <Text style={styles.voiceAssistantBenefit}>{t('driver.profile.voice.benefits.arrivals')}</Text>
+            <Text style={styles.voiceAssistantBenefit}>{t('driver.profile.voice.benefits.payments')}</Text>
           </View>
 
           <Text style={styles.voiceAssistantFooter}>
-            Puedes desactivarlo cuando quieras. Recomendado mantenerlo activo para conducir con manos libres.
+            {t('driver.profile.voice.footer')}
           </Text>
         </View>
       </View>
@@ -1466,22 +1538,22 @@ export default function DriverProfileScreen({ navigation }: any) {
       {/* Información del Seguro */}
       {vehicles.length > 0 && vehicles[0].insuranceNumber && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Información del Seguro</Text>
+          <Text style={styles.sectionTitle}>{t('driver.profile.insurance.title')}</Text>
 
           <View style={styles.insuranceCard}>
             <View style={styles.insuranceRow}>
-              <Text style={styles.insuranceLabel}>Compañía</Text>
+              <Text style={styles.insuranceLabel}>{t('driver.profile.insurance.company')}</Text>
               <Text style={styles.insuranceValue}>{vehicles[0].insuranceCompany}</Text>
             </View>
 
             <View style={styles.insuranceRow}>
-              <Text style={styles.insuranceLabel}>Número de Póliza</Text>
+              <Text style={styles.insuranceLabel}>{t('driver.profile.insurance.number')}</Text>
               <Text style={styles.insuranceValue}>{vehicles[0].insuranceNumber}</Text>
             </View>
 
             {vehicles[0].insuranceExpiry && (
               <View style={styles.insuranceRow}>
-                <Text style={styles.insuranceLabel}>Vencimiento</Text>
+                <Text style={styles.insuranceLabel}>{t('driver.profile.insurance.expiry')}</Text>
                 <Text style={styles.insuranceValue}>
                   {safeFormatDate(vehicles[0].insuranceExpiry)}
                 </Text>
@@ -1490,7 +1562,7 @@ export default function DriverProfileScreen({ navigation }: any) {
 
             {vehicles[0].insurancePhoto && (
               <View style={styles.insurancePhotoContainer}>
-                <Text style={styles.insuranceLabel}>Foto de la Póliza</Text>
+                <Text style={styles.insuranceLabel}>{t('driver.profile.insurance.photo')}</Text>
                 <Image source={{ uri: vehicles[0].insurancePhoto }} style={styles.insurancePhoto} />
               </View>
             )}
@@ -1508,7 +1580,7 @@ export default function DriverProfileScreen({ navigation }: any) {
               source={require('../../assets/icons/profit-icon/profiticon.png')}
               style={styles.optionIconImage}
             />
-          <Text style={styles.optionText}>Ver Ganancias Detalladas</Text>
+          <Text style={styles.optionText}>{t('driver.profile.options.viewEarnings')}</Text>
           <Text style={styles.optionArrow}>›</Text>
         </TouchableOpacity>
 
@@ -1520,7 +1592,7 @@ export default function DriverProfileScreen({ navigation }: any) {
               source={require('../../assets/icons/historial-icon/historialicon2.png')}
               style={styles.optionIconImage}
             />
-            <Text style={styles.optionText}>Historial de Viajes</Text>
+            <Text style={styles.optionText}>{t('driver.profile.options.rideHistory')}</Text>
             <Text style={styles.optionArrow}>›</Text>
           </TouchableOpacity>
 
@@ -1533,7 +1605,7 @@ export default function DriverProfileScreen({ navigation }: any) {
               source={require('../../assets/icons/payment-icon/paymenticon.png')}
               style={styles.optionIconImage}
             />
-          <Text style={styles.optionText}>Métodos de Pago</Text>
+          <Text style={styles.optionText}>{t('driver.profile.options.paymentMethods')}</Text>
           <Text style={styles.optionArrow}>›</Text>
         </TouchableOpacity>
 
@@ -1545,7 +1617,7 @@ export default function DriverProfileScreen({ navigation }: any) {
               source={require('../../assets/icons/settings-icon/settingsicon.png')}
               style={styles.optionIconImage}
             />
-          <Text style={styles.optionText}>Configuración</Text>
+          <Text style={styles.optionText}>{t('driver.profile.options.settings')}</Text>
           <Text style={styles.optionArrow}>›</Text>
         </TouchableOpacity>
 
@@ -1557,7 +1629,7 @@ export default function DriverProfileScreen({ navigation }: any) {
               source={require('../../assets/icons/help-icon/helpicon.png')}
               style={styles.optionIconImage}
             />
-          <Text style={styles.optionText}>Ayuda</Text>
+          <Text style={styles.optionText}>{t('driver.profile.options.help')}</Text>
           <Text style={styles.optionArrow}>›</Text>
         </TouchableOpacity>
       </View>
@@ -1576,7 +1648,7 @@ export default function DriverProfileScreen({ navigation }: any) {
       <View style={styles.modalContainer}>
         <View style={styles.modalContent}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Agregar Nuevo Vehículo</Text>
+            <Text style={styles.modalTitle}>{t('driver.profile.modal.title')}</Text>
             <TouchableOpacity onPress={() => setShowAddVehicleModal(false)}>
               <Text style={styles.modalCloseButton}>✕</Text>
             </TouchableOpacity>
@@ -1585,58 +1657,63 @@ export default function DriverProfileScreen({ navigation }: any) {
           <ScrollView style={styles.modalForm}>
             {/* SECCIÓN: INFORMACIÓN BÁSICA */}
             <View style={styles.formSection}>
-              <Text style={styles.formSectionTitle}>Información Básica</Text>
+              <Text style={styles.formSectionTitle}>{t('driver.profile.modal.labels.basicInfo')}</Text>
               
-              <Text style={styles.formLabel}>Placa *</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.plate')}</Text>
               <TextInput
                 style={styles.formInput}
-                placeholder="ABC-123"
+                placeholder={t('driver.profile.modal.placeholders.plate')}
                 value={vehicleFormData.plate}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, plate: text })}
                 placeholderTextColor={colors.textSecondary}
               />
 
-              <Text style={styles.formLabel}>Marca *</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.brand')}</Text>
               <TextInput
                 style={styles.formInput}
-                placeholder="Toyota"
+                placeholder={t('driver.profile.modal.placeholders.brand')}
                 value={vehicleFormData.brand}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, brand: text })}
                 placeholderTextColor={colors.textSecondary}
               />
 
-              <Text style={styles.formLabel}>Modelo *</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.model')}</Text>
               <TextInput
                 style={styles.formInput}
-                placeholder="Corolla"
+                placeholder={t('driver.profile.modal.placeholders.model')}
                 value={vehicleFormData.model}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, model: text })}
                 placeholderTextColor={colors.textSecondary}
               />
 
-              <Text style={styles.formLabel}>Año *</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.year')}</Text>
               <TextInput
                 style={styles.formInput}
-                placeholder={new Date().getFullYear().toString()}
+                placeholder={t('driver.profile.modal.placeholders.year', { year: currentYear })}
                 value={vehicleFormData.year.toString()}
-                onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, year: parseInt(text) || new Date().getFullYear() })}
+                onChangeText={(text) =>
+                  setVehicleFormData({
+                    ...vehicleFormData,
+                    year: parseInt(text, 10) || currentYear,
+                  })
+                }
                 keyboardType="numeric"
                 placeholderTextColor={colors.textSecondary}
               />
 
-              <Text style={styles.formLabel}>Color *</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.color')}</Text>
               <TextInput
                 style={styles.formInput}
-                placeholder="Blanco"
+                placeholder={t('driver.profile.modal.placeholders.color')}
                 value={vehicleFormData.color}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, color: text })}
                 placeholderTextColor={colors.textSecondary}
               />
 
-              <Text style={styles.formLabel}>Tipo</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.type')}</Text>
               <TextInput
                 style={styles.formInput}
-                placeholder="sedan"
+                placeholder={t('driver.profile.modal.placeholders.type')}
                 value={vehicleFormData.type}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, type: text })}
                 placeholderTextColor={colors.textSecondary}
@@ -1645,68 +1722,70 @@ export default function DriverProfileScreen({ navigation }: any) {
 
             {/* SECCIÓN: ESPECIFICACIONES TÉCNICAS */}
             <View style={styles.formSection}>
-              <Text style={styles.formSectionTitle}>⚙️ Especificaciones Técnicas</Text>
+              <Text style={styles.formSectionTitle}>
+                {`⚙️ ${t('driver.profile.modal.labels.specs')}`}
+              </Text>
               
-              <Text style={styles.formLabel}>Motor</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.engine')}</Text>
               <TextInput
                 style={styles.formInput}
-                placeholder="2.0L"
+                placeholder={t('driver.profile.modal.placeholders.engine')}
                 value={vehicleFormData.motor}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, motor: text })}
                 placeholderTextColor={colors.textSecondary}
               />
 
-              <Text style={styles.formLabel}>Chasis</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.chassis')}</Text>
               <TextInput
                 style={styles.formInput}
-                placeholder="ABC123456"
+                placeholder={t('driver.profile.modal.placeholders.chassis')}
                 value={vehicleFormData.chasis}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, chasis: text })}
                 placeholderTextColor={colors.textSecondary}
               />
 
-              <Text style={styles.formLabel}>VIN</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.vin')}</Text>
               <TextInput
                 style={styles.formInput}
-                placeholder="VIN123456789"
+                placeholder={t('driver.profile.modal.placeholders.vin')}
                 value={vehicleFormData.vin}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, vin: text })}
                 placeholderTextColor={colors.textSecondary}
               />
 
-              <Text style={styles.formLabel}>Cilindros</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.cylinders')}</Text>
               <TextInput
                 style={styles.formInput}
-                placeholder="4"
+                placeholder={t('driver.profile.modal.placeholders.cylinders')}
                 value={vehicleFormData.cylinders}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, cylinders: text })}
                 keyboardType="numeric"
                 placeholderTextColor={colors.textSecondary}
               />
 
-              <Text style={styles.formLabel}>Pasajeros</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.passengers')}</Text>
               <TextInput
                 style={styles.formInput}
-                placeholder="5"
+                placeholder={t('driver.profile.modal.placeholders.passengers')}
                 value={vehicleFormData.passengers}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, passengers: text })}
                 keyboardType="numeric"
                 placeholderTextColor={colors.textSecondary}
               />
 
-              <Text style={styles.formLabel}>Tipo de Combustible</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.fuelType')}</Text>
               <TextInput
                 style={styles.formInput}
-                placeholder="Gasolina"
+                placeholder={t('driver.profile.modal.placeholders.fuelType')}
                 value={vehicleFormData.fuel_type}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, fuel_type: text })}
                 placeholderTextColor={colors.textSecondary}
               />
 
-              <Text style={styles.formLabel}>Tonelaje</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.tonnage')}</Text>
               <TextInput
                 style={styles.formInput}
-                placeholder="2.50"
+                placeholder={t('driver.profile.modal.placeholders.tonnage')}
                 value={vehicleFormData.tonnage}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, tonnage: text })}
                 keyboardType="decimal-pad"
@@ -1716,30 +1795,32 @@ export default function DriverProfileScreen({ navigation }: any) {
 
             {/* SECCIÓN: CLASIFICACIÓN */}
             <View style={styles.formSection}>
-              <Text style={styles.formSectionTitle}>🏷️ Clasificación</Text>
+              <Text style={styles.formSectionTitle}>
+                {`🏷️ ${t('driver.profile.modal.labels.classification')}`}
+              </Text>
               
-              <Text style={styles.formLabel}>Clase de Vehículo</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.vehicleClass')}</Text>
               <TextInput
                 style={styles.formInput}
-                placeholder="PARTICULAR"
+                placeholder={t('driver.profile.modal.placeholders.vehicleClass')}
                 value={vehicleFormData.vehicle_class}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, vehicle_class: text })}
                 placeholderTextColor={colors.textSecondary}
               />
 
-              <Text style={styles.formLabel}>Tipo de Servicio</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.serviceType')}</Text>
               <TextInput
                 style={styles.formInput}
-                placeholder="PRIVADO"
+                placeholder={t('driver.profile.modal.placeholders.serviceType')}
                 value={vehicleFormData.service_type}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, service_type: text })}
                 placeholderTextColor={colors.textSecondary}
               />
 
-              <Text style={styles.formLabel}>Gravamen</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.lien')}</Text>
               <TextInput
                 style={styles.formInput}
-                placeholder="NINGUNO"
+                placeholder={t('driver.profile.modal.placeholders.lien')}
                 value={vehicleFormData.lien}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, lien: text })}
                 placeholderTextColor={colors.textSecondary}
@@ -1748,31 +1829,33 @@ export default function DriverProfileScreen({ navigation }: any) {
 
             {/* SECCIÓN: DOCUMENTOS */}
             <View style={styles.formSection}>
-              <Text style={styles.formSectionTitle}>📄 Documentos de Registro</Text>
+              <Text style={styles.formSectionTitle}>
+                {`📄 ${t('driver.profile.modal.labels.documents')}`}
+              </Text>
               
-              <Text style={styles.formLabel}>Fecha de Emisión</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.emissionDate')}</Text>
               <FormattedInput
                 style={styles.formInput}
-                placeholder="YYYY-MM-DD"
+                placeholder={t('driver.profile.modal.placeholders.emissionDate')}
                 format="date"
                 value={vehicleFormData.emission_date}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, emission_date: text })}
                 placeholderTextColor={colors.textSecondary}
               />
 
-              <Text style={styles.formLabel}>Número de Registro</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.registrationNumber')}</Text>
               <TextInput
                 style={styles.formInput}
-                placeholder="B2301230"
+                placeholder={t('driver.profile.modal.placeholders.registrationNumber')}
                 value={vehicleFormData.registration_number}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, registration_number: text })}
                 placeholderTextColor={colors.textSecondary}
               />
 
-              <Text style={styles.formLabel}>Vencimiento de Registro</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.registrationExpiry')}</Text>
               <FormattedInput
                 style={styles.formInput}
-                placeholder="YYYY-MM-DD"
+                placeholder={t('driver.profile.modal.placeholders.registrationExpiry')}
                 format="date"
                 value={vehicleFormData.registration_expiry}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, registration_expiry: text })}
@@ -1780,13 +1863,13 @@ export default function DriverProfileScreen({ navigation }: any) {
               />
 
               <ImagePickerComponent
-                label="Foto Frontal del Registro"
+                label={t('driver.profile.modal.labels.registrationFront')}
                 imageUri={vehicleFormData.registration_photo_front}
                 onImageSelected={(uri: string) => setVehicleFormData({ ...vehicleFormData, registration_photo_front: uri })}
               />
 
               <ImagePickerComponent
-                label="Foto Trasera del Registro"
+                label={t('driver.profile.modal.labels.registrationBack')}
                 imageUri={vehicleFormData.registration_photo_back}
                 onImageSelected={(uri: string) => setVehicleFormData({ ...vehicleFormData, registration_photo_back: uri })}
               />
@@ -1794,40 +1877,42 @@ export default function DriverProfileScreen({ navigation }: any) {
 
             {/* SECCIÓN: SEGURO */}
             <View style={styles.formSection}>
-              <Text style={styles.formSectionTitle}>🛡️ Seguro</Text>
+              <Text style={styles.formSectionTitle}>
+                {`🛡️ ${t('driver.profile.modal.labels.insurance')}`}
+              </Text>
               
-              <Text style={styles.formLabel}>Número de Seguro</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.insuranceNumber')}</Text>
               <TextInput
                 style={styles.formInput}
-                placeholder="RCO30201102"
+                placeholder={t('driver.profile.modal.placeholders.insuranceNumber')}
                 value={vehicleFormData.insurance_number}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, insurance_number: text })}
                 placeholderTextColor={colors.textSecondary}
               />
 
-              <Text style={styles.formLabel}>Compañía de Seguro</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.insuranceCompany')}</Text>
               <TextInput
                 style={styles.formInput}
-                placeholder="BAC"
+                placeholder={t('driver.profile.modal.placeholders.insuranceCompany')}
                 value={vehicleFormData.insurance_company}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, insurance_company: text })}
                 placeholderTextColor={colors.textSecondary}
               />
 
-              <Text style={styles.formLabel}>Inicio de Seguro</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.insuranceStart')}</Text>
               <FormattedInput
                 style={styles.formInput}
-                placeholder="YYYY-MM-DD"
+                placeholder={t('driver.profile.modal.placeholders.insuranceStart')}
                 format="date"
                 value={vehicleFormData.insurance_start_date}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, insurance_start_date: text })}
                 placeholderTextColor={colors.textSecondary}
               />
 
-              <Text style={styles.formLabel}>Vencimiento de Seguro</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.insuranceExpiry')}</Text>
               <FormattedInput
                 style={styles.formInput}
-                placeholder="YYYY-MM-DD"
+                placeholder={t('driver.profile.modal.placeholders.insuranceExpiry')}
                 format="date"
                 value={vehicleFormData.insurance_expiry}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, insurance_expiry: text })}
@@ -1835,7 +1920,7 @@ export default function DriverProfileScreen({ navigation }: any) {
               />
 
               <ImagePickerComponent
-                label="Póliza de Seguro"
+                label={t('driver.profile.modal.labels.insurancePhoto')}
                 imageUri={vehicleFormData.insurance_photo}
                 onImageSelected={(uri: string) => setVehicleFormData({ ...vehicleFormData, insurance_photo: uri })}
               />
@@ -1843,10 +1928,12 @@ export default function DriverProfileScreen({ navigation }: any) {
 
             {/* SECCIÓN: FOTOS DEL VEHÍCULO */}
             <View style={styles.formSection}>
-              <Text style={styles.formSectionTitle}>📸 Fotos del Vehículo</Text>
+              <Text style={styles.formSectionTitle}>
+                {`📸 ${t('driver.profile.modal.labels.photos')}`}
+              </Text>
               
               <ImagePickerComponent
-                label="Foto General del Vehículo"
+                label={t('driver.profile.modal.labels.vehiclePhoto')}
                 imageUri={vehicleFormData.vehicle_photo}
                 onImageSelected={(uri: string) => setVehicleFormData({ ...vehicleFormData, vehicle_photo: uri })}
               />
@@ -1860,7 +1947,7 @@ export default function DriverProfileScreen({ navigation }: any) {
               style={styles.modalCancelButton}
               onPress={() => setShowAddVehicleModal(false)}
             >
-              <Text style={styles.modalCancelButtonText}>Cancelar</Text>
+              <Text style={styles.modalCancelButtonText}>{t('driver.profile.modal.buttons.cancel')}</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -1871,7 +1958,7 @@ export default function DriverProfileScreen({ navigation }: any) {
               {addingVehicle ? (
                 <ActivityIndicator color="#fff" />
               ) : (
-                <Text style={styles.modalSubmitButtonText}>Agregar Vehículo</Text>
+                <Text style={styles.modalSubmitButtonText}>{t('driver.profile.modal.buttons.submit')}</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -2267,6 +2354,11 @@ const createStyles = (colors: any) => StyleSheet.create({
   vehicleIconText: {
     fontSize: 32,
   },
+  vehicleIconImage: {
+    width: 40,
+    height: 40,
+    resizeMode: 'contain',
+  },
   vehicleInfo: {
     flex: 1,
   },
@@ -2285,6 +2377,8 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontWeight: '600',
     color: '#FF9800',
     marginTop: 4,
+    flexWrap: 'wrap',
+    flexShrink: 10,
   },
   changeButton: {
     backgroundColor: colors.surface,
@@ -2344,11 +2438,14 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontWeight: '700',
     color: '#4CAF50',
     marginTop: 4,
+    flexWrap: 'wrap',
+    flexShrink: 1,
   },
   addVehicleButton: {
     backgroundColor: colors.surface,
     borderRadius: 12,
     padding: 16,
+    marginTop: 4,
     alignItems: 'center',
     borderWidth: 1,
     borderColor: colors.border,

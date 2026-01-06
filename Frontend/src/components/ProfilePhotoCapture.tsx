@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import * as ExpoImagePicker from 'expo-image-picker';
 import { useTheme } from '../context/ThemeContext';
+import { useTranslation } from 'react-i18next';
 
 interface ProfilePhotoCaptureProps {
   photoUri: string | null;
@@ -23,14 +24,15 @@ export default function ProfilePhotoCapture({
   loading = false,
 }: ProfilePhotoCaptureProps) {
   const { colors } = useTheme();
+  const { t } = useTranslation();
 
   const requestPermissions = async () => {
     const { status } = await ExpoImagePicker.requestCameraPermissionsAsync();
 
     if (status !== 'granted') {
       Alert.alert(
-        'Permiso de Cámara Requerido',
-        'Necesitamos acceso a la cámara para tomar tu foto de perfil. Esto es obligatorio para verificar tu identidad.'
+        t('common.components.profilePhotoCapture.alerts.permissionTitle'),
+        t('common.components.profilePhotoCapture.alerts.permissionMessage'),
       );
       return false;
     }
@@ -54,23 +56,20 @@ export default function ProfilePhotoCapture({
       }
     } catch (error) {
       console.error('Error tomando foto:', error);
-      Alert.alert('Error', 'No se pudo tomar la foto. Intenta de nuevo.');
+      Alert.alert(
+        t('common.components.profilePhotoCapture.alerts.errorTitle'),
+        t('common.components.profilePhotoCapture.alerts.errorMessage'),
+      );
     }
   };
 
   const showInstructions = () => {
     Alert.alert(
-      '📸 Instrucciones para la Foto de Perfil',
-      '• Quítate los lentes de sol\n' +
-      '• Asegúrate de tener buena iluminación\n' +
-      '• Mira directamente a la cámara\n' +
-      '• Tu rostro debe ser claramente visible\n' +
-      '• No uses filtros ni ediciones\n' +
-      '• La foto debe ser reciente\n\n' +
-      'Esta foto es OBLIGATORIA para verificar tu identidad y garantizar la seguridad de los pasajeros.',
+      t('common.components.profilePhotoCapture.instructions.title'),
+      t('common.components.profilePhotoCapture.instructions.message'),
       [
         {
-          text: 'Entendido',
+          text: t('common.components.profilePhotoCapture.instructions.confirm'),
           style: 'default',
         },
       ]
@@ -81,10 +80,12 @@ export default function ProfilePhotoCapture({
     <View style={styles.container}>
       <View style={styles.headerContainer}>
         <Text style={[styles.label, { color: colors.text }]}>
-          Foto de Perfil <Text style={styles.required}>*</Text>
+          {t('common.components.profilePhotoCapture.label')} <Text style={styles.required}>*</Text>
         </Text>
         <TouchableOpacity onPress={showInstructions}>
-          <Text style={[styles.infoButton, { color: colors.primary }]}>ℹ️ Instrucciones</Text>
+          <Text style={[styles.infoButton, { color: colors.primary }]}>
+            {t('common.components.profilePhotoCapture.buttons.instructions')}
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -93,7 +94,7 @@ export default function ProfilePhotoCapture({
           <View style={[styles.photoPlaceholder, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <ActivityIndicator size="large" color={colors.primary} />
             <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
-              Subiendo foto...
+              {t('common.components.profilePhotoCapture.states.uploading')}
             </Text>
           </View>
         ) : photoUri ? (
@@ -107,7 +108,7 @@ export default function ProfilePhotoCapture({
           <View style={[styles.photoPlaceholder, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <Text style={styles.placeholderIcon}>👤</Text>
             <Text style={[styles.placeholderText, { color: colors.textSecondary }]}>
-              Sin foto
+              {t('common.components.profilePhotoCapture.states.empty')}
             </Text>
           </View>
         )}
@@ -130,15 +131,19 @@ export default function ProfilePhotoCapture({
             { color: photoUri ? colors.text : '#fff' },
           ]}
         >
-          {photoUri ? '🔄 Tomar Nueva Foto' : '📷 Tomar Foto de Perfil'}
+          {photoUri
+            ? t('common.components.profilePhotoCapture.buttons.retake')
+            : t('common.components.profilePhotoCapture.buttons.take')}
         </Text>
       </TouchableOpacity>
 
       <View style={[styles.warningBox, { backgroundColor: colors.surface, borderColor: '#f59e0b' }]}>
         <Text style={styles.warningIcon}>⚠️</Text>
         <Text style={[styles.warningText, { color: colors.text }]}>
-          <Text style={styles.warningBold}>Importante:</Text> Tu foto de perfil es obligatoria.
-          Debe mostrar claramente tu rostro sin lentes de sol. Será usada para verificar tu identidad.
+          <Text style={styles.warningBold}>
+            {t('common.components.profilePhotoCapture.warning.intro')}
+          </Text>{' '}
+          {t('common.components.profilePhotoCapture.warning.message')}
         </Text>
       </View>
     </View>

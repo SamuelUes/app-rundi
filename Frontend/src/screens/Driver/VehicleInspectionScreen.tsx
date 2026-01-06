@@ -10,10 +10,10 @@ import {
   Platform,
   StyleSheet
 } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import * as ImagePicker from 'expo-image-picker';
-import { getDatabase, ref as dbRef, update } from 'firebase/database';
 import supabaseStorage from '../../services/supabaseStorage';
 import inspectionsService from '../../services/inspectionsService';
 
@@ -26,6 +26,8 @@ export default function VehicleInspectionScreen({ route, navigation }: VehicleIn
   const { colors } = useTheme();
   const { user } = useAuth();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const { t } = useTranslation();
+  const ns = 'driver.vehicleInspection';
   
   const { rideId, clientName, clientVehicleInfo } = route.params || {};
   
@@ -44,8 +46,8 @@ export default function VehicleInspectionScreen({ route, navigation }: VehicleIn
         const { status } = await ImagePicker.requestCameraPermissionsAsync();
         if (status !== 'granted') {
           Alert.alert(
-            'Permisos necesarios', 
-            'Se requiere acceso a la cámara para tomar fotos del vehículo.'
+            t(`${ns}.alerts.permissionTitle`), 
+            t(`${ns}.alerts.permissionMessage`)
           );
         }
       }
@@ -69,7 +71,10 @@ export default function VehicleInspectionScreen({ route, navigation }: VehicleIn
         setPhotoFunction(result.assets[0].uri);
       }
     } catch (error) {
-      Alert.alert('Error', 'No se pudo tomar la foto');
+      Alert.alert(
+        t(`${ns}.alerts.cameraErrorTitle`),
+        t(`${ns}.alerts.cameraErrorMessage`)
+      );
       console.error('Error al tomar foto:', error);
     }
   };
@@ -77,7 +82,10 @@ export default function VehicleInspectionScreen({ route, navigation }: VehicleIn
   // Subir fotos a Supabase Storage y actualizar datos del viaje
   const uploadPhotosAndContinue = async () => {
     if (!user || !rideId || !allPhotosProvided) {
-      Alert.alert('Error', 'Faltan datos o fotos para continuar');
+      Alert.alert(
+        t(`${ns}.alerts.missingDataTitle`),
+        t(`${ns}.alerts.missingDataMessage`)
+      );
       return;
     }
 
@@ -163,10 +171,10 @@ export default function VehicleInspectionScreen({ route, navigation }: VehicleIn
 
       setLoading(false);
       Alert.alert(
-        'Éxito', 
-        'Inspección de vehículo completada. Ahora puedes iniciar el viaje.',
+        t(`${ns}.alerts.successTitle`), 
+        t(`${ns}.alerts.successMessage`),
         [{ 
-          text: 'Iniciar Viaje', 
+          text: t(`${ns}.alerts.successButton`), 
           onPress: () => {
             // Volver a la pantalla anterior y pasar señal para iniciar el viaje
             navigation.navigate('ActiveRide', {
@@ -180,21 +188,26 @@ export default function VehicleInspectionScreen({ route, navigation }: VehicleIn
     } catch (error) {
       console.error('Error al subir fotos:', error);
       setLoading(false);
-      Alert.alert('Error', 'No se pudieron subir las fotos. Inténtelo de nuevo.');
+      Alert.alert(
+        t(`${ns}.alerts.uploadErrorTitle`),
+        t(`${ns}.alerts.uploadErrorMessage`)
+      );
     }
   };
 
   return (
     <ScrollView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Inspección del Vehículo</Text>
-        <Text style={styles.subtitle}>Antes de iniciar el viaje con {clientName || 'el cliente'}, por favor documenta el estado actual del vehículo tomando las siguientes fotos:</Text>
+        <Text style={styles.title}>{t(`${ns}.header.title`)}</Text>
+        <Text style={styles.subtitle}>
+          {t(`${ns}.header.subtitle`, { name: clientName || t(`${ns}.header.clientFallback`) })}
+        </Text>
       </View>
       
       <View style={styles.photoSection}>
         {/* Foto Frontal */}
         <View style={styles.photoContainer}>
-          <Text style={styles.photoTitle}>1. Foto Frontal del Vehículo</Text>
+          <Text style={styles.photoTitle}>{t(`${ns}.steps.frontTitle`)}</Text>
           {frontPhoto ? (
             <View style={styles.previewContainer}>
               <Image source={{ uri: frontPhoto }} style={styles.photoPreview} />
@@ -202,7 +215,7 @@ export default function VehicleInspectionScreen({ route, navigation }: VehicleIn
                 style={styles.retakeButton}
                 onPress={() => takePhoto(setFrontPhoto)}
               >
-                <Text style={styles.retakeButtonText}>Volver a tomar</Text>
+                <Text style={styles.retakeButtonText}>{t(`${ns}.steps.retakePhoto`)}</Text>
               </TouchableOpacity>
             </View>
           ) : (
@@ -210,14 +223,14 @@ export default function VehicleInspectionScreen({ route, navigation }: VehicleIn
               style={styles.photoButton}
               onPress={() => takePhoto(setFrontPhoto)}
             >
-              <Text style={styles.photoButtonText}>📷 Tomar Foto</Text>
+              <Text style={styles.photoButtonText}>{t(`${ns}.steps.takePhoto`)}</Text>
             </TouchableOpacity>
           )}
         </View>
 
         {/* Foto Trasera */}
         <View style={styles.photoContainer}>
-          <Text style={styles.photoTitle}>2. Foto Trasera del Vehículo</Text>
+          <Text style={styles.photoTitle}>{t(`${ns}.steps.rearTitle`)}</Text>
           {rearPhoto ? (
             <View style={styles.previewContainer}>
               <Image source={{ uri: rearPhoto }} style={styles.photoPreview} />
@@ -225,7 +238,7 @@ export default function VehicleInspectionScreen({ route, navigation }: VehicleIn
                 style={styles.retakeButton}
                 onPress={() => takePhoto(setRearPhoto)}
               >
-                <Text style={styles.retakeButtonText}>Volver a tomar</Text>
+                <Text style={styles.retakeButtonText}>{t(`${ns}.steps.retakePhoto`)}</Text>
               </TouchableOpacity>
             </View>
           ) : (
@@ -233,14 +246,14 @@ export default function VehicleInspectionScreen({ route, navigation }: VehicleIn
               style={styles.photoButton}
               onPress={() => takePhoto(setRearPhoto)}
             >
-              <Text style={styles.photoButtonText}>📷 Tomar Foto</Text>
+              <Text style={styles.photoButtonText}>{t(`${ns}.steps.takePhoto`)}</Text>
             </TouchableOpacity>
           )}
         </View>
 
         {/* Foto Interior Frontal */}
         <View style={styles.photoContainer}>
-          <Text style={styles.photoTitle}>3. Foto del Interior Delantero</Text>
+          <Text style={styles.photoTitle}>{t(`${ns}.steps.interiorFrontTitle`)}</Text>
           {frontInteriorPhoto ? (
             <View style={styles.previewContainer}>
               <Image source={{ uri: frontInteriorPhoto }} style={styles.photoPreview} />
@@ -248,7 +261,7 @@ export default function VehicleInspectionScreen({ route, navigation }: VehicleIn
                 style={styles.retakeButton}
                 onPress={() => takePhoto(setFrontInteriorPhoto)}
               >
-                <Text style={styles.retakeButtonText}>Volver a tomar</Text>
+                <Text style={styles.retakeButtonText}>{t(`${ns}.steps.retakePhoto`)}</Text>
               </TouchableOpacity>
             </View>
           ) : (
@@ -256,14 +269,14 @@ export default function VehicleInspectionScreen({ route, navigation }: VehicleIn
               style={styles.photoButton}
               onPress={() => takePhoto(setFrontInteriorPhoto)}
             >
-              <Text style={styles.photoButtonText}>📷 Tomar Foto</Text>
+              <Text style={styles.photoButtonText}>{t(`${ns}.steps.takePhoto`)}</Text>
             </TouchableOpacity>
           )}
         </View>
 
         {/* Foto Interior Trasero */}
         <View style={styles.photoContainer}>
-          <Text style={styles.photoTitle}>4. Foto del Interior Trasero</Text>
+          <Text style={styles.photoTitle}>{t(`${ns}.steps.interiorRearTitle`)}</Text>
           {rearInteriorPhoto ? (
             <View style={styles.previewContainer}>
               <Image source={{ uri: rearInteriorPhoto }} style={styles.photoPreview} />
@@ -271,7 +284,7 @@ export default function VehicleInspectionScreen({ route, navigation }: VehicleIn
                 style={styles.retakeButton}
                 onPress={() => takePhoto(setRearInteriorPhoto)}
               >
-                <Text style={styles.retakeButtonText}>Volver a tomar</Text>
+                <Text style={styles.retakeButtonText}>{t(`${ns}.steps.retakePhoto`)}</Text>
               </TouchableOpacity>
             </View>
           ) : (
@@ -279,22 +292,22 @@ export default function VehicleInspectionScreen({ route, navigation }: VehicleIn
               style={styles.photoButton}
               onPress={() => takePhoto(setRearInteriorPhoto)}
             >
-              <Text style={styles.photoButtonText}>📷 Tomar Foto</Text>
+              <Text style={styles.photoButtonText}>{t(`${ns}.steps.takePhoto`)}</Text>
             </TouchableOpacity>
           )}
         </View>
       </View>
 
       <View style={styles.noticeContainer}>
-        <Text style={styles.noticeText}>
-          ⚠️ Estas fotos se utilizan para documentar el estado del vehículo antes del viaje y garantizar la seguridad tanto del cliente como del conductor.
-        </Text>
+        <Text style={styles.noticeText}>{t(`${ns}.notice.text`)}</Text>
       </View>
 
       {loading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loadingText}>Subiendo fotos... {Math.round(uploadProgress * 100)}%</Text>
+          <Text style={styles.loadingText}>
+            {t(`${ns}.loading.uploading`, { progress: Math.round(uploadProgress * 100) })}
+          </Text>
         </View>
       ) : (
         <TouchableOpacity 
@@ -303,7 +316,9 @@ export default function VehicleInspectionScreen({ route, navigation }: VehicleIn
           disabled={!allPhotosProvided}
         >
           <Text style={styles.submitButtonText}>
-            {allPhotosProvided ? 'Finalizar Inspección e Iniciar Viaje' : 'Complete todas las fotos para continuar'}
+            {allPhotosProvided
+              ? t(`${ns}.buttons.complete`)
+              : t(`${ns}.buttons.incomplete`)}
           </Text>
         </TouchableOpacity>
       )}

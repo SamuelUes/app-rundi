@@ -12,6 +12,7 @@ import {
   Animated
 } from 'react-native';
 import { PanGestureHandler, State } from 'react-native-gesture-handler';
+import { useTranslation } from 'react-i18next';
 
 interface Waypoint {
   id: string;
@@ -43,6 +44,7 @@ export default function WaypointList({
 }: WaypointListProps) {
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
   const translateYs = waypoints.map(() => new Animated.Value(0));
+  const { t } = useTranslation();
   
   // Función para manejar la reordenación de waypoints con gestos
   const handleGestureEvent = (index: number) => {
@@ -82,7 +84,9 @@ export default function WaypointList({
 
   return (
     <View style={styles.container}>
-      <Text style={[styles.title, { color: colors.text }]}>Destinos Intermedios</Text>
+      <Text style={[styles.title, { color: colors.text }]}>
+        {t('common.components.waypointList.title')}
+      </Text>
       
       <ScrollView style={styles.waypointList}>
         {waypoints.map((waypoint, index) => (
@@ -112,7 +116,7 @@ export default function WaypointList({
                 <TextInput
                   style={[styles.waypointInput, { color: colors.text }]}
                   value={waypoint.address}
-                  placeholder="Ingresa dirección de parada intermedia"
+                  placeholder={t('common.components.waypointList.placeholder')}
                   placeholderTextColor={colors.textSecondary}
                   onChangeText={(text) => onWaypointAddressChange(waypoint.id, text)}
                   onFocus={() => onWaypointEdit(waypoint.id)}
@@ -121,7 +125,7 @@ export default function WaypointList({
                 
                 <View style={styles.waypointMeta}>
                   <Text style={[styles.waypointOrder, { color: colors.textSecondary }]}>
-                    Parada {index + 1}
+                    {t('common.components.waypointList.orderLabel', { index: index + 1 })}
                   </Text>
                 </View>
               </View>
@@ -131,7 +135,9 @@ export default function WaypointList({
                 onPress={() => onWaypointRemove(waypoint.id)}
                 disabled={disabled}
               >
-                <Text style={styles.removeButtonText}>✕</Text>
+                <Text style={styles.removeButtonText}>
+                  {t('common.components.waypointList.removeButton')}
+                </Text>
               </TouchableOpacity>
             </Animated.View>
           </PanGestureHandler>
@@ -143,13 +149,15 @@ export default function WaypointList({
           style={[styles.addButton, { backgroundColor: colors.primary }]}
           onPress={onAddWaypoint}
         >
-          <Text style={styles.addButtonText}>+ Agregar destino intermedio</Text>
+          <Text style={styles.addButtonText}>
+            {t('common.components.waypointList.addButton')}
+          </Text>
         </TouchableOpacity>
       )}
       
       <View style={styles.infoContainer}>
         <Text style={[styles.infoText, { color: colors.textSecondary }]}>
-          Puedes arrastrar los destinos para cambiar su orden
+          {t('common.components.waypointList.info')}
         </Text>
       </View>
     </View>

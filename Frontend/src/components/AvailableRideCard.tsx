@@ -5,6 +5,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 
 interface AvailableRideCardProps {
   ride: any;
@@ -16,33 +17,48 @@ interface AvailableRideCardProps {
 
 export default function AvailableRideCard({ ride, onPress, colors }: AvailableRideCardProps) {
   const styles = createStyles(colors);
-  
+  const { t } = useTranslation();
+  const originLabel = ride.originAddress || t('common.components.availableRideCard.originFallback');
+  const destinationLabel =
+    ride.destinationAddress || t('common.components.availableRideCard.destinationFallback');
+  const priceValue = ride.estimatedPrice ?? 0;
+  const distanceValue =
+    typeof ride.estimatedDistance === 'number'
+      ? (ride.estimatedDistance / 1000).toFixed(1)
+      : null;
+
   return (
     <TouchableOpacity style={styles.card} onPress={onPress}>
       <View style={styles.header}>
         <MaterialIcons name="place" size={20} color={colors.primary} />
         <Text style={styles.title} numberOfLines={1}>
-          {ride.originAddress || 'Origen desconocido'}
+          {originLabel}
         </Text>
       </View>
-      
+
       <View style={styles.destination}>
         <MaterialIcons name="flag" size={20} color={colors.error} />
         <Text style={styles.destinationText} numberOfLines={1}>
-          {ride.destinationAddress || 'Destino desconocido'}
+          {destinationLabel}
         </Text>
       </View>
-      
+
       <View style={styles.footer}>
         <View style={styles.priceContainer}>
-          <Text style={styles.priceLabel}>Precio sugerido:</Text>
-          <Text style={styles.price}>C${ride.estimatedPrice || 0}</Text>
+          <Text style={styles.priceLabel}>
+            {t('common.components.availableRideCard.priceLabel')}
+          </Text>
+          <Text style={styles.price}>
+            {t('common.components.availableRideCard.priceValue', { amount: priceValue })}
+          </Text>
         </View>
-        
+
         <View style={styles.distanceContainer}>
           <MaterialIcons name="straighten" size={16} color={colors.textSecondary} />
           <Text style={styles.distance}>
-            {ride.estimatedDistance ? `${(ride.estimatedDistance / 1000).toFixed(1)} km` : 'N/A'}
+            {distanceValue
+              ? t('common.components.availableRideCard.distanceValue', { value: distanceValue })
+              : t('common.components.availableRideCard.distanceUnknown')}
           </Text>
         </View>
       </View>

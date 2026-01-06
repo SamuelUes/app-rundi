@@ -1,34 +1,52 @@
 import React from 'react';
 import { View, Text, StyleSheet, Platform } from 'react-native';
+import { useTranslation } from 'react-i18next';
 
 export default function WebNotice() {
   if (Platform.OS !== 'web') return null;
 
+  const { t } = useTranslation();
+
+  const formatInstruction = (textKey: string) => {
+    const raw = t(textKey as any, {
+      interpolation: { escapeValue: false },
+    }) as string;
+    const parts = raw.split('{bold|');
+    if (parts.length === 1) {
+      return <Text style={styles.recommend}>{raw}</Text>;
+    }
+    const [before, rest] = parts;
+    const [boldContent, after] = rest.split('}');
+    return (
+      <Text style={styles.recommend}>
+        {before}
+        <Text style={styles.bold}>{boldContent}</Text>
+        {after}
+      </Text>
+    );
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.notice}>
-        <Text style={styles.title}>📱 Modo Web - Funcionalidad Limitada</Text>
-        <Text style={styles.text}>
-          Esta app está diseñada para dispositivos móviles con GPS.
-        </Text>
-        <Text style={styles.text}>
-          En web no están disponibles:
-        </Text>
-        <Text style={styles.bullet}>• 🗺️ Mapas de Google (react-native-maps)</Text>
-        <Text style={styles.bullet}>• 📍 GPS en tiempo real</Text>
-        <Text style={styles.bullet}>• 🚗 Tracking de conductores</Text>
-        
+        <Text style={styles.title}>{t('common.components.webNotice.title')}</Text>
+        <Text style={styles.text}>{t('common.components.webNotice.descriptionPrimary')}</Text>
+        <Text style={styles.text}>{t('common.components.webNotice.descriptionSecondary')}</Text>
+        <Text style={styles.bullet}>{t('common.components.webNotice.bullets.maps')}</Text>
+        <Text style={styles.bullet}>{t('common.components.webNotice.bullets.gps')}</Text>
+        <Text style={styles.bullet}>{t('common.components.webNotice.bullets.tracking')}</Text>
+
         <View style={styles.separator} />
-        
-        <Text style={styles.recommendTitle}>Para probar la app completa:</Text>
+
+        <Text style={styles.recommendTitle}>
+          {t('common.components.webNotice.instructionsTitle')}
+        </Text>
+        {formatInstruction('common.components.webNotice.instructions.step1')}
         <Text style={styles.recommend}>
-          1. Descarga <Text style={styles.bold}>Expo Go</Text> en tu teléfono Android/iOS
+          {t('common.components.webNotice.instructions.step2')}
         </Text>
         <Text style={styles.recommend}>
-          2. Escanea el código QR de la terminal
-        </Text>
-        <Text style={styles.recommend}>
-          3. ¡Disfruta de todas las funcionalidades!
+          {t('common.components.webNotice.instructions.step3')}
         </Text>
       </View>
     </View>

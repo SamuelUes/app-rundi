@@ -16,6 +16,7 @@ export type PreflightRouteConfig = {
   successRoute?: string;
   activeRideRoute?: string;
   rideTrackingRoute?: string;
+  waitingRideRoute?: string;
   pendingPaymentsRoute?: string;
   payCommissionsRoute?: string;
   pendingApprovalRoute?: string;

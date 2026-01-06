@@ -34,11 +34,13 @@ import {
   getCountryLocalNumberLength,
 } from '../../utils/phoneUtils';
 import PhoneNumberModal from '../../components/PhoneNumberModal';
+import { useTranslation } from 'react-i18next';
 
 export default function RegisterScreen() {
   const navigation = useNavigation<any>();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const { t } = useTranslation();
 
   // Estados principales
   const [method, setMethod] = useState<RegistrationMethod>('email');
@@ -199,14 +201,23 @@ export default function RegisterScreen() {
 
     if (!isEmailFormValid) {
       if (!isConfirmFilled) {
-        Alert.alert('Error', 'Confirma tu contraseña para continuar.');
+        Alert.alert(
+          t('authScreens.register.alerts.genericTitle'),
+          t('authScreens.register.alerts.confirmPasswordMissing'),
+        );
         return;
       }
       if (passwordsDontMatch) {
-        Alert.alert('Error', 'Las contraseñas deben coincidir.');
+        Alert.alert(
+          t('authScreens.register.alerts.genericTitle'),
+          t('authScreens.register.alerts.passwordsMismatch'),
+        );
         return;
       }
-      Alert.alert('Error', 'Completa nombre, email y una contraseña válida.');
+      Alert.alert(
+        t('authScreens.register.alerts.genericTitle'),
+        t('authScreens.register.alerts.incompleteEmailForm'),
+      );
       return;
     }
 
@@ -221,12 +232,18 @@ export default function RegisterScreen() {
       });
 
       if (emailExists) {
-        Alert.alert('Error', 'Ya existe una cuenta registrada con este correo electrónico.');
+        Alert.alert(
+          t('authScreens.register.alerts.genericTitle'),
+          t('authScreens.register.alerts.emailExists'),
+        );
         return;
       }
 
       if (phoneExists) {
-        Alert.alert('Error', 'Ya existe una cuenta registrada con este número telefónico.');
+        Alert.alert(
+          t('authScreens.register.alerts.genericTitle'),
+          t('authScreens.register.alerts.phoneExists'),
+        );
         return;
       }
 
@@ -252,7 +269,10 @@ export default function RegisterScreen() {
       });
     } catch (error: any) {
       console.error('❌ Error registro email:', error);
-      Alert.alert('Error', error.message || 'No se pudo iniciar el registro');
+      Alert.alert(
+        t('authScreens.register.alerts.genericTitle'),
+        error?.message || t('authScreens.register.alerts.registerEmailError'),
+      );
     } finally {
       setLoading(false);
     }
@@ -267,8 +287,8 @@ export default function RegisterScreen() {
 
     if (!isPhoneFormValid) {
       Alert.alert(
-        'Error',
-        'Ingresa tu nombre y un número telefónico válido en formato internacional (+Código país).'
+        t('authScreens.register.alerts.genericTitle'),
+        t('authScreens.register.alerts.phoneInvalidNumber'),
       );
       return;
     }
@@ -333,7 +353,10 @@ export default function RegisterScreen() {
       }
 
       if (phoneExists && !handledByVerifiedLog) {
-        Alert.alert('Error', 'Ya existe una cuenta registrada con este número telefónico.');
+        Alert.alert(
+          t('authScreens.register.alerts.genericTitle'),
+          t('authScreens.register.alerts.phoneExists'),
+        );
         return;
       }
 
@@ -358,7 +381,10 @@ export default function RegisterScreen() {
       });
     } catch (error: any) {
       console.error('❌ Error registro teléfono:', error);
-      Alert.alert('Error', error.message || 'No se pudo continuar con el registro');
+      Alert.alert(
+        t('authScreens.register.alerts.genericTitle'),
+        error?.message || t('authScreens.register.alerts.registerPhoneError'),
+      );
     } finally {
       setLoading(false);
     }
@@ -371,8 +397,10 @@ export default function RegisterScreen() {
     >
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.card}>
-          <Text style={styles.title}>Crear Cuenta</Text>
-          <Text style={styles.subtitle}>Selecciona cómo quieres registrarte</Text>
+          <Text style={styles.title}>{t('authScreens.register.header.title')}</Text>
+          <Text style={styles.subtitle}>
+            {t('authScreens.register.header.subtitle')}
+          </Text>
 
           {/* Selector de método */}
           <View style={styles.methodSwitcher}>
@@ -384,7 +412,7 @@ export default function RegisterScreen() {
               <Text
                 style={[styles.methodButtonText, isEmailMethod && styles.methodButtonTextActive]}
               >
-                Email y contraseña
+                {t('authScreens.register.methods.email')}
               </Text>
             </TouchableOpacity>
 
@@ -396,7 +424,7 @@ export default function RegisterScreen() {
               <Text
                 style={[styles.methodButtonText, isPhoneMethod && styles.methodButtonTextActive]}
               >
-                Solo teléfono
+                {t('authScreens.register.methods.phone')}
               </Text>
             </TouchableOpacity>
 
@@ -404,10 +432,12 @@ export default function RegisterScreen() {
 
           {/* Campos base */}
           <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Nombre completo *</Text>
+            <Text style={styles.label}>
+              {`${t('authScreens.register.fields.nameLabel')} *`}
+            </Text>
             <TextInput
               style={styles.input}
-              placeholder="Tu nombre"
+              placeholder={t('authScreens.register.fields.namePlaceholder')}
               placeholderTextColor={colors.textSecondary}
               value={name}
               onChangeText={setName}
@@ -417,10 +447,12 @@ export default function RegisterScreen() {
 
           {/* Email */}
           <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Email {isEmailMethod ? '*' : ''}</Text>
+            <Text style={styles.label}>
+              {`${t('authScreens.register.fields.emailLabel')}${isEmailMethod ? ' *' : ''}`}
+            </Text>
             <TextInput
               style={styles.input}
-              placeholder="tu@email.com"
+              placeholder={t('authScreens.register.fields.emailPlaceholder')}
               placeholderTextColor={colors.textSecondary}
               value={email}
               onChangeText={setEmail}
@@ -429,14 +461,16 @@ export default function RegisterScreen() {
             />
             <Text style={styles.helperText}>
               {isEmailMethod
-                ? 'Usaremos este correo para tu cuenta.'
-                : 'Opcional, puedes agregarlo ahora o más tarde.'}
+                ? t('authScreens.register.fields.emailHelperRequired')
+                : t('authScreens.register.fields.emailHelperOptional')}
             </Text>
           </View>
 
           {/* Teléfono */}
           <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Teléfono {isPhoneMethod ? '*' : ''}</Text>
+            <Text style={styles.label}>
+              {`${t('authScreens.register.fields.phoneLabel')}${isPhoneMethod ? ' *' : ''}`}
+            </Text>
 
             <TouchableOpacity
               style={styles.phoneSummary}
@@ -456,15 +490,15 @@ export default function RegisterScreen() {
                   }
                   numberOfLines={1}
                 >
-                  {normalizedPhone ? phone : 'Toca para agregar tu número'}
+                  {normalizedPhone ? phone : t('authScreens.register.fields.phonePlaceholder')}
                 </Text>
               </View>
             </TouchableOpacity>
 
             <Text style={styles.helperText}>
               {isPhoneMethod
-                ? 'Es necesario para que podamos contactarte.'
-                : 'Opcional, podrás agregarlo o editarlo después.'}
+                ? t('authScreens.register.fields.phoneHelperRequired')
+                : t('authScreens.register.fields.phoneHelperOptional')}
             </Text>
           </View>
 
@@ -482,14 +516,16 @@ export default function RegisterScreen() {
           {isEmailMethod && (
             <>
               <View style={styles.fieldGroup}>
-                <Text style={styles.label}>Contraseña *</Text>
+                <Text style={styles.label}>
+                  {`${t('authScreens.register.fields.passwordLabel')} *`}
+                </Text>
                 <TextInput
                   style={[
                     styles.input,
                     passwordStatus === 'match' && styles.inputSuccess,
                     passwordStatus === 'mismatch' && styles.inputError,
                   ]}
-                  placeholder="Mínimo 6 caracteres"
+                  placeholder={t('authScreens.register.fields.passwordPlaceholder')}
                   placeholderTextColor={colors.textSecondary}
                   value={password}
                   onChangeText={setPassword}
@@ -499,14 +535,16 @@ export default function RegisterScreen() {
               </View>
 
               <View style={styles.fieldGroup}>
-                <Text style={styles.label}>Confirmar contraseña *</Text>
+                <Text style={styles.label}>
+                  {`${t('authScreens.register.fields.confirmPasswordLabel')} *`}
+                </Text>
                 <TextInput
                   style={[
                     styles.input,
                     passwordStatus === 'match' && styles.inputSuccess,
                     passwordStatus === 'mismatch' && styles.inputError,
                   ]}
-                  placeholder="Repite tu contraseña"
+                  placeholder={t('authScreens.register.fields.confirmPasswordPlaceholder')}
                   placeholderTextColor={colors.textSecondary}
                   value={confirmPassword}
                   onChangeText={setConfirmPassword}
@@ -514,10 +552,14 @@ export default function RegisterScreen() {
                   editable={!loading}
                 />
                 {passwordStatus === 'match' && (
-                  <Text style={styles.successText}>Las contraseñas coinciden</Text>
+                  <Text style={styles.successText}>
+                    {t('authScreens.register.statusMessages.passwordMatch')}
+                  </Text>
                 )}
                 {passwordStatus === 'mismatch' && (
-                  <Text style={styles.errorText}>Las contraseñas no coinciden</Text>
+                  <Text style={styles.errorText}>
+                    {t('authScreens.register.statusMessages.passwordMismatch')}
+                  </Text>
                 )}
               </View>
 
@@ -532,7 +574,9 @@ export default function RegisterScreen() {
                 {loading ? (
                   <ActivityIndicator color="#FFFFFF" />
                 ) : (
-                  <Text style={styles.primaryButtonText}>Continuar con Email</Text>
+                  <Text style={styles.primaryButtonText}>
+                    {t('authScreens.register.buttons.continueEmail')}
+                  </Text>
                 )}
               </TouchableOpacity>
             </>
@@ -551,7 +595,9 @@ export default function RegisterScreen() {
                 {loading ? (
                   <ActivityIndicator color="#FFFFFF" />
                 ) : (
-                  <Text style={styles.phoneNextIcon}>Siguiente</Text>
+                  <Text style={styles.phoneNextIcon}>
+                    {t('authScreens.register.buttons.phoneNext')}
+                  </Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -559,7 +605,7 @@ export default function RegisterScreen() {
 
           <View style={styles.footerInfo}>
             <Text style={styles.footerText}>
-              Paso 1 de 4 · Verificaremos tu número antes de elegir el rol.
+              {t('authScreens.register.footer')}
             </Text>
           </View>
         </View>

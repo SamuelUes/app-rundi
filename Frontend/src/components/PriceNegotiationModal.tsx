@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 import alertService from '../services/alertService';
+import { useTranslation } from 'react-i18next';
 
 interface Driver {
   id?: string;
@@ -45,6 +46,7 @@ export default function PriceNegotiationModal({
   acceptedClientPrice = false,
 }: PriceNegotiationModalProps) {
   const { colors } = useTheme();
+  const { t } = useTranslation();
   const [counterOffer, setCounterOffer] = useState('');
 
   const numericEstimatedPrice = typeof estimatedPrice === 'string' 
@@ -77,17 +79,23 @@ export default function PriceNegotiationModal({
     });
 
     if (isNaN(price)) {
-      alertService.showErrorAlert('Por favor ingresa un precio válido');
+      alertService.showErrorAlert(
+        t('common.components.priceNegotiationModal.alerts.invalidInput'),
+      );
       return;
     }
 
     if (price < MIN_PRICE) {
-      alertService.showErrorAlert(`El precio mínimo es C$${MIN_PRICE}`);
+      alertService.showErrorAlert(
+        t('common.components.priceNegotiationModal.alerts.minPrice', { amount: MIN_PRICE }),
+      );
       return;
     }
 
     if (price > MAX_PRICE) {
-      alertService.showErrorAlert(`El precio máximo es C$${MAX_PRICE}`);
+      alertService.showErrorAlert(
+        t('common.components.priceNegotiationModal.alerts.maxPrice', { amount: MAX_PRICE }),
+      );
       return;
     }
 
@@ -142,7 +150,7 @@ export default function PriceNegotiationModal({
           {/* Header */}
           <View style={styles.header}>
             <Text style={[styles.title, { color: textColor }]}>
-              💬 Negociación de Precio
+              {t('common.components.priceNegotiationModal.header.title')}
             </Text>
             <TouchableOpacity onPress={onClose}>
               <Text style={styles.closeButton}>✕</Text>
@@ -153,11 +161,15 @@ export default function PriceNegotiationModal({
           {driver && driver.name ? (
             <View style={styles.driverInfo}>
               <Text style={[styles.driverName, { color: textColor }]}>
-                {'🚗 Conductor: ' + String(driver.name)}
+                {t('common.components.priceNegotiationModal.driverInfo.label', {
+                  name: String(driver.name),
+                })}
               </Text>
               {driver.rating && driver.rating > 0 ? (
                 <Text style={[styles.driverRating, { color: textSecondaryColor }]}>
-                  {'⭐ ' + driver.rating.toFixed(1)}
+                  {t('common.components.priceNegotiationModal.driverInfo.rating', {
+                    value: driver.rating.toFixed(1),
+                  })}
                 </Text>
               ) : null}
             </View>
@@ -167,7 +179,7 @@ export default function PriceNegotiationModal({
           <View style={styles.pricesSummary}>
             <View style={styles.priceRow}>
               <Text style={[styles.priceLabel, { color: textSecondaryColor }]}>
-                Precio estimado:
+                {t('common.components.priceNegotiationModal.summary.estimatedLabel')}
               </Text>
               <Text style={[styles.priceValue, { color: textColor }]}>
                 {'C$' + (estimatedPrice || 0)}
@@ -176,7 +188,7 @@ export default function PriceNegotiationModal({
             {clientSuggestedPrice && clientSuggestedPrice > 0 ? (
               <View style={styles.priceRow}>
                 <Text style={[styles.priceLabel, { color: textSecondaryColor }]}>
-                  Tu precio sugerido:
+                  {t('common.components.priceNegotiationModal.summary.clientLabel')}
                 </Text>
                 <Text style={[styles.priceValue, { color: '#2196F3' }]}>
                   {'C$' + clientSuggestedPrice}
@@ -186,7 +198,7 @@ export default function PriceNegotiationModal({
             {driverOfferedPrice && driverOfferedPrice > 0 ? (
               <View style={styles.priceRow}>
                 <Text style={[styles.priceLabel, { color: textSecondaryColor }]}>
-                  Conductor ofrece:
+                  {t('common.components.priceNegotiationModal.summary.driverLabel')}
                 </Text>
                 <Text style={[styles.priceValue, { color: '#FF9800' }]}>
                   {'C$' + driverOfferedPrice}
@@ -201,17 +213,19 @@ export default function PriceNegotiationModal({
             <View style={styles.acceptedContainer}>
               <Text style={styles.acceptedIcon}>✅</Text>
               <Text style={[styles.acceptedTitle, { color: textColor }]}>
-                ¡Conductor aceptó tu precio!
+                {t('common.components.priceNegotiationModal.state.accepted.title')}
               </Text>
               <Text style={[styles.acceptedSubtitle, { color: textSecondaryColor }]}>
-                {'Precio final: C$' + (clientSuggestedPrice || 0)}
+                {t('common.components.priceNegotiationModal.state.accepted.subtitle', {
+                  amount: clientSuggestedPrice || 0,
+                })}
               </Text>
               <TouchableOpacity
                 style={[styles.startRideButton, { backgroundColor: primaryColor }]}
                 onPress={onAcceptAndStartRide}
               >
                 <Text style={styles.startRideButtonText}>
-                  🚀 Aceptar y Comenzar Viaje
+                  {t('common.components.priceNegotiationModal.state.accepted.button')}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -219,10 +233,12 @@ export default function PriceNegotiationModal({
             // Conductor hizo contraoferta
             <View style={styles.negotiationContainer}>
               <Text style={[styles.negotiationTitle, { color: textColor }]}>
-                {'El conductor propone: C$' + (driverOfferedPrice || 0)}
+                {t('common.components.priceNegotiationModal.state.counterOffer.title', {
+                  amount: driverOfferedPrice || 0,
+                })}
               </Text>
               <Text style={[styles.negotiationSubtitle, { color: textSecondaryColor }]}>
-                Puedes aceptar su oferta o hacer una contraoferta
+                {t('common.components.priceNegotiationModal.state.counterOffer.subtitle')}
               </Text>
 
               {/* Botones de Acción */}
@@ -232,22 +248,24 @@ export default function PriceNegotiationModal({
                   onPress={onAcceptDriverOffer}
                 >
                   <Text style={styles.acceptButtonText}>
-                    {'✅ Aceptar C$' + (driverOfferedPrice || 0)}
+                    {t('common.components.priceNegotiationModal.actions.acceptOffer', {
+                      amount: driverOfferedPrice || 0,
+                    })}
                   </Text>
                 </TouchableOpacity>
 
                 <View style={styles.counterOfferSection}>
                   <Text style={[styles.counterOfferLabel, { color: textColor }]}>
-                    O hacer contraoferta:
+                    {t('common.components.priceNegotiationModal.counterOffer.label')}
                   </Text>
                   <View style={[styles.priceRangeContainer, { backgroundColor: backgroundColor, borderColor: primaryColor }]}>
                     <Text style={[styles.priceRangeHint, { color: textColor }]}>
-                      📊 Rango permitido:
+                      {t('common.components.priceNegotiationModal.counterOffer.rangeHint')}
                     </Text>
                     <View style={styles.priceRangeValues}>
                       <View style={styles.priceRangeItem}>
                         <Text style={[styles.priceRangeLabel, { color: textSecondaryColor }]}>
-                          Mínimo
+                          {t('common.components.priceNegotiationModal.counterOffer.minLabel')}
                         </Text>
                         <Text style={[styles.priceRangeValue, { color: '#4CAF50' }]}>
                           C${MIN_PRICE}
@@ -258,7 +276,7 @@ export default function PriceNegotiationModal({
                       </Text>
                       <View style={styles.priceRangeItem}>
                         <Text style={[styles.priceRangeLabel, { color: textSecondaryColor }]}>
-                          Máximo
+                          {t('common.components.priceNegotiationModal.counterOffer.maxLabel')}
                         </Text>
                         <Text style={[styles.priceRangeValue, { color: '#FF9800' }]}>
                           C${MAX_PRICE}
@@ -275,14 +293,18 @@ export default function PriceNegotiationModal({
                       value={counterOffer}
                       onChangeText={handleCounterOfferChange}
                       keyboardType="decimal-pad"
-                      placeholder={`Ej: ${Math.round((MIN_PRICE + MAX_PRICE) / 2)}`}
+                      placeholder={t('common.components.priceNegotiationModal.counterOffer.placeholder', {
+                        value: Math.round((MIN_PRICE + MAX_PRICE) / 2),
+                      })}
                       placeholderTextColor={textSecondaryColor}
                     />
                     <TouchableOpacity
                       style={[styles.sendButton, { backgroundColor: primaryColor }]}
                       onPress={handleSendCounterOffer}
                     >
-                      <Text style={styles.sendButtonText}>Enviar</Text>
+                      <Text style={styles.sendButtonText}>
+                        {t('common.components.priceNegotiationModal.counterOffer.send')}
+                      </Text>
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -293,7 +315,7 @@ export default function PriceNegotiationModal({
             <View style={styles.waitingContainer}>
               <Text style={styles.waitingIcon}>⏳</Text>
               <Text style={[styles.waitingText, { color: textColor }]}>
-                Esperando respuesta del conductor...
+                {t('common.components.priceNegotiationModal.state.waiting.message')}
               </Text>
             </View>
           )}

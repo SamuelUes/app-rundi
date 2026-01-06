@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
+import { useTranslation } from 'react-i18next';
 
 interface RideProgressIndicatorProps {
   progress: number; // 0-100
@@ -19,6 +20,7 @@ export const RideProgressIndicator: React.FC<RideProgressIndicatorProps> = ({
 }) => {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const { t } = useTranslation();
 
   const normalizedStatus = (rideStatus ?? '').toString().trim().toLowerCase();
   const isActiveRide =
@@ -41,28 +43,31 @@ export const RideProgressIndicator: React.FC<RideProgressIndicatorProps> = ({
   // Mensaje según rol, progreso y método de pago
   const getMessage = () => {
     const isCash = paymentMethod === 'cash';
-    
+    const percentValue = Math.round(progress);
+    const chargeAmount = ((estimatedFare || 0) * progress) / 100;
+
     if (role === 'client') {
       if (progress < 60) {
-        return '✅ Si cancelas ahora, no se te cobrará';
+        return t('common.components.rideProgressIndicator.client.freeCancel');
       } else {
-        const chargeAmount = ((estimatedFare || 0) * progress / 100).toFixed(2);
-        if (isCash) {
-          return `⚠️ Si cancelas, deberás pagar C$${chargeAmount} en efectivo al conductor (${Math.round(progress)}% del viaje)`;
-        } else {
-          return `⚠️ Si cancelas, se cobrará el ${Math.round(progress)}% del viaje (C$${chargeAmount})`;
-        }
+        return isCash
+          ? t('common.components.rideProgressIndicator.client.cashPenalty', {
+              amount: chargeAmount.toFixed(2),
+              percent: percentValue,
+            })
+          : t('common.components.rideProgressIndicator.client.cardPenalty', {
+              amount: chargeAmount.toFixed(2),
+              percent: percentValue,
+            });
       }
     } else {
       // Conductor
       if (progress < 25) {
-        return '✅ Puedes cancelar sin penalización';
+        return t('common.components.rideProgressIndicator.driver.freeCancel');
       } else {
-        if (isCash) {
-          return '⚠️ Si cancelas, se aplicará una penalización (se descontará de tus ganancias)';
-        } else {
-          return '⚠️ Si cancelas, se aplicará una penalización (comisión del viaje)';
-        }
+        return isCash
+          ? t('common.components.rideProgressIndicator.driver.cashPenalty')
+          : t('common.components.rideProgressIndicator.driver.cardPenalty');
       }
     }
   };
@@ -85,7 +90,9 @@ export const RideProgressIndicator: React.FC<RideProgressIndicatorProps> = ({
             ]}
           />
         </View>
-        <Text style={styles.progressText}>{Math.round(progress)}%</Text>
+        <Text style={styles.progressText}>
+          {t('common.components.rideProgressIndicator.stats', { value: Math.round(progress) })}
+        </Text>
       </View>
 
       {/* Mensaje de cancelación */}

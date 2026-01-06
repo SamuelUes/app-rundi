@@ -16,6 +16,7 @@ import { httpsCallable } from 'firebase/functions';
 import { getFirebaseFunctions } from '../../config/firebase';
 import { fetchDriverProfile } from '../../services/driverProfilesService';
 import alertService from '../../services/alertService';
+import { useTranslation } from 'react-i18next';
 
 interface PendingPayment {
   rideId: string;
@@ -31,6 +32,7 @@ export default function PendingPaymentsScreen({ navigation }: any) {
   const { colors } = useTheme();
   const { user } = useAuth();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const { t } = useTranslation();
   
   const [pendingPayments, setPendingPayments] = useState<PendingPayment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -77,7 +79,7 @@ export default function PendingPaymentsScreen({ navigation }: any) {
 
             if (!driverProfile) {
               driverProfile = {
-                name: payment.driverName || 'Conductor',
+                name: payment.driverName || t('client.pendingPayments.driverFallback'),
                 photo: payment.driverPhoto || null,
               };
             }
@@ -113,7 +115,7 @@ export default function PendingPaymentsScreen({ navigation }: any) {
     } catch (error) {
       console.error('❌ Error cargando pagos pendientes:', error);
       setPendingPayments([]);
-      alertService.showErrorAlert('No se pudieron cargar los pagos pendientes.');
+      alertService.showErrorAlert(t('client.pendingPayments.alerts.loadError'));
     } finally {
       setLoading(false);
     }
@@ -126,7 +128,10 @@ export default function PendingPaymentsScreen({ navigation }: any) {
   const handleRefresh = async () => {
     setRefreshing(true);
     await loadPendingPayments();
-    alertService.showSuccessAlert('Información actualizada', 'Pagos pendientes sincronizados.');
+    alertService.showSuccessAlert(
+      t('client.pendingPayments.alerts.refreshSuccessTitle'),
+      t('client.pendingPayments.alerts.refreshSuccessMessage'),
+    );
     setRefreshing(false);
   };
 
@@ -140,7 +145,7 @@ export default function PendingPaymentsScreen({ navigation }: any) {
     navigation.navigate('Payment', {
       rideId,
       amount: payment.finalAmount || ride.finalFare || ride.estimatedPrice,
-      driverName: ride.driver?.name || 'Conductor',
+      driverName: ride.driver?.name || t('client.pendingPayments.driverFallback'),
       driverPhoto: ride.driver?.photoURL,
       isPendingPayment: true, // Flag para indicar que es un pago de deuda
     });
@@ -154,21 +159,33 @@ export default function PendingPaymentsScreen({ navigation }: any) {
     const diffHours = Math.floor(diffMs / 3600000);
     const diffDays = Math.floor(diffMs / 86400000);
     
-    if (diffMins < 1) return 'Hace un momento';
-    if (diffMins < 60) return `Hace ${diffMins} min`;
-    if (diffHours < 24) return `Hace ${diffHours}h`;
-    if (diffDays === 1) return 'Ayer';
-    if (diffDays < 7) return `Hace ${diffDays} días`;
+    if (diffMins < 1) return t('client.pendingPayments.date.justNow');
+    if (diffMins < 60) {
+      return t('client.pendingPayments.date.minutes', {
+        count: diffMins,
+      });
+    }
+    if (diffHours < 24) {
+      return t('client.pendingPayments.date.hours', {
+        count: diffHours,
+      });
+    }
+    if (diffDays === 1) return t('client.pendingPayments.date.yesterday');
+    if (diffDays < 7) {
+      return t('client.pendingPayments.date.days', {
+        count: diffDays,
+      });
+    }
     
     return date.toLocaleDateString('es-NI', { 
       day: 'numeric', 
       month: 'short',
-      year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
+      year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined,
     });
   };
 
   if (loading) {
-    return <LoadingOverlay visible={true} message="Cargando pagos pendientes..." />;
+    return <LoadingOverlay visible={true} message={t('client.pendingPayments.loading')} />;
   }
 
   return (
@@ -181,7 +198,7 @@ export default function PendingPaymentsScreen({ navigation }: any) {
         >
           <Text style={styles.backButtonText}>←</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Pagos Pendientes</Text>
+        <Text style={styles.headerTitle}>{t('client.pendingPayments.title')}</Text>
         <View style={styles.backButton} />
       </View>
 
@@ -199,9 +216,9 @@ export default function PendingPaymentsScreen({ navigation }: any) {
         {pendingPayments.length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyIcon}>✅</Text>
-            <Text style={styles.emptyTitle}>No tienes pagos pendientes</Text>
+            <Text style={styles.emptyTitle}>{t('client.pendingPayments.emptyTitle')}</Text>
             <Text style={styles.emptyDescription}>
-              Todos tus pagos están al día
+              {t('client.pendingPayments.emptyDescription')}
             </Text>
           </View>
         ) : (
@@ -209,17 +226,20 @@ export default function PendingPaymentsScreen({ navigation }: any) {
             <View style={styles.infoCard}>
               <Text style={styles.infoIcon}>💡</Text>
               <Text style={styles.infoText}>
-                Tienes {pendingPayments.length} {pendingPayments.length === 1 ? 'pago pendiente' : 'pagos pendientes'}. 
-                Toca uno para pagar con tarjeta (transferencia bancaria).
+                {t('client.pendingPayments.info.message', { count: pendingPayments.length })}{' '}
+                {t('client.pendingPayments.info.instruction')}
               </Text>
             </View>
 
             {pendingPayments.map((pendingPayment) => {
               const { rideId, payment, ride } = pendingPayment;
               const amount = payment.finalAmount || ride.finalFare || ride.estimatedPrice;
-              const driverName = pendingPayment.driverProfile?.name || ride.driver?.name || 'Conductor';
+              const driverName =
+                pendingPayment.driverProfile?.name ||
+                ride.driver?.name ||
+                t('client.pendingPayments.driverFallback');
               const driverPhoto = pendingPayment.driverProfile?.photo || ride.driver?.photoURL;
-              const paymentMethod = 'Tarjeta (obligatorio)';
+              const paymentMethod = t('client.pendingPayments.paymentMethod');
               const createdAt = payment.createdAt || ride.completedAt || Date.now();
 
               return (
@@ -263,7 +283,7 @@ export default function PendingPaymentsScreen({ navigation }: any) {
                         <Text style={styles.routeIconText}>🔵</Text>
                       </View>
                       <Text style={styles.routeText} numberOfLines={1}>
-                        {ride.origin?.address || 'Origen'}
+                        {ride.origin?.address || t('client.pendingPayments.route.originFallback')}
                       </Text>
                     </View>
                     <View style={styles.routeDivider} />
@@ -272,7 +292,7 @@ export default function PendingPaymentsScreen({ navigation }: any) {
                         <Text style={styles.routeIconText}>🔴</Text>
                       </View>
                       <Text style={styles.routeText} numberOfLines={1}>
-                        {ride.destination?.address || 'Destino'}
+                        {ride.destination?.address || t('client.pendingPayments.route.destinationFallback')}
                       </Text>
                     </View>
                   </View>
@@ -282,12 +302,12 @@ export default function PendingPaymentsScreen({ navigation }: any) {
                     <View style={styles.statusBadge}>
                       <Text style={styles.statusIcon}>⏳</Text>
                       <Text style={styles.statusText}>
-                        {payment.status === 'pending_confirmation' 
-                          ? 'Esperando confirmación' 
-                          : 'Pendiente de pago'}
+                        {payment.status === 'pending_confirmation'
+                          ? t('client.pendingPayments.status.pendingConfirmation')
+                          : t('client.pendingPayments.status.pending')}
                       </Text>
                     </View>
-                    <Text style={styles.actionText}>💳 Pagar →</Text>
+                    <Text style={styles.actionText}>💳 {t('client.pendingPayments.actionPay')}</Text>
                   </View>
                 </TouchableOpacity>
               );
