@@ -32,6 +32,27 @@ import {
 import PhoneDigitInput from '../../components/PhoneDigitInput';
 import { useTranslation } from 'react-i18next';
 
+const driverPhoneFallbackTexts = {
+  title: 'Your phone number',
+  subtitle: 'Confirm your country code and enter your number to continue.',
+  info: {
+    name: 'Name',
+    email: 'Email',
+  },
+  field: {
+    label: 'Phone number',
+    helper: 'We will use this number to send you an SMS verification code.',
+  },
+  alerts: {
+    errorTitle: 'Error',
+    invalidPhone: 'Enter a valid number with international prefix (e.g., +505).',
+    phoneExistsTitle: 'Phone already registered',
+    phoneExistsMessage:
+      'This phone number is already linked to an existing account. Use a different number or log in with the account associated with this phone.',
+    sendFailed: 'We could not send the SMS code. Please try again.',
+  },
+} as const;
+
  type DriverPhoneNavigationProp = NativeStackNavigationProp<AuthStackParamList, 'DriverPhone'>;
  type DriverPhoneRouteProp = RouteProp<AuthStackParamList, 'DriverPhone'>;
 
@@ -44,6 +65,10 @@ const DriverPhoneScreen: React.FC<Props> = ({ navigation, route }) => {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { t } = useTranslation();
+  const driverPhoneTexts = t('authScreens.driverPhone', {
+    returnObjects: true,
+    defaultValue: driverPhoneFallbackTexts,
+  }) as typeof driverPhoneFallbackTexts;
 
   const {
     name,
@@ -117,8 +142,8 @@ const DriverPhoneScreen: React.FC<Props> = ({ navigation, route }) => {
   const handleSendCode = async () => {
     if (!isPhoneValid) {
       Alert.alert(
-        t('authScreens.driverPhone.alerts.errorTitle'),
-        t('authScreens.driverPhone.alerts.invalidPhone'),
+        driverPhoneTexts.alerts.errorTitle,
+        driverPhoneTexts.alerts.invalidPhone,
       );
       return;
     }
@@ -130,8 +155,8 @@ const DriverPhoneScreen: React.FC<Props> = ({ navigation, route }) => {
         const availability = await firebaseAuthService.checkUserExists({ phone: normalizedPhone });
         if (availability.phoneExists) {
           Alert.alert(
-            t('authScreens.driverPhone.alerts.phoneExistsTitle'),
-            t('authScreens.driverPhone.alerts.phoneExistsMessage'),
+            driverPhoneTexts.alerts.phoneExistsTitle,
+            driverPhoneTexts.alerts.phoneExistsMessage,
           );
           setLoading(false);
           return;
@@ -173,8 +198,8 @@ const DriverPhoneScreen: React.FC<Props> = ({ navigation, route }) => {
     } catch (error: any) {
       console.error('❌ Error enviando código para conductor:', error);
       Alert.alert(
-        t('authScreens.driverPhone.alerts.errorTitle'),
-        error?.message || t('authScreens.driverPhone.alerts.sendFailed'),
+        driverPhoneTexts.alerts.errorTitle,
+        error?.message || driverPhoneTexts.alerts.sendFailed,
       );
     } finally {
       setLoading(false);
@@ -190,22 +215,22 @@ const DriverPhoneScreen: React.FC<Props> = ({ navigation, route }) => {
         <View style={styles.card}>
           <View style={styles.header}>
             <Text style={styles.title}>
-              {t('authScreens.driverPhone.title')}
+              {driverPhoneTexts.title}
             </Text>
             <Text style={styles.subtitle}>
-              {t('authScreens.driverPhone.subtitle')}
+              {driverPhoneTexts.subtitle}
             </Text>
           </View>
 
           <View style={styles.infoBox}>
             <Text style={styles.infoLabel}>
-              {t('authScreens.driverPhone.info.name')}
+              {driverPhoneTexts.info.name}
             </Text>
             <Text style={styles.infoValue}>{name}</Text>
             {email ? (
               <>
                 <Text style={[styles.infoLabel, { marginTop: 8 }]}>
-                  {t('authScreens.driverPhone.info.email')}
+                  {driverPhoneTexts.info.email}
                 </Text>
                 <Text style={styles.infoValue}>{email}</Text>
               </>
@@ -234,7 +259,7 @@ const DriverPhoneScreen: React.FC<Props> = ({ navigation, route }) => {
 
           <View style={styles.fieldGroup}>
             <Text style={styles.label}>
-              {t('authScreens.driverPhone.field.label')}
+              {driverPhoneTexts.field.label}
             </Text>
             <PhoneDigitInput
               countryOptions={countryOptions}
@@ -245,7 +270,7 @@ const DriverPhoneScreen: React.FC<Props> = ({ navigation, route }) => {
               disabled={loading}
             />
             <Text style={styles.helperText}>
-              {t('authScreens.driverPhone.field.helper')}
+              {driverPhoneTexts.field.helper}
             </Text>
           </View>
 

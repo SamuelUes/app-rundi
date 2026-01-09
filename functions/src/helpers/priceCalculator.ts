@@ -1,31 +1,43 @@
 /**
  * Calculadora de precios para viajes
  * Rundi
- * 
+ *
  * COMISIONES:
  * - Moto: 7%
  * - Auto Normal: 11%
  * - Conductor Designado: 25%
- * 
+ *
  * ✅ FÓRMULA FINAL (SOLO DISTANCIA):
  * Precio = Distancia × Multiplicador según tipo
- * 
+ *
  * ⚠️ NOTA: El precio se calcula SOLO por distancia, NO incluye costo por tiempo
- * 
+ *
  * Fórmula de precios por tramos de distancia para AUTO NORMAL:
  * - 0.2 km a 0.4 km   → multiplicar por 10 C$
  * - 0.401 km a 1 km   → multiplicar por 15 C$
  * - 1.01 km a 2 km    → multiplicar por 20 C$
  * - 2.01 km a 4 km    → multiplicar por 25 C$
  * - Mayor a 4.01 km   → multiplicar por 30 C$
- * 
+ *
+ *  * Fórmula de precios por tramos de distancia para AUTO NORMAL NUEVO:
+ * - 0.2 km a 0.4 km   → multiplicar por 10 C$
+ * - 0.401 km a 1 km   → multiplicar por 15 C$
+ * - 1.01 km a 2 km    → multiplicar por 20 C$
+ * - 2.01 km a 8 km    → multiplicar por 25 C$
+ * - Mayor a 8.01 km   → multiplicar por 27 C$
+ *
  * Fórmula de precios por tramos de distancia para MOTO:
  * - 0.2 km a 0.4 km   → multiplicar por 8 C$
  * - 0.401 km a 1 km   → multiplicar por 12 C$
  * - 1.01 km a 2 km    → multiplicar por 18 C$
  * - 2.01 km a 4 km    → multiplicar por 22 C$
  * - Mayor a 4.01 km   → multiplicar por 26 C$
- * 
+ *
+ *  * Fórmula de precios por tramos de distancia para MOTO NUEVO:
+ * - 0.2 km a 4 km   → multiplicar por 5 C$
+ * - 4 km a 6 km    → multiplicar por 7 C$
+ * - Mayor a 6.01 km   → multiplicar por 9 C$
+ *
  * Fórmula de precios por tramos de distancia para CONDUCTOR DESIGNADO:
  * - 0.2 km a 0.4 km   → multiplicar por 13 C$
  * - 0.401 km a 1 km   → multiplicar por 18 C$
@@ -34,8 +46,12 @@
  * - Mayor a 4.01 km   → multiplicar por 35 C$
  */
 
+import { firestore } from '../config/firebase';
+
 export type VehicleType = 'car' | 'motorcycle';
 export type RideType = 'normal' | 'designated_driver';
+
+const STOP_FEE = 20;
 
 interface ServicePricingConfig {
   id: string;
@@ -52,6 +68,7 @@ interface RidePriceOptions {
   originLng?: number;
   driverId?: string;
   serviceCodeOverride?: string;
+  extraStops?: number;
 }
 
 const serviceCache = new Map<string, ServicePricingConfig>();
@@ -110,24 +127,6 @@ function buildBreakdownLine(label: string, value: number): string {
   return `${label}: C$${value.toFixed(2)}`;
 }
 
-function calculateServiceSubtotal(
-  service: ServicePricingConfig,
-  distanceKm: number,
-  durationMinutes: number
-) {
-  const distanceComponent = distanceKm * service.pricePerKm;
-  const timeComponent = durationMinutes * service.pricePerMinute;
-  const subtotal = service.basePrice + distanceComponent + timeComponent;
-  const subtotalWithMinimum = Math.max(subtotal, service.minimumFare);
-
-  return {
-    distanceComponent,
-    timeComponent,
-    subtotal,
-    subtotalWithMinimum,
-  };
-}
-
 export interface PriceCalculationResult {
   distancePrice: number;
   timePrice: number;
@@ -145,6 +144,7 @@ export interface PriceCalculationResult {
   commission: number;
   serviceCode: string;
   serviceId?: string;
+  extraStopsCharge: number;
 }
 
 /**
@@ -178,23 +178,37 @@ function getMultiplier(distanceKm: number, vehicleType: VehicleType, rideType: R
     }
   } else if (vehicleType === 'motorcycle') {
     // MOTO
-    if (distanceKm >= 0.2 && distanceKm <= 0.4) {
-      multiplier = 8;
-      tramo = '0.2-0.4 km';
-    } else if (distanceKm >= 0.401 && distanceKm <= 1) {
-      multiplier = 12;
-      tramo = '0.401-1 km';
-    } else if (distanceKm >= 1.01 && distanceKm <= 2) {
-      multiplier = 18;
-      tramo = '1.01-2 km';
-    } else if (distanceKm >= 2.01 && distanceKm <= 4) {
-      multiplier = 22;
-      tramo = '2.01-4 km';
-    } else if (distanceKm >= 4.01) {
-      multiplier = 26;
-      tramo = 'Mayor a 4.01 km';
+    //  if (distanceKm >= 0.2 && distanceKm <= 0.4) {
+    //  multiplier = 8;
+    //   tramo = '0.2-0.4 km';
+    // } else if (distanceKm >= 0.401 && distanceKm <= 1) {
+    //   multiplier = 12;
+    //   tramo = '0.401-1 km';
+    // } else if (distanceKm >= 1.01 && distanceKm <= 2) {
+    //   multiplier = 18;
+    //   tramo = '1.01-2 km';
+    // } else if (distanceKm >= 2.01 && distanceKm <= 4) {
+    //   multiplier = 22;
+    //   tramo = '2.01-4 km';
+    // } else if (distanceKm >= 4.01) {
+    //   multiplier = 26;
+    //   tramo = 'Mayor a 4.01 km';
+    // } else {
+    //   multiplier = 8;
+    //   tramo = 'Menor a 0.2 km (mínimo)';
+    // }
+
+   if (distanceKm >= 0.1 && distanceKm <= 4) {
+      multiplier = 5;
+      tramo = '0.1-4km';
+    } else if (distanceKm >= 4.01 && distanceKm <= 6) {
+      multiplier = 7;
+      tramo = '4.01-4 km';
+    } else if (distanceKm >= 6.01) {
+      multiplier = 9;
+      tramo = 'Mayor a 6.01 km';
     } else {
-      multiplier = 8;
+      multiplier = 2;
       tramo = 'Menor a 0.2 km (mínimo)';
     }
   } else {
@@ -208,14 +222,14 @@ function getMultiplier(distanceKm: number, vehicleType: VehicleType, rideType: R
     } else if (distanceKm >= 1.01 && distanceKm <= 2) {
       multiplier = 20;
       tramo = '1.01-2 km';
-    } else if (distanceKm >= 2.01 && distanceKm <= 4) {
+    } else if (distanceKm >= 2.01 && distanceKm <= 8) {
       multiplier = 25;
-      tramo = '2.01-4 km';
-    } else if (distanceKm >= 4.01) {
-      multiplier = 30;
-      tramo = 'Mayor a 4.01 km';
+      tramo = '2.01-8 km';
+    } else if (distanceKm >= 8.01) {
+      multiplier = 27;
+      tramo = 'Mayor a 8.01 km';
     } else {
-      multiplier = 10;
+      multiplier = 8;
       tramo = 'Menor a 0.2 km (mínimo)';
     }
   }
@@ -293,23 +307,118 @@ export function isPeakHour(date: Date = new Date()): boolean {
   return (hour >= 6 && hour < 8) || (hour >= 17 && hour < 20);
 }
 
-/**
- * Detectar si una ubicación está en Managua
- * Basado en coordenadas aproximadas de Managua
- */
-export function isInManagua(lat: number, lng: number): boolean {
-  // Límites aproximados de Managua
-  const MANAGUA_BOUNDS = {
-    north: 12.20,
+interface ServiceAreaDoc {
+  id: string;
+  name?: string;
+  active?: boolean;
+  bounds?: {
+    north: number;
+    south: number;
+    east: number;
+    west: number;
+  };
+  centerLat?: number;
+  centerLng?: number;
+  radiusKm?: number;
+}
+
+const DEFAULT_SERVICE_AREA: ServiceAreaDoc = {
+  id: 'ni-managua-default',
+  name: 'Managua',
+  active: true,
+  bounds: {
+    north: 12.2,
     south: 12.05,
     east: -86.15,
-    west: -86.35
-  };
-  
-  return lat >= MANAGUA_BOUNDS.south && 
-         lat <= MANAGUA_BOUNDS.north && 
-         lng >= MANAGUA_BOUNDS.west && 
-         lng <= MANAGUA_BOUNDS.east;
+    west: -86.35,
+  },
+};
+
+let cachedServiceAreas: ServiceAreaDoc[] | null = null;
+let serviceAreasFetchedAt = 0;
+const SERVICE_AREAS_CACHE_TTL_MS = 5 * 60 * 1000;
+
+function isValidCoordinate(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isPointInBounds(
+  lat: number,
+  lng: number,
+  bounds: { north: number; south: number; east: number; west: number },
+): boolean {
+  return lat >= bounds.south && lat <= bounds.north && lng >= bounds.west && lng <= bounds.east;
+}
+
+function isPointInServiceArea(lat: number, lng: number, area: ServiceAreaDoc): boolean {
+  if (area.bounds) {
+    return isPointInBounds(lat, lng, area.bounds);
+  }
+
+  if (
+    isValidCoordinate(area.centerLat) &&
+    isValidCoordinate(area.centerLng) &&
+    isValidCoordinate(area.radiusKm)
+  ) {
+    const R = 6371; // km
+    const toRad = (value: number) => (value * Math.PI) / 180;
+    const dLat = toRad(lat - area.centerLat);
+    const dLon = toRad(lng - area.centerLng);
+    const sinLat = Math.sin(dLat / 2);
+    const sinLon = Math.sin(dLon / 2);
+    const a =
+      sinLat * sinLat +
+      Math.cos(toRad(area.centerLat)) * Math.cos(toRad(lat)) * sinLon * sinLon;
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const distanceKm = R * c;
+    return distanceKm <= (area.radiusKm ?? 0);
+  }
+
+  return false;
+}
+
+async function loadServiceAreas(): Promise<ServiceAreaDoc[]> {
+  const now = Date.now();
+  if (cachedServiceAreas && now - serviceAreasFetchedAt < SERVICE_AREAS_CACHE_TTL_MS) {
+    return cachedServiceAreas;
+  }
+
+  try {
+    const snapshot = await firestore.collection('service_areas').where('active', '==', true).get();
+    const areas: ServiceAreaDoc[] = snapshot.docs.map((doc) => {
+      const data = doc.data() as Partial<ServiceAreaDoc>;
+      return {
+        id: doc.id,
+        name: data.name,
+        active: data.active,
+        bounds: data.bounds,
+        centerLat: data.centerLat,
+        centerLng: data.centerLng,
+        radiusKm: data.radiusKm,
+      };
+    });
+
+    if (areas.length > 0) {
+      cachedServiceAreas = areas;
+      serviceAreasFetchedAt = now;
+      return cachedServiceAreas;
+    }
+  } catch (error) {
+    console.warn('⚠️ [priceCalculator] Error obteniendo service_areas desde Firestore:', error);
+  }
+
+  cachedServiceAreas = [DEFAULT_SERVICE_AREA];
+  serviceAreasFetchedAt = now;
+  return cachedServiceAreas;
+}
+
+export async function isInManagua(lat?: number, lng?: number): Promise<boolean> {
+  if (!isValidCoordinate(lat) || !isValidCoordinate(lng)) {
+    return false;
+  }
+
+  const serviceAreas = await loadServiceAreas();
+  return serviceAreas.some((area) => isPointInServiceArea(lat, lng, area));
 }
 
 /**
@@ -344,80 +453,99 @@ export async function calculateRidePrice(
   const distanceKm = distanceInMeters / 1000;
   const durationMinutes = Math.ceil(durationInSeconds / 60);
   const serviceCode = options.serviceCodeOverride ?? mapRideTypeToServiceCode(vehicleType, rideType);
+  const extraStops = Math.max(options.extraStops ?? 0, 0);
 
   let service = await fetchServiceConfig(serviceCode);
 
   if (!service) {
     console.warn(`⚠️ Usando fallback legacy para calcular precio de ${serviceCode}.`);
     const { multiplier } = getMultiplier(distanceKm, vehicleType, rideType);
-    const legacyDistance = distanceKm * multiplier;
-    const finalLegacyPrice = Math.max(Math.round(legacyDistance), 50);
+    const legacyDistance = Math.max(distanceKm, 0) * multiplier;
+    const finalLegacyPrice = Math.max(Math.round(legacyDistance + STOP_FEE * extraStops + 50), 50);
     const commissionRateLegacy = getCommissionRate(vehicleType, rideType);
     const legacyCommission = Math.round(finalLegacyPrice * commissionRateLegacy);
 
     return {
       distancePrice: Math.round(legacyDistance),
       timePrice: 0,
-      basePrice: Math.round(legacyDistance),
+      basePrice: 50,
       distanceKm: parseFloat(distanceKm.toFixed(2)),
       durationMinutes,
       multiplier,
       finalPrice: finalLegacyPrice,
       breakdown: `⚠️ Fallback legacy activo. Distancia: ${distanceKm.toFixed(2)} km × C$${multiplier} = C$${legacyDistance.toFixed(2)}\nPrecio final: C$${finalLegacyPrice}`,
       isPeakHour: false,
-      peakHourAdjustment: 0,
+      peakHourAdjustment: 1,
       vehicleType,
       rideType,
       commissionRate: commissionRateLegacy,
       commission: legacyCommission,
       serviceCode,
+      extraStopsCharge: extraStops * STOP_FEE,
     };
   }
 
-  const serviceSubtotal = calculateServiceSubtotal(service, distanceKm, durationMinutes);
-  let finalPrice = serviceSubtotal.subtotalWithMinimum;
-  const breakdownLines: string[] = [];
+  const { multiplier } = getMultiplier(distanceKm, vehicleType, rideType);
+  const distanceComponent = Math.max(distanceKm, 0) * multiplier;
+  const baseComponent = service.basePrice;
+  let subtotal = baseComponent + distanceComponent;
+  const minimumApplied = subtotal < service.minimumFare;
+  if (minimumApplied) {
+    subtotal = service.minimumFare;
+  }
 
-  breakdownLines.push(buildBreakdownLine(`Base (${service.code})`, service.basePrice));
+  let peakMultiplier = 1;
+  const peak = isPeakHour();
+  const inServiceArea = await isInManagua(options.originLat, options.originLng);
+  if (peak && inServiceArea) {
+    peakMultiplier = 1.2;
+  }
+
+  subtotal *= peakMultiplier;
+
+  const extraStopsCharge = extraStops * STOP_FEE;
+  subtotal += extraStopsCharge;
+
+  const breakdownLines: string[] = [];
+  breakdownLines.push(buildBreakdownLine(`Base (${service.code})`, baseComponent));
   breakdownLines.push(
-    `Distancia (${distanceKm.toFixed(2)} km × C$${service.pricePerKm.toFixed(2)}): C$${serviceSubtotal.distanceComponent.toFixed(2)}`
+    `Distancia (${distanceKm.toFixed(2)} km × C$${multiplier.toFixed(2)}): C$${distanceComponent.toFixed(2)}`,
   );
 
-  if (service.pricePerMinute > 0) {
-    breakdownLines.push(
-      `Tiempo (${durationMinutes} min × C$${service.pricePerMinute.toFixed(2)}): C$${serviceSubtotal.timeComponent.toFixed(2)}`
-    );
-  }
-
-  if (serviceSubtotal.subtotalWithMinimum > serviceSubtotal.subtotal) {
+  if (minimumApplied) {
     breakdownLines.push(`Tarifa mínima aplicada: C$${service.minimumFare.toFixed(2)}`);
   }
+
+  if (peakMultiplier > 1) {
+    breakdownLines.push(`Ajuste hora pico (×${peakMultiplier.toFixed(2)}): C$${(subtotal - extraStopsCharge).toFixed(2)}`);
+  }
+
+  if (extraStops > 0) {
+    breakdownLines.push(`Paradas extra (${extraStops} × C$${STOP_FEE}): C$${extraStopsCharge.toFixed(2)}`);
+  }
+
+  let adjustedSubtotal = subtotal;
 
   if (serviceCode === 'designated_driver') {
     const normalService = await fetchServiceConfig('normal');
     if (normalService) {
-      const normalSubtotal = calculateServiceSubtotal(normalService, distanceKm, durationMinutes);
-      const normalFinal = normalSubtotal.subtotalWithMinimum;
+      const normalMultiplier = getMultiplier(distanceKm, vehicleType, 'normal').multiplier;
+      const normalBase = normalService.basePrice + Math.max(distanceKm, 0) * normalMultiplier;
+      const normalFinal = Math.max(normalBase, normalService.minimumFare);
       const doubledNormal = normalFinal * 2;
-      const adjustedFinal = Math.max(doubledNormal, service.minimumFare, finalPrice);
-
+      const newFinal = Math.max(doubledNormal, subtotal);
       breakdownLines.push(`Tarifa normal estimada: C$${normalFinal.toFixed(2)}`);
       breakdownLines.push(`Tarifa conductor designado = tarifa normal × 2: C$${doubledNormal.toFixed(2)}`);
-
-      if (adjustedFinal > doubledNormal) {
+      if (newFinal > doubledNormal) {
         breakdownLines.push(`Se aplica tarifa mínima de conductor designado: C$${service.minimumFare.toFixed(2)}`);
       }
-
-      finalPrice = adjustedFinal;
+      adjustedSubtotal = newFinal;
     } else {
       breakdownLines.push('⚠️ No se pudo obtener la tarifa normal para duplicar el precio.');
     }
   }
 
-  const finalPriceRounded = Math.round(finalPrice);
-  const distancePriceRounded = Math.round(serviceSubtotal.distanceComponent);
-  const timePriceRounded = Math.round(serviceSubtotal.timeComponent);
-
+  const finalPriceRounded = Math.round(adjustedSubtotal);
   let commissionRate = service.commissionRate;
 
   if (options.driverId) {
@@ -434,22 +562,23 @@ export async function calculateRidePrice(
   breakdownLines.push(`Comisión ${(commissionRate * 100).toFixed(2)}%: C$${commission.toFixed(2)}`);
 
   return {
-    distancePrice: distancePriceRounded,
-    timePrice: timePriceRounded,
-    basePrice: Math.round(service.basePrice),
+    distancePrice: Math.round(distanceComponent),
+    timePrice: 0,
+    basePrice: Math.round(baseComponent),
     distanceKm: parseFloat(distanceKm.toFixed(2)),
     durationMinutes,
-    multiplier: service.pricePerKm,
+    multiplier,
     finalPrice: finalPriceRounded,
     breakdown: breakdownLines.join('\n'),
-    isPeakHour: false,
-    peakHourAdjustment: 0,
+    isPeakHour: peak && peakMultiplier > 1,
+    peakHourAdjustment: peakMultiplier,
     vehicleType,
     rideType,
     commissionRate,
     commission,
     serviceCode,
     serviceId: service.id,
+    extraStopsCharge,
   };
 }
 
@@ -474,34 +603,15 @@ export async function calculateRidePriceWithStops(
   originLng?: number,
   options: RidePriceOptions = {}
 ): Promise<PriceCalculationResult> {
-  const baseCalculation = await calculateRidePrice(
+  return calculateRidePrice(
     distanceInMeters,
     durationInSeconds,
     vehicleType,
     rideType,
     originLat,
     originLng,
-    options
+    { ...options, extraStops },
   );
-
-  const STOP_FEE = 20;
-  const stopCharge = extraStops * STOP_FEE;
-  const finalPrice = baseCalculation.finalPrice + stopCharge;
-  const commission = Math.round(finalPrice * baseCalculation.commissionRate);
-
-  let breakdown = baseCalculation.breakdown;
-  if (extraStops > 0) {
-    breakdown += `\nParadas extras: ${extraStops} × C$${STOP_FEE} = C$${stopCharge.toFixed(2)}`;
-    breakdown += `\nPrecio final con paradas: C$${finalPrice.toFixed(2)}`;
-    breakdown += `\nComisión actualizada: C$${commission.toFixed(2)}`;
-  }
-
-  return {
-    ...baseCalculation,
-    finalPrice,
-    breakdown,
-    commission,
-  };
 }
 
 /**

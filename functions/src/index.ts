@@ -107,6 +107,7 @@ import * as cleanupRealtimeDB from "./scheduled/cleanupRealtimeDB";
 import * as presenceAPI from "./api/presence";
 import * as sessionsAPI from "./api/sessions";
 import * as geoShardingTriggers from "./triggers/geoSharding";
+import { calculateRidePrice as calculateRidePriceHelper, type VehicleType as BackendVehicleType, type RideType as BackendRideType } from "./helpers/priceCalculator";
 
 // ============================================
 // API ENDPOINTS
@@ -189,6 +190,62 @@ export const checkRegionAvailabilityHttp = regionAvailabilityAPI.checkRegionAvai
 
 // Public ride tracking (Landing page)
 export const getPublicRideTracking = publicRideTrackingAPI.getPublicRideTracking;
+
+export const calculateRidePriceHttp = functions.https.onRequest(async (req, res) => {
+  res.set("Access-Control-Allow-Origin", "*");
+  res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+
+  if (req.method === "OPTIONS") {
+    res.status(204).send("");
+    return;
+  }
+
+  if (req.method !== "POST") {
+    res.status(405).json({ error: "Method not allowed" });
+    return;
+  }
+
+  try {
+    const {
+      distanceInMeters,
+      durationInSeconds,
+      vehicleType = "car",
+      rideType = "normal",
+      originLat,
+      originLng,
+      driverId,
+      serviceCodeOverride,
+      extraStops,
+    } = req.body ?? {};
+
+    if (typeof distanceInMeters !== "number" || typeof durationInSeconds !== "number") {
+      res.status(400).json({ error: "distanceInMeters and durationInSeconds are required numbers" });
+      return;
+    }
+
+    const result = await calculateRidePriceHelper(
+      distanceInMeters,
+      durationInSeconds,
+      vehicleType as BackendVehicleType,
+      rideType as BackendRideType,
+      originLat,
+      originLng,
+      {
+        driverId,
+        serviceCodeOverride,
+        extraStops,
+        originLat,
+        originLng,
+      },
+    );
+
+    res.json(result);
+  } catch (error) {
+    console.error("❌ calculateRidePriceHttp error:", error);
+    res.status(500).json({ error: "Failed to calculate ride price" });
+  }
+});
 
 
 // ============================================

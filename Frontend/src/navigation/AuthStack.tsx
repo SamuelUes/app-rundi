@@ -117,42 +117,42 @@ export default function AuthStack() {
       <Stack.Screen 
         name="RegisterNew" 
         component={RegisterScreenNew} 
-        options={{ title: 'Nuevo Registro' }} 
+        options={{ headerShown: false , title: 'Nuevo Registro' }} 
       />
       <Stack.Screen
         name="RoleSelection"
         component={RoleSelectionScreen}
-        options={{ title: 'Seleccionar Rol' }}
+        options={{headerShown: false , title: 'Seleccionar Rol' }}
       />
       <Stack.Screen
         name="DriverPhone"
         component={DriverPhoneScreen}
-        options={{ title: 'Teléfono para Conductor' }}
+        options={{headerShown: false  }}
       />
       <Stack.Screen
         name="GooglePhone"
         component={GooglePhoneScreen}
-        options={{ title: 'Número Telefónico' }}
+        options={{headerShown: false , title: 'Número Telefónico' }}
       />
       <Stack.Screen 
         name="PhoneVerification" 
         component={PhoneVerificationScreen} 
-        options={{ title: 'Verificar Teléfono' }} 
+        options={{headerShown: false , title: 'Verificar Teléfono' }} 
       />
       <Stack.Screen 
         name="PhoneVerificationLogin" 
         component={PhoneVerificationLoginScreen} 
-        options={{ title: 'Verificar Teléfono' }} 
+        options={{headerShown: false , title: 'Verificar Teléfono' }} 
       />
       <Stack.Screen 
         name="DriverData" 
         component={DriverDataScreen} 
-        options={{ title: 'Datos del Conductor' }} 
+        options={{headerShown: false , title: 'Datos del Conductor' }} 
       />
       <Stack.Screen 
         name="RegisterConfirm" 
         component={RegisterConfirm} 
-        options={{ title: 'Confirmar Registro' }} 
+        options={{headerShown: false , title: 'Confirmar Registro' }} 
       />
     </Stack.Navigator>
   );

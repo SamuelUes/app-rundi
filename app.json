@@ -2,11 +2,11 @@
   "expo": {
     "extra": {
       "eas": {
-        "projectId": "79fc9fff-5481-4aba-a29a-632db706c382"
+        "projectId": "98fe5b45-4177-4d65-8ce3-6b783abfe196"
       }
     },
     "ios": {
-      "bundleIdentifier": "com.samuelues.appuber",
+      "bundleIdentifier": "com.samuelues.rundi",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }

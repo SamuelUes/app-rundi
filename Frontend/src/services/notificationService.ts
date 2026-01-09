@@ -34,9 +34,8 @@ class NotificationService {
    */
   async initialize(): Promise<string | null> {
     try {
-      // CRÍTICO: Usar projectId del owner (samuelues) desde app.json
-      const projectId = Constants.expoConfig?.extra?.eas?.projectId || '79fc9fff-5481-4aba-a29a-632db706c382';
-      
+      const projectId = this.resolveProjectId();
+
       if (!projectId || !this.isValidUUID(projectId)) {
         console.log('ℹ️ Expo Push Notifications deshabilitado - usando FCM');
         return null;
@@ -171,11 +170,14 @@ class NotificationService {
    * Obtener Expo Push Token
    */
   private async getExpoPushToken(): Promise<string> {
-    // CRÍTICO: Usar el mismo projectId que en initialize()
-    const projectId = Constants.expoConfig?.extra?.eas?.projectId || '79fc9fff-5481-4aba-a29a-632db706c382';
-    
+    const projectId = this.resolveProjectId();
+
+    if (!projectId) {
+      throw new Error('Expo projectId no disponible para push notifications');
+    }
+
     console.log('🔑 Obteniendo Expo Push Token con projectId:', projectId);
-    
+
     const token = await Notifications.getExpoPushTokenAsync({
       projectId,
     });
@@ -425,6 +427,44 @@ class NotificationService {
     }
     const value = distanceMeters / 1000;
     return this.tr('formats.distanceKm', { value: value.toFixed(1) });
+  }
+
+  /**
+   * Resolver projectId de Expo/EAS sin importar el modo de ejecución
+   */
+  private resolveProjectId(): string | null {
+    const expoConfig = (Constants.expoConfig ?? {}) as {
+      extra?: { eas?: { projectId?: string } };
+      projectId?: string;
+    };
+    const manifest = (Constants.manifest ?? {}) as {
+      extra?: { eas?: { projectId?: string } };
+    };
+
+    const envProjectId =
+      process.env.EXPO_PUBLIC_NOTIFICATIONS_PROJECT_ID ||
+      process.env.EXPO_NOTIFICATIONS_PROJECT_ID ||
+      process.env.EXPO_PROJECT_ID ||
+      process.env.EAS_PROJECT_ID ||
+      null;
+    const extraNotificationsId =
+      (expoConfig?.extra as { notificationsProjectId?: string } | undefined)?.notificationsProjectId;
+    const expoConfigExtraProjectId = expoConfig?.extra?.eas?.projectId;
+    const manifestExtraProjectId = manifest?.extra?.eas?.projectId;
+    const legacyExpoConfigProjectId = expoConfig?.projectId;
+    const easProjectId = Constants.easConfig?.projectId;
+
+    const fallbackProjectId = '98fe5b45-4177-4d65-8ce3-6b783abfe196';
+
+    return (
+      envProjectId ||
+      extraNotificationsId ||
+      expoConfigExtraProjectId ||
+      manifestExtraProjectId ||
+      legacyExpoConfigProjectId ||
+      easProjectId ||
+      fallbackProjectId
+    );
   }
 }
 

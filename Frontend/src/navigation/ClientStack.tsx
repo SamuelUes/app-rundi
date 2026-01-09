@@ -177,25 +177,25 @@ export default function ClientStack() {
       />
       <Stack.Screen name="ClientHome" component={HomeScreen} />
       <Stack.Screen name="HomeOffers" component={HomeScreenOffers} options={{ headerShown: false }} />
-      <Stack.Screen name="SearchRide" component={SearchRideScreenNewDesign} options={{ headerShown: true, title: 'Buscar viaje' }} />
+      <Stack.Screen name="SearchRide" component={SearchRideScreenNewDesign} options={{ headerShown: false, title: 'Buscar viaje' }} />
       {/* <Stack.Screen name="RideConfirmation" component={RideConfirmationScreen} options={{ headerShown: true, title: 'Confirmación de Viaje' }} /> */}
       <Stack.Screen name="RideTracking" component={RideTrackingScreen} options={{ headerShown: false }} />
-      <Stack.Screen name="Payment" component={PaymentScreen} options={{ headerShown: true, title: 'Pago' }} />
-      <Stack.Screen name="CashPayment" component={CashPaymentScreen} options={{ headerShown: true, title: 'Pago en Efectivo' }} />
+      <Stack.Screen name="Payment" component={PaymentScreen} options={{ headerShown: false, title: 'Pago' }} />
+      <Stack.Screen name="CashPayment" component={CashPaymentScreen} options={{ headerShown: false, title: 'Pago en Efectivo' }} />
       <Stack.Screen name="PendingPayments" component={PendingPaymentsScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Profile" component={ProfileScreen} options={{ headerShown: false }} />
-      <Stack.Screen name="RideHistory" component={ClientRideHistoryScreen} options={{ headerShown: true, title: 'Historial de Viajes' }} />
-      <Stack.Screen name="Rating" component={RatingScreen} options={{ headerShown: true, title: 'Calificar Viaje' }} />
-      <Stack.Screen name="PaymentMethods" component={PaymentMethodsScreen} options={{ headerShown: true, title: 'Métodos de Pago' }} />
-      <Stack.Screen name="Settings" component={SettingsScreen} options={{ headerShown: true, title: 'Configuración' }} />
+      <Stack.Screen name="RideHistory" component={ClientRideHistoryScreen} options={{ headerShown: false, title: 'Historial de Viajes' }} />
+      <Stack.Screen name="Rating" component={RatingScreen} options={{ headerShown: false, title: 'Calificar Viaje' }} />
+      <Stack.Screen name="PaymentMethods" component={PaymentMethodsScreen} options={{ headerShown: false, title: 'Métodos de Pago' }} />
+      <Stack.Screen name="Settings" component={SettingsScreen} options={{ headerShown: false, title: 'Configuración' }} />
       <Stack.Screen name="Account" component={AccountScreen} options={{ headerShown: false }} />
-      <Stack.Screen name="DeleteAccount" component={DeleteAccountScreen} options={{ headerShown: true, title: 'Eliminar Cuenta' }} />
-      <Stack.Screen name="Help" component={HelpScreen} options={{ headerShown: true, title: 'Ayuda' }} />
+      <Stack.Screen name="DeleteAccount" component={DeleteAccountScreen} options={{ headerShown: false, title: 'Eliminar Cuenta' }} />
+      <Stack.Screen name="Help" component={HelpScreen} options={{ headerShown: false, title: 'Ayuda' }} />
       <Stack.Screen name="Chat" component={ChatScreen} options={{ headerShown: true, title: 'Chat' }} />
-      <Stack.Screen name="RideDetails" component={RideDetailsScreen} options={{ headerShown: true, title: 'Detalles del Viaje' }} />
+      <Stack.Screen name="RideDetails" component={RideDetailsScreen} options={{ headerShown: false, title: 'Detalles del Viaje' }} />
       <Stack.Screen name="SavedCards" component={SavedCardsScreen} options={{ headerShown: false }} />
       <Stack.Screen name="AddCard" component={AddCardScreen} options={{ headerShown: false }} />
-      <Stack.Screen name="Invoice" component={InvoiceScreen} options={{ headerShown: true, title: 'Factura' }} />
+      <Stack.Screen name="Invoice" component={InvoiceScreen} options={{ headerShown: false, title: 'Factura' }} />
       <Stack.Screen
         name="PhoneVerification"
         component={PhoneVerificationScreen as React.ComponentType<any>}
@@ -204,17 +204,17 @@ export default function ClientStack() {
       <Stack.Screen
         name="DriverPhone"
         component={DriverPhoneScreen as React.ComponentType<any>}
-        options={{ headerShown: true, title: 'Teléfono para Conductor' }}
+        options={{ headerShown: false, title: 'Teléfono para Conductor' }}
       />
       <Stack.Screen
         name="DriverData"
         component={DriverDataScreen as React.ComponentType<any>}
-        options={{ headerShown: true, title: 'Datos del Conductor' }}
+        options={{ headerShown: false, title: 'Datos del Conductor' }}
       />
       <Stack.Screen
         name="RegisterConfirm"
         component={RegisterConfirm as React.ComponentType<any>}
-        options={{ headerShown: true, title: 'Confirmar Registro de Conductor' }}
+        options={{ headerShown: false, title: 'Confirmar Registro de Conductor' }}
       />
     </Stack.Navigator>
   );

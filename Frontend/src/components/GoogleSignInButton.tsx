@@ -15,6 +15,7 @@ import {
   Image,
 } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
+import { useTranslation } from 'react-i18next';
 
 interface GoogleSignInButtonProps {
   onPress: () => void;
@@ -23,7 +24,6 @@ interface GoogleSignInButtonProps {
   variant?: 'login' | 'register';
   style?: StyleProp<ViewStyle>;
 }
-
 export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
   onPress,
   loading = false,
@@ -31,6 +31,7 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
   variant = 'login',
   style,
 }) => {
+  const { t } = useTranslation();
   const { colors } = useTheme();
 
   const styles = StyleSheet.create({
@@ -82,11 +83,11 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
   const buttonText =
     variant === 'login'
       ? loading
-        ? 'Iniciando sesión...'
-        : 'Continua con Google'
+        ? t('authScreens.googlesinginbutton.login')
+        : t('authScreens.googlesinginbutton.logincontinue')
       : loading
-      ? 'Registrando...'
-      : 'Registrarse con Google';
+      ? t('authScreens.googlesinginbutton.register')
+      : t('authScreens.googlesinginbutton.registercontinue');
 
   return (
     <View style={[styles.container, style]}>

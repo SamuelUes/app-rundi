@@ -1,4 +1,5 @@
-import auth, { FirebaseAuthTypes } from '@react-native-firebase/auth';
+import type { FirebaseAuthTypes } from '@react-native-firebase/auth';
+import { isNativeFirebaseSupported, loadNativeFirebaseAuth } from '../../utils/nativeFirebase';
 
 class PhoneAuthService {
   private confirmations: Map<string, FirebaseAuthTypes.ConfirmationResult> = new Map();
@@ -17,6 +18,7 @@ class PhoneAuthService {
   }
 
   async sendVerificationCode(phone: string): Promise<void> {
+    const nativeAuth = await this.getNativeAuthInstance();
     const normalized = this.normalizePhone(phone);
 
     if (!this.validatePhoneNumber(normalized)) {
@@ -28,7 +30,7 @@ class PhoneAuthService {
     try {
       console.log('📱 [phoneAuthService] Enviando código de verificación. Input:', phone);
       console.log('📱 [phoneAuthService] Número normalizado (E.164):', normalized);
-      const confirmation = await auth().signInWithPhoneNumber(normalized);
+      const confirmation = await nativeAuth.signInWithPhoneNumber(normalized);
       this.confirmations.set(normalized, confirmation);
     } catch (error: any) {
       console.error('❌ Error enviando código de verificación:', error);
@@ -82,16 +84,13 @@ class PhoneAuthService {
 
       this.confirmations.delete(normalized);
 
-      if (options?.signOutAfterConfirm) {
-        await auth().signOut();
-      }
-
       return credential;
     } catch (error: any) {
       console.error('❌ Error confirmando código de verificación:', error);
       const codeName = error?.code || '';
 
-      const autoVerifiedUser = auth().currentUser;
+      const nativeAuth = await this.getNativeAuthInstance();
+      const autoVerifiedUser = nativeAuth.currentUser;
       if (
         (codeName === 'auth/session-expired' || codeName === 'auth/code-expired') &&
         autoVerifiedUser?.phoneNumber === normalized
@@ -105,10 +104,6 @@ class PhoneAuthService {
         const fakeCredential = {
           user: autoVerifiedUser,
         } as FirebaseAuthTypes.UserCredential;
-
-        if (options?.signOutAfterConfirm) {
-          await auth().signOut();
-        }
 
         return fakeCredential;
       }
@@ -136,6 +131,19 @@ class PhoneAuthService {
   clearConfirmation(phone: string) {
     const normalized = this.normalizePhone(phone);
     this.confirmations.delete(normalized);
+  }
+
+  private async getNativeAuthInstance() {
+    if (!isNativeFirebaseSupported()) {
+      throw new Error('La verificación por SMS solo está disponible en Development/Production builds.');
+    }
+
+    const nativeAuthModule = await loadNativeFirebaseAuth();
+    if (!nativeAuthModule?.default) {
+      throw new Error('Firebase Auth nativo no está disponible. Usa una Development Build.');
+    }
+
+    return nativeAuthModule.default();
   }
 }
 

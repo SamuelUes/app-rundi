@@ -13,11 +13,13 @@ import { getFirebaseAuth, getFirebaseFunctions } from '../config/firebase';
 import { httpsCallable } from 'firebase/functions';
 import notificationService from './notificationService';
 import i18n from '../i18n';
+import { isNativeFirebaseSupported, loadNativeFirebaseMessaging } from '../utils/nativeFirebase';
 
 // Importar FCM solo si está disponible (Development Build)
 let messagingModule: any = null;
 let messagingInstance: any = null;
 let AuthorizationStatusEnum: any = null;
+let backgroundHandlersRegistered = false;
 
 type NotificationCopy = {
   title: string;
@@ -60,127 +62,133 @@ Notifications.setNotificationHandler({
   }),
 });
 
-try {
-  messagingModule = require('@react-native-firebase/messaging');
-  const { getMessaging, AuthorizationStatus } = messagingModule;
-  messagingInstance = getMessaging();
-  AuthorizationStatusEnum = AuthorizationStatus;
-  try {
-    if (messagingModule?.setBackgroundMessageHandler && messagingInstance) {
-      messagingModule.setBackgroundMessageHandler(
-        messagingInstance,
-        async (remoteMessage: any) => {
-          try {
-            console.log('📥 Notificación gestionada en background:', {
-              id: remoteMessage?.messageId,
-              data: remoteMessage?.data,
-            });
-            
-            const { notification, data } = remoteMessage;
-            
-            if (notification?.title || notification?.body) {
-              console.log('ℹ️ Notificación ya manejada por FCM (con payload visual), se omite réplica local');
-              return;
-            }
+let availabilityState: 'available' | 'unavailable' | null = null;
 
-            const copy = getFCMNotificationCopy(data?.type);
-            
-            try {
-              console.log('🔔 Mostrando notificación local en background (data-only):', {
-                copy,
-                data,
-              });
-              
-              // Usar directamente Expo Notifications en background
-              await Notifications.scheduleNotificationAsync({
-                content: {
-                  title: copy.title,
-                  body: copy.body,
-                  data: data || {},
-                  sound: 'default',
-                  priority: Notifications.AndroidNotificationPriority.MAX,
-                  vibrate: [0, 250, 250, 250],
-                },
-                trigger: null, // Mostrar inmediatamente
-              });
-              
-              console.log('✅ Notificación local mostrada en background');
-            } catch (notifError) {
-              console.error('❌ Error mostrando notificación local en background:', notifError);
-            }
-          } catch (logError) {
-            console.warn('⚠️ Error en background message handler:', logError);
-          }
-        }
-      );
+const logAvailability = (state: 'available' | 'unavailable') => {
+  if (availabilityState === state) {
+    return;
+  }
+  availabilityState = state;
+  if (state === 'available') {
+    console.log('✅ FCM disponible - usando Firebase Cloud Messaging');
+  } else {
+    console.log('⚠️ FCM no disponible - usando Expo Notifications como fallback');
+  }
+};
+
+const handleBackgroundRemoteMessage = async (remoteMessage: any) => {
+  try {
+    console.log('📥 Notificación gestionada en background:', {
+      id: remoteMessage?.messageId,
+      data: remoteMessage?.data,
+    });
+
+    const { notification, data } = remoteMessage;
+
+    if (notification?.title || notification?.body) {
+      console.log('ℹ️ Notificación ya manejada por FCM (con payload visual), se omite réplica local');
+      return;
     }
+
+    const copy = getFCMNotificationCopy(data?.type);
+
+    try {
+      console.log('🔔 Mostrando notificación local en background (data-only):', {
+        copy,
+        data,
+      });
+
+              // Usar directamente Expo Notifications en background
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: copy.title,
+          body: copy.body,
+          data: data || {},
+          sound: 'default',
+          priority: Notifications.AndroidNotificationPriority.MAX,
+          vibrate: [0, 250, 250, 250],
+        },
+        trigger: null, // Mostrar inmediatamente
+      });
+
+      console.log('✅ Notificación local mostrada en background');
+    } catch (notifError) {
+      console.error('❌ Error mostrando notificación local en background:', notifError);
+    }
+  } catch (logError) {
+    console.warn('⚠️ Error en background message handler:', logError);
+  }
+};
+
+async function registerBackgroundHandlers(module: any) {
+  if (backgroundHandlersRegistered || !module?.setBackgroundMessageHandler || !messagingInstance) {
+    return;
+  }
+
+  try {
+    module.setBackgroundMessageHandler(messagingInstance, handleBackgroundRemoteMessage);
+    backgroundHandlersRegistered = true;
   } catch (handlerError) {
     try {
-      // Compatibilidad con API antigua (sin instancia como primer parámetro)
-      messagingModule?.setBackgroundMessageHandler?.(async (remoteMessage: any) => {
-        try {
-          console.log('📥 Notificación gestionada en background (compat):', {
-            id: remoteMessage?.messageId,
-            data: remoteMessage?.data,
-          });
-          
-          // Mostrar notificación local en la bandeja del sistema
-          const { notification, data } = remoteMessage;
-          
-          if (notification?.title || notification?.body) {
-            console.log('ℹ️ Notificación ya manejada por FCM (compat), se omite réplica local');
-            return;
-          }
-
-          const copy = getFCMNotificationCopy(data?.type);
-          
-          try {
-            console.log('🔔 Mostrando notificación en background (compat, data-only):', {
-              copy,
-              data,
-            });
-            
-            // Usar directamente Expo Notifications en background
-            await Notifications.scheduleNotificationAsync({
-              content: {
-                title: copy.title,
-                body: copy.body,
-                data: data || {},
-                sound: 'default',
-                priority: Notifications.AndroidNotificationPriority.MAX,
-                vibrate: [0, 250, 250, 250],
-              },
-              trigger: null, // Mostrar inmediatamente
-            });
-            
-            console.log('✅ Notificación local mostrada en background (compat)');
-          } catch (notifError) {
-            console.error('❌ Error mostrando notificación local en background (compat):', notifError);
-          }
-        } catch (logError) {
-          console.warn('⚠️ Error en background message handler (compat):', logError);
-        }
-      });
+      module.setBackgroundMessageHandler(handleBackgroundRemoteMessage);
+      backgroundHandlersRegistered = true;
     } catch (fallbackError) {
       console.warn('⚠️ No se pudo registrar handler de mensajes en background:', fallbackError ?? handlerError);
     }
   }
-  console.log('✅ FCM disponible - usando Firebase Cloud Messaging');
-} catch (error) {
-  messagingModule = null;
-  messagingInstance = null;
-  AuthorizationStatusEnum = null;
-  console.log('⚠️ FCM no disponible - usando Expo Notifications como fallback');
+}
+
+async function initializeMessagingModule(): Promise<boolean> {
+  if (messagingModule && messagingInstance) {
+    return true;
+  }
+
+  if (!isNativeFirebaseSupported()) {
+    logAvailability('unavailable');
+    return false;
+  }
+
+  const module = await loadNativeFirebaseMessaging();
+
+  if (!module) {
+    logAvailability('unavailable');
+    return false;
+  }
+
+  const { getMessaging, AuthorizationStatus } = module;
+
+  if (typeof getMessaging !== 'function') {
+    console.warn('⚠️ getMessaging no está disponible en el módulo de Firebase Messaging.');
+    logAvailability('unavailable');
+    return false;
+  }
+
+  const instance = getMessaging();
+
+  if (!instance) {
+    console.warn('⚠️ No se pudo obtener una instancia de Firebase Messaging.');
+    logAvailability('unavailable');
+    return false;
+  }
+
+  messagingModule = module;
+  messagingInstance = instance;
+  AuthorizationStatusEnum = AuthorizationStatus;
+
+  await registerBackgroundHandlers(module);
+  logAvailability('available');
+  return true;
 }
 
 class FCMService {
   private fcmToken: string | null = null;
   private functions: any = null;
-  private isFCMAvailable: boolean = messagingInstance !== null;
+  private isFCMAvailable: boolean = isNativeFirebaseSupported();
   private recentForegroundMessageIds: Set<string> = new Set();
   private listenersConfigured = false;
   private onMessageUnsubscribe: (() => void) | null = null;
   private onNotificationOpenedUnsubscribe: (() => void) | null = null;
+  private messagingInitPromise: Promise<boolean> | null = null;
 
   constructor() {
     this.ensureAndroidChannel();
@@ -227,8 +235,9 @@ class FCMService {
    */
   async requestPermission(): Promise<boolean> {
     try {
-      // Si FCM no está disponible, retornar false
-      if (!this.isFCMAvailable || !messagingModule || !messagingInstance) {
+      // Si fcm no esta disponible, retornar false
+      const ready = await this.ensureMessagingReady();
+      if (!ready) {
         console.log('⚠️ FCM no disponible, no se pueden solicitar permisos');
         return false;
       }
@@ -270,8 +279,9 @@ class FCMService {
    */
   async getToken(): Promise<string | null> {
     try {
-      // Si FCM no está disponible, retornar null
-      if (!this.isFCMAvailable || !messagingModule || !messagingInstance) {
+      // Si fcm no esta disponible, retornar null
+      const ready = await this.ensureMessagingReady();
+      if (!ready) {
         console.log('⚠️ FCM no disponible, no se puede obtener token');
         return null;
       }
@@ -329,8 +339,9 @@ class FCMService {
   /**
    * Configurar listeners de notificaciones
    */
-  setupNotificationListeners(): void {
-    if (!this.isFCMAvailable || !messagingModule || !messagingInstance) {
+  async setupNotificationListeners(): Promise<void> {
+    const ready = await this.ensureMessagingReady();
+    if (!ready || !messagingModule || !messagingInstance) {
       console.log('⚠️ FCM no disponible, saltando configuración de listeners');
       return;
     }
@@ -611,8 +622,8 @@ class FCMService {
    */
   async checkPermissionStatus(): Promise<boolean> {
     try {
-      // Si FCM no está disponible, retornar false
-      if (!this.isFCMAvailable || !messagingModule || !messagingInstance || !AuthorizationStatusEnum) {
+      const ready = await this.ensureMessagingReady();
+      if (!ready || !messagingModule || !messagingInstance || !AuthorizationStatusEnum) {
         console.log('⚠️ FCM no disponible, permisos considerados como no concedidos');
         return false;
       }
@@ -639,6 +650,16 @@ class FCMService {
       console.error('❌ Error obteniendo token guardado:', error);
       return null;
     }
+  }
+
+  private ensureMessagingReady(): Promise<boolean> {
+    if (!this.messagingInitPromise) {
+      this.messagingInitPromise = initializeMessagingModule().then((result) => {
+        this.isFCMAvailable = result;
+        return result;
+      });
+    }
+    return this.messagingInitPromise;
   }
 }
 

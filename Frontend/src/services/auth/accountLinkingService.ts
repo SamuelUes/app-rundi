@@ -7,12 +7,11 @@ import {
   type User,
 } from 'firebase/auth';
 import { getFirebaseAuth } from '../../config/firebase';
-import { getApp } from '@react-native-firebase/app';
 import {
-  getAuth as getNativeAuth,
-  PhoneAuthProvider as NativePhoneAuthProvider,
-  verifyPhoneNumber as nativeVerifyPhoneNumber,
-} from '@react-native-firebase/auth';
+  isNativeFirebaseSupported,
+  loadNativeFirebaseApp,
+  loadNativeFirebaseAuth,
+} from '../../utils/nativeFirebase';
 
 interface PhoneLinkSession {
   phone: string;
@@ -86,6 +85,12 @@ class AccountLinkingService {
   }
 
   async sendPhoneLinkCode(phone: string) {
+    if (!isNativeFirebaseSupported()) {
+      throw new Error(
+        'La verificación por SMS requiere una compilación nativa (Development Build). Usa una build dev o producción.',
+      );
+    }
+
     const normalizedPhone = this.normalizePhone(phone);
     if (!/^\+\d{6,15}$/.test(normalizedPhone)) {
       throw new Error('Formato de teléfono inválido. Usa +505 XXXX XXXX');
@@ -97,12 +102,12 @@ class AccountLinkingService {
       phone: normalizedPhone,
     });
 
-    const nativeAuth = getNativeAuth(getApp());
+    const nativeAuth = await this.getNativeAuthInstance();
     let verificationId: string | undefined;
 
     try {
       // timeout de auto-verificación de 60 segundos (valor razonable por defecto)
-      const confirmation = await nativeVerifyPhoneNumber(nativeAuth, normalizedPhone, 60);
+      const confirmation = await this.nativeVerifyPhoneNumber(nativeAuth, normalizedPhone, 60);
       const snapshot: any = confirmation as any;
       verificationId = snapshot?.verificationId;
 
@@ -188,6 +193,30 @@ class AccountLinkingService {
 
   clearPhoneLinkSession() {
     this.phoneLinkSessions.clear();
+  }
+
+  private nativeVerifyPhoneNumber = async (
+    nativeAuth: any,
+    phone: string,
+    timeout: number,
+  ): Promise<any> => {
+    const nativeAuthModule = await loadNativeFirebaseAuth();
+    if (!nativeAuthModule?.verifyPhoneNumber) {
+      throw new Error('La verificación por SMS no está disponible en Expo Go.');
+    }
+    return nativeAuthModule.verifyPhoneNumber(nativeAuth, phone, timeout);
+  };
+
+  private async getNativeAuthInstance() {
+    const nativeAppModule = await loadNativeFirebaseApp();
+    const nativeAuthModule = await loadNativeFirebaseAuth();
+
+    if (!nativeAppModule?.getApp || !nativeAuthModule?.getAuth) {
+      throw new Error('No se pudo acceder a Firebase nativo. Usa una Development Build.');
+    }
+
+    const app = nativeAppModule.getApp();
+    return nativeAuthModule.getAuth(app);
   }
 }
 

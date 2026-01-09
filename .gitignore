@@ -85,7 +85,7 @@ tools/
 storage.rules
 !Frontend/.env
 tests/
-web/
+#web/
 web/page
 web/plataform
 web/functions

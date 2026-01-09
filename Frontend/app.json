@@ -8,7 +8,7 @@
     "icon": "./src/assets/images/jpg",
     "scheme": "com.driveangel.rundidev",
     "owner": "samuelues",
-    "projectId": "79fc9fff-5481-4aba-a29a-632db706c382",
+    "projectId": "98fe5b45-4177-4d65-8ce3-6b783abfe196",
     "runtimeVersion": "Beta - 1.6.4",
     "splash": {
       "image": "./assets/splash.png",
@@ -102,8 +102,9 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "79fc9fff-5481-4aba-a29a-632db706c382"
+        "projectId": "98fe5b45-4177-4d65-8ce3-6b783abfe196"
       },
+      "notificationsProjectId": "98fe5b45-4177-4d65-8ce3-6b783abfe196",
       "domain": "rundiapp.com",
       "apiUrl": "",
       "wsUrl": "",

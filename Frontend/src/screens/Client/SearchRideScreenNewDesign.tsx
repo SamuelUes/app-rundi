@@ -25,7 +25,7 @@ import mapsService from '../../services/mapsService';
 import driversService from '../../services/driversService';
 import ridesService from '../../services/ridesService';
 import servicesService, { ServiceItem } from '../../services/servicesService';
-import { calculateRidePrice, formatPriceBreakdown, type PriceBreakdown } from '../../utils/priceCalculator';
+import { calculateRidePrice, formatPriceBreakdown, type PriceBreakdown } from '../../utils/priceCalculatorCentralize';
 import alertService from '../../services/alertService';
 import { uploadClientVehiclePhoto } from '../../services/supabaseStorage';
 import BiometricService from '../../services/biometricService';
@@ -560,7 +560,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
                 type === 'designated_driver' ? 'designated_driver' : 'normal',
                 startPoint.latitude,
                 startPoint.longitude,
-                stopsCount,
+                { extraStops: stopsCount },
               );
               return { type, price: breakdown.finalPrice, breakdown } as const;
             } catch (error) {
@@ -586,7 +586,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
             'designated_driver',
             startPoint.latitude,
             startPoint.longitude,
-            stopsCount,
+            { extraStops: stopsCount },
           );
         } catch (error) {
           console.warn('calculateRidePrice failed for designated_driver moto', error);
@@ -687,7 +687,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
           rideTypeForCalc,
           startPoint.latitude,
           startPoint.longitude,
-          stops.length,
+          { extraStops: stops.length },
         );
         setEstimatedPrice(breakdown.finalPrice);
         setPriceBreakdown(breakdown);
@@ -724,7 +724,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
           rideTypeForCalc,
           start.latitude,
           start.longitude,
-          stopsCount,
+          { extraStops: stopsCount },
         );
         setEstimatedPrice(breakdown.finalPrice);
         setPriceBreakdown(breakdown);
@@ -1117,24 +1117,37 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     const durSeconds = Math.max(1, Math.round(estimatedDuration * 60));
     const stopsCount = extraDestinations.filter((d) => d.coords).length;
 
-    const breakdown = await calculateRidePrice(
-      distMeters,
-      durSeconds,
-      vehicleTypeForCalc,
-      rideTypeForCalc,
-      start.latitude,
-      start.longitude,
-      stopsCount,
-    );
-    setEstimatedPrice(breakdown.finalPrice);
-    setPriceBreakdown(breakdown);
-  }, [originCoords, coords, destinationCoords, vehicleType, designatedDriverMode, estimatedDistance, estimatedDuration, extraDestinations]);
+    try {
+      const breakdown = await calculateRidePrice(
+        distMeters,
+        durSeconds,
+        vehicleTypeForCalc,
+        rideTypeForCalc,
+        start.latitude,
+        start.longitude,
+        { extraStops: stopsCount },
+      );
+      setEstimatedPrice(breakdown.finalPrice);
+      setPriceBreakdown(breakdown);
+    } catch (error) {
+      console.warn('recalcPriceOnly', error);
+    }
+  }, [
+    coords,
+    destinationCoords,
+    designatedDriverMode,
+    estimatedDistance,
+    estimatedDuration,
+    extraDestinations,
+    originCoords,
+    vehicleType,
+  ]);
 
   useEffect(() => {
     if (estimatedDistance > 0 && (originCoords || coords)) {
       recalcPriceOnly();
     }
-  }, [vehicleType, designatedDriverMode]);
+  }, [coords, estimatedDistance, originCoords, recalcPriceOnly]);
 
   useEffect(() => {
     if (vehicleType === 'designated_driver' && designatedDriverMode === 'moto' && passengersByVehicle.designated_driver > 1) {
@@ -2111,11 +2124,11 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
                 </View>
               </View>
 
-              {priceBreakdown ? (
+              {/* {priceBreakdown ? (
                 <View style={styles.breakdownBox}>
                   <Text style={styles.breakdownText}>{formatPriceBreakdown(priceBreakdown)}</Text>
                 </View>
-              ) : null}
+              ) : null} */}
 
               <View style={styles.availabilityRow}>
                 {checkingDrivers ? (

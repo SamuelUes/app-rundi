@@ -9,7 +9,7 @@ export default {
     enabled: true,
     fallbackToCacheTimeout: 0,
     checkAutomatically: 'ON_LOAD',
-    url: 'https://u.expo.dev/79fc9fff-5481-4aba-a29a-632db706c382'
+    url: 'https://u.expo.dev/98fe5b45-4177-4d65-8ce3-6b783abfe196'
   },
   assetBundlePatterns: ['**/*'],
   ios: {
@@ -98,8 +98,12 @@ export default {
   ],
   extra: {
     eas: {
-      projectId: '79fc9fff-5481-4aba-a29a-632db706c382'
+      projectId: '98fe5b45-4177-4d65-8ce3-6b783abfe196'
     },
+    notificationsProjectId:
+      process.env.EXPO_PUBLIC_NOTIFICATIONS_PROJECT_ID ||
+      process.env.EXPO_NOTIFICATIONS_PROJECT_ID ||
+      '98fe5b45-4177-4d65-8ce3-6b783abfe196',
     apiUrl: process.env.API_URL || '',
     googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY,
     sentryDsn: process.env.SENTRY_DSN,
