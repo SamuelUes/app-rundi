@@ -6,7 +6,9 @@
 import { useEffect, useState, useRef } from 'react';
 import * as Notifications from 'expo-notifications';
 import notificationService from '../services/notificationService';
+import liveRideNotificationService from '../services/liveRideNotificationService';
 import { useAuth } from '../context/AuthContext';
+import { navigate } from '../navigation/NavigationService';
 
 export function useNotifications() {
   const { user } = useAuth();
@@ -55,9 +57,31 @@ export function useNotifications() {
       console.log('💾 Token de notificaciones para usuario:', user.id);
       // await saveTokenToBackend(user.id, token);
     }
+
+    // Manejar notificación que abrió la app (cold start)
+    try {
+      const last = await Notifications.getLastNotificationResponseAsync();
+      if (last && last.notification?.request?.content?.data) {
+        const data: any = last.notification.request.content.data;
+        if (data?.type === 'proximity_ride' && data?.ride) {
+          navigate('RidePreview', { ride: data.ride, nearbyRides: Array.isArray(data.nearbyRides) ? data.nearbyRides : [] });
+        }
+        if (data?.type === 'quick_return_active_ride' && typeof data?.rideId === 'string') {
+          // Pequeño delay para asegurar que NavigationContainer esté listo
+          setTimeout(() => {
+            // Por ahora soportamos retorno rápido para conductores
+            if (user?.role === 'driver' || user?.role === 'designated_driver') {
+              navigate('ActiveRide', { rideId: data.rideId });
+            }
+          }, 400);
+        }
+      }
+    } catch (e) {
+      // noop
+    }
   };
 
-  const handleNotificationResponse = (response: Notifications.NotificationResponse) => {
+  const handleNotificationResponse = async (response: Notifications.NotificationResponse) => {
     const data = response.notification.request.content.data;
 
     // Manejar diferentes tipos de notificaciones
@@ -65,6 +89,24 @@ export function useNotifications() {
       case 'new_ride':
         console.log('Navegar a viaje:', data.rideId);
         // navigation.navigate('RideDetails', { rideId: data.rideId });
+        break;
+      case 'proximity_ride':
+        try {
+          const ride = data.ride;
+          const nearbyRides = Array.isArray(data.nearbyRides) ? data.nearbyRides : [];
+          if (ride) {
+            navigate('RidePreview', { ride, nearbyRides });
+          }
+        } catch (e) {
+          // noop
+        }
+        break;
+      case 'quick_return_active_ride':
+        if (typeof (data.rideId) === 'string') {
+          if (user?.role === 'driver' || user?.role === 'designated_driver') {
+            navigate('ActiveRide', { rideId: data.rideId });
+          }
+        }
         break;
       case 'ride_accepted':
         console.log('Viaje aceptado:', data.rideId);
@@ -76,6 +118,13 @@ export function useNotifications() {
       case 'ride_completed':
         console.log('Viaje completado:', data.rideId);
         // navigation.navigate('RateRide', { rideId: data.rideId });
+        break;
+      case 'ride_live_update':
+        try {
+          await liveRideNotificationService.presentFromPush(data);
+        } catch (error) {
+          console.warn('[useNotifications] Error mostrando live update:', error);
+        }
         break;
       default:
         console.log('Notificación desconocida:', data);

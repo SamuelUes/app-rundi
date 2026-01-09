@@ -11,6 +11,7 @@ import {
   Platform,
   TextInput
 } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import * as ImagePicker from 'expo-image-picker';
@@ -24,89 +25,80 @@ interface DriversDocumentsInspectionProps {
 
 export default function DriversDocumentsInspectionScreen({ route, navigation }: DriversDocumentsInspectionProps) {
   const { colors } = useTheme();
-  const { user } = useAuth();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const { t } = useTranslation();
+  const diNS = 'driver.documentInspection';
   
   const [loading, setLoading] = useState(false);
   const [licensePhotoFront, setLicensePhotoFront] = useState<string | null>(null);
   const [licensePhotoBack, setLicensePhotoBack] = useState<string | null>(null);
-  
+
   const [licenseNumber, setLicenseNumber] = useState('');
   const [licenseExpiry, setLicenseExpiry] = useState('');
-  
+  const [documentsStatus, setDocumentsStatus] = useState<string | null>(null);
+
   const [uploadProgress, setUploadProgress] = useState(0);
+  const { user } = useAuth();
   
   // Solicitar permisos para la cámara
   useEffect(() => {
     (async () => {
-      if (Platform.OS !== 'web') {
-        const { status } = await ImagePicker.requestCameraPermissionsAsync();
-        if (status !== 'granted') {
-          Alert.alert(
-            'Permisos necesarios', 
-            'Se requiere acceso a la cámara para tomar fotos de documentos.'
-          );
-        }
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert(
+          t(`${diNS}.alerts.permissionTitle`),
+          t(`${diNS}.alerts.permissionMessage`)
+        );
       }
     })();
   }, []);
 
-  // Cargar datos existentes del conductor
+  // Cargar datos del conductor si ya existen
   useEffect(() => {
-    const loadDriverData = async () => {
-      try {
-        if (!user?.id) {
-          console.log('⚠️ Usuario no disponible');
-          return;
-        }
-
-        console.log('📋 Cargando datos existentes del conductor:', user.id);
-        setLoading(true);
-
-        // ✅ Obtener perfil del conductor autenticado
-        const profile = await driversService.getMyDriverProfile();
-        
-        // ✅ El servicio retorna directamente el objeto driver, no envuelto
-        if (profile) {
-          console.log('✅ Datos del conductor cargados desde backend:', {
-            license_number: profile.licenseNumber || profile.license_number,
-            license_expiry: profile.licenseExpiry || profile.license_expiry,
-            license_photo_front: (profile.license_photo_front || profile.licensePhotoFront) ? '✅' : '❌',
-            license_photo_back: (profile.license_photo_back || profile.licensePhotoBack) ? '✅' : '❌',
-          });
-
-          // Cargar datos existentes en los estados (con fallback a snake_case)
-          if (profile.licenseNumber || profile.license_number) {
-            setLicenseNumber(profile.licenseNumber || profile.license_number);
-          }
-          if (profile.licenseExpiry || profile.license_expiry) {
-            setLicenseExpiry(profile.licenseExpiry || profile.license_expiry);
-          }
-          if (profile.license_photo_front || profile.licensePhotoFront) {
-            setLicensePhotoFront(profile.license_photo_front || profile.licensePhotoFront);
-          }
-          if (profile.license_photo_back || profile.licensePhotoBack) {
-            setLicensePhotoBack(profile.license_photo_back || profile.licensePhotoBack);
-          }
-        } else {
-          console.log('⚠️ No se encontraron datos del conductor');
-        }
-
-        setLoading(false);
-      } catch (error) {
-        console.error('❌ Error cargando datos del conductor:', error);
-        setLoading(false);
-      }
-    };
-
     loadDriverData();
   }, [user?.id]);
 
-  // Verificar si faltan fotos y datos
-  const allDataProvided = licensePhotoFront && licensePhotoBack && licenseNumber && licenseExpiry;
-  
+  const loadDriverData = async () => {
+    if (!user?.id) return;
+    
+    try {
+      const profile = await driversService.getMyDriverProfile();
+      
+      if (profile) {
+        console.log('✅ Datos del conductor cargados desde backend:', {
+          license_number: profile.licenseNumber || profile.license_number,
+          license_expiry: profile.licenseExpiry || profile.license_expiry,
+          license_photo_front: (profile.license_photo_front || profile.licensePhotoFront) ? '✅' : '❌',
+          license_photo_back: (profile.license_photo_back || profile.licensePhotoBack) ? '✅' : '❌',
+        });
+
+        if (profile.documents_status || profile.documentsStatus || profile.status) {
+          setDocumentsStatus(
+            (profile.documents_status || profile.documentsStatus || profile.status || '').toLowerCase(),
+          );
+        }
+
+        // Cargar datos existentes en los estados (con fallback a snake_case)
+        if (profile.licenseNumber || profile.license_number) {
+          setLicenseNumber(profile.licenseNumber || profile.license_number);
+        }
+        if (profile.licenseExpiry || profile.license_expiry) {
+          setLicenseExpiry(profile.licenseExpiry || profile.license_expiry);
+        }
+        if (profile.license_photo_front || profile.licensePhotoFront) {
+          setLicensePhotoFront(profile.license_photo_front || profile.licensePhotoFront);
+        }
+        if (profile.license_photo_back || profile.licensePhotoBack) {
+          setLicensePhotoBack(profile.license_photo_back || profile.licensePhotoBack);
+        }
+      }
+    } catch (error) {
+      console.error('Error al cargar datos del conductor:', error);
+    }
+  };
+
   // Tomar foto con la cámara
-  const takePhoto = async (setPhotoFunction: React.Dispatch<React.SetStateAction<string | null>>) => {
+  const takePhoto = async (setPhotoFunction: (uri: string) => void) => {
     try {
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -119,7 +111,10 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
         setPhotoFunction(result.assets[0].uri);
       }
     } catch (error) {
-      Alert.alert('Error', 'No se pudo tomar la foto');
+      Alert.alert(
+        t(`${diNS}.alerts.cameraErrorTitle`),
+        t(`${diNS}.alerts.cameraErrorMessage`)
+      );
       console.error('Error al tomar foto:', error);
     }
   };
@@ -127,7 +122,10 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
   // Subir fotos y datos a Supabase
   const uploadDocumentsAndContinue = async () => {
     if (!user || !allDataProvided) {
-      Alert.alert('Error', 'Faltan datos o fotos para continuar');
+      Alert.alert(
+        t(`${diNS}.alerts.missingDataTitle`),
+        t(`${diNS}.alerts.missingDataMessage`)
+      );
       return;
     }
 
@@ -174,10 +172,10 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
 
       setLoading(false);
       Alert.alert(
-        'Éxito', 
-        'Documentos del conductor actualizados correctamente.',
+        t(`${diNS}.alerts.successTitle`), 
+        t(`${diNS}.alerts.successMessage`),
         [{ 
-          text: 'Aceptar', 
+          text: t(`${diNS}.alerts.successButton`), 
           onPress: () => {
             navigation.goBack();
           }
@@ -187,34 +185,41 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
     } catch (error) {
       console.error('Error al subir documentos:', error);
       setLoading(false);
-      Alert.alert('Error', 'No se pudieron subir los documentos. Inténtelo de nuevo.');
+      Alert.alert(
+        t(`${diNS}.alerts.uploadErrorTitle`),
+        t(`${diNS}.alerts.uploadErrorMessage`)
+      );
     }
   };
+
+  const allDataProvided = licensePhotoFront && licensePhotoBack && licenseNumber && licenseExpiry;
+  const documentsStatusNormalized = (documentsStatus || '').toLowerCase();
+  const documentsVerified = documentsStatusNormalized === 'verified';
 
   return (
     <ScrollView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>📋 Documentos del Conductor</Text>
-        <Text style={styles.subtitle}>Por favor completa tu información de licencia de conducir y sube las fotos del frente y reverso.</Text>
+        <Text style={styles.title}>{t(`${diNS}.header.title`)}</Text>
+        <Text style={styles.subtitle}>{t(`${diNS}.header.subtitle`)}</Text>
       </View>
       
       {/* Datos de Licencia */}
       <View style={styles.dataSection}>
-        <Text style={styles.sectionTitle}>Información de Licencia</Text>
+        <Text style={styles.sectionTitle}>{t(`${diNS}.licenseSection.title`)}</Text>
         
-        <Text style={styles.label}>Número de Licencia *</Text>
+        <Text style={styles.label}>{t(`${diNS}.licenseSection.numberLabel`)}</Text>
         <TextInput
           style={styles.input}
-          placeholder="Ej: B21332434"
+          placeholder={t(`${diNS}.licenseSection.numberPlaceholder`)}
           value={licenseNumber}
           onChangeText={setLicenseNumber}
           placeholderTextColor={colors.textSecondary}
         />
 
-        <Text style={styles.label}>Fecha de Vencimiento (YYYY-MM-DD) *</Text>
+        <Text style={styles.label}>{t(`${diNS}.licenseSection.expiryLabel`)}</Text>
         <TextInput
           style={styles.input}
-          placeholder="Ej: 2030-02-12"
+          placeholder={t(`${diNS}.licenseSection.expiryPlaceholder`)}
           value={licenseExpiry}
           onChangeText={setLicenseExpiry}
           placeholderTextColor={colors.textSecondary}
@@ -223,11 +228,11 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
 
       {/* Fotos de Licencia */}
       <View style={styles.photoSection}>
-        <Text style={styles.sectionTitle}>Fotos de Licencia</Text>
+        <Text style={styles.sectionTitle}>{t(`${diNS}.photosSection.title`)}</Text>
         
         {/* Foto Frontal */}
         <View style={styles.photoContainer}>
-          <Text style={styles.photoTitle}>1. Frente de la Licencia</Text>
+          <Text style={styles.photoTitle}>{t(`${diNS}.photosSection.frontTitle`)}</Text>
           {licensePhotoFront ? (
             <View style={styles.previewContainer}>
               <Image source={{ uri: licensePhotoFront }} style={styles.photoPreview} />
@@ -235,7 +240,7 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
                 style={styles.retakeButton}
                 onPress={() => takePhoto(setLicensePhotoFront)}
               >
-                <Text style={styles.retakeButtonText}>Volver a tomar</Text>
+                <Text style={styles.retakeButtonText}>{t(`${diNS}.photosSection.retakePhoto`)}</Text>
               </TouchableOpacity>
             </View>
           ) : (
@@ -243,14 +248,14 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
               style={styles.photoButton}
               onPress={() => takePhoto(setLicensePhotoFront)}
             >
-              <Text style={styles.photoButtonText}>📷 Tomar Foto</Text>
+              <Text style={styles.photoButtonText}>{t(`${diNS}.photosSection.takePhoto`)}</Text>
             </TouchableOpacity>
           )}
         </View>
 
         {/* Foto Trasera */}
         <View style={styles.photoContainer}>
-          <Text style={styles.photoTitle}>2. Reverso de la Licencia</Text>
+          <Text style={styles.photoTitle}>{t(`${diNS}.photosSection.backTitle`)}</Text>
           {licensePhotoBack ? (
             <View style={styles.previewContainer}>
               <Image source={{ uri: licensePhotoBack }} style={styles.photoPreview} />
@@ -258,7 +263,7 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
                 style={styles.retakeButton}
                 onPress={() => takePhoto(setLicensePhotoBack)}
               >
-                <Text style={styles.retakeButtonText}>Volver a tomar</Text>
+                <Text style={styles.retakeButtonText}>{t(`${diNS}.photosSection.retakePhoto`)}</Text>
               </TouchableOpacity>
             </View>
           ) : (
@@ -266,7 +271,7 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
               style={styles.photoButton}
               onPress={() => takePhoto(setLicensePhotoBack)}
             >
-              <Text style={styles.photoButtonText}>📷 Tomar Foto</Text>
+              <Text style={styles.photoButtonText}>{t(`${diNS}.photosSection.takePhoto`)}</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -274,14 +279,21 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
 
       <View style={styles.noticeContainer}>
         <Text style={styles.noticeText}>
-          ⚠️ Asegúrate de que las fotos sean claras y legibles. Estos documentos serán verificados por nuestro equipo.
+          {t(`${diNS}.notice.text`)}
         </Text>
       </View>
 
       {loading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loadingText}>Subiendo documentos... {Math.round(uploadProgress * 100)}%</Text>
+          <Text style={styles.loadingText}>
+            {t(`${diNS}.loading.uploading`, { progress: Math.round(uploadProgress * 100) })}
+          </Text>
+        </View>
+      ) : documentsVerified ? (
+        <View style={styles.verifiedNotice}>
+          <Text style={styles.verifiedNoticeText}>{t(`${diNS}.verified.title`)}</Text>
+          <Text style={styles.verifiedNoticeSubtitle}>{t(`${diNS}.verified.subtitle`)}</Text>
         </View>
       ) : (
         <TouchableOpacity 
@@ -290,7 +302,9 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
           disabled={!allDataProvided}
         >
           <Text style={styles.submitButtonText}>
-            {allDataProvided ? 'Guardar Documentos' : 'Complete todos los datos y fotos'}
+            {allDataProvided
+              ? t(`${diNS}.buttons.save`)
+              : t(`${diNS}.buttons.missingData`)}
           </Text>
         </TouchableOpacity>
       )}
@@ -437,5 +451,27 @@ const createStyles = (colors: any) => StyleSheet.create({
     marginTop: 12,
     fontSize: 14,
     color: colors.textSecondary,
+  },
+  verifiedNotice: {
+    padding: 20,
+    marginHorizontal: 20,
+    backgroundColor: '#D4EDDA',
+    borderRadius: 8,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#C3E6CB',
+  },
+  verifiedNoticeText: {
+    color: '#155724',
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  verifiedNoticeSubtitle: {
+    color: '#155724',
+    fontSize: 13,
+    textAlign: 'center',
+    lineHeight: 18,
   },
 });

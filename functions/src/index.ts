@@ -1,5 +1,5 @@
 /**
- * DriveAngel.ni - Firebase Functions
+ * Rundi - Firebase Functions
  * Backend completo en Firebase Functions + Supabase PostgreSQL
  */
 
@@ -27,8 +27,14 @@ import * as designatedDriverInspectionsSequelizeAPI from "./api/designated_drive
 import * as driverServicesSequelizeAPI from "./api/driver_services_sequelize";
 import * as biometricAuthSequelizeAPI from "./api/biometric_authentications_sequelize";
 import * as analyticsSequelizeAPI from "./api/analytics_sequelize";
+import * as clientProfilesAPI from "./api/clientProfiles";
 import * as smsCodesSequelizeAPI from "./api/sms_verification_codes_sequelize";
 import * as commissionHistorySequelizeAPI from "./api/service_commission_history_sequelize";
+import * as authAPI from "./api/auth";
+import * as pendingPaymentsAPI from "./api/pendingPayments_sequelize";
+import * as regionAvailabilityAPI from "./api/region_availability";
+import * as publicRideTrackingAPI from "./api/WebPage_publicRideTracking";
+
 // ⚠️ COMENTADOS: Archivos .old.ts eliminados
 // import * as usersAPI from "./api/users.old";
 // import * as trackingFunctions from "./api/tracking-functions.old";
@@ -85,10 +91,11 @@ import * as authTriggers from "./triggers/auth";
 import * as ridesTriggers from "./triggers/rides";
 import * as onPaymentCompletedTrigger from "./triggers/onPaymentCompleted";
 import * as onRideCanceledTrigger from "./triggers/onRideCanceled";
+import * as onRatingCompletedTrigger from "./triggers/onRatingCompleted";
 
 // Importar notificaciones
 // import * as notificationsAPI from "./api/notifications";
-
+import * as fcmAPI from "./api/fcm";
 // Importar webhooks
 // ✅ Eliminado: Stripe webhook (sistema de pagos simplificado)
 
@@ -96,21 +103,22 @@ import * as onRideCanceledTrigger from "./triggers/onRideCanceled";
 import * as cleanupScheduled from "./scheduled/cleanupOldRides";
 import * as cleanupRealtimeDB from "./scheduled/cleanupRealtimeDB";
 
+// Importar presence functions
+import * as presenceAPI from "./api/presence";
+import * as sessionsAPI from "./api/sessions";
+import * as geoShardingTriggers from "./triggers/geoSharding";
+import { calculateRidePrice as calculateRidePriceHelper, type VehicleType as BackendVehicleType, type RideType as BackendRideType } from "./helpers/priceCalculator";
+
 // ============================================
 // API ENDPOINTS
 // ============================================
 
 // ⚠️ COMENTADOS: Auth y SMS - archivos .old.ts eliminados
 // import * as authAPI from "./api/auth";
-// import * as smsAPI from "./api/sms";
 // export const register = authAPI.register;
 // export const login = authAPI.login;
 // export const logout = authAPI.logout;
 // export const completeDriverRegistration = authAPI.completeDriverRegistration;
-// export const sendSmsCode = smsAPI.sendSmsCode;
-// export const verifySmsCode = smsAPI.verifySmsCode;
-// export const resendSmsCode = smsAPI.resendSmsCode;
-// export const cleanupExpiredSmsCode = smsAPI.cleanupExpiredSmsCode;
 
 // ✅ NUEVAS APIs CON SEQUELIZE + ZOD
 // Rides
@@ -118,9 +126,12 @@ export const createRide = ridesSequelizeAPI.createRide;
 export const requestRide = ridesSequelizeAPI.createRide; // Alias para compatibilidad
 export const acceptRide = ridesSequelizeAPI.acceptRide;
 export const confirmDriver = ridesSequelizeAPI.confirmDriver; // ✅ NUEVO: Cliente confirma conductor específico
+export const markDriverOnRoute = ridesSequelizeAPI.markDriverOnRoute;
 export const startRide = ridesSequelizeAPI.startRide;
 export const completeRide = ridesSequelizeAPI.completeRide;
 export const cancelRide = ridesSequelizeAPI.cancelRide;
+export const rejectRide = ridesSequelizeAPI.rejectRide;
+export const getAvailableRides = ridesSequelizeAPI.getAvailableRides;
 export const getClientRides = ridesSequelizeAPI.getClientRides;
 export const getDriverRides = ridesSequelizeAPI.getDriverRides;
 export const getRideDetails = ridesSequelizeAPI.getRideDetails;
@@ -169,6 +180,81 @@ export const acceptClientPrice = priceNegotiationSequelizeAPI.acceptClientPrice;
 export const makeCounterOffer = priceNegotiationSequelizeAPI.makeCounterOffer;
 export const acceptCounterOffer = priceNegotiationSequelizeAPI.acceptCounterOffer;
 export const rejectCounterOffer = priceNegotiationSequelizeAPI.rejectCounterOffer;
+
+// Client profiles
+export const getClientProfile = clientProfilesAPI.getClientProfile;
+
+// Region availability
+export const checkRegionAvailability = regionAvailabilityAPI.checkRegionAvailability;
+export const checkRegionAvailabilityHttp = regionAvailabilityAPI.checkRegionAvailabilityHttp;
+
+// Public ride tracking (Landing page)
+export const getPublicRideTracking = publicRideTrackingAPI.getPublicRideTracking;
+
+export const calculateRidePriceHttp = functions.https.onRequest(async (req, res) => {
+  res.set("Access-Control-Allow-Origin", "*");
+  res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+
+  if (req.method === "OPTIONS") {
+    res.status(204).send("");
+    return;
+  }
+
+  if (req.method !== "POST") {
+    res.status(405).json({ error: "Method not allowed" });
+    return;
+  }
+
+  try {
+    const {
+      distanceInMeters,
+      durationInSeconds,
+      vehicleType = "car",
+      rideType = "normal",
+      originLat,
+      originLng,
+      driverId,
+      serviceCodeOverride,
+      extraStops,
+    } = req.body ?? {};
+
+    if (typeof distanceInMeters !== "number" || typeof durationInSeconds !== "number") {
+      res.status(400).json({ error: "distanceInMeters and durationInSeconds are required numbers" });
+      return;
+    }
+
+    const result = await calculateRidePriceHelper(
+      distanceInMeters,
+      durationInSeconds,
+      vehicleType as BackendVehicleType,
+      rideType as BackendRideType,
+      originLat,
+      originLng,
+      {
+        driverId,
+        serviceCodeOverride,
+        extraStops,
+        originLat,
+        originLng,
+      },
+    );
+
+    res.json(result);
+  } catch (error) {
+    console.error("❌ calculateRidePriceHttp error:", error);
+    res.status(500).json({ error: "Failed to calculate ride price" });
+  }
+});
+
+
+// ============================================
+// FUNCIONES DE PRESENCE
+// ============================================
+export const markAppActive = presenceAPI.markAppActive;
+export const markAppClosed = presenceAPI.markAppClosed;
+export const startSession = sessionsAPI.startSession;
+export const endSession = sessionsAPI.endSession;
 
 // ============================================
 // FUNCIONES DEPRECADAS DE STRIPE (STUBS)
@@ -292,6 +378,8 @@ export const getDriverPenalties = penaltiesSequelizeAPI.getDriverPenalties;
 export const getTotalPenalties = penaltiesSequelizeAPI.getTotalPenalties;
 export const markPenaltyAsPaid = penaltiesSequelizeAPI.markPenaltyAsPaid;
 export const deletePenalty = penaltiesSequelizeAPI.deletePenalty;
+export const getDriverPenaltySummary = penaltiesSequelizeAPI.getDriverPenaltySummary;
+export const payAllPenalties = penaltiesSequelizeAPI.payAllPenalties;
 
 // Ride Locations
 export const createRideLocation = rideLocationsSequelizeAPI.createRideLocation;
@@ -311,12 +399,17 @@ export const getServicesSeq = servicesSequelizeAPI.getServices;
 export const getServiceByIdSeq = servicesSequelizeAPI.getServiceById;
 export const updateServiceSeq = servicesSequelizeAPI.updateService;
 
+// Add non-suffixed service exports as aliases to the Sequelize implementations
+export const createService = servicesSequelizeAPI.createService;
+export const getServices = servicesSequelizeAPI.getServices;
+export const getServiceById = servicesSequelizeAPI.getServiceById;
+export const updateService = servicesSequelizeAPI.updateService;
+
 // Cards (Sequelize)
 export const addCardSeq = cardsSequelizeAPI.addCard;
 export const getUserCardsSeq = cardsSequelizeAPI.getUserCards;
 export const setDefaultCardSeq = cardsSequelizeAPI.setDefaultCard;
 export const deleteCardSeq = cardsSequelizeAPI.deleteCard;
-
 // Designated Driver Inspections (Sequelize)
 export const createInspectionSeq = designatedDriverInspectionsSequelizeAPI.createInspection;
 export const getRideInspectionSeq = designatedDriverInspectionsSequelizeAPI.getRideInspection;
@@ -332,6 +425,9 @@ export const deactivateDriverServiceSeq = driverServicesSequelizeAPI.deactivateD
 export const createBiometricAuthSeq = biometricAuthSequelizeAPI.createBiometricAuth;
 export const getUserBiometricAuthsSeq = biometricAuthSequelizeAPI.getUserBiometricAuths;
 export const updateBiometricAuthStatusSeq = biometricAuthSequelizeAPI.updateBiometricAuthStatus;
+export const createBiometricAuth = biometricAuthSequelizeAPI.createBiometricAuth;
+export const getUserBiometricAuths = biometricAuthSequelizeAPI.getUserBiometricAuths;
+export const updateBiometricAuthStatus = biometricAuthSequelizeAPI.updateBiometricAuthStatus;
 
 // Analytics (Sequelize)
 export const logAnalyticsEventSeq = analyticsSequelizeAPI.logAnalyticsEvent;
@@ -342,6 +438,21 @@ export const getEventsByTypeSeq = analyticsSequelizeAPI.getEventsByType;
 export const createSmsCodeSeq = smsCodesSequelizeAPI.createSmsCode;
 export const verifySmsCodeSeq = smsCodesSequelizeAPI.verifySmsCode;
 export const getUserSmsCodesSeq = smsCodesSequelizeAPI.getUserSmsCodes;
+
+// FCM callables
+export const registerFCMToken = fcmAPI.registerFCMToken;
+export const clearFCMToken = fcmAPI.clearFCMToken;
+export const sendTestNotification = fcmAPI.sendTestNotification;
+export const notifyProximityRide = fcmAPI.notifyProximityRide;
+
+// Auth API (HTTP + Callable)
+export const auth = authAPI.auth;
+export const registerCallable = authAPI.registerCallable;
+export const checkUserAvailability = authAPI.checkUserAvailability;
+export const logSmsVerificationCode = authAPI.logSmsVerificationCode;
+export const exchangeIdTokenForCustomToken = authAPI.exchangeIdTokenForCustomToken;
+export const hasVerifiedRegisterPhoneLog = authAPI.hasVerifiedRegisterPhoneLog;
+export const upgradeClientToDriver = authAPI.upgradeClientToDriver;
 
 // Service Commission History (Sequelize)
 export const recordCommissionChangeSeq = commissionHistorySequelizeAPI.recordCommissionChange;
@@ -391,6 +502,11 @@ export const onUserCreated = authTriggers.onUserCreated;
 // Rides Triggers
 export const onRideStatusChanged = ridesTriggers.onRideStatusChanged;
 export const onRideCreated = ridesTriggers.onRideCreated;
+
+// Geo-sharding triggers para RTDB (activeRidesByArea, driverLocationsByArea, clientsLocationsByArea)
+export const syncActiveRidesByArea = geoShardingTriggers.syncActiveRidesByArea;
+export const syncDriverLocationsByArea = geoShardingTriggers.syncDriverLocationsByArea;
+export const syncClientsLocationsByArea = geoShardingTriggers.syncClientsLocationsByArea;
 
 // Payments Triggers
 // ⚠️ DEPRECADO: onPaymentCompleted (función vacía, solo loguea)
@@ -452,7 +568,7 @@ export const cleanupPresenceHistory = cleanupRealtimeDB.cleanupPresenceHistory;
 // ============================================
 
 // ⚠️ COMENTADOS: Pending Payments - archivos .old.ts eliminados
-// export const getPendingPayments = pendingPaymentsAPI.getPendingPayments;
+export const getPendingPayments = pendingPaymentsAPI.getPendingPayments;
 // export const processPendingPayment = pendingPaymentsAPI.processPendingPayment;
 
 // ============================================
@@ -506,6 +622,7 @@ setImmediate(() => {
 export const onPaymentCompletedAutomatic = onPaymentCompletedTrigger.onPaymentCompleted;
 export const onPaymentCanceledAutomatic = onPaymentCompletedTrigger.onPaymentCanceled;
 export const onRideCanceledAutomatic = onRideCanceledTrigger.onRideCanceled;
+export const onRatingCompletedAutomatic = onRatingCompletedTrigger.onRatingCompleted;
 
 // Notificaciones Push Triggers
 //export const onDriverFoundNotification = notificationsAPI.onDriverFound;
@@ -522,7 +639,7 @@ export const healthCheck = functions.https.onRequest((req, res) => {
   res.json({
     status: "ok",
     timestamp: new Date().toISOString(),
-    service: "Conduce.ni Functions",
-    version: "1.0.1",
+    service: "Rundi Functions",
+    version: "1.6.4",
   });
 });

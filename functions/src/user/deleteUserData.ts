@@ -244,7 +244,7 @@ export const deleteUserFromSupabase = functions.auth.user().onDelete(async (user
  * Útil para testing o para eliminar datos de usuarios que ya fueron eliminados
  * 
  * Uso:
- * POST https://us-central1-driveangel-ni.cloudfunctions.net/manualDeleteUserData
+ * POST https://urldelproyectodefirebase/manualDeleteUserData
  * Body: { "userId": "abc123" }
  */
 export const manualDeleteUserData = functions.https.onCall(async (data, context) => {

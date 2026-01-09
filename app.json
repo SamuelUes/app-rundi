@@ -1,0 +1,15 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "98fe5b45-4177-4d65-8ce3-6b783abfe196"
+      }
+    },
+    "ios": {
+      "bundleIdentifier": "com.samuelues.rundi",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    }
+  }
+}

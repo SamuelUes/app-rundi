@@ -24,6 +24,7 @@ class Ride extends Model {
   public notes?: string;
   public ride_type?: string;
   public vehicle_type?: string;
+  public designated_driver_vehicle?: string;
   public client_vehicle_photo?: string;
   public waypoints_count?: number;
   public has_multiple_stops?: boolean;
@@ -121,6 +122,11 @@ Ride.init(
       allowNull: true,
       defaultValue: 'auto',
     },
+    designated_driver_vehicle: {
+      type: DataTypes.STRING(10),
+      allowNull: true,
+      comment: "Para viajes de conductor designado, indica si el cliente requiere 'auto' o 'moto'",
+    },
     client_vehicle_photo: {
       type: DataTypes.TEXT,
       allowNull: true,
@@ -157,7 +163,7 @@ Ride.init(
       type: DataTypes.STRING(20),
       allowNull: true,
       defaultValue: 'cash',
-      comment: "Método de pago: cash (efectivo), card_local (bancos locales), stripe",
+      comment: "Método de pago: cash (efectivo), card_local (bancos locales)",
     },
     biometric_acceptance_required: {
       type: DataTypes.BOOLEAN,

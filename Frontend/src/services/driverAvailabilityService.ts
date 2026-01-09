@@ -26,6 +26,38 @@ class DriverAvailabilityService {
   private heartbeatInterval: NodeJS.Timeout | null = null;
   private appStateSubscription: any = null;
 
+  private isAvailabilityRestrictedError(error: any): boolean {
+    const message = String(error?.message || error?.code || '').toLowerCase();
+    const composed = message.replace(/\s+/g, '');
+    return (
+      message.includes('comisiones') && message.includes('penalizaciones')
+    ) || composed.includes('comisiones/penalizaciones');
+  }
+
+  async handleAvailabilityRestriction(context?: string): Promise<void> {
+    try {
+      const state = await this.getAvailabilityState();
+      const updatedState: AvailabilityState = {
+        isAvailable: false,
+        isDesignatedDriverMode: false,
+        lastUpdate: new Date().toISOString(),
+        coords: state?.coords,
+      };
+
+      await this.saveAvailabilityState(updatedState);
+
+      if (context) {
+        console.warn(`🚫 Disponibilidad establecida en offline debido a restricción (${context})`);
+      } else {
+        console.warn('🚫 Disponibilidad establecida en offline debido a restricción');
+      }
+    } catch (error) {
+      console.error('❌ Error manejando restricción de disponibilidad:', error);
+    } finally {
+      this.stopHeartbeat();
+    }
+  }
+
   /**
    * Guardar estado de disponibilidad
    */
@@ -98,7 +130,12 @@ class DriverAvailabilityService {
             // No lanzar error, solo registrar
             const errorCode = updateError?.code || updateError?.message || 'unknown';
             console.warn(`⚠️ Heartbeat falló (${errorCode}), reintentando en próximo ciclo`);
-            
+
+            if (this.isAvailabilityRestrictedError(updateError)) {
+              await this.handleAvailabilityRestriction('heartbeat');
+              return;
+            }
+
             // Si es un error de autenticación, detener heartbeat
             if (errorCode === 'auth/user-token-expired' || errorCode === 'unauthenticated') {
               console.error('🔐 Token expirado, deteniendo heartbeat');
@@ -147,6 +184,21 @@ class DriverAvailabilityService {
             console.log('✅ Estado restaurado en el backend');
           } catch (error) {
             console.error('❌ Error restaurando estado:', error);
+
+            if (this.isAvailabilityRestrictedError(error)) {
+              await this.handleAvailabilityRestriction('appState');
+
+              const restoredState: AvailabilityState = {
+                isAvailable: false,
+                isDesignatedDriverMode: false,
+                lastUpdate: new Date().toISOString(),
+                coords,
+              };
+
+              if (onStateRestored) {
+                onStateRestored(restoredState);
+              }
+            }
           }
         }
         

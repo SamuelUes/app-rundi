@@ -5,13 +5,13 @@ import {
   StyleSheet,
   TouchableOpacity,
   TextInput,
-  Alert,
   ScrollView,
   ActivityIndicator,
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
 import ridesService from '../../services/ridesService';
 import { useAuth } from '../../context/AuthContext';
+import alertService from '../../services/alertService';
 
 export default function RatingScreen({ route, navigation }: any) {
   const { rideId } = route.params;
@@ -26,7 +26,7 @@ export default function RatingScreen({ route, navigation }: any) {
 
   const handleSubmitRating = async () => {
     if (rating === 0) {
-      Alert.alert('Error', 'Por favor selecciona una calificación');
+      alertService.showErrorAlert('Por favor selecciona una calificación');
       return;
     }
 
@@ -35,26 +35,16 @@ export default function RatingScreen({ route, navigation }: any) {
       console.log('📝 Enviando calificación para rideId:', rideId);
       await ridesService.rateRide(rideId, rating, comment);
       
-      Alert.alert(
-        '¡Gracias!',
-        'Tu calificación ha sido enviada exitosamente',
-        [
-          {
-            text: 'OK',
-            onPress: () => {
-              // Navegar según el rol del usuario
-              if (isDriver) {
-                navigation.replace('DriverHome');
-              } else {
-                navigation.replace('ClientHome');
-              }
-            },
-          },
-        ]
-      );
+      alertService.showSuccessAlert('¡Gracias!', 'Tu calificación ha sido enviada exitosamente', () => {
+        if (isDriver) {
+          navigation.replace('DriverHome');
+        } else {
+          navigation.replace('ClientHome');
+        }
+      });
     } catch (error: any) {
       console.error('Error enviando calificación:', error);
-      Alert.alert('Error', error.message || 'No se pudo enviar la calificación');
+      alertService.showErrorAlert(error.message || 'No se pudo enviar la calificación');
     } finally {
       setSubmitting(false);
     }

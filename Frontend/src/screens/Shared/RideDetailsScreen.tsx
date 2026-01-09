@@ -11,12 +11,39 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import ridesService from '../../services/ridesService';
+import { useTranslation } from 'react-i18next';
+
+const STATUS_KEY_MAP: Record<string, string> = {
+  completed: 'completed',
+  canceled: 'canceled',
+  in_progress: 'inProgress',
+  accepted: 'accepted',
+  requested: 'requested',
+};
+
+const PAYMENT_STATUS_KEY_MAP: Record<string, string> = {
+  completed: 'completed',
+  pending: 'pending',
+  failed: 'failed',
+  no_payment_data: 'noData',
+};
+
+const DATE_LOCALE_MAP: Record<string, string> = {
+  en: 'en-US',
+  es: 'es-ES',
+  zh: 'zh-CN',
+};
 
 export default function RideDetailsScreen({ navigation, route }: any) {
   const { rideId } = route.params;
   const { user } = useAuth();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const { t, i18n } = useTranslation();
+  const dateLocale = useMemo(
+    () => DATE_LOCALE_MAP[i18n.language] || DATE_LOCALE_MAP.es,
+    [i18n.language],
+  );
 
   const [ride, setRide] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -34,27 +61,32 @@ export default function RideDetailsScreen({ navigation, route }: any) {
       }
     } catch (error) {
       console.error('Error loading ride details:', error);
-      Alert.alert('Error', 'No se pudieron cargar los detalles del viaje');
+      Alert.alert(t('shared.rideDetail.alert.title'), t('shared.rideDetail.alert.message'));
     } finally {
       setLoading(false);
     }
   };
 
   // Helper: Convertir cualquier valor a string seguro
-  const safeString = (value: any, fallback: string = 'N/A'): string => {
-    if (value === null || value === undefined) return fallback;
-    if (typeof value === 'object') return fallback;
-    if (value === '') return fallback;
+  const safeString = (value: any, fallback?: string): string => {
+    const defaultFallback = fallback ?? t('shared.rideDetail.labels.notAvailable');
+    if (value === null || value === undefined) return defaultFallback;
+    if (typeof value === 'object') return defaultFallback;
+    if (value === '') return defaultFallback;
     return String(value);
   };
 
   // Helper: Formatear fecha
   const formatDateTime = (dateString: any): string => {
-    if (!dateString || typeof dateString === 'object') return 'N/A';
+    if (!dateString || typeof dateString === 'object') {
+      return t('shared.rideDetail.labels.notAvailable');
+    }
     try {
       const date = new Date(dateString);
-      if (isNaN(date.getTime())) return 'N/A';
-      return date.toLocaleString('es-ES', {
+      if (isNaN(date.getTime())) {
+        return t('shared.rideDetail.labels.notAvailable');
+      }
+      return date.toLocaleString(dateLocale, {
         year: 'numeric',
         month: 'short',
         day: 'numeric',
@@ -62,7 +94,7 @@ export default function RideDetailsScreen({ navigation, route }: any) {
         minute: '2-digit',
       });
     } catch {
-      return 'N/A';
+      return t('shared.rideDetail.labels.notAvailable');
     }
   };
 
@@ -71,9 +103,14 @@ export default function RideDetailsScreen({ navigation, route }: any) {
     const sec = parseInt(String(seconds || 0));
     const hours = Math.floor(sec / 3600);
     const minutes = Math.floor((sec % 3600) / 60);
-    if (hours > 0) return `${hours}h ${minutes}m`;
-    return `${minutes}m`;
+    if (hours > 0) {
+      return t('shared.rideDetail.labels.durationHoursMinutes', { hours, minutes });
+    }
+    return t('shared.rideDetail.labels.durationMinutes', { minutes });
   };
+
+  const formatCurrency = (amount: number) =>
+    t('shared.rideDetail.labels.currency', { amount: amount.toFixed(2) });
 
   // Helper: Obtener color de estado
   const getStatusColor = (status: string): string => {
@@ -88,14 +125,8 @@ export default function RideDetailsScreen({ navigation, route }: any) {
 
   // Helper: Obtener texto de estado
   const getStatusText = (status: string): string => {
-    switch (status) {
-      case 'completed': return 'Completado';
-      case 'canceled': return 'Cancelado';
-      case 'in_progress': return 'En Progreso';
-      case 'accepted': return 'Aceptado';
-      case 'requested': return 'Solicitado';
-      default: return safeString(status);
-    }
+    const key = STATUS_KEY_MAP[status] ?? 'default';
+    return t(`shared.rideDetail.status.${key}`, { status: safeString(status) });
   };
 
   // Helper: Obtener color de estado de pago
@@ -111,20 +142,15 @@ export default function RideDetailsScreen({ navigation, route }: any) {
 
   // Helper: Obtener texto de estado de pago
   const getPaymentStatusText = (status: string): string => {
-    switch (status) {
-      case 'completed': return 'Pagado';
-      case 'pending': return 'Pendiente';
-      case 'failed': return 'Fallido';
-      case 'no_payment_data': return 'Sin datos de pago';
-      default: return safeString(status);
-    }
+    const key = PAYMENT_STATUS_KEY_MAP[status] ?? 'default';
+    return t(`shared.rideDetail.paymentStatus.${key}`, { status: safeString(status) });
   };
 
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Cargando detalles...</Text>
+        <Text style={styles.loadingText}>{t('shared.rideDetail.loading')}</Text>
       </View>
     );
   }
@@ -133,15 +159,16 @@ export default function RideDetailsScreen({ navigation, route }: any) {
     return (
       <View style={styles.errorContainer}>
         <Text style={styles.errorEmoji}>❌</Text>
-        <Text style={styles.errorTitle}>Viaje no encontrado</Text>
+        <Text style={styles.errorTitle}>{t('shared.rideDetail.errors.notFound')}</Text>
         <TouchableOpacity style={styles.retryButton} onPress={loadRideDetails}>
-          <Text style={styles.retryButtonText}>Reintentar</Text>
+          <Text style={styles.retryButtonText}>{t('shared.rideDetail.actions.retry')}</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
-  const isDriver = user?.role === 'driver';
+  const isDriver =
+    user?.role === 'driver' || user?.role === 'designated_driver';
 
   const distanceMeters = Number(ride.distance ?? ride.estimatedDistance ?? 0) || 0;
   const distanceKm = (distanceMeters / 1000).toFixed(1);
@@ -184,19 +211,21 @@ export default function RideDetailsScreen({ navigation, route }: any) {
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerRow}>
-          <Text style={styles.title}>Detalles del Viaje</Text>
+          <Text style={styles.title}>{t('shared.rideDetail.header.title')}</Text>
           <View style={[styles.statusBadge, { backgroundColor: getStatusColor(safeString(ride.status)) }]}>
             <Text style={styles.statusText}>{getStatusText(safeString(ride.status))}</Text>
           </View>
         </View>
         <Text style={styles.rideId}>
-          ID: {typeof ride.id === 'string' ? ride.id.slice(-8) : safeString(ride.id)}
+          {t('shared.rideDetail.header.rideId', {
+            id: typeof ride.id === 'string' ? ride.id.slice(-8) : safeString(ride.id),
+          })}
         </Text>
       </View>
 
       {/* Ruta - Soportar múltiples destinos */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>📍 Ruta</Text>
+        <Text style={styles.sectionTitle}>{t('shared.rideDetail.sections.route.title')}</Text>
         <View style={styles.card}>
           {/* Si hay múltiples paradas, mostrar todas */}
           {ride.hasMultipleStops && ride.allAddresses && ride.allAddresses.length > 0 ? (
@@ -208,7 +237,11 @@ export default function RideDetailsScreen({ navigation, route }: any) {
                   </Text>
                   <View style={styles.locationInfo}>
                     <Text style={styles.locationLabel}>
-                      {idx === 0 ? 'Origen' : idx === ride.allAddresses.length - 1 ? 'Destino' : `Parada ${idx}`}
+                      {idx === 0
+                        ? t('shared.rideDetail.sections.route.origin')
+                        : idx === ride.allAddresses.length - 1
+                          ? t('shared.rideDetail.sections.route.destination')
+                          : t('shared.rideDetail.sections.route.stop', { index: idx })}
                     </Text>
                     <Text style={styles.locationText}>{safeString(address)}</Text>
                   </View>
@@ -222,7 +255,7 @@ export default function RideDetailsScreen({ navigation, route }: any) {
               <View style={styles.locationRow}>
                 <Text style={styles.locationIcon}>🔵</Text>
                 <View style={styles.locationInfo}>
-                  <Text style={styles.locationLabel}>Origen</Text>
+                  <Text style={styles.locationLabel}>{t('shared.rideDetail.sections.route.origin')}</Text>
                   <Text style={styles.locationText}>{safeString(ride.originAddress)}</Text>
                 </View>
               </View>
@@ -232,7 +265,7 @@ export default function RideDetailsScreen({ navigation, route }: any) {
               <View style={styles.locationRow}>
                 <Text style={styles.locationIcon}>🔴</Text>
                 <View style={styles.locationInfo}>
-                  <Text style={styles.locationLabel}>Destino</Text>
+                  <Text style={styles.locationLabel}>{t('shared.rideDetail.sections.route.destination')}</Text>
                   <Text style={styles.locationText}>{safeString(ride.destinationAddress)}</Text>
                 </View>
               </View>
@@ -243,30 +276,32 @@ export default function RideDetailsScreen({ navigation, route }: any) {
 
       {/* Información del Viaje */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>🚗 Información del Viaje</Text>
+        <Text style={styles.sectionTitle}>{t('shared.rideDetail.sections.info.title')}</Text>
         <View style={styles.card}>
           <View style={styles.infoGrid}>
             <View style={styles.infoItem}>
-              <Text style={styles.infoLabel}>Distancia</Text>
-              <Text style={styles.infoValue}>{distanceKm} km</Text>
+              <Text style={styles.infoLabel}>{t('shared.rideDetail.sections.info.distance')}</Text>
+              <Text style={styles.infoValue}>
+                {t('shared.rideDetail.labels.distanceKilometers', { value: distanceKm })}
+              </Text>
             </View>
             <View style={styles.infoItem}>
-              <Text style={styles.infoLabel}>Duración</Text>
+              <Text style={styles.infoLabel}>{t('shared.rideDetail.sections.info.duration')}</Text>
               <Text style={styles.infoValue}>{formatDuration(ride.estimatedDuration)}</Text>
             </View>
             <View style={styles.infoItem}>
-              <Text style={styles.infoLabel}>Precio Final</Text>
-              <Text style={styles.infoValue}>C${finalPrice.toFixed(2)}</Text>
+              <Text style={styles.infoLabel}>{t('shared.rideDetail.sections.info.finalPrice')}</Text>
+              <Text style={styles.infoValue}>{formatCurrency(finalPrice)}</Text>
             </View>
             <View style={styles.infoItem}>
-              <Text style={styles.infoLabel}>Pasajeros</Text>
+              <Text style={styles.infoLabel}>{t('shared.rideDetail.sections.info.passengers')}</Text>
               <Text style={styles.infoValue}>{safeString(ride.passengers || 1)}</Text>
             </View>
           </View>
           
           {ride.notes && typeof ride.notes === 'string' && ride.notes.trim() !== '' ? (
             <View style={styles.notesBox}>
-              <Text style={styles.notesLabel}>📝 Notas:</Text>
+              <Text style={styles.notesLabel}>{t('shared.rideDetail.sections.info.notesLabel')}</Text>
               <Text style={styles.notesText}>{ride.notes}</Text>
             </View>
           ) : null}
@@ -275,31 +310,43 @@ export default function RideDetailsScreen({ navigation, route }: any) {
 
       {/* Información de Cliente/Conductor */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>{isDriver ? '👤 Cliente' : '🚗 Conductor'}</Text>
+        <Text style={styles.sectionTitle}>
+          {isDriver
+            ? t('shared.rideDetail.sections.person.clientTitle')
+            : t('shared.rideDetail.sections.person.driverTitle')}
+        </Text>
         <View style={styles.card}>
           {isDriver ? (
             ride.client && typeof ride.client === 'object' ? (
               <View>
-                <Text style={styles.personName}>{safeString(ride.client.name, 'Usuario')}</Text>
+                <Text style={styles.personName}>
+                  {safeString(ride.client.name, t('shared.rideDetail.sections.person.clientFallback'))}
+                </Text>
                 <Text style={styles.personDetail}>{safeString(ride.client.email)}</Text>
                 {ride.client.phone && typeof ride.client.phone !== 'object' ? (
                   <Text style={styles.personDetail}>{safeString(ride.client.phone)}</Text>
                 ) : null}
               </View>
             ) : (
-              <Text style={styles.personName}>Sin información del cliente</Text>
+              <Text style={styles.personName}>
+                {t('shared.rideDetail.sections.person.missingClient')}
+              </Text>
             )
           ) : (
             ride.driver && typeof ride.driver === 'object' ? (
               <View>
-                <Text style={styles.personName}>{safeString(ride.driver.name, 'Conductor')}</Text>
+                <Text style={styles.personName}>
+                  {safeString(ride.driver.name, t('shared.rideDetail.sections.person.driverFallback'))}
+                </Text>
                 <Text style={styles.personDetail}>{safeString(ride.driver.email)}</Text>
                 {ride.driver.phone && typeof ride.driver.phone !== 'object' ? (
                   <Text style={styles.personDetail}>{safeString(ride.driver.phone)}</Text>
                 ) : null}
                 {ride.driver.licenseNumber && typeof ride.driver.licenseNumber !== 'object' ? (
                   <Text style={styles.personDetail}>
-                    Licencia: {safeString(ride.driver.licenseNumber)}
+                    {t('shared.rideDetail.sections.person.license', {
+                      value: safeString(ride.driver.licenseNumber),
+                    })}
                   </Text>
                 ) : null}
                 {ride.driver.rating && parseFloat(String(ride.driver.rating)) > 0 ? (
@@ -314,7 +361,9 @@ export default function RideDetailsScreen({ navigation, route }: any) {
                 ) : null}
               </View>
             ) : (
-              <Text style={styles.personName}>Sin información del conductor</Text>
+              <Text style={styles.personName}>
+                {t('shared.rideDetail.sections.person.missingDriver')}
+              </Text>
             )
           )}
         </View>
@@ -323,7 +372,7 @@ export default function RideDetailsScreen({ navigation, route }: any) {
       {/* Vehículo (solo clientes) */}
       {!isDriver && ride.vehicle && typeof ride.vehicle === 'object' ? (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>🚙 Vehículo</Text>
+          <Text style={styles.sectionTitle}>{t('shared.rideDetail.sections.vehicle.title')}</Text>
           <View style={styles.card}>
             <Text style={styles.vehicleName}>
               {safeString(ride.vehicle.brand)} {safeString(ride.vehicle.model)} ({safeString(ride.vehicle.year)})
@@ -333,7 +382,9 @@ export default function RideDetailsScreen({ navigation, route }: any) {
             </Text>
             {ride.vehicle.registrationNumber && typeof ride.vehicle.registrationNumber !== 'object' ? (
               <Text style={styles.vehicleDetail}>
-                Matrícula: {safeString(ride.vehicle.registrationNumber)}
+                {t('shared.rideDetail.sections.vehicle.registration', {
+                  value: safeString(ride.vehicle.registrationNumber),
+                })}
               </Text>
             ) : null}
           </View>
@@ -342,39 +393,41 @@ export default function RideDetailsScreen({ navigation, route }: any) {
 
       {/* Fechas */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>📅 Cronología</Text>
+        <Text style={styles.sectionTitle}>{t('shared.rideDetail.sections.timeline.title')}</Text>
         <View style={styles.card}>
           {ride.requestedAt && typeof ride.requestedAt !== 'object' ? (
             <View style={styles.dateRow}>
-              <Text style={styles.dateLabel}>Solicitado</Text>
+              <Text style={styles.dateLabel}>{t('shared.rideDetail.sections.timeline.requested')}</Text>
               <Text style={styles.dateValue}>{formatDateTime(ride.requestedAt)}</Text>
             </View>
           ) : null}
           {ride.acceptedAt && typeof ride.acceptedAt !== 'object' ? (
             <View style={styles.dateRow}>
-              <Text style={styles.dateLabel}>Aceptado</Text>
+              <Text style={styles.dateLabel}>{t('shared.rideDetail.sections.timeline.accepted')}</Text>
               <Text style={styles.dateValue}>{formatDateTime(ride.acceptedAt)}</Text>
             </View>
           ) : null}
           {ride.startedAt && typeof ride.startedAt !== 'object' ? (
             <View style={styles.dateRow}>
-              <Text style={styles.dateLabel}>Iniciado</Text>
+              <Text style={styles.dateLabel}>{t('shared.rideDetail.sections.timeline.started')}</Text>
               <Text style={styles.dateValue}>{formatDateTime(ride.startedAt)}</Text>
             </View>
           ) : null}
           {ride.completedAt && typeof ride.completedAt !== 'object' ? (
             <View style={styles.dateRow}>
-              <Text style={styles.dateLabel}>Completado</Text>
+              <Text style={styles.dateLabel}>{t('shared.rideDetail.sections.timeline.completed')}</Text>
               <Text style={styles.dateValue}>{formatDateTime(ride.completedAt)}</Text>
             </View>
           ) : null}
           {ride.canceledAt && typeof ride.canceledAt !== 'object' ? (
             <View style={styles.dateRow}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.dateLabel}>Cancelado</Text>
+                <Text style={styles.dateLabel}>{t('shared.rideDetail.sections.timeline.canceled')}</Text>
                 {ride.cancelReason && typeof ride.cancelReason === 'string' ? (
                   <Text style={styles.cancelReason}>
-                    Razón: {ride.cancelReason}
+                    {t('shared.rideDetail.sections.timeline.cancelReason', {
+                      reason: ride.cancelReason,
+                    })}
                   </Text>
                 ) : null}
               </View>
@@ -385,12 +438,14 @@ export default function RideDetailsScreen({ navigation, route }: any) {
            ride.cancelReason && typeof ride.cancelReason === 'string' ? (
             <View style={styles.dateRow}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.dateLabel}>Cancelado</Text>
+                <Text style={styles.dateLabel}>{t('shared.rideDetail.sections.timeline.canceled')}</Text>
                 <Text style={styles.cancelReason}>
-                  Razón: {ride.cancelReason}
+                  {t('shared.rideDetail.sections.timeline.cancelReason', {
+                    reason: ride.cancelReason,
+                  })}
                 </Text>
               </View>
-              <Text style={styles.dateValue}>N/A</Text>
+              <Text style={styles.dateValue}>{t('shared.rideDetail.labels.notAvailable')}</Text>
             </View>
           ) : null}
         </View>
@@ -398,22 +453,20 @@ export default function RideDetailsScreen({ navigation, route }: any) {
 
       {/* Información de Pagos */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>💰 Información de Pagos</Text>
+        <Text style={styles.sectionTitle}>{t('shared.rideDetail.sections.payment.title')}</Text>
         <View style={styles.card}>
           {/* Precio Calculado por el Sistema */}
           <View style={styles.priceRow}>
-            <Text style={styles.priceLabel}>Precio Calculado</Text>
-            <Text style={styles.priceValue}>
-              C${finalPrice.toFixed(2)}
-            </Text>
+            <Text style={styles.priceLabel}>{t('shared.rideDetail.sections.payment.calculated')}</Text>
+            <Text style={styles.priceValue}>{formatCurrency(finalPrice)}</Text>
           </View>
 
           {/* Precio Sugerido por Cliente */}
           {ride.clientSuggestedPrice ? (
             <View style={styles.priceRow}>
-              <Text style={styles.priceLabel}>💡 Precio Sugerido (Cliente)</Text>
+              <Text style={styles.priceLabel}>{t('shared.rideDetail.sections.payment.clientSuggested')}</Text>
               <Text style={[styles.priceValue, { color: '#FF9800' }]}>
-                C${parseFloat(String(ride.clientSuggestedPrice)).toFixed(2)}
+                {formatCurrency(parseFloat(String(ride.clientSuggestedPrice)))}
               </Text>
             </View>
           ) : null}
@@ -421,9 +474,9 @@ export default function RideDetailsScreen({ navigation, route }: any) {
           {/* Contraoferta del Conductor */}
           {ride.driverOfferedPrice ? (
             <View style={styles.priceRow}>
-              <Text style={styles.priceLabel}>🚗 Contraoferta (Conductor)</Text>
+              <Text style={styles.priceLabel}>{t('shared.rideDetail.sections.payment.driverOffered')}</Text>
               <Text style={[styles.priceValue, { color: '#2196F3' }]}>
-                C${parseFloat(String(ride.driverOfferedPrice)).toFixed(2)}
+                {formatCurrency(parseFloat(String(ride.driverOfferedPrice)))}
               </Text>
             </View>
           ) : null}
@@ -431,9 +484,9 @@ export default function RideDetailsScreen({ navigation, route }: any) {
           {/* Precio Final Acordado */}
           {ride.finalFare ? (
             <View style={styles.priceRow}>
-              <Text style={styles.priceLabel}>✅ Precio Final Acordado</Text>
+              <Text style={styles.priceLabel}>{t('shared.rideDetail.sections.payment.finalAgreed')}</Text>
               <Text style={[styles.priceValue, { color: '#4CAF50', fontWeight: '700' }]}>
-                C${parseFloat(String(ride.finalFare)).toFixed(2)}
+                {formatCurrency(parseFloat(String(ride.finalFare)))}
               </Text>
             </View>
           ) : null}
@@ -442,9 +495,11 @@ export default function RideDetailsScreen({ navigation, route }: any) {
 
           {/* Estado del Pago */}
           <View style={styles.priceRow}>
-            <Text style={styles.priceLabel}>Estado del Pago</Text>
+            <Text style={styles.priceLabel}>{t('shared.rideDetail.sections.payment.status')}</Text>
             <Text style={[styles.priceValue, { color: ride.payment ? getPaymentStatusColor(ride.payment.status) : colors.textSecondary }]}>
-              {ride.payment ? getPaymentStatusText(ride.payment.status) : 'Sin datos de pago'}
+              {ride.payment
+                ? getPaymentStatusText(ride.payment.status)
+                : t('shared.rideDetail.sections.payment.noPayment')}
             </Text>
           </View>
           
@@ -501,28 +556,30 @@ export default function RideDetailsScreen({ navigation, route }: any) {
               <>
                 <View style={styles.priceRow}>
                   <Text style={styles.priceLabel}>
-                    Comisión ({Math.round(commissionRate * 100)}%)
+                    {t('shared.rideDetail.sections.payment.commission', {
+                      rate: Math.round(commissionRate * 100),
+                    })}
                   </Text>
                   <Text style={[styles.priceValue, { color: '#F44336' }]}>
-                    -C${commission.toFixed(2)}
+                    -{formatCurrency(commission)}
                   </Text>
                 </View>
                 
                 {/* Propina */}
                 {tip > 0 ? (
                   <View style={styles.priceRow}>
-                    <Text style={styles.priceLabel}>Propina</Text>
+                    <Text style={styles.priceLabel}>{t('shared.rideDetail.sections.payment.tip')}</Text>
                     <Text style={[styles.priceValue, { color: '#4CAF50' }]}>
-                      C${tip.toFixed(2)}
+                      {formatCurrency(tip)}
                     </Text>
                   </View>
                 ) : null}
                 
                 {/* Pago Final al Conductor */}
                 <View style={[styles.priceRow, styles.finalPriceRow]}>
-                  <Text style={styles.finalPriceLabel}>💵 Pago Final al Conductor</Text>
+                  <Text style={styles.finalPriceLabel}>{t('shared.rideDetail.sections.payment.driverPayout')}</Text>
                   <Text style={styles.finalPriceValue}>
-                    C${netAmount.toFixed(2)}
+                    {formatCurrency(netAmount)}
                   </Text>
                 </View>
               </>

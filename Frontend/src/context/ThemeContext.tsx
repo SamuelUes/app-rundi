@@ -4,7 +4,7 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Appearance } from 'react-native';
+import { Appearance, useColorScheme } from 'react-native';
 
 type Theme = 'light' | 'dark' | 'auto';
 
@@ -13,6 +13,8 @@ interface ThemeContextType {
   isDark: boolean;
   setTheme: (theme: Theme) => void;
   colors: typeof lightColors;
+  mapTrafficEnabled: boolean;
+  setMapTrafficEnabled: (value: boolean) => void;
 }
 
 const lightColors = {
@@ -31,6 +33,7 @@ const lightColors = {
   shadow: '#000000',
   overlay: 'rgba(0, 0, 0, 0.5)',
   disabled: '#CCCCCC',
+  button: 'rgba(95, 93, 93, 0.34)',
 };
 
 const darkColors = {
@@ -49,40 +52,58 @@ const darkColors = {
   shadow: '#000000',
   overlay: 'rgba(0, 0, 0, 0.7)',
   disabled: '#555555',
+  button: 'rgba(95, 93, 93, 0.34)',
 };
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
-const THEME_STORAGE_KEY = '@driveangel_theme';
+const THEME_STORAGE_KEY = '@rundi_theme';
+const MAP_TRAFFIC_STORAGE_KEY = '@rundi_map_traffic';
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>('auto');
+  const colorScheme = useColorScheme();
   const [systemTheme, setSystemTheme] = useState<'light' | 'dark'>(
-    Appearance.getColorScheme() || 'light'
+    (colorScheme === 'dark' ? 'dark' : colorScheme === 'light' ? 'light' : Appearance.getColorScheme() || 'light')
   );
+  const [mapTrafficEnabled, setMapTrafficEnabledState] = useState<boolean>(true);
 
   // Cargar tema guardado
   useEffect(() => {
-    loadTheme();
+    loadPreferences();
   }, []);
 
-  // Escuchar cambios del sistema
+  // Actualizar inmediatamente cuando useColorScheme detecta cambio
   useEffect(() => {
-    const subscription = Appearance.addChangeListener(({ colorScheme }) => {
-      setSystemTheme(colorScheme || 'light');
+    if (colorScheme === 'dark' || colorScheme === 'light') {
+      setSystemTheme(colorScheme);
+    }
+  }, [colorScheme]);
+
+  // Listener de respaldo para plataformas donde useColorScheme no emite cambios
+  useEffect(() => {
+    const subscription = Appearance.addChangeListener(({ colorScheme: scheme }) => {
+      if (scheme === 'dark' || scheme === 'light') {
+        setSystemTheme(scheme);
+      }
     });
 
     return () => subscription.remove();
   }, []);
 
-  const loadTheme = async () => {
+  const loadPreferences = async () => {
     try {
       const savedTheme = await AsyncStorage.getItem(THEME_STORAGE_KEY);
       if (savedTheme && ['light', 'dark', 'auto'].includes(savedTheme)) {
         setThemeState(savedTheme as Theme);
       }
+
+      const savedTraffic = await AsyncStorage.getItem(MAP_TRAFFIC_STORAGE_KEY);
+      if (savedTraffic !== null) {
+        setMapTrafficEnabledState(savedTraffic === 'true');
+      }
     } catch (error) {
-      console.error('Error loading theme:', error);
+      console.error('Error loading theme preferences:', error);
     }
   };
 
@@ -96,6 +117,16 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const setMapTrafficEnabled = async (value: boolean) => {
+    try {
+      await AsyncStorage.setItem(MAP_TRAFFIC_STORAGE_KEY, value ? 'true' : 'false');
+      setMapTrafficEnabledState(value);
+      console.log(`✅ Tráfico en mapa ${value ? 'activado' : 'desactivado'}`);
+    } catch (error) {
+      console.error('Error saving traffic preference:', error);
+    }
+  };
+
   // Determinar si usar dark mode
   const isDark = theme === 'dark' || (theme === 'auto' && systemTheme === 'dark');
 
@@ -103,7 +134,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const colors = isDark ? darkColors : lightColors;
 
   return (
-    <ThemeContext.Provider value={{ theme, isDark, setTheme, colors }}>
+    <ThemeContext.Provider
+      value={{ theme, isDark, setTheme, colors, mapTrafficEnabled, setMapTrafficEnabled }}
+    >
       {children}
     </ThemeContext.Provider>
   );

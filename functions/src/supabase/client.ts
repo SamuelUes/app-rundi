@@ -7,41 +7,123 @@
  * ✅ Usa REST API de Supabase
  */
 
+import dotenv from 'dotenv';
+import { existsSync, readFileSync } from 'fs';
+import path from 'path';
 import * as functions from 'firebase-functions';
+
+// Cargar variables de entorno desde archivos locales SOLO en desarrollo
+// En Firebase Functions (producción) las credenciales vienen de functions.config/process.env
+const nodeEnv = process.env.NODE_ENV === 'production' ? 'production' : 'development';
+const envFilePath = nodeEnv === 'production' ? '.env.productions' : '.env.development';
+
+dotenv.config({ path: envFilePath });
 
 // Obtener credenciales de Supabase
 let supabaseUrl: string | undefined;
-let supabaseKey: string | undefined;
+let supabaseAnonKey: string | undefined;
+let supabaseServiceRoleKey: string | undefined;
 
-// 1. Intentar obtener de Firebase config
-try {
-  const config = functions.config();
-  if (config.supabase) {
-    supabaseUrl = config.supabase.url;
-    supabaseKey = config.supabase.key;
-    console.log(`✅ [Supabase Client] Credenciales obtenidas de Firebase config`);
+type SupabaseRuntimeConfig = {
+  url?: string;
+  key?: string;
+  service_role_key?: string;
+  service_role?: string;
+};
+
+function loadRuntimeConfig(): SupabaseRuntimeConfig {
+  // 1️⃣ Intentar leer desde firebase-functions config (entorno de Cloud Functions)
+  try {
+    const cfg = (functions as any).config ? (functions as any).config() : undefined;
+    if (cfg?.supabase) {
+      console.log('✅ [Supabase Client] Credenciales obtenidas de functions.config().supabase');
+      return cfg.supabase as SupabaseRuntimeConfig;
+    }
+  } catch (error: any) {
+    console.log('⚠️ [Supabase Client] No se pudo leer functions.config():', error.message);
   }
-} catch (error: any) {
-  console.log(`⚠️ [Supabase Client] No se pudo obtener de Firebase config:`, error.message);
+
+  // 2️⃣ Fallback: archivos .runtimeconfig.json locales (desarrollo)
+  const candidatePaths = [
+    path.resolve(process.cwd(), '.runtimeconfig.json'),
+    path.resolve(__dirname, '..', '..', '.runtimeconfig.json'),
+  ];
+
+  for (const candidate of candidatePaths) {
+    try {
+      if (!existsSync(candidate)) {
+        continue;
+      }
+      const raw = readFileSync(candidate, 'utf8');
+      const json = JSON.parse(raw);
+      if (json?.supabase) {
+        console.log(`✅ [Supabase Client] Credenciales obtenidas de ${candidate}`);
+        return json.supabase as SupabaseRuntimeConfig;
+      }
+    } catch (error: any) {
+      console.log(`⚠️ [Supabase Client] No se pudo leer ${candidate}:`, error.message);
+    }
+  }
+
+  return {};
 }
 
-// 2. Fallback a process.env (para desarrollo local)
-if (!supabaseUrl) {
-  supabaseUrl = process.env.SUPABASE_URL;
-}
-if (!supabaseKey) {
-  supabaseKey = process.env.SUPABASE_ANON_KEY;
+const runtimeSupabase = loadRuntimeConfig();
+function normalizeEnv(value?: string): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }
 
-if (!supabaseUrl || !supabaseKey) {
+supabaseUrl = normalizeEnv(process.env.SUPABASE_URL) ?? runtimeSupabase.url;
+supabaseAnonKey = normalizeEnv(process.env.SUPABASE_ANON_KEY) ?? runtimeSupabase.key;
+supabaseServiceRoleKey =
+  normalizeEnv(process.env.SUPABASE_SERVICE_ROLE_KEY) ??
+  runtimeSupabase.service_role_key ??
+  runtimeSupabase.service_role;
+
+if (!supabaseUrl || (!supabaseAnonKey && !supabaseServiceRoleKey)) {
   console.error(`❌ [Supabase Client] ERROR: Credenciales de Supabase no configuradas`);
   console.error(`   SUPABASE_URL: ${supabaseUrl ? '✅' : '❌'}`);
-  console.error(`   SUPABASE_ANON_KEY: ${supabaseKey ? '✅' : '❌'}`);
+  console.error(`   SUPABASE_ANON_KEY: ${supabaseAnonKey ? '✅' : '❌'}`);
+  console.error(`   SUPABASE_SERVICE_ROLE_KEY: ${supabaseServiceRoleKey ? '✅' : '❌'}`);
   console.error(`   Configura en Firebase: firebase functions:config:set supabase.url="..." supabase.key="..."`);
+  console.error(`   y opcionalmente supabase.service_role_key="..." para operaciones privilegiadas`);
 }
 
 console.log(`✅ [Supabase Client] Inicializado`);
 console.log(`   URL: ${supabaseUrl}`);
+console.log(`   Clave anónima disponible: ${supabaseAnonKey ? '✅' : '❌'}`);
+console.log(`   Clave service_role disponible: ${supabaseServiceRoleKey ? '✅' : '❌'}`);
+
+function getAuthKey(requireServiceRole: boolean): string {
+  if (requireServiceRole) {
+    if (supabaseServiceRoleKey) {
+      return supabaseServiceRoleKey;
+    }
+    throw new Error('Supabase service role key no configurada. Define supabase.service_role_key o SUPABASE_SERVICE_ROLE_KEY.');
+  }
+
+  if (supabaseAnonKey) {
+    return supabaseAnonKey;
+  }
+
+  if (supabaseServiceRoleKey) {
+    return supabaseServiceRoleKey;
+  }
+
+  throw new Error('Supabase anon key no configurada. Define supabase.key o SUPABASE_ANON_KEY.');
+}
+
+function buildHeaders(requireServiceRole: boolean, extra?: Record<string, string>) {
+  const key = getAuthKey(requireServiceRole);
+  return {
+    apikey: key,
+    Authorization: `Bearer ${key}`,
+    'Content-Type': 'application/json',
+    ...extra,
+  } as Record<string, string>;
+}
 
 /**
  * Hacer una consulta GET a Supabase REST API
@@ -50,8 +132,27 @@ console.log(`   URL: ${supabaseUrl}`);
  * @param select - Campos a seleccionar (default: *)
  * @param limit - Límite de registros (default: 1000, max: 10000)
  */
-export async function supabaseGet(table: string, filters?: Record<string, any>, select: string = '*', limit: number = 1000) {
+export type SupabaseGetOptions = {
+  limit?: number;
+  requireServiceRole?: boolean;
+  preferExactCount?: boolean;
+  headers?: Record<string, string>;
+};
+
+export async function supabaseGet(
+  table: string,
+  filters?: Record<string, any>,
+  select: string = '*',
+  limitOrOptions: number | SupabaseGetOptions = 1000,
+) {
   try {
+    const options: SupabaseGetOptions =
+      typeof limitOrOptions === 'number'
+        ? { limit: limitOrOptions }
+        : { limit: limitOrOptions.limit ?? 1000, ...limitOrOptions };
+
+    const limit = Math.min(Math.max(options.limit ?? 1000, 1), 10000);
+
     // ✅ IMPORTANTE: Construir URL manualmente para NO codificar paréntesis en JOINs
     // Los paréntesis en Supabase JOINs NO deben estar codificados
     let urlString = `${supabaseUrl}/rest/v1/${table}?select=${select}&limit=${limit}`;
@@ -72,11 +173,10 @@ export async function supabaseGet(table: string, filters?: Record<string, any>, 
     
     const response = await fetch(urlString, {
       method: 'GET',
-      headers: {
-        'apikey': supabaseKey!,
-        'Authorization': `Bearer ${supabaseKey}`,
-        'Content-Type': 'application/json',
-      },
+      headers: buildHeaders(options.requireServiceRole ?? false, {
+        ...(options.preferExactCount ? { Prefer: 'count=exact' } : {}),
+        ...options.headers,
+      }),
     });
     
     if (!response.ok) {
@@ -121,7 +221,9 @@ export async function supabaseGetSimpleRides(userId: string, userType: 'driver' 
     
     // Paso 1: Obtener TODOS los viajes para ver qué hay
     console.log(`📋 Paso 1: Obteniendo TODOS los viajes...`);
-    const allRides = await supabaseGet('rides', {}, 'id,client_id,driver_id,status,created_at,final_fare');
+    const allRides = await supabaseGet('rides', {}, 'id,client_id,driver_id,status,created_at,final_fare', {
+      requireServiceRole: true,
+    });
     console.log(`✅ Total de viajes en BD: ${allRides.length}`);
     
     if (allRides.length > 0) {
@@ -211,14 +313,7 @@ export async function supabaseGetRidesWithLocationsAndPayments(
     
     console.log(`🔗 [supabaseGetRidesWithLocationsAndPayments] Consultando rides...`);
     
-    const ridesHeaders: Record<string, string> = {
-      'apikey': supabaseKey!,
-      'Authorization': `Bearer ${supabaseKey}`,
-      'Content-Type': 'application/json',
-    };
-    if (options?.includeTotals) {
-      ridesHeaders['Prefer'] = 'count=exact';
-    }
+    const ridesHeaders = buildHeaders(true, options?.includeTotals ? { Prefer: 'count=exact' } : undefined);
 
     const ridesResponse = await fetch(ridesUrl, {
       method: 'GET',
@@ -264,11 +359,7 @@ export async function supabaseGetRidesWithLocationsAndPayments(
     
     const locationsResponse = await fetch(locationsUrl, {
       method: 'GET',
-      headers: {
-        'apikey': supabaseKey!,
-        'Authorization': `Bearer ${supabaseKey}`,
-        'Content-Type': 'application/json',
-      },
+      headers: buildHeaders(true),
     });
     
     let locations: any[] = [];
@@ -296,11 +387,7 @@ export async function supabaseGetRidesWithLocationsAndPayments(
     
     const paymentsResponse = await fetch(paymentsUrl, {
       method: 'GET',
-      headers: {
-        'apikey': supabaseKey!,
-        'Authorization': `Bearer ${supabaseKey}`,
-        'Content-Type': 'application/json',
-      },
+      headers: buildHeaders(true),
     });
     
     let payments: any[] = [];
@@ -395,11 +482,7 @@ export async function supabaseGetRideLocations(rideId: string) {
     
     const response = await fetch(url.toString(), {
       method: 'GET',
-      headers: {
-        'apikey': supabaseKey!,
-        'Authorization': `Bearer ${supabaseKey}`,
-        'Content-Type': 'application/json',
-      },
+      headers: buildHeaders(false),
     });
     
     if (!response.ok) {
@@ -422,7 +505,9 @@ export async function supabaseGetRideLocations(rideId: string) {
  */
 export async function supabaseGetRidePayments(rideId: string) {
   try {
-    const payments = await supabaseGet('payments', { ride_id: rideId }, 'id,amount,status,payment_method,tip');
+    const payments = await supabaseGet('payments', { ride_id: rideId }, 'id,amount,status,payment_method,tip', {
+      requireServiceRole: true,
+    });
     return payments;
   } catch (error: any) {
     console.error(`❌ [supabaseGetRidePayments] Error:`, error.message);
@@ -454,7 +539,10 @@ export async function supabaseGetRidesWithDetails(userId: string, userType: 'dri
     // Si es conductor, intentar primero con Firebase UID, luego con UUID
     if (userType === 'driver') {
       console.log(`🔎 [supabaseGetRidesWithDetails] Intentando búsqueda 1: driver_id como Firebase UID`);
-      rides = await supabaseGet('rides', { driver_id: userId }, select, 10000);
+      rides = await supabaseGet('rides', { driver_id: userId }, select, {
+        limit: 10000,
+        requireServiceRole: true,
+      });
       console.log(`📊 [supabaseGetRidesWithDetails] Búsqueda 1 resultados: ${rides.length}`);
       
       if (rides.length === 0) {
@@ -463,20 +551,27 @@ export async function supabaseGetRidesWithDetails(userId: string, userType: 'dri
         // Obtener UUID del conductor desde tabla drivers
         try {
           console.log(`🔍 [supabaseGetRidesWithDetails] Buscando conductor en tabla drivers con user_id: ${userId}`);
-          const driverData = await supabaseGet('drivers', { user_id: userId }, 'id');
+          const driverData = await supabaseGet('drivers', { user_id: userId }, 'id', {
+            requireServiceRole: true,
+          });
           console.log(`📊 [supabaseGetRidesWithDetails] Conductores encontrados: ${driverData.length}`);
           
           if (driverData.length > 0) {
             const driverUUID = driverData[0].id;
             console.log(`✅ [supabaseGetRidesWithDetails] UUID del conductor encontrado: ${driverUUID}`);
             console.log(`🔎 [supabaseGetRidesWithDetails] Intentando búsqueda 2: driver_id como UUID`);
-            rides = await supabaseGet('rides', { driver_id: driverUUID }, select, 10000);
+            rides = await supabaseGet('rides', { driver_id: driverUUID }, select, {
+              limit: 10000,
+              requireServiceRole: true,
+            });
             console.log(`📊 [supabaseGetRidesWithDetails] Búsqueda 2 resultados: ${rides.length}`);
           } else {
             console.warn(`⚠️ [supabaseGetRidesWithDetails] Conductor no encontrado en tabla drivers`);
             // DEBUG: Obtener todos los conductores para ver qué hay
             console.log(`🔎 [supabaseGetRidesWithDetails] DEBUG: Obteniendo TODOS los conductores...`);
-            const allDrivers = await supabaseGet('drivers', {}, 'id,user_id,first_name,last_name');
+            const allDrivers = await supabaseGet('drivers', {}, 'id,user_id,first_name,last_name', {
+              requireServiceRole: true,
+            });
             console.log(`📊 [supabaseGetRidesWithDetails] Total de conductores: ${allDrivers.length}`);
             if (allDrivers.length > 0) {
               console.log(`📊 [supabaseGetRidesWithDetails] Primeros 3 conductores:`, JSON.stringify(allDrivers.slice(0, 3), null, 2));
@@ -489,7 +584,10 @@ export async function supabaseGetRidesWithDetails(userId: string, userType: 'dri
     } else {
       // Para clientes, buscar por client_id (Firebase UID)
       console.log(`🔎 [supabaseGetRidesWithDetails] Buscando viajes de cliente por client_id: ${userId}`);
-      rides = await supabaseGet('rides', { client_id: userId }, select, 10000);
+      rides = await supabaseGet('rides', { client_id: userId }, select, {
+        limit: 10000,
+        requireServiceRole: true,
+      });
       console.log(`📊 [supabaseGetRidesWithDetails] Viajes de cliente encontrados: ${rides.length}`);
     }
     
@@ -500,7 +598,9 @@ export async function supabaseGetRidesWithDetails(userId: string, userType: 'dri
       // DEBUG: Si no hay viajes, obtener todos para ver qué hay
       console.log(`🔎 [supabaseGetRidesWithDetails] DEBUG: No hay viajes, obteniendo TODOS...`);
       try {
-        const allRides = await supabaseGet('rides', {}, 'id,client_id,driver_id,status,created_at');
+        const allRides = await supabaseGet('rides', {}, 'id,client_id,driver_id,status,created_at', {
+          requireServiceRole: true,
+        });
         console.log(`📊 [supabaseGetRidesWithDetails] Total de viajes en BD: ${allRides.length}`);
         if (allRides.length > 0) {
           console.log(`📊 [supabaseGetRidesWithDetails] Primeros 3 viajes:`, JSON.stringify(allRides.slice(0, 3), null, 2));
@@ -532,49 +632,52 @@ export async function supabaseGetRidesWithDetails(userId: string, userType: 'dri
 export async function supabaseGetDriverWithVehicles(userId: string) {
   try {
     // Seleccionar campos del conductor y sus vehículos relacionados
-    const select = `
-      id,
-      user_id,
-      profile_photo,
-      license_number,
-      license_expiry,
-      license_photo_front,
-      license_photo_back,
-      license_photo,
-      department,
-      municipality,
-      status,
-      verified_at,
-      total_rides,
-      average_rating,
-      total_earnings,
-      created_at,
-      updated_at,
-      vehicles(
-        id,
-        driver_id,
-        plate,
-        brand,
-        model,
-        year,
-        color,
-        type,
-        is_active,
-        registration_number,
-        registration_expiry,
-        registration_photo_front,
-        registration_photo_back,
-        insurance_number,
-        insurance_company,
-        insurance_expiry,
-        insurance_photo,
-        vehicle_photo
-      )
-    `.replace(/\s+/g, '');
+    const select = [
+      'id',
+      'user_id',
+      'profile_photo',
+      'license_number',
+      'license_expiry',
+      'license_photo_front',
+      'license_photo_back',
+      'department',
+      'municipality',
+      'account_status',
+      'documents_status',
+      'designated_rol_requested',
+      'verified_at',
+      'total_rides',
+      'average_rating',
+      'total_earnings',
+      'created_at',
+      'updated_at',
+      'vehicles(' + [
+        'id',
+        'driver_id',
+        'plate',
+        'brand',
+        'model',
+        'year',
+        'color',
+        'type',
+        'is_active',
+        'registration_number',
+        'registration_expiry',
+        'registration_photo_front',
+        'registration_photo_back',
+        'insurance_number',
+        'insurance_company',
+        'insurance_expiry',
+        'insurance_photo',
+        'vehicle_photo'
+      ].join(',') + ')'
+    ].join(',');
     
     console.log(`👤 [supabaseGetDriverWithVehicles] Obteniendo conductor con vehículos: ${userId}`);
     
-    const drivers = await supabaseGet('drivers', { user_id: userId }, select);
+    const drivers = await supabaseGet('drivers', { user_id: userId }, select, {
+      requireServiceRole: true,
+    });
     
     if (drivers && drivers.length > 0) {
       const driver = drivers[0];
@@ -609,17 +712,14 @@ export async function supabasePost(table: string, data: Record<string, any>) {
     
     const response = await fetch(url, {
       method: 'POST',
-      headers: {
-        'apikey': supabaseKey!,
-        'Authorization': `Bearer ${supabaseKey}`,
-        'Content-Type': 'application/json',
-        'Prefer': 'return=representation',
-      },
+      headers: buildHeaders(true, { Prefer: 'return=representation' }),
       body: JSON.stringify(data),
     });
     
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      const errorText = await response.text();
+      console.error(`❌ [Supabase POST] HTTP ${response.status}:`, errorText);
+      throw new Error(`HTTP ${response.status}: ${errorText}`);
     }
     
     return await response.json();
@@ -638,12 +738,7 @@ export async function supabaseUpdate(table: string, id: string, data: Record<str
     
     const response = await fetch(url, {
       method: 'PATCH',
-      headers: {
-        'apikey': supabaseKey!,
-        'Authorization': `Bearer ${supabaseKey}`,
-        'Content-Type': 'application/json',
-        'Prefer': 'return=representation',
-      },
+      headers: buildHeaders(true, { Prefer: 'return=representation' }),
       body: JSON.stringify(data),
     });
     
@@ -667,11 +762,7 @@ export async function supabaseDelete(table: string, id: string) {
     
     const response = await fetch(url, {
       method: 'DELETE',
-      headers: {
-        'apikey': supabaseKey!,
-        'Authorization': `Bearer ${supabaseKey}`,
-        'Content-Type': 'application/json',
-      },
+      headers: buildHeaders(true),
     });
     
     if (!response.ok) {

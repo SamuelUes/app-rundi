@@ -6,7 +6,10 @@ import {
   ActivityIndicator,
   TouchableOpacity,
   Alert,
+  SafeAreaView,
+  ScrollView,
 } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { getDatabase, ref, onValue, off } from 'firebase/database';
@@ -20,18 +23,28 @@ interface WaitingClientConfirmationScreenProps {
       origin: { lat: number; lng: number; address: string };
       destination: { lat: number; lng: number; address: string };
       estimatedFare: number;
+      extraDestinations?: Array<{ lat: number; lng: number; address?: string }>;
     };
   };
   navigation: any;
 }
 
 export default function WaitingClientConfirmationScreen({ route, navigation }: WaitingClientConfirmationScreenProps) {
-  const { rideId, clientId, origin, destination, estimatedFare } = route.params;
+  const {
+    rideId,
+    clientId,
+    origin,
+    destination,
+    estimatedFare,
+    extraDestinations = [],
+  } = route.params;
   const { colors } = useTheme();
   const { user } = useAuth();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [timeWaiting, setTimeWaiting] = useState(0);
   const [offerStatus, setOfferStatus] = useState<'pending' | 'accepted' | 'rejected'>('pending');
+  const ns = 'driver.WaitingClientConfirmation';
 
   // Listener para el estado de la oferta
   useEffect(() => {
@@ -46,8 +59,8 @@ export default function WaitingClientConfirmationScreen({ route, navigation }: W
       if (!data) {
         console.log('⚠️ Viaje no encontrado, regresando...');
         Alert.alert(
-          'Viaje Cancelado',
-          'El cliente canceló la solicitud del viaje.',
+          t(`${ns}.alerts.rideMissingTitle`),
+          t(`${ns}.alerts.rideMissingMessage`),
           [{ text: 'OK', onPress: () => navigation.replace('AvailableRides') }]
         );
         return;
@@ -55,8 +68,11 @@ export default function WaitingClientConfirmationScreen({ route, navigation }: W
 
       console.log('📊 Estado del viaje:', data.status);
 
-      // Si el cliente aceptó la oferta (y este conductor fue el seleccionado)
-      if (data.status === 'accepted' && data.driverId === user?.id) {
+      // Si el cliente aceptó la oferta (o el viaje avanzó) y este conductor fue el seleccionado
+      if (
+        (data.status === 'accepted' || data.status === 'driver_on_route' || data.status === 'driver_arrived' || data.status === 'in_progress') &&
+        data.driverId === user?.id
+      ) {
         console.log('✅ ¡Cliente aceptó tu oferta!');
         setOfferStatus('accepted');
         
@@ -79,8 +95,8 @@ export default function WaitingClientConfirmationScreen({ route, navigation }: W
         setOfferStatus('rejected');
         
         Alert.alert(
-          'Oferta Rechazada',
-          'El cliente eligió otro conductor. Puedes buscar otros viajes disponibles.',
+          t(`${ns}.alerts.offerRejectedTitle`),
+          t(`${ns}.alerts.offerRejectedMessage`),
           [{ text: 'OK', onPress: () => navigation.replace('AvailableRides') }]
         );
         return;
@@ -94,8 +110,8 @@ export default function WaitingClientConfirmationScreen({ route, navigation }: W
           setOfferStatus('rejected');
           
           Alert.alert(
-            'Oferta Rechazada',
-            'El cliente rechazó tu oferta. Puedes buscar otros viajes disponibles.',
+            t(`${ns}.alerts.offerRejectedMeTitle`),
+            t(`${ns}.alerts.offerRejectedMeMessage`),
             [{ text: 'OK', onPress: () => navigation.replace('AvailableRides') }]
           );
           return;
@@ -106,8 +122,8 @@ export default function WaitingClientConfirmationScreen({ route, navigation }: W
       if (data.status === 'canceled') {
         console.log('⚠️ Viaje cancelado');
         Alert.alert(
-          'Viaje Cancelado',
-          'El cliente canceló el viaje.',
+          t(`${ns}.alerts.rideCanceledTitle`),
+          t(`${ns}.alerts.rideCanceledMessage`),
           [{ text: 'OK', onPress: () => navigation.replace('AvailableRides') }]
         );
         return;
@@ -127,20 +143,21 @@ export default function WaitingClientConfirmationScreen({ route, navigation }: W
 
   const handleCancelOffer = async () => {
     Alert.alert(
-      'Cancelar Oferta',
-      '¿Estás seguro de que quieres cancelar tu oferta? El viaje quedará disponible para otros conductores.',
+      t(`${ns}.alerts.cancelOfferTitle`),
+      t(`${ns}.alerts.cancelOfferMessage`),
       [
-        { text: 'No', style: 'cancel' },
+        { text: t(`${ns}.alerts.cancelOfferNo`), style: 'cancel' },
         {
-          text: 'Sí, cancelar',
+          text: t(`${ns}.alerts.cancelOfferYes`),
           style: 'destructive',
           onPress: async () => {
             try {
-              // Aquí puedes implementar la lógica para cancelar la oferta
-              // Por ahora, simplemente regresamos a AvailableRides
               navigation.replace('AvailableRides');
             } catch (error: any) {
-              Alert.alert('Error', error.message || 'No se pudo cancelar la oferta');
+              Alert.alert(
+                t(`${ns}.alerts.cancelErrorTitle`),
+                error?.message || t(`${ns}.alerts.cancelErrorMessage`)
+              );
             }
           },
         },
@@ -155,82 +172,101 @@ export default function WaitingClientConfirmationScreen({ route, navigation }: W
   };
 
   return (
-    <View style={styles.container}>
-      {offerStatus === 'pending' && (
-        <>
-          {/* Animación de espera */}
-          <View style={styles.animationContainer}>
-            <ActivityIndicator size="large" color={colors.primary} />
-            <Text style={styles.waitingIcon}>⏳</Text>
-          </View>
+    <SafeAreaView style={styles.container}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {offerStatus === 'pending' && (
+          <>
+            {/* Animación de espera */}
+            <View style={styles.animationContainer}>
+              <ActivityIndicator size="large" color={colors.primary} />
+              <Text style={styles.waitingIcon}>⏳</Text>
+            </View>
 
-          {/* Título */}
-          <Text style={styles.title}>Esperando Confirmación</Text>
-          <Text style={styles.subtitle}>
-            El cliente está revisando tu oferta
-          </Text>
+            {/* Título */}
+            <Text style={styles.title}>{t(`${ns}.pending.title`)}</Text>
+            <Text style={styles.subtitle}>{t(`${ns}.pending.subtitle`)}</Text>
 
-          {/* Tiempo de espera */}
-          <View style={styles.timerContainer}>
-            <Text style={styles.timerLabel}>Tiempo de espera:</Text>
-            <Text style={styles.timerValue}>{formatTime(timeWaiting)}</Text>
-          </View>
+            {/* Tiempo de espera */}
+            <View style={styles.timerContainer}>
+              <Text style={styles.timerLabel}>{t(`${ns}.pending.timerLabel`)}</Text>
+              <Text style={styles.timerValue}>{formatTime(timeWaiting)}</Text>
+            </View>
 
-          {/* Detalles del viaje */}
-          <View style={styles.detailsCard}>
-            <Text style={styles.detailsTitle}>Detalles del Viaje</Text>
-            
-            <View style={styles.locationRow}>
-              <Text style={styles.locationIcon}>🔵</Text>
-              <View style={styles.locationInfo}>
-                <Text style={styles.locationLabel}>Origen</Text>
-                <Text style={styles.locationAddress}>{origin.address}</Text>
+            {/* Detalles del viaje */}
+            <View style={styles.detailsCard}>
+              <Text style={styles.detailsTitle}>{t(`${ns}.pending.tripDetails`)}</Text>
+              
+              <View style={styles.locationRow}>
+                <Text style={styles.locationIcon}>🔵</Text>
+                <View style={styles.locationInfo}>
+                  <Text style={styles.locationLabel}>{t(`${ns}.pending.originLabel`)}</Text>
+                  <Text style={styles.locationAddress}>{origin.address}</Text>
+                </View>
+              </View>
+
+              <View style={styles.divider} />
+
+              {extraDestinations.map((stop: { lat: number; lng: number; address?: string }, index: number) => (
+                <View key={`extra-stop-${index}`} style={styles.locationRow}>
+                  <Text style={styles.locationIcon}>🟠</Text>
+                  <View style={styles.locationInfo}>
+                    <Text style={styles.locationLabel}>
+                      {t(`${ns}.pending.stopLabel`, { index: index + 1 })}
+                    </Text>
+                    <Text style={styles.locationAddress}>
+                      {stop.address || t(`${ns}.pending.stopFallback`)}
+                    </Text>
+                  </View>
+                </View>
+              ))}
+
+              {extraDestinations.length > 0 && <View style={styles.divider} />}
+
+              <View style={styles.locationRow}>
+                <Text style={styles.locationIcon}>🔴</Text>
+                <View style={styles.locationInfo}>
+                  <Text style={styles.locationLabel}>{t(`${ns}.pending.destinationLabel`)}</Text>
+                  <Text style={styles.locationAddress}>{destination.address}</Text>
+                </View>
+              </View>
+
+              <View style={styles.fareContainer}>
+                <Text style={styles.fareLabel}>{t(`${ns}.pending.fareLabel`)}</Text>
+                <Text style={styles.fareValue}>C${estimatedFare}</Text>
               </View>
             </View>
 
-            <View style={styles.divider} />
-
-            <View style={styles.locationRow}>
-              <Text style={styles.locationIcon}>🔴</Text>
-              <View style={styles.locationInfo}>
-                <Text style={styles.locationLabel}>Destino</Text>
-                <Text style={styles.locationAddress}>{destination.address}</Text>
-              </View>
+            {/* Consejos */}
+            <View style={styles.tipsContainer}>
+              <Text style={styles.tipsTitle}>{t(`${ns}.tips.title`)}</Text>
+              <Text style={styles.tipText}>{t(`${ns}.tips.tipVehicle`)}</Text>
+              <Text style={styles.tipText}>{t(`${ns}.tips.tipGps`)}</Text>
+              <Text style={styles.tipText}>{t(`${ns}.tips.tipAlternateDriver`)}</Text>
             </View>
 
-            <View style={styles.fareContainer}>
-              <Text style={styles.fareLabel}>Tarifa Acordada:</Text>
-              <Text style={styles.fareValue}>C${estimatedFare}</Text>
-            </View>
+            {/* Botón cancelar */}
+            <TouchableOpacity
+              style={styles.cancelButton}
+              onPress={handleCancelOffer}
+            >
+              <Text style={styles.cancelButtonText}>{t(`${ns}.buttons.cancelOffer`)}</Text>
+            </TouchableOpacity>
+          </>
+        )}
+
+        {offerStatus === 'accepted' && (
+          <View style={styles.successContainer}>
+            <Text style={styles.successIcon}>✅</Text>
+            <Text style={styles.successTitle}>{t(`${ns}.accepted.title`)}</Text>
+            <Text style={styles.successSubtitle}>{t(`${ns}.accepted.subtitle`)}</Text>
+            <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 20 }} />
           </View>
-
-          {/* Consejos */}
-          <View style={styles.tipsContainer}>
-            <Text style={styles.tipsTitle}>💡 Mientras esperas:</Text>
-            <Text style={styles.tipText}>• Mantén tu vehículo listo</Text>
-            <Text style={styles.tipText}>• Verifica tu ubicación GPS</Text>
-            <Text style={styles.tipText}>• El cliente puede elegir otro conductor</Text>
-          </View>
-
-          {/* Botón cancelar */}
-          <TouchableOpacity
-            style={styles.cancelButton}
-            onPress={handleCancelOffer}
-          >
-            <Text style={styles.cancelButtonText}>Cancelar Oferta</Text>
-          </TouchableOpacity>
-        </>
-      )}
-
-      {offerStatus === 'accepted' && (
-        <View style={styles.successContainer}>
-          <Text style={styles.successIcon}>✅</Text>
-          <Text style={styles.successTitle}>¡Cliente Te Eligió!</Text>
-          <Text style={styles.successSubtitle}>Preparando viaje...</Text>
-          <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 20 }} />
-        </View>
-      )}
-    </View>
+        )}
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
@@ -238,8 +274,11 @@ const createStyles = (colors: any) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
-    padding: 20,
-    justifyContent: 'center',
+  },
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingVertical: 24,
+    paddingBottom: 40,
   },
   animationContainer: {
     alignItems: 'center',
@@ -344,8 +383,8 @@ const createStyles = (colors: any) => StyleSheet.create({
   tipsContainer: {
     backgroundColor: '#E3F2FD',
     borderRadius: 12,
-    padding: 16,
-    marginBottom: 20,
+    padding: 20,
+    marginBottom: 40,
   },
   tipsTitle: {
     fontSize: 16,

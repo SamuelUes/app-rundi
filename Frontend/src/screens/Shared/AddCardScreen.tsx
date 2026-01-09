@@ -12,8 +12,8 @@ import {
   Platform,
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
-import { getFunctions, httpsCallable } from 'firebase/functions';
-import { initializeFirebase } from '../../config/firebase';
+import cardsService from '../../services/cardsService';
+import { useTranslation } from 'react-i18next';
 
 interface AddCardScreenProps {
   navigation: any;
@@ -22,6 +22,7 @@ interface AddCardScreenProps {
 export default function AddCardScreen({ navigation }: AddCardScreenProps) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const { t } = useTranslation();
   
   // Estados del formulario
   const [cardNumber, setCardNumber] = useState('');
@@ -142,80 +143,72 @@ export default function AddCardScreen({ navigation }: AddCardScreenProps) {
   const handleAddCard = async () => {
     // Validaciones
     if (!cardNumber || !cardHolder || !expiry || !cvv) {
-      Alert.alert('Error', 'Por favor completa todos los campos');
+      Alert.alert(
+        t('shared.addCards.alerts.errorTitle'),
+        t('shared.addCards.alerts.incomplete'),
+      );
       return;
     }
 
     if (!validateCardNumber(cardNumber)) {
-      Alert.alert('Error', 'Número de tarjeta inválido');
+      Alert.alert(
+        t('shared.addCards.alerts.errorTitle'),
+        t('shared.addCards.alerts.invalidNumber'),
+      );
       return;
     }
 
     if (!validateExpiry(expiry)) {
-      Alert.alert('Error', 'Fecha de expiración inválida');
+      Alert.alert(
+        t('shared.addCards.alerts.errorTitle'),
+        t('shared.addCards.alerts.invalidExpiry'),
+      );
       return;
     }
 
     if (!validateCVV(cvv)) {
-      Alert.alert('Error', 'CVV inválido');
+      Alert.alert(
+        t('shared.addCards.alerts.errorTitle'),
+        t('shared.addCards.alerts.invalidCvv'),
+      );
       return;
     }
 
     try {
       setProcessing(true);
 
-      const { app } = await initializeFirebase();
-      if (!app) throw new Error('Firebase no inicializado');
-
-      const functions = getFunctions(app);
       const [month, year] = expiry.split('/');
+      const cleanedNumber = cardNumber.replace(/\s/g, '');
+      const fullYear = year.length === 2 ? `20${year}` : year;
+      const brand = detectCardBrand(cardNumber);
 
-      // PASO 1: Validar y tokenizar la tarjeta
-      console.log('🔐 Validando y tokenizando tarjeta...');
-      const validateFn = httpsCallable(functions, 'validateAndTokenizeCard');
-      const validationResult = await validateFn({
-        cardNumber: cardNumber.replace(/\s/g, ''),
-        expMonth: month,
-        expYear: '20' + year,
-        cvv: cvv,
-        cardholderName: cardHolder,
+      console.log('💳 Validación local completada, guardando tarjeta...');
+
+      await cardsService.addCard({
         bank: selectedBank,
-      });
-
-      const validationData = validationResult.data as any;
-
-      if (!validationData.success) {
-        throw new Error('No se pudo validar la tarjeta');
-      }
-
-      console.log('✅ Tarjeta validada:', validationData.cardInfo);
-
-      // PASO 2: Guardar la tarjeta tokenizada en Firestore
-      console.log('💾 Guardando tarjeta en Firestore...');
-      const addCardFn = httpsCallable(functions, 'addCard');
-      await addCardFn({
-        paymentMethodId: validationData.paymentMethodId,
-        bank: selectedBank,
-        brand: validationData.cardInfo.brand,
-        last4: validationData.cardInfo.last4,
-        expMonth: validationData.cardInfo.expMonth,
-        expYear: validationData.cardInfo.expYear,
+        cardBrand: brand,
+        last4: cleanedNumber.slice(-4),
+        expMonth: Number(month),
+        expYear: Number(fullYear),
         setAsDefault,
       });
 
       Alert.alert(
-        '✅ Tarjeta Agregada',
-        'Tu tarjeta ha sido guardada de forma segura',
+        t('shared.addCards.alerts.successTitle'),
+        t('shared.addCards.alerts.successMessage'),
         [
           {
-            text: 'OK',
+            text: t('shared.addCards.alerts.successButton'),
             onPress: () => navigation.goBack(),
           },
         ]
       );
     } catch (error: any) {
-      console.error('Error agregando tarjeta:', error);
-      Alert.alert('Error', error.message || 'No se pudo agregar la tarjeta');
+      console.error('Error adding card:', error);
+      Alert.alert(
+        t('shared.addCards.alerts.errorTitle'),
+        error.message || t('shared.addCards.alerts.genericError'),
+      );
     } finally {
       setProcessing(false);
     }
@@ -234,19 +227,19 @@ export default function AddCardScreen({ navigation }: AddCardScreenProps) {
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
             <Text style={styles.backButtonText}>←</Text>
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Agregar Tarjeta</Text>
+          <Text style={styles.headerTitle}>{t('shared.addCards.header.title')}</Text>
           <View style={{ width: 40 }} />
         </View>
 
         {/* Formulario */}
         <View style={styles.form}>
-          <Text style={styles.formTitle}>Nueva Tarjeta</Text>
+          <Text style={styles.formTitle}>{t('shared.addCards.form.title')}</Text>
 
           {/* Número de tarjeta */}
           <View style={styles.inputGroup}>
             <TextInput
               style={styles.input}
-              placeholder="Número de tarjeta"
+              placeholder={t('shared.addCards.form.cardNumber')}
               placeholderTextColor={colors.textSecondary}
               keyboardType="numeric"
               value={cardNumber}
@@ -260,7 +253,7 @@ export default function AddCardScreen({ navigation }: AddCardScreenProps) {
             <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
               <TextInput
                 style={styles.input}
-                placeholder="MM/AA"
+                placeholder={t('shared.addCards.form.expiry')}
                 placeholderTextColor={colors.textSecondary}
                 keyboardType="numeric"
                 value={expiry}
@@ -272,7 +265,7 @@ export default function AddCardScreen({ navigation }: AddCardScreenProps) {
             <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
               <TextInput
                 style={styles.input}
-                placeholder="CVV"
+                placeholder={t('shared.addCards.form.cvv')}
                 placeholderTextColor={colors.textSecondary}
                 keyboardType="numeric"
                 value={cvv}
@@ -287,7 +280,7 @@ export default function AddCardScreen({ navigation }: AddCardScreenProps) {
           <View style={styles.inputGroup}>
             <TextInput
               style={styles.input}
-              placeholder="Nombre en la tarjeta"
+              placeholder={t('shared.addCards.form.cardHolder')}
               placeholderTextColor={colors.textSecondary}
               value={cardHolder}
               onChangeText={setCardHolder}
@@ -298,7 +291,7 @@ export default function AddCardScreen({ navigation }: AddCardScreenProps) {
           {/* Selector de Banco */}
           <View style={styles.bankSelectorContainer}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>
-              Selecciona tu banco:
+              {t('shared.addCards.form.bankSelector')}
             </Text>
             <View style={styles.bankButtonsRow}>
               {(['bac', 'banpro', 'lafise', 'ficohsa', 'avanz'] as const).map((bank) => (
@@ -331,7 +324,7 @@ export default function AddCardScreen({ navigation }: AddCardScreenProps) {
               {setAsDefault && <Text style={styles.checkboxCheck}>✓</Text>}
             </View>
             <Text style={styles.checkboxLabel}>
-              Establecer como método de pago predeterminado
+              {t('shared.addCards.form.checkbox')}
             </Text>
           </TouchableOpacity>
 
@@ -342,7 +335,7 @@ export default function AddCardScreen({ navigation }: AddCardScreenProps) {
               onPress={() => navigation.goBack()}
               disabled={processing}
             >
-              <Text style={styles.cancelButtonText}>Cancelar</Text>
+              <Text style={styles.cancelButtonText}>{t('shared.addCards.form.cancel')}</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -353,7 +346,7 @@ export default function AddCardScreen({ navigation }: AddCardScreenProps) {
               {processing ? (
                 <ActivityIndicator color="#fff" />
               ) : (
-                <Text style={styles.saveButtonText}>Guardar</Text>
+                <Text style={styles.saveButtonText}>{t('shared.addCards.form.save')}</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -363,7 +356,7 @@ export default function AddCardScreen({ navigation }: AddCardScreenProps) {
         <View style={styles.securityInfo}>
           <Text style={styles.securityIcon}>🔒</Text>
           <Text style={styles.securityText}>
-            Tus datos están protegidos con encriptación de nivel bancario
+            {t('shared.addCards.security.message')}
           </Text>
         </View>
       </ScrollView>

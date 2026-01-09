@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { getFirebaseDatabase, getFirebaseAuth } from '../config/firebase';
-import { ref, onDisconnect, set, serverTimestamp, onValue, update } from 'firebase/database';
+import { httpsCallable } from 'firebase/functions';
+import { getFirebaseFunctions, getFirebaseAuth, getFirebaseDatabase } from '../config/firebase';
+import { ref, onValue, DataSnapshot } from 'firebase/database';
 import { useAuth } from '../context/AuthContext';
 import { AppState, AppStateStatus } from 'react-native';
+import sessionService from '../services/sessionService';
 
 /**
  * Hook para manejar la presencia del usuario en Firebase Realtime Database
@@ -13,13 +15,17 @@ import { AppState, AppStateStatus } from 'react-native';
  * - Pierde conexión a internet
  */
 export function usePresence() {
-  const { user } = useAuth();
+  const { user, userMode } = useAuth();
   const appState = useRef(AppState.currentState);
-  const presenceRef = useRef<any>(null);
+  const actionsRef = useRef<null | {
+    markActive: ReturnType<typeof httpsCallable>;
+    markClosed: ReturnType<typeof httpsCallable>;
+  }>(null);
 
   useEffect(() => {
-    // Solo configurar presencia para conductores autenticados
-    if (!user?.id || user.role !== 'driver') {
+    const isDriverCapable = user?.role === 'driver' || user?.role === 'designated_driver';
+    // Solo configurar presencia para conductores autenticados en modo conductor
+    if (!user?.id || !isDriverCapable || userMode !== 'driver') {
       return;
     }
 
@@ -27,35 +33,22 @@ export function usePresence() {
     const setupPresence = async () => {
       try {
         const auth = await getFirebaseAuth();
-        const database = await getFirebaseDatabase();
+        const functions = await getFirebaseFunctions();
 
-        // Verificar que el usuario esté autenticado en Firebase Auth
         const firebaseUser = auth.currentUser;
         if (!firebaseUser) {
           console.log('⚠️ Usuario no autenticado en Firebase Auth, esperando...');
           return;
         }
 
-        // Usar el UID de Firebase Auth (no el user.id del contexto)
-        const driverLocationRef = ref(database, `driverLocations/${firebaseUser.uid}`);
-        presenceRef.current = driverLocationRef;
+        const markActive = httpsCallable(functions, 'markAppActive');
+        const markClosed = httpsCallable(functions, 'markAppClosed');
+        actionsRef.current = { markActive, markClosed };
 
-        // IMPORTANTE: Primero marcar como offline al iniciar
-        // El conductor debe activar manualmente su disponibilidad
-        await update(driverLocationRef, {
-          status: 'offline',
-          updatedAt: serverTimestamp(),
-          lastSeen: serverTimestamp(),
-        });
-        
-        // Configurar onDisconnect para cuando se desconecte
-        await onDisconnect(driverLocationRef).update({
-          status: 'offline',
-          updatedAt: serverTimestamp(),
-          lastSeen: serverTimestamp(),
-        });
+        const deviceId = await sessionService.getDeviceId();
+        await markActive({ role: 'driver', deviceId });
 
-        console.log('✅ Sistema de presencia configurado - Status inicial: offline');
+        console.log('✅ Sistema de presencia configurado vía backend - Status inicial: offline');
       } catch (error: any) {
         // Solo log el error, no bloquear la app
         console.error('❌ Error configurando presencia:', error?.message || error);
@@ -69,24 +62,20 @@ export function usePresence() {
       if (!user?.id) return;
 
       try {
-        const database = await getFirebaseDatabase();
         const auth = await getFirebaseAuth();
         const firebaseUser = auth.currentUser;
         if (!firebaseUser) return;
 
-        const driverLocationRef = ref(database, `driverLocations/${firebaseUser.uid}`);
-
+        const actions = actionsRef.current;
+        if (!actions) return;
+        const deviceId = await sessionService.getDeviceId();
         // Si la app pasa a background o inactive, marcar como offline
         if (
           appState.current.match(/active/) &&
           nextAppState.match(/inactive|background/)
         ) {
           console.log('📱 App en background, marcando como offline...');
-          await update(driverLocationRef, {
-            status: 'offline',
-            updatedAt: serverTimestamp(),
-            lastSeen: serverTimestamp(),
-          });
+          await actions.markClosed({ role: 'driver', deviceId });
         }
 
         // Si la app vuelve a foreground, NO cambiar el estado automáticamente
@@ -96,7 +85,7 @@ export function usePresence() {
           nextAppState === 'active'
         ) {
           console.log('📱 App en foreground');
-          // No hacer nada, el conductor debe activar manualmente
+          await actions.markActive({ role: 'driver', deviceId });
         }
 
         appState.current = nextAppState;
@@ -111,29 +100,24 @@ export function usePresence() {
     // Cleanup
     return () => {
       subscription.remove();
-      
-      // Marcar como offline al desmontar el componente
-      const cleanupPresence = async () => {
-        try {
-          const auth = await getFirebaseAuth();
-          const database = await getFirebaseDatabase();
-          const firebaseUser = auth.currentUser;
-          if (firebaseUser && user?.role === 'driver') {
-            const cleanupRef = ref(database, `driverLocations/${firebaseUser.uid}`);
-            await update(cleanupRef, {
-              status: 'offline',
-              updatedAt: serverTimestamp(),
-              lastSeen: serverTimestamp(),
-            });
-          }
-        } catch (error) {
-          console.error('❌ Error en cleanup de presencia:', error);
-        }
-      };
 
-      cleanupPresence();
+      const actions = actionsRef.current;
+      if (actions && isDriverCapable) {
+        sessionService
+          .getDeviceId()
+          .then((deviceId) => {
+            actions
+              .markClosed({ role: 'driver', deviceId })
+              .catch((err: any) => {
+                console.error('❌ Error en cleanup de presencia (markAppClosed):', err?.message || err);
+              });
+          })
+          .catch((err) => {
+            console.error('❌ Error en cleanup de presencia (markAppClosed):', err?.message || err);
+          });
+      }
     };
-  }, [user?.id, user?.role]);
+  }, [user?.id, user?.role, userMode]);
 
   return null;
 }
@@ -150,7 +134,7 @@ export function useConnectionStatus() {
         const database = await getFirebaseDatabase();
         const connectedRef = ref(database, '.info/connected');
         
-        const unsubscribe = onValue(connectedRef, (snapshot) => {
+        const unsubscribe = onValue(connectedRef, (snapshot: DataSnapshot) => {
           const connected = snapshot.val() === true;
           setIsConnected(connected);
           

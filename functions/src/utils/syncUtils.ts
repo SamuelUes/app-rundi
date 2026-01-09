@@ -3,7 +3,7 @@
  * Incluye retry logic y validaciones
  */
 
-import * as admin from 'firebase-admin';
+import admin from 'firebase-admin';
 
 /**
  * Retry logic para operaciones de base de datos

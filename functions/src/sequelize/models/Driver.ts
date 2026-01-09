@@ -15,8 +15,10 @@ class Driver extends Model {
   public license_photo_back?: string;
   public department?: string;
   public municipality?: string;
-  public status!: string;
+  public status!: string; // Mapeado a account_status en la base de datos
+  public documents_status?: string; // Mapeado a documents_status en la base de datos
   public verified_at?: Date;
+  public designated_rol_requested?: string;
   public total_rides!: number;
   public average_rating!: number;
   public total_earnings!: number;
@@ -65,7 +67,20 @@ Driver.init(
       allowNull: true,
     },
     status: {
-      type: DataTypes.ENUM('pending', 'active', 'suspended', 'rejected'),
+      type: DataTypes.STRING(20),
+      allowNull: true,
+      defaultValue: 'pending',
+      field: 'account_status',
+    },
+    documents_status: {
+      type: DataTypes.STRING(20),
+      allowNull: true,
+      defaultValue: 'pending',
+      field: 'documents_status',
+    },
+    designated_rol_requested: {
+      type: DataTypes.STRING(20),
+      allowNull: true,
       defaultValue: 'pending',
     },
     verified_at: {

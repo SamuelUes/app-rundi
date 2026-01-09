@@ -1,12 +1,39 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import AuthStack from './AuthStack';
 import ClientStack from './ClientStack';
 import DriverStack from './DriverStack';
+import { replace } from './NavigationService';
 
 export default function AppNavigator() {
-  const { user, loading } = useAuth();
+  const { user, loading, userMode } = useAuth();
+
+  const prevUserModeRef = useRef<'client' | 'driver' | null>(null);
+
+  useEffect(() => {
+    if (!user) {
+      prevUserModeRef.current = null;
+      return;
+    }
+
+    const prevMode = prevUserModeRef.current;
+    prevUserModeRef.current = userMode;
+
+    const isDriverCapableNow =
+      user.role === 'driver' || user.role === 'designated_driver';
+
+    if (prevMode === 'client' && userMode === 'driver' && isDriverCapableNow) {
+      replace('DriverPreflight', {
+        role: 'driver',
+        successRoute: 'DriverHome',
+        activeRideRoute: 'ActiveRide',
+        pendingPaymentsRoute: 'PendingPayments',
+        payCommissionsRoute: 'PayCommissions',
+        pendingApprovalRoute: 'DriverPendingApproval',
+      });
+    }
+  }, [userMode, user]);
 
   if (loading) {
     return (
@@ -21,12 +48,14 @@ export default function AppNavigator() {
     return <AuthStack />;
   }
 
-  // Si el usuario es conductor, mostrar pantallas de conductor
-  if (user.role === 'driver') {
+  const isDriverCapable = user.role === 'driver' || user.role === 'designated_driver';
+
+  // Seleccionar stack según el modo activo y las capacidades del usuario
+  if (userMode === 'driver' && isDriverCapable) {
     return <DriverStack />;
   }
 
-  // Si el usuario es cliente, mostrar pantallas de cliente
+  // Modo cliente (por defecto) o usuario sin capacidades de conductor
   return <ClientStack />;
 }
 

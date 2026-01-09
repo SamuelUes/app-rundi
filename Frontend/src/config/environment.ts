@@ -1,16 +1,40 @@
 import Constants from 'expo-constants';
 import backendConfig from './backendConfig';
 
+const resolveApiUrl = (target: 'development' | 'production') => {
+  if (backendConfig.isFirebase()) {
+    return backendConfig.getApiUrl();
+  }
+
+  if (target === 'production') {
+    return process.env.API_BASE_URL_PRODUCTION || backendConfig.getApiUrl();
+  }
+
+  return backendConfig.getApiUrl();
+};
+
+const resolveWsUrl = (target: 'development' | 'production') => {
+  if (backendConfig.isFirebase()) {
+    return backendConfig.getWsUrl();
+  }
+
+  if (target === 'production') {
+    return process.env.WS_URL_PRODUCTION || backendConfig.getWsUrl();
+  }
+
+  return backendConfig.getWsUrl();
+};
+
 const ENV = {
   development: {
-    apiUrl: backendConfig.getApiUrl(),
-    wsUrl: backendConfig.getWsUrl(),
+    apiUrl: resolveApiUrl('development'),
+    wsUrl: resolveWsUrl('development'),
     domain: process.env.DOMAIN || 'localhost',
   },
   production: {
-    apiUrl: process.env.API_BASE_URL_PRODUCTION || 'https://api.driveangel.online',
-    wsUrl: process.env.WS_URL_PRODUCTION || 'https://api.driveangel.online',
-    domain: process.env.DOMAIN || 'driveangel.online',
+    apiUrl: resolveApiUrl('production'),
+    wsUrl: resolveWsUrl('production'),
+    domain: process.env.DOMAIN || ' rundiapp.com',
   },
 };
 

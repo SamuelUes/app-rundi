@@ -21,7 +21,7 @@ service cloud.firestore {
     
     function isAdmin() {
       return isAuthenticated() && 
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+             get(/databases/$(database)/documents/cms-users/$(request.auth.uid)).data.role == 'admin';
     }
     
     // ============================================
@@ -41,8 +41,30 @@ service cloud.firestore {
       // Solo el dueño puede actualizar su perfil
       allow update: if isOwner(userId);
       
-      // No permitir eliminar usuarios
-      allow delete: if false;
+      // El dueño puede eliminar su perfil (para eliminar cuenta)
+      allow delete: if isOwner(userId);
+    }
+
+    match /cms-users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+    
+    // ============================================
+    // SERVICE AREAS
+    // Zonas de servicio y cobertura geográfica
+    // ============================================
+
+    match /service_areas/{areaId} {
+      // Cualquier usuario autenticado puede leer las áreas de servicio
+      allow read: if isAuthenticated();
+
+      // Solo administradores pueden crear/actualizar/eliminar áreas
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
     }
     
     // ============================================

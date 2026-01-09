@@ -12,7 +12,7 @@
           "email": "string",
           "name": "string",
           "phone": "string",
-          "role": "string (client | driver | admin)",
+          "role": "string (client | driver)",
           "profilePhoto": "string | null",
           "driverStatus": "string | null (offline | available | busy)",
           "currentRideId": "string | null",
@@ -46,6 +46,57 @@
           "create": "auth != null && request.auth.uid == userId",
           "update": "auth != null && request.auth.uid == userId",
           "delete": "false"
+        }
+      },
+
+      "cms-users": {
+        "description": "Usuarios del CMS (admins y operadores, separados de usuarios finales)",
+        "document_structure": {
+          "id": "string (Firebase UID)",
+          "email": "string",
+          "name": "string",
+          "role": "string (admin | operator)",
+          "assigned_service_areas": [
+            "string (ID de service_areas asignada al operador)"
+          ],
+          "createdAt": "timestamp",
+          "updatedAt": "timestamp"
+        },
+        "indexes": [
+          {
+            "fields": ["role"],
+            "description": "Listar usuarios del CMS por rol"
+          }
+        ],
+        "security_rules": {
+          "read": "auth != null",
+          "create": "isAdmin() (solo via backend/Admin)",
+          "update": "isAdmin()",
+          "delete": "isAdmin()"
+        }
+      },
+
+      "service_areas": {
+        "description": "Áreas de servicio y cobertura geográfica (Managua, otras ciudades, etc.)",
+        "document_structure": {
+          "name": "string",
+          "countryCode": "string",
+          "active": "boolean",
+          "centerLat": "number | null",
+          "centerLng": "number | null",
+          "radiusKm": "number | null",
+          "bounds": {
+            "north": "number",
+            "south": "number",
+            "east": "number",
+            "west": "number"
+          }
+        },
+        "security_rules": {
+          "read": "auth != null",
+          "create": "isAdmin()",
+          "update": "isAdmin()",
+          "delete": "isAdmin()"
         }
       },
       
@@ -121,6 +172,37 @@
           "write": "auth != null && (data.clientId == auth.uid || data.driverId == auth.uid || !data.exists())"
         }
       },
+
+      "activeRidesByArea": {
+        "description": "Viajes activos, particionados por área de servicio",
+        "path": "activeRidesByArea/{serviceAreaId}/{rideId}",
+        "structure": {
+          "id": "string",
+          "clientId": "string (Firebase UID)",
+          "driverId": "string | null (Firebase UID)",
+          "status": "string (requested | accepted | in_progress | completed | canceled)",
+          "origin": {
+            "lat": "number",
+            "lng": "number",
+            "address": "string"
+          },
+          "destination": {
+            "lat": "number",
+            "lng": "number",
+            "address": "string"
+          },
+          "estimatedDistance": "number (meters)",
+          "estimatedDuration": "number (seconds)",
+          "estimatedPrice": "number (córdobas)",
+          "requestedAt": "number (unix timestamp)",
+          "serviceAreaId": "string (referencia a service_areas)",
+          "lastUpdate": "number (unix timestamp)"
+        },
+        "security_rules": {
+          "read": "auth != null",
+          "write": "auth != null"
+        }
+      },
       
       "driverLocations": {
         "description": "Ubicación actual de conductores",
@@ -135,6 +217,27 @@
           "currentRideId": "string | null",
           "timestamp": "number",
           "lastUpdate": "number"
+        },
+        "security_rules": {
+          "read": "auth != null",
+          "write": "auth != null && auth.uid == driverId"
+        }
+      },
+
+      "driverLocationsByArea": {
+        "description": "Ubicación actual de conductores, particionada por área de servicio",
+        "path": "driverLocationsByArea/{serviceAreaId}/{driverId}",
+        "structure": {
+          "lat": "number",
+          "lng": "number",
+          "heading": "number",
+          "speed": "number",
+          "accuracy": "number",
+          "status": "string (available | busy)",
+          "currentRideId": "string | null",
+          "timestamp": "number",
+          "lastUpdate": "number",
+          "serviceAreaId": "string (referencia a service_areas)"
         },
         "security_rules": {
           "read": "auth != null",
@@ -213,6 +316,39 @@
           "lastSeen": "number",
           "device": "string",
           "platform": "string (ios | android | web)"
+        },
+        "security_rules": {
+          "read": "auth != null",
+          "write": "auth != null && auth.uid == userId"
+        }
+      },
+
+      "clientsLocations": {
+        "description": "Ubicación actual de clientes (heartbeat y búsqueda de viajes)",
+        "path": "clientsLocations/{userId}",
+        "structure": {
+          "latitude": "number",
+          "longitude": "number",
+          "isManual": "boolean",
+          "timestamp": "number",
+          "lastHeartbeat": "number | null"
+        },
+        "security_rules": {
+          "read": "auth != null",
+          "write": "auth != null && auth.uid == userId"
+        }
+      },
+
+      "clientsLocationsByArea": {
+        "description": "Ubicación actual de clientes, particionada por área de servicio",
+        "path": "clientsLocationsByArea/{serviceAreaId}/{userId}",
+        "structure": {
+          "latitude": "number",
+          "longitude": "number",
+          "isManual": "boolean",
+          "timestamp": "number",
+          "lastHeartbeat": "number | null",
+          "serviceAreaId": "string (referencia a service_areas)"
         },
         "security_rules": {
           "read": "auth != null",

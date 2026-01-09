@@ -1,0 +1,63 @@
+{
+  "project_info": {
+    "project_number": "608732245640",
+    "firebase_url": "https://rundi-dev-default-rtdb.firebaseio.com",
+    "project_id": "rundi-dev",
+    "storage_bucket": "rundi-dev.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:608732245640:android:8800a090d2e1a33b63393d",
+        "android_client_info": {
+          "package_name": "com.driveangel.rundidev"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "608732245640-8058hv8i6m82i54g6jvbf8t8scqlu1o1.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.driveangel.rundidev",
+            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+          }
+        },
+        {
+          "client_id": "608732245640-pt2p05olseldkj4oermqaa8f66uhq00t.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.driveangel.rundidev",
+            "certificate_hash": "21452b73988a68628cdb2331f7f3847bcd5174a8"
+          }
+        },
+        {
+          "client_id": "608732245640-5maoqlvp5215h1e2i8nqvjb9q8pq94vd.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCa-YEzf1lNoma2QWIDEFbqjIBjh-NoxBY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "608732245640-5maoqlvp5215h1e2i8nqvjb9q8pq94vd.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "608732245640-eot8hsajjljf6bd32i82ssn8vusad9hq.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.driveangel.rundidev"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

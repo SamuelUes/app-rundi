@@ -17,20 +17,28 @@ export const createBiometricAuth = functions.https.onCall(async (data, context) 
   }
 
   try {
-    const { rideId, biometricType } = data;
+    const { rideId, biometricType, context: ctx, userType } = data;
     const userId = context.auth.uid;
 
     if (!biometricType) {
       throw new functions.https.HttpsError('invalid-argument', 'biometricType es requerido');
     }
 
-    console.log(`🔐 [createBiometricAuth] Creando autenticación biométrica: ${biometricType}`);
+    const contextValue = typeof ctx === 'string' && ctx.trim() ? ctx.trim() : 'generic';
+    const userTypeValue = typeof userType === 'string' && userType.trim() ? userType.trim() : 'client';
+
+    console.log(`🔐 [createBiometricAuth] Creando autenticación biométrica: ${biometricType} · context=${contextValue} · userType=${userTypeValue}`);
 
     const auth = await bioAuthRepo.create({
       ride_id: rideId || null,
       user_id: userId,
+      user_type: userTypeValue,
       biometric_type: biometricType,
-      status: 'pending',
+      context: contextValue,
+      success: true,
+      attempt_number: 1,
+      attempted_at: new Date(),
+      status: 'completed',
     });
 
     return {

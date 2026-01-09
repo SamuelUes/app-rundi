@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useNavigation, CommonActions } from '@react-navigation/native';
 import {
   View,
   Text,
@@ -8,17 +9,36 @@ import {
   ActivityIndicator,
   RefreshControl,
   Alert,
+  Image,
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
+import { useTranslation } from 'react-i18next';
 import { SkeletonLoader, RideListSkeleton } from '../../components/SkeletonLoader';
 import { NoHistoryEmptyState } from '../../components/EmptyState';
 import earningsService, { EarningsSummary, RideEarning, DriverStats } from '../../services/earningsService';
 
+const backButtonIcon = require('../../assets/icons/back_button/back_button.png');
+const arrowWhiteUpIcon = require('../../assets/icons/arrow/arrowwhiteup2x.png');
+const arrowBlackDownIcon = require('../../assets/icons/arrow/arrrowblackup2x.png');
+
 type Period = 'today' | 'week' | 'month';
 
+const DATE_LOCALE_MAP: Record<string, string> = {
+  es: 'es-NI',
+  en: 'en-US',
+  zh: 'zh-CN',
+};
+
 export default function EarningsScreen() {
-  const { colors } = useTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const { colors, isDark } = useTheme();
+  const { t, i18n } = useTranslation();
+  const accentColor = isDark ? '#D8A15F' : '#B77734';
+  const styles = useMemo(() => createStyles(colors, accentColor), [colors, accentColor]);
+  const dateLocale = useMemo(
+    () => DATE_LOCALE_MAP[i18n.language as keyof typeof DATE_LOCALE_MAP] ?? DATE_LOCALE_MAP.en,
+    [i18n.language],
+  );
+  const navigation = useNavigation<any>();
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -27,6 +47,9 @@ export default function EarningsScreen() {
   const [rides, setRides] = useState<RideEarning[]>([]);
   const [stats, setStats] = useState<DriverStats | null>(null);
   const [commissionBreakdown, setCommissionBreakdown] = useState<any>(null);
+  const COMMISSION_NORMAL_PERCENT = '11%';
+  const COMMISSION_DESIGNATED_PERCENT = '15%';
+  const statPlaceholder = t('driver.earnings.stats.placeholder');
 
   useEffect(() => {
     loadEarnings();
@@ -60,6 +83,25 @@ export default function EarningsScreen() {
     }
   };
 
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', (e: any) => {
+      const actionType = e?.data?.action?.type;
+      if (actionType !== 'GO_BACK' && actionType !== 'POP') {
+        return;
+      }
+
+      e.preventDefault();
+      navigation.dispatch(
+        CommonActions.reset({
+          index: 0,
+          routes: [{ name: 'DriverHome' }],
+        }),
+      );
+    });
+
+    return unsubscribe;
+  }, [navigation]);
+
   const loadCommissionBreakdown = async () => {
     try {
       const { getFunctions, httpsCallable } = await import('firebase/functions');
@@ -90,23 +132,62 @@ export default function EarningsScreen() {
     setRefreshing(false);
   };
 
-  const formatCurrency = (amount: number | undefined) => {
-    if (amount === undefined || amount === null) {
-      return 'C$0.00';
-    }
-    return `C$${Number(amount).toFixed(2)}`;
-  };
+  const formatCurrency = useCallback(
+    (amount?: number | null) =>
+      t('driver.earnings.labels.currency', {
+        amount: Number(amount ?? 0).toFixed(2),
+      }),
+    [t],
+  );
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('es-NI', {
-      day: '2-digit',
-      month: 'short',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
+  const formatDate = useCallback(
+    (dateString: string) => {
+      const date = new Date(dateString);
+      return date.toLocaleDateString(dateLocale, {
+        day: '2-digit',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    },
+    [dateLocale],
+  );
 
+  const formatDistance = useCallback(
+    (meters?: number | null) =>
+      t('driver.earnings.stats.kilometers', {
+        value: (Number(meters ?? 0) / 1000).toFixed(1),
+      }),
+    [t],
+  );
+
+  const formatDurationMinutes = useCallback(
+    (seconds?: number | null) =>
+      t('driver.earnings.stats.minutes', {
+        value: Math.max(0, Math.round((seconds ?? 0) / 60)),
+      }),
+    [t],
+  );
+
+  const formatStatNumber = useCallback(
+    (value?: number | null) => (value === null || value === undefined ? statPlaceholder : value.toString()),
+    [statPlaceholder],
+  );
+
+  const formatStatCurrency = useCallback(
+    (value?: number | null) => (value === null || value === undefined ? statPlaceholder : formatCurrency(value)),
+    [formatCurrency, statPlaceholder],
+  );
+
+  const formatStatDuration = useCallback(
+    (value?: number | null) => (value === null || value === undefined ? statPlaceholder : formatDurationMinutes(value)),
+    [formatDurationMinutes, statPlaceholder],
+  );
+
+  const formatStatDistance = useCallback(
+    (value?: number | null) => (value === null || value === undefined ? statPlaceholder : formatDistance(value)),
+    [formatDistance, statPlaceholder],
+  );
 
   if (loading && !refreshing) {
     return (
@@ -119,88 +200,108 @@ export default function EarningsScreen() {
   return (
     <ScrollView
       style={styles.container}
+      contentContainerStyle={styles.contentContainer}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
     >
-      {/* Selector de período */}
-      <View style={styles.periodSelector}>
-        <TouchableOpacity
-          style={[styles.periodButton, selectedPeriod === 'today' && styles.periodButtonActive]}
-          onPress={() => setSelectedPeriod('today')}
-        >
-          <Text style={[styles.periodButtonText, selectedPeriod === 'today' && styles.periodButtonTextActive]}>
-            Hoy
-          </Text>
+      <View style={styles.header}>
+        <TouchableOpacity style={styles.headerBackButton} onPress={() => navigation.goBack()}>
+          <Image source={backButtonIcon} style={[styles.backIcon, { tintColor: colors.text }]} resizeMode="contain" />
         </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.periodButton, selectedPeriod === 'week' && styles.periodButtonActive]}
-          onPress={() => setSelectedPeriod('week')}
-        >
-          <Text style={[styles.periodButtonText, selectedPeriod === 'week' && styles.periodButtonTextActive]}>
-            Semana
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.periodButton, selectedPeriod === 'month' && styles.periodButtonActive]}
-          onPress={() => setSelectedPeriod('month')}
-        >
-          <Text style={[styles.periodButtonText, selectedPeriod === 'month' && styles.periodButtonTextActive]}>
-            Mes
-          </Text>
-        </TouchableOpacity>
+        <Text style={styles.headerTitle}>{t('driver.earnings.header.title')}</Text>
+        <View style={styles.headerSpacer} />
       </View>
 
-      {/* Resumen de ganancias */}
+      <View style={styles.balanceSection}>
+        <Text style={styles.sectionTitle}>{t('driver.earnings.section.balance')}</Text>
+        <View style={styles.periodSelector}>
+          <TouchableOpacity
+            style={[styles.periodButton, selectedPeriod === 'today' && styles.periodButtonActive]}
+            onPress={() => setSelectedPeriod('today')}
+          >
+            <Text style={[styles.periodButtonText, selectedPeriod === 'today' && styles.periodButtonTextActive]}>
+              {t('driver.earnings.period.today')}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.periodButton, selectedPeriod === 'week' && styles.periodButtonActive]}
+            onPress={() => setSelectedPeriod('week')}
+          >
+            <Text style={[styles.periodButtonText, selectedPeriod === 'week' && styles.periodButtonTextActive]}>
+              {t('driver.earnings.period.week')}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.periodButton, selectedPeriod === 'month' && styles.periodButtonActive]}
+            onPress={() => setSelectedPeriod('month')}
+          >
+            <Text style={[styles.periodButtonText, selectedPeriod === 'month' && styles.periodButtonTextActive]}>
+              {t('driver.earnings.period.month')}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Card Resumen */}
       {summary && (
         <View style={styles.summaryCard}>
-          <Text style={styles.summaryTitle}>💰 Resumen de Ganancias</Text>
-          
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Total Bruto:</Text>
-            <Text style={styles.summaryValue}>{formatCurrency(summary.totalEarnings)}</Text>
-          </View>
-
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Comisión:</Text>
-            <Text style={[styles.summaryValue, { color: '#FF5252' }]}>
-              -{formatCurrency(summary.commission)}
-            </Text>
-          </View>
-
-          <View style={[styles.summaryRow, styles.summaryRowTotal]}>
-            <Text style={styles.summaryLabelTotal}>Ganancia Neta:</Text>
-            <Text style={styles.summaryValueTotal}>{formatCurrency(summary.netEarnings)}</Text>
-          </View>
-
-          <View style={styles.summaryStats}>
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{summary.totalRides}</Text>
-              <Text style={styles.statLabel}>Viajes</Text>
+          <View style={styles.summaryValues}>
+            <View style={styles.summaryValueRow}>
+              <Text style={styles.summaryValueLabel}>{t('driver.earnings.summary.totalGross')}</Text>
+              <Text style={styles.summaryValueText}>{formatCurrency(summary.totalEarnings)}</Text>
             </View>
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{formatCurrency(summary.averagePerRide)}</Text>
-              <Text style={styles.statLabel}>Promedio</Text>
+            <View style={styles.summaryValueRow}>
+              <Text style={styles.summaryValueLabel}>{t('driver.earnings.summary.commission')}</Text>
+              <Text style={[styles.summaryValueText, styles.summaryCommissionText]}>
+                -{formatCurrency(summary.commission)}
+              </Text>
             </View>
+          </View>
+          <View style={styles.summaryNetRow}>
+            <Text style={styles.summaryNetLabel}>{t('driver.earnings.summary.net')}</Text>
+            <Text style={styles.summaryNetValue}>{formatCurrency(summary.netEarnings)}</Text>
           </View>
         </View>
       )}
 
+      <View style={styles.navigationButtons}>
+        <TouchableOpacity
+          style={styles.primaryNavButton}
+          activeOpacity={0.9}
+          onPress={() => navigation.navigate('PayCommissions')}
+        >
+          <Image source={arrowWhiteUpIcon} style={[styles.navIcon, styles.navIconWhite]} resizeMode="contain" />
+          <Text style={styles.primaryNavText}>{t('driver.earnings.nav.commissions')}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.secondaryNavButton}
+          activeOpacity={0.9}
+          onPress={() => navigation.navigate('RideHistory')}
+        >
+          <Image source={arrowBlackDownIcon} style={[styles.navIcon, styles.navIconDark]} resizeMode="contain" />
+          <Text style={styles.secondaryNavText}>{t('driver.earnings.nav.history')}</Text>
+        </TouchableOpacity>
+      </View>
+
       {/* Desglose de Comisiones */}
       {commissionBreakdown && (commissionBreakdown.cash.total.commission > 0 || commissionBreakdown.card.total.commission > 0) && (
         <View style={styles.commissionCard}>
-          <Text style={styles.commissionTitle}>💰 Desglose de Comisiones</Text>
+          <Text style={styles.commissionTitle}>{t('driver.earnings.commission.title')}</Text>
           
           {/* Comisiones en Efectivo */}
           {commissionBreakdown.cash.total.rides > 0 && (
             <View style={styles.commissionSection}>
               <View style={styles.commissionHeader}>
                 <Text style={styles.commissionIcon}>💵</Text>
-                <Text style={styles.commissionLabel}>Efectivo</Text>
+                <Text style={styles.commissionLabel}>{t('driver.earnings.commission.cashLabel')}</Text>
               </View>
               
               {commissionBreakdown.cash.normal.rides > 0 && (
                 <View style={styles.commissionRow}>
                   <Text style={styles.commissionDetail}>
-                    {commissionBreakdown.cash.normal.rides} viajes normales (11%)
+                    {t('driver.earnings.commission.normalTrips', {
+                      count: commissionBreakdown.cash.normal.rides,
+                      rate: COMMISSION_NORMAL_PERCENT,
+                    })}
                   </Text>
                   <Text style={styles.commissionAmount}>
                     {formatCurrency(commissionBreakdown.cash.normal.commission)}
@@ -211,7 +312,10 @@ export default function EarningsScreen() {
               {commissionBreakdown.cash.designated.rides > 0 && (
                 <View style={styles.commissionRow}>
                   <Text style={styles.commissionDetail}>
-                    {commissionBreakdown.cash.designated.rides} viajes designado (15%)
+                    {t('driver.earnings.commission.designatedTrips', {
+                      count: commissionBreakdown.cash.designated.rides,
+                      rate: COMMISSION_DESIGNATED_PERCENT,
+                    })}
                   </Text>
                   <Text style={styles.commissionAmount}>
                     {formatCurrency(commissionBreakdown.cash.designated.commission)}
@@ -220,7 +324,7 @@ export default function EarningsScreen() {
               )}
               
               <View style={[styles.commissionRow, styles.commissionRowTotal]}>
-                <Text style={styles.commissionTotalLabel}>Subtotal Efectivo:</Text>
+                <Text style={styles.commissionTotalLabel}>{t('driver.earnings.commission.subtotalCash')}</Text>
                 <Text style={styles.commissionTotalAmount}>
                   {formatCurrency(commissionBreakdown.cash.total.commission)}
                 </Text>
@@ -233,13 +337,16 @@ export default function EarningsScreen() {
             <View style={styles.commissionSection}>
               <View style={styles.commissionHeader}>
                 <Text style={styles.commissionIcon}>💳</Text>
-                <Text style={styles.commissionLabel}>Tarjeta/Banco</Text>
+                <Text style={styles.commissionLabel}>{t('driver.earnings.commission.cardLabel')}</Text>
               </View>
               
               {commissionBreakdown.card.normal.rides > 0 && (
                 <View style={styles.commissionRow}>
                   <Text style={styles.commissionDetail}>
-                    {commissionBreakdown.card.normal.rides} viajes normales (11%)
+                    {t('driver.earnings.commission.normalTrips', {
+                      count: commissionBreakdown.card.normal.rides,
+                      rate: COMMISSION_NORMAL_PERCENT,
+                    })}
                   </Text>
                   <Text style={styles.commissionAmount}>
                     {formatCurrency(commissionBreakdown.card.normal.commission)}
@@ -250,7 +357,10 @@ export default function EarningsScreen() {
               {commissionBreakdown.card.designated.rides > 0 && (
                 <View style={styles.commissionRow}>
                   <Text style={styles.commissionDetail}>
-                    {commissionBreakdown.card.designated.rides} viajes designado (15%)
+                    {t('driver.earnings.commission.designatedTrips', {
+                      count: commissionBreakdown.card.designated.rides,
+                      rate: COMMISSION_DESIGNATED_PERCENT,
+                    })}
                   </Text>
                   <Text style={styles.commissionAmount}>
                     {formatCurrency(commissionBreakdown.card.designated.commission)}
@@ -259,7 +369,7 @@ export default function EarningsScreen() {
               )}
               
               <View style={[styles.commissionRow, styles.commissionRowTotal]}>
-                <Text style={styles.commissionTotalLabel}>Subtotal Tarjeta:</Text>
+                <Text style={styles.commissionTotalLabel}>{t('driver.earnings.commission.subtotalCard')}</Text>
                 <Text style={styles.commissionTotalAmount}>
                   {formatCurrency(commissionBreakdown.card.total.commission)}
                 </Text>
@@ -269,7 +379,7 @@ export default function EarningsScreen() {
 
           {/* Total General */}
           <View style={styles.commissionGrandTotal}>
-            <Text style={styles.commissionGrandTotalLabel}>Total Comisiones:</Text>
+            <Text style={styles.commissionGrandTotalLabel}>{t('driver.earnings.commission.totalLabel')}</Text>
             <Text style={styles.commissionGrandTotalAmount}>
               {formatCurrency(commissionBreakdown.totals.commission)}
             </Text>
@@ -277,30 +387,34 @@ export default function EarningsScreen() {
         </View>
       )}
 
-      {/* Estadísticas generales */}
+      {/* Estadísticas */}
       {stats && (
-        <View style={styles.statsCard}>
-          <Text style={styles.statsTitle}>📊 Estadísticas Generales</Text>
-          
-          <View style={styles.statsGrid}>
-            <View style={styles.statsGridItem}>
-              <Text style={styles.statsGridValue}>{stats.totalRides}</Text>
-              <Text style={styles.statsGridLabel}>Total Viajes</Text>
+        <View style={styles.statsSection}>
+          <Text style={styles.sectionTitle}>{t('driver.earnings.section.stats')}</Text>
+          <View style={styles.statsGridChips}>
+            <View style={styles.statChip}>
+              <Text style={styles.statChipLabel}>{t('driver.earnings.stats.ridesToday')}</Text>
+              <Text style={styles.statChipValue}>{formatStatNumber(stats.ridesToday)}</Text>
             </View>
-            <View style={styles.statsGridItem}>
-              <Text style={styles.statsGridValue}>{formatCurrency(stats.totalNetEarnings)}</Text>
-              <Text style={styles.statsGridLabel}>Total Ganado</Text>
+            <View style={styles.statChip}>
+              <Text style={styles.statChipLabel}>{t('driver.earnings.stats.totalRides')}</Text>
+              <Text style={styles.statChipValue}>{formatStatNumber(stats.totalRides)}</Text>
             </View>
-          </View>
-
-          <View style={styles.statsGrid}>
-            <View style={styles.statsGridItem}>
-              <Text style={styles.statsGridValue}>{(stats.totalDistance / 1000).toFixed(1)} km</Text>
-              <Text style={styles.statsGridLabel}>Distancia Total</Text>
+            <View style={styles.statChip}>
+              <Text style={styles.statChipLabel}>{t('driver.earnings.stats.totalTime')}</Text>
+              <Text style={styles.statChipValue}>{formatStatDuration(stats.totalDuration)}</Text>
             </View>
-            <View style={styles.statsGridItem}>
-              <Text style={styles.statsGridValue}>{(stats.totalDuration / 60).toFixed(0)} min</Text>
-              <Text style={styles.statsGridLabel}>Tiempo Total</Text>
+            <View style={styles.statChip}>
+              <Text style={styles.statChipLabel}>{t('driver.earnings.stats.avgEarnings')}</Text>
+              <Text style={styles.statChipValue}>{formatStatCurrency(stats.averageFare)}</Text>
+            </View>
+            <View style={styles.statChip}>
+              <Text style={styles.statChipLabel}>{t('driver.earnings.stats.totalNet')}</Text>
+              <Text style={styles.statChipValue}>{formatStatCurrency(stats.totalNetEarnings)}</Text>
+            </View>
+            <View style={styles.statChip}>
+              <Text style={styles.statChipLabel}>{t('driver.earnings.stats.totalDistance')}</Text>
+              <Text style={styles.statChipValue}>{formatStatDistance(stats.totalDistance)}</Text>
             </View>
           </View>
         </View>
@@ -308,11 +422,11 @@ export default function EarningsScreen() {
 
       {/* Lista de viajes */}
       <View style={styles.ridesSection}>
-        <Text style={styles.ridesTitle}>📋 Historial de Viajes</Text>
+        <Text style={styles.ridesTitle}>{t('driver.earnings.rides.title')}</Text>
         
         {!rides || rides.length === 0 ? (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyStateText}>No hay viajes en este período</Text>
+            <Text style={styles.emptyStateText}>{t('driver.earnings.rides.empty')}</Text>
           </View>
         ) : (
           rides.map((ride) => (
@@ -324,42 +438,52 @@ export default function EarningsScreen() {
                   { backgroundColor: ride.paymentStatus === 'completed' ? '#4CAF50' : '#FFA726' }
                 ]}>
                   <Text style={styles.paymentBadgeText}>
-                    {ride.paymentStatus === 'completed' ? 'Pagado' : 'Pendiente'}
+                    {ride.paymentStatus === 'completed'
+                      ? t('driver.earnings.rides.status.paid')
+                      : t('driver.earnings.rides.status.pending')}
                   </Text>
                 </View>
               </View>
 
               <View style={styles.rideLocations}>
                 <Text style={styles.rideLocation} numberOfLines={1}>
-                  📍 {ride.origin}
+                  {t('driver.earnings.rides.origin', {
+                    value: ride.origin || t('driver.earnings.rides.unknownLocation'),
+                  })}
                 </Text>
                 <Text style={styles.rideLocation} numberOfLines={1}>
-                  🎯 {ride.destination}
+                  {t('driver.earnings.rides.destination', {
+                    value: ride.destination || t('driver.earnings.rides.unknownLocation'),
+                  })}
                 </Text>
               </View>
 
               <View style={styles.rideDetails}>
                 <Text style={styles.rideDetail}>
-                  📏 {(ride.distance / 1000).toFixed(1)} km
+                  {t('driver.earnings.rides.distance', {
+                    value: (ride.distance / 1000).toFixed(1),
+                  })}
                 </Text>
                 <Text style={styles.rideDetail}>
-                  ⏱️ {(ride.duration / 60).toFixed(0)} min
+                  {t('driver.earnings.rides.duration', {
+                    value: Math.max(0, Math.round(ride.duration / 60)),
+                  })}
                 </Text>
               </View>
 
               <View style={styles.rideEarnings}>
                 <View style={styles.rideEarningRow}>
-                  <Text style={styles.rideEarningLabel}>Tarifa:</Text>
+                  <Text style={styles.rideEarningLabel}>{t('driver.earnings.rides.fare')}</Text>
                   <Text style={styles.rideEarningValue}>{formatCurrency(ride.fare)}</Text>
                 </View>
                 <View style={styles.rideEarningRow}>
-                  <Text style={styles.rideEarningLabel}>Comisión:</Text>
+                  <Text style={styles.rideEarningLabel}>{t('driver.earnings.rides.commission')}</Text>
                   <Text style={[styles.rideEarningValue, { color: '#FF5252' }]}>
                     -{formatCurrency(ride.commission)}
                   </Text>
                 </View>
                 <View style={[styles.rideEarningRow, styles.rideEarningRowTotal]}>
-                  <Text style={styles.rideEarningLabelTotal}>Tu ganancia:</Text>
+                  <Text style={styles.rideEarningLabelTotal}>{t('driver.earnings.rides.net')}</Text>
                   <Text style={styles.rideEarningValueTotal}>{formatCurrency(ride.netEarning)}</Text>
                 </View>
               </View>
@@ -372,107 +496,210 @@ export default function EarningsScreen() {
   );
 }
 
-const createStyles = (colors: any) => StyleSheet.create({
+const createStyles = (colors: any, accentColor: string) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
   },
+  contentContainer: {
+    paddingBottom: 32,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 46,
+    paddingBottom: 8,
+  },
+  headerBackButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  backIcon: {
+    width: 28,
+    height: 28,
+  },
+  headerTitle: {
+    flex: 1,
+    textAlign: 'center',
+    fontSize: 20,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  headerSpacer: {
+    width: 40,
+  },
+  balanceSection: {
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 12,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 12,
+  },
   periodSelector: {
     flexDirection: 'row',
-    padding: 16,
-    gap: 8,
+    gap: 12,
   },
   periodButton: {
     flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 12,
+    paddingVertical: 11,
+    paddingHorizontal: 20,
+    borderRadius: 999,
     backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: accentColor,
     alignItems: 'center',
   },
   periodButtonActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
+    backgroundColor: accentColor,
+    borderColor: accentColor,
   },
   periodButtonText: {
     fontSize: 14,
     fontWeight: '600',
-    color: colors.text,
+    color: accentColor,
   },
   periodButtonTextActive: {
-    color: '#fff',
+    color: colors.background,
   },
   summaryCard: {
-    margin: 16,
-    marginTop: 0,
-    padding: 20,
+    marginHorizontal: 20,
+    marginTop: 4,
+    borderRadius: 24,
     backgroundColor: colors.card,
-    borderRadius: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: 'hidden',
   },
-  summaryTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: colors.text,
-    marginBottom: 16,
+  summaryValues: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 16,
+    gap: 12,
   },
-  summaryRow: {
+  summaryValueRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    alignItems: 'center',
   },
-  summaryLabel: {
-    fontSize: 14,
-    color: colors.textSecondary,
-  },
-  summaryValue: {
-    fontSize: 14,
-    fontWeight: '600',
+  summaryValueLabel: {
+    fontSize: 15,
     color: colors.text,
+    fontWeight: '500',
   },
-  summaryRowTotal: {
-    marginTop: 8,
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  summaryLabelTotal: {
+  summaryValueText: {
     fontSize: 16,
     fontWeight: '700',
     color: colors.text,
   },
-  summaryValueTotal: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#4CAF50',
+  summaryCommissionText: {
+    color: '#E53935',
   },
-  summaryStats: {
+  summaryNetRow: {
+    backgroundColor: accentColor,
+    paddingHorizontal: 24,
+    paddingVertical: 16,
     flexDirection: 'row',
-    marginTop: 16,
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    gap: 16,
-  },
-  statItem: {
-    flex: 1,
+    justifyContent: 'space-between',
     alignItems: 'center',
   },
-  statValue: {
+  summaryNetLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.background,
+  },
+  summaryNetValue: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: colors.background,
+  },
+  statsSection: {
+    paddingHorizontal: 20,
+    marginTop: 14,
+  },
+  statsGridChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginTop: 16,
+  },
+  statChip: {
+    width: '48%',
+    backgroundColor: colors.surface,
+    borderRadius: 20,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    marginBottom: 12,
+  },
+  statChipLabel: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    marginBottom: 8,
+  },
+  statChipValue: {
     fontSize: 18,
     fontWeight: '700',
-    color: colors.primary,
-    marginBottom: 4,
+    color: colors.text,
   },
-  statLabel: {
-    fontSize: 12,
-    color: colors.textSecondary,
+  navigationButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 30,
+    paddingVertical: 20,
+    marginTop: 5,
+    marginBottom: 8,
+    gap: 12,
+  },
+  primaryNavButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.text,
+    borderRadius: 999,
+    paddingVertical: 14,
+    gap: 8,
+  },
+  primaryNavText: {
+    color: colors.background,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  secondaryNavButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 999,
+    paddingVertical: 14,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+  },
+  secondaryNavText: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  navIcon: {
+    width: 14,
+    height: 14,
+  },
+  navIconWhite: {
+    tintColor: colors.background,
+  },
+  navIconDark: {
+    tintColor: colors.text,
+    transform: [{ rotate: '90deg' }],
   },
   commissionCard: {
     margin: 16,
@@ -497,6 +724,11 @@ const createStyles = (colors: any) => StyleSheet.create({
     paddingBottom: 16,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
+  },
+  commissionBreakdown: {
+    marginTop: 4,
+    gap: 4,
+    paddingLeft: 28,
   },
   commissionHeader: {
     flexDirection: 'row',
@@ -528,12 +760,67 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontWeight: '600',
     color: '#FF5252',
   },
+  commissionAmountHighlight: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#E53935',
+  },
   commissionRowTotal: {
     marginTop: 8,
     paddingTop: 8,
     borderTopWidth: 1,
     borderTopColor: colors.border,
     paddingLeft: 28,
+  },
+  commissionSubtitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.text,
+    marginTop: 10,
+    paddingLeft: 4,
+  },
+  commissionPaymentList: {
+    marginTop: 6,
+    gap: 8,
+  },
+  commissionPaymentItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  commissionPaymentLeft: {
+    flex: 1,
+    gap: 2,
+  },
+  commissionPaymentRight: {
+    alignItems: 'flex-end',
+    minWidth: 70,
+    gap: 2,
+  },
+  commissionPaymentMethod: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  commissionPaymentDate: {
+    fontSize: 12,
+    color: colors.textSecondary,
+  },
+  commissionPaymentRide: {
+    fontSize: 12,
+    color: colors.textSecondary,
+  },
+  commissionRateText: {
+    fontSize: 12,
+    color: colors.textSecondary,
+  },
+  commissionMoreText: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    textAlign: 'right',
   },
   commissionTotalLabel: {
     fontSize: 15,

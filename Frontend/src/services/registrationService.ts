@@ -4,17 +4,34 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
+import client from '../api/client';
+import { ENDPOINTS } from '../api/endpoints';
 import { httpsCallable } from 'firebase/functions';
-import { getFirebaseFunctions } from '../config/firebase';
+import { GoogleAuthProvider, signInWithCredential } from 'firebase/auth';
+import { getFirebaseAuth, getFirebaseFunctions } from '../config/firebase';
+
+type RegistrationMethod = 'email' | 'phone' | 'google';
+type RegistrationAuthProvider = 'email/password' | 'phone' | 'google';
 
 interface RegistrationData {
   name: string;
-  email: string;
-  phone: string;
+  email?: string;
+  phone?: string;
   password?: string;
-  role: 'client' | 'driver';
-  authProvider?: 'email/password' | 'google';
-  phoneVerified: boolean;
+  role?: 'client' | 'driver';
+  method?: RegistrationMethod;
+  authProvider?: RegistrationAuthProvider;
+  phoneVerified?: boolean;
+  lastStep?:
+    | 'register'
+    | 'roleSelection'
+    | 'googlePhone'
+    | 'driverPhone'
+    | 'phoneVerification'
+    | 'driverData'
+    | 'registerConfirm';
+  googleIdToken?: string;
   driverData?: {
     licenseNumber: string;
     licenseExpiry: string;
@@ -64,12 +81,7 @@ class RegistrationService {
     try {
       const existingData = await this.getTemporaryData();
       const mergedData = { ...existingData, ...data };
-      
-      await AsyncStorage.setItem(
-        this.TEMP_STORAGE_KEY,
-        JSON.stringify(mergedData)
-      );
-      
+      await SecureStore.setItemAsync(this.TEMP_STORAGE_KEY, JSON.stringify(mergedData));
       console.log('✅ Datos temporales guardados');
     } catch (error) {
       console.error('❌ Error guardando datos temporales:', error);
@@ -82,8 +94,12 @@ class RegistrationService {
    */
   async getTemporaryData(): Promise<Partial<RegistrationData>> {
     try {
-      const data = await AsyncStorage.getItem(this.TEMP_STORAGE_KEY);
-      return data ? JSON.parse(data) : {};
+      const secureData = await SecureStore.getItemAsync(this.TEMP_STORAGE_KEY);
+      if (secureData) {
+        return JSON.parse(secureData);
+      }
+      const legacyData = await AsyncStorage.getItem(this.TEMP_STORAGE_KEY);
+      return legacyData ? JSON.parse(legacyData) : {};
     } catch (error) {
       console.error('❌ Error obteniendo datos temporales:', error);
       return {};
@@ -95,6 +111,7 @@ class RegistrationService {
    */
   async clearTemporaryData(): Promise<void> {
     try {
+      await SecureStore.deleteItemAsync(this.TEMP_STORAGE_KEY);
       await AsyncStorage.removeItem(this.TEMP_STORAGE_KEY);
       console.log('✅ Datos temporales limpios');
     } catch (error) {
@@ -111,13 +128,24 @@ class RegistrationService {
       console.log('📝 Creando usuario...');
 
       // Validar datos requeridos (email es opcional)
-      if (!data.name || !data.role || !data.phone) {
-        throw new Error('Datos requeridos faltantes: nombre, rol y teléfono');
+      if (!data.name || !data.role) {
+        throw new Error('Datos requeridos faltantes: nombre y rol');
       }
 
-      // Validar que el teléfono esté verificado
-      if (!data.phoneVerified) {
-        throw new Error('El número telefónico no ha sido verificado');
+      if (!data.method || !data.authProvider) {
+        throw new Error('Método de registro inválido');
+      }
+
+      if (data.authProvider === 'email/password') {
+        if (!data.email || !data.password) {
+          throw new Error('Correo y contraseña requeridos para este método');
+        }
+      }
+
+      if (data.authProvider === 'phone') {
+        if (!data.phone || !data.phoneVerified) {
+          throw new Error('Teléfono verificado requerido para registro por SMS');
+        }
       }
 
       // Para conductores, validar datos adicionales
@@ -127,58 +155,70 @@ class RegistrationService {
         }
       }
 
-      // Preparar datos para Cloud Function
+      let firebaseUser: import('firebase/auth').User | null = null;
+
+      if (data.authProvider === 'google') {
+        if (!data.googleIdToken) {
+          throw new Error('Token de Google no disponible para completar el registro');
+        }
+
+        try {
+          const auth = await getFirebaseAuth();
+          const credential = GoogleAuthProvider.credential(data.googleIdToken);
+          const userCredential = await signInWithCredential(auth, credential);
+          firebaseUser = userCredential.user;
+          console.log('✅ Usuario autenticado con Google en Firebase:', firebaseUser.uid);
+        } catch (googleError: any) {
+          console.error('❌ Error autenticando con Google en Firebase:', googleError);
+          throw new Error(googleError?.message || 'No se pudo autenticar con Google');
+        }
+      }
+
       const registrationPayload = {
-        email: data.email,
+        email: data.email || firebaseUser?.email || undefined,
         password: data.password || undefined,
         name: data.name,
-        phone: data.phone,
+        phone: data.phone || firebaseUser?.phoneNumber || undefined,
         role: data.role,
         authProvider: data.authProvider || 'email/password',
+        method: data.method || data.authProvider || 'email',
+        phoneVerified: data.phoneVerified || false,
         driverData: data.driverData || undefined,
         vehicleData: data.vehicleData || undefined,
+        googleIdToken: data.googleIdToken || undefined,
       };
 
-      // Llamar a Cloud Function
-      const functions = await getFirebaseFunctions();
-      const registerFn = httpsCallable(functions, 'register');
+      const { data: result } = await client.post(ENDPOINTS.auth.register, registrationPayload);
 
-      const result: any = await registerFn(registrationPayload);
+      const user = result?.user;
+      if (!result?.success || !user) {
+        throw new Error(result?.error || 'Respuesta inválida del servidor');
+      }
 
-      console.log('✅ Usuario creado:', result.data);
+      console.log('✅ Usuario creado:', user);
 
-      // Guardar datos del usuario
       await AsyncStorage.setItem(
         this.STORAGE_KEY,
         JSON.stringify({
-          userId: result.data.userId,
-          email: result.data.email,
-          name: result.data.name,
-          role: result.data.role,
+          userId: user.userId,
+          email: user.email,
+          name: user.name,
+          role: user.role,
         })
       );
 
-      // Limpiar datos temporales
+      if (result.token) {
+        await AsyncStorage.setItem('authToken', result.token);
+      }
+
       await this.clearTemporaryData();
 
-      return result.data;
+      return result;
     } catch (error: any) {
       console.error('❌ Error creando usuario:', error);
-
-      // Mapeo de errores
-      if (error.message && error.message.includes('verificado')) {
-        throw new Error(error.message);
-      }
-
-      if (error.code === 'functions/already-exists') {
-        throw new Error('Este email ya está registrado');
-      }
-
-      if (error.code === 'functions/invalid-argument') {
-        throw new Error(error.message || 'Datos inválidos');
-      }
-
-      throw new Error(error.message || 'Error al crear usuario');
+      const apiMessage = error?.response?.data?.error;
+      const message = apiMessage || error?.message || 'Error al crear usuario';
+      throw new Error(message);
     }
   }
 
@@ -214,6 +254,60 @@ class RegistrationService {
 
       throw new Error(
         error.message || 'Error al completar registro de conductor'
+      );
+    }
+  }
+
+  /**
+   * Actualizar una cuenta existente de cliente a conductor (upgrade)
+   * Usa la Cloud Function upgradeClientToDriver
+   */
+  async upgradeClientToDriver(driverData: any, vehicleData: any): Promise<any> {
+    try {
+      console.log('📝 Iniciando upgrade de cliente a conductor...');
+
+      if (!driverData || !vehicleData) {
+        throw new Error('Datos de conductor y vehículo requeridos');
+      }
+
+      const functions = await getFirebaseFunctions();
+      const upgradeFn = httpsCallable(functions, 'upgradeClientToDriver');
+      const result: any = await upgradeFn({
+        driverData,
+        vehicleData,
+      });
+
+      const data = result?.data || result;
+      console.log('✅ Upgrade cliente→conductor completado:', data);
+
+      return data;
+    } catch (error: any) {
+      console.error('❌ Error en upgrade cliente→conductor:', error);
+
+      const code = error?.code || '';
+      const message = error?.message || '';
+
+      if (
+        typeof message === 'string' &&
+        message === 'PHONE_VERIFICATION_REQUIRED'
+      ) {
+        throw new Error(
+          'Debes verificar tu número de teléfono antes de completar el registro de conductor.',
+        );
+      }
+
+      if (typeof message === 'string' && message.length > 0) {
+        throw new Error(message);
+      }
+
+      if (typeof code === 'string' && code.includes('failed-precondition')) {
+        throw new Error(
+          'No se pudo completar la actualización de tu cuenta. Verifica tu información e inténtalo de nuevo.',
+        );
+      }
+
+      throw new Error(
+        'Error al actualizar tu cuenta para ser conductor. Inténtalo nuevamente más tarde.',
       );
     }
   }
@@ -261,8 +355,10 @@ class RegistrationService {
     }
 
     // Validar teléfono
-    if (!data.phone || !/^\+505\d{8}$/.test(data.phone.replace(/\s/g, ''))) {
-      errors.push('Teléfono debe estar en formato +505 XXXX XXXX');
+    if (data.authProvider === 'phone' || data.method === 'phone') {
+      if (!data.phone || !/^\+505\d{8}$/.test(data.phone.replace(/\s/g, ''))) {
+        errors.push('Teléfono debe estar en formato +505 XXXX XXXX');
+      }
     }
 
     // Validar rol
@@ -271,7 +367,7 @@ class RegistrationService {
     }
 
     // Validar contraseña (si es email/password)
-    if (data.authProvider !== 'google' && (!data.password || data.password.length < 6)) {
+    if (data.authProvider === 'email/password' && (!data.password || data.password.length < 6)) {
       errors.push('Contraseña debe tener al menos 6 caracteres');
     }
 

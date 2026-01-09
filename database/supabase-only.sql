@@ -55,6 +55,119 @@ END;
 $$ language 'plpgsql';
 
 -- ============================================
+-- STORAGE BUCKETS (drivers-documents, rides-documents)
+-- ============================================
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('drivers-documents', 'drivers-documents', TRUE)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('rides-documents', 'rides-documents', TRUE)
+ON CONFLICT (id) DO NOTHING;
+
+COMMENT ON TABLE storage.buckets IS 'Buckets utilizados por la aplicación móvil';
+COMMENT ON COLUMN storage.buckets.public IS 'TRUE = archivos accesibles con URL pública';
+
+-- Eliminar políticas previas para evitar duplicados al aplicar el script
+DROP POLICY IF EXISTS "drivers_docs_insert_own" ON storage.objects;
+DROP POLICY IF EXISTS "drivers_docs_read_own" ON storage.objects;
+DROP POLICY IF EXISTS "drivers_docs_update_own" ON storage.objects;
+DROP POLICY IF EXISTS "drivers_docs_delete_own" ON storage.objects;
+
+DROP POLICY IF EXISTS "rides_docs_insert_own" ON storage.objects;
+DROP POLICY IF EXISTS "rides_docs_read_own" ON storage.objects;
+DROP POLICY IF EXISTS "rides_docs_update_own" ON storage.objects;
+DROP POLICY IF EXISTS "rides_docs_delete_own" ON storage.objects;
+DROP POLICY IF EXISTS "rides_docs_insert_public_paths" ON storage.objects;
+
+-- Políticas drivers-documents (rol anon porque los uploads usan anon key)
+CREATE POLICY "drivers_docs_insert_own"
+ON storage.objects
+FOR INSERT
+TO anon
+WITH CHECK (
+  bucket_id = 'drivers-documents'
+  AND name LIKE '%' || public.current_firebase_uid() || '/%'
+);
+
+CREATE POLICY "drivers_docs_read_own"
+ON storage.objects
+FOR SELECT
+TO anon
+USING (
+  bucket_id = 'drivers-documents'
+  AND name LIKE '%' || public.current_firebase_uid() || '/%'
+);
+
+CREATE POLICY "drivers_docs_update_own"
+ON storage.objects
+FOR UPDATE
+TO anon
+USING (
+  bucket_id = 'drivers-documents'
+  AND name LIKE '%' || public.current_firebase_uid() || '/%'
+);
+
+CREATE POLICY "drivers_docs_delete_own"
+ON storage.objects
+FOR DELETE
+TO anon
+USING (
+  bucket_id = 'drivers-documents'
+  AND name LIKE '%' || public.current_firebase_uid() || '/%'
+);
+
+-- Políticas rides-documents
+CREATE POLICY "rides_docs_insert_own"
+ON storage.objects
+FOR INSERT
+TO anon
+WITH CHECK (
+  bucket_id = 'rides-documents'
+  AND name LIKE '%' || public.current_firebase_uid() || '%'
+);
+
+CREATE POLICY "rides_docs_read_own"
+ON storage.objects
+FOR SELECT
+TO anon
+USING (
+  bucket_id = 'rides-documents'
+  AND name LIKE '%' || public.current_firebase_uid() || '%'
+);
+
+CREATE POLICY "rides_docs_update_own"
+ON storage.objects
+FOR UPDATE
+TO anon
+USING (
+  bucket_id = 'rides-documents'
+  AND name LIKE '%' || public.current_firebase_uid() || '%'
+);
+
+CREATE POLICY "rides_docs_delete_own"
+ON storage.objects
+FOR DELETE
+TO anon
+USING (
+  bucket_id = 'rides-documents'
+  AND name LIKE '%' || public.current_firebase_uid() || '%'
+);
+
+-- Fallback para clientes móviles (anon key) limitado a prefijos permitidos
+CREATE POLICY "rides_docs_insert_public_paths"
+ON storage.objects
+FOR INSERT
+TO anon
+WITH CHECK (
+  bucket_id = 'rides-documents'
+  AND (
+    name LIKE 'client-vehicles/%'
+    OR name LIKE 'rides-inspection/%'
+  )
+);
+
+-- ============================================
 -- 1. DRIVERS TABLE
 -- Datos sensibles de conductores
 -- ============================================
@@ -68,7 +181,9 @@ CREATE TABLE IF NOT EXISTS public.drivers (
   license_photo_back VARCHAR(500) NULL,
   department VARCHAR(100) NULL,
   municipality VARCHAR(100) NULL,
-  status VARCHAR(20) NULL DEFAULT 'pending'::VARCHAR,
+  account_status VARCHAR(20) NULL DEFAULT 'pending'::VARCHAR,
+  documents_status VARCHAR(20) NULL DEFAULT 'pending'::VARCHAR,
+  designated_rol_requested VARCHAR(20) NULL DEFAULT 'pending'::VARCHAR,
   verified_at TIMESTAMP WITHOUT TIME ZONE NULL,
   total_rides INTEGER NULL DEFAULT 0,
   average_rating NUMERIC(3, 2) NULL DEFAULT 0,
@@ -84,7 +199,9 @@ CREATE TABLE IF NOT EXISTS public.drivers (
 COMMENT ON TABLE public.drivers IS 'Datos sensibles de conductores - sincronizado con Firebase Auth';
 COMMENT ON COLUMN public.drivers.user_id IS 'Firebase Auth UID';
 COMMENT ON COLUMN public.drivers.profile_photo IS 'URL de foto de perfil del conductor - OBLIGATORIA para verificación de identidad (Supabase Storage)';
-COMMENT ON COLUMN public.drivers.status IS 'Estado: pending, active, suspended, rejected';
+COMMENT ON COLUMN public.drivers.account_status IS 'Estado: pending, active, suspended, rejected';
+COMMENT ON COLUMN public.drivers.documents_status IS 'Estado de documentos: pending, verified, suspended, rejected';
+COMMENT ON COLUMN public.drivers.designated_rol_requested IS 'Flujo para conductor designado: pending, verified, rejected, revoked';
 COMMENT ON COLUMN public.drivers.average_rating IS 'Promedio de calificaciones recibidas (1-5)';
 COMMENT ON COLUMN public.drivers.license_photo_front IS 'URL de foto frontal de licencia (Supabase Storage)';
 COMMENT ON COLUMN public.drivers.license_photo_back IS 'URL de foto trasera de licencia (Supabase Storage)';
@@ -92,9 +209,11 @@ COMMENT ON COLUMN public.drivers.department IS 'Departamento de residencia del c
 COMMENT ON COLUMN public.drivers.municipality IS 'Municipio de residencia del conductor (ej: Managua, Masaya, Tipitapa)';
 
 CREATE INDEX IF NOT EXISTS idx_drivers_user_id ON public.drivers USING btree (user_id);
-CREATE INDEX IF NOT EXISTS idx_drivers_status ON public.drivers USING btree (status);
+CREATE INDEX IF NOT EXISTS idx_drivers_account_status ON public.drivers USING btree (account_status);
+CREATE INDEX IF NOT EXISTS idx_drivers_documents_status ON public.drivers USING btree (documents_status);
 CREATE INDEX IF NOT EXISTS idx_drivers_department ON public.drivers USING btree (department);
 CREATE INDEX IF NOT EXISTS idx_drivers_municipality ON public.drivers USING btree (municipality);
+CREATE INDEX IF NOT EXISTS idx_drivers_designated_rol_requested ON public.drivers USING btree (designated_rol_requested);
 -- ✅ ELIMINADOS índices para designated_driver_request_status y designated_driver_role
 
 CREATE TRIGGER update_drivers_updated_at BEFORE UPDATE ON public.drivers
@@ -215,6 +334,7 @@ CREATE TABLE IF NOT EXISTS public.rides (
   notes TEXT NULL,
   ride_type VARCHAR(20) NULL DEFAULT 'normal'::VARCHAR,
   vehicle_type VARCHAR(50) NULL DEFAULT 'auto'::VARCHAR,
+  designated_driver_vehicle VARCHAR(10) NULL,
   client_vehicle_photo TEXT NULL,
   
   -- ✅ NUEVO (2025-10-25): Contadores de paradas
@@ -253,11 +373,7 @@ CREATE TABLE IF NOT EXISTS public.rides (
   updated_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
   
   CONSTRAINT rides_pkey PRIMARY KEY (id),
-  CONSTRAINT rides_canceled_by_check CHECK (canceled_by IN ('client', 'driver')),
-  CONSTRAINT rides_service_id_fkey FOREIGN KEY (service_id) REFERENCES public.services(id) ON DELETE SET NULL,
-  -- ✅ NUEVO (2025-10-25): Foreign keys para ubicaciones
-  CONSTRAINT fk_rides_origin_location FOREIGN KEY (origin_location_id) REFERENCES public.ride_locations(id) ON DELETE SET NULL,
-  CONSTRAINT fk_rides_destination_location FOREIGN KEY (destination_location_id) REFERENCES public.ride_locations(id) ON DELETE SET NULL
+  CONSTRAINT rides_canceled_by_check CHECK (canceled_by IN ('client', 'driver'))
 ) TABLESPACE pg_default;
 
 COMMENT ON TABLE public.rides IS 'Historial completo de viajes - Viajes activos están en Firebase Realtime DB - Ubicaciones en ride_locations';
@@ -270,6 +386,7 @@ COMMENT ON COLUMN public.rides.origin_location_id IS 'Referencia a la ubicación
 COMMENT ON COLUMN public.rides.destination_location_id IS 'Referencia a la ubicación de destino en ride_locations';
 COMMENT ON COLUMN public.rides.driver_offered_price IS 'Precio ofrecido por el conductor (si es diferente al estimado)';
 COMMENT ON COLUMN public.rides.vehicle_type IS 'Tipo de vehículo solicitado: moto, auto, designated_driver';
+COMMENT ON COLUMN public.rides.designated_driver_vehicle IS "Para conductor designado: 'auto' o 'moto'";
 COMMENT ON COLUMN public.rides.client_vehicle_photo IS 'URL de la foto del vehículo del cliente (solo para conductor designado)';
 COMMENT ON COLUMN public.rides.service_id IS 'Referencia al servicio ofrecido (normal, designated_driver, night, motorcycle, etc)';
 COMMENT ON COLUMN public.rides.payment_type IS 'Método de pago: cash (efectivo), card_local (bancos locales), stripe';
@@ -313,6 +430,7 @@ CREATE TABLE IF NOT EXISTS public.payments (
   amount NUMERIC(10, 2) NOT NULL,
   tip NUMERIC(10, 2) NULL DEFAULT 0,
   commission NUMERIC(10, 2) NULL,
+  commission_rate_applied NUMERIC(5, 4) NULL,
   total NUMERIC(10, 2) GENERATED ALWAYS AS (amount + tip) STORED,
   
   -- Método de pago: cash (efectivo) o card (bancos locales)
@@ -321,6 +439,7 @@ CREATE TABLE IF NOT EXISTS public.payments (
   
   -- Estado
   status VARCHAR(20) NULL DEFAULT 'pending'::VARCHAR,
+  commission_status VARCHAR(20) NULL DEFAULT 'pending'::VARCHAR,
   
   -- Bancos Locales (para card payments)
   local_transaction_id VARCHAR(255) NULL,
@@ -344,18 +463,19 @@ CREATE TABLE IF NOT EXISTS public.payments (
   
   -- Timestamps
   paid_at TIMESTAMP WITHOUT TIME ZONE NULL,
+  commission_paid_at TIMESTAMP WITHOUT TIME ZONE NULL,
   created_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
   updated_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
   
   CONSTRAINT payments_pkey PRIMARY KEY (id),
   CONSTRAINT payments_local_transaction_id_key UNIQUE (local_transaction_id),
-  CONSTRAINT payments_ride_id_fkey FOREIGN KEY (ride_id) REFERENCES public.rides(id) ON DELETE CASCADE,
-  CONSTRAINT payments_sms_verification_fkey FOREIGN KEY (sms_verification_id) REFERENCES public.sms_verification_codes(id) ON DELETE SET NULL
+  CONSTRAINT payments_ride_id_fkey FOREIGN KEY (ride_id) REFERENCES public.rides(id) ON DELETE CASCADE
 ) TABLESPACE pg_default;
 
 COMMENT ON TABLE public.payments IS 'Historial de pagos: Cash (Efectivo) y Card (Bancos Locales)';
 COMMENT ON COLUMN public.payments.amount IS 'Tarifa final del viaje (final_fare)';
-COMMENT ON COLUMN public.payments.commission IS 'Comisión: 11% viajes normales, 15% conductor designado';
+COMMENT ON COLUMN public.payments.commission IS 'Comisión calculada a partir del servicio asociado (service_id)';
+COMMENT ON COLUMN public.payments.commission_rate_applied IS 'Tasa exacta aplicada en este pago (snapshot)';
 COMMENT ON COLUMN public.payments.total IS 'Total que paga el cliente: amount + tip';
 COMMENT ON COLUMN public.payments.payment_method IS 'Método: cash (efectivo) o card (bancos locales)';
 COMMENT ON COLUMN public.payments.payment_provider IS 'Proveedor: cash o local';
@@ -371,10 +491,12 @@ COMMENT ON COLUMN public.payments.biometric_type IS 'Tipo de biometría: fingerp
 COMMENT ON COLUMN public.payments.authentication_method IS 'Método de autenticación: biometric, sms, manual';
 COMMENT ON COLUMN public.payments.sms_code_verified IS 'Indica si se verificó con código SMS';
 COMMENT ON COLUMN public.payments.sms_verification_id IS 'Referencia al código SMS verificado';
+COMMENT ON COLUMN public.payments.commission_status IS 'Estado de la comisión: pending (pendiente de liquidar) o paid (liquidada)';
+COMMENT ON COLUMN public.payments.commission_paid_at IS 'Fecha en la que el conductor liquidó la comisión (NULL = pendiente)';
 
 CREATE INDEX IF NOT EXISTS idx_payments_ride_id ON public.payments USING btree (ride_id);
 CREATE INDEX IF NOT EXISTS idx_payments_status ON public.payments USING btree (status);
-CREATE INDEX IF NOT EXISTS idx_payments_stripe_id ON public.payments USING btree (stripe_payment_intent_id);
+-- REMOVED: idx_payments_stripe_id (no existe columna stripe_payment_intent_id)
 CREATE INDEX IF NOT EXISTS idx_payments_local_transaction_id ON public.payments USING btree (local_transaction_id);
 CREATE INDEX IF NOT EXISTS idx_payments_sync_status ON public.payments USING btree (synced_to_firebase, updated_at) WHERE (synced_to_firebase = FALSE);
 CREATE INDEX IF NOT EXISTS idx_payments_cancel_reason ON public.payments USING btree (cancel_reason) WHERE cancel_reason IS NOT NULL;
@@ -505,10 +627,234 @@ CREATE INDEX IF NOT EXISTS idx_ride_locations_ride_id ON public.ride_locations U
 CREATE INDEX IF NOT EXISTS idx_ride_locations_type ON public.ride_locations USING btree (location_type);
 CREATE INDEX IF NOT EXISTS idx_ride_locations_order ON public.ride_locations USING btree (ride_id, location_order);
 
--- ✅ NUEVO (2025-10-25): Trigger para actualizar updated_at
+-- Trigger para actualizar updated_at
 CREATE TRIGGER update_ride_locations_updated_at 
 BEFORE UPDATE ON public.ride_locations 
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================
+-- 7.1 FUNCIONES Y VISTAS PARA RUTAS DE VIAJES
+-- ============================================
+
+-- Función helper para actualizar resumen de ruta (waypoints_count, has_multiple_stops)
+CREATE OR REPLACE FUNCTION update_ride_route_summary(p_ride_id UUID)
+RETURNS void AS $$
+BEGIN
+  UPDATE public.rides
+  SET 
+    waypoints_count = COALESCE((
+      SELECT COUNT(*) FROM public.ride_locations
+      WHERE ride_id = p_ride_id AND location_type = 'waypoint'
+    ), 0),
+    has_multiple_stops = COALESCE((
+      SELECT COUNT(*) FROM public.ride_locations
+      WHERE ride_id = p_ride_id AND location_type = 'waypoint'
+    ), 0) > 0,
+    updated_at = NOW()
+  WHERE id = p_ride_id;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Trigger wrapper: actualizar resumen en INSERT de waypoints
+CREATE OR REPLACE FUNCTION trigger_update_ride_summary_on_insert()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW.location_type = 'waypoint' THEN
+    PERFORM update_ride_route_summary(NEW.ride_id);
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Trigger wrapper: actualizar resumen en DELETE de waypoints
+CREATE OR REPLACE FUNCTION trigger_update_ride_summary_on_delete()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF OLD.location_type = 'waypoint' THEN
+    PERFORM update_ride_route_summary(OLD.ride_id);
+  END IF;
+  RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Triggers para mantener waypoints_count / has_multiple_stops
+CREATE TRIGGER update_ride_summary_on_waypoint_insert
+AFTER INSERT ON public.ride_locations
+FOR EACH ROW
+EXECUTE FUNCTION trigger_update_ride_summary_on_insert();
+
+CREATE TRIGGER update_ride_summary_on_waypoint_delete
+AFTER DELETE ON public.ride_locations
+FOR EACH ROW
+EXECUTE FUNCTION trigger_update_ride_summary_on_delete();
+
+-- Vista con ruta completa y waypoints en JSON
+CREATE OR REPLACE VIEW rides_with_complete_route AS
+SELECT 
+  r.*,
+  -- Origen
+  rl_origin.id          AS origin_location_id_detail,
+  rl_origin.latitude    AS origin_latitude,
+  rl_origin.longitude   AS origin_longitude,
+  rl_origin.address     AS origin_address,
+  -- Destino
+  rl_dest.id            AS destination_location_id_detail,
+  rl_dest.latitude      AS destination_latitude,
+  rl_dest.longitude     AS destination_longitude,
+  rl_dest.address       AS destination_address,
+  -- Paradas intermedias
+  COALESCE((
+    SELECT json_agg(
+      json_build_object(
+        'id', w.id,
+        'lat', w.latitude,
+        'lng', w.longitude,
+        'address', w.address,
+        'location_order', w.location_order
+      )
+      ORDER BY w.location_order
+    )
+    FROM public.ride_locations w
+    WHERE w.ride_id = r.id
+      AND w.location_type = 'waypoint'
+  ), '[]'::json) AS waypoints
+FROM public.rides r
+LEFT JOIN public.ride_locations rl_origin
+  ON rl_origin.ride_id = r.id AND rl_origin.location_type = 'origin'
+LEFT JOIN public.ride_locations rl_dest
+  ON rl_dest.ride_id = r.id AND rl_dest.location_type = 'destination';
+
+COMMENT ON VIEW rides_with_complete_route IS 'Vista de viajes con origen, destino y paradas intermedias normalizadas en ride_locations';
+
+-- Función RPC: obtener ruta completa en orden (origen → waypoints → destino)
+CREATE OR REPLACE FUNCTION get_ride_route(p_ride_id UUID)
+RETURNS TABLE (
+  id UUID,
+  ride_id UUID,
+  lat NUMERIC,
+  lng NUMERIC,
+  location_type VARCHAR,
+  address TEXT,
+  place_name TEXT,
+  waypoint_order INTEGER,
+  point_timestamp TIMESTAMP
+) AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    rl.id,
+    rl.ride_id,
+    rl.latitude AS lat,
+    rl.longitude AS lng,
+    rl.location_type,
+    rl.address,
+    NULL::TEXT AS place_name,
+    CASE WHEN rl.location_type = 'waypoint' THEN rl.location_order ELSE NULL::INTEGER END AS waypoint_order,
+    rl.created_at AS point_timestamp
+  FROM public.ride_locations rl
+  WHERE rl.ride_id = p_ride_id
+    AND rl.location_type IN ('origin', 'waypoint', 'destination')
+  ORDER BY rl.location_order ASC;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION get_ride_route IS 'Obtiene la ruta completa de un viaje ordenada (origen → waypoints → destino)';
+
+-- Función RPC: obtener puntos de tracking (si se guardan como location_type = 'tracking')
+CREATE OR REPLACE FUNCTION get_ride_tracking(p_ride_id UUID, p_limit INTEGER DEFAULT 100)
+RETURNS TABLE (
+  id UUID,
+  lat NUMERIC,
+  lng NUMERIC,
+  speed NUMERIC,
+  heading NUMERIC,
+  accuracy NUMERIC,
+  point_timestamp TIMESTAMP
+) AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    rl.id,
+    rl.latitude AS lat,
+    rl.longitude AS lng,
+    NULL::NUMERIC AS speed,
+    NULL::NUMERIC AS heading,
+    NULL::NUMERIC AS accuracy,
+    rl.created_at AS point_timestamp
+  FROM public.ride_locations rl
+  WHERE rl.ride_id = p_ride_id
+    AND rl.location_type = 'tracking'
+  ORDER BY rl.created_at DESC
+  LIMIT p_limit;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION get_ride_tracking IS 'Obtiene los puntos de tracking en tiempo real de un viaje (ordenados por created_at DESC)';
+
+-- Función helper: calcular distancia total de la ruta usando fórmula Haversine
+CREATE OR REPLACE FUNCTION calculate_ride_distance(p_ride_id UUID)
+RETURNS NUMERIC AS $$
+DECLARE
+  total_distance NUMERIC := 0;
+  prev_lat NUMERIC;
+  prev_lng NUMERIC;
+  curr_lat NUMERIC;
+  curr_lng NUMERIC;
+BEGIN
+  FOR prev_lat, prev_lng, curr_lat, curr_lng IN
+    SELECT
+      LAG(latitude) OVER (ORDER BY location_order) AS prev_lat,
+      LAG(longitude) OVER (ORDER BY location_order) AS prev_lng,
+      latitude AS curr_lat,
+      longitude AS curr_lng
+    FROM public.ride_locations
+    WHERE ride_id = p_ride_id
+      AND location_type IN ('origin', 'waypoint', 'destination')
+  LOOP
+    IF prev_lat IS NOT NULL AND prev_lng IS NOT NULL THEN
+      total_distance := total_distance + (
+        6371000 * acos(
+          cos(radians(prev_lat)) * cos(radians(curr_lat)) *
+          cos(radians(curr_lng) - radians(prev_lng)) +
+          sin(radians(prev_lat)) * sin(radians(curr_lat))
+        )
+      );
+    END IF;
+  END LOOP;
+
+  RETURN total_distance;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION calculate_ride_distance IS 'Calcula la distancia total del viaje en metros usando fórmula Haversine sobre ride_locations';
+
+-- Función RPC: obtener solo las paradas intermedias (waypoints)
+CREATE OR REPLACE FUNCTION get_ride_waypoints(p_ride_id UUID)
+RETURNS TABLE (
+  id UUID,
+  waypoint_order INTEGER,
+  lat NUMERIC,
+  lng NUMERIC,
+  address TEXT,
+  place_name TEXT
+) AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    rl.id,
+    rl.location_order AS waypoint_order,
+    rl.latitude AS lat,
+    rl.longitude AS lng,
+    rl.address,
+    NULL::TEXT AS place_name
+  FROM public.ride_locations rl
+  WHERE rl.ride_id = p_ride_id
+    AND rl.location_type = 'waypoint'
+  ORDER BY rl.location_order;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION get_ride_waypoints IS 'Obtiene todas las paradas intermedias de un viaje ordenadas por location_order';
 
 -- ============================================
 -- 8. ANALYTICS_EVENTS TABLE
@@ -638,46 +984,7 @@ CREATE TRIGGER update_designated_driver_inspections_updated_at BEFORE UPDATE ON 
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================
--- VISTAS ÚTILES
--- ============================================
-
--- Vista de viajes completos con información del conductor y vehículo
-CREATE OR REPLACE VIEW rides_complete AS
-SELECT 
-  r.*,
-  d.license_number,
-  d.average_rating as driver_rating,
-  v.plate,
-  v.brand,
-  v.model,
-  v.is_4x4,
-  p.amount as payment_amount,
-  p.status as payment_status,
-  p.payment_method
-FROM public.rides r
-LEFT JOIN public.drivers d ON r.driver_id = d.user_id
-LEFT JOIN public.vehicles v ON d.id = v.driver_id AND v.is_active = TRUE
-LEFT JOIN public.payments p ON r.id = p.ride_id;
-
-COMMENT ON VIEW rides_complete IS 'Vista completa de viajes con información del conductor, vehículo y pago';
-
--- Vista de emergencias con información del viaje
-CREATE OR REPLACE VIEW emergency_calls_complete AS
-SELECT 
-  ec.*,
-  r.status as ride_status,
-  r.origin_address as ride_origin,
-  r.destination_address as ride_destination,
-  r.driver_id,
-  r.client_id
-FROM public.emergency_calls ec
-LEFT JOIN public.rides r ON ec.ride_id = r.id
-ORDER BY ec.created_at DESC;
-
-COMMENT ON VIEW emergency_calls_complete IS 'Vista completa de llamadas de emergencia con información del viaje';
-
--- ============================================
--- 10. SERVICES TABLE
+-- 11. SERVICES TABLE
 -- Catálogo de servicios disponibles
 -- ============================================
 CREATE TABLE IF NOT EXISTS public.services (
@@ -687,12 +994,9 @@ CREATE TABLE IF NOT EXISTS public.services (
   code VARCHAR(50) UNIQUE NOT NULL,
   commission_rate DECIMAL(5, 4) NOT NULL,
   base_price DECIMAL(10, 2) NOT NULL DEFAULT 0,
-  price_per_km DECIMAL(10, 2) NOT NULL,
-  price_per_minute DECIMAL(10, 2) NOT NULL,
   minimum_fare DECIMAL(10, 2) NOT NULL DEFAULT 0,
   vehicle_types JSONB NULL,
   requires_special_license BOOLEAN DEFAULT FALSE,
-  max_distance_km INTEGER NULL,
   available_hours JSONB NULL,
   icon VARCHAR(50) NULL,
   color VARCHAR(7) NULL,
@@ -703,6 +1007,10 @@ CREATE TABLE IF NOT EXISTS public.services (
   updated_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
   CONSTRAINT services_pkey PRIMARY KEY (id)
 ) TABLESPACE pg_default;
+
+ALTER TABLE public.rides
+  ADD CONSTRAINT rides_service_id_fkey
+  FOREIGN KEY (service_id) REFERENCES public.services(id) ON DELETE SET NULL;
 
 COMMENT ON TABLE public.services IS 'Catálogo de servicios disponibles (Viaje Normal, Conductor Designado, etc)';
 COMMENT ON COLUMN public.services.commission_rate IS 'Tasa de comisión (0.1100 = 11%)';
@@ -715,8 +1023,34 @@ CREATE INDEX IF NOT EXISTS idx_services_display_order ON public.services USING b
 CREATE TRIGGER update_services_updated_at BEFORE UPDATE ON public.services
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+-- Seed inicial de servicios (idempotente)
+INSERT INTO public.services (id, name, description, code, commission_rate, base_price, price_per_km, price_per_minute, minimum_fare, vehicle_types, requires_special_license, max_distance_km, available_hours, icon, color, display_order, is_active, is_featured)
+VALUES
+  ('e1cdd47c-9f57-4ed4-93a0-59cdfdffff8a', 'Viaje Normal', 'Servicio estándar de transporte urbano', 'normal', 0.1100, 50.00, 10.00, 0.00, 50.00, '["auto"]'::jsonb, FALSE, NULL, NULL, 'car', '#0A84FF', 1, TRUE, TRUE),
+  ('5e88177d-38f2-4864-addc-272dda26ef28', 'Viaje en Moto', 'Transporte rápido en motocicleta', 'motorcycle', 0.0750, 50.00, 8.00, 0.00, 50.00, '["motorcycle"]'::jsonb, FALSE, NULL, NULL, 'motorcycle', '#FFAA00', 2, TRUE, FALSE),
+  ('b3c69940-2e43-459f-8c2e-459773c56f8e', 'Conductor Designado', 'Servicio de conductor designado para eventos', 'designated_driver', 0.2500, 50.00, 13.00, 0.00, 50.00, '["auto"]'::jsonb, TRUE, NULL, NULL, 'steering-wheel', '#8E44AD', 3, TRUE, TRUE),
+  ('691f8f01-3faf-4e39-aeb7-1bc4dda3fc19', 'Viaje Nocturno', 'Servicio nocturno con tarifa especial (10pm-4am)', 'night', 0.1200, 40.00, 12.00, 0.00, 40.00, '["auto"]'::jsonb, FALSE, NULL, '{"start": "22:00", "end": "04:00"}'::jsonb, 'moon', '#2C3E50', 4, TRUE, FALSE)
+ON CONFLICT (code) DO UPDATE
+SET
+  name = EXCLUDED.name,
+  description = EXCLUDED.description,
+  commission_rate = EXCLUDED.commission_rate,
+  base_price = EXCLUDED.base_price,
+  price_per_km = EXCLUDED.price_per_km,
+  price_per_minute = EXCLUDED.price_per_minute,
+  minimum_fare = EXCLUDED.minimum_fare,
+  vehicle_types = EXCLUDED.vehicle_types,
+  requires_special_license = EXCLUDED.requires_special_license,
+  max_distance_km = EXCLUDED.max_distance_km,
+  available_hours = EXCLUDED.available_hours,
+  icon = EXCLUDED.icon,
+  color = EXCLUDED.color,
+  display_order = EXCLUDED.display_order,
+  is_active = EXCLUDED.is_active,
+  is_featured = EXCLUDED.is_featured;
+
 -- ============================================
--- 11. DRIVER_SERVICES TABLE
+-- 12. DRIVER_SERVICES TABLE
 -- Relación Many-to-Many entre conductores y servicios
 -- ============================================
 CREATE TABLE IF NOT EXISTS public.driver_services (
@@ -754,7 +1088,7 @@ CREATE TRIGGER update_driver_services_updated_at BEFORE UPDATE ON public.driver_
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================
--- 12. BIOMETRIC_AUTHENTICATIONS TABLE
+-- 13. BIOMETRIC_AUTHENTICATIONS TABLE
 -- Registro de autenticaciones biométricas (2025-10-25)
 -- ============================================
 CREATE TABLE IF NOT EXISTS public.biometric_authentications (
@@ -788,7 +1122,7 @@ CREATE INDEX IF NOT EXISTS idx_biometric_auth_success ON public.biometric_authen
 CREATE INDEX IF NOT EXISTS idx_biometric_auth_created ON public.biometric_authentications USING btree (created_at DESC);
 
 -- ============================================
--- 13. SMS_VERIFICATION_CODES TABLE
+-- 14. SMS_VERIFICATION_CODES TABLE
 -- Códigos SMS para verificación (2025-10-25)
 -- ============================================
 CREATE TABLE IF NOT EXISTS public.sms_verification_codes (
@@ -796,6 +1130,7 @@ CREATE TABLE IF NOT EXISTS public.sms_verification_codes (
   ride_id UUID NULL,
   user_id VARCHAR(255) NOT NULL,
   phone_number VARCHAR(20) NOT NULL,
+  code VARCHAR(6) NULL,
   code_hash VARCHAR(255) NOT NULL,
   context VARCHAR(50) NOT NULL,
   verified BOOLEAN NOT NULL DEFAULT FALSE,
@@ -807,6 +1142,10 @@ CREATE TABLE IF NOT EXISTS public.sms_verification_codes (
   CONSTRAINT sms_verification_codes_pkey PRIMARY KEY (id),
   CONSTRAINT sms_verification_codes_ride_fkey FOREIGN KEY (ride_id) REFERENCES public.rides(id) ON DELETE SET NULL
 ) TABLESPACE pg_default;
+
+ALTER TABLE public.payments
+  ADD CONSTRAINT payments_sms_verification_fkey
+  FOREIGN KEY (sms_verification_id) REFERENCES public.sms_verification_codes(id) ON DELETE SET NULL;
 
 COMMENT ON TABLE public.sms_verification_codes IS 'Códigos SMS para verificación de pagos y otras acciones';
 COMMENT ON COLUMN public.sms_verification_codes.user_id IS 'Firebase Auth UID del usuario';
@@ -825,9 +1164,9 @@ CREATE INDEX IF NOT EXISTS idx_sms_expires ON public.sms_verification_codes USIN
 CREATE INDEX IF NOT EXISTS idx_sms_created ON public.sms_verification_codes USING btree (created_at DESC);
 
 -- ============================================
--- 14. CARDS TABLE
+-- 15. CARDS TABLE
 -- Tarjetas guardadas de usuarios (2025-10-25)
--- ✅ NUEVO: Solo se guardan últimos 4 dígitos, fecha de expiración y banco
+-- NUEVO: Solo se guardan últimos 4 dígitos, fecha de expiración y banco
 -- ============================================
 CREATE TABLE IF NOT EXISTS public.cards (
   id UUID NOT NULL DEFAULT gen_random_uuid(),
@@ -869,7 +1208,7 @@ CREATE INDEX IF NOT EXISTS idx_cards_active ON public.cards USING btree (user_id
 CREATE INDEX IF NOT EXISTS idx_cards_created ON public.cards USING btree (created_at DESC);
 
 -- ============================================
--- 15. SERVICE_COMMISSION_HISTORY TABLE
+-- 16. SERVICE_COMMISSION_HISTORY TABLE
 -- Historial de cambios de comisiones
 -- ============================================
 CREATE TABLE IF NOT EXISTS public.service_commission_history (
@@ -891,23 +1230,125 @@ CREATE INDEX IF NOT EXISTS idx_commission_history_service ON public.service_comm
 CREATE INDEX IF NOT EXISTS idx_commission_history_date ON public.service_commission_history USING btree (changed_at DESC);
 
 -- ============================================
+-- 17. FUNCIONES Y VISTAS DE SERVICIOS / COMISIONES
+-- ============================================
+
+-- Función helper: obtener tasa de comisión efectiva para un conductor y servicio
+CREATE OR REPLACE FUNCTION get_driver_commission_rate(p_driver_uid TEXT, p_service_code TEXT)
+RETURNS NUMERIC AS $$
+DECLARE
+  v_driver_id UUID;
+  v_service_id UUID;
+  v_commission NUMERIC(5, 4);
+BEGIN
+  SELECT id INTO v_driver_id
+  FROM public.drivers
+  WHERE user_id = p_driver_uid;
+
+  SELECT id, commission_rate INTO v_service_id, v_commission
+  FROM public.services
+  WHERE code = p_service_code;
+
+  IF v_service_id IS NULL THEN
+    -- Servicio no encontrado, usar valores por defecto
+    IF p_service_code = 'designated_driver' THEN
+      RETURN 0.25;
+    ELSIF p_service_code = 'motorcycle' THEN
+      RETURN 0.075;
+    ELSE
+      RETURN 0.11;
+    END IF;
+  END IF;
+
+  IF v_driver_id IS NOT NULL THEN
+    SELECT COALESCE(ds.custom_commission_rate, s.commission_rate)
+    INTO v_commission
+    FROM public.services s
+    LEFT JOIN public.driver_services ds
+      ON ds.service_id = s.id
+     AND ds.driver_id = v_driver_id
+     AND ds.is_active = TRUE
+     AND ds.is_approved = TRUE
+    WHERE s.id = v_service_id;
+  END IF;
+
+  IF v_commission IS NULL THEN
+    RETURN (
+      CASE p_service_code
+        WHEN 'designated_driver' THEN 0.25
+        WHEN 'motorcycle' THEN 0.075
+        ELSE 0.11
+      END
+    );
+  END IF;
+
+  RETURN v_commission;
+END;
+$$ LANGUAGE plpgsql STABLE;
+
+COMMENT ON FUNCTION get_driver_commission_rate IS 'Obtiene la tasa de comisión aplicable para un conductor y servicio (driver_services.override → services.commission_rate → defaults)';
+
+-- Vista de servicios activos con información de conductores
+CREATE OR REPLACE VIEW driver_active_services AS
+SELECT
+  d.id              AS driver_id,
+  d.user_id         AS driver_uid,
+  s.id              AS service_id,
+  s.code            AS service_code,
+  s.name            AS service_name,
+  COALESCE(ds.custom_commission_rate, s.commission_rate) AS commission_rate,
+  ds.is_active,
+  ds.is_approved,
+  ds.assigned_at,
+  ds.expires_at
+FROM public.driver_services ds
+JOIN public.drivers d   ON ds.driver_id = d.id
+JOIN public.services s  ON ds.service_id = s.id
+WHERE ds.is_active = TRUE
+  AND ds.is_approved = TRUE;
+
+COMMENT ON VIEW driver_active_services IS 'Servicios activos asignados a cada conductor con comisión efectiva';
+
+-- Vista de estadísticas por servicio
+CREATE OR REPLACE VIEW services_stats AS
+SELECT
+  s.id                                 AS service_id,
+  s.code                               AS service_code,
+  s.name                               AS service_name,
+  COUNT(DISTINCT r.id)                 AS total_rides,
+  COUNT(DISTINCT CASE WHEN r.status = 'completed' THEN r.id END) AS completed_rides,
+  COALESCE(SUM(CASE WHEN p.status = 'completed' THEN p.amount ELSE 0 END), 0) AS total_revenue,
+  COALESCE(SUM(CASE WHEN p.status = 'completed' THEN p.commission ELSE 0 END), 0) AS total_commission,
+  COALESCE(AVG(CASE WHEN p.status = 'completed' THEN p.amount END), 0) AS average_fare
+FROM public.services s
+LEFT JOIN public.rides r
+  ON r.service_id = s.id
+LEFT JOIN public.payments p
+  ON p.ride_id = r.id
+GROUP BY s.id, s.code, s.name;
+
+COMMENT ON VIEW services_stats IS 'Estadísticas agregadas por servicio: viajes, ingresos y comisiones';
+
+-- ============================================
 -- DESACTIVAR ROW LEVEL SECURITY (Temporal)
 -- ============================================
-ALTER TABLE public.drivers DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.vehicles DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.rides DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.payments DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.driver_penalties DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.ratings DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.ride_locations DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.analytics_events DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.emergency_calls DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.services DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.driver_services DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.service_commission_history DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.biometric_authentications DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.sms_verification_codes DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.cards DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.drivers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.vehicles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.rides ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.driver_penalties ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ratings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ride_locations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.analytics_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.emergency_calls ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.services ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.driver_services ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.service_commission_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.biometric_authentications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.sms_verification_codes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cards ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE public.designated_driver_inspections ENABLE ROW LEVEL SECURITY;
 
 -- ============================================
 -- VERIFICACIÓN FINAL
@@ -919,6 +1360,242 @@ FROM information_schema.tables t
 WHERE table_schema = 'public' 
   AND table_type = 'BASE TABLE'
 ORDER BY table_name;
+
+-- ============================================
+-- 30. CONFIGURACIÓN DE ROW LEVEL SECURITY (RLS) TESTING NECESARIO  
+-- ============================================
+
+-- Nota: todas las tablas críticas tienen RLS habilitado. A continuación
+-- se definen políticas base para usuarios autenticados (Firebase UID).
+
+CREATE OR REPLACE FUNCTION public.current_firebase_uid()
+RETURNS text
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT coalesce(
+    current_setting('request.jwt.claim.sub', true),
+    (current_setting('request.jwt.claims', true)::json ->> 'sub')
+  );
+$$;
+
+REVOKE INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public FROM anon;
+
+-- Drivers
+DROP POLICY IF EXISTS drivers_read_own ON public.drivers;
+CREATE POLICY drivers_read_own ON public.drivers
+  FOR SELECT USING (user_id = public.current_firebase_uid());
+
+DROP POLICY IF EXISTS drivers_update_own ON public.drivers;
+CREATE POLICY drivers_update_own ON public.drivers
+  FOR UPDATE
+  USING (user_id = public.current_firebase_uid())
+  WITH CHECK (user_id = public.current_firebase_uid());
+
+REVOKE INSERT ON public.drivers FROM anon;
+
+-- Vehicles
+DROP POLICY IF EXISTS vehicles_owner_read ON public.vehicles;
+CREATE POLICY vehicles_owner_read ON public.vehicles
+  FOR SELECT USING (
+    driver_id = (
+      SELECT id FROM public.drivers WHERE user_id = public.current_firebase_uid()
+    )
+  );
+
+DROP POLICY IF EXISTS vehicles_owner_write ON public.vehicles;
+CREATE POLICY vehicles_owner_write ON public.vehicles
+  FOR UPDATE
+  USING (
+    driver_id = (
+      SELECT id FROM public.drivers WHERE user_id = public.current_firebase_uid()
+    )
+  )
+  WITH CHECK (
+    driver_id = (
+      SELECT id FROM public.drivers WHERE user_id = public.current_firebase_uid()
+    )
+  );
+
+REVOKE INSERT ON public.vehicles FROM anon;
+
+-- Driver services
+DROP POLICY IF EXISTS driver_services_read_own ON public.driver_services;
+CREATE POLICY driver_services_read_own ON public.driver_services
+  FOR SELECT USING (
+    driver_id = (
+      SELECT id FROM public.drivers WHERE user_id = public.current_firebase_uid()
+    )
+  );
+
+DROP POLICY IF EXISTS "Only admins can assign services" ON public.driver_services;
+CREATE POLICY "Only admins can assign services" ON public.driver_services
+  FOR ALL
+  TO public
+  USING (
+    EXISTS (
+      SELECT 1
+      FROM auth.users
+      WHERE auth.uid() = users.id
+        AND users.raw_user_meta_data ->> 'role' = 'admin'
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1
+      FROM auth.users
+      WHERE auth.uid() = users.id
+        AND users.raw_user_meta_data ->> 'role' = 'admin'
+    )
+  );
+
+REVOKE INSERT, UPDATE, DELETE ON public.driver_services FROM anon;
+GRANT  INSERT, UPDATE, DELETE ON public.driver_services TO authenticated;
+
+-- Rides lectura propia
+DROP POLICY IF EXISTS rides_read_client_driver ON public.rides;
+CREATE POLICY rides_read_client_driver ON public.rides
+  FOR SELECT USING (
+    client_id = public.current_firebase_uid()
+    OR driver_id = public.current_firebase_uid()
+  );
+
+REVOKE INSERT, UPDATE, DELETE ON public.rides FROM anon;
+
+-- Payments lectura propia
+DROP POLICY IF EXISTS payments_read_client_driver ON public.payments;
+CREATE POLICY payments_read_client_driver ON public.payments
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1 FROM public.rides r
+      WHERE r.id = public.payments.ride_id
+        AND (r.client_id = public.current_firebase_uid()
+             OR r.driver_id = public.current_firebase_uid())
+    )
+  );
+
+REVOKE INSERT, UPDATE, DELETE ON public.payments FROM anon;
+
+-- Ride locations lectura propia
+DROP POLICY IF EXISTS ride_locations_read_client_driver ON public.ride_locations;
+CREATE POLICY ride_locations_read_client_driver ON public.ride_locations
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1 FROM public.rides r
+      WHERE r.id = public.ride_locations.ride_id
+        AND (r.client_id = public.current_firebase_uid()
+             OR r.driver_id = public.current_firebase_uid())
+    )
+  );
+
+REVOKE INSERT, UPDATE, DELETE ON public.ride_locations FROM anon;
+
+-- Services lectura pública / administración por admins
+DROP POLICY IF EXISTS "Services are viewable by everyone" ON public.services;
+DROP POLICY IF EXISTS "Services are modifiable by admins only" ON public.services;
+DROP POLICY IF EXISTS services_public_read ON public.services;
+
+CREATE POLICY "Services are viewable by everyone" ON public.services
+  FOR SELECT
+  TO public
+  USING (is_active = true);
+
+CREATE POLICY "Services are modifiable by admins only" ON public.services
+  FOR ALL
+  TO public
+  USING (
+    EXISTS (
+      SELECT 1
+      FROM auth.users
+      WHERE auth.uid() = users.id
+        AND users.raw_user_meta_data ->> 'role' = 'admin'
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1
+      FROM auth.users
+      WHERE auth.uid() = users.id
+        AND users.raw_user_meta_data ->> 'role' = 'admin'
+    )
+  );
+
+REVOKE INSERT, UPDATE, DELETE ON public.services FROM anon;
+GRANT  INSERT, UPDATE, DELETE ON public.services TO authenticated;
+
+-- Biometría, SMS, penalidades
+DROP POLICY IF EXISTS biometric_auth_read ON public.biometric_authentications;
+CREATE POLICY biometric_auth_read ON public.biometric_authentications
+  FOR SELECT USING (user_id = public.current_firebase_uid());
+
+DROP POLICY IF EXISTS sms_codes_read ON public.sms_verification_codes;
+CREATE POLICY sms_codes_read ON public.sms_verification_codes
+  FOR SELECT USING (user_id = public.current_firebase_uid());
+
+DROP POLICY IF EXISTS penalties_read ON public.driver_penalties;
+CREATE POLICY penalties_read ON public.driver_penalties
+  FOR SELECT USING (driver_id = public.current_firebase_uid());
+
+REVOKE INSERT, UPDATE, DELETE ON public.biometric_authentications FROM anon;
+REVOKE INSERT, UPDATE, DELETE ON public.sms_verification_codes FROM anon;
+REVOKE INSERT, UPDATE, DELETE ON public.driver_penalties FROM anon;
+
+-- Ratings
+DROP POLICY IF EXISTS ratings_read_related ON public.ratings;
+CREATE POLICY ratings_read_related ON public.ratings
+  FOR SELECT USING (
+    from_user_id = public.current_firebase_uid()
+    OR to_user_id = public.current_firebase_uid()
+  );
+
+REVOKE INSERT, UPDATE, DELETE ON public.ratings FROM anon;
+
+-- Emergency calls & analytics
+DROP POLICY IF EXISTS emergency_calls_read ON public.emergency_calls;
+CREATE POLICY emergency_calls_read ON public.emergency_calls
+  FOR SELECT USING (user_id = public.current_firebase_uid());
+
+DROP POLICY IF EXISTS analytics_read_own ON public.analytics_events;
+CREATE POLICY analytics_read_own ON public.analytics_events
+  FOR SELECT USING (user_id = public.current_firebase_uid());
+
+REVOKE INSERT, UPDATE, DELETE ON public.emergency_calls FROM anon;
+REVOKE INSERT, UPDATE, DELETE ON public.analytics_events FROM anon;
+
+-- Cards
+DROP POLICY IF EXISTS cards_read_own ON public.cards;
+CREATE POLICY cards_read_own ON public.cards
+  FOR SELECT USING (user_id = public.current_firebase_uid());
+
+REVOKE INSERT, UPDATE, DELETE ON public.cards FROM anon;
+
+-- Designated driver inspections
+DROP POLICY IF EXISTS designated_driver_inspections_read ON public.designated_driver_inspections;
+CREATE POLICY designated_driver_inspections_read ON public.designated_driver_inspections
+  FOR SELECT USING (driver_id = public.current_firebase_uid());
+
+REVOKE INSERT, UPDATE, DELETE ON public.designated_driver_inspections FROM anon;
+
+-- Vistas con security definer: habilitar security barrier
+ALTER VIEW public.services_stats SET (security_barrier = true);
+ALTER VIEW public.driver_active_services SET (security_barrier = true);
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.tables
+    WHERE table_schema = 'auth'
+      AND table_name = 'config'
+  ) THEN
+    UPDATE auth.config
+    SET
+      external_firebase_enabled = true,
+      external_firebase_issuer = 'https://securetoken.google.com/rundi-prod',
+      external_firebase_client_id = 'rundi-prod';
+  END IF;
+END;
+$$;
 
 -- ============================================
 -- RESULTADO ESPERADO (2025-10-25):
@@ -943,3 +1620,135 @@ ORDER BY table_name;
 -- ============================================
 -- TOTAL: 15 TABLAS (+ 1 nueva de tarjetas)
 -- ============================================
+
+-- ============================================
+-- 31. CMS TABLES: QUEJAS Y ACCIONES DE OPERADOR
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS public.cms_complaints (
+  id UUID NOT NULL DEFAULT gen_random_uuid(),
+  ride_id UUID NULL,
+  client_id VARCHAR(255) NULL,
+  driver_id VARCHAR(255) NULL,
+  created_by_user_id VARCHAR(255) NOT NULL,
+  created_by_role VARCHAR(20) NOT NULL,
+  assigned_to_user_id VARCHAR(255) NULL,
+  category VARCHAR(50) NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'open'::VARCHAR,
+  priority VARCHAR(20) NULL,
+  title TEXT NOT NULL,
+  description TEXT NULL,
+  resolution_notes TEXT NULL,
+  resolved_at TIMESTAMP WITHOUT TIME ZONE NULL,
+  created_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
+  updated_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
+  CONSTRAINT cms_complaints_pkey PRIMARY KEY (id)
+) TABLESPACE pg_default;
+
+COMMENT ON TABLE public.cms_complaints IS 'Quejas registradas desde el CMS (clientes, conductores, operadores)';
+COMMENT ON COLUMN public.cms_complaints.ride_id IS 'Referencia opcional al viaje relacionado (public.rides.id)';
+COMMENT ON COLUMN public.cms_complaints.client_id IS 'Firebase UID del cliente relacionado con la queja (si aplica)';
+COMMENT ON COLUMN public.cms_complaints.driver_id IS 'Firebase UID del conductor relacionado con la queja (si aplica)';
+COMMENT ON COLUMN public.cms_complaints.created_by_user_id IS 'Firebase UID de quien creó la queja (cliente, conductor, operador o admin)';
+COMMENT ON COLUMN public.cms_complaints.created_by_role IS 'Rol de quien creó la queja: client, driver, operator, admin';
+COMMENT ON COLUMN public.cms_complaints.assigned_to_user_id IS 'Firebase UID del operador/admin asignado a la queja';
+COMMENT ON COLUMN public.cms_complaints.category IS 'Categoría de la queja: service, driver, payment, app, other';
+COMMENT ON COLUMN public.cms_complaints.status IS 'Estado: open, in_progress, resolved, rejected';
+COMMENT ON COLUMN public.cms_complaints.priority IS 'Prioridad: low, normal, high, urgent';
+
+CREATE INDEX IF NOT EXISTS idx_cms_complaints_ride_id ON public.cms_complaints USING btree (ride_id);
+CREATE INDEX IF NOT EXISTS idx_cms_complaints_client_id ON public.cms_complaints USING btree (client_id);
+CREATE INDEX IF NOT EXISTS idx_cms_complaints_driver_id ON public.cms_complaints USING btree (driver_id);
+CREATE INDEX IF NOT EXISTS idx_cms_complaints_status ON public.cms_complaints USING btree (status);
+CREATE INDEX IF NOT EXISTS idx_cms_complaints_created_at ON public.cms_complaints USING btree (created_at DESC);
+
+CREATE TRIGGER update_cms_complaints_updated_at
+BEFORE UPDATE ON public.cms_complaints
+FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TABLE IF NOT EXISTS public.cms_operator_actions (
+  id UUID NOT NULL DEFAULT gen_random_uuid(),
+  user_id VARCHAR(255) NOT NULL,
+  user_role VARCHAR(20) NOT NULL,
+  action_type VARCHAR(50) NOT NULL,
+  target_type VARCHAR(50) NULL,
+  target_id VARCHAR(255) NULL,
+  metadata JSONB NULL,
+  ip_address VARCHAR(45) NULL,
+  user_agent TEXT NULL,
+  created_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
+  CONSTRAINT cms_operator_actions_pkey PRIMARY KEY (id)
+) TABLESPACE pg_default;
+
+COMMENT ON TABLE public.cms_operator_actions IS 'Bitácora de acciones realizadas por usuarios del CMS (admin y operadores)';
+COMMENT ON COLUMN public.cms_operator_actions.user_id IS 'Firebase UID del usuario del CMS que ejecutó la acción';
+COMMENT ON COLUMN public.cms_operator_actions.user_role IS 'Rol del usuario del CMS: admin u operator';
+COMMENT ON COLUMN public.cms_operator_actions.action_type IS 'Tipo de acción: update_driver_status, complete_ride, register_cash_payment, etc.';
+COMMENT ON COLUMN public.cms_operator_actions.target_type IS 'Tipo de entidad afectada: ride, driver, client, payment, service, complaint, other';
+COMMENT ON COLUMN public.cms_operator_actions.target_id IS 'Identificador de la entidad afectada (UUID o Firebase UID)';
+
+CREATE INDEX IF NOT EXISTS idx_cms_operator_actions_user_id ON public.cms_operator_actions USING btree (user_id);
+CREATE INDEX IF NOT EXISTS idx_cms_operator_actions_action_type ON public.cms_operator_actions USING btree (action_type);
+CREATE INDEX IF NOT EXISTS idx_cms_operator_actions_target_type ON public.cms_operator_actions USING btree (target_type);
+CREATE INDEX IF NOT EXISTS idx_cms_operator_actions_created_at ON public.cms_operator_actions USING btree (created_at DESC);
+
+ALTER TABLE public.cms_complaints ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cms_operator_actions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS cms_complaints_own_read ON public.cms_complaints;
+CREATE POLICY cms_complaints_own_read ON public.cms_complaints
+  FOR SELECT USING (
+    created_by_user_id = public.current_firebase_uid()
+  );
+
+DROP POLICY IF EXISTS cms_complaints_own_insert ON public.cms_complaints;
+CREATE POLICY cms_complaints_own_insert ON public.cms_complaints
+  FOR INSERT
+  WITH CHECK (
+    created_by_user_id = public.current_firebase_uid()
+  );
+
+DROP POLICY IF EXISTS cms_complaints_admin_all ON public.cms_complaints;
+CREATE POLICY cms_complaints_admin_all ON public.cms_complaints
+  FOR ALL
+  TO public
+  USING (
+    EXISTS (
+      SELECT 1
+      FROM auth.users
+      WHERE auth.uid() = users.id
+        AND users.raw_user_meta_data ->> 'role' = 'admin'
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1
+      FROM auth.users
+      WHERE auth.uid() = users.id
+        AND users.raw_user_meta_data ->> 'role' = 'admin'
+    )
+  );
+
+DROP POLICY IF EXISTS cms_operator_actions_admin_only ON public.cms_operator_actions;
+CREATE POLICY cms_operator_actions_admin_only ON public.cms_operator_actions
+  FOR ALL
+  TO public
+  USING (
+    EXISTS (
+      SELECT 1
+      FROM auth.users
+      WHERE auth.uid() = users.id
+        AND users.raw_user_meta_data ->> 'role' = 'admin'
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1
+      FROM auth.users
+      WHERE auth.uid() = users.id
+        AND users.raw_user_meta_data ->> 'role' = 'admin'
+    )
+  );
+
+REVOKE INSERT, UPDATE, DELETE ON public.cms_complaints FROM anon;
+REVOKE INSERT, UPDATE, DELETE ON public.cms_operator_actions FROM anon;

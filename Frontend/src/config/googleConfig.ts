@@ -10,10 +10,10 @@
 // 3. Crea credenciales OAuth 2.0 para aplicación móvil
 // 4. Copia el Client ID aquí
 
-export const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '1040329608349-t11k2f7tu1gtrh8fpogu3n1gmf2gi8p3.apps.googleusercontent.com';
+export const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID as string;
 
 // Validar que el Client ID esté configurado
-if (GOOGLE_CLIENT_ID === 'YOUR_GOOGLE_CLIENT_ID_HERE') {
+if (!GOOGLE_CLIENT_ID) {
   console.warn(
     '⚠️ ADVERTENCIA: Google Client ID no está configurado. ' +
     'Por favor, configura GOOGLE_CLIENT_ID en googleConfig.ts o en variables de entorno.'

@@ -12,8 +12,10 @@ import {
   ActivityIndicator,
   StyleProp,
   ViewStyle,
+  Image,
 } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
+import { useTranslation } from 'react-i18next';
 
 interface GoogleSignInButtonProps {
   onPress: () => void;
@@ -22,7 +24,6 @@ interface GoogleSignInButtonProps {
   variant?: 'login' | 'register';
   style?: StyleProp<ViewStyle>;
 }
-
 export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
   onPress,
   loading = false,
@@ -30,6 +31,7 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
   variant = 'login',
   style,
 }) => {
+  const { t } = useTranslation();
   const { colors } = useTheme();
 
   const styles = StyleSheet.create({
@@ -45,7 +47,7 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
       borderColor: '#EBEBEB',
       borderRadius: 12,
       paddingVertical: 14,
-      paddingHorizontal: 16,
+      paddingHorizontal: 12,
       shadowColor: '#000',
       shadowOffset: { width: 0, height: 1 },
       shadowOpacity: 0.08,
@@ -62,12 +64,14 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
       gap: 10,
     },
     googleIcon: {
-      fontSize: 20,
+      width: 32,
+      height: 32,
       marginRight: 8,
+      resizeMode: 'contain',
     },
     buttonText: {
       fontSize: 16,
-      fontWeight: '600',
+      fontWeight: '700',
       color: '#1F2937',
       textAlign: 'center',
     },
@@ -79,11 +83,11 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
   const buttonText =
     variant === 'login'
       ? loading
-        ? 'Iniciando sesión...'
-        : 'Iniciar sesión con Google'
+        ? t('authScreens.googlesinginbutton.login')
+        : t('authScreens.googlesinginbutton.logincontinue')
       : loading
-      ? 'Registrando...'
-      : 'Registrarse con Google';
+      ? t('authScreens.googlesinginbutton.register')
+      : t('authScreens.googlesinginbutton.registercontinue');
 
   return (
     <View style={[styles.container, style]}>
@@ -99,7 +103,10 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
               <ActivityIndicator size="small" color="#4285F4" />
             </View>
           ) : (
-            <Text style={styles.googleIcon}>🔵</Text>
+            <Image
+              source={require('../assets/icons/utils/google_icon_1.png')}
+              style={styles.googleIcon}
+            />
           )}
           <Text style={styles.buttonText}>{buttonText}</Text>
         </View>

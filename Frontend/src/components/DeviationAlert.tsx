@@ -6,6 +6,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Animated } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
+import { haversineKm } from '../utils/distance';
+import { useTranslation } from 'react-i18next';
 
 interface DeviationAlertProps {
   currentLat: number;
@@ -23,6 +25,7 @@ const DeviationAlert: React.FC<DeviationAlertProps> = ({
   onDeviation,
 }) => {
   const { colors } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
   const [isDeviated, setIsDeviated] = useState(false);
@@ -92,23 +95,7 @@ const DeviationAlert: React.FC<DeviationAlertProps> = ({
     lat2: number,
     lon2: number
   ): number => {
-    const R = 6371; // Radio de la Tierra en km
-    const dLat = toRad(lat2 - lat1);
-    const dLon = toRad(lon2 - lon1);
-
-    const a =
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(toRad(lat1)) *
-        Math.cos(toRad(lat2)) *
-        Math.sin(dLon / 2) *
-        Math.sin(dLon / 2);
-
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c; // Distancia en km
-  };
-
-  const toRad = (degrees: number): number => {
-    return degrees * (Math.PI / 180);
+    return haversineKm(lat1, lon1, lat2, lon2);
   };
 
   const formatDistance = (meters: number): string => {
@@ -144,10 +131,14 @@ const DeviationAlert: React.FC<DeviationAlertProps> = ({
 
         <View style={styles.textContainer}>
           <Text style={styles.title}>
-            {severity === 'danger' ? 'Desvío Importante' : 'Posible Desvío'}
+            {severity === 'danger'
+              ? t('common.components.deviationAlert.title.danger')
+              : t('common.components.deviationAlert.title.warning')}
           </Text>
           <Text style={styles.message}>
-            El conductor está a {formatDistance(deviationDistance)} de la ruta esperada
+            {t('common.components.deviationAlert.message', {
+              distance: formatDistance(deviationDistance),
+            })}
           </Text>
         </View>
       </View>

@@ -20,6 +20,7 @@ import {
   uploadRegistrationPhoto,
   uploadInsurancePhoto,
 } from '../../services/supabaseStorage';
+import { useTranslation } from 'react-i18next';
 
 interface VehicleData {
   id: string;
@@ -69,6 +70,44 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
   const { user } = useAuth();
   const { colors } = useTheme();
   const styles = createStyles(colors);
+  const { t } = useTranslation();
+
+  const getFieldMeta = (key: string) =>
+    t(`shared.completeVehicleInfo.fields.${key}`, {
+      returnObjects: true,
+    }) as { label: string; placeholder: string };
+  const fieldLabel = (key: string) => getFieldMeta(key)?.label ?? '';
+  const fieldPlaceholder = (key: string) => getFieldMeta(key)?.placeholder ?? '';
+  const sections = (t('shared.completeVehicleInfo.sections', {
+    returnObjects: true,
+  }) ?? {}) as Record<string, string>;
+  const completionText = (t('shared.completeVehicleInfo.completion', {
+    returnObjects: true,
+  }) ?? {}) as Record<string, string>;
+  const photos = (t('shared.completeVehicleInfo.photos', {
+    returnObjects: true,
+  }) ?? {}) as {
+    frontLabel?: string;
+    backLabel?: string;
+    uploadFront?: string;
+    uploadBack?: string;
+    uploadPolicy?: string;
+    uploadVehicle?: string;
+  };
+  const buttons = (t('shared.completeVehicleInfo.buttons', {
+    returnObjects: true,
+  }) ?? {}) as Record<string, string>;
+  const messages = (t('shared.completeVehicleInfo.messages', {
+    returnObjects: true,
+  }) ?? {}) as Record<string, string>;
+  const alertsText = (t('shared.completeVehicleInfo.alerts', {
+    returnObjects: true,
+  }) ?? {}) as Record<string, string>;
+  const defaultLienValue = t('shared.completeVehicleInfo.defaults.noLien');
+  const headerText = (t('shared.completeVehicleInfo.header', {
+    returnObjects: true,
+  }) ?? { title: '', subtitle: '' }) as { title?: string; subtitle?: string };
+  const loadingText = t('shared.completeVehicleInfo.loading');
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -76,22 +115,14 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
   const [driverData, setDriverData] = useState<DriverData | null>(null);
   
   // Estado para verificación de campos completos
-  const [isComplete, setIsComplete] = useState<{
-    personalInfo: boolean,
-    vehicleInfo: boolean,
-    documentsInfo: boolean,
-    licensePhotos: boolean,
-    registrationPhotos: boolean,
-    insurancePhotos: boolean,
-    vehiclePhotos: boolean
-  }>({
+  const [isComplete, setIsComplete] = useState({
     personalInfo: false,
     vehicleInfo: false,
     documentsInfo: false,
     licensePhotos: false,
     registrationPhotos: false,
     insurancePhotos: false,
-    vehiclePhotos: false
+    vehiclePhotos: false,
   });
 
   // Estados para fotos
@@ -138,8 +169,19 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
   const [tonnage, setTonnage] = useState('');
   const [vehicleClass, setVehicleClass] = useState('');
   const [serviceType, setServiceType] = useState('');
-  const [lien, setLien] = useState('NINGUNO');
+  const [lien, setLien] = useState(defaultLienValue);
   const [is4x4, setIs4x4] = useState(false);
+
+  const completedSectionsCount = Object.values(isComplete).filter(Boolean).length;
+  const totalSections = Object.values(isComplete).length;
+  const allSectionsComplete = totalSections > 0 && completedSectionsCount === totalSections;
+  const completionSummary =
+    completedSectionsCount > 0
+      ? t('shared.completeVehicleInfo.completion.summary', {
+          completed: completedSectionsCount,
+          total: totalSections,
+        })
+      : null;
 
   useEffect(() => {
     loadExistingData();
@@ -291,7 +333,7 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
           setTonnage(vehicle.tonnage ? vehicle.tonnage.toString() : '');
           setVehicleClass(safeString(vehicle.vehicle_class));
           setServiceType(safeString(vehicle.service_type));
-          setLien(safeString(vehicle.lien) || 'NINGUNO');
+          setLien(safeString(vehicle.lien) || defaultLienValue);
           setIs4x4(vehicle.is_4x4 || false);
 
           console.log('✅ Fechas del vehículo cargadas:', {
@@ -314,7 +356,7 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
       }
     } catch (error) {
       console.error('Error cargando datos:', error);
-      Alert.alert('Error', 'No se pudieron cargar los datos');
+      Alert.alert(alertsText.loadErrorTitle, alertsText.loadErrorMessage);
     } finally {
       setLoading(false);
     }
@@ -433,7 +475,7 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
       if (tonnage !== (vehicleData?.tonnage?.toString() || '')) vehicleUpdates.tonnage = parseFloat(tonnage);
       if (vehicleClass !== (vehicleData?.vehicle_class || '')) vehicleUpdates.vehicle_class = vehicleClass;
       if (serviceType !== (vehicleData?.service_type || '')) vehicleUpdates.service_type = serviceType;
-      if (lien !== (vehicleData?.lien || 'NINGUNO')) vehicleUpdates.lien = lien;
+      if (lien !== (vehicleData?.lien || defaultLienValue)) vehicleUpdates.lien = lien;
       if (is4x4 !== (vehicleData?.is_4x4 || false)) vehicleUpdates.is_4x4 = is4x4;
 
       // Fotos nuevas del vehículo
@@ -477,13 +519,13 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
       checkCompleteness();
 
       Alert.alert(
-        'Éxito',
-        'Los datos han sido guardados correctamente',
-        [{ text: 'OK', onPress: () => navigation.goBack() }]
+        alertsText.saveSuccessTitle,
+        alertsText.saveSuccessMessage,
+        [{ text: alertsText.confirmButton, onPress: () => navigation.goBack() }]
       );
     } catch (error) {
       console.error('❌ Error en el proceso completo:', error);
-      Alert.alert('Error', 'No se pudieron guardar los datos. Por favor intenta de nuevo.');
+      Alert.alert(alertsText.saveErrorTitle, alertsText.saveErrorMessage);
     } finally {
       setSaving(false);
     }
@@ -493,7 +535,7 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Cargando información...</Text>
+        <Text style={styles.loadingText}>{loadingText}</Text>
       </View>
     );
   }
@@ -501,19 +543,13 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
   return (
     <ScrollView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Completar Información</Text>
-        <Text style={styles.subtitle}>
-          Completa tu información personal y de vehículo. Los campos marcados con * son obligatorios.
-        </Text>
+        <Text style={styles.title}>{headerText.title}</Text>
+        <Text style={styles.subtitle}>{headerText.subtitle}</Text>
         
         {/* Resumen de completitud */}
         <View style={styles.completionSummary}>
-          {Object.values(isComplete).filter(Boolean).length > 0 && (
-            <Text style={styles.completionSummaryText}>
-              <Text style={{color: '#4CAF50', fontWeight: 'bold'}}>
-                {Object.values(isComplete).filter(Boolean).length}
-              </Text> de {Object.values(isComplete).length} secciones completadas
-            </Text>
+          {completionSummary && (
+            <Text style={styles.completionSummaryText}>{completionSummary}</Text>
           )}
         </View>
       </View>
@@ -521,443 +557,440 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
       {/* Información Personal */}
       <View style={[styles.section, isComplete.personalInfo && styles.completedSection]}>
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>👤 Información Personal</Text>
+          <Text style={styles.sectionTitle}>{sections.personal}</Text>
           {isComplete.personalInfo && (
             <View style={styles.completionBadge}>
               <View style={[styles.completionIcon, styles.iconComplete]} />
-              <Text style={styles.completedText}>Completo</Text>
+              <Text style={styles.completedText}>{completionText.badge}</Text>
             </View>
           )}
         </View>
 
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Número de Licencia *</Text>
+          <Text style={styles.inputLabel}>{fieldLabel('licenseNumber')}</Text>
           <TextInput
             style={[styles.input, licenseNumber ? styles.inputFilled : styles.inputRequired]}
             value={licenseNumber}
             onChangeText={(text) => {
               setLicenseNumber(text);
-              // Actualizar completitud al cambiar
               checkCompleteness();
             }}
-            placeholder="Ej: B21332434"
+            placeholder={fieldPlaceholder('licenseNumber')}
             placeholderTextColor={colors.textSecondary}
           />
         </View>
 
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Fecha de Vencimiento de Licencia</Text>
+          <Text style={styles.inputLabel}>{fieldLabel('licenseExpiry')}</Text>
           <TextInput
             style={styles.input}
             value={licenseExpiry}
             onChangeText={setLicenseExpiry}
-            placeholder="YYYY-MM-DD"
+            placeholder={fieldPlaceholder('licenseExpiry')}
             placeholderTextColor={colors.textSecondary}
           />
         </View>
 
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Departamento</Text>
+          <Text style={styles.inputLabel}>{fieldLabel('department')}</Text>
           <TextInput
             style={styles.input}
             value={department}
             onChangeText={setDepartment}
-            placeholder="Ej: Managua"
+            placeholder={fieldPlaceholder('department')}
             placeholderTextColor={colors.textSecondary}
           />
         </View>
 
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Municipio</Text>
+          <Text style={styles.inputLabel}>{fieldLabel('municipality')}</Text>
           <TextInput
             style={styles.input}
             value={municipality}
             onChangeText={setMunicipality}
-            placeholder="Ej: Managua"
+            placeholder={fieldPlaceholder('municipality')}
             placeholderTextColor={colors.textSecondary}
           />
         </View>
       </View>
 
-      {/* Información del Vehículo */}
+      {/* Vehicle Information */}
       <View style={[styles.section, isComplete.vehicleInfo && styles.completedSection]}>
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>🚗 Información del Vehículo</Text>
+          <Text style={styles.sectionTitle}>{sections.vehicle}</Text>
           {isComplete.vehicleInfo && (
             <View style={styles.completionBadge}>
               <View style={[styles.completionIcon, styles.iconComplete]} />
-              <Text style={styles.completedText}>Completo</Text>
+              <Text style={styles.completedText}>{completionText.badge}</Text>
             </View>
           )}
         </View>
 
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Placa *</Text>
+          <Text style={styles.inputLabel}>{fieldLabel('plate')}</Text>
           <TextInput
             style={[styles.input, plate ? styles.inputFilled : styles.inputRequired]}
             value={plate}
             onChangeText={(text) => {
               setPlate(text);
-              // Actualizar completitud al cambiar
               checkCompleteness();
             }}
-            placeholder="Ej: M 323023"
+            placeholder={fieldPlaceholder('plate')}
             placeholderTextColor={colors.textSecondary}
           />
         </View>
 
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Marca</Text>
+          <Text style={styles.inputLabel}>{fieldLabel('brand')}</Text>
           <TextInput
             style={[styles.input, brand ? styles.inputFilled : styles.inputRequired]}
             value={brand}
             onChangeText={(text) => {
               setBrand(text);
-              // Actualizar completitud al cambiar
               checkCompleteness();
             }}
-            placeholder="Ej: Toyota"
+            placeholder={fieldPlaceholder('brand')}
             placeholderTextColor={colors.textSecondary}
           />
         </View>
 
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Modelo</Text>
+          <Text style={styles.inputLabel}>{fieldLabel('model')}</Text>
           <TextInput
             style={styles.input}
             value={model}
             onChangeText={setModel}
-            placeholder="Ej: Prado"
+            placeholder={fieldPlaceholder('model')}
             placeholderTextColor={colors.textSecondary}
           />
         </View>
 
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Año</Text>
+          <Text style={styles.inputLabel}>{fieldLabel('year')}</Text>
           <TextInput
             style={styles.input}
             value={year}
             onChangeText={setYear}
-            placeholder="Ej: 2021"
+            placeholder={fieldPlaceholder('year')}
             keyboardType="numeric"
             placeholderTextColor={colors.textSecondary}
           />
         </View>
 
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Color</Text>
+          <Text style={styles.inputLabel}>{fieldLabel('color')}</Text>
           <TextInput
             style={styles.input}
             value={color}
             onChangeText={setColor}
-            placeholder="Ej: Negro"
+            placeholder={fieldPlaceholder('color')}
             placeholderTextColor={colors.textSecondary}
           />
         </View>
 
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Tipo de Vehículo</Text>
+          <Text style={styles.inputLabel}>{fieldLabel('vehicleType')}</Text>
           <TextInput
             style={styles.input}
             value={vehicleType}
             onChangeText={setVehicleType}
-            placeholder="Ej: suv, sedan, pickup"
+            placeholder={fieldPlaceholder('vehicleType')}
             placeholderTextColor={colors.textSecondary}
           />
         </View>
 
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>¿Es 4x4?</Text>
+          <Text style={styles.inputLabel}>{fieldLabel('fourByFour')}</Text>
           <View style={styles.switchContainer}>
-            <Text style={styles.switchLabel}>No</Text>
+            <Text style={styles.switchLabel}>{messages.switchNo}</Text>
             <Switch
               value={is4x4}
               onValueChange={setIs4x4}
               trackColor={{ false: colors.border, true: colors.primary }}
               thumbColor={is4x4 ? colors.primary : colors.textSecondary}
             />
-            <Text style={styles.switchLabel}>Sí</Text>
+            <Text style={styles.switchLabel}>{messages.switchYes}</Text>
           </View>
         </View>
       </View>
 
-      {/* Información Técnica del Vehículo */}
+      {/* Technical Info */}
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>🔧 Información Técnica</Text>
+          <Text style={styles.sectionTitle}>{sections.technical}</Text>
           <View style={styles.completionBadge}>
             <View style={[styles.completionIcon, styles.iconNotRequired]} />
-            <Text style={{color: colors.textSecondary, fontSize: 14}}>Opcional</Text>
+            <Text style={{ color: colors.textSecondary, fontSize: 14 }}>{completionText.optional}</Text>
           </View>
         </View>
 
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Motor</Text>
+          <Text style={styles.inputLabel}>{fieldLabel('motor')}</Text>
           <TextInput
             style={styles.input}
             value={motor}
             onChangeText={setMotor}
-            placeholder="Número de motor"
+            placeholder={fieldPlaceholder('motor')}
             placeholderTextColor={colors.textSecondary}
           />
         </View>
 
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Chasis</Text>
+          <Text style={styles.inputLabel}>{fieldLabel('chasis')}</Text>
           <TextInput
             style={styles.input}
             value={chasis}
             onChangeText={setChasis}
-            placeholder="Número de chasis"
+            placeholder={fieldPlaceholder('chasis')}
             placeholderTextColor={colors.textSecondary}
           />
         </View>
 
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>VIN</Text>
+          <Text style={styles.inputLabel}>{fieldLabel('vin')}</Text>
           <TextInput
             style={styles.input}
             value={vin}
             onChangeText={setVin}
-            placeholder="Número de VIN"
+            placeholder={fieldPlaceholder('vin')}
             placeholderTextColor={colors.textSecondary}
           />
         </View>
 
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Cilindros</Text>
+          <Text style={styles.inputLabel}>{fieldLabel('cylinders')}</Text>
           <TextInput
             style={styles.input}
             value={cylinders}
             onChangeText={setCylinders}
-            placeholder="Ej: 6"
+            placeholder={fieldPlaceholder('cylinders')}
             keyboardType="numeric"
             placeholderTextColor={colors.textSecondary}
           />
         </View>
 
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Pasajeros</Text>
+          <Text style={styles.inputLabel}>{fieldLabel('passengers')}</Text>
           <TextInput
             style={styles.input}
             value={passengers}
             onChangeText={setPassengers}
-            placeholder="Ej: 5"
+            placeholder={fieldPlaceholder('passengers')}
             keyboardType="numeric"
             placeholderTextColor={colors.textSecondary}
           />
         </View>
 
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Tipo de Combustible</Text>
+          <Text style={styles.inputLabel}>{fieldLabel('fuelType')}</Text>
           <TextInput
             style={styles.input}
             value={fuelType}
             onChangeText={setFuelType}
-            placeholder="Ej: Gasolina, Diésel"
+            placeholder={fieldPlaceholder('fuelType')}
             placeholderTextColor={colors.textSecondary}
           />
         </View>
 
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Tonelaje</Text>
+          <Text style={styles.inputLabel}>{fieldLabel('tonnage')}</Text>
           <TextInput
             style={styles.input}
             value={tonnage}
             onChangeText={setTonnage}
-            placeholder="Ej: 2.5"
+            placeholder={fieldPlaceholder('tonnage')}
             keyboardType="decimal-pad"
             placeholderTextColor={colors.textSecondary}
           />
         </View>
 
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Clase de Vehículo</Text>
+          <Text style={styles.inputLabel}>{fieldLabel('vehicleClass')}</Text>
           <TextInput
             style={styles.input}
             value={vehicleClass}
             onChangeText={setVehicleClass}
-            placeholder="Ej: PARTICULAR"
+            placeholder={fieldPlaceholder('vehicleClass')}
             placeholderTextColor={colors.textSecondary}
           />
         </View>
 
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Tipo de Servicio</Text>
+          <Text style={styles.inputLabel}>{fieldLabel('serviceType')}</Text>
           <TextInput
             style={styles.input}
             value={serviceType}
             onChangeText={setServiceType}
-            placeholder="Ej: PRIVADO"
+            placeholder={fieldPlaceholder('serviceType')}
             placeholderTextColor={colors.textSecondary}
           />
         </View>
 
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Gravamen</Text>
+          <Text style={styles.inputLabel}>{fieldLabel('lien')}</Text>
           <TextInput
             style={styles.input}
             value={lien}
             onChangeText={setLien}
-            placeholder="Ej: NINGUNO"
+            placeholder={fieldPlaceholder('lien')}
             placeholderTextColor={colors.textSecondary}
           />
         </View>
       </View>
 
-      {/* Información de Documentos */}
+      {/* Documents */}
       <View style={[styles.section, isComplete.documentsInfo && styles.completedSection]}>
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>📄 Documentos</Text>
+          <Text style={styles.sectionTitle}>{sections.documents}</Text>
           {isComplete.documentsInfo && (
             <View style={styles.completionBadge}>
               <View style={[styles.completionIcon, styles.iconComplete]} />
-              <Text style={styles.completedText}>Completo</Text>
+              <Text style={styles.completedText}>{completionText.badge}</Text>
             </View>
           )}
         </View>
 
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Número de Matrícula</Text>
+          <Text style={styles.inputLabel}>{fieldLabel('registrationNumber')}</Text>
           <TextInput
             style={styles.input}
             value={registrationNumber}
             onChangeText={setRegistrationNumber}
-            placeholder="Ej: B2301230"
+            placeholder={fieldPlaceholder('registrationNumber')}
             placeholderTextColor={colors.textSecondary}
           />
         </View>
 
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Fecha de Vencimiento de Matrícula</Text>
+          <Text style={styles.inputLabel}>{fieldLabel('registrationExpiry')}</Text>
           <TextInput
             style={styles.input}
             value={registrationExpiry}
             onChangeText={setRegistrationExpiry}
-            placeholder="YYYY-MM-DD"
+            placeholder={fieldPlaceholder('registrationExpiry')}
             placeholderTextColor={colors.textSecondary}
           />
         </View>
 
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Número de Póliza de Seguro</Text>
+          <Text style={styles.inputLabel}>{fieldLabel('insuranceNumber')}</Text>
           <TextInput
             style={styles.input}
             value={insuranceNumber}
             onChangeText={setInsuranceNumber}
-            placeholder="Ej: RCO30201102"
+            placeholder={fieldPlaceholder('insuranceNumber')}
             placeholderTextColor={colors.textSecondary}
           />
         </View>
 
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Compañía de Seguro</Text>
+          <Text style={styles.inputLabel}>{fieldLabel('insuranceCompany')}</Text>
           <TextInput
             style={styles.input}
             value={insuranceCompany}
             onChangeText={setInsuranceCompany}
-            placeholder="Ej: BAC"
+            placeholder={fieldPlaceholder('insuranceCompany')}
             placeholderTextColor={colors.textSecondary}
           />
         </View>
 
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Fecha de Vencimiento del Seguro</Text>
+          <Text style={styles.inputLabel}>{fieldLabel('insuranceExpiry')}</Text>
           <TextInput
             style={styles.input}
             value={insuranceExpiry}
             onChangeText={setInsuranceExpiry}
-            placeholder="YYYY-MM-DD"
+            placeholder={fieldPlaceholder('insuranceExpiry')}
             placeholderTextColor={colors.textSecondary}
           />
         </View>
 
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Fecha de Inicio del Seguro</Text>
+          <Text style={styles.inputLabel}>{fieldLabel('insuranceStartDate')}</Text>
           <TextInput
             style={styles.input}
             value={insuranceStartDate}
             onChangeText={setInsuranceStartDate}
-            placeholder="YYYY-MM-DD"
+            placeholder={fieldPlaceholder('insuranceStartDate')}
             placeholderTextColor={colors.textSecondary}
           />
         </View>
       </View>
 
-      {/* Licencia de Conducir */}
+      {/* License */}
       <View style={[styles.section, isComplete.licensePhotos && styles.completedSection]}>
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>🪪 Licencia de Conducir</Text>
+          <Text style={styles.sectionTitle}>{sections.license}</Text>
           {isComplete.licensePhotos && (
             <View style={styles.completionBadge}>
               <View style={[styles.completionIcon, styles.iconComplete]} />
-              <Text style={styles.completedText}>Completo</Text>
+              <Text style={styles.completedText}>{completionText.badge}</Text>
             </View>
           )}
         </View>
 
         <View style={styles.photoRow}>
           <View style={styles.photoContainer}>
-            <Text style={styles.photoLabel}>Frente</Text>
+            <Text style={styles.photoLabel}>{photos.frontLabel ?? ''}</Text>
             <ImagePicker
               imageUri={tempLicenseFrontUri || licensePhotoFront || driverData?.license_photo_front || null}
               onImageSelected={handleSelectLicenseFront}
-              label="Subir frente"
+              label={photos.uploadFront ?? ''}
             />
           </View>
 
           <View style={styles.photoContainer}>
-            <Text style={styles.photoLabel}>Reverso</Text>
+            <Text style={styles.photoLabel}>{photos.backLabel ?? ''}</Text>
             <ImagePicker
               imageUri={tempLicenseBackUri || licensePhotoBack || driverData?.license_photo_back || null}
               onImageSelected={handleSelectLicenseBack}
-              label="Subir reverso"
+              label={photos.uploadBack ?? ''}
             />
           </View>
         </View>
       </View>
 
-      {/* Tarjeta de Circulación */}
+      {/* Registration */}
       <View style={[styles.section, isComplete.registrationPhotos && styles.completedSection]}>
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>📄 Tarjeta de Circulación</Text>
+          <Text style={styles.sectionTitle}>{sections.registration}</Text>
           {isComplete.registrationPhotos && (
             <View style={styles.completionBadge}>
               <View style={[styles.completionIcon, styles.iconComplete]} />
-              <Text style={styles.completedText}>Completo</Text>
+              <Text style={styles.completedText}>{completionText.badge}</Text>
             </View>
           )}
         </View>
 
         <View style={styles.photoRow}>
           <View style={styles.photoContainer}>
-            <Text style={styles.photoLabel}>Frente</Text>
+            <Text style={styles.photoLabel}>{photos.frontLabel ?? ''}</Text>
             <ImagePicker
               imageUri={tempRegistrationFrontUri || registrationPhotoFront || vehicleData?.registration_photo_front || null}
               onImageSelected={handleSelectRegistrationFront}
-              label="Subir frente"
+              label={photos.uploadFront ?? ''}
             />
           </View>
 
           <View style={styles.photoContainer}>
-            <Text style={styles.photoLabel}>Reverso</Text>
+            <Text style={styles.photoLabel}>{photos.backLabel ?? ''}</Text>
             <ImagePicker
               imageUri={tempRegistrationBackUri || registrationPhotoBack || vehicleData?.registration_photo_back || null}
               onImageSelected={handleSelectRegistrationBack}
-              label="Subir reverso"
+              label={photos.uploadBack ?? ''}
             />
           </View>
         </View>
       </View>
 
-      {/* Póliza de Seguro */}
+      {/* Insurance */}
       <View style={[styles.section, isComplete.insurancePhotos && styles.completedSection]}>
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>🛡️ Póliza de Seguro</Text>
+          <Text style={styles.sectionTitle}>{sections.insurance}</Text>
           {isComplete.insurancePhotos && (
             <View style={styles.completionBadge}>
               <View style={[styles.completionIcon, styles.iconComplete]} />
-              <Text style={styles.completedText}>Completo</Text>
+              <Text style={styles.completedText}>{completionText.badge}</Text>
             </View>
           )}
         </View>
@@ -965,18 +998,18 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
         <ImagePicker
           imageUri={tempInsuranceUri || insurancePhoto || vehicleData?.insurance_photo || null}
           onImageSelected={handleSelectInsurance}
-          label="Subir póliza"
+          label={photos.uploadPolicy ?? ''}
         />
       </View>
 
-      {/* Foto del Vehículo */}
+      {/* Vehicle Photo */}
       <View style={[styles.section, isComplete.vehiclePhotos && styles.completedSection]}>
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>🚗 Foto del Vehículo</Text>
+          <Text style={styles.sectionTitle}>{sections.vehiclePhotos}</Text>
           {isComplete.vehiclePhotos && (
             <View style={styles.completionBadge}>
               <View style={[styles.completionIcon, styles.iconComplete]} />
-              <Text style={styles.completedText}>Completo</Text>
+              <Text style={styles.completedText}>{completionText.badge}</Text>
             </View>
           )}
         </View>
@@ -984,23 +1017,25 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
         <ImagePicker
           imageUri={tempVehicleUri || vehiclePhoto || vehicleData?.vehicle_photo || null}
           onImageSelected={handleSelectVehicle}
-          label="Subir foto del vehículo"
+          label={photos.uploadVehicle ?? ''}
         />
       </View>
 
       {/* Botón Guardar */}
       <View style={styles.buttonContainer}>
-        {Object.values(isComplete).every(Boolean) ? (
+        {allSectionsComplete ? (
           <View style={styles.allCompletedBanner}>
-            <Text style={styles.allCompletedText}>¡Todo completo!</Text>
+            <Text style={styles.allCompletedText}>{completionText.allDone}</Text>
           </View>
         ) : (
-          <Text style={styles.incompleteText}>
-            Complete todos los campos requeridos para continuar
-          </Text>
+          <Text style={styles.incompleteText}>{buttons.incompleteWarning ?? ''}</Text>
         )}
         <Button
-          title={Object.values(isComplete).every(Boolean) ? "¡Guardar Información!" : "Guardar Información"}
+          title={
+            allSectionsComplete
+              ? buttons.saveAllComplete ?? buttons.save ?? ''
+              : buttons.save ?? buttons.saveAllComplete ?? ''
+          }
           onPress={handleSave}
           disabled={saving}
           loading={saving}

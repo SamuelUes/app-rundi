@@ -6,6 +6,7 @@
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
+import i18n from '../i18n';
 
 // Configurar cómo se muestran las notificaciones
 Notifications.setNotificationHandler({
@@ -18,19 +19,29 @@ Notifications.setNotificationHandler({
 
 class NotificationService {
   private expoPushToken: string | null = null;
+  private quickReturnNotificationId: string | null = null;
+  private managedNotifications = new Map<
+    string,
+    {
+      notificationId: string;
+      timeoutHandle: ReturnType<typeof setTimeout>;
+      expiresAt: number;
+    }
+  >();
 
   /**
    * Inicializar servicio de notificaciones
    */
   async initialize(): Promise<string | null> {
     try {
-      // Verificar si Expo está configurado correctamente
-      const projectId = Constants.expoConfig?.extra?.eas?.projectId;
-      
+      const projectId = this.resolveProjectId();
+
       if (!projectId || !this.isValidUUID(projectId)) {
         console.log('ℹ️ Expo Push Notifications deshabilitado - usando FCM');
         return null;
       }
+      
+      console.log('🔔 Inicializando notificaciones con projectId:', projectId);
 
       // Solicitar permisos
       const { status: existingStatus } = await Notifications.getPermissionsAsync();
@@ -46,6 +57,9 @@ class NotificationService {
         return null;
       }
 
+      // Configurar canal Android de alta prioridad
+      await this.ensureAndroidChannel();
+
       // Obtener token de Expo Push
       const token = await this.getExpoPushToken();
       this.expoPushToken = token;
@@ -56,6 +70,91 @@ class NotificationService {
       console.error('❌ Error inicializando notificaciones:', error);
       console.log('ℹ️ Expo Notifications falló, usando FCM como alternativa');
       return null;
+    }
+  }
+
+  private clearManagedNotification(notificationKey: string) {
+    const entry = this.managedNotifications.get(notificationKey);
+    if (!entry) {
+      return;
+    }
+
+    try {
+      clearTimeout(entry.timeoutHandle);
+    } catch (_) {
+      // noop
+    }
+
+    this.managedNotifications.delete(notificationKey);
+  }
+
+  async dismissManagedNotification(notificationKey: string) {
+    const entry = this.managedNotifications.get(notificationKey);
+    if (!entry) {
+      return;
+    }
+
+    try {
+      await Notifications.dismissNotificationAsync(entry.notificationId);
+    } catch (error) {
+      console.warn('⚠️ Error descartando notificación administrada:', error);
+    } finally {
+      this.clearManagedNotification(notificationKey);
+    }
+  }
+
+  async showManagedNotification(
+    title: string,
+    body: string,
+    data: any,
+    notificationKey: string,
+    expiresInMs: number = 120_000,
+  ) {
+    if (!notificationKey) {
+      await this.showLocalNotification(title, body, data);
+      return;
+    }
+
+    const normalizedExpires = Number.isFinite(expiresInMs) && expiresInMs > 0 ? expiresInMs : 120_000;
+
+    await this.dismissManagedNotification(notificationKey);
+
+    try {
+      await this.ensureAndroidChannel();
+      const notificationId = await Notifications.scheduleNotificationAsync({
+        content: {
+          title,
+          body,
+          data: {
+            ...data,
+            notificationKey,
+            expiresInMs: normalizedExpires,
+          },
+          sound: 'default',
+          priority: Notifications.AndroidNotificationPriority.MAX,
+          vibrate: [0, 250, 250, 250],
+        },
+        trigger: null, // Mostrar inmediatamente
+      });
+
+      const timeoutHandle = setTimeout(async () => {
+        try {
+          await Notifications.dismissNotificationAsync(notificationId);
+        } catch (error) {
+          console.warn('⚠️ Error descartando notificación por expiración:', error);
+        } finally {
+          this.managedNotifications.delete(notificationKey);
+        }
+      }, normalizedExpires);
+
+      this.managedNotifications.set(notificationKey, {
+        notificationId,
+        timeoutHandle,
+        expiresAt: Date.now() + normalizedExpires,
+      });
+    } catch (error) {
+      console.error('❌ Error mostrando notificación administrada:', error);
+      await this.showLocalNotification(title, body, data);
     }
   }
 
@@ -71,13 +170,63 @@ class NotificationService {
    * Obtener Expo Push Token
    */
   private async getExpoPushToken(): Promise<string> {
-    const projectId = Constants.expoConfig?.extra?.eas?.projectId;
-    
+    const projectId = this.resolveProjectId();
+
+    if (!projectId) {
+      throw new Error('Expo projectId no disponible para push notifications');
+    }
+
+    console.log('🔑 Obteniendo Expo Push Token con projectId:', projectId);
+
     const token = await Notifications.getExpoPushTokenAsync({
       projectId,
     });
 
     return token.data;
+  }
+
+  /**
+   * Crear canal Android de alta prioridad para proximidad
+   */
+  private async ensureAndroidChannel() {
+    try {
+      if (Platform.OS !== 'android') return;
+      // Configurar canal por defecto como alta prioridad
+      await Notifications.setNotificationChannelAsync('default', {
+        name: this.tr('channels.default'),
+        importance: Notifications.AndroidImportance.MAX,
+        bypassDnd: true,
+        sound: 'default',
+        vibrationPattern: [0, 250, 250, 250],
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+        enableVibrate: true,
+        enableLights: true,
+        lightColor: '#FF9800',
+        showBadge: true,
+      });
+    } catch (e) {
+      // noop
+    }
+  }
+
+  /**
+   * Canal dedicado para "Viaje activo" (Android)
+   */
+  private async ensureActiveRideChannel() {
+    try {
+      if (Platform.OS !== 'android') return;
+      await Notifications.setNotificationChannelAsync('active-ride', {
+        name: this.tr('channels.activeRide'),
+        importance: Notifications.AndroidImportance.HIGH,
+        vibrationPattern: [0, 250, 250, 250],
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+        enableVibrate: true,
+        enableLights: true,
+        lightColor: '#D4AF37',
+      });
+    } catch (_) {
+      // noop
+    }
   }
 
   /**
@@ -108,16 +257,52 @@ class NotificationService {
   }
 
   /**
+   * Mostrar notificación de retorno rápido a la pantalla de viaje activo
+      this.quickReturnNotificationId = id;
+      return id;
+    } catch (error) {
+      console.error('❌ Error creando notificación de retorno rápido:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Limpiar notificación de retorno rápido (usa dismissAll por confiabilidad)
+   */
+  async clearQuickReturn() {
+    try {
+      await Notifications.dismissAllNotificationsAsync();
+      this.quickReturnNotificationId = null;
+      this.managedNotifications.forEach((entry, key) => {
+        try {
+          clearTimeout(entry.timeoutHandle);
+        } catch (_) {
+          // noop
+        }
+        this.managedNotifications.delete(key);
+      });
+    } catch (error) {
+      console.error('❌ Error limpiando notificaciones:', error);
+    }
+  }
+
+  /**
    * Notificar nuevo viaje disponible
    */
   async notifyNewRide(ride: any) {
-    const distance = (ride.estimatedDistance / 1000).toFixed(1);
-    const price = ride.estimatedPrice.toFixed(0);
+    const distance = this.formatDistanceKm(ride.estimatedDistance);
+    const price = this.formatPriceCordoba(ride.estimatedPrice);
+    const origin = ride?.origin?.address || this.tr('newRide.originFallback');
 
-    await this.showLocalNotification(
-      '🚗 Nuevo Viaje Disponible',
-      `${distance} km • C$${price} • ${ride.origin.address}`,
-      { type: 'new_ride', rideId: ride.id }
+    await this.showManagedNotification(
+      this.tr('newRide.title'),
+      this.tr('newRide.body', {
+        distance: distance ?? '',
+        price,
+        origin,
+      }),
+      { type: 'new_ride', rideId: ride.id },
+      `ride-${ride.id}`,
     );
   }
 
@@ -125,10 +310,12 @@ class NotificationService {
    * Notificar viaje aceptado
    */
   async notifyRideAccepted(ride: any) {
-    await this.showLocalNotification(
-      '✅ Viaje Aceptado',
-      `El conductor ${ride.driver.name} aceptó tu viaje`,
-      { type: 'ride_accepted', rideId: ride.id }
+    const driverName = ride?.driver?.name || this.tr('rideAccepted.driverFallback');
+    await this.showManagedNotification(
+      this.tr('rideAccepted.title'),
+      this.tr('rideAccepted.body', { driverName }),
+      { type: 'ride_accepted', rideId: ride.id },
+      `ride-${ride.id}`,
     );
   }
 
@@ -136,10 +323,11 @@ class NotificationService {
    * Notificar viaje iniciado
    */
   async notifyRideStarted(ride: any) {
-    await this.showLocalNotification(
-      '🚗 Viaje Iniciado',
-      'Tu conductor ha iniciado el viaje',
-      { type: 'ride_started', rideId: ride.id }
+    await this.showManagedNotification(
+      this.tr('rideStarted.title'),
+      this.tr('rideStarted.body'),
+      { type: 'ride_started', rideId: ride.id },
+      `ride-${ride.id}`,
     );
   }
 
@@ -147,10 +335,11 @@ class NotificationService {
    * Notificar viaje completado
    */
   async notifyRideCompleted(ride: any) {
-    await this.showLocalNotification(
-      '✅ Viaje Completado',
-      'Tu viaje ha finalizado. ¡Califica tu experiencia!',
-      { type: 'ride_completed', rideId: ride.id }
+    await this.showManagedNotification(
+      this.tr('rideCompleted.title'),
+      this.tr('rideCompleted.body'),
+      { type: 'ride_completed', rideId: ride.id },
+      `ride-${ride.id}`,
     );
   }
 
@@ -158,10 +347,11 @@ class NotificationService {
    * Notificar viaje cancelado
    */
   async notifyRideCanceled(ride: any, reason?: string) {
-    await this.showLocalNotification(
-      '❌ Viaje Cancelado',
-      reason || 'El viaje ha sido cancelado',
-      { type: 'ride_canceled', rideId: ride.id }
+    await this.showManagedNotification(
+      this.tr('rideCanceled.title'),
+      reason || this.tr('rideCanceled.body'),
+      { type: 'ride_canceled', rideId: ride.id },
+      `ride-${ride.id}`,
     );
   }
 
@@ -189,6 +379,14 @@ class NotificationService {
   async cancelAllNotifications() {
     try {
       await Notifications.cancelAllScheduledNotificationsAsync();
+      this.managedNotifications.forEach((entry, key) => {
+        try {
+          clearTimeout(entry.timeoutHandle);
+        } catch (_) {
+          // noop
+        }
+        this.managedNotifications.delete(key);
+      });
     } catch (error) {
       console.error('❌ Error cancelando notificaciones:', error);
     }
@@ -206,6 +404,67 @@ class NotificationService {
    */
   addNotificationResponseListener(callback: (response: Notifications.NotificationResponse) => void) {
     return Notifications.addNotificationResponseReceivedListener(callback);
+  }
+
+  private tr(path: string, options?: Record<string, any>) {
+    return i18n.t(`shared.notifications.${path}`, options) as string;
+  }
+
+  private formatPriceCordoba(amount?: number | string | null) {
+    const numeric =
+      typeof amount === 'number'
+        ? amount
+        : typeof amount === 'string' && amount.trim().length
+          ? Number(amount)
+          : NaN;
+    const value = Number.isFinite(numeric) ? Number(numeric) : 0;
+    return this.tr('formats.priceCordoba', { amount: value.toFixed(0) });
+  }
+
+  private formatDistanceKm(distanceMeters?: number | null) {
+    if (typeof distanceMeters !== 'number' || !Number.isFinite(distanceMeters)) {
+      return null;
+    }
+    const value = distanceMeters / 1000;
+    return this.tr('formats.distanceKm', { value: value.toFixed(1) });
+  }
+
+  /**
+   * Resolver projectId de Expo/EAS sin importar el modo de ejecución
+   */
+  private resolveProjectId(): string | null {
+    const expoConfig = (Constants.expoConfig ?? {}) as {
+      extra?: { eas?: { projectId?: string } };
+      projectId?: string;
+    };
+    const manifest = (Constants.manifest ?? {}) as {
+      extra?: { eas?: { projectId?: string } };
+    };
+
+    const envProjectId =
+      process.env.EXPO_PUBLIC_NOTIFICATIONS_PROJECT_ID ||
+      process.env.EXPO_NOTIFICATIONS_PROJECT_ID ||
+      process.env.EXPO_PROJECT_ID ||
+      process.env.EAS_PROJECT_ID ||
+      null;
+    const extraNotificationsId =
+      (expoConfig?.extra as { notificationsProjectId?: string } | undefined)?.notificationsProjectId;
+    const expoConfigExtraProjectId = expoConfig?.extra?.eas?.projectId;
+    const manifestExtraProjectId = manifest?.extra?.eas?.projectId;
+    const legacyExpoConfigProjectId = expoConfig?.projectId;
+    const easProjectId = Constants.easConfig?.projectId;
+
+    const fallbackProjectId = '98fe5b45-4177-4d65-8ce3-6b783abfe196';
+
+    return (
+      envProjectId ||
+      extraNotificationsId ||
+      expoConfigExtraProjectId ||
+      manifestExtraProjectId ||
+      legacyExpoConfigProjectId ||
+      easProjectId ||
+      fallbackProjectId
+    );
   }
 }
 

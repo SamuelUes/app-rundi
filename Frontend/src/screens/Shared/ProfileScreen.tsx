@@ -1,35 +1,83 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, ActivityIndicator, Image, Switch } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
+import { useFCM } from '../../context/FCMContext';
 import { ProfileSkeleton } from '../../components/SkeletonLoader';
 import Button from '../../components/Button';
 import driversService from '../../services/driversService';
+import LoadingOverlay from '../../components/LoadingOverlay';
+import phoneAuthService from '../../services/auth/phoneAuthService';
+import { fetchDriverProfile } from '../../services/driverProfilesService';
+import { useTranslation } from 'react-i18next';
 
 export default function ProfileScreen({ navigation }: any) {
-  const { user, logout } = useAuth();
-  const { colors } = useTheme();
+  const { user, logout, logoutInProgress, userMode, setUserMode } = useAuth();
+  const { theme, setTheme, colors, mapTrafficEnabled, setMapTrafficEnabled } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [driverProfile, setDriverProfile] = useState<any>(null);
   const [loadingProfile, setLoadingProfile] = useState(false);
+  const { isConfigured, hasPermission, isFCMAvailable, configureFCM } = useFCM();
+  const notificationsEnabled = isFCMAvailable && hasPermission && isConfigured;
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [vibrationEnabled, setVibrationEnabled] = useState(true);
+  const isDriverCapable = user?.role === 'driver' || user?.role === 'designated_driver';
+  const [switchingToDriver, setSwitchingToDriver] = useState(false);
+  const { t } = useTranslation();
 
-  // Cargar perfil del conductor si es conductor
+  const getVehicleTypeLabel = (type?: string | null) => {
+    const normalized = type?.toLowerCase();
+    switch (normalized) {
+      case 'sedan':
+        return t('shared.profile.vehicle.typeLabels.sedan');
+      case 'suv':
+        return t('shared.profile.vehicle.typeLabels.suv');
+      case 'van':
+        return t('shared.profile.vehicle.typeLabels.van');
+      case 'moto':
+      case 'motorcycle':
+        return t('shared.profile.vehicle.typeLabels.moto');
+      default:
+        return normalized
+          ? t('shared.profile.vehicle.typeLabels.other', { type })
+          : t('shared.profile.vehicle.typeLabels.other', { type: t('shared.profile.vehicle.infoLabels.type') });
+    }
+  };
+
+  const headerTitle = t('shared.profile.header.title');
+  const headerEditLabel = t('shared.profile.header.edit');
+  const userIdLabel = t('shared.profile.header.userId', { id: user?.id ?? '' });
+  const roleLabel =
+    user?.role === 'driver' || user?.role === 'designated_driver'
+      ? t('shared.profile.header.role.driver')
+      : t('shared.profile.header.role.client');
+  const modeTitle = isDriverCapable ? t('shared.profile.mode.titleDriver') : t('shared.profile.mode.titleClient');
+  const modeDescription = isDriverCapable
+    ? t('shared.profile.mode.descriptionDriver')
+    : t('shared.profile.mode.descriptionClient');
+  const modeButtonLabel = switchingToDriver
+    ? t('shared.profile.mode.switching')
+    : isDriverCapable
+    ? t('shared.profile.mode.buttonDriver')
+    : t('shared.profile.mode.buttonClient');
+
+  // Cargar perfil del conductor solo cuando el usuario es conductor y está en modo conductor
   useEffect(() => {
     const loadDriverProfile = async () => {
-      if (user?.role === 'driver' && user?.id) {
+      if (isDriverCapable && userMode === 'driver' && user?.id) {
         await loadDriverProfileData();
       }
     };
 
     loadDriverProfile();
-  }, [user]);
+  }, [isDriverCapable, userMode, user]);
 
   const loadDriverProfileData = async () => {
     if (!user?.id) return;
 
     setLoadingProfile(true);
     try {
-      // ✅ Obtener perfil del conductor autenticado
+      // Obtener perfil del conductor autenticado
       const profile = await driversService.getMyDriverProfile();
       console.log('Perfil de conductor cargado:', profile);
       console.log('Datos del vehículo:', profile?.driver?.vehicle);
@@ -42,281 +90,535 @@ export default function ProfileScreen({ navigation }: any) {
     }
   };
 
+  const handleToggleNotifications = async (value: boolean) => {
+    try {
+      if (value) {
+        if (!isFCMAvailable) {
+          Alert.alert(t('shared.profile.alerts.buildTitle'), t('shared.profile.alerts.buildMessage'));
+          return;
+        }
+        await configureFCM();
+      } else if (notificationsEnabled) {
+        Alert.alert(t('shared.profile.alerts.disableTitle'), t('shared.profile.alerts.disableMessage'));
+      }
+    } catch (error) {
+      console.warn('Error actualizando notificaciones', error);
+    }
+  };
+
+  const handleThemeChange = (value: 'light' | 'dark' | 'auto') => {
+    setTheme(value);
+  };
+
+  const checkDriverApprovalForModeSwitch = async (driverId: string) => {
+    try {
+      const profile = await fetchDriverProfile(driverId, { forceRefresh: true });
+      if (!profile) {
+        return null;
+      }
+
+      const rawAccountStatus = String(
+        (profile as any)?.account_status || (profile as any)?.status || '',
+      ).toLowerCase();
+
+      const accountActive = ['active', 'verified', 'approved'].includes(rawAccountStatus);
+
+      const rawDocumentsStatus = String((profile as any)?.documents_status || '').toLowerCase();
+      const documentsVerified = rawDocumentsStatus === 'verified';
+
+      const vehicles: any[] | undefined = (profile as any)?.vehicles;
+      const hasActiveVehicle = Array.isArray(vehicles)
+        ? vehicles.some((v) => v && (v.isActive === true || (v as any).is_active === true))
+        : false;
+
+      return {
+        allowed: accountActive && documentsVerified && hasActiveVehicle,
+        accountActive,
+        documentsVerified,
+        hasActiveVehicle,
+      };
+    } catch (error) {
+      console.error('Error verificando aprobación de conductor desde perfil:', error);
+      return null;
+    }
+  };
+
+  const handleUpgradeToDriver = async () => {
+    if (!user) {
+      return;
+    }
+
+    if (user.role !== 'client') {
+      Alert.alert(
+        t('shared.profile.alerts.upgradeNotAvailableTitle'),
+        t('shared.profile.alerts.upgradeNotAvailableMessage'),
+      );
+      return;
+    }
+
+    const name = user.name || '';
+    const email = user.email || '';
+    const phone = user.phone || '';
+    const normalizedPhone = phone.trim();
+
+    try {
+      if (normalizedPhone) {
+        await phoneAuthService.sendVerificationCode(normalizedPhone);
+
+        navigation.navigate('PhoneVerification', {
+          name,
+          email,
+          phone: normalizedPhone,
+          password: undefined,
+          method: 'phone',
+          authProvider: 'phone',
+          googleIdToken: undefined,
+          role: 'driver',
+          phoneVerified: false,
+          context: 'register_upgrade_driver',
+        });
+      } else {
+        navigation.navigate('DriverPhone', {
+          name,
+          email,
+          phone: undefined,
+          password: undefined,
+          method: 'phone',
+          authProvider: 'phone',
+          googleIdToken: undefined,
+          context: 'register_upgrade_driver',
+        });
+      }
+    } catch (error: any) {
+      console.error('Error al enviar código SMS para upgrade a conductor desde perfil:', error);
+      Alert.alert(
+        t('shared.profile.alerts.smsErrorTitle'),
+        error?.message || t('shared.profile.alerts.smsErrorMessage'),
+      );
+    }
+  };
+
+  const handleSwitchToDriverMode = async () => {
+    if (!user || switchingToDriver) {
+      return;
+    }
+
+    if (!isDriverCapable) {
+      await handleUpgradeToDriver();
+      return;
+    }
+
+    try {
+      setSwitchingToDriver(true);
+
+      const approval = user.id ? await checkDriverApprovalForModeSwitch(user.id) : null;
+
+      if (approval && !approval.allowed) {
+        const reasons: string[] = [];
+
+        if (!approval.accountActive) {
+          reasons.push(t('shared.profile.alerts.driverModeReasons.accountInactive'));
+        }
+        if (!approval.documentsVerified) {
+          reasons.push(t('shared.profile.alerts.driverModeReasons.documentsPending'));
+        }
+        if (!approval.hasActiveVehicle) {
+          reasons.push(t('shared.profile.alerts.driverModeReasons.vehicleMissing'));
+        }
+
+        Alert.alert(
+          t('shared.profile.alerts.driverModeBlockedTitle'),
+          `${reasons.join('\n')}\n\n${t('shared.profile.alerts.driverModeFooter')}`,
+        );
+        return;
+      }
+
+      await setUserMode('driver');
+    } catch (error: any) {
+      console.error('Error cambiando a modo conductor desde perfil:', error);
+      Alert.alert('Error', t('shared.profile.alerts.driverModeError'));
+    } finally {
+      setSwitchingToDriver(false);
+    }
+  };
+
   const handleLogout = () => {
-    Alert.alert(
-      'Cerrar sesión',
-      '¿Estás seguro que deseas cerrar sesión?',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Salir',
-          style: 'destructive',
-          onPress: async () => {
-            await logout();
-            // La navegación se maneja automáticamente por AppNavigator
-          },
+    if (logoutInProgress) {
+      return;
+    }
+    Alert.alert(t('shared.profile.alerts.logoutTitle'), t('shared.profile.alerts.logoutMessage'), [
+      { text: t('shared.profile.alerts.logoutCancel'), style: 'cancel' },
+      {
+        text: t('shared.profile.alerts.logoutConfirm'),
+        style: 'destructive',
+        onPress: async () => {
+          await logout();
         },
-      ],
-    );
+      },
+    ]);
   };
 
   if (!user) {
     return (
       <View style={styles.container}>
-        <Text>No hay usuario autenticado</Text>
+        <Text>{t('shared.profile.messages.noUser')}</Text>
       </View>
     );
   }
 
   return (
     <ScrollView style={styles.container}>
+      <LoadingOverlay visible={logoutInProgress} message={t('shared.profile.loading.logout')} />
       {/* Header */}
       <View style={styles.header}>
-        <View style={styles.avatarContainer}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{user.name.charAt(0).toUpperCase()}</Text>
-          </View>
-        </View>
-        <Text style={styles.name}>{user.name}</Text>
-        <Text style={styles.email}>{user.email}</Text>
-        <View style={styles.roleBadge}>
-          <Text style={styles.roleText}>
-            {user.role === 'client' ? '👤 Cliente' : '🚗 Conductor'}
-          </Text>
-        </View>
-      </View>
-
-      {/* Info Cards */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Información Personal</Text>
-
-        <View style={styles.infoCard}>
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>📧 Email</Text>
-            <Text style={styles.infoValue}>{user.email}</Text>
-          </View>
+        <View style={styles.headerTopRow}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => {
+              if (navigation.canGoBack && navigation.canGoBack()) {
+                navigation.goBack();
+              } else if (userMode === 'driver') {
+                navigation.navigate('DriverHome');
+              } else {
+                navigation.navigate('ClientHome');
+              }
+            }}
+          >
+            <Image
+              source={require('../../assets/icons/back_button/back_button.png')}
+              style={styles.backIcon}
+            />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>{headerTitle}</Text>
+          <View style={styles.headerTopSpacer} />
         </View>
 
-        <View style={styles.infoCard}>
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>👤 Rol</Text>
-            <Text style={styles.infoValue}>
-              {user.role === 'client' ? 'Cliente' : 'Conductor'}
-            </Text>
-          </View>
-        </View>
-
-        <View style={styles.infoCard}>
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>🆔 ID de Usuario</Text>
-            <Text style={styles.infoValueSmall}>{user.id}</Text>
-          </View>
-        </View>
-      </View>
-
-      {/* Información del Vehículo (solo conductores) */}
-      {user.role === 'driver' && (
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>🚗 Información del Vehículo</Text>
-            <TouchableOpacity 
-              style={styles.refreshIcon}
-              onPress={loadDriverProfileData}
-              disabled={loadingProfile}
-            >
-              <Text style={styles.refreshIconText}>
-                {loadingProfile ? '⏳' : '🔄'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-          
-          {loadingProfile ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="small" color={colors.primary} />
-              <Text style={styles.loadingText}>Cargando información del vehículo...</Text>
-              <Text style={styles.loadingSubtext}>Verificando datos en la base de datos</Text>
+        <View style={styles.headerMainRow}>
+          <View style={styles.avatarContainer}>
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>{user.name.charAt(0).toUpperCase()}</Text>
             </View>
-          ) : driverProfile?.driver?.vehicle ? (
-            <>
-              {/* Mostrar un mensaje especial para conductores verificados */}
-              {driverProfile.driver.status === 'verified' && (
-                <View style={styles.successCard}>
-                  <Text style={styles.successIcon}>✅</Text>
-                  <View style={styles.successContent}>
-                    <Text style={styles.successTitle}>Conductor Verificado</Text>
-                    <Text style={styles.successText}>
-                      Tu información ha sido verificada correctamente. Ya puedes recibir viajes.
-                    </Text>
+          </View>
+
+          <View style={styles.headerContent}>
+            <Text style={styles.name}>{user.name}</Text>
+            <Text style={styles.email}>{user.email}</Text>
+            <Text style={styles.memberId}>{userIdLabel}</Text>
+
+            <View style={styles.headerBottomRow}>
+              <View style={styles.roleBadge}>
+                <Text style={styles.roleText}>{roleLabel}</Text>
+              </View>
+
+              <TouchableOpacity onPress={() => navigation.navigate('Account')}>
+                <View style={styles.editProfileBadge}>
+                  <Text style={styles.editProfileText}>{headerEditLabel}</Text>
+                </View>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </View>
+      <View style={styles.contentCard}>
+        {userMode === 'client' && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>
+              {modeTitle}
+            </Text>
+            <View style={styles.optionCard}>
+              <View style={styles.modeUseTextContainer}>
+                <Text style={styles.optionText}>
+                  {modeDescription}
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={[
+                  styles.modeUseButton,
+                  switchingToDriver ? styles.modeUseButtonDisabled : null,
+                ]}
+                onPress={isDriverCapable ? handleSwitchToDriverMode : handleUpgradeToDriver}
+                disabled={switchingToDriver}
+              >
+                <Text style={styles.modeUseButtonText}>{modeButtonLabel}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+        {/* Información del Vehículo (solo modo conductor) */}
+        {false && userMode === 'driver' && isDriverCapable && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>{t('shared.profile.vehicle.title')}</Text>
+              <TouchableOpacity 
+                style={styles.refreshIcon}
+                onPress={loadDriverProfileData}
+                disabled={loadingProfile}
+              >
+                <Text style={styles.refreshIconText}>
+                  {loadingProfile ? '⏳' : '🔄'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+            
+            {loadingProfile ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="small" color={colors.primary} />
+                <Text style={styles.loadingText}>{t('shared.profile.loading.vehicle')}</Text>
+                <Text style={styles.loadingSubtext}>{t('shared.profile.vehicle.loadingSubtitle')}</Text>
+              </View>
+            ) : driverProfile?.driver?.vehicle ? (
+              <>
+                {/* Mostrar un mensaje especial para conductores verificados */}
+                {driverProfile.driver.status === 'verified' && (
+                  <View style={styles.successCard}>
+                    <Text style={styles.successIcon}>✅</Text>
+                    <View style={styles.successContent}>
+                      <Text style={styles.successTitle}>{t('shared.profile.vehicle.successTitle')}</Text>
+                      <Text style={styles.successText}>{t('shared.profile.vehicle.successText')}</Text>
+                    </View>
+                  </View>
+                )}
+
+                {/* Verificar si falta información importante Y no está verificado */}
+                {driverProfile.driver.status !== 'verified' && 
+                 (!driverProfile.driver.vehicle.vehicle_photo || 
+                  (!driverProfile.driver.vehicle.registration_photo_front || !driverProfile.driver.vehicle.registration_photo_back) || 
+                  !driverProfile.driver.vehicle.insurance_photo) && (
+                  <View style={styles.warningCard}>
+                    <Text style={styles.warningIcon}>⚠️</Text>
+                    <View style={styles.warningContent}>
+                      <Text style={styles.warningTitle}>{t('shared.profile.vehicle.warningTitle')}</Text>
+                      <Text style={styles.warningText}>{t('shared.profile.vehicle.warningText')}</Text>
+                      {!driverProfile?.driver?.vehicle?.vehicle_photo && (
+                        <Text style={styles.warningItem}>
+                          {driverProfile?.driver?.vehicle?.type === 'moto'
+                            ? t('shared.profile.vehicle.missingPhotoMoto')
+                            : t('shared.profile.vehicle.missingPhotoCar')}
+                        </Text>
+                      )}
+                      {(!driverProfile?.driver?.vehicle?.registration_photo_front || !driverProfile?.driver?.vehicle?.registration_photo_back) && (
+                        <Text style={styles.warningItem}>{t('shared.profile.vehicle.missingRegistration')}</Text>
+                      )}
+                      {!driverProfile?.driver?.vehicle?.insurance_photo && (
+                        <Text style={styles.warningItem}>{t('shared.profile.vehicle.missingInsurance')}</Text>
+                      )}
+                      <TouchableOpacity 
+                        style={styles.completeButton}
+                        onPress={() => navigation.navigate('CompleteVehicleInfo')}
+                      >
+                        <Text style={styles.completeButtonText}>{t('shared.profile.vehicle.completeButton')}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+
+                <View style={styles.infoCard}>
+                  <View style={styles.infoRow}>
+                    <Text style={styles.infoLabel}>🚙 {t('shared.profile.vehicle.infoLabels.brand')}</Text>
+                    <Text style={styles.infoValue}>{driverProfile.driver.vehicle.brand}</Text>
                   </View>
                 </View>
-              )}
 
-              {/* Verificar si falta información importante Y no está verificado */}
-              {driverProfile.driver.status !== 'verified' && 
-               (!driverProfile.driver.vehicle.vehicle_photo || 
-                (!driverProfile.driver.vehicle.registration_photo_front || !driverProfile.driver.vehicle.registration_photo_back) || 
-                !driverProfile.driver.vehicle.insurance_photo) && (
-                <View style={styles.warningCard}>
-                  <Text style={styles.warningIcon}>⚠️</Text>
-                  <View style={styles.warningContent}>
-                    <Text style={styles.warningTitle}>Información Incompleta</Text>
-                    <Text style={styles.warningText}>
-                      Falta completar información importante de tu vehículo. 
-                      Es urgente que completes los siguientes datos:
-                    </Text>
-                    {!driverProfile?.driver?.vehicle?.vehicle_photo && (
-                      <Text style={styles.warningItem}>
-                        📷 Foto del vehículo ({driverProfile?.driver?.vehicle?.type === 'moto' ? 'lateral' : 'frontal'})
+                <View style={styles.infoCard}>
+                  <View style={styles.infoRow}>
+                    <Text style={styles.infoLabel}>🚗 {t('shared.profile.vehicle.infoLabels.model')}</Text>
+                    <Text style={styles.infoValue}>{driverProfile.driver.vehicle.model}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.infoCard}>
+                  <View style={styles.infoRow}>
+                    <Text style={styles.infoLabel}>📅 {t('shared.profile.vehicle.infoLabels.year')}</Text>
+                    <Text style={styles.infoValue}>{driverProfile.driver.vehicle.year}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.infoCard}>
+                  <View style={styles.infoRow}>
+                    <Text style={styles.infoLabel}>🎨 {t('shared.profile.vehicle.infoLabels.color')}</Text>
+                    <Text style={styles.infoValue}>{driverProfile.driver.vehicle.color}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.infoCard}>
+                  <View style={styles.infoRow}>
+                    <Text style={styles.infoLabel}>🔢 {t('shared.profile.vehicle.infoLabels.plate')}</Text>
+                    <Text style={styles.infoValue}>{driverProfile.driver.vehicle.plate}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.infoCard}>
+                  <View style={styles.infoRow}>
+                    <Text style={styles.infoLabel}>🚘 {t('shared.profile.vehicle.infoLabels.type')}</Text>
+                    <Text style={styles.infoValue}>{getVehicleTypeLabel(driverProfile.driver.vehicle.type)}</Text>
+                  </View>
+                </View>
+              </>
+            ) : (
+              <View style={styles.warningCard}>
+                <Text style={styles.warningIcon}>⚠️</Text>
+                <View style={styles.warningContent}>
+                  <Text style={styles.warningTitle}>{t('shared.profile.vehicle.emptyTitle')}</Text>
+                  <Text style={styles.warningText}>{t('shared.profile.vehicle.emptyText')}</Text>
+                  <View style={styles.warningButtons}>
+                    <TouchableOpacity 
+                      style={styles.refreshButton}
+                      onPress={loadDriverProfileData}
+                      disabled={loadingProfile}
+                    >
+                      <Text style={styles.refreshButtonText}>
+                        {loadingProfile ? `🔄 ${t('shared.profile.vehicle.refresh')}` : `🔄 ${t('shared.profile.vehicle.refresh')}`}
                       </Text>
-                    )}
-                    {(!driverProfile?.driver?.vehicle?.registration_photo_front || !driverProfile?.driver?.vehicle?.registration_photo_back) && (
-                      <Text style={styles.warningItem}>📄 Foto de matrícula</Text>
-                    )}
-                    {!driverProfile?.driver?.vehicle?.insurance_photo && (
-                      <Text style={styles.warningItem}>🛡️ Foto de seguro</Text>
-                    )}
+                    </TouchableOpacity>
                     <TouchableOpacity 
                       style={styles.completeButton}
                       onPress={() => navigation.navigate('CompleteVehicleInfo')}
                     >
-                      <Text style={styles.completeButtonText}>Completar Ahora</Text>
+                      <Text style={styles.completeButtonText}>{t('shared.profile.vehicle.register')}</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
-              )}
-
-              <View style={styles.infoCard}>
-                <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>🚙 Marca</Text>
-                  <Text style={styles.infoValue}>{driverProfile.driver.vehicle.brand}</Text>
-                </View>
               </View>
+            )}
+          </View>
+        )}
 
-              <View style={styles.infoCard}>
-                <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>🚗 Modelo</Text>
-                  <Text style={styles.infoValue}>{driverProfile.driver.vehicle.model}</Text>
-                </View>
-              </View>
+        {/* Opciones */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>{t('shared.profile.config.title')}</Text>
 
-              <View style={styles.infoCard}>
-                <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>📅 Año</Text>
-                  <Text style={styles.infoValue}>{driverProfile.driver.vehicle.year}</Text>
-                </View>
-              </View>
-
-              <View style={styles.infoCard}>
-                <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>🎨 Color</Text>
-                  <Text style={styles.infoValue}>{driverProfile.driver.vehicle.color}</Text>
-                </View>
-              </View>
-
-              <View style={styles.infoCard}>
-                <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>🔢 Placa</Text>
-                  <Text style={styles.infoValue}>{driverProfile.driver.vehicle.plate}</Text>
-                </View>
-              </View>
-
-              <View style={styles.infoCard}>
-                <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>🚘 Tipo</Text>
-                  <Text style={styles.infoValue}>
-                    {driverProfile.driver.vehicle.type === 'sedan' ? 'Sedán' :
-                     driverProfile.driver.vehicle.type === 'suv' ? 'SUV' :
-                     driverProfile.driver.vehicle.type === 'van' ? 'Van' :
-                     driverProfile.driver.vehicle.type === 'moto' ? 'Moto' : driverProfile.driver.vehicle.type}
-                  </Text>
-                </View>
-              </View>
-            </>
-          ) : (
-            <View style={styles.warningCard}>
-              <Text style={styles.warningIcon}>⚠️</Text>
-              <View style={styles.warningContent}>
-                <Text style={styles.warningTitle}>Sin Información del Vehículo</Text>
-                <Text style={styles.warningText}>
-                  No hay información de tu vehículo registrada. Es urgente que completes esta información para poder recibir viajes.
+          {/* Tema rápido */}
+          <View style={styles.optionCard}>
+            <Text style={styles.optionText}>{t('shared.profile.config.theme')}</Text>
+            <View style={styles.themeChipsRow}>
+              <TouchableOpacity
+                style={[styles.themeChip, theme === 'light' && styles.themeChipActive]}
+                onPress={() => handleThemeChange('light')}
+              >
+                <Text style={[styles.themeChipText, theme === 'light' && styles.themeChipTextActive]}>
+                  {t('shared.profile.config.themeOptions.light')}
                 </Text>
-                <View style={styles.warningButtons}>
-                  <TouchableOpacity 
-                    style={styles.refreshButton}
-                    onPress={loadDriverProfileData}
-                    disabled={loadingProfile}
-                  >
-                    <Text style={styles.refreshButtonText}>
-                      {loadingProfile ? '🔄 Cargando...' : '🔄 Refrescar'}
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity 
-                    style={styles.completeButton}
-                    onPress={() => navigation.navigate('CompleteVehicleInfo')}
-                  >
-                    <Text style={styles.completeButtonText}>Registrar Vehículo</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.themeChip, theme === 'dark' && styles.themeChipActive]}
+                onPress={() => handleThemeChange('dark')}
+              >
+                <Text style={[styles.themeChipText, theme === 'dark' && styles.themeChipTextActive]}>
+                  {t('shared.profile.config.themeOptions.dark')}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.themeChip, theme === 'auto' && styles.themeChipActive]}
+                onPress={() => handleThemeChange('auto')}
+              >
+                <Text style={[styles.themeChipText, theme === 'auto' && styles.themeChipTextActive]}>
+                  {t('shared.profile.config.themeOptions.auto')}
+                </Text>
+              </TouchableOpacity>
             </View>
-          )}
+          </View>
+
+          {/* Notificaciones Push */}
+          <View style={styles.optionCard}>
+            <Text style={styles.optionText}>{t('shared.profile.config.notifications')}</Text>
+            <Switch
+              value={notificationsEnabled}
+              onValueChange={handleToggleNotifications}
+              trackColor={{ false: colors.border, true: colors.primary }}
+              thumbColor="#fff"
+            />
+          </View>
+
+          {/* Tráfico en el mapa */}
+          <View style={styles.optionCard}>
+            <Text style={styles.optionText}>{t('shared.profile.config.traffic')}</Text>
+            <Switch
+              value={mapTrafficEnabled}
+              onValueChange={setMapTrafficEnabled}
+              trackColor={{ false: colors.border, true: colors.primary }}
+              thumbColor="#fff"
+            />
+          </View>
+
+          {/* Sonidos de la app (agrupa sonido + vibración) */}
+          <View style={styles.optionCard}>
+            <Text style={styles.optionText}>{t('shared.profile.config.sounds')}</Text>
+            <Switch
+              value={soundEnabled && vibrationEnabled}
+              onValueChange={(value) => {
+                setSoundEnabled(value);
+                setVibrationEnabled(value);
+              }}
+              trackColor={{ false: colors.border, true: colors.primary }}
+              thumbColor="#fff"
+              disabled={!notificationsEnabled}
+            />
+          </View>
+
+          {/* Navegación a pantallas relacionadas */}
+          <TouchableOpacity
+            style={styles.optionCard}
+            onPress={() => navigation.navigate('Settings')}
+          >
+            <Image
+              source={require('../../assets/icons/settings-icon/settingsicon.png')}
+              style={styles.optionIconImage}
+            />
+            <Text style={styles.optionText}>{t('shared.profile.config.advanced')}</Text>
+            <Text style={styles.optionArrow}>›</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.optionCard}
+            onPress={() => navigation.navigate('RideHistory')}
+          >
+            <Image
+              source={require('../../assets/icons/historial-icon/historialicon2.png')}
+              style={styles.optionIconImage}
+            />
+            <Text style={styles.optionText}>{t('shared.profile.config.rideHistory')}</Text>
+            <Text style={styles.optionArrow}>›</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.optionCard}
+            onPress={() => navigation.navigate('PaymentMethods')}
+          >
+            <Image
+              source={require('../../assets/icons/payment-icon/paymenticon.png')}
+              style={styles.optionIconImage}
+            />
+            <Text style={styles.optionText}>{t('shared.profile.config.payments')}</Text>
+            <Text style={styles.optionArrow}>›</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.optionCard}
+            onPress={() => navigation.navigate('Help')}
+          >
+            <Image
+              source={require('../../assets/icons/help-icon/helpicon.png')}
+              style={styles.optionIconImage}
+            />
+            <Text style={styles.optionText}>{t('shared.profile.config.help')}</Text>
+            <Text style={styles.optionArrow}>›</Text>
+          </TouchableOpacity>
         </View>
-      )}
 
-      {/* Opciones */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Configuración</Text>
+        {/* Botón Cerrar Sesión */}
+        <View style={styles.logoutContainer}>
+          <Button
+            title={t('shared.profile.buttons.logout')}
+            onPress={handleLogout}
+            style={styles.logoutButton}
+          />
+        </View>
 
-        <TouchableOpacity
-          style={styles.optionCard}
-          onPress={() => navigation.navigate('Settings')}
-        >
-          <Text style={styles.optionIcon}>⚙️</Text>
-          <Text style={styles.optionText}>Configuración</Text>
-          <Text style={styles.optionArrow}>›</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.optionCard}
-          onPress={() => navigation.navigate('RideHistory')}
-        >
-          <Text style={styles.optionIcon}>📜</Text>
-          <Text style={styles.optionText}>Historial de Viajes</Text>
-          <Text style={styles.optionArrow}>›</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.optionCard}
-          onPress={() => navigation.navigate('PaymentMethods')}
-        >
-          <Text style={styles.optionIcon}>💳</Text>
-          <Text style={styles.optionText}>Métodos de Pago</Text>
-          <Text style={styles.optionArrow}>›</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.optionCard}
-          onPress={() => navigation.navigate('Help')}
-        >
-          <Text style={styles.optionIcon}>❓</Text>
-          <Text style={styles.optionText}>Ayuda</Text>
-          <Text style={styles.optionArrow}>›</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Botón Cerrar Sesión */}
-      <View style={styles.logoutContainer}>
-        <Button
-          title="Cerrar Sesión"
-          onPress={handleLogout}
-          style={styles.logoutButton}
-        />
-      </View>
-
-      {/* App Info */}
-      <View style={styles.appInfo}>
-        <Text style={styles.appVersion}>conduce v1.0.1</Text>
-        <Text style={styles.appCopyright}>© 2025 Todos los derechos reservados</Text>
+        {/* App Info */}
+        <View style={styles.appInfo}>
+          <Text style={styles.appVersion}>{t('shared.profile.appInfo.version')}</Text>
+          <Text style={styles.appCopyright}>{t('shared.profile.appInfo.copyright')}</Text>
+        </View>
       </View>
     </ScrollView>
   );
@@ -325,18 +627,70 @@ export default function ProfileScreen({ navigation }: any) {
 const createStyles = (colors: any) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors?.background || '#fff',
+    backgroundColor: 'rgba(204, 180, 136, 0.91)',
   },
   header: {
-    backgroundColor: colors.card,
-    paddingVertical: 32,
+    backgroundColor: 'rgba(211, 153, 46, 0.81)',
+    paddingVertical: 65,
     paddingHorizontal: 24,
+    alignItems: 'stretch',
+    marginBottom: -20,
+    borderRadius: 14,
+  },
+  headerTopRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  headerMainRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   avatarContainer: {
-    marginBottom: 16,
+    marginRight: 16,
+  },
+  headerContent: {
+    flex: 1,
+  },
+  contentCard: {
+    flex: 1,
+    backgroundColor: colors.card,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingTop: 16,
+    paddingBottom: 32,
+    marginTop: -16,
+    marginHorizontal: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  backButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: colors.button,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  backIcon: {
+    width: 24,
+    height: 24,
+   // tintColor: colors.card,
+    resizeMode: 'contain',
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#fff',
+    marginBottom: 10,
+  },
+  headerTopSpacer: {
+    width: 36,
+    height: 36,
   },
   avatar: {
     width: 80,
@@ -354,28 +708,53 @@ const createStyles = (colors: any) => StyleSheet.create({
   name: {
     fontSize: 24,
     fontWeight: '800',
-    color: colors.text,
+    color: '#fff',
     marginBottom: 4,
   },
   email: {
     fontSize: 14,
-    color: colors.textSecondary,
-    marginBottom: 12,
+    color: 'rgba(255, 255, 255, 1)',
+    marginBottom: 4,
+  },
+  memberId: {
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 1)',
+  },
+  headerBottomRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
   },
   roleBadge: {
-    backgroundColor: colors.surface,
+    backgroundColor: 'rgba(230, 230, 230, 0.18)',
     paddingHorizontal: 16,
+    paddingVertical: 4,
     borderRadius: 20,
+  },
+  editProfileBadge: {
+    backgroundColor: 'rgba(93, 95, 179, 0.65)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 20,
+    paddingLeft: 2,
+    marginLeft: 6,
   },
   roleText: {
     fontSize: 14,
     fontWeight: '600',
-    color: colors.text,
+    color: '#fff',
+  },
+  editProfileText: {
+    marginLeft: 12,
+    fontSize: 13,
+    color: '#fff',
+    fontWeight: '600',
   },
   section: {
-    marginTop: 24,
-    paddingHorizontal: 24,
-    padding: 24,
+    marginTop: 14,
+    paddingHorizontal: 20,  
+    paddingVertical: 14,
+    
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -384,9 +763,36 @@ const createStyles = (colors: any) => StyleSheet.create({
     marginBottom: 16,
   },
   sectionTitle: {
-    fontSize: 16,
+    fontSize: 20,
     fontWeight: '700',
     color: colors.text,
+    marginTop: -20,
+    padding: 12,
+  },
+  themeChipsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  themeChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+    marginLeft: 8,
+  },
+  themeChipActive: {
+    backgroundColor: 'rgba(202, 151, 57, 1)',
+    borderColor: 'rgba(209, 165, 84, 1)',
+  },
+  themeChipText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: colors.textSecondary,
+  },
+  themeChipTextActive: {
+    color: '#ffffffff',
   },
   refreshIcon: {
     padding: 8,
@@ -541,34 +947,53 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
-  optionCard: {
+  modeUseTextContainer: {
+    flex: 1,
+    paddingRight: 16,
+  },
+  modeUseButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
     backgroundColor: colors.card,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 8,
-    marginHorizontal: 24,
+    borderWidth: 1,
+    borderColor: colors.primary,
+  },
+  modeUseButtonDisabled: {
+    opacity: 0.7,
+  },
+  modeUseButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.primary,
+  },
+  optionCard: {
+    paddingVertical: 24,
+    paddingHorizontal: 20,
     flexDirection: 'row',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2,
-    borderWidth: 1,
-    borderColor: colors.border,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
   optionIcon: {
-    fontSize: 24,
-    marginRight: 16,
+    fontSize: 20,
+    marginRight: 14,
+  },
+  optionIconImage: {
+    width: 25,
+    height: 25,
+    marginRight: 14,
+    resizeMode: 'contain',
+    tintColor: colors.text,
   },
   optionText: {
     flex: 1,
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 15,
+    fontWeight: '500',
     color: colors.text,
   },
   optionArrow: {
-    fontSize: 20,
+    fontSize: 18,
     color: colors.textSecondary,
   },
   logoutContainer: {

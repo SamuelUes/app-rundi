@@ -3,75 +3,82 @@
  * Soporta Firebase Auth y NestJS local
  */
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { ENDPOINTS } from '../../api/endpoints';
 import backendConfig from '../../config/backendConfig';
-import FirebaseAuthService from './firebaseAuthService';
-import LocalAuthService from './localAuthService';
+import client from '../../api/client';
 
 class AuthService {
   /**
    * Registrar usuario
    */
   async register(email: string, password: string, name: string, phone: string, role: string) {
-    if (backendConfig.isFirebase()) {
-      return FirebaseAuthService.register(email, password, name, phone, role);
-    } else {
-      return LocalAuthService.register(email, password, name, phone, role);
+    const payload = {
+      email,
+      password,
+      name,
+      phone,
+      role,
+      authProvider: 'email/password',
+      method: 'email',
+    };
+
+    const { data } = await client.post(ENDPOINTS.auth.register, payload);
+
+    if (!data?.success || !data?.user) {
+      throw new Error(data?.error || 'Error al registrar usuario');
     }
+
+    if (data.token) {
+      await AsyncStorage.setItem('authToken', data.token);
+    }
+
+    await AsyncStorage.setItem('user', JSON.stringify(data.user));
+
+    return data.user;
   }
 
   /**
    * Iniciar sesión
    */
   async login(email: string, password: string) {
-    if (backendConfig.isFirebase()) {
-      return FirebaseAuthService.login(email, password);
-    } else {
-      return LocalAuthService.login(email, password);
-    }
+    const response = await client.post(ENDPOINTS.auth.login, { email, password });
+    const { user, token } = response.data;
+
+    await AsyncStorage.setItem('authToken', token);
+    await AsyncStorage.setItem('user', JSON.stringify(user));
+
+    return user;
   }
 
   /**
    * Cerrar sesión
    */
   async logout() {
-    if (backendConfig.isFirebase()) {
-      return FirebaseAuthService.logout();
-    } else {
-      return LocalAuthService.logout();
-    }
+    await AsyncStorage.removeItem('authToken');
+    await AsyncStorage.removeItem('user');
   }
 
   /**
    * Obtener usuario actual
    */
   getCurrentUser() {
-    if (backendConfig.isFirebase()) {
-      return FirebaseAuthService.getCurrentUser();
-    } else {
-      return LocalAuthService.getCurrentUser();
-    }
+    return AsyncStorage.getItem('user').then((userData) => (userData ? JSON.parse(userData) : null));
   }
 
   /**
    * Obtener token de autenticación
    */
   async getToken() {
-    if (backendConfig.isFirebase()) {
-      return FirebaseAuthService.getIdToken();
-    } else {
-      return LocalAuthService.getToken();
-    }
+    return AsyncStorage.getItem('authToken');
   }
 
   /**
    * Escuchar cambios en autenticación
    */
   onAuthStateChange(callback: (user: any) => void) {
-    if (backendConfig.isFirebase()) {
-      return FirebaseAuthService.onAuthStateChange(callback);
-    } else {
-      return LocalAuthService.onAuthStateChange(callback);
-    }
+    this.getCurrentUser().then(callback);
+    return () => {};
   }
 }
 

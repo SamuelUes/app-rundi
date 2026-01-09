@@ -1,6 +1,8 @@
 {
   "projects": {
-    "default": "driveangel-ni"
+    "default": "rundi-dev",
+    "dev": "rundi-dev",
+    "prod": "rundi-prod"
   },
   "targets": {},
   "etags": {}

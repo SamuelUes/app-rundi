@@ -5,6 +5,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 
 interface EmptyRideListProps {
   message?: string;
@@ -14,17 +15,22 @@ interface EmptyRideListProps {
   colors: any;
 }
 
-export default function EmptyRideList({ 
-  message, 
+export default function EmptyRideList({
+  message,
   title,
   description,
   icon = 'inbox',
-  colors 
+  colors,
 }: EmptyRideListProps) {
   const styles = createStyles(colors);
-  
-  const displayTitle = title || message || 'No hay viajes disponibles en este momento';
-  const displayDescription = description || 'Los nuevos viajes aparecerán aquí automáticamente';
+  const { t } = useTranslation();
+
+  const displayTitle =
+    title ||
+    message ||
+    t('common.components.emptyRideList.defaultTitle');
+  const displayDescription =
+    description || t('common.components.emptyRideList.defaultDescription');
   
   // Detectar si el icono es un emoji (contiene caracteres unicode)
   const isEmoji = /\p{Emoji}/u.test(icon);

@@ -1,10 +1,10 @@
 /**
- * Register Screen (Simplificado)
- * Pantalla de registro con datos básicos
- * Soporta Email/Password y Google Sign-In
+ * Register Screen
+ * Paso 1 del flujo de registro. Permite elegir método (email/Google/teléfono)
+ * y recopila los datos básicos antes de continuar con la verificación.
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -18,151 +18,373 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
+import { useNavigation } from '@react-navigation/native';
+
 import { useTheme } from '../../context/ThemeContext';
-import { useGoogleAuth } from '../../hooks/useGoogleAuth';
-import GoogleSignInButton from '../../components/GoogleSignInButton';
 import registrationService from '../../services/registrationService';
-import smsService from '../../services/smsService';
+import phoneAuthService from '../../services/auth/phoneAuthService';
+import firebaseAuthService from '../../services/auth/firebaseAuthService';
+import { getFirebaseAuth } from '../../config/firebase';
+import { RegistrationMethod, RegistrationAuthProvider } from '../../navigation/types';
+import {
+  CountryDialOption,
+  formatPhoneNumber,
+  getCountryDialOptions,
+  normalizePhoneNumber,
+  getCountryLocalNumberLength,
+} from '../../utils/phoneUtils';
+import PhoneNumberModal from '../../components/PhoneNumberModal';
+import { useTranslation } from 'react-i18next';
 
-const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID || '1040329608349-t11k2f7tu1gtrh8fpogu3n1gmf2gi8p3.apps.googleusercontent.com';
-
-export default function RegisterScreen({ navigation }: any) {
+export default function RegisterScreen() {
+  const navigation = useNavigation<any>();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const { promptAsync, loading: googleLoading } = useGoogleAuth(GOOGLE_CLIENT_ID);
+  const { t } = useTranslation();
 
-  // Datos básicos
+  // Estados principales
+  const [method, setMethod] = useState<RegistrationMethod>('email');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('+505');
+
+  const countryOptions = useMemo(() => getCountryDialOptions(), []);
+  const defaultCountry =
+    countryOptions.find((option) => option.code === 'NI') ?? countryOptions[0];
+  const [selectedCountry, setSelectedCountry] = useState<CountryDialOption>(defaultCountry);
+
+  const [phoneDigits, setPhoneDigits] = useState('');
+  const [phone, setPhone] = useState<string>(
+    formatPhoneNumber('', defaultCountry.dialCode)
+  );
+  const [normalizedPhone, setNormalizedPhone] = useState('');
+  const [phoneModalVisible, setPhoneModalVisible] = useState(false);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [role, setRole] = useState<'client' | 'driver'>('client');
   const [loading, setLoading] = useState(false);
+  const [passwordStatus, setPasswordStatus] = useState<'idle' | 'match' | 'mismatch'>('idle');
 
-  // Validaciones
-  const passwordsMatch = password && confirmPassword && password === confirmPassword;
-  const passwordsDontMatch = password && confirmPassword && password !== confirmPassword;
-  // Email es opcional, pero teléfono es obligatorio
-  const isFormValid = name && phone && password && passwordsMatch && role;
+  // Métodos activos
+  const isEmailMethod = method === 'email';
+  const isPhoneMethod = method === 'phone';
 
-  const handleRegisterWithEmail = async () => {
-    if (!isFormValid) {
-      Alert.alert('Error', 'Por favor completa todos los campos requeridos (Nombre, Teléfono, Contraseña, Rol)');
+  // Validaciones básicas
+  const isEmailValid = email.includes('@') && email.includes('.');
+  const isPasswordValid = password.length >= 6;
+  const isConfirmFilled = confirmPassword.trim().length > 0;
+  const passwordsDontMatch = isConfirmFilled && password !== confirmPassword;
+
+  const isEmailFormValid =
+    name.trim() !== '' &&
+    isEmailValid &&
+    isPasswordValid &&
+    isConfirmFilled &&
+    !passwordsDontMatch;
+
+  useEffect(() => {
+    if (!password && !confirmPassword) {
+      setPasswordStatus('idle');
       return;
     }
 
-    // Validar email si se proporciona
-    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      Alert.alert('Error', 'Email inválido');
+    if (!isConfirmFilled) {
+      setPasswordStatus('idle');
+      return;
+    }
+
+    if (isPasswordValid && password === confirmPassword) {
+      setPasswordStatus('match');
+    } else {
+      setPasswordStatus('mismatch');
+    }
+  }, [password, confirmPassword, isConfirmFilled, isPasswordValid]);
+
+  const isPhoneFormValid =
+    name.trim() !== '' && (normalizedPhone ? /^\+\d{6,15}$/.test(normalizedPhone) : false);
+
+  const handleCountryChange = (countryCode: string) => {
+    const nextCountry =
+      countryOptions.find((option) => option.code === countryCode) ?? countryOptions[0];
+
+    const maxDigits = getCountryLocalNumberLength(nextCountry);
+    const nextDigits = phoneDigits.slice(0, maxDigits);
+    const newNormalized = nextDigits
+      ? normalizePhoneNumber(nextDigits, nextCountry.dialCode)
+      : '';
+
+    setSelectedCountry(nextCountry);
+    setPhoneDigits(nextDigits);
+    setNormalizedPhone(newNormalized);
+    setPhone(
+      newNormalized
+        ? formatPhoneNumber(newNormalized, nextCountry.dialCode)
+        : formatPhoneNumber('', nextCountry.dialCode)
+    );
+  };
+
+  const openPhoneModal = () => {
+    setPhoneModalVisible(true);
+  };
+
+  const handlePhoneModalClose = () => {
+    setPhoneModalVisible(false);
+  };
+
+  const handlePhoneModalConfirm = ({
+    country,
+    digits,
+    normalizedPhone: normalized,
+    formattedPhone: formatted,
+  }: {
+    country: CountryDialOption;
+    digits: string;
+    normalizedPhone: string;
+    formattedPhone: string;
+  }) => {
+    setSelectedCountry(country);
+    setPhoneDigits(digits);
+    setNormalizedPhone(normalized);
+    setPhone(formatted || `${country.dialCode} `);
+    setPhoneModalVisible(false);
+  };
+
+  const handlePhoneChange = (localDigits: string) => {
+    setPhoneDigits(localDigits);
+
+    const normalized = normalizePhoneNumber(localDigits, selectedCountry.dialCode);
+    setNormalizedPhone(normalized);
+
+    const formatted = normalized
+      ? formatPhoneNumber(normalized, selectedCountry.dialCode)
+      : formatPhoneNumber('', selectedCountry.dialCode);
+
+    setPhone(formatted || `${selectedCountry.dialCode} `);
+  };
+
+  // Navegación
+  const navigateToRoleSelection = ({
+    name,
+    email,
+    phone,
+    password,
+    method,
+    authProvider,
+    googleIdToken,
+    phoneVerified = false,
+  }: {
+    name: string;
+    email?: string;
+    phone?: string;
+    password?: string;
+    method: RegistrationMethod;
+    authProvider: RegistrationAuthProvider;
+    googleIdToken?: string;
+    phoneVerified?: boolean;
+  }) => {
+    navigation.navigate('RoleSelection', {
+      name,
+      email,
+      phone,
+      password,
+      method,
+      authProvider,
+      googleIdToken,
+      phoneVerified,
+    });
+  };
+
+  // Registro con email
+  const handleRegisterWithEmail = async () => {
+    if (!isEmailMethod) {
+      setMethod('email');
+      return;
+    }
+
+    if (!isEmailFormValid) {
+      if (!isConfirmFilled) {
+        Alert.alert(
+          t('authScreens.register.alerts.genericTitle'),
+          t('authScreens.register.alerts.confirmPasswordMissing'),
+        );
+        return;
+      }
+      if (passwordsDontMatch) {
+        Alert.alert(
+          t('authScreens.register.alerts.genericTitle'),
+          t('authScreens.register.alerts.passwordsMismatch'),
+        );
+        return;
+      }
+      Alert.alert(
+        t('authScreens.register.alerts.genericTitle'),
+        t('authScreens.register.alerts.incompleteEmailForm'),
+      );
       return;
     }
 
     setLoading(true);
     try {
-      console.log('📝 Iniciando registro con email/password...');
+      const normalizedEmail = email.trim().toLowerCase();
+      const phoneForCheck = normalizedPhone || undefined;
 
-      // Validar formato de teléfono
-      if (!smsService.validatePhoneFormat(phone)) {
-        Alert.alert('Error', 'Formato de teléfono inválido. Usa +505 XXXX XXXX');
-        setLoading(false);
+      const { emailExists, phoneExists } = await firebaseAuthService.checkUserExists({
+        email: normalizedEmail,
+        phone: phoneForCheck,
+      });
+
+      if (emailExists) {
+        Alert.alert(
+          t('authScreens.register.alerts.genericTitle'),
+          t('authScreens.register.alerts.emailExists'),
+        );
         return;
       }
 
-      // Guardar datos temporales
+      if (phoneExists) {
+        Alert.alert(
+          t('authScreens.register.alerts.genericTitle'),
+          t('authScreens.register.alerts.phoneExists'),
+        );
+        return;
+      }
+
       await registrationService.saveTemporaryData({
-        name,
-        email,
-        phone,
+        name: name.trim(),
+        email: normalizedEmail,
+        phone: phoneForCheck,
         password,
-        role,
+        method: 'email',
         authProvider: 'email/password',
         phoneVerified: false,
+        lastStep: 'register',
       });
 
-      console.log('✅ Datos guardados, enviando SMS...');
-
-      // Enviar código SMS
-      const smsResult = await smsService.sendSmsCode(phone);
-
-      if (!smsResult.success) {
-        Alert.alert('Error', smsResult.message);
-        setLoading(false);
-        return;
-      }
-
-      Alert.alert('✅ Código enviado', `Se envió un código a ${phone}`);
-
-      // Navegar a verificación de teléfono
-      navigation.navigate('PhoneVerification', {
-        name,
-        email,
-        phone,
+      navigateToRoleSelection({
+        name: name.trim(),
+        email: normalizedEmail,
+        phone: phoneForCheck,
         password,
-        role,
         authProvider: 'email/password',
+        method: 'email',
+        phoneVerified: false,
       });
     } catch (error: any) {
-      console.error('Error en registro:', error);
-      Alert.alert('Error', error.message || 'Error al registrarse');
+      console.error('❌ Error registro email:', error);
+      Alert.alert(
+        t('authScreens.register.alerts.genericTitle'),
+        error?.message || t('authScreens.register.alerts.registerEmailError'),
+      );
     } finally {
       setLoading(false);
     }
   };
 
-  const handleRegisterWithGoogle = async () => {
+  // Registro con teléfono
+  const handleRegisterWithPhone = async () => {
+    if (!isPhoneMethod) {
+      setMethod('phone');
+      return;
+    }
+
+    if (!isPhoneFormValid) {
+      Alert.alert(
+        t('authScreens.register.alerts.genericTitle'),
+        t('authScreens.register.alerts.phoneInvalidNumber'),
+      );
+      return;
+    }
+
+    setLoading(true);
     try {
-      setLoading(true);
-      console.log('🔐 Iniciando registro con Google...');
+      const normalizedEmail = email.trim().toLowerCase() || undefined;
 
-      // Validar campos requeridos
-      if (!name || !phone || !role) {
-        Alert.alert('Error', 'Por favor completa Nombre, Teléfono y Rol');
-        setLoading(false);
+      const { emailExists, phoneExists } = await firebaseAuthService.checkUserExists({
+        email: normalizedEmail,
+        phone: normalizedPhone,
+      });
+
+      if (emailExists) {
+        Alert.alert('Error', 'Ya existe una cuenta registrada con este correo electrónico.');
         return;
       }
 
-      // Validar que el teléfono esté en formato correcto
-      if (!smsService.validatePhoneFormat(phone)) {
-        Alert.alert('Error', 'Formato de teléfono inválido. Usa +505 XXXX XXXX');
-        setLoading(false);
+      // ✅ Caso especial: el usuario ya está autenticado y tiene una verificación previa de registro
+      // en Supabase para este número → saltar SMS y pasar directo a selección de rol.
+      let handledByVerifiedLog = false;
+      try {
+        const auth = await getFirebaseAuth();
+        const firebaseUser = auth.currentUser;
+
+        if (firebaseUser && firebaseUser.phoneNumber === normalizedPhone) {
+          const hasVerified = await firebaseAuthService.hasVerifiedRegisterPhoneLog(normalizedPhone);
+
+          if (hasVerified) {
+            console.log(
+              '✅ [Register] Teléfono ya verificado previamente (Supabase); saltando a RoleSelection',
+            );
+
+            await registrationService.saveTemporaryData({
+              name: name.trim(),
+              email: normalizedEmail,
+              phone: normalizedPhone,
+              method: 'phone',
+              authProvider: 'phone',
+              phoneVerified: true,
+              lastStep: 'register',
+            });
+
+            navigation.navigate('RoleSelection', {
+              name: name.trim(),
+              email: normalizedEmail,
+              phone: normalizedPhone,
+              password: undefined,
+              method: 'phone',
+              authProvider: 'phone',
+              googleIdToken: undefined,
+              phoneVerified: true,
+            });
+            handledByVerifiedLog = true;
+          }
+        }
+      } catch (checkError) {
+        console.warn(
+          '⚠️ [Register] No se pudo verificar verificación previa de teléfono; continuando con SMS:',
+          checkError,
+        );
+      }
+
+      if (phoneExists && !handledByVerifiedLog) {
+        Alert.alert(
+          t('authScreens.register.alerts.genericTitle'),
+          t('authScreens.register.alerts.phoneExists'),
+        );
         return;
       }
 
-      // Guardar datos temporales
+      console.log('📱 [Register] Enviando código SMS a:', normalizedPhone);
+      await phoneAuthService.sendVerificationCode(normalizedPhone);
+
       await registrationService.saveTemporaryData({
-        name,
-        email,
-        phone,
-        role,
-        authProvider: 'google',
+        name: name.trim(),
+        phone: normalizedPhone,
+        method: 'phone',
+        authProvider: 'phone',
+        phoneVerified: false,
+        lastStep: 'register',
+      });
+
+      navigation.navigate('PhoneVerification', {
+        name: name.trim(),
+        phone: normalizedPhone,
+        method: 'phone',
+        authProvider: 'phone',
         phoneVerified: false,
       });
-
-      console.log('✅ Datos guardados, enviando SMS...');
-
-      // Enviar código SMS
-      const smsResult = await smsService.sendSmsCode(phone);
-
-      if (!smsResult.success) {
-        Alert.alert('Error', smsResult.message);
-        setLoading(false);
-        return;
-      }
-
-      Alert.alert('✅ Código enviado', `Se envió un código a ${phone}`);
-
-      // Navegar a verificación de teléfono
-      navigation.navigate('PhoneVerification', {
-        name,
-        email,
-        phone,
-        role,
-        authProvider: 'google',
-      });
     } catch (error: any) {
-      console.error('Error en registro con Google:', error);
-      Alert.alert('Error', error.message || 'Error al registrarse con Google');
+      console.error('❌ Error registro teléfono:', error);
+      Alert.alert(
+        t('authScreens.register.alerts.genericTitle'),
+        error?.message || t('authScreens.register.alerts.registerPhoneError'),
+      );
     } finally {
       setLoading(false);
     }
@@ -174,299 +396,436 @@ export default function RegisterScreen({ navigation }: any) {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={styles.content}>
-          {/* Header */}
-          <View style={styles.header}>
-            <Text style={styles.title}>Crear Cuenta</Text>
-            <Text style={styles.subtitle}>
-              Únete a DriveAngel.ni hoy
-            </Text>
+        <View style={styles.card}>
+          <Text style={styles.title}>{t('authScreens.register.header.title')}</Text>
+          <Text style={styles.subtitle}>
+            {t('authScreens.register.header.subtitle')}
+          </Text>
+
+          {/* Selector de método */}
+          <View style={styles.methodSwitcher}>
+            <TouchableOpacity
+              style={[styles.methodButton, isEmailMethod && styles.methodButtonActive]}
+              onPress={() => setMethod('email')}
+              disabled={loading}
+            >
+              <Text
+                style={[styles.methodButtonText, isEmailMethod && styles.methodButtonTextActive]}
+              >
+                {t('authScreens.register.methods.email')}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.methodButton, isPhoneMethod && styles.methodButtonActive]}
+              onPress={() => setMethod('phone')}
+              disabled={loading}
+            >
+              <Text
+                style={[styles.methodButtonText, isPhoneMethod && styles.methodButtonTextActive]}
+              >
+                {t('authScreens.register.methods.phone')}
+              </Text>
+            </TouchableOpacity>
+
           </View>
 
-          {/* Nombre */}
+          {/* Campos base */}
           <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Nombre Completo *</Text>
+            <Text style={styles.label}>
+              {`${t('authScreens.register.fields.nameLabel')} *`}
+            </Text>
             <TextInput
               style={styles.input}
-              placeholder="Tu nombre"
+              placeholder={t('authScreens.register.fields.namePlaceholder')}
               placeholderTextColor={colors.textSecondary}
               value={name}
               onChangeText={setName}
-              editable={!loading && !googleLoading}
+              editable={!loading}
             />
           </View>
 
           {/* Email */}
           <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Email (Opcional)</Text>
+            <Text style={styles.label}>
+              {`${t('authScreens.register.fields.emailLabel')}${isEmailMethod ? ' *' : ''}`}
+            </Text>
             <TextInput
               style={styles.input}
-              placeholder="tu@email.com (opcional)"
+              placeholder={t('authScreens.register.fields.emailPlaceholder')}
               placeholderTextColor={colors.textSecondary}
               value={email}
               onChangeText={setEmail}
               keyboardType="email-address"
-              editable={!loading && !googleLoading}
+              editable={!loading}
             />
+            <Text style={styles.helperText}>
+              {isEmailMethod
+                ? t('authScreens.register.fields.emailHelperRequired')
+                : t('authScreens.register.fields.emailHelperOptional')}
+            </Text>
           </View>
 
           {/* Teléfono */}
           <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Teléfono *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="+505 XXXX XXXX"
-              placeholderTextColor={colors.textSecondary}
-              value={phone}
-              onChangeText={setPhone}
-              keyboardType="phone-pad"
-              editable={!loading && !googleLoading}
-            />
-            <Text style={styles.helperText}>Formato: +505 XXXX XXXX</Text>
+            <Text style={styles.label}>
+              {`${t('authScreens.register.fields.phoneLabel')}${isPhoneMethod ? ' *' : ''}`}
+            </Text>
+
+            <TouchableOpacity
+              style={styles.phoneSummary}
+              onPress={openPhoneModal}
+              disabled={loading}
+              activeOpacity={0.8}
+            >
+              <View style={styles.phoneSummaryFlagDial}>
+                <Text style={styles.phoneSummaryDial}>{selectedCountry.dialCode}</Text>
+              </View>
+              <View style={styles.phoneSummaryValueContainer}>
+                <Text
+                  style={
+                    normalizedPhone
+                      ? styles.phoneSummaryValue
+                      : styles.phoneSummaryPlaceholder
+                  }
+                  numberOfLines={1}
+                >
+                  {normalizedPhone ? phone : t('authScreens.register.fields.phonePlaceholder')}
+                </Text>
+              </View>
+            </TouchableOpacity>
+
+            <Text style={styles.helperText}>
+              {isPhoneMethod
+                ? t('authScreens.register.fields.phoneHelperRequired')
+                : t('authScreens.register.fields.phoneHelperOptional')}
+            </Text>
           </View>
 
-          {/* Rol */}
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>¿Qué eres? *</Text>
-            <View style={styles.pickerContainer}>
-              <Picker
-                selectedValue={role}
-                onValueChange={setRole}
-                enabled={!loading && !googleLoading}
-                style={styles.picker}
-              >
-                <Picker.Item label="👤 Cliente (Pasajero)" value="client" />
-                <Picker.Item label="🚗 Conductor" value="driver" />
-              </Picker>
-            </View>
-          </View>
-
-          {/* Contraseña */}
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Contraseña *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Mínimo 6 caracteres"
-              placeholderTextColor={colors.textSecondary}
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              editable={!loading && !googleLoading}
-            />
-          </View>
-
-          {/* Confirmar Contraseña */}
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Confirmar Contraseña *</Text>
-            <TextInput
-              style={[
-                styles.input,
-                passwordsDontMatch ? styles.inputError : {},
-              ]}
-              placeholder="Repite tu contraseña"
-              placeholderTextColor={colors.textSecondary}
-              value={confirmPassword}
-              onChangeText={setConfirmPassword}
-              secureTextEntry
-              editable={!loading && !googleLoading}
-            />
-            {passwordsDontMatch && (
-              <Text style={styles.errorText}>Las contraseñas no coinciden</Text>
-            )}
-          </View>
-
-          {/* Botón Registrarse */}
-          <TouchableOpacity
-            style={[styles.registerButton, (!isFormValid || loading) && styles.buttonDisabled]}
-            onPress={handleRegisterWithEmail}
-            disabled={!isFormValid || loading}
-          >
-            {loading ? (
-              <ActivityIndicator color="#FFFFFF" />
-            ) : (
-              <Text style={styles.registerButtonText}>Registrarse con Email</Text>
-            )}
-          </TouchableOpacity>
-
-          {/* Divisor */}
-          <View style={styles.dividerContainer}>
-            <View style={styles.divider} />
-            <Text style={styles.dividerText}>O</Text>
-            <View style={styles.divider} />
-          </View>
-
-          {/* Google Sign-In */}
-          <GoogleSignInButton
-            onPress={handleRegisterWithGoogle}
-            loading={googleLoading}
-            disabled={!name || !phone || !role || loading}
+          <PhoneNumberModal
+            visible={phoneModalVisible}
+            onClose={handlePhoneModalClose}
+            onConfirm={handlePhoneModalConfirm}
+            countryOptions={countryOptions}
+            initialCountry={selectedCountry}
+            initialDigits={phoneDigits}
+            loading={loading}
           />
 
-          {/* Login */}
-          <View style={styles.loginContainer}>
-            <Text style={styles.loginText}>¿Ya tienes cuenta? </Text>
-            <TouchableOpacity onPress={() => navigation.navigate('Login')}>
-              <Text style={styles.loginLink}>Inicia sesión</Text>
-            </TouchableOpacity>
-          </View>
+          {/* Contraseñas */}
+          {isEmailMethod && (
+            <>
+              <View style={styles.fieldGroup}>
+                <Text style={styles.label}>
+                  {`${t('authScreens.register.fields.passwordLabel')} *`}
+                </Text>
+                <TextInput
+                  style={[
+                    styles.input,
+                    passwordStatus === 'match' && styles.inputSuccess,
+                    passwordStatus === 'mismatch' && styles.inputError,
+                  ]}
+                  placeholder={t('authScreens.register.fields.passwordPlaceholder')}
+                  placeholderTextColor={colors.textSecondary}
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry
+                  editable={!loading}
+                />
+              </View>
 
-          {/* Términos */}
-          <Text style={styles.termsText}>
-            Al registrarte, aceptas nuestros{' '}
-            <Text style={styles.termsLink}>Términos de Servicio</Text> y{' '}
-            <Text style={styles.termsLink}>Política de Privacidad</Text>
-          </Text>
+              <View style={styles.fieldGroup}>
+                <Text style={styles.label}>
+                  {`${t('authScreens.register.fields.confirmPasswordLabel')} *`}
+                </Text>
+                <TextInput
+                  style={[
+                    styles.input,
+                    passwordStatus === 'match' && styles.inputSuccess,
+                    passwordStatus === 'mismatch' && styles.inputError,
+                  ]}
+                  placeholder={t('authScreens.register.fields.confirmPasswordPlaceholder')}
+                  placeholderTextColor={colors.textSecondary}
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  secureTextEntry
+                  editable={!loading}
+                />
+                {passwordStatus === 'match' && (
+                  <Text style={styles.successText}>
+                    {t('authScreens.register.statusMessages.passwordMatch')}
+                  </Text>
+                )}
+                {passwordStatus === 'mismatch' && (
+                  <Text style={styles.errorText}>
+                    {t('authScreens.register.statusMessages.passwordMismatch')}
+                  </Text>
+                )}
+              </View>
 
-          {/* Progreso */}
-          <View style={styles.progressContainer}>
-            <View style={[styles.progressBar, { width: '25%' }]} />
+              <TouchableOpacity
+                style={[
+                  styles.primaryButton,
+                  (!isEmailFormValid || loading) && styles.buttonDisabled,
+                ]}
+                onPress={handleRegisterWithEmail}
+                disabled={!isEmailFormValid || loading}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.primaryButtonText}>
+                    {t('authScreens.register.buttons.continueEmail')}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </>
+          )}
+
+          {isPhoneMethod && (
+            <View style={styles.phoneActionsRow}>
+              <TouchableOpacity
+                style={[
+                  styles.phoneNextButton,
+                  (!isPhoneFormValid || loading) && styles.buttonDisabled,
+                ]}
+                onPress={handleRegisterWithPhone}
+                disabled={!isPhoneFormValid || loading}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.phoneNextIcon}>
+                    {t('authScreens.register.buttons.phoneNext')}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          )}
+
+          <View style={styles.footerInfo}>
+            <Text style={styles.footerText}>
+              {t('authScreens.register.footer')}
+            </Text>
           </View>
-          <Text style={styles.progressText}>Paso 1 de 4</Text>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
-const createStyles = (colors: any) => StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  scrollContent: {
-    flexGrow: 1,
-  },
-  content: {
-    flex: 1,
-    padding: 24,
-    justifyContent: 'center',
-  },
-  header: {
-    marginBottom: 32,
-    alignItems: 'center',
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: '700',
-    color: colors.text,
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: colors.textSecondary,
-  },
-  fieldGroup: {
-    marginBottom: 16,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.text,
-    marginBottom: 8,
-  },
-  input: {
-    backgroundColor: colors.card,
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 14,
-    color: colors.text,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  inputError: {
-    borderColor: colors.error,
-  },
-  helperText: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    marginTop: 4,
-  },
-  errorText: {
-    fontSize: 12,
-    color: colors.error,
-    marginTop: 4,
-  },
-  pickerContainer: {
-    backgroundColor: colors.card,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
-    overflow: 'hidden',
-  },
-  picker: {
-    color: colors.text,
-  },
-  registerButton: {
-    backgroundColor: colors.primary,
-    padding: 14,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 8,
-    marginBottom: 24,
-  },
-  registerButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  buttonDisabled: {
-    opacity: 0.5,
-  },
-  dividerContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 24,
-  },
-  divider: {
-    flex: 1,
-    height: 1,
-    backgroundColor: colors.border,
-  },
-  dividerText: {
-    marginHorizontal: 12,
-    color: colors.textSecondary,
-    fontSize: 14,
-  },
-  loginContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginTop: 16,
-  },
-  loginText: {
-    fontSize: 14,
-    color: colors.textSecondary,
-  },
-  loginLink: {
-    fontSize: 14,
-    color: colors.primary,
-    fontWeight: '600',
-  },
-  termsText: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    marginTop: 16,
-    lineHeight: 18,
-  },
-  termsLink: {
-    color: colors.primary,
-    fontWeight: '600',
-  },
-  progressContainer: {
-    height: 4,
-    backgroundColor: colors.border,
-    borderRadius: 2,
-    overflow: 'hidden',
-    marginTop: 24,
-    marginBottom: 8,
-  },
-  progressBar: {
-    height: '100%',
-    backgroundColor: colors.primary,
-  },
-  progressText: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    textAlign: 'center',
-  },
-});
+// ==================== ESTILOS ====================
+const createStyles = (colors: any) =>
+  StyleSheet.create({
+    container: {
+      flex: 2,
+      backgroundColor: colors.background,
+    },
+    scrollContent: {
+      flexGrow: 1,
+      paddingVertical: 32,
+      paddingHorizontal: 14,
+      justifyContent: 'center',
+    },
+    card: {
+      backgroundColor: colors.card,
+      borderRadius: 28,
+      paddingVertical: 32,
+      paddingHorizontal: 24,
+      borderWidth: 1,
+      borderColor: colors.border,
+      gap: 20,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.18,
+      shadowRadius: 10,
+      elevation: 6,
+    },
+    title: {
+      fontSize: 26,
+      fontWeight: '800',
+      color: 'rgba(207, 152, 48, 1)',
+      textAlign: 'center',
+      marginBottom: 4,
+    },
+    subtitle: {
+      fontSize: 14,
+      color: colors.textSecondary,
+      textAlign: 'center',
+      marginBottom: 20,
+    },
+    methodSwitcher: {
+      flexDirection: 'row',
+      alignSelf: 'center',
+      backgroundColor: colors.background,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: 4,
+      gap: 6,
+      marginBottom: 8,
+    },
+    methodButton: {
+      flex: 1,
+      paddingVertical: 8,
+      paddingHorizontal: 10,
+      borderRadius: 999,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: 'transparent',
+    },
+    methodButtonActive: {
+      backgroundColor: 'rgba(241, 200, 123, 1), 1)' + '20',
+    },
+    methodButtonText: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: colors.textSecondary,
+    },
+    methodButtonTextActive: {
+      color: 'rgba(172, 127, 44, 1), 1)',
+    },
+    fieldGroup: {
+      gap: -25,
+      marginBottom: 2,
+    },
+    countryPickerContainer: {
+      marginBottom: 8,
+    },
+    countryPicker: {
+      backgroundColor: colors.background,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    countryPickerItem: {
+      fontSize: 14,
+      color: colors.text,
+    },
+    label: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: colors.text,
+    },
+    input: {
+      backgroundColor: colors.background,
+      borderRadius: 12,
+      paddingVertical: 12,
+      paddingHorizontal: 14,
+      fontSize: 15,
+      color: colors.text,
+      borderWidth: 1.5,
+      borderColor: colors.border,
+    },
+    inputSuccess: {
+      borderColor: colors.success,
+      shadowColor: colors.success,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.2,
+      shadowRadius: 4,
+      elevation: 3,
+    },
+    helperText: {
+      fontSize: 12,
+      color: colors.textSecondary,
+    },
+    phoneSummary: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 8,
+      paddingHorizontal: 10,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.background,
+      gap: 6,
+    },
+    phoneSummaryFlagDial: {
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 6,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.card,
+    },
+    phoneSummaryDial: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: colors.text,
+    },
+    phoneSummaryValueContainer: {
+      flex: 1,
+      justifyContent: 'center',
+    },
+    phoneSummaryValue: {
+      fontSize: 13,
+      color: colors.text,
+    },
+    phoneSummaryPlaceholder: {
+      fontSize: 13,
+      color: colors.textSecondary,
+    },
+    inputError: {
+      borderColor: colors.error,
+    },
+    errorText: {
+      fontSize: 12,
+      color: colors.error,
+    },
+    successText: {
+      fontSize: 12,
+      color: colors.success,
+    },
+    primaryButton: {
+      backgroundColor: 'rgba(172, 127, 44, 1)',
+      paddingVertical: 14,
+      borderRadius: 999,
+      alignItems: 'center',
+      marginTop: 8,
+      shadowColor: 'rgba(214, 182, 122, 1)',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.3,
+      shadowRadius: 6,
+      elevation: 5,
+    },
+    primaryButtonText: {
+      color: '#FFFFFF',
+      fontSize: 16,
+      fontWeight: '600',
+    },
+    buttonDisabled: {
+      opacity: 0.5,
+    },
+    phoneActionsRow: {
+      marginTop: 16,
+      flexDirection: 'row',
+      justifyContent: 'center',
+    },
+    phoneNextButton: {
+      width: '100%',
+      height: 52,
+      borderRadius: 999,
+      backgroundColor: 'rgba(172, 127, 44, 1)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      shadowColor: colors.primary,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.3,
+      shadowRadius: 6,
+      elevation: 5,
+    },
+    phoneNextIcon: {
+      fontSize: 24,
+      color: '#FFFFFF',
+      fontWeight: '700',
+    },
+    footerInfo: {
+      marginTop: 20,
+      alignItems: 'center',
+    },
+    footerText: {
+      fontSize: 12,
+      color: colors.textSecondary,
+      textAlign: 'center',
+    },
+  });

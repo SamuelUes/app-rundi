@@ -9,8 +9,8 @@
  */
 
 import * as functions from "firebase-functions";
-import * as admin from "firebase-admin";
-import { archiveCompletedRide, archiveCanceledRide } from "../helpers/cleanupHelpers";
+import admin from "firebase-admin";
+import { cleanupRideFromRealtime } from "../helpers/cleanupHelpers-new";
 
 /**
  * Limpieza automática de viajes antiguos
@@ -42,45 +42,24 @@ export const cleanupOldRides = functions.pubsub
       let completedCount = 0;
       let canceledCount = 0;
       let errorCount = 0;
-      
-      // Procesar cada viaje
+
       for (const [rideId, ride] of Object.entries(rides) as [string, any][]) {
         try {
-          // Verificar si el viaje está completado hace más de 1 hora
-          // IMPORTANTE: Solo archivar si está en 'completed' (ambos calificaron) o si pasó mucho tiempo
           if (ride.status === 'completed' && ride.completedAt && ride.completedAt < oneHourAgo) {
-            console.log(`📦 Archivando viaje completado antiguo: ${rideId}`);
-            await archiveCompletedRide(ride, rideId);
+            console.log(`🧹 Eliminando viaje completado antiguo: ${rideId}`);
+            await cleanupRideFromRealtime(rideId);
             completedCount++;
-          }
-          // Si está en pending_rating por más de 24 horas, archivar de todas formas
-          else if (ride.status === 'pending_rating' && ride.completedAt && ride.completedAt < twentyFourHoursAgo) {
-            console.log(`⏰ Archivando viaje pending_rating antiguo (24h+): ${rideId}`);
-            await archiveCompletedRide(ride, rideId);
+          } else if (ride.status === 'pending_rating' && ride.completedAt && ride.completedAt < twentyFourHoursAgo) {
+            console.log(`⏰ Eliminando viaje pending_rating antiguo (24h+): ${rideId}`);
+            await cleanupRideFromRealtime(rideId);
             completedCount++;
-          }
-          
-          // Verificar si el viaje está cancelado hace más de 1 hora
-          else if (ride.status === 'canceled' && ride.canceledAt && ride.canceledAt < oneHourAgo) {
-            console.log(`📦 Archivando viaje cancelado antiguo: ${rideId}`);
-            await archiveCanceledRide(ride, rideId);
+          } else if (ride.status === 'canceled' && ride.canceledAt && ride.canceledAt < oneHourAgo) {
+            console.log(`🧹 Eliminando viaje cancelado antiguo: ${rideId}`);
+            await cleanupRideFromRealtime(rideId);
             canceledCount++;
-          }
-          
-          // Verificar viajes huérfanos (creados hace más de 24 horas y aún en 'requested')
-          else if (ride.status === 'requested' && ride.createdAt && ride.createdAt < (now - 24 * 60 * 60 * 1000)) {
+          } else if (ride.status === 'requested' && ride.createdAt && ride.createdAt < (now - 24 * 60 * 60 * 1000)) {
             console.log(`🗑️ Eliminando viaje huérfano: ${rideId} (creado hace más de 24h)`);
-            
-            // Cancelar automáticamente y archivar
-            const canceledRide = {
-              ...ride,
-              status: 'canceled',
-              canceledAt: now,
-              cancelReason: 'Viaje expirado automáticamente (sin actividad por 24 horas)',
-              canceledBy: 'system',
-            };
-            
-            await archiveCanceledRide(canceledRide, rideId);
+            await cleanupRideFromRealtime(rideId);
             canceledCount++;
           }
         } catch (error) {
@@ -88,10 +67,10 @@ export const cleanupOldRides = functions.pubsub
           errorCount++;
         }
       }
-      
+
       console.log(`✅ Limpieza completada:`);
-      console.log(`   - Viajes completados archivados: ${completedCount}`);
-      console.log(`   - Viajes cancelados archivados: ${canceledCount}`);
+      console.log(`   - Viajes completados limpiados: ${completedCount}`);
+      console.log(`   - Viajes cancelados eliminados: ${canceledCount}`);
       console.log(`   - Errores: ${errorCount}`);
       
       return null;

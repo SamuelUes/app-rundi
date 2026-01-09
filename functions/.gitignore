@@ -10,13 +10,13 @@ lib/
 node_modules/
 
 # Environment variables
-.env
-.env.local
+#.env
+#.env.local
 
 # Firebase cache
-.firebase/
+#.firebase/
 migrations/
-# Logs
+Logs
 *.log
 npm-debug.log*
 firebase-debug.log

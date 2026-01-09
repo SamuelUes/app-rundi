@@ -3,7 +3,8 @@
  * Mantiene ambas bases de datos sincronizadas
  */
 
-import * as admin from 'firebase-admin';
+import admin from 'firebase-admin';
+import { MIGRATION_FLAGS } from '../../config/migration-flags';
 import { DriverRepository } from '../repositories/DriverRepository';
 import { RideRepository } from '../repositories/RideRepository';
 
@@ -50,8 +51,12 @@ export class SyncService {
         updatedAt: new Date().toISOString(),
       };
 
-      await db.ref(`drivers/${driverId}`).set(syncData);
-      console.log(`✅ [SyncService] Conductor ${driverId} sincronizado a Realtime DB`);
+      if (MIGRATION_FLAGS.SYNC_DRIVERS_STATIC_TO_RTDB) {
+        await db.ref(`drivers/${driverId}`).set(syncData);
+        console.log(`✅ [SyncService] Conductor ${driverId} sincronizado a Realtime DB`);
+      } else {
+        console.log(`⏭️ [SyncService] SYNC_DRIVERS_STATIC_TO_RTDB=false, no se sincroniza drivers/${driverId}`);
+      }
       
       return syncData;
     } catch (error: any) {
@@ -85,8 +90,12 @@ export class SyncService {
       });
 
       // Guardar en Realtime DB
-      await db.ref(`drivers/${driverId}/rides`).set(syncedRides);
-      console.log(`✅ [SyncService] ${rides.length} viajes sincronizados a Realtime DB`);
+      if (MIGRATION_FLAGS.SYNC_DRIVER_RIDES_TO_RTDB) {
+        await db.ref(`drivers/${driverId}/rides`).set(syncedRides);
+        console.log(`✅ [SyncService] ${rides.length} viajes sincronizados a Realtime DB`);
+      } else {
+        console.log(`⏭️ [SyncService] SYNC_DRIVER_RIDES_TO_RTDB=false, no se sincroniza drivers/${driverId}/rides`);
+      }
       
       return syncedRides;
     } catch (error: any) {
@@ -201,10 +210,33 @@ export class SyncService {
     try {
       console.log(`🔄 [SyncService] Sincronizando pago para viaje: ${rideId}`);
       
-      // ✅ Conversión de tipos: Supabase → Realtime DB
-      const amount = parseFloat(paymentData.amount?.toString() || '0'); // NUMERIC → number
-      const tip = parseFloat((paymentData.tip || 0).toString()); // NUMERIC → number
-      
+      const amount = parseFloat(paymentData.amount?.toString() || '0');
+      const tip = parseFloat((paymentData.tip || 0).toString());
+
+      const rawDriverId =
+        paymentData.driver_id ||
+        paymentData.driverId ||
+        (paymentData.ride && (paymentData.ride.driver_id || paymentData.ride.driverId)) ||
+        null;
+      const rawClientId =
+        paymentData.client_id ||
+        paymentData.clientId ||
+        (paymentData.ride && (paymentData.ride.client_id || paymentData.ride.clientId)) ||
+        null;
+
+      const driverId = rawDriverId != null ? String(rawDriverId).trim() : null;
+      const clientId = rawClientId != null ? String(rawClientId).trim() : null;
+
+      const chargeTarget =
+        paymentData.charge_target ||
+        paymentData.chargeTarget ||
+        'client';
+
+      const requiresClientPayment =
+        paymentData.requires_client_payment ??
+        paymentData.requiresClientPayment ??
+        (chargeTarget !== 'driver');
+
       const syncData = {
         rideId,
         status: paymentData.status,
@@ -213,7 +245,11 @@ export class SyncService {
         total: amount + tip,
         method: paymentData.payment_method || 'cash',
         provider: paymentData.payment_provider || 'cash',
-        createdAt: paymentData.created_at ? new Date(paymentData.created_at).getTime() : Date.now(), // TIMESTAMP → unix timestamp
+        driverId,
+        clientId,
+        chargeTarget,
+        requiresClientPayment,
+        createdAt: paymentData.created_at ? new Date(paymentData.created_at).getTime() : Date.now(),
         updatedAt: admin.database.ServerValue.TIMESTAMP,
       };
 

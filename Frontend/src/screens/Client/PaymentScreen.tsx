@@ -1,11 +1,10 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
-  Alert,
   ScrollView,
   TextInput,
 } from 'react-native';
@@ -15,6 +14,11 @@ import { getFunctions, httpsCallable } from 'firebase/functions';
 import { getDatabase, ref as dbRef, update as dbUpdate, get } from 'firebase/database';
 import { initializeFirebase } from '../../config/firebase';
 import { validateAndSaveCard, getCardsList, formatCardNumber, formatExpiryDate, isValidExpiryFormat, isValidCVV } from '../../utils/cardUtils';
+import alertService from '../../services/alertService';
+import sessionService from '../../services/sessionService';
+import BiometricService from '../../services/biometricService';
+import type { Card as SavedCard } from '../../services/cardsService';
+import { useTranslation } from 'react-i18next';
 
 interface PaymentScreenProps {
   route: {
@@ -34,6 +38,7 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
   const { rideId, amount, driverId, driverName, isPendingPayment = false } = route.params;
   const { user } = useAuth();
   const { colors } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [tip, setTip] = useState(0);
   const [selectedTipPercent, setSelectedTipPercent] = useState<number | null>(null);
@@ -43,17 +48,15 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
   const [selectedBank, setSelectedBank] = useState<'bac' | 'banpro' | 'lafise' | 'ficohsa' | 'avanz'>('bac');
   const [processing, setProcessing] = useState(false);
   const [rideDetails, setRideDetails] = useState<any>(null);
+  const [savedCards, setSavedCards] = useState<SavedCard[]>([]);
+  const [selectedCard, setSelectedCard] = useState<SavedCard | null>(null);
+  const [useNewCard, setUseNewCard] = useState(false);
   const [loading, setLoading] = useState(true);
   const [currentPaymentMethod, setCurrentPaymentMethod] = useState<string>('card');
   const currentPaymentMethodRef = useRef<string>('card');
   const isNavigatingRef = useRef(false);
   const [changingPaymentMethod, setChangingPaymentMethod] = useState(false);
-  
-  // Tarjetas guardadas
-  const [savedCards, setSavedCards] = useState<any[]>([]);
-  const [selectedCard, setSelectedCard] = useState<any>(null);
-  const [useNewCard, setUseNewCard] = useState(false);
-  
+
   // Formulario de tarjeta nueva
   const [cardHolder, setCardHolder] = useState('');
   const [cardNumber, setCardNumber] = useState('');
@@ -65,6 +68,58 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
 
   // Obtener el monto del viaje (de params o de rideDetails)
   const rideAmount = amount || rideDetails?.finalFare || rideDetails?.estimatedPrice || 0;
+  const formatCurrency = useCallback(
+    (value: number) => t('shared.payment.currencyAmount', { amount: value.toFixed(2) }),
+    [t],
+  );
+
+  const enforcePendingPaymentMethod = useCallback(async () => {
+    if (!isPendingPayment) {
+      return;
+    }
+
+    try {
+      const { app } = await initializeFirebase();
+      if (!app) {
+        return;
+      }
+
+      const { getDatabase, ref: dbRef, get } = await import('firebase/database');
+      const db = getDatabase(app);
+      const paymentStatusRef = dbRef(db, `paymentStatus/${rideId}`);
+      const snapshot = await get(paymentStatusRef);
+      const paymentData = snapshot.val();
+      const methodFromStatus = paymentData?.method || paymentData?.paymentMethod;
+
+      if (methodFromStatus !== 'card') {
+        try {
+          const functions = getFunctions(app);
+          const changePaymentMethodFn = httpsCallable(functions, 'changePaymentMethod');
+          const deviceId = await sessionService.getDeviceId();
+          await changePaymentMethodFn({
+            rideId,
+            newPaymentMethod: 'card',
+            reason: 'Pago pendiente - se fuerza tarjeta',
+            deviceId,
+          });
+        } catch (changeError) {
+          console.warn('⚠️ [PaymentScreen] No se pudo forzar método tarjeta:', changeError);
+        }
+      }
+    } catch (error) {
+      console.warn('⚠️ [PaymentScreen] Error verificando método de pago pendiente:', error);
+    } finally {
+      currentPaymentMethodRef.current = 'card';
+      setCurrentPaymentMethod('card');
+      setPaymentMethod('card');
+    }
+  }, [isPendingPayment, rideId]);
+
+  useEffect(() => {
+    if (isPendingPayment) {
+      enforcePendingPaymentMethod();
+    }
+  }, [isPendingPayment, enforcePendingPaymentMethod]);
 
   useEffect(() => {
     loadRideDetails();
@@ -98,8 +153,8 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
       if (snapshot.exists()) {
         const data = snapshot.val();
         setRideDetails({
-          originAddress: data.origin?.address || 'N/A',
-          destinationAddress: data.destination?.address || 'N/A',
+          originAddress: data.origin?.address || null,
+          destinationAddress: data.destination?.address || null,
           estimatedDistance: data.estimatedDistance || 0,
           estimatedDuration: data.estimatedDuration || 0,
           finalFare: data.finalFare || data.estimatedPrice || amount,
@@ -122,7 +177,7 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
       if (cards && cards.length > 0) {
         setSavedCards(cards);
         // Seleccionar la tarjeta predeterminada automáticamente
-        const defaultCard = cards.find((card: any) => card.isDefault);
+        const defaultCard = cards.find((card) => card.isDefault);
         if (defaultCard) {
           setSelectedCard(defaultCard);
           setUseNewCard(false);
@@ -144,6 +199,14 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
   };
 
   const handleBackendMethodChange = (newMethod?: string) => {
+    if (isPendingPayment) {
+      currentPaymentMethodRef.current = 'card';
+      setCurrentPaymentMethod('card');
+      setPaymentMethod('card');
+      isNavigatingRef.current = false;
+      return;
+    }
+
     if (!newMethod) return;
     const normalizedMethod: 'card' | 'cash' = newMethod === 'cash' ? 'cash' : 'card';
 
@@ -242,18 +305,22 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
       const functions = getFunctions(app);
       const changePaymentMethodFn = httpsCallable(functions, 'changePaymentMethod');
 
+      const deviceId = await sessionService.getDeviceId();
       await changePaymentMethodFn({
         rideId,
         newPaymentMethod: method,
         reason: method === 'cash'
           ? 'Cliente prefiere pagar en efectivo'
           : 'Cliente prefiere pagar con tarjeta',
+        deviceId,
       });
 
       // Esperar a que el listener sincronice el estado
     } catch (error: any) {
       console.error('Error cambiando método de pago desde cliente:', error);
-      Alert.alert('Error', error.message || 'No se pudo cambiar el método de pago.');
+      alertService.showErrorAlert(
+        error.message || t('shared.payment.alerts.changeMethodError'),
+      );
     } finally {
       setChangingPaymentMethod(false);
     }
@@ -282,6 +349,42 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
 
   const processCardPayment = async () => {
     try {
+      const totalToPay = rideAmount + tip;
+
+      const biometricResult = await BiometricService.authenticate(
+        t('shared.payment.biometric.prompt', { amount: totalToPay.toFixed(2) })
+      );
+
+      if (!biometricResult.success) {
+        if (
+          biometricResult.error === 'Dispositivo no soporta biometría' ||
+          biometricResult.error === 'No hay biometría registrada'
+        ) {
+          console.log('Biometría no disponible o no registrada. Continuando sin autenticación biométrica.');
+        } else {
+          alertService.showErrorAlert(
+            biometricResult.error || t('shared.payment.biometric.error'),
+          );
+          return;
+        }
+      } else {
+        try {
+          const { app } = await initializeFirebase();
+          if (app) {
+            const functions = getFunctions(app);
+            const createBiometricAuthFn = httpsCallable(functions, 'createBiometricAuthSeq');
+            await createBiometricAuthFn({
+              rideId,
+              biometricType: biometricResult.biometryType || 'biometric',
+              context: 'card_payment_confirmation',
+              userType: 'client',
+            });
+          }
+        } catch (logError) {
+          console.error('❌ Error registrando autenticación biométrica (card) vía Cloud Function:', logError);
+        }
+      }
+
       setProcessing(true);
 
       const { app } = await initializeFirebase();
@@ -347,25 +450,20 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
 
       // Pago capturado exitosamente
 
-      Alert.alert(
-        '✅ ¡Pago Completado!',
-        `El pago de C$${(rideAmount + tip).toFixed(2)} ha sido procesado exitosamente.`,
-        [
-          {
-            text: 'Calificar Viaje',
-            onPress: () => {
-              navigation.replace('Rating', {
-                rideId,
-                driverId: driverId || rideDetails?.driverId,
-                role: 'client',
-              });
-            },
-          },
-        ]
+      alertService.showSuccessAlert(
+        t('shared.payment.alerts.cardSuccessTitle'),
+        t('shared.payment.alerts.cardSuccessMessage', { amount: totalAmount.toFixed(2) }),
+        () => {
+          navigation.replace('Rating', {
+            rideId,
+            driverId: driverId || rideDetails?.driverId,
+            role: 'client',
+          });
+        }
       );
     } catch (error: any) {
       console.error('Error capturando pago:', error);
-      Alert.alert('Error', error.message || 'Error al procesar el pago');
+      alertService.showErrorAlert(error.message || t('shared.payment.alerts.cardError'));
     } finally {
       setProcessing(false);
     }
@@ -379,26 +477,20 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
       // El cliente NO tiene permisos para escribir en /paymentStatus en Firebase Realtime DB
       // Esto es por seguridad - solo el backend puede actualizar estados de pago
 
-      Alert.alert(
-        '💵 Pago en Efectivo',
-        `Por favor paga C$${(rideAmount + tip).toFixed(2)} en efectivo al conductor. El conductor confirmará la recepción del pago.`,
-        [
-          {
-            text: 'Entendido',
-            onPress: () => {
-              // Navegar a Rating después de confirmar efectivo
-              navigation.replace('Rating', {
-                rideId,
-                driverId: driverId || rideDetails?.driverId,
-                role: 'client',
-              });
-            },
-          },
-        ]
+      alertService.showInfoAlert(
+        t('shared.payment.alerts.cashInfoTitle'),
+        t('shared.payment.alerts.cashInfoMessage', { amount: totalAmount.toFixed(2) }),
+        () => {
+          navigation.replace('Rating', {
+            rideId,
+            driverId: driverId || rideDetails?.driverId,
+            role: 'client',
+          });
+        }
       );
     } catch (error: any) {
       console.error('Error procesando pago en efectivo:', error);
-      Alert.alert('Error', error.message || 'Error al procesar el pago');
+      alertService.showErrorAlert(error.message || 'Error al procesar el pago');
     } finally {
       setProcessing(false);
     }
@@ -407,31 +499,42 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
   /**
    * Guardar tarjeta nueva
    */
+  const detectCardBrand = (number: string): string => {
+    const cleaned = number.replace(/\s/g, '');
+
+    if (/^4/.test(cleaned)) return 'Visa';
+    if (/^5[1-5]/.test(cleaned)) return 'Mastercard';
+    if (/^3[47]/.test(cleaned)) return 'American Express';
+    if (/^6(?:011|5)/.test(cleaned)) return 'Discover';
+
+    return 'Unknown';
+  };
+
   const handleSaveCard = async () => {
     try {
       // Validar campos
       if (!cardNumber.trim()) {
-        Alert.alert('Error', 'Ingresa el número de tarjeta');
+        alertService.showErrorAlert(t('shared.payment.alerts.missingCardNumber'));
         return;
       }
 
       if (!cardHolder.trim()) {
-        Alert.alert('Error', 'Ingresa el nombre del titular');
+        alertService.showErrorAlert(t('shared.payment.alerts.missingCardHolder'));
         return;
       }
 
       if (!expiryDate.trim() || !isValidExpiryFormat(expiryDate)) {
-        Alert.alert('Error', 'Ingresa la fecha de expiración en formato MM/YY o MM/YYYY');
+        alertService.showErrorAlert(t('shared.payment.alerts.invalidExpiry'));
         return;
       }
 
       if (!cvv.trim() || !isValidCVV(cvv)) {
-        Alert.alert('Error', 'Ingresa un CVV válido (3 o 4 dígitos)');
+        alertService.showErrorAlert(t('shared.payment.alerts.invalidCVV'));
         return;
       }
 
       if (!selectedBank) {
-        Alert.alert('Error', 'Selecciona un banco');
+        alertService.showErrorAlert(t('shared.payment.alerts.missingBank'));
         return;
       }
 
@@ -439,46 +542,47 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
 
       const { month, year } = formatExpiryDate(expiryDate);
       const fullYear = year.length === 2 ? `20${year}` : year;
+      const cleanedNumber = cardNumber.replace(/\s/g, '');
+      const brand = detectCardBrand(cleanedNumber);
 
-      // Validar y guardar tarjeta
+      // Guardar tarjeta utilizando servicio centralizado
       const result = await validateAndSaveCard(
         {
-          cardNumber: cardNumber.replace(/\s/g, ''),
+          cardNumber: cleanedNumber,
           expMonth: month,
           expYear: fullYear,
           cvv: cvv,
           cardholderName: cardHolder,
           bank: selectedBank,
+          brand,
         },
-        saveCard // setAsDefault
+        saveCard
       );
 
       console.log(`✅ Tarjeta guardada exitosamente: ${result.card.id}`);
 
-      Alert.alert(
-        '✅ Tarjeta Guardada',
-        `Tu tarjeta ${result.card.brand.toUpperCase()} **** ${result.card.lastFour} ha sido guardada exitosamente.`,
-        [
-          {
-            text: 'Continuar',
-            onPress: () => {
-              // Limpiar formulario
-              setCardNumber('');
-              setCardHolder('');
-              setExpiryDate('');
-              setCvv('');
-              setSaveCard(false);
-              setUseNewCard(false);
+      alertService.showSuccessAlert(
+        t('shared.payment.alerts.saveCardSuccessTitle'),
+        t('shared.payment.alerts.saveCardSuccessMessage', {
+          brand: result.card.brand.toUpperCase(),
+          last4: result.card.last4,
+        }),
+        () => {
+          // Limpiar formulario
+          setCardNumber('');
+          setCardHolder('');
+          setExpiryDate('');
+          setCvv('');
+          setSaveCard(false);
+          setUseNewCard(false);
 
-              // Recargar tarjetas
-              loadSavedCards();
-            },
-          },
-        ]
+          // Recargar tarjetas
+          loadSavedCards();
+        }
       );
     } catch (error: any) {
       console.error('❌ Error guardando tarjeta:', error);
-      Alert.alert('Error', error.message || 'Error al guardar la tarjeta');
+      alertService.showErrorAlert(error.message || t('shared.payment.alerts.saveCardError'));
     } finally {
       setProcessing(false);
     }
@@ -488,40 +592,46 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#000" />
-        <Text style={styles.loadingText}>Cargando...</Text>
+        <Text style={styles.loadingText}>{t('shared.payment.loading')}</Text>
       </View>
     );
   }
 
   const totalAmount = rideAmount + tip;
+  const headerTitle = t(
+    isPendingPayment ? 'shared.payment.header.titlePending' : 'shared.payment.header.titleDefault',
+  );
+  const headerSubtitle = t(
+    isPendingPayment ? 'shared.payment.header.subtitlePending' : 'shared.payment.header.subtitleDefault',
+  );
 
   return (
     <ScrollView style={styles.container}>
       <View style={styles.content}>
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.title}>Pago del Viaje</Text>
-          <Text style={styles.subtitle}>Completa tu pago de forma segura</Text>
+          <Text style={styles.title}>{headerTitle}</Text>
+          <Text style={styles.subtitle}>{headerSubtitle}</Text>
         </View>
 
         {/* Resumen del viaje */}
         {rideDetails && (
           <View style={styles.summaryCard}>
-            <Text style={styles.summaryTitle}>Resumen del Viaje</Text>
+            <Text style={styles.summaryTitle}>{t('shared.payment.summary.title')}</Text>
             <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Origen:</Text>
+              <Text style={styles.summaryLabel}>{t('shared.payment.summary.origin')}:</Text>
               <Text style={styles.summaryValue} numberOfLines={1}>
-                {rideDetails.originAddress}
+                {rideDetails.originAddress || t('shared.payment.summary.notAvailable')}
               </Text>
             </View>
             <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Destino:</Text>
+              <Text style={styles.summaryLabel}>{t('shared.payment.summary.destination')}:</Text>
               <Text style={styles.summaryValue} numberOfLines={1}>
-                {rideDetails.destinationAddress}
+                {rideDetails.destinationAddress || t('shared.payment.summary.notAvailable')}
               </Text>
             </View>
             <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Distancia:</Text>
+              <Text style={styles.summaryLabel}>{t('shared.payment.summary.distance')}:</Text>
               <Text style={styles.summaryValue}>
                 {(rideDetails.estimatedDistance / 1000).toFixed(1)} km
               </Text>
@@ -531,27 +641,27 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
 
         {/* Desglose de costos */}
         <View style={styles.costCard}>
-          <Text style={styles.costTitle}>Desglose de Costos</Text>
+          <Text style={styles.costTitle}>{t('shared.payment.cost.title')}</Text>
           <View style={styles.costRow}>
-            <Text style={styles.costLabel}>Tarifa del viaje</Text>
-            <Text style={styles.costValue}>C${rideAmount.toFixed(2)}</Text>
+            <Text style={styles.costLabel}>{t('shared.payment.cost.fare')}</Text>
+            <Text style={styles.costValue}>{formatCurrency(rideAmount)}</Text>
           </View>
           {tip > 0 && (
             <View style={styles.costRow}>
-              <Text style={styles.costLabel}>Propina</Text>
-              <Text style={styles.costValue}>C${tip.toFixed(2)}</Text>
+              <Text style={styles.costLabel}>{t('shared.payment.cost.tip')}</Text>
+              <Text style={styles.costValue}>{formatCurrency(tip)}</Text>
             </View>
           )}
           <View style={styles.divider} />
           <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>Total a Pagar</Text>
-            <Text style={styles.totalValue}>C${totalAmount.toFixed(2)}</Text>
+            <Text style={styles.totalLabel}>{t('shared.payment.cost.total')}</Text>
+            <Text style={styles.totalValue}>{formatCurrency(totalAmount)}</Text>
           </View>
         </View>
 
         {/* Propina */}
         <View style={styles.tipCard}>
-          <Text style={styles.tipTitle}>¿Deseas agregar propina?</Text>
+          <Text style={styles.tipTitle}>{t('shared.payment.tip.title')}</Text>
           <View style={styles.tipOptions}>
             {tipOptions.map((percent) => (
               <TouchableOpacity
@@ -576,16 +686,16 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
                     selectedTipPercent === percent && styles.tipButtonAmountActive,
                   ]}
                 >
-                  C${Math.round(amount * (percent / 100))}
+                  {formatCurrency(rideAmount * (percent / 100))}
                 </Text>
               </TouchableOpacity>
             ))}
           </View>
 
-          <Text style={styles.customTipLabel}>O ingresa un monto personalizado:</Text>
+          <Text style={styles.customTipLabel}>{t('shared.payment.tip.customLabel')}</Text>
           <TextInput
             style={styles.customTipInput}
-            placeholder="C$ 0.00"
+            placeholder={t('shared.payment.tip.placeholder')}
             keyboardType="numeric"
             value={customTip}
             onChangeText={handleCustomTip}
@@ -594,7 +704,7 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
 
         {/* Método de pago */}
         <View style={styles.paymentMethodCard}>
-          <Text style={styles.paymentMethodTitle}>Método de Pago</Text>
+          <Text style={styles.paymentMethodTitle}>{t('shared.payment.paymentMethod.title')}</Text>
           <TouchableOpacity
             style={[
               styles.methodButton,
@@ -605,8 +715,10 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
           >
             <Text style={styles.methodIcon}>💳</Text>
             <View style={styles.methodInfo}>
-              <Text style={styles.methodName}>Tarjeta de Crédito/Débito</Text>
-              <Text style={styles.methodDescription}>Selecciona tu banco abajo</Text>
+              <Text style={styles.methodName}>{t('shared.payment.paymentMethod.cardTitle')}</Text>
+              <Text style={styles.methodDescription}>
+                {t('shared.payment.paymentMethod.cardSubtitle')}
+              </Text>
             </View>
             {paymentMethod === 'card' && (
               <Text style={styles.methodCheck}>✓</Text>
@@ -625,12 +737,14 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
           >
             <Text style={styles.methodIcon}>💵</Text>
             <View style={styles.methodInfo}>
-              <Text style={styles.methodName}>Efectivo</Text>
+              <Text style={styles.methodName}>{t('shared.payment.paymentMethod.cashTitle')}</Text>
               <Text style={[
                 styles.methodDescription,
                 isPendingPayment && styles.methodDescriptionDisabled
               ]}>
-                {isPendingPayment ? 'No disponible para pagos pendientes' : 'Paga al conductor'}
+                {isPendingPayment
+                  ? t('shared.payment.paymentMethod.cashUnavailable')
+                  : t('shared.payment.paymentMethod.cashSubtitle')}
               </Text>
             </View>
             {paymentMethod === 'cash' && (
@@ -643,9 +757,9 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
         {paymentMethod === 'card' && savedCards.length > 0 && (
           <View style={styles.savedCardsCard}>
             <View style={styles.savedCardsHeader}>
-              <Text style={styles.savedCardsTitle}>Tus Tarjetas</Text>
+              <Text style={styles.savedCardsTitle}>{t('shared.payment.savedCards.title')}</Text>
               <TouchableOpacity onPress={() => navigation.navigate('SavedCards')}>
-                <Text style={styles.manageCardsLink}>Gestionar →</Text>
+                <Text style={styles.manageCardsLink}>{t('shared.payment.savedCards.manageLink')}</Text>
               </TouchableOpacity>
             </View>
 
@@ -667,7 +781,9 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
                   <Text style={styles.savedCardBrand}>{card.brand.toUpperCase()}</Text>
                   <Text style={styles.savedCardNumber}>•••• {card.last4}</Text>
                   {card.isDefault && (
-                    <Text style={styles.savedCardDefault}>Predeterminada</Text>
+                    <Text style={styles.savedCardDefault}>
+                      {t('shared.payment.savedCards.defaultBadge')}
+                    </Text>
                   )}
                 </View>
                 {selectedCard?.id === card.id && !useNewCard && (
@@ -682,16 +798,19 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
                 styles.savedCardItem,
                 useNewCard && styles.savedCardItemActive,
               ]}
-              onPress={() => setUseNewCard(true)}
+              onPress={() => {
+                setSelectedCard(null);
+                setUseNewCard(true);
+              }}
             >
               <Text style={styles.savedCardIcon}>➕</Text>
               <View style={styles.savedCardInfo}>
-                <Text style={styles.savedCardBrand}>Nueva Tarjeta</Text>
-                <Text style={styles.savedCardNumber}>Agregar método de pago</Text>
+                <Text style={styles.savedCardBrand}>{t('shared.payment.savedCards.newCardTitle')}</Text>
+                <Text style={styles.savedCardNumber}>
+                  {t('shared.payment.savedCards.newCardSubtitle')}
+                </Text>
               </View>
-              {useNewCard && (
-                <Text style={styles.savedCardCheck}>✓</Text>
-              )}
+              {useNewCard && <Text style={styles.savedCardCheck}>✓</Text>}
             </TouchableOpacity>
           </View>
         )}
@@ -699,10 +818,12 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
         {/* Selector de Proveedor de Pago (solo si es tarjeta nueva) */}
         {paymentMethod === 'card' && (savedCards.length === 0 || useNewCard) && (
           <View style={styles.providerCard}>
-            <Text style={styles.providerTitle}>Selecciona tu banco</Text>
+            <Text style={styles.providerTitle}>{t('shared.payment.banks.title')}</Text>
             
             <View style={styles.bankSelectionContainer}>
-              <Text style={[styles.bankLabel, { color: colors.text }]}>Selecciona tu banco:</Text>
+              <Text style={[styles.bankLabel, { color: colors.text }]}>
+                {t('shared.payment.banks.selectLabel')}
+              </Text>
               <View style={styles.bankButtonsRow}>
                 {(['bac', 'banpro', 'lafise', 'ficohsa', 'avanz'] as const).map((bank) => (
                   <TouchableOpacity
@@ -729,7 +850,11 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
 
         {/* Botón de pago */}
         <TouchableOpacity
-          style={[styles.payButton, processing && styles.payButtonDisabled]}
+          style={[
+            styles.payButton,
+            isPendingPayment && styles.payButtonPending,
+            processing && styles.payButtonDisabled,
+          ]}
           onPress={handlePayment}
           disabled={processing}
         >
@@ -737,7 +862,13 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
             <ActivityIndicator color="#fff" />
           ) : (
             <Text style={styles.payButtonText}>
-              {paymentMethod === 'card' ? 'Pagar con Tarjeta' : 'Confirmar Pago en Efectivo'}
+              {paymentMethod === 'card'
+                ? t(
+                    isPendingPayment
+                      ? 'shared.payment.buttons.payCardPending'
+                      : 'shared.payment.buttons.payCard',
+                  )
+                : t('shared.payment.buttons.payCash')}
             </Text>
           )}
         </TouchableOpacity>
@@ -746,7 +877,7 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
         <View style={styles.securityInfo}>
           <Text style={styles.securityIcon}>🔒</Text>
           <Text style={styles.securityText}>
-            Tu información está protegida con encriptación de nivel bancario
+            {t('shared.payment.security.message')}
           </Text>
         </View>
       </View>
@@ -1132,6 +1263,9 @@ const createStyles = (colors: any) => StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     marginBottom: 16,
+  },
+  payButtonPending: {
+    backgroundColor: '#9C27B0',
   },
   payButtonDisabled: {
     opacity: 0.5,

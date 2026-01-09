@@ -4,8 +4,9 @@
  */
 
 import * as functions from 'firebase-functions';
-import * as admin from 'firebase-admin';
+import admin from 'firebase-admin';
 import { supabaseGet, supabaseGetDriverWithVehicles, supabaseUpdate } from '../supabase/client';
+import { MIGRATION_FLAGS } from '../config/migration-flags';
 
 /**
  * Obtener perfil del conductor (combinando Firebase Auth + Supabase)
@@ -44,7 +45,36 @@ export const getDriverProfileWithFallback = functions.https.onCall(async (data, 
         vehicles = supabaseDriver.vehicles || [];
         console.log(`✅ [getDriverProfile] Perfil de Supabase encontrado con ${vehicles.length} vehículos`);
       } else {
-        console.warn(`⚠️ [getDriverProfile] No se encontró perfil en Supabase`);
+        console.warn(`⚠️ [getDriverProfile] No se encontró perfil en Supabase, creando registro...`);
+        // Crear registro en Supabase si no existe
+        try {
+          const { supabasePost } = await import('../supabase/client');
+
+          const driverSupabaseData = {
+            user_id: driverId,
+            profile_photo: null,
+            license_number: null,
+            license_expiry: null,
+            license_photo_front: null,
+            license_photo_back: null,
+            department: null,
+            municipality: null,
+            account_status: 'pending',
+            documents_status: 'pending',
+            verified_at: null,
+            total_rides: 0,
+            average_rating: 5.0,
+            total_earnings: 0,
+          };
+
+          await supabasePost('drivers', driverSupabaseData);
+          console.log(`✅ [getDriverProfile] Conductor creado en Supabase: ${driverId}`);
+          
+          // Intentar obtener nuevamente
+          supabaseDriver = await supabaseGetDriverWithVehicles(driverId);
+        } catch (createError: any) {
+          console.error(`❌ [getDriverProfile] Error creando conductor en Supabase:`, createError);
+        }
       }
     } catch (supabaseError: any) {
       console.warn(`⚠️ [getDriverProfile] Error en Supabase REST API (${supabaseError.message}). Usando fallback a Realtime DB`);
@@ -71,8 +101,13 @@ export const getDriverProfileWithFallback = functions.https.onCall(async (data, 
         profilePhoto: driverJson.profile_photo || null,
         department: driverJson.department || null,
         municipality: driverJson.municipality || null,
-        status: driverJson.status || 'pending',
+        accountStatus: driverJson.account_status || driverJson.status || 'pending',
+        account_status: driverJson.account_status || driverJson.status || 'pending',
+        documentsStatus: driverJson.documents_status || null,
+        documents_status: driverJson.documents_status || null,
         verifiedAt: driverJson.verified_at || null,
+        designatedRoleRequested: driverJson.designated_rol_requested || null,
+        designated_rol_requested: driverJson.designated_rol_requested || null,
         totalRides: driverJson.total_rides || 0,
         rating: driverJson.average_rating || 5.0,
         earnings: driverJson.total_earnings || 0,
@@ -141,8 +176,13 @@ export const getDriverProfileWithFallback = functions.https.onCall(async (data, 
         profilePhoto: driverData.profilePhoto,
         department: driverData.department,
         municipality: driverData.municipality,
-        status: driverData.status || 'offline',
+        accountStatus: driverData.accountStatus || driverData.account_status || driverData.status || 'pending',
+        account_status: driverData.account_status || driverData.accountStatus || driverData.status || 'pending',
+        documentsStatus: driverData.documentsStatus || driverData.documents_status || null,
+        documents_status: driverData.documents_status || driverData.documentsStatus || null,
         verifiedAt: driverData.verifiedAt,
+        designatedRoleRequested: driverData.designatedRoleRequested || driverData.designated_rol_requested || null,
+        designated_rol_requested: driverData.designated_rol_requested || null,
         totalRides: driverData.totalRides || 0,
         rating: driverData.rating || 5.0,
         earnings: driverData.earnings || 0,
@@ -206,7 +246,9 @@ export const updateDriverProfileWithSync = functions.https.onCall(async (data, c
 
       if (Object.keys(updateData).length > 0) {
         // Obtener el ID del conductor en Supabase
-        const drivers = await supabaseGet('drivers', { user_id: driverId });
+        const drivers = await supabaseGet('drivers', { user_id: driverId }, '*', {
+          requireServiceRole: true,
+        });
         if (drivers && drivers.length > 0) {
           const driverId_supabase = drivers[0].id;
           await supabaseUpdate('drivers', driverId_supabase, updateData);
@@ -219,21 +261,25 @@ export const updateDriverProfileWithSync = functions.https.onCall(async (data, c
       console.warn(`⚠️ [updateDriverProfile] Error actualizando en Supabase REST API:`, supabaseError.message);
     }
 
-    // 3. Actualizar en Realtime DB (para sincronización)
-    const db = admin.database();
-    const updateData: any = {};
-    if (firstName) updateData.firstName = firstName;
-    if (lastName) updateData.lastName = lastName;
-    if (phone) updateData.phone = phone;
-    if (licenseNumber) updateData.licenseNumber = licenseNumber;
-    if (licenseExpiry) updateData.licenseExpiry = licenseExpiry;
-    if (profilePhoto) updateData.profilePhoto = profilePhoto;
-    if (department) updateData.department = department;
-    if (municipality) updateData.municipality = municipality;
+    // 3. Actualizar en Realtime DB (para sincronización de compatibilidad)
+    if (MIGRATION_FLAGS.SYNC_DRIVERS_STATIC_TO_RTDB) {
+      const db = admin.database();
+      const updateData: any = {};
+      if (firstName) updateData.firstName = firstName;
+      if (lastName) updateData.lastName = lastName;
+      if (phone) updateData.phone = phone;
+      if (licenseNumber) updateData.licenseNumber = licenseNumber;
+      if (licenseExpiry) updateData.licenseExpiry = licenseExpiry;
+      if (profilePhoto) updateData.profilePhoto = profilePhoto;
+      if (department) updateData.department = department;
+      if (municipality) updateData.municipality = municipality;
 
-    if (Object.keys(updateData).length > 0) {
-      await db.ref(`drivers/${driverId}`).update(updateData);
-      console.log(`✅ [updateDriverProfile] Perfil actualizado en Realtime DB`);
+      if (Object.keys(updateData).length > 0) {
+        await db.ref(`drivers/${driverId}`).update(updateData);
+        console.log(`✅ [updateDriverProfile] Perfil actualizado en Realtime DB`);
+      }
+    } else {
+      console.log('⏭️ [updateDriverProfile] SYNC_DRIVERS_STATIC_TO_RTDB=false, no se actualiza drivers/{id}');
     }
 
     return {

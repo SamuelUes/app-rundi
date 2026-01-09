@@ -4,7 +4,7 @@
  */
 
 import * as functions from 'firebase-functions';
-import * as admin from 'firebase-admin';
+import admin from 'firebase-admin';
 
 const db = admin.database();
 
@@ -59,6 +59,19 @@ export const negotiatePrice = functions.https.onCall(async (data, context) => {
       negotiationData.clientSuggestedPrice = suggestedPrice;
       console.log(`✅ [negotiatePrice] Cliente sugirió: C$${suggestedPrice}`);
     } else if (role === 'driver') {
+      // ✅ NUEVO: Bloquear si el conductor está BUSY
+      if (driverId) {
+        try {
+          const locSnap = await db.ref(`driverLocations/${driverId}`).once('value');
+          const status = String(locSnap.val()?.status || '').toLowerCase();
+          if (status === 'busy') {
+            throw new functions.https.HttpsError('failed-precondition', 'DRIVER_BUSY');
+          }
+        } catch (locErr: any) {
+          if (locErr instanceof functions.https.HttpsError) throw locErr;
+          console.warn('⚠️ [negotiatePrice] Error verificando driverLocations:', locErr?.message || locErr);
+        }
+      }
       updateData.driverOfferedPrice = suggestedPrice;
       updateData.negotiationStatus = 'driver_offered';
       negotiationData.driverOfferedPrice = suggestedPrice;
@@ -77,9 +90,9 @@ export const negotiatePrice = functions.https.onCall(async (data, context) => {
           status: 'pending',
           driver: {
             id: driverId,
-            name: driverInfo?.name || 'Conductor',
-            rating: driverInfo?.rating || 0,
-            photoURL: driverInfo?.photoURL || null,
+            name: driverInfo?.fullName || driverInfo?.name || 'Conductor',
+            rating: driverInfo?.averageRating || driverInfo?.rating || 0,
+            photoURL: driverInfo?.photoURL || driverInfo?.profilePhoto || null,
             lat: driverInfo?.lat || null,
             lng: driverInfo?.lng || null,
             vehicle: driverInfo?.vehicle || null,
@@ -151,6 +164,18 @@ export const acceptClientPrice = functions.https.onCall(async (data, context) =>
 
     console.log(`✅ [acceptClientPrice] Conductor ${driverId} aceptando precio del cliente para: ${rideId}`);
 
+    // ✅ NUEVO: Bloquear si el conductor está BUSY
+    try {
+      const locSnap = await db.ref(`driverLocations/${driverId}`).once('value');
+      const status = String(locSnap.val()?.status || '').toLowerCase();
+      if (status === 'busy') {
+        throw new functions.https.HttpsError('failed-precondition', 'DRIVER_BUSY');
+      }
+    } catch (locErr: any) {
+      if (locErr instanceof functions.https.HttpsError) throw locErr;
+      console.warn('⚠️ [acceptClientPrice] Error verificando driverLocations:', locErr?.message || locErr);
+    }
+
     // Obtener datos del viaje
     const rideSnapshot = await db.ref(`activeRides/${rideId}`).once('value');
     const rideData = rideSnapshot.val();
@@ -159,27 +184,87 @@ export const acceptClientPrice = functions.https.onCall(async (data, context) =>
       throw new functions.https.HttpsError('not-found', 'Viaje no encontrado');
     }
 
-    const clientPrice = rideData.clientSuggestedPrice;
-    if (clientPrice == null || isNaN(clientPrice)) {
-      throw new functions.https.HttpsError('invalid-argument', 'Precio del cliente inválido o no definido');
+    // Determinar precio del cliente: priorizar clientSuggestedPrice, con fallback a estimatedPrice
+    let clientPriceRaw: any = rideData.clientSuggestedPrice;
+    if (clientPriceRaw == null || isNaN(clientPriceRaw)) {
+      const estimated = rideData.estimatedPrice ?? rideData.estimatedFare ?? rideData.estimated_price;
+      const parsedEstimated = typeof estimated === 'string' ? Number(estimated) : estimated;
+      if (parsedEstimated == null || !Number.isFinite(parsedEstimated)) {
+        throw new functions.https.HttpsError('invalid-argument', 'Precio del cliente inválido o no definido');
+      }
+      clientPriceRaw = parsedEstimated;
     }
 
-    // Actualizar viaje: aceptar precio del cliente
-    await db.ref(`activeRides/${rideId}`).update({
-      finalFare: clientPrice,
-      negotiationStatus: 'client_accepted',
-      driverOfferedPrice: null,
-      clientSuggestedPrice: 0, // Se limpia para evitar duplicados
+    const clientPrice = Number(clientPriceRaw);
+
+    // Obtener datos del conductor para adjuntarlos al viaje
+    let driverInfo: any = null;
+    try {
+      const driverInfoSnapshot = await db.ref(`driversInfo/${driverId}`).once('value');
+      driverInfo = driverInfoSnapshot.val();
+    } catch (driverError) {
+      console.warn('⚠️ [acceptClientPrice] No se pudo obtener driversInfo:', driverError);
+    }
+
+    const driverPayload = driverInfo
+      ? {
+          id: driverId,
+          name: driverInfo.fullName || driverInfo.name || null,
+          rating: driverInfo.averageRating || driverInfo.rating || null,
+          photoURL: driverInfo.photoURL || driverInfo.profilePhoto || null,
+          vehicle: driverInfo.vehicle || null,
+        }
+      : {
+          id: driverId,
+        };
+
+    const negotiationNode: any = {
+      ...(rideData.negotiation || {}),
+      status: 'driver_accepted',
+      clientSuggestedPrice: clientPrice,
+      acceptedClientPrice: true,
+      driverId,
       updatedAt: admin.database.ServerValue.TIMESTAMP,
+    };
+
+    const rideUpdate: any = {
+      finalFare: clientPrice,
+      negotiationStatus: 'driver_accepted',
+      driverOfferedPrice: null,
+      clientSuggestedPrice: clientPrice,
+      acceptedClientPrice: true,
+      driverId,
+      driver: driverPayload,
+      status: rideData.status === 'requested' ? 'pending_confirm' : rideData.status,
+      updatedAt: admin.database.ServerValue.TIMESTAMP,
+      negotiation: negotiationNode,
+    };
+
+    // Actualizar viaje: aceptar precio del cliente y adjuntar conductor
+    await db.ref(`activeRides/${rideId}`).update(rideUpdate);
+
+    // ✅ Asegurar que exista una oferta aceptada para el conductor
+    await db.ref(`activeRides/${rideId}/offers/${driverId}`).update({
+      offeredPrice: clientPrice,
+      status: 'accepted',
+      acceptedClientPrice: true,
+      driver: driverPayload,
+      updatedAt: admin.database.ServerValue.TIMESTAMP,
+      createdAt: admin.database.ServerValue.TIMESTAMP,
     });
 
-    // ✅ Actualizar el status de la oferta a "accepted"
-    if (rideData.offers && rideData.offers[driverId]) {
-      console.log(`✅ [acceptClientPrice] Actualizando status de oferta en offers/${driverId} a "accepted"`);
-      await db.ref(`activeRides/${rideId}/offers/${driverId}`).update({
-        status: 'accepted',
-        updatedAt: admin.database.ServerValue.TIMESTAMP,
+    // ✅ Sincronizar información clave a Supabase
+    try {
+      const { RideRepository } = await import('../sequelize/repositories/RideRepository');
+      const rideRepo = new RideRepository();
+      await rideRepo.update(rideId, {
+        final_fare: clientPrice,
+        negotiation_status: 'driver_accepted',
+        status: 'pending_confirm',
+        driver_id: driverId,
       });
+    } catch (supabaseError: any) {
+      console.warn('⚠️ [acceptClientPrice] Error sincronizando a Supabase:', supabaseError.message);
     }
 
     console.log(`✅ [acceptClientPrice] Precio aceptado: C$${clientPrice}`);
@@ -190,7 +275,7 @@ export const acceptClientPrice = functions.https.onCall(async (data, context) =>
       ride: {
         id: rideId,
         finalFare: clientPrice,
-        negotiationStatus: 'client_accepted',
+        negotiationStatus: 'driver_accepted',
       },
     };
   } catch (error: any) {
@@ -233,6 +318,20 @@ export const makeCounterOffer = functions.https.onCall(async (data, context) => 
       console.log(`📍 Datos del conductor obtenidos:`, driverInfo ? 'OK' : 'NO ENCONTRADO');
     }
 
+    // ✅ NUEVO: Bloquear si el conductor está BUSY
+    if (driverId) {
+      try {
+        const locSnap = await db.ref(`driverLocations/${driverId}`).once('value');
+        const status = String(locSnap.val()?.status || '').toLowerCase();
+        if (status === 'busy') {
+          throw new functions.https.HttpsError('failed-precondition', 'DRIVER_BUSY');
+        }
+      } catch (locErr: any) {
+        if (locErr instanceof functions.https.HttpsError) throw locErr;
+        console.warn('⚠️ [makeCounterOffer] Error verificando driverLocations:', locErr?.message || locErr);
+      }
+    }
+
     // ✅ NUEVO: Guardar contraoferta en offers con datos del conductor
     if (driverId) {
       await db.ref(`activeRides/${rideId}/offers/${driverId}`).update({
@@ -240,9 +339,9 @@ export const makeCounterOffer = functions.https.onCall(async (data, context) => 
         status: 'pending',
         driver: {
           id: driverId,
-          name: driverInfo?.name || 'Conductor',
-          rating: driverInfo?.rating || 0,
-          photoURL: driverInfo?.photoURL || null,
+          name: driverInfo?.fullName || driverInfo?.name || 'Conductor',
+          rating: driverInfo?.averageRating || driverInfo?.rating || 0,
+          photoURL: driverInfo?.photoURL || driverInfo?.profilePhoto || null,
           lat: driverInfo?.lat || null,
           lng: driverInfo?.lng || null,
           vehicle: driverInfo?.vehicle || null,
@@ -325,7 +424,7 @@ export const acceptCounterOffer = functions.https.onCall(async (data, context) =
     const baseUpdate: any = {
       finalFare: acceptedPrice,
       driverOfferedPrice: acceptedPrice,
-      negotiationStatus: 'accepted',
+      negotiationStatus: 'client_accepted',
       updatedAt: admin.database.ServerValue.TIMESTAMP,
     };
 
@@ -342,7 +441,7 @@ export const acceptCounterOffer = functions.https.onCall(async (data, context) =
 
     // ✅ Actualizar negociación anidada (si existe nodo negotiation)
     baseUpdate['negotiation'] = {
-      status: 'accepted',
+      status: 'client_accepted',
       driverOfferedPrice: acceptedPrice,
       driverId: driverId || null,
       updatedAt: admin.database.ServerValue.TIMESTAMP,
@@ -381,7 +480,7 @@ export const acceptCounterOffer = functions.https.onCall(async (data, context) =
       ride: {
         id: rideId,
         finalFare: acceptedPrice,
-        negotiationStatus: 'accepted',
+        negotiationStatus: 'client_accepted',
       },
     };
   } catch (error: any) {

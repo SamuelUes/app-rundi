@@ -4,7 +4,7 @@
  */
 
 import * as functions from 'firebase-functions';
-import * as admin from 'firebase-admin';
+import admin from 'firebase-admin';
 import { VehicleRepository } from '../sequelize/repositories/VehicleRepository';
 import Driver from '../sequelize/models/Driver';
 
@@ -220,10 +220,24 @@ export const getDriverVehicles = functions.https.onCall(async (data, context) =>
   }
 
   try {
-    const { driverId } = data;
+    let { driverId } = data;
 
     if (!driverId) {
-      throw new functions.https.HttpsError('invalid-argument', 'driverId es requerido');
+      console.log('ℹ️ [getDriverVehicles] driverId no proporcionado, buscando por user_id...');
+      const driverRecord = await Driver.findOne({
+        where: { user_id: context.auth.uid },
+        attributes: ['id'],
+      });
+
+      if (!driverRecord) {
+        throw new functions.https.HttpsError(
+          'not-found',
+          `Conductor no encontrado con user_id: ${context.auth.uid}`,
+        );
+      }
+
+      driverId = driverRecord.id;
+      console.log(`✅ [getDriverVehicles] driverId derivado: ${driverId}`);
     }
 
     console.log(`🚗 [getDriverVehicles] Obteniendo vehículos del conductor: ${driverId}`);
@@ -243,6 +257,17 @@ export const getDriverVehicles = functions.https.onCall(async (data, context) =>
         color: v.color,
         type: v.type,
         isActive: v.is_active,
+        registrationNumber: v.registration_number,
+        registrationExpiry: v.registration_expiry,
+        registrationPhotoFront: v.registration_photo_front,
+        registrationPhotoBack: v.registration_photo_back,
+        insuranceNumber: v.insurance_number,
+        insuranceCompany: v.insurance_company,
+        insuranceExpiry: v.insurance_expiry,
+        insurancePhoto: v.insurance_photo,
+        vehiclePhoto: v.vehicle_photo,
+        createdAt: v.created_at,
+        updatedAt: v.updated_at,
       })),
     };
   } catch (error: any) {
@@ -402,6 +427,13 @@ export const switchVehicle = functions.https.onCall(async (data, context) => {
       throw new functions.https.HttpsError('not-found', `Vehículo no encontrado: ${vehicleId}`);
     }
 
+    if (!vehicle.is_active) {
+      throw new functions.https.HttpsError(
+        'failed-precondition',
+        'Este vehículo aún no ha sido aprobado por el equipo administrativo'
+      );
+    }
+
     console.log(`📋 Vehículo encontrado:`, vehicle.plate);
 
     // Actualizar en Firebase Realtime Database - driversInfo
@@ -417,9 +449,17 @@ export const switchVehicle = functions.https.onCall(async (data, context) => {
       is_active: true,
     };
 
-    console.log(`📤 Actualizando driversInfo/${driverId}/vehicle con:`, vehicleData);
+    console.log(`📤 Actualizando driversInfo/${firebaseUserId}/vehicle con:`, vehicleData);
 
-    await db.ref(`driversInfo/${driverId}/vehicle`).set(vehicleData);
+    const driverInfoRef = db.ref(`driversInfo/${firebaseUserId}`);
+
+    await driverInfoRef.child('vehicle').set({
+      ...vehicleData,
+      updated_at: admin.database.ServerValue.TIMESTAMP,
+    });
+
+    // No actualizar 'status' en driversInfo aquí. 'account_status' es administrativo y
+    // 'status' de disponibilidad se maneja exclusivamente en driverLocations.
 
     console.log(`✅ Vehículo activo actualizado en Realtime DB`);
 

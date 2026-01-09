@@ -9,6 +9,7 @@ import messaging from '@react-native-firebase/messaging';
 import { Platform, Alert } from 'react-native';
 import { getDatabase, ref, set } from 'firebase/database';
 import app from '../config/firebase';
+import { navigate } from '../navigation/NavigationService';
 
 interface NotificationPayload {
   title: string;
@@ -160,7 +161,7 @@ class PushNotificationService {
    */
   private handleBackgroundNotification(remoteMessage: any) {
     const { data } = remoteMessage;
-    const { type, rideId } = data;
+    const { type, rideId } = data || {};
 
     console.log('🔔 Notificación en background:', { type, rideId });
 
@@ -185,6 +186,17 @@ class PushNotificationService {
       case 'ride_completed':
         console.log('✅ Viaje completado');
         // Navegar a pantalla de rating
+        break;
+      case 'proximity_ride':
+        try {
+          const ride = data?.ride ? JSON.parse(data.ride) : null;
+          const nearbyRides = data?.nearbyRides ? JSON.parse(data.nearbyRides) : [];
+          if (ride) {
+            navigate('RidePreview', { ride, nearbyRides, proximity: true });
+          }
+        } catch (e) {
+          // noop
+        }
         break;
       default:
         console.log('📬 Notificación general');

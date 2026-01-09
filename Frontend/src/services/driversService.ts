@@ -4,6 +4,7 @@
 
 import { getFirebaseAuth, getFirebaseFunctions } from '../config/firebase';
 import { httpsCallable } from 'firebase/functions';
+import type { Functions } from 'firebase/functions';
 
 interface Location {
   latitude: number;
@@ -17,233 +18,199 @@ interface AvailableDriversResponse {
   drivers: any[];
 }
 
-class DriversService {
-  private functions: any = null;
+type DriverUpdatePayload = {
+  license_photo_front?: string;
+  license_photo_back?: string;
+  license_number?: string;
+  license_expiry?: string;
+  profile_photo?: string;
+  documents_status?: string;
+  documentsStatus?: string;
+  designated_rol_requested?: string;
+  designatedRolRequested?: string;
+};
 
-  private async getFunctions() {
+type VehicleUpdatePayload = {
+  registration_photo_front?: string;
+  registration_photo_back?: string;
+  insurance_photo?: string;
+  vehicle_photo?: string;
+  registration_number?: string;
+  registration_expiry?: string;
+  insurance_number?: string;
+  insurance_company?: string;
+  insurance_start_date?: string;
+  insurance_expiry?: string;
+};
+
+type DriverProfileUpdatePayload = {
+  firstName?: string;
+  lastName?: string;
+  phone?: string;
+  licenseNumber?: string;
+  licenseExpiry?: string;
+  vehicleType?: string;
+  vehiclePlate?: string;
+};
+
+const AVAILABILITY_LIMIT_MESSAGE =
+  'No puedes activarte: tienes 10 o más comisiones pendientes. Liquídalas desde "Pagar comisiones".';
+
+class DriversService {
+  private functions: Functions | null = null;
+
+  private async getFunctions(): Promise<Functions> {
     if (!this.functions) {
       this.functions = await getFirebaseFunctions();
     }
     return this.functions;
   }
 
-  /**
-   * Actualizar estado del conductor con reintentos
-   */
+  private isAvailabilityLimitError(error: unknown): boolean {
+    const normalized = String((error as any)?.message || (error as any)?.code || '').toLowerCase();
+    return (
+      normalized.includes('10 o más comisiones') ||
+      normalized.includes('10 o mas comisiones') ||
+      normalized.includes('10 or more commissions')
+    );
+  }
+
+  private async callFunction<T>(fnName: string, payload: unknown): Promise<T> {
+    const functions = await this.getFunctions();
+    const callable = httpsCallable(functions, fnName);
+    const response = await callable(payload);
+    return response.data as T;
+  }
+
   async updateStatus(
     status: 'offline' | 'available' | 'busy',
     location?: Location,
-    retries: number = 3
+    retries: number = 3,
   ): Promise<{ success: boolean; status: string }> {
-    // Verificar que el usuario esté autenticado
     const auth = await getFirebaseAuth();
-    const currentUser = auth.currentUser;
-    if (!currentUser) {
+    if (!auth.currentUser) {
       throw new Error('Usuario no autenticado. Por favor inicia sesión.');
     }
 
-    const functions = await this.getFunctions();
-    const updateDriverStatus = httpsCallable(functions, 'updateDriverStatus');
-    
-    const data: any = { status };
+    const payload: { status: typeof status; latitude?: number; longitude?: number } = { status };
     if (location) {
-      data.latitude = location.latitude;
-      data.longitude = location.longitude;
+      payload.latitude = location.latitude;
+      payload.longitude = location.longitude;
     }
 
-    // Reintentos con backoff exponencial
-    let lastError: any;
+    let lastError: unknown = null;
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
-        const result = await updateDriverStatus(data);
-        return result.data as { success: boolean; status: string };
-      } catch (error: any) {
+        return await this.callFunction<{ success: boolean; status: string }>('updateDriverStatus', payload);
+      } catch (error) {
         lastError = error;
-        console.warn(`⚠️ Intento ${attempt}/${retries} fallido en updateStatus:`, error.code || error.message);
-        
-        // Si es el último intento, lanzar el error
+
+        if (this.isAvailabilityLimitError(error)) {
+          throw new Error(AVAILABILITY_LIMIT_MESSAGE);
+        }
+
         if (attempt === retries) {
           console.error('❌ Error final en updateStatus después de', retries, 'intentos:', error);
           throw error;
         }
-        
-        // Esperar antes de reintentar (backoff exponencial)
-        const delay = Math.pow(2, attempt - 1) * 1000; // 1s, 2s, 4s
-        await new Promise(resolve => setTimeout(resolve, delay));
+
+        const delay = Math.pow(2, attempt - 1) * 1000;
+        await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
-    
-    throw lastError;
+
+    throw lastError instanceof Error
+      ? lastError
+      : new Error('No se pudo actualizar el estado del conductor');
   }
 
-  /**
-   * Verificar si hay conductores disponibles en un área
-   * NOTA: Esta función NO requiere autenticación (es pública)
-   */
   async checkAvailableDrivers(
     location: Location,
     radius: number = 10,
-    vehicleType?: string
+    vehicleType?: string,
+    designatedDriverVehicle?: 'auto' | 'moto',
   ): Promise<AvailableDriversResponse> {
-    const functions = await this.getFunctions();
-    const getAvailableDrivers = httpsCallable(functions, 'getAvailableDrivers');
-    
-    console.log(`🚗 [driversService] Llamando getAvailableDrivers con:`, {
+    console.log('🚗 [driversService] Llamando getAvailableDrivers con:', {
       latitude: location.latitude,
       longitude: location.longitude,
       radius,
-      vehicleType
-    });
-    
-    const result = await getAvailableDrivers({
-      latitude: location.latitude,
-      longitude: location.longitude,
-      radius,
-      vehicleType, // Agregar filtro de tipo de vehículo
+      vehicleType,
     });
 
-    console.log(`✅ [driversService] Respuesta recibida:`, result.data);
-    
-    return result.data as AvailableDriversResponse;
+    const payload: Record<string, any> = {
+      latitude: location.latitude,
+      longitude: location.longitude,
+      radius,
+    };
+
+    if (vehicleType) {
+      payload.vehicleType = vehicleType;
+    }
+
+    if (designatedDriverVehicle) {
+      payload.designatedDriverVehicle = designatedDriverVehicle;
+    }
+
+    const result = await this.callFunction<AvailableDriversResponse>('getAvailableDrivers', payload);
+
+    console.log('✅ [driversService] Respuesta recibida:', result);
+    return result;
   }
 
-  /**
-   * Actualizar ubicación del conductor
-   */
   async updateLocation(
     latitude: number,
     longitude: number,
     heading?: number,
     speed?: number,
-    accuracy?: number
+    accuracy?: number,
   ): Promise<{ success: boolean }> {
-    const functions = await this.getFunctions();
-    const updateDriverLocation = httpsCallable(functions, 'updateDriverLocation');
-    
-    const result = await updateDriverLocation({
+    return this.callFunction<{ success: boolean }>('updateDriverLocation', {
       latitude,
       longitude,
       heading,
       speed,
       accuracy,
     });
-
-    return result.data as { success: boolean };
   }
 
-  /**
-   * Obtener perfil del conductor
-   */
+  async updateVehicle(vehicleId: string, data: VehicleUpdatePayload): Promise<{ success: boolean; vehicle: any }> {
+    return this.callFunction<{ success: boolean; vehicle: any }>('updateVehicle', {
+      vehicleId,
+      ...data,
+    });
+  }
+
   async getDriverProfile(driverId: string): Promise<any> {
-    const functions = await this.getFunctions();
-    const getDriverProfile = httpsCallable(functions, 'getDriverProfile');
-    const result = await getDriverProfile({ driverId });
-    return result.data;
+    return this.callFunction<any>('getDriverProfile', { driverId });
   }
 
-  /**
-   * Actualizar modo conductor designado en Firebase Realtime DB
-   */
   async updateDesignatedDriverMode(driverId: string, isActive: boolean): Promise<{ success: boolean }> {
-    const functions = await this.getFunctions();
-    const updateMode = httpsCallable(functions, 'updateDesignatedDriverMode');
-    const result = await updateMode({ driverId, isActive });
-    return result.data as { success: boolean };
+    return this.callFunction<{ success: boolean }>('updateDesignatedDriverMode', {
+      driverId,
+      isActive,
+    });
   }
 
-  /**
-   * Actualizar información del conductor (fotos de licencia, etc.)
-   */
-  async updateDriver(data: {
-    license_photo_front?: string;
-    license_photo_back?: string;
-    license_number?: string;
-    license_expiry?: string;
-    profile_photo?: string;
-  }): Promise<{ success: boolean; driver: any }> {
-    const functions = await this.getFunctions();
-    const updateDriver = httpsCallable(functions, 'updateDriver');
-    const result = await updateDriver(data);
-    return result.data as { success: boolean; driver: any };
+  async updateDriver(data: DriverUpdatePayload): Promise<{ success: boolean; driver: any }> {
+    return this.callFunction<{ success: boolean; driver: any }>('updateDriver', data);
   }
 
-  /**
-   * Actualizar información del vehículo (fotos de documentos, etc.)
-   */
-  async updateVehicle(vehicleId: string, data: {
-    registration_photo_front?: string;
-    registration_photo_back?: string;
-    insurance_photo?: string;
-    vehicle_photo?: string;
-    registration_number?: string;
-    registration_expiry?: string;
-    insurance_number?: string;
-    insurance_company?: string;
-    insurance_start_date?: string;
-    insurance_expiry?: string;
-  }): Promise<{ success: boolean; vehicle: any }> {
-    const functions = await this.getFunctions();
-    const updateVehicle = httpsCallable(functions, 'updateVehicle');
-    const result = await updateVehicle({ vehicleId, ...data });
-    return result.data as { success: boolean; vehicle: any };
-  }
-
-  /**
-   * Obtener mi perfil del conductor (usuario autenticado, con fallback a Realtime DB)
-   */
   async getMyDriverProfile(): Promise<any> {
-    try {
-      const functions = await this.getFunctions();
-      const getDriverProfileFn = httpsCallable(functions, 'getDriverProfileWithFallback');
-      
-      console.log(`👤 [driversService] Obteniendo mi perfil del conductor`);
-      
-      const response = await getDriverProfileFn({});
-      const result = response.data as { success: boolean; driver: any };
-      
-      if (result.success) {
-        console.log(`✅ Perfil del conductor obtenido`);
-        return result.driver;
-      } else {
-        throw new Error('No se pudo obtener el perfil');
-      }
-    } catch (error: any) {
-      console.error('❌ Error obteniendo perfil del conductor:', error.message);
-      throw new Error(error.message || 'Error al obtener perfil del conductor');
+    const result = await this.callFunction<{ success: boolean; driver: any }>('getDriverProfileWithFallback', {});
+    if (result.success) {
+      return result.driver;
     }
+
+    throw new Error('No se pudo obtener el perfil del conductor');
   }
 
-  /**
-   * Actualizar mi perfil del conductor (usuario autenticado, con sincronización a Realtime DB)
-   */
-  async updateMyDriverProfile(data: {
-    firstName?: string;
-    lastName?: string;
-    phone?: string;
-    licenseNumber?: string;
-    licenseExpiry?: string;
-    vehicleType?: string;
-    vehiclePlate?: string;
-  }): Promise<{ success: boolean; message: string }> {
-    try {
-      const functions = await this.getFunctions();
-      const updateDriverProfileFn = httpsCallable(functions, 'updateDriverProfileWithSync');
-      
-      console.log(`👤 [driversService] Actualizando mi perfil del conductor`);
-      
-      const response = await updateDriverProfileFn(data);
-      const result = response.data as { success: boolean; message: string };
-      
-      if (result.success) {
-        console.log(`✅ Perfil del conductor actualizado`);
-        return result;
-      } else {
-        throw new Error('No se pudo actualizar el perfil');
-      }
-    } catch (error: any) {
-      console.error('❌ Error actualizando perfil del conductor:', error.message);
-      throw new Error(error.message || 'Error al actualizar perfil del conductor');
+  async updateMyDriverProfile(data: DriverProfileUpdatePayload): Promise<{ success: boolean; message: string }> {
+    const result = await this.callFunction<{ success: boolean; message: string }>('updateDriverProfileWithSync', data);
+    if (result.success) {
+      return result;
     }
+
+    throw new Error('No se pudo actualizar el perfil');
   }
 }
 

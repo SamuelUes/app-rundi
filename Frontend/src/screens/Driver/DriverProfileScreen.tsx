@@ -11,18 +11,30 @@ import {
   Modal,
   TextInput,
   Animated,
+  Switch,
+  Linking,
+  Platform,
+  AppState,
 } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
+import { useVoiceAssistant } from '../../context/VoiceAssistantContext';
 import { safeFormatDate } from '../../utils/safeFormatters';
 import * as ExpoImagePicker from 'expo-image-picker';
 import driversService from '../../services/driversService';
 import vehiclesService from '../../services/vehiclesService';
 import designatedDriverService from '../../services/designatedDriverService';
 import supabaseStorage from '../../services/supabaseStorage';
+import { initializeFirebase } from '../../config/firebase';
+import { getDatabase, ref, get } from 'firebase/database';
+import proximityService from '../../services/proximityService';
+import { overlayManager } from '../../native/overlay';
+import { ensureVehicleIconSource } from '../../utils/vehicleIcons';
+
 import { FormattedInput } from '../../components/FormattedInput';
 import ImagePickerComponent from '../../components/ImagePicker';
 import earningsService from '../../services/earningsService';
+import { useTranslation } from 'react-i18next';
 
 interface DriverStats {
   totalRides: number;
@@ -61,12 +73,19 @@ interface DriverData {
   licensePhoto?: string;
   licensePhotoFront?: string;
   licensePhotoBack?: string;
+  documentsStatus?: string;
+  accountStatus?: string;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
   // Campos en snake_case (compatibilidad)
   license_number?: string;
   license_expiry?: string;
   license_photo?: string;
   license_photo_front?: string;
   license_photo_back?: string;
+  documents_status?: string;
+  account_status?: string;
   status?: string;
   totalRides?: number;
   total_rides?: number;
@@ -74,12 +93,51 @@ interface DriverData {
   average_rating?: number;
   totalEarnings?: number;
   total_earnings?: number;
+  first_name?: string;
+  last_name?: string;
+  designatedRoleRequested?: string;
+  designated_rol_requested?: string;
+  designatedRolRequested?: string;
 }
 
+const normalizeDocumentsStatus = (driver: DriverData | null) => {
+  if (!driver) {
+    return null;
+  }
+
+  const raw = driver.documentsStatus || driver.documents_status || '';
+  if (!raw) {
+    return null;
+  }
+
+  const normalized = String(raw).toLowerCase();
+
+  if (['verified'].includes(normalized)) {
+    return 'verified';
+  }
+
+  if (['pending', 'pending_verification', 'in_review', 'under_review', 'review', 'verifying'].includes(normalized)) {
+    return 'pending';
+  }
+
+  if (['suspended'].includes(normalized)) {
+    return 'suspended';
+  }
+
+  if (['rejected', 'declined', 'denied'].includes(normalized)) {
+    return 'rejected';
+  }
+
+  return normalized;
+};
+
 export default function DriverProfileScreen({ navigation }: any) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const { user } = useAuth();
+
+  const { user, userMode, setUserMode } = useAuth();
+  const { settings: voiceSettings, setEnabled: setVoiceAssistantEnabled, initialized: voiceAssistantInitialized } = useVoiceAssistant();
 
   const [loading, setLoading] = useState(true);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -92,6 +150,8 @@ export default function DriverProfileScreen({ navigation }: any) {
   });
   const [dailyStats, setDailyStats] = useState<{ rides: number; earnings: number }>({ rides: 0, earnings: 0 });
   const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
   const [showAddVehicleModal, setShowAddVehicleModal] = useState(false);
   const [vehicleFormData, setVehicleFormData] = useState({
     plate: '',
@@ -126,6 +186,209 @@ export default function DriverProfileScreen({ navigation }: any) {
   const [addingVehicle, setAddingVehicle] = useState(false);
   const [designatedDriverRequestStatus, setDesignatedDriverRequestStatus] = useState<string | null>(null);
   const [loadingRequestStatus, setLoadingRequestStatus] = useState(false);
+  const [voiceAssistantSwitch, setVoiceAssistantSwitch] = useState<boolean>(voiceSettings.enabled);
+  const [overlayToggleEnabled, setOverlayToggleEnabled] = useState<boolean>(false);
+  const [overlayPermissionGranted, setOverlayPermissionGranted] = useState<boolean>(Platform.OS !== 'android');
+  const [overlayCheckingPermission, setOverlayCheckingPermission] = useState<boolean>(false);
+  const currentYear = useMemo(() => new Date().getFullYear(), []);
+
+  const extractDesignatedRequestStatus = (driver: DriverData | null | undefined) =>
+    driver?.designated_rol_requested || driver?.designatedRoleRequested || driver?.designatedRolRequested || null;
+
+  const normalizedDocumentStatus = normalizeDocumentsStatus(driverData);
+  const isDriverCapable = user?.role === 'driver' || user?.role === 'designated_driver';
+  const hasActiveVehicle = useMemo(
+    () => Array.isArray(vehicles) && vehicles.some((vehicle) => (vehicle.is_active ?? vehicle.isActive) === true),
+    [vehicles],
+  );
+  const normalizedAccountStatus = useMemo(() => {
+    if (!driverData) {
+      return null;
+    }
+
+    const raw = driverData.accountStatus || driverData.account_status || driverData.status || '';
+    if (!raw) {
+      return null;
+    }
+
+    const normalized = String(raw).toLowerCase();
+
+    if (['active', 'verified', 'approved'].includes(normalized)) return 'active';
+    if (['pending', 'pending_verification', 'in_review'].includes(normalized)) return 'pending';
+    if (['suspended'].includes(normalized)) return 'suspended';
+    if (['rejected', 'disabled', 'denied'].includes(normalized)) return 'rejected';
+
+    return 'pending';
+  }, [driverData]);
+  const hasBothLicensePhotos = Boolean(
+    driverData &&
+    ((driverData.license_photo_front || driverData.licensePhotoFront) &&
+      (driverData.license_photo_back || driverData.licensePhotoBack)),
+  );
+
+  const hasSingleLicensePhoto = Boolean(
+    driverData && (driverData.license_photo || driverData.licensePhoto),
+  );
+
+  const hasLicenseNumber = Boolean(
+    driverData && (driverData.license_number || driverData.licenseNumber),
+  );
+
+  const hasLicenseExpiry = Boolean(
+    driverData && (driverData.license_expiry || driverData.licenseExpiry),
+  );
+
+  const hasCompleteDocuments = Boolean(
+    driverData &&
+      (hasBothLicensePhotos || hasSingleLicensePhoto) &&
+      hasLicenseNumber &&
+      hasLicenseExpiry,
+  );
+
+  const driverLicenseExpiry = driverData?.license_expiry || driverData?.licenseExpiry || null;
+
+  const documentStatusColor = normalizedDocumentStatus === 'verified'
+    ? '#4CAF50'
+    : normalizedDocumentStatus === 'rejected' || normalizedDocumentStatus === 'suspended'
+      ? '#f44336'
+      : normalizedDocumentStatus === 'pending'
+        ? '#FF9800'
+        : hasCompleteDocuments
+          ? '#4CAF50'
+          : '#FF9800';
+
+  const documentStatusIcon = normalizedDocumentStatus === 'verified'
+    ? '✓'
+    : normalizedDocumentStatus === 'rejected'
+      ? '✕'
+      : normalizedDocumentStatus === 'suspended'
+        ? '⚠️'
+        : '⏱';
+
+  const documentStatusText =
+    normalizedDocumentStatus === 'verified'
+      ? t('driver.profile.documents.status.verified')
+      : normalizedDocumentStatus === 'rejected'
+        ? t('driver.profile.documents.status.rejected')
+        : normalizedDocumentStatus === 'suspended'
+          ? t('driver.profile.documents.status.suspended')
+          : normalizedDocumentStatus === 'pending'
+            ? t('driver.profile.documents.status.pending')
+            : hasCompleteDocuments
+              ? t('driver.profile.documents.status.complete')
+              : t('driver.profile.documents.status.missing');
+
+  const documentButtonLabel =
+    normalizedDocumentStatus === 'verified'
+      ? t('driver.profile.documents.button.view')
+      : normalizedDocumentStatus === 'pending'
+        ? t('driver.profile.documents.button.details')
+        : normalizedDocumentStatus === 'rejected' || normalizedDocumentStatus === 'suspended'
+          ? t('driver.profile.documents.button.fix')
+          : hasCompleteDocuments
+            ? t('driver.profile.documents.button.submit')
+            : t('driver.profile.documents.button.complete');
+
+  const displayFirstName =
+    driverData?.firstName ||
+    driverData?.first_name ||
+    user?.name?.split(' ')?.[0] ||
+    user?.name ||
+    t('driver.profile.header.nameFallback');
+  const displayLastName = driverData?.lastName || driverData?.last_name || '';
+  const displayName =
+    [displayFirstName, displayLastName].filter(Boolean).join(' ').trim() ||
+    t('driver.profile.header.nameFallback');
+  const displayEmail = driverData?.email || user?.email || null;
+
+  const normalizedDesignatedRequestStatus = designatedDriverRequestStatus
+    ? String(designatedDriverRequestStatus).toLowerCase()
+    : null;
+
+  const isDesignatedRequestPending = normalizedDesignatedRequestStatus === 'requested';
+  const isDesignatedDriverApproved = normalizedDesignatedRequestStatus === 'approved' || normalizedDesignatedRequestStatus === 'verified';
+  const isDesignatedRequestRejected = normalizedDesignatedRequestStatus === 'rejected' || normalizedDesignatedRequestStatus === 'revoked';
+
+  const designatedStatusLabelMap: Record<string, string> = {
+    pending: t('driver.profile.designated.statusLabel.pending'),
+    requested: t('driver.profile.designated.statusLabel.requested'),
+    approved: t('driver.profile.designated.statusLabel.approved'),
+    verified: t('driver.profile.designated.statusLabel.verified'),
+    rejected: t('driver.profile.designated.statusLabel.rejected'),
+    revoked: t('driver.profile.designated.statusLabel.revoked'),
+  };
+
+  const designatedStatusHelperMap: Record<string, string> = {
+    pending: t('driver.profile.designated.statusHelper.pending'),
+    requested: t('driver.profile.designated.statusHelper.requested'),
+    approved: t('driver.profile.designated.statusHelper.approved'),
+    verified: t('driver.profile.designated.statusHelper.verified'),
+    rejected: t('driver.profile.designated.statusHelper.rejected'),
+    revoked: t('driver.profile.designated.statusHelper.revoked'),
+  };
+
+  const designatedStatusLabel = normalizedDesignatedRequestStatus
+    ? designatedStatusLabelMap[normalizedDesignatedRequestStatus] ||
+      t('driver.profile.designated.statusLabel.unknown')
+    : t('driver.profile.designated.statusLabel.pending');
+  const designatedStatusHelper = normalizedDesignatedRequestStatus
+    ? designatedStatusHelperMap[normalizedDesignatedRequestStatus] ||
+      t('driver.profile.designated.statusHelper.default')
+    : t('driver.profile.designated.statusHelper.default');
+
+  const designatedButtonLabel = (() => {
+    if (isDesignatedDriverApproved) {
+      return t('driver.profile.designated.button.approved');
+    }
+    if (isDesignatedRequestPending) {
+      return t('driver.profile.designated.button.pending');
+    }
+    if (isDesignatedRequestRejected) {
+      return t('driver.profile.designated.button.rejected');
+    }
+    return t('driver.profile.designated.button.default');
+  })();
+
+  const designatedButtonDisabled =
+    loadingRequestStatus || isDesignatedRequestPending || isDesignatedDriverApproved || isDesignatedRequestRejected;
+
+  const renderAccountStatusBadge = () => {
+    if (!normalizedAccountStatus) {
+      return null;
+    }
+
+    let label = t('driver.profile.accountStatus.label');
+    let badgeColor = '#9E9E9E';
+
+    switch (normalizedAccountStatus) {
+      case 'active':
+        label = t('driver.profile.accountStatus.active');
+        badgeColor = '#4CAF50';
+        break;
+      case 'pending':
+        label = t('driver.profile.accountStatus.pending');
+        badgeColor = '#FF9800';
+        break;
+      case 'suspended':
+        label = t('driver.profile.accountStatus.suspended');
+        badgeColor = '#f44336';
+        break;
+      case 'rejected':
+        label = t('driver.profile.accountStatus.rejected');
+        badgeColor = '#f44336';
+        break;
+      default:
+        label = t('driver.profile.accountStatus.other', { status: normalizedAccountStatus });
+        badgeColor = '#9E9E9E';
+        break;
+    }
+
+    return (
+      <View style={[styles.accountStatusBadge, { backgroundColor: badgeColor }]}>
+        <Text style={styles.accountStatusBadgeText}>{label}</Text>
+      </View>
+    );
+  };
   
   // Animaciones
   const cardScaleAnim = useMemo(() => new Animated.Value(0.95), []);
@@ -150,19 +413,53 @@ export default function DriverProfileScreen({ navigation }: any) {
   }, [cardScaleAnim, cardOpacityAnim]);
 
   useEffect(() => {
+    if (!voiceAssistantInitialized) return;
+    setVoiceAssistantSwitch(voiceSettings.enabled);
+  }, [voiceAssistantInitialized, voiceSettings.enabled]);
+
+  useEffect(() => {
     loadDriverData();
     loadDesignatedDriverStatus();
     loadEarningsStats();
+    loadOverlayPreference();
+
+    let unsubscribeOverlay: (() => void) | undefined;
+    if (Platform.OS === 'android') {
+      unsubscribeOverlay = proximityService.subscribeOverlayEnabled((enabled) => {
+        setOverlayToggleEnabled(enabled);
+      });
+    }
+
+    const appStateListener = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        // Invalidar cache para forzar recarga desde AsyncStorage
+        proximityService.invalidateOverlayCache();
+        loadOverlayPreference();
+      }
+    });
 
     // Escuchar cambios de foco para recargar datos cuando se regrese a la pantalla
     const unsubscribe = navigation.addListener('focus', () => {
       loadDriverData();
       loadDesignatedDriverStatus();
       loadEarningsStats();
+      loadOverlayPreference();
     });
 
-    return unsubscribe;
+    return () => {
+      unsubscribe();
+      if (unsubscribeOverlay) {
+        unsubscribeOverlay();
+      }
+      appStateListener.remove();
+    };
   }, [navigation]);
+
+  useEffect(() => {
+    if (user?.id) {
+      loadSelectedVehicle(user.id);
+    }
+  }, [user?.id]);
 
   const loadEarningsStats = async () => {
     try {
@@ -194,25 +491,206 @@ export default function DriverProfileScreen({ navigation }: any) {
     }
   };
 
+  const loadOverlayPreference = async () => {
+    if (Platform.OS !== 'android') {
+      setOverlayToggleEnabled(false);
+      setOverlayPermissionGranted(true);
+      return;
+    }
+
+    try {
+      const [enabled, hasPermission] = await Promise.all([
+        proximityService.getOverlayEnabled(),
+        overlayManager.hasPermission(),
+      ]);
+      if (enabled && !hasPermission) {
+        await proximityService.setOverlayEnabled(false);
+        setOverlayToggleEnabled(false);
+      } else {
+        setOverlayToggleEnabled(enabled);
+      }
+      setOverlayPermissionGranted(hasPermission);
+    } catch (error) {
+      console.warn('⚠️ Error cargando preferencia de overlay:', error);
+    }
+  };
+
+  const handleOverlayToggle = async (nextValue: boolean) => {
+    if (Platform.OS !== 'android') {
+      Alert.alert(
+        t('driver.profile.overlay.alerts.notAvailableTitle'),
+        t('driver.profile.overlay.alerts.notAvailableBody'),
+      );
+      return;
+    }
+
+    setOverlayCheckingPermission(true);
+    try {
+      if (nextValue) {
+        // Guardar preferencia ANTES de abrir ajustes
+        await proximityService.setOverlayEnabled(true);
+        setOverlayToggleEnabled(true);
+        
+        Alert.alert(
+          t('driver.profile.overlay.alerts.enableTitle'),
+          t('driver.profile.overlay.alerts.enableBody'),
+        );
+        await overlayManager.openSystemSettings();
+        
+        // Invalidar cache y recargar preferencia desde storage después de volver de ajustes
+        proximityService.invalidateOverlayCache();
+        const currentPref = await proximityService.getOverlayEnabled();
+        setOverlayToggleEnabled(currentPref);
+        
+        const hasPermission = await overlayManager.hasPermission();
+        setOverlayPermissionGranted(hasPermission);
+        await proximityService.debugLogOverlayState('activation-post-settings');
+        
+        if (!hasPermission) {
+          await proximityService.setOverlayEnabled(false);
+          setOverlayToggleEnabled(false);
+          Alert.alert(
+            t('driver.profile.overlay.alerts.permissionMissingTitle'),
+            t('driver.profile.overlay.alerts.permissionMissingBody'),
+          );
+        } else {
+          await proximityService.debugTriggerFallbackOverlay('activation');
+        }
+      } else {
+        Alert.alert(
+          t('driver.profile.overlay.alerts.disableTitle'),
+          t('driver.profile.overlay.alerts.disableBody'),
+        );
+        await overlayManager.openSystemSettings();
+        const hasPermission = await overlayManager.hasPermission();
+        await proximityService.debugLogOverlayState('deactivation-post-settings');
+        if (hasPermission) {
+          Alert.alert(
+            t('driver.profile.overlay.alerts.permissionStillOnTitle'),
+            t('driver.profile.overlay.alerts.permissionStillOnBody'),
+          );
+        }
+      }
+    } catch (error: any) {
+      console.error('❌ Error actualizando preferencia de overlay:', error);
+      Alert.alert(
+        t('driver.profile.overlay.alerts.errorTitle'),
+        error?.message || t('driver.profile.overlay.alerts.errorBody'),
+      );
+      await loadOverlayPreference();
+    } finally {
+      setOverlayCheckingPermission(false);
+    }
+  };
+
+  const handleVoiceAssistantToggle = async (value: boolean) => {
+    setVoiceAssistantSwitch(value);
+    try {
+      await setVoiceAssistantEnabled(value);
+    } catch (error) {
+      console.error('❌ Error actualizando asistente de voz:', error);
+      setVoiceAssistantSwitch((prev) => !prev);
+    }
+  };
+
+  const handleModeButtonPress = async () => {
+    if (!user) {
+      return;
+    }
+
+    const targetMode: 'client' | 'driver' = userMode === 'driver' ? 'client' : 'driver';
+
+    if (targetMode === userMode) {
+      return;
+    }
+
+    if (targetMode === 'driver') {
+      if (!isDriverCapable) {
+        Alert.alert(
+          t('driver.profile.mode.alerts.unavailableTitle'),
+          t('driver.profile.mode.alerts.unavailableBody'),
+        );
+        return;
+      }
+
+      if (!driverData || vehicles.length === 0) {
+        Alert.alert(
+          t('driver.profile.mode.alerts.loadingTitle'),
+          t('driver.profile.mode.alerts.loadingBody'),
+        );
+        return;
+      }
+
+      const accountOk = normalizedAccountStatus === 'active';
+      const documentsOk = normalizedDocumentStatus === 'verified';
+      const vehicleOk = hasActiveVehicle;
+
+      if (!accountOk || !documentsOk || !vehicleOk) {
+        const reasons: string[] = [];
+        if (!accountOk) {
+          reasons.push(t('driver.profile.mode.alerts.reasons.account'));
+        }
+        if (!documentsOk) {
+          reasons.push(t('driver.profile.mode.alerts.reasons.documents'));
+        }
+        if (!vehicleOk) {
+          reasons.push(t('driver.profile.mode.alerts.reasons.vehicle'));
+        }
+
+        const message = `${reasons.join('\n')}\n\n${t('driver.profile.mode.alerts.requirementsBody')}`;
+        const buttons: { text: string; style?: 'cancel'; onPress?: () => void }[] = [
+          { text: t('driver.profile.mode.alerts.close'), style: 'cancel' },
+        ];
+
+        if (!documentsOk) {
+          buttons.push({
+            text: t('driver.profile.mode.alerts.viewDocuments'),
+            onPress: () => navigation.navigate('DriversDocumentsInspection'),
+          });
+        }
+
+        if (!vehicleOk) {
+          buttons.push({
+            text: t('driver.profile.mode.alerts.viewVehicles'),
+            onPress: () => navigation.navigate('CompleteVehicleInfo'),
+          });
+        }
+
+        Alert.alert(t('driver.profile.mode.alerts.cannotEnableTitle'), message, buttons);
+        return;
+      }
+    }
+
+    try {
+      await setUserMode(targetMode);
+    } catch (error: any) {
+      console.error('❌ Error actualizando modo de usuario:', error);
+      Alert.alert(
+        t('driver.profile.mode.alerts.errorTitle'),
+        error?.message || t('driver.profile.mode.alerts.errorBody'),
+      );
+    }
+  };
+
   // Cargar estado de solicitud de Conductor Designado
   const loadDesignatedDriverStatus = async () => {
     try {
       if (!user?.id) return;
-      
 
-      console.log('📋 Cargando estado de solicitud de Conductor Designado...');
-      const status = await designatedDriverService.getDesignatedDriverRequestStatus();
-      
-      console.log('✅ Estado de solicitud obtenido:', status.requestStatus);
-      setDesignatedDriverRequestStatus(status.requestStatus);
+      console.log('📋 Refrescando estado de Conductor Designado desde Supabase...');
+      const profile = await driversService.getMyDriverProfile();
+      const status = extractDesignatedRequestStatus(profile) || 'pending';
+
+      console.log('✅ Estado de solicitud actualizado:', status);
+      setDesignatedDriverRequestStatus(status);
     } catch (error) {
       console.error('⚠️ Error cargando estado de solicitud:', error);
-      // Si hay error, asumir que no hay solicitud
-      setDesignatedDriverRequestStatus(null);
+      setDesignatedDriverRequestStatus((prev) => prev || 'pending');
     }
   };
 
   const loadDriverData = async () => {
+    setLoading(true);
     if (!user?.id) {
       console.log('⚠️ No hay user.id disponible');
       setLoading(false);
@@ -230,6 +708,7 @@ export default function DriverProfileScreen({ navigation }: any) {
       // ✅ El servicio retorna directamente el objeto driver, no envuelto
       if (profile) {
         setDriverData(profile);
+        setDesignatedDriverRequestStatus(extractDesignatedRequestStatus(profile) || 'pending');
 
         // Actualizar estadísticas desde los datos reales
         setStats({
@@ -285,23 +764,46 @@ export default function DriverProfileScreen({ navigation }: any) {
       } else {
         console.warn('⚠️ No se encontraron datos del conductor en la respuesta');
       }
-    } catch (error: any) {
-      console.error('❌ Error cargando datos del conductor:', error);
-      console.error('Error details:', error.message);
-      // Mantener datos por defecto en caso de error
-      Alert.alert('Error', 'No se pudieron cargar los datos del perfil. Intenta nuevamente.');
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Error desconocido al cargar datos del conductor';
+      console.warn('⚠️ Error cargando datos del conductor:', message);
     } finally {
       setLoading(false);
     }
   };
 
-  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const loadSelectedVehicle = async (userUuid: string) => {
+    try {
+      const { app } = await initializeFirebase();
+      if (!app) {
+        console.warn('⚠️ Firebase app no inicializado, no se pudo cargar vehículo seleccionado');
+        return;
+      }
+      const db = getDatabase(app);
+      const vehicleRef = ref(db, `driversInfo/${userUuid}/vehicle`);
+      const snapshot = await get(vehicleRef);
+
+      if (snapshot.exists()) {
+        const data = snapshot.val();
+        const vehicleId = typeof data === 'string' ? data : data?.id;
+        setSelectedVehicleId(vehicleId ?? null);
+      } else {
+        setSelectedVehicleId(null);
+      }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Error desconocido al cargar vehículo seleccionado';
+      console.warn('⚠️ Error cargando vehículo seleccionado:', message);
+    }
+  };
 
   const handleUploadPhoto = async (type: 'profile' | 'vehicle' | 'document', docType?: string) => {
     const { status } = await ExpoImagePicker.requestMediaLibraryPermissionsAsync();
     
     if (status !== 'granted') {
-      Alert.alert('Permiso Denegado', 'Necesitamos acceso a tu galería para subir fotos');
+      Alert.alert(
+        t('driver.profile.alerts.permissions.galleryTitle'),
+        t('driver.profile.alerts.permissions.galleryBody'),
+      );
       return;
     }
 
@@ -313,7 +815,7 @@ export default function DriverProfileScreen({ navigation }: any) {
     });
 
     if (!result.canceled && result.assets[0] && user?.id) {
-      setUploadingPhoto(true);
+      setUploadingPhoto(true); 
       try {
         if (type === 'profile') {
           console.log('📸 Subiendo foto de perfil a Supabase...');
@@ -336,17 +838,22 @@ export default function DriverProfileScreen({ navigation }: any) {
           });
           
           console.log('✅ Foto de perfil actualizada en BD');
-          Alert.alert('Éxito', 'Foto de perfil actualizada correctamente');
+          Alert.alert(
+            t('driver.profile.alerts.upload.successTitle'),
+            t('driver.profile.alerts.upload.successBody'),
+          );
         }
       } catch (error: any) {
         console.error('❌ Error subiendo foto:', error);
-        Alert.alert('Error', error.message || 'No se pudo subir la foto. Intenta nuevamente.');
+        Alert.alert(
+          t('driver.profile.alerts.upload.errorTitle'),
+          error?.message || t('driver.profile.alerts.upload.errorBody'),
+        );
       } finally {
         setUploadingPhoto(false);
       }
     }
   };
-
   const getDocumentIcon = (type: string) => {
     switch (type) {
       case 'license': return '🪪';
@@ -358,16 +865,23 @@ export default function DriverProfileScreen({ navigation }: any) {
 
   const getDocumentName = (type: string) => {
     switch (type) {
-      case 'license': return 'Licencia de Conducir';
-      case 'registration': return 'Matrícula del Vehículo';
-      case 'insurance': return 'Seguro del Vehículo';
-      default: return 'Documento';
+      case 'license':
+        return t('driver.profile.documents.types.license');
+      case 'registration':
+        return t('driver.profile.documents.types.registration');
+      case 'insurance':
+        return t('driver.profile.documents.types.insurance');
+      default:
+        return t('driver.profile.documents.types.default');
     }
   };
 
   const handleAddVehicle = async () => {
     if (!vehicleFormData.plate || !vehicleFormData.brand || !vehicleFormData.model || !vehicleFormData.color) {
-      Alert.alert('Error', 'Por favor completa todos los campos requeridos');
+      Alert.alert(
+        t('driver.profile.alerts.vehicles.formErrorTitle'),
+        t('driver.profile.alerts.vehicles.formErrorBody'),
+      );
       return;
     }
 
@@ -444,10 +958,16 @@ export default function DriverProfileScreen({ navigation }: any) {
       });
       setShowAddVehicleModal(false);
       
-      Alert.alert('Éxito', 'Vehículo agregado correctamente');
+      Alert.alert(
+        t('driver.profile.alerts.vehicles.addSuccessTitle'),
+        t('driver.profile.alerts.vehicles.addSuccessBody'),
+      );
     } catch (error: any) {
       console.error('❌ Error agregando vehículo:', error);
-      Alert.alert('Error', error.message || 'Error al agregar vehículo');
+      Alert.alert(
+        t('driver.profile.alerts.vehicles.addErrorTitle'),
+        error?.message || t('driver.profile.alerts.vehicles.genericFormError'),
+      );
     } finally {
       setAddingVehicle(false);
     }
@@ -465,10 +985,14 @@ export default function DriverProfileScreen({ navigation }: any) {
 
   const getStatusText = (status: string) => {
     switch (status) {
-      case 'verified': return 'Verificado';
-      case 'pending': return 'Pendiente';
-      case 'rejected': return 'Rechazado';
-      default: return 'Sin estado';
+      case 'verified':
+        return t('driver.profile.documents.status.verified');
+      case 'pending':
+        return t('driver.profile.documents.status.pending');
+      case 'rejected':
+        return t('driver.profile.documents.status.rejected');
+      default:
+        return t('driver.profile.documents.status.missing');
     }
   };
 
@@ -487,16 +1011,16 @@ export default function DriverProfileScreen({ navigation }: any) {
     const issues: string[] = [];
     
     if (!vehicle.plate || !vehicle.brand || !vehicle.model || !vehicle.year || !vehicle.color || !vehicle.type) {
-      issues.push('Información básica incompleta');
+      issues.push(t('driver.profile.alerts.vehicles.issues.basicInfo'));
     }
     if (!vehicle.registrationNumber || !vehicle.registrationExpiry || !vehicle.registrationPhotoFront || !vehicle.registrationPhotoBack) {
-      issues.push('Datos de registro incompletos');
+      issues.push(t('driver.profile.alerts.vehicles.issues.registration'));
     }
     if (!vehicle.insuranceNumber || !vehicle.insuranceCompany || !vehicle.insuranceExpiry || !vehicle.insurancePhoto) {
-      issues.push('Datos de seguro incompletos');
+      issues.push(t('driver.profile.alerts.vehicles.issues.insurance'));
     }
     if (!vehicle.vehiclePhoto) {
-      issues.push('Foto del vehículo faltante');
+      issues.push(t('driver.profile.alerts.vehicles.issues.vehiclePhoto'));
     }
     
     return issues.join(', ');
@@ -508,20 +1032,30 @@ export default function DriverProfileScreen({ navigation }: any) {
       const vehicleToSwitch = vehicles.find(v => v.id === vehicleId);
       
       if (!vehicleToSwitch) {
-        Alert.alert('Error', 'Vehículo no encontrado');
+        Alert.alert(
+          t('driver.profile.alerts.vehicles.notFoundTitle'),
+          t('driver.profile.alerts.vehicles.notFoundBody'),
+        );
         return;
       }
 
-      // Validar que el vehículo esté completo
+      if (!vehicleToSwitch.is_active && !vehicleToSwitch.isActive) {
+        Alert.alert(
+          t('driver.profile.alerts.vehicles.notApprovedTitle'),
+          t('driver.profile.alerts.vehicles.notApprovedBody'),
+        );
+        return;
+      }
+
       if (!isVehicleComplete(vehicleToSwitch)) {
         const reason = getIncompleteReason(vehicleToSwitch);
         Alert.alert(
-          'Vehículo Incompleto',
-          `No puedes cambiar a este vehículo porque:\n\n${reason}\n\nPor favor, completa la información en la pantalla de verificación.`,
+          t('driver.profile.alerts.vehicles.incompleteTitle'),
+          t('driver.profile.alerts.vehicles.incompleteBody', { reason }),
           [
-            { text: 'Cancelar', style: 'cancel' },
+            { text: t('driver.profile.alerts.vehicles.cancel'), style: 'cancel' },
             {
-              text: 'Completar Información',
+              text: t('driver.profile.alerts.vehicles.viewDocuments'),
               onPress: () => navigation.navigate('VehicleVerification', { vehicleId: vehicleToSwitch.id })
             }
           ]
@@ -529,19 +1063,29 @@ export default function DriverProfileScreen({ navigation }: any) {
         return;
       }
 
-      console.log('🔄 Cambiando vehículo activo a:', vehicleId);
-      
       await vehiclesService.switchVehicle(vehicleId);
-      
-      console.log('✅ Vehículo cambiado exitosamente');
-      
-      // Recargar vehículos
-      await loadDriverData();
-      
-      Alert.alert('Éxito', `Vehículo ${vehicleToSwitch.brand} ${vehicleToSwitch.model} activado correctamente`);
-    } catch (error: any) {
-      console.error('❌ Error cambiando vehículo:', error);
-      Alert.alert('Error', error.message || 'Error al cambiar vehículo');
+
+      setSelectedVehicleId(vehicleId);
+      setVehicles((prev) =>
+        prev.map((vehicle) =>
+          vehicle.id === vehicleId
+            ? {
+                ...vehicle,
+                is_active: vehicle.is_active ?? vehicle.isActive ?? true,
+                isActive: true,
+              }
+            : { ...vehicle }
+        )
+      );
+
+     // Alert.alert('Éxito', 'Vehículo seleccionado correctamente');
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Error desconocido al cambiar vehículo';
+      console.error('❌ Error cambiando vehículo:', message);
+      Alert.alert(
+        t('driver.profile.alerts.vehicles.switchErrorTitle'),
+        message || t('driver.profile.alerts.vehicles.switchErrorBody'),
+      );
     }
   };
 
@@ -552,19 +1096,19 @@ export default function DriverProfileScreen({ navigation }: any) {
       
       console.log('🚙 Solicitando acceso a Conductor Designado...');
       const result = await designatedDriverService.requestDesignatedDriverAccess();
-      
+      await driversService.updateDriver({
+        designated_rol_requested: 'requested',
+      });
+      await loadDesignatedDriverStatus();
+      await loadDriverData();
       console.log('✅ Solicitud enviada:', result);
-      
-      // Actualizar estado local
-      setDesignatedDriverRequestStatus('pending');
-      
-      Alert.alert(
-        'Solicitud Enviada',
-        'Tu solicitud ha sido enviada correctamente.\n\nNuestro equipo la revisará en 24 horas y te notificaremos cuando sea aprobada.'
-      );
+      setDesignatedDriverRequestStatus('requested');
     } catch (error: any) {
       console.error('❌ Error solicitando acceso:', error);
-      Alert.alert('Error', error.message || 'Error al enviar solicitud');
+      Alert.alert(
+        t('driver.profile.designated.alerts.errorTitle'),
+        error?.message || t('driver.profile.designated.alerts.errorBody'),
+      );
     } finally {
       setLoadingRequestStatus(false);
     }
@@ -574,7 +1118,7 @@ export default function DriverProfileScreen({ navigation }: any) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Cargando perfil...</Text>
+        <Text style={styles.loadingText}>{t('driver.profile.loading.message')}</Text>
       </View>
     );
   }
@@ -582,124 +1126,192 @@ export default function DriverProfileScreen({ navigation }: any) {
   return (
     <>
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      {/* Header con foto de perfil */}
+      {/* Header estilo ProfileScreen */}
       <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.avatarContainer}
-          onPress={() => handleUploadPhoto('profile')}
-          disabled={uploadingPhoto}
-        >
-          {uploadingPhoto ? (
-            <View style={styles.avatarPlaceholder}>
-              <ActivityIndicator size="large" color={colors.primary} />
-            </View>
-          ) : profilePhoto ? (
-            <Image source={{ uri: profilePhoto }} style={styles.avatar} />
-          ) : (
-            <View style={styles.avatarPlaceholder}>
-              <Text style={styles.avatarText}>
-                {user?.name?.charAt(0).toUpperCase() || 'C'}
-              </Text>
-            </View>
-          )}
-          <View style={styles.cameraIcon}>
-            <Text style={styles.cameraIconText}>📷</Text>
-          </View>
-        </TouchableOpacity>
-        <Text style={styles.driverName}>{user?.name || 'Conductor'}</Text>
-        <View style={styles.ratingBadge}>
-          <Text style={styles.ratingStars}>⭐</Text>
-          <Text style={styles.ratingText}>{(typeof stats.averageRating === 'number' ? stats.averageRating : 5.0).toFixed(1)}</Text>
-        </View>
-      </View>
-
-      {/* Cartera / Ganancias */}
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>💰 Cartera</Text>
-          <TouchableOpacity style={styles.rechargeButton}>
-            <Text style={styles.rechargeButtonText}>Recargas de saldo, bonus y más</Text>
+        <View style={styles.headerTopRow}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => navigation.goBack()}
+          >
+            <Image
+              source={require('../../assets/icons/back_button/back_button.png')}
+              style={styles.backIcon}
+            />
           </TouchableOpacity>
+          <Text style={styles.headerTitle}>{t('driver.profile.header.title')}</Text>
+          <View style={styles.headerTopSpacer} />
         </View>
 
-        <View style={styles.walletCard}>
-          <View style={styles.walletRow}>
-            <View style={styles.walletItem}>
-              <Text style={styles.walletLabel}>Ganancias Totales</Text>
+        <View style={styles.headerMainRow}>
+          <TouchableOpacity
+            style={styles.avatarContainer}
+            onPress={() => handleUploadPhoto('profile')}
+            disabled={uploadingPhoto}
+          >
+            {uploadingPhoto ? (
+              <View style={styles.avatarPlaceholder}>
+                <ActivityIndicator size="large" color="#fff" />
+              </View>
+            ) : profilePhoto ? (
+              <Image source={{ uri: profilePhoto }} style={styles.avatar} />
+            ) : (
+              <View style={styles.avatarPlaceholder}>
+                <Text style={styles.avatarText}>
+                  {displayName.charAt(0).toUpperCase() || t('driver.profile.header.initialFallback')}
+                </Text>
+              </View>
+            )}
+            <View style={styles.cameraIcon}>
+              <Text style={styles.cameraIconText}>📷</Text>
             </View>
-            <View style={styles.walletDivider} />
-            <View style={styles.walletItem}>
-              <Text style={styles.walletLabel}>Viajes Completados</Text>
-              <Text style={styles.walletValue}>{stats.totalRides}</Text>
+          </TouchableOpacity>
+
+          <View style={styles.headerContent}>
+            <Text style={styles.driverName}>{displayName}</Text>
+            {displayEmail && <Text style={styles.driverEmail}>{displayEmail}</Text>}
+            <Text style={styles.memberId}>{t('driver.profile.header.memberId', { id: user?.id ?? '' })}</Text>
+
+            <View style={styles.headerBottomRow}>
+              {renderAccountStatusBadge()}
+              <View style={styles.ratingBadge}>
+                <Text style={styles.ratingStars}>⭐</Text>
+                <Text style={styles.ratingText}>{(typeof stats.averageRating === 'number' ? stats.averageRating : 5.0).toFixed(1)}</Text>
+              </View>
             </View>
-          </View>
-          <View style={styles.walletRowSecondary}>
-            <View style={styles.walletItem}>
-              <Text style={styles.walletLabel}>Ganancias Hoy</Text>
-              <Text style={styles.walletValue}>{formatCurrency(dailyStats.earnings)}</Text>
-            </View>
-            <View style={styles.walletDivider} />
-            <View style={styles.walletItem}>
-              <Text style={styles.walletLabel}>Viajes Hoy</Text>
-              <Text style={styles.walletValue}>{dailyStats.rides}</Text>
-            </View>
-            <View style={styles.walletDivider} />
-            <View style={styles.walletItem}>
-              <Text style={styles.walletLabel}>Calificación</Text>
-              <Text style={styles.walletValue}> ⭐ {(typeof stats.averageRating === 'number' ? stats.averageRating : 5).toFixed(1)}
-              </Text>
-            </View>
+
+            <TouchableOpacity onPress={() => navigation.navigate('Account')}>
+              <View style={styles.editProfileBadge}>
+                  <Text style={styles.editProfileText}>{t('driver.profile.header.edit')}</Text>
+              </View>
+            </TouchableOpacity>
           </View>
         </View>
       </View>
+
+      {/* Content Card */}
+      <View style={styles.contentCard}>
+        {/* Cartera / Ganancias - Cards Flotantes */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>{t('driver.profile.stats.walletTitle')}</Text>
+            <TouchableOpacity style={styles.rechargeButton}>
+              <Text style={styles.rechargeButtonText}>{t('driver.profile.stats.walletCta')}</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Cards flotantes individuales */}
+          <View style={styles.earningsCardsContainer}>
+            {/* Fila superior: Ganancias Totales + Ganancias Hoy, centradas */}
+            <View style={styles.earningsCardsRowTop}>
+              <View style={styles.earningCard}>
+                <View style={styles.earningCardIcon}>
+                  <Text style={styles.earningCardIconText}>💵</Text>
+                </View>
+                <Text style={styles.earningCardValue}>{formatCurrency(stats.totalEarnings)}</Text>
+                <Text style={styles.earningCardLabel}>{t('driver.profile.stats.totalEarnings')}</Text>
+              </View>
+              <View style={styles.earningCard}>
+                <View style={styles.earningCardIconGreen}>
+                  <Text style={styles.earningCardIconText}>💰</Text>
+                </View>
+                <Text style={styles.earningCardValue}>{formatCurrency(dailyStats.earnings)}</Text>
+                <Text style={styles.earningCardLabel}>{t('driver.profile.stats.todaysEarnings')}</Text>
+              </View>
+            </View>
+
+            {/* Fila inferior: Viajes Hechos + Viajes Hoy + Calificación, en una sola línea */}
+            <View style={styles.earningsCardsRow}>
+              <View style={styles.earningCard}>
+                <View style={styles.earningCardIcon}>
+                  <Text style={styles.earningCardIconText}>🚗</Text>
+                </View>
+                <Text style={styles.earningCardValue}>{stats.totalRides}</Text>
+                <Text style={styles.earningCardLabel}>{t('driver.profile.stats.totalRides')}</Text>
+              </View>
+
+              <View style={styles.earningCard}>
+                <View style={styles.earningCardIconBlue}>
+                  <Text style={styles.earningCardIconText}>📍</Text>
+                </View>
+                <Text style={styles.earningCardValue}>{dailyStats.rides}</Text>
+                <Text style={styles.earningCardLabel}>{t('driver.profile.stats.todaysRides')}</Text>
+              </View>
+
+              <View style={styles.earningCard}>
+                <View style={styles.earningCardIconYellow}>
+                  <Text style={styles.earningCardIconText}>⭐</Text>
+                </View>
+                <Text style={styles.earningCardValue}>{(typeof stats.averageRating === 'number' ? stats.averageRating : 5).toFixed(1)}</Text>
+                <Text style={styles.earningCardLabel}>{t('driver.profile.stats.rating')}</Text>
+              </View>
+            </View>
+          </View>
+        </View>
       {/* Mis Vehículos */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>🚗 Mis Vehículos</Text>
+        <Text style={styles.sectionTitle}>{t('driver.profile.vehicles.title')}</Text>
         
         {vehicles && vehicles.length > 0 ? (
           <>
-            {vehicles.map((vehicle) => (
-              <View key={vehicle.id} style={[styles.vehicleCard, vehicle.is_active && styles.vehicleCardActive]}>
-                <View style={styles.vehicleIcon}>
-                  <Text style={styles.vehicleIconText}>🚗</Text>
-                </View>
-                <View style={styles.vehicleInfo}>
-                  <Text style={styles.vehicleName}>
-                    {vehicle.brand} {vehicle.model}
-                  </Text>
-                  <Text style={styles.vehicleDetails}>
-                    {vehicle.color} • {vehicle.year} • {vehicle.plate}
-                  </Text>
-                  {vehicle.is_active && (
-                    <Text style={styles.activeVehicleLabel}>✅ Vehículo Activo</Text>
-                  )}
-                </View>
-                <View style={styles.vehicleButtonsContainer}>
-                  <TouchableOpacity 
-                    style={[styles.verifyButton]}
-                    onPress={() => navigation.navigate('VehicleVerification', { vehicleId: vehicle.id })}
-                  >
-                    <Text style={styles.verifyButtonText}>
-                      {isVehicleComplete(vehicle) ? 'Ver' : 'Verificar'}
-                    </Text>
-                  </TouchableOpacity>
-                  {vehicles.length > 1 && (
+            {vehicles.map((vehicle) => {
+              const isSelectedVehicle = selectedVehicleId === vehicle.id;
+              const isApproved = Boolean(vehicle.is_active ?? vehicle.isActive);
+
+              return (
+                <View key={vehicle.id} style={[styles.vehicleCard, isSelectedVehicle && styles.vehicleCardActive]}>
+                  <View style={styles.vehicleMainInfo}>
+                    <View style={styles.vehicleIcon}>
+                      <Image source={ensureVehicleIconSource(vehicle.type)} style={styles.vehicleIconImage} />
+                    </View>
+                    <View style={styles.vehicleInfo}>
+                      <Text style={styles.vehicleName}>
+                        {vehicle.brand} {vehicle.model}
+                      </Text>
+                      <Text style={styles.vehicleDetails}>
+                        {vehicle.color} • {vehicle.year} • {vehicle.plate}
+                      </Text>
+                      {isSelectedVehicle && (
+                        <Text style={styles.activeVehicleLabel}>{t('driver.profile.vehicles.selectedLabel')}</Text>
+                      )}
+                      {!isApproved && (
+                        <Text style={styles.pendingVehicleLabel}>{t('driver.profile.vehicles.pendingLabel')}</Text>
+                      )}
+                    </View>
+                  </View>
+                  <View style={styles.vehicleButtonsContainer}>
                     <TouchableOpacity 
-                      style={[styles.changeButton, vehicle.is_active && styles.changeButtonActive]}
-                      onPress={() => handleSwitchVehicle(vehicle.id)}
+                      style={[styles.verifyButton]}
+                      onPress={() => navigation.navigate('VehicleVerification', { vehicleId: vehicle.id })}
                     >
-                      <Text style={[styles.changeButtonText, vehicle.is_active && styles.changeButtonTextActive]}>
-                        {vehicle.is_active ? '✓ Activo' : 'Cambiar'}
+                      <Text style={styles.verifyButtonText}>
+                        {isVehicleComplete(vehicle)
+                          ? t('driver.profile.vehicles.view')
+                          : t('driver.profile.vehicles.verify')}
                       </Text>
                     </TouchableOpacity>
-                  )}
+                    {vehicles.length > 1 && (
+                      <TouchableOpacity 
+                        style={[styles.changeButton, isSelectedVehicle && styles.changeButtonActive]}
+                        onPress={() => handleSwitchVehicle(vehicle.id)}
+                        disabled={isSelectedVehicle || !isApproved}
+                      >
+                        <Text style={[styles.changeButtonText, isSelectedVehicle && styles.changeButtonTextActive, (!isApproved && !isSelectedVehicle) && styles.changeButtonTextDisabled]}>
+                          {isSelectedVehicle
+                            ? t('driver.profile.vehicles.selected')
+                            : isApproved
+                              ? t('driver.profile.vehicles.switch')
+                              : t('driver.profile.vehicles.unavailable')}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
                 </View>
-              </View>
-            ))}
+              );
+            })}
           </>
         ) : (
           <View style={styles.emptyVehiclesContainer}>
-            <Text style={styles.emptyVehiclesText}>No hay vehículos registrados</Text>
+            <Text style={styles.emptyVehiclesText}>{t('driver.profile.vehicles.empty')}</Text>
           </View>
         )}
 
@@ -707,39 +1319,30 @@ export default function DriverProfileScreen({ navigation }: any) {
           style={styles.addVehicleButton}
           onPress={() => setShowAddVehicleModal(true)}
         >
-          <Text style={styles.addVehicleButtonText}>+ Agregar Vehículo</Text>
+          <Text style={styles.addVehicleButtonText}>{t('driver.profile.vehicles.addButton')}</Text>
         </TouchableOpacity>
       </View>
 
+     
+
       {/* Documentos del Conductor */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>📋 Documentos del Conductor</Text>
+        <Text style={styles.sectionTitle}>{t('driver.profile.documents.title')}</Text>
 
         {driverData && (
           <View style={styles.documentCard}>
             <View style={styles.documentLeft}>
-              <View style={[
-                styles.statusIndicator,
-                { backgroundColor: ((driverData.license_photo_front && driverData.license_photo_back) || driverData.license_photo) ? '#4CAF50' : '#FF9800' }
-              ]}>
-                {((driverData.license_photo_front && driverData.license_photo_back) || driverData.license_photo) ? <Text style={styles.statusIcon}>✓</Text> : <Text style={styles.statusIcon}>⏱</Text>}
+              <View style={[styles.statusIndicator, { backgroundColor: documentStatusColor }]}>
+                <Text style={styles.statusIcon}>{documentStatusIcon}</Text>
               </View>
               <View style={styles.documentInfo}>
                 <Text style={styles.documentIcon}>🪪</Text>
                 <View>
-                  <Text style={styles.documentName}>Licencia de Conducir</Text>
-                  <Text style={[styles.documentStatus, { 
-                    color: (driverData.license_photo_front && driverData.license_photo_back) || driverData.license_photo 
-                      ? '#4CAF50' 
-                      : '#FF9800' 
-                  }]}>
-                    {(driverData.license_photo_front && driverData.license_photo_back) || driverData.license_photo 
-                      ? '✅ Completo' 
-                      : '❌ Pendiente'}
-                  </Text>
-                  {driverData.license_expiry && (
+                  <Text style={styles.documentName}>{t('driver.profile.documents.licenseName')}</Text>
+                  <Text style={[styles.documentStatus, { color: documentStatusColor }]}>{documentStatusText}</Text>
+                  {driverLicenseExpiry && (
                     <Text style={styles.documentExpiry}>
-                      Vence: {safeFormatDate(driverData.license_expiry)}
+                      {t('driver.profile.documents.expires', { date: safeFormatDate(driverLicenseExpiry) })}
                     </Text>
                   )}
                 </View>
@@ -749,18 +1352,7 @@ export default function DriverProfileScreen({ navigation }: any) {
               style={styles.uploadButton}
               onPress={() => navigation.navigate('DriversDocumentsInspection')}
             >
-              <Text style={styles.uploadButtonText}>
-                {((driverData.licensePhotoFront || driverData.license_photo_front) && 
-                  (driverData.licensePhotoBack || driverData.license_photo_back) && 
-                  (driverData.licenseNumber || driverData.license_number) && 
-                  (driverData.licenseExpiry || driverData.license_expiry)) 
-                  ? 'Ver' 
-                  : ((driverData.licensePhotoFront || driverData.license_photo_front) && 
-                     (driverData.licensePhotoBack || driverData.license_photo_back)) || 
-                    (driverData.licensePhoto || driverData.license_photo)
-                    ? 'Actualizar'
-                    : 'Completar'}
-              </Text>
+              <Text style={styles.uploadButtonText}>{documentButtonLabel}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -768,90 +1360,200 @@ export default function DriverProfileScreen({ navigation }: any) {
 
       {/* Solicitar Conductor Designado */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>🚙 Conductor Designado</Text>
+        <Text style={styles.sectionTitle}>{t('driver.profile.designated.title')}</Text>
         
-        <Animated.View 
-          style={[
-            styles.designatedDriverCard,
-            {
-              transform: [{ scale: cardScaleAnim }],
-              opacity: cardOpacityAnim,
-            }
-          ]}
-        >
+        <View style={styles.designatedDriverCard}>
           <View style={styles.designatedDriverContent}>
-            <Text style={styles.designatedDriverTitle}>Amplía tus oportunidades</Text>
+            <Text style={styles.designatedDriverTitle}>{t('driver.profile.designated.heroTitle')}</Text>
             <Text style={styles.designatedDriverDescription}>
-              Conviértete en conductor designado y accede a viajes premium donde el cliente proporciona el vehículo. Gana más con viajes de lujo.
+              {t('driver.profile.designated.heroDescription')}
             </Text>
             
             <View style={styles.designatedDriverBenefits}>
-              <Text style={styles.benefitItem}>✓ Viajes de conductor designado</Text>
-              <Text style={styles.benefitItem}>✓ Mayor tarifa por viaje</Text>
-              <Text style={styles.benefitItem}>✓ Clientes premium</Text>
-              <Text style={styles.benefitItem}>✓ Mantén tus viajes normales</Text>
+              <Text style={styles.benefitItem}>{t('driver.profile.designated.benefits.rides')}</Text>
+              <Text style={styles.benefitItem}>{t('driver.profile.designated.benefits.higherFare')}</Text>
+              <Text style={styles.benefitItem}>{t('driver.profile.designated.benefits.premiumClients')}</Text>
+              <Text style={styles.benefitItem}>{t('driver.profile.designated.benefits.keepRegular')}</Text>
             </View>
           </View>
 
           <TouchableOpacity
             style={[
               styles.designatedDriverButton,
-              designatedDriverRequestStatus === 'pending' && styles.designatedDriverButtonDisabled
+              designatedButtonDisabled && styles.designatedDriverButtonDisabled
             ]}
             onPress={() => {
               // Si ya hay solicitud pendiente, no permitir enviar otra
-              if (designatedDriverRequestStatus === 'pending') {
+              if (isDesignatedRequestPending) {
                 Alert.alert(
-                  'Solicitud Pendiente',
-                  'Ya tienes una solicitud pendiente. Nuestro equipo la revisará en 24 horas.'
+                  t('driver.profile.designated.alerts.pendingTitle'),
+                  t('driver.profile.designated.alerts.pendingBody'),
+                );
+                return;
+              }
+
+              if (isDesignatedDriverApproved) {
+                Alert.alert(
+                  t('driver.profile.designated.alerts.approvedTitle'),
+                  t('driver.profile.designated.alerts.approvedBody'),
+                );
+                return;
+              }
+
+              if (isDesignatedRequestRejected) {
+                Alert.alert(
+                  t('driver.profile.designated.alerts.rejectedTitle'),
+                  t('driver.profile.designated.alerts.rejectedBody'),
                 );
                 return;
               }
 
               Alert.alert(
-                'Solicitar Conductor Designado',
-                '¿Deseas solicitar acceso al programa de conductor designado?\n\nRequisitos:\n• Vehículo 4x4 o SUV\n• Licencia válida\n• Documentos verificados\n• Calificación mínima 4.8 estrellas',
+                t('driver.profile.designated.alerts.confirmTitle'),
+                t('driver.profile.designated.alerts.confirmBody'),
                 [
-                  { text: 'Cancelar', style: 'cancel' },
+                  { text: t('driver.profile.designated.alerts.confirmCancel'), style: 'cancel' },
                   {
-                    text: 'Solicitar',
+                    text: t('driver.profile.designated.alerts.confirmSubmit'),
                     onPress: handleRequestDesignatedDriverAccess
                   }
                 ]
               );
             }}
-            disabled={designatedDriverRequestStatus === 'pending' || loadingRequestStatus}
+            disabled={designatedButtonDisabled}
           >
             {loadingRequestStatus ? (
               <ActivityIndicator color="#fff" />
             ) : (
               <Text style={styles.designatedDriverButtonText}>
-                {designatedDriverRequestStatus === 'pending' ? 'Solicitud Enviada' : 'Solicitar Acceso'}
+                {designatedButtonLabel}
               </Text>
             )}
           </TouchableOpacity>
-        </Animated.View>
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>{t('driver.profile.mode.title')}</Text>
+        <View style={styles.preferenceCard}>
+          <View style={styles.preferenceHeader}>
+            <View style={styles.preferenceIconWrapper}>
+              <Text style={styles.preferenceIcon}>🚘</Text>
+            </View>
+            <View style={styles.preferenceInfo}>
+              <Text style={styles.preferenceTitle}>{t('driver.profile.mode.title')}</Text>
+              <Text style={styles.preferenceSubtitle}>
+                {t('driver.profile.mode.description')}
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={[
+                styles.modeToggleButton,
+                userMode === 'driver' ? styles.modeToggleButtonActive : null,
+              ]}
+              onPress={handleModeButtonPress}
+            >
+              <Text
+                style={[
+                  styles.modeToggleButtonText,
+                  userMode === 'driver' ? styles.modeToggleButtonTextActive : null,
+                ]}
+              >
+                {userMode === 'driver'
+                  ? t('driver.profile.mode.switchToClient')
+                  : t('driver.profile.mode.switchToDriver')}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>{t('driver.profile.overlay.title')}</Text>
+        <View style={styles.preferenceCard}>
+          <View style={styles.preferenceHeader}>
+            <View style={styles.preferenceIconWrapper}>
+              <Text style={styles.preferenceIcon}>🔔</Text>
+            </View>
+            <View style={styles.preferenceInfo}>
+              <Text style={styles.preferenceTitle}>{t('driver.profile.overlay.subtitle')}</Text>
+              <Text style={styles.preferenceSubtitle}>
+                {t('driver.profile.overlay.description')}
+              </Text>
+              {Platform.OS === 'android' ? (
+                <Text style={styles.preferenceHint}>
+                  {overlayPermissionGranted
+                    ? t('driver.profile.overlay.hintAndroidGranted')
+                    : t('driver.profile.overlay.hintAndroidMissing')}
+                </Text>
+              ) : (
+                <Text style={styles.preferenceHint}>
+                  {t('driver.profile.overlay.hintIos')}
+                </Text>
+              )}
+            </View>
+            <Switch
+              value={overlayToggleEnabled}
+              onValueChange={handleOverlayToggle}
+              disabled={Platform.OS !== 'android' || overlayCheckingPermission}
+              thumbColor={overlayToggleEnabled ? '#ffffff' : '#f4f4f4'}
+              trackColor={{ false: '#bdbdbd', true: colors.primary }}
+            />
+          </View>
+        </View>
+      </View>
+
+      {/* Asistente de Voz */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>{t('driver.profile.voice.title')}</Text>
+
+        <View style={styles.voiceAssistantCard}>
+          <View style={styles.voiceAssistantHeader}>
+            <View style={styles.voiceAssistantTitleBlock}>
+              <Text style={styles.voiceAssistantTitle}>{t('driver.profile.voice.cardTitle')}</Text>
+              <Text style={styles.voiceAssistantSubtitle}>
+                {t('driver.profile.voice.subtitle')}
+              </Text>
+            </View>
+            <Switch
+              value={voiceAssistantSwitch}
+              onValueChange={handleVoiceAssistantToggle}
+              thumbColor={voiceAssistantSwitch ? '#ffffff' : '#f4f4f4'}
+              trackColor={{ false: '#bdbdbd', true: colors.primary }}
+            />
+          </View>
+
+          <View style={styles.voiceAssistantBenefits}>
+            <Text style={styles.voiceAssistantBenefit}>{t('driver.profile.voice.benefits.rides')}</Text>
+            <Text style={styles.voiceAssistantBenefit}>{t('driver.profile.voice.benefits.arrivals')}</Text>
+            <Text style={styles.voiceAssistantBenefit}>{t('driver.profile.voice.benefits.payments')}</Text>
+          </View>
+
+          <Text style={styles.voiceAssistantFooter}>
+            {t('driver.profile.voice.footer')}
+          </Text>
+        </View>
       </View>
 
       {/* Información del Seguro */}
       {vehicles.length > 0 && vehicles[0].insuranceNumber && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>🛡️ Información del Seguro</Text>
+          <Text style={styles.sectionTitle}>{t('driver.profile.insurance.title')}</Text>
 
           <View style={styles.insuranceCard}>
             <View style={styles.insuranceRow}>
-              <Text style={styles.insuranceLabel}>Compañía</Text>
+              <Text style={styles.insuranceLabel}>{t('driver.profile.insurance.company')}</Text>
               <Text style={styles.insuranceValue}>{vehicles[0].insuranceCompany}</Text>
             </View>
 
             <View style={styles.insuranceRow}>
-              <Text style={styles.insuranceLabel}>Número de Póliza</Text>
+              <Text style={styles.insuranceLabel}>{t('driver.profile.insurance.number')}</Text>
               <Text style={styles.insuranceValue}>{vehicles[0].insuranceNumber}</Text>
             </View>
 
             {vehicles[0].insuranceExpiry && (
               <View style={styles.insuranceRow}>
-                <Text style={styles.insuranceLabel}>Vencimiento</Text>
+                <Text style={styles.insuranceLabel}>{t('driver.profile.insurance.expiry')}</Text>
                 <Text style={styles.insuranceValue}>
                   {safeFormatDate(vehicles[0].insuranceExpiry)}
                 </Text>
@@ -860,7 +1562,7 @@ export default function DriverProfileScreen({ navigation }: any) {
 
             {vehicles[0].insurancePhoto && (
               <View style={styles.insurancePhotoContainer}>
-                <Text style={styles.insuranceLabel}>Foto de la Póliza</Text>
+                <Text style={styles.insuranceLabel}>{t('driver.profile.insurance.photo')}</Text>
                 <Image source={{ uri: vehicles[0].insurancePhoto }} style={styles.insurancePhoto} />
               </View>
             )}
@@ -874,26 +1576,36 @@ export default function DriverProfileScreen({ navigation }: any) {
           style={styles.optionCard}
           onPress={() => navigation.navigate('Earnings')}
         >
-          <Text style={styles.optionIcon}>💵</Text>
-          <Text style={styles.optionText}>Ver Ganancias Detalladas</Text>
+           <Image
+              source={require('../../assets/icons/profit-icon/profiticon.png')}
+              style={styles.optionIconImage}
+            />
+          <Text style={styles.optionText}>{t('driver.profile.options.viewEarnings')}</Text>
           <Text style={styles.optionArrow}>›</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.optionCard}
-          onPress={() => navigation.navigate('RideHistory')}
-        >
-          <Text style={styles.optionIcon}>📜</Text>
-          <Text style={styles.optionText}>Historial de Viajes</Text>
-          <Text style={styles.optionArrow}>›</Text>
-        </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.optionCard}
+            onPress={() => navigation.navigate('RideHistory')}
+          >
+            <Image
+              source={require('../../assets/icons/historial-icon/historialicon2.png')}
+              style={styles.optionIconImage}
+            />
+            <Text style={styles.optionText}>{t('driver.profile.options.rideHistory')}</Text>
+            <Text style={styles.optionArrow}>›</Text>
+          </TouchableOpacity>
+
 
         <TouchableOpacity
           style={styles.optionCard}
           onPress={() => navigation.navigate('PaymentMethods')}
         >
-          <Text style={styles.optionIcon}>💳</Text>
-          <Text style={styles.optionText}>Métodos de Pago</Text>
+           <Image
+              source={require('../../assets/icons/payment-icon/paymenticon.png')}
+              style={styles.optionIconImage}
+            />
+          <Text style={styles.optionText}>{t('driver.profile.options.paymentMethods')}</Text>
           <Text style={styles.optionArrow}>›</Text>
         </TouchableOpacity>
 
@@ -901,8 +1613,11 @@ export default function DriverProfileScreen({ navigation }: any) {
           style={styles.optionCard}
           onPress={() => navigation.navigate('Settings')}
         >
-          <Text style={styles.optionIcon}>⚙️</Text>
-          <Text style={styles.optionText}>Configuración</Text>
+           <Image
+              source={require('../../assets/icons/settings-icon/settingsicon.png')}
+              style={styles.optionIconImage}
+            />
+          <Text style={styles.optionText}>{t('driver.profile.options.settings')}</Text>
           <Text style={styles.optionArrow}>›</Text>
         </TouchableOpacity>
 
@@ -910,13 +1625,17 @@ export default function DriverProfileScreen({ navigation }: any) {
           style={styles.optionCard}
           onPress={() => navigation.navigate('Help')}
         >
-          <Text style={styles.optionIcon}>❓</Text>
-          <Text style={styles.optionText}>Ayuda</Text>
+            <Image
+              source={require('../../assets/icons/help-icon/helpicon.png')}
+              style={styles.optionIconImage}
+            />
+          <Text style={styles.optionText}>{t('driver.profile.options.help')}</Text>
           <Text style={styles.optionArrow}>›</Text>
         </TouchableOpacity>
       </View>
 
       <View style={{ height: 40 }} />
+      </View>
     </ScrollView>
 
     {/* Modal para agregar vehículo */}
@@ -929,7 +1648,7 @@ export default function DriverProfileScreen({ navigation }: any) {
       <View style={styles.modalContainer}>
         <View style={styles.modalContent}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Agregar Nuevo Vehículo</Text>
+            <Text style={styles.modalTitle}>{t('driver.profile.modal.title')}</Text>
             <TouchableOpacity onPress={() => setShowAddVehicleModal(false)}>
               <Text style={styles.modalCloseButton}>✕</Text>
             </TouchableOpacity>
@@ -938,58 +1657,63 @@ export default function DriverProfileScreen({ navigation }: any) {
           <ScrollView style={styles.modalForm}>
             {/* SECCIÓN: INFORMACIÓN BÁSICA */}
             <View style={styles.formSection}>
-              <Text style={styles.formSectionTitle}>📋 Información Básica</Text>
+              <Text style={styles.formSectionTitle}>{t('driver.profile.modal.labels.basicInfo')}</Text>
               
-              <Text style={styles.formLabel}>Placa *</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.plate')}</Text>
               <TextInput
                 style={styles.formInput}
-                placeholder="ABC-123"
+                placeholder={t('driver.profile.modal.placeholders.plate')}
                 value={vehicleFormData.plate}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, plate: text })}
                 placeholderTextColor={colors.textSecondary}
               />
 
-              <Text style={styles.formLabel}>Marca *</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.brand')}</Text>
               <TextInput
                 style={styles.formInput}
-                placeholder="Toyota"
+                placeholder={t('driver.profile.modal.placeholders.brand')}
                 value={vehicleFormData.brand}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, brand: text })}
                 placeholderTextColor={colors.textSecondary}
               />
 
-              <Text style={styles.formLabel}>Modelo *</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.model')}</Text>
               <TextInput
                 style={styles.formInput}
-                placeholder="Corolla"
+                placeholder={t('driver.profile.modal.placeholders.model')}
                 value={vehicleFormData.model}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, model: text })}
                 placeholderTextColor={colors.textSecondary}
               />
 
-              <Text style={styles.formLabel}>Año *</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.year')}</Text>
               <TextInput
                 style={styles.formInput}
-                placeholder={new Date().getFullYear().toString()}
+                placeholder={t('driver.profile.modal.placeholders.year', { year: currentYear })}
                 value={vehicleFormData.year.toString()}
-                onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, year: parseInt(text) || new Date().getFullYear() })}
+                onChangeText={(text) =>
+                  setVehicleFormData({
+                    ...vehicleFormData,
+                    year: parseInt(text, 10) || currentYear,
+                  })
+                }
                 keyboardType="numeric"
                 placeholderTextColor={colors.textSecondary}
               />
 
-              <Text style={styles.formLabel}>Color *</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.color')}</Text>
               <TextInput
                 style={styles.formInput}
-                placeholder="Blanco"
+                placeholder={t('driver.profile.modal.placeholders.color')}
                 value={vehicleFormData.color}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, color: text })}
                 placeholderTextColor={colors.textSecondary}
               />
 
-              <Text style={styles.formLabel}>Tipo</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.type')}</Text>
               <TextInput
                 style={styles.formInput}
-                placeholder="sedan"
+                placeholder={t('driver.profile.modal.placeholders.type')}
                 value={vehicleFormData.type}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, type: text })}
                 placeholderTextColor={colors.textSecondary}
@@ -998,68 +1722,70 @@ export default function DriverProfileScreen({ navigation }: any) {
 
             {/* SECCIÓN: ESPECIFICACIONES TÉCNICAS */}
             <View style={styles.formSection}>
-              <Text style={styles.formSectionTitle}>⚙️ Especificaciones Técnicas</Text>
+              <Text style={styles.formSectionTitle}>
+                {`⚙️ ${t('driver.profile.modal.labels.specs')}`}
+              </Text>
               
-              <Text style={styles.formLabel}>Motor</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.engine')}</Text>
               <TextInput
                 style={styles.formInput}
-                placeholder="2.0L"
+                placeholder={t('driver.profile.modal.placeholders.engine')}
                 value={vehicleFormData.motor}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, motor: text })}
                 placeholderTextColor={colors.textSecondary}
               />
 
-              <Text style={styles.formLabel}>Chasis</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.chassis')}</Text>
               <TextInput
                 style={styles.formInput}
-                placeholder="ABC123456"
+                placeholder={t('driver.profile.modal.placeholders.chassis')}
                 value={vehicleFormData.chasis}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, chasis: text })}
                 placeholderTextColor={colors.textSecondary}
               />
 
-              <Text style={styles.formLabel}>VIN</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.vin')}</Text>
               <TextInput
                 style={styles.formInput}
-                placeholder="VIN123456789"
+                placeholder={t('driver.profile.modal.placeholders.vin')}
                 value={vehicleFormData.vin}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, vin: text })}
                 placeholderTextColor={colors.textSecondary}
               />
 
-              <Text style={styles.formLabel}>Cilindros</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.cylinders')}</Text>
               <TextInput
                 style={styles.formInput}
-                placeholder="4"
+                placeholder={t('driver.profile.modal.placeholders.cylinders')}
                 value={vehicleFormData.cylinders}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, cylinders: text })}
                 keyboardType="numeric"
                 placeholderTextColor={colors.textSecondary}
               />
 
-              <Text style={styles.formLabel}>Pasajeros</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.passengers')}</Text>
               <TextInput
                 style={styles.formInput}
-                placeholder="5"
+                placeholder={t('driver.profile.modal.placeholders.passengers')}
                 value={vehicleFormData.passengers}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, passengers: text })}
                 keyboardType="numeric"
                 placeholderTextColor={colors.textSecondary}
               />
 
-              <Text style={styles.formLabel}>Tipo de Combustible</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.fuelType')}</Text>
               <TextInput
                 style={styles.formInput}
-                placeholder="Gasolina"
+                placeholder={t('driver.profile.modal.placeholders.fuelType')}
                 value={vehicleFormData.fuel_type}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, fuel_type: text })}
                 placeholderTextColor={colors.textSecondary}
               />
 
-              <Text style={styles.formLabel}>Tonelaje</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.tonnage')}</Text>
               <TextInput
                 style={styles.formInput}
-                placeholder="2.50"
+                placeholder={t('driver.profile.modal.placeholders.tonnage')}
                 value={vehicleFormData.tonnage}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, tonnage: text })}
                 keyboardType="decimal-pad"
@@ -1069,30 +1795,32 @@ export default function DriverProfileScreen({ navigation }: any) {
 
             {/* SECCIÓN: CLASIFICACIÓN */}
             <View style={styles.formSection}>
-              <Text style={styles.formSectionTitle}>🏷️ Clasificación</Text>
+              <Text style={styles.formSectionTitle}>
+                {`🏷️ ${t('driver.profile.modal.labels.classification')}`}
+              </Text>
               
-              <Text style={styles.formLabel}>Clase de Vehículo</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.vehicleClass')}</Text>
               <TextInput
                 style={styles.formInput}
-                placeholder="PARTICULAR"
+                placeholder={t('driver.profile.modal.placeholders.vehicleClass')}
                 value={vehicleFormData.vehicle_class}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, vehicle_class: text })}
                 placeholderTextColor={colors.textSecondary}
               />
 
-              <Text style={styles.formLabel}>Tipo de Servicio</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.serviceType')}</Text>
               <TextInput
                 style={styles.formInput}
-                placeholder="PRIVADO"
+                placeholder={t('driver.profile.modal.placeholders.serviceType')}
                 value={vehicleFormData.service_type}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, service_type: text })}
                 placeholderTextColor={colors.textSecondary}
               />
 
-              <Text style={styles.formLabel}>Gravamen</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.lien')}</Text>
               <TextInput
                 style={styles.formInput}
-                placeholder="NINGUNO"
+                placeholder={t('driver.profile.modal.placeholders.lien')}
                 value={vehicleFormData.lien}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, lien: text })}
                 placeholderTextColor={colors.textSecondary}
@@ -1101,31 +1829,33 @@ export default function DriverProfileScreen({ navigation }: any) {
 
             {/* SECCIÓN: DOCUMENTOS */}
             <View style={styles.formSection}>
-              <Text style={styles.formSectionTitle}>📄 Documentos de Registro</Text>
+              <Text style={styles.formSectionTitle}>
+                {`📄 ${t('driver.profile.modal.labels.documents')}`}
+              </Text>
               
-              <Text style={styles.formLabel}>Fecha de Emisión</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.emissionDate')}</Text>
               <FormattedInput
                 style={styles.formInput}
-                placeholder="YYYY-MM-DD"
+                placeholder={t('driver.profile.modal.placeholders.emissionDate')}
                 format="date"
                 value={vehicleFormData.emission_date}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, emission_date: text })}
                 placeholderTextColor={colors.textSecondary}
               />
 
-              <Text style={styles.formLabel}>Número de Registro</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.registrationNumber')}</Text>
               <TextInput
                 style={styles.formInput}
-                placeholder="B2301230"
+                placeholder={t('driver.profile.modal.placeholders.registrationNumber')}
                 value={vehicleFormData.registration_number}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, registration_number: text })}
                 placeholderTextColor={colors.textSecondary}
               />
 
-              <Text style={styles.formLabel}>Vencimiento de Registro</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.registrationExpiry')}</Text>
               <FormattedInput
                 style={styles.formInput}
-                placeholder="YYYY-MM-DD"
+                placeholder={t('driver.profile.modal.placeholders.registrationExpiry')}
                 format="date"
                 value={vehicleFormData.registration_expiry}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, registration_expiry: text })}
@@ -1133,13 +1863,13 @@ export default function DriverProfileScreen({ navigation }: any) {
               />
 
               <ImagePickerComponent
-                label="Foto Frontal del Registro"
+                label={t('driver.profile.modal.labels.registrationFront')}
                 imageUri={vehicleFormData.registration_photo_front}
                 onImageSelected={(uri: string) => setVehicleFormData({ ...vehicleFormData, registration_photo_front: uri })}
               />
 
               <ImagePickerComponent
-                label="Foto Trasera del Registro"
+                label={t('driver.profile.modal.labels.registrationBack')}
                 imageUri={vehicleFormData.registration_photo_back}
                 onImageSelected={(uri: string) => setVehicleFormData({ ...vehicleFormData, registration_photo_back: uri })}
               />
@@ -1147,40 +1877,42 @@ export default function DriverProfileScreen({ navigation }: any) {
 
             {/* SECCIÓN: SEGURO */}
             <View style={styles.formSection}>
-              <Text style={styles.formSectionTitle}>🛡️ Seguro</Text>
+              <Text style={styles.formSectionTitle}>
+                {`🛡️ ${t('driver.profile.modal.labels.insurance')}`}
+              </Text>
               
-              <Text style={styles.formLabel}>Número de Seguro</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.insuranceNumber')}</Text>
               <TextInput
                 style={styles.formInput}
-                placeholder="RCO30201102"
+                placeholder={t('driver.profile.modal.placeholders.insuranceNumber')}
                 value={vehicleFormData.insurance_number}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, insurance_number: text })}
                 placeholderTextColor={colors.textSecondary}
               />
 
-              <Text style={styles.formLabel}>Compañía de Seguro</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.insuranceCompany')}</Text>
               <TextInput
                 style={styles.formInput}
-                placeholder="BAC"
+                placeholder={t('driver.profile.modal.placeholders.insuranceCompany')}
                 value={vehicleFormData.insurance_company}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, insurance_company: text })}
                 placeholderTextColor={colors.textSecondary}
               />
 
-              <Text style={styles.formLabel}>Inicio de Seguro</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.insuranceStart')}</Text>
               <FormattedInput
                 style={styles.formInput}
-                placeholder="YYYY-MM-DD"
+                placeholder={t('driver.profile.modal.placeholders.insuranceStart')}
                 format="date"
                 value={vehicleFormData.insurance_start_date}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, insurance_start_date: text })}
                 placeholderTextColor={colors.textSecondary}
               />
 
-              <Text style={styles.formLabel}>Vencimiento de Seguro</Text>
+              <Text style={styles.formLabel}>{t('driver.profile.modal.labels.insuranceExpiry')}</Text>
               <FormattedInput
                 style={styles.formInput}
-                placeholder="YYYY-MM-DD"
+                placeholder={t('driver.profile.modal.placeholders.insuranceExpiry')}
                 format="date"
                 value={vehicleFormData.insurance_expiry}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, insurance_expiry: text })}
@@ -1188,7 +1920,7 @@ export default function DriverProfileScreen({ navigation }: any) {
               />
 
               <ImagePickerComponent
-                label="Póliza de Seguro"
+                label={t('driver.profile.modal.labels.insurancePhoto')}
                 imageUri={vehicleFormData.insurance_photo}
                 onImageSelected={(uri: string) => setVehicleFormData({ ...vehicleFormData, insurance_photo: uri })}
               />
@@ -1196,10 +1928,12 @@ export default function DriverProfileScreen({ navigation }: any) {
 
             {/* SECCIÓN: FOTOS DEL VEHÍCULO */}
             <View style={styles.formSection}>
-              <Text style={styles.formSectionTitle}>📸 Fotos del Vehículo</Text>
+              <Text style={styles.formSectionTitle}>
+                {`📸 ${t('driver.profile.modal.labels.photos')}`}
+              </Text>
               
               <ImagePickerComponent
-                label="Foto General del Vehículo"
+                label={t('driver.profile.modal.labels.vehiclePhoto')}
                 imageUri={vehicleFormData.vehicle_photo}
                 onImageSelected={(uri: string) => setVehicleFormData({ ...vehicleFormData, vehicle_photo: uri })}
               />
@@ -1213,7 +1947,7 @@ export default function DriverProfileScreen({ navigation }: any) {
               style={styles.modalCancelButton}
               onPress={() => setShowAddVehicleModal(false)}
             >
-              <Text style={styles.modalCancelButtonText}>Cancelar</Text>
+              <Text style={styles.modalCancelButtonText}>{t('driver.profile.modal.buttons.cancel')}</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -1224,7 +1958,7 @@ export default function DriverProfileScreen({ navigation }: any) {
               {addingVehicle ? (
                 <ActivityIndicator color="#fff" />
               ) : (
-                <Text style={styles.modalSubmitButtonText}>Agregar Vehículo</Text>
+                <Text style={styles.modalSubmitButtonText}>{t('driver.profile.modal.buttons.submit')}</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -1239,7 +1973,7 @@ export default function DriverProfileScreen({ navigation }: any) {
 const createStyles = (colors: any) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: 'rgba(204, 180, 136, 0.91)',
   },
   loadingContainer: {
     flex: 1,
@@ -1252,33 +1986,109 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontSize: 16,
     color: colors.textSecondary,
   },
+  // Header estilo ProfileScreen
   header: {
-    backgroundColor: colors.card,
-    paddingVertical: 32,
+    backgroundColor: 'rgba(211, 153, 46, 0.81)',
+    paddingVertical: 45,
     paddingHorizontal: 24,
+    alignItems: 'stretch',
+    marginBottom: -10,
+    borderRadius: 14,
+  },
+  headerTopRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  headerMainRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerContent: {
+    flex: 1,
+  },
+  headerBottomRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    gap: 8,
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#fff',
+    marginBottom: 10,
+  },
+  headerTopSpacer: {
+    width: 50,
+    height: 50,
+  },
+  backButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: colors.button || colors.card,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  backIcon: {
+    width: 24,
+    height: 24,
+    resizeMode: 'contain',
+  },
+  memberId: {
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 1)',
+  },
+  editProfileBadge: {
+    backgroundColor: 'rgba(26, 29, 173, 0.51)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 18,
+    alignSelf: 'flex-start',
+    marginTop: 8,
+  },
+  editProfileText: {
+    fontSize: 12,
+    color: '#fff',
+    fontWeight: '600',
+  },
+  // Content Card
+  contentCard: {
+    flex: 1,
+    backgroundColor: colors.card,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingTop: 16,
+    paddingBottom: 32,
+    marginTop: -16,
+    marginHorizontal: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 6,
   },
   avatarContainer: {
     position: 'relative',
-    marginBottom: 16,
+    marginRight: 16,
   },
   avatar: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+    width: 110,
+    height: 110,
+    borderRadius: 55,
   },
   avatarPlaceholder: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+    width: 110,
+    height: 80,
+    borderRadius: 40,
     backgroundColor: colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
   },
   avatarText: {
-    fontSize: 40,
+    fontSize: 32,
     fontWeight: '800',
     color: '#fff',
   },
@@ -1286,40 +2096,54 @@ const createStyles = (colors: any) => StyleSheet.create({
     position: 'absolute',
     bottom: 0,
     right: 0,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: colors.card,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 2,
-    borderColor: colors.border,
   },
   cameraIconText: {
-    fontSize: 18,
+    fontSize: 14,
   },
   driverName: {
     fontSize: 24,
     fontWeight: '800',
-    color: colors.text,
-    marginBottom: 8,
+    color: '#fff',
+    marginBottom: 4,
+  },
+  driverEmail: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 1)',
+    marginBottom: 4,
+  },
+  accountStatusBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 20,
+  },
+  accountStatusBadgeText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.3,
   },
   ratingBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.surface,
-    paddingHorizontal: 16,
-    paddingVertical: 6,
+    backgroundColor: 'rgba(230, 230, 230, 0.18)',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
     borderRadius: 20,
   },
   ratingStars: {
-    fontSize: 16,
-    marginRight: 6,
+    fontSize: 14,
+    marginRight: 4,
   },
   ratingText: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '700',
-    color: colors.text,
+    color: '#fff',
   },
   section: {
     paddingHorizontal: 16,
@@ -1336,6 +2160,155 @@ const createStyles = (colors: any) => StyleSheet.create({
     marginBottom: 16,
     letterSpacing: 0.3,
   },
+  // Cards flotantes para ganancias
+  earningsCardsContainer: {
+    gap: 12,
+  },
+  earningsCardsRowTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignSelf: 'center',
+    width: '75%',
+  },
+  earningsCardsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  earningsCardsRowSingle: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+  },
+  earningCard: {
+    flex: 1,
+    backgroundColor: colors.card,
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  earningCardWide: {
+    flex: 1,
+    backgroundColor: colors.card,
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  earningCardIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 152, 0, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  earningCardIconGreen: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: 'rgba(76, 175, 80, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  earningCardIconBlue: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: 'rgba(33, 150, 243, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  earningCardIconYellow: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 193, 7, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  earningCardIconText: {
+    fontSize: 22,
+  },
+  earningCardValue: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: colors.text,
+    marginBottom: 4,
+  },
+  earningCardLabel: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    fontWeight: '500',
+  },
+  voiceAssistantCard: {
+    backgroundColor: colors.card,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    shadowColor: colors.shadow,
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 4,
+  },
+  voiceAssistantHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  voiceAssistantTitleBlock: {
+    flex: 1,
+    paddingRight: 16,
+  },
+  voiceAssistantTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 6,
+  },
+  voiceAssistantSubtitle: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    lineHeight: 18,
+  },
+  voiceAssistantBenefits: {
+    backgroundColor: colors.surface,
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 12,
+  },
+  voiceAssistantBenefit: {
+    fontSize: 13,
+    color: colors.text,
+    marginBottom: 4,
+  },
+  voiceAssistantFooter: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    lineHeight: 18,
+  },
   rechargeButton: {
     backgroundColor: colors.surface,
     paddingVertical: 8,
@@ -1347,56 +2320,10 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontSize: 12,
     color: colors.textSecondary,
   },
-  walletRowSecondary: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: 'transparent',
-    paddingVertical: 8,
-    borderRadius: 8,
-  },  
-  walletCard: {
-    backgroundColor: colors.card,
-    borderRadius: 16,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: colors.border,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  walletRow: {
-    flexDirection: 'row',
-    marginBottom: 18,
-  },
-  walletItem: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  walletDivider: {
-    width: 1,
-    backgroundColor: colors.border,
-    marginHorizontal: 14,
-  },
-  walletLabel: {
-    fontSize: 11,
-    color: colors.textSecondary,
-    marginBottom: 8,
-    textAlign: 'center',
-    fontWeight: '600',
-    letterSpacing: 0.2,
-  },
-  walletValue: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: colors.text,
-    letterSpacing: 0.3,
-  },
   vehicleCard: {
     flexDirection: 'row',
-    alignItems: 'center',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
     backgroundColor: colors.card,
     borderRadius: 14,
     padding: 14,
@@ -1408,6 +2335,12 @@ const createStyles = (colors: any) => StyleSheet.create({
     shadowOpacity: 0.06,
     shadowRadius: 3,
     elevation: 1,
+  },
+  vehicleMainInfo: {
+    flexDirection: 'row',
+    flex: 1,
+    alignItems: 'flex-start',
+    marginRight: 12,
   },
   vehicleIcon: {
     width: 60,
@@ -1421,6 +2354,11 @@ const createStyles = (colors: any) => StyleSheet.create({
   vehicleIconText: {
     fontSize: 32,
   },
+  vehicleIconImage: {
+    width: 40,
+    height: 40,
+    resizeMode: 'contain',
+  },
   vehicleInfo: {
     flex: 1,
   },
@@ -1433,6 +2371,14 @@ const createStyles = (colors: any) => StyleSheet.create({
   vehicleDetails: {
     fontSize: 13,
     color: colors.textSecondary,
+  },
+  pendingVehicleLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#FF9800',
+    marginTop: 4,
+    flexWrap: 'wrap',
+    flexShrink: 10,
   },
   changeButton: {
     backgroundColor: colors.surface,
@@ -1455,10 +2401,14 @@ const createStyles = (colors: any) => StyleSheet.create({
     color: colors.background,
     fontWeight: '700',
   },
+  changeButtonTextDisabled: {
+    color: colors.textSecondary,
+  },
   vehicleButtonsContainer: {
     flexDirection: 'row',
     gap: 8,
     alignItems: 'center',
+    alignSelf: 'center',
   },
   verifyButton: {
     backgroundColor: '#2196F3',
@@ -1488,11 +2438,14 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontWeight: '700',
     color: '#4CAF50',
     marginTop: 4,
+    flexWrap: 'wrap',
+    flexShrink: 1,
   },
   addVehicleButton: {
     backgroundColor: colors.surface,
     borderRadius: 12,
     padding: 16,
+    marginTop: 4,
     alignItems: 'center',
     borderWidth: 1,
     borderColor: colors.border,
@@ -1502,6 +2455,67 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: colors.text,
+  },
+  preferenceCard: {
+    backgroundColor: colors.card,
+    borderRadius: 18,
+    padding: 18,
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+    marginTop: 16,
+  },
+  preferenceHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  preferenceIconWrapper: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: `${colors.primary}22`,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 18,
+  },
+  preferenceIcon: { fontSize: 26 },
+  preferenceInfo: { flex: 1, marginRight: 12 },
+  preferenceTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 6,
+  },
+  preferenceSubtitle: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    lineHeight: 20,
+  },
+  preferenceHint: {
+    marginTop: 10,
+    fontSize: 13,
+    color: colors.textSecondary,
+  },
+  modeToggleButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: colors.primary,
+  },
+  modeToggleButtonActive: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.primary,
+  },
+  modeToggleButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  modeToggleButtonTextActive: {
+    color: colors.primary,
   },
   documentCard: {
     flexDirection: 'row',
@@ -1584,27 +2598,32 @@ const createStyles = (colors: any) => StyleSheet.create({
     letterSpacing: 0.2,
   },
   optionCard: {
+    paddingVertical: 24,
+    paddingHorizontal: 20,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.card,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
   optionIcon: {
-    fontSize: 24,
-    marginRight: 16,
+    fontSize: 20,
+    marginRight: 14,
+  },
+  optionIconImage: {
+    width: 25,
+    height: 25,
+    marginRight: 14,
+    resizeMode: 'contain',
+    tintColor: colors.text,
   },
   optionText: {
     flex: 1,
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 15,
+    fontWeight: '500',
     color: colors.text,
   },
   optionArrow: {
-    fontSize: 20,
+    fontSize: 18,
     color: colors.textSecondary,
   },
   insuranceCard: {
@@ -1751,15 +2770,15 @@ const createStyles = (colors: any) => StyleSheet.create({
   designatedDriverCard: {
     backgroundColor: colors.card,
     borderRadius: 16,
-    padding: 18,
-    borderWidth: 2,
+    padding: 16,
+    borderWidth: 1,
     borderColor: '#2196F3',
     shadowColor: '#2196F3',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 6,
-    marginHorizontal: 0,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 4,
+    marginTop: 12,
   },
   designatedDriverContent: {
     marginBottom: 18,

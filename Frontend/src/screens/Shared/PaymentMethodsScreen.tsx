@@ -5,14 +5,18 @@ import {
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  Alert,
   TextInput,
   ScrollView,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { initializeFirebase } from '../../config/firebase';
+import alertService from '../../services/alertService';
+import { useTranslation } from 'react-i18next';
+
+const BACK_BUTTON_ICON = require('../../assets/icons/back_button/back_button2x.png');
 
 interface Card {
   id: string;
@@ -28,6 +32,7 @@ interface Card {
 export default function PaymentMethodsScreen({ navigation }: any) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const { t } = useTranslation();
   const [cards, setCards] = useState<Card[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -39,7 +44,7 @@ export default function PaymentMethodsScreen({ navigation }: any) {
     try {
       setLoading(true);
       const { app } = await initializeFirebase();
-      if (!app) throw new Error('Firebase no inicializado');
+      if (!app) throw new Error('Firebase not initialized');
 
       const functions = getFunctions(app);
       const getCardsFn = httpsCallable(functions, 'getCards');
@@ -50,7 +55,8 @@ export default function PaymentMethodsScreen({ navigation }: any) {
         setCards(data.cards);
       }
     } catch (error: any) {
-      console.error('Error cargando tarjetas:', error);
+      console.error('Error loading payment methods:', error);
+      alertService.showErrorAlert(t('shared.paymentMethods.alerts.loadError'));
     } finally {
       setLoading(false);
     }
@@ -59,47 +65,50 @@ export default function PaymentMethodsScreen({ navigation }: any) {
   const handleSetDefault = async (cardId: string) => {
     try {
       const { app } = await initializeFirebase();
-      if (!app) throw new Error('Firebase no inicializado');
+      if (!app) throw new Error('Firebase not initialized');
 
       const functions = getFunctions(app);
       const setDefaultCardFn = httpsCallable(functions, 'setDefaultCard');
       await setDefaultCardFn({ cardId });
 
-      Alert.alert('✅ Éxito', 'Tarjeta predeterminada actualizada');
+      alertService.showSuccessAlert(
+        t('shared.paymentMethods.alerts.defaultSuccessTitle'),
+        t('shared.paymentMethods.alerts.defaultSuccessMessage'),
+      );
       loadCards();
     } catch (error: any) {
-      console.error('Error estableciendo tarjeta predeterminada:', error);
-      Alert.alert('Error', 'No se pudo actualizar la tarjeta predeterminada');
+      console.error('Error setting default card:', error);
+      alertService.showErrorAlert(t('shared.paymentMethods.alerts.defaultError'));
     }
   };
 
   const handleRemoveCard = async (cardId: string) => {
-    Alert.alert(
-      'Eliminar Tarjeta',
-      '¿Estás seguro de que deseas eliminar esta tarjeta?',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Eliminar',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const { app } = await initializeFirebase();
-              if (!app) throw new Error('Firebase no inicializado');
+    alertService.showConfirmAlert(
+      t('shared.paymentMethods.alerts.deleteTitle'),
+      t('shared.paymentMethods.alerts.deleteMessage'),
+      async () => {
+        try {
+          const { app } = await initializeFirebase();
+          if (!app) throw new Error('Firebase not initialized');
 
-              const functions = getFunctions(app);
-              const deleteCardFn = httpsCallable(functions, 'deleteCard');
-              await deleteCardFn({ cardId });
+          const functions = getFunctions(app);
+          const deleteCardFn = httpsCallable(functions, 'deleteCard');
+          await deleteCardFn({ cardId });
 
-              Alert.alert('✅ Éxito', 'Tarjeta eliminada');
-              loadCards();
-            } catch (error: any) {
-              console.error('Error eliminando tarjeta:', error);
-              Alert.alert('Error', 'No se pudo eliminar la tarjeta');
-            }
-          },
-        },
-      ]
+          alertService.showSuccessAlert(
+            t('shared.paymentMethods.alerts.deleteSuccessTitle'),
+            t('shared.paymentMethods.alerts.deleteSuccessMessage'),
+          );
+          loadCards();
+        } catch (error: any) {
+          console.error('Error deleting card:', error);
+          alertService.showErrorAlert(t('shared.paymentMethods.alerts.deleteError'));
+        }
+      },
+      undefined,
+      t('shared.paymentMethods.alerts.deleteConfirm'),
+      t('shared.paymentMethods.alerts.deleteCancel'),
+      true
     );
   };
 
@@ -115,12 +124,17 @@ export default function PaymentMethodsScreen({ navigation }: any) {
           {card.brand} •••• {card.last4}
         </Text>
         <Text style={styles.methodSubtitle}>
-          Expira {String(card.expMonth).padStart(2, '0')}/{card.expYear}
+          {t('shared.paymentMethods.cards.expires', {
+            month: String(card.expMonth).padStart(2, '0'),
+            year: card.expYear,
+          })}
         </Text>
       </View>
       {card.isDefault ? (
         <View style={styles.defaultBadge}>
-          <Text style={styles.defaultText}>Predeterminado</Text>
+          <Text style={styles.defaultText}>
+            {t('shared.paymentMethods.cards.defaultBadge')}
+          </Text>
         </View>
       ) : (
         <View style={styles.cardActions}>
@@ -128,7 +142,9 @@ export default function PaymentMethodsScreen({ navigation }: any) {
             style={styles.setDefaultButton}
             onPress={() => handleSetDefault(card.id)}
           >
-            <Text style={styles.setDefaultText}>Usar</Text>
+            <Text style={styles.setDefaultText}>
+              {t('shared.paymentMethods.cards.actions.use')}
+            </Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.removeButton}
@@ -145,7 +161,7 @@ export default function PaymentMethodsScreen({ navigation }: any) {
     return (
       <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
         <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Cargando métodos de pago...</Text>
+        <Text style={styles.loadingText}>{t('shared.paymentMethods.loading')}</Text>
       </View>
     );
   }
@@ -155,10 +171,20 @@ export default function PaymentMethodsScreen({ navigation }: any) {
       <View style={styles.content}>
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.title}>Métodos de Pago</Text>
-          <Text style={styles.subtitle}>
-            Gestiona tus métodos de pago
-          </Text>
+          <TouchableOpacity
+            onPress={() => navigation.goBack()}
+            style={styles.backButton}
+            accessibilityRole="button"
+            accessibilityLabel={t('shared.paymentMethods.header.goBack')}
+          >
+            <Image source={BACK_BUTTON_ICON} style={styles.backButtonIcon} resizeMode="contain" />
+          </TouchableOpacity>
+          <View style={styles.headerText}>
+            <Text style={styles.title}>{t('shared.paymentMethods.header.title')}</Text>
+            <Text style={styles.subtitle}>
+              {t('shared.paymentMethods.header.subtitle')}
+            </Text>
+          </View>
         </View>
 
         {/* Efectivo - Siempre predeterminado si no hay tarjeta predeterminada */}
@@ -167,17 +193,21 @@ export default function PaymentMethodsScreen({ navigation }: any) {
             <Text style={styles.methodIconText}>💵</Text>
           </View>
           <View style={styles.methodInfo}>
-            <Text style={styles.methodTitle}>Efectivo</Text>
-            <Text style={styles.methodSubtitle}>Paga al conductor</Text>
+            <Text style={styles.methodTitle}>{t('shared.paymentMethods.cash.title')}</Text>
+            <Text style={styles.methodSubtitle}>{t('shared.paymentMethods.cash.subtitle')}</Text>
           </View>
           {!hasDefaultCard && (
             <View style={styles.defaultBadge}>
-              <Text style={styles.defaultText}>Predeterminado</Text>
+              <Text style={styles.defaultText}>
+                {t('shared.paymentMethods.cards.defaultBadge')}
+              </Text>
             </View>
           )}
           {hasDefaultCard && (
             <TouchableOpacity style={styles.setDefaultButton}>
-              <Text style={styles.setDefaultText}>Usar</Text>
+              <Text style={styles.setDefaultText}>
+                {t('shared.paymentMethods.cards.actions.use')}
+              </Text>
             </TouchableOpacity>
           )}
         </View>
@@ -191,14 +221,16 @@ export default function PaymentMethodsScreen({ navigation }: any) {
           onPress={() => navigation.navigate('AddCard')}
         >
           <Text style={styles.addButtonIcon}>+</Text>
-          <Text style={styles.addButtonText}>Agregar Tarjeta</Text>
+          <Text style={styles.addButtonText}>
+            {t('shared.paymentMethods.buttons.addCard')}
+          </Text>
         </TouchableOpacity>
 
         {/* Info de seguridad */}
         <View style={styles.securityInfo}>
           <Text style={styles.securityIcon}>🔒</Text>
           <Text style={styles.securityText}>
-            Tus datos están protegidos con encriptación de nivel bancario
+            {t('shared.paymentMethods.security.message')}
           </Text>
         </View>
       </View>
@@ -220,7 +252,28 @@ const createStyles = (colors: any) => StyleSheet.create({
     padding: 24,
   },
   header: {
+    marginTop: 30,
     marginBottom: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+  },
+  backButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 20,
+    backgroundColor: colors.surface,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  backButtonIcon: {
+    width: 35,
+    height: 35,
+  },
+  headerText: {
+    flex: 1,
   },
   title: {
     fontSize: 28,

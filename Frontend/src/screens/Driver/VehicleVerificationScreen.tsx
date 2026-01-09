@@ -11,6 +11,7 @@ import {
   Platform,
   TextInput
 } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import * as ImagePicker from 'expo-image-picker';
@@ -26,6 +27,8 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
   const { colors } = useTheme();
   const { user } = useAuth();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const { t } = useTranslation();
+  const ns = 'driver.VehicleVerificationScreen';
   
   const { vehicleId } = route.params || {};
   
@@ -50,8 +53,8 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
         const { status } = await ImagePicker.requestCameraPermissionsAsync();
         if (status !== 'granted') {
           Alert.alert(
-            'Permisos necesarios', 
-            'Se requiere acceso a la cámara para tomar fotos del vehículo.'
+            t(`${ns}.alerts.permissionTitle`), 
+            t(`${ns}.alerts.permissionMessage`)
           );
         }
       }
@@ -155,7 +158,10 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
         setPhotoFunction(result.assets[0].uri);
       }
     } catch (error) {
-      Alert.alert('Error', 'No se pudo tomar la foto');
+      Alert.alert(
+        t(`${ns}.alerts.cameraErrorTitle`),
+        t(`${ns}.alerts.cameraErrorMessage`)
+      );
       console.error('Error al tomar foto:', error);
     }
   };
@@ -163,7 +169,10 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
   // Subir fotos y datos del vehículo
   const uploadVehicleVerification = async () => {
     if (!user || !allDataProvided) {
-      Alert.alert('Error', 'Faltan datos o fotos para continuar');
+      Alert.alert(
+        t(`${ns}.alerts.missingDataTitle`),
+        t(`${ns}.alerts.missingDataMessage`)
+      );
       return;
     }
 
@@ -228,10 +237,10 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
 
       setLoading(false);
       Alert.alert(
-        'Éxito', 
-        'Vehículo verificado correctamente. Ahora puedes realizar viajes.',
+        t(`${ns}.alerts.successTitle`), 
+        t(`${ns}.alerts.successMessage`),
         [{ 
-          text: 'Aceptar', 
+          text: t(`${ns}.alerts.successButton`), 
           onPress: () => {
             navigation.goBack();
           }
@@ -241,61 +250,64 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
     } catch (error) {
       console.error('Error al verificar vehículo:', error);
       setLoading(false);
-      Alert.alert('Error', 'No se pudieron subir los datos. Inténtelo de nuevo.');
+      Alert.alert(
+        t(`${ns}.alerts.uploadErrorTitle`),
+        t(`${ns}.alerts.uploadErrorMessage`)
+      );
     }
   };
 
   return (
     <ScrollView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>🚗 Verificación del Vehículo</Text>
-        <Text style={styles.subtitle}>Completa la información y sube las fotos de tu vehículo para poder realizar viajes.</Text>
+        <Text style={styles.title}>{t(`${ns}.header.title`)}</Text>
+        <Text style={styles.subtitle}>{t(`${ns}.header.subtitle`)}</Text>
       </View>
       
       {/* Datos del Vehículo */}
       <View style={styles.dataSection}>
-        <Text style={styles.sectionTitle}>Información de Registro</Text>
+        <Text style={styles.sectionTitle}>{t(`${ns}.form.title`)}</Text>
         
-        <Text style={styles.label}>Número de Registro *</Text>
+        <Text style={styles.label}>{t(`${ns}.form.registrationNumberLabel`)}</Text>
         <TextInput
           style={styles.input}
-          placeholder="Ej: B2301230"
+          placeholder={t(`${ns}.form.registrationNumberPlaceholder`)}
           value={registrationNumber}
           onChangeText={setRegistrationNumber}
           placeholderTextColor={colors.textSecondary}
         />
 
-        <Text style={styles.label}>Vencimiento de Registro (YYYY-MM-DD) *</Text>
+        <Text style={styles.label}>{t(`${ns}.form.registrationExpiryLabel`)}</Text>
         <TextInput
           style={styles.input}
-          placeholder="Ej: 2029-02-14"
+          placeholder={t(`${ns}.form.registrationExpiryPlaceholder`)}
           value={registrationExpiry}
           onChangeText={setRegistrationExpiry}
           placeholderTextColor={colors.textSecondary}
         />
 
-        <Text style={styles.label}>Número de Seguro *</Text>
+        <Text style={styles.label}>{t(`${ns}.form.insuranceNumberLabel`)}</Text>
         <TextInput
           style={styles.input}
-          placeholder="Ej: RCO30201102"
+          placeholder={t(`${ns}.form.insuranceNumberPlaceholder`)}
           value={insuranceNumber}
           onChangeText={setInsuranceNumber}
           placeholderTextColor={colors.textSecondary}
         />
 
-        <Text style={styles.label}>Compañía de Seguro *</Text>
+        <Text style={styles.label}>{t(`${ns}.form.insuranceCompanyLabel`)}</Text>
         <TextInput
           style={styles.input}
-          placeholder="Ej: BAC"
+          placeholder={t(`${ns}.form.insuranceCompanyPlaceholder`)}
           value={insuranceCompany}
           onChangeText={setInsuranceCompany}
           placeholderTextColor={colors.textSecondary}
         />
 
-        <Text style={styles.label}>Vencimiento de Seguro (YYYY-MM-DD) *</Text>
+        <Text style={styles.label}>{t(`${ns}.form.insuranceExpiryLabel`)}</Text>
         <TextInput
           style={styles.input}
-          placeholder="Ej: 2030-02-12"
+          placeholder={t(`${ns}.form.insuranceExpiryPlaceholder`)}
           value={insuranceExpiry}
           onChangeText={setInsuranceExpiry}
           placeholderTextColor={colors.textSecondary}
@@ -304,11 +316,11 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
 
       {/* Fotos del Vehículo */}
       <View style={styles.photoSection}>
-        <Text style={styles.sectionTitle}>Fotos del Vehículo</Text>
+        <Text style={styles.sectionTitle}>{t(`${ns}.photos.title`)}</Text>
         
         {/* Foto del Vehículo */}
         <View style={styles.photoContainer}>
-          <Text style={styles.photoTitle}>1. Foto General del Vehículo</Text>
+          <Text style={styles.photoTitle}>{t(`${ns}.photos.vehicleTitle`)}</Text>
           {vehiclePhoto ? (
             <View style={styles.previewContainer}>
               <Image source={{ uri: vehiclePhoto }} style={styles.photoPreview} />
@@ -316,7 +328,7 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
                 style={styles.retakeButton}
                 onPress={() => takePhoto(setVehiclePhoto)}
               >
-                <Text style={styles.retakeButtonText}>Volver a tomar</Text>
+                <Text style={styles.retakeButtonText}>{t(`${ns}.photos.retakePhoto`)}</Text>
               </TouchableOpacity>
             </View>
           ) : (
@@ -324,14 +336,14 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
               style={styles.photoButton}
               onPress={() => takePhoto(setVehiclePhoto)}
             >
-              <Text style={styles.photoButtonText}>📷 Tomar Foto</Text>
+              <Text style={styles.photoButtonText}>{t(`${ns}.photos.takePhoto`)}</Text>
             </TouchableOpacity>
           )}
         </View>
 
         {/* Foto Registro Frente */}
         <View style={styles.photoContainer}>
-          <Text style={styles.photoTitle}>2. Frente del Registro</Text>
+          <Text style={styles.photoTitle}>{t(`${ns}.photos.registrationFrontTitle`)}</Text>
           {registrationPhotoFront ? (
             <View style={styles.previewContainer}>
               <Image source={{ uri: registrationPhotoFront }} style={styles.photoPreview} />
@@ -339,7 +351,7 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
                 style={styles.retakeButton}
                 onPress={() => takePhoto(setRegistrationPhotoFront)}
               >
-                <Text style={styles.retakeButtonText}>Volver a tomar</Text>
+                <Text style={styles.retakeButtonText}>{t(`${ns}.photos.retakePhoto`)}</Text>
               </TouchableOpacity>
             </View>
           ) : (
@@ -347,14 +359,14 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
               style={styles.photoButton}
               onPress={() => takePhoto(setRegistrationPhotoFront)}
             >
-              <Text style={styles.photoButtonText}>📷 Tomar Foto</Text>
+              <Text style={styles.photoButtonText}>{t(`${ns}.photos.takePhoto`)}</Text>
             </TouchableOpacity>
           )}
         </View>
 
         {/* Foto Registro Atrás */}
         <View style={styles.photoContainer}>
-          <Text style={styles.photoTitle}>3. Reverso del Registro</Text>
+          <Text style={styles.photoTitle}>{t(`${ns}.photos.registrationBackTitle`)}</Text>
           {registrationPhotoBack ? (
             <View style={styles.previewContainer}>
               <Image source={{ uri: registrationPhotoBack }} style={styles.photoPreview} />
@@ -362,7 +374,7 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
                 style={styles.retakeButton}
                 onPress={() => takePhoto(setRegistrationPhotoBack)}
               >
-                <Text style={styles.retakeButtonText}>Volver a tomar</Text>
+                <Text style={styles.retakeButtonText}>{t(`${ns}.photos.retakePhoto`)}</Text>
               </TouchableOpacity>
             </View>
           ) : (
@@ -370,14 +382,14 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
               style={styles.photoButton}
               onPress={() => takePhoto(setRegistrationPhotoBack)}
             >
-              <Text style={styles.photoButtonText}>📷 Tomar Foto</Text>
+              <Text style={styles.photoButtonText}>{t(`${ns}.photos.takePhoto`)}</Text>
             </TouchableOpacity>
           )}
         </View>
 
         {/* Foto Seguro */}
         <View style={styles.photoContainer}>
-          <Text style={styles.photoTitle}>4. Póliza de Seguro</Text>
+          <Text style={styles.photoTitle}>{t(`${ns}.photos.insuranceTitle`)}</Text>
           {insurancePhoto ? (
             <View style={styles.previewContainer}>
               <Image source={{ uri: insurancePhoto }} style={styles.photoPreview} />
@@ -385,7 +397,7 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
                 style={styles.retakeButton}
                 onPress={() => takePhoto(setInsurancePhoto)}
               >
-                <Text style={styles.retakeButtonText}>Volver a tomar</Text>
+                <Text style={styles.retakeButtonText}>{t(`${ns}.photos.retakePhoto`)}</Text>
               </TouchableOpacity>
             </View>
           ) : (
@@ -393,22 +405,22 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
               style={styles.photoButton}
               onPress={() => takePhoto(setInsurancePhoto)}
             >
-              <Text style={styles.photoButtonText}>📷 Tomar Foto</Text>
+              <Text style={styles.photoButtonText}>{t(`${ns}.photos.takePhoto`)}</Text>
             </TouchableOpacity>
           )}
         </View>
       </View>
 
       <View style={styles.noticeContainer}>
-        <Text style={styles.noticeText}>
-          ⚠️ Asegúrate de que todas las fotos sean claras y legibles. Estos documentos serán verificados por nuestro equipo.
-        </Text>
+        <Text style={styles.noticeText}>{t(`${ns}.notice.text`)}</Text>
       </View>
 
       {loading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loadingText}>Verificando vehículo... {Math.round(uploadProgress * 100)}%</Text>
+          <Text style={styles.loadingText}>
+            {t(`${ns}.loading.verifying`, { progress: Math.round(uploadProgress * 100) })}
+          </Text>
         </View>
       ) : (
         <TouchableOpacity 
@@ -417,7 +429,9 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
           disabled={!allDataProvided}
         >
           <Text style={styles.submitButtonText}>
-            {allDataProvided ? 'Verificar Vehículo' : 'Complete todos los datos y fotos'}
+            {allDataProvided
+              ? t(`${ns}.buttons.submit`)
+              : t(`${ns}.buttons.incomplete`)}
           </Text>
         </TouchableOpacity>
       )}

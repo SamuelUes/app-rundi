@@ -7,21 +7,24 @@ import { getFirebaseFunctions } from '../config/firebase';
 
 export interface Card {
   id: string;
-  cardNumber: string; // Enmascarada: ****1234
-  cardHolder: string;
-  expiryMonth: string;
-  expiryYear: string;
+  localCardId: string;
+  bank: 'bac' | 'banpro' | 'lafise' | 'ficohsa' | 'avanz';
+  brand: string;
+  last4: string;
+  expMonth: number;
+  expYear: number;
   isDefault: boolean;
-  createdAt: string;
+  isActive: boolean;
+  createdAt?: string;
 }
 
 export interface AddCardRequest {
-  cardNumber: string;
-  cardHolder: string;
-  expiryMonth: string;
-  expiryYear: string;
-  cvv: string;
-  isDefault?: boolean;
+  bank: 'bac' | 'banpro' | 'lafise' | 'ficohsa' | 'avanz';
+  cardBrand: string;
+  last4: string;
+  expMonth: number;
+  expYear: number;
+  setAsDefault?: boolean;
 }
 
 class CardsService {
@@ -41,15 +44,27 @@ class CardsService {
     try {
       const functions = await this.getFunctions();
       const addCardFn = httpsCallable(functions, 'addCard');
-      
-      console.log(`💳 [cardsService] Agregando tarjeta para: ${cardData.cardHolder}`);
-      
+
+      console.log(`💳 [cardsService] Agregando tarjeta (${cardData.cardBrand}) banco ${cardData.bank}`);
+
       const response = await addCardFn(cardData);
-      const result = response.data as { success: boolean; card: Card };
-      
+      const result = response.data as { success: boolean; card: any };
+
       if (result.success) {
-        console.log(`✅ Tarjeta agregada: ${result.card.cardNumber}`);
-        return result.card;
+        const normalized: Card = {
+          id: result.card.id,
+          localCardId: result.card.localCardId,
+          bank: result.card.bank,
+          brand: result.card.brand,
+          last4: result.card.last4,
+          expMonth: Number(result.card.expMonth),
+          expYear: Number(result.card.expYear),
+          isDefault: Boolean(result.card.isDefault),
+          isActive: result.card.isActive ?? true,
+          createdAt: result.card.createdAt,
+        };
+        console.log(`✅ Tarjeta agregada: ${normalized.brand} ****${normalized.last4}`);
+        return normalized;
       } else {
         throw new Error('No se pudo agregar la tarjeta');
       }
@@ -70,11 +85,12 @@ class CardsService {
       console.log(`💳 [cardsService] Obteniendo tarjetas del usuario`);
       
       const response = await getCardsFn({});
-      const result = response.data as { success: boolean; cards: Card[] };
-      
+      const result = response.data as { success: boolean; cards: any[] };
+
       if (result.success) {
-        console.log(`✅ Tarjetas obtenidas: ${result.cards.length}`);
-        return result.cards;
+        const normalized = result.cards.map((card) => this.normalizeCard(card));
+        console.log(`✅ Tarjetas obtenidas: ${normalized.length}`);
+        return normalized;
       } else {
         return [];
       }
@@ -92,15 +108,20 @@ class CardsService {
     try {
       const functions = await this.getFunctions();
       const setDefaultCardFn = httpsCallable(functions, 'setDefaultCard');
-      
-      console.log(`💳 [cardsService] Estableciendo tarjeta por defecto: ${cardId}`);
-      
+
+
       const response = await setDefaultCardFn({ cardId });
-      const result = response.data as { success: boolean; card: Card };
-      
+      const result = response.data as { success: boolean; card: any };
+
       if (result.success) {
+        const normalized = this.normalizeCard({
+          ...result.card,
+          expMonth: result.card.expMonth ?? 0,
+          expYear: result.card.expYear ?? 0,
+          isDefault: true,
+        });
         console.log(`✅ Tarjeta por defecto actualizada`);
-        return result.card;
+        return normalized;
       } else {
         throw new Error('No se pudo establecer la tarjeta por defecto');
       }
@@ -113,26 +134,43 @@ class CardsService {
   /**
    * Eliminar tarjeta
    */
-  async deleteCard(cardId: string): Promise<{ success: boolean; message: string }> {
+  async deleteCard(cardId: string): Promise<void> {
     try {
       const functions = await this.getFunctions();
       const deleteCardFn = httpsCallable(functions, 'deleteCard');
-      
+
       console.log(`💳 [cardsService] Eliminando tarjeta: ${cardId}`);
-      
+
       const response = await deleteCardFn({ cardId });
       const result = response.data as { success: boolean; message: string };
-      
-      if (result.success) {
-        console.log(`✅ Tarjeta eliminada`);
-        return result;
-      } else {
-        throw new Error('No se pudo eliminar la tarjeta');
+
+      if (!result.success) {
+        throw new Error(result.message || 'No se pudo eliminar la tarjeta');
       }
+
+      console.log(`✅ Tarjeta eliminada`);
     } catch (error: any) {
       console.error('❌ Error eliminando tarjeta:', error.message);
       throw new Error(error.message || 'Error al eliminar tarjeta');
     }
+  }
+
+  /**
+   * Normalizar respuesta de tarjeta
+   */
+  private normalizeCard(card: any): Card {
+    return {
+      id: card.id,
+      localCardId: card.localCardId,
+      bank: card.bank,
+      brand: card.brand,
+      last4: card.last4,
+      expMonth: Number(card.expMonth),
+      expYear: Number(card.expYear),
+      isDefault: Boolean(card.isDefault),
+      isActive: card.isActive ?? true,
+      createdAt: card.createdAt,
+    };
   }
 }
 

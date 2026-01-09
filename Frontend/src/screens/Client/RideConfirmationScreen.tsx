@@ -5,7 +5,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
-  Alert,
   Linking,
   ScrollView,
   Image,
@@ -21,6 +20,8 @@ import priceNegotiationService from '../../services/priceNegotiationService';
 import { RideCardSkeleton } from '../../components/SkeletonLoader';
 import { NoDriversEmptyState } from '../../components/EmptyState';
 import { RatingDisplay } from '../../components/RatingDisplay';
+import alertService from '../../services/alertService';
+import DynamicMap from '../../components/DynamicMap';
 
 interface RideConfirmationScreenProps {
   route: {
@@ -47,33 +48,24 @@ export default function RideConfirmationScreen({ route, navigation }: RideConfir
 
   // Función para manejar la cancelación
   const handleBackPress = useCallback(() => {
-    Alert.alert(
+    alertService.showConfirmAlert(
       '⚠️ Cancelar Viaje',
       'Si regresas, tu viaje será cancelado automáticamente. ¿Estás seguro?',
-      [
-        {
-          text: 'Quedarme',
-          style: 'cancel',
-          onPress: () => console.log('Usuario decidió quedarse en RideConfirmation'),
-        },
-        {
-          text: 'Cancelar Viaje',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              console.log('🚫 Usuario confirmó cancelación desde botón atrás');
-              setCanceling(true);
-              await ridesService.cancelRide(rideId, 'Cancelado por el cliente al regresar');
-              navigation.navigate('ClientHome');
-            } catch (error: any) {
-              console.error('❌ Error cancelando viaje:', error);
-              Alert.alert('Error', 'No se pudo cancelar el viaje. Intenta de nuevo.');
-              setCanceling(false);
-            }
-          },
-        },
-      ],
-      { cancelable: false }
+      async () => {
+        try {
+          console.log('🚫 Usuario confirmó cancelación desde botón atrás');
+          setCanceling(true);
+          await ridesService.cancelRide(rideId, 'Cancelado por el cliente al regresar');
+          navigation.navigate('ClientHome');
+        } catch (error: any) {
+          console.error('❌ Error cancelando viaje:', error);
+          alertService.showErrorAlert('No se pudo cancelar el viaje. Intenta de nuevo.');
+          setCanceling(false);
+        }
+      },
+      undefined,
+      'Cancelar Viaje',
+      'Quedarme'
     );
   }, [rideId, navigation]);
 
@@ -106,6 +98,63 @@ export default function RideConfirmationScreen({ route, navigation }: RideConfir
   }, [navigation, handleBackPress]);
 
   const [driverInfoCache, setDriverInfoCache] = useState<Record<string, any>>({});
+
+  const originCoords = useMemo(() => {
+    const origin = ride?.origin || ride?.originLocation;
+    if (!origin) return null;
+    const latitude = origin.lat ?? origin.latitude;
+    const longitude = origin.lng ?? origin.longitude;
+    if (typeof latitude === 'number' && typeof longitude === 'number') {
+      return { latitude, longitude };
+    }
+    return null;
+  }, [ride?.origin, ride?.originLocation]);
+
+  const destinationCoords = useMemo(() => {
+    const destination = ride?.destination || ride?.destinationLocation;
+    if (!destination) return null;
+    const latitude = destination.lat ?? destination.latitude;
+    const longitude = destination.lng ?? destination.longitude;
+    if (typeof latitude === 'number' && typeof longitude === 'number') {
+      return { latitude, longitude };
+    }
+    return null;
+  }, [ride?.destination, ride?.destinationLocation]);
+
+  const extraStopMarkers = useMemo(() => {
+    if (!Array.isArray(ride?.extraDestinations)) return [];
+
+    return ride.extraDestinations
+      .map((stop: any, index: number) => {
+        const latitude = stop?.lat ?? stop?.latitude;
+        const longitude = stop?.lng ?? stop?.longitude;
+        if (typeof latitude !== 'number' || typeof longitude !== 'number') {
+          return null;
+        }
+        return {
+          latitude,
+          longitude,
+          index: index + 1,
+          label: stop?.address || `Parada ${index + 1}`,
+        };
+      })
+      .filter(Boolean) as Array<{ latitude: number; longitude: number; index: number; label?: string }>;
+  }, [ride?.extraDestinations]);
+
+  const hasValidCoords = useMemo(
+    () => !!originCoords || !!destinationCoords || extraStopMarkers.length > 0,
+    [originCoords, destinationCoords, extraStopMarkers],
+  );
+
+  const mapCenter = useMemo(() => {
+    if (originCoords) return originCoords;
+    if (destinationCoords) return destinationCoords;
+    if (extraStopMarkers.length > 0) {
+      const first = extraStopMarkers[0];
+      return { latitude: first.latitude, longitude: first.longitude };
+    }
+    return { latitude: 12.136389, longitude: -86.251389 }; // Managua como fallback
+  }, [originCoords, destinationCoords, extraStopMarkers]);
 
  // Listener en tiempo real para ofertas de conductores y estado del viaje
 useEffect(() => {
@@ -265,29 +314,23 @@ useEffect(() => {
 }, [rideId]);
 
   const handleCancelRide = () => {
-    Alert.alert(
-      'Cancelar Viaje',
+    alertService.showConfirmAlert(
+      'Cancelar viaje',
       '¿Estás seguro que deseas cancelar este viaje?',
-      [
-        { text: 'No', style: 'cancel' },
-        {
-          text: 'Sí, cancelar',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              setCanceling(true);
-              await ridesService.cancelRide(rideId, 'Cancelado por el cliente');
-              Alert.alert('Viaje Cancelado', 'Tu viaje ha sido cancelado exitosamente', [
-                { text: 'OK', onPress: () => navigation.navigate('ClientHome') },
-              ]);
-            } catch (error: any) {
-              Alert.alert('Error', error.response?.data?.message || 'No se pudo cancelar el viaje');
-            } finally {
-              setCanceling(false);
-            }
-          },
-        },
-      ]
+      async () => {
+        try {
+          setCanceling(true);
+          await ridesService.cancelRide(rideId, 'Cancelado por el cliente');
+          alertService.showSuccessAlert('Viaje cancelado', 'Tu viaje ha sido cancelado exitosamente', () => navigation.navigate('ClientHome'));
+        } catch (error: any) {
+          alertService.showErrorAlert(error.response?.data?.message || 'No se pudo cancelar el viaje');
+        } finally {
+          setCanceling(false);
+        }
+      },
+      undefined,
+      'Sí, cancelar',
+      'No'
     );
   };
 
@@ -341,7 +384,7 @@ useEffect(() => {
       });
     } catch (error: any) {
       console.error('❌ Error confirmando conductor:', error);
-      Alert.alert('Error', error.message || 'No se pudo confirmar al conductor');
+      alertService.showErrorAlert(error.message || 'No se pudo confirmar al conductor');
     } finally {
       setConfirming(false);
     }
@@ -373,6 +416,24 @@ useEffect(() => {
           </Text>
         </View>
       </View>
+
+      {hasValidCoords && (
+        <View style={styles.mapPreviewContainer}>
+          <DynamicMap
+            latitude={mapCenter.latitude}
+            longitude={mapCenter.longitude}
+            style={styles.mapPreview}
+            originMarker={originCoords || undefined}
+            destinationMarker={destinationCoords || undefined}
+            originLabel={ride?.origin?.address || ride?.originAddress || undefined}
+            destinationLabel={ride?.destination?.address || ride?.destinationAddress || undefined}
+            extraStopMarkers={extraStopMarkers}
+            showPinBubbles
+            autoFitEnabled
+            provider="google"
+          />
+        </View>
+      )}
 
       {/* ✅ MEJORADO: Lista de Ofertas de Conductores (mostrar en cualquier estado) */}
       {driverOffers.length > 0 && (
@@ -492,7 +553,7 @@ useEffect(() => {
                   const currentUser = auth.currentUser;
                   
                   if (!currentUser) {
-                    Alert.alert('Error', 'Debes iniciar sesión para confirmar al conductor');
+                    alertService.showErrorAlert('Debes iniciar sesión para confirmar al conductor');
                     return;
                   }
 
@@ -510,28 +571,23 @@ useEffect(() => {
                     selectedDriverId: ride.driverId 
                   });
                   
-                  Alert.alert(
-                    '✅ Conductor Confirmado',
+                  alertService.showSuccessAlert(
+                    'Conductor confirmado',
                     `Has confirmado el viaje con ${ride.driver?.name || 'el conductor'}. Ahora podrás ver su ubicación en tiempo real.`,
-                    [
-                      {
-                        text: 'Ver en Mapa',
-                        onPress: () => navigation.replace('RideTracking', {
-                          rideId: ride.id,
-                          driverId: ride.driverId,
-                          driverName: ride.driver?.name || 'Conductor',
-                          vehiclePlate: (ride as any)?.vehicle?.plate || 'N/A',
-                          vehicleBrand: (ride as any)?.vehicle?.make || (ride as any)?.vehicle?.brand || 'N/A',
-                          vehicleModel: (ride as any)?.vehicle?.model || 'N/A',
-                          vehicleColor: (ride as any)?.vehicle?.color || 'N/A',
-                          estimatedFare: (ride as any)?.finalFare || ride.estimatedPrice,
-                        })
-                      }
-                    ]
+                    () => navigation.replace('RideTracking', {
+                      rideId: ride.id,
+                      driverId: ride.driverId,
+                      driverName: ride.driver?.name || 'Conductor',
+                      vehiclePlate: (ride as any)?.vehicle?.plate || 'N/A',
+                      vehicleBrand: (ride as any)?.vehicle?.make || (ride as any)?.vehicle?.brand || 'N/A',
+                      vehicleModel: (ride as any)?.vehicle?.model || 'N/A',
+                      vehicleColor: (ride as any)?.vehicle?.color || 'N/A',
+                      estimatedFare: (ride as any)?.finalFare || ride.estimatedPrice,
+                    })
                   );
                 } catch (error: any) {
                   console.error('❌ Error confirmando conductor:', error);
-                  Alert.alert('Error', error.message || 'No se pudo confirmar el conductor');
+                  alertService.showErrorAlert(error.message || 'No se pudo confirmar el conductor');
                 }
               }}
             >
@@ -542,61 +598,56 @@ useEffect(() => {
             <TouchableOpacity
               style={[styles.rejectButton, { backgroundColor: '#FF5252' }]}
               onPress={() => {
-                Alert.alert(
-                  '❌ Rechazar Conductor',
+                alertService.showConfirmAlert(
+                  '❌ Rechazar conductor',
                   `¿Estás seguro de que quieres rechazar a ${ride.driver?.name || 'este conductor'}? El viaje volverá a estar disponible para otros conductores.`,
-                  [
-                    { text: 'Cancelar', style: 'cancel' },
-                    {
-                      text: 'Rechazar',
-                      style: 'destructive',
-                      onPress: async () => {
-                        try {
-                          // Verificar autenticación
-                          const { getFirebaseAuth } = await import('../../config/firebase');
-                          const auth = await getFirebaseAuth();
-                          const currentUser = auth.currentUser;
-                          
-                          console.log('👤 Usuario actual:', currentUser ? currentUser.uid : 'NO AUTENTICADO');
-                          
-                          if (!currentUser) {
-                            Alert.alert('Error', 'Debes iniciar sesión para rechazar al conductor');
-                            return;
-                          }
-
-                          // Obtener token actualizado y verificar
-                          const token = await currentUser.getIdToken(true);
-                          console.log('🔑 Token obtenido:', token ? `OK (${token.substring(0, 20)}...)` : 'ERROR');
-                          console.log('📧 Email:', currentUser.email);
-                          console.log('🆔 UID:', currentUser.uid);
-                          
-                          // Inicializar Firebase si no está inicializado
-                          await import('../../config/firebase').then(m => m.initializeFirebase());
-                          
-                          const functions = await import('../../config/firebase').then(m => m.getFirebaseFunctions());
-                          const { httpsCallable } = await import('firebase/functions');
-                          
-                          console.log('📞 Llamando a rejectDriver con rideId:', ride.id);
-                          console.log('🔧 Functions configurado:', functions ? 'OK' : 'ERROR');
-                          
-                          const rejectDriverFunction = httpsCallable(functions, 'rejectDriver');
-                          const result = await rejectDriverFunction({ rideId: ride.id });
-                          
-                          console.log('✅ Resultado:', result);
-                          
-                          Alert.alert(
-                            'Conductor Rechazado',
-                            'El viaje está nuevamente disponible para otros conductores.',
-                            [{ text: 'OK' }]
-                          );
-                        } catch (error: any) {
-                          console.error('❌ Error rechazando conductor:', error);
-                          console.error('❌ Error completo:', JSON.stringify(error, null, 2));
-                          Alert.alert('Error', error.message || 'No se pudo rechazar el conductor');
-                        }
+                  async () => {
+                    try {
+                      // Verificar autenticación
+                      const { getFirebaseAuth } = await import('../../config/firebase');
+                      const auth = await getFirebaseAuth();
+                      const currentUser = auth.currentUser;
+                      
+                      console.log('👤 Usuario actual:', currentUser ? currentUser.uid : 'NO AUTENTICADO');
+                      
+                      if (!currentUser) {
+                        alertService.showErrorAlert('Debes iniciar sesión para rechazar al conductor');
+                        return;
                       }
+
+                      // Obtener token actualizado y verificar
+                      const token = await currentUser.getIdToken(true);
+                      console.log('🔑 Token obtenido:', token ? `OK (${token.substring(0, 20)}...)` : 'ERROR');
+                      console.log('📧 Email:', currentUser.email);
+                      console.log('🆔 UID:', currentUser.uid);
+                      
+                      // Inicializar Firebase si no está inicializado
+                      await import('../../config/firebase').then(m => m.initializeFirebase());
+                      
+                      const functions = await import('../../config/firebase').then(m => m.getFirebaseFunctions());
+                      const { httpsCallable } = await import('firebase/functions');
+                      
+                      console.log('📞 Llamando a rejectDriver con rideId:', ride.id);
+                      console.log('🔧 Functions configurado:', functions ? 'OK' : 'ERROR');
+                      
+                      const rejectDriverFunction = httpsCallable(functions, 'rejectDriver');
+                      const result = await rejectDriverFunction({ rideId: ride.id });
+                      
+                      console.log('✅ Resultado:', result);
+                      
+                      alertService.showSuccessAlert(
+                        'Conductor rechazado',
+                        'El viaje está nuevamente disponible para otros conductores.'
+                      );
+                    } catch (error: any) {
+                      console.error('❌ Error rechazando conductor:', error);
+                      console.error('❌ Error completo:', JSON.stringify(error, null, 2));
+                      alertService.showErrorAlert(error.message || 'No se pudo rechazar el conductor');
                     }
-                  ]
+                  },
+                  undefined,
+                  'Rechazar',
+                  'Cancelar'
                 );
               }}
             >
@@ -742,11 +793,11 @@ useEffect(() => {
             if (selectedOffer?.driverId) {
               setPendingCounterOffers(prev => new Set(prev).add(selectedOffer.driverId));
             }
-            Alert.alert('✅ Contraoferta Enviada', `Tu contraoferta de C$${price} ha sido enviada al conductor.`);
+            alertService.showSuccessAlert('Contraoferta enviada', `Tu contraoferta de C$${price} ha sido enviada al conductor.`);
             setShowNegotiationModal(false);
             // Firebase listener actualizará automáticamente
           } catch (error: any) {
-            Alert.alert('Error', error.message || 'No se pudo enviar la contraoferta');
+            alertService.showErrorAlert(error.message || 'No se pudo enviar la contraoferta');
           }
         }}
         onAcceptAndStartRide={async () => {
@@ -779,6 +830,25 @@ const createStyles = (colors: any) => StyleSheet.create({
     padding: 20,
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
+  },
+  mapPreviewContainer: {
+    height: 260,
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 4,
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  mapPreview: {
+    flex: 1,
   },
   statusContainer: {
     flexDirection: 'row',

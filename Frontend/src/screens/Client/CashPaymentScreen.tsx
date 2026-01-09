@@ -16,7 +16,6 @@ import {
   StyleSheet,
   ScrollView,
   Image,
-  Alert,
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { AnimatedButton } from '../../components/AnimatedButton';
@@ -24,10 +23,13 @@ import { getAuth } from 'firebase/auth';
 import { getDatabase, ref, onValue, off, update } from 'firebase/database';
 import { formatNicaraguaTime } from '../../utils/dateUtils';
 import { formatCurrency } from '../../utils/formatters';
+import { useTranslation } from 'react-i18next';
 
 // Servicios optimizados
 import alertService from '../../services/alertService';
 import LoadingOverlay from '../../components/LoadingOverlay';
+import sessionService from '../../services/sessionService';
+import BiometricService from '../../services/biometricService';
 
 // Crear estilos fuera del componente para mejor rendimiento
 const createStyles = (colors: any) => StyleSheet.create({
@@ -188,6 +190,7 @@ const createStyles = (colors: any) => StyleSheet.create({
 
 export default function CashPaymentScreen({ route, navigation }: any) {
   const { colors } = useTheme();
+  const { t } = useTranslation();
   const { rideId, amount: paramAmount, driverName: paramDriverName, driverPhoto } = route.params;
   const styles = useMemo(() => createStyles(colors), [colors]);
   
@@ -196,6 +199,7 @@ export default function CashPaymentScreen({ route, navigation }: any) {
   const [confirming, setConfirming] = useState(false);
   const [paymentStatus, setPaymentStatus] = useState<string>('pending');
   const [driverPhotoURL, setDriverPhotoURL] = useState<string | null>(null);
+  const [biometricRequested, setBiometricRequested] = useState(false);
   const [currentPaymentMethod, setCurrentPaymentMethod] = useState<string>('cash');
   const currentPaymentMethodRef = useRef<string>('cash');
   const isNavigatingRef = useRef(false);
@@ -286,23 +290,17 @@ export default function CashPaymentScreen({ route, navigation }: any) {
               return typeof paramAmount === 'string' ? parseFloat(paramAmount) : paramAmount || 0;
             })();
 
-            Alert.alert(
-              'Método de Pago Cambiado',
-              'El método de pago cambió a tarjeta. Serás redirigido a la pantalla de pago con tarjeta.',
-              [
-                {
-                  text: 'Entendido',
-                  onPress: () => {
-                    navigation.replace('Payment', {
-                      rideId,
-                      amount: finalAmount,
-                      driverName: ride?.driver?.name || paramDriverName,
-                      driverPhoto: ride?.driver?.photoURL || driverPhoto,
-                    });
-                  },
-                },
-              ],
-              { cancelable: false }
+            alertService.showInfoAlert(
+              t('client.cashPayment.alerts.methodChangedTitle'),
+              t('client.cashPayment.alerts.methodChangedMessage'),
+              () => {
+                navigation.replace('Payment', {
+                  rideId,
+                  amount: finalAmount,
+                  driverName: ride?.driver?.name || paramDriverName,
+                  driverPhoto: ride?.driver?.photoURL || driverPhoto,
+                });
+              }
             );
           }
         }
@@ -329,21 +327,72 @@ export default function CashPaymentScreen({ route, navigation }: any) {
     };
   }, [rideId, navigation]);
   
+  useEffect(() => {
+    if (biometricRequested) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      if (biometricRequested) {
+        return;
+      }
+
+      if (paymentStatus === 'pending' || paymentStatus === 'pending_capture') {
+        setBiometricRequested(true);
+        handleConfirmPayment();
+      } else {
+        setBiometricRequested(true);
+      }
+    }, 1200);
+
+    return () => clearTimeout(timer);
+  }, [paymentStatus, biometricRequested]);
+  
   // Confirmar pago en efectivo
   const handleConfirmPayment = async () => {
+    if (confirming) {
+      return;
+    }
+
     try {
-      setConfirming(true);
       console.log('💳 Cliente confirmando pago para rideId:', rideId);
+
+      const finalAmount = ride?.finalFare || ride?.estimatedPrice || paramAmount || 0;
+      const numericAmount = typeof finalAmount === 'string' ? parseFloat(finalAmount) : finalAmount;
+
+      const biometricResult = await BiometricService.authenticate(
+        t('client.cashPayment.biometricPrompt', { amount: formatCurrency(numericAmount) })
+      );
+
+      let authenticationMethod: 'biometric' | 'manual' = 'manual';
+      let biometricType: string | null = null;
+
+      if (!biometricResult.success) {
+        if (
+          biometricResult.error === 'Dispositivo no soporta biometría' ||
+          biometricResult.error === 'No hay biometría registrada'
+        ) {
+          console.log('Biometría no disponible o no registrada. Continuando sin autenticación biométrica.');
+        } else {
+          alertService.showErrorAlert(
+            biometricResult.error || t('client.cashPayment.alerts.identityError')
+          );
+          return;
+        }
+      } else {
+        authenticationMethod = 'biometric';
+        biometricType = biometricResult.biometryType || 'biometric';
+      }
+
+      setConfirming(true);
       
       const auth = getAuth();
       
       if (!auth.currentUser) {
-        alertService.showErrorAlert('Debes iniciar sesión para confirmar el pago');
-        setConfirming(false);
+        alertService.showErrorAlert(t('client.cashPayment.alerts.loginRequired'));
         return;
       }
       
-      // Llamar a la función del backend
       const { getFunctions, httpsCallable } = await import('firebase/functions');
       const { initializeFirebase } = await import('../../config/firebase');
       
@@ -355,56 +404,53 @@ export default function CashPaymentScreen({ route, navigation }: any) {
       const functions = getFunctions(app);
       const confirmCashPaymentFn = httpsCallable(functions, 'confirmCashPayment');
       
-      // Convertir amount a número
-      const finalAmount = ride?.finalFare || ride?.estimatedPrice || paramAmount || 0;
-      const numericAmount = typeof finalAmount === 'string' ? parseFloat(finalAmount) : finalAmount;
-      
+      const deviceId = await sessionService.getDeviceId();
       const result = await confirmCashPaymentFn({
         rideId,
         amount: numericAmount,
         tip: 0,
-        confirmedBy: 'client'
+        confirmedBy: 'client',
+        deviceId,
+        authenticationMethod,
+        biometricType,
       });
       
       const data = result.data as any;
       console.log('✅ Respuesta del backend:', data);
       
       if (data.bothConfirmed) {
-        // Ambos confirmaron → Ir a calificación
         alertService.showSuccessAlert(
-          'Pago Confirmado',
-          'El pago fue confirmado por ambas partes',
+          t('client.cashPayment.alerts.paymentConfirmedTitle'),
+          t('client.cashPayment.alerts.paymentConfirmedMessage'),
           () => {
             navigation.replace('Rating', { rideId });
           }
         );
       } else {
-        // Solo cliente confirmó → Esperar conductor
         alertService.showSuccessAlert(
-          'Confirmación Registrada',
-          'Esperando que el conductor confirme que recibió el pago'
+          t('client.cashPayment.alerts.confirmationStoredTitle'),
+          t('client.cashPayment.alerts.confirmationStoredMessage')
         );
         setPaymentStatus('pending_confirmation');
       }
       
-      setConfirming(false);
-      
     } catch (error: any) {
       console.error('❌ Error confirmando pago:', error);
       alertService.showErrorAlert(
-        error.message || 'No se pudo confirmar el pago. Intenta de nuevo.'
+        error.message || t('client.cashPayment.alerts.confirmError')
       );
+    } finally {
       setConfirming(false);
     }
   };
   
   // Mostrar pantalla de carga
   if (loading || !ride) {
-    return <LoadingOverlay visible={true} message="Cargando información del pago..." />;
+    return <LoadingOverlay visible={true} message={t('client.cashPayment.loading')} />;
   }
   
   // Valores seguros
-  const driverName = ride?.driver?.name ? String(ride.driver.name) : 'Conductor';
+  const driverName = ride?.driver?.name ? String(ride.driver.name) : t('common.roles.driver');
   const driverInitial = driverName.charAt(0).toUpperCase();
   const driverRating = ride?.driver?.rating ? parseFloat(ride.driver.rating) : 0;
   const amount = ride?.finalFare || ride?.estimatedPrice || paramAmount || 0;
@@ -414,8 +460,8 @@ export default function CashPaymentScreen({ route, navigation }: any) {
     <View style={styles.container}>
       <ScrollView style={styles.content}>
         <View style={styles.header}>
-          <Text style={styles.title}>Pago en Efectivo</Text>
-          <Text style={styles.subtitle}>Confirma que has pagado en efectivo al conductor</Text>
+          <Text style={styles.title}>{t('client.cashPayment.header.title')}</Text>
+          <Text style={styles.subtitle}>{t('client.cashPayment.header.subtitle')}</Text>
         </View>
         
         {/* Detalles del pago */}
@@ -450,31 +496,31 @@ export default function CashPaymentScreen({ route, navigation }: any) {
           <View style={styles.divider} />
           
           <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Monto:</Text>
+            <Text style={styles.detailLabel}>{t('client.cashPayment.detail.amount')}</Text>
             <Text style={styles.detailValueAmount}>
               {formatCurrency(numericAmount)}
             </Text>
           </View>
           
           <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Fecha:</Text>
+            <Text style={styles.detailLabel}>{t('client.cashPayment.detail.time')}</Text>
             <Text style={styles.detailValue}>
               {formatNicaraguaTime(new Date())}
             </Text>
           </View>
           
           <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Método:</Text>
-            <Text style={styles.detailValue}>Efectivo</Text>
+            <Text style={styles.detailLabel}>{t('client.cashPayment.detail.method')}</Text>
+            <Text style={styles.detailValue}>{t('client.cashPayment.detail.methodValueCash')}</Text>
           </View>
         </View>
         
         {/* Estado del pago */}
         {paymentStatus === 'pending_confirmation' && (
           <View style={[styles.card, styles.waitingCard]}>
-            <Text style={styles.waitingTitle}>⏳ Esperando confirmación</Text>
+            <Text style={styles.waitingTitle}>{t('client.cashPayment.waiting.title')}</Text>
             <Text style={styles.waitingDescription}>
-              El conductor debe confirmar que recibió tu pago
+              {t('client.cashPayment.waiting.description')}
             </Text>
           </View>
         )}
@@ -488,7 +534,7 @@ export default function CashPaymentScreen({ route, navigation }: any) {
             disabled={confirming}
           >
             <Text style={styles.confirmButtonText}>
-              {confirming ? 'Procesando...' : 'Confirmar Pago en Efectivo'}
+              {confirming ? t('client.cashPayment.buttons.processing') : t('client.cashPayment.buttons.confirm')}
             </Text>
           </TouchableOpacity>
         ) : (
@@ -496,7 +542,9 @@ export default function CashPaymentScreen({ route, navigation }: any) {
             style={[styles.secondaryButton, {borderColor: colors.border}]}
             onPress={() => navigation.goBack()}
           >
-            <Text style={[styles.secondaryButtonText, {color: colors.text}]}>Volver</Text>
+            <Text style={[styles.secondaryButtonText, {color: colors.text}]}>
+              {t('common.actions.back')}
+            </Text>
           </TouchableOpacity>
         )}
       </View>

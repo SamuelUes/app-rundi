@@ -1,67 +1,88 @@
 {
   "expo": {
-    "name": "DriveAngel.ni",
-    "slug": "driveangel-ni",
-    "version": "1.0.1",
+    "name": "Rundi",
+    "slug": "rundi",
+    "version": "Beta - 1.6.4",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
-    "scheme": "driveangel",
+    "userInterfaceStyle": "automatic",
+    "icon": "./src/assets/images/jpg",
+    "scheme": "com.driveangel.rundidev",
     "owner": "samuelues",
-    "projectId": "e8f4c3b2-9d1a-4e7f-8c5b-2a3d4e5f6a7b",
-    "runtimeVersion": "1.0.1",
+    "projectId": "98fe5b45-4177-4d65-8ce3-6b783abfe196",
+    "runtimeVersion": "Beta - 1.6.4",
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
     "android": {
-      "package": "com.driveangel.ni",
+      "package": "com.driveangel.rundidev",
       "userInterfaceStyle": "automatic",
+      "allowBackup": false,
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "ACTIVITY_RECOGNITION",
         "CAMERA",
         "READ_EXTERNAL_STORAGE",
         "WRITE_EXTERNAL_STORAGE",
-        "POST_NOTIFICATIONS"
+        "POST_NOTIFICATIONS",
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE",
+        "WAKE_LOCK"
       ],
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./src/assets/images/icon_1.2.jpg",
         "backgroundColor": "#ffffff"
       },
       "config": {
         "googleMaps": {
-          "apiKey": "AIzaSyAMeFnZTR6jspAZi3kYphjQQSksWvpM4g"
+          "apiKey": "${GOOGLE_MAPS_API_KEY}"
         }
       },
       "intentFilters": [
         {
           "action": "VIEW",
           "data": {
-            "scheme": "driveangel"
+            "scheme": "rundi"
           },
           "category": [
             "BROWSABLE",
             "DEFAULT"
           ]
         }
-      ]
+      ],
+      "useNextNotificationsApi": true
     },
     "ios": {
-      "bundleIdentifier": "com.driveangel.ni",
-      "urlSchemes": ["driveangel", "tel", "mailto", "whatsapp", "waze", "googlemaps"]
+      "bundleIdentifier": "com.driveangel.rundidev",
+      "urlSchemes": ["driveangel", "tel", "mailto", "whatsapp", "waze", "googlemaps"],
+      "infoPlist": {
+        "NSMotionUsageDescription": "Rundi utiliza tu actividad física para detectar cuándo estás manejando y mejorar la asignación de viajes."
+      },
+      "userInterfaceStyle": "automatic"
     },
     "plugins": [
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Permitir a DriveAngel.ni acceder a tu ubicación para rastrear tu viaje."
+          "locationAlwaysAndWhenInUsePermission": "Permitir a Rundi acceder a tu ubicación para rastrear tu viaje."
         }
       ],
       [
         "expo-local-authentication",
         {
           "faceIDPermission": "Permitir uso de FaceID"
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./src/assets/images/icon_1.2.jpg",
+          "color": "#FF9800",
+          "sounds": ["./src/assets/sounds/notification.wav"],
+          "mode": "production"
         }
       ],
       [
@@ -75,17 +96,20 @@
         "react-native-firebase",
         {
           "messaging_android_notification_channel_id": "default",
-          "messaging_android_notification_priority": "priority_default"
+          "messaging_android_notification_priority": "priority_high"
         }
       ]
     ],
     "extra": {
-      "domain": "driveangel.online",
-      "apiUrl": "https://api.driveangel.online",
-      "wsUrl": "https://api.driveangel.online",
-      "mapboxAccessToken": "pk.eyJ1Ijoic2FtdWVsdWVzIiwiYSI6ImNtZ2k5OHdzbDA3NW8ybXB4OXM5Y2E2ZzYifQ.rTD0LZ2w9t_jQxEV2MR_Sg",
-      "supabaseUrl": "https://ceytngpresytjhafcadu.supabase.co",
-      "supabaseKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNleXRuZ3ByZXN5dGpoYWZjYWR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk5Nzg4NzIsImV4cCI6MjA3NTU1NDg3Mn0.3G9aCmJsjOIL-VG6E49sNnxvKBLITX-I1gFFlWKVslo"
+      "eas": {
+        "projectId": "98fe5b45-4177-4d65-8ce3-6b783abfe196"
+      },
+      "notificationsProjectId": "98fe5b45-4177-4d65-8ce3-6b783abfe196",
+      "domain": "rundiapp.com",
+      "apiUrl": "",
+      "wsUrl": "",
+      "supabaseUrl": "https://cypllfzespkzhtyeitlv.supabase.co",
+      "supabaseKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN5cGxsZnplc3Bremh0eWVpdGx2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQyNTExMTMsImV4cCI6MjA3OTgyNzExM30.8PN8T7kaf_acPFJAkONgqec8zxePnu8hwZ_gXkkGJ78"
     }
   }
 }

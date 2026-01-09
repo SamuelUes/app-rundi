@@ -5,9 +5,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, ScrollView } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
+import { haversineKm } from '../utils/distance';
 import DynamicMap from './DynamicMap';
 import { getFirebaseFunctions } from '../config/firebase';
 import { httpsCallable } from 'firebase/functions';
+import { useTranslation } from 'react-i18next';
 
 interface RoutePoint {
   id: string;
@@ -27,6 +29,7 @@ interface RouteHistoryProps {
 
 const RouteHistory: React.FC<RouteHistoryProps> = ({ rideId, showStats = true }) => {
   const { colors } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
   const [loading, setLoading] = useState(true);
@@ -73,7 +76,7 @@ const RouteHistory: React.FC<RouteHistoryProps> = ({ rideId, showStats = true })
       }
     } catch (err: any) {
       console.error('Error cargando historial:', err);
-      setError('No se pudo cargar el historial de la ruta');
+      setError(t('common.components.routeHistory.errors.load'));
     } finally {
       setLoading(false);
     }
@@ -90,18 +93,7 @@ const RouteHistory: React.FC<RouteHistoryProps> = ({ rideId, showStats = true })
   };
 
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-    const R = 6371; // Radio de la Tierra en km
-    const dLat = toRad(lat2 - lat1);
-    const dLon = toRad(lon2 - lon1);
-    const a =
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c;
-  };
-
-  const toRad = (degrees: number): number => {
-    return degrees * (Math.PI / 180);
+    return haversineKm(lat1, lon1, lat2, lon2);
   };
 
   const calculateDuration = (points: RoutePoint[]): number => {
@@ -112,17 +104,19 @@ const RouteHistory: React.FC<RouteHistoryProps> = ({ rideId, showStats = true })
   };
 
   const formatTime = (minutes: number): string => {
-    if (minutes < 60) return `${minutes} min`;
+    if (minutes < 60) {
+      return t('common.components.routeHistory.duration.short', { value: minutes });
+    }
     const hours = Math.floor(minutes / 60);
     const mins = minutes % 60;
-    return `${hours}h ${mins}min`;
+    return t('common.components.routeHistory.duration.long', { hours, minutes: mins });
   };
 
   if (loading) {
     return (
       <View style={styles.container}>
         <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Cargando historial...</Text>
+        <Text style={styles.loadingText}>{t('common.components.routeHistory.loading')}</Text>
       </View>
     );
   }
@@ -131,7 +125,7 @@ const RouteHistory: React.FC<RouteHistoryProps> = ({ rideId, showStats = true })
     return (
       <View style={styles.container}>
         <Text style={styles.errorText}>
-          {error || 'No hay datos de ruta disponibles'}
+          {error || t('common.components.routeHistory.empty')}
         </Text>
       </View>
     );
@@ -163,43 +157,55 @@ const RouteHistory: React.FC<RouteHistoryProps> = ({ rideId, showStats = true })
       {/* Estadísticas */}
       {showStats && (
         <ScrollView style={styles.statsContainer}>
-          <Text style={styles.statsTitle}>📊 Estadísticas del Viaje</Text>
+          <Text style={styles.statsTitle}>{t('common.components.routeHistory.title')}</Text>
 
           <View style={styles.statsGrid}>
             <View style={styles.statCard}>
               <Text style={styles.statIcon}>📍</Text>
-              <Text style={styles.statLabel}>Puntos Registrados</Text>
+              <Text style={styles.statLabel}>
+                {t('common.components.routeHistory.stats.points')}
+              </Text>
               <Text style={styles.statValue}>{routePoints.length}</Text>
             </View>
 
             <View style={styles.statCard}>
               <Text style={styles.statIcon}>📏</Text>
-              <Text style={styles.statLabel}>Distancia Total</Text>
+              <Text style={styles.statLabel}>
+                {t('common.components.routeHistory.stats.distance')}
+              </Text>
               <Text style={styles.statValue}>{stats.totalDistance.toFixed(2)} km</Text>
             </View>
 
             <View style={styles.statCard}>
               <Text style={styles.statIcon}>⏱️</Text>
-              <Text style={styles.statLabel}>Duración</Text>
+              <Text style={styles.statLabel}>
+                {t('common.components.routeHistory.stats.duration')}
+              </Text>
               <Text style={styles.statValue}>{formatTime(stats.duration)}</Text>
             </View>
 
             <View style={styles.statCard}>
               <Text style={styles.statIcon}>🚗</Text>
-              <Text style={styles.statLabel}>Velocidad Promedio</Text>
+              <Text style={styles.statLabel}>
+                {t('common.components.routeHistory.stats.avgSpeed')}
+              </Text>
               <Text style={styles.statValue}>{stats.avgSpeed.toFixed(1)} km/h</Text>
             </View>
 
             <View style={styles.statCard}>
               <Text style={styles.statIcon}>⚡</Text>
-              <Text style={styles.statLabel}>Velocidad Máxima</Text>
+              <Text style={styles.statLabel}>
+                {t('common.components.routeHistory.stats.maxSpeed')}
+              </Text>
               <Text style={styles.statValue}>{stats.maxSpeed.toFixed(1)} km/h</Text>
             </View>
           </View>
 
           {/* Timeline de puntos */}
           <View style={styles.timelineContainer}>
-            <Text style={styles.timelineTitle}>🕐 Línea de Tiempo</Text>
+            <Text style={styles.timelineTitle}>
+              {t('common.components.routeHistory.timeline.title')}
+            </Text>
             {routePoints.slice(0, 10).map((point, index) => (
               <View key={point.id} style={styles.timelineItem}>
                 <View style={styles.timelineDot} />
@@ -211,14 +217,18 @@ const RouteHistory: React.FC<RouteHistoryProps> = ({ rideId, showStats = true })
                     })}
                   </Text>
                   <Text style={styles.timelineSpeed}>
-                    {point.speed ? `${point.speed.toFixed(1)} km/h` : 'Sin velocidad'}
+                    {point.speed
+                      ? `${point.speed.toFixed(1)} km/h`
+                      : t('common.components.routeHistory.timeline.noSpeed')}
                   </Text>
                 </View>
               </View>
             ))}
             {routePoints.length > 10 && (
               <Text style={styles.timelineMore}>
-                ... y {routePoints.length - 10} puntos más
+                {t('common.components.routeHistory.timeline.more', {
+                  count: routePoints.length - 10,
+                })}
               </Text>
             )}
           </View>

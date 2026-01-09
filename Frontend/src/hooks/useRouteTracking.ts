@@ -48,7 +48,7 @@ export const useRouteTracking = ({
   highAccuracy = true,
   useBackgroundTracking = Platform.OS !== 'web', // Activar en móviles por defecto
 }: UseRouteTrackingProps): UseRouteTrackingReturn => {
-  const { user } = useAuth();
+  const { user, userMode } = useAuth();
   
   // Si usamos background tracking, no necesitamos activar el tracking en primer plano
   const locationHook = useLocation({
@@ -65,11 +65,12 @@ export const useRouteTracking = ({
 
   const saveInterval = useRef<NodeJS.Timeout | null>(null);
   const consecutiveErrorsRef = useRef(0);
+  const lastBackgroundIntegrityCheck = useRef(0);
 
   // =====================================================
   // ✅ TRACKING HABILITADO
   // =====================================================
-  
+
   // Guardar ubicación actual en Firebase
   const saveLocation = async (status?: 'waiting' | 'in_progress' | 'completed' | 'cancelled' | 'pending_payment' | 'pending_rating'): Promise<void> => {
     try {
@@ -80,7 +81,6 @@ export const useRouteTracking = ({
       const { latitude, longitude, speed, heading, accuracy } = locationHook.coords;
 
       // Guardar en Firebase Realtime DB Y PostgreSQL
-      // ✅ NUEVO: Pasar status para que no guarde si el viaje está completado/cancelado
       await firebaseTrackingService.updateRideTracking(rideId, {
         driverLocation: {
           latitude,
@@ -93,18 +93,27 @@ export const useRouteTracking = ({
         status: status || 'in_progress',
       });
 
-      setTotalPoints(prev => prev + 1);
+      setTotalPoints((prev) => prev + 1);
+
+      if (useBackgroundTracking) {
+        const now = Date.now();
+        if (now - lastBackgroundIntegrityCheck.current > 60_000) {
+          lastBackgroundIntegrityCheck.current = now;
+          backgroundLocationService.ensureBackgroundTrackingIntegrity().catch((integrityError) => {
+            console.warn('⚠️ No se pudo verificar integridad de tracking en segundo plano:', integrityError);
+          });
+        }
+      }
     } catch (err) {
       console.error('❌ Error guardando ubicación:', err);
       consecutiveErrorsRef.current++;
-      
+
       if (consecutiveErrorsRef.current > 5) {
         setError('Error persistente guardando ubicación');
       }
     }
   };
 
-  // Iniciar tracking en primer plano
   const startForegroundTracking = async (): Promise<void> => {
     try {
       console.log('🏹 [TRACKING] Iniciando tracking en primer plano');
@@ -112,10 +121,8 @@ export const useRouteTracking = ({
       setError(null);
       consecutiveErrorsRef.current = 0;
 
-      // Guardar ubicación inmediatamente
       await saveLocation();
 
-      // Luego cada X segundos
       if (saveInterval.current) {
         clearInterval(saveInterval.current);
       }
@@ -126,88 +133,69 @@ export const useRouteTracking = ({
 
       console.log('✅ Tracking en primer plano iniciado');
     } catch (err) {
-      console.error('❌ Error iniciando tracking:', err);
+      console.error('❌ Error iniciando tracking en primer plano:', err);
       setError(String(err));
       setIsTracking(false);
     }
   };
 
-  // Detener tracking en primer plano
   const stopForegroundTracking = (): void => {
     if (saveInterval.current) {
       clearInterval(saveInterval.current);
       saveInterval.current = null;
     }
-    
     setIsTracking(false);
     console.log('🛑 Tracking en primer plano detenido');
   };
 
-  // Iniciar tracking en segundo plano - DESHABILITADO
-  const startBackgroundTracking = async (): Promise<boolean> => {
-    console.log('⚠️ Background tracking deshabilitado (requiere build nativo)');
-    setIsBackgroundTracking(false);
-    return false;
-  };
-
-  // Detener tracking en segundo plano
-  const stopBackgroundTracking = async (): Promise<void> => {
-    setIsBackgroundTracking(false);
-    return;
-  };
-
-  // Iniciar todo el sistema de tracking
   const startTracking = async (newRideId: string = rideId): Promise<void> => {
-    console.log('🏹 [TRACKING] Iniciando sistema de tracking completo');
-    
+    console.log('🏹 [TRACKING] Iniciando sistema completo');
+
     if (!newRideId) {
       setError('No hay rideId para trackear');
       return;
     }
 
     try {
-      // Iniciar tracking en primer plano
       await startForegroundTracking();
 
-      // Iniciar tracking en segundo plano si está disponible
-      if (useBackgroundTracking) {
-        const bgStarted = await backgroundLocationService.startBackgroundLocationTracking(
+      if (useBackgroundTracking && user?.id) {
+        const isDriverCapable = user.role === 'driver' || user.role === 'designated_driver';
+        const role = isDriverCapable && userMode === 'driver' ? 'driver' : 'client';
+        const started = await backgroundLocationService.startBackgroundLocationTracking(
+          user.id,
+          role,
           newRideId,
-          'driver'
         );
-        if (bgStarted) {
-          setIsBackgroundTracking(true);
-          console.log('✅ Background tracking iniciado');
+
+        setIsBackgroundTracking(started);
+
+        if (!started) {
+          console.warn('⚠️ No se pudo iniciar tracking en segundo plano');
         }
       }
     } catch (err) {
-      console.error('❌ Error iniciando tracking:', err);
+      console.error('❌ Error iniciando sistema de tracking:', err);
       setError(String(err));
     }
   };
 
-  // Detener todo el sistema de tracking
   const stopTracking = async (): Promise<void> => {
-    console.log('🛑 [TRACKING] Deteniendo sistema de tracking');
-    
+    console.log('🛑 [TRACKING] Deteniendo sistema completo');
+
     try {
-      // Detener tracking en primer plano
       stopForegroundTracking();
 
-      // Detener tracking en segundo plano
-      if (isBackgroundTracking) {
+      if (useBackgroundTracking && isBackgroundTracking) {
         await backgroundLocationService.stopBackgroundLocationTracking();
         setIsBackgroundTracking(false);
-        console.log('✅ Background tracking detenido');
+        console.log('✅ Tracking en segundo plano detenido');
       }
-
-      console.log(`📊 Total de puntos grabados: ${totalPoints}`);
     } catch (err) {
-      console.error('❌ Error deteniendo tracking:', err);
+      console.error('❌ Error deteniendo sistema de tracking:', err);
     }
   };
 
-  // Efecto para iniciar/detener tracking cuando el viaje está activo
   useEffect(() => {
     if (isActive && rideId) {
       console.log('🏁 Viaje activo, iniciando tracking...');
@@ -216,7 +204,7 @@ export const useRouteTracking = ({
       console.log('🛑 Viaje inactivo, deteniendo tracking...');
       stopTracking();
     }
-    
+
     return () => {
       if (isActive) {
         stopTracking();
@@ -224,21 +212,39 @@ export const useRouteTracking = ({
     };
   }, [isActive, rideId]);
 
-  // Devolver objeto con estado y funciones
+  useEffect(() => {
+    if (!useBackgroundTracking || !isActive) {
+      return;
+    }
+
+    const integrityInterval = setInterval(() => {
+      backgroundLocationService.ensureBackgroundTrackingIntegrity().catch((integrityError) => {
+        console.warn('⚠️ Error en verificación programada de tracking en segundo plano:', integrityError);
+      });
+    }, 120_000);
+
+    return () => {
+      clearInterval(integrityInterval);
+    };
+  }, [useBackgroundTracking, isActive]);
+
+  // Devolver objeto con estado y funcion
   return {
     // Convertir coordenadas a formato LocationObject para compatibilidad
-    currentLocation: locationHook.coords ? {
-      coords: {
-        latitude: locationHook.coords.latitude,
-        longitude: locationHook.coords.longitude,
-        altitude: null,
-        accuracy: locationHook.coords.accuracy || null,
-        altitudeAccuracy: null,
-        heading: locationHook.coords.heading || null,
-        speed: locationHook.coords.speed || null
-      },
-      timestamp: locationHook.coords.timestamp || Date.now(),
-    } : null,
+    currentLocation: locationHook.coords
+      ? {
+          coords: {
+            latitude: locationHook.coords.latitude,
+            longitude: locationHook.coords.longitude,
+            altitude: null,
+            accuracy: locationHook.coords.accuracy || null,
+            altitudeAccuracy: null,
+            heading: locationHook.coords.heading || null,
+            speed: locationHook.coords.speed || null,
+          },
+          timestamp: locationHook.coords.timestamp || Date.now(),
+        }
+      : null,
     isTracking,
     isBackgroundTracking,
     error,

@@ -1,54 +1,83 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, View } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useTheme } from '../context/ThemeContext';
 import LoginScreen from '../screens/Auth/LoginScreen';
 //import RegisterScreen from '../screens/Auth/RegisterScreen';
 import RegisterScreenNew from '../screens/Auth/RegisterScreen';
+import AuthLandingScreen from '../screens/Auth/AuthLandingScreen';
+import RegistrationCheckpointScreen from '../screens/Auth/RegistrationCheckpointScreen';
+import registrationService from '../services/registrationService';
 import PhoneVerificationScreen from '../screens/Auth/PhoneVerificationScreen';
+import PhoneVerificationLoginScreen from '../screens/Auth/PhoneVerificationLoginScreen';
+import GooglePhoneScreen from '../screens/Auth/GooglePhoneScreen';
+import RoleSelectionScreen from '../screens/Auth/RoleSelectionScreen';
+import DriverPhoneScreen from '../screens/Auth/DriverPhoneScreen';
 import DriverDataScreen from '../screens/Auth/DriverDataScreen';
-import RegisterConfirm from '../screens/Auth/RegisterConfirm';
-
-export type AuthStackParamList = {
-  Login: undefined;
-  Register: undefined;
-  RegisterNew: undefined;
-  PhoneVerification: {
-    name: string;
-    email: string;
-    phone: string;
-    password?: string;
-    role: 'client' | 'driver';
-    authProvider: 'email/password' | 'google';
-  };
-  DriverData: {
-    name: string;
-    email: string;
-    phone: string;
-    password?: string;
-    role: 'driver';
-    authProvider: 'email/password' | 'google';
-    phoneVerified: boolean;
-  };
-  RegisterConfirm: {
-    name: string;
-    email: string;
-    phone: string;
-    password?: string;
-    role: 'client' | 'driver';
-    authProvider: 'email/password' | 'google';
-    phoneVerified: boolean;
-    driverData?: any;
-    vehicleData?: any;
-  };
-};
+import RegisterConfirm from '../screens/Auth/RegisterDriverFormConfirm';
+import OnboardingScreen from '../screens/Auth/OnboardingScreen';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AuthStackParamList } from './types';
 
 const Stack = createNativeStackNavigator<AuthStackParamList>();
 
 export default function AuthStack() {
   const { colors } = useTheme();
-  
+  const [initialRouteName, setInitialRouteName] = useState<keyof AuthStackParamList | null>(null);
+
+  useEffect(() => {
+    const initAuthStack = async () => {
+      try {
+        const hasSeenOnboarding = await AsyncStorage.getItem('@rundi_has_seen_onboarding');
+
+        // Si el usuario aún no ha visto el onboarding, siempre lo mostramos primero
+        if (hasSeenOnboarding !== 'true') {
+          setInitialRouteName('Onboarding');
+          return;
+        }
+
+        // Onboarding ya visto → revisar si hay un registro pendiente para mostrar el checkpoint
+        try {
+          const tempData = await registrationService.getTemporaryData();
+          const hasPendingRegistration = tempData && Object.keys(tempData).length > 0 && (tempData as any).name;
+
+          if (hasPendingRegistration) {
+            setInitialRouteName('RegistrationCheckpoint');
+            return;
+          }
+        } catch (checkpointError) {
+          console.warn('Error checking pending registration', checkpointError);
+        }
+
+        // Sin registro pendiente → ir al landing normal de auth
+        setInitialRouteName('AuthLanding');
+      } catch (error) {
+        console.warn('Error reading onboarding flag', error);
+        setInitialRouteName('AuthLanding');
+      }
+    };
+
+    initAuthStack();
+  }, []);
+
+  if (!initialRouteName) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          justifyContent: 'center',
+          alignItems: 'center',
+          backgroundColor: colors.card,
+        }}
+      >
+        <ActivityIndicator size="large" color="#D4AF37" />
+      </View>
+    );
+  }
+
   return (
     <Stack.Navigator 
+      initialRouteName={initialRouteName}
       screenOptions={{ 
         headerShown: false,
         headerStyle: {
@@ -60,6 +89,21 @@ export default function AuthStack() {
         },
       }}
     >
+      <Stack.Screen
+        name="Onboarding"
+        component={OnboardingScreen}
+        options={{ title: 'Bienvenido a Rundi' }}
+      />
+      <Stack.Screen 
+        name="AuthLanding" 
+        component={AuthLandingScreen} 
+        options={{ title: 'Bienvenido' }} 
+      />
+      <Stack.Screen
+        name="RegistrationCheckpoint"
+        component={RegistrationCheckpointScreen}
+        options={{ title: 'Continuar registro' }}
+      />
       <Stack.Screen 
         name="Login" 
         component={LoginScreen} 
@@ -73,22 +117,42 @@ export default function AuthStack() {
       <Stack.Screen 
         name="RegisterNew" 
         component={RegisterScreenNew} 
-        options={{ title: 'Nuevo Registro' }} 
+        options={{ headerShown: false , title: 'Nuevo Registro' }} 
+      />
+      <Stack.Screen
+        name="RoleSelection"
+        component={RoleSelectionScreen}
+        options={{headerShown: false , title: 'Seleccionar Rol' }}
+      />
+      <Stack.Screen
+        name="DriverPhone"
+        component={DriverPhoneScreen}
+        options={{headerShown: false  }}
+      />
+      <Stack.Screen
+        name="GooglePhone"
+        component={GooglePhoneScreen}
+        options={{headerShown: false , title: 'Número Telefónico' }}
       />
       <Stack.Screen 
         name="PhoneVerification" 
         component={PhoneVerificationScreen} 
-        options={{ title: 'Verificar Teléfono' }} 
+        options={{headerShown: false , title: 'Verificar Teléfono' }} 
+      />
+      <Stack.Screen 
+        name="PhoneVerificationLogin" 
+        component={PhoneVerificationLoginScreen} 
+        options={{headerShown: false , title: 'Verificar Teléfono' }} 
       />
       <Stack.Screen 
         name="DriverData" 
         component={DriverDataScreen} 
-        options={{ title: 'Datos del Conductor' }} 
+        options={{headerShown: false , title: 'Datos del Conductor' }} 
       />
       <Stack.Screen 
         name="RegisterConfirm" 
         component={RegisterConfirm} 
-        options={{ title: 'Confirmar Registro' }} 
+        options={{headerShown: false , title: 'Confirmar Registro' }} 
       />
     </Stack.Navigator>
   );

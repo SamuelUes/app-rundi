@@ -5,98 +5,153 @@ import {
   StyleSheet,
   TextInput,
   TouchableOpacity,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Image,
 } from 'react-native';
+import { Picker } from '@react-native-picker/picker';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useGoogleAuth } from '../../hooks/useGoogleAuth';
 import GoogleSignInButton from '../../components/GoogleSignInButton';
+import PhoneDigitInput from '../../components/PhoneDigitInput';
+import phoneAuthService from '../../services/auth/phoneAuthService';
+import alertService from '../../services/alertService';
+import {
+  CountryDialOption,
+  formatPhoneNumber,
+  getCountryDialOptions,
+  normalizePhoneNumber,
+  extractLocalNumber,
+} from '../../utils/phoneUtils';
+import { useTranslation } from 'react-i18next';
 
 // Google Client ID desde variables de entorno
 // Android Client ID para Expo
-const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID || '1040329608349-t11k2f7tu1gtrh8fpogu3n1gmf2gi8p3.apps.googleusercontent.com';
+const GOOGLE_CLIENT_ID =
+  process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID ||
+  process.env.REACT_APP_GOOGLE_CLIENT_ID_ANDROID_AUTO_GOOGLE ||
+  process.env.REACT_APP_GOOGLE_CLIENT_ID_ANDROID ||
+  '';
 
 export default function LoginScreen({ navigation }: any) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { login, loginWithGoogle } = useAuth();
+  const { t } = useTranslation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [phone, setPhone] = useState('+505 ');
+  const countryOptions = useMemo(() => getCountryDialOptions(), []);
+  const defaultCountry = countryOptions.find((option) => option.code === 'NI') ?? countryOptions[0];
+  const [selectedCountry, setSelectedCountry] = useState<CountryDialOption>(defaultCountry);
+  const [phoneDigits, setPhoneDigits] = useState('');
+  const [normalizedPhone, setNormalizedPhone] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [loginMode, setLoginMode] = useState<'email' | 'phone'>('email'); // 'email' o 'phone'
-  const { promptAsync, loading: googleLoading, loginWithGoogle: googleLogin } = useGoogleAuth(GOOGLE_CLIENT_ID);
+  const {
+    promptAsync,
+    loading: googleLoading,
+    loginWithGoogle: googleLogin,
+    getGoogleIdToken,
+  } = useGoogleAuth(GOOGLE_CLIENT_ID);
 
-  // Función para formatear teléfono: +505 XXXX XXXX
-  const formatPhoneNumber = (text: string) => {
-    // Remover todo excepto números
-    const cleaned = text.replace(/\D/g, '');
-    
-    // Si comienza con 505, mantenerlo, sino agregarlo
-    let formatted = cleaned.startsWith('505') ? cleaned : '505' + cleaned;
-    
-    // Limitar a 11 dígitos (505 + 8 dígitos)
-    formatted = formatted.slice(0, 11);
-    
-    // Formatear como +505 XXXX XXXX
-    if (formatted.length <= 3) {
-      return '+' + formatted;
-    } else if (formatted.length <= 7) {
-      return '+' + formatted.slice(0, 3) + ' ' + formatted.slice(3);
-    } else {
-      return '+' + formatted.slice(0, 3) + ' ' + formatted.slice(3, 7) + ' ' + formatted.slice(7);
-    }
+  const handlePhoneChange = (localDigits: string) => {
+    setPhoneDigits(localDigits);
+    const normalized = normalizePhoneNumber(localDigits, selectedCountry.dialCode);
+    setNormalizedPhone(normalized);
   };
 
-  const handlePhoneChange = (text: string) => {
-    const formatted = formatPhoneNumber(text);
-    setPhone(formatted);
+  const handleCountryChange = (countryCode: string) => {
+    const nextCountry = countryOptions.find((option) => option.code === countryCode) ?? countryOptions[0];
+    const localDigits = phoneDigits || extractLocalNumber(normalizedPhone || '', selectedCountry.dialCode);
+    const newNormalized = localDigits ? normalizePhoneNumber(localDigits, nextCountry.dialCode) : '';
+
+    setSelectedCountry(nextCountry);
+    setPhoneDigits(localDigits || '');
+    setNormalizedPhone(newNormalized);
   };
 
   const handleLogin = async () => {
-    if (!email || !password) {
-      Alert.alert('Error', 'Por favor completa todos los campos');
+    const normalizedEmail = email.trim();
+
+    if (!normalizedEmail) {
+      alertService.showErrorAlert(t('authScreens.login.alerts.emailRequired'));
+      return;
+    }
+
+    if (!password.trim()) {
+      alertService.showErrorAlert(t('authScreens.login.alerts.passwordRequired'));
       return;
     }
 
     setLoading(true);
     try {
-      await login(email, password);
+      await login(normalizedEmail, password);
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Error al iniciar sesión');
+      if (error?.code === 'SESSION_ACTIVE_ELSEWHERE') {
+        return;
+      }
+      let message = t('authScreens.login.alerts.genericError');
+      const code = error?.code || '';
+
+      switch (code) {
+        case 'auth/user-not-found':
+        case 'auth/wrong-password':
+        case 'auth/invalid-credential':
+        case 'auth/invalid-email':
+        case 'EMAIL_NOT_FOUND':
+        case 'INVALID_PASSWORD':
+          message = t('authScreens.login.alerts.invalidCredentials');
+          break;
+        case 'auth/too-many-requests':
+          message = t('authScreens.login.alerts.tooManyAttempts');
+          break;
+        default:
+          if (typeof error?.message === 'string') {
+            if (error.message.toLowerCase().includes('password')) {
+              message = t('authScreens.login.alerts.invalidCredentials');
+            } else if (error.message.toLowerCase().includes('network')) {
+              message = t('authScreens.login.alerts.genericError');
+            }
+          }
+          break;
+      }
+
+      alertService.showErrorAlert(message);
     } finally {
       setLoading(false);
     }
   };
 
   const handlePhoneLogin = async () => {
-    if (!phone) {
-      Alert.alert('Error', 'Por favor ingresa tu número telefónico');
+    const normalized = normalizePhoneNumber(phoneDigits, selectedCountry.dialCode);
+    setNormalizedPhone(normalized);
+
+    if (!normalized || !/^\+\d{6,15}$/.test(normalized)) {
+      alertService.showErrorAlert(
+        t('authScreens.login.alerts.phoneInvalid'),
+      );
       return;
     }
 
     setLoading(true);
     try {
-      console.log('📱 Solicitando código SMS para:', phone);
-      
-      // Importar servicio
-      const phoneLoginService = (await import('../../services/phoneLoginService')).default;
-      
-      // Solicitar código
-      const result = await phoneLoginService.requestLoginCode(phone);
-      
-      if (result.success) {
-        // Navegar a pantalla de verificación
-        navigation.navigate('PhoneVerificationLogin', {
-          phone,
-          mode: 'login', // Indicar que es para login, no registro
-        });
-      }
+      setNormalizedPhone(normalized);
+      console.log('📱 Solicitando código SMS para:', normalized);
+
+      await phoneAuthService.sendVerificationCode(normalized);
+
+      navigation.navigate('PhoneVerificationLogin', {
+        phone: normalized,
+        displayPhone: formatPhoneNumber(normalized, selectedCountry.dialCode),
+        country: selectedCountry,
+        mode: 'login',
+      });
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Error al solicitar código SMS');
+      alertService.showErrorAlert(
+        error?.message || t('authScreens.login.alerts.smsError'),
+      );
     } finally {
       setLoading(false);
     }
@@ -106,41 +161,49 @@ export default function LoginScreen({ navigation }: any) {
     try {
       setLoading(true);
       console.log('🔐 Iniciando Google Sign-In...');
-      
-      const result = await promptAsync();
-      
-      if (result?.type === 'success') {
-        console.log('✅ Google Sign-In exitoso');
-        const { id_token } = result.params;
-        
-        if (!id_token) {
-          throw new Error('No se recibió ID Token de Google');
-        }
-        
-        console.log('🔄 Iniciando sesión con Firebase...');
-        const userData = await googleLogin(id_token);
-        
-        console.log('💾 Guardando datos de usuario...');
-        await loginWithGoogle(userData);
-        
-        console.log('✅ Login completado, navegando a HomeScreen');
-        // La navegación se maneja automáticamente en el contexto de autenticación
-      } else if (result?.type === 'cancel') {
-        console.log('❌ Usuario canceló Google Sign-In');
-        // No mostrar alerta, es una acción esperada del usuario
-      } else {
-        throw new Error('Error desconocido en Google Sign-In');
+
+      const idToken = await getGoogleIdToken();
+
+      console.log('🔄 Iniciando sesión con Firebase...');
+      const userData = await googleLogin(idToken);
+
+      // Si no existe perfil en Firestore, forzar selección de rol
+      if (userData?.isNew) {
+        const displayName =
+          userData.name ||
+          (userData.email ? String(userData.email).split('@')[0] : 'Usuario Google');
+
+        console.log('🆕 Usuario Google sin perfil, navegando a RoleSelection...');
+        navigation.navigate('RoleSelection', {
+          name: displayName,
+          email: userData.email || undefined,
+          phone: userData.phone || undefined,
+          password: undefined,
+          method: 'google',
+          authProvider: 'google',
+          googleIdToken: idToken,
+          phoneVerified: false,
+        });
+
+        return;
       }
+
+      console.log('💾 Guardando datos de usuario...');
+      await loginWithGoogle(userData);
+
+      console.log('✅ Login completado, la navegación se maneja por el contexto');
     } catch (error: any) {
       console.error('❌ Error en Google Login:', error);
-      Alert.alert(
-        'Error',
-        error.message || 'Error al iniciar sesión con Google. Intenta de nuevo.'
-      );
+      if (error?.code === 'SESSION_ACTIVE_ELSEWHERE') {
+        return;
+      }
+      alertService.showErrorAlert(error?.message || 'Error al iniciar sesión con Google. Intenta de nuevo.');
     } finally {
       setLoading(false);
     }
   };
+
+  const isPhoneValid = normalizedPhone ? /^\+\d{6,15}$/.test(normalizedPhone) : false;
 
   return (
     <KeyboardAvoidingView
@@ -148,37 +211,46 @@ export default function LoginScreen({ navigation }: any) {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={styles.content}>
-          <Text style={styles.title}>Bienvenido</Text>
-          <Text style={styles.subtitle}>Inicia sesión para continuar</Text>
+        <View style={styles.bannerContainer}>
+          <Image
+            source={require('../../assets/images/campaña2/promo_1-2.png')}
+            style={styles.bannerImage}
+          />
+        </View>
+
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <Text style={styles.title}>{t('authScreens.login.title')}</Text>
+            <Text style={styles.subtitle}>
+              {t('authScreens.login.subtitle')}
+            </Text>
+          </View>
 
           {/* Tabs para cambiar entre Email y Teléfono */}
           <View style={styles.tabsContainer}>
-            <TouchableOpacity
-              style={[styles.tab, loginMode === 'email' && styles.tabActive]}
-              onPress={() => setLoginMode('email')}
-            >
+            <TouchableOpacity style={styles.tab} onPress={() => setLoginMode('email')}>
               <Text style={[styles.tabText, loginMode === 'email' && styles.tabTextActive]}>
-                📧 Email
+                {t('authScreens.login.tabs.email')}
               </Text>
+              {loginMode === 'email' && <View style={styles.tabUnderline} />}
             </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.tab, loginMode === 'phone' && styles.tabActive]}
-              onPress={() => setLoginMode('phone')}
-            >
+            <TouchableOpacity style={styles.tab} onPress={() => setLoginMode('phone')}>
               <Text style={[styles.tabText, loginMode === 'phone' && styles.tabTextActive]}>
-                📱 Teléfono
+                {t('authScreens.login.tabs.phone')}
               </Text>
+              {loginMode === 'phone' && <View style={styles.tabUnderline} />}
             </TouchableOpacity>
           </View>
 
           <View style={styles.form}>
             {loginMode === 'email' ? (
               <>
-                <Text style={styles.label}>Email</Text>
+                <Text style={styles.label}>
+                  {t('authScreens.login.fields.emailLabel')}
+                </Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="tu@email.com"
+                  placeholder={t('authScreens.login.fields.emailPlaceholder')}
                   placeholderTextColor={colors.textSecondary}
                   value={email}
                   onChangeText={setEmail}
@@ -186,10 +258,12 @@ export default function LoginScreen({ navigation }: any) {
                   autoCapitalize="none"
                 />
 
-                <Text style={styles.label}>Contraseña</Text>
+                <Text style={styles.label}>
+                  {t('authScreens.login.fields.passwordLabel')}
+                </Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="••••••••"
+                  placeholder={t('authScreens.login.fields.passwordPlaceholder')}
                   placeholderTextColor={colors.textSecondary}
                   value={password}
                   onChangeText={setPassword}
@@ -202,34 +276,44 @@ export default function LoginScreen({ navigation }: any) {
                   disabled={loading || googleLoading}
                 >
                   <Text style={styles.loginButtonText}>
-                    {loading ? 'Iniciando...' : 'Iniciar Sesión'}
+                    {loading
+                      ? t('authScreens.login.buttons.loginEmail.loading')
+                      : t('authScreens.login.buttons.loginEmail.idle')}
                   </Text>
                 </TouchableOpacity>
               </>
             ) : (
               <>
-                <Text style={styles.label}>Número Telefónico</Text>
-                <TextInput
-                  style={styles.phoneInput}
-                  placeholder="+505 XXXX XXXX"
-                  placeholderTextColor={colors.textSecondary}
-                  value={phone}
-                  onChangeText={handlePhoneChange}
-                  keyboardType="phone-pad"
-                  maxLength={17}
-                />
-
+                <Text style={styles.label}>
+                  {t('authScreens.login.fields.phoneLabel')}
+                </Text>
+                <View style={styles.countryPickerContainer}>
+                  <PhoneDigitInput
+                    countryOptions={countryOptions}
+                    selectedCountry={selectedCountry}
+                    onCountryChange={handleCountryChange}
+                    digits={phoneDigits}
+                    onChangeDigits={handlePhoneChange}
+                    disabled={loading || googleLoading}
+                  />
+                </View>
                 <Text style={styles.helperText}>
-                  Recibirás un código SMS para verificar tu identidad
+                  {t('authScreens.login.fields.phoneHelper')}
                 </Text>
 
                 <TouchableOpacity
                   style={styles.loginButton}
                   onPress={handlePhoneLogin}
-                  disabled={loading || googleLoading || phone.length < 17}
+                  disabled={
+                    loading ||
+                    googleLoading ||
+                    !isPhoneValid
+                  }
                 >
                   <Text style={styles.loginButtonText}>
-                    {loading ? 'Enviando...' : 'Enviar Código SMS'}
+                    {loading
+                      ? t('authScreens.login.buttons.loginPhone.loading')
+                      : t('authScreens.login.buttons.loginPhone.idle')}
                   </Text>
                 </TouchableOpacity>
               </>
@@ -238,7 +322,9 @@ export default function LoginScreen({ navigation }: any) {
             {/* Separador */}
             <View style={styles.dividerContainer}>
               <View style={styles.divider} />
-              <Text style={styles.dividerText}>O</Text>
+              <Text style={styles.dividerText}>
+                {t('authScreens.login.divider')}
+              </Text>
               <View style={styles.divider} />
             </View>
 
@@ -252,11 +338,11 @@ export default function LoginScreen({ navigation }: any) {
 
             <TouchableOpacity
               style={styles.registerButton}
-              onPress={() => navigation.navigate('RegisterNew')}
+              onPress={() => navigation.navigate('RegistrationCheckpoint')}
               disabled={loading || googleLoading}
             >
               <Text style={styles.registerButtonText}>
-                ¿No tienes cuenta? Regístrate
+                {t('authScreens.login.buttons.register')}
               </Text>
             </TouchableOpacity>
           </View>
@@ -273,11 +359,62 @@ const createStyles = (colors: any) => StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
+    backgroundColor: 'rgba(201, 201, 201, 1)',
+  },
+  bannerContainer: {
+    width: '100%',
+    height: 250,
+    marginTop: 0,
+  },
+  bannerImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  card: {
+    flex: 1,
+    marginTop: 5,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    backgroundColor: colors.card,
+    paddingHorizontal: 20,
+    paddingTop: 24,
+    paddingBottom: 32,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  cardHeader: {
+    marginBottom: 16,
   },
   content: {
     flex: 1,
     padding: 18,
     justifyContent: 'center',
+  },
+  countryPickerContainer: {
+    marginBottom: 14,
+  },
+  countryPicker: {
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    padding: 13,
+    fontSize: 15,
+    color: colors.text,
+    marginBottom: 14,
+    borderWidth: 1.5,
+    borderColor: '#D4AF37' + '30',
+    shadowColor: '#D4AF37',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  countryPickerItem: {
+    fontSize: 15,
+    color: colors.text,
   },
   title: {
     fontSize: 28,
@@ -382,29 +519,31 @@ const createStyles = (colors: any) => StyleSheet.create({
   tabsContainer: {
     flexDirection: 'row',
     marginBottom: 24,
-    borderRadius: 12,
-    backgroundColor: colors.card,
-    padding: 4,
+    columnGap: 24,
   },
   tab: {
-    flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
+    paddingVertical: 4,
+    alignItems: 'flex-start',
+    justifyContent: 'flex-start',
   },
   tabActive: {
-    backgroundColor: '#D4AF37',
+    // Mantener por compatibilidad, ya no se usa fondo para el tab activo
   },
   tabText: {
-    fontSize: 13,
-    fontWeight: '700',
+    fontSize: 15,
+    fontWeight: '600',
     color: colors.textSecondary,
     letterSpacing: 0.2,
   },
   tabTextActive: {
-    color: colors.background,
+    color: '#D4AF37',
+  },
+  tabUnderline: {
+    marginTop: 2,
+    height: 2,
+    borderRadius: 999,
+    backgroundColor: '#D4AF37',
+    alignSelf: 'stretch',
   },
   helperText: {
     fontSize: 12,

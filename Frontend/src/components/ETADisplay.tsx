@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
-import backendConfig from '../config/backendConfig';
 import firebaseTrackingService from '../services/firebaseTrackingService';
 import { httpsCallable } from 'firebase/functions';
 import { getFirebaseFunctions } from '../config/firebase';
+import { useTranslation } from 'react-i18next';
 
 interface ETADisplayProps {
   rideId: string;
@@ -45,6 +45,7 @@ const ETADisplay: React.FC<ETADisplayProps> = ({
   useRealtime = true,
 }) => {
   const { colors } = useTheme();
+  const { t } = useTranslation();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [eta, setEta] = useState<ETAData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -77,10 +78,12 @@ const ETADisplay: React.FC<ETADisplayProps> = ({
       const now = new Date();
       const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
       
-      if (seconds < 10) return 'ahora mismo';
-      if (seconds < 60) return `hace ${seconds}s`;
+      if (seconds < 10) return t('common.components.etaDisplay.updateTimes.now');
+      if (seconds < 60)
+        return t('common.components.etaDisplay.updateTimes.seconds', { count: seconds });
       const minutes = Math.floor(seconds / 60);
-      if (minutes < 60) return `hace ${minutes}min`;
+      if (minutes < 60)
+        return t('common.components.etaDisplay.updateTimes.minutes', { count: minutes });
       return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     } catch (error) {
       console.error('Error formateando tiempo de actualización:', error);
@@ -104,11 +107,11 @@ const ETADisplay: React.FC<ETADisplayProps> = ({
         setEta(result.data);
         setError(null);
       } else {
-        setError('Error calculando ETA');
+        setError(t('common.components.etaDisplay.errors.generic'));
       }
     } catch (err: any) {
       console.error('Error calculando ETA:', err);
-      setError('Calculando...');
+      setError(t('common.components.etaDisplay.errors.calculating'));
     } finally {
       setLoading(false);
     }
@@ -174,7 +177,7 @@ const ETADisplay: React.FC<ETADisplayProps> = ({
   if (error || !eta) {
     return (
       <View style={styles.container}>
-        <Text style={styles.errorText}>⏱️ Calculando...</Text>
+        <Text style={styles.errorText}>⏱️ {t('common.components.etaDisplay.loading')}</Text>
       </View>
     );
   }
@@ -185,7 +188,7 @@ const ETADisplay: React.FC<ETADisplayProps> = ({
         <View style={styles.etaRow}>
           <Text style={styles.etaIcon}>⏱️</Text>
           <View style={styles.etaInfo}>
-            <Text style={styles.etaLabel}>Llegada estimada</Text>
+            <Text style={styles.etaLabel}>{t('common.components.etaDisplay.etaLabel')}</Text>
             <Text style={styles.etaValue}>
               {eta.etaMinutes} min ({formatETA(eta.etaTimestamp)})
             </Text>
@@ -196,7 +199,9 @@ const ETADisplay: React.FC<ETADisplayProps> = ({
           <View style={styles.distanceRow}>
             <Text style={styles.distanceIcon}>🚗</Text>
             <Text style={styles.distanceText}>
-              {(eta.distanceRemaining / 1000).toFixed(1)} km restantes
+              {t('common.components.etaDisplay.distanceLabel', {
+                value: (eta.distanceRemaining / 1000).toFixed(1),
+              })}
             </Text>
           </View>
         )}
@@ -206,7 +211,9 @@ const ETADisplay: React.FC<ETADisplayProps> = ({
           <View style={styles.realtimeIndicator}>
             <View style={styles.realtimeDot} />
             <Text style={styles.realtimeText}>
-              Actualización en tiempo real • Última actualización: {formatUpdateTime(lastUpdateTime)}
+              {t('common.components.etaDisplay.realtime', {
+                value: formatUpdateTime(lastUpdateTime),
+              })}
             </Text>
           </View>
         )}

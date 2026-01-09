@@ -1,19 +1,21 @@
 export default {
-  name: 'Conduce',
-  slug: 'conduce',
-  version: '1.0.01',
+  name: 'Rundi',
+  slug: 'rundi',
+  version: 'Beta - 1.6.4',
   orientation: 'portrait',
   userInterfaceStyle: 'light',
+  icon: './src/assets/images/icon_1.2.jpg',
   updates: {
     enabled: true,
     fallbackToCacheTimeout: 0,
     checkAutomatically: 'ON_LOAD',
-    url: 'https://u.expo.dev/your-project-id'
+    url: 'https://u.expo.dev/98fe5b45-4177-4d65-8ce3-6b783abfe196'
   },
   assetBundlePatterns: ['**/*'],
   ios: {
     supportsTablet: true,
-    bundleIdentifier: 'com.driveangel.app',
+    bundleIdentifier: 'com.driveangel.rundidev',
+    icon: './src/assets/images/icon_1.2.jpg',
     config: {
       googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY || 'YOUR_IOS_GOOGLE_MAPS_API_KEY',
       usesNonExemptEncryption: false
@@ -28,8 +30,17 @@ export default {
     usesAppleSignIn: true
   },
   android: {
-    package: 'com.driveangel.app',
+    package: 'com.driveangel.rundidev',
     versionCode: 1,
+    allowBackup: false,
+    adaptiveIcon: {
+      foregroundImage: './src/assets/images/icon_1.2.jpg',
+      backgroundColor: '#0F2628'
+    },
+    notification: {
+      icon: './src/assets/images/icon_1.2.jpg',
+      color: '#D4AF37'
+    },
     permissions: [
       'ACCESS_COARSE_LOCATION',
       'ACCESS_FINE_LOCATION',
@@ -67,38 +78,48 @@ export default {
       }
     },
     pwa: {
-      name: 'DriveAngel',
-      shortName: 'DriveAngel'
+      name: 'Rundi',
+      shortName: 'Rundi'
     }
   },
   plugins: [
     [
       'expo-location',
       {
-        locationAlwaysAndWhenInUsePermission: 'Permitir a DriveAngel acceder a tu ubicación.',
+        locationAlwaysAndWhenInUsePermission: 'Permitir a Rundi acceder a tu ubicación.',
         isAndroidBackgroundLocationEnabled: true,
         isIosBackgroundLocationEnabled: true
       }
     ],
+    'expo-secure-store',
     'expo-font',
     'expo-asset',
     'expo-splash-screen'
   ],
   extra: {
     eas: {
-      projectId: 'your-project-id'
+      projectId: '98fe5b45-4177-4d65-8ce3-6b783abfe196'
     },
-    apiUrl: process.env.API_URL || 'https://api.driveangel.com',
+    notificationsProjectId:
+      process.env.EXPO_PUBLIC_NOTIFICATIONS_PROJECT_ID ||
+      process.env.EXPO_NOTIFICATIONS_PROJECT_ID ||
+      '98fe5b45-4177-4d65-8ce3-6b783abfe196',
+    apiUrl: process.env.API_URL || '',
     googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY,
     sentryDsn: process.env.SENTRY_DSN,
-    environment: process.env.APP_ENV || 'development'
+    environment: process.env.APP_ENV || process.env.NODE_ENV || 'development',
+    EXPO_PUBLIC_SUPABASE_URL:
+      process.env.EXPO_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL,
+    EXPO_PUBLIC_SUPABASE_KEY:
+      process.env.EXPO_PUBLIC_SUPABASE_KEY ||
+      process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ||
+      process.env.SUPABASE_ANON_KEY,
+    supabaseUrl: process.env.SUPABASE_URL || process.env.EXPO_PUBLIC_SUPABASE_URL,
+    supabaseKey: process.env.SUPABASE_ANON_KEY || process.env.EXPO_PUBLIC_SUPABASE_KEY
   },
   runtimeVersion: {
     policy: 'sdkVersion'
   },
-  updates: {
-    url: 'https://u.expo.dev/your-project-id'
-  },
-  owner: 'youraccount',
+  owner: 'samuelues',
   privacy: 'unlisted'
 };

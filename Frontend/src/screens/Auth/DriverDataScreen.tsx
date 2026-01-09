@@ -3,7 +3,7 @@
  * Pantalla para que conductores ingresen datos de licencia y vehículo
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -17,16 +17,42 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RouteProp } from '@react-navigation/native';
+
 import { useTheme } from '../../context/ThemeContext';
 import registrationService from '../../services/registrationService';
 import { getDepartments, getMunicipalitiesByDepartment } from '../../constants/nicaraguaLocations';
+import { AuthStackParamList } from '../../navigation/types';
+import { useTranslation } from 'react-i18next';
 
-export default function DriverDataScreen({ navigation, route }: any) {
+type DriverDataNavigationProp = NativeStackNavigationProp<AuthStackParamList, 'DriverData'>;
+type DriverDataRouteProp = RouteProp<AuthStackParamList, 'DriverData'>;
+
+interface Props {
+  navigation: DriverDataNavigationProp;
+  route: DriverDataRouteProp;
+}
+
+export default function DriverDataScreen({ navigation, route }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const { t } = useTranslation();
 
-  // Datos del registro anterior
-  const { name, email, phone, password, role, authProvider, phoneVerified } = route.params || {};
+  const {
+    name,
+    email,
+    phone,
+    password,
+    method,
+    authProvider,
+    googleIdToken,
+    phoneVerified,
+    context,
+  } = route.params;
+
+  const driverContext: 'register_driver' | 'register_upgrade_driver' =
+    context === 'register_upgrade_driver' ? 'register_upgrade_driver' : 'register_driver';
 
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'license' | 'vehicle'>('license');
@@ -57,7 +83,10 @@ export default function DriverDataScreen({ navigation, route }: any) {
 
   const handleContinue = async () => {
     if (!isComplete) {
-      Alert.alert('Error', 'Por favor completa todos los campos requeridos');
+      Alert.alert(
+        t('authScreens.driverData.alerts.errorTitle'),
+        t('authScreens.driverData.alerts.incomplete'),
+      );
       return;
     }
 
@@ -65,33 +94,38 @@ export default function DriverDataScreen({ navigation, route }: any) {
     try {
       console.log('💾 Guardando datos del conductor...');
 
-      // Guardar datos temporales
-      await registrationService.saveTemporaryData({
-        name,
-        email,
-        phone,
-        password,
-        role,
-        authProvider,
-        phoneVerified,
-        driverData: {
-          licenseNumber,
-          licenseExpiry,
-          department,
-          municipality,
-        },
-        vehicleData: {
-          plate: plate.toUpperCase(),
-          brand,
-          model,
-          year: parseInt(year),
-          color,
-          type: type as 'sedan' | 'suv' | 'van' | 'moto',
-          passengers: passengers ? passengers : undefined,
-        },
-      });
+      // Guardar datos temporales solo para flujo de registro inicial
+      if (driverContext === 'register_driver') {
+        await registrationService.saveTemporaryData({
+          name,
+          email,
+          phone,
+          password,
+          role: 'driver',
+          method,
+          authProvider,
+          phoneVerified,
+          driverData: {
+            licenseNumber,
+            licenseExpiry,
+            department,
+            municipality,
+          },
+          vehicleData: {
+            plate: plate.toUpperCase(),
+            brand,
+            model,
+            year: parseInt(year, 10),
+            color,
+            type: type as 'sedan' | 'suv' | 'van' | 'moto',
+            passengers: passengers || undefined,
+          },
+          googleIdToken,
+          lastStep: 'driverData',
+        });
 
-      console.log('✅ Datos guardados');
+        console.log('✅ Datos guardados');
+      }
 
       // Navegar a pantalla de confirmación
       
@@ -100,8 +134,10 @@ export default function DriverDataScreen({ navigation, route }: any) {
         email,
         phone,
         password,
-        role,
+        role: 'driver',
+        method,
         authProvider,
+        googleIdToken,
         phoneVerified,
         driverData: {
           licenseNumber,
@@ -113,15 +149,19 @@ export default function DriverDataScreen({ navigation, route }: any) {
           plate: plate.toUpperCase(),
           brand,
           model,
-          year: parseInt(year),
+          year: parseInt(year, 10),
           color,
           type: type as 'sedan' | 'suv' | 'van' | 'moto',
-          passengers: passengers ? passengers : undefined,
+          passengers: passengers || undefined,
         },
+        context: driverContext,
       });
     } catch (error: any) {
       console.error('Error guardando datos:', error);
-      Alert.alert('Error', error.message || 'Error al guardar datos');
+      Alert.alert(
+        t('authScreens.driverData.alerts.errorTitle'),
+        error?.message || t('authScreens.driverData.alerts.saveFailed'),
+      );
     } finally {
       setLoading(false);
     }
@@ -157,9 +197,11 @@ export default function DriverDataScreen({ navigation, route }: any) {
         <View style={styles.content}>
           {/* Header */}
           <View style={styles.header}>
-            <Text style={styles.title}>Datos del Conductor</Text>
+            <Text style={[styles.title, { color: colors.text }]}>
+              {t('authScreens.driverData.headerTitle')}
+            </Text>
             <Text style={styles.subtitle}>
-              Completa tu información de licencia y vehículo
+              {t('authScreens.driverData.headerSubtitle')}
             </Text>
           </View>
 
@@ -175,7 +217,7 @@ export default function DriverDataScreen({ navigation, route }: any) {
                   activeTab === 'license' && styles.tabTextActive,
                 ]}
               >
-                📋 Licencia
+                {t('authScreens.driverData.tabs.license')}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -188,7 +230,7 @@ export default function DriverDataScreen({ navigation, route }: any) {
                   activeTab === 'vehicle' && styles.tabTextActive,
                 ]}
               >
-                🚗 Vehículo
+                {t('authScreens.driverData.tabs.vehicle')}
               </Text>
             </TouchableOpacity>
           </View>
@@ -196,14 +238,18 @@ export default function DriverDataScreen({ navigation, route }: any) {
           {/* Contenido por Tab */}
           {activeTab === 'license' ? (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Información de Licencia</Text>
+              <Text style={styles.sectionTitle}>
+                {t('authScreens.driverData.license.sectionTitle')}
+              </Text>
 
               {/* Número de Licencia */}
               <View style={styles.fieldGroup}>
-                <Text style={styles.label}>Número de Licencia *</Text>
+                <Text style={styles.label}>
+                  {t('authScreens.driverData.license.licenseNumberLabel')}
+                </Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="Ej: 123456789"
+                  placeholder={t('authScreens.driverData.license.licenseNumberPlaceholder')}
                   placeholderTextColor={colors.textSecondary}
                   value={licenseNumber}
                   onChangeText={setLicenseNumber}
@@ -213,10 +259,12 @@ export default function DriverDataScreen({ navigation, route }: any) {
 
               {/* Fecha de Vencimiento */}
               <View style={styles.fieldGroup}>
-                <Text style={styles.label}>Vencimiento (YYYY-MM-DD) *</Text>
+                <Text style={styles.label}>
+                  {t('authScreens.driverData.license.expiryLabel')}
+                </Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="2030-12-31"
+                  placeholder={t('authScreens.driverData.license.expiryPlaceholder')}
                   placeholderTextColor={colors.textSecondary}
                   value={licenseExpiry}
                   onChangeText={(text) => setLicenseExpiry(formatDate(text, licenseExpiry))}
@@ -226,7 +274,9 @@ export default function DriverDataScreen({ navigation, route }: any) {
 
               {/* Departamento */}
               <View style={styles.fieldGroup}>
-                <Text style={styles.label}>Departamento *</Text>
+                <Text style={styles.label}>
+                  {t('authScreens.driverData.license.departmentLabel')}
+                </Text>
                 <View style={styles.pickerContainer}>
                   <Picker
                     selectedValue={department}
@@ -234,7 +284,10 @@ export default function DriverDataScreen({ navigation, route }: any) {
                     enabled={!loading}
                     style={styles.picker}
                   >
-                    <Picker.Item label="Selecciona departamento" value="" />
+                    <Picker.Item
+                      label={t('authScreens.driverData.license.departmentPlaceholder')}
+                      value=""
+                    />
                     {departments_list.map((dept) => (
                       <Picker.Item key={dept} label={dept} value={dept} />
                     ))}
@@ -244,7 +297,9 @@ export default function DriverDataScreen({ navigation, route }: any) {
 
               {/* Municipio */}
               <View style={styles.fieldGroup}>
-                <Text style={styles.label}>Municipio *</Text>
+                <Text style={styles.label}>
+                  {t('authScreens.driverData.license.municipalityLabel')}
+                </Text>
                 <View style={styles.pickerContainer}>
                   <Picker
                     selectedValue={municipality}
@@ -252,7 +307,10 @@ export default function DriverDataScreen({ navigation, route }: any) {
                     enabled={!loading && department !== ''}
                     style={styles.picker}
                   >
-                    <Picker.Item label="Selecciona municipio" value="" />
+                    <Picker.Item
+                      label={t('authScreens.driverData.license.municipalityPlaceholder')}
+                      value=""
+                    />
                     {municipalities.map((mun) => (
                       <Picker.Item key={mun} label={mun} value={mun} />
                     ))}
@@ -263,20 +321,24 @@ export default function DriverDataScreen({ navigation, route }: any) {
               {/* Info */}
               <View style={styles.infoBox}>
                 <Text style={styles.infoText}>
-                  💡 Asegúrate de que tu licencia sea válida y no esté vencida
+                  {t('authScreens.driverData.license.info')}
                 </Text>
               </View>
             </View>
           ) : (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Información del Vehículo</Text>
+              <Text style={styles.sectionTitle}>
+                {t('authScreens.driverData.vehicle.sectionTitle')}
+              </Text>
 
               {/* Placa */}
               <View style={styles.fieldGroup}>
-                <Text style={styles.label}>Placa *</Text>
+                <Text style={styles.label}>
+                  {t('authScreens.driverData.vehicle.plateLabel')}
+                </Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="Ej: ABC-123"
+                  placeholder={t('authScreens.driverData.vehicle.platePlaceholder')}
                   placeholderTextColor={colors.textSecondary}
                   value={plate}
                   onChangeText={setPlate}
@@ -286,10 +348,12 @@ export default function DriverDataScreen({ navigation, route }: any) {
 
               {/* Marca */}
               <View style={styles.fieldGroup}>
-                <Text style={styles.label}>Marca *</Text>
+                <Text style={styles.label}>
+                  {t('authScreens.driverData.vehicle.brandLabel')}
+                </Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="Ej: Toyota"
+                  placeholder={t('authScreens.driverData.vehicle.brandPlaceholder')}
                   placeholderTextColor={colors.textSecondary}
                   value={brand}
                   onChangeText={setBrand}
@@ -299,10 +363,12 @@ export default function DriverDataScreen({ navigation, route }: any) {
 
               {/* Modelo */}
               <View style={styles.fieldGroup}>
-                <Text style={styles.label}>Modelo *</Text>
+                <Text style={styles.label}>
+                  {t('authScreens.driverData.vehicle.modelLabel')}
+                </Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="Ej: Corolla"
+                  placeholder={t('authScreens.driverData.vehicle.modelPlaceholder')}
                   placeholderTextColor={colors.textSecondary}
                   value={model}
                   onChangeText={setModel}
@@ -312,10 +378,12 @@ export default function DriverDataScreen({ navigation, route }: any) {
 
               {/* Año */}
               <View style={styles.fieldGroup}>
-                <Text style={styles.label}>Año *</Text>
+                <Text style={styles.label}>
+                  {t('authScreens.driverData.vehicle.yearLabel')}
+                </Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="Ej: 2020"
+                  placeholder={t('authScreens.driverData.vehicle.yearPlaceholder')}
                   placeholderTextColor={colors.textSecondary}
                   value={year}
                   onChangeText={setYear}
@@ -326,10 +394,12 @@ export default function DriverDataScreen({ navigation, route }: any) {
 
               {/* Color */}
               <View style={styles.fieldGroup}>
-                <Text style={styles.label}>Color *</Text>
+                <Text style={styles.label}>
+                  {t('authScreens.driverData.vehicle.colorLabel')}
+                </Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="Ej: Blanco"
+                  placeholder={t('authScreens.driverData.vehicle.colorPlaceholder')}
                   placeholderTextColor={colors.textSecondary}
                   value={color}
                   onChangeText={setColor}
@@ -339,7 +409,9 @@ export default function DriverDataScreen({ navigation, route }: any) {
 
               {/* Tipo */}
               <View style={styles.fieldGroup}>
-                <Text style={styles.label}>Tipo de Vehículo *</Text>
+                <Text style={styles.label}>
+                  {t('authScreens.driverData.vehicle.typeLabel')}
+                </Text>
                 <View style={styles.pickerContainer}>
                   <Picker
                     selectedValue={type}
@@ -347,20 +419,34 @@ export default function DriverDataScreen({ navigation, route }: any) {
                     enabled={!loading}
                     style={styles.picker}
                   >
-                    <Picker.Item label="Sedán" value="sedan" />
-                    <Picker.Item label="SUV" value="suv" />
-                    <Picker.Item label="Van" value="van" />
-                    <Picker.Item label="Moto" value="moto" />
+                    <Picker.Item
+                      label={t('authScreens.driverData.vehicle.typeOptions.sedan')}
+                      value="sedan"
+                    />
+                    <Picker.Item
+                      label={t('authScreens.driverData.vehicle.typeOptions.suv')}
+                      value="suv"
+                    />
+                    <Picker.Item
+                      label={t('authScreens.driverData.vehicle.typeOptions.van')}
+                      value="van"
+                    />
+                    <Picker.Item
+                      label={t('authScreens.driverData.vehicle.typeOptions.moto')}
+                      value="moto"
+                    />
                   </Picker>
                 </View>
               </View>
 
               {/* Pasajeros */}
               <View style={styles.fieldGroup}>
-                <Text style={styles.label}>Capacidad de Pasajeros</Text>
+                <Text style={styles.label}>
+                  {t('authScreens.driverData.vehicle.passengersLabel')}
+                </Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="Ej: 4"
+                  placeholder={t('authScreens.driverData.vehicle.passengersPlaceholder')}
                   placeholderTextColor={colors.textSecondary}
                   value={passengers}
                   onChangeText={setPassengers}
@@ -372,7 +458,7 @@ export default function DriverDataScreen({ navigation, route }: any) {
               {/* Info */}
               <View style={styles.infoBox}>
                 <Text style={styles.infoText}>
-                  💡 Asegúrate de que todos los datos coincidan con tu registro vehicular
+                  {t('authScreens.driverData.vehicle.info')}
                 </Text>
               </View>
             </View>
@@ -385,7 +471,9 @@ export default function DriverDataScreen({ navigation, route }: any) {
               onPress={() => navigation.goBack()}
               disabled={loading}
             >
-              <Text style={styles.backButtonText}>← Volver</Text>
+              <Text style={styles.backButtonText}>
+                {t('authScreens.driverData.buttons.back')}
+              </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -396,7 +484,9 @@ export default function DriverDataScreen({ navigation, route }: any) {
               {loading ? (
                 <ActivityIndicator color="#FFFFFF" />
               ) : (
-                <Text style={styles.continueButtonText}>Continuar →</Text>
+                <Text style={styles.label}>
+                  {t('authScreens.driverData.buttons.continue')}
+                </Text>
               )}
             </TouchableOpacity>
           </View>
@@ -405,7 +495,9 @@ export default function DriverDataScreen({ navigation, route }: any) {
           <View style={styles.progressContainer}>
             <View style={[styles.progressBar, { width: '50%' }]} />
           </View>
-          <Text style={styles.progressText}>Paso 3 de 4</Text>
+          <Text style={styles.progressText}>
+            {t('authScreens.driverData.progress', { current: 3, total: 4 })}
+          </Text>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -451,7 +543,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     borderBottomColor: 'transparent',
   },
   tabActive: {
-    borderBottomColor: colors.primary,
+    borderBottomColor: 'rgba(212, 156, 35, 1)',
   },
   tabText: {
     fontSize: 14,
@@ -459,7 +551,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     color: colors.textSecondary,
   },
   tabTextActive: {
-    color: colors.primary,
+    color: 'rgba(212, 156, 35, 1)',
   },
   section: {
     marginBottom: 24,
@@ -533,7 +625,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     flex: 1,
     paddingVertical: 12,
     borderRadius: 8,
-    backgroundColor: colors.primary,
+    backgroundColor: 'rgba(201, 149, 36, 1)',
     alignItems: 'center',
   },
   continueButtonText: {

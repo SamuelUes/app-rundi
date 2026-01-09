@@ -5,6 +5,7 @@ import BiometricService from '../services/biometricService';
 import { supabase } from '../config/supabase';
 import { ref, update } from 'firebase/database';
 import db from '../config/firebase';
+import { useTranslation } from 'react-i18next';
 
 interface DriverOffer {
   driver: {
@@ -53,15 +54,17 @@ export default function DriverOfferCard({
   driverDistance, // ✅ Distancia del conductor
 }: DriverOfferCardProps) {
   const { colors } = useTheme();
+  const { t } = useTranslation();
 
   const driver = (offer.driver || {}) as DriverOffer['driver'];
   const { offeredPrice, acceptedClientPrice } = offer;
   const vehicle = driver?.vehicle || offer.vehicle || null;
 
   const driverPhoto = driver?.photoURL || driver?.profilePhoto || null;
-  const displayName = typeof driver?.name === 'string' && driver.name.trim().length > 0
-    ? driver.name
-    : 'Conductor';
+  const displayName =
+    typeof driver?.name === 'string' && driver.name.trim().length > 0
+      ? driver.name
+      : t('common.components.driverOfferCard.defaults.driver');
   const avatarInitial = displayName.charAt(0).toUpperCase();
   let driverRatingValue: number | null = null;
   if (driver?.rating !== undefined && driver?.rating !== null) {
@@ -71,11 +74,16 @@ export default function DriverOfferCard({
 
   // Calcular ahorro/diferencia
   const difference = estimatedPrice - offeredPrice;
-  const savingsText = difference > 0 
-    ? `Ahorras C$${difference.toFixed(2)}` 
-    : difference < 0 
-    ? `C$${Math.abs(difference).toFixed(2)} más` 
-    : 'Precio estimado';
+  const savingsText =
+    difference > 0
+      ? t('common.components.driverOfferCard.savings.save', {
+          amount: difference.toFixed(2),
+        })
+      : difference < 0
+      ? t('common.components.driverOfferCard.savings.extra', {
+          amount: Math.abs(difference).toFixed(2),
+        })
+      : t('common.components.driverOfferCard.savings.match');
 
   // Calcular límites de negociación dinámicos
   // Mínimo: 66.67% del precio estimado (con piso de 50 C$)
@@ -138,12 +146,12 @@ export default function DriverOfferCard({
           {vehicle && (vehicle.make || vehicle.brand || vehicle.model || vehicle.plate) && (
             <View style={styles.vehicleSummaryGroup}>
               <Text style={[styles.vehicleSummary, { color: colors.textSecondary }]}>
-                {(vehicle.make || vehicle.brand || 'Vehículo')}
+                {(vehicle.make || vehicle.brand || t('common.components.driverOfferCard.defaults.vehicle'))}
                 {vehicle.model ? ` ${vehicle.model}` : ''}
               </Text>
               {vehicle.plate && (
                 <Text style={[styles.vehicleSummary, { color: colors.textSecondary }]}>
-                  Placa: {vehicle.plate}
+                  {t('common.components.driverOfferCard.defaults.plateLabel')} {vehicle.plate}
                 </Text>
               )}
             </View>
@@ -160,7 +168,7 @@ export default function DriverOfferCard({
       {driverDistance !== undefined && (
         <View style={[styles.distanceSection, { backgroundColor: colors.background }]}>
           <Text style={[styles.distanceLabel, { color: colors.textSecondary }]}>
-            📍 Distancia al origen:
+            {t('common.components.driverOfferCard.distance')}
           </Text>
           <Text style={[styles.distanceValue, { color: colors.primary }]}>
             {driverDistance.toFixed(2)} km
@@ -182,12 +190,14 @@ export default function DriverOfferCard({
   
           <View style={styles.vehicleInfo}>
             <Text style={[styles.vehicleText, { color: colors.textSecondary }]}>
-              🚗 {(vehicle.make || vehicle.brand || 'N/A') + ' ' + (vehicle.model || 'N/A')} •{' '}
-              {vehicle.color || 'N/A'}
+              🚗 {(vehicle.make || vehicle.brand || t('common.components.driverOfferCard.defaults.vehicleUnknown')) +
+                ' ' +
+                (vehicle.model || t('common.components.driverOfferCard.defaults.vehicleUnknown'))}{' '}
+              • {vehicle.color || t('common.components.driverOfferCard.defaults.vehicleUnknown')}
             </Text>
             {vehicle.plate && (
               <Text style={[styles.plateText, { color: colors.textSecondary }]}>
-                📋 Placa: {vehicle.plate}
+                📋 {t('common.components.driverOfferCard.defaults.plateLabel')} {vehicle.plate}
               </Text>
             )}
           </View>
@@ -198,12 +208,16 @@ export default function DriverOfferCard({
       <View style={styles.priceSection}>
         {acceptedClientPrice ? (
           <View style={styles.acceptedPriceContainer}>
-            <Text style={[styles.acceptedLabel, { color: '#4CAF50' }]}>✅ Aceptó tu precio</Text>
+            <Text style={[styles.acceptedLabel, { color: '#4CAF50' }]}>
+              {t('common.components.driverOfferCard.price.acceptedLabel')}
+            </Text>
             <Text style={[styles.priceValue, { color: '#4CAF50' }]}>C${offeredPrice}</Text>
           </View>
         ) : (
           <View style={styles.offerPriceContainer}>
-            <Text style={[styles.offerLabel, { color: colors.textSecondary }]}>💰 Ofrece:</Text>
+            <Text style={[styles.offerLabel, { color: colors.textSecondary }]}>
+              {t('common.components.driverOfferCard.price.offerLabel')}
+            </Text>
             <Text style={[styles.priceValue, { color: '#FF9800' }]}>C${offeredPrice}</Text>
           </View>
         )}
@@ -224,18 +238,22 @@ export default function DriverOfferCard({
         <Text
           style={[styles.negotiationLimitsTitle, { color: colors.textSecondary }]}
         >
-          📊 Rango de negociación:
+          {t('common.components.driverOfferCard.negotiation.title')}
         </Text>
         <View style={styles.negotiationLimitsRow}>
           <View style={styles.limitItem}>
-            <Text style={[styles.limitLabel, { color: colors.textSecondary }]}>Mínimo</Text>
+            <Text style={[styles.limitLabel, { color: colors.textSecondary }]}>
+              {t('common.components.driverOfferCard.negotiation.min')}
+            </Text>
             <Text style={[styles.limitValue, { color: '#4CAF50' }]}>
               C${minNegotiationPrice}
             </Text>
           </View>
           <View style={styles.limitDivider} />
           <View style={styles.limitItem}>
-            <Text style={[styles.limitLabel, { color: colors.textSecondary }]}>Máximo</Text>
+            <Text style={[styles.limitLabel, { color: colors.textSecondary }]}>
+              {t('common.components.driverOfferCard.negotiation.max')}
+            </Text>
             <Text style={[styles.limitValue, { color: '#FF9800' }]}>
               C${maxNegotiationPrice}
             </Text>
@@ -250,7 +268,9 @@ export default function DriverOfferCard({
             style={[styles.acceptButton, { backgroundColor: '#4CAF50' }]}
             onPress={onAcceptOffer}
           >
-            <Text style={styles.acceptButtonText}>🚀 Aceptar y Comenzar Viaje</Text>
+            <Text style={styles.acceptButtonText}>
+              {t('common.components.driverOfferCard.price.acceptRide')}
+            </Text>
           </TouchableOpacity>
         ) : (
           <>
@@ -258,7 +278,9 @@ export default function DriverOfferCard({
               style={[styles.viewButton, { backgroundColor: colors.primary }]}
               onPress={onViewOffer}
             >
-              <Text style={styles.viewButtonText}>💬 Ver oferta y negociar</Text>
+              <Text style={styles.viewButtonText}>
+                {t('common.components.driverOfferCard.price.viewOffer')}
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[
@@ -270,8 +292,10 @@ export default function DriverOfferCard({
             >
               <Text style={styles.quickAcceptButtonText}>
                 {hasPendingCounterOffer
-                  ? '⏳ Esperando confirmación'
-                  : `✅ Aceptar C$${offeredPrice}`}
+                  ? t('common.components.driverOfferCard.price.pending')
+                  : t('common.components.driverOfferCard.price.quickAccept', {
+                      amount: offeredPrice,
+                    })}
               </Text>
             </TouchableOpacity>
           </>
@@ -283,33 +307,41 @@ export default function DriverOfferCard({
         <Modal visible={true} transparent={true}>
           <View style={styles.biometricModal}>
             <View style={styles.biometricContent}>
-              <Text style={styles.biometricTitle}>Verifica tu identidad</Text>
-              <Text style={styles.biometricSubtitle}>
-                Se requiere biometría para aceptar este viaje
+              <Text style={styles.biometricTitle}>
+                {t('common.components.driverOfferCard.biometric.title')}
               </Text>
-  
+              <Text style={styles.biometricSubtitle}>
+                {t('common.components.driverOfferCard.biometric.subtitle')}
+              </Text>
+
               <TouchableOpacity
                 style={styles.biometricButton}
                 onPress={() => handleBiometricConfirmation('fingerprint')}
                 disabled={isAuthenticating}
               >
-                <Text style={styles.biometricButtonText}>👆 Usar Huella</Text>
+                <Text style={styles.biometricButtonText}>
+                  {t('common.components.driverOfferCard.biometric.fingerprint')}
+                </Text>
               </TouchableOpacity>
-  
+
               <TouchableOpacity
                 style={styles.biometricButton}
                 onPress={() => handleBiometricConfirmation('face_id')}
                 disabled={isAuthenticating}
               >
-                <Text style={styles.biometricButtonText}>👤 Usar Face ID</Text>
+                <Text style={styles.biometricButtonText}>
+                  {t('common.components.driverOfferCard.biometric.faceId')}
+                </Text>
               </TouchableOpacity>
-  
+
               <TouchableOpacity
                 style={styles.cancelButton}
                 onPress={() => setShowBiometricModal(false)}
                 disabled={isAuthenticating}
               >
-                <Text style={styles.cancelButtonText}>Cancelar</Text>
+                <Text style={styles.cancelButtonText}>
+                  {t('common.components.driverOfferCard.biometric.cancel')}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>

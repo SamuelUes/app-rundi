@@ -1,7 +1,9 @@
-import * as admin from "firebase-admin";
+import admin from "firebase-admin";
 
 // Inicializar Firebase Admin
-admin.initializeApp();
+if (!admin.apps.length) {
+  admin.initializeApp();
+}
 
 // Exportar servicios
 export const auth = admin.auth();

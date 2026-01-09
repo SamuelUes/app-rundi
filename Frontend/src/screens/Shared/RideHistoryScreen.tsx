@@ -15,6 +15,7 @@ import { NoHistoryEmptyState } from '../../components/EmptyState';
 import ridesService from '../../services/ridesService';
 import { formatNicaraguaRelativeDate } from '../../utils/dateUtils';
 import { safeString, safeFormatDateTime } from '../../utils/safeFormatters';
+import { useTranslation } from 'react-i18next';
 
 interface HistoricalRide {
   id: string;
@@ -38,10 +39,19 @@ interface HistoricalRide {
   rating?: number;
 }
 
+const STATUS_KEY_MAP: Record<string, string> = {
+  completed: 'completed',
+  canceled: 'canceled',
+  in_progress: 'inProgress',
+  requested: 'requested',
+  accepted: 'accepted',
+};
+
 export default function RideHistoryScreen({ navigation }: any) {
   const { user } = useAuth();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const { t } = useTranslation();
 
   const [rides, setRides] = useState<HistoricalRide[]>([]);
   const [loading, setLoading] = useState(true);
@@ -58,7 +68,8 @@ export default function RideHistoryScreen({ navigation }: any) {
       
       console.log(`📋 [RideHistoryScreen] Cargando viajes para ${user.role}: ${user.id}`);
       setLoading(true);
-      const userType = user.role === 'driver' ? 'driver' : 'client';
+      const isDriverRole = user.role === 'driver' || user.role === 'designated_driver';
+      const userType = isDriverRole ? 'driver' : 'client';
       const rides = await ridesService.getMyRides(user.id, userType);
       
       console.log(`✅ [RideHistoryScreen] Viajes cargados: ${rides?.length || 0}`);
@@ -96,23 +107,17 @@ export default function RideHistoryScreen({ navigation }: any) {
   };
 
   const getStatusText = (status: string) => {
-    switch (status) {
-      case 'completed': return 'Completado';
-      case 'canceled': return 'Cancelado';
-      case 'in_progress': return 'En progreso';
-      case 'requested': return 'Solicitado';
-      case 'accepted': return 'Aceptado';
-      default: return status;
-    }
+    const key = STATUS_KEY_MAP[status] ?? 'default';
+    return t(`shared.rideHistory.status.${key}`, { status });
   };
 
   const formatDate = (dateString: any): string => {
-    if (!dateString || typeof dateString === 'object') return 'Sin fecha';
+    if (!dateString || typeof dateString === 'object') return t('shared.rideHistory.labels.noDate');
     try {
       const formatted = formatNicaraguaRelativeDate(dateString);
-      return typeof formatted === 'string' ? formatted : 'Sin fecha';
+      return typeof formatted === 'string' ? formatted : t('shared.rideHistory.labels.noDate');
     } catch (error) {
-      return 'Sin fecha';
+      return t('shared.rideHistory.labels.noDate');
     }
   };
 
@@ -121,8 +126,8 @@ export default function RideHistoryScreen({ navigation }: any) {
     return {
       ...item,
       id: String(item.id || ''),
-      originAddress: typeof item.originAddress === 'string' ? item.originAddress : 'Origen desconocido',
-      destinationAddress: typeof item.destinationAddress === 'string' ? item.destinationAddress : 'Destino desconocido',
+      originAddress: typeof item.originAddress === 'string' ? item.originAddress : t('shared.rideHistory.labels.originFallback'),
+      destinationAddress: typeof item.destinationAddress === 'string' ? item.destinationAddress : t('shared.rideHistory.labels.destinationFallback'),
       // ✅ NUEVO: Soportar múltiples direcciones
       allAddresses: Array.isArray(item.allAddresses) ? item.allAddresses : [],
       hasMultipleStops: typeof item.hasMultipleStops === 'boolean' ? item.hasMultipleStops : false,
@@ -161,6 +166,17 @@ export default function RideHistoryScreen({ navigation }: any) {
       const price = Number(item.estimatedFare) || 0;
       const formattedDate = formatDate(item.updatedAt || item.createdAt);
 
+      const resolveRideTypeLabel = (type: string) => {
+        switch (type) {
+          case 'designated_driver':
+            return t('shared.rideHistory.labels.typeDesignated');
+          case 'moto':
+            return t('shared.rideHistory.labels.typeMoto');
+          default:
+            return t('shared.rideHistory.labels.typeAuto');
+        }
+      };
+
       return (
       <TouchableOpacity
         style={styles.rideCard}
@@ -186,7 +202,7 @@ export default function RideHistoryScreen({ navigation }: any) {
                     {idx === 0 ? '🔵' : idx === item.allAddresses.length - 1 ? '🔴' : '📍'}
                   </Text>
                   <Text style={styles.locationText} numberOfLines={1}>
-                    {String(address || 'Ubicación desconocida')}
+                    {String(address || t('shared.rideHistory.labels.unknownLocation'))}
                   </Text>
                 </View>
                 {idx < item.allAddresses.length - 1 && <View style={styles.locationDivider} />}
@@ -198,14 +214,14 @@ export default function RideHistoryScreen({ navigation }: any) {
               <View style={styles.locationRow}>
                 <Text style={styles.locationIcon}>🔵</Text>
                 <Text style={styles.locationText} numberOfLines={1}>
-                  {String(item.originAddress || 'Origen desconocido')}
+                  {String(item.originAddress || t('shared.rideHistory.labels.originFallback'))}
                 </Text>
               </View>
               <View style={styles.locationDivider} />
               <View style={styles.locationRow}>
                 <Text style={styles.locationIcon}>🔴</Text>
                 <Text style={styles.locationText} numberOfLines={1}>
-                  {String(item.destinationAddress || 'Destino desconocido')}
+                  {String(item.destinationAddress || t('shared.rideHistory.labels.destinationFallback'))}
                 </Text>
               </View>
             </>
@@ -215,12 +231,12 @@ export default function RideHistoryScreen({ navigation }: any) {
         {/* Info del viaje */}
         <View style={styles.rideInfo}>
           <View style={styles.infoItem}>
-            <Text style={styles.infoLabel}>Distancia</Text>
+            <Text style={styles.infoLabel}>{t('shared.rideHistory.labels.distance')}</Text>
             <Text style={styles.infoValue}>{`${distanceKm} km`}</Text>
           </View>
           <View style={styles.infoItem}>
             <Text style={styles.infoLabel}>
-              {item.finalFare ? 'Precio Final' : 'Precio Est.'}
+              {item.finalFare ? t('shared.rideHistory.labels.priceFinal') : t('shared.rideHistory.labels.priceEstimated')}
             </Text>
             <Text style={[styles.infoValue, item.finalFare ? { color: '#4CAF50', fontWeight: '700' as '700' } : null]}>
               {item.finalFare 
@@ -229,14 +245,14 @@ export default function RideHistoryScreen({ navigation }: any) {
             </Text>
           </View>
           <View style={styles.infoItem}>
-            <Text style={styles.infoLabel}>Tipo</Text>
+            <Text style={styles.infoLabel}>{t('shared.rideHistory.labels.type')}</Text>
             <Text style={styles.infoValue}>
-              {item.rideType === 'designated_driver' ? '🚗 CD' : item.rideType === 'moto' ? '🏍️ Moto' : '🚕 Auto'}
+              {resolveRideTypeLabel(String(item.rideType))}
             </Text>
           </View>
           {item.passengers && item.passengers > 1 && (
             <View style={styles.infoItem}>
-              <Text style={styles.infoLabel}>Pasajeros</Text>
+              <Text style={styles.infoLabel}>{t('shared.rideHistory.labels.passengers')}</Text>
               <Text style={styles.infoValue}>{String(item.passengers)}</Text>
             </View>
           )}
@@ -246,13 +262,13 @@ export default function RideHistoryScreen({ navigation }: any) {
         {/* Info de conductor/cliente */}
         {isDriver && item.client && item.client.name && (
           <View style={styles.personInfo}>
-            <Text style={styles.personLabel}>Cliente:</Text>
+            <Text style={styles.personLabel}>{t('shared.rideHistory.labels.client')}</Text>
             <Text style={styles.personName}>{String(item.client.name)}</Text>
           </View>
         )}
         {!isDriver && item.driver && item.driver.name && (
           <View style={styles.personInfo}>
-            <Text style={styles.personLabel}>Conductor:</Text>
+            <Text style={styles.personLabel}>{t('shared.rideHistory.labels.driver')}</Text>
             <Text style={styles.personName}>{String(item.driver.name)}</Text>
             {item.driver.rating && typeof item.driver.rating !== 'object' && parseFloat(String(item.driver.rating)) > 0 && (
               <Text style={styles.personRating}>⭐ {parseFloat(String(item.driver.rating)).toFixed(1)}</Text>
@@ -263,7 +279,7 @@ export default function RideHistoryScreen({ navigation }: any) {
         {/* Rating */}
         {item.rating && typeof item.rating === 'number' && item.rating > 0 && (
           <View style={styles.ratingContainer}>
-            <Text style={styles.ratingLabel}>Tu calificación:</Text>
+            <Text style={styles.ratingLabel}>{t('shared.rideHistory.labels.yourRating')}</Text>
             <Text style={styles.ratingValue}>
               {'⭐'.repeat(Math.round(item.rating))}
             </Text>
@@ -276,7 +292,7 @@ export default function RideHistoryScreen({ navigation }: any) {
             style={styles.rateButton}
             onPress={() => navigation.navigate('Rating', { rideId: item.id })}
           >
-            <Text style={styles.rateButtonText}>⭐ Calificar</Text>
+            <Text style={styles.rateButtonText}>{t('shared.rideHistory.actions.rateRide')}</Text>
           </TouchableOpacity>
         )}
       </TouchableOpacity>
@@ -285,8 +301,10 @@ export default function RideHistoryScreen({ navigation }: any) {
       console.error('❌ Error renderizando ride:', rawItem?.id, error);
       return (
         <View style={styles.rideCard}>
-          <Text style={styles.emptyTitle}>Error al cargar viaje</Text>
-          <Text style={styles.emptySubtitle}>{`ID: ${String(rawItem?.id || 'unknown')}`}</Text>
+          <Text style={styles.emptyTitle}>{t('shared.rideHistory.errors.loadRide')}</Text>
+          <Text style={styles.emptySubtitle}>
+            {t('shared.rideHistory.errors.idLabel', { id: String(rawItem?.id || 'unknown') })}
+          </Text>
         </View>
       );
     }
@@ -309,7 +327,7 @@ export default function RideHistoryScreen({ navigation }: any) {
           onPress={() => setFilter('all')}
         >
           <Text style={[styles.filterText, filter === 'all' && styles.filterTextActive]}>
-            Todos
+            {t('shared.rideHistory.filters.all')}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -317,7 +335,7 @@ export default function RideHistoryScreen({ navigation }: any) {
           onPress={() => setFilter('completed')}
         >
           <Text style={[styles.filterText, filter === 'completed' && styles.filterTextActive]}>
-            Completados
+            {t('shared.rideHistory.filters.completed')}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -325,7 +343,7 @@ export default function RideHistoryScreen({ navigation }: any) {
           onPress={() => setFilter('canceled')}
         >
           <Text style={[styles.filterText, filter === 'canceled' && styles.filterTextActive]}>
-            Cancelados
+            {t('shared.rideHistory.filters.canceled')}
           </Text>
         </TouchableOpacity>
       </View>
@@ -346,11 +364,15 @@ export default function RideHistoryScreen({ navigation }: any) {
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyText}>📋</Text>
-            <Text style={styles.emptyTitle}>Sin viajes</Text>
+            <Text style={styles.emptyTitle}>{t('shared.rideHistory.empty.title')}</Text>
             <Text style={styles.emptySubtitle}>
               {filter === 'all'
-                ? 'Aún no tienes viajes en tu historial'
-                : `No tienes viajes ${filter === 'completed' ? 'completados' : 'cancelados'}`}
+                ? t('shared.rideHistory.empty.subtitleAll')
+                : t(
+                    filter === 'completed'
+                      ? 'shared.rideHistory.empty.subtitleCompleted'
+                      : 'shared.rideHistory.empty.subtitleCanceled',
+                  )}
             </Text>
           </View>
         }

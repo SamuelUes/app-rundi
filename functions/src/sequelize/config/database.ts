@@ -9,6 +9,14 @@
 
 import { Sequelize } from 'sequelize';
 import * as functions from 'firebase-functions';
+import dotenv from 'dotenv';
+
+// Asegurar que las variables de entorno estén disponibles en emulador/desarrollo
+// En producción (Firebase) se usan functions.config()/process.env
+const nodeEnv = process.env.NODE_ENV === 'production' ? 'production' : 'development';
+const envFilePath = nodeEnv === 'production' ? '.env.productions' : '.env.development';
+
+dotenv.config({ path: envFilePath });
 
 console.log(`🔧 [Sequelize Config] Inicializando conexión a Supabase...`);
 
@@ -28,69 +36,80 @@ try {
 
 // 2. Fallback: obtener de process.env (para desarrollo local)
 if (!databaseUrl) {
-  databaseUrl = process.env.DATABASE_URL;
-  if (databaseUrl) {
+  // Primero intentar DATABASE_URL clásica
+  if (process.env.DATABASE_URL) {
+    databaseUrl = process.env.DATABASE_URL;
     console.log(`✅ [Sequelize Config] DATABASE_URL obtenida de process.env`);
+  } else if (process.env.DATABASE_TRANS_POOLER) {
+    // Luego intentar DATABASE_TRANS_POOLER (transaction pooler de Supabase)
+    databaseUrl = process.env.DATABASE_TRANS_POOLER;
+    console.log(
+      `✅ [Sequelize Config] DATABASE_URL obtenida de process.env.DATABASE_TRANS_POOLER (transaction pooler)`,
+    );
   }
 }
 
-// 3. Si no hay DATABASE_URL, lanzar error
+let sequelize: Sequelize | null = null;
+
 if (!databaseUrl) {
-  console.error(`❌ [Sequelize Config] ERROR: DATABASE_URL no está configurada`);
-  console.error(`❌ [Sequelize Config] Configura en Firebase Cloud Functions:`);
-  console.error(`   firebase functions:config:set supabase.database_url="postgresql://..."`);
-  throw new Error('DATABASE_URL no configurada');
+  console.warn(`⚠️ [Sequelize Config] DATABASE_URL no está configurada. Saltando inicialización de Sequelize.`);
+  console.warn(`⚠️ [Sequelize Config] Configura en Firebase Cloud Functions: firebase functions:config:set supabase.database_url="postgresql://..."`);
+  console.warn(`⚠️ [Sequelize Config] O define DATABASE_URL en el archivo functions/.env`);
+} else {
+  console.log(`✅ [Sequelize Config] DATABASE_URL encontrada`);
+  console.log(`✅ [Sequelize Config] Conectando a: ${databaseUrl.split('@')[1] || 'Supabase'}`);
+
+  sequelize = new Sequelize(databaseUrl, {
+    dialect: 'postgres',
+    logging: process.env.NODE_ENV === 'development' ? console.log : false,
+    pool: {
+      max: 5,
+      min: 0,
+      acquire: 30000,
+      idle: 10000,
+      evict: 10000,
+    },
+    dialectOptions: {
+      ssl: { require: true, rejectUnauthorized: false },
+      // ✅ Configuración para Supabase
+      statement_timeout: 30000,
+      idle_in_transaction_session_timeout: 30000,
+      application_name: 'driveangel-firebase-functions',
+    },
+    // ✅ Retry logic para conexiones fallidas
+    retry: {
+      max: 3,
+      timeout: 5000,
+    },
+    // ✅ Configuración adicional para Firebase
+    define: {
+      timestamps: true,
+      underscored: true,
+    },
+  });
+
+  const testConnection = async () => {
+    try {
+      console.log(`🔄 [Sequelize Config] Probando conexión a Supabase...`);
+      await sequelize!.authenticate();
+      console.log(`✅ [Sequelize Config] Conexión a Supabase exitosa`);
+    } catch (error: any) {
+      console.warn(`⚠️ [Sequelize Config] No se pudo conectar a PostgreSQL directo:`, error.message);
+      console.warn(`⚠️ [Sequelize Config] Usando Supabase REST API como fallback`);
+      console.warn(`⚠️ [Sequelize Config] Esto es normal en Firebase Functions`);
+    }
+  };
+
+  testConnection().catch(() => {
+    // Ignorar errores - usaremos REST API como fallback
+  });
 }
 
-console.log(`✅ [Sequelize Config] DATABASE_URL encontrada`);
-console.log(`✅ [Sequelize Config] Conectando a: ${databaseUrl.split('@')[1] || 'Supabase'}`);
-
-// Crear instancia de Sequelize con DATABASE_URL
-const sequelize = new Sequelize(databaseUrl, {
-  dialect: 'postgres',
-  logging: process.env.NODE_ENV === 'development' ? console.log : false,
-  pool: {
-    max: 5,
-    min: 0,
-    acquire: 30000,
-    idle: 10000,
-    evict: 10000,
-  },
-  dialectOptions: {
-    ssl: { require: true, rejectUnauthorized: false },
-    // ✅ Configuración para Supabase
-    statement_timeout: 30000,
-    idle_in_transaction_session_timeout: 30000,
-    application_name: 'driveangel-firebase-functions',
-  },
-  // ✅ Retry logic para conexiones fallidas
-  retry: {
-    max: 3,
-    timeout: 5000,
-  },
-  // ✅ Configuración adicional para Firebase
-  define: {
-    timestamps: true,
-    underscored: true,
+const sequelizeFallback = new Proxy({} as Sequelize, {
+  get() {
+    throw new Error('Sequelize no está inicializado porque DATABASE_URL no fue configurada');
   },
 });
 
-// Probar conexión en background (sin bloquear)
-const testConnection = async () => {
-  try {
-    console.log(`🔄 [Sequelize Config] Probando conexión a Supabase...`);
-    await sequelize.authenticate();
-    console.log(`✅ [Sequelize Config] Conexión a Supabase exitosa`);
-  } catch (error: any) {
-    console.warn(`⚠️ [Sequelize Config] No se pudo conectar a PostgreSQL directo:`, error.message);
-    console.warn(`⚠️ [Sequelize Config] Usando Supabase REST API como fallback`);
-    console.warn(`⚠️ [Sequelize Config] Esto es normal en Firebase Functions`);
-  }
-};
-
-// Iniciar prueba de conexión en background (no esperar)
-testConnection().catch(() => {
-  // Ignorar errores - usaremos REST API como fallback
-});
-
-export default sequelize;
+export const isSequelizeAvailable = !!sequelize;
+export default sequelize ?? sequelizeFallback;

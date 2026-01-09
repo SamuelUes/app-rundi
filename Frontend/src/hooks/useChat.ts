@@ -21,6 +21,7 @@ export function useChat(rideId: string, userId: string, userName: string) {
   const [isTyping, setIsTyping] = useState(false);
   const [typingUser, setTypingUser] = useState<string | null>(null);
   const messagesRef = useRef<any>(null);
+  const initializedRef = useRef(false);
 
   useEffect(() => {
     if (!rideId || !userId) return;
@@ -75,6 +76,10 @@ export function useChat(rideId: string, userId: string, userName: string) {
             console.log('➕ Agregando mensaje a la lista');
             return [...prev, newMessage];
           });
+
+          if (!initializedRef.current) {
+            initializedRef.current = true;
+          }
         }
       });
 
@@ -129,5 +134,6 @@ export function useChat(rideId: string, userId: string, userName: string) {
     typingUser,
     sendMessage,
     sendTypingIndicator,
+    initializedRef,
   };
 }

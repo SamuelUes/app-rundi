@@ -4,7 +4,7 @@
  */
 
 import * as functions from 'firebase-functions';
-import * as admin from 'firebase-admin';
+import admin from 'firebase-admin';
 
 const db = admin.database();
 
@@ -29,13 +29,70 @@ export const updateStatus = functions.https.onCall(async (data, context) => {
 
     console.log(`📍 [updateStatus] Actualizando estado del conductor: ${driverId} -> ${status}`);
 
+    // ✅ Actualizado: Bloqueo basado en MONTO pendiente usando el summary de RTDB (mismo criterio que el frontend)
+    try {
+      const requested = String(status || '').toLowerCase();
+      if (requested === 'available') {
+        const snapshot = await db.ref(`driverPenalties/${driverId}/summary`).once('value');
+        const summary = snapshot.val() || {};
+
+        const pendingAmount = Number(
+          summary.pendingAmount ??
+            summary.paymentCommissionPendingAmount ??
+            summary.paymentPendingAmount ??
+            summary.penaltyPendingAmount ??
+            0,
+        );
+
+        const PENALTIES_LIMIT_CORDOBAS = 150;
+
+        if (Number.isFinite(pendingAmount) && pendingAmount >= PENALTIES_LIMIT_CORDOBAS) {
+          console.warn(
+            `⛔ [updateStatus] Conductor ${driverId} con C$${pendingAmount.toFixed(
+              2,
+            )} en comisiones pendientes (umbral=${PENALTIES_LIMIT_CORDOBAS})`,
+          );
+          throw new functions.https.HttpsError(
+            'failed-precondition',
+            `No puedes activar disponibilidad: tienes C$${pendingAmount.toFixed(
+              2,
+            )} en comisiones pendientes. Liquida las comisiones para continuar.`,
+          );
+        }
+      }
+    } catch (checkErr) {
+      if (checkErr instanceof functions.https.HttpsError) throw checkErr;
+      console.warn('⚠️ [updateStatus] Error verificando penalizaciones:', (checkErr as any)?.message || checkErr);
+    }
+
+    // Determinar status final considerando rides activos
+    let requestedStatus = String(status || 'offline').toLowerCase();
+    let finalStatus = requestedStatus;
+    try {
+      const activeStatuses = new Set(['accepted', 'driver_on_route', 'in_progress']);
+      const assignedSnap = await db.ref('activeRides').orderByChild('driverId').equalTo(driverId).once('value');
+      const assigned = assignedSnap.val() || {};
+      let hasActiveRide = false;
+      for (const key of Object.keys(assigned)) {
+        const s = String(assigned[key]?.status || '').toLowerCase();
+        if (activeStatuses.has(s)) {
+          hasActiveRide = true;
+          break;
+        }
+      }
+      if (hasActiveRide) {
+        finalStatus = 'busy';
+      }
+    } catch (rideCheckErr) {
+      console.warn('⚠️ [updateStatus] No se pudo verificar rides activos:', (rideCheckErr as any)?.message || rideCheckErr);
+    }
+
     const locationUpdate: Record<string, any> = {
-      status: status || 'offline',
+      status: finalStatus,
       updatedAt: admin.database.ServerValue.TIMESTAMP,
     };
 
     const infoUpdate: Record<string, any> = {
-      status: status || 'offline',
       lastUpdate: admin.database.ServerValue.TIMESTAMP,
     };
 
@@ -58,16 +115,16 @@ export const updateStatus = functions.https.onCall(async (data, context) => {
       locationUpdate.accuracy = accuracy;
     }
 
-    // Actualizar en Realtime DB - driversInfo (estado del conductor)
+    // Actualizar en Realtime DB - driversInfo (solo metadata/timestamps)
     await db.ref(`driversInfo/${driverId}`).update(infoUpdate);
 
-    // Actualizar en Realtime DB - driverLocations (ubicación en tiempo real)
+    // Actualizar en Realtime DB - driverLocations (estado de disponibilidad y ubicación)
     await db.ref(`driverLocations/${driverId}`).update(locationUpdate);
 
     return {
       success: true,
       message: 'Estado actualizado correctamente',
-      status: status || 'offline',
+      status: finalStatus,
       timestamp: new Date().toISOString(),
     };
   } catch (error: any) {
@@ -89,11 +146,11 @@ export const getDriverStatus = functions.https.onCall(async (data, context) => {
 
     console.log(`📍 [getDriverStatus] Obteniendo estado del conductor: ${driverId}`);
 
-    // Obtener del Realtime DB - driversInfo
-    const snapshot = await db.ref(`driversInfo/${driverId}`).once('value');
-    const driverInfo = snapshot.val();
+    // Obtener del Realtime DB - driverLocations (fuente de verdad para disponibilidad)
+    const snapshot = await db.ref(`driverLocations/${driverId}`).once('value');
+    const location = snapshot.val();
 
-    if (!driverInfo) {
+    if (!location) {
       return {
         success: true,
         status: 'offline',
@@ -103,8 +160,8 @@ export const getDriverStatus = functions.https.onCall(async (data, context) => {
 
     return {
       success: true,
-      status: driverInfo.status || 'offline',
-      lastUpdate: driverInfo.lastUpdate,
+      status: location?.status || 'offline',
+      lastUpdate: location?.updatedAt || null,
     };
   } catch (error: any) {
     console.error('❌ [getDriverStatus] Error:', error);
@@ -132,11 +189,11 @@ export const getDriversStatus = functions.https.onCall(async (data, context) => 
     const statuses: any = {};
 
     for (const driverId of driverIds) {
-      const snapshot = await db.ref(`driversInfo/${driverId}`).once('value');
-      const driverInfo = snapshot.val();
+      const snapshot = await db.ref(`driverLocations/${driverId}`).once('value');
+      const location = snapshot.val();
       statuses[driverId] = {
-        status: driverInfo?.status || 'offline',
-        lastUpdate: driverInfo?.lastUpdate || null,
+        status: location?.status || 'offline',
+        lastUpdate: location?.updatedAt || null,
       };
     }
 

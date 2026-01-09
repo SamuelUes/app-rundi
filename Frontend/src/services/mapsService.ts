@@ -24,10 +24,10 @@ class MapsService {
   // Jerarquía para MAPA VISUAL: 1. Google → 2. Mapbox → 3. OpenStreet → 4. TomTom
   private visualProviders: MapProvider[] = ['google', 'mapbox', 'openstreet', 'tomtom'];
   
-  // Jerarquía para LÓGICA/ROUTING: 1. Mapbox → 2. Google → 3. OpenStreet → 4. TomTom
-  private routingProviders: MapProvider[] = ['mapbox', 'google', 'openstreet', 'tomtom'];
+  // Jerarquía para LÓGICA/ROUTING: 1. Google → 2. Mapbox → 3. OpenStreet → 4. TomTom
+  private routingProviders: MapProvider[] = ['google', 'mapbox', 'openstreet', 'tomtom'];
   
-  private currentProvider: MapProvider = 'mapbox'; // Mapbox para datos/routing
+  private currentProvider: MapProvider = 'google'; // Google Maps como proveedor principal
   private mapProvider: MapProvider = 'google'; // Google Maps para mapa visual
   private providerFetched = false;
 
@@ -53,8 +53,8 @@ class MapsService {
    * Obtener proveedor de routing basado en el mapa visual
    */
   private getRoutingProvider(): MapProvider {
-    // Siempre usar Mapbox para routing (mejor para Nicaragua y más confiable)
-    return 'mapbox';
+    // Priorizar Google Maps para routing (API oficial)
+    return 'google';
   }
 
   /**
@@ -71,16 +71,25 @@ class MapsService {
       ? [forceProvider] 
       : (useRoutingOrder ? this.routingProviders : this.visualProviders);
     
+    let lastResult: T | null = null;
+
     for (const provider of providersToTry) {
       try {
         console.log(`🗺️ Intentando con ${provider.toUpperCase()}...`);
         const service = this.getService(provider);
         const result = await operation(service);
-        
-        if (result) {
+        const isEmptyArray = Array.isArray(result) && result.length === 0;
+
+        if (result && !isEmptyArray) {
           this.currentProvider = provider;
           console.log(`✅ Éxito con ${provider.toUpperCase()}`);
           return result;
+        }
+
+        if (isEmptyArray) {
+          console.log(`⚠️ ${provider.toUpperCase()} respondió sin coincidencias, probando siguiente proveedor...`);
+          lastResult = result;
+          continue;
         }
       } catch (error) {
         console.warn(`⚠️ ${provider.toUpperCase()} falló:`, error);
@@ -88,7 +97,7 @@ class MapsService {
     }
     
     console.error('❌ Todos los proveedores fallaron');
-    return null;
+    return lastResult;
   }
 
   /**
@@ -117,12 +126,15 @@ class MapsService {
       
       const data = await response.json();
       
-      if (data.provider) {
-        this.currentProvider = data.provider;
-        this.mapProvider = data.mapProvider || data.provider;
-        this.providerFetched = true;
-        console.log(`🗺️ Backend recomienda - Datos: ${data.provider.toUpperCase()}, Mapa: ${this.mapProvider.toUpperCase()}`);
+      if (data?.provider) {
+        console.log(`🗺️ Backend recomendó - Datos: ${data.provider.toUpperCase()} / Mapa: ${(data.mapProvider || data.provider).toUpperCase()}`);
       }
+
+      // Forzar Google como proveedor principal; se mantienen logs para diagnóstico.
+      this.currentProvider = 'google';
+      this.mapProvider = 'google';
+      this.providerFetched = true;
+      console.log('🗺️ Forzando uso de GOOGLE MAPS según configuración local');
     } catch (error: any) {
       // Silenciar errores de red (Network request failed) y 404
       if (error.message !== 'HTTP 404' && error.message !== 'Network request failed') {
@@ -198,8 +210,16 @@ class MapsService {
    * Autocomplete - Búsqueda de lugares
    * Usa orden de routing (Mapbox primero)
    */
-  async autocomplete(input: string, location?: Coordinates): Promise<any[]> {
-    const result = await this.tryWithFallback<any[]>(service => service.autocomplete(input, location), undefined, true);
+  async autocomplete(
+    input: string,
+    location?: Coordinates,
+    options?: { forceProvider?: MapProvider }
+  ): Promise<any[]> {
+    const result = await this.tryWithFallback<any[]>(
+      service => service.autocomplete(input, location),
+      options?.forceProvider,
+      true,
+    );
     return result || [];
   }
 
@@ -207,8 +227,16 @@ class MapsService {
    * Place Details - Obtener coordenadas de un place_id
    * Usa orden de routing (Mapbox primero)
    */
-  async getPlaceDetails(placeId: string, position?: any): Promise<Coordinates | null> {
-    return this.tryWithFallback(service => service.getPlaceDetails(placeId, position), undefined, true);
+  async getPlaceDetails(
+    placeId: string,
+    position?: any,
+    options?: { forceProvider?: MapProvider }
+  ): Promise<Coordinates | null> {
+    return this.tryWithFallback(
+      service => service.getPlaceDetails(placeId, position),
+      options?.forceProvider,
+      true,
+    );
   }
 
   /**

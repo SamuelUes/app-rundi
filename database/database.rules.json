@@ -2,63 +2,180 @@
   "rules": {
     ".read": false,
     ".write": false,
+
+    "sessions": {
+      "$uid": {
+        ".read": "$uid === auth.uid",
+        ".write": "$uid === auth.uid",
+        "$other": { ".validate": "true" }
+      }
+    },
     
     "activeRides": {
       ".read": "auth != null",
       "$rideId": {
-        ".write": "auth != null && ((data.child('clientId').val() === auth.uid) || (data.child('driverId').val() === auth.uid) || (!data.exists() && auth != null))",
-        ".validate": "newData.hasChildren(['id', 'clientId', 'status', 'origin', 'destination', 'estimatedPrice', 'requestedAt'])",
+        ".write": "auth != null",
+        ".validate": "data.exists() ? true : newData.hasChildren(['id', 'clientId', 'status', 'origin', 'destination', 'estimatedPrice', 'requestedAt'])",
         
         "id": { ".validate": "newData.isString()" },
         "clientId": { ".validate": "newData.isString()" },
         "driverId": { ".validate": "newData.isString() || newData.val() == null" },
-        "status": { ".validate": "newData.isString() && newData.val().matches(/^(requested|accepted|in_progress|completed|canceled)$/)" },
-        "origin": { ".validate": "newData.hasChildren(['lat', 'lng'])" },
-        "destination": { ".validate": "newData.hasChildren(['lat', 'lng'])" },
-        "estimatedPrice": { ".validate": "newData.isNumber() && newData.val() > 0" },
-        "estimatedDistance": { ".validate": "newData.isNumber() && newData.val() >= 0" },
-        "estimatedDuration": { ".validate": "newData.isNumber() && newData.val() >= 0" },
-        "distance": { ".validate": "newData.isNumber() && newData.val() >= 0" },
-        "duration": { ".validate": "newData.isNumber() && newData.val() >= 0" },
-        "finalFare": { ".validate": "newData.isNumber() || newData.val() == null" },
-        "requestedAt": { ".validate": "newData.isNumber() && newData.val() > 0" },
-        "acceptedAt": { ".validate": "newData.isNumber() || newData.val() == null" },
-        "startedAt": { ".validate": "newData.isNumber() || newData.val() == null" },
-        "completedAt": { ".validate": "newData.isNumber() || newData.val() == null" },
-        "lastUpdate": { ".validate": "newData.isNumber() && newData.val() > 0" }
+        "status": { ".validate": "newData.isString() && newData.val().matches(/^(requested|driver_offered|accepted|driver_on_route|driver_arrived|in_progress|pending_payment|pending_rating|completed|canceled)$/)" },
+        "origin": { ".validate": "!newData.exists() || newData.hasChildren(['lat', 'lng'])" },
+        "destination": { ".validate": "!newData.exists() || newData.hasChildren(['lat', 'lng'])" },
+        "estimatedPrice": { ".validate": "!newData.exists() || (newData.isNumber() && newData.val() >= 0)" },
+        "estimatedDistance": { ".validate": "!newData.exists() || (newData.isNumber() && newData.val() >= 0)" },
+        "estimatedDuration": { ".validate": "!newData.exists() || (newData.isNumber() && newData.val() >= 0)" },
+        "distance": { ".validate": "!newData.exists() || (newData.isNumber() && newData.val() >= 0)" },
+        "duration": { ".validate": "!newData.exists() || (newData.isNumber() && newData.val() >= 0)" },
+        "finalFare": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+        "requestedAt": { ".validate": "!newData.exists() || (newData.isNumber() && newData.val() > 0)" },
+        "acceptedAt": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+        "startedAt": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+        "completedAt": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+        "clientVehiclePhoto": { ".validate": "!newData.exists() || newData.isString() || newData.val() == null" },
+        "designatedDriverVehiclePhoto": { ".validate": "!newData.exists() || newData.isString() || newData.val() == null" },
+        "lastUpdate": {
+          ".write": "auth != null",
+          ".validate": "newData.isNumber() && newData.val() > 0"
+        },
+
+        "driverLocation": {
+          ".write": "auth != null",
+          ".validate": "newData.hasChildren(['latitude', 'longitude']) && newData.child('latitude').isNumber() && newData.child('longitude').isNumber()"
+        },
+
+        "clientsLocation": {
+          ".write": "auth != null"
+        }
+      }
+    },
+
+    "activeRidesByArea": {
+      ".read": "auth != null",
+      "$serviceAreaId": {
+        "$rideId": {
+          ".write": "auth != null",
+          ".validate": "data.exists() ? true : newData.hasChildren(['id', 'clientId', 'status', 'origin', 'destination', 'estimatedPrice', 'requestedAt'])",
+
+          "id": { ".validate": "newData.isString()" },
+          "clientId": { ".validate": "newData.isString()" },
+          "driverId": { ".validate": "newData.isString() || newData.val() == null" },
+          "status": { ".validate": "newData.isString() && newData.val().matches(/^(requested|driver_offered|accepted|driver_on_route|driver_arrived|in_progress|pending_payment|pending_rating|completed|canceled)$/)" },
+          "origin": { ".validate": "!newData.exists() || newData.hasChildren(['lat', 'lng'])" },
+          "destination": { ".validate": "!newData.exists() || newData.hasChildren(['lat', 'lng'])" },
+          "estimatedPrice": { ".validate": "!newData.exists() || (newData.isNumber() && newData.val() >= 0)" },
+          "estimatedDistance": { ".validate": "!newData.exists() || (newData.isNumber() && newData.val() >= 0)" },
+          "estimatedDuration": { ".validate": "!newData.exists() || (newData.isNumber() && newData.val() >= 0)" },
+          "distance": { ".validate": "!newData.exists() || (newData.isNumber() && newData.val() >= 0)" },
+          "duration": { ".validate": "!newData.exists() || (newData.isNumber() && newData.val() >= 0)" },
+          "finalFare": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+          "requestedAt": { ".validate": "!newData.exists() || (newData.isNumber() && newData.val() > 0)" },
+          "acceptedAt": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+          "startedAt": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+          "completedAt": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+          "clientVehiclePhoto": { ".validate": "!newData.exists() || newData.isString() || newData.val() == null" },
+          "designatedDriverVehiclePhoto": { ".validate": "!newData.exists() || newData.isString() || newData.val() == null" },
+          "lastUpdate": {
+            ".write": "auth != null",
+            ".validate": "newData.isNumber() && newData.val() > 0"
+          },
+          "$other": { ".validate": "true" }
+        }
       }
     },
     
     "driverLocations": {
       ".read": "auth != null",
       "$driverId": {
-        ".write": "auth != null && auth.uid === $driverId"
+        ".write": "auth != null && auth.uid === $driverId",
+        "status": {
+          ".validate": "newData.isString() && newData.val().matches(/^(available|busy|offline)$/)"
+        },
+        "lat": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+        "lng": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+        "heading": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+        "speed": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+        "accuracy": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+        "$other": { ".validate": "true" }
+      }
+    },
+
+    "driverLocationsByArea": {
+      ".read": "auth != null",
+      "$serviceAreaId": {
+        "$driverId": {
+          ".write": "auth != null && auth.uid === $driverId",
+          "status": {
+            ".validate": "newData.isString() && newData.val().matches(/^(available|busy|offline)$/)"
+          },
+          "lat": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+          "lng": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+          "heading": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+          "speed": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+          "accuracy": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+          "$other": { ".validate": "true" }
+        }
       }
     },
     
     "driversInfo": {
       ".read": "auth != null",
       "$driverId": {
-        ".write": "auth != null && auth.uid === $driverId"
+        ".write": "auth != null && auth.uid === $driverId",
+        "account_status": { 
+          ".validate": "!newData.exists() || (newData.isString() && newData.val().matches(/^(pending|active|inactive|suspended|rejected)$/))" 
+        },
+        "documents_status": {
+          ".validate": "!newData.exists() || (newData.isString() && newData.val().matches(/^(pending|verified|suspended|rejected)$/))"
+        },
+        "status": {
+          ".validate": "newData.val() == null"
+        },
+        "$other": { ".validate": "true" }
+      }
+    },
+
+    "drivers": {
+      ".read": "auth != null",
+      "$driverId": {
+        ".write": "auth != null && auth.uid === $driverId",
+        "firstName": { ".validate": "newData.isString() || newData.val() == null" },
+        "lastName": { ".validate": "newData.isString() || newData.val() == null" },
+        "fullName": { ".validate": "newData.isString() || newData.val() == null" },
+        "profilePhoto": { ".validate": "newData.isString() || newData.val() == null" },
+        "photoURL": { ".validate": "newData.isString() || newData.val() == null" },
+        "rating": {
+          ".validate": "(newData.isNumber() && newData.val() >= 0 && newData.val() <= 5) || newData.isString() || newData.val() == null"
+        },
+        "status": { ".validate": "newData.isString() || newData.val() == null" },
+        "vehicle": { ".validate": "newData.val() == null || newData.hasChildren(['type']) || newData.isString()" },
+        "vehicles": { ".validate": "newData.val() == null || newData.hasChildren(['0'])" },
+        "department": { ".validate": "newData.isString() || newData.val() == null" },
+        "municipality": { ".validate": "newData.isString() || newData.val() == null" },
+        "phone": { ".validate": "newData.isString() || newData.val() == null" },
+        "email": { ".validate": "newData.isString() || newData.val() == null" },
+        "$other": { ".validate": "true" }
       }
     },
     
     "paymentStatus": {
+      ".read": "auth != null",
       "$rideId": {
         ".read": "auth != null",
         ".write": "auth != null",
-        ".validate": "newData.hasChildren(['rideId', 'status', 'method', 'amount'])",
+        ".validate": "data.exists() ? true : newData.hasChildren(['status'])",
         
         "rideId": {
           ".validate": "newData.isString()"
         },
         
         "status": {
-          ".validate": "newData.isString() && newData.val().matches(/^(pending_confirmation|in_progress|completed|canceled|failed)$/)"
+          ".validate": "newData.isString() && newData.val().matches(/^(pending|pending_confirmation|in_progress|payment_in_progress|processing|payment_completed|completed|canceled|failed)$/)"
         },
         
         "method": {
-          ".validate": "newData.isString() && newData.val().matches(/^(cash|card)$/)"
+          ".validate": "newData.isString() && newData.val().matches(/^(cash|card|bank_transfer)$/)"
         },
         
         "provider": {
@@ -97,11 +214,12 @@
     
     "chats": {
       "$rideId": {
+        ".write": "auth != null",
         "messages": {
           ".read": "auth != null",
           ".write": "auth != null",
           "$messageId": {
-            ".validate": "newData.hasChildren(['senderId', 'senderName', 'message', 'timestamp', 'rideId'])"
+            ".validate": "!newData.exists() || newData.hasChildren(['senderId', 'senderName', 'message', 'timestamp', 'rideId'])"
           }
         },
         "typing": {
@@ -124,11 +242,54 @@
       }
     },
     
-    "clientLocations": {
+    "clientsLocations": {
       "$userId": {
         ".read": "auth != null",
         ".write": "auth != null && auth.uid === $userId",
-        ".validate": "newData.hasChildren(['latitude', 'longitude', 'isManual', 'timestamp'])"
+        ".validate": "!newData.exists() || newData.hasChildren(['latitude', 'longitude', 'isManual', 'timestamp'])"
+      }
+    },
+
+    "clientsLocationsByArea": {
+      "$serviceAreaId": {
+        "$userId": {
+          ".read": "auth != null",
+          ".write": "auth != null && auth.uid === $userId",
+          ".validate": "!newData.exists() || newData.hasChildren(['latitude', 'longitude', 'isManual', 'timestamp'])"
+        }
+      }
+    },
+
+    "clientsInfo": {
+      ".read": "auth != null",
+      "$clientId": {
+        ".read": "auth != null",
+        ".write": "auth != null && auth.uid === $clientId"
+      }
+    },
+
+    "driverPenalties": {
+      "$driverId": {
+        ".read": "auth != null && auth.uid === $driverId",
+        ".write": false,
+        "summary": {
+          ".read": "auth != null && auth.uid === $driverId",
+          ".write": false
+        }
+      }
+    },
+
+    "driverCommissionPayments": {
+      "$driverId": {
+        ".read": "auth != null && auth.uid === $driverId",
+        ".write": false
+      }
+    },
+
+    "notifications": {
+      "$userId": {
+        ".read": "auth != null && auth.uid === $userId",
+        ".write": "auth != null && auth.uid === $userId"
       }
     }
   }

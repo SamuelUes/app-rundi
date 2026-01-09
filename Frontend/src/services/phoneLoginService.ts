@@ -3,20 +3,10 @@
  * Servicio para login con número telefónico y validación SMS
  */
 
-import { getFirebaseFunctions } from '../config/firebase';
-import { httpsCallable } from 'firebase/functions';
-import smsService from './smsService';
+import phoneAuthService from './auth/phoneAuthService';
+import firebaseAuthService from './auth/firebaseAuthService';
 
 class PhoneLoginService {
-  private functions: any = null;
-
-  private async getFunctions() {
-    if (!this.functions) {
-      this.functions = await getFirebaseFunctions();
-    }
-    return this.functions;
-  }
-
   /**
    * Solicitar código SMS para login con teléfono
    * @param phone - Número telefónico en formato +505XXXXXXXX
@@ -26,19 +16,16 @@ class PhoneLoginService {
     try {
       console.log('📱 Solicitando código SMS para login:', phone);
 
-      // Validar formato de teléfono
-      const phoneRegex = /^\+505\d{8}$/;
+      // Validar formato de teléfono (E.164 genérico)
+      const phoneRegex = /^\+\d{6,15}$/;
       if (!phoneRegex.test(phone.replace(/\s/g, ''))) {
-        throw new Error('Formato de teléfono inválido. Debe ser +505 XXXX XXXX');
+        throw new Error(
+          'Formato de teléfono inválido. Usa formato internacional (+Código país y número).',
+        );
       }
 
-      // Llamar a Cloud Function para solicitar código
-      const functions = await this.getFunctions();
-      const requestLoginCode = httpsCallable(functions, 'requestLoginCode');
-      
-      const result = await requestLoginCode({ phone });
-      
-      console.log('✅ Código SMS solicitado:', result.data);
+      await phoneAuthService.sendVerificationCode(phone);
+      console.log('✅ Código SMS solicitado mediante Firebase Auth');
       
       return {
         success: true,
@@ -65,15 +52,32 @@ class PhoneLoginService {
         throw new Error('Código debe tener 6 dígitos');
       }
 
-      // Llamar a Cloud Function para verificar código y hacer login
-      const functions = await this.getFunctions();
-      const verifyLoginCode = httpsCallable(functions, 'verifyLoginCode');
-      
-      const result = await verifyLoginCode({ phone, code });
-      
-      console.log('✅ Login exitoso:', result.data);
-      
-      return result.data;
+      const credential = await phoneAuthService.confirmVerificationCode(phone, code, {
+        signOutAfterConfirm: false,
+      });
+
+      const firebaseUser = credential.user;
+      if (!firebaseUser) {
+        throw new Error('No se obtuvo usuario de Firebase tras confirmar el código');
+      }
+
+      const userProfile = await firebaseAuthService.getUserProfile(firebaseUser.uid);
+      const idToken = await firebaseUser.getIdToken();
+
+      console.log('✅ Login exitoso con Firebase Auth');
+
+      return {
+        success: true,
+        user: {
+          id: firebaseUser.uid,
+          uid: firebaseUser.uid,
+          email: firebaseUser.email || '',
+          name: userProfile?.name || firebaseUser.displayName || 'Usuario',
+          phone: firebaseUser.phoneNumber || phone,
+          role: userProfile?.role || 'client',
+        },
+        token: idToken,
+      };
     } catch (error: any) {
       console.error('❌ Error verificando código:', error);
       throw new Error(error.message || 'Error al verificar código');
@@ -89,10 +93,12 @@ class PhoneLoginService {
     try {
       console.log('📱 Reenviando código SMS:', phone);
 
-      // Usar el servicio SMS existente
-      const result = await smsService.resendCode(phone);
-      
-      return result;
+      await phoneAuthService.sendVerificationCode(phone);
+
+      return {
+        success: true,
+        message: 'Código reenviado correctamente',
+      };
     } catch (error: any) {
       console.error('❌ Error reenviando código:', error);
       throw new Error(error.message || 'Error al reenviar código');

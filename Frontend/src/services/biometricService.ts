@@ -1,9 +1,12 @@
 import * as LocalAuthentication from 'expo-local-authentication';
+import { getFirebaseFunctions } from '../config/firebase';
+import { httpsCallable } from 'firebase/functions';
 
 interface BiometricResult {
   success: boolean;
   error?: string;
   biometryType?: string;
+  verifiedAt?: string;
 }
 
 class BiometricService {
@@ -28,14 +31,17 @@ class BiometricService {
       if (!compatible) return 'none';
 
       const types = await LocalAuthentication.supportedAuthenticationTypesAsync();
-      
-      if (types.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION)) {
-        return 'face_id';
-      }
+
+      // Preferir huella si está disponible, porque es el caso más común
       if (types.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)) {
         return 'fingerprint';
       }
-      
+
+      // Si no hay huella pero sí reconocimiento facial, usar face_id
+      if (types.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION)) {
+        return 'face_id';
+      }
+
       return 'biometric';
     } catch (error) {
       console.error('Error obteniendo tipo de biometría:', error);
@@ -66,11 +72,13 @@ class BiometricService {
       const result = await LocalAuthentication.authenticateAsync({
         disableDeviceFallback: false,
         requireConfirmation: true,
+        promptMessage: reason,
+        cancelLabel: fallbackLabel,
       });
 
       if (result.success) {
         console.log('✅ Autenticación biométrica exitosa');
-        return { success: true, biometryType };
+        return { success: true, biometryType, verifiedAt: new Date().toISOString() };
       } else {
         return { success: false, error: 'Autenticación fallida' };
       }
@@ -78,6 +86,45 @@ class BiometricService {
       console.error('❌ Error en autenticación:', error);
       return { success: false, error: error.message || 'Error desconocido' };
     }
+  }
+
+  private static async logBiometricVerification(payload: {
+    biometricType: string;
+    rideId?: string;
+    context?: string;
+    userType?: 'client' | 'driver';
+  }): Promise<void> {
+    try {
+      const functions = await getFirebaseFunctions();
+      const callable = httpsCallable(functions, 'createBiometricAuth');
+      await callable({
+        biometricType: payload.biometricType,
+        rideId: payload.rideId,
+        context: payload.context ?? 'ride_request',
+        userType: payload.userType ?? 'client',
+      });
+    } catch (error) {
+      console.warn('[BiometricService] No se pudo registrar autenticación biométrica', error);
+    }
+  }
+
+  static async authenticateAndLog(options: {
+    reason?: string;
+    fallbackLabel?: string;
+    rideId?: string;
+    context?: string;
+    userType?: 'client' | 'driver';
+  } = {}): Promise<BiometricResult> {
+    const result = await this.authenticate(options.reason, options.fallbackLabel);
+    if (result.success && result.biometryType) {
+      await this.logBiometricVerification({
+        biometricType: result.biometryType,
+        rideId: options.rideId,
+        context: options.context,
+        userType: options.userType,
+      });
+    }
+    return result;
   }
 }
 

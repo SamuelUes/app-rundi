@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
+import { useTranslation } from 'react-i18next';
 
 const { width, height } = Dimensions.get('window');
 
@@ -28,6 +29,7 @@ export default function DocumentImageViewer({
   singleImageUrl,
 }: DocumentImageViewerProps) {
   const { colors } = useTheme();
+  const { t } = useTranslation();
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [imageLoading, setImageLoading] = useState(false);
@@ -63,7 +65,9 @@ export default function DocumentImageViewer({
               style={styles.thumbnail}
               resizeMode="cover"
             />
-            <Text style={[styles.imageLabel, { color: colors.text }]}>Ver Documento</Text>
+            <Text style={[styles.imageLabel, { color: colors.text }]}>
+              {t('common.components.documentImageViewer.buttons.viewDocument')}
+            </Text>
           </TouchableOpacity>
         )}
 
@@ -78,7 +82,9 @@ export default function DocumentImageViewer({
               style={styles.thumbnail}
               resizeMode="cover"
             />
-            <Text style={[styles.imageLabel, { color: colors.text }]}>Frente</Text>
+            <Text style={[styles.imageLabel, { color: colors.text }]}>
+              {t('common.components.documentImageViewer.buttons.front')}
+            </Text>
           </TouchableOpacity>
         )}
 
@@ -93,7 +99,9 @@ export default function DocumentImageViewer({
               style={styles.thumbnail}
               resizeMode="cover"
             />
-            <Text style={[styles.imageLabel, { color: colors.text }]}>Reverso</Text>
+            <Text style={[styles.imageLabel, { color: colors.text }]}>
+              {t('common.components.documentImageViewer.buttons.back')}
+            </Text>
           </TouchableOpacity>
         )}
       </View>
@@ -116,7 +124,9 @@ export default function DocumentImageViewer({
                 style={styles.closeButton}
                 onPress={closeModal}
               >
-                <Text style={styles.closeButtonText}>✕</Text>
+                <Text style={styles.closeButtonText}>
+                  {t('common.components.documentImageViewer.buttons.close')}
+                </Text>
               </TouchableOpacity>
 
               {selectedImage && (

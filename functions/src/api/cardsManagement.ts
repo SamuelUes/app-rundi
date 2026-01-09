@@ -4,7 +4,10 @@
  */
 
 import * as functions from 'firebase-functions';
+import { v4 as uuidv4 } from 'uuid';
 import { CardRepository } from '../sequelize/repositories/CardRepository';
+
+const SUPPORTED_BANKS = ['bac', 'banpro', 'lafise', 'ficohsa', 'avanz'];
 
 const cardRepo = new CardRepository();
 
@@ -18,42 +21,68 @@ export const addCard = functions.https.onCall(async (data, context) => {
   try {
     const userId = context.auth.uid;
     const {
-      cardNumber,
-      cardHolder,
-      expiryMonth,
-      expiryYear,
-      cvv,
-      isDefault = false,
+      bank,
+      cardBrand,
+      last4,
+      expMonth,
+      expYear,
+      setAsDefault = false,
     } = data;
 
     // Validar datos
-    if (!cardNumber || !cardHolder || !expiryMonth || !expiryYear || !cvv) {
-      throw new functions.https.HttpsError('invalid-argument', 'Todos los campos de la tarjeta son requeridos');
+    if (!bank || !cardBrand || !last4 || !expMonth || !expYear) {
+      throw new functions.https.HttpsError('invalid-argument', 'Datos incompletos para guardar la tarjeta');
+    }
+
+    if (String(last4).length !== 4) {
+      throw new functions.https.HttpsError('invalid-argument', 'Los últimos 4 dígitos deben tener longitud 4');
+    }
+
+    if (!SUPPORTED_BANKS.includes(bank)) {
+      throw new functions.https.HttpsError('invalid-argument', 'Banco no soportado');
+    }
+
+    if (Number(expMonth) < 1 || Number(expMonth) > 12) {
+      throw new functions.https.HttpsError('invalid-argument', 'Mes de expiración inválido');
+    }
+
+    if (Number(expYear) < 2000) {
+      throw new functions.https.HttpsError('invalid-argument', 'Año de expiración inválido');
     }
 
     console.log(`💳 [addCard] Agregando tarjeta para usuario: ${userId}`);
 
+    const localCardId = `local_${bank}_${uuidv4()}`;
+
     // Crear tarjeta en Supabase
     const card = await cardRepo.create({
       user_id: userId,
-      card_number: cardNumber,
-      card_holder: cardHolder,
-      expiry_month: expiryMonth,
-      expiry_year: expiryYear,
-      cvv: cvv,
-      is_default: isDefault,
+      local_card_id: localCardId,
+      bank_name: bank,
+      card_brand: cardBrand,
+      last_four_digits: String(last4),
+      expiration_month: Number(expMonth),
+      expiration_year: Number(expYear),
+      is_default: Boolean(setAsDefault),
       created_at: new Date(),
+      updated_at: new Date(),
     });
+
+    if (setAsDefault) {
+      await cardRepo.setDefault(card.id, userId);
+    }
 
     return {
       success: true,
       card: {
         id: (card as any).id,
-        cardNumber: `****${cardNumber.slice(-4)}`,
-        cardHolder: (card as any).card_holder,
-        expiryMonth: (card as any).expiry_month,
-        expiryYear: (card as any).expiry_year,
-        isDefault: (card as any).is_default,
+        localCardId,
+        bank,
+        brand: cardBrand,
+        last4: String(last4),
+        expMonth: Number(expMonth),
+        expYear: Number(expYear),
+        isDefault: Boolean(setAsDefault),
       },
     };
   } catch (error: any) {
@@ -79,11 +108,14 @@ export const getCards = functions.https.onCall(async (data, context) => {
       success: true,
       cards: cards.map((c: any) => ({
         id: c.id,
-        cardNumber: `****${c.card_number.slice(-4)}`,
-        cardHolder: c.card_holder,
-        expiryMonth: c.expiry_month,
-        expiryYear: c.expiry_year,
+        localCardId: c.local_card_id,
+        bank: c.bank_name,
+        brand: c.card_brand,
+        last4: c.last_four_digits,
+        expMonth: c.expiration_month,
+        expYear: c.expiration_year,
         isDefault: c.is_default,
+        isActive: c.is_active,
         createdAt: c.created_at,
       })),
     };
@@ -110,25 +142,22 @@ export const setDefaultCard = functions.https.onCall(async (data, context) => {
 
     console.log(`💳 [setDefaultCard] Estableciendo tarjeta por defecto: ${cardId}`);
 
-    // Obtener todas las tarjetas del usuario
-    const cards = await cardRepo.findByUserId(userId);
+    await cardRepo.setDefault(cardId, userId);
 
-    // Desmarcar todas como por defecto
-    for (const card of cards) {
-      if (card.is_default) {
-        await cardRepo.update(card.id, { is_default: false });
-      }
+    const updatedCard = await cardRepo.findById(cardId);
+    if (!updatedCard) {
+      throw new functions.https.HttpsError('not-found', 'Tarjeta no encontrada');
     }
-
-    // Marcar la seleccionada como por defecto
-    const updatedCard = await cardRepo.update(cardId, { is_default: true });
 
     return {
       success: true,
       card: {
-        id: (updatedCard as any).id,
-        cardNumber: `****${(updatedCard as any).card_number.slice(-4)}`,
-        isDefault: (updatedCard as any).is_default,
+        id: updatedCard.id,
+        localCardId: updatedCard.local_card_id,
+        last4: updatedCard.last_four_digits,
+        bank: updatedCard.bank_name,
+        brand: updatedCard.card_brand,
+        isDefault: updatedCard.is_default,
       },
     };
   } catch (error: any) {
@@ -160,7 +189,7 @@ export const deleteCard = functions.https.onCall(async (data, context) => {
       throw new functions.https.HttpsError('permission-denied', 'No tienes permiso para eliminar esta tarjeta');
     }
 
-    // Eliminar tarjeta
+    // Eliminar tarjeta (soft delete)
     await cardRepo.delete(cardId);
 
     return {

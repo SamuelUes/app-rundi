@@ -18,7 +18,8 @@ export class ServiceRepository {
   }
 
   async findByStatus(status: string): Promise<Service[]> {
-    return await Service.findAll({ where: { status } });
+    const isActive = String(status).toLowerCase() === 'active';
+    return await Service.findAll({ where: { is_active: isActive } });
   }
 
   async findAll(): Promise<Service[]> {
@@ -26,7 +27,7 @@ export class ServiceRepository {
   }
 
   async findActive(): Promise<Service[]> {
-    return await Service.findAll({ where: { status: 'active' } });
+    return await Service.findAll({ where: { is_active: true } });
   }
 
   async update(id: string, data: any): Promise<Service> {

@@ -1,19 +1,38 @@
 import React, { useRef, useEffect } from 'react';
-import { StyleSheet, Platform } from 'react-native';
+import { StyleSheet } from 'react-native';
 import MapView, { Marker, Polyline, UrlTile } from 'react-native-maps';
 
+type ExtraStopMarker = {
+  latitude: number;
+  longitude: number;
+  index: number;
+  color?: string;
+  label?: string;
+};
+
+type NearbyDriver = {
+  id: string;
+  latitude: number;
+  longitude: number;
+  heading?: number;
+};
 interface MapBoxMapProps {
   latitude: number;
   longitude: number;
   style?: any;
   onMapPress?: (event: { latitude: number; longitude: number }) => void;
+  onRegionChangeCompleteCenter?: (center: { latitude: number; longitude: number }) => void;
   showMarker?: boolean;
-  markerPosition?: { latitude: number; longitude: number };
-  markerType?: 'default' | 'car' | 'origin' | 'destination' | 'client'; // Tipo de marcador
-  originMarker?: { latitude: number; longitude: number };
-  destinationMarker?: { latitude: number; longitude: number };
-  clientMarker?: { latitude: number; longitude: number };
+  markerPosition?: { latitude: number; longitude: number } | null;
+  originMarker?: { latitude: number; longitude: number } | null;
+  destinationMarker?: { latitude: number; longitude: number } | null;
+  clientMarker?: { latitude: number; longitude: number } | null;
+  extraStopMarkers?: ExtraStopMarker[];
   routeCoordinates?: Array<{ latitude: number; longitude: number }>;
+  autoFitEnabled?: boolean;
+  nearbyDrivers?: NearbyDriver[];
+  markerType?: string;
+  markerVehicleIconUri?: string;
 }
 
 export default function MapBoxMap({
@@ -28,20 +47,27 @@ export default function MapBoxMap({
   destinationMarker,
   clientMarker,
   routeCoordinates,
+  autoFitEnabled = true,
 }: MapBoxMapProps) {
   const mapRef = useRef<MapView>(null);
 
   // Ajustar el mapa cuando hay ruta
   useEffect(() => {
+    if (!autoFitEnabled) {
+      return;
+    }
+
     if (routeCoordinates && routeCoordinates.length > 0 && mapRef.current) {
-      setTimeout(() => {
+      const timeout = setTimeout(() => {
         mapRef.current?.fitToCoordinates(routeCoordinates, {
           edgePadding: { top: 50, right: 50, bottom: 50, left: 50 },
           animated: true,
         });
       }, 500);
+
+      return () => clearTimeout(timeout);
     }
-  }, [routeCoordinates]);
+  }, [routeCoordinates, autoFitEnabled]);
 
   const handleMapPress = (event: any) => {
     if (onMapPress) {
@@ -118,8 +144,20 @@ export default function MapBoxMap({
             latitude: markerPosition.latitude,
             longitude: markerPosition.longitude,
           }}
-          pinColor={markerType === 'car' ? 'green' : markerType === 'origin' ? 'blue' : markerType === 'client' ? 'orange' : 'red'}
-          title={markerType === 'car' ? 'Conductor' : markerType === 'origin' ? 'Origen' : markerType === 'client' ? 'Cliente' : 'Destino'}
+          pinColor={markerType === 'car'
+            ? 'green'
+            : markerType === 'origin' || markerType === 'manual_origin' || markerType === 'manual_origin_hold'
+            ? 'blue'
+            : markerType === 'client'
+            ? 'orange'
+            : 'red'}
+          title={markerType === 'car'
+            ? 'Conductor'
+            : markerType === 'origin' || markerType === 'manual_origin' || markerType === 'manual_origin_hold'
+            ? 'Origen'
+            : markerType === 'client'
+            ? 'Cliente'
+            : 'Destino'}
           description={markerType === 'car' ? '🚗 Tu conductor' : markerType === 'client' ? '👤 Cliente' : undefined}
         />
       )}

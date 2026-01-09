@@ -8,6 +8,7 @@ import { getFirebaseAuth, getFirebaseDatabase, getFirebaseFunctions } from '../c
 import { ref, set, onValue, off, update, remove, serverTimestamp } from 'firebase/database';
 import { httpsCallable } from 'firebase/functions';
 import { signInAnonymously } from 'firebase/auth';
+import { getPreflightResult } from '../state/preflightStore';
 
 interface Location {
   latitude: number;
@@ -17,6 +18,22 @@ interface Location {
   accuracy?: number;
   timestamp: number;
 }
+
+interface HeadingCacheEntry {
+  lat: number;
+  lng: number;
+  heading: number | null;
+  timestamp: number;
+  speed?: number;
+}
+
+// ✅ Cache histórico mejorado: mantiene últimas 3 posiciones para mejor cálculo
+interface HeadingHistory {
+  points: HeadingCacheEntry[];
+  maxPoints: number;
+}
+
+const driverHeadingCache: Record<string, HeadingHistory> = {};
 
 interface Destination {
   lat: number;
@@ -42,27 +59,49 @@ interface RideTracking {
   currentDestinationIndex?: number;
 }
 
+let callableTrackingDisabled = false;
+let callableTrackingRetryAt: number | null = null;
+const CALLABLE_RETRY_INTERVAL_MS = 60_000; // 1 minuto de enfriamiento antes de reintentar
+
+function getCurrentServiceAreaId(): string | null {
+  try {
+    const summary = getPreflightResult();
+    const region = summary?.region;
+    if (region && typeof region.serviceAreaId === 'string') {
+      const trimmed = region.serviceAreaId.trim();
+      if (trimmed.length > 0) {
+        return trimmed;
+      }
+    }
+  } catch (error) {
+    console.warn('[FirebaseTrackingService] No se pudo leer serviceAreaId desde preflight:', error);
+  }
+  return null;
+}
+
 class FirebaseTrackingService {
   private listeners: Map<string, any> = new Map();
 
-  private async ensureFirebaseAuthSession(): Promise<void> {
+  private async ensureFirebaseAuthSession(): Promise<import('firebase/auth').User | null> {
     const auth = await getFirebaseAuth();
+
     if (auth.currentUser) {
-      return;
+      return auth.currentUser;
     }
 
     try {
       console.log('🔐 [FirebaseTrackingService] No hay sesión Firebase, autenticando anónimamente para tracking...');
-      await signInAnonymously(auth);
+      const credential = await signInAnonymously(auth);
       console.log('✅ [FirebaseTrackingService] Sesión anónima iniciada para tracking');
+      return credential.user;
     } catch (error) {
-      console.error('❌ [FirebaseTrackingService] Error iniciando sesión anónima:', error);
-      throw error;
+      console.warn('⚠️ [FirebaseTrackingService] No se pudo iniciar sesión anónima para tracking:', error);
+      return auth.currentUser;
     }
   }
 
   /**
-   * Actualizar ubicación del conductor
+   * ✅ MEJORADO: Actualizar ubicación del conductor con cache histórico
    */
   async updateDriverLocation(
     driverId: string,
@@ -74,52 +113,97 @@ class FirebaseTrackingService {
       accuracy?: number;
     }
   ): Promise<void> {
+    const normalizeHeading = (value: number): number => {
+      const normalized = value % 360;
+      return normalized < 0 ? normalized + 360 : normalized;
+    };
+
+    const computeHeading = (): number | null => {
+      // ✅ Prioridad 1: Usar heading del GPS si está disponible
+      if (typeof location.heading === 'number' && Number.isFinite(location.heading)) {
+        return normalizeHeading(location.heading);
+      }
+
+      // ✅ Prioridad 2: Calcular desde historial de puntos
+      const history = driverHeadingCache[driverId];
+      if (!history || history.points.length === 0) {
+        return null;
+      }
+
+      // ✅ Umbral de velocidad: ignorar si está muy lento
+      const speed = location.speed || 0;
+      if (speed < 1.5) {
+        // Muy lento: mantener último heading conocido
+        const lastPoint = history.points[history.points.length - 1];
+        return lastPoint?.heading ?? null;
+      }
+
+      const toRad = (deg: number) => (deg * Math.PI) / 180;
+      const toDeg = (rad: number) => (rad * 180) / Math.PI;
+
+      // ✅ Usar el punto más antiguo del historial para mejor cálculo
+      const oldestPoint = history.points[0];
+      const lat1 = toRad(oldestPoint.lat);
+      const lat2 = toRad(location.latitude);
+      const dLon = toRad(location.longitude - oldestPoint.lng);
+
+      const y = Math.sin(dLon) * Math.cos(lat2);
+      const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+
+      // Sin movimiento significativo: mantener último heading
+      if (Math.abs(x) < 1e-12 && Math.abs(y) < 1e-12) {
+        const lastPoint = history.points[history.points.length - 1];
+        return lastPoint?.heading ?? null;
+      }
+
+      const bearing = normalizeHeading(toDeg(Math.atan2(y, x)));
+      return Number.isFinite(bearing) ? bearing : null;
+    };
+
     try {
       const database = await getFirebaseDatabase();
       const locationRef = ref(database, `driverLocations/${driverId}`);
-      
+
+      const resolvedHeading = computeHeading();
+      const timestamp = Date.now();
+
+      // ✅ Inicializar historial si no existe
+      if (!driverHeadingCache[driverId]) {
+        driverHeadingCache[driverId] = {
+          points: [],
+          maxPoints: 3, // Mantener últimas 3 posiciones
+        };
+      }
+
+      const history = driverHeadingCache[driverId];
+
+      // ✅ Agregar nuevo punto al historial
+      history.points.push({
+        lat: location.latitude,
+        lng: location.longitude,
+        heading: resolvedHeading,
+        timestamp,
+        speed: location.speed,
+      });
+
+      // ✅ Mantener solo las últimas N posiciones
+      if (history.points.length > history.maxPoints) {
+        history.points.shift(); // Eliminar el más antiguo
+      }
+
       await set(locationRef, {
         lat: location.latitude,
         lng: location.longitude,
         speed: location.speed || 0,
-        heading: location.heading || 0,
+        heading: resolvedHeading,
         accuracy: location.accuracy || 0,
         status: 'available',
-        lastUpdate: Date.now(),
+        lastUpdate: timestamp,
       });
 
-      console.log(`📍 Ubicación actualizada en Firebase RTDB: ${driverId}`);
+      console.log(`📍 Ubicación actualizada en Firebase RTDB: ${driverId} (heading: ${resolvedHeading?.toFixed(0)}°)`);
     } catch (error) {
       console.error('❌ Error actualizando ubicación:', error);
-      throw error;
-    }
-  }
-  
-  /**
-   * Actualizar ubicación del cliente
-   */
-  async updateClientLocation(
-    clientId: string,
-    location: {
-      latitude: number;
-      longitude: number;
-      accuracy?: number;
-    }
-  ): Promise<void> {
-    try {
-      const database = await getFirebaseDatabase();
-      const locationRef = ref(database, `clientLocations/${clientId}`);
-      
-      await set(locationRef, {
-        lat: location.latitude,
-        lng: location.longitude,
-        accuracy: location.accuracy || 0,
-        lastUpdate: Date.now(),
-      });
-
-      console.log(`📍 Ubicación del cliente actualizada: ${clientId}`);
-    } catch (error) {
-      console.error('❌ Error actualizando ubicación del cliente:', error);
       throw error;
     }
   }
@@ -182,60 +266,93 @@ class FirebaseTrackingService {
     data: Partial<RideTracking>
   ): Promise<void> {
     try {
-      await this.ensureFirebaseAuthSession();
+      const authUser = await this.ensureFirebaseAuthSession();
+      const database = await getFirebaseDatabase();
 
-      // ✅ NUEVO: Usar Cloud Function en lugar de actualizar directamente
-      // Esto evita problemas de permisos en Firebase Realtime DB
-      const functions = await getFirebaseFunctions();
-      const updateTrackingFn = httpsCallable(functions, 'updateRideStatus');
-      
-      // ✅ NUEVO: Agregar timeout para evitar bloqueos
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Timeout actualizando tracking')), 5000)
-      );
-      
-      await Promise.race([
-        updateTrackingFn({
-          rideId,
-          status: data.status,
-          driverLocation: data.driverLocation ? {
-            latitude: data.driverLocation.latitude,
-            longitude: data.driverLocation.longitude,
-            speed: data.driverLocation.speed,
-            heading: data.driverLocation.heading,
-            accuracy: data.driverLocation.accuracy,
-          } : null,
-        }),
-        timeoutPromise
-      ]);
+      const updates: any = {
+        lastUpdate: Date.now(),
+      };
 
-      console.log(`✅ Tracking actualizado vía Cloud Function: ${rideId}`);
+      if (data.status) {
+        updates.status = data.status;
+      }
 
-      // 2. Si hay ubicación del conductor, guardar en PostgreSQL (ride_locations) con reintentos
-      // ✅ NUEVO: No guardar ubicaciones si el viaje está completado, cancelado o en pending_payment
-      if (data.driverLocation && 
-          data.status !== 'pending_payment' && 
-          data.status !== 'completed' && 
-          data.status !== 'cancelled' &&
-          data.status !== 'pending_rating') {
-        await this.saveLocationWithRetry(rideId, data.driverLocation, 3);
-      } else if (data.status === 'pending_payment' || data.status === 'completed' || data.status === 'cancelled' || data.status === 'pending_rating') {
+      if (data.driverLocation) {
+        updates.driverLocation = {
+          latitude: data.driverLocation.latitude,
+          longitude: data.driverLocation.longitude,
+          speed: data.driverLocation.speed || null,
+          heading: data.driverLocation.heading || null,
+          accuracy: data.driverLocation.accuracy || null,
+          timestamp: data.driverLocation.timestamp || Date.now(),
+        };
+      }
+
+      if (data.clientLocation) {
+        updates.clientLocation = {
+          latitude: data.clientLocation.latitude,
+          longitude: data.clientLocation.longitude,
+          speed: data.clientLocation.speed || null,
+          heading: data.clientLocation.heading || null,
+          accuracy: data.clientLocation.accuracy || null,
+          timestamp: data.clientLocation.timestamp || Date.now(),
+        };
+      }
+
+      await update(ref(database, `activeRides/${rideId}`), updates);
+      console.log(`✅ Tracking actualizado en Realtime DB: ${rideId}`);
+
+      const shouldPersistLocation = data.driverLocation &&
+        data.status !== 'pending_payment' &&
+        data.status !== 'completed' &&
+        data.status !== 'cancelled' &&
+        data.status !== 'pending_rating';
+
+      const now = Date.now();
+      if (callableTrackingDisabled && callableTrackingRetryAt && now >= callableTrackingRetryAt) {
+        callableTrackingDisabled = false;
+        callableTrackingRetryAt = null;
+        console.log('ℹ️ [FirebaseTrackingService] Reintentando uso de Cloud Function para tracking tras periodo de enfriamiento');
+      }
+
+      if (shouldPersistLocation && authUser && !callableTrackingDisabled) {
+        try {
+          const functions = await getFirebaseFunctions();
+          const updateTrackingFn = httpsCallable(functions, 'updateRideStatus');
+
+          const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Timeout actualizando tracking')), 5000)
+          );
+
+          await Promise.race([
+            updateTrackingFn({
+              rideId,
+              status: data.status,
+              driverLocation: updates.driverLocation,
+            }),
+            timeoutPromise,
+          ]);
+
+          await this.saveLocationWithRetry(rideId, updates.driverLocation, 3);
+        } catch (callableError) {
+          callableTrackingDisabled = true;
+          callableTrackingRetryAt = Date.now() + CALLABLE_RETRY_INTERVAL_MS;
+          console.warn('⚠️ [FirebaseTrackingService] Se deshabilita temporalmente el uso de Cloud Function updateRideStatus por error (se reintentará en ' + (CALLABLE_RETRY_INTERVAL_MS / 1000) + 's):', callableError);
+        }
+      } else if (!authUser && shouldPersistLocation) {
+        console.warn('⚠️ [FirebaseTrackingService] Se omitió el guardado en funciones por falta de sesión Firebase');
+      } else if (callableTrackingDisabled && shouldPersistLocation) {
+        const msRestantes = callableTrackingRetryAt ? Math.max(0, callableTrackingRetryAt - Date.now()) : CALLABLE_RETRY_INTERVAL_MS;
+        console.log(
+          `ℹ️ [FirebaseTrackingService] Uso de Cloud Function omitido tras error previo (tracking continúa en RTDB, reintento en ${(msRestantes / 1000).toFixed(0)}s)`
+        );
+      } else if (!shouldPersistLocation && data.status) {
         console.log(`⏸️ Tracking pausado: viaje en estado ${data.status}, no se guardan ubicaciones`);
       }
 
-      console.log(`🚗 Tracking actualizado: ${rideId}`);
+      console.log(`🚗 Tracking actualizado (RTDB + opcional Function): ${rideId}`);
     } catch (error: any) {
-      console.error('❌ Error actualizando tracking:', error);
-      
-      // ✅ NUEVO: Logging detallado de errores
-      if (error.code === 'functions/unavailable') {
-        console.warn(`⚠️ Firebase Functions no disponible - posible problema de conectividad`);
-      } else if (error.message?.includes('Timeout')) {
-        console.warn(`⚠️ Timeout actualizando tracking - servidor lento`);
-      }
-      
-      // No lanzar error - el tracking es no-bloqueante
-      console.warn(`⚠️ Tracking no se actualizó, pero el viaje continúa`);
+      console.error('❌ Error actualizando tracking en Realtime DB:', error);
       throw error;
     }
   }
@@ -248,12 +365,21 @@ class FirebaseTrackingService {
     callback: (location: Location | null) => void
   ): Promise<() => void> {
     const database = await getFirebaseDatabase();
-    
-    // ✅ NUEVO: Escuchar driverLocations (principal) con fallback a driversInfo
-    const locationRef = ref(database, `driverLocations/${driverId}`);
+
+    const serviceAreaId = getCurrentServiceAreaId();
+
+    // ✅ Escuchar driverLocations shardeado por área cuando sea posible,
+    // con fallback implícito a driversInfo.
+    const basePath = serviceAreaId
+      ? `driverLocationsByArea/${serviceAreaId}/${driverId}`
+      : `driverLocations/${driverId}`;
+
+    const locationRef = ref(database, basePath);
     const driverInfoRef = ref(database, `driversInfo/${driverId}`);
-    
-    console.log(`📍 [subscribeToDriverLocation] Escuchando ubicación del conductor: ${driverId}`);
+
+    console.log(
+      `📍 [subscribeToDriverLocation] Escuchando ubicación del conductor: ${driverId} en ${basePath}`,
+    );
     
     let hasReceivedData = false;
     let unsubscribeInfo: (() => void) | null = null;
@@ -332,8 +458,16 @@ class FirebaseTrackingService {
     callback: (tracking: RideTracking | null) => void
   ): Promise<() => void> {
     const database = await getFirebaseDatabase();
-    const rideRef = ref(database, `activeRides/${rideId}`);
+    const serviceAreaId = getCurrentServiceAreaId();
+    const path = serviceAreaId
+      ? `activeRidesByArea/${serviceAreaId}/${rideId}`
+      : `activeRides/${rideId}`;
+    const rideRef = ref(database, path);
     
+    console.log(
+      `[subscribeToRideTracking] Escuchando tracking de viaje ${rideId} en ${path}`,
+    );
+
     const unsubscribe = onValue(
       rideRef,
       (snapshot) => {

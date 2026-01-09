@@ -285,21 +285,30 @@ class VehiclesService {
       } catch (profileError: any) {
         console.warn('⚠️ No se pudieron obtener vehículos del perfil:', profileError.message);
       }
-      
+
       // Estrategia 2: Intentar Cloud Function (fallback)
       console.log('📡 Intentando obtener vehículos de Cloud Function...');
       const functions = await getFirebaseFunctions();
+      const auth = getAuth();
+      const driverId = auth.currentUser?.uid;
+
+      if (!driverId) {
+        throw new Error('Usuario no autenticado');
+      }
+
       const getVehiclesFn = httpsCallable(functions, 'getDriverVehiclesSeq');
-      
-      const result: any = await getVehiclesFn({});
-      
-      console.log('✅ Vehículos obtenidos:', result.data.vehicles?.length || 0);
-      
+      const result: any = await getVehiclesFn({ driverId });
+
+      const vehiclesFromFn = result?.data?.vehicles || [];
+      console.log('✅ Vehículos obtenidos:', vehiclesFromFn.length);
+
       // Normalizar cada vehículo
-      const normalizedVehicles = (result.data.vehicles || []).map((vehicle: any) => this.normalizeVehicle(vehicle));
-      
-      console.log('📋 Primer vehículo normalizado:', JSON.stringify(normalizedVehicles[0], null, 2));
-      
+      const normalizedVehicles = vehiclesFromFn.map((vehicle: any) => this.normalizeVehicle(vehicle));
+
+      if (normalizedVehicles.length > 0) {
+        console.log('📋 Primer vehículo normalizado:', JSON.stringify(normalizedVehicles[0], null, 2));
+      }
+
       return normalizedVehicles;
     } catch (error: any) {
       console.error('❌ Error obteniendo vehículos:', error);
@@ -313,15 +322,19 @@ class VehiclesService {
    */
   async updateVehicle(vehicleId: string, data: Partial<VehicleData>) {
     try {
+      if (!vehicleId) {
+        throw new Error('vehicleId es requerido');
+      }
+
       console.log('🔄 Actualizando vehículo:', vehicleId);
-      
+
       const functions = await getFirebaseFunctions();
-      const updateVehicleFn = httpsCallable(functions, 'updateVehicle');
-      
+      const updateVehicleFn = httpsCallable(functions, 'updateVehicleSeq');
+
       const result: any = await updateVehicleFn({ vehicleId, ...data });
-      
+
       console.log('✅ Vehículo actualizado exitosamente:', result.data);
-      
+
       return result.data;
     } catch (error: any) {
       console.error('❌ Error actualizando vehículo:', error);

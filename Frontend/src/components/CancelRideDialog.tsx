@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
+import { useTranslation } from 'react-i18next';
 
 interface CancelRideDialogProps {
   visible: boolean;
@@ -29,13 +30,25 @@ export default function CancelRideDialog({
 }: CancelRideDialogProps) {
   const [reason, setReason] = useState('');
   const [loading, setLoading] = useState(false);
+  const { t } = useTranslation();
+
+  const suggestions = useMemo(
+    () => [
+      t('common.components.cancelRideDialog.suggestions.personalEmergency'),
+      t('common.components.cancelRideDialog.suggestions.vehicleIssue'),
+      t('common.components.cancelRideDialog.suggestions.changeOfPlans'),
+      t('common.components.cancelRideDialog.suggestions.wrongRoute'),
+      t('common.components.cancelRideDialog.suggestions.longDelay'),
+    ],
+    [t],
+  );
 
   const handleConfirm = async () => {
     // Validar razón si es requerida
     if (requiresReason && reason.trim().length < 10) {
       Alert.alert(
-        'Razón requerida',
-        'Debes proporcionar una razón de al menos 10 caracteres para cancelar este viaje.'
+        t('common.components.cancelRideDialog.alerts.reasonRequiredTitle'),
+        t('common.components.cancelRideDialog.alerts.reasonRequiredMessage'),
       );
       return;
     }
@@ -46,7 +59,10 @@ export default function CancelRideDialog({
       setReason('');
       onClose();
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'No se pudo cancelar el viaje');
+      Alert.alert(
+        t('common.components.cancelRideDialog.alerts.errorTitle'),
+        error.message || t('common.components.cancelRideDialog.alerts.errorMessage'),
+      );
     } finally {
       setLoading(false);
     }
@@ -69,11 +85,13 @@ export default function CancelRideDialog({
           {/* Header */}
           <View style={styles.header}>
             <Text style={[styles.title, { color: colors.text }]}>
-              ⚠️ Cancelar Viaje
+              {t('common.components.cancelRideDialog.title')}
             </Text>
             {progressPercentage > 0 && (
               <Text style={[styles.progressText, { color: colors.textSecondary }]}>
-                Progreso: {progressPercentage.toFixed(0)}%
+                {t('common.components.cancelRideDialog.progress', {
+                  value: progressPercentage.toFixed(0),
+                })}
               </Text>
             )}
           </View>
@@ -81,15 +99,17 @@ export default function CancelRideDialog({
           {/* Mensaje */}
           <Text style={[styles.message, { color: colors.textSecondary }]}>
             {requiresReason
-              ? `El viaje lleva ${progressPercentage.toFixed(0)}% de progreso. Debes proporcionar una razón para cancelarlo.`
-              : '¿Estás seguro de que deseas cancelar este viaje?'}
+              ? t('common.components.cancelRideDialog.requiresReasonMessage', {
+                  progress: progressPercentage.toFixed(0),
+                })
+              : t('common.components.cancelRideDialog.confirmMessage')}
           </Text>
 
           {/* Input de razón */}
           {requiresReason && (
             <View style={styles.inputContainer}>
               <Text style={[styles.label, { color: colors.text }]}>
-                Razón de cancelación *
+                {t('common.components.cancelRideDialog.reasonLabel')}
               </Text>
               <TextInput
                 style={[
@@ -100,7 +120,7 @@ export default function CancelRideDialog({
                     borderColor: colors.border,
                   },
                 ]}
-                placeholder="Escribe la razón (mínimo 10 caracteres)"
+                placeholder={t('common.components.cancelRideDialog.reasonPlaceholder')}
                 placeholderTextColor={colors.textSecondary}
                 value={reason}
                 onChangeText={setReason}
@@ -110,7 +130,7 @@ export default function CancelRideDialog({
                 editable={!loading}
               />
               <Text style={[styles.charCount, { color: colors.textSecondary }]}>
-                {reason.length}/200 caracteres
+                {t('common.components.cancelRideDialog.charCount', { count: reason.length })}
               </Text>
             </View>
           )}
@@ -119,16 +139,10 @@ export default function CancelRideDialog({
           {requiresReason && (
             <View style={styles.suggestionsContainer}>
               <Text style={[styles.suggestionsTitle, { color: colors.textSecondary }]}>
-                Razones sugeridas:
+                {t('common.components.cancelRideDialog.suggestionsTitle')}
               </Text>
               <View style={styles.suggestions}>
-                {[
-                  'Emergencia personal',
-                  'Problema con el vehículo',
-                  'Cambio de planes',
-                  'Ruta incorrecta',
-                  'Demora excesiva',
-                ].map((suggestion) => (
+                {suggestions.map((suggestion) => (
                   <TouchableOpacity
                     key={suggestion}
                     style={[styles.suggestionButton, { borderColor: colors.border }]}
