@@ -586,6 +586,7 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
   const { driverLocation, isConnected } = useDriverLocation(driverId);
   const { rideStatus, paymentMethod, finalFare, rideData, loading: rideLoading } = useRideStatus(rideId);
   const { driverData, vehicleData } = useDriverAndVehicleData(driverId, { driverName, vehiclePlate, vehicleBrand, vehicleModel, vehicleColor, rideData });
+  const vehicleIconSource = useMemo(() => ensureVehicleIconSource(vehicleData.type), [vehicleData.type]);
   const { destinationCoords, originCoords, waypointCoords, routeCoordinates, routeDistanceMeters, routeDurationSeconds } = useDestinationAndRoute(rideData);
   
   // Panel retráctil (tap para expandir/contraer)
@@ -968,7 +969,7 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
           } : undefined}
           markerType="car"
           markerVehicleType={vehicleData.type || undefined}
-          markerVehicleIconSource={vehicleData.type ? ensureVehicleIconSource(vehicleData.type) : undefined}
+          markerVehicleIconSource={vehicleIconSource}
           markerVehicleHeading={
             typeof driverLocation?.heading === 'number' && Number.isFinite(driverLocation.heading)
               ? driverLocation.heading

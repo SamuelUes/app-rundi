@@ -1,4 +1,9 @@
 import alertService from '@/services/alertService';
+import accountLinkingService from '@/services/auth/accountLinkingService';
+import firebaseAuthService from '@/services/auth/firebaseAuthService';
+import googleAuthService from '@/services/auth/googleAuthService';
+import localAuthService from '@/services/auth/localAuthService';
+import phoneAuthService from '@/services/auth/phoneAuthService';
 import backgroundLocationService from '@/services/backgroundLocationService';
 import BiometricService from '@/services/biometricService';
 import cardsService from '@/services/cardsService';
@@ -809,6 +814,70 @@ const resources = {
           },
         },
        services: {
+          auth: {
+            accountLinkingService: {
+              errors: {
+                notAuthenticated: 'You need to sign in to continue.',
+                smsRequiresNative: 'SMS verification requires a native development or production build.',
+                sendCodeFailed: 'We could not start the phone verification. Please try again.',
+                missingVerificationId: 'We could not start the phone verification. Please try again.',
+                noActiveVerification: 'No active verification found. Request a new code.',
+                smsNotAvailableExpoGo: 'SMS verification is not available in Expo Go.',
+                nativeAccessFailed: 'We could not access native Firebase. Use a development build.',
+              },
+              validation: {
+                emailRequired: 'Email is required.',
+                passwordLength: 'Password must be at least 6 characters.',
+                phoneFormat: 'Enter a valid phone number like +505 XXXX XXXX.',
+                codeLength: 'The code must be 6 digits.',
+              },
+            },
+            firebaseAuthService: {
+              errors: {
+                registerInvalid: 'We could not complete your registration.',
+                userProfileNotFound: 'User profile not found.',
+                profileNotFound: 'Profile not found.',
+                availabilityFailed: 'We could not validate account availability. Please try again later.',
+                invalidIdToken: 'Invalid idToken for shared session generation.',
+                customTokenMissing: 'The server response did not include a valid custom token.',
+                sessionSyncFailed: 'We could not sync the session with the backend. Please try again later.',
+              },
+            },
+            googleAuthService: {
+              errors: {
+                registerFailed: 'We could not finish signing you up with Google.',
+                emailMissing: 'We could not get your Google account email.',
+                loginFailed: 'We could not sign you in with Google.',
+                profileNotFound: 'Profile not found.',
+              },
+            },
+            localAuthService: {
+              errors: {
+                registerFailed: 'We could not register your account.',
+                loginFailed: 'We could not sign you in.',
+                logoutFailed: 'We could not sign you out. Please try again.',
+              },
+            },
+            phoneAuthService: {
+              errors: {
+                invalidPhoneFormat: 'Enter a valid international number (+country code and number).',
+                smsSendFailed: 'We could not send the SMS code. Please try again.',
+                invalidPhoneNumber: 'The phone number is invalid. Check the international format.',
+                smsTooManyRequests: 'You requested too many codes. Please wait before trying again.',
+                smsQuotaExceeded: 'SMS quota reached for now. Please try again later.',
+                smsNetworkError: 'We could not connect to send the SMS. Check your connection and retry.',
+                noActiveVerification: 'No active verification found. Request a new code.',
+                codeLength: 'Enter the 6-digit code from your SMS.',
+                confirmFailed: 'We could not verify the code. Please try again.',
+                invalidVerificationCode: 'The code does not match the SMS. Check it and try again.',
+                codeExpired: 'The code has expired. Tap “Resend code” to get a new one.',
+                confirmTooManyRequests: 'You tried too many times. Please wait before trying again.',
+                confirmNetworkError: 'We could not verify the code due to a network issue. Check your connection.',
+                smsRequiresBuild: 'SMS verification is only available in development/production builds.',
+                nativeFirebaseUnavailable: 'Native Firebase Auth is not available. Use a development build.',
+              },
+            },
+          },
          notificationService: {
            channels: {
              default: 'Rundi notifications',
@@ -1070,6 +1139,7 @@ const resources = {
              addVehicleFailed: 'We could not add the vehicle.',
              switchVehicleFailed: 'We could not switch the vehicle.',
              updateVehicleFailed: 'We could not update the vehicle.',
+             vehicleIdRequired: 'Vehicle ID is required.',
            },
          },
          fcm: {
@@ -1576,6 +1646,7 @@ const resources = {
             time: 'Time:',
             method: 'Method:',
             methodValueCash: 'Cash',
+            codeLabel: 'Confirmation code',
           },
           waiting: {
             title: '⏳ Waiting for confirmation',
@@ -1751,6 +1822,70 @@ const resources = {
           cancelReason: 'Cancelled by the client from HomeScreenOffers.',
           extraStopLabel: 'Stop {{index}}',
         },
+      rideConfirmation: {
+        alerts: {
+          cancelRideTitle: 'Cancel Ride',
+          cancelRideMessage: 'If you go back, your ride will be automatically cancelled. Are you sure?',
+          cancelRideConfirm: 'Cancel Ride',
+          cancelRideStay: 'Stay',
+          cancelRideError: 'Could not cancel the ride. Try again.',
+          cancelRideSuccessTitle: 'Ride cancelled',
+          cancelRideSuccessMessage: 'Your ride has been successfully cancelled',
+          confirmCancelTitle: 'Cancel ride',
+          confirmCancelMessage: 'Are you sure you want to cancel this ride?',
+          confirmCancelYes: 'Yes, cancel',
+          confirmCancelNo: 'No',
+          confirmDriverError: 'Could not confirm the driver',
+          confirmDriverSuccessTitle: 'Driver confirmed',
+          confirmDriverSuccessMessage: 'You have confirmed the ride with {name}. You can now see their location in real time.',
+          rejectDriverTitle: 'Reject driver',
+          rejectDriverMessage: 'Are you sure you want to reject {name}? The ride will be available again for other drivers.',
+          rejectDriverSuccessTitle: 'Driver rejected',
+          rejectDriverSuccessMessage: 'The ride is available again for other drivers.',
+          rejectDriverError: 'Could not reject the driver',
+          mustSignInToConfirm: 'You must sign in to confirm the driver',
+          mustSignInToReject: 'You must sign in to reject the driver',
+          counterOfferSentTitle: 'Counteroffer sent',
+          counterOfferSentMessage: 'Your counteroffer of C${price} has been sent to the driver.',
+          counterOfferError: 'Could not send the counteroffer',
+        },
+        status: {
+          searchingDriver: 'Searching for driver...',
+          rideConfirmed: 'Ride confirmed',
+        },
+        offers: {
+          interestedDriver: 'interested driver',
+          interestedDrivers: 'interested drivers',
+          reviewOffers: 'Review the offers and choose the one that suits you best',
+          driverFound: '🎉 Driver found!',
+        },
+        eta: {
+          estimatedArrival: 'Estimated time of arrival',
+        },
+        details: {
+          rideDetails: 'Ride Details',
+          origin: 'Origin',
+          destination: 'Destination',
+          stop: 'Stop',
+          notSpecified: 'Not specified',
+          distance: 'Distance',
+          duration: 'Duration',
+          price: 'Price',
+          notes: 'Notes:',
+        },
+        actions: {
+          acceptDriver: '✅ Accept Driver',
+          rejectDriver: '❌ Reject',
+          viewMapOnly: '🗺️ View Map Only',
+          callSupport: '📞 Call Support',
+          canceling: 'Canceling...',
+          cancelRide: 'Cancel Ride',
+        },
+        footer: {
+          notificationTip: '💡 You will receive a notification when a driver accepts your ride',
+          chatTip: '💬 You can chat with the driver once they accept the ride',
+        },
+      },
       },
       settings: {
         title: 'Settings',
@@ -1872,6 +2007,10 @@ const resources = {
             inProgress: {
               title: 'Ride in progress',
               subtitle: '{{destination}}',
+            },
+            offerMade: {
+              title: 'Offer made',
+              subtitle: 'Waiting for client confirmation',
             },
           },
           banners: {
@@ -2309,15 +2448,15 @@ const resources = {
             negotiation: {
               status: {
                 client_suggested: 'Waiting for your response',
-                driver_offered: 'Waiting for the rider',
-                driver_accepted: 'You accepted the rider price',
-                client_accepted: 'The rider accepted your offer',
+                driver_offered: 'Waiting for the client',
+                driver_accepted: 'You accepted the client price',
+                client_accepted: 'The client accepted your offer',
                 defaultClient: 'Waiting for your response',
-                defaultDriver: 'Waiting for the rider',
+                defaultDriver: 'Waiting for the client',
               },
               driverOfferTitle: 'You just proposed {{amount}}',
-              clientOfferTitle: 'The rider proposed {{amount}}',
-              estimatedLabel: 'Estimated price / rider offer',
+              clientOfferTitle: 'The client proposed {{amount}}',
+              estimatedLabel: 'Estimated price / client offer',
               suggestionsLabel: 'Suggested prices',
               customOfferButton: 'Make an offer',
               customLabel: 'Enter your custom offer',
@@ -2619,6 +2758,7 @@ const resources = {
             switchToCard: '💳 Switch to card',
             switchToCash: '💵 Switch to cash',
             reportIssue: '⚠️ Report an issue',
+            generateCode: 'Generate confirmation code',
           },
           methodBadge: {
             label: 'Method: {{value}}',
@@ -2629,6 +2769,7 @@ const resources = {
             title: 'Payment method cannot be changed',
             subtitle: 'The client already confirmed the payment',
           },
+          codeLabel: 'Confirmation code: {{code}}',
           alerts: {
             waitTitle: 'Hold on',
             waitMessage: 'The client must confirm the cash payment first.',
@@ -2656,6 +2797,12 @@ const resources = {
               other: 'Other problem',
               cancel: 'Cancel',
             },
+            codeRequiredTitle: 'Code required',
+            codeRequiredMessage:
+              'You must enter the client code correctly before confirming.',
+            codeSuccessTitle: 'Code verified',
+            codeSuccessMessage: 'The code is correct. You can now confirm the payment.',
+            codeErrorMessage: 'Incorrect code',
           },
           methodNames: {
             cash: 'Cash',
@@ -4194,6 +4341,44 @@ const resources = {
           },
         },
       },
+      services: {
+        notificationService: {
+          channels: {
+            default: 'Notificaciones de Rundi',
+            activeRide: 'Viaje activo',
+          },
+          quickReturnActiveRide: {
+            title: 'Vuelve a tu viaje activo',
+            body: 'Toca para regresar a los detalles del viaje en curso.',
+          },
+          newRide: {
+            title: 'Nuevo viaje disponible',
+            body: 'Viaje desde {{origin}} · {{distance}} · {{price}}',
+            originFallback: 'Origen no disponible',
+          },
+          rideAccepted: {
+            title: 'Tu viaje fue aceptado',
+            body: '{{driverName}} va en camino.',
+            driverFallback: 'Conductor',
+          },
+          rideStarted: {
+            title: 'Tu viaje ha iniciado',
+            body: 'Disfruta el recorrido.',
+          },
+          rideCompleted: {
+            title: 'Viaje completado',
+            body: 'Gracias por usar Rundi.',
+          },
+          rideCanceled: {
+            title: 'Viaje cancelado',
+            body: 'El viaje fue cancelado.',
+          },
+          formats: {
+            priceCordoba: 'C${{amount}}',
+            distanceKm: '{{value}} km de distancia',
+          },
+        },
+      },
     },
   },
   es: {
@@ -4307,7 +4492,7 @@ const resources = {
 
 if (!i18n.isInitialized) {
   i18n.use(initReactI18next).init({
-    compatibilityJSON: 'v3',
+    compatibilityJSON: 'v4',
     resources,
     lng: 'en',
     fallbackLng: 'en',

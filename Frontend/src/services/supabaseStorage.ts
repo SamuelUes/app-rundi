@@ -1,4 +1,4 @@
-/**
+ /**
  * Supabase Storage Service
  * Servicio para subir imágenes a Supabase Storage
  */
@@ -7,6 +7,12 @@ import { createClient } from '@supabase/supabase-js';
 import Constants from 'expo-constants';
 import * as FileSystem from 'expo-file-system';
 import i18n from '../i18n';
+
+type FileSystemEncodingOption = Parameters<typeof FileSystem.readAsStringAsync>[1] extends { encoding?: infer E }
+  ? E
+  : never;
+
+const BASE64_ENCODING = 'base64' as FileSystemEncodingOption;
 
 // Configuración de Supabase desde variables de entorno de Expo
 const SUPABASE_URL = Constants.expoConfig?.extra?.supabaseUrl || 'https://ceytngpresytjhafcadu.supabase.co';
@@ -43,7 +49,7 @@ export const uploadImage = async (
     // Leer archivo usando expo-file-system
     console.log('🔄 Leyendo archivo con FileSystem...');
     const base64 = await FileSystem.readAsStringAsync(uri, {
-      encoding: FileSystem.EncodingType.Base64,
+      encoding: BASE64_ENCODING,
     });
     console.log('✅ Archivo leído en base64:', base64.length, 'caracteres');
 

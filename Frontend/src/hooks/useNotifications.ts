@@ -14,8 +14,8 @@ export function useNotifications() {
   const { user } = useAuth();
   const [expoPushToken, setExpoPushToken] = useState<string | null>(null);
   const [notification, setNotification] = useState<Notifications.Notification | null>(null);
-  const notificationListener = useRef<any>();
-  const responseListener = useRef<any>();
+  const notificationListener = useRef<Notifications.Subscription | null>(null);
+  const responseListener = useRef<Notifications.Subscription | null>(null);
 
   useEffect(() => {
     // Inicializar notificaciones
@@ -40,10 +40,12 @@ export function useNotifications() {
     // Cleanup
     return () => {
       if (notificationListener.current) {
-        Notifications.removeNotificationSubscription(notificationListener.current);
+        notificationListener.current.remove();
+        notificationListener.current = null;
       }
       if (responseListener.current) {
-        Notifications.removeNotificationSubscription(responseListener.current);
+        responseListener.current.remove();
+        responseListener.current = null;
       }
     };
   }, []);

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import type { ImageSourcePropType } from 'react-native';
 import type { DriverStackParamList } from '../../navigation/DriverStack';
 import type { TFunction } from 'i18next';
@@ -41,6 +42,9 @@ import { useAcceptedRideListener } from '../../hooks/useAcceptedRideListener';
 import proximityService from '../../services/proximityService';
 import penaltiesService from '../../services/penaltiesService';
 import { haversineKm } from '../../utils/distance';
+import driverOfferCacheService, {
+  DriverOfferCacheEntry,
+} from '../../services/driverOfferCacheService';
 
 type NearbyDriverMarker = {
   id: string;
@@ -63,7 +67,26 @@ type PendingAction =
       title: string;
       subtitle: string;
       onPress: () => void;
+    }
+  | {
+      type: 'pending_offer';
+      title: string;
+      subtitle: string;
+      onPress: () => void;
     };
+
+type PendingOfferTarget = {
+  entry: DriverOfferCacheEntry;
+  ridePayload: Record<string, any> | null;
+};
+
+type RawRideStop = {
+  lat?: number | string;
+  lng?: number | string;
+  latitude?: number | string;
+  longitude?: number | string;
+  address?: string;
+};
 
 const ACTIVE_RIDE_STATUSES = ['accepted', 'driver_on_route', 'driver_arrived', 'in_progress'];
 const PENALTIES_LIMIT_CORDOBAS = 150;
@@ -103,6 +126,182 @@ const getActiveRidePendingCopy = (ride: any, t: TFunction) => {
 
 const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
   return haversineKm(lat1, lon1, lat2, lon2);
+};
+
+const parseCoordinate = (value: any): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+};
+
+const getDriverOfferFromRide = (ridePayload: any, driverId: string) => {
+  if (!ridePayload || !driverId) return null;
+  const sources = [
+    ridePayload?.offers,
+    ridePayload?.driverOffers,
+    ridePayload?.offersByDriver,
+    ridePayload?.negotiation?.offers,
+  ];
+
+  for (const source of sources) {
+    if (source && typeof source === 'object' && source[driverId]) {
+      return source[driverId];
+    }
+  }
+
+  return null;
+};
+
+const hasDriverOfferInRide = (ridePayload: any, driverId: string) => {
+  if (!ridePayload || !driverId) return false;
+  const offer = getDriverOfferFromRide(ridePayload, driverId);
+  if (!offer) return false;
+
+  const status = String(offer?.status || offer?.state || '').toLowerCase();
+  if (status && ['rejected', 'declined', 'cancelled', 'canceled', 'expired'].includes(status)) {
+    return false;
+  }
+
+  return true;
+};
+
+const normalizeRidePreviewPayload = (
+  ridePayload: any,
+  cacheEntry: DriverOfferCacheEntry,
+  driverId: string,
+): DriverStackParamList['RidePreview']['ride'] => {
+  const fallbackOriginLat = cacheEntry.origin?.lat ?? 0;
+  const fallbackOriginLng = cacheEntry.origin?.lng ?? 0;
+  const fallbackDestinationLat = cacheEntry.destination?.lat ?? 0;
+  const fallbackDestinationLng = cacheEntry.destination?.lng ?? 0;
+
+  const originLat =
+    parseCoordinate(
+      ridePayload?.origin?.lat ??
+        ridePayload?.originLatitude ??
+        ridePayload?.origin?.latitude ??
+        ridePayload?.pickup?.lat,
+    ) ?? fallbackOriginLat;
+  const originLng =
+    parseCoordinate(
+      ridePayload?.origin?.lng ??
+        ridePayload?.originLongitude ??
+        ridePayload?.origin?.longitude ??
+        ridePayload?.pickup?.lng,
+    ) ?? fallbackOriginLng;
+  const destinationLat =
+    parseCoordinate(
+      ridePayload?.destination?.lat ??
+        ridePayload?.destinationLatitude ??
+        ridePayload?.destination?.latitude,
+    ) ?? fallbackDestinationLat;
+  const destinationLng =
+    parseCoordinate(
+      ridePayload?.destination?.lng ??
+        ridePayload?.destinationLongitude ??
+        ridePayload?.destination?.longitude,
+    ) ?? fallbackDestinationLng;
+
+  const extraStopsFromRide =
+    Array.isArray(ridePayload?.extraDestinations) && ridePayload.extraDestinations.length > 0
+      ? ridePayload.extraDestinations
+      : Array.isArray(ridePayload?.extra_destinations)
+        ? ridePayload.extra_destinations
+        : null;
+
+  const normalizedStops =
+    extraStopsFromRide && extraStopsFromRide.length > 0
+      ? extraStopsFromRide
+          .map((stop: RawRideStop) => {
+            const lat = parseCoordinate(stop?.lat ?? stop?.latitude);
+            const lng = parseCoordinate(stop?.lng ?? stop?.longitude);
+            if (lat === null || lng === null) {
+              return null;
+            }
+            return {
+              lat,
+              lng,
+              address: stop?.address,
+            };
+          })
+          .filter(
+            (
+              stop: { lat: number; lng: number; address?: string } | null,
+            ): stop is {
+              lat: number;
+              lng: number;
+              address?: string;
+            } => Boolean(stop),
+          )
+      : cacheEntry.extraDestinations;
+
+  const driverOffer = getDriverOfferFromRide(ridePayload, driverId);
+
+  const estimatedPrice =
+    typeof ridePayload?.estimatedPrice === 'number' && Number.isFinite(ridePayload.estimatedPrice)
+      ? ridePayload.estimatedPrice
+      : typeof cacheEntry.estimatedPrice === 'number'
+        ? cacheEntry.estimatedPrice
+        : 0;
+
+  return {
+    id: ridePayload?.id || cacheEntry.rideId,
+    clientId: ridePayload?.clientId || cacheEntry.clientId,
+    clientName:
+      ridePayload?.client?.name || ridePayload?.clientName || cacheEntry.clientName || undefined,
+    clientPhone:
+      ridePayload?.client?.phone ||
+      ridePayload?.clientPhone ||
+      ridePayload?.client?.phoneNumber ||
+      undefined,
+    origin: {
+      lat: originLat,
+      lng: originLng,
+      address:
+        ridePayload?.origin?.address ||
+        ridePayload?.originAddress ||
+        cacheEntry.origin?.address ||
+        undefined,
+    },
+    destination: {
+      lat: destinationLat,
+      lng: destinationLng,
+      address:
+        ridePayload?.destination?.address ||
+        ridePayload?.destinationAddress ||
+        cacheEntry.destination?.address ||
+        undefined,
+    },
+    extraDestinations: normalizedStops || undefined,
+    estimatedPrice,
+    estimatedDistance:
+      typeof ridePayload?.estimatedDistance === 'number'
+        ? ridePayload.estimatedDistance
+        : cacheEntry.estimatedDistance ?? undefined,
+    estimatedDuration:
+      typeof ridePayload?.estimatedDuration === 'number'
+        ? ridePayload.estimatedDuration
+        : cacheEntry.estimatedDuration ?? undefined,
+    clientSuggestedPrice:
+      typeof ridePayload?.clientSuggestedPrice === 'number'
+        ? ridePayload.clientSuggestedPrice
+        : cacheEntry.clientSuggestedPrice ?? undefined,
+    driverOfferedPrice:
+      typeof ridePayload?.driverOfferedPrice === 'number'
+        ? ridePayload.driverOfferedPrice
+        : typeof cacheEntry.offeredPrice === 'number'
+          ? cacheEntry.offeredPrice
+          : typeof driverOffer?.offeredPrice === 'number'
+            ? driverOffer.offeredPrice
+            : null,
+    paymentMethod:
+      (ridePayload?.paymentMethod as 'cash' | 'card' | undefined) ??
+      cacheEntry.paymentMethod ??
+      undefined,
+  };
 };
 
 export default function DriverHomeScreenNewDesign({ navigation }: any) {
@@ -184,6 +383,9 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [clientNamesCache, setClientNamesCache] = useState<Record<string, string>>({});
   const [menuVisible, setMenuVisible] = useState(false);
+  const [offerCacheEntries, setOfferCacheEntries] = useState<DriverOfferCacheEntry[]>([]);
+  const [pendingOfferTarget, setPendingOfferTarget] = useState<PendingOfferTarget | null>(null);
+  const [rideSnapshotsVersion, setRideSnapshotsVersion] = useState(0);
   const panelWidthRef = useRef(Math.min(Dimensions.get('window').width * 0.8, 340));
   const panelWidth = panelWidthRef.current;
   const menuOpacity = useRef(new Animated.Value(0)).current;
@@ -262,6 +464,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   const rideStatusCacheRef = useRef<Record<string, string>>({});
   const driverLocationsSignatureRef = useRef<string>('');
   const driverInfoCacheRef = useRef<Record<string, any>>({});
+  const activeRideSnapshotsRef = useRef<Record<string, Record<string, any> | null | undefined>>({});
   const lastPendingActionRef = useRef<string | null>(null);
   const lastAvailabilityAnnouncementRef = useRef<boolean | null>(null);
   const lastActiveRideIdRef = useRef<string | null>(null);
@@ -274,14 +477,32 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
 
   const formatCurrency = (value: number = 0) => `C$${Number.isFinite(value) ? value.toFixed(2) : '0.00'}`;
 
-  const parseCoordinate = (value: any): number | null => {
-    if (typeof value === 'number' && Number.isFinite(value)) return value;
-    if (typeof value === 'string') {
-      const parsed = parseFloat(value);
-      return Number.isFinite(parsed) ? parsed : null;
+  const hasActiveRideEntries = (data: Record<string, any> | null | undefined) =>
+    Boolean(data && typeof data === 'object' && Object.keys(data).length > 0);
+
+  const refreshOfferCache = useCallback(async () => {
+    if (!user?.id) {
+      setOfferCacheEntries([]);
+      return;
     }
-    return null;
-  };
+    try {
+      const entries = await driverOfferCacheService.getAll(user.id);
+      console.log('[DriverHome] Loaded offer cache entries', {
+        count: entries.length,
+        rideIds: entries.map((entry) => entry.rideId),
+      });
+      setOfferCacheEntries(entries);
+    } catch (error) {
+      console.warn('[DriverHome] Failed to load offer cache', error);
+    }
+  }, [user?.id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshOfferCache();
+      return () => {};
+    }, [refreshOfferCache]),
+  );
 
   useEffect(() => {
     mapsService.fetchProviderFromBackend();
@@ -683,7 +904,28 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
       return;
     }
 
-    // Prioridad 2: Viaje en negociación (esperando confirmación del cliente)
+    // Prioridad 2: Oferta pendiente (caso solicitado)
+    if (pendingOfferTarget && user?.id) {
+      const normalizedRide = normalizeRidePreviewPayload(
+        pendingOfferTarget.ridePayload,
+        pendingOfferTarget.entry,
+        user.id,
+      );
+      setPendingAction({
+        type: 'pending_offer',
+        title: t('driver.home.activeRideStatus.offerMade.title'),
+        subtitle: t('driver.home.activeRideStatus.offerMade.subtitle'),
+        onPress: () => {
+          navigation.replace('RidePreview', {
+            ride: normalizedRide,
+            proximity: true,
+          });
+        },
+      });
+      return;
+    }
+
+    // Prioridad 3: Viaje en negociación (esperando confirmación del cliente)
     if (pendingNegotiationRide) {
       const ride = pendingNegotiationRide;
 
@@ -706,7 +948,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
         ride?.destination?.address ?? ride?.destinationAddress ?? t('driver.home.ride.destinationFallback');
 
       const extraDestinations = Array.isArray(ride?.extraDestinations)
-        ? ride.extraDestinations.map((stop: any) => ({
+        ? ride.extraDestinations.map((stop: RawRideStop) => ({
             lat: parseCoordinate(stop?.lat ?? stop?.latitude) ?? 0,
             lng: parseCoordinate(stop?.lng ?? stop?.longitude) ?? 0,
             address: stop?.address,
@@ -747,7 +989,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
       return;
     }
 
-    // Prioridad 3: Viaje activo
+    // Prioridad 4: Viaje activo
     if (activeRide) {
       const copy = getActiveRidePendingCopy(activeRide, t);
       setPendingAction({
@@ -767,7 +1009,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
       return;
     }
 
-    // Prioridad 3: Acciones desde preflight (complemento)
+    // Prioridad 5: Acciones desde preflight (complemento)
     if (preflightActions.length > 0) {
       const priority = ['active_ride', 'penalties', 'pending_payment'] as const;
       const nextAction = priority
@@ -999,20 +1241,47 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
     }
 
     rideStatusCacheRef.current = {};
+    activeRideSnapshotsRef.current = {};
 
-    let cleanup: null | (() => void) = null;
+    let cleanupFns: Array<() => void> = [];
+    let isMounted = true;
 
     (async () => {
       try {
-        const { getDatabase, ref, onValue, off } = await import('firebase/database');
+        const { getDatabase, ref, onValue } = await import('firebase/database');
         const db = getDatabase();
-        const path = serviceAreaId ? `activeRidesByArea/${serviceAreaId}` : 'activeRides';
-        const activeRidesRef = ref(db, path);
         const { RIDES_RADIUS_KM } = await import('../../constants/rideRadius');
         const SEARCH_RADIUS_KM = RIDES_RADIUS_KM;
 
-        const unsubscribe = onValue(activeRidesRef, (snapshot) => {
-          const data = snapshot.val();
+        const pathConfigs = serviceAreaId
+          ? [
+              { key: `area:${serviceAreaId}`, path: `activeRidesByArea/${serviceAreaId}` },
+              { key: 'global', path: 'activeRides' },
+            ]
+          : [{ key: 'global', path: 'activeRides' }];
+
+        const selectSnapshotData = (): Record<string, any> | null => {
+          if (serviceAreaId) {
+            const areaKey = `area:${serviceAreaId}`;
+            const areaData = activeRideSnapshotsRef.current[areaKey];
+            if (hasActiveRideEntries(areaData)) {
+              return areaData!;
+            }
+            const globalData = activeRideSnapshotsRef.current.global;
+            if (hasActiveRideEntries(globalData)) {
+              return globalData!;
+            }
+            if (areaData !== undefined) {
+              return areaData ?? null;
+            }
+            return globalData ?? null;
+          }
+          return activeRideSnapshotsRef.current.global ?? null;
+        };
+
+        const processSnapshot = (data: Record<string, any> | null) => {
+          if (!isMounted) return;
+
           if (!data || typeof data !== 'object') {
             setAvailableRideRequests([]);
             setActiveRide(null);
@@ -1066,6 +1335,9 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
 
             const isRepeated = rideStatusCacheRef.current[rideId] === statusSignature;
             rideStatusCacheRef.current[rideId] = statusSignature;
+            if (isRepeated) {
+              return;
+            }
 
             const driverIdMatch = ridePayload?.driverId === user?.id;
             const rideStatus = ridePayload?.status || ridePayload?.driverStatus || ridePayload?.rideStatus;
@@ -1114,7 +1386,6 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
               return;
             }
 
-            // Para solicitudes disponibles cercanas sí necesitamos coords y disponibilidad
             if (!coords || !isAvailable) {
               return;
             }
@@ -1187,8 +1458,8 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
                 priceAmount: price,
                 passengers: ride.passengers ?? 1,
                 distanceKm: Number.isFinite(ride.distance) ? Number(ride.distance) : null,
-                destinationLat: destinationLat,
-                destinationLng: destinationLng,
+                destinationLat,
+                destinationLng,
               };
             })
             .filter((item): item is any => Boolean(item));
@@ -1198,21 +1469,37 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
           setAvailableRideRequests(finalAvailable);
           setActiveRide(myActiveRide);
           setPendingNegotiationRide(myPendingNegotiationRide);
-        });
-
-        cleanup = () => {
-          off(activeRidesRef);
-          unsubscribe();
+          setRideSnapshotsVersion((prev) => prev + 1);
         };
+
+        pathConfigs.forEach(({ key, path }) => {
+          const dbRef = ref(db, path);
+          const unsubscribe = onValue(
+            dbRef,
+            (snapshot) => {
+              const raw = snapshot.val();
+              const normalized = raw && typeof raw === 'object' ? raw : null;
+              activeRideSnapshotsRef.current[key] = normalized;
+              processSnapshot(selectSnapshotData());
+            },
+            (err) => {
+              console.error(`❌ [DriverHomeScreenNewDesign] Error escuchando ${path}:`, err);
+              activeRideSnapshotsRef.current[key] = null;
+              processSnapshot(selectSnapshotData());
+            },
+          );
+          cleanupFns.push(() => unsubscribe());
+        });
       } catch (err) {
-        console.error('❌ [DriverHomeScreenNewDesign] Error escuchando activeRides:', err);
+        console.error('❌ [DriverHomeScreenNewDesign] Error configurando listeners de activeRides:', err);
       }
     })();
 
     return () => {
-      cleanup?.();
+      isMounted = false;
+      cleanupFns.forEach((fn) => fn?.());
     };
-  }, [coords?.latitude, coords?.longitude, isAvailable, user?.id, serviceAreaId]);
+  }, [coords?.latitude, coords?.longitude, isAvailable, user?.id, serviceAreaId, clientNamesCache, formatCurrency]);
 
   // Resolver nombres de clientes desde clientsInfo en Realtime DB
   useEffect(() => {

@@ -388,6 +388,10 @@ export async function savePaymentToSupabase(
     const smsCodeVerified = !!paymentStatus.sms_code_verified;
     const smsVerificationId = paymentStatus.sms_verification_id || null;
 
+    // Si el método en paymentStatus es "code", en Supabase debe seguir siendo "cash"
+    const rawMethod = paymentStatus.method || 'cash';
+    const paymentMethodForSupabase = rawMethod === 'code' ? 'cash' : rawMethod;
+
     console.log(`\n💳 [savePaymentToSupabase] Guardando pago para ride: ${pgRideId} (status: ${paymentStatusValue})`);
 
     console.log(`   📊 Datos a guardar:`, {
@@ -395,7 +399,7 @@ export async function savePaymentToSupabase(
       amount: amount,
       tip: tip,
       commission: commission,
-      payment_method: paymentStatus.method || 'cash',
+      payment_method: paymentMethodForSupabase,
       status: paymentStatusValue,
       cancel_reason: paymentStatus.cancelReason || null,
       biometric_authenticated: biometricAuthenticated,
@@ -435,7 +439,7 @@ export async function savePaymentToSupabase(
           amount,
           tip,
           commission,
-          paymentStatus.method || 'cash',
+          paymentMethodForSupabase,
           'cash',
           paymentStatusValue,
           paymentStatus.cancelReason || null,
@@ -478,7 +482,7 @@ export async function savePaymentToSupabase(
           amount,
           tip,
           commission,
-          paymentStatus.method || 'cash',
+          paymentMethodForSupabase,
           'cash',
           paymentStatusValue,
           paymentStatus.cancelReason || null,

@@ -32,7 +32,7 @@ export const setToastHandler = (toastHandler?: ToastHandler) => {
 };
 
 const tr = (path: string, options?: Record<string, any>) =>
-  i18n.t(`services.alertService.${path}`, options) as string;
+  i18n.t(`common.services.alertService.${path}`, options) as string;
 
 const emitToast = (payload: ToastPayload) => {
   if (handler) {

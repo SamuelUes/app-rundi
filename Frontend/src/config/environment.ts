@@ -40,9 +40,11 @@ const ENV = {
 
 const getEnvVars = () => {
   const nodeEnv = process.env.NODE_ENV || 'development';
+  const manifest = Constants.manifest as Partial<{ releaseChannel?: string }>;
+  const releaseChannel = manifest?.releaseChannel;
   
   // Si estamos en producción o el usuario configuró NODE_ENV=production
-  if (nodeEnv === 'production' || Constants.manifest?.releaseChannel) {
+  if (nodeEnv === 'production' || releaseChannel) {
     return ENV.production;
   }
   

@@ -2,6 +2,17 @@ import { useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { fetchDriverProfile } from '../services/driverProfilesService';
 
+const preferNonEmpty = (...candidates: Array<string | null | undefined>): string | null => {
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string') continue;
+    const trimmed = candidate.trim();
+    if (trimmed.length > 0) {
+      return trimmed;
+    }
+  }
+  return null;
+};
+
 /**
  * useDriverProfileSync
  * Obtiene el perfil del conductor desde el backend (Firebase Auth + Supabase)
@@ -33,10 +44,31 @@ export function useDriverProfileSync() {
         const { getDatabase, ref, set } = await import('firebase/database');
         const db = getDatabase();
 
-        const fullName = [profile.firstName, profile.lastName]
+        const combinedFullName = [profile.firstName, profile.lastName]
           .filter(Boolean)
           .join(' ')
           .trim();
+
+        const normalizedFullName =
+          preferNonEmpty(
+            combinedFullName,
+            (profile as any)?.fullName,
+            (profile as any)?.displayName,
+            (profile as any)?.name,
+            user?.name,
+          ) || null;
+
+        const normalizedFirstName =
+          profile.firstName ||
+          (normalizedFullName ? normalizedFullName.split(' ')[0] : null) ||
+          null;
+
+        const normalizedLastName =
+          profile.lastName ||
+          (normalizedFullName && normalizedFullName.split(' ').length > 1
+            ? normalizedFullName.split(' ').slice(1).join(' ')
+            : null) ||
+          null;
 
         const activeVehicle = profile.vehicles?.find((v) => v?.isActive) || profile.vehicles?.[0] || null;
 
@@ -81,11 +113,11 @@ export function useDriverProfileSync() {
               : 'pending';
 
         const driversInfoPayload: Record<string, any> = {
-          firstName: profile.firstName ?? null,
-          lastName: profile.lastName ?? null,
-          fullName: fullName || null,
-          name: fullName || profile.firstName || null,
-          displayName: fullName || profile.firstName || null,
+          firstName: normalizedFirstName,
+          lastName: normalizedLastName,
+          fullName: normalizedFullName,
+          name: normalizedFullName,
+          displayName: normalizedFullName,
           profilePhoto: profile.profilePhoto ?? null,
           photoURL: profile.profilePhoto ?? null,
           email: profile.email ?? null,

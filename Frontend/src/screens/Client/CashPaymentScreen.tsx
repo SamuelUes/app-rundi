@@ -203,6 +203,7 @@ export default function CashPaymentScreen({ route, navigation }: any) {
   const [currentPaymentMethod, setCurrentPaymentMethod] = useState<string>('cash');
   const currentPaymentMethodRef = useRef<string>('cash');
   const isNavigatingRef = useRef(false);
+  const [cashCode, setCashCode] = useState<string | null>(null);
   
   // Cargar detalles del viaje
   useEffect(() => {
@@ -265,6 +266,12 @@ export default function CashPaymentScreen({ route, navigation }: any) {
       
       if (paymentData) {
         setPaymentStatus(paymentData.status);
+
+        if (paymentData.code && typeof paymentData.code === 'string') {
+          setCashCode(paymentData.code);
+        } else {
+          setCashCode(null);
+        }
 
         const methodFromStatus = paymentData.method || paymentData.paymentMethod;
 
@@ -366,13 +373,15 @@ export default function CashPaymentScreen({ route, navigation }: any) {
 
       let authenticationMethod: 'biometric' | 'manual' = 'manual';
       let biometricType: string | null = null;
+      let biometricAuthenticated = false;
 
       if (!biometricResult.success) {
-        if (
-          biometricResult.error === 'Dispositivo no soporta biometría' ||
-          biometricResult.error === 'No hay biometría registrada'
-        ) {
-          console.log('Biometría no disponible o no registrada. Continuando sin autenticación biométrica.');
+        if (biometricResult.errorCode === 'NOT_SUPPORTED') {
+          biometricType = 'no_exist';
+          console.log('Biometría no soportada por el dispositivo. Continuando como autenticación manual.');
+        } else if (biometricResult.errorCode === 'NOT_ENROLLED') {
+          biometricType = 'not_enrolled';
+          console.log('No hay biometría registrada en el dispositivo. Continuando como autenticación manual.');
         } else {
           alertService.showErrorAlert(
             biometricResult.error || t('client.cashPayment.alerts.identityError')
@@ -382,6 +391,7 @@ export default function CashPaymentScreen({ route, navigation }: any) {
       } else {
         authenticationMethod = 'biometric';
         biometricType = biometricResult.biometryType || 'biometric';
+        biometricAuthenticated = true;
       }
 
       setConfirming(true);
@@ -413,6 +423,7 @@ export default function CashPaymentScreen({ route, navigation }: any) {
         deviceId,
         authenticationMethod,
         biometricType,
+        biometricAuthenticated,
       });
       
       const data = result.data as any;
@@ -513,6 +524,15 @@ export default function CashPaymentScreen({ route, navigation }: any) {
             <Text style={styles.detailLabel}>{t('client.cashPayment.detail.method')}</Text>
             <Text style={styles.detailValue}>{t('client.cashPayment.detail.methodValueCash')}</Text>
           </View>
+
+          {cashCode && (
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>
+                {t('client.cashPayment.detail.codeLabel')}
+              </Text>
+              <Text style={styles.detailValue}>{cashCode}</Text>
+            </View>
+          )}
         </View>
         
         {/* Estado del pago */}
@@ -530,7 +550,7 @@ export default function CashPaymentScreen({ route, navigation }: any) {
         {paymentStatus === 'pending' || paymentStatus === 'pending_capture' || paymentStatus === 'pending_confirmation' ? (
           <TouchableOpacity 
             onPress={handleConfirmPayment} 
-            style={[styles.confirmButton, { backgroundColor: colors.primary }]}
+            style={[styles.confirmButton, { backgroundColor: 'rgba(189, 158, 74, 0.87)' }]}
             disabled={confirming}
           >
             <Text style={styles.confirmButtonText}>

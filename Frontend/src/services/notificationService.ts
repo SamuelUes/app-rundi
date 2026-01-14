@@ -14,6 +14,8 @@ Notifications.setNotificationHandler({
     shouldShowAlert: true,
     shouldPlaySound: true,
     shouldSetBadge: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
   }),
 });
 
@@ -274,8 +276,8 @@ class NotificationService {
 
       const id = await Notifications.scheduleNotificationAsync({
         content: {
-          title: this.tr('services.notificationService.quickReturnActiveRide.title'),
-          body: this.tr('services.notificationService.quickReturnActiveRide.body'),
+          title: this.tr('quickReturnActiveRide.title'),
+          body: this.tr('quickReturnActiveRide.body'),
           data: {
             type: 'quick_return_active_ride',
             rideId,

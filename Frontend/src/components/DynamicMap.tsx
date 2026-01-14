@@ -3,7 +3,7 @@ import { Animated, Platform } from 'react-native';
 import type { ImageSourcePropType } from 'react-native';
 import MapBoxMap from './MapBoxMap';
 import OpenStreetMap from './OpenStreetMap';
-import GoogleMap from './GoogleMap';
+import GoogleMap from './GoogleMaps';
 import Constants from 'expo-constants';
 import { useTheme } from '../context/ThemeContext';
 
@@ -72,6 +72,8 @@ interface DynamicMapProps {
   manualOriginIcon?: ImageSourcePropType;
   manualOriginHoldIcon?: ImageSourcePropType;
   manualOriginBounceValue?: Animated.AnimatedInterpolation<number> | Animated.Value;
+  manualOriginScale?: number;
+  userLocationScale?: number;
   onMarkerDragStart?: (location: { latitude: number; longitude: number }) => void;
   // ✅ NUEVO: Burbujas de dirección sobre pines
   originLabel?: string;
@@ -81,6 +83,7 @@ interface DynamicMapProps {
   onMarkerPress?: (coords: { latitude: number; longitude: number }) => void;
   routeColor?: string;
   secondaryRouteColor?: string;
+  googleRenderer?: 'LATEST' | 'LEGACY';
 }
 
 /**
@@ -113,6 +116,7 @@ function DynamicMapComponent({
   manualOriginHoldIcon,
   onMarkerDragStart,
   onMarkerPress,
+  googleRenderer,
   ...restProps
 }: DynamicMapProps) {
   const { mapTrafficEnabled } = useTheme();
@@ -121,6 +125,7 @@ function DynamicMapComponent({
   const actualProvider = isExpoGo ? 'google' : provider;
   const trafficEnabled = showTraffic ?? mapTrafficEnabled;
   const effectiveMarkerHeading = restProps.markerType === 'car' ? markerVehicleHeading : undefined;
+  const defaultGoogleRenderer = Platform.OS === 'android' ? 'LEGACY' : 'LATEST';
 
   // Solo loguear cuando cambia el provider (no en cada render)
   React.useEffect(() => {
@@ -147,12 +152,15 @@ function DynamicMapComponent({
         manualOriginIcon={manualOriginIcon}
         manualOriginHoldIcon={manualOriginHoldIcon}
         manualOriginBounceValue={restProps.manualOriginBounceValue}
+        manualOriginScale={restProps.manualOriginScale}
+        userLocationScale={restProps.userLocationScale}
         disableMarkerPress={!!restProps.disableMarkerPress}
         onMarkerPress={onMarkerPress}
         cameraTarget={restProps.cameraTarget}
         routeColor={restProps.routeColor}
         secondaryRouteCoordinates={restProps.secondaryRouteCoordinates}
         secondaryRouteColor={restProps.secondaryRouteColor}
+        googleRenderer={googleRenderer ?? defaultGoogleRenderer}
       />
     );
   }

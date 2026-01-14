@@ -3,9 +3,16 @@ import { getFirebaseFunctions } from '../config/firebase';
 import { httpsCallable } from 'firebase/functions';
 import i18n from '../i18n';
 
+type BiometricErrorCode =
+  | 'NOT_SUPPORTED'
+  | 'NOT_ENROLLED'
+  | 'AUTH_FAILED'
+  | 'UNKNOWN';
+
 interface BiometricResult {
   success: boolean;
   error?: string;
+  errorCode?: BiometricErrorCode;
   biometryType?: string;
   verifiedAt?: string;
 }
@@ -60,12 +67,20 @@ class BiometricService {
     try {
       const compatible = await LocalAuthentication.hasHardwareAsync();
       if (!compatible) {
-        return { success: false, error: i18n.t('services.biometricService.errors.notSupported') as string };
+        return {
+          success: false,
+          error: i18n.t('services.biometricService.errors.notSupported') as string,
+          errorCode: 'NOT_SUPPORTED',
+        };
       }
 
       const enrolled = await LocalAuthentication.isEnrolledAsync();
       if (!enrolled) {
-        return { success: false, error: i18n.t('services.biometricService.errors.notEnrolled') as string };
+        return {
+          success: false,
+          error: i18n.t('services.biometricService.errors.notEnrolled') as string,
+          errorCode: 'NOT_ENROLLED',
+        };
       }
 
       const biometryType = await this.getBiometryType();
@@ -81,11 +96,19 @@ class BiometricService {
         console.log('✅ Autenticación biométrica exitosa');
         return { success: true, biometryType, verifiedAt: new Date().toISOString() };
       } else {
-        return { success: false, error: i18n.t('services.biometricService.errors.authFailed') as string };
+        return {
+          success: false,
+          error: i18n.t('services.biometricService.errors.authFailed') as string,
+          errorCode: 'AUTH_FAILED',
+        };
       }
     } catch (error: any) {
       console.error('❌ Error en autenticación:', error);
-      return { success: false, error: error.message || (i18n.t('services.biometricService.errors.unknown') as string) };
+      return {
+        success: false,
+        error: error.message || (i18n.t('services.biometricService.errors.unknown') as string),
+        errorCode: 'UNKNOWN',
+      };
     }
   }
 

@@ -175,7 +175,7 @@
         },
         
         "method": {
-          ".validate": "newData.isString() && newData.val().matches(/^(cash|card|bank_transfer)$/)"
+          ".validate": "newData.isString() && newData.val().matches(/^(cash|card|bank_transfer|code)$/)"
         },
         
         "provider": {
