@@ -15,8 +15,12 @@ import { httpsCallable } from 'firebase/functions';
 import { getFirebaseAuth, getFirebaseFirestore, getFirebaseFunctions } from '../../config/firebase';
 import client from '../../api/client';
 import { ENDPOINTS } from '../../api/endpoints';
+import i18n from '../../i18n';
 
 class FirebaseAuthService {
+  private tr(path: string, options?: Record<string, any>) {
+    return i18n.t(`services.auth.firebaseAuthService.${path}`, options) as string;
+  }
   /**
    * Registrar usuario
    */
@@ -39,7 +43,7 @@ class FirebaseAuthService {
       const { data } = await client.post(ENDPOINTS.auth.register, payload);
 
       if (!data?.success || !data?.user) {
-        throw new Error(data?.error || 'Registro inválido');
+        throw new Error(data?.error || this.tr('errors.registerInvalid'));
       }
 
       const apiUser = data.user;
@@ -85,7 +89,7 @@ class FirebaseAuthService {
       }
     } catch (error: any) {
       console.error('❌ Error en registro:', error);
-      throw new Error(error.message);
+      throw new Error(error.message || this.tr('errors.registerInvalid'));
     }
   }
 
@@ -104,7 +108,7 @@ class FirebaseAuthService {
       const userDoc = await getDoc(doc(firestore, 'users', user.uid));
       
       if (!userDoc.exists()) {
-        throw new Error('Perfil de usuario no encontrado');
+        throw new Error(this.tr('errors.userProfileNotFound'));
       }
 
       const userData = userDoc.data();
@@ -132,7 +136,7 @@ class FirebaseAuthService {
       console.log('✅ Sesión cerrada');
     } catch (error: any) {
       console.error('❌ Error cerrando sesión:', error);
-      throw new Error(error.message);
+      throw new Error(error.message || this.tr('errors.sessionSyncFailed'));
     }
   }
 
@@ -183,13 +187,13 @@ class FirebaseAuthService {
       const userDoc = await getDoc(doc(firestore, 'users', uid));
       
       if (!userDoc.exists()) {
-        throw new Error('Perfil no encontrado');
+        throw new Error(this.tr('errors.profileNotFound'));
       }
 
       return userDoc.data();
     } catch (error: any) {
       console.error('❌ Error obteniendo perfil:', error);
-      throw error;
+      throw new Error(error.message || this.tr('errors.profileNotFound'));
     }
   }
 
@@ -236,10 +240,7 @@ class FirebaseAuthService {
       };
     } catch (error: any) {
       console.error('❌ Error verificando existencia de usuario:', error);
-      throw new Error(
-        error?.message ||
-          'No se pudo validar la disponibilidad de la cuenta. Inténtalo nuevamente más tarde.'
-      );
+      throw new Error(error?.message || this.tr('errors.availabilityFailed'));
     }
   }
 
@@ -274,7 +275,7 @@ class FirebaseAuthService {
    */
   async exchangeIdTokenForCustomToken(idToken: string): Promise<string> {
     if (!idToken || typeof idToken !== 'string') {
-      throw new Error('idToken inválido para generar la sesión compartida');
+      throw new Error(this.tr('errors.invalidIdToken'));
     }
 
     const functions = await getFirebaseFunctions();
@@ -286,16 +287,13 @@ class FirebaseAuthService {
 
       const customToken = data?.customToken;
       if (typeof customToken !== 'string' || !customToken) {
-        throw new Error('La respuesta del servidor no contiene un customToken válido');
+        throw new Error(this.tr('errors.customTokenMissing'));
       }
 
       return customToken;
     } catch (error: any) {
       console.error('❌ Error obteniendo custom token desde idToken:', error);
-      throw new Error(
-        error?.message ||
-          'No se pudo sincronizar la sesión con el backend. Inténtalo nuevamente más tarde.'
-      );
+      throw new Error(error?.message || this.tr('errors.sessionSyncFailed'));
     }
   }
 

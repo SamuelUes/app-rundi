@@ -9,6 +9,7 @@ import { httpsCallable } from 'firebase/functions';
 import { getAuth, deleteUser, reauthenticateWithCredential, EmailAuthProvider } from 'firebase/auth';
 import { doc, deleteDoc, getFirestore, getDoc } from 'firebase/firestore';
 import { ref, remove, getDatabase } from 'firebase/database';
+import i18n from '../i18n';
 
 class UserManagementService {
   /**
@@ -33,7 +34,7 @@ class UserManagementService {
       const user = auth.currentUser;
       
       if (!user || !user.email) {
-        throw new Error('No hay usuario autenticado');
+        throw new Error(i18n.t('services.userManagementService.errors.notAuthenticated') as string);
       }
       
       // 1. Reautenticar al usuario (requerido por Firebase)
@@ -107,27 +108,27 @@ class UserManagementService {
       if (error.code === 'auth/wrong-password') {
         return {
           success: false,
-          message: 'Contraseña incorrecta. Por favor verifica tus credenciales.'
+          message: i18n.t('services.userManagementService.errors.wrongPassword') as string
         };
       }
       
       if (error.code === 'auth/user-not-found') {
         return {
           success: false,
-          message: 'Usuario no encontrado.'
+          message: i18n.t('services.userManagementService.errors.userNotFound') as string
         };
       }
       
       if (error.code === 'auth/too-many-requests') {
         return {
           success: false,
-          message: 'Demasiados intentos. Por favor intenta más tarde.'
+          message: i18n.t('services.userManagementService.errors.tooManyRequests') as string
         };
       }
       
       return {
         success: false,
-        message: error.message || 'Error al eliminar la cuenta. Por favor intenta más tarde.'
+        message: error.message || (i18n.t('services.userManagementService.errors.deleteAccountFailed') as string)
       };
     }
   }
@@ -160,7 +161,7 @@ class UserManagementService {
       
       return {
         success: false,
-        message: error.message || 'Error al eliminar datos manualmente'
+        message: error.message || (i18n.t('services.userManagementService.errors.deleteDataFailed') as string)
       };
     }
   }

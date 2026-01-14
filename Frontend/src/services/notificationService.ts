@@ -258,6 +258,35 @@ class NotificationService {
 
   /**
    * Mostrar notificación de retorno rápido a la pantalla de viaje activo
+   */
+  async showQuickReturnActiveRide(rideId?: string | null) {
+    if (!rideId) {
+      return null;
+    }
+
+    try {
+      if (this.quickReturnNotificationId) {
+        await Notifications.dismissNotificationAsync(this.quickReturnNotificationId);
+        this.quickReturnNotificationId = null;
+      }
+
+      await this.ensureActiveRideChannel();
+
+      const id = await Notifications.scheduleNotificationAsync({
+        content: {
+          title: this.tr('services.notificationService.quickReturnActiveRide.title'),
+          body: this.tr('services.notificationService.quickReturnActiveRide.body'),
+          data: {
+            type: 'quick_return_active_ride',
+            rideId,
+          },
+          sound: 'default',
+          priority: Notifications.AndroidNotificationPriority.MAX,
+          sticky: true,
+        },
+        trigger: null,
+      });
+
       this.quickReturnNotificationId = id;
       return id;
     } catch (error) {
@@ -407,7 +436,7 @@ class NotificationService {
   }
 
   private tr(path: string, options?: Record<string, any>) {
-    return i18n.t(`shared.notifications.${path}`, options) as string;
+    return i18n.t(`services.notificationService.${path}`, options) as string;
   }
 
   private formatPriceCordoba(amount?: number | string | null) {

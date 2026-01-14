@@ -6,6 +6,7 @@
 import { httpsCallable } from 'firebase/functions';
 import { getFirebaseFunctions } from '../config/firebase';
 import { getAuth } from 'firebase/auth';
+import i18n from '../i18n';
 
 interface VehicleData {
   plate: string;
@@ -40,6 +41,9 @@ interface VehicleData {
 }
 
 class VehiclesService {
+  private tr(path: string, options?: Record<string, any>) {
+    return i18n.t(`services.vehiclesService.${path}`, options) as string;
+  }
   /**
    * Agregar nuevo vehículo
    * Flujo: Crear vehículo sin fotos → Obtener vehicleId → Subir fotos → Actualizar vehículo
@@ -129,7 +133,7 @@ class VehiclesService {
     } catch (error: any) {
       console.error('❌ Error agregando vehículo:', error);
       console.error('Error details:', error.message);
-      throw new Error(error.message || 'Error al agregar vehículo');
+      throw new Error(error.message || this.tr('errors.addVehicleFailed'));
     }
   }
 
@@ -147,7 +151,7 @@ class VehiclesService {
       const userId = auth.currentUser?.uid;
       
       if (!userId) {
-        throw new Error('Usuario no autenticado');
+        throw new Error(this.tr('errors.notAuthenticated'));
       }
       
       // Crear nombre único con tipo
@@ -186,7 +190,7 @@ class VehiclesService {
       return result.data;
     } catch (error: any) {
       console.error('❌ Error cambiando vehículo:', error);
-      throw new Error(error.message || 'Error al cambiar vehículo');
+      throw new Error(error.message || this.tr('errors.switchVehicleFailed'));
     }
   }
 
@@ -293,7 +297,7 @@ class VehiclesService {
       const driverId = auth.currentUser?.uid;
 
       if (!driverId) {
-        throw new Error('Usuario no autenticado');
+        throw new Error(this.tr('errors.notAuthenticated'));
       }
 
       const getVehiclesFn = httpsCallable(functions, 'getDriverVehiclesSeq');
@@ -323,7 +327,7 @@ class VehiclesService {
   async updateVehicle(vehicleId: string, data: Partial<VehicleData>) {
     try {
       if (!vehicleId) {
-        throw new Error('vehicleId es requerido');
+        throw new Error(this.tr('errors.vehicleIdRequired'));
       }
 
       console.log('🔄 Actualizando vehículo:', vehicleId);
@@ -338,7 +342,7 @@ class VehiclesService {
       return result.data;
     } catch (error: any) {
       console.error('❌ Error actualizando vehículo:', error);
-      throw new Error(error.message || 'Error al actualizar vehículo');
+      throw new Error(error.message || this.tr('errors.updateVehicleFailed'));
     }
   }
 }

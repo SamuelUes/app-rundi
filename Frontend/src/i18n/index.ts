@@ -1,3 +1,22 @@
+import alertService from '@/services/alertService';
+import backgroundLocationService from '@/services/backgroundLocationService';
+import BiometricService from '@/services/biometricService';
+import cardsService from '@/services/cardsService';
+import driverAvailabilityService from '@/services/driverAvailabilityService';
+import driversService from '@/services/driversService';
+import earningsService from '@/services/earningsService';
+import inspectionsService from '@/services/inspectionsService';
+import locationTrackingService from '@/services/locationTrackingService';
+import notificationService from '@/services/notificationService';
+import paymentsService from '@/services/paymentsService';
+import phoneLoginService from '@/services/phoneLoginService';
+import priceNegotiationService from '@/services/priceNegotiationService';
+import registrationService from '@/services/registrationService';
+import servicesService from '@/services/servicesService';
+import trackingService from '@/services/trackingService';
+import uploadService from '@/services/uploadService';
+import { userManagementService } from '@/services/userManagementService';
+import vehiclesService from '@/services/vehiclesService';
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 
@@ -789,6 +808,293 @@ const resources = {
             payCard: 'Pay with card',
           },
         },
+       services: {
+         notificationService: {
+           channels: {
+             default: 'Rundi notifications',
+             activeRide: 'Active ride',
+           },
+           quickReturnActiveRide: {
+             title: 'Return to your active ride',
+             body: 'Tap to return to your current ride details.',
+           },
+           newRide: {
+             title: 'New ride available',
+             body: 'Ride from {{origin}} · {{distance}} · {{price}}',
+             originFallback: 'Origin not available',
+           },
+           rideAccepted: {
+             title: 'Your ride was accepted',
+             body: '{{driverName}} is heading your way.',
+             driverFallback: 'Driver',
+           },
+           rideStarted: {
+             title: 'Your trip has started',
+             body: 'Enjoy your ride.',
+           },
+           rideCompleted: {
+             title: 'Trip completed',
+             body: 'Thanks for riding with Rundi.',
+           },
+           rideCanceled: {
+             title: 'Ride canceled',
+             body: 'The ride was canceled.',
+           },
+           formats: {
+             priceCordoba: 'C${{amount}}',
+             distanceKm: '{{value}} km away',
+           },
+         },
+         alertService: {
+           titles: {
+             error: 'Error',
+             important: 'Important',
+             permissionsRequired: 'Permissions required',
+           },
+           messages: {
+             locationPermissionRequired: 'Location access is required to use this feature.',
+             locationAccessFailed: 'We could not access your location.',
+           },
+           buttons: {
+             cancel: 'Cancel',
+             confirm: 'Confirm',
+             navigate: 'Navigate',
+             understood: 'Got it',
+             goToSettings: 'Go to Settings',
+           },
+         },
+         backgroundLocationService: {
+           foregroundService: {
+             title: 'Location tracking active',
+             body: 'Your location is being shared.',
+           },
+           driverStatus: {
+             title: 'Driver available',
+             body: 'Sharing your location to get nearby rides.',
+           },
+           clientStatus: {
+             title: 'Trip under monitoring',
+             body: 'Your ride is active and we are monitoring your location.',
+           },
+         },
+         biometricService: {
+           prompts: {
+             reason: 'Confirm your identity',
+             fallbackLabel: 'Use PIN',
+           },
+           errors: {
+             notSupported: 'This device does not support biometrics.',
+             notEnrolled: 'No biometric data is registered on this device.',
+             authFailed: 'Biometric authentication failed.',
+             unknown: 'Unknown error.',
+           },
+         },
+         cardsService: {
+           errors: {
+             addFailed: 'We could not add the card.',
+             addGeneric: 'An error occurred while adding the card.',
+             defaultFailed: 'We could not set the default card.',
+             defaultGeneric: 'An error occurred while setting the default card.',
+             deleteFailed: 'We could not delete the card.',
+             deleteGeneric: 'An error occurred while deleting the card.',
+           },
+         },
+         driversService: {
+           errors: {
+             availabilityLimit:
+               'You cannot go online: you have 10 or more pending commissions. Pay them from “Pay commissions”.',
+             notAuthenticated: 'User not authenticated. Please sign in.',
+             updateFailed: 'We could not update the driver status.',
+             profileFetchFailed: 'We could not load the driver profile.',
+             profileUpdateFailed: 'We could not update the driver profile.',
+           },
+         },
+         earningsService: {
+           errors: {
+             statsFailed: 'We could not load your earnings stats.',
+             earningsByDayFailed: 'We could not load the earnings by day.',
+             pendingCashFailed: 'We could not load your pending cash rides.',
+             createRechargeFailed: 'We could not create the cash recharge.',
+             rechargesFailed: 'We could not load your recharge history.',
+           },
+         },
+         inspectionsService: {
+           errors: {
+             saveFailed: 'We could not save the inspection.',
+             missingData: 'No data was returned after saving the inspection.',
+             fetchFailed: 'We could not load the inspection.',
+             listFailed: 'We could not load the inspections list.',
+           },
+         },
+         locationTrackingService: {
+           errors: {
+             savePoint: 'We could not save the location point.',
+             saveBatch: 'We could not save the location batch.',
+             routeFailed: 'We could not calculate the route.',
+             routeUnavailable: 'Route calculation is unavailable right now.',
+             reverseGeocodeFailed: 'We could not fetch the address.',
+             reverseGeocodeUnavailable: 'Address lookup is unavailable right now.',
+             geocodeFailed: 'We could not fetch the coordinates.',
+             geocodeUnavailable: 'Coordinate lookup is unavailable right now.',
+             placesSearchFailed: 'We could not search for nearby places.',
+             placesSearchUnavailable: 'Search is unavailable right now.',
+             distanceFailed: 'We could not calculate the distance.',
+             distanceUnavailable: 'Distance calculation is unavailable right now.',
+             deleteRideLocations: 'We could not delete the ride locations.',
+             routeSaveFailed: 'We could not save the ride route.',
+             updateWaypointFailed: 'We could not update the waypoint.',
+             deleteWaypointFailed: 'We could not delete the waypoint.',
+             reorderWaypointsFailed: 'We could not reorder the waypoints.',
+           },
+         },
+         paymentsService: {
+           errors: {
+             rideIdRequired: 'Ride ID is required.',
+             amountPositive: 'Amount must be greater than 0.',
+             invalidResponse: 'Invalid server response.',
+             createFailed: 'We could not create the payment intent.',
+           },
+         },
+         phoneLoginService: {
+           messages: {
+             codeSent: 'We sent a code to your phone number.',
+             codeResent: 'Verification code resent successfully.',
+           },
+           defaults: {
+             userName: 'User',
+           },
+           errors: {
+             invalidPhoneFormat: 'Invalid phone format. Use the international format (+Country code and number).',
+             requestFailed: 'We could not request the SMS code.',
+             verifyCodeLength: 'The code must be 6 digits.',
+             noFirebaseUser: 'We could not get the user after verifying the code.',
+             verifyFailed: 'We could not verify the code.',
+             resendFailed: 'We could not resend the verification code.',
+           },
+         },
+         priceNegotiationService: {
+           errors: {
+             invalidNumber: 'Price must be a valid number.',
+             minPrice: 'The minimum allowed price is C${{value}}.',
+             maxPrice: 'The maximum allowed price is C${{value}}.',
+             negotiateFailed: 'We could not negotiate the price.',
+             notAuthenticated: 'User not authenticated. Please sign in again.',
+             acceptClientPriceFailed: 'We could not accept the client price.',
+             acceptDriverOfferFailed: 'We could not accept the driver offer.',
+             acceptCounterOfferFailed: 'We could not accept the counteroffer.',
+             rejectCounterOfferFailed: 'We could not reject the counteroffer.',
+             sendOfferFailed: 'We could not send the offer.',
+           },
+         },
+         registrationService: {
+           errors: {
+             requiredNameRole: 'Name and role are required.',
+             invalidMethod: 'Invalid registration method.',
+             emailPasswordRequired: 'Email and password are required for this method.',
+             phoneVerificationRequired: 'A verified phone number is required for SMS registration.',
+             driverDataRequired: 'Driver and vehicle data are required.',
+             googleTokenMissing: 'Google token is missing to complete the registration.',
+             googleAuthFailed: 'We could not authenticate with Google.',
+             invalidServerResponse: 'Invalid server response.',
+             createUserFailed: 'We could not create the user.',
+             completeDriverFailed: 'We could not complete the driver registration.',
+             upgradePhoneVerification: 'You must verify your phone number before completing the driver registration.',
+             upgradePreconditionFailed: 'We could not upgrade your account. Check your information and try again.',
+             upgradeFailed: 'We could not upgrade your account to driver. Please try again later.',
+           },
+           validation: {
+             emailInvalid: 'Enter a valid email address.',
+             nameTooShort: 'Name must be at least 2 characters.',
+             phoneFormat: 'Phone must be in the format +505 XXXX XXXX.',
+             roleInvalid: 'Select a valid role.',
+             passwordLength: 'Password must be at least 6 characters.',
+             licenseInvalid: 'Enter a valid license number.',
+             plateInvalid: 'Enter a valid vehicle plate.',
+             brandRequired: 'Vehicle brand is required.',
+             modelRequired: 'Vehicle model is required.',
+             yearInvalid: 'Enter a valid vehicle year.',
+             colorRequired: 'Vehicle color is required.',
+             typeInvalid: 'Select a valid vehicle type.',
+           },
+         },
+         ridesService: {
+           errors: {
+             clientIdRequired: 'Client ID is required.',
+             locationsRequired: 'Origin and destination are required.',
+             estimatedPricePositive: 'Estimated price must be greater than 0.',
+             invalidServerResponse: 'Invalid server response.',
+             rideDetailsFailed: 'We could not load the ride details.',
+             driverOnRouteFailed: 'We could not update the ride status to “on route”.',
+             unsupportedStatus: 'Unsupported ride status: {{status}}.',
+           },
+         },
+         servicesService: {
+           messages: {
+             defaultName: 'Service',
+           },
+           errors: {
+             fetchFailed: 'We could not load the services.',
+           },
+         },
+         supabaseStorage: {
+           errors: {
+             missingUri: 'Image URI is required.',
+             uploadFailed: 'We could not upload the image.',
+             deleteFailed: 'We could not delete the image.',
+           },
+         },
+         trackingService: {
+           errors: {
+             subscribeFailed: 'We could not subscribe to the ride.',
+           },
+         },
+         uploadService: {
+           errors: {
+             processImage: 'We could not process the image.',
+             processImages: 'We could not process the images.',
+           },
+         },
+         userManagementService: {
+           errors: {
+             notAuthenticated: 'No authenticated user found.',
+             wrongPassword: 'Incorrect password. Please check your credentials.',
+             userNotFound: 'User not found.',
+             tooManyRequests: 'Too many attempts. Please try again later.',
+             deleteAccountFailed: 'We could not delete your account. Please try again later.',
+             deleteDataFailed: 'We could not delete the user data.',
+           },
+         },
+         vehiclesService: {
+           errors: {
+             notAuthenticated: 'User not authenticated.',
+             addVehicleFailed: 'We could not add the vehicle.',
+             switchVehicleFailed: 'We could not switch the vehicle.',
+             updateVehicleFailed: 'We could not update the vehicle.',
+           },
+         },
+         fcm: {
+            rideRequested: {
+              title: 'Ride requested',
+              body: 'We are looking for a driver for you.',
+            },
+            proximityRide: {
+              title: 'Nearby ride',
+              body: 'A new ride is available near you.',
+            },
+            fallback: {
+              title: 'New notification',
+              body: 'You have a new update in Rundi.',
+            },
+            alerts: {
+              authErrorTitle: 'Not authenticated',
+              authErrorMessage: 'Please sign in to continue.',
+              testSuccessTitle: 'Success',
+              testSuccessMessage: 'Test notification sent.',
+              testErrorTitle: 'Error',
+              testErrorMessage: 'Could not send the notification.',
+            },
+          },
+       },
       },
      authScreens: {
             landing: {
@@ -2791,28 +3097,6 @@ const resources = {
           generic: {
             defaultTitle: 'New notification',
             defaultBody: 'You have a new notification.',
-          },
-          fcm: {
-            rideRequested: {
-              title: 'Ride requested',
-              body: 'We are looking for a driver for you.',
-            },
-            proximityRide: {
-              title: 'Nearby ride',
-              body: 'A new ride is available near you.',
-            },
-            fallback: {
-              title: 'New notification',
-              body: 'You have a new update in Rundi.',
-            },
-            alerts: {
-              authErrorTitle: 'Not authenticated',
-              authErrorMessage: 'Please sign in to continue.',
-              testSuccessTitle: 'Success',
-              testSuccessMessage: 'Test notification sent.',
-              testErrorTitle: 'Error',
-              testErrorMessage: 'Could not send the notification.',
-            },
           },
           live: {
             statuses: {

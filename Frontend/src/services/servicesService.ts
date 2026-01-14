@@ -1,5 +1,6 @@
 import { httpsCallable } from 'firebase/functions';
 import { getFirebaseFunctions } from '../config/firebase';
+import i18n from '../i18n';
 
 export interface ServiceItem {
   id: string;
@@ -16,6 +17,10 @@ export interface ServiceItem {
 
 class ServicesService {
   private functions: any | null = null;
+
+  private tr(path: string) {
+    return i18n.t(`services.servicesService.${path}`) as string;
+  }
 
   private async getFunctions() {
     if (!this.functions) {
@@ -36,7 +41,7 @@ class ServicesService {
 
       return result.data.services.map((service: any) => ({
         id: String(service.id),
-        name: service.name ?? 'Servicio',
+        name: service.name ?? this.tr('messages.defaultName'),
         description: service.description ?? null,
         commissionRate: typeof service.commissionRate === 'number'
           ? service.commissionRate
@@ -62,7 +67,7 @@ class ServicesService {
       }));
     } catch (error) {
       console.error('❌ Error obteniendo servicios:', error);
-      return [];
+      throw new Error(this.tr('errors.fetchFailed'));
     }
   }
 }

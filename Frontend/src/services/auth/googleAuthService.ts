@@ -13,11 +13,15 @@ import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { getFirebaseAuth, getFirebaseFirestore, getFirebaseFunctions } from '../../config/firebase';
 import * as WebBrowser from 'expo-web-browser';
+import i18n from '../../i18n';
 
 // Completar el flujo de autenticación web
 WebBrowser.maybeCompleteAuthSession();
 
 class GoogleAuthService {
+  private tr(path: string, options?: Record<string, any>) {
+    return i18n.t(`services.auth.googleAuthService.${path}`, options) as string;
+  }
   /**
    * Nota: Google.useAuthRequest es un hook de React y se usa en useGoogleAuth.ts
    * Este servicio maneja la lógica de autenticación con Firebase
@@ -89,7 +93,7 @@ class GoogleAuthService {
       };
     } catch (error: any) {
       console.error('❌ Error en registro con Google:', error);
-      throw new Error(error.message || 'Error al registrar con Google');
+      throw new Error(error.message || this.tr('errors.registerFailed'));
     }
   }
 
@@ -123,7 +127,7 @@ class GoogleAuthService {
           user.displayName || (user.email ? user.email.split('@')[0] : 'Usuario Google');
 
         if (!user.email) {
-          throw new Error('No se pudo obtener el email de tu cuenta de Google.');
+          throw new Error(this.tr('errors.emailMissing'));
         }
 
         return {
@@ -145,7 +149,7 @@ class GoogleAuthService {
       };
     } catch (error: any) {
       console.error('❌ Error en login con Google:', error);
-      throw new Error(error.message || 'Error al iniciar sesión con Google');
+      throw new Error(error.message || this.tr('errors.loginFailed'));
     }
   }
 
@@ -159,7 +163,7 @@ class GoogleAuthService {
       console.log('✅ Sesión cerrada');
     } catch (error: any) {
       console.error('❌ Error cerrando sesión:', error);
-      throw new Error(error.message);
+      throw new Error(error.message || this.tr('errors.loginFailed'));
     }
   }
 
@@ -202,13 +206,13 @@ class GoogleAuthService {
       const userDoc = await getDoc(doc(firestore, 'users', uid));
 
       if (!userDoc.exists()) {
-        throw new Error('Perfil no encontrado');
+        throw new Error(this.tr('errors.profileNotFound'));
       }
 
       return userDoc.data();
     } catch (error: any) {
       console.error('❌ Error obteniendo perfil:', error);
-      throw error;
+      throw new Error(error.message || this.tr('errors.profileNotFound'));
     }
   }
 }

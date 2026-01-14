@@ -1,9 +1,13 @@
 import { io, Socket } from 'socket.io-client';
 import { API_BASE_URL } from '../config/api';
+import i18n from '../i18n';
 
 class TrackingService {
   private socket: Socket | null = null;
   private currentRideId: string | null = null;
+  private tr(path: string, options?: Record<string, any>) {
+    return i18n.t(`services.trackingService.${path}`, options) as string;
+  }
 
   /**
    * Conectar al servidor de tracking
@@ -54,7 +58,7 @@ class TrackingService {
           console.log(`📍 Suscrito al viaje ${rideId}`);
           resolve();
         } else {
-          reject(new Error('No se pudo suscribir al viaje'));
+          reject(new Error(this.tr('errors.subscribeFailed')));
         }
       });
     });

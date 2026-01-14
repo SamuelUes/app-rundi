@@ -1,5 +1,6 @@
 import { getFirebaseFunctions } from '../config/firebase';
 import { httpsCallable } from 'firebase/functions';
+import i18n from '../i18n';
 
 export interface PaymentIntent {
   clientSecret: string;
@@ -16,6 +17,9 @@ export interface CreatePaymentIntentData {
 
 class PaymentsService {
   private functions: any = null;
+  private tr(path: string) {
+    return i18n.t(`services.paymentsService.${path}`) as string;
+  }
 
   private async getFunctions() {
     if (!this.functions) {
@@ -26,11 +30,11 @@ class PaymentsService {
 
   async createPaymentIntent(data: CreatePaymentIntentData): Promise<PaymentIntent> {
     if (!data.rideId) {
-      throw new Error('rideId es requerido');
+      throw new Error(this.tr('errors.rideIdRequired'));
     }
     
     if (!data.amount || data.amount <= 0) {
-      throw new Error('amount debe ser mayor a 0');
+      throw new Error(this.tr('errors.amountPositive'));
     }
 
     try {
@@ -44,13 +48,13 @@ class PaymentsService {
       });
       
       if (!response.data) {
-        throw new Error('Respuesta inválida del servidor');
+        throw new Error(this.tr('errors.invalidResponse'));
       }
       
       return response.data as PaymentIntent;
     } catch (error: any) {
       console.error('Error en createPaymentIntent:', error);
-      throw error;
+      throw new Error(error.message || this.tr('errors.createFailed'));
     }
   }
 

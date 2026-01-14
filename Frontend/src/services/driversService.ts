@@ -5,6 +5,7 @@
 import { getFirebaseAuth, getFirebaseFunctions } from '../config/firebase';
 import { httpsCallable } from 'firebase/functions';
 import type { Functions } from 'firebase/functions';
+import i18n from '../i18n';
 
 interface Location {
   latitude: number;
@@ -53,11 +54,12 @@ type DriverProfileUpdatePayload = {
   vehiclePlate?: string;
 };
 
-const AVAILABILITY_LIMIT_MESSAGE =
-  'No puedes activarte: tienes 10 o más comisiones pendientes. Liquídalas desde "Pagar comisiones".';
-
 class DriversService {
   private functions: Functions | null = null;
+
+  private tr(path: string) {
+    return i18n.t(`services.driversService.${path}`) as string;
+  }
 
   private async getFunctions(): Promise<Functions> {
     if (!this.functions) {
@@ -89,7 +91,7 @@ class DriversService {
   ): Promise<{ success: boolean; status: string }> {
     const auth = await getFirebaseAuth();
     if (!auth.currentUser) {
-      throw new Error('Usuario no autenticado. Por favor inicia sesión.');
+      throw new Error(this.tr('errors.notAuthenticated'));
     }
 
     const payload: { status: typeof status; latitude?: number; longitude?: number } = { status };
@@ -106,7 +108,7 @@ class DriversService {
         lastError = error;
 
         if (this.isAvailabilityLimitError(error)) {
-          throw new Error(AVAILABILITY_LIMIT_MESSAGE);
+          throw new Error(this.tr('errors.availabilityLimit'));
         }
 
         if (attempt === retries) {
@@ -119,9 +121,7 @@ class DriversService {
       }
     }
 
-    throw lastError instanceof Error
-      ? lastError
-      : new Error('No se pudo actualizar el estado del conductor');
+    throw lastError instanceof Error ? lastError : new Error(this.tr('errors.updateFailed'));
   }
 
   async checkAvailableDrivers(
@@ -201,7 +201,7 @@ class DriversService {
       return result.driver;
     }
 
-    throw new Error('No se pudo obtener el perfil del conductor');
+    throw new Error(this.tr('errors.profileFetchFailed'));
   }
 
   async updateMyDriverProfile(data: DriverProfileUpdatePayload): Promise<{ success: boolean; message: string }> {
@@ -210,7 +210,7 @@ class DriversService {
       return result;
     }
 
-    throw new Error('No se pudo actualizar el perfil');
+    throw new Error(this.tr('errors.profileUpdateFailed'));
   }
 }
 

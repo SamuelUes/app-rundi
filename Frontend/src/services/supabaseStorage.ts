@@ -6,6 +6,7 @@
 import { createClient } from '@supabase/supabase-js';
 import Constants from 'expo-constants';
 import * as FileSystem from 'expo-file-system';
+import i18n from '../i18n';
 
 // Configuración de Supabase desde variables de entorno de Expo
 const SUPABASE_URL = Constants.expoConfig?.extra?.supabaseUrl || 'https://ceytngpresytjhafcadu.supabase.co';
@@ -15,6 +16,9 @@ console.log('🔧 Supabase URL:', SUPABASE_URL);
 console.log('🔧 Supabase Key:', SUPABASE_ANON_KEY ? '✅ Configurada' : '❌ No configurada');
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+const tr = (path: string, options?: Record<string, any>) =>
+  i18n.t(`services.supabaseStorage.${path}`, options) as string;
 
 /**
  * Subir imagen a Supabase Storage
@@ -33,7 +37,7 @@ export const uploadImage = async (
     
     // Validar que la URI existe
     if (!uri) {
-      throw new Error('URI de imagen no proporcionada');
+      throw new Error(tr('errors.missingUri'));
     }
 
     // Leer archivo usando expo-file-system
@@ -82,9 +86,9 @@ export const uploadImage = async (
       }
       console.error('❌ Error en respuesta:', errorPayload);
       if (typeof errorPayload === 'object' && errorPayload !== null && errorPayload.message) {
-        throw new Error(`Error al subir imagen: ${errorPayload.message}`);
+        throw new Error(errorPayload.message);
       }
-      throw new Error(`Error al subir imagen: ${uploadResponse.statusText}`);
+      throw new Error(`${tr('errors.uploadFailed')} (${uploadResponse.statusText})`);
     }
 
     let uploadData: any = null;
@@ -112,7 +116,7 @@ export const uploadImage = async (
       bucket,
       path,
     });
-    throw error;
+    throw new Error(error.message || tr('errors.uploadFailed'));
   }
 };
 
@@ -211,11 +215,11 @@ export const deleteImage = async (
 
     if (error) {
       console.error('Error eliminando imagen de Supabase:', error);
-      throw new Error(`Error al eliminar imagen: ${error.message}`);
+      throw new Error(`${tr('errors.deleteFailed')} (${error.message})`);
     }
   } catch (error: any) {
     console.error('Error en deleteImage:', error);
-    throw error;
+    throw new Error(error.message || tr('errors.deleteFailed'));
   }
 };
 

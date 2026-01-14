@@ -4,6 +4,7 @@
 
 import { httpsCallable } from 'firebase/functions';
 import { getFirebaseFunctions } from '../config/firebase';
+import i18n from '../i18n';
 
 export interface Card {
   id: string;
@@ -29,6 +30,10 @@ export interface AddCardRequest {
 
 class CardsService {
   private functions: any = null;
+
+  private tr(path: string) {
+    return i18n.t(`services.cardsService.${path}`) as string;
+  }
 
   private async getFunctions() {
     if (!this.functions) {
@@ -66,11 +71,11 @@ class CardsService {
         console.log(`✅ Tarjeta agregada: ${normalized.brand} ****${normalized.last4}`);
         return normalized;
       } else {
-        throw new Error('No se pudo agregar la tarjeta');
+        throw new Error(this.tr('errors.addFailed'));
       }
     } catch (error: any) {
       console.error('❌ Error agregando tarjeta:', error.message);
-      throw new Error(error.message || 'Error al agregar tarjeta');
+      throw new Error(error.message || this.tr('errors.addGeneric'));
     }
   }
 
@@ -123,11 +128,11 @@ class CardsService {
         console.log(`✅ Tarjeta por defecto actualizada`);
         return normalized;
       } else {
-        throw new Error('No se pudo establecer la tarjeta por defecto');
+        throw new Error(this.tr('errors.defaultFailed'));
       }
     } catch (error: any) {
       console.error('❌ Error estableciendo tarjeta por defecto:', error.message);
-      throw new Error(error.message || 'Error al establecer tarjeta por defecto');
+      throw new Error(error.message || this.tr('errors.defaultGeneric'));
     }
   }
 
@@ -145,13 +150,13 @@ class CardsService {
       const result = response.data as { success: boolean; message: string };
 
       if (!result.success) {
-        throw new Error(result.message || 'No se pudo eliminar la tarjeta');
+        throw new Error(result.message || this.tr('errors.deleteFailed'));
       }
 
       console.log(`✅ Tarjeta eliminada`);
     } catch (error: any) {
       console.error('❌ Error eliminando tarjeta:', error.message);
-      throw new Error(error.message || 'Error al eliminar tarjeta');
+      throw new Error(error.message || this.tr('errors.deleteGeneric'));
     }
   }
 

@@ -12,6 +12,7 @@ import {
   loadNativeFirebaseApp,
   loadNativeFirebaseAuth,
 } from '../../utils/nativeFirebase';
+import i18n from '../../i18n';
 
 interface PhoneLinkSession {
   phone: string;
@@ -21,6 +22,9 @@ interface PhoneLinkSession {
 
 class AccountLinkingService {
   private phoneLinkSessions: Map<string, PhoneLinkSession> = new Map();
+  private tr(path: string, options?: Record<string, any>) {
+    return i18n.t(`services.auth.accountLinkingService.${path}`, options) as string;
+  }
 
   private normalizePhone(phone: string): string {
     if (!phone) {
@@ -34,7 +38,7 @@ class AccountLinkingService {
     const auth = await getFirebaseAuth();
     const currentUser = auth.currentUser;
     if (!currentUser) {
-      throw new Error('Usuario no autenticado');
+      throw new Error(this.tr('errors.notAuthenticated'));
     }
     await currentUser.reload();
     return auth.currentUser!;
@@ -52,10 +56,10 @@ class AccountLinkingService {
   async linkEmailAndPassword(email: string, password: string) {
     const normalizedEmail = email.trim().toLowerCase();
     if (!normalizedEmail) {
-      throw new Error('Correo electrónico requerido');
+      throw new Error(this.tr('validation.emailRequired'));
     }
     if (!password || password.length < 6) {
-      throw new Error('La contraseña debe tener al menos 6 caracteres');
+      throw new Error(this.tr('validation.passwordLength'));
     }
 
     const user = await this.ensureCurrentUser();
@@ -76,7 +80,7 @@ class AccountLinkingService {
 
   async updatePassword(password: string) {
     if (!password || password.length < 6) {
-      throw new Error('La contraseña debe tener al menos 6 caracteres');
+      throw new Error(this.tr('validation.passwordLength'));
     }
 
     const user = await this.ensureCurrentUser();
@@ -86,14 +90,12 @@ class AccountLinkingService {
 
   async sendPhoneLinkCode(phone: string) {
     if (!isNativeFirebaseSupported()) {
-      throw new Error(
-        'La verificación por SMS requiere una compilación nativa (Development Build). Usa una build dev o producción.',
-      );
+      throw new Error(this.tr('errors.smsRequiresNative'));
     }
 
     const normalizedPhone = this.normalizePhone(phone);
     if (!/^\+\d{6,15}$/.test(normalizedPhone)) {
-      throw new Error('Formato de teléfono inválido. Usa +505 XXXX XXXX');
+      throw new Error(this.tr('validation.phoneFormat'));
     }
 
     const user = await this.ensureCurrentUser();
@@ -125,14 +127,12 @@ class AccountLinkingService {
         message: error?.message,
         error,
       });
-      throw new Error(
-        error?.message || 'No se pudo iniciar la verificación del teléfono. Intenta nuevamente.',
-      );
+      throw new Error(error?.message || this.tr('errors.sendCodeFailed'));
     }
 
     if (!verificationId) {
       console.error('[AccountLinkingService] sendPhoneLinkCode:missingVerificationId');
-      throw new Error('No se pudo iniciar la verificación del teléfono. Intenta nuevamente.');
+      throw new Error(this.tr('errors.missingVerificationId'));
     }
 
     this.phoneLinkSessions.set(user.uid, {
@@ -152,14 +152,14 @@ class AccountLinkingService {
 
   async confirmPhoneLinkCode(code: string) {
     if (!code || code.length !== 6 || Number.isNaN(Number(code))) {
-      throw new Error('El código debe tener 6 dígitos');
+      throw new Error(this.tr('validation.codeLength'));
     }
 
     const user = await this.ensureCurrentUser();
     const session = this.phoneLinkSessions.get(user.uid);
 
     if (!session) {
-      throw new Error('No se encontró una verificación activa. Envía un nuevo código.');
+      throw new Error(this.tr('errors.noActiveVerification'));
     }
 
     try {
@@ -202,7 +202,7 @@ class AccountLinkingService {
   ): Promise<any> => {
     const nativeAuthModule = await loadNativeFirebaseAuth();
     if (!nativeAuthModule?.verifyPhoneNumber) {
-      throw new Error('La verificación por SMS no está disponible en Expo Go.');
+      throw new Error(this.tr('errors.smsNotAvailableExpoGo'));
     }
     return nativeAuthModule.verifyPhoneNumber(nativeAuth, phone, timeout);
   };
@@ -212,7 +212,7 @@ class AccountLinkingService {
     const nativeAuthModule = await loadNativeFirebaseAuth();
 
     if (!nativeAppModule?.getApp || !nativeAuthModule?.getAuth) {
-      throw new Error('No se pudo acceder a Firebase nativo. Usa una Development Build.');
+      throw new Error(this.tr('errors.nativeAccessFailed'));
     }
 
     const app = nativeAppModule.getApp();

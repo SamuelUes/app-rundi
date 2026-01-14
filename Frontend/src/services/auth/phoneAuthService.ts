@@ -1,8 +1,12 @@
 import type { FirebaseAuthTypes } from '@react-native-firebase/auth';
 import { isNativeFirebaseSupported, loadNativeFirebaseAuth } from '../../utils/nativeFirebase';
+import i18n from '../../i18n';
 
 class PhoneAuthService {
   private confirmations: Map<string, FirebaseAuthTypes.ConfirmationResult> = new Map();
+  private tr(path: string, options?: Record<string, any>) {
+    return i18n.t(`services.auth.phoneAuthService.${path}`, options) as string;
+  }
 
   private normalizePhone(phone: string): string {
     const digitsOnly = phone.replace(/\s+/g, '');
@@ -22,9 +26,7 @@ class PhoneAuthService {
     const normalized = this.normalizePhone(phone);
 
     if (!this.validatePhoneNumber(normalized)) {
-      throw new Error(
-        'Formato de teléfono inválido. Usa un número en formato internacional (+Código país y número).'
-      );
+      throw new Error(this.tr('errors.invalidPhoneFormat'));
     }
 
     try {
@@ -36,21 +38,18 @@ class PhoneAuthService {
       console.error('❌ Error enviando código de verificación:', error);
 
       const code = error?.code || '';
-      let message = 'No se pudo enviar el código SMS. Inténtalo nuevamente.';
+      let message = this.tr('errors.smsSendFailed');
 
       if (code === 'auth/invalid-phone-number') {
-        message =
-          'El número de teléfono no es válido. Verifica el formato internacional (+Código de país y número).';
+        message = this.tr('errors.invalidPhoneNumber');
       } else if (code === 'auth/too-many-requests') {
-        message =
-          'Has solicitado demasiados códigos en poco tiempo. Espera unos minutos antes de intentarlo de nuevo.';
+        message = this.tr('errors.smsTooManyRequests');
       } else if (code === 'auth/quota-exceeded') {
-        message =
-          'Se alcanzó el límite de envíos de SMS por ahora. Inténtalo nuevamente más tarde.';
+        message = this.tr('errors.smsQuotaExceeded');
       } else if (typeof error?.message === 'string') {
         const text = error.message.toLowerCase();
         if (text.includes('network')) {
-          message = 'No pudimos conectarnos para enviar el SMS. Revisa tu conexión e inténtalo otra vez.';
+          message = this.tr('errors.smsNetworkError');
         }
       }
 
@@ -67,11 +66,11 @@ class PhoneAuthService {
     const confirmation = this.confirmations.get(normalized);
 
     if (!confirmation) {
-      throw new Error('No se encontró una solicitud de verificación activa. Pide un nuevo código.');
+      throw new Error(this.tr('errors.noActiveVerification'));
     }
 
     if (!code || code.length !== 6) {
-      throw new Error('El código debe tener 6 dígitos.');
+      throw new Error(this.tr('errors.codeLength'));
     }
 
     try {
@@ -79,7 +78,7 @@ class PhoneAuthService {
       console.log('📱 [phoneAuthService] Código ingresado:', code);
       const credential = await confirmation.confirm(code);
       if (!credential) {
-        throw new Error('No se pudo confirmar el código. Intenta nuevamente.');
+        throw new Error(this.tr('errors.confirmFailed'));
       }
 
       this.confirmations.delete(normalized);
@@ -108,19 +107,18 @@ class PhoneAuthService {
         return fakeCredential;
       }
 
-      let message = 'El código ingresado no es válido. Revisa el SMS e inténtalo nuevamente.';
+      let message = this.tr('errors.confirmFailed');
 
       if (codeName === 'auth/invalid-verification-code') {
-        message = 'El código que ingresaste no coincide con el SMS. Verifícalo e inténtalo de nuevo.';
+        message = this.tr('errors.invalidVerificationCode');
       } else if (codeName === 'auth/session-expired' || codeName === 'auth/code-expired') {
-        message = 'El código ha expirado. Toca "Reenviar código" para obtener uno nuevo.';
+        message = this.tr('errors.codeExpired');
       } else if (codeName === 'auth/too-many-requests') {
-        message =
-          'Has realizado demasiados intentos. Espera unos minutos antes de volver a intentarlo.';
+        message = this.tr('errors.confirmTooManyRequests');
       } else if (typeof error?.message === 'string') {
         const text = error.message.toLowerCase();
         if (text.includes('network')) {
-          message = 'No pudimos verificar el código por un problema de red. Revisa tu conexión.';
+          message = this.tr('errors.confirmNetworkError');
         }
       }
 
@@ -135,12 +133,12 @@ class PhoneAuthService {
 
   private async getNativeAuthInstance() {
     if (!isNativeFirebaseSupported()) {
-      throw new Error('La verificación por SMS solo está disponible en Development/Production builds.');
+      throw new Error(this.tr('errors.smsRequiresBuild'));
     }
 
     const nativeAuthModule = await loadNativeFirebaseAuth();
     if (!nativeAuthModule?.default) {
-      throw new Error('Firebase Auth nativo no está disponible. Usa una Development Build.');
+      throw new Error(this.tr('errors.nativeFirebaseUnavailable'));
     }
 
     return nativeAuthModule.default();

@@ -4,12 +4,22 @@ import { GOOGLE_MAPS_API_KEY as ENV_GOOGLE_MAPS_API_KEY } from '@env';
 
 const GOOGLE_MAPS_BASE_URL = 'https://maps.googleapis.com/maps/api';
 
+type ExpoExtraWithGoogleMaps = {
+  googleMapsApiKey?: string;
+};
+
+type ManifestWithExtra = {
+  extra?: ExpoExtraWithGoogleMaps;
+};
+
 const resolveGoogleMapsKey = (): string => {
   const fromEnv = ENV_GOOGLE_MAPS_API_KEY?.trim();
   const fromProcess = (process.env.GOOGLE_MAPS_API_KEY || '').trim();
-  const fromExtra = (Constants.expoConfig?.extra as any)?.googleMapsApiKey || (Constants.manifest?.extra as any)?.googleMapsApiKey;
+  const expoExtra = (Constants.expoConfig?.extra as ExpoExtraWithGoogleMaps | undefined)?.googleMapsApiKey;
+  const manifestExtra = (Constants.manifest as ManifestWithExtra | null)?.extra?.googleMapsApiKey;
+  const fromExtra = (expoExtra || manifestExtra || '')?.trim?.() ?? '';
 
-  const key = fromEnv || fromProcess || fromExtra;
+  const key = (fromEnv || fromProcess || fromExtra || '').trim();
   if (!key) {
     console.error('❌ Google Maps API key no configurada. Define GOOGLE_MAPS_API_KEY en el entorno.');
   }
