@@ -5,8 +5,13 @@
 
 import phoneAuthService from './auth/phoneAuthService';
 import firebaseAuthService from './auth/firebaseAuthService';
+import i18n from '../i18n';
 
 class PhoneLoginService {
+  private tr(path: string) {
+    return i18n.t(`services.phoneLoginService.${path}`) as string;
+  }
+
   /**
    * Solicitar código SMS para login con teléfono
    * @param phone - Número telefónico en formato +505XXXXXXXX
@@ -19,9 +24,7 @@ class PhoneLoginService {
       // Validar formato de teléfono (E.164 genérico)
       const phoneRegex = /^\+\d{6,15}$/;
       if (!phoneRegex.test(phone.replace(/\s/g, ''))) {
-        throw new Error(
-          'Formato de teléfono inválido. Usa formato internacional (+Código país y número).',
-        );
+        throw new Error(this.tr('errors.invalidPhoneFormat'));
       }
 
       await phoneAuthService.sendVerificationCode(phone);
@@ -29,11 +32,11 @@ class PhoneLoginService {
       
       return {
         success: true,
-        message: 'Código enviado a tu número telefónico',
+        message: this.tr('messages.codeSent'),
       };
     } catch (error: any) {
       console.error('❌ Error solicitando código:', error);
-      throw new Error(error.message || 'Error al solicitar código SMS');
+      throw new Error(error.message || this.tr('errors.requestFailed'));
     }
   }
 
@@ -49,7 +52,7 @@ class PhoneLoginService {
 
       // Validar código
       if (!code || code.length !== 6) {
-        throw new Error('Código debe tener 6 dígitos');
+        throw new Error(this.tr('errors.verifyCodeLength'));
       }
 
       const credential = await phoneAuthService.confirmVerificationCode(phone, code, {
@@ -58,7 +61,7 @@ class PhoneLoginService {
 
       const firebaseUser = credential.user;
       if (!firebaseUser) {
-        throw new Error('No se obtuvo usuario de Firebase tras confirmar el código');
+        throw new Error(this.tr('errors.noFirebaseUser'));
       }
 
       const userProfile = await firebaseAuthService.getUserProfile(firebaseUser.uid);
@@ -72,7 +75,7 @@ class PhoneLoginService {
           id: firebaseUser.uid,
           uid: firebaseUser.uid,
           email: firebaseUser.email || '',
-          name: userProfile?.name || firebaseUser.displayName || 'Usuario',
+          name: userProfile?.name || firebaseUser.displayName || this.tr('defaults.userName'),
           phone: firebaseUser.phoneNumber || phone,
           role: userProfile?.role || 'client',
         },
@@ -80,7 +83,7 @@ class PhoneLoginService {
       };
     } catch (error: any) {
       console.error('❌ Error verificando código:', error);
-      throw new Error(error.message || 'Error al verificar código');
+      throw new Error(error.message || this.tr('errors.verifyFailed'));
     }
   }
 
@@ -97,11 +100,11 @@ class PhoneLoginService {
 
       return {
         success: true,
-        message: 'Código reenviado correctamente',
+        message: this.tr('messages.codeResent'),
       };
     } catch (error: any) {
       console.error('❌ Error reenviando código:', error);
-      throw new Error(error.message || 'Error al reenviar código');
+      throw new Error(error.message || this.tr('errors.resendFailed'));
     }
   }
 }

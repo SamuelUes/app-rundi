@@ -31,21 +31,21 @@ const getFCMNotificationCopy = (type?: string | null): NotificationCopy => {
 
   if (normalized === 'ride_requested') {
     return {
-      title: i18n.t('shared.notifications.fcm.rideRequested.title'),
-      body: i18n.t('shared.notifications.fcm.rideRequested.body'),
+      title: i18n.t('common.services.fcm.rideRequested.title'),
+      body: i18n.t('common.services.fcm.rideRequested.body'),
     };
   }
 
   if (normalized === 'proximity_ride') {
     return {
-      title: i18n.t('shared.notifications.fcm.proximityRide.title'),
-      body: i18n.t('shared.notifications.fcm.proximityRide.body'),
+      title: i18n.t('common.services.fcm.proximityRide.title'),
+      body: i18n.t('common.services.fcm.proximityRide.body'),
     };
   }
 
   return {
-    title: i18n.t('shared.notifications.fcm.fallback.title'),
-    body: i18n.t('shared.notifications.fcm.fallback.body'),
+    title: i18n.t('common.services.fcm.fallback.title'),
+    body: i18n.t('common.services.fcm.fallback.body'),
   };
 };
 
@@ -567,8 +567,8 @@ class FCMService {
       const user = auth.currentUser;
       if (!user) {
         Alert.alert(
-          i18n.t('shared.notifications.fcm.alerts.authErrorTitle'),
-          i18n.t('shared.notifications.fcm.alerts.authErrorMessage'),
+          i18n.t('common.services.fcm.alerts.authErrorTitle'),
+          i18n.t('common.services.fcm.alerts.authErrorMessage'),
         );
         return;
       }
@@ -578,14 +578,14 @@ class FCMService {
       await sendTestNotificationFunction({ userId: user.uid });
 
       Alert.alert(
-        i18n.t('shared.notifications.fcm.alerts.testSuccessTitle'),
-        i18n.t('shared.notifications.fcm.alerts.testSuccessMessage'),
+        i18n.t('common.services.fcm.alerts.testSuccessTitle'),
+        i18n.t('common.services.fcm.alerts.testSuccessMessage'),
       );
     } catch (error) {
       console.error('❌ Error enviando notificación de prueba:', error);
       Alert.alert(
-        i18n.t('shared.notifications.fcm.alerts.testErrorTitle'),
-        i18n.t('shared.notifications.fcm.alerts.testErrorMessage'),
+        i18n.t('common.services.fcm.alerts.testErrorTitle'),
+        i18n.t('common.services.fcm.alerts.testErrorMessage'),
       );
     }
   }

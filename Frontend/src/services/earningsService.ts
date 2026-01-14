@@ -5,6 +5,7 @@
 import { httpsCallable } from 'firebase/functions';
 import { getFirebaseFunctions } from '../config/firebase';
 import sessionService from './sessionService';
+import i18n from '../i18n';
 
 export interface EarningsSummary {
   totalEarnings: number;
@@ -94,6 +95,10 @@ export interface PendingCashRides {
 }
 
 class EarningsService {
+  private tr(path: string) {
+    return i18n.t(`services.earningsService.${path}`) as string;
+  }
+
   /**
    * Obtener ganancias del conductor
    */
@@ -193,7 +198,7 @@ class EarningsService {
       return result.stats;
     } catch (error: any) {
       console.error('❌ Error obteniendo estadísticas:', error);
-      throw new Error(error.message || 'No se pudieron obtener las estadísticas');
+      throw new Error(error.message || this.tr('errors.statsFailed'));
     }
   }
 
@@ -213,7 +218,7 @@ class EarningsService {
       return result.earningsByDay;
     } catch (error: any) {
       console.error('❌ Error obteniendo ganancias por día:', error);
-      throw new Error(error.message || 'No se pudieron obtener las ganancias por día');
+      throw new Error(error.message || this.tr('errors.earningsByDayFailed'));
     }
   }
 
@@ -233,7 +238,7 @@ class EarningsService {
       return result.pendingCashRides;
     } catch (error: any) {
       console.error('❌ Error obteniendo viajes pendientes en efectivo:', error);
-      throw new Error(error.message || 'No se pudieron obtener los viajes pendientes en efectivo');
+      throw new Error(error.message || this.tr('errors.pendingCashFailed'));
     }
   }
 
@@ -258,7 +263,7 @@ class EarningsService {
       return result.recharge;
     } catch (error: any) {
       console.error('❌ Error creando recarga:', error);
-      throw new Error(error.message || 'No se pudo crear la recarga');
+      throw new Error(error.message || this.tr('errors.createRechargeFailed'));
     }
   }
 
@@ -278,7 +283,7 @@ class EarningsService {
       return result.recharges || [];
     } catch (error: any) {
       console.error('❌ Error obteniendo recargas:', error);
-      throw new Error(error.message || 'No se pudieron obtener las recargas');
+      throw new Error(error.message || this.tr('errors.rechargesFailed'));
     }
   }
 }

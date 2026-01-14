@@ -5,8 +5,13 @@
 
 import { httpsCallable } from 'firebase/functions';
 import { getFirebaseFunctions } from '../config/firebase';
+import i18n from '../i18n';
 
 class PriceNegotiationService {
+  private tr(path: string, options?: Record<string, any>) {
+    return i18n.t(`services.priceNegotiationService.${path}`, options) as string;
+  }
+
   /**
    * Calcular límites dinámicos basados en el precio estimado
    * Mínimo: 66.67% del precio estimado (con piso de 50 C$)
@@ -25,7 +30,7 @@ class PriceNegotiationService {
    */
   private validatePrice(price: number, estimatedPrice?: number): { valid: boolean; error?: string } {
     if (isNaN(price)) {
-      return { valid: false, error: 'El precio debe ser un número válido' };
+      return { valid: false, error: this.tr('errors.invalidNumber') };
     }
 
     // Si no se proporciona estimatedPrice, usar límites globales
@@ -33,10 +38,10 @@ class PriceNegotiationService {
       const globalMin = 50; // Mínimo absoluto de todos los viajes
       const globalMax = 500;
       if (price < globalMin) {
-        return { valid: false, error: `El precio mínimo permitido es C$${globalMin}` };
+        return { valid: false, error: this.tr('errors.minPrice', { value: globalMin }) };
       }
       if (price > globalMax) {
-        return { valid: false, error: `El precio máximo permitido es C$${globalMax}` };
+        return { valid: false, error: this.tr('errors.maxPrice', { value: globalMax }) };
       }
       return { valid: true };
     }
@@ -53,10 +58,10 @@ class PriceNegotiationService {
     });
 
     if (price < MIN_PRICE) {
-      return { valid: false, error: `El precio mínimo permitido es C$${MIN_PRICE}` };
+      return { valid: false, error: this.tr('errors.minPrice', { value: MIN_PRICE }) };
     }
     if (price > MAX_PRICE) {
-      return { valid: false, error: `El precio máximo permitido es C$${MAX_PRICE}` };
+      return { valid: false, error: this.tr('errors.maxPrice', { value: MAX_PRICE }) };
     }
     return { valid: true };
   }
@@ -97,13 +102,13 @@ class PriceNegotiationService {
       const result = response.data as any;
       
       if (!result.success) {
-        throw new Error(result.message || 'Error negociando precio');
+        throw new Error(result.message || this.tr('errors.negotiateFailed'));
       }
 
       return result.ride;
     } catch (error: any) {
       console.error('Error negociando precio:', error);
-      throw error;
+      throw new Error(error.message || this.tr('errors.negotiateFailed'));
     }
   }
 
@@ -120,7 +125,7 @@ class PriceNegotiationService {
       
       if (!currentUser) {
         console.error('❌ Usuario no autenticado en Firebase Auth');
-        throw new Error('Usuario no autenticado. Por favor inicia sesión nuevamente.');
+        throw new Error(this.tr('errors.notAuthenticated'));
       }
       
       console.log(`✅ Usuario autenticado: ${currentUser.uid}`);
@@ -134,7 +139,7 @@ class PriceNegotiationService {
       const result = response.data as any;
       
       if (!result.success) {
-        throw new Error(result.message || 'Error aceptando precio del cliente');
+        throw new Error(result.message || this.tr('errors.acceptClientPriceFailed'));
       }
 
       console.log('✅ Precio del cliente aceptado exitosamente');
@@ -143,7 +148,7 @@ class PriceNegotiationService {
       console.error('❌ Error aceptando precio del cliente:', error);
       console.error('Código de error:', error.code);
       console.error('Mensaje:', error.message);
-      throw error;
+      throw new Error(error.message || this.tr('errors.acceptClientPriceFailed'));
     }
   }
 
@@ -167,13 +172,13 @@ class PriceNegotiationService {
       const result = response.data as any;
       
       if (!result.success) {
-        throw new Error(result.message || 'Error aceptando oferta del conductor');
+        throw new Error(result.message || this.tr('errors.acceptDriverOfferFailed'));
       }
 
       return result.ride;
     } catch (error: any) {
       console.error('Error aceptando oferta del conductor:', error);
-      throw error;
+      throw new Error(error.message || this.tr('errors.acceptDriverOfferFailed'));
     }
   }
 
@@ -206,13 +211,13 @@ class PriceNegotiationService {
       const result = response.data as any;
       
       if (!result.success) {
-        throw new Error(result.message || 'Error aceptando contraoferta');
+        throw new Error(result.message || this.tr('errors.acceptCounterOfferFailed'));
       }
 
       return result.ride;
     } catch (error: any) {
       console.error('Error aceptando contraoferta:', error);
-      throw error;
+      throw new Error(error.message || this.tr('errors.acceptCounterOfferFailed'));
     }
   }
 
@@ -234,13 +239,13 @@ class PriceNegotiationService {
       const result = response.data as any;
       
       if (!result.success) {
-        throw new Error(result.message || 'Error rechazando contraoferta');
+        throw new Error(result.message || this.tr('errors.rejectCounterOfferFailed'));
       }
 
       return true;
     } catch (error: any) {
       console.error('Error rechazando contraoferta:', error);
-      throw error;
+      throw new Error(error.message || this.tr('errors.rejectCounterOfferFailed'));
     }
   }
 
@@ -269,7 +274,7 @@ class PriceNegotiationService {
       const currentUser = auth.currentUser;
       
       if (!currentUser) {
-        throw new Error('Usuario no autenticado. Por favor inicia sesión nuevamente.');
+        throw new Error(this.tr('errors.notAuthenticated'));
       }
       
       const functions = await getFirebaseFunctions();
@@ -284,7 +289,7 @@ class PriceNegotiationService {
       const result = response.data as any;
       
       if (!result.success) {
-        throw new Error(result.message || 'Error enviando oferta');
+        throw new Error(result.message || this.tr('errors.sendOfferFailed'));
       }
 
       console.log('✅ Oferta enviada exitosamente');
@@ -293,7 +298,7 @@ class PriceNegotiationService {
       console.error('❌ Error enviando oferta:', error);
       console.error('Código de error:', error.code);
       console.error('Mensaje:', error.message);
-      throw error;
+      throw new Error(error.message || this.tr('errors.sendOfferFailed'));
     }
   }
 

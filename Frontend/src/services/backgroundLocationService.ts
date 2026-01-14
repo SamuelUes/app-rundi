@@ -17,6 +17,7 @@ import { ensureActivityRecognitionPermission } from '../utils/activityPermission
 import foregroundService from '../native/foregroundService';
 import workManager from '../native/workManager';
 import batteryOptimization from '../native/batteryOptimization';
+import i18n from '../i18n';
 
 // Constantes para las tareas en segundo plano
 const BACKGROUND_LOCATION_TASK = 'background-location-task';
@@ -35,8 +36,8 @@ const getBackgroundLocationOptions = (): any => {
     showsBackgroundLocationIndicator: true, // Indicador en iOS
     pausesUpdatesAutomatically: false,
     foregroundService: {
-      notificationTitle: 'Tracking de ubicación activo',
-      notificationBody: 'Tu ubicación está siendo compartida',
+      notificationTitle: i18n.t('services.backgroundLocationService.foregroundService.title'),
+      notificationBody: i18n.t('services.backgroundLocationService.foregroundService.body'),
       notificationColor: '#FF9800',
     },
   };
@@ -116,10 +117,14 @@ const performBackgroundStart = async ({ userId, role, rideId }: PendingStartPara
 
     if (Platform.OS === 'android') {
       try {
-        const title = role === 'driver' ? 'Conductor disponible' : 'Viaje en seguimiento';
-        const body = role === 'driver'
-          ? 'Compartiendo tu ubicación para recibir viajes cercanos.'
-          : 'Tu viaje sigue activo y se está monitoreando tu ubicación.';
+        const title =
+          role === 'driver'
+            ? i18n.t('services.backgroundLocationService.driverStatus.title')
+            : i18n.t('services.backgroundLocationService.clientStatus.title');
+        const body =
+          role === 'driver'
+            ? i18n.t('services.backgroundLocationService.driverStatus.body')
+            : i18n.t('services.backgroundLocationService.clientStatus.body');
         await foregroundService.start({ title, body });
         await workManager.schedule(WORK_MANAGER_INTERVAL_MINUTES);
       } catch (serviceError) {

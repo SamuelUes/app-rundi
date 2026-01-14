@@ -1,6 +1,7 @@
 import * as LocalAuthentication from 'expo-local-authentication';
 import { getFirebaseFunctions } from '../config/firebase';
 import { httpsCallable } from 'firebase/functions';
+import i18n from '../i18n';
 
 interface BiometricResult {
   success: boolean;
@@ -53,18 +54,18 @@ class BiometricService {
    * Autentica usando biometría
    */
   static async authenticate(
-    reason: string = 'Confirma tu identidad',
-    fallbackLabel: string = 'Usar PIN'
+    reason: string = i18n.t('services.biometricService.prompts.reason'),
+    fallbackLabel: string = i18n.t('services.biometricService.prompts.fallbackLabel')
   ): Promise<BiometricResult> {
     try {
       const compatible = await LocalAuthentication.hasHardwareAsync();
       if (!compatible) {
-        return { success: false, error: 'Dispositivo no soporta biometría' };
+        return { success: false, error: i18n.t('services.biometricService.errors.notSupported') as string };
       }
 
       const enrolled = await LocalAuthentication.isEnrolledAsync();
       if (!enrolled) {
-        return { success: false, error: 'No hay biometría registrada' };
+        return { success: false, error: i18n.t('services.biometricService.errors.notEnrolled') as string };
       }
 
       const biometryType = await this.getBiometryType();
@@ -80,11 +81,11 @@ class BiometricService {
         console.log('✅ Autenticación biométrica exitosa');
         return { success: true, biometryType, verifiedAt: new Date().toISOString() };
       } else {
-        return { success: false, error: 'Autenticación fallida' };
+        return { success: false, error: i18n.t('services.biometricService.errors.authFailed') as string };
       }
     } catch (error: any) {
       console.error('❌ Error en autenticación:', error);
-      return { success: false, error: error.message || 'Error desconocido' };
+      return { success: false, error: error.message || (i18n.t('services.biometricService.errors.unknown') as string) };
     }
   }
 
