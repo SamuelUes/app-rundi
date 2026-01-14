@@ -9,11 +9,12 @@
 import { Platform, Alert, PermissionsAndroid } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getFirebaseAuth, getFirebaseFunctions } from '../config/firebase';
+import messaging from '@react-native-firebase/messaging';
+import auth from '@react-native-firebase/auth';
+import { getFirebaseFunctions } from '../config/firebase';
 import { httpsCallable } from 'firebase/functions';
 import notificationService from './notificationService';
 import i18n from '../i18n';
-import { isNativeFirebaseSupported, loadNativeFirebaseMessaging } from '../utils/nativeFirebase';
 
 // Importar FCM solo si está disponible (Development Build)
 let messagingModule: any = null;
@@ -31,21 +32,21 @@ const getFCMNotificationCopy = (type?: string | null): NotificationCopy => {
 
   if (normalized === 'ride_requested') {
     return {
-      title: i18n.t('shared.notifications.fcm.rideRequested.title'),
-      body: i18n.t('shared.notifications.fcm.rideRequested.body'),
+      title: i18n.t('common.services.fcm.rideRequested.title'),
+      body: i18n.t('common.services.fcm.rideRequested.body'),
     };
   }
 
   if (normalized === 'proximity_ride') {
     return {
-      title: i18n.t('shared.notifications.fcm.proximityRide.title'),
-      body: i18n.t('shared.notifications.fcm.proximityRide.body'),
+      title: i18n.t('common.services.fcm.proximityRide.title'),
+      body: i18n.t('common.services.fcm.proximityRide.body'),
     };
   }
 
   return {
-    title: i18n.t('shared.notifications.fcm.fallback.title'),
-    body: i18n.t('shared.notifications.fcm.fallback.body'),
+    title: i18n.t('common.services.fcm.fallback.title'),
+    body: i18n.t('common.services.fcm.fallback.body'),
   };
 };
 
@@ -59,6 +60,8 @@ Notifications.setNotificationHandler({
     shouldShowAlert: true,
     shouldPlaySound: true,
     shouldSetBadge: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
   }),
 });
 
@@ -138,52 +141,67 @@ async function registerBackgroundHandlers(module: any) {
   }
 }
 
-async function initializeMessagingModule(): Promise<boolean> {
+// React Native Firebase está disponible con google-services.json configurado
+const isNativeFirebaseSupported = (): boolean => true;
+
+const loadNativeFirebaseMessaging = async (): Promise<any> => {
+  return { getMessaging: () => messaging(), AuthorizationStatus: messaging.AuthorizationStatus };
+};
+
+const initializeMessagingModule = async (): Promise<boolean> => {
   if (messagingModule && messagingInstance) {
     return true;
   }
 
-  if (!isNativeFirebaseSupported()) {
+  try {
+    // React Native Firebase se inicializa automáticamente con google-services.json
+    // Solo necesitamos obtener la instancia
+    const instance = messaging();
+    
+    if (!instance) {
+      console.warn('⚠️ No se pudo obtener una instancia de Firebase Messaging.');
+      logAvailability('unavailable');
+      return false;
+    }
+
+    messagingModule = {
+      AuthorizationStatus: messaging.AuthorizationStatus,
+      requestPermission: async (currentInstance: any) => currentInstance.requestPermission(),
+      hasPermission: async (currentInstance: any) => {
+        if (typeof currentInstance?.hasPermission === 'function') {
+          return currentInstance.hasPermission();
+        }
+        return 0;
+      },
+      getToken: async (currentInstance: any) => currentInstance.getToken(),
+      onMessage: (currentInstance: any, handler: any) => currentInstance.onMessage(handler),
+      onNotificationOpenedApp: (currentInstance: any, handler: any) =>
+        currentInstance.onNotificationOpenedApp(handler),
+      getInitialNotification: (currentInstance: any) => currentInstance.getInitialNotification(),
+      setBackgroundMessageHandler: (arg1: any, arg2?: any) => {
+        const handler = typeof arg1 === 'function' ? arg1 : arg2;
+        if (typeof handler === 'function') {
+          messaging().setBackgroundMessageHandler(handler);
+        }
+      },
+    };
+    messagingInstance = instance;
+    AuthorizationStatusEnum = messaging.AuthorizationStatus;
+
+    await registerBackgroundHandlers(messagingModule);
+    logAvailability('available');
+    return true;
+  } catch (error) {
+    console.error('❌ Error inicializando React Native Firebase Messaging:', error);
     logAvailability('unavailable');
     return false;
   }
-
-  const module = await loadNativeFirebaseMessaging();
-
-  if (!module) {
-    logAvailability('unavailable');
-    return false;
-  }
-
-  const { getMessaging, AuthorizationStatus } = module;
-
-  if (typeof getMessaging !== 'function') {
-    console.warn('⚠️ getMessaging no está disponible en el módulo de Firebase Messaging.');
-    logAvailability('unavailable');
-    return false;
-  }
-
-  const instance = getMessaging();
-
-  if (!instance) {
-    console.warn('⚠️ No se pudo obtener una instancia de Firebase Messaging.');
-    logAvailability('unavailable');
-    return false;
-  }
-
-  messagingModule = module;
-  messagingInstance = instance;
-  AuthorizationStatusEnum = AuthorizationStatus;
-
-  await registerBackgroundHandlers(module);
-  logAvailability('available');
-  return true;
-}
+};
 
 class FCMService {
   private fcmToken: string | null = null;
   private functions: any = null;
-  private isFCMAvailable: boolean = isNativeFirebaseSupported();
+  private isFCMAvailable: boolean = true; // React Native Firebase configurado
   private recentForegroundMessageIds: Set<string> = new Set();
   private listenersConfigured = false;
   private onMessageUnsubscribe: (() => void) | null = null;
@@ -220,7 +238,7 @@ class FCMService {
   }
 
   private async getAuth() {
-    return await getFirebaseAuth();
+    return auth();
   }
 
   /**
@@ -567,8 +585,8 @@ class FCMService {
       const user = auth.currentUser;
       if (!user) {
         Alert.alert(
-          i18n.t('shared.notifications.fcm.alerts.authErrorTitle'),
-          i18n.t('shared.notifications.fcm.alerts.authErrorMessage'),
+          i18n.t('common.services.fcm.alerts.authErrorTitle'),
+          i18n.t('common.services.fcm.alerts.authErrorMessage'),
         );
         return;
       }
@@ -578,14 +596,14 @@ class FCMService {
       await sendTestNotificationFunction({ userId: user.uid });
 
       Alert.alert(
-        i18n.t('shared.notifications.fcm.alerts.testSuccessTitle'),
-        i18n.t('shared.notifications.fcm.alerts.testSuccessMessage'),
+        i18n.t('common.services.fcm.alerts.testSuccessTitle'),
+        i18n.t('common.services.fcm.alerts.testSuccessMessage'),
       );
     } catch (error) {
       console.error('❌ Error enviando notificación de prueba:', error);
       Alert.alert(
-        i18n.t('shared.notifications.fcm.alerts.testErrorTitle'),
-        i18n.t('shared.notifications.fcm.alerts.testErrorMessage'),
+        i18n.t('common.services.fcm.alerts.testErrorTitle'),
+        i18n.t('common.services.fcm.alerts.testErrorMessage'),
       );
     }
   }
@@ -654,12 +672,12 @@ class FCMService {
 
   private ensureMessagingReady(): Promise<boolean> {
     if (!this.messagingInitPromise) {
-      this.messagingInitPromise = initializeMessagingModule().then((result) => {
+      this.messagingInitPromise = initializeMessagingModule().then((result: boolean) => {
         this.isFCMAvailable = result;
         return result;
       });
     }
-    return this.messagingInitPromise;
+    return this.messagingInitPromise!;
   }
 }
 

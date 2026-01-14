@@ -13,7 +13,8 @@ import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
-
+import com.facebook.react.modules.core.DeviceEventManagerModule
+import com.facebook.react.bridge.BaseActivityEventListener
 /**
  * Módulo React Native para gestionar permisos y overlay flotante
  * Delega la lógica de UI a OverlayManager y OverlayView
@@ -78,7 +79,7 @@ class OverlayPermissionModule(reactContext: ReactApplicationContext) :
       return
     }
 
-    val activity = currentActivity
+    val activity = getCurrentActivity()
     if (activity == null) {
       promise.reject("E_NO_ACTIVITY", "No hay actividad en primer plano para solicitar el permiso.")
       return
@@ -170,7 +171,7 @@ class OverlayPermissionModule(reactContext: ReactApplicationContext) :
         Uri.parse("package:" + context.packageName)
       )
 
-      val activity = currentActivity
+      val activity = getCurrentActivity()
       if (activity != null) {
         activity.startActivity(intent)
       } else {
@@ -195,7 +196,7 @@ class OverlayPermissionModule(reactContext: ReactApplicationContext) :
     // Required for NativeEventEmitter
   }
 
-  override fun onActivityResult(activity: Activity?, requestCode: Int, resultCode: Int, data: Intent?) {
+  override fun onActivityResult(activity: Activity, requestCode: Int, resultCode: Int, data: Intent?) {
     if (requestCode != REQUEST_CODE_OVERLAY_PERMISSION) {
       return
     }
@@ -212,7 +213,7 @@ class OverlayPermissionModule(reactContext: ReactApplicationContext) :
     promise.resolve(hasPermission)
   }
 
-  override fun onNewIntent(intent: Intent?) {
+  override fun onNewIntent(intent: Intent) {
     // Not used
   }
 

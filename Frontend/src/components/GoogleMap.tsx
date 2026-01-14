@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, Text, Image, ImageSourcePropType, TouchableOpacity, Animated } from 'react-native';
+import { View, StyleSheet, Text, Image, ImageSourcePropType, TouchableOpacity, Animated, Platform } from 'react-native';
 import MapView, {
   LatLng,
   Marker,
@@ -92,6 +92,7 @@ interface GoogleMapProps {
   cameraTarget?: { latitude: number; longitude: number } | null;
   routeColor?: string;
   secondaryRouteColor?: string;
+  googleRenderer?: 'LATEST' | 'LEGACY';
 }
 
 const DEFAULT_ALTITUDE = 100; // metros
@@ -100,6 +101,8 @@ const MAX_ALTITUDE = 1000; // metros
 const EARTH_CIRCUMFERENCE = 40075016.686;
 const GOOGLE_MIN_ZOOM = 2;
 const GOOGLE_MAX_ZOOM = 22;
+const DEFAULT_GOOGLE_RENDERER: 'LATEST' | 'LEGACY' =
+  Platform.select({ android: 'LEGACY', ios: 'LATEST', default: 'LATEST' }) || 'LATEST';
 
 const clampValue = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
@@ -540,6 +543,7 @@ export default function GoogleMap({
   autoFitEnabled = true,
   routeColor,
   secondaryRouteColor,
+  googleRenderer = DEFAULT_GOOGLE_RENDERER,
 }: GoogleMapProps) {
   const mapRef = useRef<MapView>(null);
   const { isDark } = useTheme();
@@ -1187,6 +1191,10 @@ export default function GoogleMap({
   );
 
   const markerDragFollowThrottleRef = useRef<number>(0);
+  const googleRendererProps = useMemo<Record<string, any>>(
+    () => (Platform.OS === 'android' ? { googleMapsRenderer: googleRenderer } : {}),
+    [googleRenderer],
+  );
 
   const handleMarkerDragStart = (event: MarkerDragStartEndEvent) => {
     setIsMarkerHeld(true);
@@ -1247,6 +1255,7 @@ export default function GoogleMap({
         ref={mapRef}
         style={styles.map}
         provider={PROVIDER_GOOGLE}
+        {...googleRendererProps}
         showsUserLocation={false}
         showsMyLocationButton
         showsCompass

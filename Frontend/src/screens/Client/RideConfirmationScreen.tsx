@@ -22,6 +22,7 @@ import { NoDriversEmptyState } from '../../components/EmptyState';
 import { RatingDisplay } from '../../components/RatingDisplay';
 import alertService from '../../services/alertService';
 import DynamicMap from '../../components/DynamicMap';
+import i18n from '../../i18n';
 
 interface RideConfirmationScreenProps {
   route: {
@@ -46,11 +47,13 @@ export default function RideConfirmationScreen({ route, navigation }: RideConfir
   const [confirming, setConfirming] = useState(false);
   const [driverPhotoURL, setDriverPhotoURL] = useState<string | null>(null);
 
+  const t = (path: string, options?: Record<string, any>) => i18n.t(`screens.client.rideConfirmation.${path}`, options) as string;
+
   // Función para manejar la cancelación
   const handleBackPress = useCallback(() => {
     alertService.showConfirmAlert(
-      '⚠️ Cancelar Viaje',
-      'Si regresas, tu viaje será cancelado automáticamente. ¿Estás seguro?',
+      t('alerts.cancelRideTitle'),
+      t('alerts.cancelRideMessage'),
       async () => {
         try {
           console.log('🚫 Usuario confirmó cancelación desde botón atrás');
@@ -59,13 +62,13 @@ export default function RideConfirmationScreen({ route, navigation }: RideConfir
           navigation.navigate('ClientHome');
         } catch (error: any) {
           console.error('❌ Error cancelando viaje:', error);
-          alertService.showErrorAlert('No se pudo cancelar el viaje. Intenta de nuevo.');
+          alertService.showErrorAlert(t('alerts.cancelRideError'));
           setCanceling(false);
         }
       },
       undefined,
-      'Cancelar Viaje',
-      'Quedarme'
+      t('alerts.cancelRideConfirm'),
+      t('alerts.cancelRideStay')
     );
   }, [rideId, navigation]);
 
@@ -77,9 +80,9 @@ export default function RideConfirmationScreen({ route, navigation }: RideConfir
         return true; // Prevenir el comportamiento por defecto
       };
 
-      BackHandler.addEventListener('hardwareBackPress', onBackPress);
+      const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
 
-      return () => BackHandler.removeEventListener('hardwareBackPress', onBackPress);
+      return () => subscription.remove();
     }, [handleBackPress])
   );
 
@@ -315,22 +318,22 @@ useEffect(() => {
 
   const handleCancelRide = () => {
     alertService.showConfirmAlert(
-      'Cancelar viaje',
-      '¿Estás seguro que deseas cancelar este viaje?',
+      t('alerts.confirmCancelTitle'),
+      t('alerts.confirmCancelMessage'),
       async () => {
         try {
           setCanceling(true);
           await ridesService.cancelRide(rideId, 'Cancelado por el cliente');
-          alertService.showSuccessAlert('Viaje cancelado', 'Tu viaje ha sido cancelado exitosamente', () => navigation.navigate('ClientHome'));
+          alertService.showSuccessAlert(t('alerts.cancelRideSuccessTitle'), t('alerts.cancelRideSuccessMessage'), () => navigation.navigate('ClientHome'));
         } catch (error: any) {
-          alertService.showErrorAlert(error.response?.data?.message || 'No se pudo cancelar el viaje');
+          alertService.showErrorAlert(error.response?.data?.message || t('alerts.cancelRideError'));
         } finally {
           setCanceling(false);
         }
       },
       undefined,
-      'Sí, cancelar',
-      'No'
+      t('alerts.confirmCancelYes'),
+      t('alerts.confirmCancelNo')
     );
   };
 
@@ -384,7 +387,7 @@ useEffect(() => {
       });
     } catch (error: any) {
       console.error('❌ Error confirmando conductor:', error);
-      alertService.showErrorAlert(error.message || 'No se pudo confirmar al conductor');
+      alertService.showErrorAlert(error.message || t('alerts.confirmDriverError'));
     } finally {
       setConfirming(false);
     }
@@ -412,7 +415,7 @@ useEffect(() => {
         <View style={styles.statusContainer}>
           <View style={styles.statusDot} />
           <Text style={styles.statusText}>
-            {ride.status === 'requested' ? 'Buscando conductor...' : 'Viaje confirmado'}
+            {ride.status === 'requested' ? t('status.searchingDriver') : t('status.rideConfirmed')}
           </Text>
         </View>
       </View>
@@ -439,10 +442,10 @@ useEffect(() => {
       {driverOffers.length > 0 && (
         <View style={styles.offersContainer}>
           <Text style={styles.offersTitle}>
-            🎉 {driverOffers.length} {driverOffers.length === 1 ? 'conductor interesado' : 'conductores interesados'}
+            🎉 {driverOffers.length} {driverOffers.length === 1 ? t('offers.interestedDriver') : t('offers.interestedDrivers')}
           </Text>
           <Text style={styles.offersSubtitle}>
-            Revisa las ofertas y elige la que más te convenga
+            {t('offers.reviewOffers')}
           </Text>
           
           <ScrollView 
@@ -499,7 +502,7 @@ useEffect(() => {
         return (ride.status === 'pending_confirm' || ride.status === 'driver_assigned' || ride.status === 'accepted') && ride.driverId && driverOffers.length === 0;
       })() ? (
         <View style={styles.driverContainer}>
-          <Text style={styles.driverTitle}>🎉 ¡Conductor encontrado!</Text>
+          <Text style={styles.driverTitle}>{t('offers.driverFound')}</Text>
           
           <View style={styles.driverCard}>
             {(ride.driver?.photoURL || driverPhotoURL) ? (
@@ -535,7 +538,7 @@ useEffect(() => {
           </View>
 
           <View style={styles.etaContainer}>
-            <Text style={styles.etaLabel}>Tiempo estimado de llegada</Text>
+            <Text style={styles.etaLabel}>{t('eta.estimatedArrival')}</Text>
             <Text style={styles.etaValue}>5-10 minutos</Text>
           </View>
 
@@ -553,7 +556,7 @@ useEffect(() => {
                   const currentUser = auth.currentUser;
                   
                   if (!currentUser) {
-                    alertService.showErrorAlert('Debes iniciar sesión para confirmar al conductor');
+                    alertService.showErrorAlert(t('alerts.mustSignInToConfirm'));
                     return;
                   }
 
@@ -572,8 +575,8 @@ useEffect(() => {
                   });
                   
                   alertService.showSuccessAlert(
-                    'Conductor confirmado',
-                    `Has confirmado el viaje con ${ride.driver?.name || 'el conductor'}. Ahora podrás ver su ubicación en tiempo real.`,
+                    t('alerts.confirmDriverSuccessTitle'),
+                    t('alerts.confirmDriverSuccessMessage', { name: ride.driver?.name || 'the driver' }),
                     () => navigation.replace('RideTracking', {
                       rideId: ride.id,
                       driverId: ride.driverId,
@@ -587,11 +590,11 @@ useEffect(() => {
                   );
                 } catch (error: any) {
                   console.error('❌ Error confirmando conductor:', error);
-                  alertService.showErrorAlert(error.message || 'No se pudo confirmar el conductor');
+                  alertService.showErrorAlert(error.message || t('alerts.confirmDriverError'));
                 }
               }}
             >
-              <Text style={styles.acceptButtonText}>✅ Aceptar Conductor</Text>
+              <Text style={styles.acceptButtonText}>{t('actions.acceptDriver')}</Text>
             </TouchableOpacity>
 
             {/* Botón Rechazar */}
@@ -599,8 +602,8 @@ useEffect(() => {
               style={[styles.rejectButton, { backgroundColor: '#FF5252' }]}
               onPress={() => {
                 alertService.showConfirmAlert(
-                  '❌ Rechazar conductor',
-                  `¿Estás seguro de que quieres rechazar a ${ride.driver?.name || 'este conductor'}? El viaje volverá a estar disponible para otros conductores.`,
+                  t('alerts.rejectDriverTitle'),
+                  t('alerts.rejectDriverMessage', { name: ride.driver?.name || 'this driver' }),
                   async () => {
                     try {
                       // Verificar autenticación
@@ -611,7 +614,7 @@ useEffect(() => {
                       console.log('👤 Usuario actual:', currentUser ? currentUser.uid : 'NO AUTENTICADO');
                       
                       if (!currentUser) {
-                        alertService.showErrorAlert('Debes iniciar sesión para rechazar al conductor');
+                        alertService.showErrorAlert(t('alerts.mustSignInToReject'));
                         return;
                       }
 
@@ -636,22 +639,22 @@ useEffect(() => {
                       console.log('✅ Resultado:', result);
                       
                       alertService.showSuccessAlert(
-                        'Conductor rechazado',
-                        'El viaje está nuevamente disponible para otros conductores.'
+                        t('alerts.rejectDriverSuccessTitle'),
+                        t('alerts.rejectDriverSuccessMessage')
                       );
                     } catch (error: any) {
                       console.error('❌ Error rechazando conductor:', error);
                       console.error('❌ Error completo:', JSON.stringify(error, null, 2));
-                      alertService.showErrorAlert(error.message || 'No se pudo rechazar el conductor');
+                      alertService.showErrorAlert(error.message || t('alerts.rejectDriverError'));
                     }
                   },
                   undefined,
-                  'Rechazar',
-                  'Cancelar'
+                  t('actions.rejectDriver'),
+                  t('alerts.confirmCancelNo')
                 );
               }}
             >
-              <Text style={styles.rejectButtonText}>❌ Rechazar</Text>
+              <Text style={styles.rejectButtonText}>{t('actions.rejectDriver')}</Text>
             </TouchableOpacity>
             </View>
           )}
@@ -671,21 +674,21 @@ useEffect(() => {
               isPreview: true, // Indicar que es solo preview
             })}
           >
-            <Text style={styles.secondaryButtonText}>🗺️ Solo Ver en Mapa</Text>
+            <Text style={styles.secondaryButtonText}>{t('actions.viewMapOnly')}</Text>
           </TouchableOpacity>
         </View>
       ) : null}
 
       {/* Detalles del viaje */}
       <View style={styles.detailsContainer}>
-        <Text style={styles.sectionTitle}>Detalles del Viaje</Text>
+        <Text style={styles.sectionTitle}>{t('details.rideDetails')}</Text>
 
         <View style={styles.locationContainer}>
           <View style={styles.locationRow}>
             <Text style={styles.locationIcon}>🔵</Text>
             <View style={styles.locationInfo}>
-              <Text style={styles.locationLabel}>Origen</Text>
-              <Text style={styles.locationAddress}>{ride.origin?.address || ride.originAddress || 'No especificado'}</Text>
+              <Text style={styles.locationLabel}>{t('details.origin')}</Text>
+              <Text style={styles.locationAddress}>{ride.origin?.address || ride.originAddress || t('details.notSpecified')}</Text>
             </View>
           </View>
 
@@ -699,8 +702,8 @@ useEffect(() => {
                   <View style={styles.locationRow}>
                     <Text style={styles.locationIcon}>🟡</Text>
                     <View style={styles.locationInfo}>
-                      <Text style={styles.locationLabel}>Parada {index + 1}</Text>
-                      <Text style={styles.locationAddress}>{stop.address || 'No especificado'}</Text>
+                      <Text style={styles.locationLabel}>{t('details.stop')} {index + 1}</Text>
+                      <Text style={styles.locationAddress}>{stop.address || t('details.notSpecified')}</Text>
                     </View>
                   </View>
                   <View style={styles.locationDivider} />
@@ -712,30 +715,30 @@ useEffect(() => {
           <View style={styles.locationRow}>
             <Text style={styles.locationIcon}>🔴</Text>
             <View style={styles.locationInfo}>
-              <Text style={styles.locationLabel}>Destino</Text>
-              <Text style={styles.locationAddress}>{ride.destination?.address || ride.destinationAddress || 'No especificado'}</Text>
+              <Text style={styles.locationLabel}>{t('details.destination')}</Text>
+              <Text style={styles.locationAddress}>{ride.destination?.address || ride.destinationAddress || t('details.notSpecified')}</Text>
             </View>
           </View>
         </View>
 
         <View style={styles.infoGrid}>
           <View style={styles.infoCard}>
-            <Text style={styles.infoLabel}>Distancia</Text>
+            <Text style={styles.infoLabel}>{t('details.distance')}</Text>
             <Text style={styles.infoValue}>{ride.estimatedDistance ? (ride.estimatedDistance / 1000).toFixed(1) : '0.0'} km</Text>
           </View>
           <View style={styles.infoCard}>
-            <Text style={styles.infoLabel}>Duración</Text>
+            <Text style={styles.infoLabel}>{t('details.duration')}</Text>
             <Text style={styles.infoValue}>{ride.estimatedDuration ? Math.round(ride.estimatedDuration / 60) : '0'} min</Text>
           </View>
           <View style={styles.infoCard}>
-            <Text style={styles.infoLabel}>Precio</Text>
+            <Text style={styles.infoLabel}>{t('details.price')}</Text>
             <Text style={styles.infoValue}>C${ride.estimatedFare || ride.estimatedPrice || 0}</Text>
           </View>
         </View>
 
         {ride.notes && (
           <View style={styles.notesContainer}>
-            <Text style={styles.notesLabel}>Notas:</Text>
+            <Text style={styles.notesLabel}>{t('details.notes')}</Text>
             <Text style={styles.notesText}>{ride.notes}</Text>
           </View>
         )}
@@ -747,7 +750,7 @@ useEffect(() => {
           style={styles.supportButton}
           onPress={handleCallSupport}
         >
-          <Text style={styles.supportButtonText}>📞 Llamar a Soporte</Text>
+          <Text style={styles.supportButtonText}>{t('actions.callSupport')}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -756,7 +759,7 @@ useEffect(() => {
           disabled={canceling}
         >
           <Text style={styles.cancelButtonText}>
-            {canceling ? 'Cancelando...' : 'Cancelar Viaje'}
+            {canceling ? t('actions.canceling') : t('actions.cancelRide')}
           </Text>
         </TouchableOpacity>
       </View>
@@ -764,10 +767,10 @@ useEffect(() => {
       {/* Información adicional */}
       <View style={styles.footer}>
         <Text style={styles.footerText}>
-          💡 Recibirás una notificación cuando un conductor acepte tu viaje
+          {t('footer.notificationTip')}
         </Text>
         <Text style={[styles.footerText, { marginTop: 8 }]}>
-          💬 Podrás chatear con el conductor una vez que acepte el viaje
+          {t('footer.chatTip')}
         </Text>
       </View>
 
@@ -793,11 +796,11 @@ useEffect(() => {
             if (selectedOffer?.driverId) {
               setPendingCounterOffers(prev => new Set(prev).add(selectedOffer.driverId));
             }
-            alertService.showSuccessAlert('Contraoferta enviada', `Tu contraoferta de C$${price} ha sido enviada al conductor.`);
+            alertService.showSuccessAlert(t('alerts.counterOfferSentTitle'), t('alerts.counterOfferSentMessage', { price }));
             setShowNegotiationModal(false);
             // Firebase listener actualizará automáticamente
           } catch (error: any) {
-            alertService.showErrorAlert(error.message || 'No se pudo enviar la contraoferta');
+            alertService.showErrorAlert(error.message || t('alerts.counterOfferError'));
           }
         }}
         onAcceptAndStartRide={async () => {

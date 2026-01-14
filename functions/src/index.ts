@@ -172,6 +172,7 @@ export const registerCashPayment = paymentsSequelizeAPI.registerCashPayment;
 export const confirmCashPayment = paymentsSequelizeAPI.confirmCashPayment;
 export const completeCashPayment = paymentsSequelizeAPI.completeCashPayment;
 export const cancelCashPayment = paymentsSequelizeAPI.cancelCashPayment;
+export const generateCashCode = paymentsSequelizeAPI.generateCashCode;
 
 // Price Negotiation - ✅ NUEVO: Sequelize
 // ✅ ACTIVOS: negotiatePrice, acceptClientPrice, makeCounterOffer, acceptCounterOffer, rejectCounterOffer

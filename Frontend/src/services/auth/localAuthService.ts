@@ -6,10 +6,14 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import backendConfig from '../../config/backendConfig';
+import i18n from '../../i18n';
 
 const API_URL = backendConfig.local.apiUrl;
 
 class LocalAuthService {
+  private tr(path: string, options?: Record<string, any>) {
+    return i18n.t(`services.auth.localAuthService.${path}`, options) as string;
+  }
   /**
    * Registrar usuario
    */
@@ -34,7 +38,7 @@ class LocalAuthService {
       return user;
     } catch (error: any) {
       console.error('❌ Error en registro (Local):', error);
-      throw new Error(error.response?.data?.message || 'Error al registrar usuario');
+      throw new Error(error.response?.data?.message || this.tr('errors.registerFailed'));
     }
   }
 
@@ -59,7 +63,7 @@ class LocalAuthService {
       return user;
     } catch (error: any) {
       console.error('❌ Error en login (Local):', error);
-      throw new Error(error.response?.data?.message || 'Error al iniciar sesión');
+      throw new Error(error.response?.data?.message || this.tr('errors.loginFailed'));
     }
   }
 
@@ -73,7 +77,7 @@ class LocalAuthService {
       console.log('✅ Sesión cerrada (Local)');
     } catch (error: any) {
       console.error('❌ Error cerrando sesión (Local):', error);
-      throw error;
+      throw new Error(error.message || this.tr('errors.logoutFailed'));
     }
   }
 

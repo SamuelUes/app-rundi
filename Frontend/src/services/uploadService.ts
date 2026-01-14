@@ -1,4 +1,5 @@
 import * as ImagePicker from 'expo-image-picker';
+import i18n from '../i18n';
 
 export interface UploadResult {
   url: string;
@@ -76,7 +77,7 @@ class UploadService {
       };
     } catch (error: any) {
       console.error('❌ Error procesando imagen:', error);
-      throw new Error('Error al procesar la imagen');
+      throw new Error(i18n.t('services.uploadService.errors.processImage') as string);
     }
   }
 
@@ -95,7 +96,7 @@ class UploadService {
       return results;
     } catch (error: any) {
       console.error('Error procesando imágenes:', error);
-      throw new Error('Error al procesar las imágenes');
+      throw new Error(i18n.t('services.uploadService.errors.processImages') as string);
     }
   }
 

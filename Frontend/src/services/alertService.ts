@@ -1,4 +1,5 @@
 import { Linking, Platform } from 'react-native';
+import i18n from '../i18n';
 
 export type ToastType = 'success' | 'error' | 'info' | 'warning' | 'confirm';
 
@@ -30,6 +31,9 @@ export const setToastHandler = (toastHandler?: ToastHandler) => {
   handler = toastHandler;
 };
 
+const tr = (path: string, options?: Record<string, any>) =>
+  i18n.t(`common.services.alertService.${path}`, options) as string;
+
 const emitToast = (payload: ToastPayload) => {
   if (handler) {
     handler(payload);
@@ -45,7 +49,7 @@ const emitToast = (payload: ToastPayload) => {
 export const showErrorAlert = (message: string, callback?: () => void) => {
   emitToast({
     type: 'error',
-    title: 'Error',
+    title: tr('titles.error'),
     message,
     onClose: callback,
   });
@@ -89,8 +93,8 @@ export const showConfirmAlert = (
   message: string,
   onConfirm: () => void,
   onCancel?: () => void,
-  confirmText: string = 'Confirmar',
-  cancelText: string = 'Cancelar',
+  confirmText: string = tr('buttons.confirm'),
+  cancelText: string = tr('buttons.cancel'),
   destructive: boolean = false
 ) => {
   emitToast({
@@ -147,8 +151,8 @@ export const showNavigationAlert = (
   onCancel?: () => void
 ) => {
   showOptionsAlert(title, message, [
-    { text: 'Cancelar', style: 'cancel', onPress: onCancel },
-    { text: 'Navegar', style: 'default', onPress: onNavigate },
+    { text: tr('buttons.cancel'), style: 'cancel', onPress: onCancel },
+    { text: tr('buttons.navigate'), style: 'default', onPress: onNavigate },
   ]);
 };
 
@@ -165,13 +169,13 @@ export const showExternalNavAlert = async (
 
     emitToast({
       type: 'info',
-      title: 'Importante',
+      title: tr('titles.important'),
       message,
       duration: 0,
       onClose: navigationCallback,
       actions: [
         {
-          label: 'Entendido',
+          label: tr('buttons.understood'),
           variant: 'primary',
           onPress: navigationCallback,
         },
@@ -191,17 +195,17 @@ export const checkLocationPermissionWithAlert = async (callback: () => void) => 
     if (status !== 'granted') {
       emitToast({
         type: 'warning',
-        title: 'Permisos requeridos',
-        message: 'Se necesita acceso a tu ubicación para usar esta función.',
+        title: tr('titles.permissionsRequired'),
+        message: tr('messages.locationPermissionRequired'),
         duration: 0,
         onClose: () => undefined,
         actions: [
           {
-            label: 'Cancelar',
+            label: tr('buttons.cancel'),
             variant: 'default',
           },
           {
-            label: 'Ir a Ajustes',
+            label: tr('buttons.goToSettings'),
             variant: 'primary',
             onPress: async () => {
               if (Platform.OS === 'ios') {
@@ -218,7 +222,7 @@ export const checkLocationPermissionWithAlert = async (callback: () => void) => 
 
     callback();
   } catch (error) {
-    showErrorAlert('No se pudo acceder a la ubicación');
+    showErrorAlert(tr('messages.locationAccessFailed'));
   }
 };
 

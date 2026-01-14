@@ -20,7 +20,7 @@ import {
 } from 'react-native';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import GoogleMap from '../../components/GoogleMap';
+import GoogleMap from '../../components/GoogleMaps';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useVoiceAssistant } from '../../context/VoiceAssistantContext';
@@ -34,6 +34,9 @@ import { DriverStackParamList } from '../../navigation/DriverStack';
 import { useAcceptedRideListener } from '../../hooks/useAcceptedRideListener';
 import { getDatabase, onValue, ref } from 'firebase/database';
 import proximityService from '../../services/proximityService';
+import driverOfferCacheService, {
+  DriverOfferCacheEntry,
+} from '../../services/driverOfferCacheService';
 import { useTranslation } from 'react-i18next';
 
 const BACK_ICON = require('../../assets/icons/back_button/back_button2x.png');
@@ -45,6 +48,15 @@ interface RideLocation {
   lng: number;
   address?: string;
 }
+
+const toNumberOrNull = (value: any): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+};
 
 interface RidePreviewData {
   id: string;
@@ -98,6 +110,13 @@ export default function RidePreviewScreen() {
   const [clientProfile, setClientProfile] = useState<ClientProfile | null>(null);
   const [photoModalUrl, setPhotoModalUrl] = useState<string | null>(ride.clientVehiclePhoto || null);
   const currentRide = rideData;
+  const hasPendingOffer = useMemo(() => {
+    const status = (rideData.negotiationStatus || '').toLowerCase();
+    const driverStatus = (rideData.driverOfferStatus || '').toLowerCase();
+    return status === 'driver_offered' || driverStatus === 'pending' || driverStatus === 'waiting';
+  }, [rideData.negotiationStatus, rideData.driverOfferStatus]);
+  const [manualOfferLock, setManualOfferLock] = useState(false);
+  const navigationLocked = manualOfferLock || hasPendingOffer;
   const markDismissed = useCallback(async () => {
     try {
       await proximityService.markRideDismissed(currentRide.id);
@@ -616,6 +635,118 @@ export default function RidePreviewScreen() {
     });
   };
 
+  useEffect(() => {
+    if (!navigationLocked) {
+      return;
+    }
+
+    const unsubscribe = navigation.addListener('beforeRemove', (event) => {
+      if (!navigationLocked) {
+        return;
+      }
+      event.preventDefault();
+    });
+
+    return unsubscribe;
+  }, [navigation, navigationLocked]);
+
+  useEffect(() => {
+    if (hasPendingOffer) {
+      setManualOfferLock(false);
+    }
+  }, [hasPendingOffer]);
+
+  useEffect(() => {
+    setManualOfferLock(false);
+  }, [ride.id]);
+
+  const cacheCurrentOffer = useCallback(
+    async (overrides?: Partial<DriverOfferCacheEntry>) => {
+      if (!user?.id) {
+        return;
+      }
+
+      const normalizeLocation = (location: RideLocation | undefined | null): RideLocation => {
+        const lat = toNumberOrNull(location?.lat) ?? 0;
+        const lng = toNumberOrNull(location?.lng) ?? 0;
+        return {
+          lat,
+          lng,
+          address: location?.address,
+        };
+      };
+
+      const normalizedOrigin = normalizeLocation(currentRide.origin);
+      const normalizedDestination = normalizeLocation(currentRide.destination);
+      let normalizedStops: Array<{ lat: number; lng: number; address?: string }> | undefined;
+      if (Array.isArray(currentRide.extraDestinations) && currentRide.extraDestinations.length > 0) {
+        const stops: Array<{ lat: number; lng: number; address?: string }> = [];
+        currentRide.extraDestinations.forEach((stop: RideLocation) => {
+          const lat = toNumberOrNull(stop?.lat);
+          const lng = toNumberOrNull(stop?.lng);
+          if (lat === null || lng === null) {
+            return;
+          }
+          const normalizedStop: { lat: number; lng: number; address?: string } = { lat, lng };
+          if (typeof stop?.address === 'string' && stop.address.trim().length > 0) {
+            normalizedStop.address = stop.address;
+          }
+          stops.push(normalizedStop);
+        });
+        if (stops.length > 0) {
+          normalizedStops = stops;
+        }
+      }
+
+      const entry: DriverOfferCacheEntry = {
+        rideId: currentRide.id,
+        driverId: user.id,
+        clientId: currentRide.clientId,
+        clientName: resolvedClientName,
+        origin: normalizedOrigin,
+        destination: normalizedDestination,
+        extraDestinations: normalizedStops,
+        offeredPrice:
+          overrides?.offeredPrice ??
+          (typeof currentRide.driverOfferedPrice === 'number' ? currentRide.driverOfferedPrice : null),
+        clientSuggestedPrice:
+          typeof currentRide.clientSuggestedPrice === 'number' ? currentRide.clientSuggestedPrice : null,
+        estimatedPrice: typeof currentRide.estimatedPrice === 'number' ? currentRide.estimatedPrice : null,
+        estimatedDistance:
+          overrides?.estimatedDistance ??
+          (typeof currentRide.estimatedDistance === 'number' ? currentRide.estimatedDistance : null),
+        estimatedDuration:
+          overrides?.estimatedDuration ??
+          (typeof currentRide.estimatedDuration === 'number' ? currentRide.estimatedDuration : null),
+        paymentMethod: currentRide.paymentMethod ?? null,
+        clientVehiclePhoto: currentRide.clientVehiclePhoto ?? null,
+        rideType: currentRide.rideType ?? null,
+        negotiationStatus: overrides?.negotiationStatus ?? currentRide.negotiationStatus ?? null,
+        createdAt: Date.now(),
+      };
+
+      await driverOfferCacheService.save(entry);
+    },
+    [
+      currentRide.clientId,
+      currentRide.clientSuggestedPrice,
+      currentRide.destination,
+      currentRide.driverOfferedPrice,
+      currentRide.estimatedDistance,
+      currentRide.estimatedDuration,
+      currentRide.estimatedPrice,
+      currentRide.extraDestinations,
+      currentRide.id,
+      currentRide.negotiationStatus,
+      currentRide.origin,
+      currentRide.paymentMethod,
+      currentRide.rideType,
+      currentRide.clientVehiclePhoto,
+      resolvedClientName,
+      user?.id,
+    ],
+  );
+
   const handleApplySuggestion = async (value: number) => {
     const rounded = Math.round(value);
     setCounterOfferTouched(true);
@@ -642,6 +773,17 @@ export default function RidePreviewScreen() {
       setCounterOffer(value.toString());
       setLastSuggestedPrice(value);
       success = true;
+      setRideData((prev) => ({
+        ...prev,
+        driverOfferedPrice: value,
+        negotiationStatus: 'driver_offered',
+        driverOfferStatus: 'pending',
+      }));
+      setManualOfferLock(true);
+      await cacheCurrentOffer({
+        offeredPrice: value,
+        negotiationStatus: 'driver_offered',
+      });
     } catch (error: any) {
       console.error('[RidePreviewScreen] Contraoferta fallida:', error);
       alertService.showErrorAlert(error?.message || t('driver.ridePreview.alerts.counterOfferError'));
@@ -738,6 +880,7 @@ export default function RidePreviewScreen() {
         Number.isFinite(currentRide.estimatedPrice) &&
         currentRide.estimatedPrice > 0;
 
+      let cachedOfferValue: number | null = null;
       if (hasClientSuggested || hasEstimatedPrice) {
         const priceToShow = hasClientSuggested
           ? currentRide.clientSuggestedPrice
@@ -750,6 +893,13 @@ export default function RidePreviewScreen() {
             amount: formatCurrency(priceToShow || 0),
           }),
         );
+        cachedOfferValue = Number(priceToShow) || null;
+        setRideData((prev) => ({
+          ...prev,
+          driverOfferedPrice: priceToShow ?? prev.driverOfferedPrice ?? null,
+          negotiationStatus: 'driver_accepted',
+          driverOfferStatus: 'pending',
+        }));
       } else {
         const acceptData = {
           driverId: user?.id || '',
@@ -761,7 +911,18 @@ export default function RidePreviewScreen() {
           t('driver.ridePreview.alerts.offerSentTitle'),
           t('driver.ridePreview.alerts.offerNotifiedBody'),
         );
+        setRideData((prev) => ({
+          ...prev,
+          negotiationStatus: prev.negotiationStatus || 'driver_offered',
+          driverOfferStatus: 'pending',
+        }));
       }
+
+      setManualOfferLock(true);
+      await cacheCurrentOffer({
+        offeredPrice: cachedOfferValue,
+        negotiationStatus: 'driver_accepted',
+      });
 
       navigation.replace('WaitingClientConfirmation', {
         rideId: currentRide.id,
@@ -824,6 +985,11 @@ export default function RidePreviewScreen() {
       })
       .finally(() => {
         finishReject();
+        if (user?.id) {
+          driverOfferCacheService.clearEntry(user.id, currentRide.id).catch((err) =>
+            console.warn('[RidePreviewScreen] Failed to clear cache entry', err),
+          );
+        }
         navigation.goBack();
       });
   };
@@ -1156,26 +1322,28 @@ export default function RidePreviewScreen() {
         </View>
       </View>
 
-      <TouchableOpacity
-        style={[
-          styles.fabBackButton,
-          {
-            backgroundColor: isDark ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.92)',
-            borderWidth: 1,
-            borderColor: isDark ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.08)',
-          },
-        ]}
-        onPress={() => {
-          markDismissed().finally(() => navigation.goBack());
-        }}
-        activeOpacity={0.9}
-      >
-        <Image
-          source={BACK_ICON}
-          style={[styles.backIconImage, { tintColor: isDark ? '#FFFFFF' : '#1F1F1F' }]}
-          resizeMode="contain"
-        />
-      </TouchableOpacity>
+      {!navigationLocked && (
+        <TouchableOpacity
+          style={[
+            styles.fabBackButton,
+            {
+              backgroundColor: isDark ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.92)',
+              borderWidth: 1,
+              borderColor: isDark ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.08)',
+            },
+          ]}
+          onPress={() => {
+            markDismissed().finally(() => navigation.goBack());
+          }}
+          activeOpacity={0.9}
+        >
+          <Image
+            source={BACK_ICON}
+            style={[styles.backIconImage, { tintColor: isDark ? '#FFFFFF' : '#1F1F1F' }]}
+            resizeMode="contain"
+          />
+        </TouchableOpacity>
+      )}
 
       <View style={[styles.bottomSheet, { backgroundColor: colors.card }]}>
         <TouchableOpacity style={styles.handleArea} onPress={toggleSheet} activeOpacity={0.8}>

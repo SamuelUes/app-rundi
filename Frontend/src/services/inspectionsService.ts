@@ -5,6 +5,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import Constants from 'expo-constants';
+import i18n from '../i18n';
 
 // Configuración de Supabase
 const SUPABASE_URL = Constants.expoConfig?.extra?.supabaseUrl || 'https://ceytngpresytjhafcadu.supabase.co';
@@ -22,6 +23,9 @@ interface DesignatedDriverInspection {
   status?: string;
   inspected_at?: string;
 }
+
+const tr = (path: string, options?: Record<string, any>) =>
+  i18n.t(`services.inspectionsService.${path}`, options) as string;
 
 /**
  * Guardar inspección de vehículo del cliente en designated_driver_inspections table
@@ -52,11 +56,11 @@ export const saveDesignatedDriverInspection = async (
 
     if (error) {
       console.error('❌ Error guardando inspección:', error);
-      throw new Error(`Error guardando inspección: ${error.message}`);
+      throw new Error(`${tr('errors.saveFailed')} ${error.message ?? ''}`.trim());
     }
 
     if (!data || data.length === 0) {
-      throw new Error('No se retornaron datos después de guardar la inspección');
+      throw new Error(tr('errors.missingData'));
     }
 
     console.log('✅ Inspección guardada exitosamente:', data[0]);
@@ -85,7 +89,7 @@ export const getInspectionByRideId = async (rideId: string) => {
     if (error && error.code !== 'PGRST116') {
       // PGRST116 = no rows found
       console.error('❌ Error obteniendo inspección:', error);
-      throw error;
+      throw new Error(error.message || tr('errors.fetchFailed'));
     }
 
     console.log('✅ Inspección obtenida:', data);
@@ -113,7 +117,7 @@ export const getInspectionsByDriverId = async (driverId: string) => {
 
     if (error) {
       console.error('❌ Error obteniendo inspecciones:', error);
-      throw error;
+      throw new Error(error.message || tr('errors.listFailed'));
     }
 
     console.log('✅ Inspecciones obtenidas:', data?.length || 0);

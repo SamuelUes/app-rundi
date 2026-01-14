@@ -13,6 +13,7 @@ import { DriverPenaltyRepository } from '../sequelize/repositories/DriverPenalty
 import { BiometricAuthenticationRepository } from '../sequelize/repositories/BiometricAuthenticationRepository';
 import admin from 'firebase-admin';
 import { MIGRATION_FLAGS } from '../config/migration-flags';
+import { randomInt } from 'crypto';
 
 const paymentService = new PaymentService();
 const biometricAuthRepo = new BiometricAuthenticationRepository();
@@ -121,6 +122,54 @@ export const registerCashPayment = functions.https.onCall(async (data, context) 
 });
 
 /**
+ * Generar código de confirmación para pago en efectivo (flujo "code")
+ */
+export const generateCashCode = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
+  }
+
+  await ensureActiveSession(context, data);
+
+  const { rideId } = data;
+
+  if (!rideId) {
+    throw new functions.https.HttpsError('invalid-argument', 'rideId es requerido');
+  }
+
+  try {
+    const db = admin.database();
+
+    // Generar código de 4 dígitos (0000–9999) siempre como string de 4 caracteres
+    const raw = randomInt(0, 10000);
+    const code = raw.toString().padStart(4, '0');
+
+    const now = admin.database.ServerValue.TIMESTAMP;
+
+    await db.ref(`paymentStatus/${rideId}`).update({
+      code,
+      codeGeneratedAt: now,
+      codeGeneratedBy: 'driver',
+      // Registrar que este pago se está autenticando por código
+      method: 'code',
+      authentication_method: 'code',
+      biometric_type: 'NOT_SUPPORTED',
+      biometric_authenticated: false,
+      lastUpdatedAt: now,
+      lastUpdatedBy: 'backend',
+    });
+
+    return {
+      success: true,
+      code,
+    };
+  } catch (error: any) {
+    console.error('❌ [generateCashCode] Error generando código:', error);
+    throw new functions.https.HttpsError('internal', error.message || 'Error generando código');
+  }
+});
+
+/**
  * Confirmar pago en efectivo (cliente confirma que pagó)
  * ✅ NUEVO: Permite al cliente confirmar su parte del pago
  */
@@ -132,7 +181,13 @@ export const confirmCashPayment = functions.https.onCall(async (data, context) =
   await ensureActiveSession(context, data);
 
   try {
-    const { rideId, confirmedBy, authenticationMethod, biometricType } = data;
+    const {
+      rideId,
+      confirmedBy,
+      authenticationMethod,
+      biometricType,
+      biometricAuthenticated,
+    } = data;
 
     if (!rideId) {
       throw new functions.https.HttpsError("invalid-argument", "rideId es requerido");
@@ -163,12 +218,14 @@ export const confirmCashPayment = functions.https.onCall(async (data, context) =
         lastUpdatedAt: admin.database.ServerValue.TIMESTAMP,
       };
 
-      if (authMethod === 'biometric') {
-        driverUpdatePayload.authentication_method = 'biometric';
-        driverUpdatePayload.biometric_authenticated = true;
-        if (bioType) {
-          driverUpdatePayload.biometric_type = bioType;
-        }
+      if (authMethod) {
+        driverUpdatePayload.authentication_method = authMethod;
+      }
+      if (typeof biometricAuthenticated === 'boolean') {
+        driverUpdatePayload.biometric_authenticated = biometricAuthenticated;
+      }
+      if (bioType) {
+        driverUpdatePayload.biometric_type = bioType;
       }
 
       await db.ref(`paymentStatus/${rideId}`).update(driverUpdatePayload);
@@ -215,12 +272,14 @@ export const confirmCashPayment = functions.https.onCall(async (data, context) =
         lastUpdatedAt: admin.database.ServerValue.TIMESTAMP,
       };
 
-      if (authMethod === 'biometric') {
-        clientUpdatePayload.authentication_method = 'biometric';
-        clientUpdatePayload.biometric_authenticated = true;
-        if (bioType) {
-          clientUpdatePayload.biometric_type = bioType;
-        }
+      if (authMethod) {
+        clientUpdatePayload.authentication_method = authMethod;
+      }
+      if (typeof biometricAuthenticated === 'boolean') {
+        clientUpdatePayload.biometric_authenticated = biometricAuthenticated;
+      }
+      if (bioType) {
+        clientUpdatePayload.biometric_type = bioType;
       }
 
       await db.ref(`paymentStatus/${rideId}`).update(clientUpdatePayload);

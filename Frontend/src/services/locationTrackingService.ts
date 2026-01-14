@@ -8,6 +8,7 @@
 import supabase from '../config/supabase';
 import { httpsCallable } from 'firebase/functions';
 import { getFirebaseFunctions } from '../config/firebase';
+import i18n from '../i18n';
 
 // Interfaces para las ubicaciones
 export interface LocationPoint {
@@ -63,6 +64,10 @@ export interface RideRoutePoint {
 }
 
 class LocationTrackingService {
+  private tr(path: string) {
+    return i18n.t(`services.locationTrackingService.${path}`) as string;
+  }
+
   /**
    * Guarda un punto de ubicación en tiempo real para un viaje
    */
@@ -92,7 +97,7 @@ class LocationTrackingService {
       return { success: true };
     } catch (error: any) {
       console.error('Error guardando punto de ubicación:', error);
-      return { success: false, error: error.message };
+      return { success: false, error: error.message || this.tr('errors.savePoint') };
     }
   }
 
@@ -119,7 +124,7 @@ class LocationTrackingService {
       return { success: true };
     } catch (error: any) {
       console.error('Error guardando lote de ubicaciones:', error);
-      return { success: false, error: error.message };
+      return { success: false, error: error.message || this.tr('errors.saveBatch') };
     }
   }
 
@@ -191,13 +196,13 @@ class LocationTrackingService {
           polyline: data.polyline,
         };
       } else {
-        throw new Error(data.error || 'Error calculando ruta');
+        throw new Error(data.error || this.tr('errors.routeFailed'));
       }
     } catch (error: any) {
       console.error('Error calculando ruta:', error);
       return {
         success: false,
-        error: error.message || 'No se pudo calcular la ruta',
+        error: error.message || this.tr('errors.routeUnavailable'),
       };
     }
   }
@@ -222,13 +227,13 @@ class LocationTrackingService {
           address: data.address,
         };
       } else {
-        throw new Error(data.error || 'Error obteniendo dirección');
+        throw new Error(data.error || this.tr('errors.reverseGeocodeFailed'));
       }
     } catch (error: any) {
       console.error('Error obteniendo dirección:', error);
       return {
         success: false,
-        error: error.message || 'No se pudo obtener la dirección',
+        error: error.message || this.tr('errors.reverseGeocodeUnavailable'),
       };
     }
   }
@@ -253,13 +258,13 @@ class LocationTrackingService {
           lng: data.lng,
         };
       } else {
-        throw new Error(data.error || 'Error obteniendo coordenadas');
+        throw new Error(data.error || this.tr('errors.geocodeFailed'));
       }
     } catch (error: any) {
       console.error('Error obteniendo coordenadas:', error);
       return {
         success: false,
-        error: error.message || 'No se pudieron obtener las coordenadas',
+        error: error.message || this.tr('errors.geocodeUnavailable'),
       };
     }
   }
@@ -291,13 +296,13 @@ class LocationTrackingService {
           places: data.places,
         };
       } else {
-        throw new Error(data.error || 'Error buscando lugares');
+        throw new Error(data.error || this.tr('errors.placesSearchFailed'));
       }
     } catch (error: any) {
       console.error('Error buscando lugares:', error);
       return {
         success: false,
-        error: error.message || 'No se pudieron buscar lugares',
+        error: error.message || this.tr('errors.placesSearchUnavailable'),
       };
     }
   }
@@ -323,13 +328,13 @@ class LocationTrackingService {
           duration: data.duration,
         };
       } else {
-        throw new Error(data.error || 'Error calculando distancia');
+        throw new Error(data.error || this.tr('errors.distanceFailed'));
       }
     } catch (error: any) {
       console.error('Error calculando distancia:', error);
       return {
         success: false,
-        error: error.message || 'No se pudo calcular la distancia',
+        error: error.message || this.tr('errors.distanceUnavailable'),
       };
     }
   }
@@ -348,7 +353,7 @@ class LocationTrackingService {
       return { success: true };
     } catch (error: any) {
       console.error('Error eliminando ubicaciones del viaje:', error);
-      return { success: false, error: error.message };
+      return { success: false, error: error.message || this.tr('errors.deleteRideLocations') };
     }
   }
 
@@ -417,7 +422,7 @@ class LocationTrackingService {
       return { success: true };
     } catch (error: any) {
       console.error('Error guardando ruta del viaje:', error);
-      return { success: false, error: error.message };
+      return { success: false, error: error.message || this.tr('errors.routeSaveFailed') };
     }
   }
 
@@ -492,7 +497,7 @@ class LocationTrackingService {
       return { success: true };
     } catch (error: any) {
       console.error('Error actualizando waypoint:', error);
-      return { success: false, error: error.message };
+      return { success: false, error: error.message || this.tr('errors.updateWaypointFailed') };
     }
   }
 
@@ -515,7 +520,7 @@ class LocationTrackingService {
       return { success: true };
     } catch (error: any) {
       console.error('Error eliminando waypoint:', error);
-      return { success: false, error: error.message };
+      return { success: false, error: error.message || this.tr('errors.deleteWaypointFailed') };
     }
   }
 
@@ -537,7 +542,7 @@ class LocationTrackingService {
       return { success: true };
     } catch (error: any) {
       console.error('Error reordenando waypoints:', error);
-      return { success: false, error: error.message };
+      return { success: false, error: error.message || this.tr('errors.reorderWaypointsFailed') };
     }
   }
 }

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CLIENT_ID</key>
+	<string>608732245640-eot8hsajjljf6bd32i82ssn8vusad9hq.apps.googleusercontent.com</string>
+	<key>REVERSED_CLIENT_ID</key>
+	<string>com.googleusercontent.apps.608732245640-eot8hsajjljf6bd32i82ssn8vusad9hq</string>
+	<key>ANDROID_CLIENT_ID</key>
+	<string>608732245640-8058hv8i6m82i54g6jvbf8t8scqlu1o1.apps.googleusercontent.com</string>
+	<key>API_KEY</key>
+	<string>AIzaSyBHc0ewGiioDe9vQ5xaM1uGI7642Inrf6c</string>
+	<key>GCM_SENDER_ID</key>
+	<string>608732245640</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>BUNDLE_ID</key>
+	<string>com.driveangel.rundidev</string>
+	<key>PROJECT_ID</key>
+	<string>rundi-dev</string>
+	<key>STORAGE_BUCKET</key>
+	<string>rundi-dev.firebasestorage.app</string>
+	<key>IS_ADS_ENABLED</key>
+	<false></false>
+	<key>IS_ANALYTICS_ENABLED</key>
+	<false></false>
+	<key>IS_APPINVITE_ENABLED</key>
+	<true></true>
+	<key>IS_GCM_ENABLED</key>
+	<true></true>
+	<key>IS_SIGNIN_ENABLED</key>
+	<true></true>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:608732245640:ios:9faa2ce1fab6747e63393d</string>
+	<key>DATABASE_URL</key>
+	<string>https://rundi-dev-default-rtdb.firebaseio.com</string>
+</dict>
+</plist>

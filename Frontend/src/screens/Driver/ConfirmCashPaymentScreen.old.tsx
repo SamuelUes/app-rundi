@@ -674,6 +674,17 @@ const createStyles = (colors: any) => StyleSheet.create({
     color: '#F57C00',
     lineHeight: 20,
   },
+  loadingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 32,
+    gap: 12,
+  },
+  loadingText: {
+    fontSize: 16,
+    color: colors.textSecondary,
+    textAlign: 'center',
+  },
   confirmButton: {
     marginBottom: 12,
   },

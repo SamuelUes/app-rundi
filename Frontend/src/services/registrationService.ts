@@ -10,6 +10,7 @@ import { ENDPOINTS } from '../api/endpoints';
 import { httpsCallable } from 'firebase/functions';
 import { GoogleAuthProvider, signInWithCredential } from 'firebase/auth';
 import { getFirebaseAuth, getFirebaseFunctions } from '../config/firebase';
+import i18n from '../i18n';
 
 type RegistrationMethod = 'email' | 'phone' | 'google';
 type RegistrationAuthProvider = 'email/password' | 'phone' | 'google';
@@ -72,6 +73,9 @@ interface RegistrationData {
 class RegistrationService {
   private readonly STORAGE_KEY = 'registration_data';
   private readonly TEMP_STORAGE_KEY = 'registration_temp';
+  private tr(path: string, options?: Record<string, any>) {
+    return i18n.t(`services.registrationService.${path}`, options) as string;
+  }
 
   /**
    * Guardar datos temporales de registro
@@ -129,29 +133,29 @@ class RegistrationService {
 
       // Validar datos requeridos (email es opcional)
       if (!data.name || !data.role) {
-        throw new Error('Datos requeridos faltantes: nombre y rol');
+        throw new Error(this.tr('errors.requiredNameRole'));
       }
 
       if (!data.method || !data.authProvider) {
-        throw new Error('Método de registro inválido');
+        throw new Error(this.tr('errors.invalidMethod'));
       }
 
       if (data.authProvider === 'email/password') {
         if (!data.email || !data.password) {
-          throw new Error('Correo y contraseña requeridos para este método');
+          throw new Error(this.tr('errors.emailPasswordRequired'));
         }
       }
 
       if (data.authProvider === 'phone') {
         if (!data.phone || !data.phoneVerified) {
-          throw new Error('Teléfono verificado requerido para registro por SMS');
+          throw new Error(this.tr('errors.phoneVerificationRequired'));
         }
       }
 
       // Para conductores, validar datos adicionales
       if (data.role === 'driver') {
         if (!data.driverData || !data.vehicleData) {
-          throw new Error('Datos de conductor y vehículo requeridos');
+          throw new Error(this.tr('errors.driverDataRequired'));
         }
       }
 
@@ -159,7 +163,7 @@ class RegistrationService {
 
       if (data.authProvider === 'google') {
         if (!data.googleIdToken) {
-          throw new Error('Token de Google no disponible para completar el registro');
+          throw new Error(this.tr('errors.googleTokenMissing'));
         }
 
         try {
@@ -170,7 +174,7 @@ class RegistrationService {
           console.log('✅ Usuario autenticado con Google en Firebase:', firebaseUser.uid);
         } catch (googleError: any) {
           console.error('❌ Error autenticando con Google en Firebase:', googleError);
-          throw new Error(googleError?.message || 'No se pudo autenticar con Google');
+          throw new Error(googleError?.message || this.tr('errors.googleAuthFailed'));
         }
       }
 
@@ -192,7 +196,7 @@ class RegistrationService {
 
       const user = result?.user;
       if (!result?.success || !user) {
-        throw new Error(result?.error || 'Respuesta inválida del servidor');
+        throw new Error(result?.error || this.tr('errors.invalidServerResponse'));
       }
 
       console.log('✅ Usuario creado:', user);
@@ -217,7 +221,7 @@ class RegistrationService {
     } catch (error: any) {
       console.error('❌ Error creando usuario:', error);
       const apiMessage = error?.response?.data?.error;
-      const message = apiMessage || error?.message || 'Error al crear usuario';
+      const message = apiMessage || error?.message || this.tr('errors.createUserFailed');
       throw new Error(message);
     }
   }
@@ -252,9 +256,7 @@ class RegistrationService {
     } catch (error: any) {
       console.error('❌ Error completando registro de conductor:', error);
 
-      throw new Error(
-        error.message || 'Error al completar registro de conductor'
-      );
+      throw new Error(error.message || this.tr('errors.completeDriverFailed'));
     }
   }
 
@@ -267,7 +269,7 @@ class RegistrationService {
       console.log('📝 Iniciando upgrade de cliente a conductor...');
 
       if (!driverData || !vehicleData) {
-        throw new Error('Datos de conductor y vehículo requeridos');
+        throw new Error(this.tr('errors.driverDataRequired'));
       }
 
       const functions = await getFirebaseFunctions();
@@ -291,9 +293,7 @@ class RegistrationService {
         typeof message === 'string' &&
         message === 'PHONE_VERIFICATION_REQUIRED'
       ) {
-        throw new Error(
-          'Debes verificar tu número de teléfono antes de completar el registro de conductor.',
-        );
+        throw new Error(this.tr('errors.upgradePhoneVerification'));
       }
 
       if (typeof message === 'string' && message.length > 0) {
@@ -301,14 +301,10 @@ class RegistrationService {
       }
 
       if (typeof code === 'string' && code.includes('failed-precondition')) {
-        throw new Error(
-          'No se pudo completar la actualización de tu cuenta. Verifica tu información e inténtalo de nuevo.',
-        );
+        throw new Error(this.tr('errors.upgradePreconditionFailed'));
       }
 
-      throw new Error(
-        'Error al actualizar tu cuenta para ser conductor. Inténtalo nuevamente más tarde.',
-      );
+      throw new Error(this.tr('errors.upgradeFailed'));
     }
   }
 
@@ -346,59 +342,59 @@ class RegistrationService {
 
     // Validar email (opcional, pero si se proporciona debe ser válido)
     if (data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) {
-      errors.push('Email inválido');
+      errors.push(this.tr('validation.emailInvalid'));
     }
 
     // Validar nombre
     if (!data.name || data.name.trim().length < 2) {
-      errors.push('Nombre debe tener al menos 2 caracteres');
+      errors.push(this.tr('validation.nameTooShort'));
     }
 
     // Validar teléfono
     if (data.authProvider === 'phone' || data.method === 'phone') {
       if (!data.phone || !/^\+505\d{8}$/.test(data.phone.replace(/\s/g, ''))) {
-        errors.push('Teléfono debe estar en formato +505 XXXX XXXX');
+        errors.push(this.tr('validation.phoneFormat'));
       }
     }
 
     // Validar rol
     if (!data.role || !['client', 'driver'].includes(data.role)) {
-      errors.push('Rol inválido');
+      errors.push(this.tr('validation.roleInvalid'));
     }
 
     // Validar contraseña (si es email/password)
     if (data.authProvider === 'email/password' && (!data.password || data.password.length < 6)) {
-      errors.push('Contraseña debe tener al menos 6 caracteres');
+      errors.push(this.tr('validation.passwordLength'));
     }
 
     // Validar datos de conductor
     if (data.role === 'driver') {
       if (!data.driverData?.licenseNumber || data.driverData.licenseNumber.length < 5) {
-        errors.push('Número de licencia inválido');
+        errors.push(this.tr('validation.licenseInvalid'));
       }
 
       if (!data.vehicleData?.plate || data.vehicleData.plate.length < 4) {
-        errors.push('Placa del vehículo inválida');
+        errors.push(this.tr('validation.plateInvalid'));
       }
 
       if (!data.vehicleData?.brand || data.vehicleData.brand.length < 2) {
-        errors.push('Marca del vehículo requerida');
+        errors.push(this.tr('validation.brandRequired'));
       }
 
       if (!data.vehicleData?.model || data.vehicleData.model.length < 2) {
-        errors.push('Modelo del vehículo requerido');
+        errors.push(this.tr('validation.modelRequired'));
       }
 
       if (!data.vehicleData?.year || isNaN(data.vehicleData.year)) {
-        errors.push('Año del vehículo inválido');
+        errors.push(this.tr('validation.yearInvalid'));
       }
 
       if (!data.vehicleData?.color || data.vehicleData.color.length < 2) {
-        errors.push('Color del vehículo requerido');
+        errors.push(this.tr('validation.colorRequired'));
       }
 
       if (!data.vehicleData?.type || !['sedan', 'suv', 'van', 'moto'].includes(data.vehicleData.type)) {
-        errors.push('Tipo de vehículo inválido');
+        errors.push(this.tr('validation.typeInvalid'));
       }
     }
 

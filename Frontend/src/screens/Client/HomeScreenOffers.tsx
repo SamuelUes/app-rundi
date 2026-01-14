@@ -14,9 +14,11 @@ import { extractVehicleTypeFromInfo, ensureVehicleIconSource } from '../../utils
 import mapsService from '../../services/mapsService';
 import { clearClientActiveRideState } from '../../utils/clientRideState';
 import { getPreflightResult } from '../../state/preflightStore';
+import { RIDES_RADIUS_KM } from '../../constants/rideRadius';
 
 const USER_LOCATION_LIGHT_ICON = require('../../assets/icons/actuall-position-white/actuallpositionwhite2x.png');
 const USER_LOCATION_DARK_ICON = require('../../assets/icons/actuall-position-black/actuallpositionblack2x.png');
+const MAX_DRIVER_RADIUS_KM = typeof RIDES_RADIUS_KM === 'number' ? RIDES_RADIUS_KM : 6;
 
 interface Props {
   navigation: any;
@@ -38,6 +40,39 @@ interface OfferItem {
 
 const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
 
+type LatLngPoint = { latitude: number; longitude: number };
+
+const toRadians = (deg: number) => (deg * Math.PI) / 180;
+
+const haversineKm = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+  const R = 6371;
+  const dLat = toRadians(lat2 - lat1);
+  const dLon = toRadians(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) * Math.sin(dLon / 2) ** 2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+};
+
+const normalizePoint = (point: any): LatLngPoint | null => {
+  if (!point) return null;
+  const latitude =
+    typeof point?.lat === 'number'
+      ? point.lat
+      : typeof point?.latitude === 'number'
+      ? point.latitude
+      : Number(point?.lat ?? point?.latitude);
+  const longitude =
+    typeof point?.lng === 'number'
+      ? point.lng
+      : typeof point?.longitude === 'number'
+      ? point.longitude
+      : Number(point?.lng ?? point?.longitude);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  return { latitude, longitude };
+};
+
 const preferNonEmpty = (...candidates: Array<string | null | undefined>): string | null => {
   for (const candidate of candidates) {
     if (typeof candidate === 'string') {
@@ -46,6 +81,32 @@ const preferNonEmpty = (...candidates: Array<string | null | undefined>): string
         return trimmed;
       }
     }
+  }
+  return null;
+};
+
+const parseCoordinateValue = (value: any): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+};
+
+const extractCoordinateFromSource = (source: any, axis: 'lat' | 'lng'): number | null => {
+  if (!source || typeof source !== 'object') return null;
+  const directKey = axis === 'lat' ? 'lat' : 'lng';
+  const friendlyKey = axis === 'lat' ? 'latitude' : 'longitude';
+  const candidates = [
+    source[directKey],
+    source[friendlyKey],
+    source?.coords?.[friendlyKey] ?? source?.coords?.[directKey],
+    source?.location?.[friendlyKey] ?? source?.location?.[directKey],
+  ];
+  for (const candidate of candidates) {
+    const parsed = parseCoordinateValue(candidate);
+    if (parsed !== null) return parsed;
   }
   return null;
 };
@@ -114,6 +175,62 @@ const mergeRating = (...sources: Array<any | null | undefined>): number | null =
   return null;
 };
 
+const parsePriceValue = (value: any): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const normalized = value.replace(/[^\d,.-]/g, '').replace(',', '.');
+    const parsed = parseFloat(normalized);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+};
+
+const firstPositivePrice = (...values: any[]): number | null => {
+  for (const value of values) {
+    const parsed = parsePriceValue(value);
+    if (parsed !== null && parsed > 0) {
+      return parsed;
+    }
+  }
+  return null;
+};
+
+const resolveNegotiationBasePrice = (rideSnapshot: any | null, offer?: OfferItem): number | null => {
+  const estimated = firstPositivePrice(
+    rideSnapshot?.estimatedPrice,
+    rideSnapshot?.estimatedFare,
+    rideSnapshot?.negotiation?.estimatedPrice,
+  );
+  if (estimated !== null) return estimated;
+
+  const clientPrice = firstPositivePrice(
+    rideSnapshot?.clientSuggestedPrice,
+    rideSnapshot?.negotiation?.clientSuggestedPrice,
+  );
+  if (clientPrice !== null) return clientPrice;
+
+  return firstPositivePrice(
+    offer?.offeredPrice,
+    rideSnapshot?.driverOfferedPrice,
+    rideSnapshot?.negotiation?.driverOfferedPrice,
+  );
+};
+
+const hasRidePricingData = (ride: any | null | undefined): boolean => {
+  if (!ride) return false;
+  return (
+    firstPositivePrice(
+      ride?.clientSuggestedPrice,
+      ride?.negotiation?.clientSuggestedPrice,
+      ride?.estimatedPrice,
+      ride?.estimatedFare,
+      ride?.negotiation?.estimatedPrice,
+    ) !== null
+  );
+};
+
 export default function HomeScreenOffers({ navigation, route }: Props) {
   const { t } = useTranslation();
   const driverFallbackName = t('common.roles.driver');
@@ -176,10 +293,26 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
       const db = getDatabase();
       const basePath = serviceAreaId ? `activeRidesByArea/${serviceAreaId}` : 'activeRides';
       const rideRef = ref(db, `${basePath}/${rideId}`);
+      const fallbackRideRef = ref(db, `activeRides/${rideId}`);
 
       const onRide = async (snapshot: any) => {
         if (!mounted) return;
-        const ride = snapshot.val();
+        let ride = snapshot.val();
+
+        if (!hasRidePricingData(ride)) {
+          try {
+            const fallbackSnap = await get(fallbackRideRef);
+            if (fallbackSnap.exists()) {
+              ride = {
+                ...fallbackSnap.val(),
+                ...ride,
+              };
+            }
+          } catch (fallbackError) {
+            console.warn('[HomeScreenOffers] Error al leer fallback activeRides:', fallbackError);
+          }
+        }
+
         setRideSnapshot(ride);
 
         // read offers from data or nested path
@@ -269,88 +402,6 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
     return () => { mounted = false; if (cleanup) cleanup(); };
   }, [serviceAreaId]);
 
-  const nearbyDrivers = useMemo(() => {
-    if (!offers || offers.length === 0) return [] as any[];
-
-    return offers
-      .map((o) => {
-        const loc = driverLocations?.[o.driverId] || {};
-        const rawLat = loc?.lat ?? loc?.latitude ?? loc?.coords?.latitude;
-        const rawLng = loc?.lng ?? loc?.longitude ?? loc?.coords?.longitude;
-
-        const latitude =
-          typeof rawLat === 'number'
-            ? rawLat
-            : typeof rawLat === 'string'
-            ? parseFloat(rawLat)
-            : NaN;
-
-        const longitude =
-          typeof rawLng === 'number'
-            ? rawLng
-            : typeof rawLng === 'string'
-            ? parseFloat(rawLng)
-            : NaN;
-
-        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-          return null;
-        }
-
-        const info = driversInfo?.[o.driverId] || {};
-        const raw = driversRaw?.[o.driverId] || {};
-        const type = extractVehicleTypeFromInfo(info) || extractVehicleTypeFromInfo(raw);
-        const ratingParsed = mergeRating(info, raw, o.driver);
-
-        return {
-          id: o.driverId,
-          latitude,
-          longitude,
-          heading: typeof loc?.heading === 'number' && Number.isFinite(loc.heading) ? loc.heading : undefined,
-          vehicleIconSource: ensureVehicleIconSource(type),
-          isSelected: o.driverId === selectedDriverId,
-          rating: (ratingParsed !== null && Number.isFinite(ratingParsed) ? ratingParsed : null) as number | null,
-          photoURL: (info?.profilePhoto || info?.photoURL || info?.photoUrl || raw?.profilePhoto || raw?.photoURL || raw?.photoUrl || o.driver?.photoURL || null) as string | null,
-        };
-      })
-      .filter((d): d is NonNullable<typeof d> => !!d);
-  }, [offers, driverLocations, selectedDriverId, driversInfo, driversRaw]);
-
-  // Calcular ETA aproximada y hora de llegada (basado en distancia y velocidad promedio)
-  const etasByDriver = useMemo(() => {
-    const map: Record<string, { etaMins: number; arrivalLabel: string }> = {};
-    const originLat = rideSnapshot?.origin?.lat ?? rideSnapshot?.origin?.latitude;
-    const originLng = rideSnapshot?.origin?.lng ?? rideSnapshot?.origin?.longitude;
-    if (!originLat || !originLng) return map;
-
-    const toRad = (deg: number) => (deg * Math.PI) / 180;
-    const haversineKm = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-      const R = 6371;
-      const dLat = toRad(lat2 - lat1);
-      const dLon = toRad(lon2 - lon1);
-      const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-      return R * c;
-    };
-
-    (offers || []).forEach((o) => {
-      const loc = driverLocations?.[o.driverId];
-      const lat = loc?.lat ?? loc?.latitude ?? loc?.coords?.latitude;
-      const lng = loc?.lng ?? loc?.longitude ?? loc?.coords?.longitude;
-      if (typeof lat !== 'number' || typeof lng !== 'number') return;
-      const distKm = haversineKm(originLat, originLng, lat, lng);
-      const avgSpeedKmH = 24; // velocidad promedio urbana
-      const mins = Math.max(1, Math.round((distKm / avgSpeedKmH) * 60));
-      const arrival = new Date(Date.now() + mins * 60000);
-      const hours = arrival.getHours();
-      const minutes = arrival.getMinutes();
-      const h12 = ((hours + 11) % 12) + 1;
-      const ampm = hours >= 12 ? 'pm' : 'am';
-      const arrivalLabel = `${h12}:${minutes.toString().padStart(2, '0')}${ampm}`;
-      map[o.driverId] = { etaMins: mins, arrivalLabel };
-    });
-    return map;
-  }, [offers, driverLocations, rideSnapshot?.origin?.lat, rideSnapshot?.origin?.lng]);
-
   const handleSelectFromList = (driverId: string) => {
     setSelectedDriverId((current) => (current === driverId ? null : driverId));
   };
@@ -376,6 +427,11 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
   const selectedOffer: OfferItem | undefined = useMemo(
     () => offers.find(o => o.driverId === selectedDriverId),
     [offers, selectedDriverId],
+  );
+
+  const negotiationBasePrice = useMemo(
+    () => resolveNegotiationBasePrice(rideSnapshot, selectedOffer),
+    [rideSnapshot, selectedOffer],
   );
 
   const primaryActionLabel = useMemo(() => {
@@ -426,6 +482,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
   const acceptedAnim = useRef(new Animated.Value(0)).current;
   const confirmBtnAnim = useRef(new Animated.Value(1)).current;
   const cancelBtnAnim = useRef(new Animated.Value(1)).current;
+  const routeSignatureRef = useRef<string>('');
 
   useEffect(() => {
     if (!selectedOffer) {
@@ -574,39 +631,201 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
       .filter(Boolean) as Array<{ latitude: number; longitude: number; index: number; label?: string }>;
   }, [rideSnapshot?.extraDestinations, t]);
 
+  const mapCenterPoint = useMemo<LatLngPoint | null>(() => {
+    if (originCoords) {
+      return originCoords;
+    }
+    if (Number.isFinite(centerLat) && Number.isFinite(centerLng)) {
+      return { latitude: centerLat, longitude: centerLng };
+    }
+    return null;
+  }, [originCoords, centerLat, centerLng]);
+
+  const filteredDriverLocations = useMemo(() => {
+    if (!driverLocations || typeof driverLocations !== 'object') {
+      return driverLocations;
+    }
+
+    const allowedOfferIds = new Set(offers?.map((offer) => offer.driverId) ?? []);
+    const center = mapCenterPoint;
+    const includeByRadius = !!center;
+
+    const trimmed = Object.entries(driverLocations).reduce<Record<string, any>>((acc, [driverId, location]) => {
+      if (allowedOfferIds.has(driverId)) {
+        acc[driverId] = location;
+        return acc;
+      }
+      if (!includeByRadius) {
+        return acc;
+      }
+      const lat = extractCoordinateFromSource(location, 'lat');
+      const lng = extractCoordinateFromSource(location, 'lng');
+      if (lat === null || lng === null) {
+        return acc;
+      }
+      const distanceKm = haversineKm(center!.latitude, center!.longitude, lat, lng);
+      if (distanceKm <= MAX_DRIVER_RADIUS_KM) {
+        acc[driverId] = location;
+      }
+      return acc;
+    }, {});
+
+    return Object.keys(trimmed).length > 0 ? trimmed : null;
+  }, [driverLocations, mapCenterPoint, offers]);
+
+  const getDriverCoordinate = useCallback(
+    (driverId: string, axis: 'lat' | 'lng'): number | null => {
+      if (!driverId) return null;
+      const sources = [
+        filteredDriverLocations?.[driverId],
+        driverLocations?.[driverId],
+        driversInfo?.[driverId],
+        driversRaw?.[driverId],
+      ];
+      for (const source of sources) {
+        const parsed = extractCoordinateFromSource(source, axis);
+        if (parsed !== null) return parsed;
+      }
+      return null;
+    },
+    [filteredDriverLocations, driverLocations, driversInfo, driversRaw],
+  );
+
+  const nearbyDrivers = useMemo(() => {
+    if (!offers || offers.length === 0) return [];
+
+    return offers
+      .map((offer) => {
+        const latitude = getDriverCoordinate(offer.driverId, 'lat');
+        const longitude = getDriverCoordinate(offer.driverId, 'lng');
+        if (latitude === null || longitude === null) {
+          return null;
+        }
+        const locationSource = filteredDriverLocations?.[offer.driverId] || driverLocations?.[offer.driverId];
+
+        const info = driversInfo?.[offer.driverId] || {};
+        const raw = driversRaw?.[offer.driverId] || {};
+        const type = extractVehicleTypeFromInfo(info) || extractVehicleTypeFromInfo(raw);
+        const ratingParsed = mergeRating(info, raw, offer.driver);
+        const isSelected = offer.driverId === selectedDriverId;
+
+        return {
+          id: offer.driverId,
+          latitude,
+          longitude,
+          heading:
+            typeof locationSource?.heading === 'number' && Number.isFinite(locationSource.heading)
+              ? locationSource.heading
+              : undefined,
+          vehicleIconSource: isSelected ? ensureVehicleIconSource(type) : undefined,
+          isSelected,
+          rating: (ratingParsed !== null && Number.isFinite(ratingParsed) ? ratingParsed : null) as number | null,
+          photoURL:
+            (info?.profilePhoto ||
+              info?.photoURL ||
+              info?.photoUrl ||
+              raw?.profilePhoto ||
+              raw?.photoURL ||
+              raw?.photoUrl ||
+              offer.driver?.photoURL ||
+              null) as string | null,
+        };
+      })
+      .filter((driver): driver is NonNullable<typeof driver> => !!driver);
+  }, [
+    offers,
+    getDriverCoordinate,
+    filteredDriverLocations,
+    driverLocations,
+    driversInfo,
+    driversRaw,
+    selectedDriverId,
+  ]);
+
+  const etasByDriver = useMemo(() => {
+    const map: Record<string, { etaMins: number; arrivalLabel: string }> = {};
+    const origin = originCoords;
+    if (!origin) return map;
+
+    (offers || []).forEach((offer) => {
+      const lat = getDriverCoordinate(offer.driverId, 'lat');
+      const lng = getDriverCoordinate(offer.driverId, 'lng');
+      if (lat === null || lng === null) return;
+      const distKm = haversineKm(origin.latitude, origin.longitude, lat, lng);
+      const avgSpeedKmH = 24;
+      const mins = Math.max(1, Math.round((distKm / avgSpeedKmH) * 60));
+      const arrival = new Date(Date.now() + mins * 60000);
+      const hours = arrival.getHours();
+      const minutes = arrival.getMinutes();
+      const h12 = ((hours + 11) % 12) + 1;
+      const ampm = hours >= 12 ? 'pm' : 'am';
+      const arrivalLabel = `${h12}:${minutes.toString().padStart(2, '0')}${ampm}`;
+      map[offer.driverId] = { etaMins: mins, arrivalLabel };
+    });
+
+    return map;
+  }, [offers, getDriverCoordinate, originCoords]);
+
+  const routeData = useMemo(() => {
+    const originPoint = normalizePoint(rideSnapshot?.origin || rideSnapshot?.originLocation);
+    const destinationPoint = normalizePoint(rideSnapshot?.destination || rideSnapshot?.destinationLocation);
+    const extraStops =
+      Array.isArray(rideSnapshot?.extraDestinations) && rideSnapshot.extraDestinations.length > 0
+        ? rideSnapshot.extraDestinations
+            .map((stop: any) => normalizePoint(stop))
+            .filter(Boolean) as LatLngPoint[]
+        : [];
+
+    const serializePoint = (label: string, point: LatLngPoint | null) =>
+      point ? `${label}:${point.latitude.toFixed(5)},${point.longitude.toFixed(5)}` : '';
+
+    const signatureParts = [
+      serializePoint('o', originPoint),
+      serializePoint('d', destinationPoint),
+      ...extraStops.map((stop, idx) => serializePoint(`x${idx}`, stop)),
+    ].filter(Boolean);
+
+    return {
+      originPoint,
+      destinationPoint,
+      extraStops,
+      signature: signatureParts.join('|'),
+    };
+  }, [
+    rideSnapshot?.origin,
+    rideSnapshot?.originLocation,
+    rideSnapshot?.destination,
+    rideSnapshot?.destinationLocation,
+    rideSnapshot?.extraDestinations,
+  ]);
+
   useEffect(() => {
     let cancelled = false;
+    const { originPoint, destinationPoint, extraStops, signature } = routeData;
 
-    const normalizePoint = (point: any) => {
-      if (!point) return null;
-      const latitude = typeof point.lat === 'number' ? point.lat : typeof point.latitude === 'number' ? point.latitude : Number(point.lat ?? point.latitude);
-      const longitude = typeof point.lng === 'number' ? point.lng : typeof point.longitude === 'number' ? point.longitude : Number(point.lng ?? point.longitude);
-      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
-      return { latitude, longitude };
-    };
+    if (!originPoint || !destinationPoint) {
+      routeSignatureRef.current = signature;
+      setRouteCoordinates([]);
+      setLoadingRoute(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    if (signature && signature === routeSignatureRef.current) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    routeSignatureRef.current = signature;
+    setLoadingRoute(true);
 
     const computeRoute = async () => {
-      const originPoint = normalizePoint(rideSnapshot?.origin || rideSnapshot?.originLocation);
-      const destinationPoint = normalizePoint(rideSnapshot?.destination || rideSnapshot?.destinationLocation);
-      if (!originPoint || !destinationPoint) {
-        setRouteCoordinates([]);
-        setLoadingRoute(false);
-        return;
-      }
-
-      setLoadingRoute(true);
       try {
         const segments: Array<{ latitude: number; longitude: number }> = [];
         let currentPoint = originPoint;
-        const targets: Array<{ latitude: number; longitude: number }> = [];
-
-        if (Array.isArray(rideSnapshot?.extraDestinations) && rideSnapshot.extraDestinations.length > 0) {
-          rideSnapshot.extraDestinations.forEach((stop: any) => {
-            const normalized = normalizePoint(stop);
-            if (normalized) targets.push(normalized);
-          });
-        }
-        targets.push(destinationPoint);
+        const targets = [...extraStops, destinationPoint];
 
         for (const target of targets) {
           const segment = await mapsService.getDirections(currentPoint, target);
@@ -652,7 +871,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [rideSnapshot?.destination, rideSnapshot?.destinationLocation, rideSnapshot?.extraDestinations, rideSnapshot?.origin, rideSnapshot?.originLocation]);
+  }, [routeData]);
 
   const negotiationStatusLabel = useCallback(
     (status?: string) => {
@@ -682,11 +901,17 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
       ? t('client.homeOffers.list.arrivalLabel', { arrival: eta.arrivalLabel, eta: etaValueText })
       : t('client.homeOffers.list.arrivalFallback');
     const plate = item.driver?.vehicle?.plate || '—';
-    const clientPrice =
-      typeof rideSnapshot?.clientSuggestedPrice === 'number' && rideSnapshot.clientSuggestedPrice > 0
-        ? rideSnapshot.clientSuggestedPrice
-        : rideSnapshot?.estimatedPrice || rideSnapshot?.estimatedFare || null;
-    const driverPrice = typeof item.offeredPrice === 'number' && item.offeredPrice > 0 ? item.offeredPrice : null;
+    const clientPrice = firstPositivePrice(
+      rideSnapshot?.clientSuggestedPrice,
+      rideSnapshot?.negotiation?.clientSuggestedPrice,
+      rideSnapshot?.estimatedPrice,
+      rideSnapshot?.estimatedFare,
+    );
+    const driverPrice = firstPositivePrice(
+      item.offeredPrice,
+      rideSnapshot?.driverOfferedPrice,
+      rideSnapshot?.negotiation?.driverOfferedPrice,
+    );
     const info = driversInfo?.[item.driverId] || {};
     const raw = driversRaw?.[item.driverId] || {};
     const vehicleType = extractVehicleTypeFromInfo(info) || extractVehicleTypeFromInfo(raw);
@@ -698,10 +923,10 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
     const priceTextColor = selected ? '#ddddddff' : colors.text;
     const priceLabelColor = selected ? 'rgba(255, 255, 255, 1)' : colors.textSecondary;
     const driverPriceLabel = driverPrice
-      ? `C$${Number(driverPrice).toFixed(2)}`
+      ? `C$${driverPrice.toFixed(2)}`
       : t('client.homeOffers.list.driverPricePending');
     const clientPriceLabel =
-      clientPrice != null ? `C$${Number(clientPrice).toFixed(2)}` : t('client.homeOffers.list.clientPriceMissing');
+      clientPrice != null ? `C$${clientPrice.toFixed(2)}` : t('client.homeOffers.list.clientPriceMissing');
     const negotiationLabel = negotiationStatusLabel(rideSnapshot?.negotiationStatus);
     return (
       <TouchableOpacity
@@ -912,9 +1137,25 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
           name: selectedOffer?.driver?.name,
           rating: typeof selectedOffer?.driver?.rating === 'number' ? selectedOffer?.driver?.rating as number : undefined,
         }}
-        estimatedPrice={rideSnapshot?.estimatedPrice || rideSnapshot?.estimatedFare || 0}
-        clientSuggestedPrice={rideSnapshot?.clientSuggestedPrice}
-        driverOfferedPrice={selectedOffer?.offeredPrice || 0}
+        estimatedPrice={
+          rideSnapshot?.estimatedPrice ||
+          rideSnapshot?.estimatedFare ||
+          negotiationBasePrice ||
+          0
+        }
+        clientSuggestedPrice={
+          firstPositivePrice(
+            rideSnapshot?.clientSuggestedPrice,
+            rideSnapshot?.negotiation?.clientSuggestedPrice,
+          ) ?? undefined
+        }
+        driverOfferedPrice={
+          firstPositivePrice(
+            selectedOffer?.offeredPrice,
+            rideSnapshot?.driverOfferedPrice,
+            rideSnapshot?.negotiation?.driverOfferedPrice,
+          ) ?? 0
+        }
         negotiationStatus={rideSnapshot?.negotiationStatus}
         acceptedClientPrice={rideSnapshot?.acceptedClientPrice}
         onAcceptDriverOffer={async () => {
@@ -952,7 +1193,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
               rideId,
               price,
               'client',
-              rideSnapshot?.estimatedPrice || rideSnapshot?.estimatedFare || 0,
+              negotiationBasePrice ?? undefined,
             );
           } catch (e: any) {
             alertService.showErrorAlert(e?.message || t('client.homeOffers.alerts.counterOfferError'));
@@ -1077,7 +1318,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     //alignItems: 'center',
     marginLeft: -70,
     flexWrap: 'wrap',
-    marginTop: 2,
+    marginTop: 4,
   },
   priceValueGroup: {
     flexDirection: 'row',

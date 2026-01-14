@@ -161,6 +161,10 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
   const [activeRideGuard, setActiveRideGuard] = useState<{ id: string } | null>(null);
   const isScreenFocusedRef = useRef(false);
   const [photoModalUrl, setPhotoModalUrl] = useState<string | null>(null);
+  const ridesSnapshotsRef = useRef<Record<string, Record<string, any> | null | undefined>>({});
+
+  const hasRideEntries = (data: Record<string, any> | null | undefined) =>
+    Boolean(data && typeof data === 'object' && Object.keys(data).length > 0);
 
   useEffect(() => {
     const focusUnsubscribe = navigation.addListener('focus', () => {
@@ -244,6 +248,25 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
 
     return () => unsubscribe();
   }, [user?.id, navigation, serviceAreaId]);
+
+  const selectSnapshotData = useCallback((): Record<string, any> | null => {
+    if (serviceAreaId) {
+      const areaKey = `area:${serviceAreaId}`;
+      const areaData = ridesSnapshotsRef.current[areaKey];
+      if (hasRideEntries(areaData)) {
+        return areaData!;
+      }
+      const globalData = ridesSnapshotsRef.current.global;
+      if (hasRideEntries(globalData)) {
+        return globalData!;
+      }
+      if (areaData !== undefined) {
+        return areaData ?? null;
+      }
+      return globalData ?? null;
+    }
+    return ridesSnapshotsRef.current.global ?? null;
+  }, [serviceAreaId]);
 
   const applySnapshot = useCallback(
     (data: Record<string, any> | null | undefined) => {
@@ -380,27 +403,63 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
     [user?.id, coords?.latitude, coords?.longitude],
   );
 
+  const applySnapshotRef = useRef(applySnapshot);
+  useEffect(() => {
+    applySnapshotRef.current = applySnapshot;
+  }, [applySnapshot]);
+
+  const selectSnapshotDataRef = useRef(selectSnapshotData);
+  useEffect(() => {
+    selectSnapshotDataRef.current = selectSnapshotData;
+  }, [selectSnapshotData]);
+
   useEffect(() => {
     const db = getDatabase();
-    const path = serviceAreaId ? `activeRidesByArea/${serviceAreaId}` : 'activeRides';
-    const ridesRef = ref(db, path);
+    const pathConfigs = serviceAreaId
+      ? [
+          { key: `area:${serviceAreaId}`, path: `activeRidesByArea/${serviceAreaId}` },
+          { key: 'global', path: 'activeRides' },
+        ]
+      : [{ key: 'global', path: 'activeRides' }];
 
-    const unsubscribe = onValue(
-      ridesRef,
-      (snapshot) => {
-        applySnapshot(snapshot.val());
-      },
-      (error) => {
-        console.error('❌ Error en listener:', error);
-        setLoading(false);
-        setRefreshing(false);
-      },
-    );
+    const unsubscribes = pathConfigs.map(({ key, path }) => {
+      const ridesRef = ref(db, path);
+      return onValue(
+        ridesRef,
+        (snapshot) => {
+          const raw = snapshot.val();
+          const normalized = raw && typeof raw === 'object' ? raw : null;
+          ridesSnapshotsRef.current[key] = normalized;
+          const selector = selectSnapshotDataRef.current;
+          const handler = applySnapshotRef.current;
+          if (handler && selector) {
+            handler(selector());
+          }
+        },
+        (error) => {
+          console.error(`❌ [AvailableRides] Error escuchando ${path}:`, error);
+          ridesSnapshotsRef.current[key] = null;
+          const selector = selectSnapshotDataRef.current;
+          const handler = applySnapshotRef.current;
+          if (handler && selector) {
+            handler(selector());
+          }
+          setLoading(false);
+          setRefreshing(false);
+        },
+      );
+    });
 
     return () => {
-      unsubscribe();
+      unsubscribes.forEach((unsubscribe) => {
+        try {
+          unsubscribe();
+        } catch {
+          // ignore
+        }
+      });
     };
-  }, [navigation, user?.id, serviceAreaId, applySnapshot]);
+  }, [navigation, serviceAreaId]);
 
   // ✅ Supabase Realtime: resumen de penalizaciones
   useEffect(() => {
@@ -444,16 +503,28 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
     setRefreshing(true);
     try {
       const db = getDatabase();
-      const path = serviceAreaId ? `activeRidesByArea/${serviceAreaId}` : 'activeRides';
-      const ridesRef = ref(db, path);
-      const snapshot = await get(ridesRef);
-      applySnapshot(snapshot.val());
+      const pathConfigs = serviceAreaId
+        ? [
+            { key: `area:${serviceAreaId}`, path: `activeRidesByArea/${serviceAreaId}` },
+            { key: 'global', path: 'activeRides' },
+          ]
+        : [{ key: 'global', path: 'activeRides' }];
+
+      await Promise.all(
+        pathConfigs.map(async ({ key, path }) => {
+          const ridesRef = ref(db, path);
+          const snapshot = await get(ridesRef);
+          const raw = snapshot.val();
+          ridesSnapshotsRef.current[key] = raw && typeof raw === 'object' ? raw : null;
+        }),
+      );
+      applySnapshot(selectSnapshotData());
     } catch (error) {
       console.error('❌ [AvailableRides] Error refrescando manualmente:', error);
     } finally {
       setRefreshing(false);
     }
-  }, [applySnapshot, serviceAreaId]);
+  }, [applySnapshot, selectSnapshotData, serviceAreaId]);
 
   const ensureCardForCardPayments = async (ride: Ride): Promise<boolean> => {
     const ridePaymentMethod = ride?.paymentMethod || ride?.rideType;

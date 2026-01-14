@@ -2,6 +2,7 @@ import { getFirebaseFunctions } from '../config/firebase';
 import { httpsCallable } from 'firebase/functions';
 import sessionService from './sessionService';
 import analyticsService, { AnalyticsEvents } from './analyticsService';
+import i18n from '../i18n';
 
 export interface Location {
   latitude: number;
@@ -365,6 +366,9 @@ export interface Driver {
 
 class RidesService {
   private functions: any = null;
+  private tr(path: string, options?: Record<string, any>) {
+    return i18n.t(`services.ridesService.${path}`, options) as string;
+  }
 
   private async getFunctions() {
     if (!this.functions) {
@@ -377,13 +381,13 @@ class RidesService {
     try {
       // Validar datos requeridos
       if (!data.clientId) {
-        throw new Error('clientId es requerido');
+        throw new Error(this.tr('errors.clientIdRequired'));
       }
       if (!data.origin || !data.destination) {
-        throw new Error('origin y destination son requeridos');
+        throw new Error(this.tr('errors.locationsRequired'));
       }
       if (!data.estimatedPrice || data.estimatedPrice <= 0) {
-        throw new Error('estimatedPrice debe ser mayor a 0');
+        throw new Error(this.tr('errors.estimatedPricePositive'));
       }
 
       const functions = await this.getFunctions();
@@ -399,7 +403,7 @@ class RidesService {
       const result = response.data as { success: boolean; ride: any };
       
       if (!result.success || !result.ride) {
-        throw new Error('Respuesta inválida del servidor');
+        throw new Error(this.tr('errors.invalidServerResponse'));
       }
       
       await analyticsService.logRideEvent(AnalyticsEvents.RIDE_REQUESTED, result.ride.id, {
@@ -481,7 +485,7 @@ class RidesService {
     const response = await getRideDetailsFunction({ rideId, deviceId });
     const result = response.data as { success: boolean; ride: any };
     if (!result.success || !result.ride) {
-      throw new Error('No se pudieron obtener los detalles del viaje');
+      throw new Error(this.tr('errors.rideDetailsFailed'));
     }
     return normalizeRide(result.ride);
   }
@@ -610,7 +614,7 @@ class RidesService {
     const response = await markDriverOnRouteFn({ rideId, deviceId });
     const result = response.data as { success: boolean; ride: any };
     if (!result.success || !result.ride) {
-      throw new Error('No se pudo actualizar el estado del viaje');
+      throw new Error(this.tr('errors.driverOnRouteFailed'));
     }
     await analyticsService.logRideEvent(AnalyticsEvents.RIDE_DRIVER_ON_ROUTE, rideId);
     return result.ride;
@@ -695,7 +699,7 @@ class RidesService {
       return summary;
     }
     
-    throw new Error(`Estado no soportado: ${status}`);
+    throw new Error(this.tr('errors.unsupportedStatus', { status }));
   }
 
   async calculatePrice(distanceInMeters: number, extraStops: number = 0, isDesignatedDriver: boolean = false): Promise<{

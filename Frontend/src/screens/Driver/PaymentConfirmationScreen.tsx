@@ -5,7 +5,7 @@
  * Permite al conductor cambiar el método de pago si es necesario
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -13,11 +13,14 @@ import {
   ScrollView,
   ActivityIndicator,
   Alert,
+  TextInput,
+  NativeSyntheticEvent,
+  TextInputKeyPressEventData,
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { AnimatedButton } from '../../components/AnimatedButton';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { getDatabase, ref, onValue, off } from 'firebase/database';
+import { getDatabase, ref, onValue, off, update } from 'firebase/database';
 import { initializeFirebase } from '../../config/firebase';
 import cardsService from '../../services/cardsService';
 import alertService from '../../services/alertService';
@@ -84,6 +87,7 @@ export default function PaymentConfirmationScreen({
     switchToCard: string;
     switchToCash: string;
     reportIssue: string;
+    generateCode: string;
   };
   const methodBadgeTexts = t('driver.paymentConfirmation.methodBadge', { returnObjects: true }) as {
     label: string;
@@ -119,6 +123,11 @@ export default function PaymentConfirmationScreen({
       other: string;
       cancel: string;
     };
+    codeRequiredTitle: string;
+    codeRequiredMessage: string;
+    codeSuccessTitle: string;
+    codeSuccessMessage: string;
+    codeErrorMessage: string;
   };
   const methodNames = t('driver.paymentConfirmation.methodNames', {
     returnObjects: true,
@@ -132,6 +141,12 @@ export default function PaymentConfirmationScreen({
   const [paymentStatus, setPaymentStatus] = useState<any>(null);
   const [clientConfirmed, setClientConfirmed] = useState(false);
   const [hasCardOnFile, setHasCardOnFile] = useState<boolean | null>(null);
+
+  // Código de confirmación (flujo "code")
+  const [code, setCode] = useState<string | null>(null);
+  const [codeDigits, setCodeDigits] = useState(['', '', '', '']);
+  const [isCodeValidated, setIsCodeValidated] = useState(false);
+  const codeInputsRef = useRef<Array<TextInput | null>>([]);
 
   // Convertir a números
   const numericAmount = typeof amount === 'string' ? parseFloat(amount) : (amount || 0);
@@ -224,6 +239,11 @@ export default function PaymentConfirmationScreen({
             // Verificar confirmación del cliente
             setClientConfirmed(data.confirmedByClient === true || data.clientConfirmed === true);
 
+            // Código generado por backend (flujo code)
+            if (data.code && typeof data.code === 'string') {
+              setCode(data.code);
+            }
+
             // Si el pago fue completado
             if (data.status === 'completed' || data.status === 'confirmed') {
               console.log('✅ Pago completado');
@@ -262,10 +282,20 @@ export default function PaymentConfirmationScreen({
 
   // Confirmar pago en efectivo
   const handleConfirmCashPayment = async () => {
-    if (!clientConfirmed) {
+    // Si no hay código, se mantiene la validación normal de confirmación del cliente
+    if (!code && !clientConfirmed) {
       alertService.showInfoAlert(
         alertsTexts.waitTitle,
         alertsTexts.waitMessage
+      );
+      return;
+    }
+
+    // Si hay código, debe estar validado antes de confirmar
+    if (code && !isCodeValidated) {
+      alertService.showInfoAlert(
+        alertsTexts.codeRequiredTitle,
+        alertsTexts.codeRequiredMessage
       );
       return;
     }
@@ -285,12 +315,20 @@ export default function PaymentConfirmationScreen({
       const confirmCashPaymentFn = httpsCallable(functions, 'confirmCashPayment');
       
       const deviceId = await sessionService.getDeviceId();
+
+      const authenticationMethod = code && isCodeValidated ? 'code' : undefined;
+      const biometricType = code && isCodeValidated ? 'NOT_SUPPORTED' : undefined;
+      const biometricAuthenticated = code && isCodeValidated ? false : undefined;
+
       const result = await confirmCashPaymentFn({ 
         rideId: rideId,  // ← SIEMPRE usar rideId (Firebase ID)
         amount: numericAmount,
         tip: numericTip,
         confirmedBy: 'driver',
         deviceId,
+        authenticationMethod,
+        biometricType,
+        biometricAuthenticated,
       });
       
       const data = result.data as any;
@@ -504,6 +542,113 @@ export default function PaymentConfirmationScreen({
             <Text style={styles.instructionsTitle}>{instructionsTexts.title}</Text>
             <Text style={styles.instructionsText}>{instructionsTexts.text}</Text>
           </View>
+
+          {/* Botón para generar código de confirmación (flujo code) */}
+          {!code && (
+            <AnimatedButton
+              title={buttonTexts.generateCode}
+              onPress={async () => {
+                try {
+                  setConfirming(true);
+
+                  const { app } = await initializeFirebase();
+                  if (!app) throw new Error('Firebase no inicializado');
+
+                  const functions = getFunctions(app);
+                  const generateCashCodeFn = httpsCallable(functions, 'generateCashCode');
+                  const deviceId = await sessionService.getDeviceId();
+
+                  const res = await generateCashCodeFn({ rideId, deviceId });
+                  const data = res.data as any;
+
+                  if (data?.success && data.code) {
+                    setCode(String(data.code));
+                    setCodeDigits(['', '', '', '']);
+                    setIsCodeValidated(false);
+                  }
+                } catch (e: any) {
+                  console.error('❌ Error generando código:', e);
+                  alertService.showErrorAlert(e.message || 'No se pudo generar el código');
+                } finally {
+                  setConfirming(false);
+                }
+              }}
+              loading={confirming}
+              disabled={confirming || switching}
+              style={{ marginBottom: 12 }}
+            />
+          )}
+
+          {/* Ingreso del código de 4 dígitos cuando ya fue generado */}
+          {code && (
+            <View style={{ alignItems: 'center', marginBottom: 16 }}>
+              <Text style={{ marginBottom: 8, color: colors.text }}>
+                {t('driver.paymentConfirmation.codeLabel', { code })}
+              </Text>
+              <View style={{ flexDirection: 'row', justifyContent: 'center' }}>
+                {[0, 1, 2, 3].map((index) => (
+                  <TextInput
+                    key={index}
+                    ref={(el) => {
+                      codeInputsRef.current[index] = el;
+                    }}
+                    style={{
+                      width: 50,
+                      height: 50,
+                      marginHorizontal: 6,
+                      borderRadius: 8,
+                      borderWidth: 1,
+                      borderColor: isCodeValidated ? '#4CAF50' : colors.border,
+                      textAlign: 'center',
+                      fontSize: 20,
+                      color: colors.text,
+                      backgroundColor: colors.card,
+                    }}
+                    keyboardType="number-pad"
+                    maxLength={1}
+                    value={codeDigits[index]}
+                    onChangeText={(text) => {
+                      const digit = text.replace(/[^0-9]/g, '').slice(-1);
+                      const newDigits = [...codeDigits];
+                      newDigits[index] = digit;
+                      setCodeDigits(newDigits);
+
+                      if (digit && index < 3) {
+                        codeInputsRef.current[index + 1]?.focus();
+                      }
+
+                      const currentCode = newDigits.join('');
+                      if (currentCode.length === 4 && code) {
+                        if (currentCode === code) {
+                          setIsCodeValidated(true);
+                          alertService.showSuccessAlert(
+                            alertsTexts.codeSuccessTitle,
+                            alertsTexts.codeSuccessMessage
+                          );
+                        } else {
+                          setIsCodeValidated(false);
+                          alertService.showErrorAlert(alertsTexts.codeErrorMessage);
+                        }
+                      } else {
+                        setIsCodeValidated(false);
+                      }
+                    }}
+                    onKeyPress={(
+                      e: NativeSyntheticEvent<TextInputKeyPressEventData>
+                    ) => {
+                      if (
+                        e.nativeEvent.key === 'Backspace' &&
+                        !codeDigits[index] &&
+                        index > 0
+                      ) {
+                        codeInputsRef.current[index - 1]?.focus();
+                      }
+                    }}
+                  />
+                ))}
+              </View>
+            </View>
+          )}
 
           {/* Confirm Button */}
           <AnimatedButton
