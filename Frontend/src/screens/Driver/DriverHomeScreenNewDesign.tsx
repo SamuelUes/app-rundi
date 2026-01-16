@@ -8,7 +8,6 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  SafeAreaView,
   Platform,
   Image,
   ImageBackground,
@@ -16,7 +15,7 @@ import {
   Dimensions,
   ActivityIndicator,
 } from 'react-native';
-
+import { SafeAreaView } from 'react-native-safe-area-context';
 // Contextos y hooks
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';

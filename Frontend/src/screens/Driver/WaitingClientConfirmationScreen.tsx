@@ -6,7 +6,6 @@ import {
   ActivityIndicator,
   TouchableOpacity,
   Alert,
-  SafeAreaView,
   ScrollView,
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
@@ -14,6 +13,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { getDatabase, ref, onValue, off } from 'firebase/database';
 import ridesService from '../../services/ridesService';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 interface WaitingClientConfirmationScreenProps {
   route: {

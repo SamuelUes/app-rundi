@@ -9,12 +9,17 @@
 import { Platform, Alert, PermissionsAndroid } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import messaging from '@react-native-firebase/messaging';
-import auth from '@react-native-firebase/auth';
+// import messaging from '@react-native-firebase/messaging';
+// import auth from '@react-native-firebase/auth';
 import { getFirebaseFunctions } from '../config/firebase';
 import { httpsCallable } from 'firebase/functions';
 import notificationService from './notificationService';
 import i18n from '../i18n';
+import {
+  isNativeFirebaseSupported,
+  loadNativeFirebaseAuth,
+  loadNativeFirebaseMessaging,
+} from '../utils/nativeFirebase';
 
 // Importar FCM solo si está disponible (Development Build)
 let messagingModule: any = null;
@@ -141,22 +146,29 @@ async function registerBackgroundHandlers(module: any) {
   }
 }
 
-// React Native Firebase está disponible con google-services.json configurado
-const isNativeFirebaseSupported = (): boolean => true;
-
-const loadNativeFirebaseMessaging = async (): Promise<any> => {
-  return { getMessaging: () => messaging(), AuthorizationStatus: messaging.AuthorizationStatus };
-};
-
 const initializeMessagingModule = async (): Promise<boolean> => {
   if (messagingModule && messagingInstance) {
     return true;
   }
 
   try {
+    // Solo intentar inicializar FCM si los módulos nativos están disponibles
+    if (!isNativeFirebaseSupported()) {
+      console.log('⚠️ React Native Firebase no está soportado en este entorno (probablemente Expo Go)');
+      logAvailability('unavailable');
+      return false;
+    }
+
+    const rnMessaging = await loadNativeFirebaseMessaging();
+    if (!rnMessaging || !rnMessaging.default) {
+      console.warn('⚠️ No se pudo cargar el módulo nativo de Firebase Messaging.');
+      logAvailability('unavailable');
+      return false;
+    }
+
     // React Native Firebase se inicializa automáticamente con google-services.json
-    // Solo necesitamos obtener la instancia
-    const instance = messaging();
+    // Solo necesitamos obtener la instancia desde el módulo nativo
+    const instance = rnMessaging.default();
     
     if (!instance) {
       console.warn('⚠️ No se pudo obtener una instancia de Firebase Messaging.');
@@ -165,7 +177,7 @@ const initializeMessagingModule = async (): Promise<boolean> => {
     }
 
     messagingModule = {
-      AuthorizationStatus: messaging.AuthorizationStatus,
+      AuthorizationStatus: rnMessaging.AuthorizationStatus,
       requestPermission: async (currentInstance: any) => currentInstance.requestPermission(),
       hasPermission: async (currentInstance: any) => {
         if (typeof currentInstance?.hasPermission === 'function') {
@@ -181,12 +193,12 @@ const initializeMessagingModule = async (): Promise<boolean> => {
       setBackgroundMessageHandler: (arg1: any, arg2?: any) => {
         const handler = typeof arg1 === 'function' ? arg1 : arg2;
         if (typeof handler === 'function') {
-          messaging().setBackgroundMessageHandler(handler);
+          rnMessaging.default().setBackgroundMessageHandler(handler);
         }
       },
     };
     messagingInstance = instance;
-    AuthorizationStatusEnum = messaging.AuthorizationStatus;
+    AuthorizationStatusEnum = rnMessaging.AuthorizationStatus;
 
     await registerBackgroundHandlers(messagingModule);
     logAvailability('available');
@@ -238,7 +250,17 @@ class FCMService {
   }
 
   private async getAuth() {
-    return auth();
+    if (!isNativeFirebaseSupported()) {
+      return { currentUser: null } as any;
+    }
+
+    const nativeAuthModule = await loadNativeFirebaseAuth();
+    if (!nativeAuthModule || !nativeAuthModule.default) {
+      console.warn('⚠️ No se pudo cargar el módulo nativo de Firebase Auth.');
+      return { currentUser: null } as any;
+    }
+
+    return nativeAuthModule.default();
   }
 
   /**

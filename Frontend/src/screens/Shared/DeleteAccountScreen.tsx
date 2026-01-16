@@ -12,11 +12,12 @@ import {
   TextInput,
   Alert,
   ScrollView,
-  SafeAreaView,
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { userManagementService } from '../../services/userManagementService';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { t } from 'i18next';
 
 export default function DeleteAccountScreen({ navigation }: any) {
   const { colors } = useTheme();

@@ -26,6 +26,7 @@ import TermsAndConditionsModal, { CURRENT_TERMS_VERSION } from '../../components
 import PermissionsExplanation from '../../components/permissions/PermissionsExplanation';
 import type { User as FirebaseUser } from 'firebase/auth';
 import { useTranslation } from 'react-i18next';
+import { isNativeFirebaseSupported, loadNativeFirebaseAuth } from '../../utils/nativeFirebase';
 
 type NavigationLike = {
   replace: (routeName: string, params?: any) => void;
@@ -613,23 +614,30 @@ async function checkAuth(user: any): Promise<boolean> {
 
     // 1️⃣ Intentar validar sesión usando React Native Firebase Auth (teléfono SMS, etc.)
     try {
-      const { default: rnAuth } = await import('@react-native-firebase/auth');
-      const rnUser = rnAuth().currentUser;
+      // const { default: rnAuth } = await import('@react-native-firebase/auth');
+      if (isNativeFirebaseSupported()) {
+        const nativeAuthModule = await loadNativeFirebaseAuth();
+        const rnAuth = nativeAuthModule?.default;
 
-      if (rnUser) {
-        if (rnUser.uid === user.id) {
-          console.log(`✅ [Preflight] Usuario autenticado vía RN Firebase Auth: ${user.id}`);
-          return true;
+        if (rnAuth) {
+          const rnUser = rnAuth().currentUser;
+
+          if (rnUser) {
+            if (rnUser.uid === user.id) {
+              console.log(`✅ [Preflight] Usuario autenticado vía RN Firebase Auth: ${user.id}`);
+              return true;
+            }
+
+            console.warn(
+              '⚠️ [Preflight] Inconsistencia entre AuthContext y RN Firebase Auth:',
+              'contextId=',
+              user.id,
+              'rnUid=',
+              rnUser.uid,
+            );
+            // No retornamos aún: intentaremos validar con Firebase web auth más abajo
+          }
         }
-
-        console.warn(
-          '⚠️ [Preflight] Inconsistencia entre AuthContext y RN Firebase Auth:',
-          'contextId=',
-          user.id,
-          'rnUid=',
-          rnUser.uid,
-        );
-        // No retornamos aún: intentaremos validar con Firebase web auth más abajo
       }
     } catch (rnError) {
       console.warn('⚠️ [Preflight] No se pudo verificar sesión con RN Firebase Auth:', rnError);

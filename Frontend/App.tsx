@@ -21,8 +21,8 @@ import { navigationRef } from './src/navigation/NavigationService';
 import { useNotifications } from './src/hooks/useNotifications';
 import { useOverlayDeepLink } from './src/hooks/useOverlayDeepLink';
 import LocationPermissionGate from './src/components/permissions/LocationPermissionGate';
-import { initializeReactNativeFirebase } from './src/config/firebase-rn-native';
-import { getApp } from '@react-native-firebase/app';
+// import { initializeReactNativeFirebase } from './src/config/firebase-rn-native';
+// import { getApp } from '@react-native-firebase/app';
 
 // Stripe Publishable Key (desde .env)
 //const STRIPE_PUBLISHABLE_KEY = process.env.STRIPE_PUBLIC_KEY || 'pk_test_51SEkQKHVOBNC1WbUcQQAYs6FDD0dYO3wMA8dQzzHFTLFkEJsNpgBXe9V7ZOfQ85uvhivpzT88ntqoITyLoadFDGd00hoCYtolH';
@@ -87,18 +87,18 @@ function AppContent() {
 
 export default function App() {
   // Inicializar React Native Firebase al iniciar la app
-  useEffect(() => {
-    try {
-      console.log('🔧 Verificando React Native Firebase...');
-      // React Native Firebase se inicializa automáticamente con google-services.json
-      // Solo verificamos que esté disponible
-      const app = getApp();
-      console.log('✅ React Native Firebase disponible:', app.name);
-    } catch (error) {
-      console.error('❌ React Native Firebase no disponible:', error);
-      console.log('💡 Esto es normal si no hay google-services.json configurado');
-    }
-  }, []);
+  // useEffect(() => {
+  //   try {
+  //     console.log('🔧 Verificando React Native Firebase...');
+  //     // React Native Firebase se inicializa automáticamente con google-services.json
+  //     // Solo verificamos que esté disponible
+  //     const app = getApp();
+  //     console.log('✅ React Native Firebase disponible:', app.name);
+  //   } catch (error) {
+  //     console.error('❌ React Native Firebase no disponible:', error);
+  //     console.log('💡 Esto es normal si no hay google-services.json configurado');
+  //   }
+  // }, []);
 
   return (
     <I18nextProvider i18n={i18n}>
