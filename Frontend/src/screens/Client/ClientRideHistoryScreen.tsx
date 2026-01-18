@@ -318,7 +318,7 @@ export default function ClientRideHistoryScreen({ navigation }: any) {
         <TouchableOpacity
           style={[
             styles.filterButton,
-            filter === 'all' && { backgroundColor: colors.primary },
+            filter === 'all' && { backgroundColor: '#996224ff' },
           ]}
           onPress={() => setFilter('all')}
         >
@@ -335,7 +335,7 @@ export default function ClientRideHistoryScreen({ navigation }: any) {
         <TouchableOpacity
           style={[
             styles.filterButton,
-            filter === 'completed' && { backgroundColor: colors.primary },
+            filter === 'completed' && { backgroundColor: '#996224ff' },
           ]}
           onPress={() => setFilter('completed')}
         >
@@ -352,7 +352,7 @@ export default function ClientRideHistoryScreen({ navigation }: any) {
         <TouchableOpacity
           style={[
             styles.filterButton,
-            filter === 'canceled' && { backgroundColor: colors.primary },
+            filter === 'canceled' && { backgroundColor: '#996224ff' },
           ]}
           onPress={() => setFilter('canceled')}
         >
@@ -402,13 +402,13 @@ export default function ClientRideHistoryScreen({ navigation }: any) {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  filterContainer: { flexDirection: 'row', padding: 16, gap: 8 },
+  filterContainer: { flexDirection: 'row', padding: 16, gap: 8, paddingTop: 60 },
   filterButton: {
     flex: 1,
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 20,
-    backgroundColor: '#F5F5F5',
+    backgroundColor: '#8080808a',
     alignItems: 'center',
   },
   filterText: { fontSize: 14, fontWeight: '600' },
