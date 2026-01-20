@@ -1,6 +1,11 @@
 import type { PreflightRole, PreflightRegionInfo } from '../types/preflight';
 
-export type PreflightActionType = 'pending_payment' | 'active_ride' | 'penalties';
+export type PreflightActionType =
+  | 'pending_payment'
+  | 'active_ride'
+  | 'penalties'
+  | 'programmed_ride_client_confirm'
+  | 'programmed_ride_driver_confirm';
 
 export type PreflightAction = {
   type: PreflightActionType;
@@ -42,6 +47,6 @@ export function subscribePreflightResult(listener: (summary: PreflightSummary | 
   return () => listeners.delete(listener);
 }
 
-export function clearPreflightResult() {
+export function clearPreflightResult() { 
   setPreflightResult(null);
 }

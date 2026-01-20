@@ -21,6 +21,7 @@ import {
   uploadInsurancePhoto,
 } from '../../services/supabaseStorage';
 import { useTranslation } from 'react-i18next';
+import SupportChatShortcut from '../../components/SupportChatShortcut';
 
 interface VehicleData {
   id: string;

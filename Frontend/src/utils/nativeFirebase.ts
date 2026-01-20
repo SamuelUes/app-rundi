@@ -8,6 +8,7 @@ const cache = {
   auth: { loaded: false, value: null as typeof import('@react-native-firebase/auth') | null },
   app: { loaded: false, value: null as typeof import('@react-native-firebase/app') | null },
   messaging: { loaded: false, value: null as typeof import('@react-native-firebase/messaging') | null },
+  appCheck: { loaded: false, value: null as typeof import('@react-native-firebase/app-check') | null },
 };
 
 async function loadModule<T>(
@@ -61,4 +62,8 @@ export async function loadNativeFirebaseApp() {
 
 export async function loadNativeFirebaseMessaging() {
   return loadModule('messaging', () => import('@react-native-firebase/messaging'));
+}
+
+export async function loadNativeFirebaseAppCheck() {
+  return loadModule('appCheck', () => import('@react-native-firebase/app-check'));
 }

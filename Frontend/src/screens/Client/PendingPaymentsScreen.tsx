@@ -11,6 +11,7 @@ import {
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import LoadingOverlay from '../../components/LoadingOverlay';
+import SupportChatShortcut from '../../components/SupportChatShortcut';
 import { formatCurrency } from '../../utils/formatters';
 import { httpsCallable } from 'firebase/functions';
 import { getFirebaseFunctions } from '../../config/firebase';
@@ -312,6 +313,16 @@ export default function PendingPaymentsScreen({ navigation }: any) {
                 </TouchableOpacity>
               );
             })}
+
+            <SupportChatShortcut
+              style={{ marginTop: 8 }}
+              initialCategory="payment"
+              initialTitle={t('client.pendingPayments.supportTitle')}
+              label={t('client.pendingPayments.supportLabel')}
+              description={t(
+                'client.pendingPayments.supportDescription',
+              )}
+            />
           </>
         )}
       </ScrollView>

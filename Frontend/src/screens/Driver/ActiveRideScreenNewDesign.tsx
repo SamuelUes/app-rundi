@@ -26,6 +26,7 @@ import { extractVehicleTypeFromInfo, ensureVehicleIconSource } from '../../utils
 import { fetchClientProfile, ClientProfile } from '../../services/clientProfilesService';
 import notificationService from '../../services/notificationService';
 import { useTranslation } from 'react-i18next';
+import SupportChatShortcut from '../../components/SupportChatShortcut';
 
 const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
 
@@ -1005,6 +1006,15 @@ export default function ActiveRideScreen({ route, navigation }: any) {
                 </Text>
               )}
             </AnimatedTouchableOpacity>
+
+            <SupportChatShortcut
+              style={{ marginTop: 16, marginHorizontal: 8 }}
+              rideId={rideId}
+              initialCategory="service"
+              initialTitle={t('driver.activeRide.support.title')}
+              label={t('driver.activeRide.support.label')}
+              description={t('driver.activeRide.support.description')}
+            />
           </ScrollView>
         )}
 

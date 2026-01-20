@@ -28,6 +28,7 @@ import { useTranslation } from 'react-i18next';
 // Servicios optimizados
 import alertService from '../../services/alertService';
 import LoadingOverlay from '../../components/LoadingOverlay';
+import SupportChatShortcut from '../../components/SupportChatShortcut';
 import sessionService from '../../services/sessionService';
 import BiometricService from '../../services/biometricService';
 
@@ -544,6 +545,14 @@ export default function CashPaymentScreen({ route, navigation }: any) {
             </Text>
           </View>
         )}
+
+        <SupportChatShortcut
+          rideId={rideId}
+          initialCategory="payment"
+          initialTitle={t('client.cashPayment.support.title')}
+          label={t('client.cashPayment.support.label')}
+          description={t('client.cashPayment.support.description')}
+        />
       </ScrollView>
       
       <View style={styles.footer}>

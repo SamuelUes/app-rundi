@@ -1,6 +1,11 @@
 export type PreflightRole = 'driver' | 'client';
 
 // Información de región/respaldo de área de servicio calculada en el preflight
+export type ServiceAreaPoint = {
+  lat: number;
+  lng: number;
+};
+
 export type PreflightRegionInfo = {
   allowed: boolean;
   serviceAreaId: string | null;
@@ -9,6 +14,7 @@ export type PreflightRegionInfo = {
   reasonCode?: string;
   latitude?: number;
   longitude?: number;
+  polygon?: ServiceAreaPoint[];
 };
 
 export type PreflightRouteConfig = {
@@ -21,3 +27,4 @@ export type PreflightRouteConfig = {
   payCommissionsRoute?: string;
   pendingApprovalRoute?: string;
 };
+ 

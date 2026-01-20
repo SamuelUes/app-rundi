@@ -35,6 +35,8 @@ AnalyticsEvent.init(
     timestamp: {
       type: DataTypes.DATE,
       defaultValue: DataTypes.NOW,
+      allowNull: false,
+      field: 'created_at',
     },
   },
   {

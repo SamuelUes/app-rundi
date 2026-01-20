@@ -106,6 +106,10 @@ export interface RideLocation {
 export interface Ride {
   id: string;
   status: string;
+  isProgrammed?: boolean;
+  scheduledAt?: number;
+  clientConfirmedAt?: number;
+  driverConfirmedAt?: number;
   clientId?: string;
   driverId?: string;
   client?: RideParticipant;
@@ -170,6 +174,16 @@ export interface Ride {
   destinationLat?: number;
   destinationLng?: number;
 }
+
+export type CreateProgrammedRideData = RequestRideData & {
+  scheduledAt: number;
+};
+
+export type ProgrammedRideSummary = {
+  id: string;
+  status: string;
+  scheduledAt: number;
+};
 
 const toISOString = (value: any): string | undefined => {
   if (value === null || value === undefined) {
@@ -417,6 +431,82 @@ class RidesService {
       console.error('Error en requestRide:', error);
       throw error;
     }
+  }
+
+  async createProgrammedRide(data: CreateProgrammedRideData): Promise<ProgrammedRideSummary> {
+    if (!data.clientId) {
+      throw new Error(this.tr('errors.clientIdRequired'));
+    }
+    if (!data.origin || !data.destination) {
+      throw new Error(this.tr('errors.locationsRequired'));
+    }
+    if (!data.estimatedPrice || data.estimatedPrice <= 0) {
+      throw new Error(this.tr('errors.estimatedPricePositive'));
+    }
+    if (!data.scheduledAt || !Number.isFinite(data.scheduledAt) || data.scheduledAt <= 0) {
+      throw new Error(this.tr('errors.scheduledAtRequired'));
+    }
+
+    const functions = await this.getFunctions();
+    const createFn = httpsCallable(functions, 'createProgrammedRide');
+
+    const cleanData = Object.fromEntries(
+      Object.entries(data).filter(([_, v]) => v !== undefined)
+    );
+
+    const deviceId = await sessionService.getDeviceId();
+    const response = await createFn({ ...cleanData, deviceId });
+    const result = response.data as any;
+
+    if (!result?.success || !result?.ride?.id) {
+      throw new Error(this.tr('errors.invalidServerResponse'));
+    }
+
+    await analyticsService.logRideEvent(AnalyticsEvents.RIDE_REQUESTED, result.ride.id, {
+      isProgrammed: true,
+      scheduledAt: result.ride.scheduledAt,
+      estimatedPrice: data.estimatedPrice,
+      rideType: data.rideType || 'normal',
+      vehicleType: data.vehicleType || 'auto',
+    });
+
+    return {
+      id: result.ride.id,
+      status: result.ride.status,
+      scheduledAt: result.ride.scheduledAt,
+    };
+  }
+
+  async assignDriverToProgrammedRide(rideId: string): Promise<{ success: boolean; ride?: any; message?: string }> {
+    const functions = await this.getFunctions();
+    const assignFn = httpsCallable(functions, 'assignDriverToProgrammedRide');
+    const deviceId = await sessionService.getDeviceId();
+    const response = await assignFn({ rideId, deviceId });
+    return response.data as any;
+  }
+
+  async confirmProgrammedRideClient(rideId: string): Promise<{ success: boolean; ride?: any; message?: string }> {
+    const functions = await this.getFunctions();
+    const confirmFn = httpsCallable(functions, 'confirmProgrammedRideClient');
+    const deviceId = await sessionService.getDeviceId();
+    const response = await confirmFn({ rideId, deviceId });
+    return response.data as any;
+  }
+
+  async confirmProgrammedRideDriver(rideId: string): Promise<{ success: boolean; ride?: any; message?: string }> {
+    const functions = await this.getFunctions();
+    const confirmFn = httpsCallable(functions, 'confirmProgrammedRideDriver');
+    const deviceId = await sessionService.getDeviceId();
+    const response = await confirmFn({ rideId, deviceId });
+    return response.data as any;
+  }
+
+  async cancelProgrammedRide(rideId: string, reason?: string): Promise<{ success: boolean; ride?: any; message?: string }> {
+    const functions = await this.getFunctions();
+    const cancelFn = httpsCallable(functions, 'cancelProgrammedRide');
+    const deviceId = await sessionService.getDeviceId();
+    const response = await cancelFn({ rideId, reason, deviceId });
+    return response.data as any;
   }
 
   async getMyRides(

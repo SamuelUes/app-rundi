@@ -5,11 +5,170 @@ const db = admin.database();
 
 const DEFAULT_SERVICE_AREA_ID = 'ni-managua';
 
+type ServiceAreaPoint = {
+  lat: number;
+  lng: number;
+};
+
+interface ServiceAreaDoc {
+  id: string;
+  active?: boolean;
+  centerLat?: number;
+  centerLng?: number;
+  radiusKm?: number;
+  points?: ServiceAreaPoint[];
+}
+
+const DEFAULT_MANAGUA_POLYGON: ServiceAreaPoint[] = [
+  { lat: 12.2, lng: -86.35 },
+  { lat: 12.2, lng: -86.15 },
+  { lat: 12.05, lng: -86.15 },
+  { lat: 12.05, lng: -86.35 },
+  { lat: 12.2, lng: -86.35 },
+];
+
+const SERVICE_AREAS_CACHE_TTL_MS = 5 * 60 * 1000;
+let cachedServiceAreas: ServiceAreaDoc[] | null = null;
+let serviceAreasFetchedAt = 0;
+
 function isFiniteNumber(value: any): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
-function deriveServiceAreaIdFromCoords(latRaw: any, lngRaw: any): string | null {
+function toFiniteNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function normalizePolygon(points: unknown): ServiceAreaPoint[] | undefined {
+  if (!Array.isArray(points)) {
+    return undefined;
+  }
+
+  const normalized: ServiceAreaPoint[] = [];
+  for (const rawPoint of points) {
+    const lat = toFiniteNumber((rawPoint as any)?.lat);
+    const lng = toFiniteNumber((rawPoint as any)?.lng);
+    if (lat == null || lng == null) {
+      continue;
+    }
+    normalized.push({ lat, lng });
+  }
+
+  if (normalized.length < 3) {
+    return undefined;
+  }
+
+  return normalized;
+}
+
+function hasValidPolygon(points?: ServiceAreaPoint[]): points is ServiceAreaPoint[] {
+  return Array.isArray(points) && points.length >= 3;
+}
+
+function isPointInPolygon(lat: number, lng: number, polygon: ServiceAreaPoint[]): boolean {
+  let inside = false;
+
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i].lng;
+    const yi = polygon[i].lat;
+    const xj = polygon[j].lng;
+    const yj = polygon[j].lat;
+
+    const intersects =
+      yi > lat !== yj > lat &&
+      lng <
+        ((xj - xi) * (lat - yi)) / (yj - yi || Number.EPSILON) + xi;
+
+    if (intersects) {
+      inside = !inside;
+    }
+  }
+
+  return inside;
+}
+
+function isValidCoordinate(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isPointInServiceArea(lat: number, lng: number, area: ServiceAreaDoc): boolean {
+  if (hasValidPolygon(area.points)) {
+    return isPointInPolygon(lat, lng, area.points);
+  }
+
+  if (
+    isValidCoordinate(area.centerLat) &&
+    isValidCoordinate(area.centerLng) &&
+    isValidCoordinate(area.radiusKm)
+  ) {
+    const R = 6371; // km
+    const toRad = (value: number) => (value * Math.PI) / 180;
+    const dLat = toRad(lat - (area.centerLat as number));
+    const dLon = toRad(lng - (area.centerLng as number));
+    const sinLat = Math.sin(dLat / 2);
+    const sinLon = Math.sin(dLon / 2);
+    const a =
+      sinLat * sinLat +
+      Math.cos(toRad(area.centerLat as number)) *
+        Math.cos(toRad(lat)) *
+        sinLon * sinLon;
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const distanceKm = R * c;
+    return distanceKm <= (area.radiusKm ?? 0);
+  }
+
+  return false;
+}
+
+function isInDefaultManagua(lat: number, lng: number): boolean {
+  return isPointInPolygon(lat, lng, DEFAULT_MANAGUA_POLYGON);
+}
+
+async function loadServiceAreas(): Promise<ServiceAreaDoc[]> {
+  const now = Date.now();
+  if (cachedServiceAreas && now - serviceAreasFetchedAt < SERVICE_AREAS_CACHE_TTL_MS) {
+    return cachedServiceAreas;
+  }
+
+  try {
+    const snapshot = await admin
+      .firestore()
+      .collection('service_areas')
+      .where('active', '==', true)
+      .get();
+
+    const areas: ServiceAreaDoc[] = snapshot.docs.map((doc) => {
+      const data = doc.data() as Partial<ServiceAreaDoc>;
+      return {
+        id: doc.id,
+        active: data.active,
+        centerLat: data.centerLat,
+        centerLng: data.centerLng,
+        radiusKm: data.radiusKm,
+        points: normalizePolygon((data as any)?.points),
+      };
+    });
+
+    cachedServiceAreas = areas;
+    serviceAreasFetchedAt = now;
+    return cachedServiceAreas;
+  } catch (error) {
+    console.warn('[geoSharding] Error cargando service_areas:', error);
+  }
+
+  cachedServiceAreas = [];
+  serviceAreasFetchedAt = now;
+  return cachedServiceAreas;
+}
+
+async function deriveServiceAreaIdFromCoords(latRaw: any, lngRaw: any): Promise<string | null> {
   const lat = typeof latRaw === 'string' ? Number(latRaw) : latRaw;
   const lng = typeof lngRaw === 'string' ? Number(lngRaw) : lngRaw;
 
@@ -17,21 +176,14 @@ function deriveServiceAreaIdFromCoords(latRaw: any, lngRaw: any): string | null 
     return null;
   }
 
-  // Bounding box aproximado de Managua
-  const MANAGUA_BOUNDS = {
-    north: 12.20,
-    south: 12.05,
-    east: -86.15,
-    west: -86.35,
-  };
+  const areas = await loadServiceAreas();
+  for (const area of areas) {
+    if (isPointInServiceArea(lat, lng, area)) {
+      return area.id;
+    }
+  }
 
-  const inBounds =
-    lat >= MANAGUA_BOUNDS.south &&
-    lat <= MANAGUA_BOUNDS.north &&
-    lng >= MANAGUA_BOUNDS.west &&
-    lng <= MANAGUA_BOUNDS.east;
-
-  if (inBounds) {
+  if (isInDefaultManagua(lat, lng)) {
     return DEFAULT_SERVICE_AREA_ID;
   }
 
@@ -54,7 +206,7 @@ export const syncActiveRidesByArea = functions.database
     const originLat = origin.lat ?? origin.latitude ?? rideData.originLat;
     const originLng = origin.lng ?? origin.longitude ?? rideData.originLng;
 
-    const serviceAreaId = deriveServiceAreaIdFromCoords(originLat, originLng);
+    const serviceAreaId = await deriveServiceAreaIdFromCoords(originLat, originLng);
 
     if (!serviceAreaId) {
       // Si no podemos determinar un área, no shardear (queda solo en activeRides)
@@ -65,6 +217,44 @@ export const syncActiveRidesByArea = functions.database
 
     if (!after) {
       // Eliminación: limpiar nodo shard
+      await shardRef.remove();
+      return null;
+    }
+
+    const payload = {
+      ...after,
+      serviceAreaId,
+    };
+
+    await shardRef.set(payload);
+    return null;
+  });
+
+export const syncProgrammedRidesByArea = functions.database
+  .ref('programmedRides/{rideId}')
+  .onWrite(async (change, context) => {
+    const rideId = context.params.rideId as string;
+    const after = change.after.val();
+    const before = change.before.val();
+
+    const rideData = after || before;
+    if (!rideData) {
+      return null;
+    }
+
+    const origin = rideData.origin || {};
+    const originLat = origin.lat ?? origin.latitude ?? rideData.originLat;
+    const originLng = origin.lng ?? origin.longitude ?? rideData.originLng;
+
+    const serviceAreaId = await deriveServiceAreaIdFromCoords(originLat, originLng);
+
+    if (!serviceAreaId) {
+      return null;
+    }
+
+    const shardRef = db.ref(`programmedRidesByArea/${serviceAreaId}/${rideId}`);
+
+    if (!after) {
       await shardRef.remove();
       return null;
     }
@@ -94,7 +284,7 @@ export const syncDriverLocationsByArea = functions.database
     const lat = after.lat ?? after.latitude ?? after.coords?.latitude;
     const lng = after.lng ?? after.longitude ?? after.coords?.longitude;
 
-    const serviceAreaId = deriveServiceAreaIdFromCoords(lat, lng);
+    const serviceAreaId = await deriveServiceAreaIdFromCoords(lat, lng);
 
     if (!serviceAreaId) {
       // Si no se puede determinar área, no shardear
@@ -136,7 +326,7 @@ export const syncClientsLocationsByArea = functions.database
     const lat = after.latitude ?? after.lat ?? after.coords?.latitude;
     const lng = after.longitude ?? after.lng ?? after.coords?.longitude;
 
-    const serviceAreaId = deriveServiceAreaIdFromCoords(lat, lng);
+    const serviceAreaId = await deriveServiceAreaIdFromCoords(lat, lng);
 
     if (!serviceAreaId) {
       // Fuera de cualquier área conocida: limpiar shard por defecto (actualmente Managua)

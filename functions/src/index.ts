@@ -28,6 +28,7 @@ import * as driverServicesSequelizeAPI from "./api/driver_services_sequelize";
 import * as biometricAuthSequelizeAPI from "./api/biometric_authentications_sequelize";
 import * as analyticsSequelizeAPI from "./api/analytics_sequelize";
 import * as clientProfilesAPI from "./api/clientProfiles";
+import * as supportComplaintsAPI from "./api/support_complaints";
 import * as smsCodesSequelizeAPI from "./api/sms_verification_codes_sequelize";
 import * as commissionHistorySequelizeAPI from "./api/service_commission_history_sequelize";
 import * as authAPI from "./api/auth";
@@ -102,6 +103,9 @@ import * as fcmAPI from "./api/fcm";
 // Importar scheduled functions
 import * as cleanupScheduled from "./scheduled/cleanupOldRides";
 import * as cleanupRealtimeDB from "./scheduled/cleanupRealtimeDB";
+import * as programmedRidesScheduled from "./scheduled/programmedRides";
+import * as supportChatNotifications from "./triggers/supportChatNotifications";
+import * as userRolesAPI from "./api/userRoles";
 
 // Importar presence functions
 import * as presenceAPI from "./api/presence";
@@ -124,6 +128,11 @@ import { calculateRidePrice as calculateRidePriceHelper, type VehicleType as Bac
 // Rides
 export const createRide = ridesSequelizeAPI.createRide;
 export const requestRide = ridesSequelizeAPI.createRide; // Alias para compatibilidad
+export const createProgrammedRide = ridesSequelizeAPI.createProgrammedRide;
+export const assignDriverToProgrammedRide = ridesSequelizeAPI.assignDriverToProgrammedRide;
+export const confirmProgrammedRideClient = ridesSequelizeAPI.confirmProgrammedRideClient;
+export const confirmProgrammedRideDriver = ridesSequelizeAPI.confirmProgrammedRideDriver;
+export const cancelProgrammedRide = ridesSequelizeAPI.cancelProgrammedRide;
 export const acceptRide = ridesSequelizeAPI.acceptRide;
 export const confirmDriver = ridesSequelizeAPI.confirmDriver; // ✅ NUEVO: Cliente confirma conductor específico
 export const markDriverOnRoute = ridesSequelizeAPI.markDriverOnRoute;
@@ -184,6 +193,12 @@ export const rejectCounterOffer = priceNegotiationSequelizeAPI.rejectCounterOffe
 
 // Client profiles
 export const getClientProfile = clientProfilesAPI.getClientProfile;
+
+// Support / Complaints
+export const createSupportComplaint = supportComplaintsAPI.createSupportComplaint;
+export const getSupportTickets = supportComplaintsAPI.getSupportTickets;
+export const updateSupportTicket = supportComplaintsAPI.updateSupportTicket;
+export const deleteSupportTicket = supportComplaintsAPI.deleteSupportTicket;
 
 // Region availability
 export const checkRegionAvailability = regionAvailabilityAPI.checkRegionAvailability;
@@ -445,6 +460,7 @@ export const registerFCMToken = fcmAPI.registerFCMToken;
 export const clearFCMToken = fcmAPI.clearFCMToken;
 export const sendTestNotification = fcmAPI.sendTestNotification;
 export const notifyProximityRide = fcmAPI.notifyProximityRide;
+export const syncUserRoleFromCms = userRolesAPI.syncUserRoleFromCms;
 
 // Auth API (HTTP + Callable)
 export const auth = authAPI.auth;
@@ -506,8 +522,10 @@ export const onRideCreated = ridesTriggers.onRideCreated;
 
 // Geo-sharding triggers para RTDB (activeRidesByArea, driverLocationsByArea, clientsLocationsByArea)
 export const syncActiveRidesByArea = geoShardingTriggers.syncActiveRidesByArea;
+export const syncProgrammedRidesByArea = geoShardingTriggers.syncProgrammedRidesByArea;
 export const syncDriverLocationsByArea = geoShardingTriggers.syncDriverLocationsByArea;
 export const syncClientsLocationsByArea = geoShardingTriggers.syncClientsLocationsByArea;
+export const onSupportChatMessage = supportChatNotifications.onSupportChatMessage;
 
 // Payments Triggers
 // ⚠️ DEPRECADO: onPaymentCompleted (función vacía, solo loguea)
@@ -544,6 +562,9 @@ export const cleanupOrphanPaymentsScheduled = cleanupScheduled.cleanupOrphanPaym
 
 // Limpiar chats huérfanos (cada 12 horas)
 export const cleanupOldChatsScheduled = cleanupScheduled.cleanupOldChats;
+
+// Procesar viajes programados (cada minuto)
+export const processProgrammedRidesScheduled = programmedRidesScheduled.processProgrammedRides;
 
 // ============================================
 // REALTIME DATABASE CLEANUP (Reemplaza extensiones)

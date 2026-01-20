@@ -18,9 +18,15 @@ import { overlayManager } from '../../native/overlay';
 import { ensureActivityRecognitionPermission } from '../../utils/activityPermission';
 import alertService from '../../services/alertService';
 import { setPreflightResult, PreflightAction, PreflightSummary } from '../../state/preflightStore';
-import type { PreflightRole, PreflightRouteConfig, PreflightRegionInfo } from '../../types/preflight';
+import type {
+  PreflightRole,
+  PreflightRouteConfig,
+  PreflightRegionInfo,
+  ServiceAreaPoint,
+} from '../../types/preflight';
 import { fetchDriverProfile } from '../../services/driverProfilesService';
 import proximityService from '../../services/proximityService';
+import ridesService from '../../services/ridesService';
 import firebaseAuthService from '../../services/auth/firebaseAuthService';
 import TermsAndConditionsModal, { CURRENT_TERMS_VERSION } from '../../components/TermsAndConditionsModal';
 import PermissionsExplanation from '../../components/permissions/PermissionsExplanation';
@@ -50,33 +56,52 @@ const PENALTIES_LIMIT_CORDOBAS = 150;
 
 const CRITICAL_CHECKS = ['auth', 'notifications', 'foregroundLocation', 'backgroundLocation', 'overlay'];
 
-const MANAGUA_BOUNDS = {
-  north: 12.2,
-  south: 12.05,
-  east: -86.15,
-  west: -86.35,
-};
+const DEFAULT_MANAGUA_POLYGON: ServiceAreaPoint[] = [
+  { lat: 12.2, lng: -86.35 },
+  { lat: 12.2, lng: -86.15 },
+  { lat: 12.05, lng: -86.15 },
+  { lat: 12.05, lng: -86.35 },
+  { lat: 12.2, lng: -86.35 },
+];
 
-const getLocalRegionFallback = (
+function isPointInPolygon(lat: number, lng: number, polygon: ServiceAreaPoint[]): boolean {
+  let inside = false;
+
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i].lng;
+    const yi = polygon[i].lat;
+    const xj = polygon[j].lng;
+    const yj = polygon[j].lat;
+
+    const intersects =
+      yi > lat !== yj > lat &&
+      lng < ((xj - xi) * (lat - yi)) / (yj - yi || Number.EPSILON) + xi;
+
+    if (intersects) {
+      inside = !inside;
+    }
+  }
+
+  return inside;
+}
+
+function getLocalRegionFallback(
   t: (key: string, opts?: any) => string,
   latitude: number,
   longitude: number,
-): PreflightRegionInfo => {
-  const inBounds =
-    latitude >= MANAGUA_BOUNDS.south &&
-    latitude <= MANAGUA_BOUNDS.north &&
-    longitude >= MANAGUA_BOUNDS.west &&
-    longitude <= MANAGUA_BOUNDS.east;
+): PreflightRegionInfo {
+  const isInsideDefault = isPointInPolygon(latitude, longitude, DEFAULT_MANAGUA_POLYGON);
 
-  if (inBounds) {
+  if (isInsideDefault) {
     return {
       allowed: true,
       serviceAreaId: 'ni-managua',
-      areaName: 'Managua',
+      areaName: 'PPPManagua',
       message: t('shared.preflight.regionFallback.available'),
-      reasonCode: 'OK_FALLBACK_LOCAL',
+      reasonCode: 'OK_FALLBACK_LOCAL_POLYGON',
       latitude,
       longitude,
+      polygon: DEFAULT_MANAGUA_POLYGON,
     };
   }
 
@@ -85,11 +110,103 @@ const getLocalRegionFallback = (
     serviceAreaId: null,
     areaName: undefined,
     message: t('shared.preflight.regionFallback.unavailable'),
-    reasonCode: 'AREA_NOT_SUPPORTED_LOCAL',
+    reasonCode: 'AREA_NOT_SUPPORTED_LOCAL_POLYGON',
     latitude,
     longitude,
+    polygon: DEFAULT_MANAGUA_POLYGON,
   };
-};
+}
+
+async function checkProgrammedRideConfirmation(
+  role: PreflightRole,
+  userId: string | undefined,
+  t: (key: string, opts?: any) => string,
+): Promise<PreflightAction | undefined> {
+  if (!userId) {
+    return undefined;
+  }
+
+  try {
+    const { initializeFirebase } = await import('../../config/firebase');
+    const { getDatabase, ref, get } = await import('firebase/database');
+    const { app } = await initializeFirebase();
+    if (!app) {
+      return undefined;
+    }
+
+    const db = getDatabase(app);
+    const snapshot = await get(ref(db, 'programmedRides'));
+    const data = snapshot.val();
+
+    if (!data || typeof data !== 'object') {
+      return undefined;
+    }
+
+    const now = Date.now();
+
+    const entries = Object.entries<any>(data);
+
+    if (role === 'client') {
+      const candidate = entries.find(([_, ride]) => {
+        if (!ride) return false;
+        if (ride.status === 'canceled') return false;
+        if (ride.clientId !== userId) return false;
+        if (!ride.clientConfirmationRequestedAt) return false;
+        if (ride.clientConfirmedAt) return false;
+        const scheduledAt = typeof ride.scheduledAt === 'number' ? ride.scheduledAt : null;
+        if (!scheduledAt) return true;
+        return now <= scheduledAt + 5 * 60 * 1000;
+      });
+
+      if (!candidate) {
+        return undefined;
+      }
+
+      const [rideId, ride] = candidate;
+      const subtitleDate = ride?.scheduledAt ? new Date(ride.scheduledAt).toLocaleString() : undefined;
+      return {
+        type: 'programmed_ride_client_confirm',
+        title: t('shared.preflight.programmedRide.actionTitle'),
+        subtitle: subtitleDate
+          ? t('shared.preflight.programmedRide.actionSubtitle', { date: subtitleDate })
+          : undefined,
+        ctaLabel: t('shared.preflight.programmedRide.confirmButton'),
+        metadata: { rideId, scheduledAt: ride?.scheduledAt ?? null },
+      };
+    }
+
+    const candidate = entries.find(([_, ride]) => {
+      if (!ride) return false;
+      if (ride.status === 'canceled') return false;
+      if (ride.driverId !== userId) return false;
+      if (!ride.driverConfirmationRequestedAt) return false;
+      if (ride.driverConfirmedAt) return false;
+      if (!ride.clientConfirmedAt) return false;
+      const scheduledAt = typeof ride.scheduledAt === 'number' ? ride.scheduledAt : null;
+      if (!scheduledAt) return true;
+      return now <= scheduledAt + 5 * 60 * 1000;
+    });
+
+    if (!candidate) {
+      return undefined;
+    }
+
+    const [rideId, ride] = candidate;
+    const subtitleDate = ride?.scheduledAt ? new Date(ride.scheduledAt).toLocaleString() : undefined;
+    return {
+      type: 'programmed_ride_driver_confirm',
+      title: t('shared.preflight.programmedRide.actionTitle'),
+      subtitle: subtitleDate
+        ? t('shared.preflight.programmedRide.actionSubtitle', { date: subtitleDate })
+        : undefined,
+      ctaLabel: t('shared.preflight.programmedRide.confirmButton'),
+      metadata: { rideId, scheduledAt: ride?.scheduledAt ?? null },
+    };
+  } catch (error) {
+    console.error('❌ [Preflight] Error verificando viajes programados:', error);
+    return undefined;
+  }
+}
 
 const getCheckLabels = (t: (key: string, opts?: any) => string): Record<string, string> => ({
   auth: t('shared.preflight.checks.auth'),
@@ -102,6 +219,7 @@ const getCheckLabels = (t: (key: string, opts?: any) => string): Record<string, 
   pendingPayments: t('shared.preflight.checks.pendingPayments'),
   penalties: t('shared.preflight.checks.penalties'),
   activeRide: t('shared.preflight.checks.activeRide'),
+  programmedRideConfirm: t('shared.preflight.programmedRide.checkLabel'),
 });
 
 const PreflightCheckScreen = ({ navigation, route }: any) => {
@@ -235,6 +353,7 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
       ...(role === 'driver' && Platform.OS === 'android' ? ['overlay'] : []),
       ...(role === 'driver' && Platform.OS === 'android' ? ['activity'] : []),
       'activeRide',
+      'programmedRideConfirm',
       'pendingPayments',
       ...(role === 'driver' ? ['penalties'] : []),
     ];
@@ -298,6 +417,10 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
           case 'activeRide':
             action = await checkActiveRide(role, user?.id, nav, activeRideRoute, rideTrackingRoute, waitingRideRoute);
             success = true; // No crítico
+            break;
+          case 'programmedRideConfirm':
+            action = await checkProgrammedRideConfirmation(role, user?.id, t);
+            success = true;
             break;
         }
 
@@ -365,6 +488,102 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
 
     console.log(`✅ [Preflight] Verificaciones completadas. Acciones: ${actionsRef.current.length}`);
 
+    const programmedAction = actionsRef.current.find(
+      (candidate) =>
+        candidate.type === 'programmed_ride_client_confirm' ||
+        candidate.type === 'programmed_ride_driver_confirm',
+    );
+
+    if (programmedAction) {
+      const rideId = programmedAction.metadata?.rideId as string | undefined;
+      const scheduledAt = programmedAction.metadata?.scheduledAt as number | undefined;
+
+      if (rideId) {
+        const scheduledText = scheduledAt ? new Date(scheduledAt).toLocaleString() : '';
+
+        const title = t('shared.preflight.programmedRide.promptTitle');
+        const body = scheduledText
+          ? t('shared.preflight.programmedRide.promptBody', { date: scheduledText })
+          : t('shared.preflight.programmedRide.promptBodyNoDate');
+        const confirmLabel = t('shared.preflight.programmedRide.confirmButton');
+        const cancelLabel = t('shared.preflight.programmedRide.notNowButton');
+
+        const shouldConfirm = await new Promise<boolean>((resolve) => {
+          alertService.showConfirmAlert(
+            title,
+            body,
+            () => resolve(true),
+            () => resolve(false),
+            confirmLabel,
+            cancelLabel,
+          );
+        });
+
+        if (shouldConfirm) {
+          try {
+            let confirmedRidePayload: any = null;
+
+            if (programmedAction.type === 'programmed_ride_client_confirm') {
+              const confirmResult = await ridesService.confirmProgrammedRideClient(rideId);
+              confirmedRidePayload = confirmResult?.ride ?? null;
+            } else {
+              await ridesService.confirmProgrammedRideDriver(rideId);
+            }
+
+            const nextActions = actionsRef.current.filter((action) => action !== programmedAction);
+            let derivedActions = nextActions;
+
+            if (programmedAction.type === 'programmed_ride_client_confirm' && confirmedRidePayload) {
+              const hasDriverAssigned = Boolean(confirmedRidePayload.driverId);
+              const scheduledDateText = confirmedRidePayload.scheduledAt
+                ? new Date(confirmedRidePayload.scheduledAt).toLocaleString()
+                : undefined;
+
+              const followUpAction: PreflightAction = {
+                type: 'active_ride',
+                title: hasDriverAssigned
+                  ? t('client.home.activeRide.driverOnRoute')
+                  : t('client.home.activeRide.confirm'),
+                subtitle: scheduledDateText
+                  ? t('shared.preflight.programmedRide.actionSubtitle', { date: scheduledDateText })
+                  : undefined,
+                routeName: hasDriverAssigned ? rideTrackingRoute : waitingRideRoute,
+                routeParams: {
+                  rideId: confirmedRidePayload.id || rideId,
+                  driverId: confirmedRidePayload.driverId ?? undefined,
+                  driverName: confirmedRidePayload.driver?.name ?? undefined,
+                  vehiclePlate:
+                    confirmedRidePayload.vehicle?.plate ??
+                    confirmedRidePayload.driver?.vehicle?.plate ??
+                    undefined,
+                },
+                metadata: {
+                  rideId: confirmedRidePayload.id || rideId,
+                  status: confirmedRidePayload.status ?? 'client_confirmed',
+                  driverId: confirmedRidePayload.driverId ?? null,
+                  source: 'preflight_programmed_confirm',
+                },
+              };
+
+              derivedActions = [followUpAction, ...nextActions];
+            }
+
+            actionsRef.current = derivedActions;
+            const updatedSummary: PreflightSummary = {
+              ...summary,
+              actions: derivedActions,
+            };
+            setPreflightResult(updatedSummary);
+          } catch (confirmErr: any) {
+            console.error('❌ [Preflight] Error confirmando viaje programado:', confirmErr);
+            alertService.showErrorAlert(
+              confirmErr?.message || t('shared.preflight.programmedRide.confirmError'),
+            );
+          }
+        }
+      }
+    }
+
     const shouldNavigate = await handleTermsIfNeeded();
     if (shouldNavigate) {
       setTimeout(() => {
@@ -372,7 +591,21 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
       }, 1000);
     }
 
-  }, [role, user, nav, successRoute, activeRideRoute, pendingPaymentsRoute, payCommissionsRoute, rideTrackingRoute, animateProgress, handleTermsIfNeeded, navigateAfterChecks]);
+  }, [
+    role,
+    user,
+    nav,
+    successRoute,
+    activeRideRoute,
+    pendingPaymentsRoute,
+    payCommissionsRoute,
+    rideTrackingRoute,
+    waitingRideRoute,
+    animateProgress,
+    handleTermsIfNeeded,
+    navigateAfterChecks,
+    t,
+  ]);
 
   const handleRetry = useCallback(() => {
     checksRunRef.current = false;

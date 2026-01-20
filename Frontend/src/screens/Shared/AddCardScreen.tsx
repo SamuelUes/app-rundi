@@ -15,6 +15,7 @@ import {
 import { useTheme } from '../../context/ThemeContext';
 import cardsService from '../../services/cardsService';
 import { useTranslation } from 'react-i18next';
+import SupportChatShortcut from '../../components/SupportChatShortcut';
 
 interface AddCardScreenProps {
   navigation: any;
@@ -363,6 +364,14 @@ export default function AddCardScreen({ navigation }: AddCardScreenProps) {
             {t('shared.addCards.security.message')}
           </Text>
         </View>
+
+        <SupportChatShortcut
+          style={{ margin: 16 }}
+          initialCategory="payment"
+          initialTitle={t('shared.addCards.support.title')}
+          label={t('shared.addCards.support.label')}
+          description={t('shared.addCards.support.description')}
+        />
       </ScrollView>
     </KeyboardAvoidingView>
   );

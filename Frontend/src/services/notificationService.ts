@@ -438,7 +438,7 @@ class NotificationService {
   }
 
   private tr(path: string, options?: Record<string, any>) {
-    return i18n.t(`services.notificationService.${path}`, options) as string;
+    return i18n.t(`common.services.notificationService.${path}`, options) as string;
   }
 
   private formatPriceCordoba(amount?: number | string | null) {

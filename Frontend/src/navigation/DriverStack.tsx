@@ -21,6 +21,8 @@ import AccountScreen from '../screens/Shared/AccountScreen';
 import DeleteAccountScreen from '../screens/Shared/DeleteAccountScreen';
 import HelpScreen from '../screens/Shared/HelpScreen';
 import ChatScreen from '../screens/Shared/ChatScreen';
+import SupportChatScreen from '../screens/Shared/SupportChatScreen';
+import SupportComplaintScreen from '../screens/Shared/SupportComplaintScreen';
 import CompleteVehicleInfoScreen from '../screens/Shared/CompleteVehicleInfoScreen';
 import RideDetailsScreen from '../screens/Shared/RideDetailsScreen';
 import PreflightCheckScreen from '../screens/Shared/PreflightCheckScreen';
@@ -94,6 +96,15 @@ export type DriverStackParamList = {
     rideId: string;
     otherUserName: string;
   };
+  SupportChat: {
+    rideId?: string | null;
+    initialCategory?: 'service' | 'driver' | 'payment' | 'app' | 'other';
+    initialTitle?: string | null;
+    complaintId?: string | null;
+  } | undefined;
+  SupportComplaints: {
+    initialTicketId?: string | null;
+  } | undefined;
   CompleteVehicleInfo: undefined;
   RideDetails: {
     rideId: string;
@@ -221,6 +232,16 @@ export default function DriverStack() {
       <Stack.Screen name="DeleteAccount" component={DeleteAccountScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Help" component={HelpScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Chat" component={ChatScreen} options={{ headerShown: true, title: 'Chat' }} />
+      <Stack.Screen
+        name="SupportChat"
+        component={SupportChatScreen}
+        options={{ headerShown: false, title: 'Atención al cliente' }}
+      />
+      <Stack.Screen
+        name="SupportComplaints"
+        component={SupportComplaintScreen}
+        options={{ headerShown: false, title: 'Mis reportes' }}
+      />
       <Stack.Screen name="CompleteVehicleInfo" component={CompleteVehicleInfoScreen} options={{ headerShown: false }} />
       <Stack.Screen name="RideDetails" component={RideDetailsScreen} options={{ headerShown: false }} />
       <Stack.Screen name="PaymentConfirmation" component={PaymentConfirmationScreen} options={{ headerShown: false }} />

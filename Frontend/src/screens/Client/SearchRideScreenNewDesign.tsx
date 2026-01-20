@@ -11,10 +11,13 @@ import {
   ScrollView,
   Image,
   KeyboardAvoidingView,
+  Modal,
   Animated,
   Easing,
   useColorScheme,
+  Share,
 } from 'react-native';
+import { Picker } from '@react-native-picker/picker';
 import * as ImagePicker from 'expo-image-picker';
 import DynamicMap from '../../components/DynamicMap';
 import { useLocation } from '../../hooks/useLocation';
@@ -285,6 +288,11 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
 
   const [mapSelectionMode, setMapSelectionMode] = useState<MapSelectionState | null>(null);
   const [submittingRequest, setSubmittingRequest] = useState(false);
+  const [scheduleModalVisible, setScheduleModalVisible] = useState(false);
+  const [scheduledAt, setScheduledAt] = useState<number | null>(null);
+  const [scheduleDayIndex, setScheduleDayIndex] = useState(0);
+  const [scheduleHour, setScheduleHour] = useState<number>(0);
+  const [scheduleMinute, setScheduleMinute] = useState<number>(0);
   const [bottomPanelExpanded, setBottomPanelExpanded] = useState(true);
   const bottomPanelAnim = useRef(new Animated.Value(0)).current;
 
@@ -1554,9 +1562,11 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
       }
     }
 
+    let requestData: any;
+
     try {
       setSubmittingRequest(true);
-      const requestData: any = {
+      requestData = {
         clientId: user.id,
         origin: {
           lat: startPoint.latitude,
@@ -1579,7 +1589,10 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
       };
 
       if (clientSuggestedPrice) requestData.clientSuggestedPrice = clientSuggestedPrice;
-      if (rideComment.trim()) requestData.clientComment = rideComment.trim();
+      if (rideComment.trim()) {
+        requestData.clientComment = rideComment.trim();
+        requestData.notes = rideComment.trim();
+      }
       if (extraDestinations.length > 0) {
         requestData.extraDestinations = extraDestinations
           .filter((stop) => stop.coords)
@@ -1606,9 +1619,107 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
       const matched = servicesCatalog.find((service) => service.code === codeMap[vehicleType]);
       if (matched?.id) requestData.serviceId = matched.id;
 
+      if (scheduledAt) {
+        const programmed = await ridesService.createProgrammedRide({
+          ...requestData,
+          scheduledAt,
+        });
+        const scheduledText = new Date(programmed.scheduledAt).toLocaleString();
+        const rideId = programmed.id;
+        alertService.showSuccessAlert(
+          tr('scheduling.successTitle'),
+          tr('scheduling.successMessageWithId', { date: scheduledText, id: rideId }),
+          { duration: 3500 },
+        );
+        try {
+          await Share.share({
+            message: tr('scheduling.shareMessage', { date: scheduledText, id: rideId }),
+          });
+        } catch (shareError) {
+          console.warn('Error sharing scheduled ride ID', shareError);
+        }
+        navigation?.navigate?.('ClientHome');
+        return;
+      }
+
       const ride = await ridesService.requestRide(requestData);
       navigation?.navigate?.('HomeOffers', { rideId: ride.id });
     } catch (error: any) {
+      const details: any = (error && (error.details || (error as any).data)) || null;
+      const errorCode: string | null =
+        (error && (error.code || (error as any).errorInfo?.code)) || null;
+
+      const isFailedPrecondition =
+        errorCode === 'functions/failed-precondition' || errorCode === 'failed-precondition';
+
+      const isConflict =
+        isFailedPrecondition && details && details.code === 'CLIENT_PROGRAMMED_RIDE_CONFLICT';
+
+      if (isConflict && details?.existingRideId && details?.existingScheduledAt && requestData) {
+        const conflictDate = new Date(details.existingScheduledAt).toLocaleString();
+        const title = tr('scheduling.conflictTitle');
+        const body = scheduledAt
+          ? tr('scheduling.conflictBodyScheduled', { date: conflictDate })
+          : tr('scheduling.conflictBodyImmediate', { date: conflictDate });
+        const replaceLabel = tr('scheduling.conflictReplaceButton');
+        const keepLabel = tr('scheduling.conflictKeepButton');
+
+        setSubmittingRequest(false);
+
+        const shouldReplace = await new Promise<boolean>((resolve) => {
+          alertService.showConfirmAlert(
+            title,
+            body,
+            () => resolve(true),
+            () => resolve(false),
+            replaceLabel,
+            keepLabel,
+          );
+        });
+
+        if (!shouldReplace) {
+          return;
+        }
+
+        setSubmittingRequest(true);
+
+        try {
+          await ridesService.cancelProgrammedRide(
+            details.existingRideId,
+            scheduledAt ? 'replaced_by_new_programmed_ride' : 'replaced_by_new_immediate_ride',
+          );
+
+          if (scheduledAt) {
+            const programmed = await ridesService.createProgrammedRide({
+              ...requestData,
+              scheduledAt,
+            });
+            const scheduledText = new Date(programmed.scheduledAt).toLocaleString();
+            const rideId = programmed.id;
+            alertService.showSuccessAlert(
+              tr('scheduling.successTitle'),
+              tr('scheduling.successMessageWithId', { date: scheduledText, id: rideId }),
+              { duration: 3500 },
+            );
+            try {
+              await Share.share({
+                message: tr('scheduling.shareMessage', { date: scheduledText, id: rideId }),
+              });
+            } catch (shareError) {
+              console.warn('Error sharing scheduled ride ID', shareError);
+            }
+            navigation?.navigate?.('ClientHome');
+          } else {
+            const ride = await ridesService.requestRide(requestData);
+            navigation?.navigate?.('HomeOffers', { rideId: ride.id });
+          }
+        } catch (retryError: any) {
+          alertService.showErrorAlert(retryError?.message || tr('alerts.requestError'));
+        }
+
+        return;
+      }
+
       alertService.showErrorAlert(error?.message || tr('alerts.requestError'));
     } finally {
       setSubmittingRequest(false);
@@ -1639,7 +1750,78 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     defaultLabels.destination,
     defaultLabels.myLocation,
     tr,
+    scheduledAt,
   ]);
+
+  const scheduleDayOptions = useMemo(() => {
+    const days: Array<{ label: string; date: Date }> = [];
+    const base = new Date();
+    base.setHours(0, 0, 0, 0);
+    for (let i = 0; i <= 20; i++) {
+      const d = new Date(base);
+      d.setDate(base.getDate() + i);
+      const label = d.toLocaleDateString(undefined, {
+        weekday: 'short',
+        month: 'short',
+        day: '2-digit',
+      });
+      days.push({ label, date: d });
+    }
+    return days;
+  }, []);
+
+  const scheduleMinuteOptions = useMemo(() => {
+    const values: number[] = [];
+    for (let m = 0; m < 60; m += 5) {
+      values.push(m);
+    }
+    return values;
+  }, []);
+
+  const openScheduleModal = useCallback(() => {
+    const base = scheduledAt ? new Date(scheduledAt) : new Date(Date.now() + 30 * 60 * 1000);
+    const roundedMinutes = Math.ceil(base.getMinutes() / 5) * 5;
+    base.setMinutes(roundedMinutes >= 60 ? 0 : roundedMinutes);
+    if (roundedMinutes >= 60) {
+      base.setHours(base.getHours() + 1);
+    }
+    base.setSeconds(0, 0);
+
+    const dayIndex = scheduleDayOptions.findIndex((opt) => {
+      return (
+        opt.date.getFullYear() === base.getFullYear() &&
+        opt.date.getMonth() === base.getMonth() &&
+        opt.date.getDate() === base.getDate()
+      );
+    });
+
+    setScheduleDayIndex(dayIndex >= 0 ? dayIndex : 0);
+    setScheduleHour(base.getHours());
+    setScheduleMinute(base.getMinutes() - (base.getMinutes() % 5));
+    setScheduleModalVisible(true);
+  }, [scheduledAt, scheduleDayOptions]);
+
+  const applyScheduleSelection = useCallback(() => {
+    const day = scheduleDayOptions[scheduleDayIndex]?.date;
+    if (!day) {
+      return;
+    }
+
+    const candidate = new Date(day);
+    candidate.setHours(scheduleHour, scheduleMinute, 0, 0);
+    const ms = candidate.getTime();
+    const now = Date.now();
+    const minMs = now + 30 * 60 * 1000;
+    const maxMs = now + 20 * 24 * 60 * 60 * 1000;
+
+    if (ms < minMs || ms > maxMs) {
+      alertService.showErrorAlert(tr('scheduling.invalidRange'));
+      return;
+    }
+
+    setScheduledAt(ms);
+    setScheduleModalVisible(false);
+  }, [scheduleDayOptions, scheduleDayIndex, scheduleHour, scheduleMinute]);
 
   const selectionTitle = useMemo(() => {
     if (activeSelection === 'origin') return tr('search.selectionOriginTitle');
@@ -2164,6 +2346,28 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
 
           <View style={styles.ctaContainer}>
             <TouchableOpacity
+              style={[styles.scheduleCta, submittingRequest && styles.scheduleCtaDisabled]}
+              disabled={submittingRequest}
+              onPress={openScheduleModal}
+            >
+              <Text style={styles.scheduleCtaText}>
+                {scheduledAt
+                  ? tr('scheduling.scheduledLabel', {
+                      date: new Date(scheduledAt).toLocaleString(),
+                    })
+                  : tr('scheduling.openButton')}
+              </Text>
+            </TouchableOpacity>
+            {scheduledAt ? (
+              <TouchableOpacity
+                style={[styles.scheduleClearCta, submittingRequest && styles.scheduleCtaDisabled]}
+                disabled={submittingRequest}
+                onPress={() => setScheduledAt(null)}
+              >
+                <Text style={styles.scheduleClearText}>{tr('scheduling.clearButton')}</Text>
+              </TouchableOpacity>
+            ) : null}
+            <TouchableOpacity
               style={[styles.cta, (!isRequestReady || submittingRequest) && styles.ctaDisabled]}
               disabled={!isRequestReady || submittingRequest}
               onPress={onConfirmRequest}
@@ -2174,7 +2378,9 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
                   <Text style={styles.ctaText}>{tr('cta.loading')}</Text>
                 </View>
               ) : (
-                <Text style={styles.ctaText}>{tr('cta.primary')}</Text>
+                <Text style={styles.ctaText}>
+                  {scheduledAt ? tr('cta.primaryScheduled') : tr('cta.primary')}
+                </Text>
               )}
             </TouchableOpacity>
           </View>
@@ -2295,11 +2501,79 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         <View style={styles.submittingOverlay} pointerEvents="none">
           <View style={styles.submittingCard}>
             <ActivityIndicator color={colors.primary || '#2196F3'} size="large" />
-            <Text style={styles.submittingLabel}>{tr('cta.submittingOverlay')}</Text>
+            <Text style={[styles.submittingText, { color: colors.text }]}>{tr('cta.loading')}</Text>
           </View>
         </View>
       )}
 
+      <Modal
+        visible={scheduleModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setScheduleModalVisible(false)}
+      >
+        <View style={styles.scheduleOverlay}>
+          <View style={[styles.scheduleCard, { backgroundColor: isDark ? '#1f1f1f' : colors.card }]}>
+            <Text style={[styles.scheduleTitle, { color: colors.text }]}>{tr('scheduling.modalTitle')}</Text>
+
+            <Text style={[styles.scheduleLabel, { color: colors.text }]}>{tr('scheduling.dateLabel')}</Text>
+            <View style={[styles.pickerBox, { borderColor: colors.border || (isDark ? '#444' : '#ddd') }]}>
+              <Picker selectedValue={scheduleDayIndex} onValueChange={(value) => setScheduleDayIndex(Number(value))}>
+                {scheduleDayOptions.map((opt, idx) => (
+                  <Picker.Item key={`day-${idx}`} label={opt.label} value={idx} />
+                ))}
+              </Picker>
+            </View>
+
+            <Text style={[styles.scheduleLabel, { color: colors.text }]}>{tr('scheduling.timeLabel')}</Text>
+            <View style={styles.timeRow}>
+              <View
+                style={[
+                  styles.pickerBox,
+                  styles.timePicker,
+                  { borderColor: colors.border || (isDark ? '#444' : '#ddd') },
+                ]}
+              >
+                <Picker selectedValue={scheduleHour} onValueChange={(value) => setScheduleHour(Number(value))}>
+                  {Array.from({ length: 24 }, (_, h) => (
+                    <Picker.Item key={`hour-${h}`} label={String(h).padStart(2, '0')} value={h} />
+                  ))}
+                </Picker>
+              </View>
+              <Text style={[styles.timeSeparator, { color: colors.text }]}>:</Text>
+              <View
+                style={[
+                  styles.pickerBox,
+                  styles.timePicker,
+                  { borderColor: colors.border || (isDark ? '#444' : '#ddd') },
+                ]}
+              >
+                <Picker selectedValue={scheduleMinute} onValueChange={(value) => setScheduleMinute(Number(value))}>
+                  {scheduleMinuteOptions.map((m) => (
+                    <Picker.Item key={`min-${m}`} label={String(m).padStart(2, '0')} value={m} />
+                  ))}
+                </Picker>
+              </View>
+            </View>
+
+            <View style={styles.scheduleButtonsRow}>
+              <TouchableOpacity
+                style={[
+                  styles.scheduleButton,
+                  styles.scheduleCancelButton,
+                  { borderColor: colors.border || (isDark ? '#444' : '#ddd') },
+                ]}
+                onPress={() => setScheduleModalVisible(false)}
+              >
+                <Text style={[styles.scheduleButtonText, { color: colors.text }]}>{tr('scheduling.modalCancel')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.scheduleButton, { backgroundColor: '#b38737' }]} onPress={applyScheduleSelection}>
+                <Text style={styles.scheduleButtonTextPrimary}>{tr('scheduling.modalConfirm')}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -2639,6 +2913,48 @@ function createStyles(colors: any, isDark: boolean = false) {
 
     ctaContainer: { paddingTop: 12 },
 
+    scheduleCta: {
+      paddingVertical: 12,
+      borderRadius: 12,
+      borderWidth: 2,
+      borderColor: colors.SecondBorder || (isDark ? '#444444ff' : '#ddd'),
+      marginBottom: 10,
+      backgroundColor: colors.card || (isDark ? '#2a2a2a' : '#f7f7f7'),
+    },
+    scheduleCtaDisabled: { opacity: 0.65 },
+    scheduleCtaText: { textAlign: 'center', fontWeight: '800', color: colors.text },
+    scheduleClearCta: {
+      paddingVertical: 10,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.border || (isDark ? '#444' : '#ddd'),
+      marginBottom: 10,
+      backgroundColor: 'transparent',
+    },
+    scheduleClearText: { textAlign: 'center', fontWeight: '700', color: colors.text },
+
+    scheduleOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.7)',
+      padding: 16,
+      justifyContent: 'center',
+    },
+    scheduleCard: {
+      borderRadius: 16,
+      padding: 16,
+    },
+    scheduleTitle: { fontSize: 18, fontWeight: '800', marginBottom: 12, textAlign: 'center' },
+    scheduleLabel: { fontSize: 13, fontWeight: '700', marginTop: 10, marginBottom: 6 },
+    pickerBox: { borderWidth: 1, borderRadius: 12, overflow: 'hidden' },
+    timeRow: { flexDirection: 'row', alignItems: 'center' },
+    timePicker: { flex: 1 },
+    timeSeparator: { marginHorizontal: 10, fontSize: 18, fontWeight: '800' },
+    scheduleButtonsRow: { flexDirection: 'row', marginTop: 16 },
+    scheduleButton: { flex: 1, paddingVertical: 12, borderRadius: 12, alignItems: 'center' },
+    scheduleCancelButton: { marginRight: 10, borderWidth: 1, backgroundColor: 'transparent' },
+    scheduleButtonText: { fontWeight: '800' },
+    scheduleButtonTextPrimary: { fontWeight: '800', color: '#fff' },
+
     estimateCard: { borderRadius: 12, padding: 10, backgroundColor: colors.card || (isDark ? '#2a2a2a' : '#f5f5f5'), borderWidth: 1, borderColor: colors.border || (isDark ? '#444' : 'transparent'), marginBottom: 8 },
     centeredRow: { flexDirection: 'row', alignItems: 'center' },
     estimateText: { marginLeft: 8, color: colors.textSecondary || '#666' },
@@ -2705,6 +3021,12 @@ function createStyles(colors: any, isDark: boolean = false) {
       gap: 12,
     },
     submittingLabel: { fontSize: 14, fontWeight: '600', color: colors.text || '#111' },
+    submittingText: {
+      marginTop: 12,
+      fontSize: 14,
+      fontWeight: '700',
+      textAlign: 'center',
+    },
 
     searchOverlay: {
       ...StyleSheet.absoluteFillObject,

@@ -1,3 +1,4 @@
+import SupportChatShortcut from '@/components/SupportChatShortcut';
 import RideConfirmationScreen from '@/screens/Client/RideConfirmationScreen';
 import alertService from '@/services/alertService';
 import accountLinkingService from '@/services/auth/accountLinkingService';
@@ -241,6 +242,10 @@ const resources = {
               add: 'Add photo',
             },
           },
+          supportChatShortcut: {
+            defaultLabel: 'Need help?',
+            defaultDescription: 'Open the support chat and get personalized help in minutes.',
+          },
           deviationAlert: {
             title: {
               warning: 'Possible deviation',
@@ -465,6 +470,9 @@ const resources = {
                 'Your profile photo is required. Your face must be clearly visible without sunglasses. It will be used to verify your identity.',
             },
           },
+         SupportChatShortcut: {
+          
+         },
         },
 
         statuses: {
@@ -805,6 +813,7 @@ const resources = {
           },
           cta: {
             primary: 'Confirm and request ride',
+            primaryScheduled: 'Confirm and schedule ride',
             loading: 'Sending request…',
             submittingOverlay: 'Sending your request…',
           },
@@ -1093,6 +1102,7 @@ const resources = {
              clientIdRequired: 'Client ID is required.',
              locationsRequired: 'Origin and destination are required.',
              estimatedPricePositive: 'Estimated price must be greater than 0.',
+             scheduledAtRequired: 'Choose an hour is required to create a programmed ride.',
              invalidServerResponse: 'Invalid server response.',
              rideDetailsFailed: 'We could not load the ride details.',
              driverOnRouteFailed: 'We could not update the ride status to “on route”.',
@@ -1604,6 +1614,9 @@ const resources = {
           },
       client: {
         pendingPayments: {
+          supportTitle: 'Need help with my pending payments',
+          supportLabel: 'Need help with a pending payments?',
+          supportDescription: 'Open a chat with support to check invoices, charges or any discrepancies.',
           title: 'Pending payments',
           loading: 'Loading pending payments...',
           emptyTitle: 'No pending payments',
@@ -1653,6 +1666,11 @@ const resources = {
           waiting: {
             title: '⏳ Waiting for confirmation',
             description: 'The driver must confirm they received your payment.',
+          },
+          support: {
+            title: 'Question about my cash payment',
+            label: 'Need help with this payment?',
+            description: 'Open a chat with support and review the status of your payment in minutes.',
           },
           buttons: {
             confirm: 'Confirm cash payment',
@@ -2387,6 +2405,9 @@ const resources = {
               offerGenericBody: 'We notified the client. Waiting for confirmation...',
               errorSendOffer: 'We could not send the offer.',
               errorAcceptRide: 'We could not accept the ride.',
+              assignSuccessTitle: '✅ Ride assigned',
+              assignSuccessBody: 'You assigned yourself to the scheduled ride. Confirm it when the system requests it.',
+              assignError: 'We could not assign the scheduled ride.',
           },
           rideCard: {
               clientFallback: 'Client',
@@ -2407,6 +2428,15 @@ const resources = {
           },
           modal: {
               close: 'Close',
+          },
+          assignModal: {
+            title: 'Assign scheduled ride',
+            subtitle: 'Enter the ride ID (rideId)',
+            placeholder: 'Eg: 9f3b0a1c-...',
+            cancel: 'Cancel',
+            confirm: 'Assign',
+            assigning: 'Assigning...',
+            assignProgrammedButton: 'Assign scheduled ride by ID',
           },
         },
           ridePreview: {
@@ -2597,6 +2627,11 @@ const resources = {
           notifications: {
             newMessageTitle: 'New client message',
           },
+          support: {
+            title: 'I need help with this trip',
+            label: 'Contact support',
+            description: 'Open a support chat to report issues with the client, payments, or the app.',
+          },
         },
        earnings: {
         labels: {
@@ -2719,9 +2754,14 @@ const resources = {
           navigation: {
             goToPaymentMethods: 'Go to payment methods →',
           },
+          support: {
+            title: 'Help with my commissions',
+            label: 'Issues paying your commissions?',
+            description: 'Open a support chat to review charges, bank references, or saved cards.',
+          },
         },
         paymentConfirmation: {
-          loading: 'Loading payment information...',
+          loading: 'Loading payment details...',
           header: {
             cashTitle: 'Cash payment',
             cardTitle: 'Card payment',
@@ -2768,12 +2808,17 @@ const resources = {
             card: 'Card 💳',
           },
           switchDisabled: {
-            title: 'Payment method cannot be changed',
+            title: 'Cannot change payment method',
             subtitle: 'The client already confirmed the payment',
           },
           codeLabel: 'Confirmation code: {{code}}',
+          support: {
+            title: 'Help with payment confirmation',
+            label: 'Issues with this charge?',
+            description: 'Open a support chat to clarify charges, confirmation codes, or method changes.',
+          },
           alerts: {
-            waitTitle: 'Hold on',
+            waitTitle: 'Wait',
             waitMessage: 'The client must confirm the cash payment first.',
             cardRequiredTitle: 'Card required',
             cardRequiredMessage:
@@ -2962,10 +3007,15 @@ const resources = {
               none: 'No approved active vehicle',
             },
           },
-          support: {
+          supportBasic: {
             title: 'You need support assistance',
             description: 'Contact our team to review the status of your account and documents.',
             button: 'Call support',
+            chat: {
+              title: 'Help with my account approval',
+              label: 'Need help with your verification?',
+              description: 'Chat with support to accelerate document review or resolve account blocks.',
+            },
           },
           info: {
             text: 'We will notify you when your account is ready to start receiving rides.',
@@ -2974,6 +3024,11 @@ const resources = {
             refresh: 'Reload to update',
             viewProfile: 'View my profile',
             logout: 'Log out',
+          },
+          support: {
+           supportChatTitle: 'Help with my account approval',
+           supportChatLabel: 'Need help with your verification?',
+           supportChatDescription: 'Chat with support to accelerate document review or resolve account blocks.',
           },
         },
         vehicleInspection: {
@@ -3199,6 +3254,11 @@ const resources = {
             shareMessage:
               'I am on a trip with {{driver}} ({{vehicleBrand}} {{vehicleModel}} - {{vehicleColor}}) - Plate: {{plate}}\\nPickup: {{pickup}}\\nTrack my trip live: {{url}}',
             shareError: 'Could not share the trip location.',
+          },
+          support: {
+            title: 'Help with my ongoing trip',
+            label: 'Need help with this trip?',
+            description: 'Open the support chat to report incidents, delays, or issues with the driver.',
           },
           buttons: {
             goToPayment: 'Go to payment',
@@ -3502,6 +3562,28 @@ const resources = {
             payCash: 'Pay in cash',
             payCard: 'Pay with card',
           },
+          scheduling: {
+              openButton: 'Schedule ride',
+              clearButton: 'Clear schedule',
+              scheduledLabel: 'Scheduled for {{date}}',
+              successTitle: '✅ Ride scheduled',
+              successMessage: 'Your ride has been scheduled for {{date}}.',
+              successMessageWithId: 'Your ride has been scheduled for {{date}}. Ride ID: {{id}}',
+              shareMessage: 'I have scheduled a Rundi ride for {{date}}. Ride ID: {{id}}',
+              invalidRange: 'Choose a time between 30 minutes and 20 days from now.',
+              modalTitle: 'Schedule ride',
+              dateLabel: 'Date',
+              timeLabel: 'Time',
+              modalCancel: 'Cancel',
+              modalConfirm: 'Confirm',
+              conflictTitle: 'You already have a scheduled ride',
+              conflictBodyScheduled:
+                'You already have a ride scheduled for {{date}} that conflicts with this one. If you continue, we will cancel the existing scheduled ride and create this new scheduled ride.',
+              conflictBodyImmediate:
+                'You already have a ride scheduled for {{date}} that conflicts with this request. If you continue, we will cancel the existing scheduled ride and create this new immediate ride.',
+              conflictReplaceButton: 'Replace old ride',
+              conflictKeepButton: 'Keep existing ride',
+            },
         },
         profile: {
           loading: {
@@ -3607,6 +3689,9 @@ const resources = {
             version: 'Rundi Beta - 1.6.4',
             copyright: '© 2025 All rights reserved',
           },
+         support: {
+          title: 'My support reports',
+         },
         },
         preflight: {
           title: 'Preparing your experience',
@@ -3658,6 +3743,22 @@ const resources = {
           regionFallback: {
             available: 'Service available in Managua (default configuration).',
             unavailable: 'Service is currently only available within the active areas (currently Managua).',
+          },
+           programmedRide: {
+            checkLabel: 'Scheduled rides',
+            actionTitle: 'Confirm scheduled ride',
+            actionSubtitle: 'Scheduled for {{date}}',
+            confirmButton: 'Confirm now',
+            promptTitle: '🕒 Confirm your scheduled ride',
+            promptBody: 'Your scheduled ride for {{date}} is about to start. Confirm to continue.',
+            promptBodyNoDate: 'Your scheduled ride is about to start. Confirm to continue.',
+            driverPromptTitle: '🕒 Confirm your assigned ride',
+            driverPromptBody: 'You have a programmed ride for {{date}}. Confirm to reserve it.',
+            driverPromptBodyNoDate: 'You have a programmed ride ready. Confirm to reserve it.',
+            notNowButton: 'Not now, cancel it.',
+            followUpTitleDriverAssigned: 'Driver on the way',
+            followUpTitleAwaitingDriver: 'Confirm your ride',
+            driverFollowUpTitle: 'Programmed ride ready',
           },
         },
         permissions: {
@@ -3794,6 +3895,12 @@ const resources = {
             error: 'We could not confirm your identity. Try again.',
           },
           currencyAmount: 'C${{amount}}',
+         support: {
+          supportPendingTitle: 'I have questions about my pending payment',
+          supportTitle: 'Help with my trip payment',
+          supportLabel: 'Need help with this payment?',
+          supportDescription: 'Open a chat with support to review charges, refunds, or card issues.',
+        },
         },
        rideHistory: {
           filters: {
@@ -4151,6 +4258,11 @@ const resources = {
           },
         },
         addCards: {
+         support: {
+            title: 'Help adding my card',
+            label: 'Problems saving your card?',
+            description: 'Open a support chat to validate bank details or resolve system declines.',
+          },
           header: {
             title: 'Add card',
           },
@@ -4343,15 +4455,15 @@ const resources = {
           },
         },
         deleteAccount: {
-        header: {
+         header: {
           title: 'Delete Account',
-          roles: {
+           roles: {
             driver: 'Driver',
             client: 'Client',
             default: 'User',
-          },
-        },
-        warning: {
+           },
+         },
+         warning: {
           title: '⚠️ Irreversible action',
           intro: 'When you delete your account, the following data will be permanently removed:',
           bullets: {
@@ -4394,6 +4506,87 @@ const resources = {
           successOk: 'OK',
           genericErrorTitle: 'Error',
           deleteErrorMessage: 'An error occurred while deleting the account.',
+        },
+       },
+       supportcomplaint: {
+        title: 'My reports',
+        subtitle: 'Review and continue your conversations with support.',
+        createCta: 'Create new report',
+        emptyTitle: 'No reports yet',
+        emptyDescription: 'When you open a report, it will appear in this list.',
+        status: {
+          open: 'Open',
+          in_progress: 'In review',
+          resolved: 'Resolved',
+          rejected: 'Rejected',
+        },
+        tickets: {
+          loading: 'Loading your support cases...',
+          emptyTitle: 'No reports yet',
+          emptyDescription: 'When you open a report, it will appear in this list.',
+          newReport: 'Create new report',
+          title: 'My reports',
+          subtitle: 'Review and continue your conversations with support.',
+          createCta: 'Create new report',
+          category: 'Type',
+          createdAt: 'Created on',
+          resolution: 'Resolution',
+          delete: 'Delete',
+          deleting: 'Deleting...',
+          deleteConfirmTitle: 'Delete report',
+          deleteConfirmMessage:
+            'The conversation will be archived and the chat will be removed. This cannot be undone. Do you want to continue?',
+          deleteConfirmButton: 'Delete',
+          deleteCancelButton: 'Cancel',
+          deleteSuccess: 'Report deleted successfully.',
+          deleteError: 'We could not delete the report. Try again later.',
+        },
+       },
+       supportChat: {
+        title: 'Customer support',
+        subtitle: 'Tell us what is happening and our team will help you through this chat.',
+        rideTagLabel: 'Related ride',
+        fallbackUserName: 'User',
+        categories: {
+          title: 'Issue type',
+          service: 'Service / ride',
+          driver: 'Driver',
+          payment: 'Payments and charges',
+          app: 'App issues',
+          other: 'Other',
+        },
+        priorities: {
+          title: 'Priority',
+          low: 'Low',
+          normal: 'Normal',
+          high: 'High',
+          urgent: 'Urgent',
+        },
+        form: {
+          problemTitleLabel: 'Problem title',
+          problemTitlePlaceholder: 'Ex: Issue with the charge on my last ride',
+          descriptionLabel: 'Describe what happened',
+          descriptionPlaceholder: 'Include details that help support understand and resolve your case.',
+        },
+        errors: {
+          missingTitle: 'Please enter a brief title for your problem.',
+          initializeService: 'We could not initialize the support service. Check your connection.',
+          invalidResponse: 'We could not create the case. Try again later.',
+          genericCreate: 'Something went wrong while creating the case. Please try again.',
+        },
+        actions: {
+          creatingCase: 'Creating case...',
+          createCase: 'Create case and start chat',
+        },
+        caseHeader: {
+          createdLabel: 'Case created',
+          hint: 'You can keep writing in this chat to stay in touch with customer support.',
+        },
+        emptyState: {
+          text: 'Your case has been created. Send your first message so support has more context.',
+        },
+        chatInput: {
+          placeholder: 'Type a message for support',
         },
        },
       },
@@ -4610,6 +4803,10 @@ const resources = {
               change: 'Cambiar foto',
               add: 'Agregar foto',
             },
+          },
+          supportChatShortcut: {
+            defaultLabel: '¿Necesitas ayuda?',
+            defaultDescription: 'Abre el chat de soporte y recibe ayuda personalizada en minutos.',
           },
           deviationAlert: {
             title: {
@@ -5362,6 +5559,7 @@ const resources = {
               clientIdRequired: 'Se requiere el ID del cliente.',
               locationsRequired: 'Se requieren origen y destino.',
               estimatedPricePositive: 'El precio estimado debe ser mayor que 0.',
+              scheduledAtRequired: 'Es requerido colocar hora para agendar.',
               invalidServerResponse: 'Respuesta del servidor inválida.',
               rideDetailsFailed: 'No pudimos cargar los detalles del viaje.',
               driverOnRouteFailed: 'No pudimos actualizar el estado del viaje a “en camino”.',
@@ -5872,6 +6070,9 @@ const resources = {
         },
         client: {
           pendingPayments: {
+           supportTitle: 'Ayuda con mis pagos pendientes',
+           supportLabel: '¿Necesitas ayuda con un pago pendiente?',
+           supportDescription: 'Abre un chat con soporte para revisar cargos, recibos o cualquier discrepancia.',
             title: 'Pagos pendientes',
             loading: 'Cargando pagos pendientes...',
             emptyTitle: 'Sin pagos pendientes',
@@ -5922,6 +6123,11 @@ const resources = {
             waiting: {
               title: '⏳ Esperando confirmación',
               description: 'El conductor debe confirmar que recibió tu pago.',
+            },
+            support: {
+              title: 'Consulta sobre mi pago en efectivo',
+              label: '¿Necesitas ayuda con este pago?',
+              description: 'Abre un chat con soporte y revisa el estado de tu cobro en minutos.',
             },
             buttons: {
               confirm: 'Confirmar pago en efectivo',
@@ -6679,6 +6885,18 @@ const resources = {
           modal: {
             close: 'Cerrar',
           },
+           assignModal: {
+            title: 'Ingresa un viaje programado',
+            subtitle: 'Introduce el id del viaje (rideId)',
+            placeholder: 'Ej: 9f3b0a1c-...',
+            cancel: 'Cancelar',
+            confirm: 'Asignarte',
+            assigning: 'Asignandote...',
+            assignProgrammedButton: 'Asignar viaje programado por ID',
+            assignSuccessTitle: '✅ Viaje asignado',
+            assignSuccessBody: 'Asignaste un viaje programado. Confirmalo cuando se te notifique.',
+            assignError: 'No podemos agendar tu viaje.',
+          },
         },
         ridePreview: {
           voice: {
@@ -6780,7 +6998,7 @@ const resources = {
             close: 'Cerrar',
           },
         },
-        activeRide: {
+       activeRide: {
        labels: {
        driverFallback: 'Conductor',
        clientFallback: 'Cliente',
@@ -6868,6 +7086,11 @@ const resources = {
       notifications: {
       newMessageTitle: 'Nuevo mensaje del cliente',
      },
+     support: {
+          title: 'Necesito ayuda con este viaje',
+          label: 'Contactar soporte',
+          description: 'Abre un chat con soporte para reportar problemas con el cliente, pagos o la app.',
+        },
     },    
            earnings: {
           labels: {
@@ -6990,6 +7213,11 @@ const resources = {
           navigation: {
             goToPaymentMethods: 'Ir a métodos de pago →',
           },
+          support: {
+            title: 'Ayuda con mis comisiones',
+            label: '¿Problemas para pagar tus comisiones?',
+            description: 'Abre un chat con soporte para revisar cargos, referencias bancarias o tarjetas guardadas.',
+          },
         },
         paymentConfirmation: {
           loading: 'Cargando información del pago...',
@@ -7043,6 +7271,11 @@ const resources = {
             subtitle: 'El cliente ya confirmó el pago',
           },
           codeLabel: 'Código de confirmación: {{code}}',
+          support: {
+            title: 'Ayuda con la confirmación de pago',
+            label: '¿Problemas con este cobro?',
+            description: 'Abre un chat con soporte para aclarar cobros, códigos o cambios de método.',
+          },
           alerts: {
             waitTitle: 'Espera',
             waitMessage: 'El cliente debe confirmar primero el pago en efectivo.',
@@ -7231,7 +7464,7 @@ const resources = {
               none: 'Sin vehículo aprobado activo',
             },
           },
-          support: {
+          supportBasic: {
             title: 'Necesitas asistencia de soporte',
             description: 'Contacta a nuestro equipo para revisar el estado de tu cuenta y documentos.',
             button: 'Llamar a soporte',
@@ -7243,6 +7476,11 @@ const resources = {
             refresh: 'Recargar para actualizar',
             viewProfile: 'Ver mi perfil',
             logout: 'Cerrar sesión',
+          },
+          support: {
+            title: 'Ayuda con la aprobación de mi cuenta',
+            label: '¿Necesitas ayuda con tu verificación?',
+            description: 'Chatea con soporte para acelerar la revisión de documentos o resolver bloqueos.',
           },
         },
         vehicleInspection: {
@@ -7380,7 +7618,7 @@ const resources = {
           },
         },
        },
-        shared: {
+       shared: {
           chat: {
             status: {
               online: 'En línea',
@@ -7466,8 +7704,13 @@ const resources = {
               shareTitle: 'Compartir viaje',
               shareMessage:
                 'Voy en un viaje con {{driver}} ({{vehicleBrand}} {{vehicleModel}} - {{vehicleColor}}) - Placa: {{plate}}\\nRecogida: {{pickup}}\\nSigue mi viaje en vivo: {{url}}',
-              shareError: 'No pudimos compartir la ubicación del viaje.',
+              shareError: 'No se pudo compartir la ubicación del viaje.',
             },
+           support: {
+            title: 'Ayuda con mi viaje en curso',
+            label: '¿Necesitas ayuda con este viaje?',
+            description: 'Abre el chat con soporte para reportar cualquier problema en tu viaje.',
+          },
             buttons: {
               goToPayment: 'Ir al pago',
               shareLocation: 'Compartir ubicación',
@@ -7563,7 +7806,7 @@ const resources = {
               body: 'Tu viaje sigue activo y estamos monitoreando tu ubicación.',
             },
           },
-                  auth: {
+         auth: {
           errors: {
             notAuthenticated: 'Usuario no autenticado.',
             emailRequired: 'El correo es obligatorio.',
@@ -7588,6 +7831,12 @@ const resources = {
             smsNetworkError: 'No pudimos conectarnos para enviar el SMS. Revisa tu conexión e intenta otra vez.',
             confirmGenericFailure: 'No pudimos confirmar el código. Intenta nuevamente.',
           },
+         support: {
+          supportPendingTitle: 'Tengo dudas sobre mis pagos pendientes',
+          supportTitle: 'Ayudame con el pago de mi viaje',
+          supportLabel: '¿Necesitas ayuda con este pago?',
+          supportDescription: 'Abre el chat para resolver cualquier problema con nuestro soporte',
+        },
         },
         searchRide: {
           defaults: {
@@ -7760,6 +8009,7 @@ const resources = {
           },
           cta: {
             primary: 'Confirmar y solicitar viaje',
+            primaryScheduled: 'Confirmar y agendar viaje',
             loading: 'Enviando solicitud…',
             submittingOverlay: 'Enviando tu solicitud…',
           },
@@ -7769,8 +8019,30 @@ const resources = {
             payCash: 'Pagar en efectivo',
             payCard: 'Pagar con tarjeta',
           },
+            scheduling: {
+              openButton: 'Agendar viaje',
+              clearButton: 'Limpiar',
+              scheduledLabel: 'Agendalo {{date}}',
+              successTitle: '✅ Viaje agendado',
+              successMessage: 'Tu viaje esta agendado para {{date}}.',
+              successMessageWithId: 'Tu viaje está agendado para {{date}}. ID del viaje: {{id}}',
+              shareMessage: 'Agendé un viaje con Rundi para {{date}}. ID del viaje: {{id}}',
+              invalidRange: 'Escoge cuando. Entre 30min a 20 dias a partir de hoy.',
+              modalTitle: 'Agendar viaje',
+              dateLabel: 'Fecha',
+              timeLabel: 'Hora',
+              modalCancel: 'Cancelar',
+              modalConfirm: 'Confirmar',
+              conflictTitle: 'Ya tienes un viaje agendado',
+              conflictBodyScheduled:
+                'Ya tienes un viaje agendado para {{date}} que se cruza con este. Si continúas, cancelaremos el viaje agendado existente y crearemos este nuevo viaje agendado.',
+              conflictBodyImmediate:
+                'Ya tienes un viaje agendado para {{date}} que se cruza con esta solicitud. Si continúas, cancelaremos el viaje agendado existente y crearemos este nuevo viaje inmediato.',
+              conflictReplaceButton: 'Reemplazar viaje anterior',
+              conflictKeepButton: 'Mantener viaje actual',
+            },
         },
-                profile: {
+        profile: {
           loading: {
             logout: 'Cerrando sesión...',
             vehicle: 'Cargando información del vehículo...',
@@ -7874,6 +8146,9 @@ const resources = {
             version: 'Rundi Beta - 1.6.4',
             copyright: '© 2025 Todos los derechos reservados',
           },
+         support: {
+          title: 'Mis reportes de soporte',
+         },
         },
         preflight: {
           title: 'Preparando tu experiencia',
@@ -7925,6 +8200,22 @@ const resources = {
           regionFallback: {
             available: 'Servicio disponible en Managua (configuración por defecto).',
             unavailable: 'El servicio solo está disponible dentro de las áreas activas (actualmente Managua).',
+          },
+           programmedRide: {
+            checkLabel: 'Viajes agendados',
+            actionTitle: 'Confirmar viajes agendados',
+            actionSubtitle: 'Agendado para {{date}}',
+            confirmButton: 'Confirmar ahora',
+            promptTitle: '🕒 Confirma tu viaje agendado',
+            promptBody: 'Tu viaje agendado para {{date}} está por comenzar. Confirma para continuar.',
+            promptBodyNoDate: 'Tu viaje agendado está por comenzar. Confirma para continuar.',
+            driverPromptTitle: '🕒 Confirma tu viaje asignado',
+            driverPromptBody: 'Tienes un viaje agendado para {{date}}. Confirma para reservarlo.',
+            driverPromptBodyNoDate: 'Tienes un viaje agendado listo. Confirma para reservarlo.',
+            notNowButton: 'Ahora no, cancelarlo.',
+            followUpTitleDriverAssigned: 'Conductor en camino',
+            followUpTitleAwaitingDriver: 'Confirma tu viaje',
+            driverFollowUpTitle: 'Viaje agendado listo',
           },
         },
         permissions: {
@@ -8334,7 +8625,7 @@ const resources = {
             loading: 'Preparando verificación telefónica...',
           },
         },
-                paymentMethods: {
+         paymentMethods: {
           alerts: {
             loadError: 'No pudimos cargar tus métodos de pago.',
             defaultSuccessTitle: '✅ Éxito',
@@ -8414,6 +8705,11 @@ const resources = {
           },
         },
         addCards: {
+          support: {
+            title: 'Ayuda para agregar mi tarjeta',
+            label: '¿Problemas guardando tu tarjeta?',
+            description: 'Abre un chat con soporte para validar datos bancarios o resolver rechazos del sistema.',
+          },
           header: {
             title: 'Agregar tarjeta',
           },
@@ -8579,10 +8875,90 @@ const resources = {
             deleteErrorMessage: 'Ocurrió un error al eliminar la cuenta.',
           },
         },
-
+       supportcomplaint: {
+        title: 'Mis reportes',
+        subtitle: 'Revisa y continúa tus conversaciones con soporte.',
+        createCta: 'Crear nuevo reporte',
+        emptyTitle: 'Sin reportes aún',
+        emptyDescription: 'Cuando abras un reporte aparecerá en este listado.',
+        status: {
+          open: 'Abierto',
+          in_progress: 'En revisión',
+          resolved: 'Resuelto',
+          rejected: 'Rechazado',
         },
+        tickets: {
+          loading: 'Cargando tus casos de soporte...',
+          emptyTitle: 'Sin reportes aún',
+          emptyDescription: 'Cuando abras un reporte aparecerá en este listado.',
+          newReport: 'Crear nuevo reporte',
+          title: 'Mis reportes',
+          subtitle: 'Revisa y continúa tus conversaciones con soporte.',
+          createCta: 'Crear nuevo reporte',
+          category: 'Tipo',
+          createdAt: 'Creado en',
+          resolution: 'Resolución',
+          delete: 'Eliminar',
+          deleting: 'Eliminando...',
+          deleteConfirmTitle: 'Eliminar reporte',
+          deleteConfirmMessage:
+            'Todas las conversaciones serán archivadas y el chat será eliminado. Esta acción no se puede deshacer. ¿Deseas continuar?',
+          deleteConfirmButton: 'Eliminar',
+          deleteCancelButton: 'Cancelar',
+          deleteSuccess: 'Reporte eliminado correctamente.',
+          deleteError: 'No pudimos eliminar el reporte. Intenta más tarde.',
+        },
+        },
+       supportChat: {
+        title: 'Soporte',
+            subtitle: 'Cuentanos qué sucede y nuestro equipo te ayudará a resolverlo.',
+            rideTagLabel: 'Viaje relacionado',
+            fallbackUserName: 'Usuario',
+            categories: {
+              title: 'Tipo de problema',
+              service: 'Servicio / viaje',
+              driver: 'Conductor',
+              payment: 'Pagos y cargos',
+              app: 'Problemas de la app',
+              other: 'Otro',
+            },
+            priorities: {
+              title: 'Prioridad',
+              low: 'Baja',
+              normal: 'Normal',
+              high: 'Alta',
+              urgent: 'Urgente',
+            },
+            form: {
+              problemTitleLabel: 'Título del problema',
+              problemTitlePlaceholder: 'Ej: Problema con el cargo en mi último viaje',
+              descriptionLabel: 'Describe lo que sucedió',
+              descriptionPlaceholder: 'Incluye detalles que ayuden al soporte a entender y resolver tu caso.',
+            },
+            errors: {
+              missingTitle: 'Por favor, ingresa un breve título para tu problema.',
+              initializeService: 'No podemos inciar el soporte. Revisa tu conexión a internet y vuelve a intentarlo.',
+              invalidResponse: 'No pudimos crear el caso. Intenta más tarde.',
+              genericCreate: 'Algo salió mal al crear el caso. Por favor, intenta nuevamente.',
+            },
+            actions: {
+              creatingCase: 'Creando caso...',
+              createCase: 'Crear caso y comenzar chat',
+            },
+            caseHeader: {
+              createdLabel: 'Caso creado',
+              hint: 'Puedes continuar escribiendo en este chat para mantenerse en contacto con el soporte.',
+            },
+            emptyState: {
+              text: 'Tu caso ha sido creado. Envía tu primer mensaje para que el soporte tenga más contexto.',
+            },
+            chatInput: {
+              placeholder: 'Escribe un mensaje para soporte',
+        },
+       },
     },
    },
+}, 
 zh: {
 translation: {
 

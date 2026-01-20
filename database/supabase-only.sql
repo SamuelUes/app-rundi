@@ -1639,6 +1639,7 @@ CREATE TABLE IF NOT EXISTS public.cms_complaints (
   title TEXT NOT NULL,
   description TEXT NULL,
   resolution_notes TEXT NULL,
+  chat_log_url TEXT NULL,
   resolved_at TIMESTAMP WITHOUT TIME ZONE NULL,
   created_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
   updated_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
@@ -1655,6 +1656,7 @@ COMMENT ON COLUMN public.cms_complaints.assigned_to_user_id IS 'Firebase UID del
 COMMENT ON COLUMN public.cms_complaints.category IS 'Categoría de la queja: service, driver, payment, app, other';
 COMMENT ON COLUMN public.cms_complaints.status IS 'Estado: open, in_progress, resolved, rejected';
 COMMENT ON COLUMN public.cms_complaints.priority IS 'Prioridad: low, normal, high, urgent';
+COMMENT ON COLUMN public.cms_complaints.chat_log_url IS 'URL en Supabase Storage del JSON con el historial de chat de esta queja';
 
 CREATE INDEX IF NOT EXISTS idx_cms_complaints_ride_id ON public.cms_complaints USING btree (ride_id);
 CREATE INDEX IF NOT EXISTS idx_cms_complaints_client_id ON public.cms_complaints USING btree (client_id);

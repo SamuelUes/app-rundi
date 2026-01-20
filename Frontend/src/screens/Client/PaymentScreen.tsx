@@ -8,6 +8,8 @@ import {
   ScrollView,
   TextInput,
 } from 'react-native';
+import LoadingOverlay from '../../components/LoadingOverlay';
+import SupportChatShortcut from '../../components/SupportChatShortcut';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { getFunctions, httpsCallable } from 'firebase/functions';
@@ -812,6 +814,22 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
               </View>
               {useNewCard && <Text style={styles.savedCardCheck}>✓</Text>}
             </TouchableOpacity>
+
+            <SupportChatShortcut
+              style={{ marginBottom: 24 }}
+              rideId={rideId}
+              initialCategory={isPendingPayment ? 'payment' : 'service'}
+              initialTitle={
+                isPendingPayment
+                  ? t('shared.payment.support.supportPendingTitle', 'Tengo dudas sobre mi pago pendiente')
+                  : t('shared.payment.support.supportTitle', 'Ayuda con el pago de mi viaje')
+              }
+              label={t('shared.payment.support.supportLabel', '¿Necesitas ayuda con este pago?')}
+              description={t(
+                'shared.payment.support.supportDescription',
+                'Abre un chat con soporte para revisar cargos, reembolsos o problemas con tu tarjeta.',
+              )}
+            />
           </View>
         )}
 

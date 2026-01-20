@@ -26,6 +26,7 @@ import cardsService from '../../services/cardsService';
 import alertService from '../../services/alertService';
 import sessionService from '../../services/sessionService';
 import { useTranslation } from 'react-i18next';
+import SupportChatShortcut from '../../components/SupportChatShortcut';
 
 interface PaymentConfirmationScreenProps {
   route: {
@@ -718,6 +719,15 @@ export default function PaymentConfirmationScreen({
         variant="outline"
         disabled={confirming || switching}
         style={styles.reportButton}
+      />
+
+      <SupportChatShortcut
+        style={{ marginTop: 16 }}
+        rideId={rideId}
+        initialCategory="payment"
+        initialTitle={t('driver.paymentConfirmation.support.title')}
+        label={t('driver.paymentConfirmation.support.label')}
+        description={t('driver.paymentConfirmation.support.description')}
       />
     </ScrollView>
   );

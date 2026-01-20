@@ -2,7 +2,7 @@ import React, { createContext, useState, useContext, useEffect, ReactNode } from
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getFirebaseAuth, getFirebaseDatabase } from '../config/firebase';
 import { ref, set, update, serverTimestamp, get } from 'firebase/database';
-import { signInWithCustomToken } from 'firebase/auth';
+import { signInWithCustomToken, User as FirebaseAuthUser } from 'firebase/auth';
 import backendConfig from '../config/backendConfig';
 import firebaseAuthService from '../services/auth/firebaseAuthService';
 import localAuthService from '../services/auth/localAuthService';
@@ -215,6 +215,48 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }, []);
 
+  const waitForFirebaseUser = async (
+    expectedId?: string,
+    timeoutMs: number = 4000,
+  ): Promise<FirebaseAuthUser | null> => {
+    const auth = await getFirebaseAuth();
+    if (auth.currentUser && (!expectedId || auth.currentUser.uid === expectedId)) {
+      return auth.currentUser;
+    }
+
+    return new Promise(async (resolve) => {
+      let settled = false;
+      let unsubscribe: (() => void) | null = null;
+      const timeout = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          if (unsubscribe) unsubscribe();
+          resolve(null);
+        }
+      }, timeoutMs);
+
+      try {
+        unsubscribe = await firebaseAuthService.onAuthStateChange((firebaseUser) => {
+          if (firebaseUser && (!expectedId || firebaseUser.uid === expectedId)) {
+            if (!settled) {
+              settled = true;
+              clearTimeout(timeout);
+              unsubscribe?.();
+              resolve(firebaseUser);
+            }
+          }
+        });
+      } catch (err) {
+        console.warn('⚠️ [AuthContext] No se pudo suscribir a onAuthStateChange para esperar sesión:', err);
+        if (!settled) {
+          settled = true;
+          clearTimeout(timeout);
+          resolve(null);
+        }
+      }
+    });
+  };
+
   const loadUser = async () => {
     try {
       const userData = await AsyncStorage.getItem('user');
@@ -243,6 +285,20 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           return;
         }
         
+        const firebaseUser = await waitForFirebaseUser(parsedUser.id);
+
+        if (!firebaseUser || firebaseUser.uid !== parsedUser.id) {
+          console.warn(
+            '⚠️ [AuthContext] Sesión de Firebase inexistente o desincronizada. Forzando reautenticación.',
+            { cachedUserId: parsedUser.id, firebaseUid: firebaseUser?.uid },
+          );
+          await AsyncStorage.removeItem('user');
+          setUser(null);
+          alertService.showErrorAlert('Tu sesión caducó. Por favor inicia sesión nuevamente.');
+          setLoading(false);
+          return;
+        }
+
         setUser(parsedUser);
         try {
           const storedMode = await AsyncStorage.getItem('userMode');

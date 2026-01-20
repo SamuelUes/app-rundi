@@ -27,6 +27,7 @@ import {
 
 // Servicios y componentes
 import alertService from '../../services/alertService';
+import SupportChatShortcut from '../../components/SupportChatShortcut';
 import { clearClientActiveRideState } from '../../utils/clientRideState';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import DynamicMap from '../../components/DynamicMap';
@@ -1123,6 +1124,17 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
               </View>
             )}
           </View>
+
+          <SupportChatShortcut
+            style={{ marginTop: 12 }}
+            rideId={rideId}
+            initialCategory="service"
+            initialTitle={tr('support.initialTitle', { defaultValue: 'Ayuda con mi viaje en curso' })}
+            label={tr('support.label', { defaultValue: '¿Necesitas ayuda con este viaje?' })}
+            description={tr('support.description', {
+              defaultValue: 'Contáctanos por chat para reportar un incidente, retraso o problema con el conductor.',
+            })}
+          />
 
         </ScrollView>
       )}

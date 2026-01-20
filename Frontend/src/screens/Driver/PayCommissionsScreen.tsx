@@ -18,6 +18,7 @@ import BiometricService from '../../services/biometricService';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { initializeFirebase } from '../../config/firebase';
 import { useTranslation } from 'react-i18next';
+import SupportChatShortcut from '../../components/SupportChatShortcut';
 
 const EMPTY_SUMMARY: DriverPenaltySummary = {
   success: false,
@@ -378,6 +379,14 @@ export default function PayCommissionsScreen({ navigation }: any) {
               </Text>
             )}
           </TouchableOpacity>
+
+          <SupportChatShortcut
+            style={{ marginTop: 16 }}
+            initialCategory="payment"
+            initialTitle={t('driver.payComission.support.title')}
+            label={t('driver.payComission.support.label')}
+            description={t('driver.payComission.support.description')}
+          />
         </ScrollView>
       )}
     </View>

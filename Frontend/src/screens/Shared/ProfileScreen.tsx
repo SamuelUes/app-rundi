@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, ActivityIndicator, Image, Switch } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Image, Switch, ActivityIndicator } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { useFCM } from '../../context/FCMContext';
@@ -24,6 +24,10 @@ export default function ProfileScreen({ navigation }: any) {
   const isDriverCapable = user?.role === 'driver' || user?.role === 'designated_driver';
   const [switchingToDriver, setSwitchingToDriver] = useState(false);
   const { t } = useTranslation();
+
+  const handleGoToSupportComplaints = () => {
+    navigation.navigate('SupportComplaints');
+  };
 
   const getVehicleTypeLabel = (type?: string | null) => {
     const normalized = type?.toLowerCase();
@@ -603,6 +607,21 @@ export default function ProfileScreen({ navigation }: any) {
             <Text style={styles.optionText}>{t('shared.profile.config.help')}</Text>
             <Text style={styles.optionArrow}>›</Text>
           </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.optionCard}
+            onPress={handleGoToSupportComplaints}
+          >
+            <Image
+              source={require('../../assets/icons/report-icon/reporticon.png')}
+              style={styles.optionIconImage}
+            />
+            <Text style={styles.optionText}>{t('shared.profile.support.title')}</Text>
+              {/* <Text style={styles.supportAccessSubtitle}>
+                {t('shared.profile.support.subtitle', 'Revisa y continúa conversaciones con soporte')}
+              </Text> */}
+            <Text style={styles.optionArrow}>›</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Botón Cerrar Sesión */}
@@ -696,7 +715,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: colors.primary,
+    backgroundColor: '#725dc0ff',
     justifyContent: 'center',
     alignItems: 'center',
   },

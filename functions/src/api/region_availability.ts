@@ -2,6 +2,11 @@ import * as functions from "firebase-functions";
 import { firestore } from "../config/firebase";
 import { regionConfig } from "../config/functions-config";
 
+type ServiceAreaPoint = {
+  lat: number;
+  lng: number;
+};
+
 interface ServiceAreaDoc {
   id: string;
   name?: string;
@@ -10,13 +15,16 @@ interface ServiceAreaDoc {
   centerLat?: number;
   centerLng?: number;
   radiusKm?: number;
-  bounds?: {
-    north: number;
-    south: number;
-    east: number;
-    west: number;
-  };
+  points?: ServiceAreaPoint[];
 }
+
+const DEFAULT_MANAGUA_POLYGON: ServiceAreaPoint[] = [
+  { lat: 12.2, lng: -86.35 }, // Noroeste
+  { lat: 12.2, lng: -86.15 }, // Noreste
+  { lat: 12.05, lng: -86.15 }, // Sureste
+  { lat: 12.05, lng: -86.35 }, // Suroeste
+  { lat: 12.2, lng: -86.35 }, // Cierre
+];
 
 interface CheckRegionRequest {
   latitude: number;
@@ -34,17 +42,197 @@ interface CheckRegionResponse {
   isFallback?: boolean;
 }
 
+function toFiniteNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+const LAT_KEY_PATHS = [
+  "lat",
+  "Lat",
+  "latitude",
+  "Latitude",
+  "_lat",
+  "_latitude",
+  "coords.lat",
+  "coords.latitude",
+  "location.lat",
+  "location.latitude",
+  "point.lat",
+  "point.latitude",
+];
+
+const LNG_KEY_PATHS = [
+  "lng",
+  "Lng",
+  "lon",
+  "Lon",
+  "long",
+  "Long",
+  "longitude",
+  "Longitude",
+  "_lng",
+  "_lon",
+  "_long",
+  "_longitude",
+  "coords.lng",
+  "coords.lon",
+  "coords.long",
+  "coords.longitude",
+  "location.lng",
+  "location.lon",
+  "location.long",
+  "location.longitude",
+  "point.lng",
+  "point.lon",
+  "point.long",
+  "point.longitude",
+];
+
+function getNestedValue(source: any, path: string): unknown {
+  if (source == null) {
+    return undefined;
+  }
+  const segments = path.split(".");
+  let current: any = source;
+  for (const segment of segments) {
+    if (current == null) {
+      return undefined;
+    }
+    const value = current[segment];
+    current = typeof value === "function" ? value.call(current) : value;
+  }
+  return current;
+}
+
+function extractPoint(rawPoint: unknown): ServiceAreaPoint | null {
+  if (rawPoint == null) {
+    return null;
+  }
+
+  if (Array.isArray(rawPoint)) {
+    if (rawPoint.length < 2) {
+      return null;
+    }
+    const lat = toFiniteNumber(rawPoint[0]);
+    const lng = toFiniteNumber(rawPoint[1]);
+    return lat != null && lng != null ? { lat, lng } : null;
+  }
+
+  if (typeof rawPoint === "string") {
+    const parts = rawPoint.split(/[,\s;]+/).filter(Boolean);
+    if (parts.length >= 2) {
+      const lat = toFiniteNumber(parts[0]);
+      const lng = toFiniteNumber(parts[1]);
+      return lat != null && lng != null ? { lat, lng } : null;
+    }
+    return null;
+  }
+
+  if (typeof rawPoint === "object") {
+    const candidate = rawPoint as Record<string, unknown>;
+
+    const latCandidates = LAT_KEY_PATHS.map((path) => getNestedValue(candidate, path));
+    const lngCandidates = LNG_KEY_PATHS.map((path) => getNestedValue(candidate, path));
+
+    let lat: number | null = null;
+    for (const value of latCandidates) {
+      lat = toFiniteNumber(value);
+      if (lat != null) {
+        break;
+      }
+    }
+
+    let lng: number | null = null;
+    for (const value of lngCandidates) {
+      lng = toFiniteNumber(value);
+      if (lng != null) {
+        break;
+      }
+    }
+
+    if (
+      lat == null &&
+      typeof (candidate as any).latitude === "function" &&
+      typeof (candidate as any).longitude === "function"
+    ) {
+      const geoLat = toFiniteNumber((candidate as any).latitude());
+      const geoLng = toFiniteNumber((candidate as any).longitude());
+      if (geoLat != null && geoLng != null) {
+        return { lat: geoLat, lng: geoLng };
+      }
+    }
+
+    if (lat != null && lng != null) {
+      return { lat, lng };
+    }
+
+    return null;
+  }
+
+  return null;
+}
+
+function normalizePolygon(points: unknown): ServiceAreaPoint[] | undefined {
+  if (!Array.isArray(points)) {
+    return undefined;
+  }
+
+  const normalized: ServiceAreaPoint[] = [];
+  for (const rawPoint of points) {
+    const point = extractPoint(rawPoint);
+    if (!point) {
+      continue;
+    }
+    normalized.push(point);
+  }
+
+  if (normalized.length < 3) {
+    return undefined;
+  }
+
+  return normalized;
+}
+
 function isValidCoordinate(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
-function isPointInBounds(lat: number, lng: number, bounds: { north: number; south: number; east: number; west: number }): boolean {
-  return lat >= bounds.south && lat <= bounds.north && lng >= bounds.west && lng <= bounds.east;
+function hasValidPolygon(points?: ServiceAreaPoint[]): points is ServiceAreaPoint[] {
+  return Array.isArray(points) && points.length >= 3;
+}
+
+function isPointInPolygon(lat: number, lng: number, polygon: ServiceAreaPoint[]): boolean {
+  let inside = false;
+
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i].lng;
+    const yi = polygon[i].lat;
+    const xj = polygon[j].lng;
+    const yj = polygon[j].lat;
+
+    const intersects =
+      yi > lat !== yj > lat &&
+      lng <
+        ((xj - xi) * (lat - yi)) / (yj - yi || Number.EPSILON) + xi;
+
+    if (intersects) {
+      inside = !inside;
+    }
+  }
+
+  return inside;
 }
 
 function isPointInServiceArea(lat: number, lng: number, area: ServiceAreaDoc): boolean {
-  if (area.bounds) {
-    return isPointInBounds(lat, lng, area.bounds);
+  if (hasValidPolygon(area.points)) {
+    return isPointInPolygon(lat, lng, area.points);
   }
 
   if (isValidCoordinate(area.centerLat) && isValidCoordinate(area.centerLng) && isValidCoordinate(area.radiusKm)) {
@@ -62,6 +250,10 @@ function isPointInServiceArea(lat: number, lng: number, area: ServiceAreaDoc): b
   }
 
   return false;
+}
+
+function isPointInBounds(lat: number, lng: number, bounds: { north: number; south: number; east: number; west: number }): boolean {
+  return lat >= bounds.south && lat <= bounds.north && lng >= bounds.west && lng <= bounds.east;
 }
 
 // Fallback estático para Managua por si aún no hay configuración en Firestore
@@ -100,12 +292,7 @@ async function handleCheckRegionAvailability(data: CheckRegionRequest): Promise<
             name: "Managua",
             countryCode: "NI",
             active: true,
-            bounds: {
-              north: 12.2,
-              south: 12.05,
-              east: -86.15,
-              west: -86.35,
-            },
+            points: DEFAULT_MANAGUA_POLYGON,
           },
           { merge: true }
         );
@@ -123,6 +310,8 @@ async function handleCheckRegionAvailability(data: CheckRegionRequest): Promise<
 
     snapshot.forEach((doc) => {
       const data = doc.data() as Partial<ServiceAreaDoc>;
+      const normalizedPoints = normalizePolygon((data as any)?.points);
+
       areas.push({
         id: doc.id,
         name: data.name,
@@ -131,9 +320,23 @@ async function handleCheckRegionAvailability(data: CheckRegionRequest): Promise<
         centerLat: data.centerLat,
         centerLng: data.centerLng,
         radiusKm: data.radiusKm,
-        bounds: data.bounds as any,
+        points: normalizedPoints,
       });
+
+      if (!normalizedPoints) {
+        console.warn(
+          `⚠️ [checkRegionAvailability] El área ${doc.id} no tiene puntos válidos (points=${JSON.stringify(
+            (data as any)?.points,
+          )})`,
+        );
+      }
     });
+
+    console.log(
+      `[checkRegionAvailability] Áreas activas cargadas: ${areas.length}. IDs: ${areas
+        .map((area) => area.id)
+        .join(", ")}`,
+    );
 
     for (const area of areas) {
       if (isPointInServiceArea(latitude, longitude, area)) {
@@ -158,12 +361,15 @@ async function handleCheckRegionAvailability(data: CheckRegionRequest): Promise<
 
   // 3) Fallback: lógica estática de Managua para mantener compatibilidad
   if (isInDefaultManagua(latitude, longitude)) {
+    console.warn(
+      "[checkRegionAvailability] Usando fallback estático de Managua: ninguna área activa coincidió con la ubicación enviada.",
+    );
     return {
       allowed: true,
       serviceAreaId: "ni-managua",
-      areaName: "Managua",
+      areaName: "Prueba",
       reasonCode: "OK_FALLBACK",
-      message: "Servicio disponible en Managua (configuración por defecto).",
+      message: "Servicio disponible en prueba (configuración por defecto).",
       isFallback: true,
     };
   }

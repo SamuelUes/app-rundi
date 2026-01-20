@@ -9,6 +9,7 @@ import {
   RefreshControl,
   Image,
   Modal,
+  TextInput,
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
@@ -115,6 +116,34 @@ const normalizeStops = (stops: any[] | undefined | null): Array<{ lat: number; l
     )
     .filter((stop) => Number.isFinite(stop.lat) && Number.isFinite(stop.lng));
 };
+
+const extractProgrammedRideId = (input: string): string | null => {
+  if (!input) {
+    return null;
+  }
+  const trimmed = input.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const uuidRegex =
+    /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/;
+  const uuidMatch = trimmed.match(uuidRegex);
+  if (uuidMatch && uuidMatch[0]) {
+    return uuidMatch[0].toLowerCase();
+  }
+
+  const genericMatch = trimmed.match(/[A-Za-z0-9_-]{10,}/g);
+  if (genericMatch && genericMatch.length) {
+    return genericMatch[genericMatch.length - 1];
+  }
+
+  if (/^[A-Za-z0-9_-]+$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  return null;
+};
 const BACK_ICON = require('../../assets/icons/back_button/back_button2x.png');
 
 interface Ride {
@@ -161,7 +190,14 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
   const [activeRideGuard, setActiveRideGuard] = useState<{ id: string } | null>(null);
   const isScreenFocusedRef = useRef(false);
   const [photoModalUrl, setPhotoModalUrl] = useState<string | null>(null);
+  const [assignModalVisible, setAssignModalVisible] = useState(false);
+  const [assignRideIdInput, setAssignRideIdInput] = useState('');
+  const [assigningProgrammedRide, setAssigningProgrammedRide] = useState(false);
   const ridesSnapshotsRef = useRef<Record<string, Record<string, any> | null | undefined>>({});
+  const normalizedAssignRideId = useMemo(
+    () => extractProgrammedRideId(assignRideIdInput),
+    [assignRideIdInput],
+  );
 
   const hasRideEntries = (data: Record<string, any> | null | undefined) =>
     Boolean(data && typeof data === 'object' && Object.keys(data).length > 0);
@@ -942,6 +978,21 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
         <Text style={[styles.headerTitle, { color: colors.text }]}>{t('driver.available.header.title')}</Text>
       </View>
 
+      <View style={styles.assignBar}>
+        <TouchableOpacity
+          style={[styles.assignButton, { borderColor: colors.border, backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }]}
+          onPress={() => {
+            setAssignRideIdInput('');
+            setAssignModalVisible(true);
+          }}
+          activeOpacity={0.85}
+        >
+          <Text style={[styles.assignButtonText, { color: colors.text }]}>
+            {t('driver.available.assignModal.assignProgrammedButton')}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
       <FlatList
         data={listData}
         renderItem={renderRideItem}
@@ -979,6 +1030,89 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
           </View>
         </View>
       </Modal>
+
+      <Modal
+        visible={assignModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!assigningProgrammedRide) {
+            setAssignModalVisible(false);
+          }
+        }}
+      >
+        <View style={styles.assignOverlay}>
+          <View style={[styles.assignModalCard, { backgroundColor: isDark ? '#1F1F1F' : '#FFFFFF' }]}>
+            <Text style={[styles.assignModalTitle, { color: colors.text }]}>
+              {t('driver.available.assignModal.title')}
+            </Text>
+            <Text style={[styles.assignModalSubtitle, { color: colors.text + '99' }]}>
+              {t('driver.available.assignModal.subtitle')}
+            </Text>
+
+            <TextInput
+              value={assignRideIdInput}
+              onChangeText={setAssignRideIdInput}
+              placeholder={t('driver.available.assignModal.placeholder')}
+              placeholderTextColor={colors.text + '66'}
+              autoCapitalize="none"
+              autoCorrect={false}
+              editable={!assigningProgrammedRide}
+              style={[styles.assignInput, { borderColor: colors.border, color: colors.text }]}
+            />
+
+            <View style={styles.assignActionsRow}>
+              <TouchableOpacity
+                style={[styles.assignActionButton, styles.assignCancelButton, { borderColor: colors.border }]}
+                disabled={assigningProgrammedRide}
+                onPress={() => setAssignModalVisible(false)}
+              >
+                <Text style={[styles.assignActionText, { color: colors.text }]}>{t('driver.available.assignModal.cancel')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.assignActionButton, { backgroundColor: colors.primary }]}
+                disabled={assigningProgrammedRide || !normalizedAssignRideId}
+                onPress={async () => {
+                  const rideId = normalizedAssignRideId;
+                  if (!rideId) {
+                    alertService.showErrorAlert(t('driver.available.alerts.assignInvalidId'));
+                    return;
+                  }
+
+                  setAssigningProgrammedRide(true);
+                  try {
+                    const result = await ridesService.assignDriverToProgrammedRide(rideId);
+                    if (!result?.success) {
+                      throw new Error(result?.message || 'No se pudo asignar el viaje programado.');
+                    }
+                    alertService.showSuccessAlert(
+                      t('driver.available.alerts.assignSuccessTitle'),
+                      t('driver.available.alerts.assignSuccessBody'),
+                      {
+                        duration: 3500,
+                      },
+                    );
+                    setAssignModalVisible(false);
+                    setAssignRideIdInput('');
+                  } catch (err: any) {
+                    alertService.showErrorAlert(
+                      err?.message || t('driver.available.alerts.assignError'),
+                    );
+                  } finally {
+                    setAssigningProgrammedRide(false);
+                  }
+                }}
+              >
+                <Text style={styles.assignActionTextPrimary}>
+                  {assigningProgrammedRide
+                    ? t('driver.available.assignModal.assigning')
+                    : t('driver.available.assignModal.confirm')}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -986,6 +1120,22 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  assignBar: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 4,
+  },
+  assignButton: {
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+  },
+  assignButtonText: {
+    fontWeight: '700',
+    fontSize: 14,
+    textAlign: 'center',
   },
   listContent: {
     paddingHorizontal: 16,
@@ -1202,5 +1352,62 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '700',
     fontSize: 16,
+  },
+
+  assignOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+  },
+  assignModalCard: {
+    width: '100%',
+    borderRadius: 16,
+    padding: 16,
+  },
+  assignModalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginBottom: 6,
+  },
+  assignModalSubtitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  assignInput: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+  },
+  assignActionsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 14,
+  },
+  assignActionButton: {
+    flex: 1,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  assignCancelButton: {
+    borderWidth: 1,
+    backgroundColor: 'transparent',
+  },
+  assignActionText: {
+    fontWeight: '800',
+    fontSize: 14,
+  },
+  assignActionTextPrimary: {
+    fontWeight: '800',
+    fontSize: 14,
+    color: '#FFFFFF',
   },
 });

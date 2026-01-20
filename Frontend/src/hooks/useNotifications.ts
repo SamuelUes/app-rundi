@@ -17,6 +17,28 @@ export function useNotifications() {
   const notificationListener = useRef<Notifications.Subscription | null>(null);
   const responseListener = useRef<Notifications.Subscription | null>(null);
 
+  const openSupportChatFromData = (
+    data: any,
+    options?: { delayMs?: number },
+  ) => {
+    if (typeof data?.complaintId !== 'string' || !data.complaintId) {
+      return;
+    }
+    const rideId = typeof data.rideId === 'string' ? data.rideId : null;
+    const initialCategory = typeof data.category === 'string' ? data.category : undefined;
+    const initialTitle = typeof data.title === 'string' ? data.title : undefined;
+    const delay = options?.delayMs ?? 0;
+
+    setTimeout(() => {
+      navigate('SupportChat', {
+        rideId,
+        initialCategory,
+        initialTitle,
+        complaintId: data.complaintId,
+      } as any);
+    }, delay);
+  };
+
   useEffect(() => {
     // Inicializar notificaciones
     initializeNotifications();
@@ -71,9 +93,15 @@ export function useNotifications() {
         if (data?.type === 'quick_return_active_ride' && typeof data?.rideId === 'string') {
           // Pequeño delay para asegurar que NavigationContainer esté listo
           setTimeout(() => {
-            // Por ahora soportamos retorno rápido para conductores
-            if (user?.role === 'driver' || user?.role === 'designated_driver') {
-              navigate('ActiveRide', { rideId: data.rideId });
+            if (data?.type === 'quick_return_active_ride' && typeof data?.rideId === 'string') {
+              setTimeout(() => {
+                if (user?.role === 'driver' || user?.role === 'designated_driver') {
+                  navigate('ActiveRide', { rideId: data.rideId });
+                }
+              }, 400);
+            }
+            if (data?.type === 'support_chat' || data?.type === 'support_ticket_message') {
+              openSupportChatFromData(data, { delayMs: 400 });
             }
           }, 400);
         }
@@ -127,6 +155,18 @@ export function useNotifications() {
         } catch (error) {
           console.warn('[useNotifications] Error mostrando live update:', error);
         }
+        break;
+      case 'support_chat':
+      case 'support_ticket_message':
+        openSupportChatFromData(data);
+        break;
+      case 'programmed_ride_client_confirm':
+        // Redirigir al flujo de preflight del cliente para confirmar viaje programado
+        navigate('ClientPreflight', {});
+        break;
+      case 'programmed_ride_driver_confirm':
+        // Redirigir al flujo de preflight del conductor para confirmar viaje programado
+        navigate('DriverPreflight', {});
         break;
       default:
         console.log('Notificación desconocida:', data);

@@ -21,6 +21,7 @@ import { navigationRef } from './src/navigation/NavigationService';
 import { useNotifications } from './src/hooks/useNotifications';
 import { useOverlayDeepLink } from './src/hooks/useOverlayDeepLink';
 import LocationPermissionGate from './src/components/permissions/LocationPermissionGate';
+import ProgrammedRidePromptOverlay from './src/components/programmed/ProgrammedRidePromptOverlay';
 // import { initializeReactNativeFirebase } from './src/config/firebase-rn-native';
 // import { getApp } from '@react-native-firebase/app';
 
@@ -78,6 +79,11 @@ function AppContent() {
           <NavigationContainer ref={navigationRef}>
             <StatusBar style={isDark ? 'light' : 'dark'} />
             <AppNavigator />
+            {user?.role && (
+              <ProgrammedRidePromptOverlay
+                role={user.role === 'driver' || user.role === 'designated_driver' ? 'driver' : 'client'}
+              />
+            )}
           </NavigationContainer>
         </LocationPermissionGate>
       </TopToastProvider>

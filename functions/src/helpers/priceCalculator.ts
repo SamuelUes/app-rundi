@@ -307,52 +307,104 @@ export function isPeakHour(date: Date = new Date()): boolean {
   return (hour >= 6 && hour < 8) || (hour >= 17 && hour < 20);
 }
 
+type ServiceAreaPoint = {
+  lat: number;
+  lng: number;
+};
+
 interface ServiceAreaDoc {
   id: string;
   name?: string;
   active?: boolean;
-  bounds?: {
-    north: number;
-    south: number;
-    east: number;
-    west: number;
-  };
   centerLat?: number;
   centerLng?: number;
   radiusKm?: number;
+  points?: ServiceAreaPoint[];
 }
 
 const DEFAULT_SERVICE_AREA: ServiceAreaDoc = {
   id: 'ni-managua-default',
   name: 'Managua',
   active: true,
-  bounds: {
-    north: 12.2,
-    south: 12.05,
-    east: -86.15,
-    west: -86.35,
-  },
+  points: [
+    { lat: 12.2, lng: -86.35 },
+    { lat: 12.2, lng: -86.15 },
+    { lat: 12.05, lng: -86.15 },
+    { lat: 12.05, lng: -86.35 },
+    { lat: 12.2, lng: -86.35 },
+  ],
 };
 
 let cachedServiceAreas: ServiceAreaDoc[] | null = null;
 let serviceAreasFetchedAt = 0;
 const SERVICE_AREAS_CACHE_TTL_MS = 5 * 60 * 1000;
 
+function toFiniteNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function normalizePolygon(points: unknown): ServiceAreaPoint[] | undefined {
+  if (!Array.isArray(points)) {
+    return undefined;
+  }
+
+  const normalized: ServiceAreaPoint[] = [];
+  for (const rawPoint of points) {
+    const lat = toFiniteNumber((rawPoint as any)?.lat);
+    const lng = toFiniteNumber((rawPoint as any)?.lng);
+    if (lat == null || lng == null) {
+      continue;
+    }
+    normalized.push({ lat, lng });
+  }
+
+  if (normalized.length < 3) {
+    return undefined;
+  }
+
+  return normalized;
+}
+
 function isValidCoordinate(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
-function isPointInBounds(
-  lat: number,
-  lng: number,
-  bounds: { north: number; south: number; east: number; west: number },
-): boolean {
-  return lat >= bounds.south && lat <= bounds.north && lng >= bounds.west && lng <= bounds.east;
+function hasValidPolygon(points?: ServiceAreaPoint[]): points is ServiceAreaPoint[] {
+  return Array.isArray(points) && points.length >= 3;
+}
+
+function isPointInPolygon(lat: number, lng: number, polygon: ServiceAreaPoint[]): boolean {
+  let inside = false;
+
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i].lng;
+    const yi = polygon[i].lat;
+    const xj = polygon[j].lng;
+    const yj = polygon[j].lat;
+
+    const intersects =
+      yi > lat !== yj > lat &&
+      lng <
+        ((xj - xi) * (lat - yi)) / (yj - yi || Number.EPSILON) + xi;
+
+    if (intersects) {
+      inside = !inside;
+    }
+  }
+
+  return inside;
 }
 
 function isPointInServiceArea(lat: number, lng: number, area: ServiceAreaDoc): boolean {
-  if (area.bounds) {
-    return isPointInBounds(lat, lng, area.bounds);
+  if (hasValidPolygon(area.points)) {
+    return isPointInPolygon(lat, lng, area.points);
   }
 
   if (
@@ -391,10 +443,10 @@ async function loadServiceAreas(): Promise<ServiceAreaDoc[]> {
         id: doc.id,
         name: data.name,
         active: data.active,
-        bounds: data.bounds,
         centerLat: data.centerLat,
         centerLng: data.centerLng,
         radiusKm: data.radiusKm,
+        points: normalizePolygon((data as any)?.points),
       };
     });
 

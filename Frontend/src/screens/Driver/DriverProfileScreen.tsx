@@ -192,6 +192,10 @@ export default function DriverProfileScreen({ navigation }: any) {
   const [overlayCheckingPermission, setOverlayCheckingPermission] = useState<boolean>(false);
   const currentYear = useMemo(() => new Date().getFullYear(), []);
 
+  const handleGoToSupportComplaints = () => {
+  navigation.navigate('SupportComplaints');
+  };
+
   const extractDesignatedRequestStatus = (driver: DriverData | null | undefined) =>
     driver?.designated_rol_requested || driver?.designatedRoleRequested || driver?.designatedRolRequested || null;
 
@@ -1632,6 +1636,21 @@ export default function DriverProfileScreen({ navigation }: any) {
           <Text style={styles.optionText}>{t('driver.profile.options.help')}</Text>
           <Text style={styles.optionArrow}>›</Text>
         </TouchableOpacity>
+        
+        <TouchableOpacity
+           style={styles.optionCard}
+            onPress={handleGoToSupportComplaints}
+             >
+             <Image
+              source={require('../../assets/icons/report-icon/reporticon.png')}
+              style={styles.optionIconImage}
+             />
+             <Text style={styles.optionText}>{t('shared.profile.support.title')}</Text>
+                      {/* <Text style={styles.supportAccessSubtitle}>
+                        {t('shared.profile.support.subtitle', 'Revisa y continúa conversaciones con soporte')}
+                      </Text> */}
+             <Text style={styles.optionArrow}>›</Text>
+        </TouchableOpacity>
       </View>
 
       <View style={{ height: 40 }} />
@@ -2083,7 +2102,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     width: 110,
     height: 80,
     borderRadius: 40,
-    backgroundColor: colors.primary,
+    backgroundColor: '#6e44ff',
     justifyContent: 'center',
     alignItems: 'center',
   },

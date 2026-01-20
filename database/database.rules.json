@@ -84,6 +84,57 @@
         }
       }
     },
+
+    "programmedRides": {
+      ".read": "auth != null",
+      "$rideId": {
+        ".write": "auth != null",
+        ".validate": "data.exists() ? true : newData.hasChildren(['id', 'clientId', 'status', 'origin', 'destination', 'estimatedPrice', 'scheduledAt'])",
+
+        "id": { ".validate": "newData.isString()" },
+        "isProgrammed": { ".validate": "!newData.exists() || newData.isBoolean()" },
+        "scheduledAt": { ".validate": "newData.isNumber() && newData.val() > 0" },
+        "clientId": { ".validate": "newData.isString()" },
+        "driverId": { ".validate": "newData.isString() || newData.val() == null" },
+        "status": { ".validate": "newData.isString()" },
+        "origin": { ".validate": "!newData.exists() || newData.hasChildren(['lat', 'lng'])" },
+        "destination": { ".validate": "!newData.exists() || newData.hasChildren(['lat', 'lng'])" },
+        "estimatedPrice": { ".validate": "!newData.exists() || (newData.isNumber() && newData.val() >= 0)" },
+        "estimatedDistance": { ".validate": "!newData.exists() || (newData.isNumber() && newData.val() >= 0)" },
+        "estimatedDuration": { ".validate": "!newData.exists() || (newData.isNumber() && newData.val() >= 0)" },
+        "clientConfirmedAt": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+        "driverConfirmedAt": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+        "clientConfirmed": { ".validate": "!newData.exists() || newData.isBoolean()" },
+        "driverConfirmed": { ".validate": "!newData.exists() || newData.isBoolean()" },
+        "canceledAt": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+        "$other": { ".validate": "true" }
+      }
+    },
+
+    "programmedRidesByArea": {
+      ".read": "auth != null",
+      "$serviceAreaId": {
+        "$rideId": {
+          ".write": "auth != null",
+          ".validate": "data.exists() ? true : newData.hasChildren(['id', 'clientId', 'status', 'origin', 'destination', 'estimatedPrice', 'scheduledAt'])",
+
+          "id": { ".validate": "newData.isString()" },
+          "isProgrammed": { ".validate": "!newData.exists() || newData.isBoolean()" },
+          "scheduledAt": { ".validate": "newData.isNumber() && newData.val() > 0" },
+          "clientId": { ".validate": "newData.isString()" },
+          "driverId": { ".validate": "newData.isString() || newData.val() == null" },
+          "status": { ".validate": "newData.isString()" },
+          "origin": { ".validate": "!newData.exists() || newData.hasChildren(['lat', 'lng'])" },
+          "destination": { ".validate": "!newData.exists() || newData.hasChildren(['lat', 'lng'])" },
+          "estimatedPrice": { ".validate": "!newData.exists() || (newData.isNumber() && newData.val() >= 0)" },
+          "estimatedDistance": { ".validate": "!newData.exists() || (newData.isNumber() && newData.val() >= 0)" },
+          "estimatedDuration": { ".validate": "!newData.exists() || (newData.isNumber() && newData.val() >= 0)" },
+          "clientConfirmed": { ".validate": "!newData.exists() || newData.isBoolean()" },
+          "driverConfirmed": { ".validate": "!newData.exists() || newData.isBoolean()" },
+          "$other": { ".validate": "true" }
+        }
+      }
+    },
     
     "driverLocations": {
       ".read": "auth != null",

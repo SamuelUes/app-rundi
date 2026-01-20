@@ -66,7 +66,7 @@ const CALLABLE_RETRY_INTERVAL_MS = 60_000; // 1 minuto de enfriamiento antes de 
 function getCurrentServiceAreaId(): string | null {
   try {
     const summary = getPreflightResult();
-    const region = summary?.region;
+    const region = summary?.region; 
     if (region && typeof region.serviceAreaId === 'string') {
       const trimmed = region.serviceAreaId.trim();
       if (trimmed.length > 0) {
