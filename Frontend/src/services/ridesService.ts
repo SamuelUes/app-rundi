@@ -202,6 +202,107 @@ const toNumber = (value: any, fallback = 0): number => {
   return Number.isFinite(num) ? num : fallback;
 };
 
+const VEHICLE_TYPE_KEYWORDS = {
+  moto: ['moto', 'motorcycle', 'motorbike', 'bike', 'mototaxi', 'moto taxi'],
+  auto: [
+    'auto',
+    'car',
+    'sedan',
+    'suv',
+    'pickup',
+    'truck',
+    'van',
+    'crossover',
+    'jeep',
+    'convertible',
+    'camioneta',
+    'coche',
+    'carro',
+    'automovil',
+    'automóvil',
+    'normal',
+  ],
+} as const;
+
+export const normalizeVehicleTypeForMatching = (rawType?: string | null): 'moto' | 'auto' | null => {
+  if (!rawType || typeof rawType !== 'string') {
+    return null;
+  }
+
+  const value = rawType.trim().toLowerCase();
+  if (!value) {
+    return null;
+  }
+
+  if (VEHICLE_TYPE_KEYWORDS.moto.some((keyword) => value === keyword || value.includes(keyword))) {
+    return 'moto';
+  }
+
+  if (VEHICLE_TYPE_KEYWORDS.auto.some((keyword) => value === keyword || value.includes(keyword))) {
+    return 'auto';
+  }
+
+  if (value === 'motorcycle') {
+    return 'moto';
+  }
+
+  return null;
+};
+
+export const extractRideVehicleTypeForMatching = (rideLike: any): 'moto' | 'auto' | null => {
+  if (!rideLike || typeof rideLike !== 'object') {
+    return null;
+  }
+
+  const rideType = String(rideLike.rideType ?? rideLike.ride_type ?? '').trim().toLowerCase();
+  const candidates: Array<string | null | undefined> = [];
+
+  if (rideType === 'designated_driver') {
+    candidates.push(
+      rideLike.designatedDriverVehicle,
+      rideLike.designated_driver_vehicle,
+      rideLike.vehicleType,
+      rideLike.vehicle_type,
+      rideLike.vehicle?.type,
+      rideLike.serviceId,
+      rideLike.service_id,
+    );
+  } else {
+    candidates.push(
+      rideLike.vehicleType,
+      rideLike.vehicle_type,
+      rideLike.vehicle?.type,
+      rideLike.serviceId,
+      rideLike.service_id,
+      rideLike.requestedVehicleType,
+      rideLike.requested_vehicle_type,
+    );
+  }
+
+  for (const candidate of candidates) {
+    const normalized = normalizeVehicleTypeForMatching(candidate ?? null);
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  return null;
+};
+
+export const rideMatchesVehicleType = (rideLike: any, selectedDriverVehicleType?: string | null): boolean => {
+  const normalizedDriverType = normalizeVehicleTypeForMatching(selectedDriverVehicleType ?? null);
+  if (!normalizedDriverType) {
+    return true;
+  }
+
+  const normalizedRideType = extractRideVehicleTypeForMatching(rideLike);
+  if (!normalizedRideType) {
+    return false;
+  }
+
+  return normalizedRideType === normalizedDriverType;
+};
+
 const normalizeVehicle = (vehicle: any): RideVehicle => ({
   id: vehicle?.id ?? undefined,
   brand: vehicle?.brand ?? undefined,
@@ -666,14 +767,16 @@ class RidesService {
   }
 
   // Para conductores
-  async getAvailableRides(lat?: number, lng?: number, radius?: number): Promise<any[]> {
+  async getAvailableRides(lat?: number, lng?: number, radius?: number, selectedVehicleType?: string): Promise<any[]> {
     const functions = await this.getFunctions();
     const getAvailableRidesFunction = httpsCallable(functions, 'getAvailableRides');
     const deviceId = await sessionService.getDeviceId();
+    const normalizedVehicleType = normalizeVehicleTypeForMatching(selectedVehicleType ?? null);
     const response = await getAvailableRidesFunction({ 
       latitude: lat, 
       longitude: lng, 
       radius: radius || 1.5, // Radio por defecto: 1.5 km
+      vehicleType: normalizedVehicleType || undefined,
       deviceId,
     });
     const result = response.data as { success: boolean; rides: any[] };

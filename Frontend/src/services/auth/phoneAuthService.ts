@@ -5,7 +5,12 @@ import i18n from '../../i18n';
 class PhoneAuthService {
   private confirmations: Map<string, FirebaseAuthTypes.ConfirmationResult> = new Map();
   private tr(path: string, options?: Record<string, any>) {
-    return i18n.t(`services.auth.phoneAuthService.${path}`, options) as string;
+    const key = `common.services.auth.phoneAuthService.${path}`;
+    const value = i18n.t(key, options) as string;
+    if (!value || value === key) {
+      return i18n.t(key, { ...options, lng: 'en' }) as string;
+    }
+    return value;
   }
 
   private normalizePhone(phone: string): string {

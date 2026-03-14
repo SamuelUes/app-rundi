@@ -159,7 +159,7 @@ const createStyles = (colors: any) => {
       width: '100%',
       paddingVertical: 14,
       borderRadius: 22,
-      backgroundColor: gold,
+      backgroundColor: '#b38737',
       alignItems: 'center',
       justifyContent: 'center',
     },

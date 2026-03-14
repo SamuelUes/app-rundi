@@ -10,13 +10,14 @@ import {
   ScrollView,
   Image,
 } from 'react-native';
-import { Picker } from '@react-native-picker/picker';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useGoogleAuth } from '../../hooks/useGoogleAuth';
 import GoogleSignInButton from '../../components/GoogleSignInButton';
 import PhoneDigitInput from '../../components/PhoneDigitInput';
 import phoneAuthService from '../../services/auth/phoneAuthService';
+import firebaseAuthService from '../../services/auth/firebaseAuthService';
+import registrationService from '../../services/registrationService';
 import alertService from '../../services/alertService';
 import {
   CountryDialOption,
@@ -173,7 +174,39 @@ export default function LoginScreen({ navigation }: any) {
           userData.name ||
           (userData.email ? String(userData.email).split('@')[0] : 'Usuario Google');
 
-        console.log('🆕 Usuario Google sin perfil, navegando a RoleSelection...');
+        const googleEmail = userData.email || undefined;
+        if (googleEmail) {
+          await registrationService.saveTemporaryData({
+            name: displayName,
+            email: googleEmail,
+            phone: userData.phone || undefined,
+            password: undefined,
+            method: 'google',
+            authProvider: 'google',
+            googleIdToken: idToken,
+            phoneVerified: false,
+            emailVerified: false,
+            lastStep: 'emailVerification',
+          });
+
+          await firebaseAuthService.sendEmailVerificationCode();
+
+          navigation.navigate('EmailVerification', {
+            name: displayName,
+            email: googleEmail,
+            phone: userData.phone || undefined,
+            password: undefined,
+            method: 'google',
+            authProvider: 'google',
+            googleIdToken: idToken,
+            phoneVerified: false,
+            emailVerified: false,
+            context: 'register_google',
+          });
+          return;
+        }
+
+        console.log('🆕 Usuario Google sin email verificable, navegando a RoleSelection...');
         navigation.navigate('RoleSelection', {
           name: displayName,
           email: userData.email || undefined,
@@ -183,6 +216,7 @@ export default function LoginScreen({ navigation }: any) {
           authProvider: 'google',
           googleIdToken: idToken,
           phoneVerified: false,
+          emailVerified: false,
         });
 
         return;
@@ -473,7 +507,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     elevation: 3,
   },
   loginButton: {
-    backgroundColor: '#D4AF37',
+    backgroundColor: colors.primary,
     padding: 14,
     borderRadius: 12,
     alignItems: 'center',

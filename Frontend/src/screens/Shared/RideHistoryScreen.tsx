@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
+  Image,
 } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
@@ -46,6 +47,9 @@ const STATUS_KEY_MAP: Record<string, string> = {
   requested: 'requested',
   accepted: 'accepted',
 };
+
+const arrowWhiteUpIcon = require('../../assets/icons/arrow/arrowwhiteup2x.png');
+const arrowBlackDownIcon = require('../../assets/icons/arrow/arrrowblackup2x.png');
 
 export default function RideHistoryScreen({ navigation }: any) {
   const { user } = useAuth();
@@ -320,6 +324,25 @@ export default function RideHistoryScreen({ navigation }: any) {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={styles.navigationButtons}>
+        <TouchableOpacity
+          style={styles.primaryNavButton}
+          activeOpacity={0.9}
+          onPress={() => navigation.navigate('PayCommissions')}
+        >
+          <Image source={arrowWhiteUpIcon} style={[styles.navIcon, styles.navIconWhite]} resizeMode="contain" />
+          <Text style={styles.primaryNavText}>{t('shared.rideHistory.nav.commissions')}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.secondaryNavButton}
+          activeOpacity={0.9}
+          onPress={() => {}}
+        >
+          <Image source={arrowBlackDownIcon} style={[styles.navIcon, styles.navIconDark]} resizeMode="contain" />
+          <Text style={styles.secondaryNavText}>{t('shared.rideHistory.nav.history')}</Text>
+        </TouchableOpacity>
+      </View>
+
       {/* Filtros */}
       <View style={styles.filterContainer}>
         <TouchableOpacity
@@ -396,10 +419,64 @@ const createStyles = (colors: any) =>
     filterContainer: {
       flexDirection: 'row',
       padding: 16,
+      paddingTop: 8,
       gap: 8,
       backgroundColor: colors.card,
       borderBottomWidth: 1,
       borderBottomColor: colors.border,
+    },
+    navigationButtons: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+      paddingTop: 10,
+      paddingBottom: 8,
+      gap: 12,
+      backgroundColor: colors.background,
+      marginTop: 40,
+    },
+    primaryNavButton: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.text,
+      borderRadius: 999,
+      paddingVertical: 14,
+      gap: 8,
+    },
+    primaryNavText: {
+      color: colors.background,
+      fontSize: 14,
+      fontWeight: '700',
+    },
+    secondaryNavButton: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: 999,
+      paddingVertical: 14,
+      gap: 8,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.card,
+    },
+    secondaryNavText: {
+      color: colors.text,
+      fontSize: 14,
+      fontWeight: '700',
+    },
+    navIcon: {
+      width: 14,
+      height: 14,
+    },
+    navIconWhite: {
+      tintColor: colors.background,
+    },
+    navIconDark: {
+      tintColor: colors.text,
+      transform: [{ rotate: '90deg' }],
     },
     filterButton: {
       flex: 1,

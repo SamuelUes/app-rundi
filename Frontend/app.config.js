@@ -37,7 +37,7 @@ export default {
       UIBackgroundModes: ['location', 'fetch'],
     },
     usesAppleSignIn: true,
-    googleServicesFile: "./GoogleService-Info.plist"
+    googleServicesFile: './ios/Rundi/GoogleService-Info.plist'
   },
   android: {
     package: 'com.driveangel.rundidev',

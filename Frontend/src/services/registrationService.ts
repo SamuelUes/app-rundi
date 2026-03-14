@@ -24,8 +24,10 @@ interface RegistrationData {
   method?: RegistrationMethod;
   authProvider?: RegistrationAuthProvider;
   phoneVerified?: boolean;
+  emailVerified?: boolean;
   lastStep?:
     | 'register'
+    | 'emailVerification'
     | 'roleSelection'
     | 'googlePhone'
     | 'driverPhone'
@@ -36,6 +38,7 @@ interface RegistrationData {
   driverData?: {
     licenseNumber: string;
     licenseExpiry: string;
+    profilePhoto?: string;
     licensePhotoFront?: string;
     licensePhotoBack?: string;
     department?: string;
@@ -60,6 +63,7 @@ interface RegistrationData {
     lien?: string;
     emissionDate?: string;
     registrationNumber?: string;
+    registrationExpiry?: string;
     registrationPhotoFront?: string;
     registrationPhotoBack?: string;
     insuranceNumber?: string;
@@ -187,6 +191,7 @@ class RegistrationService {
         authProvider: data.authProvider || 'email/password',
         method: data.method || data.authProvider || 'email',
         phoneVerified: data.phoneVerified || false,
+        emailVerified: data.emailVerified || false,
         driverData: data.driverData || undefined,
         vehicleData: data.vehicleData || undefined,
         googleIdToken: data.googleIdToken || undefined,

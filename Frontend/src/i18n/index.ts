@@ -1222,6 +1222,31 @@ const resources = {
                 smsError: 'We could not request the SMS code.',
               },
             },
+            emailVerification: {
+              title: 'Email verification',
+              subtitle: 'Enter the long code from the link Firebase sent to:',
+              label: 'Code',
+              codePlaceholder: 'Tap here to paste your code',
+              attemptsRemaining: 'Attempts remaining: {{remaining}} / {{max}}',
+              verifyButton: 'Verify',
+              resendIn: 'Resend in {{seconds}}s',
+              resendButton: 'Resend code',
+              alerts: {
+                codeSentTitle: 'Code sent',
+                codeSentMessage: 'Check your email {{email}} and copy the code from the link.',
+                errorTitle: 'Error',
+                resendError: 'We could not resend the verification code.',
+                codeRequiredTitle: 'Code required',
+                codeRequiredMessage: 'Enter the long code received by email.',
+                tooManyAttemptsTitle: 'Too many attempts',
+                tooManyAttemptsMessage: 'You reached the maximum attempts. Resend a new code.',
+                noSessionError: 'No active session found to register verification.',
+                verifiedTitle: 'Email verified',
+                verifiedMessage: 'Your email was verified successfully.',
+                verificationErrorTitle: 'Verification error',
+                verificationErrorMessage: 'We could not verify the code.',
+              },
+            },
             onboarding: {
               slides: {
                 first: {
@@ -1244,6 +1269,17 @@ const resources = {
               tabs: {
                 license: 'License',
                 vehicle: 'Vehicle',
+              },
+              photos: {
+                sectionTitle: 'Photos',
+                profileTitle: 'Profile photo *',
+                licenseFrontTitle: 'Driver license (front) *',
+                licenseBackTitle: 'Driver license (back) *',
+                insuranceTitle: 'Insurance photo *',
+                registrationFrontTitle: 'Registration – front *',
+                registrationBackTitle: 'Registration – back *',
+                takePhoto: 'Take photo',
+                retakePhoto: 'Retake photo',
               },
               license: {
                 sectionTitle: 'License information',
@@ -1270,6 +1306,16 @@ const resources = {
                 colorLabel: 'Color *',
                 colorPlaceholder: 'Ex: White',
                 typeLabel: 'Vehicle type *',
+                registrationNumberLabel: 'Registration number',
+                registrationNumberPlaceholder: 'Ex: B2301230',
+                registrationExpiryLabel: 'Registration expiration (YYYY-MM-DD)',
+                registrationExpiryPlaceholder: 'Ex: 2029-02-14',
+                insuranceNumberLabel: 'Insurance policy number',
+                insuranceNumberPlaceholder: 'Ex: RCO30201102',
+                insuranceCompanyLabel: 'Insurance company',
+                insuranceCompanyPlaceholder: 'Ex: BAC',
+                insuranceExpiryLabel: 'Insurance expiration (YYYY-MM-DD)',
+                insuranceExpiryPlaceholder: 'Ex: 2030-02-12',
                 typeOptions: {
                   sedan: 'Sedan',
                   suv: 'SUV',
@@ -1433,7 +1479,19 @@ const resources = {
                 basic: 'Basic information',
                 license: 'License details',
                 vehicle: 'Vehicle details',
+                photos: 'Photos',
+                vehiclePhotos: 'Vehicle photos',
                 importantInfo: '⚠️ Important information',
+              },
+              photos: {
+                hint: 'These photos were captured successfully and will be uploaded when you confirm.',
+                profile: 'Profile photo',
+                licenseFront: 'License (front)',
+                licenseBack: 'License (back)',
+                insurance: 'Insurance policy',
+                vehicle: 'Vehicle photo',
+                registrationFront: 'Registration (front)',
+                registrationBack: 'Registration (back)',
               },
               infoBox: {
                 line1: '• By confirming, you accept our Terms of Service.',
@@ -1611,6 +1669,7 @@ const resources = {
             registercontinue: 'Continue with google'
 
            },
+           
           },
       client: {
         pendingPayments: {
@@ -3553,6 +3612,7 @@ const resources = {
           },
           cta: {
             primary: 'Confirm and request ride',
+            primaryScheduled: 'Confirm and schedule ride',
             loading: 'Sending request…',
             submittingOverlay: 'Sending your request…',
           },
@@ -3797,6 +3857,7 @@ const resources = {
           },
           gate: {
             spinner: 'Checking location permissions…',
+            uploadsGate: 'Finish uploading your documents',
             services: {
               title: 'Turn on location services',
               description:
@@ -3915,6 +3976,10 @@ const resources = {
             requested: 'Requested',
             accepted: 'Accepted',
             default: '{{status}}',
+          },
+          nav: {
+            commissions: 'Commissions',
+            history: 'History',
           },
           labels: {
             noDate: 'No date',
@@ -4061,7 +4126,7 @@ const resources = {
             },
             pricing: {
               question: 'How does pricing work?',
-              answer: 'Base fare is C$50 + C$35 per kilometer. Peak times (6–9 AM, 5–8 PM) and designated driver service (+50%) include surcharges.',
+              answer: 'The base rate is C$50 plus a per-kilometer formula. The price per kilometer varies depending on the service. Commissions are charged depending on the service requested.',
             },
             designatedDriver: {
               question: 'What is a designated driver?',
@@ -4087,6 +4152,10 @@ const resources = {
               question: 'Can I share my ride?',
               answer: 'Yes. During the trip you can share a live tracking link with family or friends so they can follow your location.',
             },
+            comission: {
+              question: 'How do commissions work?',
+              answer: 'Commissions vary depending on the service requested. They are applied automatically when the trip ends. In a regular trip, 15% of the trip earnings are charged; in designated driving, 25% is charged; and in motorcycle trips, 7% is charged.',
+            }
           },
           info: {
             website: {
@@ -4547,6 +4616,31 @@ const resources = {
         subtitle: 'Tell us what is happening and our team will help you through this chat.',
         rideTagLabel: 'Related ride',
         fallbackUserName: 'User',
+        call: {
+          ringing: 'You are being called, accept to connect with the operator.',
+          status: 'Status',
+          caseLabel: 'Case',
+          operatorLabel: 'Operator',
+          actions: {
+            accept: 'Accept',
+            reject: 'Reject',
+            hangup: 'Hang up',
+          },
+          info: {
+            room: 'Room',
+            stateConnecting: 'Connecting...',
+            stateConnected: 'Connected',
+            stateDisconnected: 'Disconnected',
+            tokenReceived: 'Token obtained and LiveKit connection started on the client.',
+          },
+          requestTitle: 'Call requested',
+          requestBody: 'We notified support to call you. You will get an alert when they start the call.',
+          requestMessage: 'The client requested a support call.',
+        },
+        caseHeader: {
+          createdLabel: 'Case created',
+          hint: 'We will notify you in this chat about updates.',
+        },
         categories: {
           title: 'Issue type',
           service: 'Service / ride',
@@ -4563,12 +4657,14 @@ const resources = {
           urgent: 'Urgent',
         },
         form: {
-          problemTitleLabel: 'Problem title',
-          problemTitlePlaceholder: 'Ex: Issue with the charge on my last ride',
-          descriptionLabel: 'Describe what happened',
-          descriptionPlaceholder: 'Include details that help support understand and resolve your case.',
+          problemTitleLabel: 'Title of the problem *',
+          problemTitlePlaceholder: 'Describe the problem briefly',
+          descriptionLabel: 'Description (optional)',
+          descriptionPlaceholder: 'Add more context, screenshots, or details here',
+          createdLabel: 'Case created',
+          hint: 'You can keep writing in this chat to stay in touch with customer support.',
         },
-        errors: {
+         errors: {
           missingTitle: 'Please enter a brief title for your problem.',
           initializeService: 'We could not initialize the support service. Check your connection.',
           invalidResponse: 'We could not create the case. Try again later.',
@@ -4577,10 +4673,6 @@ const resources = {
         actions: {
           creatingCase: 'Creating case...',
           createCase: 'Create case and start chat',
-        },
-        caseHeader: {
-          createdLabel: 'Case created',
-          hint: 'You can keep writing in this chat to stay in touch with customer support.',
         },
         emptyState: {
           text: 'Your case has been created. Send your first message so support has more context.',
@@ -5679,6 +5771,31 @@ const resources = {
               smsError: 'No pudimos solicitar el código SMS.',
             },
           },
+          emailVerification: {
+            title: 'Verificación por correo',
+            subtitle: 'Ingresa el código largo del enlace que Firebase envió a:',
+            label: 'Código',
+            codePlaceholder: 'Toca aquí para pegar tu código',
+            attemptsRemaining: 'Intentos restantes: {{remaining}} / {{max}}',
+            verifyButton: 'Verificar',
+            resendIn: 'Reenviar en {{seconds}}s',
+            resendButton: 'Reenviar código',
+            alerts: {
+              codeSentTitle: 'Código enviado',
+              codeSentMessage: 'Revisa tu correo {{email}} y copia el código del enlace.',
+              errorTitle: 'Error',
+              resendError: 'No se pudo reenviar el código de verificación.',
+              codeRequiredTitle: 'Código requerido',
+              codeRequiredMessage: 'Ingresa el código largo recibido por correo.',
+              tooManyAttemptsTitle: 'Demasiados intentos',
+              tooManyAttemptsMessage: 'Has alcanzado el máximo de intentos. Reenvía un nuevo código.',
+              noSessionError: 'No se encontró sesión activa para registrar la verificación.',
+              verifiedTitle: 'Correo verificado',
+              verifiedMessage: 'Tu correo fue verificado correctamente.',
+              verificationErrorTitle: 'Error de verificación',
+              verificationErrorMessage: 'No se pudo verificar el código.',
+            },
+          },
           onboarding: {
             slides: {
               first: {
@@ -5701,6 +5818,17 @@ const resources = {
             tabs: {
               license: 'Licencia',
               vehicle: 'Vehículo',
+            },
+            photos: {
+              sectionTitle: 'Fotos',
+              profileTitle: 'Foto de perfil *',
+              licenseFrontTitle: 'Licencia de conducir (frente) *',
+              licenseBackTitle: 'Licencia de conducir (reverso) *',
+              insuranceTitle: 'Foto del seguro *',
+              registrationFrontTitle: 'Circulación – frente *',
+              registrationBackTitle: 'Circulación – reverso *',
+              takePhoto: 'Tomar foto',
+              retakePhoto: 'Volver a tomar',
             },
             license: {
               sectionTitle: 'Información de la licencia',
@@ -5727,6 +5855,16 @@ const resources = {
               colorLabel: 'Color *',
               colorPlaceholder: 'Ej: Blanco',
               typeLabel: 'Tipo de vehículo *',
+              registrationNumberLabel: 'Número de circulación',
+              registrationNumberPlaceholder: 'Ej: B2301230',
+              registrationExpiryLabel: 'Vencimiento de la circulación (AAAA-MM-DD)',
+              registrationExpiryPlaceholder: 'Ej: 2029-02-14',
+              insuranceNumberLabel: 'Número de póliza',
+              insuranceNumberPlaceholder: 'Ej: RCO30201102',
+              insuranceCompanyLabel: 'Compañía de seguro',
+              insuranceCompanyPlaceholder: 'Ej: BAC',
+              insuranceExpiryLabel: 'Vencimiento del seguro (AAAA-MM-DD)',
+              insuranceExpiryPlaceholder: 'Ej: 2030-02-12',
               typeOptions: {
                 sedan: 'Sedán',
                 suv: 'SUV',
@@ -5890,7 +6028,19 @@ const resources = {
               basic: 'Información básica',
               license: 'Detalles de la licencia',
               vehicle: 'Detalles del vehículo',
+              photos: 'Fotos',
+              vehiclePhotos: 'Fotos del vehículo',
               importantInfo: '⚠️ Información importante',
+            },
+            photos: {
+              hint: 'Estas fotos fueron tomadas correctamente y se subirán cuando confirmes.',
+              profile: 'Foto de perfil',
+              licenseFront: 'Licencia (frente)',
+              licenseBack: 'Licencia (reverso)',
+              insurance: 'Póliza / seguro',
+              vehicle: 'Foto del vehículo',
+              registrationFront: 'Circulación (frente)',
+              registrationBack: 'Circulación (reverso)',
             },
             infoBox: {
               line1: '• Al confirmar, aceptas nuestros Términos del Servicio.',
@@ -8277,8 +8427,34 @@ const resources = {
               secondary: 'Ya lo activé, reintentar',
             },
           },
+           gate: {
+            spinner: 'Verificando permisos de ubicación…',
+            uploadsGate: 'Finaliza la subida de tus documentos',
+            services: {
+              title: 'Activa los servicios de ubicación',
+              description:
+                'Por favor, activa los servicios de ubicación del sistema. Sin ellos no podemos compartir tu ubicación en primer plano o en segundo plano.',
+              primary: 'Abrir ajustes',
+              secondary: 'Ya lo activé, reintentar',
+            },
+            foreground: {
+              title: 'Permiso de ubicación necesario',
+              description:
+                'Necesitamos acceso a tu ubicación mientras usas la app para asignar viajes y mostrar la información correcta en el mapa.',
+              primary: 'Permitir ubicación',
+              primarySettings: 'Abrir ajustes del sistema',
+              secondary: 'Reintentar',
+            },
+            background: {
+              title: 'Activa la ubicación en segundo plano',
+              description:
+                'Cuando la app está en segundo plano seguimos compartiendo tu ubicación para avisarte de viajes cercanos y continuar cualquier viaje en progreso.',
+              primary: 'Permitir en segundo plano',
+              secondary: 'Ya lo activé, reintentar',
+            },
+          },
         },
-                payment: {
+         payment: {
           loading: 'Cargando...',
           header: {
             titleDefault: 'Pago del viaje',
@@ -8366,6 +8542,10 @@ const resources = {
             requested: 'Solicitado',
             accepted: 'Aceptado',
             default: '{{status}}',
+          },
+          nav: {
+            commissions: 'Comisiones',
+            history: 'Historial',
           },
           labels: {
             noDate: 'Sin fecha',
@@ -8514,7 +8694,7 @@ const resources = {
             pricing: {
               question: '¿Cómo funcionan las tarifas?',
               answer:
-                'La tarifa base es C$50 + C$35 por kilómetro. Las horas pico (6–9 AM, 5–8 PM) y el servicio de conductor designado (+50%) incluyen recargos.',
+                'La tarifa base es de C$50 + una formula por kilómetro. Dependiendo del servicio, el precio por kilometro cambia. Se cobra comisiones en dependencias del servicio solicitado.',
             },
             designatedDriver: {
               question: '¿Qué es un conductor designado?',
@@ -8545,6 +8725,10 @@ const resources = {
               question: '¿Puedo compartir mi viaje?',
               answer:
                 'Sí. Durante el viaje puedes compartir un enlace de seguimiento en vivo con tu familia o amigos para que sigan tu ubicación.',
+            },
+            comission: {
+              question: '¿Cómo funcionan las comisiones?',
+              answer:'Las comisiones varían según el servicio solicitado. Se aplican automáticamente al finalizar el viaje. En un viaje regular se cobra el 15% de las ganancias del viaje, en conducción designada se cobra el 25% y en viajes de motocicleta se cobra el 7%.',
             },
           },
           info: {
@@ -8914,6 +9098,27 @@ const resources = {
             subtitle: 'Cuentanos qué sucede y nuestro equipo te ayudará a resolverlo.',
             rideTagLabel: 'Viaje relacionado',
             fallbackUserName: 'Usuario',
+            call: {
+              ringing: 'Te están llamando, acepta para conectar con el operador.',
+              status: 'Estado',
+              caseLabel: 'Caso',
+              operatorLabel: 'Operador',
+              actions: {
+                accept: 'Aceptar',
+                reject: 'Rechazar',
+                hangup: 'Colgar',
+                },
+             info: {
+              room: 'Room',
+              stateConnecting: 'Conectando...',
+              stateConnected: 'Conectado',
+              stateDisconnected: 'Desconectado',
+              tokenReceived: 'Token obtenido y conexión LiveKit iniciada en el cliente.',
+              },
+             requestTitle: 'Llamada solicitada',
+             requestBody: 'Notificamos a soporte que deseas una llamada. Te notificarán cuando inicien la llamada.',
+             requestMessage: 'El cliente solicitó una llamada de soporte.',
+            },
             categories: {
               title: 'Tipo de problema',
               service: 'Servicio / viaje',
@@ -8954,17 +9159,17 @@ const resources = {
             },
             chatInput: {
               placeholder: 'Escribe un mensaje para soporte',
+            },
+          },
         },
-       },
-    },
-   },
+      },
 }, 
 zh: {
 translation: {
 
 
-        },
-},
+    },
+  },
 };
 
 if (!i18n.isInitialized) {

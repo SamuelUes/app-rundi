@@ -154,28 +154,27 @@ export default function SettingsScreen({ navigation }: any) {
   const styles = StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: colors.background,
+      backgroundColor: 'rgba(204, 180, 136, 0.91)',
     },
-      backButton: {
-    width: 50,
-    height: 50,
-    borderRadius: 20,
-    backgroundColor: colors.surface,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  backButtonIcon: {
-    width: 35,
-    height: 35,
-  },
+    backButton: {
+      width: 50,
+      height: 50,
+      borderRadius: 25,
+      backgroundColor: colors.button,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    backButtonIcon: {
+      width: 35,
+      height: 35,
+    },
     header: {
-      backgroundColor: colors.card,
-      padding: 20,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.border,
+      backgroundColor: 'rgba(211, 153, 46, 0.81)',
+      paddingVertical: 20,
+      paddingHorizontal: 20,
       marginTop: 40,
+      marginHorizontal: 16,
+      borderRadius: 14,
       flexDirection: 'row',
       alignItems: 'center',
       gap: 16,
@@ -184,21 +183,30 @@ export default function SettingsScreen({ navigation }: any) {
       flex: 1,
     },
     headerTitle: {
-      fontSize: 28,
+      fontSize: 26,
       fontWeight: '700',
-      color: colors.text,
+      color: '#FFFFFF',
       marginBottom: 4,
     },
     headerSubtitle: {
       fontSize: 14,
-      color: colors.textSecondary,
+      color: 'rgba(255, 255, 255, 0.95)',
     },
     scrollContent: {
+      paddingTop: 8,
       paddingBottom: 32,
     },
     section: {
-      marginTop: 20,
-      paddingVertical: 8,
+      marginTop: 14,
+      marginHorizontal: 16,
+      paddingVertical: 14,
+      borderRadius: 20,
+      backgroundColor: colors.card,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.08,
+      shadowRadius: 12,
+      elevation: 6,
     },
     notificationCard: {
       backgroundColor: colors.card,
@@ -291,25 +299,73 @@ export default function SettingsScreen({ navigation }: any) {
       color: colors.primary,
     },
     sectionTitle: {
+      fontSize: 20,
+      fontWeight: '700',
+      color: colors.text,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      marginBottom: 2,
+    },
+    optionCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginHorizontal: 16,
+      marginBottom: 10,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      paddingVertical: 14,
+      paddingHorizontal: 14,
+    },
+    optionText: {
+      fontSize: 16,
+      fontWeight: '500',
+      color: colors.text,
+      flex: 1,
+      marginRight: 12,
+    },
+    themeChipsRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    themeChip: {
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.card,
+    },
+    themeChipActive: {
+      backgroundColor: 'rgba(202, 151, 57, 1)',
+      borderColor: 'rgba(209, 165, 84, 1)',
+    },
+    themeChipText: {
       fontSize: 13,
-      fontWeight: '600',
+      fontWeight: '500',
       color: colors.textSecondary,
-      paddingHorizontal: 20,
-      paddingVertical: 8,
-      textTransform: 'uppercase',
-      letterSpacing: 0.5,
+    },
+    themeChipTextActive: {
+      color: '#FFFFFF',
     },
     option: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingHorizontal: 20,
-      paddingVertical: 18,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.border,
+      paddingHorizontal: 14,
+      paddingVertical: 14,
+      marginHorizontal: 16,
+      marginBottom: 10,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
     },
     optionLast: {
-      marginBottom: 20,
+      marginBottom: 10,
     },
     optionLeft: {
       flex: 1,
@@ -339,8 +395,8 @@ export default function SettingsScreen({ navigation }: any) {
       backgroundColor: colors.card,
     },
     themeButtonActive: {
-      backgroundColor: '#2196F3',
-      borderColor: '#2196F3',
+      backgroundColor: 'rgba(202, 151, 57, 1)',
+      borderColor: 'rgba(209, 165, 84, 1)',
     },
     themeButtonText: {
       fontSize: 13,
@@ -354,9 +410,9 @@ export default function SettingsScreen({ navigation }: any) {
       flexDirection: 'row',
       flexWrap: 'wrap',
       gap: 8,
-      paddingHorizontal: 20,
+      paddingHorizontal: 16,
       marginTop: 8,
-      marginBottom: 12,
+      marginBottom: 6,
     },
     languageButton: {
       paddingHorizontal: 14,
@@ -367,8 +423,8 @@ export default function SettingsScreen({ navigation }: any) {
       backgroundColor: colors.card,
     },
     languageButtonActive: {
-      backgroundColor: colors.primary,
-      borderColor: colors.primary,
+      backgroundColor: 'rgba(202, 151, 57, 1)',
+      borderColor: 'rgba(209, 165, 84, 1)',
     },
     languageButtonText: {
       fontSize: 13,
@@ -380,15 +436,15 @@ export default function SettingsScreen({ navigation }: any) {
     },
     arrow: {
       fontSize: 24,
-      color: colors.textSecondary,
+      color: 'rgba(202, 151, 57, 1)',
     },
     logoutButton: {
-      backgroundColor: colors.error,
-      marginHorizontal: 20,
+      backgroundColor: 'rgba(202, 151, 57, 1)',
+      marginHorizontal: 16,
       marginTop: 20,
       marginBottom: 40,
       padding: 16,
-      borderRadius: 12,
+      borderRadius: 16,
       alignItems: 'center',
     },
     logoutButtonText: {
@@ -449,7 +505,77 @@ export default function SettingsScreen({ navigation }: any) {
           </TouchableOpacity>
         </View>
 
+       
+
         <View style={styles.section}>
+          { <Text style={styles.sectionTitle}>{t('shared.profile.config.title')}</Text> }
+
+          <View style={styles.optionCard}>
+            <Text style={styles.optionText}>{t('shared.profile.config.theme')}</Text>
+            <View style={styles.themeChipsRow}>
+              <TouchableOpacity
+                style={[styles.themeChip, theme === 'light' && styles.themeChipActive]}
+                onPress={() => handleThemeChange('light')}
+              >
+                <Text style={[styles.themeChipText, theme === 'light' && styles.themeChipTextActive]}>
+                  {t('shared.profile.config.themeOptions.light')}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.themeChip, theme === 'dark' && styles.themeChipActive]}
+                onPress={() => handleThemeChange('dark')}
+              >
+                <Text style={[styles.themeChipText, theme === 'dark' && styles.themeChipTextActive]}>
+                  {t('shared.profile.config.themeOptions.dark')}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.themeChip, theme === 'auto' && styles.themeChipActive]}
+                onPress={() => handleThemeChange('auto')}
+              >
+                <Text style={[styles.themeChipText, theme === 'auto' && styles.themeChipTextActive]}>
+                  {t('shared.profile.config.themeOptions.auto')}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={styles.optionCard}>
+            <Text style={styles.optionText}>{t('shared.profile.config.notifications')}</Text>
+            <Switch
+              value={notificationsEnabled}
+              onValueChange={handleToggleNotifications}
+              trackColor={{ false: colors.border, true: colors.primary }}
+              thumbColor="#fff"
+            />
+          </View>
+
+          <View style={styles.optionCard}>
+            <Text style={styles.optionText}>{t('shared.profile.config.traffic')}</Text>
+            <Switch
+              value={mapTrafficEnabled}
+              onValueChange={setMapTrafficEnabled}
+              trackColor={{ false: colors.border, true: colors.primary }}
+              thumbColor="#fff"
+            />
+          </View>
+
+          <View style={styles.optionCard}>
+            <Text style={styles.optionText}>{t('shared.profile.config.sounds')}</Text>
+            <Switch
+              value={soundEnabled && vibrationEnabled}
+              onValueChange={(value) => {
+                setSoundEnabled(value);
+                setVibrationEnabled(value);
+              }}
+              trackColor={{ false: colors.border, true: colors.primary }}
+              thumbColor="#fff"
+              disabled={!notificationsEnabled}
+            />
+          </View>
+        </View>
+
+         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t('settings.sections.privacy')}</Text>
 
           <TouchableOpacity style={styles.option}>

@@ -236,6 +236,7 @@ const PhoneNumberModal: React.FC<Props> = ({
       visible={visible}
       transparent
       animationType="fade"
+      statusBarTranslucent
       onRequestClose={onClose}
     >
       <KeyboardAvoidingView
@@ -246,85 +247,87 @@ const PhoneNumberModal: React.FC<Props> = ({
           <View style={styles.backdrop} />
         </TouchableWithoutFeedback>
 
-        <Animated.View style={[styles.sheetContainer, sheetStyle]}>
-          <View style={styles.sheetHeader}>
-            <TouchableOpacity onPress={onClose} style={styles.backButton}>
-              <Image
-                source={require('../assets/icons/back_button/back_button.png')}
-                style={styles.backIcon}
-                resizeMode="contain"
-              />
-            </TouchableOpacity>
-
-            <View style={styles.headerTextContainer}>
-              <Text style={styles.sheetTitle}>{t('common.components.phoneNumberModal.title')}</Text>
-              <Text style={styles.sheetSubtitle}>
-                {t('common.components.phoneNumberModal.subtitle')}
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.phonePreview}>
-            <Text style={styles.phonePreviewLabel}>
-              {t('common.components.phoneNumberModal.previewLabel')}
-            </Text>
-            <Text style={styles.phonePreviewValue}>{formattedPhone}</Text>
-          </View>
-
-          <View style={styles.inputRow}>
-            {areaLength > 0 && (
-              <View style={styles.areaInputRow}>
-                <Text style={styles.areaLabel}>
-                  {t('common.components.phoneNumberModal.areaLabel')}
-                </Text>
-                <TextInput
-                  style={styles.areaInput}
-                  value={areaDigits}
-                  onChangeText={handleAreaChange}
-                  keyboardType="number-pad"
-                  maxLength={areaLength}
-                  editable={!loading}
+        <View style={styles.sheetDock}>
+          <Animated.View style={[styles.sheetContainer, sheetStyle]}>
+            <View style={styles.sheetHeader}>
+              <TouchableOpacity onPress={onClose} style={styles.backButton}>
+                <Image
+                  source={require('../assets/icons/back_button/back_button.png')}
+                  style={styles.backIcon}
+                  resizeMode="contain"
                 />
-              </View>
-            )}
-            <PhoneDigitInput
-              countryOptions={countryOptions}
-              selectedCountry={selectedCountry}
-              onCountryChange={handleCountryChange}
-              digits={digits}
-              onChangeDigits={handleDigitsChange}
-              disabled={!!loading}
-              maxDigitsOverride={maxLineDigits}
-            />
-          </View>
+              </TouchableOpacity>
 
-          <View style={styles.actionsRow}>
-            <TouchableOpacity
-              style={[
-                styles.confirmButton,
-                (!normalizedPhone || !E164_REGEX.test(normalizedPhone) || loading) &&
-                  styles.buttonDisabled,
-              ]}
-              onPress={handleConfirm}
-              disabled={!normalizedPhone || !E164_REGEX.test(normalizedPhone) || !!loading}
-            >
-              <Text style={styles.confirmButtonText}>
-                {t('common.components.phoneNumberModal.actions.useNumber')}
+              <View style={styles.headerTextContainer}>
+                <Text style={styles.sheetTitle}>{t('common.components.phoneNumberModal.title')}</Text>
+                <Text style={styles.sheetSubtitle}>
+                  {t('common.components.phoneNumberModal.subtitle')}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.phonePreview}>
+              <Text style={styles.phonePreviewLabel}>
+                {t('common.components.phoneNumberModal.previewLabel')}
               </Text>
-            </TouchableOpacity>
-            {(initialDigits || normalizedPhone) ? (
-              <TouchableOpacity
-                style={styles.clearButton}
-                onPress={handleClear}
+              <Text style={styles.phonePreviewValue}>{formattedPhone}</Text>
+            </View>
+
+            <View style={styles.inputRow}>
+              {areaLength > 0 && (
+                <View style={styles.areaInputRow}>
+                  <Text style={styles.areaLabel}>
+                    {t('common.components.phoneNumberModal.areaLabel')}
+                  </Text>
+                  <TextInput
+                    style={styles.areaInput}
+                    value={areaDigits}
+                    onChangeText={handleAreaChange}
+                    keyboardType="number-pad"
+                    maxLength={areaLength}
+                    editable={!loading}
+                  />
+                </View>
+              )}
+              <PhoneDigitInput
+                countryOptions={countryOptions}
+                selectedCountry={selectedCountry}
+                onCountryChange={handleCountryChange}
+                digits={digits}
+                onChangeDigits={handleDigitsChange}
                 disabled={!!loading}
+                maxDigitsOverride={maxLineDigits}
+              />
+            </View>
+
+            <View style={styles.actionsRow}>
+              <TouchableOpacity
+                style={[
+                  styles.confirmButton,
+                  (!normalizedPhone || !E164_REGEX.test(normalizedPhone) || loading) &&
+                    styles.buttonDisabled,
+                ]}
+                onPress={handleConfirm}
+                disabled={!normalizedPhone || !E164_REGEX.test(normalizedPhone) || !!loading}
               >
-                <Text style={styles.clearButtonText}>
-                  {t('common.components.phoneNumberModal.actions.clearNumber')}
+                <Text style={styles.confirmButtonText}>
+                  {t('common.components.phoneNumberModal.actions.useNumber')}
                 </Text>
               </TouchableOpacity>
-            ) : null}
-          </View>
-        </Animated.View>
+              {(initialDigits || normalizedPhone) ? (
+                <TouchableOpacity
+                  style={styles.clearButton}
+                  onPress={handleClear}
+                  disabled={!!loading}
+                >
+                  <Text style={styles.clearButtonText}>
+                    {t('common.components.phoneNumberModal.actions.clearNumber')}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          </Animated.View>
+        </View>
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -345,11 +348,18 @@ const createStyles = (colors: any) => {
       ...StyleSheet.absoluteFillObject,
       backgroundColor: '#00000077',
     },
+    sheetDock: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      bottom: 0,
+    },
     sheetContainer: {
       backgroundColor: colors.card,
       paddingHorizontal: 20,
       paddingTop: 16,
       paddingBottom: 24,
+      width: '100%',
       borderTopLeftRadius: 34,
       borderTopRightRadius: 34,
       borderWidth: 1,
@@ -433,7 +443,7 @@ const createStyles = (colors: any) => {
       width: '100%',
       paddingVertical: 14,
       borderRadius: 20,
-      backgroundColor: gold,
+      backgroundColor: '#b38737',
       alignItems: 'center',
       justifyContent: 'center',
     },

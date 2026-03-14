@@ -2205,11 +2205,11 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
               </View>
 
               {recommendedVehicle && vehicleEstimates[recommendedVehicle]?.price ? (
-                <View style={styles.vehicleRecommendationStrip}>
-                  <Text style={styles.vehicleRecommendationLabel}>{tr('vehicle.recommendationLabel')}</Text>
-                  <Text style={styles.vehicleRecommendationValue}>
+                <View /*style={styles.vehicleRecommendationStrip}*/>
+                  {/* <Text style={styles.vehicleRecommendationLabel}>{tr('vehicle.recommendationLabel')}</Text> */}
+                  {/* <Text style={styles.vehicleRecommendationValue}> */}
                     {formatPriceValue(vehicleEstimates[recommendedVehicle]?.price ?? null)}
-                  </Text>
+                  {/* </Text> */}
                 </View>
               ) : null}
 

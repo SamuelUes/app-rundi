@@ -4,7 +4,7 @@
  *
  * COMISIONES:
  * - Moto: 7%
- * - Auto Normal: 11%
+ * - Auto Normal: 15%
  * - Conductor Designado: 25%
  *
  * ✅ FÓRMULA FINAL (SOLO DISTANCIA):
@@ -158,22 +158,22 @@ function getMultiplier(distanceKm: number, vehicleType: VehicleType, rideType: R
   if (rideType === 'designated_driver') {
     // CONDUCTOR DESIGNADO
     if (distanceKm >= 0.2 && distanceKm <= 0.4) {
-      multiplier = 13;
+      multiplier = 23;
       tramo = '0.2-0.4 km';
     } else if (distanceKm >= 0.401 && distanceKm <= 1) {
-      multiplier = 18;
+      multiplier = 28;
       tramo = '0.401-1 km';
     } else if (distanceKm >= 1.01 && distanceKm <= 2) {
-      multiplier = 24;
+      multiplier = 34;
       tramo = '1.01-2 km';
     } else if (distanceKm >= 2.01 && distanceKm <= 4) {
-      multiplier = 30;
+      multiplier = 40;
       tramo = '2.01-4 km';
     } else if (distanceKm >= 4.01) {
-      multiplier = 35;
+      multiplier = 45;
       tramo = 'Mayor a 4.01 km';
     } else {
-      multiplier = 13;
+      multiplier = 23;
       tramo = 'Menor a 0.2 km (mínimo)';
     }
   } else if (vehicleType === 'motorcycle') {
@@ -249,7 +249,7 @@ export function getCommissionRate(vehicleType: VehicleType, rideType: RideType):
   } else if (vehicleType === 'motorcycle') {
     return 0.07; // 7%
   } else {
-    return 0.11; // 11%
+    return 0.15; // 15%
   }
 }
 

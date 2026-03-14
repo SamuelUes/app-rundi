@@ -14,6 +14,7 @@ import {
   Platform,
   ScrollView,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
@@ -21,6 +22,10 @@ import { RouteProp } from '@react-navigation/native';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import registrationService from '../../services/registrationService';
+import driversService from '../../services/driversService';
+import vehiclesService from '../../services/vehiclesService';
+import supabaseStorage from '../../services/supabaseStorage';
+import { setRegistrationUploadsInProgress } from '../../services/proximityService';
 import { AuthStackParamList } from '../../navigation/types';
 import { useTranslation } from 'react-i18next';
 
@@ -38,7 +43,7 @@ interface Props {
 export default function RegisterConfirmScreen({ navigation, route }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const { register, registerWithGoogle, loginWithPhoneAndSMS } = useAuth();
+  const { user, login, registerWithGoogle, loginWithPhoneAndSMS } = useAuth();
   const { t } = useTranslation();
 
   const {
@@ -50,6 +55,7 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
     method,
     authProvider,
     phoneVerified,
+    emailVerified,
     driverData,
     vehicleData,
     googleIdToken,
@@ -57,31 +63,312 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
   } = route.params;
 
   const [loading, setLoading] = useState(false);
+  const [createdUserResult, setCreatedUserResult] = useState<any | null>(null);
 
-  const handleConfirmAndRegister = async () => {
-    if (!phoneVerified) {
-      Alert.alert(
-        t('authScreens.registerConfirm.alerts.phoneNotVerifiedTitle'),
-        t('authScreens.registerConfirm.alerts.phoneNotVerifiedMessage'),
-      );
+  const shouldUploadUri = (uri: unknown): uri is string => {
+    if (!uri || typeof uri !== 'string') {
+      return false;
+    }
+
+    const normalized = uri.trim();
+    return (
+      normalized.startsWith('file://') ||
+      normalized.startsWith('file:/') ||
+      normalized.startsWith('content://')
+    );
+  };
+
+  const isPreviewableUri = (uri: unknown): uri is string => {
+    return typeof uri === 'string' && uri.trim().length > 0;
+  };
+
+  const driverPhotoPreviews = useMemo(() => {
+    if (role !== 'driver' || !driverData) return [];
+
+    const entries: { key: string; label: string; uri: string }[] = [];
+    if (isPreviewableUri(driverData.profilePhoto)) {
+      entries.push({
+        key: 'profile',
+        label: t('authScreens.registerConfirm.photos.profile', { defaultValue: 'Foto de perfil' }),
+        uri: driverData.profilePhoto,
+      });
+    }
+    if (isPreviewableUri(driverData.licensePhotoFront)) {
+      entries.push({
+        key: 'licenseFront',
+        label: t('authScreens.registerConfirm.photos.licenseFront', {
+          defaultValue: 'Licencia (frente)',
+        }),
+        uri: driverData.licensePhotoFront,
+      });
+    }
+    if (isPreviewableUri(driverData.licensePhotoBack)) {
+      entries.push({
+        key: 'licenseBack',
+        label: t('authScreens.registerConfirm.photos.licenseBack', {
+          defaultValue: 'Licencia (reverso)',
+        }),
+        uri: driverData.licensePhotoBack,
+      });
+    }
+    return entries;
+  }, [driverData, role, t]);
+
+  const vehiclePhotoPreviews = useMemo(() => {
+    if (role !== 'driver' || !vehicleData) return [];
+
+    const entries: { key: string; label: string; uri: string }[] = [];
+    if (isPreviewableUri(vehicleData.insurancePhoto)) {
+      entries.push({
+        key: 'insurance',
+        label: t('authScreens.registerConfirm.photos.insurance', {
+          defaultValue: 'Póliza / seguro',
+        }),
+        uri: vehicleData.insurancePhoto,
+      });
+    }
+    if (isPreviewableUri(vehicleData.vehiclePhoto)) {
+      entries.push({
+        key: 'vehicle',
+        label: t('authScreens.registerConfirm.photos.vehicle', { defaultValue: 'Foto del vehículo' }),
+        uri: vehicleData.vehiclePhoto,
+      });
+    }
+    if (isPreviewableUri(vehicleData.registrationPhotoFront)) {
+      entries.push({
+        key: 'registrationFront',
+        label: t('authScreens.registerConfirm.photos.registrationFront', {
+          defaultValue: 'Circulación (frente)',
+        }),
+        uri: vehicleData.registrationPhotoFront,
+      });
+    }
+    if (isPreviewableUri(vehicleData.registrationPhotoBack)) {
+      entries.push({
+        key: 'registrationBack',
+        label: t('authScreens.registerConfirm.photos.registrationBack', {
+          defaultValue: 'Circulación (reverso)',
+        }),
+        uri: vehicleData.registrationPhotoBack,
+      });
+    }
+    return entries;
+  }, [vehicleData, role, t]);
+
+  const uploadAndPersistDriverPhotos = async (userId: string) => {
+    if (role !== 'driver') {
       return;
     }
 
-    setLoading(true);
-    try {
-      const registrationContext: 'register_driver' | 'register_upgrade_driver' =
-        context === 'register_upgrade_driver' ? 'register_upgrade_driver' : 'register_driver';
+    const localDriverData: any = driverData || {};
+    const localVehicleData: any = vehicleData || {};
 
-      if (registrationContext === 'register_upgrade_driver') {
+    const uploadErrors: string[] = [];
+
+    const driverUpdates: any = {};
+
+    try {
+      console.log('📸 [RegisterConfirm] Driver photo URIs:', {
+        profilePhoto: localDriverData.profilePhoto,
+        licensePhotoFront: localDriverData.licensePhotoFront,
+        licensePhotoBack: localDriverData.licensePhotoBack,
+      });
+      console.log('📸 [RegisterConfirm] Vehicle photo URIs:', {
+        insurancePhoto: localVehicleData.insurancePhoto,
+        registrationPhotoFront: localVehicleData.registrationPhotoFront,
+        registrationPhotoBack: localVehicleData.registrationPhotoBack,
+      });
+
+      if (localDriverData.licenseNumber) {
+        driverUpdates.license_number = localDriverData.licenseNumber;
+      }
+      if (localDriverData.licenseExpiry) {
+        driverUpdates.license_expiry = localDriverData.licenseExpiry;
+      }
+
+      if (localDriverData.department) {
+        driverUpdates.department = localDriverData.department;
+      }
+      if (localDriverData.municipality) {
+        driverUpdates.municipality = localDriverData.municipality;
+      }
+
+      if (Object.keys(driverUpdates).length > 0) {
+        console.log('📝 [RegisterConfirm] Actualizando driver en backend (updateDriver):', Object.keys(driverUpdates));
+        await driversService.updateDriver(driverUpdates);
+        console.log('✅ [RegisterConfirm] updateDriver (datos de licencia/ubicación) completado');
+      }
+
+      if (shouldUploadUri(localDriverData.profilePhoto)) {
+        try {
+          console.log('📤 [RegisterConfirm] Subiendo profilePhoto...');
+          const url = await supabaseStorage.uploadProfilePhoto(userId, localDriverData.profilePhoto);
+          await driversService.updateDriver({ profile_photo: url });
+        } catch (error) {
+          console.warn('⚠️ [RegisterConfirm] Error subiendo profilePhoto:', error);
+          uploadErrors.push('profilePhoto');
+        }
+      }
+      if (
+        localDriverData.licensePhotoFront &&
+        typeof localDriverData.licensePhotoFront === 'string' &&
+        shouldUploadUri(localDriverData.licensePhotoFront)
+      ) {
+        try {
+          console.log('📤 [RegisterConfirm] Subiendo licensePhotoFront...');
+          const url = await supabaseStorage.uploadLicensePhoto(userId, localDriverData.licensePhotoFront, 'front');
+          await driversService.updateDriver({ license_photo_front: url });
+        } catch (error) {
+          console.warn('⚠️ [RegisterConfirm] Error subiendo licensePhotoFront:', error);
+          uploadErrors.push('licensePhotoFront');
+        }
+      }
+      if (
+        localDriverData.licensePhotoBack &&
+        typeof localDriverData.licensePhotoBack === 'string' &&
+        shouldUploadUri(localDriverData.licensePhotoBack)
+      ) {
+        try {
+          console.log('📤 [RegisterConfirm] Subiendo licensePhotoBack...');
+          const url = await supabaseStorage.uploadLicensePhoto(userId, localDriverData.licensePhotoBack, 'back');
+          await driversService.updateDriver({ license_photo_back: url });
+        } catch (error) {
+          console.warn('⚠️ [RegisterConfirm] Error subiendo licensePhotoBack:', error);
+          uploadErrors.push('licensePhotoBack');
+        }
+      }
+
+      const hasAnyVehiclePhotoToUpload =
+        (typeof localVehicleData.insurancePhoto === 'string' && shouldUploadUri(localVehicleData.insurancePhoto)) ||
+        (typeof localVehicleData.registrationPhotoFront === 'string' &&
+          shouldUploadUri(localVehicleData.registrationPhotoFront)) ||
+        (typeof localVehicleData.registrationPhotoBack === 'string' &&
+          shouldUploadUri(localVehicleData.registrationPhotoBack));
+
+      if (hasAnyVehiclePhotoToUpload) {
+        let vehicles: any[] = [];
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          try {
+            console.log(`🚗 [RegisterConfirm] Buscando vehículos (intento ${attempt}/3)...`);
+            vehicles = await vehiclesService.getDriverVehicles();
+            if (vehicles && vehicles.length > 0) {
+              break;
+            }
+          } catch (err) {
+            console.warn(`⚠️ [RegisterConfirm] Error obteniendo vehículos (intento ${attempt}/3):`, err);
+          }
+
+          await new Promise((resolve) => setTimeout(resolve, 1200));
+        }
+
+        const vehicleId = vehicles && vehicles.length > 0 ? vehicles[0].id : null;
+        if (!vehicleId) {
+          console.error('❌ [RegisterConfirm] VEHICLE_NOT_FOUND: no se encontró vehículo para guardar fotos');
+          throw new Error('VEHICLE_NOT_FOUND');
+        }
+
+        if (
+          typeof localVehicleData.insurancePhoto === 'string' &&
+          shouldUploadUri(localVehicleData.insurancePhoto)
+        ) {
+          try {
+            console.log('📤 [RegisterConfirm] Subiendo insurancePhoto...');
+            const insuranceUrl = await supabaseStorage.uploadInsurancePhoto(userId, localVehicleData.insurancePhoto);
+            console.log('📝 [RegisterConfirm] Actualizando vehículo con insurance_photo:', vehicleId);
+            await vehiclesService.updateVehicle(vehicleId, { insurance_photo: insuranceUrl });
+          } catch (error) {
+            console.warn('⚠️ [RegisterConfirm] Error subiendo/persistiendo insurancePhoto:', error);
+            uploadErrors.push('insurancePhoto');
+          }
+        }
+
+        if (
+          typeof localVehicleData.registrationPhotoFront === 'string' &&
+          shouldUploadUri(localVehicleData.registrationPhotoFront)
+        ) {
+          try {
+            console.log('📤 [RegisterConfirm] Subiendo registrationPhotoFront...');
+            const url = await supabaseStorage.uploadRegistrationPhoto(userId, localVehicleData.registrationPhotoFront, 'front');
+            console.log('📝 [RegisterConfirm] Actualizando vehículo con registration_photo_front:', vehicleId);
+            await vehiclesService.updateVehicle(vehicleId, { registration_photo_front: url });
+          } catch (error) {
+            console.warn('⚠️ [RegisterConfirm] Error subiendo/persistiendo registrationPhotoFront:', error);
+            uploadErrors.push('registrationPhotoFront');
+          }
+        }
+
+        if (
+          typeof localVehicleData.registrationPhotoBack === 'string' &&
+          shouldUploadUri(localVehicleData.registrationPhotoBack)
+        ) {
+          try {
+            console.log('📤 [RegisterConfirm] Subiendo registrationPhotoBack...');
+            const url = await supabaseStorage.uploadRegistrationPhoto(userId, localVehicleData.registrationPhotoBack, 'back');
+            console.log('📝 [RegisterConfirm] Actualizando vehículo con registration_photo_back:', vehicleId);
+            await vehiclesService.updateVehicle(vehicleId, { registration_photo_back: url });
+          } catch (error) {
+            console.warn('⚠️ [RegisterConfirm] Error subiendo/persistiendo registrationPhotoBack:', error);
+            uploadErrors.push('registrationPhotoBack');
+          }
+        }
+      }
+
+      if (uploadErrors.length > 0) {
+        throw new Error(`PHOTO_UPLOAD_FAILED:${uploadErrors.join(',')}`);
+      }
+    } finally {
+      // Limpieza del flag se hace en handleConfirmAndRegister
+    }
+  };
+
+  const handleConfirmAndRegister = async () => {
+    if (!phoneVerified && !emailVerified) {
+      Alert.alert('Verificación requerida', 'Verifica tu teléfono o tu correo antes de continuar.');
+      return;
+    }
+
+    let uploadsFlagSet = false;
+
+    try {
+      setLoading(true);
+
+      // 🚧 Gate: bloquear overlay/tracking antes de cualquier navegación/login
+      if (role === 'driver' && !uploadsFlagSet) {
+        try {
+          console.log('⏳ [RegisterConfirm] (pre) Marcando uploadsInProgress=true');
+          await setRegistrationUploadsInProgress(true);
+          uploadsFlagSet = true;
+        } catch (e) {
+          console.warn('⚠️ [RegisterConfirm] No se pudo marcar uploadsInProgress al inicio:', e);
+        }
+      }
+
+      const driverDataForApi = driverData
+        ? (({ profilePhoto, licensePhotoFront, licensePhotoBack, ...rest }) => rest)(driverData)
+        : undefined;
+      const vehicleDataForApi = vehicleData
+        ? (({ insurancePhoto, registrationPhotoFront, registrationPhotoBack, vehiclePhoto, ...rest }) => rest)(
+            vehicleData,
+          )
+        : undefined;
+
+      if (context === 'register_upgrade_driver') {
         console.log('📝 Iniciando upgrade de cliente a conductor...');
 
         if (!driverData || !vehicleData) {
           throw new Error('MISSING_DRIVER_DATA');
         }
 
-        const result = await registrationService.upgradeClientToDriver(driverData, vehicleData);
+        const result = await registrationService.upgradeClientToDriver(driverDataForApi, vehicleDataForApi);
 
         console.log('✅ Upgrade cliente→conductor completado:', result);
+
+        const effectiveUserId = user?.id;
+        if (!effectiveUserId) {
+          throw new Error('NOT_AUTHENTICATED');
+        }
+
+        await uploadAndPersistDriverPhotos(effectiveUserId);
 
         Alert.alert(
           t('authScreens.registerConfirm.alerts.upgradeSuccessTitle'),
@@ -97,19 +384,26 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
       // Crear usuario
       const safeEmail = email?.trim() || '';
 
-      const result = await registrationService.createUser({
-        name,
-        email: safeEmail,
-        phone,
-        password,
-        role,
-        method,
-        authProvider,
-        phoneVerified,
-        driverData,
-        vehicleData,
-        googleIdToken,
-      });
+      const result =
+        createdUserResult ||
+        (await registrationService.createUser({
+          name,
+          email: safeEmail,
+          phone,
+          password,
+          role,
+          method,
+          authProvider,
+          phoneVerified,
+          emailVerified,
+          driverData: driverDataForApi,
+          vehicleData: vehicleDataForApi,
+          googleIdToken,
+        }));
+
+      if (!createdUserResult) {
+        setCreatedUserResult(result);
+      }
 
       console.log('✅ Usuario creado:', result);
 
@@ -128,16 +422,12 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
         if (!safeEmail || !password) {
           throw new Error('EMAIL_PASSWORD_REQUIRED');
         }
-        await register({
-          email: safeEmail,
-          password,
-          name,
-          phone,
-          role,
-          driverData,
-          vehicleData,
-          googleIdToken,
-        });
+        await login(safeEmail, password);
+      }
+
+      const effectiveUserId = result?.user?.userId || result?.user?.uid || result?.user?.id;
+      if (effectiveUserId) {
+        await uploadAndPersistDriverPhotos(effectiveUserId);
       }
 
       Alert.alert(
@@ -165,6 +455,14 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
         );
       }
     } finally {
+      if (uploadsFlagSet) {
+        try {
+          console.log('✅ [RegisterConfirm] Limpiando uploadsInProgress=false');
+          await setRegistrationUploadsInProgress(false);
+        } catch (e) {
+          console.warn('⚠️ [RegisterConfirm] No se pudo limpiar uploadsInProgress:', e);
+        }
+      }
       setLoading(false);
     }
   };
@@ -283,6 +581,27 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
                   </Text>
                   <Text style={styles.dataValue}>{driverData.municipality}</Text>
                 </View>
+
+                {driverPhotoPreviews.length > 0 && (
+                  <View style={styles.photoPreviewGroup}>
+                    <Text style={styles.photoPreviewTitle}>
+                      {t('authScreens.registerConfirm.sections.photos')}
+                    </Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                      {driverPhotoPreviews.map((photo) => (
+                        <View style={styles.photoPreviewCard} key={photo.key}>
+                          <Image source={{ uri: photo.uri }} style={styles.photoPreviewImage} />
+                          <Text style={styles.photoPreviewLabel} numberOfLines={2}>
+                            {photo.label}
+                          </Text>
+                        </View>
+                      ))}
+                    </ScrollView>
+                    <Text style={styles.photoHint}>
+                      {t('authScreens.registerConfirm.photos.hint')}
+                    </Text>
+                  </View>
+                )}
               </View>
             )}
 
@@ -346,6 +665,27 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
                       {t('authScreens.registerConfirm.data.passengers')}:
                     </Text>
                     <Text style={styles.dataValue}>{vehicleData.passengers}</Text>
+                  </View>
+                )}
+
+                {vehiclePhotoPreviews.length > 0 && (
+                  <View style={styles.photoPreviewGroup}>
+                    <Text style={styles.photoPreviewTitle}>
+                      {t('authScreens.registerConfirm.sections.vehiclePhotos')}
+                    </Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                      {vehiclePhotoPreviews.map((photo) => (
+                        <View style={styles.photoPreviewCard} key={photo.key}>
+                          <Image source={{ uri: photo.uri }} style={styles.photoPreviewImage} />
+                          <Text style={styles.photoPreviewLabel} numberOfLines={2}>
+                            {photo.label}
+                          </Text>
+                        </View>
+                      ))}
+                    </ScrollView>
+                    <Text style={styles.photoHint}>
+                      {t('authScreens.registerConfirm.photos.hint')}
+                    </Text>
                   </View>
                 )}
               </View>
@@ -539,5 +879,40 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontSize: 12,
     color: colors.textSecondary,
     textAlign: 'center',
+  },
+  photoPreviewGroup: {
+    marginTop: 12,
+    gap: 8,
+  },
+  photoPreviewTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.text,
+    marginBottom: 4,
+  },
+  photoPreviewCard: {
+    width: 120,
+    marginRight: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.background,
+    overflow: 'hidden',
+  },
+  photoPreviewImage: {
+    width: '100%',
+    height: 90,
+    backgroundColor: '#eee',
+  },
+  photoPreviewLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.text,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  photoHint: {
+    fontSize: 11,
+    color: colors.textSecondary,
   },
 });

@@ -12,7 +12,7 @@ import firebaseTrackingService from './firebaseTrackingService';
 import { getFirebaseDatabase } from '../config/firebase';
 import { ref as dbRef, update } from 'firebase/database';
 import { AppState, AppStateStatus, Platform } from 'react-native';
-import proximityService from './proximityService';
+import { handleLocationForProximity, isRegistrationUploadsInProgress } from './proximityService';
 import { ensureActivityRecognitionPermission } from '../utils/activityPermission';
 import foregroundService from '../native/foregroundService';
 import workManager from '../native/workManager';
@@ -36,9 +36,9 @@ const getBackgroundLocationOptions = (): any => {
     showsBackgroundLocationIndicator: true, // Indicador en iOS
     pausesUpdatesAutomatically: false,
     foregroundService: {
-      notificationTitle: i18n.t('services.backgroundLocationService.foregroundService.title'),
-      notificationBody: i18n.t('services.backgroundLocationService.foregroundService.body'),
-      notificationColor: '#FF9800',
+      notificationTitle: i18n.t('common.services.backgroundLocationService.foregroundService.title'),
+      notificationBody: i18n.t('common.services.backgroundLocationService.foregroundService.body'),
+      notificationColor: '#b6915aff',
     },
   };
 };
@@ -241,19 +241,20 @@ const defineBackgroundTask = () => {
           if (!trackingState.rideId) {
             console.log('🚀 [background-task] No hay viaje activo - ejecutando proximity check');
             try {
-              await proximityService.handleLocationForProximity(
-                trackingState.userId,
-                location.coords.latitude,
-                location.coords.longitude,
-                { appStateOverride: 'background' }
-              );
-              console.log('✅ [background-task] Proximity check completado');
-            } catch (e) {
-              console.error('❌ [background-task] Error en proximity check:', e);
-              // No romper la tarea de background
+              // Evitar proximity mientras suben fotos de registro
+              const uploadsInProgress = await isRegistrationUploadsInProgress();
+              if (uploadsInProgress) {
+                console.log('⏭️ [background-task] Proximity saltado: uploads de registro en progreso');
+              } else {
+                await handleLocationForProximity(
+                  trackingState.userId,
+                  location.coords.latitude,
+                  location.coords.longitude,
+                );
+              }
+            } catch (error) {
+              console.warn('⚠️ [background-task] Error en proximity check:', error);
             }
-          } else {
-            console.log('ℹ️ [background-task] Hay viaje activo - saltando proximity check');
           }
         } else if (trackingState.role === 'client' && trackingState.rideId && trackingState.userId) {
           try {
@@ -350,6 +351,21 @@ export async function startBackgroundLocationTracking(
   rideId?: string
 ): Promise<boolean> {
   try {
+    // Gate: no iniciar tracking mientras se suben fotos de registro
+    const uploadsGate = await isRegistrationUploadsInProgress();
+    if (uploadsGate) {
+      console.log('⏸️ [backgroundTracking] Gate activo: registration uploads en progreso. Se difiere start.');
+      scheduleStartWhenForeground({ userId, role, rideId: rideId || null });
+      await saveTrackingState({
+        isTracking: false,
+        userId,
+        role,
+        rideId: rideId || null,
+        startTime: Date.now(),
+      });
+      return false;
+    }
+
     const servicesEnabled = await ExpoLocation.hasServicesEnabledAsync();
     if (!servicesEnabled) {
       console.warn('⚠️ Servicios de ubicación deshabilitados. No se iniciará tracking.');
@@ -382,7 +398,7 @@ export async function startBackgroundLocationTracking(
       }
     }
 
-    const appState = AppState.currentState;
+    let appState = AppState.currentState;
 
     if (Platform.OS === 'android' && appState !== 'active') {
       console.log('App en segundo plano, programando inicio de tracking cuando vuelva a primer plano');
@@ -397,6 +413,21 @@ export async function startBackgroundLocationTracking(
       });
 
       return true; // marcado como pendiente
+    }
+
+    // Re-chequeo de estado antes de arrancar la tarea (puede haber cambiado)
+    appState = AppState.currentState;
+    if (Platform.OS === 'android' && appState !== 'active') {
+      console.log('App pasó a background antes de iniciar tracking; se difiere hasta foreground');
+      scheduleStartWhenForeground({ userId, role, rideId: rideId || null });
+      await saveTrackingState({
+        isTracking: false,
+        userId,
+        role,
+        rideId: rideId || null,
+        startTime: Date.now(),
+      });
+      return true;
     }
 
     // Definir la tarea si aún no está definida
@@ -432,6 +463,12 @@ export async function stopBackgroundLocationTracking(): Promise<void> {
  */
 export async function ensureBackgroundTrackingIntegrity(): Promise<boolean> {
   try {
+    const uploadsGate = await isRegistrationUploadsInProgress();
+    if (uploadsGate) {
+      console.log('⏸️ [trackingIntegrity] Gate activo: uploads de registro en progreso. Se omite restauración.');
+      return false;
+    }
+
     const trackingState = await loadTrackingState();
 
     if (!trackingState.isTracking || !trackingState.userId || !trackingState.role) {

@@ -3,20 +3,25 @@ import {
   View,
   Text,
   StyleSheet,
-  FlatList,
   TextInput,
+  FlatList,
   TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  Alert,
+  Image,
 } from 'react-native';
 import { httpsCallable } from 'firebase/functions';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import ChatBubble from '../../components/ChatBubble';
 import { useChat } from '../../hooks/useChat';
+import { useCalls } from '../../hooks/useCalls';
+import { useLivekitConnection } from '../../hooks/useLivekitConnection';
 import { getFirebaseFunctions } from '../../config/firebase';
 import { useTranslation } from 'react-i18next';
+import { useNavigation } from '@react-navigation/native';
 
 interface SupportChatScreenRouteParams {
   rideId?: string | null;
@@ -39,11 +44,14 @@ const CATEGORY_IDS: SupportChatScreenRouteParams['initialCategory'][] = [
 
 const PRIORITY_IDS: Array<'low' | 'normal' | 'high' | 'urgent'> = ['low', 'normal', 'high', 'urgent'];
 
+const backIcon = require('../../assets/icons/back_button/back_button2x.png');
+
 export default function SupportChatScreen({ route }: SupportChatScreenProps) {
   const params = route?.params || {};
   const { rideId, initialCategory, initialTitle, complaintId: initialComplaintId } = params;
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const navigation = useNavigation<any>();
   const { user } = useAuth();
   const { t } = useTranslation();
   const ns = 'shared.supportChat';
@@ -58,6 +66,7 @@ export default function SupportChatScreen({ route }: SupportChatScreenProps) {
   const [creatingComplaint, setCreatingComplaint] = useState(false);
   const [creationError, setCreationError] = useState<string | null>(null);
   const [creatingFunctionsError, setCreatingFunctionsError] = useState<string | null>(null);
+  const [requestingCall, setRequestingCall] = useState(false);
 
   const threadId = complaintId || null;
   const safeUserId = user?.id ?? '';
@@ -68,6 +77,40 @@ export default function SupportChatScreen({ route }: SupportChatScreenProps) {
 
   const chat = useChat(threadId ?? '', safeUserId, safeUserName);
   const hasActiveChat = Boolean(threadId && safeUserId);
+
+  const {
+    activeCall,
+    livekitInfo,
+    loading: callLoading,
+    error: callError,
+    acceptCall,
+    rejectCall,
+    endCall,
+    requestCall,
+  } = useCalls(complaintId);
+
+  const {
+    connect: connectLivekit,
+    disconnect: disconnectLivekit,
+    connected: livekitConnected,
+    connecting: livekitConnecting,
+    error: livekitError,
+  } = useLivekitConnection();
+
+  useEffect(() => {
+    if (!livekitInfo) {
+      disconnectLivekit();
+      return;
+    }
+
+    connectLivekit(livekitInfo);
+  }, [connectLivekit, disconnectLivekit, livekitInfo?.token]);
+
+  useEffect(() => {
+    return () => {
+      disconnectLivekit();
+    };
+  }, [complaintId, disconnectLivekit]);
 
   const [inputText, setInputText] = useState('');
   const flatListRef = useRef<FlatList>(null);
@@ -135,18 +178,87 @@ export default function SupportChatScreen({ route }: SupportChatScreenProps) {
       const data = response?.data as { id?: string } | null;
 
       if (!data || !data.id) {
-        console.error('❌ Respuesta inválida de createSupportComplaint:', response?.data);
+        console.error('Respuesta inválida de createSupportComplaint:', response?.data);
         setCreationError(t(`${ns}.errors.invalidResponse`));
         return;
       }
 
       setComplaintId(data.id);
     } catch (err: any) {
-      console.error('❌ Error inesperado creando queja vía Firebase Function:', err);
+      console.error('Error inesperado creando queja vía Firebase Function:', err);
       setCreationError(t(`${ns}.errors.genericCreate`));
     } finally {
       setCreatingComplaint(false);
     }
+  };
+
+  const renderCallBanner = () => {
+    if (!activeCall) return null;
+    const isRinging = activeCall.status === 'ringing_client';
+    const isAccepted = activeCall.status === 'accepted' || activeCall.status === 'connected';
+    const isInCall = isAccepted || livekitConnected;
+    return (
+      <View style={[styles.callCard, isRinging ? styles.callCardRinging : styles.callCardNeutral]}>
+        <View style={styles.callHeaderRow}>
+          <Text style={styles.callTitle}>{t(`${ns}.call.title`, 'Llamada de soporte')}</Text>
+          <View style={[styles.callStatusPill, isRinging ? styles.callStatusPillRinging : styles.callStatusPillNeutral]}>
+            <Text style={styles.callStatusText}>{(activeCall.status || 'pendiente').replace('_', ' ').toUpperCase()}</Text>
+          </View>
+        </View>
+        {isRinging && (
+          <Text style={styles.callRingingText}>{t(`${ns}.call.ringing`, 'Te están llamando, acepta para conectar con el operador.')}</Text>
+        )}
+        {callError ? <Text style={styles.errorText}>{callError}</Text> : null}
+        <Text style={styles.callDetail}>{t(`${ns}.call.caseLabel`, 'Caso')}: {activeCall.complaintId || 'N/D'}</Text>
+        <Text style={styles.callDetail}>{t(`${ns}.call.operatorLabel`, 'Operador')}: {activeCall.operatorUid || 'N/D'}</Text>
+        <View style={styles.callActionsRow}>
+          {isRinging && (
+            <TouchableOpacity
+              style={[styles.callPrimaryButton, callLoading && styles.primaryButtonDisabled]}
+              disabled={callLoading}
+              onPress={() => acceptCall(activeCall.callId)}
+            >
+              <Text style={styles.callPrimaryText}>{callLoading ? t(`${ns}.call.info.stateConnecting`, 'Conectando...') : t(`${ns}.call.actions.accept`, 'Aceptar')}</Text>
+            </TouchableOpacity>
+          )}
+          {isRinging && (
+            <TouchableOpacity
+              style={[styles.callSecondaryButton, callLoading && styles.primaryButtonDisabled]}
+              disabled={callLoading}
+              onPress={() => rejectCall(activeCall.callId)}
+            >
+              <Text style={styles.callSecondaryText}>{t(`${ns}.call.actions.reject`, 'Rechazar')}</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+        {isAccepted && livekitInfo && (
+          <View style={styles.callInfoBox}>
+            <Text style={styles.callInfoText}>{t(`${ns}.call.info.room`, 'Sala')}: {livekitInfo.room}</Text>
+            <Text style={styles.callInfoText}>
+              {t(`${ns}.call.info.state`, 'Estado')}: {livekitConnecting
+                ? t(`${ns}.call.info.stateConnecting`, 'Conectando...')
+                : livekitConnected
+                  ? t(`${ns}.call.info.stateConnected`, 'Conectado')
+                  : t(`${ns}.call.info.stateDisconnected`, 'Desconectado')}
+            </Text>
+            {livekitError ? <Text style={styles.errorText}>{livekitError}</Text> : null}
+            <Text style={styles.callInfoHint}>{t(`${ns}.call.info.tokenReceived`, 'Token obtenido y conexión LiveKit iniciada en cliente.')}</Text>
+          </View>
+        )}
+        {isInCall && (
+          <TouchableOpacity
+            style={[styles.callSecondaryButton, callLoading && styles.primaryButtonDisabled]}
+            disabled={callLoading}
+            onPress={() => {
+              endCall(activeCall.callId);
+              disconnectLivekit();
+            }}
+          >
+            <Text style={styles.callSecondaryText}>{t(`${ns}.call.actions.hangup`, 'Colgar')}</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    );
   };
 
   const handleSendMessage = () => {
@@ -157,8 +269,15 @@ export default function SupportChatScreen({ route }: SupportChatScreenProps) {
 
   const renderHeader = () => (
     <View>
-      <Text style={styles.title}>{t(`${ns}.title`)}</Text>
-      <Text style={styles.subtitle}>{t(`${ns}.subtitle`)}</Text>
+      <View style={styles.headerRow}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+          <Image source={backIcon} style={styles.backIcon} resizeMode="contain" />
+        </TouchableOpacity>
+        <View style={styles.headerText}>
+          <Text style={styles.title}>{t(`${ns}.title`)}</Text>
+          <Text style={styles.subtitle}>{t(`${ns}.subtitle`)}</Text>
+        </View>
+      </View>
 
       {rideId ? (
         <View style={styles.rideTag}>
@@ -325,6 +444,53 @@ export default function SupportChatScreen({ route }: SupportChatScreenProps) {
     );
   };
 
+  const handleCallButton = async () => {
+    if (!complaintId || requestingCall || callLoading) return;
+
+    if (activeCall && activeCall.status === 'ringing_client') {
+      acceptCall(activeCall.callId);
+      return;
+    }
+
+    if (activeCall && (activeCall.status === 'accepted' || activeCall.status === 'connected' || livekitConnected)) {
+      endCall(activeCall.callId);
+      disconnectLivekit();
+      return;
+    }
+
+    try {
+      setRequestingCall(true);
+      const functions = await getFirebaseFunctions();
+      if (!functions) {
+        throw new Error(t(`${ns}.errors.initializeService`));
+      }
+
+      const requestSupportCall = httpsCallable(functions, 'requestSupportCall');
+      await requestSupportCall({
+        complaintId,
+        rideId: rideId || null,
+      });
+      await requestCall({
+        complaintId,
+        rideId: rideId || null,
+      });
+
+      const requestMessage = t(`${ns}.call.requestMessage`, 'El cliente solicito una llamada de soporte.');
+      chat.sendMessage(requestMessage);
+      Alert.alert(
+        t(`${ns}.call.requestTitle`, 'Llamada solicitada'),
+        t(`${ns}.call.requestBody`, 'Notificamos a soporte para que te llame. Recibiras una alerta cuando inicien la llamada.'),
+      );
+    } catch (error: any) {
+      Alert.alert(
+        t(`${ns}.errors.title`, 'Error'),
+        error?.message || t(`${ns}.call.requestError`, 'No se pudo solicitar la llamada en este momento.'),
+      );
+    } finally {
+      setRequestingCall(false);
+    }
+  };
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -334,12 +500,22 @@ export default function SupportChatScreen({ route }: SupportChatScreenProps) {
       <View style={styles.content}>
         <FlatList
           data={[]}
-          ListHeaderComponent={renderHeader}
+          ListHeaderComponent={
+            <>
+              {renderCallBanner()}
+              {renderHeader()}
+            </>
+          }
           ListFooterComponent={renderMessages}
           renderItem={null as any}
           keyExtractor={(_, index) => `header-${index}`}
           contentContainerStyle={styles.scrollContent}
         />
+        <View style={styles.fabContainer}>
+          <TouchableOpacity style={[styles.fab, (requestingCall || callLoading) && styles.primaryButtonDisabled]} onPress={handleCallButton} disabled={requestingCall || callLoading}>
+            <Text style={styles.fabText}>📞</Text>
+          </TouchableOpacity>
+        </View> 
       </View>
 
       {renderChatInput()}
@@ -349,6 +525,25 @@ export default function SupportChatScreen({ route }: SupportChatScreenProps) {
 
 const createStyles = (colors: any) =>
   StyleSheet.create({
+    headerRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      marginBottom: 8,
+    },
+    backButton: {
+      width: 40,
+      height: 40,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    backIcon: {
+      width: 34,
+      height: 34,
+    },
+    headerText: {
+      flex: 1,
+    },
     container: {
       flex: 1,
       backgroundColor: colors.surface,
@@ -365,7 +560,7 @@ const createStyles = (colors: any) =>
       fontWeight: '700',
       color: colors.text,
       marginBottom: 4,
-      marginTop: 46,
+      marginTop: 16,
     },
     subtitle: {
       fontSize: 14,
@@ -556,10 +751,148 @@ const createStyles = (colors: any) =>
       alignItems: 'center',
     },
     sendButtonDisabled: {
-      backgroundColor: '#ccc',
+      backgroundColor: colors.border,
     },
     sendButtonText: {
       fontSize: 20,
       color: '#fff',
+    },
+    callCard: {
+      borderRadius: 12,
+      padding: 12,
+      //marginBottom: 12,
+      marginTop: 30,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.card,
+      shadowColor: '#000',
+      shadowOpacity: 0.06,
+      shadowOffset: { width: 0, height: 2 },
+      shadowRadius: 6,
+    },
+    callCardRinging: {
+      borderColor: '#f97316',
+      backgroundColor: '#fff7ed',
+    },
+    callCardNeutral: {
+      borderColor: colors.border,
+      backgroundColor: colors.card,
+    },
+    callHeaderRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: 6,
+    },
+    callTitle: {
+      fontSize: 16,
+      fontWeight: '700',
+      color: colors.text,
+    },
+    callStatus: {
+      fontSize: 12,
+      color: '#f97316',
+      fontWeight: '700',
+      textTransform: 'uppercase',
+    },
+    callStatusPill: {
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderRadius: 20,
+      borderWidth: 1,
+    },
+    callStatusPillRinging: {
+      backgroundColor: '#fff1e6',
+      borderColor: '#f97316',
+    },
+    callStatusPillNeutral: {
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+    },
+    callStatusText: {
+      fontSize: 11,
+      color: '#d97706',
+      fontWeight: '700',
+      letterSpacing: 0.2,
+    },
+    callRingingText: {
+      fontSize: 13,
+      color: '#b45309',
+      marginBottom: 6,
+    },
+    callDetail: {
+      fontSize: 13,
+      color: colors.textSecondary,
+      marginBottom: 4,
+    },
+    callActionsRow: {
+      flexDirection: 'row',
+      gap: 10,
+      marginTop: 12,
+    },
+    callPrimaryButton: {
+      flex: 1,
+      borderRadius: 12,
+      paddingVertical: 12,
+      alignItems: 'center',
+      backgroundColor: '#111',
+    },
+    callPrimaryText: {
+      color: '#fff',
+      fontWeight: '700',
+      fontSize: 15,
+    },
+    callSecondaryButton: {
+      flex: 1,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+      paddingVertical: 12,
+      alignItems: 'center',
+      backgroundColor: colors.card,
+    },
+    callSecondaryText: {
+      color: colors.text,
+      fontWeight: '700',
+      fontSize: 15,
+    },
+    callInfoBox: {
+      marginTop: 10,
+      padding: 10,
+      borderRadius: 10,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    callInfoText: {
+      fontSize: 13,
+      color: colors.text,
+      marginBottom: 4,
+    },
+    callInfoHint: {
+      fontSize: 12,
+      color: colors.textSecondary,
+    },
+    fabContainer: {
+      position: 'absolute',
+      right: 16,
+      bottom: 90,
+    },
+    fab: {
+      width: 52,
+      height: 52,
+      borderRadius: 26,
+      backgroundColor: '#000',
+      alignItems: 'center',
+      justifyContent: 'center',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.25,
+      shadowRadius: 6,
+      elevation: 6,
+    },
+    fabText: {
+      color: '#fff',
+      fontSize: 22,
     },
   });

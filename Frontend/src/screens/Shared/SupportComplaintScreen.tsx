@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   ScrollView,
   RefreshControl,
+  Image,
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useTheme } from '../../context/ThemeContext';
@@ -30,6 +31,8 @@ const ALLOWED_CATEGORIES: Array<'service' | 'driver' | 'payment' | 'app' | 'othe
   'app',
   'other',
 ];
+
+const backIcon = require('../../assets/icons/back_button/back_button2x.png');
 
 export default function SupportComplaintScreen({ route }: SupportComplaintScreenProps) {
   const { colors } = useTheme();
@@ -86,6 +89,12 @@ export default function SupportComplaintScreen({ route }: SupportComplaintScreen
       try {
         await supportTicketsService.deleteTicket(ticketId);
         setTickets((prev) => prev.filter((ticket) => ticket.id !== ticketId));
+        try {
+          const response = await supportTicketsService.getMyTickets({ pageSize: 100 });
+          setTickets(response);
+        } catch (refreshError) {
+          console.error('[SupportComplaintScreen] Error refreshing tickets after delete:', refreshError);
+        }
         Alert.alert(t('shared.supportcomplaint.tickets.deleteSuccess'));
       } catch (error) {
         console.error('[SupportComplaintScreen] Error deleting ticket:', error);
@@ -261,10 +270,17 @@ export default function SupportComplaintScreen({ route }: SupportComplaintScreen
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>{t('shared.supportcomplaint.tickets.title')}</Text>
-        <Text style={styles.subtitle}>
-          {t('shared.supportcomplaint.tickets.subtitle')}
-        </Text>
+        <View style={styles.headerRow}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+            <Image source={backIcon} style={styles.backIcon} resizeMode="contain" />
+          </TouchableOpacity>
+          <View style={styles.headerText}>
+            <Text style={styles.title}>{t('shared.supportcomplaint.tickets.title')}</Text>
+            <Text style={styles.subtitle}>
+              {t('shared.supportcomplaint.tickets.subtitle')}
+            </Text>
+          </View>
+        </View>
       </View>
 
       <TouchableOpacity style={styles.createButton} onPress={() => navigateToSupportChat()}>
@@ -294,6 +310,25 @@ const createStyles = (colors: any) =>
     },
     header: {
       marginBottom: 20,
+    },
+    headerRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+    },
+    headerText: {
+      flex: 1,
+    },
+    backButton: {
+      width: 38,
+      height: 38,
+      marginTop: 20,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    backIcon: {
+      width: 34,
+      height: 34,
     },
     title: {
       fontSize: 26,

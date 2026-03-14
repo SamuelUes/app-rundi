@@ -34,6 +34,7 @@ import * as commissionHistorySequelizeAPI from "./api/service_commission_history
 import * as authAPI from "./api/auth";
 import * as pendingPaymentsAPI from "./api/pendingPayments_sequelize";
 import * as regionAvailabilityAPI from "./api/region_availability";
+import * as preflightAPI from "./api/getPreflightData";
 import * as publicRideTrackingAPI from "./api/WebPage_publicRideTracking";
 
 // ⚠️ COMENTADOS: Archivos .old.ts eliminados
@@ -198,11 +199,14 @@ export const getClientProfile = clientProfilesAPI.getClientProfile;
 export const createSupportComplaint = supportComplaintsAPI.createSupportComplaint;
 export const getSupportTickets = supportComplaintsAPI.getSupportTickets;
 export const updateSupportTicket = supportComplaintsAPI.updateSupportTicket;
+export const requestSupportCall = supportComplaintsAPI.requestSupportCall;
 export const deleteSupportTicket = supportComplaintsAPI.deleteSupportTicket;
 
 // Region availability
 export const checkRegionAvailability = regionAvailabilityAPI.checkRegionAvailability;
 export const checkRegionAvailabilityHttp = regionAvailabilityAPI.checkRegionAvailabilityHttp;
+export const getPreflightData = preflightAPI.getPreflightData;
+export const getPreflightDataHttp = preflightAPI.getPreflightDataHttp;
 
 // Public ride tracking (Landing page)
 export const getPublicRideTracking = publicRideTrackingAPI.getPublicRideTracking;
@@ -467,6 +471,7 @@ export const auth = authAPI.auth;
 export const registerCallable = authAPI.registerCallable;
 export const checkUserAvailability = authAPI.checkUserAvailability;
 export const logSmsVerificationCode = authAPI.logSmsVerificationCode;
+export const getSupabaseJwt = authAPI.getSupabaseJwt;
 export const exchangeIdTokenForCustomToken = authAPI.exchangeIdTokenForCustomToken;
 export const hasVerifiedRegisterPhoneLog = authAPI.hasVerifiedRegisterPhoneLog;
 export const upgradeClientToDriver = authAPI.upgradeClientToDriver;
@@ -584,6 +589,8 @@ export const cleanupNotifications = cleanupRealtimeDB.cleanupNotifications;
 
 // Limpiar historial de presencia (diario) - Mantiene últimos 10
 export const cleanupPresenceHistory = cleanupRealtimeDB.cleanupPresenceHistory;
+
+export const cleanupInactiveUsers = cleanupRealtimeDB.cleanupInactiveUsers;
 
 // ============================================
 // PENDING PAYMENTS

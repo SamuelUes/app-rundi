@@ -11,7 +11,7 @@ import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 // import messaging from '@react-native-firebase/messaging';
 // import auth from '@react-native-firebase/auth';
-import { getFirebaseFunctions } from '../config/firebase';
+import { getFirebaseFunctions, getFirebaseAuth } from '../config/firebase';
 import { httpsCallable } from 'firebase/functions';
 import notificationService from './notificationService';
 import i18n from '../i18n';
@@ -263,6 +263,16 @@ class FCMService {
     return nativeAuthModule.default();
   }
 
+  private async getWebAuthUser() {
+    try {
+      const webAuth = await getFirebaseAuth();
+      return webAuth.currentUser;
+    } catch (error) {
+      console.warn('⚠️ No se pudo obtener usuario de Firebase Auth Web:', error);
+      return null;
+    }
+  }
+
   /**
    * Verificar si FCM está disponible
    */
@@ -350,10 +360,10 @@ class FCMService {
    */
   async registerToken(): Promise<void> {
     try {
-      const auth = await this.getAuth();
-      const user = auth.currentUser;
-      if (!user) {
-        console.log('⚠️ Usuario no autenticado, saltando registro de token');
+      const webUser = await this.getWebAuthUser();
+
+      if (!webUser) {
+        console.log('⚠️ Usuario no autenticado en Firebase (web), saltando registro de token');
         return;
       }
 
@@ -652,14 +662,15 @@ class FCMService {
    */
   async clearToken(): Promise<void> {
     try {
-      const auth = await this.getAuth();
-      const user = auth.currentUser;
+      const webUser = await this.getWebAuthUser();
       const storedToken = this.fcmToken ?? (await AsyncStorage.getItem('fcmToken'));
 
-      if (user && storedToken) {
+      if (webUser && storedToken) {
         const functions = await this.getFunctions();
         const clearTokenFunction = httpsCallable(functions, 'clearFCMToken');
         await clearTokenFunction({ fcmToken: storedToken });
+      } else if (storedToken && !webUser) {
+        console.log('⚠️ Sesión Firebase no disponible, limpiando token FCM solo de manera local.');
       }
 
       if (storedToken) {

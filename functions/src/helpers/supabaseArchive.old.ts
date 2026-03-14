@@ -380,7 +380,7 @@ export async function savePaymentToSupabase(
     const paymentStatusValue = paymentStatus.status || 'completed';
     const amount = pickNumber(paymentStatus.finalAmount, paymentStatus.amount, paymentStatus.total, paymentStatus.calculatedAmount, paymentStatus.estimatedPrice) || 0;
     const tip = pickNumber(paymentStatus.tip) || 0;
-    const commission = calculateCommission(amount); // 11% de comisión
+    const commission = calculateCommission(amount); // 15% de comisión
 
     const biometricAuthenticated = !!paymentStatus.biometric_authenticated;
     const biometricType = paymentStatus.biometric_type || null;
@@ -890,8 +890,8 @@ export async function updateRideLocationIds(
 }
 
 /**
- * Calcular comisión (11% para viajes normales)
+ * Calcular comisión (15% para viajes normales)
  */
 function calculateCommission(amount: number): number {
-  return Math.round(amount * 0.11 * 100) / 100; // 11%
+  return Math.round(amount * 0.15 * 100) / 100; // 15%
 }

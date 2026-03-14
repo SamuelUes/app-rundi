@@ -151,14 +151,13 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
         throw new Error('USER_NOT_FOUND');
       }
 
-      let userProfile: any = null;
-      try {
-        userProfile = await firebaseAuthService.getUserProfile(firebaseUser.uid);
-      } catch (profileError: any) {
-        console.warn('⚠️ No se pudo obtener perfil de usuario para login por SMS:', profileError);
-      }
-
       const idToken = await firebaseUser.getIdToken();
+
+      try {
+        await firebaseAuthService.ensureWebSessionFromIdToken(idToken);
+      } catch (sessionError) {
+        console.warn('⚠️ No se pudo sincronizar sesión web antes de leer perfil:', sessionError);
+      }
 
       try {
         await firebaseAuthService.logSmsVerification({
@@ -177,9 +176,8 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
           id: firebaseUser.uid,
           uid: firebaseUser.uid,
           email: firebaseUser.email || '',
-          name: userProfile?.name || firebaseUser.displayName || 'Usuario',
+          name: firebaseUser.displayName || 'Usuario',
           phone: firebaseUser.phoneNumber || normalizedPhone,
-          role: userProfile?.role || 'client',
         },
         idToken
       );

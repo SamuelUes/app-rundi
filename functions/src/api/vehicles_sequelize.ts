@@ -7,9 +7,54 @@ import * as functions from 'firebase-functions';
 import admin from 'firebase-admin';
 import { VehicleRepository } from '../sequelize/repositories/VehicleRepository';
 import Driver from '../sequelize/models/Driver';
+import { supabaseGet, supabaseUpdate } from '../supabase/client';
 
 const vehicleRepo = new VehicleRepository();
 const db = admin.database();
+
+function mapVehicleResponse(vehicle: any) {
+  if (!vehicle) {
+    return null;
+  }
+
+  return {
+    id: vehicle.id,
+    driverId: vehicle.driver_id ?? vehicle.driverId,
+    plate: vehicle.plate,
+    brand: vehicle.brand ?? vehicle.make,
+    model: vehicle.model,
+    year: vehicle.year,
+    color: vehicle.color,
+    type: vehicle.type ?? vehicle.vehicleType,
+    isActive: typeof vehicle.is_active === 'boolean' ? vehicle.is_active : vehicle.isActive,
+    registrationPhotoFront: vehicle.registration_photo_front ?? vehicle.registrationPhotoFront,
+    registrationPhotoBack: vehicle.registration_photo_back ?? vehicle.registrationPhotoBack,
+    insurancePhoto: vehicle.insurance_photo ?? vehicle.insurancePhoto,
+    vehiclePhoto: vehicle.vehicle_photo ?? vehicle.vehiclePhoto,
+    updatedAt: vehicle.updated_at ?? vehicle.updatedAt ?? new Date().toISOString(),
+  };
+}
+
+async function updateVehicleViaSupabaseRest(vehicleId: string, data: Record<string, any>) {
+  if (!data || Object.keys(data).length === 0) {
+    return null;
+  }
+
+  await supabaseUpdate('vehicles', vehicleId, data);
+
+  const fallback = await supabaseGet(
+    'vehicles',
+    { id: vehicleId },
+    '*',
+    { requireServiceRole: true, limit: 1 },
+  );
+
+  if (!Array.isArray(fallback) || fallback.length === 0) {
+    throw new Error(`VEHICLE_NOT_FOUND_SUPABASE (${vehicleId})`);
+  }
+
+  return fallback[0];
+}
 
 /**
  * Crear vehículo (versión básica)
@@ -285,14 +330,14 @@ export const updateVehicle = functions.https.onCall(async (data, context) => {
   }
 
   try {
-    const { 
-      vehicleId, 
-      plate, 
-      make, 
-      model, 
-      year, 
-      color, 
-      vehicleType, 
+    const {
+      vehicleId,
+      plate,
+      make,
+      model,
+      year,
+      color,
+      vehicleType,
       status,
       // Campos de fotos
       registration_photo_front,
@@ -325,28 +370,30 @@ export const updateVehicle = functions.https.onCall(async (data, context) => {
 
     console.log(`📝 Datos a guardar en BD:`, updateData);
 
-    const vehicle = await vehicleRepo.update(vehicleId, updateData);
+    let updatedVehicle: any = null;
+    let updatedViaSequelize = false;
 
-    console.log(`✅ Vehículo actualizado:`, vehicle.id);
+    try {
+      updatedVehicle = await vehicleRepo.update(vehicleId, updateData);
+      updatedViaSequelize = true;
+      console.log(`✅ Vehículo actualizado via Sequelize:`, vehicleId);
+    } catch (sequelizeError: any) {
+      console.warn('⚠️ [updateVehicle] Error actualizando vía Sequelize, intentando REST fallback', {
+        vehicleId,
+        message: sequelizeError?.message || sequelizeError,
+      });
+    }
+
+    if (!updatedViaSequelize) {
+      updatedVehicle = await updateVehicleViaSupabaseRest(vehicleId, updateData);
+      console.log(`✅ Vehículo actualizado vía Supabase REST:`, vehicleId);
+    }
+
+    const responsePayload = mapVehicleResponse(updatedVehicle);
 
     return {
       success: true,
-      vehicle: {
-        id: vehicle.id,
-        driverId: vehicle.driver_id,
-        plate: vehicle.plate,
-        brand: vehicle.brand,
-        model: vehicle.model,
-        year: vehicle.year,
-        color: vehicle.color,
-        type: vehicle.type,
-        isActive: vehicle.is_active,
-        registrationPhotoFront: vehicle.registration_photo_front,
-        registrationPhotoBack: vehicle.registration_photo_back,
-        insurancePhoto: vehicle.insurance_photo,
-        vehiclePhoto: vehicle.vehicle_photo,
-        updatedAt: vehicle.updated_at,
-      },
+      vehicle: responsePayload,
     };
   } catch (error: any) {
     console.error('❌ [updateVehicle] Error:', error);

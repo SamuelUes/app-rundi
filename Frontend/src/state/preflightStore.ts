@@ -1,4 +1,4 @@
-import type { PreflightRole, PreflightRegionInfo } from '../types/preflight';
+import type { GetPreflightDataResponse, PreflightRole, PreflightRegionInfo } from '../types/preflight';
 
 export type PreflightActionType =
   | 'pending_payment'
@@ -22,6 +22,7 @@ export type PreflightSummary = {
   timestamp: number;
   actions: PreflightAction[];
   region?: PreflightRegionInfo;
+  preflightData?: GetPreflightDataResponse;
 };
 
 let currentSummary: PreflightSummary | null = null;

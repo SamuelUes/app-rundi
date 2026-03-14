@@ -66,6 +66,27 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
+  const normalizeRoleValue = (role: any): User['role'] | null => {
+    const normalized = typeof role === 'string' ? role.trim().toLowerCase() : '';
+    if (
+      normalized === 'client' ||
+      normalized === 'driver' ||
+      normalized === 'designated_driver' ||
+      normalized === 'admin'
+    ) {
+      return normalized as User['role'];
+    }
+    return null;
+  };
+
+  const resolveUserModeFromRole = (role: any): 'client' | 'driver' => {
+    const normalizedRole = normalizeRoleValue(role);
+    if (normalizedRole === 'driver' || normalizedRole === 'designated_driver') {
+      return 'driver';
+    }
+    return 'client';
+  };
+
   const cleanupRealtimeDataForModeChange = async (userId: string, mode: 'client' | 'driver') => {
     if (!backendConfig.isFirebase()) {
       return;
@@ -74,12 +95,17 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     try {
       const database = await getFirebaseDatabase();
       const rootRef = ref(database);
-      const updates: Record<string, null> = {};
+      const updates: Record<string, any> = {};
 
       if (mode === 'client') {
         // Al pasar a modo cliente, limpiar nodos de conductor
-        updates[`driversInfo/${userId}`] = null;
-        updates[`driverLocations/${userId}`] = null;
+        updates[`driversInfo/${userId}/updatedAt`] = serverTimestamp();
+        updates[`driversInfo/${userId}/lastSeen`] = serverTimestamp();
+        updates[`driverLocations/${userId}/status`] = 'offline';
+        updates[`driverLocations/${userId}/lat`] = null;
+        updates[`driverLocations/${userId}/lng`] = null;
+        updates[`driverLocations/${userId}/updatedAt`] = serverTimestamp();
+        updates[`driverLocations/${userId}/lastSeen`] = serverTimestamp();
 
         try {
           const byAreaRef = ref(database, 'driverLocationsByArea');
@@ -99,6 +125,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         // Al pasar a modo conductor, limpiar nodos de cliente
         updates[`clientsInfo/${userId}`] = null;
         updates[`clientsLocations/${userId}`] = null;
+        updates[`presence/${userId}`] = null;
       }
 
       if (Object.keys(updates).length > 0) {
@@ -158,7 +185,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const id = raw.id || raw.userId || raw.uid;
     const email = raw.email || '';
     const name = raw.name || '';
-    const role = raw.role as User['role'];
+    const role = normalizeRoleValue(raw.role) as User['role'];
     const phone = raw.phone;
 
     if (!id || !role) {
@@ -185,15 +212,25 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         try {
           const unsubscribe = await firebaseAuthService.onAuthStateChange(async (firebaseUser) => {
             if (firebaseUser) {
-              const userData = await firebaseAuthService.getUserProfile(firebaseUser.uid);
-              const role = userData.role as User['role'];
-              setUser({
-                id: firebaseUser.uid,
-                email: firebaseUser.email || '',
-                name: userData.name,
-                role,
-                phone: userData.phone,
-              });
+              try {
+                const userData = await firebaseAuthService.getUserProfile(firebaseUser.uid);
+                const role = (normalizeRoleValue(userData.role) || 'client') as User['role'];
+                setUser({
+                  id: firebaseUser.uid,
+                  email: firebaseUser.email || '',
+                  name: userData.name,
+                  role,
+                  phone: userData.phone,
+                });
+              } catch (profileError: any) {
+                if (profileError?.code === 'PROFILE_NOT_FOUND') {
+                  console.log('ℹ️ Perfil pendiente de creación; se mantiene usuario anónimo hasta completar registro.');
+                  setUser(null);
+                  setUserModeState('client');
+                  return;
+                }
+                console.error('[AuthContext] Error obteniendo perfil tras cambio de auth:', profileError);
+              }
             } else {
               setUser(null);
               setUserModeState('client');
@@ -274,15 +311,19 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
         
         
-        // Validar que el rol sea válido
-        const validRoles = ['client', 'driver', 'designated_driver'];
-        if (!validRoles.includes(parsedUser.role)) {
+        const normalizedRole = normalizeRoleValue(parsedUser.role);
+        if (!normalizedRole) {
           console.log('⚠️ Rol inválido detectado:', parsedUser.role);
           console.log('🔄 Limpiando usuario para forzar nuevo login...');
           await AsyncStorage.removeItem('user');
           setUser(null);
           setLoading(false);
           return;
+        }
+
+        if (parsedUser.role !== normalizedRole) {
+          parsedUser.role = normalizedRole;
+          await AsyncStorage.setItem('user', JSON.stringify(parsedUser));
         }
         
         const firebaseUser = await waitForFirebaseUser(parsedUser.id);
@@ -344,11 +385,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       await AsyncStorage.setItem('user', JSON.stringify(normalizedUser));
 
       setUser(normalizedUser);
-      await updateUserMode(
-        normalizedUser.role === 'driver' || normalizedUser.role === 'designated_driver'
-          ? 'driver'
-          : 'client',
-      );
+      await updateUserMode(resolveUserModeFromRole(normalizedUser.role));
       await ensureTrackingIfNeeded(normalizedUser.role);
 
       // Sesión única (DENY)
@@ -396,11 +433,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const normalizedUser = normalizeUserData(userData);
       await AsyncStorage.setItem('user', JSON.stringify(normalizedUser));
       setUser(normalizedUser);
-      await updateUserMode(
-        normalizedUser.role === 'driver' || normalizedUser.role === 'designated_driver'
-          ? 'driver'
-          : 'client',
-      );
+      await updateUserMode(resolveUserModeFromRole(normalizedUser.role));
       await ensureTrackingIfNeeded(normalizedUser.role);
 
       // Sesión única (DENY)
@@ -485,12 +518,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       
       await AsyncStorage.setItem('user', JSON.stringify(userData));
       setUser(userData);
-      await updateUserMode(
-        userData.role === 'driver' || userData.role === 'designated_driver'
-          ? 'driver'
-          : 'client',
-      );
-      await ensureTrackingIfNeeded(userData.role);
+      const normalizedRole = (normalizeRoleValue(userData.role) || 'client') as User['role'];
+      setUser((prev) => (prev ? { ...prev, role: normalizedRole } : prev));
+      await updateUserMode(resolveUserModeFromRole(normalizedRole));
+      await ensureTrackingIfNeeded(normalizedRole);
 
       // Sesión única (DENY)
       try {
@@ -524,7 +555,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         id: payload.userId || payload.uid || payload.id,
         email: payload.email,
         name: payload.name,
-        role: payload.role,
+        role: (normalizeRoleValue(payload.role) || 'client') as User['role'],
       };
 
       await AsyncStorage.setItem('user', JSON.stringify(normalizedUser));
@@ -534,11 +565,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
 
       setUser(normalizedUser);
-      await updateUserMode(
-        normalizedUser.role === 'driver' || normalizedUser.role === 'designated_driver'
-          ? 'driver'
-          : 'client',
-      );
+      await updateUserMode(resolveUserModeFromRole(normalizedUser.role));
       await ensureTrackingIfNeeded(normalizedUser.role);
 
       // Sesión única (DENY)
@@ -577,9 +604,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       ) {
         try {
           const auth = await getFirebaseAuth();
+          if (auth.currentUser?.uid) {
+            effectiveId = auth.currentUser.uid;
+          } else {
           const credential = await signInWithCustomToken(auth, token);
           if (credential?.user?.uid) {
             effectiveId = credential.user.uid;
+          }
           }
           console.log('✅ Sesión Firebase iniciada con custom token para registro por SMS');
         } catch (err: any) {
@@ -593,11 +624,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         (userData.id || userData.uid)
       ) {
         try {
-          const customToken = await firebaseAuthService.exchangeIdTokenForCustomToken(token);
           const auth = await getFirebaseAuth();
-          const credential = await signInWithCustomToken(auth, customToken);
-          if (credential?.user?.uid) {
-            effectiveId = credential.user.uid;
+
+          if (auth.currentUser?.uid) {
+            effectiveId = auth.currentUser.uid;
+          } else {
+            const customToken = await firebaseAuthService.exchangeIdTokenForCustomToken(token);
+            const credential = await signInWithCustomToken(auth, customToken);
+            if (credential?.user?.uid) {
+              effectiveId = credential.user.uid;
+            }
           }
           console.log('✅ Sesión Firebase Web iniciada usando idToken de RN (login SMS)');
         } catch (err: any) {
@@ -608,12 +644,24 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
       }
 
+      let profileData: any = null;
+      try {
+        profileData = await firebaseAuthService.getUserProfile(effectiveId);
+      } catch (profileErr: any) {
+        console.warn('⚠️ No se pudo obtener perfil de usuario después de sincronizar sesión SMS:', profileErr);
+      }
+
+      const finalRole =
+        normalizeRoleValue(profileData?.role) ||
+        normalizeRoleValue(userData.role) ||
+        'client';
+
       const normalizedUser = {
         id: effectiveId,
         email: userData.email,
-        name: userData.name,
+        name: profileData?.name || userData.name,
         phone: userData.phone,
-        role: userData.role,
+        role: finalRole,
       };
 
       await AsyncStorage.setItem('user', JSON.stringify(normalizedUser));
@@ -623,11 +671,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
 
       setUser(normalizedUser);
-      await updateUserMode(
-        normalizedUser.role === 'driver' || normalizedUser.role === 'designated_driver'
-          ? 'driver'
-          : 'client',
-      );
+      await updateUserMode(resolveUserModeFromRole(normalizedUser.role));
       await ensureTrackingIfNeeded(normalizedUser.role);
 
       console.log('✅ Login con SMS exitoso');

@@ -16,9 +16,12 @@ import { useAuth } from '../../context/AuthContext';
 import { useVoiceAssistant } from '../../context/VoiceAssistantContext';
 import { getDatabase, ref, onValue, get } from 'firebase/database';
 import priceNegotiationService from '../../services/priceNegotiationService';
-import ridesService from '../../services/ridesService';
+import ridesService, {
+  extractRideVehicleTypeForMatching,
+  normalizeVehicleTypeForMatching,
+  rideMatchesVehicleType,
+} from '../../services/ridesService';
 import { RideListSkeleton } from '../../components/SkeletonLoader';
-import { NoRidesEmptyState } from '../../components/EmptyState';
 import alertService from '../../services/alertService';
 import { fetchClientProfile, ClientProfile } from '../../services/clientProfilesService';
 import { hasSavedCard } from '../../utils/cardUtils';
@@ -146,6 +149,57 @@ const extractProgrammedRideId = (input: string): string | null => {
 };
 const BACK_ICON = require('../../assets/icons/back_button/back_button2x.png');
 
+const resolveSelectedDriverVehicleType = (driverInfo: any): 'moto' | 'auto' | null => {
+  if (!driverInfo || typeof driverInfo !== 'object') {
+    return null;
+  }
+
+  const selectedVehicleId =
+    (typeof driverInfo.vehicle === 'string' ? driverInfo.vehicle : null) ??
+    driverInfo?.vehicle?.id ??
+    driverInfo?.activeVehicle?.id ??
+    null;
+
+  const candidateTypes: Array<string | null | undefined> = [
+    driverInfo?.currentVehicle?.type,
+    driverInfo?.activeVehicle?.type,
+    driverInfo?.vehicle?.type,
+    driverInfo?.vehicleType,
+    driverInfo?.active_vehicle?.type,
+  ];
+
+  if (selectedVehicleId && Array.isArray(driverInfo?.vehicles)) {
+    const selectedVehicle = driverInfo.vehicles.find(
+      (vehicle: any) => String(vehicle?.id ?? '') === String(selectedVehicleId),
+    );
+    candidateTypes.push(selectedVehicle?.type);
+  } else if (selectedVehicleId && driverInfo?.vehicles && typeof driverInfo.vehicles === 'object') {
+    const selectedVehicle = Object.values<any>(driverInfo.vehicles).find(
+      (vehicle: any) => String(vehicle?.id ?? '') === String(selectedVehicleId),
+    );
+    candidateTypes.push(selectedVehicle?.type);
+  }
+
+  if (Array.isArray(driverInfo?.vehicles)) {
+    const activeVehicle = driverInfo.vehicles.find((vehicle: any) => vehicle?.is_active || vehicle?.isActive);
+    candidateTypes.push(activeVehicle?.type);
+  } else if (driverInfo?.vehicles && typeof driverInfo.vehicles === 'object') {
+    const activeVehicle = Object.values<any>(driverInfo.vehicles).find(
+      (vehicle: any) => vehicle?.is_active || vehicle?.isActive,
+    );
+    candidateTypes.push(activeVehicle?.type);
+  }
+
+  for (const candidate of candidateTypes) {
+    const normalized = normalizeVehicleTypeForMatching(candidate ?? null);
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  return null;
+};
+
 interface Ride {
   id: string;
   clientId: string;
@@ -162,6 +216,7 @@ interface Ride {
   driverOfferStatus?: string | null;
   passengers?: number;
   rideType?: string;
+  vehicleType?: string;
   paymentMethod?: 'cash' | 'card';
   requestedAt: number;
   extraDestinations?: Array<{ lat: number; lng: number; address?: string }>;
@@ -193,6 +248,7 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
   const [assignModalVisible, setAssignModalVisible] = useState(false);
   const [assignRideIdInput, setAssignRideIdInput] = useState('');
   const [assigningProgrammedRide, setAssigningProgrammedRide] = useState(false);
+  const [selectedDriverVehicleType, setSelectedDriverVehicleType] = useState<'moto' | 'auto' | null>(null);
   const ridesSnapshotsRef = useRef<Record<string, Record<string, any> | null | undefined>>({});
   const normalizedAssignRideId = useMemo(
     () => extractProgrammedRideId(assignRideIdInput),
@@ -249,6 +305,30 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
 
   // Monitorear rides aceptados globalmente
   useAcceptedRideListener(navigation);
+
+  useEffect(() => {
+    if (!user?.id) {
+      setSelectedDriverVehicleType(null);
+      return;
+    }
+
+    const db = getDatabase();
+    const infoRef = ref(db, `driversInfo/${user.id}`);
+
+    const unsubscribe = onValue(
+      infoRef,
+      (snapshot) => {
+        const info = snapshot.val();
+        const resolvedType = resolveSelectedDriverVehicleType(info);
+        setSelectedDriverVehicleType(resolvedType);
+      },
+      (error) => {
+        console.warn('[AvailableRides] Error leyendo vehículo activo del conductor:', error);
+      },
+    );
+
+    return () => unsubscribe();
+  }, [user?.id]);
 
   // 🔒 Guard: Si ya tengo un viaje activo (accepted/driver_on_route/in_progress), redirigir y bloquear esta pantalla
   useEffect(() => {
@@ -356,6 +436,18 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
           return;
         }
 
+        const rideVehicleType = extractRideVehicleTypeForMatching(rideData);
+        const vehicleTypeMatches = rideMatchesVehicleType(rideData, selectedDriverVehicleType);
+        if (!vehicleTypeMatches) {
+          console.log('⏭️ [AvailableRides] Ride omitido (vehicleType no coincide)', rideId, {
+            selectedDriverVehicleType,
+            rideVehicleType,
+            rideVehicleTypeRaw: rideData?.vehicleType ?? rideData?.vehicle_type ?? rideData?.vehicle?.type ?? null,
+            serviceId: rideData?.serviceId ?? rideData?.service_id ?? null,
+          });
+          return;
+        }
+
         const offers = rideData.offers || {};
         const myOffer = user?.id ? offers[user.id] : null;
 
@@ -413,6 +505,7 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
           driverOfferStatus: myOffer?.status ?? null,
           passengers: rideData.passengers || 1,
           rideType: rideData.rideType || 'normal',
+          vehicleType: rideVehicleType ?? undefined,
           paymentMethod: rideData.paymentMethod,
           requestedAt,
           extraDestinations: extraStops,
@@ -436,7 +529,7 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
       setLoading(false);
       setRefreshing(false);
     },
-    [user?.id, coords?.latitude, coords?.longitude],
+    [user?.id, coords?.latitude, coords?.longitude, selectedDriverVehicleType],
   );
 
   const applySnapshotRef = useRef(applySnapshot);
@@ -448,6 +541,10 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
   useEffect(() => {
     selectSnapshotDataRef.current = selectSnapshotData;
   }, [selectSnapshotData]);
+
+  useEffect(() => {
+    applySnapshot(selectSnapshotData());
+  }, [applySnapshot, selectSnapshotData, selectedDriverVehicleType]);
 
   useEffect(() => {
     const db = getDatabase();
@@ -586,6 +683,11 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
 
   const handleAcceptRide = async (ride: Ride) => {
     try {
+      if (!rideMatchesVehicleType(ride, selectedDriverVehicleType)) {
+        alertService.showErrorAlert(t('driver.available.alerts.errorAcceptRide'));
+        return;
+      }
+
       // 🔒 Bloquear aceptar si ya tengo un viaje activo
       if (activeRideGuard) {
         alertService.showInfoAlert(
@@ -903,6 +1005,18 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
           </View>
 
           <View style={styles.detailsColumn}>
+            <View
+              style={[
+                styles.distancePill,
+                isDark ? styles.distancePillDark : styles.distancePillLight,
+              ]}
+            >
+              <Text style={[styles.distancePillText, { color: isDark ? '#FFD666' : '#5D4B00' }]}>
+                {distanceToOriginKm > 0
+                  ? t('driver.available.rideCard.distanceToOrigin', { distance: distanceToOriginKm.toFixed(1) })
+                  : t('driver.available.rideCard.calculating')}
+              </Text>
+            </View>
             <Text style={[styles.clientName, { color: colors.text }]} numberOfLines={1}>
               {name}
             </Text>
@@ -917,47 +1031,36 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
                 {t('driver.available.rideCard.stops', { count: stopsCount })}
               </Text>
             ) : null}
-            <Text style={[styles.detailLine, { color: colors.text + '99' }]} numberOfLines={1}>
+            <Text style={[styles.detailLine, styles.priceLine, { color: colors.text + 'B3' }]} numberOfLines={1}>
               {t('driver.available.rideCard.price', { amount: Number(price).toFixed(2) })}
             </Text>
-          </View>
 
-          <View style={styles.metaColumn}>
-            <View
-              style={[
-                styles.distancePill,
-                isDark ? styles.distancePillDark : styles.distancePillLight,
-              ]}
-            >
-              <Text style={[styles.distancePillText, { color: isDark ? '#FFD666' : '#5D4B00' }]}
-              >
-                {distanceToOriginKm > 0
-                  ? t('driver.available.rideCard.distanceToOrigin', { distance: distanceToOriginKm.toFixed(1) })
-                  : t('driver.available.rideCard.calculating')}
+            <View style={styles.cardBottomRow}>
+              <Text style={[styles.distanceSubLabel, { color: colors.text + '99' }]}>
+                {distanceToOriginKm > 0 ? t('driver.available.rideCard.etaToOrigin', { minutes: etaToOriginMin }) : ''}
               </Text>
-            </View>
-            <Text style={[styles.distanceSubLabel, { color: colors.text + '99' }]}>
-              {distanceToOriginKm > 0 ? t('driver.available.rideCard.etaToOrigin', { minutes: etaToOriginMin }) : ''}
-            </Text>
-            <View style={styles.metaActions}>
-              {isDesignatedRide && clientVehiclePhoto ? (
-                <TouchableOpacity
-                  style={[styles.vehicleButton, { borderColor: colors.primary }]}
-                  onPress={() => setPhotoModalUrl(clientVehiclePhoto)}
-                  activeOpacity={0.85}
-                >
-                  <Text style={[styles.vehicleButtonText, { color: colors.primary }]}>{t('driver.available.rideCard.viewVehicle')}</Text>
-                </TouchableOpacity>
-              ) : null}
-              {isSelected && (
-                <TouchableOpacity
-                  onPress={() => handleViewRideDetails(ride)}
-                  style={[styles.viewButton, { backgroundColor: colors.primary, borderColor: colors.primary }]}
-                  activeOpacity={0.85}
-                >
-                  <Text style={styles.viewButtonText}>{t('driver.available.rideCard.view')}</Text>
-                </TouchableOpacity>
-              )}
+              <View style={styles.metaActions}>
+                {isDesignatedRide && clientVehiclePhoto ? (
+                  <TouchableOpacity
+                    style={[styles.vehicleButton, { borderColor: colors.primary }]}
+                    onPress={() => setPhotoModalUrl(clientVehiclePhoto)}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={[styles.vehicleButtonText, { color: colors.primary }]}>
+                      {t('driver.available.rideCard.viewVehicle')}
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
+                {isSelected && (
+                  <TouchableOpacity
+                    onPress={() => handleViewRideDetails(ride)}
+                    style={[styles.viewButton, { backgroundColor: colors.primary, borderColor: colors.primary }]}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.viewButtonText}>{t('driver.available.rideCard.view')}</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
             </View>
           </View>
         </View>
@@ -969,27 +1072,46 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
     <View style={[styles.container, { backgroundColor: colors.background }]}> 
       <View style={[styles.header, { borderBottomColor: colors.border }]}> 
         <TouchableOpacity
-          style={[styles.backButton, isDark ? styles.backButtonDark : styles.backButtonLight]}
+          style={[
+            styles.backButton,
+            isDark ? styles.backButtonDark : styles.backButtonLight,
+            { borderColor: isDark ? '#343434' : '#E8E8E8' },
+          ]}
           onPress={() => navigation.goBack?.()}
           activeOpacity={0.8}
         > 
-          <Image source={BACK_ICON} style={[styles.backIconImage, { tintColor: isDark ? '#FFFFFF' : colors.text }]} resizeMode="contain" />
+          <View style={[styles.backButtonInner, { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#FFFFFF' }]}>
+            <Image source={BACK_ICON} style={[styles.backIconImage, { tintColor: isDark ? '#FFFFFF' : colors.text }]} resizeMode="contain" />
+          </View>
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: colors.text }]}>{t('driver.available.header.title')}</Text>
       </View>
 
       <View style={styles.assignBar}>
         <TouchableOpacity
-          style={[styles.assignButton, { borderColor: colors.border, backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }]}
+          style={[
+            styles.assignButton,
+            {
+              borderColor: colors.border,
+              backgroundColor: isDark ? '#212121' : '#FFFFFF',
+              shadowColor: isDark ? '#000000' : '#B87F1E',
+            },
+          ]}
           onPress={() => {
             setAssignRideIdInput('');
             setAssignModalVisible(true);
           }}
           activeOpacity={0.85}
         >
-          <Text style={[styles.assignButtonText, { color: colors.text }]}>
-            {t('driver.available.assignModal.assignProgrammedButton')}
-          </Text>
+          <View style={styles.assignButtonContent}>
+            <View style={[styles.assignButtonAccent, { backgroundColor: colors.primary }]} />
+            <Text style={[styles.assignButtonText, { color: colors.text }]}>
+              {t('driver.available.assignModal.assignProgrammedButton')}
+            </Text>
+            <View style={[styles.assignButtonPlus, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F4EFE4' }]}>
+              <Text style={[styles.assignButtonPlusText, { color: colors.primary }]}>+</Text>
+            </View>
+          </View>
         </TouchableOpacity>
       </View>
 
@@ -997,7 +1119,7 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
         data={listData}
         renderItem={renderRideItem}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[styles.listContent, listData.length === 0 && styles.listContentEmpty]}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -1008,7 +1130,31 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
         ListEmptyComponent={loading ? (
           <RideListSkeleton />
         ) : (
-          <NoRidesEmptyState onAction={handleRefresh} />
+          <View
+            style={[
+              styles.emptyStateCard,
+              {
+                backgroundColor: isDark ? '#1D1D1D' : '#FFFFFF',
+                borderColor: isDark ? '#333333' : '#E9E9E9',
+              },
+            ]}
+          >
+            <View style={[styles.emptyStateGlow, { backgroundColor: isDark ? 'rgba(212,175,55,0.18)' : '#F9EDCC' }]} />
+            <Text style={styles.emptyStateIcon}>🚗</Text>
+            <Text style={[styles.emptyStateTitle, { color: colors.text }]}>
+              {t('common.components.emptyState.noRides.title')}
+            </Text>
+            <Text style={[styles.emptyStateMessage, { color: colors.text + '99' }]}>
+              {t('common.components.emptyState.noRides.message')}
+            </Text>
+            <TouchableOpacity
+              onPress={handleRefresh}
+              style={[styles.emptyStateButton, { backgroundColor: colors.primary }]}
+              activeOpacity={0.86}
+            >
+              <Text style={styles.emptyStateButtonText}>{t('common.components.emptyState.noRides.action')}</Text>
+            </TouchableOpacity>
+          </View>
         )}
       />
 
@@ -1042,24 +1188,48 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
         }}
       >
         <View style={styles.assignOverlay}>
-          <View style={[styles.assignModalCard, { backgroundColor: isDark ? '#1F1F1F' : '#FFFFFF' }]}>
+          <View
+            style={[
+              styles.assignModalCard,
+              {
+                backgroundColor: isDark ? '#1F1F1F' : '#FFFFFF',
+                borderColor: isDark ? '#353535' : '#E9E0CF',
+              },
+            ]}
+          >
+            <View style={[styles.assignModalTopAccent, { backgroundColor: colors.primary }]} />
             <Text style={[styles.assignModalTitle, { color: colors.text }]}>
               {t('driver.available.assignModal.title')}
             </Text>
             <Text style={[styles.assignModalSubtitle, { color: colors.text + '99' }]}>
               {t('driver.available.assignModal.subtitle')}
             </Text>
-
-            <TextInput
-              value={assignRideIdInput}
-              onChangeText={setAssignRideIdInput}
-              placeholder={t('driver.available.assignModal.placeholder')}
-              placeholderTextColor={colors.text + '66'}
-              autoCapitalize="none"
-              autoCorrect={false}
-              editable={!assigningProgrammedRide}
-              style={[styles.assignInput, { borderColor: colors.border, color: colors.text }]}
-            />
+            <View
+              style={[
+                styles.assignInputWrap,
+                {
+                  borderColor: colors.border,
+                  backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+                },
+              ]}
+            >
+              <Text style={[styles.assignInputLabel, { color: colors.text + 'AA' }]}>Ride ID</Text>
+              <TextInput
+                value={assignRideIdInput}
+                onChangeText={setAssignRideIdInput}
+                placeholder={t('driver.available.assignModal.placeholder')}
+                placeholderTextColor={colors.text + '66'}
+                autoCapitalize="none"
+                autoCorrect={false}
+                editable={!assigningProgrammedRide}
+                style={[
+                  styles.assignInput,
+                  {
+                    color: colors.text,
+                  },
+                ]}
+              />
+            </View>
 
             <View style={styles.assignActionsRow}>
               <TouchableOpacity
@@ -1123,55 +1293,97 @@ const styles = StyleSheet.create({
   },
   assignBar: {
     paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 4,
+    paddingTop: 14,
+    paddingBottom: 10,
   },
   assignButton: {
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: 17,
     paddingVertical: 10,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 3,
+  },
+  assignButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  assignButtonAccent: {
+    width: 5,
+    height: 24,
+    borderRadius: 99,
   },
   assignButtonText: {
-    fontWeight: '700',
-    fontSize: 14,
-    textAlign: 'center',
+    flex: 1,
+    fontWeight: '800',
+    fontSize: 15,
+    textAlign: 'left',
+    letterSpacing: -0.1,
+  },
+  assignButtonPlus: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  assignButtonPlusText: {
+    fontSize: 20,
+    fontWeight: '800',
+    lineHeight: 21,
   },
   listContent: {
     paddingHorizontal: 16,
-    paddingBottom: 16,
+    paddingBottom: 20,
+  },
+  listContentEmpty: {
+    flexGrow: 1,
+    justifyContent: 'center',
   },
   header: {
     paddingHorizontal: 16,
-    paddingTop: 20,
-    paddingBottom: 12,
+    paddingTop: 18,
+    paddingBottom: 14,
     flexDirection: 'row',
     alignItems: 'center',
     borderBottomWidth: StyleSheet.hairlineWidth,
+    marginTop: 20,
   },
   backButton: {
-    width: 40,
-    height: 40,
+    width: 42,
+    height: 42,
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: 20,
+    borderRadius: 14,
+    borderWidth: 1,
   },
   backButtonLight: {
-    backgroundColor: 'rgba(0,0,0,0.04)',
+    backgroundColor: '#F6F6F6',
   },
   backButtonDark: {
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: '#242424',
+  },
+  backButtonInner: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   backIconImage: {
-    width: 18,
-    height: 18,
+    width: 16,
+    height: 16,
   },
   headerTitle: {
     flex: 1,
     textAlign: 'center',
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 22,
+    fontWeight: '800',
     marginRight: 40,
+    letterSpacing: -0.3,
   },
   designatedSection: {
     padding: 14,
@@ -1197,16 +1409,16 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   rideCard: {
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    marginBottom: 12,
+    borderRadius: 18,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 10,
     borderWidth: 1,
     shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 1,
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
   },
   rideCardLight: {
     backgroundColor: '#FFFFFF',
@@ -1229,25 +1441,26 @@ const styles = StyleSheet.create({
     borderColor: '#D4AF37',
     borderWidth: 1.5,
     shadowColor: '#D4AF37',
-    shadowOpacity: 0.25,
-    elevation: 2,
+    shadowOpacity: 0.2,
+    elevation: 3,
   },
   cardRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
   },
   avatarPlaceholder: {
-    width: 52,
-    height: 52,
-    borderRadius: 12,
+    width: 48,
+    height: 48,
+    borderRadius: 13,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginRight: 10,
+    marginTop: 1,
   },
   avatarImage: {
     width: '100%',
     height: '100%',
-    borderRadius: 12,
+    borderRadius: 13,
   },
   avatarPlaceholderLight: {
     backgroundColor: '#F2F2F2',
@@ -1256,7 +1469,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.1)',
   },
   avatarInitials: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '700',
   },
   detailsColumn: {
@@ -1264,28 +1477,39 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   clientName: {
-    fontSize: 16,
-    fontWeight: '700',
-    marginBottom: 6,
+    fontSize: 17,
+    fontWeight: '800',
+    marginBottom: 1,
+    marginTop: 1,
+    letterSpacing: -0.2,
   },
   detailLine: {
     fontSize: 13,
+    lineHeight: 17,
   },
-  metaColumn: {
-    alignItems: 'flex-end',
-    paddingLeft: 12,
-    gap: 6,
+  priceLine: {
+    marginTop: 1,
+  },
+  cardBottomRow: {
+    marginTop: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
   },
   metaActions: {
-    width: '100%',
-    alignItems: 'flex-end',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    flexShrink: 1,
     gap: 8,
   },
   distancePill: {
     borderRadius: 999,
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     paddingVertical: 4,
-    marginBottom: 4,
+    alignSelf: 'flex-start',
+    marginBottom: 2,
   },
   distancePillLight: {
     backgroundColor: '#FFF1CC',
@@ -1299,29 +1523,77 @@ const styles = StyleSheet.create({
   },
   distanceSubLabel: {
     fontSize: 11,
-    marginBottom: 8,
+    flex: 1,
+    fontWeight: '600',
   },
   viewButton: {
-    borderRadius: 20,
+    borderRadius: 999,
     paddingVertical: 8,
-    paddingHorizontal: 24,
+    paddingHorizontal: 20,
     borderWidth: 1,
   },
   vehicleButton: {
     borderRadius: 999,
     borderWidth: 1,
-    paddingHorizontal: 18,
-    paddingVertical: 6,
+    paddingHorizontal: 13,
+    paddingVertical: 5,
     backgroundColor: 'transparent',
   },
   vehicleButtonText: {
     fontWeight: '700',
-    fontSize: 13,
+    fontSize: 12,
   },
   viewButtonText: {
     color: '#FFFFFF',
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: '700',
+  },
+  emptyStateCard: {
+    marginTop: 10,
+    borderWidth: 1,
+    borderRadius: 22,
+    paddingHorizontal: 18,
+    paddingVertical: 22,
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
+  emptyStateGlow: {
+    position: 'absolute',
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    top: -55,
+    right: -35,
+  },
+  emptyStateIcon: {
+    fontSize: 52,
+    marginBottom: 8,
+  },
+  emptyStateTitle: {
+    fontSize: 31,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginBottom: 8,
+    letterSpacing: -0.4,
+  },
+  emptyStateMessage: {
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
+    marginBottom: 18,
+    maxWidth: 300,
+  },
+  emptyStateButton: {
+    borderRadius: 14,
+    paddingHorizontal: 26,
+    paddingVertical: 11,
+    minWidth: 130,
+    alignItems: 'center',
+  },
+  emptyStateButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '800',
   },
   modalOverlay: {
     flex: 1,
@@ -1363,37 +1635,63 @@ const styles = StyleSheet.create({
   },
   assignModalCard: {
     width: '100%',
-    borderRadius: 16,
-    padding: 16,
+    borderRadius: 22,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOpacity: 0.24,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 10,
   },
-  assignModalTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    textAlign: 'center',
-    marginBottom: 6,
-  },
-  assignModalSubtitle: {
-    fontSize: 13,
-    fontWeight: '600',
-    textAlign: 'center',
+  assignModalTopAccent: {
+    alignSelf: 'center',
+    width: 56,
+    height: 4,
+    borderRadius: 99,
     marginBottom: 12,
   },
-  assignInput: {
+  assignModalTitle: {
+    fontSize: 26,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginBottom: 4,
+    letterSpacing: -0.2,
+  },
+  assignModalSubtitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginBottom: 14,
+  },
+  assignInputWrap: {
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 14,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingTop: 7,
+    paddingBottom: 8,
+  },
+  assignInputLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    marginBottom: 4,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  assignInput: {
+    paddingVertical: 0,
     fontSize: 14,
   },
   assignActionsRow: {
     flexDirection: 'row',
     gap: 10,
-    marginTop: 14,
+    marginTop: 16,
   },
   assignActionButton: {
     flex: 1,
-    borderRadius: 12,
-    paddingVertical: 12,
+    borderRadius: 14,
+    paddingVertical: 11,
     alignItems: 'center',
     justifyContent: 'center',
   },

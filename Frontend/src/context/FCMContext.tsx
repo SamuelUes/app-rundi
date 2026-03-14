@@ -31,7 +31,7 @@ export const FCMProvider: React.FC<FCMProviderProps> = ({ children }) => {
   const [hasPermission, setHasPermission] = useState(false);
   const [isFCMAvailable, setIsFCMAvailable] = useState(false);
   const listenersConfigured = useRef(false);
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
 
   useEffect(() => {
     initializeFCM();
@@ -66,7 +66,11 @@ export const FCMProvider: React.FC<FCMProviderProps> = ({ children }) => {
         fcmService.setupNotificationListeners();
         listenersConfigured.current = true;
       }
-      await fcmService.registerToken();
+      if (user?.id) {
+        await fcmService.registerToken();
+      } else {
+        console.log('ℹ️ [FCM] Sesión de usuario aún no lista; se difiere registro de token.');
+      }
       setIsConfigured(true);
       console.log('✅ FCM configurado correctamente');
     } catch (error) {
@@ -93,7 +97,11 @@ export const FCMProvider: React.FC<FCMProviderProps> = ({ children }) => {
         fcmService.setupNotificationListeners();
         listenersConfigured.current = true;
       }
-      await fcmService.registerToken();
+      if (user?.id) {
+        await fcmService.registerToken();
+      } else {
+        console.log('ℹ️ [FCM] Sesión de usuario aún no lista; se difiere registro de token.');
+      }
       setIsConfigured(true);
       console.log('✅ FCM configurado exitosamente');
     } catch (error) {
@@ -132,7 +140,7 @@ export const FCMProvider: React.FC<FCMProviderProps> = ({ children }) => {
   }, [user?.id, isFCMAvailable]);
 
   useEffect(() => {
-    if (user) {
+    if (loading || user) {
       return;
     }
 
@@ -149,7 +157,7 @@ export const FCMProvider: React.FC<FCMProviderProps> = ({ children }) => {
     };
 
     clearTokenOnLogout();
-  }, [user]);
+  }, [loading, user]);
 
   const sendTestNotification = async () => {
     if (!isFCMAvailable) {

@@ -19,6 +19,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import { useTranslation } from 'react-i18next';
+import {
+  isRegistrationUploadsInProgress,
+  subscribeRegistrationUploadsInProgress,
+} from '../../services/proximityService';
 
 interface LocationPermissionGateProps extends PropsWithChildren {
   requireBackground: boolean;
@@ -46,6 +50,7 @@ const LocationPermissionGate: React.FC<LocationPermissionGateProps> = ({
 }) => {
   const [state, setState] = useState<GateState>(initialState);
   const [requesting, setRequesting] = useState<'foreground' | 'background' | null>(null);
+  const [uploadsGateActive, setUploadsGateActive] = useState<boolean | null>(null);
   const hasLoadedRef = useRef(false);
   const { t } = useTranslation();
 
@@ -140,7 +145,32 @@ const LocationPermissionGate: React.FC<LocationPermissionGateProps> = ({
   const autoRequestedRef = useRef({ foreground: false, background: false });
 
   useEffect(() => {
-    if (loading || requesting !== null) {
+    let cancelled = false;
+    let unsubscribe: (() => void) | undefined;
+
+    async function bootstrap() {
+      const gate = await isRegistrationUploadsInProgress();
+      if (!cancelled) {
+        setUploadsGateActive(gate);
+      }
+      unsubscribe = subscribeRegistrationUploadsInProgress((value) => {
+        setUploadsGateActive(value);
+        if (!value) {
+          refresh({ showLoading: true });
+        }
+      });
+    }
+
+    bootstrap();
+
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
+  }, [refresh]);
+
+  useEffect(() => {
+    if (loading || requesting !== null || uploadsGateActive) {
       return;
     }
 
@@ -187,18 +217,42 @@ const LocationPermissionGate: React.FC<LocationPermissionGateProps> = ({
     requestForeground,
     requesting,
     servicesEnabled,
+    uploadsGateActive,
   ]);
 
   const canRenderChildren = useMemo(() => {
+    if (uploadsGateActive) return false;
     if (loading) return false;
     if (!servicesEnabled) return false;
     if (!foreground?.granted) return false;
     if (requireBackground && !background?.granted) return false;
     return true;
-  }, [background?.granted, foreground?.granted, loading, requireBackground, servicesEnabled]);
+  }, [
+    background?.granted,
+    foreground?.granted,
+    loading,
+    requireBackground,
+    servicesEnabled,
+    uploadsGateActive,
+  ]);
 
   if (canRenderChildren) {
     return <>{children}</>;
+  }
+
+  if (uploadsGateActive) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.container}>
+          <View style={styles.card}>
+            <View style={styles.spinnerContainer}>
+              <ActivityIndicator size="large" color="#e58b1e" />
+              <Text style={styles.spinnerLabel}>{t('shared.permissions.gate.uploadsGate')}</Text>
+            </View>
+          </View>
+        </View>
+      </SafeAreaView>
+    );
   }
 
   const showSpinner = loading || requesting !== null;

@@ -38,13 +38,29 @@ const STORAGE_KEYS = {
   dismissedRides: 'proximity:dismissedRides',
   overlayEnabled: 'proximity:overlayEnabled',
   overlayPayload: 'proximity:lastOverlayPayload',
+  registrationUploadsInProgress: 'proximity:registrationUploadsInProgress',
+  registrationUploadsSetAt: 'proximity:registrationUploadsSetAt',
 };
 
 const THROTTLE_MS = 15000; // no más de 1 chequeo cada 15s
 const SUPPRESSION_MS = 60000; // suprime notificación 60s después de disparar una
 const DISMISS_TTL_MS = 5 * 60 * 1000; // mantener rides rechazados fuera por 5 minutos
+const REGISTRATION_UPLOADS_TTL_MS = 10 * 60 * 1000; // caducar flag tras 10 minutos
 
 let overlayEnabledCache: boolean | null = null;
+let registrationUploadsCache: boolean | null = null;
+type RegistrationUploadsListener = (value: boolean) => void;
+const registrationUploadsListeners = new Set<RegistrationUploadsListener>();
+
+function notifyRegistrationUploadsListeners(value: boolean) {
+  registrationUploadsListeners.forEach((listener) => {
+    try {
+      listener(value);
+    } catch (err) {
+      console.warn('[proximity] Listener registrationUploads error:', err);
+    }
+  });
+}
 
 type OverlayEnabledListener = (enabled: boolean) => void;
 const overlayEnabledListeners = new Set<OverlayEnabledListener>();
@@ -198,6 +214,64 @@ async function getOverlayEnabled(): Promise<boolean> {
  */
 function invalidateOverlayCache() {
   overlayEnabledCache = null;
+}
+
+async function isRegistrationUploadsInProgress(): Promise<boolean> {
+  if (registrationUploadsCache !== null) {
+    return registrationUploadsCache;
+  }
+  try {
+    const [stored, ts] = await Promise.all([
+      AsyncStorage.getItem(STORAGE_KEYS.registrationUploadsInProgress),
+      AsyncStorage.getItem(STORAGE_KEYS.registrationUploadsSetAt),
+    ]);
+
+    if (stored === 'true') {
+      const setAt = ts ? Number(ts) : NaN;
+      const expired = Number.isFinite(setAt) && Date.now() - setAt > REGISTRATION_UPLOADS_TTL_MS;
+      if (expired) {
+        console.warn('[proximity] registrationUploadsInProgress caducado, limpiando flag');
+        await AsyncStorage.multiRemove([
+          STORAGE_KEYS.registrationUploadsInProgress,
+          STORAGE_KEYS.registrationUploadsSetAt,
+        ]);
+        registrationUploadsCache = false;
+      } else {
+        registrationUploadsCache = true;
+      }
+    } else {
+      registrationUploadsCache = false;
+    }
+  } catch (err) {
+    console.warn('[proximity] No se pudo leer flag registrationUploadsInProgress:', err);
+    registrationUploadsCache = false;
+  }
+  return registrationUploadsCache;
+}
+
+async function setRegistrationUploadsInProgress(value: boolean): Promise<void> {
+  registrationUploadsCache = value;
+  try {
+    if (value) {
+      await AsyncStorage.multiSet([
+        [STORAGE_KEYS.registrationUploadsInProgress, 'true'],
+        [STORAGE_KEYS.registrationUploadsSetAt, String(Date.now())],
+      ]);
+    } else {
+      await AsyncStorage.multiRemove([
+        STORAGE_KEYS.registrationUploadsInProgress,
+        STORAGE_KEYS.registrationUploadsSetAt,
+      ]);
+    }
+  } catch (err) {
+    console.warn('[proximity] No se pudo guardar flag registrationUploadsInProgress:', err);
+  }
+  notifyRegistrationUploadsListeners(value);
+}
+
+function subscribeRegistrationUploadsInProgress(listener: RegistrationUploadsListener) {
+  registrationUploadsListeners.add(listener);
+  return () => registrationUploadsListeners.delete(listener);
 }
 
 async function setOverlayEnabled(enabled: boolean): Promise<void> {
@@ -683,16 +757,39 @@ async function dismissProximityNotification(rideId: string) {
   }
 }
 
-export default {
+export {
   handleLocationForProximity,
   markRideDismissed,
   getOverlayEnabled,
   setOverlayEnabled,
   invalidateOverlayCache,
+  isRegistrationUploadsInProgress,
+  setRegistrationUploadsInProgress,
+  subscribeRegistrationUploadsInProgress,
+  subscribeOverlayEnabled,
   ensureOverlayBubbleForBackground,
   hideOverlayBubble,
   debugLogOverlayState,
   debugTriggerFallbackOverlay,
   dismissProximityNotification,
-  subscribeOverlayEnabled,
 };
+
+// Default export to preserve existing default imports across the app
+const proximityService = {
+  handleLocationForProximity,
+  markRideDismissed,
+  getOverlayEnabled,
+  setOverlayEnabled,
+  invalidateOverlayCache,
+  isRegistrationUploadsInProgress,
+  setRegistrationUploadsInProgress,
+  subscribeRegistrationUploadsInProgress,
+  subscribeOverlayEnabled,
+  ensureOverlayBubbleForBackground,
+  hideOverlayBubble,
+  debugLogOverlayState,
+  debugTriggerFallbackOverlay,
+  dismissProximityNotification,
+};
+
+export default proximityService;

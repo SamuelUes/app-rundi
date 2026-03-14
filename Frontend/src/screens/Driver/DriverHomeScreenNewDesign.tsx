@@ -39,7 +39,6 @@ import earningsService from '../../services/earningsService';
 import { extractVehicleTypeFromInfo, ensureVehicleIconSource } from '../../utils/vehicleIcons';
 import { useAcceptedRideListener } from '../../hooks/useAcceptedRideListener';
 import proximityService from '../../services/proximityService';
-import penaltiesService from '../../services/penaltiesService';
 import { haversineKm } from '../../utils/distance';
 import driverOfferCacheService, {
   DriverOfferCacheEntry,
@@ -336,8 +335,6 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   const [initializing, setInitializing] = useState(true);
   const pendingInitialTasks = useRef(new Set<string>([
     'location',
-    'pendingPayments',
-    'penaltySummary',
     'driverInfo',
     'availabilityState',
     'todayStats',
@@ -370,8 +367,30 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   const [isAvailable, setIsAvailable] = useState(false);
   const [isDesignatedDriverMode, setIsDesignatedDriverMode] = useState(false);
   const [todayStats, setTodayStats] = useState({ trips: 0, earnings: 0 });
-  const [pendingPayments, setPendingPayments] = useState<any[]>([]);
-  const [penaltySummary, setPenaltySummary] = useState<{ pendingCount: number; pendingAmount: number } | null>(null);
+  const [pendingPayments, setPendingPayments] = useState<any[]>(() => {
+    const summary = preflightSummary?.preflightData?.pendingPayments;
+    if (!summary || summary.type !== 'driver' || !summary.firstRideId) {
+      return [];
+    }
+    return [
+      {
+        rideId: summary.firstRideId,
+        finalAmount: summary.firstAmount ?? summary.amount,
+        amount: summary.firstAmount ?? summary.amount,
+        paymentMethod: summary.firstPaymentMethod || 'cash',
+      },
+    ];
+  });
+  const [penaltySummary, setPenaltySummary] = useState<{ pendingCount: number; pendingAmount: number } | null>(
+    () => {
+      const summary = preflightSummary?.preflightData?.penalties;
+      if (!summary) return null;
+      return {
+        pendingCount: Number(summary.pendingCount ?? 0),
+        pendingAmount: Number(summary.pendingAmount ?? 0),
+      };
+    },
+  );
   const [preflightActions, setPreflightActions] = useState<PreflightAction[]>(() => preflightSummary?.actions ?? []);
   const [serviceAreaId] = useState<string | null>(initialRegion?.serviceAreaId ?? null);
   const [nearbyDriversMarkers, setNearbyDriversMarkers] = useState<NearbyDriverMarker[]>([]);
@@ -385,7 +404,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   const [offerCacheEntries, setOfferCacheEntries] = useState<DriverOfferCacheEntry[]>([]);
   const [pendingOfferTarget, setPendingOfferTarget] = useState<PendingOfferTarget | null>(null);
   const [rideSnapshotsVersion, setRideSnapshotsVersion] = useState(0);
-  const panelWidthRef = useRef(Math.min(Dimensions.get('window').width * 0.8, 340));
+  const panelWidthRef = useRef(Math.min(Dimensions.get('window').width * 0.8, 336));
   const panelWidth = panelWidthRef.current;
   const menuOpacity = useRef(new Animated.Value(0)).current;
   const menuTranslate = useRef(new Animated.Value(panelWidth)).current;
@@ -474,7 +493,10 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   const [currentVehicleType, setCurrentVehicleType] = useState<string | null>(null);
   const [currentVehicleIconSource, setCurrentVehicleIconSource] = useState<ImageSourcePropType | undefined>(undefined);
 
-  const formatCurrency = (value: number = 0) => `C$${Number.isFinite(value) ? value.toFixed(2) : '0.00'}`;
+  const formatCurrency = useCallback(
+    (value: number = 0) => `C$${Number.isFinite(value) ? value.toFixed(2) : '0.00'}`,
+    [],
+  );
 
   const hasActiveRideEntries = (data: Record<string, any> | null | undefined) =>
     Boolean(data && typeof data === 'object' && Object.keys(data).length > 0);
@@ -1020,7 +1042,11 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
           if (action.type === 'active_ride' && !activeRide) {
             return false;
           }
-          if (action.type === 'pending_payment' && pendingPayments.length === 0) {
+          if (
+            action.type === 'pending_payment' &&
+            pendingPayments.length === 0 &&
+            Number(preflightSummary?.preflightData?.pendingPayments?.count ?? 0) === 0
+          ) {
             return false;
           }
           return true;
@@ -1045,7 +1071,14 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
     }
 
     setPendingAction(null);
-  }, [pendingPayments, pendingNegotiationRide, activeRide, preflightActions, navigation]);
+  }, [
+    pendingPayments,
+    pendingNegotiationRide,
+    activeRide,
+    preflightActions,
+    navigation,
+    preflightSummary?.preflightData?.pendingPayments?.count,
+  ]);
 
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', (e: any) => {
@@ -1334,9 +1367,6 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
 
             const isRepeated = rideStatusCacheRef.current[rideId] === statusSignature;
             rideStatusCacheRef.current[rideId] = statusSignature;
-            if (isRepeated) {
-              return;
-            }
 
             const driverIdMatch = ridePayload?.driverId === user?.id;
             const rideStatus = ridePayload?.status || ridePayload?.driverStatus || ridePayload?.rideStatus;
@@ -1405,6 +1435,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
               distance,
               originLatitude: originLat,
               originLongitude: originLng,
+              _unchangedStatus: isRepeated,
             });
           });
 
@@ -1769,10 +1800,15 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   };
 
   useEffect(() => {
+    if (coords) {
+      markTaskCompleted('location');
+      return;
+    }
+
     if (!locationLoading) {
       markTaskCompleted('location');
     }
-  }, [locationLoading, markTaskCompleted]);
+  }, [coords, locationLoading, markTaskCompleted]);
 
   const hasPendingAction = Boolean(pendingAction);
 
@@ -1861,8 +1897,13 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
               style={styles.menuButton}
               activeOpacity={0.85}
               onPress={toggleMenu}
+              accessibilityRole="button"
             >
-              <Image source={require('../../assets/icons/menuicon/menuicon_2x.png')} style={styles.menuIcon} />
+              <View style={styles.menuIconGlyph}>
+                <View style={styles.menuIconLine} />
+                <View style={styles.menuIconLine} />
+                <View style={styles.menuIconLine} />
+              </View>
             </TouchableOpacity>
 
             <EmergencyButton
@@ -2007,6 +2048,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
               },
             ]}
           >
+            <View style={styles.menuTopAccent} />
             <View style={styles.menuHeaderRow}>
               <Text style={styles.menuHeader}>{t('driver.home.menu.title')}</Text>
               <TouchableOpacity onPress={closeMenu} style={styles.menuCloseBtn}>
@@ -2016,37 +2058,57 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
 
             <View style={styles.menuSection}>
               <TouchableOpacity style={styles.menuItem} onPress={() => handleNavigate('Earnings')}>
-                <Text style={styles.menuEmoji}>💵</Text>
+                <View style={styles.menuIconBadge}>
+                  <Text style={styles.menuEmoji}>💵</Text>
+                </View>
                 <Text style={styles.menuLabel}>{t('driver.home.menu.earnings')}</Text>
+                <Text style={styles.menuItemArrow}>›</Text>
               </TouchableOpacity>
               {(user?.role === 'driver' || user?.role === 'designated_driver') && (
                 <TouchableOpacity style={styles.menuItem} onPress={() => handleNavigate('PayCommissions')}>
-                  <Text style={styles.menuEmoji}>💼</Text>
+                  <View style={styles.menuIconBadge}>
+                    <Text style={styles.menuEmoji}>💼</Text>
+                  </View>
                   <Text style={styles.menuLabel}>{t('driver.home.menu.commissions')}</Text>
+                  <Text style={styles.menuItemArrow}>›</Text>
                 </TouchableOpacity>
               )}
               <TouchableOpacity style={styles.menuItem} onPress={() => handleNavigate('RideHistory')}>
-                <Text style={styles.menuEmoji}>📜</Text>
+                <View style={styles.menuIconBadge}>
+                  <Text style={styles.menuEmoji}>📜</Text>
+                </View>
                 <Text style={styles.menuLabel}>{t('driver.home.menu.history')}</Text>
+                <Text style={styles.menuItemArrow}>›</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.menuItem} onPress={() => handleNavigate('PaymentMethods')}>
-                <Text style={styles.menuEmoji}>💳</Text>
+                <View style={styles.menuIconBadge}>
+                  <Text style={styles.menuEmoji}>💳</Text>
+                </View>
                 <Text style={styles.menuLabel}>{t('driver.home.menu.paymentMethods')}</Text>
+                <Text style={styles.menuItemArrow}>›</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.menuItem} onPress={() => handleNavigate('Settings')}>
-                <Text style={styles.menuEmoji}>⚙️</Text>
+                <View style={styles.menuIconBadge}>
+                  <Text style={styles.menuEmoji}>⚙️</Text>
+                </View>
                 <Text style={styles.menuLabel}>{t('driver.home.menu.settings')}</Text>
+                <Text style={styles.menuItemArrow}>›</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.menuItem} onPress={() => handleNavigate('Help')}>
-                <Text style={styles.menuEmoji}>❓</Text>
+                <View style={styles.menuIconBadge}>
+                  <Text style={styles.menuEmoji}>❓</Text>
+                </View>
                 <Text style={styles.menuLabel}>{t('driver.home.menu.help')}</Text>
+                <Text style={styles.menuItemArrow}>›</Text>
               </TouchableOpacity>
             </View>
 
             <View style={styles.menuDivider} />
 
             <TouchableOpacity style={[styles.menuItem, styles.logoutItem]} onPress={handleLogout}>
-              <Text style={styles.logoutEmoji}>🚪</Text>
+              <View style={[styles.menuIconBadge, styles.logoutIconBadge]}>
+                <Text style={styles.logoutEmoji}>🚪</Text>
+              </View>
               <Text style={styles.logoutLabel}>{t('driver.home.menu.logout')}</Text>
             </TouchableOpacity>
           </Animated.View>
@@ -2174,23 +2236,31 @@ const createStyles = (colors: any) =>
       gap: 8,
     },
     menuButton: {
-      width: 48,
-      height: 48,
-      borderRadius: 16,
-      backgroundColor: colors.isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(233, 193, 118, 0.4)',
+      width: 44,
+      height: 44,
+      borderRadius: 14,
+      backgroundColor: colors.isDark ? 'rgba(17,24,39,0.88)' : 'rgba(255,255,255,0.88)',
+      borderWidth: 1,
+      borderColor: colors.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(17,24,39,0.1)',
       justifyContent: 'center',
       alignItems: 'center',
-    //  shadowColor: '#000',
-    //  shadowOffset: { width: 0, height: 4 },
-    //  shadowOpacity: 0.3,
-    //  shadowRadius: 8,
-      elevation: 2,
-
+      shadowColor: 'rgba(15,23,42,0.22)',
+      shadowOffset: { width: 0, height: 5 },
+      shadowOpacity: 0.26,
+      shadowRadius: 8,
+      elevation: 4,
     },
-    menuIcon: {
-      width: 22,
-      height: 22,
-      resizeMode: 'contain',
+    menuIconGlyph: {
+      width: 18,
+      gap: 3,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    menuIconLine: {
+      width: '100%',
+      height: 2,
+      borderRadius: 10,
+      backgroundColor: colors.isDark ? '#F8FAFC' : '#111827',
     },
     emergencyHeaderButton: {
       width: 52,
@@ -2406,86 +2476,115 @@ const createStyles = (colors: any) =>
     },
     menuBackdrop: {
       ...StyleSheet.absoluteFillObject,
-      backgroundColor: 'rgba(0,0,0,0.35)',
+      backgroundColor: 'rgba(0,0,0,0.28)',
     },
     menuContainer: {
-      marginTop: Platform.select({ ios: 70, android: 80 }),
+      marginTop: Platform.select({ ios: 66, android: 74 }),
       marginBottom: Platform.select({ ios: 24, android: 20 }),
-      marginRight: 16,
-      backgroundColor: colors.card,
-      borderRadius: 18,
-      paddingVertical: 18,
-      paddingHorizontal: 20,
-      shadowColor: 'rgba(15,23,42,0.4)',
-      shadowOffset: { width: 0, height: 10 },
-      shadowOpacity: 0.3,
+      marginRight: 14,
+      backgroundColor: colors.isDark ? 'rgba(15,23,42,0.97)' : 'rgba(255,255,255,0.98)',
+      borderRadius: 20,
+      paddingVertical: 14,
+      paddingHorizontal: 14,
+      borderWidth: 1,
+      borderColor: colors.isDark ? 'rgba(255,255,255,0.1)' : 'rgba(15,23,42,0.08)',
+      shadowColor: 'rgba(15,23,42,0.36)',
+      shadowOffset: { width: 0, height: 12 },
+      shadowOpacity: 0.28,
       shadowRadius: 16,
-      elevation: 20,
+      elevation: 18,
+    },
+    menuTopAccent: {
+      height: 4,
+      borderRadius: 999,
+      marginHorizontal: 8,
+      marginBottom: 10,
+      backgroundColor: colors.isDark ? 'rgba(245, 158, 11, 0.9)' : 'rgba(202, 138, 4, 0.82)',
     },
     menuHeaderRow: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
       marginBottom: 12,
+      paddingHorizontal: 6,
     },
     menuHeader: {
-      fontSize: 20,
+      fontSize: 22,
       fontWeight: '700',
       color: colors.text,
     },
     menuCloseBtn: {
-      width: 32,
-      height: 32,
-      borderRadius: 16,
+      width: 30,
+      height: 30,
+      borderRadius: 15,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: 'rgba(15,23,42,0.08)',
+      backgroundColor: colors.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(15,23,42,0.08)',
     },
     menuCloseIcon: {
-      fontSize: 18,
+      fontSize: 16,
       color: colors.text,
       fontWeight: '700',
     },
     menuSection: {
-      gap: 10,
+      gap: 8,
     },
     menuItem: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 14,
-      backgroundColor: colors.surface,
-      borderRadius: 14,
-      paddingVertical: 14,
-      paddingHorizontal: 16,
+      gap: 10,
+      backgroundColor: colors.isDark ? 'rgba(255,255,255,0.05)' : 'rgba(248,250,252,0.95)',
+      borderRadius: 12,
+      paddingVertical: 11,
+      paddingHorizontal: 12,
       borderWidth: 1,
-      borderColor: colors.border,
+      borderColor: colors.isDark ? 'rgba(255,255,255,0.1)' : 'rgba(15,23,42,0.08)',
+    },
+    menuIconBadge: {
+      width: 28,
+      height: 28,
+      borderRadius: 8,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.isDark ? 'rgba(255,255,255,0.1)' : 'rgba(15,23,42,0.06)',
     },
     menuEmoji: {
-      fontSize: 18,
+      fontSize: 15,
     },
     menuLabel: {
       flex: 1,
       color: colors.text,
-      fontSize: 15,
-      fontWeight: '600',
+      fontSize: 14,
+      fontWeight: '500',
+    },
+    menuItemArrow: {
+      fontSize: 20,
+      lineHeight: 20,
+      color: colors.isDark ? 'rgba(248,250,252,0.72)' : 'rgba(15,23,42,0.42)',
+      fontWeight: '500',
+      marginRight: 2,
     },
     menuDivider: {
       height: 1,
-      backgroundColor: colors.border,
-      marginVertical: 18,
+      backgroundColor: colors.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(15,23,42,0.1)',
+      marginVertical: 14,
+      marginHorizontal: 6,
     },
     logoutItem: {
-      backgroundColor: 'rgba(239,68,68,0.2)',
-      borderColor: 'rgba(239,68,68,0.35)',
+      backgroundColor: colors.isDark ? 'rgba(239,68,68,0.16)' : 'rgba(239,68,68,0.1)',
+      borderColor: 'rgba(239,68,68,0.28)',
+    },
+    logoutIconBadge: {
+      backgroundColor: colors.isDark ? 'rgba(239,68,68,0.22)' : 'rgba(239,68,68,0.14)',
     },
     logoutEmoji: {
-      fontSize: 18,
+      fontSize: 14,
     },
     logoutLabel: {
       flex: 1,
       color: '#EF4444',
-      fontSize: 15,
-      fontWeight: '700',
+      fontSize: 14,
+      fontWeight: '600',
     },
     bottomBar: {
       position: 'absolute',

@@ -16,8 +16,9 @@ import {
   Platform,
   ScrollView,
   ActivityIndicator,
+  Image,
+  StatusBar,
 } from 'react-native';
-import { Picker } from '@react-native-picker/picker';
 import { useNavigation } from '@react-navigation/native';
 
 import { useTheme } from '../../context/ThemeContext';
@@ -170,6 +171,7 @@ export default function RegisterScreen() {
     authProvider,
     googleIdToken,
     phoneVerified = false,
+    emailVerified = false,
   }: {
     name: string;
     email?: string;
@@ -179,6 +181,7 @@ export default function RegisterScreen() {
     authProvider: RegistrationAuthProvider;
     googleIdToken?: string;
     phoneVerified?: boolean;
+    emailVerified?: boolean;
   }) => {
     navigation.navigate('RoleSelection', {
       name,
@@ -189,6 +192,7 @@ export default function RegisterScreen() {
       authProvider,
       googleIdToken,
       phoneVerified,
+      emailVerified,
     });
   };
 
@@ -247,6 +251,9 @@ export default function RegisterScreen() {
         return;
       }
 
+      await firebaseAuthService.ensureEmailVerificationSession(normalizedEmail, password);
+      await firebaseAuthService.sendEmailVerificationCode();
+
       await registrationService.saveTemporaryData({
         name: name.trim(),
         email: normalizedEmail,
@@ -255,17 +262,22 @@ export default function RegisterScreen() {
         method: 'email',
         authProvider: 'email/password',
         phoneVerified: false,
-        lastStep: 'register',
+        emailVerified: false,
+        lastStep: 'emailVerification',
       });
 
-      navigateToRoleSelection({
+      navigation.navigate('EmailVerification', {
         name: name.trim(),
         email: normalizedEmail,
         phone: phoneForCheck,
         password,
         authProvider: 'email/password',
         method: 'email',
+        role: undefined,
+        googleIdToken: undefined,
         phoneVerified: false,
+        emailVerified: false,
+        context: 'register_email',
       });
     } catch (error: any) {
       console.error('❌ Error registro email:', error);
@@ -397,6 +409,19 @@ export default function RegisterScreen() {
     >
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.card}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => navigation.goBack()}
+            disabled={loading}
+            activeOpacity={0.8}
+          >
+            <Image
+              source={require('../../assets/icons/back_button/back_button2x.png')}
+              style={styles.backIcon}
+              resizeMode="contain"
+            />
+          </TouchableOpacity>
+
           <Text style={styles.title}>{t('authScreens.register.header.title')}</Text>
           <Text style={styles.subtitle}>
             {t('authScreens.register.header.subtitle')}
@@ -618,14 +643,15 @@ export default function RegisterScreen() {
 const createStyles = (colors: any) =>
   StyleSheet.create({
     container: {
-      flex: 2,
+      flex: 1,
       backgroundColor: colors.background,
     },
     scrollContent: {
       flexGrow: 1,
-      paddingVertical: 32,
+      paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) + 12 : 12,
+      paddingBottom: 32,
       paddingHorizontal: 14,
-      justifyContent: 'center',
+      justifyContent: 'flex-start',
     },
     card: {
       backgroundColor: colors.card,
@@ -675,7 +701,7 @@ const createStyles = (colors: any) =>
       backgroundColor: 'transparent',
     },
     methodButtonActive: {
-      backgroundColor: 'rgba(241, 200, 123, 1), 1)' + '20',
+      backgroundColor: 'rgba(241, 200, 123, 0.2)',
     },
     methodButtonText: {
       fontSize: 13,
@@ -683,11 +709,28 @@ const createStyles = (colors: any) =>
       color: colors.textSecondary,
     },
     methodButtonTextActive: {
-      color: 'rgba(172, 127, 44, 1), 1)',
+      color: 'rgba(172, 127, 44, 1)',
     },
     fieldGroup: {
-      gap: -25,
+      gap: -8,
       marginBottom: 2,
+    },
+    backButton: {
+      width: 32,
+      height: 32,
+      alignSelf: 'flex-start',
+      marginBottom: 2,
+      justifyContent: 'center',
+      alignItems: 'center',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 4,
+      elevation: 2,
+    },
+    backIcon: {
+      width: 34,
+      height: 34,
     },
     countryPickerContainer: {
       marginBottom: 8,
@@ -815,9 +858,9 @@ const createStyles = (colors: any) =>
       elevation: 5,
     },
     phoneNextIcon: {
-      fontSize: 24,
+      fontSize: 18,
       color: '#FFFFFF',
-      fontWeight: '700',
+      fontWeight: '600',
     },
     footerInfo: {
       marginTop: 20,

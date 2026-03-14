@@ -78,6 +78,7 @@ const DriverPhoneScreen: React.FC<Props> = ({ navigation, route }) => {
     method,
     authProvider,
     googleIdToken,
+    emailVerified,
     context,
   } = route.params;
   const countryOptions = useMemo(() => getCountryDialOptions(), []);
@@ -180,6 +181,7 @@ const DriverPhoneScreen: React.FC<Props> = ({ navigation, route }) => {
         googleIdToken,
         role: 'driver',
         phoneVerified: false,
+        emailVerified: Boolean(emailVerified),
         lastStep: 'driverPhone',
       });
 
@@ -193,6 +195,7 @@ const DriverPhoneScreen: React.FC<Props> = ({ navigation, route }) => {
         googleIdToken,
         role: 'driver',
         phoneVerified: false,
+        emailVerified: Boolean(emailVerified),
         context: context || 'register_phone',
       });
     } catch (error: any) {

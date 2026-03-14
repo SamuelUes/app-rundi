@@ -9,13 +9,44 @@ import { MIGRATION_FLAGS } from '../config/migration-flags';
 import { DriverServiceRepository } from '../sequelize/repositories/DriverServiceRepository';
 import { ServiceRepository } from '../sequelize/repositories/ServiceRepository';
 import { DriverRepository } from '../sequelize/repositories/DriverRepository';
-import { supabaseUpdate } from '../supabase/client';
+import { supabaseGet, supabasePost, supabaseUpdate } from '../supabase/client';
 
 const db = admin.database();
 const DEFAULT_SERVICE_AREA_ID = 'ni-managua';
 const driverServiceRepo = new DriverServiceRepository();
 const serviceRepo = new ServiceRepository();
 const driverRepo = new DriverRepository();
+
+async function upsertDriverViaSupabaseRest(userId: string, data: Record<string, any>) {
+  if (!data || Object.keys(data).length === 0) {
+    return;
+  }
+
+  try {
+    const existing = await supabaseGet(
+      'drivers',
+      { user_id: userId },
+      'id',
+      { requireServiceRole: true, limit: 1 },
+    );
+
+    const driverRow = Array.isArray(existing) && existing.length > 0 ? existing[0] : null;
+
+    if (driverRow?.id) {
+      await supabaseUpdate('drivers', driverRow.id, data);
+      console.log(`✅ [updateDriver] Supabase REST actualizado (driver_id=${driverRow.id})`);
+    } else {
+      await supabasePost('drivers', {
+        user_id: userId,
+        ...data,
+      });
+      console.log('✅ [updateDriver] Supabase REST creó registro de driver');
+    }
+  } catch (error) {
+    console.error('❌ [updateDriver] Fallback Supabase REST falló:', error);
+    throw error;
+  }
+}
 
 async function markDesignatedRoleRequested(userId: string) {
   try {
@@ -371,6 +402,8 @@ export const updateDriver = functions.https.onCall(async (data, context) => {
       license_number,
       license_expiry,
       profile_photo,
+      department,
+      municipality,
     } = data;
 
     console.log(`👤 [updateDriver] Actualizando información del conductor: ${driverId}`);
@@ -383,10 +416,47 @@ export const updateDriver = functions.https.onCall(async (data, context) => {
     if (license_number) updateData.license_number = license_number;
     if (license_expiry) updateData.license_expiry = license_expiry;
     if (profile_photo) updateData.profile_photo = profile_photo;
+    if (department) updateData.department = department;
+    if (municipality) updateData.municipality = municipality;
 
     updateData.lastUpdate = admin.database.ServerValue.TIMESTAMP;
 
     await db.ref(`driversInfo/${driverId}`).update(updateData);
+
+    const supabaseUpdateData: any = {};
+    if (license_photo_front) supabaseUpdateData.license_photo_front = license_photo_front;
+    if (license_photo_back) supabaseUpdateData.license_photo_back = license_photo_back;
+    if (license_number) supabaseUpdateData.license_number = license_number;
+    if (license_expiry) supabaseUpdateData.license_expiry = license_expiry;
+    if (profile_photo) supabaseUpdateData.profile_photo = profile_photo;
+    if (department) supabaseUpdateData.department = department;
+    if (municipality) supabaseUpdateData.municipality = municipality;
+
+    if (Object.keys(supabaseUpdateData).length > 0) {
+      let updatedViaSequelize = false;
+
+      try {
+        const updateResult: any = await driverRepo.updateByUserId(driverId, supabaseUpdateData);
+        const affected = Array.isArray(updateResult) ? updateResult[0] : updateResult;
+        updatedViaSequelize = Boolean(affected);
+
+        if (!updatedViaSequelize) {
+          console.warn('⚠️ [updateDriver] Sequelize no actualizó registros, usando fallback REST', {
+            driverId,
+            payloadKeys: Object.keys(supabaseUpdateData),
+          });
+        }
+      } catch (supabaseError: any) {
+        console.warn('⚠️ [updateDriver] Error actualizando conductor vía Sequelize:', {
+          driverId,
+          message: supabaseError?.message || supabaseError,
+        });
+      }
+
+      if (!updatedViaSequelize) {
+        await upsertDriverViaSupabaseRest(driverId, supabaseUpdateData);
+      }
+    }
 
     return {
       success: true,

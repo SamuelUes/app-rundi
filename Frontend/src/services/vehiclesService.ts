@@ -294,14 +294,12 @@ class VehiclesService {
       console.log('📡 Intentando obtener vehículos de Cloud Function...');
       const functions = await getFirebaseFunctions();
       const auth = getAuth();
-      const driverId = auth.currentUser?.uid;
-
-      if (!driverId) {
+      if (!auth.currentUser?.uid) {
         throw new Error(this.tr('errors.notAuthenticated'));
       }
 
       const getVehiclesFn = httpsCallable(functions, 'getDriverVehiclesSeq');
-      const result: any = await getVehiclesFn({ driverId });
+      const result: any = await getVehiclesFn({});
 
       const vehiclesFromFn = result?.data?.vehicles || [];
       console.log('✅ Vehículos obtenidos:', vehiclesFromFn.length);

@@ -3,13 +3,14 @@
  * Pantalla para que conductores ingresen datos de licencia y vehículo
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TextInput,
   TouchableOpacity,
+  Image,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -19,6 +20,7 @@ import {
 import { Picker } from '@react-native-picker/picker';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
+import * as ImagePicker from 'expo-image-picker';
 
 import { useTheme } from '../../context/ThemeContext';
 import registrationService from '../../services/registrationService';
@@ -48,6 +50,7 @@ export default function DriverDataScreen({ navigation, route }: Props) {
     authProvider,
     googleIdToken,
     phoneVerified,
+    emailVerified,
     context,
   } = route.params;
 
@@ -55,6 +58,7 @@ export default function DriverDataScreen({ navigation, route }: Props) {
     context === 'register_upgrade_driver' ? 'register_upgrade_driver' : 'register_driver';
 
   const [loading, setLoading] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
   const [activeTab, setActiveTab] = useState<'license' | 'vehicle'>('license');
 
   // Datos de Licencia
@@ -72,20 +76,266 @@ export default function DriverDataScreen({ navigation, route }: Props) {
   const [type, setType] = useState('sedan');
   const [passengers, setPassengers] = useState('');
 
+  const [registrationNumber, setRegistrationNumber] = useState('');
+  const [registrationExpiry, setRegistrationExpiry] = useState('');
+  const [insuranceNumber, setInsuranceNumber] = useState('');
+  const [insuranceCompany, setInsuranceCompany] = useState('');
+  const [insuranceExpiry, setInsuranceExpiry] = useState('');
+
+  const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
+  const [licensePhotoFront, setLicensePhotoFront] = useState<string | null>(null);
+  const [licensePhotoBack, setLicensePhotoBack] = useState<string | null>(null);
+  const [insurancePhoto, setInsurancePhoto] = useState<string | null>(null);
+  const [registrationPhotoFront, setRegistrationPhotoFront] = useState<string | null>(null);
+  const [registrationPhotoBack, setRegistrationPhotoBack] = useState<string | null>(null);
+
   // Listas
   const departments_list = getDepartments();
   const municipalities = department ? getMunicipalitiesByDepartment(department) : [];
 
   // Validar que los datos requeridos estén completos
-  const isLicenseComplete = licenseNumber && licenseExpiry && department && municipality;
-  const isVehicleComplete = plate && brand && model && year && color && type;
+  const isLicenseComplete =
+    licenseNumber &&
+    licenseExpiry &&
+    department &&
+    municipality &&
+    profilePhoto &&
+    licensePhotoFront &&
+    licensePhotoBack;
+  const isVehicleComplete =
+    plate &&
+    brand &&
+    model &&
+    year &&
+    color &&
+    type &&
+    insurancePhoto &&
+    registrationPhotoFront &&
+    registrationPhotoBack;
   const isComplete = isLicenseComplete && isVehicleComplete;
+
+  useEffect(() => {
+    (async () => {
+      if (Platform.OS !== 'web') {
+        try {
+          await ImagePicker.requestCameraPermissionsAsync();
+        } catch {
+          return;
+        }
+      }
+    })();
+  }, []);
+
+  // Hidratar borrador desde params o checkpoint
+  useEffect(() => {
+    let mounted = true;
+    const hydrate = async () => {
+      try {
+        const paramsDriverData = route.params?.driverData;
+        const paramsVehicleData = route.params?.vehicleData;
+
+        let draftDriver = paramsDriverData;
+        let draftVehicle = paramsVehicleData;
+
+        if (!draftDriver || !draftVehicle) {
+          try {
+            const temp = await registrationService.getTemporaryData();
+            draftDriver = draftDriver || temp?.driverData;
+            draftVehicle = draftVehicle || temp?.vehicleData;
+          } catch (err) {
+            console.warn('⚠️ No se pudo hidratar datos de conductor desde checkpoint:', err);
+          }
+        }
+
+        if (!mounted) return;
+
+        if (draftDriver) {
+          setLicenseNumber(draftDriver.licenseNumber || '');
+          setLicenseExpiry(draftDriver.licenseExpiry || '');
+          setDepartment(draftDriver.department || '');
+          setMunicipality(draftDriver.municipality || '');
+          setProfilePhoto(draftDriver.profilePhoto || null);
+          setLicensePhotoFront(draftDriver.licensePhotoFront || null);
+          setLicensePhotoBack(draftDriver.licensePhotoBack || null);
+        }
+
+        if (draftVehicle) {
+          setPlate(draftVehicle.plate || '');
+          setBrand(draftVehicle.brand || '');
+          setModel(draftVehicle.model || '');
+          setYear(draftVehicle.year ? String(draftVehicle.year) : '');
+          setColor(draftVehicle.color || '');
+          setType(draftVehicle.type || 'sedan');
+          setPassengers(draftVehicle.passengers || '');
+          setRegistrationNumber(draftVehicle.registrationNumber || '');
+          setRegistrationExpiry(draftVehicle.registrationExpiry || '');
+          setInsuranceNumber(draftVehicle.insuranceNumber || '');
+          setInsuranceCompany(draftVehicle.insuranceCompany || '');
+          setInsuranceExpiry(draftVehicle.insuranceExpiry || '');
+          setInsurancePhoto(draftVehicle.insurancePhoto || null);
+          setRegistrationPhotoFront(draftVehicle.registrationPhotoFront || null);
+          setRegistrationPhotoBack(draftVehicle.registrationPhotoBack || null);
+        }
+      } finally {
+        if (mounted) {
+          setHydrated(true);
+        }
+      }
+    };
+
+    hydrate();
+    return () => {
+      mounted = false;
+    };
+  }, [route.params]);
+
+  // Guardar borrador en checkpoint cuando los campos cambien (solo flujo register_driver)
+  useEffect(() => {
+    if (!hydrated || driverContext !== 'register_driver') {
+      return;
+    }
+
+    const driverDraft: any = {
+      ...(licenseNumber ? { licenseNumber } : {}),
+      ...(licenseExpiry ? { licenseExpiry } : {}),
+      ...(department ? { department } : {}),
+      ...(municipality ? { municipality } : {}),
+      ...(profilePhoto ? { profilePhoto } : {}),
+      ...(licensePhotoFront ? { licensePhotoFront } : {}),
+      ...(licensePhotoBack ? { licensePhotoBack } : {}),
+    };
+
+    const vehicleDraft: any = {
+      ...(plate ? { plate: plate.toUpperCase() } : {}),
+      ...(brand ? { brand } : {}),
+      ...(model ? { model } : {}),
+      ...(year ? { year: parseInt(year, 10) } : {}),
+      ...(color ? { color } : {}),
+      ...(type ? { type } : {}),
+      ...(passengers ? { passengers } : {}),
+      ...(registrationNumber ? { registrationNumber } : {}),
+      ...(registrationExpiry ? { registrationExpiry } : {}),
+      ...(insuranceNumber ? { insuranceNumber } : {}),
+      ...(insuranceCompany ? { insuranceCompany } : {}),
+      ...(insuranceExpiry ? { insuranceExpiry } : {}),
+      ...(insurancePhoto ? { insurancePhoto } : {}),
+      ...(registrationPhotoFront ? { registrationPhotoFront } : {}),
+      ...(registrationPhotoBack ? { registrationPhotoBack } : {}),
+    };
+
+    registrationService
+      .saveTemporaryData({
+        name,
+        email,
+        phone,
+        password,
+        role: 'driver',
+        method,
+        authProvider,
+        googleIdToken,
+        phoneVerified,
+        driverData: Object.keys(driverDraft).length ? driverDraft : undefined,
+        vehicleData: Object.keys(vehicleDraft).length ? vehicleDraft : undefined,
+        lastStep: 'driverData',
+      })
+      .catch((err) => {
+        console.warn('⚠️ No se pudo guardar borrador de datos de conductor:', err);
+      });
+  }, [
+    hydrated,
+    driverContext,
+    name,
+    email,
+    phone,
+    password,
+    method,
+    authProvider,
+    googleIdToken,
+    phoneVerified,
+    licenseNumber,
+    licenseExpiry,
+    department,
+    municipality,
+    profilePhoto,
+    licensePhotoFront,
+    licensePhotoBack,
+    plate,
+    brand,
+    model,
+    year,
+    color,
+    type,
+    passengers,
+    registrationNumber,
+    registrationExpiry,
+    insuranceNumber,
+    insuranceCompany,
+    insuranceExpiry,
+    insurancePhoto,
+    registrationPhotoFront,
+    registrationPhotoBack,
+  ]);
+
+  const takePhoto = async (setPhotoFunction: React.Dispatch<React.SetStateAction<string | null>>) => {
+    try {
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.7,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        setPhotoFunction(result.assets[0].uri);
+      }
+    } catch (error) {
+      Alert.alert(t('authScreens.driverData.alerts.errorTitle'), t('authScreens.driverData.alerts.saveFailed'));
+      console.error('Error al tomar foto:', error);
+    }
+  };
+
+  const isValidDateString = (value: string) => {
+    if (!value) return false;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+    const [yearStr, monthStr, dayStr] = value.split('-');
+    const year = Number(yearStr);
+    const month = Number(monthStr);
+    const day = Number(dayStr);
+    if (Number.isNaN(year) || Number.isNaN(month) || Number.isNaN(day)) return false;
+    if (month < 1 || month > 12) return false;
+    if (day < 1 || day > 31) return false;
+    const date = new Date(Date.UTC(year, month - 1, day));
+    return (
+      date.getUTCFullYear() === year &&
+      date.getUTCMonth() === month - 1 &&
+      date.getUTCDate() === day
+    );
+  };
 
   const handleContinue = async () => {
     if (!isComplete) {
       Alert.alert(
         t('authScreens.driverData.alerts.errorTitle'),
         t('authScreens.driverData.alerts.incomplete'),
+      );
+      return;
+    }
+
+    // Validar fechas para evitar errores 400 en backend (ej. 2222-22-22)
+    const invalidDates: string[] = [];
+    if (licenseExpiry && !isValidDateString(licenseExpiry)) {
+      invalidDates.push(t('authScreens.driverData.license.expiryPlaceholder'));
+    }
+    if (registrationExpiry && !isValidDateString(registrationExpiry)) {
+      invalidDates.push(t('authScreens.driverData.vehicle.registrationExpiryPlaceholder'));
+    }
+    if (insuranceExpiry && !isValidDateString(insuranceExpiry)) {
+      invalidDates.push(t('authScreens.driverData.vehicle.insuranceExpiryPlaceholder'));
+    }
+    if (invalidDates.length > 0) {
+      Alert.alert(
+        t('authScreens.driverData.alerts.errorTitle'),
+        `${t('authScreens.driverData.alerts.incomplete')}\n\n${invalidDates.join('\n')}`,
       );
       return;
     }
@@ -110,6 +360,9 @@ export default function DriverDataScreen({ navigation, route }: Props) {
             licenseExpiry,
             department,
             municipality,
+            profilePhoto: profilePhoto || undefined,
+            licensePhotoFront: licensePhotoFront || undefined,
+            licensePhotoBack: licensePhotoBack || undefined,
           },
           vehicleData: {
             plate: plate.toUpperCase(),
@@ -119,8 +372,17 @@ export default function DriverDataScreen({ navigation, route }: Props) {
             color,
             type: type as 'sedan' | 'suv' | 'van' | 'moto',
             passengers: passengers || undefined,
+            registrationNumber: registrationNumber || undefined,
+            registrationExpiry: registrationExpiry || undefined,
+            insuranceNumber: insuranceNumber || undefined,
+            insuranceCompany: insuranceCompany || undefined,
+            insuranceExpiry: insuranceExpiry || undefined,
+            insurancePhoto: insurancePhoto || undefined,
+            registrationPhotoFront: registrationPhotoFront || undefined,
+            registrationPhotoBack: registrationPhotoBack || undefined,
           },
           googleIdToken,
+          emailVerified,
           lastStep: 'driverData',
         });
 
@@ -139,11 +401,15 @@ export default function DriverDataScreen({ navigation, route }: Props) {
         authProvider,
         googleIdToken,
         phoneVerified,
+        emailVerified,
         driverData: {
           licenseNumber,
           licenseExpiry,
           department,
           municipality,
+          profilePhoto: profilePhoto || undefined,
+          licensePhotoFront: licensePhotoFront || undefined,
+          licensePhotoBack: licensePhotoBack || undefined,
         },
         vehicleData: {
           plate: plate.toUpperCase(),
@@ -153,6 +419,14 @@ export default function DriverDataScreen({ navigation, route }: Props) {
           color,
           type: type as 'sedan' | 'suv' | 'van' | 'moto',
           passengers: passengers || undefined,
+          registrationNumber: registrationNumber || undefined,
+          registrationExpiry: registrationExpiry || undefined,
+          insuranceNumber: insuranceNumber || undefined,
+          insuranceCompany: insuranceCompany || undefined,
+          insuranceExpiry: insuranceExpiry || undefined,
+          insurancePhoto: insurancePhoto || undefined,
+          registrationPhotoFront: registrationPhotoFront || undefined,
+          registrationPhotoBack: registrationPhotoBack || undefined,
         },
         context: driverContext,
       });
@@ -318,6 +592,82 @@ export default function DriverDataScreen({ navigation, route }: Props) {
                 </View>
               </View>
 
+              <View style={styles.photoSection}>
+                <Text style={styles.sectionTitle}>{t('authScreens.driverData.photos.sectionTitle')}</Text>
+
+                <View style={styles.photoContainer}>
+                  <Text style={styles.photoTitle}>{t('authScreens.driverData.photos.profileTitle')}</Text>
+                  {profilePhoto ? (
+                    <View style={styles.previewContainer}>
+                      <Image source={{ uri: profilePhoto }} style={styles.photoPreview} />
+                      <TouchableOpacity
+                        style={styles.retakeButton}
+                        onPress={() => takePhoto(setProfilePhoto)}
+                        disabled={loading}
+                      >
+                        <Text style={styles.retakeButtonText}>{t('authScreens.driverData.photos.retakePhoto')}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <TouchableOpacity
+                      style={styles.photoButton}
+                      onPress={() => takePhoto(setProfilePhoto)}
+                      disabled={loading}
+                    >
+                      <Text style={styles.photoButtonText}>{t('authScreens.driverData.photos.takePhoto')}</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                <View style={styles.photoContainer}>
+                  <Text style={styles.photoTitle}>{t('authScreens.driverData.photos.licenseFrontTitle')}</Text>
+                  {licensePhotoFront ? (
+                    <View style={styles.previewContainer}>
+                      <Image source={{ uri: licensePhotoFront }} style={styles.photoPreview} />
+                      <TouchableOpacity
+                        style={styles.retakeButton}
+                        onPress={() => takePhoto(setLicensePhotoFront)}
+                        disabled={loading}
+                      >
+                        <Text style={styles.retakeButtonText}>{t('authScreens.driverData.photos.retakePhoto')}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <TouchableOpacity
+                      style={styles.photoButton}
+                      onPress={() => takePhoto(setLicensePhotoFront)}
+                      disabled={loading}
+                    >
+                      <Text style={styles.photoButtonText}>{t('authScreens.driverData.photos.takePhoto')}</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                <View style={styles.photoContainer}>
+                  <Text style={styles.photoTitle}>{t('authScreens.driverData.photos.licenseBackTitle')}</Text>
+                  {licensePhotoBack ? (
+                    <View style={styles.previewContainer}>
+                      <Image source={{ uri: licensePhotoBack }} style={styles.photoPreview} />
+                      <TouchableOpacity
+                        style={styles.retakeButton}
+                        onPress={() => takePhoto(setLicensePhotoBack)}
+                        disabled={loading}
+                      >
+                        <Text style={styles.retakeButtonText}>{t('authScreens.driverData.photos.retakePhoto')}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <TouchableOpacity
+                      style={styles.photoButton}
+                      onPress={() => takePhoto(setLicensePhotoBack)}
+                      disabled={loading}
+                    >
+                      <Text style={styles.photoButtonText}>{t('authScreens.driverData.photos.takePhoto')}</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </View>
+
               {/* Info */}
               <View style={styles.infoBox}>
                 <Text style={styles.infoText}>
@@ -455,11 +805,157 @@ export default function DriverDataScreen({ navigation, route }: Props) {
                 />
               </View>
 
+              <View style={styles.fieldGroup}>
+                <Text style={styles.label}>
+                  {t('authScreens.driverData.vehicle.registrationNumberLabel')}
+                </Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder={t('authScreens.driverData.vehicle.registrationNumberPlaceholder')}
+                  placeholderTextColor={colors.textSecondary}
+                  value={registrationNumber}
+                  onChangeText={setRegistrationNumber}
+                  editable={!loading}
+                />
+              </View>
+
+              <View style={styles.fieldGroup}>
+                <Text style={styles.label}>
+                  {t('authScreens.driverData.vehicle.registrationExpiryLabel')}
+                </Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder={t('authScreens.driverData.vehicle.registrationExpiryPlaceholder')}
+                  placeholderTextColor={colors.textSecondary}
+                  value={registrationExpiry}
+                  onChangeText={(text) => setRegistrationExpiry(formatDate(text, registrationExpiry))}
+                  editable={!loading}
+                />
+              </View>
+
+              <View style={styles.fieldGroup}>
+                <Text style={styles.label}>
+                  {t('authScreens.driverData.vehicle.insuranceNumberLabel')}
+                </Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder={t('authScreens.driverData.vehicle.insuranceNumberPlaceholder')}
+                  placeholderTextColor={colors.textSecondary}
+                  value={insuranceNumber}
+                  onChangeText={setInsuranceNumber}
+                  editable={!loading}
+                />
+              </View>
+
+              <View style={styles.fieldGroup}>
+                <Text style={styles.label}>
+                  {t('authScreens.driverData.vehicle.insuranceCompanyLabel')}
+                </Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder={t('authScreens.driverData.vehicle.insuranceCompanyPlaceholder')}
+                  placeholderTextColor={colors.textSecondary}
+                  value={insuranceCompany}
+                  onChangeText={setInsuranceCompany}
+                  editable={!loading}
+                />
+              </View>
+
+              <View style={styles.fieldGroup}>
+                <Text style={styles.label}>
+                  {t('authScreens.driverData.vehicle.insuranceExpiryLabel')}
+                </Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder={t('authScreens.driverData.vehicle.insuranceExpiryPlaceholder')}
+                  placeholderTextColor={colors.textSecondary}
+                  value={insuranceExpiry}
+                  onChangeText={(text) => setInsuranceExpiry(formatDate(text, insuranceExpiry))}
+                  editable={!loading}
+                />
+              </View>
+
               {/* Info */}
               <View style={styles.infoBox}>
                 <Text style={styles.infoText}>
                   {t('authScreens.driverData.vehicle.info')}
                 </Text>
+              </View>
+
+              <View style={styles.photoSection}>
+                <Text style={styles.sectionTitle}>{t('authScreens.driverData.photos.sectionTitle')}</Text>
+
+                <View style={styles.photoContainer}>
+                  <Text style={styles.photoTitle}>{t('authScreens.driverData.photos.insuranceTitle')}</Text>
+                  {insurancePhoto ? (
+                    <View style={styles.previewContainer}>
+                      <Image source={{ uri: insurancePhoto }} style={styles.photoPreview} />
+                      <TouchableOpacity
+                        style={styles.retakeButton}
+                        onPress={() => takePhoto(setInsurancePhoto)}
+                        disabled={loading}
+                      >
+                        <Text style={styles.retakeButtonText}>{t('authScreens.driverData.photos.retakePhoto')}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <TouchableOpacity
+                      style={styles.photoButton}
+                      onPress={() => takePhoto(setInsurancePhoto)}
+                      disabled={loading}
+                    >
+                      <Text style={styles.photoButtonText}>{t('authScreens.driverData.photos.takePhoto')}</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                <View style={styles.photoContainer}>
+                  <Text style={styles.photoTitle}>{t('authScreens.driverData.photos.registrationFrontTitle')}</Text>
+                  {registrationPhotoFront ? (
+                    <View style={styles.previewContainer}>
+                      <Image source={{ uri: registrationPhotoFront }} style={styles.photoPreview} />
+                      <TouchableOpacity
+                        style={styles.retakeButton}
+                        onPress={() => takePhoto(setRegistrationPhotoFront)}
+                        disabled={loading}
+                      >
+                        <Text style={styles.retakeButtonText}>{t('authScreens.driverData.photos.retakePhoto')}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <TouchableOpacity
+                      style={styles.photoButton}
+                      onPress={() => takePhoto(setRegistrationPhotoFront)}
+                      disabled={loading}
+                    >
+                      <Text style={styles.photoButtonText}>{t('authScreens.driverData.photos.takePhoto')}</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                <View style={styles.photoContainer}>
+                  <Text style={styles.photoTitle}>{t('authScreens.driverData.photos.registrationBackTitle')}</Text>
+                  {registrationPhotoBack ? (
+                    <View style={styles.previewContainer}>
+                      <Image source={{ uri: registrationPhotoBack }} style={styles.photoPreview} />
+                      <TouchableOpacity
+                        style={styles.retakeButton}
+                        onPress={() => takePhoto(setRegistrationPhotoBack)}
+                        disabled={loading}
+                      >
+                        <Text style={styles.retakeButtonText}>{t('authScreens.driverData.photos.retakePhoto')}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <TouchableOpacity
+                      style={styles.photoButton}
+                      onPress={() => takePhoto(setRegistrationPhotoBack)}
+                      disabled={loading}
+                    >
+                      <Text style={styles.photoButtonText}>{t('authScreens.driverData.photos.takePhoto')}</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
               </View>
             </View>
           )}
@@ -518,6 +1014,7 @@ const createStyles = (colors: any) => StyleSheet.create({
   },
   header: {
     marginBottom: 24,
+    marginTop: 40,
   },
   title: {
     fontSize: 28,
@@ -651,5 +1148,56 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontSize: 12,
     color: colors.textSecondary,
     textAlign: 'center',
+  },
+  photoSection: {
+    marginTop: 16,
+  },
+  photoContainer: {
+    marginBottom: 16,
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  photoTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 12,
+    color: colors.text,
+  },
+  photoButton: {
+    backgroundColor: colors.primary,
+    borderRadius: 8,
+    paddingVertical: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  photoButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  previewContainer: {
+    alignItems: 'center',
+  },
+  photoPreview: {
+    width: '100%',
+    height: 200,
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  retakeButton: {
+    backgroundColor: colors.card,
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  retakeButtonText: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

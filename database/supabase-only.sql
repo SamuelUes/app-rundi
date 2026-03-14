@@ -55,7 +55,7 @@ END;
 $$ language 'plpgsql';
 
 -- ============================================
--- STORAGE BUCKETS (drivers-documents, rides-documents)
+-- STORAGE BUCKETS (drivers-documents, rides-documents, support-chats)
 -- ============================================
 INSERT INTO storage.buckets (id, name, public)
 VALUES ('drivers-documents', 'drivers-documents', TRUE)
@@ -63,6 +63,14 @@ ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO storage.buckets (id, name, public)
 VALUES ('rides-documents', 'rides-documents', TRUE)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('support-chats', 'support-chats', TRUE)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('support-calls', 'support-calls', TRUE)
 ON CONFLICT (id) DO NOTHING;
 
 COMMENT ON TABLE storage.buckets IS 'Buckets utilizados por la aplicación móvil';
@@ -79,6 +87,15 @@ DROP POLICY IF EXISTS "rides_docs_read_own" ON storage.objects;
 DROP POLICY IF EXISTS "rides_docs_update_own" ON storage.objects;
 DROP POLICY IF EXISTS "rides_docs_delete_own" ON storage.objects;
 DROP POLICY IF EXISTS "rides_docs_insert_public_paths" ON storage.objects;
+
+DROP POLICY IF EXISTS "support_chats_insert_own" ON storage.objects;
+DROP POLICY IF EXISTS "support_chats_read_own" ON storage.objects;
+DROP POLICY IF EXISTS "support_chats_update_own" ON storage.objects;
+DROP POLICY IF EXISTS "support_chats_delete_own" ON storage.objects;
+DROP POLICY IF EXISTS "support_calls_read_public" ON storage.objects;
+DROP POLICY IF EXISTS "support_calls_insert_auth" ON storage.objects;
+DROP POLICY IF EXISTS "support_calls_update_auth" ON storage.objects;
+DROP POLICY IF EXISTS "support_calls_delete_auth" ON storage.objects;
 
 -- Políticas drivers-documents (rol anon porque los uploads usan anon key)
 CREATE POLICY "drivers_docs_insert_own"
@@ -153,6 +170,44 @@ USING (
   bucket_id = 'rides-documents'
   AND name LIKE '%' || public.current_firebase_uid() || '%'
 );
+
+--Politica de support_chats Lectura pública (URLs públicas)
+create policy "support_chats_read_public"
+on storage.objects for select
+using (bucket_id = 'support_chats');
+
+-- Escritura/actualización/borrado para usuarios autenticados
+create policy "support_chats_insert_auth"
+on storage.objects for insert
+with check (bucket_id = 'support_chats' and auth.role() = 'authenticated');
+ 
+create policy "support_chats_update_auth"
+on storage.objects for update
+using (bucket_id = 'support_chats' and auth.role() = 'authenticated');
+ 
+create policy "support_chats_delete_auth"
+on storage.objects for delete
+using (bucket_id = 'support_chats' and auth.role() = 'authenticated');
+
+CREATE POLICY "support_calls_read_public"
+ON storage.objects
+FOR SELECT
+USING (bucket_id = 'support-calls');
+
+CREATE POLICY "support_calls_insert_auth"
+ON storage.objects
+FOR INSERT
+WITH CHECK (bucket_id = 'support-calls' AND auth.role() = 'authenticated');
+
+CREATE POLICY "support_calls_update_auth"
+ON storage.objects
+FOR UPDATE
+USING (bucket_id = 'support-calls' AND auth.role() = 'authenticated');
+
+CREATE POLICY "support_calls_delete_auth"
+ON storage.objects
+FOR DELETE
+USING (bucket_id = 'support-calls' AND auth.role() = 'authenticated');
 
 -- Fallback para clientes móviles (anon key) limitado a prefijos permitidos
 CREATE POLICY "rides_docs_insert_public_paths"
@@ -1129,7 +1184,8 @@ CREATE TABLE IF NOT EXISTS public.sms_verification_codes (
   id UUID NOT NULL DEFAULT gen_random_uuid(),
   ride_id UUID NULL,
   user_id VARCHAR(255) NOT NULL,
-  phone_number VARCHAR(20) NOT NULL,
+  phone_number VARCHAR(20) NULL,
+  mail VARCHAR(255) NULL,
   code VARCHAR(6) NULL,
   code_hash VARCHAR(255) NOT NULL,
   context VARCHAR(50) NOT NULL,
@@ -1149,7 +1205,8 @@ ALTER TABLE public.payments
 
 COMMENT ON TABLE public.sms_verification_codes IS 'Códigos SMS para verificación de pagos y otras acciones';
 COMMENT ON COLUMN public.sms_verification_codes.user_id IS 'Firebase Auth UID del usuario';
-COMMENT ON COLUMN public.sms_verification_codes.phone_number IS 'Número de teléfono del usuario';
+COMMENT ON COLUMN public.sms_verification_codes.phone_number IS 'Número de teléfono del usuario (nullable para códigos por correo)';
+COMMENT ON COLUMN public.sms_verification_codes.mail IS 'Correo electrónico del usuario (nullable para códigos SMS)';
 COMMENT ON COLUMN public.sms_verification_codes.code_hash IS 'Hash SHA-256 del código (NUNCA almacenar en texto plano)';
 COMMENT ON COLUMN public.sms_verification_codes.context IS 'Contexto: payment_confirmation, ride_acceptance, etc';
 COMMENT ON COLUMN public.sms_verification_codes.verified IS 'Indica si el código fue verificado correctamente';
@@ -1158,6 +1215,7 @@ COMMENT ON COLUMN public.sms_verification_codes.expires_at IS 'Timestamp de expi
 
 CREATE INDEX IF NOT EXISTS idx_sms_user ON public.sms_verification_codes USING btree (user_id);
 CREATE INDEX IF NOT EXISTS idx_sms_ride ON public.sms_verification_codes USING btree (ride_id);
+CREATE INDEX IF NOT EXISTS idx_sms_mail ON public.sms_verification_codes USING btree (mail);
 CREATE INDEX IF NOT EXISTS idx_sms_context ON public.sms_verification_codes USING btree (context);
 CREATE INDEX IF NOT EXISTS idx_sms_verified ON public.sms_verification_codes USING btree (verified);
 CREATE INDEX IF NOT EXISTS idx_sms_expires ON public.sms_verification_codes USING btree (expires_at) WHERE verified = FALSE;
@@ -1206,6 +1264,61 @@ CREATE INDEX IF NOT EXISTS idx_cards_user ON public.cards USING btree (user_id);
 CREATE INDEX IF NOT EXISTS idx_cards_default ON public.cards USING btree (user_id, is_default) WHERE is_active = TRUE;
 CREATE INDEX IF NOT EXISTS idx_cards_active ON public.cards USING btree (user_id, is_active);
 CREATE INDEX IF NOT EXISTS idx_cards_created ON public.cards USING btree (created_at DESC);
+
+-- ============================================
+-- SUPPORT_CALL_SESSIONS TABLE (WebRTC/llamadas)
+-- ============================================
+CREATE TABLE IF NOT EXISTS public.support_call_sessions (
+  id UUID NOT NULL DEFAULT gen_random_uuid(),
+  call_id VARCHAR(64) NOT NULL,
+  complaint_id VARCHAR(255) NULL,
+  ride_id VARCHAR(255) NULL,
+  operator_uid VARCHAR(255) NOT NULL,
+  client_uid VARCHAR(255) NOT NULL,
+  direction VARCHAR(32) NOT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'initiated',
+  recording_url TEXT NULL,
+  signaling_notes JSONB NULL,
+  created_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
+  updated_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
+  connected_at TIMESTAMP WITHOUT TIME ZONE NULL,
+  ended_at TIMESTAMP WITHOUT TIME ZONE NULL,
+  CONSTRAINT support_call_sessions_pkey PRIMARY KEY (id),
+  CONSTRAINT support_call_sessions_call_id_key UNIQUE (call_id),
+  CONSTRAINT support_call_sessions_direction_check CHECK (direction IN ('operator_to_client','client_to_operator')),
+  CONSTRAINT support_call_sessions_status_check CHECK (status IN ('initiated','ringing_client','ringing_operator','accepted','rejected','missed','connected','ended'))
+) TABLESPACE pg_default;
+
+COMMENT ON TABLE public.support_call_sessions IS 'Sesiones de llamadas WebRTC entre operador y cliente asociadas a quejas';
+COMMENT ON COLUMN public.support_call_sessions.call_id IS 'Identificador lógico usado también en Realtime DB (calls/{callId})';
+COMMENT ON COLUMN public.support_call_sessions.complaint_id IS 'ID de la queja en cms_complaints';
+COMMENT ON COLUMN public.support_call_sessions.direction IS 'operator_to_client o client_to_operator';
+COMMENT ON COLUMN public.support_call_sessions.status IS 'Estado actual de la llamada';
+COMMENT ON COLUMN public.support_call_sessions.recording_url IS 'URL de grabación si se almacenó';
+
+CREATE INDEX IF NOT EXISTS idx_support_call_sessions_call_id ON public.support_call_sessions USING btree (call_id);
+CREATE INDEX IF NOT EXISTS idx_support_call_sessions_complaint ON public.support_call_sessions USING btree (complaint_id);
+CREATE INDEX IF NOT EXISTS idx_support_call_sessions_operator ON public.support_call_sessions USING btree (operator_uid);
+CREATE INDEX IF NOT EXISTS idx_support_call_sessions_client ON public.support_call_sessions USING btree (client_uid);
+
+CREATE TRIGGER update_support_call_sessions_updated_at BEFORE UPDATE ON public.support_call_sessions
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Campos de llamada en cms_complaints (enlazar ticket con sesión de llamada)
+ALTER TABLE public.cms_complaints
+  ADD COLUMN IF NOT EXISTS call_id VARCHAR(64),
+  ADD COLUMN IF NOT EXISTS call_status VARCHAR(32),
+  ADD COLUMN IF NOT EXISTS call_direction VARCHAR(32),
+  ADD COLUMN IF NOT EXISTS call_recording_url TEXT,
+  ADD COLUMN IF NOT EXISTS call_started_at TIMESTAMP WITHOUT TIME ZONE,
+  ADD COLUMN IF NOT EXISTS call_ended_at TIMESTAMP WITHOUT TIME ZONE;
+
+COMMENT ON COLUMN public.cms_complaints.call_id IS 'Referencia a support_call_sessions.call_id y RTDB calls/{callId}';
+COMMENT ON COLUMN public.cms_complaints.call_status IS 'Estado de la llamada WebRTC asociado a la queja';
+COMMENT ON COLUMN public.cms_complaints.call_direction IS 'operator_to_client o client_to_operator';
+COMMENT ON COLUMN public.cms_complaints.call_recording_url IS 'Grabación si existe';
+COMMENT ON COLUMN public.cms_complaints.call_started_at IS 'Marca de conexión';
+COMMENT ON COLUMN public.cms_complaints.call_ended_at IS 'Marca de término/rechazo';
 
 -- ============================================
 -- 16. SERVICE_COMMISSION_HISTORY TABLE
@@ -1640,11 +1753,15 @@ CREATE TABLE IF NOT EXISTS public.cms_complaints (
   description TEXT NULL,
   resolution_notes TEXT NULL,
   chat_log_url TEXT NULL,
+  show VARCHAR(32) NOT NULL DEFAULT 'All'::VARCHAR,
   resolved_at TIMESTAMP WITHOUT TIME ZONE NULL,
   created_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
   updated_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
   CONSTRAINT cms_complaints_pkey PRIMARY KEY (id)
 ) TABLESPACE pg_default;
+
+ALTER TABLE public.cms_complaints
+  ADD COLUMN IF NOT EXISTS show VARCHAR(32) NOT NULL DEFAULT 'All'::VARCHAR;
 
 COMMENT ON TABLE public.cms_complaints IS 'Quejas registradas desde el CMS (clientes, conductores, operadores)';
 COMMENT ON COLUMN public.cms_complaints.ride_id IS 'Referencia opcional al viaje relacionado (public.rides.id)';

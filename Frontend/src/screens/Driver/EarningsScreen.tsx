@@ -47,8 +47,8 @@ export default function EarningsScreen() {
   const [rides, setRides] = useState<RideEarning[]>([]);
   const [stats, setStats] = useState<DriverStats | null>(null);
   const [commissionBreakdown, setCommissionBreakdown] = useState<any>(null);
-  const COMMISSION_NORMAL_PERCENT = '11%';
-  const COMMISSION_DESIGNATED_PERCENT = '15%';
+  const COMMISSION_NORMAL_PERCENT = '15%';
+  const COMMISSION_DESIGNATED_PERCENT = '25%';
   const statPlaceholder = t('driver.earnings.stats.placeholder');
 
   useEffect(() => {

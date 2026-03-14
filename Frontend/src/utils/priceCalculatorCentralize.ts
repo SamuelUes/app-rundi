@@ -86,7 +86,7 @@ const DEFAULT_SERVICE_CONFIGS: Record<string, ServicePricingConfig> = {
     pricePerKm: 10,
     pricePerMinute: 0,
     minimumFare: 50,
-    commissionRate: 0.11,
+    commissionRate: 0.15,
   },
   motorcycle: {
     code: 'motorcycle',
@@ -99,7 +99,7 @@ const DEFAULT_SERVICE_CONFIGS: Record<string, ServicePricingConfig> = {
   designated_driver: {
     code: 'designated_driver',
     basePrice: 50,
-    pricePerKm: 13,
+    pricePerKm: 23,
     pricePerMinute: 0,
     minimumFare: 100,
     commissionRate: 0.25,
@@ -221,22 +221,22 @@ function getMultiplier(distanceKm: number, vehicleType: VehicleType, rideType: R
 
   if (rideType === 'designated_driver') {
     if (distanceKm >= 0.2 && distanceKm <= 0.4) {
-      multiplier = 13;
+      multiplier = 23;
       tramo = '0.2-0.4 km';
     } else if (distanceKm >= 0.401 && distanceKm <= 1) {
-      multiplier = 18;
+      multiplier = 28;
       tramo = '0.401-1 km';
     } else if (distanceKm >= 1.01 && distanceKm <= 2) {
-      multiplier = 24;
+      multiplier = 34;
       tramo = '1.01-2 km';
     } else if (distanceKm >= 2.01 && distanceKm <= 4) {
-      multiplier = 30;
+      multiplier = 40;
       tramo = '2.01-4 km';
     } else if (distanceKm >= 4.01) {
-      multiplier = 35;
+      multiplier = 45;
       tramo = 'Mayor a 4.01 km';
     } else {
-      multiplier = 13;
+      multiplier = 23;
       tramo = 'Menor a 0.2 km (mínimo)';
     }
   } else if (vehicleType === 'motorcycle') {

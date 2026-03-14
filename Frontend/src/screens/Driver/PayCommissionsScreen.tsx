@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Alert,
   ScrollView,
+  Image,
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
@@ -31,8 +32,9 @@ const EMPTY_SUMMARY: DriverPenaltySummary = {
 };
 
 export default function PayCommissionsScreen({ navigation }: any) {
-  const { colors } = useTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const { colors, isDark } = useTheme();
+  const accentColor = isDark ? '#D8A15F' : '#B77734';
+  const styles = useMemo(() => createStyles(colors, accentColor), [colors, accentColor]);
   const { user } = useAuth();
   const { t } = useTranslation();
   const headerTitle = t('driver.payComission.header.title');
@@ -212,7 +214,6 @@ export default function PayCommissionsScreen({ navigation }: any) {
       <View style={styles.methodsContainer}>
         <Text style={styles.methodsTitle}>{methodsTexts.title}</Text>
 
-        {/* Método principal: Tarjeta guardada */}
         <TouchableOpacity
           style={[
             styles.methodOption,
@@ -222,8 +223,15 @@ export default function PayCommissionsScreen({ navigation }: any) {
           activeOpacity={0.8}
         >
           <View style={styles.methodOptionHeader}>
-            <Text style={styles.methodOptionLabel}>{methodsTexts.cardTitle}</Text>
-            {selectedMethod === 'card' && <Text style={styles.methodOptionCheck}>✓</Text>}
+            <View style={styles.methodOptionHeaderLeft}>
+              <View style={styles.methodOptionIconBadge}>
+                <Text style={styles.methodOptionIcon}>C</Text>
+              </View>
+              <Text style={styles.methodOptionLabel}>{methodsTexts.cardTitle}</Text>
+            </View>
+            <View style={[styles.radioDot, selectedMethod === 'card' && styles.radioDotActive]}>
+              {selectedMethod === 'card' && <View style={styles.radioDotInner} />}
+            </View>
           </View>
           <Text style={styles.methodOptionDescription}>
             {methodsTexts.cardDescription}
@@ -267,7 +275,6 @@ export default function PayCommissionsScreen({ navigation }: any) {
           )}
         </TouchableOpacity>
 
-        {/* Método secundario: Transferencia bancaria */}
         <TouchableOpacity
           style={[
             styles.methodOption,
@@ -277,8 +284,15 @@ export default function PayCommissionsScreen({ navigation }: any) {
           activeOpacity={0.8}
         >
           <View style={styles.methodOptionHeader}>
-            <Text style={styles.methodOptionLabel}>{methodsTexts.bankTitle}</Text>
-            {selectedMethod === 'bank_transfer' && <Text style={styles.methodOptionCheck}>✓</Text>}
+            <View style={styles.methodOptionHeaderLeft}>
+              <View style={styles.methodOptionIconBadge}>
+                <Text style={styles.methodOptionIcon}>T</Text>
+              </View>
+              <Text style={styles.methodOptionLabel}>{methodsTexts.bankTitle}</Text>
+            </View>
+            <View style={[styles.radioDot, selectedMethod === 'bank_transfer' && styles.radioDotActive]}>
+              {selectedMethod === 'bank_transfer' && <View style={styles.radioDotInner} />}
+            </View>
           </View>
           <Text style={styles.methodOptionDescription}>
             {methodsTexts.bankDescription}
@@ -292,10 +306,14 @@ export default function PayCommissionsScreen({ navigation }: any) {
     <View style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-          <Text style={styles.backButtonText}>←</Text>
+          <Image
+            source={require('../../assets/icons/back_button/back_button.png')}
+            style={[styles.backIcon, { tintColor: colors.text }]}
+            resizeMode="contain"
+          />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{headerTitle}</Text>
-        <View style={styles.backButton} />
+        <View style={styles.headerSpacer} />
       </View>
 
       {loading ? (
@@ -304,7 +322,7 @@ export default function PayCommissionsScreen({ navigation }: any) {
           <Text style={styles.loadingText}>{loadingText}</Text>
         </View>
       ) : (
-        <ScrollView style={styles.content} contentContainerStyle={{ padding: 16 }}>
+        <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
           <View style={styles.summaryCard}>
             <Text style={styles.summaryTitle}>{summaryTexts.title}</Text>
 
@@ -393,56 +411,88 @@ export default function PayCommissionsScreen({ navigation }: any) {
   );
 }
 
-const createStyles = (colors: any) =>
+const createStyles = (colors: any, accentColor: string) =>
   StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     header: {
-      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-      paddingHorizontal: 16, paddingVertical: 14, backgroundColor: colors.surface,
-      borderBottomWidth: 1, borderBottomColor: colors.border,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 20,
+      paddingTop: 46,
+      paddingBottom: 8,
     },
-    backButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-    backButtonText: { fontSize: 24, color: colors.text },
-    headerTitle: { fontSize: 18, fontWeight: '700', color: colors.text },
+    backButton: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    backIcon: { width: 28, height: 28 },
+    headerTitle: {
+      flex: 1,
+      textAlign: 'center',
+      fontSize: 20,
+      fontWeight: '700',
+      color: colors.text,
+    },
+    headerSpacer: { width: 40 },
 
     centerBox: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
     loadingText: { marginTop: 8, color: colors.textSecondary },
 
     content: { flex: 1 },
+    contentContainer: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 32, gap: 16 },
 
     summaryCard: {
-      backgroundColor: colors.surface, borderRadius: 12, padding: 16, borderWidth: 1, borderColor: colors.border,
-      marginBottom: 16,
+      backgroundColor: colors.card,
+      borderRadius: 24,
+      borderWidth: 1,
+      borderColor: colors.border,
+      overflow: 'hidden',
     },
-    summaryTitle: { fontSize: 16, fontWeight: '700', color: colors.text, marginBottom: 8 },
+    summaryTitle: {
+      fontSize: 17,
+      fontWeight: '700',
+      color: colors.text,
+      paddingHorizontal: 20,
+      paddingTop: 20,
+      marginBottom: 10,
+    },
     summaryHighlight: {
-      marginTop: 8,
-      marginBottom: 12,
-      padding: 16,
-      borderRadius: 12,
-      backgroundColor: '#FFF5F5',
+      marginHorizontal: 20,
+      marginBottom: 14,
+      paddingHorizontal: 18,
+      paddingVertical: 16,
+      borderRadius: 18,
+      backgroundColor: 'rgba(183, 119, 52, 0.08)',
       alignItems: 'center',
       borderWidth: 1,
-      borderColor: '#FFCDD2',
+      borderColor: 'rgba(183, 119, 52, 0.28)',
     },
     summaryHighlightAmount: {
-      fontSize: 24,
+      fontSize: 32,
       fontWeight: '800',
-      color: '#D84315',
+      color: accentColor,
     },
     summaryHighlightLabel: {
       marginTop: 4,
       fontSize: 13,
-      color: '#BF360C',
+      color: colors.textSecondary,
     },
     summaryBreakdown: {
       gap: 12,
+      paddingHorizontal: 20,
     },
     summaryBreakdownItem: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'flex-start',
-      paddingVertical: 4,
+      paddingVertical: 10,
+      paddingHorizontal: 12,
+      borderRadius: 14,
+      backgroundColor: colors.surface,
     },
     summaryBreakdownText: {
       flex: 1,
@@ -465,7 +515,9 @@ const createStyles = (colors: any) =>
       color: colors.text,
     },
     summaryHint: {
-      marginTop: 16,
+      marginTop: 14,
+      marginHorizontal: 20,
+      marginBottom: 18,
       fontSize: 12,
       color: colors.textSecondary,
       textAlign: 'center',
@@ -473,42 +525,79 @@ const createStyles = (colors: any) =>
     },
 
     infoCard: {
-      backgroundColor: colors.surface, borderRadius: 12, padding: 16, borderWidth: 1, borderColor: colors.border,
-      marginBottom: 16,
+      backgroundColor: colors.card,
+      borderRadius: 24,
+      padding: 20,
+      borderWidth: 1,
+      borderColor: colors.border,
     },
-    infoTitle: { fontSize: 16, fontWeight: '700', color: colors.text, marginBottom: 6 },
+    infoTitle: { fontSize: 18, fontWeight: '700', color: colors.text, marginBottom: 10 },
     methodsContainer: { gap: 12 },
-    methodsTitle: { fontSize: 14, color: colors.textSecondary, marginBottom: 4 },
+    methodsTitle: { fontSize: 14, color: colors.textSecondary },
     methodOption: {
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: 10,
-      padding: 12,
-      backgroundColor: colors.background,
+      borderRadius: 16,
+      padding: 14,
+      backgroundColor: colors.surface,
     },
     methodOptionSelected: {
       borderColor: colors.primary,
-      backgroundColor: colors.background,
-    },
-    methodOptionDisabled: {
-      opacity: 0.45,
+      backgroundColor: colors.card,
     },
     methodOptionHeader: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
-      marginBottom: 6,
+      marginBottom: 8,
+    },
+    methodOptionHeaderLeft: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      flex: 1,
+      paddingRight: 10,
+    },
+    methodOptionIconBadge: {
+      width: 30,
+      height: 30,
+      borderRadius: 10,
+      backgroundColor: 'rgba(183, 119, 52, 0.15)',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    methodOptionIcon: {
+      fontSize: 12,
+      fontWeight: '800',
+      color: accentColor,
     },
     methodOptionLabel: { fontSize: 15, fontWeight: '600', color: colors.text },
-    methodOptionCheck: { fontSize: 18, color: colors.primary },
+    radioDot: {
+      width: 22,
+      height: 22,
+      borderRadius: 11,
+      borderWidth: 2,
+      borderColor: colors.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    radioDotActive: {
+      borderColor: colors.primary,
+    },
+    radioDotInner: {
+      width: 10,
+      height: 10,
+      borderRadius: 5,
+      backgroundColor: colors.primary,
+    },
     methodOptionDescription: { fontSize: 13, color: colors.textSecondary, lineHeight: 18 },
     cardsList: { marginTop: 8, gap: 8 },
     cardItem: {
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: 8,
+      borderRadius: 12,
       padding: 10,
-      backgroundColor: colors.surface,
+      backgroundColor: colors.background,
     },
     cardItemSelected: {
       borderColor: colors.primary,
@@ -516,20 +605,40 @@ const createStyles = (colors: any) =>
     cardItemLabel: { fontSize: 13, color: colors.text, fontWeight: '500' },
 
     inputCard: {
-      backgroundColor: colors.surface, borderRadius: 12, padding: 16, borderWidth: 1, borderColor: colors.border,
-      marginBottom: 24,
+      backgroundColor: colors.card,
+      borderRadius: 20,
+      padding: 16,
+      borderWidth: 1,
+      borderColor: colors.border,
     },
-    inputLabel: { fontSize: 13, color: colors.textSecondary, marginBottom: 8 },
+    inputLabel: { fontSize: 13, color: colors.textSecondary, marginBottom: 10 },
     input: {
-      backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: 8,
-      paddingHorizontal: 12, paddingVertical: 10, color: colors.text,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      color: colors.text,
+      fontSize: 14,
+      fontWeight: '500',
     },
 
     payButton: {
-      backgroundColor: '#2E7D32', paddingVertical: 14, alignItems: 'center', borderRadius: 12,
+      backgroundColor: '#2E7D32',
+      paddingVertical: 16,
+      alignItems: 'center',
+      borderRadius: 999,
+      shadowColor: '#2E7D32',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.2,
+      shadowRadius: 8,
+      elevation: 4,
     },
     payButtonDisabled: {
       backgroundColor: '#9E9E9E',
+      shadowOpacity: 0,
+      elevation: 0,
     },
-    payButtonText: { fontSize: 15, color: '#fff', fontWeight: '800' },
+    payButtonText: { fontSize: 15, color: '#fff', fontWeight: '800', letterSpacing: 0.2 },
   });

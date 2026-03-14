@@ -1,6 +1,6 @@
 import * as functions from "firebase-functions";
 import { database } from "../config/firebase";
-import { supabasePost, supabaseGet, supabaseUpdate, supabaseUploadJsonToStorage, supabaseDelete } from "../supabase/client";
+import { supabasePost, supabaseGet, supabaseUpdate, supabaseUploadJsonToStorage } from "../supabase/client";
 import { sendNotificationToUser } from "../services/pushNotifications";
 
 /**
@@ -198,7 +198,7 @@ const archiveComplaintChat = async (complaintId: string): Promise<string | null>
  */
 export const createSupportComplaint = functions.https.onCall(async (data, context) => {
   if (!context.auth?.uid) {
-    throw new functions.https.HttpsError("unauthenticated", "Autenticación requerida");
+    throw new functions.https.HttpsError("unauthenticated", "Autenticacion requerida");
   }
 
   const userId = context.auth.uid;
@@ -324,6 +324,165 @@ export const createSupportComplaint = functions.https.onCall(async (data, contex
   }
 });
 
+
+/**
+ * Cloud Function: requestSupportCall
+ * Registra una solicitud de llamada de soporte vinculada a un complaintId.
+ */
+export const requestSupportCall = functions.https.onCall(async (data, context) => {
+  if (!context.auth?.uid) {
+    throw new functions.https.HttpsError("unauthenticated", "Autenticacion requerida");
+  }
+
+  const uid = context.auth.uid;
+  const complaintId = typeof data?.complaintId === "string" ? data.complaintId.trim() : "";
+
+  if (!complaintId) {
+    throw new functions.https.HttpsError("invalid-argument", "Se requiere complaintId.");
+  }
+
+  try {
+    const rows = await supabaseGet(
+      "cms_complaints",
+      { id: complaintId },
+      "id,title,ride_id,status,created_by_user_id,client_id,driver_id,assigned_to_user_id",
+      { limit: 1, requireServiceRole: true },
+    );
+
+    if (!Array.isArray(rows) || rows.length === 0) {
+      throw new functions.https.HttpsError("not-found", "No se encontro el caso de soporte.");
+    }
+
+    const complaint = rows[0] || {};
+    const participants = [
+      complaint.created_by_user_id,
+      complaint.client_id,
+      complaint.driver_id,
+    ]
+      .filter(Boolean)
+      .map((id: any) => String(id));
+
+    if (!participants.includes(uid)) {
+      throw new functions.https.HttpsError(
+        "permission-denied",
+        "No tienes permisos para solicitar llamada en este caso.",
+      );
+    }
+
+    const status = String(complaint.status || "").toLowerCase();
+    if (status === "resolved" || status === "rejected") {
+      throw new functions.https.HttpsError(
+        "failed-precondition",
+        "No se puede solicitar llamada para un caso cerrado.",
+      );
+    }
+
+    const requestRef = database.ref(`support_call_requests/${complaintId}`).push();
+    const requestId = requestRef.key;
+    const now = Date.now();
+
+    await requestRef.set({
+      id: requestId,
+      complaintId,
+      rideId: complaint.ride_id ?? null,
+      requestedByUserId: uid,
+      assignedToUserId: complaint.assigned_to_user_id ?? null,
+      status: "pending",
+      source: "support_chat_client",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    if (complaint.assigned_to_user_id) {
+      await sendNotificationToUser(String(complaint.assigned_to_user_id), {
+        title: "Solicitud de llamada de soporte",
+        body: `El usuario solicito una llamada en el caso ${complaintId}.`,
+        data: {
+          type: "support_call_request",
+          complaintId,
+          requestId: requestId || undefined,
+          requestedByUserId: uid,
+        },
+        androidChannelId: "rundi_default",
+        notificationKey: `support-call-request-${complaintId}`,
+        expiresInMs: 30 * 60 * 1000,
+      });
+    }
+
+    return {
+      success: true,
+      complaintId,
+      requestId: requestId || null,
+      status: "pending",
+    };
+  } catch (error: any) {
+    if (error instanceof functions.https.HttpsError) {
+      throw error;
+    }
+
+    functions.logger.error(" Error registrando solicitud de llamada de soporte", {
+      complaintId,
+      uid,
+      error: error?.message,
+      stack: error?.stack,
+    });
+
+    throw new functions.https.HttpsError(
+      "internal",
+      "No se pudo solicitar la llamada de soporte. Intenta nuevamente mas tarde.",
+    );
+  }
+});
+/**
+ * HTTP endpoint (sin auth) para soft-delete de tickets.
+ * Actualiza show='only_platform' en Supabase.
+ */
+export const deleteSupportTicketHttp = functions.https.onRequest(async (req, res) => {
+  res.set('Access-Control-Allow-Origin', '*');
+  res.set('Access-Control-Allow-Methods', 'POST,OPTIONS');
+  res.set('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    res.status(204).send('');
+    return;
+  }
+
+  if (req.method !== 'POST') {
+    res.status(405).json({ error: 'method-not-allowed', message: 'Solo se permite POST' });
+    return;
+  }
+
+  const ticketIdRaw = (req.body?.ticketId ?? req.body?.data?.ticketId) as string | undefined;
+  const ticketId = typeof ticketIdRaw === 'string' ? ticketIdRaw.trim() : '';
+
+  functions.logger.info('[deleteSupportTicketHttp] Incoming HTTP request', {
+    ticketIdProvided: Boolean(ticketId),
+    origin: req.headers?.origin ?? null,
+    userAgent: req.headers?.['user-agent'] ?? null,
+  });
+
+  if (!ticketId) {
+    res.status(400).json({ error: 'invalid-argument', message: 'Se requiere un ticketId válido.' });
+    return;
+  }
+
+  try {
+    await supabaseUpdate('cms_complaints', ticketId, { show: 'only_platform' });
+    res.status(200).json({ success: true, archivedChatUrl: null });
+  } catch (error: any) {
+    functions.logger.error('❌ Error eliminando ticket de soporte (HTTP)', {
+      ticketId,
+      error: error?.message,
+      stack: error?.stack,
+    });
+
+    res.status(500).json({
+      error: 'internal',
+      message: 'No se pudo eliminar el ticket de soporte. Intenta nuevamente más tarde.',
+    });
+  }
+});
+
 /**
  * Cloud Function: getSupportTickets
  * Obtiene quejas de cms_complaints en formato de "tickets".
@@ -337,7 +496,7 @@ export const createSupportComplaint = functions.https.onCall(async (data, contex
  */
 export const getSupportTickets = functions.https.onCall(async (data, context) => {
   if (!context.auth?.uid) {
-    throw new functions.https.HttpsError("unauthenticated", "Autenticación requerida");
+    throw new functions.https.HttpsError("unauthenticated", "Autenticacion requerida");
   }
 
   const uid = context.auth.uid;
@@ -364,6 +523,8 @@ export const getSupportTickets = functions.https.onCall(async (data, context) =>
   // Si no es admin/operator, limitar siempre a tickets creados por el usuario
   if (effectiveScope === "mine") {
     filters.created_by_user_id = uid;
+    // Ocultar tickets "borrados" desde la app.
+    filters.show = "All";
   }
 
   const rawStatus = typeof data?.status === "string" ? data.status.trim() : "";
@@ -456,7 +617,7 @@ export const getSupportTickets = functions.https.onCall(async (data, context) =>
  */
 export const updateSupportTicket = functions.https.onCall(async (data, context) => {
   if (!context.auth?.uid) {
-    throw new functions.https.HttpsError("unauthenticated", "Autenticación requerida");
+    throw new functions.https.HttpsError("unauthenticated", "Autenticacion requerida");
   }
 
   const uid = context.auth.uid;
@@ -558,100 +719,40 @@ export const updateSupportTicket = functions.https.onCall(async (data, context) 
 });
 
 /**
- * Cloud Function: deleteSupportTicket
- * Permite al creador del ticket (o roles admin/operator/support) eliminar la queja.
- * Antes de eliminarla se archiva el chat en Supabase Storage y se limpia RTDB.
+ * Cloud Function: deleteSupportTicket (callable)
+ * Soft-delete en Supabase (show='only_platform'). No RTDB, no archivo de chat, sin checks de auth.
  */
 export const deleteSupportTicket = functions.https.onCall(async (data, context) => {
-  const authHeader =
-    (context?.rawRequest?.headers?.authorization as string | undefined) ||
-    (context?.rawRequest as any)?.get?.('authorization');
-  const appCheckHeader =
-    (context?.rawRequest?.headers?.['x-firebase-appcheck'] as string | undefined) ||
-    (context?.rawRequest as any)?.get?.('x-firebase-appcheck');
+  const ticketIdRaw = typeof data?.ticketId === 'string' ? data.ticketId : undefined;
+  const ticketId = typeof ticketIdRaw === 'string' ? ticketIdRaw.trim() : '';
 
-  functions.logger.info('[deleteSupportTicket] Incoming request', {
+  functions.logger.info('[deleteSupportTicket] Incoming callable', {
+    ticketIdProvided: Boolean(ticketId),
     hasAuthContext: Boolean(context.auth),
     authUid: context.auth?.uid ?? null,
-    hasAuthToken: Boolean(context.auth?.token),
-    hasAuthorizationHeader: Boolean(authHeader),
-    hasAppCheckHeader: Boolean(appCheckHeader),
-    appId: context.app?.appId ?? null,
-    origin: context.rawRequest?.headers?.origin ?? null,
-    userAgent: context.rawRequest?.headers?.['user-agent'] ?? null,
   });
 
-  if (!context.auth?.uid) {
-    throw new functions.https.HttpsError("unauthenticated", "Autenticación requerida");
-  }
-
-  const uid = context.auth.uid;
-  const token: any = context.auth.token || {};
-  const tokenRole = typeof token.role === "string" ? String(token.role).toLowerCase() : undefined;
-  const isAdminLike =
-    token?.admin === true ||
-    tokenRole === "admin" ||
-    tokenRole === "operator" ||
-    tokenRole === "support";
-
-  const ticketId = typeof data?.ticketId === "string" ? data.ticketId.trim() : "";
   if (!ticketId) {
-    throw new functions.https.HttpsError("invalid-argument", "Se requiere un ticketId válido.");
+    throw new functions.https.HttpsError('invalid-argument', 'Se requiere un ticketId válido.');
   }
 
   try {
-    const rows = await supabaseGet(
-      "cms_complaints",
-      { id: ticketId },
-      "id,created_by_user_id,chat_log_url",
-      { limit: 1, requireServiceRole: true },
-    );
-
-    if (!Array.isArray(rows) || rows.length === 0) {
-      throw new functions.https.HttpsError("not-found", "El ticket solicitado no existe.");
-    }
-
-    const ticketRow = rows[0];
-    const isOwner = ticketRow.created_by_user_id === uid;
-    if (!isOwner && !isAdminLike) {
-      throw new functions.https.HttpsError(
-        "permission-denied",
-        "No tienes permisos para eliminar este ticket de soporte.",
-      );
-    }
-
-    const archivedChatUrl = (await archiveComplaintChat(ticketId)) ?? ticketRow.chat_log_url ?? null;
-
-    try {
-      await database.ref(`chats/${ticketId}`).remove();
-    } catch (rtError: any) {
-      functions.logger.warn("⚠️ No se pudo eliminar el chat de RTDB al borrar ticket", {
-        ticketId,
-        error: rtError?.message,
-      });
-    }
-
-    await supabaseDelete("cms_complaints", ticketId);
+    await supabaseUpdate('cms_complaints', ticketId, { show: 'only_platform' });
 
     return {
       success: true,
-      archivedChatUrl,
+      archivedChatUrl: null,
     };
   } catch (error: any) {
-    functions.logger.error("❌ Error eliminando ticket de soporte", {
+    functions.logger.error('❌ Error eliminando ticket de soporte (callable)', {
       ticketId,
-      uid,
       error: error?.message,
       stack: error?.stack,
     });
 
-    if (error instanceof functions.https.HttpsError) {
-      throw error;
-    }
-
     throw new functions.https.HttpsError(
-      "internal",
-      "No se pudo eliminar el ticket de soporte. Intenta nuevamente más tarde.",
+      'internal',
+      'No se pudo eliminar el ticket de soporte. Intenta nuevamente más tarde.',
     );
   }
 });

@@ -26,8 +26,6 @@ import MapView from 'react-native-maps';
 import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
-import { httpsCallable } from 'firebase/functions';
-import { getFirebaseFunctions } from '../../config/firebase';
 import { haversineKm } from '../../utils/distance';
 
 // Importar servicios optimizados
@@ -119,7 +117,6 @@ export default function HomeScreen({ navigation }: any) {
   const [initializing, setInitializing] = useState(true);
   const pendingInitialTasks = useRef(new Set<string>([
     'location',
-    'pendingPayments',
     'clientLocation',
     'driversInfo',
     'driverLocations',
@@ -142,8 +139,13 @@ export default function HomeScreen({ navigation }: any) {
 
   const [activeRide, setActiveRide] = useState<any>(null);
   const [pendingPayments, setPendingPayments] = useState<any[]>([]);
-  const [hasPendingPayments, setHasPendingPayments] = useState(false);
-  const [totalDebt, setTotalDebt] = useState(0);
+  const initialPreflightPendingPayments = preflightSummary?.preflightData?.pendingPayments;
+  const [hasPendingPayments, setHasPendingPayments] = useState(
+    () => Number(initialPreflightPendingPayments?.count ?? 0) > 0,
+  );
+  const [totalDebt, setTotalDebt] = useState(
+    () => Number(initialPreflightPendingPayments?.amount ?? 0),
+  );
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
 
   const [preflightActions, setPreflightActions] = useState<PreflightAction[]>(() => preflightSummary?.actions ?? []);
@@ -166,43 +168,6 @@ export default function HomeScreen({ navigation }: any) {
 
   const [serviceAreaId, setServiceAreaId] = useState<string | null>(initialRegion?.serviceAreaId ?? null);
   const hasShownUnsupportedAlertRef = useRef(false);
-
-  // Verificar pagos pendientes al cargar
-  useEffect(() => {
-    const checkPendingPayments = async () => {
-      if (!user?.id) {
-        setPendingPayments([]);
-        setHasPendingPayments(false);
-        setTotalDebt(0);
-        return;
-      }
-
-      try {
-        console.log('💰 [HomeScreen] Verificando pagos pendientes...');
-        const functions = await getFirebaseFunctions();
-        const getPendingPaymentsFn = httpsCallable(functions, 'getPendingPayments');
-
-        const result = await getPendingPaymentsFn();
-        const data = result.data as any;
-
-        console.log('💰 [HomeScreen] Resultado:', data);
-
-        if (data.success) {
-          setPendingPayments(data.payments || []);
-          setHasPendingPayments(data.hasPendingPayments);
-          setTotalDebt(data.totalDebt || 0);
-
-          if (data.hasPendingPayments) {
-            console.log(`⚠️ [HomeScreen] Cliente tiene ${data.count} pagos pendientes, Total: C$${data.totalDebt}`);
-          }
-        }
-      } catch (error) {
-        console.error('❌ Error verificando pagos pendientes:', error);
-      }
-    };
-
-    checkPendingPayments().finally(() => markTaskCompleted('pendingPayments'));
-  }, [user?.id, markTaskCompleted]);
 
   // Listener dedicado para deudas históricas del cliente
   useEffect(() => {
@@ -1560,13 +1525,17 @@ export default function HomeScreen({ navigation }: any) {
     }
 
     // Prioridad 2: Pagos pendientes detectados localmente / backend
-    if (hasPendingPayments && pendingPayments.length > 0) {
+    if (hasPendingPayments) {
+      const pendingCount =
+        pendingPayments.length > 0
+          ? pendingPayments.length
+          : Number(initialPreflightPendingPayments?.count ?? 1);
       setPendingAction({
         type: 'pending_payment',
         title:
-          pendingPayments.length === 1
+          pendingCount === 1
             ? t('client.home.pendingAction.paymentSingle')
-            : t('client.home.pendingAction.paymentMultiple', { count: pendingPayments.length }),
+            : t('client.home.pendingAction.paymentMultiple', { count: pendingCount }),
         onPress: handleViewPendingPayments,
       });
       return;
@@ -1595,7 +1564,7 @@ export default function HomeScreen({ navigation }: any) {
     }
 
     setPendingAction(null);
-  }, [hasPendingPayments, pendingPayments, activeRide, preflightActions, getActiveRideLabel, handleViewActiveRide, handleViewPendingPayments, navigation]);
+  }, [hasPendingPayments, pendingPayments, activeRide, preflightActions, getActiveRideLabel, handleViewActiveRide, handleViewPendingPayments, navigation, initialPreflightPendingPayments?.count, t]);
 
   const storedCoords = clientLocationData?.coords || null;
   const effectiveCoords = useMemo(() => {

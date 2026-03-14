@@ -2,6 +2,12 @@ import { useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { getDatabase, ref, onValue } from 'firebase/database';
 
+const isActiveDriverRide = (rideData: any, userId: string): boolean => {
+  const status = String(rideData?.status ?? '').trim().toLowerCase();
+  const driverId = String(rideData?.driverId ?? rideData?.driver_id ?? '').trim();
+  return ['accepted', 'driver_on_route', 'driver_arrived', 'in_progress'].includes(status) && driverId === userId;
+};
+
 /**
  * useAcceptedRideListener
  * Monitorea cambios en un ride específico o en todos los rides del conductor.
@@ -41,10 +47,7 @@ export function useAcceptedRideListener(navigation: any, rideId?: string) {
 
             // Si es un ride específico
             if (rideId) {
-              if (
-                (data.status === 'accepted' || data.status === 'driver_on_route' || data.status === 'driver_arrived' || data.status === 'in_progress') &&
-                data.driverId === user.id
-              ) {
+              if (isActiveDriverRide(data, user.id)) {
                 navigationTriggeredRef.current = true;
                 console.log('[useAcceptedRideListener] ✅ Ride aceptado, navegando a ActiveRide:', rideId);
                 navigation.replace('ActiveRide', {
@@ -60,8 +63,7 @@ export function useAcceptedRideListener(navigation: any, rideId?: string) {
               Object.entries<any>(data).forEach(([id, rideData]) => {
                 if (
                   !navigationTriggeredRef.current &&
-                  (rideData.status === 'accepted' || rideData.status === 'driver_on_route' || rideData.status === 'driver_arrived' || rideData.status === 'in_progress') &&
-                  rideData.driverId === user.id
+                  isActiveDriverRide(rideData, user.id)
                 ) {
                   navigationTriggeredRef.current = true;
                   console.log('[useAcceptedRideListener] ✅ Ride aceptado, navegando a ActiveRide:', id);

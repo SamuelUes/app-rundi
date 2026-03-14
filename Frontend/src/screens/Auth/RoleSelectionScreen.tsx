@@ -49,6 +49,7 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ navigation, r
     authProvider,
     googleIdToken,
     phoneVerified,
+    emailVerified,
   } = route.params;
 
   const [loadingRole, setLoadingRole] = useState<'client' | 'driver' | null>(null);
@@ -70,10 +71,44 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ navigation, r
 
       const normalizedEmail = normalizeEmail() || undefined;
       const normalizedPhone = normalizePhone() || undefined;
+      try {
+        await registrationService.saveTemporaryData({
+          name,
+          email: normalizedEmail,
+          phone: normalizedPhone,
+          password,
+          method: method as RegistrationMethod,
+          authProvider: authProvider as RegistrationAuthProvider,
+          googleIdToken,
+          role: 'client',
+          phoneVerified: Boolean(phoneVerified && normalizedPhone),
+          emailVerified: Boolean(emailVerified && normalizedEmail),
+          lastStep: 'roleSelection',
+        });
+      } catch (persistError) {
+        console.warn('⚠️ No se pudo guardar rol cliente en checkpoint:', persistError);
+      }
 
       if (authProvider === 'email/password') {
         if (!normalizedEmail || !password) {
           throw new Error('MISSING_EMAIL_PASSWORD');
+        }
+
+        if (!emailVerified) {
+          navigation.navigate('EmailVerification', {
+            name,
+            email: normalizedEmail,
+            phone: normalizedPhone,
+            password,
+            method,
+            authProvider,
+            googleIdToken,
+            role: 'client',
+            phoneVerified: Boolean(phoneVerified),
+            emailVerified: Boolean(emailVerified),
+            context: 'register_email',
+          });
+          return;
         }
 
         const result = await registrationService.createUser({
@@ -85,6 +120,7 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ navigation, r
           method: method as RegistrationMethod,
           authProvider: 'email/password',
           phoneVerified: Boolean(phoneVerified && normalizedPhone),
+          emailVerified: true,
         });
 
         if (result.token) {
@@ -101,9 +137,27 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ navigation, r
       }
 
       const requiresVerifiedPhone = authProvider === 'phone';
+      const requiresVerifiedEmail = authProvider === 'google' && Boolean(normalizedEmail);
 
       if (requiresVerifiedPhone && !normalizedPhone) {
         throw new Error('MISSING_VERIFIED_PHONE');
+      }
+
+      if (requiresVerifiedEmail && !emailVerified && normalizedEmail) {
+        navigation.navigate('EmailVerification', {
+          name,
+          email: normalizedEmail,
+          phone: normalizedPhone,
+          password,
+          method,
+          authProvider,
+          googleIdToken,
+          role: 'client',
+          phoneVerified: Boolean(phoneVerified),
+          emailVerified: Boolean(emailVerified),
+          context: authProvider === 'google' ? 'register_google' : 'register_email',
+        });
+        return;
       }
 
       const result = await registrationService.createUser({
@@ -114,6 +168,7 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ navigation, r
         method,
         authProvider: authProvider as RegistrationAuthProvider,
         phoneVerified: requiresVerifiedPhone ? true : Boolean(phoneVerified && normalizedPhone),
+        emailVerified: requiresVerifiedEmail ? Boolean(emailVerified) : undefined,
         googleIdToken,
       });
 
@@ -168,8 +223,42 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ navigation, r
 
       const normalizedEmail = normalizeEmail() || undefined;
       const normalizedPhone = normalizePhone() || undefined;
+      try {
+        await registrationService.saveTemporaryData({
+          name,
+          email: normalizedEmail,
+          phone: normalizedPhone,
+          password,
+          method: method as RegistrationMethod,
+          authProvider: authProvider as RegistrationAuthProvider,
+          googleIdToken,
+          role: 'driver',
+          phoneVerified: Boolean(phoneVerified && normalizedPhone),
+          emailVerified: Boolean(emailVerified && normalizedEmail),
+          lastStep: 'roleSelection',
+        });
+      } catch (persistError) {
+        console.warn('⚠️ No se pudo guardar rol conductor en checkpoint:', persistError);
+      }
 
-      if (!normalizedPhone) {
+      if ((authProvider === 'email/password' || authProvider === 'google') && normalizedEmail && !emailVerified) {
+        navigation.navigate('EmailVerification', {
+          name,
+          email: normalizedEmail,
+          phone: normalizedPhone,
+          password,
+          method,
+          authProvider,
+          googleIdToken,
+          role: 'driver',
+          phoneVerified: Boolean(phoneVerified),
+          emailVerified: Boolean(emailVerified),
+          context: authProvider === 'google' ? 'register_google' : 'register_email',
+        });
+        return;
+      }
+
+      if (!normalizedPhone && authProvider === 'phone') {
         navigation.navigate('DriverPhone', {
           name,
           email: normalizedEmail,
@@ -178,12 +267,13 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ navigation, r
           method: method as RegistrationMethod,
           authProvider: authProvider as RegistrationAuthProvider,
           googleIdToken,
+          emailVerified: Boolean(emailVerified),
         });
 
         return;
       }
 
-      if (!phoneVerified) {
+      if (!phoneVerified && normalizedPhone && !emailVerified) {
         try {
           await phoneAuthService.sendVerificationCode(normalizedPhone);
         } catch (error: any) {
@@ -205,6 +295,7 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ navigation, r
           googleIdToken,
           role: 'driver',
           phoneVerified: false,
+          emailVerified: Boolean(emailVerified),
         });
 
         return;
@@ -213,13 +304,14 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ navigation, r
       navigation.navigate('DriverData', {
         name,
         email: normalizedEmail,
-        phone: normalizedPhone,
+        phone: normalizedPhone || '',
         password,
         role: 'driver',
         method,
         authProvider,
         googleIdToken,
-        phoneVerified: true,
+        phoneVerified: Boolean(phoneVerified),
+        emailVerified: Boolean(emailVerified),
       });
     } catch (error: any) {
       console.error('Error al preparar datos de conductor:', error);
@@ -333,6 +425,7 @@ const createStyles = (colors: any) =>
       fontSize: 28,
       fontWeight: '700',
       color: colors.text,
+      marginTop: 40,
     },
     subtitle: {
       fontSize: 14,
@@ -377,7 +470,7 @@ const createStyles = (colors: any) =>
       backgroundColor: colors.primary,
     },
     driverButton: {
-      backgroundColor: colors.success,
+      backgroundColor: '#6e44ff',
     },
     optionText: {
       color: '#FFFFFF',

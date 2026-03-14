@@ -26,14 +26,14 @@ const DEFAULT_MANAGUA_POLYGON: ServiceAreaPoint[] = [
   { lat: 12.2, lng: -86.35 }, // Cierre
 ];
 
-interface CheckRegionRequest {
+export interface CheckRegionRequest {
   latitude: number;
   longitude: number;
   platform?: string;
   appVersion?: string;
 }
 
-interface CheckRegionResponse {
+export interface CheckRegionResponse {
   allowed: boolean;
   serviceAreaId: string | null;
   areaName?: string;
@@ -268,7 +268,7 @@ function isInDefaultManagua(lat: number, lng: number): boolean {
   return isPointInBounds(lat, lng, MANAGUA_BOUNDS);
 }
 
-async function handleCheckRegionAvailability(data: CheckRegionRequest): Promise<CheckRegionResponse> {
+export async function handleCheckRegionAvailability(data: CheckRegionRequest): Promise<CheckRegionResponse> {
   const { latitude, longitude } = data || ({} as any);
 
   if (!isValidCoordinate(latitude) || !isValidCoordinate(longitude)) {

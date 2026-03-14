@@ -74,6 +74,7 @@ export default function PhoneVerificationScreen({ navigation, route }: Props) {
     authProvider,
     googleIdToken,
     role,
+    emailVerified,
     context,
   } = route.params;
 
@@ -141,6 +142,7 @@ export default function PhoneVerificationScreen({ navigation, route }: Props) {
           authProvider,
           googleIdToken,
           phoneVerified: true,
+          emailVerified: Boolean(emailVerified),
           context: driverScreensContext,
         });
       } else {
@@ -153,6 +155,7 @@ export default function PhoneVerificationScreen({ navigation, route }: Props) {
           authProvider,
           googleIdToken,
           phoneVerified: true,
+          emailVerified: Boolean(emailVerified),
         });
       }
     } catch (error: any) {

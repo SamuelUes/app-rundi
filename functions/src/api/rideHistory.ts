@@ -756,6 +756,25 @@ export const getDriverStats = functions.https.onCall(async (data, context) => {
     const filteredCanceledRides = filterRidesByDateRange(canceledRides, dateRange);
     const filteredAllRides = filterRidesByDateRange(rides, dateRange);
 
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime();
+    const startOfWeek = now.getTime() - (7 * 24 * 60 * 60 * 1000);
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+
+    const completedToday = completedRides.filter((r: any) => {
+      const time = r.completedAt ? new Date(r.completedAt).getTime() : null;
+      return time !== null && time >= startOfToday && time < endOfToday;
+    });
+    const completedWeek = completedRides.filter((r: any) => {
+      const time = r.completedAt ? new Date(r.completedAt).getTime() : null;
+      return time !== null && time >= startOfWeek;
+    });
+    const completedMonth = completedRides.filter((r: any) => {
+      const time = r.completedAt ? new Date(r.completedAt).getTime() : null;
+      return time !== null && time >= startOfMonth;
+    });
+
     // Calcular estadísticas desde payments y rides
     const totals = filteredCompletedRides.reduce((acc: { gross: number; commission: number }, ride: any) => {
       const fare = ride.primaryPayment?.amount ?? ride.finalFare ?? ride.estimatedPrice ?? 0;
@@ -767,6 +786,26 @@ export const getDriverStats = functions.https.onCall(async (data, context) => {
     }, { gross: 0, commission: 0 });
 
     const totalNet = totals.gross - totals.commission;
+    const averageEarning = filteredCompletedRides.length > 0
+      ? Math.round((totalNet / filteredCompletedRides.length) * 100) / 100
+      : 0;
+
+    const getNetTotals = (ridesForWindow: any[]) => {
+      const gross = ridesForWindow.reduce((sum: number, ride: any) => {
+        return sum + (ride.primaryPayment?.amount ?? ride.finalFare ?? ride.estimatedPrice ?? 0);
+      }, 0);
+      const commission = ridesForWindow.reduce((sum: number, ride: any) => {
+        return sum + (ride.primaryPayment?.commission ?? ride.commission ?? 0);
+      }, 0);
+      return {
+        gross: Math.round(gross * 100) / 100,
+        net: Math.round((gross - commission) * 100) / 100,
+      };
+    };
+
+    const todayTotals = getNetTotals(completedToday);
+    const weekTotals = getNetTotals(completedWeek);
+    const monthTotals = getNetTotals(completedMonth);
 
     // Usar distancia y duración real si existe, sino la estimada
     const totalDistance = filteredCompletedRides.reduce((sum: number, r: any) => sum + (r.distance || 0), 0);
@@ -781,9 +820,18 @@ export const getDriverStats = functions.https.onCall(async (data, context) => {
         totalEarnings: Math.round(totals.gross * 100) / 100,
         totalCommission: Math.round(totals.commission * 100) / 100,
         totalNetEarnings: Math.round(totalNet * 100) / 100,
-        averageEarning: filteredCompletedRides.length > 0 ? Math.round((totalNet / filteredCompletedRides.length) * 100) / 100 : 0,
+        averageEarning,
+        averageFare: averageEarning,
         totalDistance: Math.round(totalDistance * 100) / 100,
         totalDuration,
+        ridesToday: completedToday.length,
+        earningsToday: todayTotals.gross,
+        ridesWeek: completedWeek.length,
+        earningsWeek: weekTotals.gross,
+        netEarningsWeek: weekTotals.net,
+        ridesMonth: completedMonth.length,
+        earningsMonth: monthTotals.gross,
+        netEarningsMonth: monthTotals.net,
         averageRideDistance: filteredCompletedRides.length > 0 ? Math.round((totalDistance / filteredCompletedRides.length) * 100) / 100 : 0,
         averageRideDuration: filteredCompletedRides.length > 0 ? Math.round(totalDuration / filteredCompletedRides.length) : 0,
       },
