@@ -1185,10 +1185,11 @@ CREATE TABLE IF NOT EXISTS public.sms_verification_codes (
   ride_id UUID NULL,
   user_id VARCHAR(255) NOT NULL,
   phone_number VARCHAR(20) NULL,
-  mail VARCHAR(255) NULL,
+  email TEXT NULL,
+  is_email BOOLEAN NOT NULL DEFAULT FALSE,
   code VARCHAR(6) NULL,
   code_hash VARCHAR(255) NOT NULL,
-  context VARCHAR(50) NOT NULL,
+  context VARCHAR(50) NULL,
   verified BOOLEAN NOT NULL DEFAULT FALSE,
   attempt_count INTEGER NOT NULL DEFAULT 0,
   expires_at TIMESTAMP WITHOUT TIME ZONE NOT NULL,
@@ -1206,7 +1207,8 @@ ALTER TABLE public.payments
 COMMENT ON TABLE public.sms_verification_codes IS 'Códigos SMS para verificación de pagos y otras acciones';
 COMMENT ON COLUMN public.sms_verification_codes.user_id IS 'Firebase Auth UID del usuario';
 COMMENT ON COLUMN public.sms_verification_codes.phone_number IS 'Número de teléfono del usuario (nullable para códigos por correo)';
-COMMENT ON COLUMN public.sms_verification_codes.mail IS 'Correo electrónico del usuario (nullable para códigos SMS)';
+COMMENT ON COLUMN public.sms_verification_codes.email IS 'Correo usado en la verificación (nullable para códigos SMS)';
+COMMENT ON COLUMN public.sms_verification_codes.is_email IS 'Indica si corresponde a verificación vía correo electrónico';
 COMMENT ON COLUMN public.sms_verification_codes.code_hash IS 'Hash SHA-256 del código (NUNCA almacenar en texto plano)';
 COMMENT ON COLUMN public.sms_verification_codes.context IS 'Contexto: payment_confirmation, ride_acceptance, etc';
 COMMENT ON COLUMN public.sms_verification_codes.verified IS 'Indica si el código fue verificado correctamente';
@@ -1215,7 +1217,8 @@ COMMENT ON COLUMN public.sms_verification_codes.expires_at IS 'Timestamp de expi
 
 CREATE INDEX IF NOT EXISTS idx_sms_user ON public.sms_verification_codes USING btree (user_id);
 CREATE INDEX IF NOT EXISTS idx_sms_ride ON public.sms_verification_codes USING btree (ride_id);
-CREATE INDEX IF NOT EXISTS idx_sms_mail ON public.sms_verification_codes USING btree (mail);
+CREATE INDEX IF NOT EXISTS idx_sms_email_value ON public.sms_verification_codes USING btree (email);
+CREATE INDEX IF NOT EXISTS idx_sms_is_email ON public.sms_verification_codes USING btree (is_email);
 CREATE INDEX IF NOT EXISTS idx_sms_context ON public.sms_verification_codes USING btree (context);
 CREATE INDEX IF NOT EXISTS idx_sms_verified ON public.sms_verification_codes USING btree (verified);
 CREATE INDEX IF NOT EXISTS idx_sms_expires ON public.sms_verification_codes USING btree (expires_at) WHERE verified = FALSE;

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -7,9 +7,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
-  TouchableWithoutFeedback,
   View,
 } from 'react-native';
 import { RouteProp } from '@react-navigation/native';
@@ -18,7 +16,7 @@ import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../context/ThemeContext';
 import { AuthStackParamList } from '../../navigation/types';
 import firebaseAuthService from '../../services/auth/firebaseAuthService';
-import registrationService from '../../services/registrationService';
+import registrationService from '../../services/auth/registrationService';
 
 type EmailVerificationNavigationProp = NativeStackNavigationProp<
   AuthStackParamList,
@@ -30,8 +28,6 @@ interface Props {
   navigation: EmailVerificationNavigationProp;
   route: EmailVerificationRouteProp;
 }
-
-const MAX_ATTEMPTS = 3;
 
 export default function EmailVerificationScreen({ navigation, route }: Props) {
   const { colors } = useTheme();
@@ -48,17 +44,13 @@ export default function EmailVerificationScreen({ navigation, route }: Props) {
     authProvider,
     googleIdToken,
     phoneVerified,
-    context,
   } = route.params;
 
-  const verificationContext = context || (authProvider === 'google' ? 'register_google' : 'register_email');
-
-  const [code, setCode] = useState('');
-  const [loading, setLoading] = useState(false);
   const [resendLoading, setResendLoading] = useState(false);
-  const [timeLeft, setTimeLeft] = useState(60);
-  const [attempts, setAttempts] = useState(0);
-  const hiddenInputRef = useRef<TextInput>(null);
+  const [checkingVerification, setCheckingVerification] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(0);
+  const autoSendTriggeredRef = useRef(false);
+  const autoVerifiedHandledRef = useRef(false);
 
   const getFirebaseErrorDetails = (error: any) => {
     const code = error?.code ? String(error.code) : 'unknown';
@@ -73,24 +65,45 @@ export default function EmailVerificationScreen({ navigation, route }: Props) {
     }
   }, [timeLeft]);
 
-  const handleResendCode = async () => {
+  const sendVerificationCode = async (showSuccessAlert = true) => {
     setResendLoading(true);
     try {
+      console.log('[EmailVerificationScreen] Preparando envio de correo de verificacion...', {
+        authProvider,
+        email,
+        hasPassword: Boolean(password),
+        hasGoogleIdToken: Boolean(googleIdToken),
+      });
+
       if (authProvider === 'email/password') {
         await firebaseAuthService.ensureEmailVerificationSession(email, password || '');
+      } else if (authProvider === 'google' && googleIdToken) {
+        await firebaseAuthService.ensureWebSessionFromIdToken(googleIdToken);
+      }
+
+      const currentUser = await firebaseAuthService.getCurrentUser();
+      const normalizedRouteEmail = (email || '').trim().toLowerCase();
+      const normalizedSessionEmail = (currentUser?.email || '').trim().toLowerCase();
+
+      if (!currentUser?.uid || !normalizedSessionEmail) {
+        throw new Error('NO_AUTH_USER_EMAIL');
+      }
+
+      if (normalizedRouteEmail && normalizedSessionEmail !== normalizedRouteEmail) {
+        throw new Error('SESSION_EMAIL_MISMATCH');
       }
 
       await firebaseAuthService.sendEmailVerificationCode();
-      Alert.alert(
-        t('authScreens.emailVerification.alerts.codeSentTitle'),
-        t('authScreens.emailVerification.alerts.codeSentMessage', { email })
-      );
+      if (showSuccessAlert) {
+        Alert.alert(
+          t('authScreens.emailVerification.alerts.codeSentTitle'),
+          t('authScreens.emailVerification.alerts.codeSentMessage', { email })
+        );
+      }
       setTimeLeft(60);
-      setCode('');
-      setAttempts(0);
     } catch (error: any) {
       const { code: firebaseCode, message: firebaseMessage } = getFirebaseErrorDetails(error);
-      console.error('❌ [EmailVerification] Error reenviando código:', {
+      console.error('[EmailVerification] Error reenviando codigo:', {
         code: firebaseCode,
         message: firebaseMessage,
         error,
@@ -99,44 +112,31 @@ export default function EmailVerificationScreen({ navigation, route }: Props) {
         t('authScreens.emailVerification.alerts.errorTitle'),
         `${error?.message || t('authScreens.emailVerification.alerts.resendError')}\n(${firebaseCode})`
       );
+      setTimeLeft(0);
     } finally {
       setResendLoading(false);
     }
   };
 
-  const handleVerifyCode = async () => {
-    const trimmedCode = code.trim();
-    if (!trimmedCode) {
-      Alert.alert(
-        t('authScreens.emailVerification.alerts.codeRequiredTitle'),
-        t('authScreens.emailVerification.alerts.codeRequiredMessage')
-      );
+  const handleResendCode = async () => {
+    await sendVerificationCode(true);
+  };
+
+  useEffect(() => {
+    if (autoSendTriggeredRef.current) {
       return;
     }
+    autoSendTriggeredRef.current = true;
 
-    if (attempts >= MAX_ATTEMPTS) {
-      Alert.alert(
-        t('authScreens.emailVerification.alerts.tooManyAttemptsTitle'),
-        t('authScreens.emailVerification.alerts.tooManyAttemptsMessage')
-      );
-      return;
-    }
+    sendVerificationCode(false);
+  }, []);
 
-    setLoading(true);
+  const finalizeVerifiedFlow = async (userId: string, attemptCount: number) => {
     try {
-      await firebaseAuthService.applyEmailVerificationCode(trimmedCode);
-
-      const currentUser = await firebaseAuthService.getCurrentUser();
-      if (!currentUser?.uid) {
-        throw new Error(t('authScreens.emailVerification.alerts.noSessionError'));
-      }
-
       await firebaseAuthService.logEmailVerification({
-        userId: currentUser.uid,
-        email,
-        code: trimmedCode,
-        context: verificationContext,
-        attemptCount: attempts + 1,
+        userId,
+        email: (email || '').trim().toLowerCase(),
+        attemptCount,
       });
 
       await registrationService.saveTemporaryData({
@@ -171,92 +171,171 @@ export default function EmailVerificationScreen({ navigation, route }: Props) {
       });
     } catch (error: any) {
       const { code: firebaseCode, message: firebaseMessage } = getFirebaseErrorDetails(error);
-      console.error('❌ [EmailVerification] Error verificando código:', {
+      console.error('[EmailVerification] Error finalizando verificacion por enlace:', {
         code: firebaseCode,
         message: firebaseMessage,
-        attempts: attempts + 1,
         error,
       });
-      setAttempts((prev) => prev + 1);
       Alert.alert(
         t('authScreens.emailVerification.alerts.verificationErrorTitle'),
         `${error?.message || t('authScreens.emailVerification.alerts.verificationErrorMessage')}\n(${firebaseCode})`
       );
-      setCode('');
-    } finally {
-      setLoading(false);
     }
+  };
+
+  const checkEmailVerificationStatus = async (showNotVerifiedAlert = false) => {
+    if (autoVerifiedHandledRef.current) {
+      return;
+    }
+
+    setCheckingVerification(true);
+    try {
+      if (authProvider === 'email/password') {
+        await firebaseAuthService.ensureEmailVerificationSession(email, password || '');
+      } else if (authProvider === 'google' && googleIdToken) {
+        await firebaseAuthService.ensureWebSessionFromIdToken(googleIdToken);
+      }
+
+      const { verified, user } = await firebaseAuthService.isCurrentUserEmailVerified();
+      const normalizedRouteEmail = (email || '').trim().toLowerCase();
+      const normalizedSessionEmail = (user?.email || '').trim().toLowerCase();
+
+      if (!user?.uid || !normalizedSessionEmail) {
+        throw new Error('NO_AUTH_USER_EMAIL');
+      }
+
+      if (normalizedRouteEmail && normalizedSessionEmail !== normalizedRouteEmail) {
+        throw new Error('SESSION_EMAIL_MISMATCH');
+      }
+
+      if (!verified) {
+        if (showNotVerifiedAlert) {
+          Alert.alert(
+            t('authScreens.emailVerification.alerts.errorTitle'),
+            t('authScreens.emailVerification.alerts.notVerifiedYet')
+          );
+        }
+        return;
+      }
+
+      autoVerifiedHandledRef.current = true;
+      await finalizeVerifiedFlow(user.uid, 1);
+    } catch (error: any) {
+      const { code: firebaseCode, message: firebaseMessage } = getFirebaseErrorDetails(error);
+      console.error('[EmailVerification] Error verificando estado de email:', {
+        code: firebaseCode,
+        message: firebaseMessage,
+        error,
+      });
+      if (showNotVerifiedAlert) {
+        Alert.alert(
+          t('authScreens.emailVerification.alerts.errorTitle'),
+          `${error?.message || t('authScreens.emailVerification.alerts.verificationErrorMessage')}\n(${firebaseCode})`
+        );
+      }
+    } finally {
+      setCheckingVerification(false);
+    }
+  };
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      checkEmailVerificationStatus(false);
+    }, 4000);
+
+    return () => clearInterval(timer);
+  }, []);
+
+  const handleCancelRegistration = () => {
+    Alert.alert(
+      t('authScreens.emailVerification.alerts.errorTitle', 'Error'),
+      t(
+        'authScreens.emailVerification.cancelConfirm',
+        'Do you want to cancel registration and return to start?'
+      ),
+      [
+        { text: t('common.actions.no', 'No'), style: 'cancel' },
+        {
+          text: t('common.actions.yes', 'Yes'),
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await firebaseAuthService.deleteCurrentUser();
+            } catch (deleteError: any) {
+              console.warn('[EmailVerification] No se pudo eliminar usuario en Authentication:', deleteError);
+            }
+
+            try {
+              await registrationService.clearTemporaryData();
+            } catch (tempDataError: any) {
+              console.warn('[EmailVerification] No se pudo limpiar data temporal:', tempDataError);
+            }
+
+            try {
+              await firebaseAuthService.logout();
+            } catch (logoutError: any) {
+              console.warn('[EmailVerification] No se pudo cerrar sesion al cancelar registro:', logoutError);
+            }
+
+            navigation.replace('RegisterNew');
+          },
+        },
+      ],
+    );
   };
 
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
     >
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+      >
         <View style={styles.card}>
+          <View style={styles.badge}>
+            <Text style={styles.badgeText}>{t('authScreens.emailVerification.title')}</Text>
+          </View>
           <Text style={styles.title}>{t('authScreens.emailVerification.title')}</Text>
-          <Text style={styles.subtitle}>
-            {t('authScreens.emailVerification.subtitle')}
-          </Text>
+          <Text style={styles.subtitle}>{t('authScreens.emailVerification.subtitle')}</Text>
           <Text style={styles.emailText}>{email}</Text>
 
-          <View style={styles.codeSection}>
-            <Text style={styles.label}>{t('authScreens.emailVerification.label')}</Text>
-            <TextInput
-              ref={hiddenInputRef}
-              style={styles.hiddenInput}
-              value={code}
-              onChangeText={setCode}
-              autoCapitalize="none"
-              autoCorrect={false}
-              editable={!loading}
-            />
-            <TouchableWithoutFeedback onPress={() => hiddenInputRef.current?.focus()}>
-              <View style={styles.codeInputBox}>
-                <Text style={styles.codeValue} numberOfLines={2}>
-                  {code || t('authScreens.emailVerification.codePlaceholder')}
-                </Text>
-              </View>
-            </TouchableWithoutFeedback>
+          <View style={styles.infoBox}>
+            <Text style={styles.infoText}>{t('authScreens.emailVerification.linkVerificationHint')}</Text>
           </View>
 
-          {attempts > 0 ? (
-            <Text style={styles.attemptsText}>
-              {t('authScreens.emailVerification.attemptsRemaining', {
-                remaining: Math.max(MAX_ATTEMPTS - attempts, 0),
-                max: MAX_ATTEMPTS,
-              })}
-            </Text>
-          ) : null}
-
           <TouchableOpacity
-            style={[styles.primaryButton, (loading || !code.trim()) && styles.buttonDisabled]}
-            onPress={handleVerifyCode}
-            disabled={loading || !code.trim()}
+            style={[styles.primaryButton, checkingVerification && styles.buttonDisabled]}
+            onPress={() => checkEmailVerificationStatus(true)}
+            disabled={checkingVerification}
           >
-            {loading ? (
+            {checkingVerification ? (
               <ActivityIndicator color="#FFFFFF" />
             ) : (
-              <Text style={styles.primaryButtonText}>
-                {t('authScreens.emailVerification.verifyButton')}
-              </Text>
+              <Text style={styles.primaryButtonText}>{t('authScreens.emailVerification.verifyByLinkButton')}</Text>
             )}
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.cancelButton} onPress={handleCancelRegistration}>
+            <Text style={styles.cancelButtonText}>{t('authScreens.emailVerification.cancel')}</Text>
           </TouchableOpacity>
 
           <View style={styles.resendSection}>
             {timeLeft > 0 ? (
-              <Text style={styles.resendTimer}>
-                {t('authScreens.emailVerification.resendIn', { seconds: timeLeft })}
-              </Text>
+              <Text style={styles.resendTimer}>{t('authScreens.emailVerification.resendIn', { seconds: timeLeft })}</Text>
             ) : (
-              <TouchableOpacity onPress={handleResendCode} disabled={resendLoading}>
+              <TouchableOpacity
+                style={styles.resendButtonContainer}
+                onPress={handleResendCode}
+                disabled={resendLoading}
+              >
                 {resendLoading ? (
                   <ActivityIndicator color={colors.primary} />
                 ) : (
-                  <Text style={styles.resendButton}>
-                    {t('authScreens.emailVerification.resendButton')}
-                  </Text>
+                  <Text style={styles.resendButton}>{t('authScreens.emailVerification.resendButton')}</Text>
                 )}
               </TouchableOpacity>
             )}
@@ -269,43 +348,73 @@ export default function EmailVerificationScreen({ navigation, route }: Props) {
 
 const createStyles = (colors: any) =>
   StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.background },
-    scrollContent: { flexGrow: 1, padding: 24, justifyContent: 'center' },
+    container: { flex: 1, backgroundColor: '#F2F2F2' },
+    scrollContent: { flexGrow: 1, padding: 18, paddingTop: 56, paddingBottom: 28, justifyContent: 'flex-start' },
     card: {
-      backgroundColor: colors.card,
-      borderRadius: 20,
+      backgroundColor: '#F7F7F7',
+      borderRadius: 24,
       borderWidth: 1,
-      borderColor: colors.border,
+      borderColor: '#DDDDDD',
       padding: 20,
-      gap: 14,
+      gap: 12,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.08,
+      shadowRadius: 8,
+      elevation: 3,
     },
-    title: { fontSize: 26, fontWeight: '700', color: colors.text },
-    subtitle: { fontSize: 14, color: colors.textSecondary },
-    emailText: { fontSize: 16, fontWeight: '600', color: colors.primary },
-    codeSection: { gap: 8 },
-    label: { fontSize: 14, fontWeight: '600', color: colors.text },
-    hiddenInput: { position: 'absolute', width: '100%', height: 80, opacity: 0 },
-    codeInputBox: {
-      minHeight: 80,
+    badge: {
+      alignSelf: 'flex-start',
+      backgroundColor: '#E8E1D3',
+      borderRadius: 999,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      marginBottom: 2,
+    },
+    badgeText: { fontSize: 11, fontWeight: '700', color: '#6E5A2E', letterSpacing: 0.2 },
+    title: { fontSize: 34, fontWeight: '800', color: '#141414' },
+    subtitle: { fontSize: 20, color: '#686868', lineHeight: 21 },
+    emailText: { fontSize: 22, lineHeight: 28, fontWeight: '700', color: '#AC7F2C' },
+    infoBox: {
       borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.background,
-      borderRadius: 12,
-      justifyContent: 'center',
+      borderColor: '#D5D5D5',
+      backgroundColor: '#FFFFFF',
+      borderRadius: 14,
       paddingHorizontal: 12,
-      paddingVertical: 10,
+      paddingVertical: 12,
     },
-    codeValue: { color: colors.text, fontSize: 13 },
-    attemptsText: { color: colors.error, fontSize: 13, fontWeight: '600' },
+    infoText: { color: '#3A3A3A', fontSize: 15, lineHeight: 20 },
     primaryButton: {
-      backgroundColor: colors.primary,
-      borderRadius: 12,
+      backgroundColor: '#D1BB90',
+      borderRadius: 13,
       paddingVertical: 14,
       alignItems: 'center',
+      marginTop: 2,
     },
-    primaryButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+    primaryButtonText: { color: '#FFFFFF', fontSize: 23, fontWeight: '800' },
     buttonDisabled: { opacity: 0.5 },
+    cancelButton: {
+      borderRadius: 12,
+      paddingVertical: 12,
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: '#D7D7D7',
+      backgroundColor: '#FFFFFF',
+    },
+    cancelButtonText: {
+      color: '#474747',
+      fontSize: 14,
+      fontWeight: '700',
+    },
     resendSection: { alignItems: 'center' },
-    resendTimer: { color: colors.textSecondary, fontSize: 14 },
-    resendButton: { color: colors.primary, fontSize: 14, fontWeight: '600' },
+    resendTimer: { color: '#7D7D7D', fontSize: 15 },
+    resendButtonContainer: {
+      paddingVertical: 10,
+      paddingHorizontal: 16,
+      borderRadius: 12,
+      backgroundColor: '#EFE6D6',
+      borderWidth: 1,
+      borderColor: '#E2D3B8',
+    },
+    resendButton: { color: '#AC7F2C', fontSize: 18, fontWeight: '700' },
   });

@@ -37,9 +37,16 @@ class UserManagementService {
         throw new Error(i18n.t('services.userManagementService.errors.notAuthenticated') as string);
       }
       
+      const normalizedInputEmail = (email || '').trim().toLowerCase();
+      const normalizedUserEmail = user.email.trim().toLowerCase();
+
+      if (!normalizedInputEmail || normalizedInputEmail !== normalizedUserEmail) {
+        throw new Error(i18n.t('services.userManagementService.errors.emailMismatch') as string);
+      }
+      
       // 1. Reautenticar al usuario (requerido por Firebase)
       console.log('🔐 Reautenticando usuario...');
-      const credential = EmailAuthProvider.credential(email, password);
+      const credential = EmailAuthProvider.credential(user.email, password);
       await reauthenticateWithCredential(user, credential);
       
       // 2. Obtener referencias a Firestore y Realtime DB
@@ -105,7 +112,7 @@ class UserManagementService {
       console.error('❌ Error eliminando cuenta:', error);
       
       // Mapeo de errores comunes
-      if (error.code === 'auth/wrong-password') {
+      if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
         return {
           success: false,
           message: i18n.t('services.userManagementService.errors.wrongPassword') as string

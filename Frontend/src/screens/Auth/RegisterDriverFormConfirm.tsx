@@ -21,7 +21,7 @@ import { RouteProp } from '@react-navigation/native';
 
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
-import registrationService from '../../services/registrationService';
+import registrationService from '../../services/auth/registrationService';
 import driversService from '../../services/driversService';
 import vehiclesService from '../../services/vehiclesService';
 import supabaseStorage from '../../services/supabaseStorage';

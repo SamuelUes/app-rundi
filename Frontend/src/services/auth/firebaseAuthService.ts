@@ -13,10 +13,12 @@ import {
   sendEmailVerification,
   applyActionCode,
   reload,
+  deleteUser,
 } from 'firebase/auth';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { getFirebaseAuth, getFirebaseFirestore, getFirebaseFunctions } from '../../config/firebase';
+import { firebaseConfig } from '../../config/firebase';
 import client from '../../api/client';
 import { ENDPOINTS } from '../../api/endpoints';
 import i18n from '../../i18n';
@@ -142,6 +144,18 @@ class FirebaseAuthService {
       console.error('❌ Error cerrando sesión:', error);
       throw new Error(error.message || this.tr('errors.sessionSyncFailed'));
     }
+  }
+
+  async deleteCurrentUser(): Promise<void> {
+    const auth = await getFirebaseAuth();
+    const user = auth.currentUser;
+
+    if (!user) {
+      return;
+    }
+
+    await deleteUser(user);
+    console.log('✅ Usuario eliminado de Firebase Authentication');
   }
 
   /**
@@ -367,12 +381,16 @@ class FirebaseAuthService {
     const normalizedEmail = (email || '').trim().toLowerCase();
     const currentUser = auth.currentUser;
 
-    if (!normalizedEmail || !password) {
-      throw new Error('EMAIL_PASSWORD_REQUIRED');
+    if (!normalizedEmail) {
+      throw new Error('EMAIL_REQUIRED');
     }
 
     if (currentUser?.email?.toLowerCase() === normalizedEmail) {
       return currentUser;
+    }
+
+    if (!password) {
+      throw new Error('EMAIL_PASSWORD_REQUIRED');
     }
 
     try {
@@ -396,7 +414,22 @@ class FirebaseAuthService {
       throw new Error('NO_AUTH_USER_EMAIL');
     }
 
+    console.log('📧 [EmailVerification] Enviando correo de verificación...', {
+      uid: user.uid,
+      email: user.email,
+      emailVerified: user.emailVerified,
+      providers: user.providerData?.map((provider) => provider.providerId) || [],
+      firebaseProjectId: firebaseConfig.projectId,
+      firebaseAuthDomain: firebaseConfig.authDomain,
+    });
+
     await sendEmailVerification(user);
+
+    console.log('✅ [EmailVerification] Correo de verificación enviado correctamente', {
+      uid: user.uid,
+      email: user.email,
+      sentAt: new Date().toISOString(),
+    });
   }
 
   async applyEmailVerificationCode(oobCode: string): Promise<void> {
@@ -411,6 +444,18 @@ class FirebaseAuthService {
     if (auth.currentUser) {
       await reload(auth.currentUser);
     }
+  }
+
+  async isCurrentUserEmailVerified(): Promise<{ verified: boolean; user: User | null }> {
+    const auth = await getFirebaseAuth();
+    const user = auth.currentUser;
+
+    if (!user) {
+      return { verified: false, user: null };
+    }
+
+    await reload(user);
+    return { verified: Boolean(user.emailVerified), user };
   }
 
   /**
@@ -444,12 +489,27 @@ class FirebaseAuthService {
 
   async logEmailVerification(params: {
     userId: string;
-    email: string;
-    code?: string;
-    context: 'register_email' | 'register_google' | string;
+    email?: string;
     attemptCount?: number;
   }): Promise<void> {
-    const { userId, email, code, context, attemptCount } = params;
+    const { userId, email, attemptCount } = params;
+
+    const normalizedProvidedEmail = (email || '').trim().toLowerCase();
+    let emailToLog = normalizedProvidedEmail;
+
+    if (!emailToLog) {
+      try {
+        const auth = await getFirebaseAuth();
+        emailToLog = (auth.currentUser?.email || '').trim().toLowerCase();
+      } catch (sessionError) {
+        console.warn('[FirebaseAuthService] No se pudo obtener auth.currentUser para log email:', sessionError);
+      }
+    }
+
+    if (!emailToLog) {
+      console.warn('[FirebaseAuthService] No se pudo registrar verificación: email vacío');
+      return;
+    }
 
     const functions = await getFirebaseFunctions();
 
@@ -457,9 +517,11 @@ class FirebaseAuthService {
       const logFn = httpsCallable(functions, 'logSmsVerificationCode');
       await logFn({
         userId,
-        mail: email.trim().toLowerCase(),
-        code,
-        context,
+        email: emailToLog,
+        mail: emailToLog,
+        isEmail: true,
+        code: '',
+        context: '',
         attemptCount: typeof attemptCount === 'number' ? attemptCount : 1,
       });
     } catch (error: any) {

@@ -5,7 +5,11 @@ import { getDatabase, ref, onValue } from 'firebase/database';
 const isActiveDriverRide = (rideData: any, userId: string): boolean => {
   const status = String(rideData?.status ?? '').trim().toLowerCase();
   const driverId = String(rideData?.driverId ?? rideData?.driver_id ?? '').trim();
-  return ['accepted', 'driver_on_route', 'driver_arrived', 'in_progress'].includes(status) && driverId === userId;
+  const normalizedUserId = String(userId ?? '').trim();
+  return (
+    ['driver_assigned', 'accepted', 'driver_on_route', 'driver_arrived', 'in_progress'].includes(status) &&
+    driverId === normalizedUserId
+  );
 };
 
 /**

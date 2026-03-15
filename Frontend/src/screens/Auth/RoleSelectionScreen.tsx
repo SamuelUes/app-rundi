@@ -17,7 +17,7 @@ import { RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
-import registrationService from '../../services/registrationService';
+import registrationService from '../../services/auth/registrationService';
 import phoneAuthService from '../../services/auth/phoneAuthService';
 import { AuthStackParamList, RegistrationAuthProvider, RegistrationMethod } from '../../navigation/types';
 import { useTranslation } from 'react-i18next';

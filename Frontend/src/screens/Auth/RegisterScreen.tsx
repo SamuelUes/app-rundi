@@ -22,7 +22,7 @@ import {
 import { useNavigation } from '@react-navigation/native';
 
 import { useTheme } from '../../context/ThemeContext';
-import registrationService from '../../services/registrationService';
+import registrationService from '../../services/auth/registrationService';
 import phoneAuthService from '../../services/auth/phoneAuthService';
 import firebaseAuthService from '../../services/auth/firebaseAuthService';
 import { getFirebaseAuth } from '../../config/firebase';
@@ -252,7 +252,6 @@ export default function RegisterScreen() {
       }
 
       await firebaseAuthService.ensureEmailVerificationSession(normalizedEmail, password);
-      await firebaseAuthService.sendEmailVerificationCode();
 
       await registrationService.saveTemporaryData({
         name: name.trim(),

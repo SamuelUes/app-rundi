@@ -117,6 +117,7 @@ export default function RidePreviewScreen() {
   }, [rideData.negotiationStatus, rideData.driverOfferStatus]);
   const [manualOfferLock, setManualOfferLock] = useState(false);
   const navigationLocked = manualOfferLock || hasPendingOffer;
+  const allowNavigationRef = useRef(false);
   const markDismissed = useCallback(async () => {
     try {
       await proximityService.markRideDismissed(currentRide.id);
@@ -136,7 +137,7 @@ export default function RidePreviewScreen() {
     };
   }, [stopVoiceCategory]);
 
-  useAcceptedRideListener(navigation, ride.id);
+  useAcceptedRideListener(navigation, currentRide.id);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -151,9 +152,14 @@ export default function RidePreviewScreen() {
       }
 
       let found: string | null = null;
+      const normalizedUserId = String(user.id ?? '').trim();
       Object.entries<any>(data).some(([id, r]) => {
         const status = String(r?.status || '').toLowerCase();
-        if (r?.driverId === user.id && ['accepted', 'driver_on_route', 'in_progress'].includes(status)) {
+        const rideDriverId = String(r?.driverId ?? r?.driver_id ?? '').trim();
+        if (
+          rideDriverId === normalizedUserId &&
+          ['driver_assigned', 'accepted', 'driver_on_route', 'driver_arrived', 'in_progress'].includes(status)
+        ) {
           found = id;
           return true;
         }
@@ -644,6 +650,17 @@ export default function RidePreviewScreen() {
       if (!navigationLocked) {
         return;
       }
+
+      if (allowNavigationRef.current) {
+        allowNavigationRef.current = false;
+        return;
+      }
+
+      const actionType = event.data.action?.type;
+      if (actionType === 'REPLACE' || actionType === 'RESET' || actionType === 'NAVIGATE') {
+        return;
+      }
+
       event.preventDefault();
     });
 
@@ -979,18 +996,35 @@ export default function RidePreviewScreen() {
       setIsRejectingRide(false);
     };
 
-    markDismissed()
-      .catch((error) => {
-        console.warn('[RidePreviewScreen] No se pudo descartar ride:', error);
+    const negotiationStatus = String(currentRide.negotiationStatus || '').toLowerCase();
+    const driverOfferStatus = String(currentRide.driverOfferStatus || '').toLowerCase();
+    const hasOfferedOrNegotiatedPrice =
+      (typeof currentRide.driverOfferedPrice === 'number' &&
+        Number.isFinite(currentRide.driverOfferedPrice) &&
+        currentRide.driverOfferedPrice > 0) ||
+      negotiationStatus.startsWith('driver_') ||
+      ['pending', 'waiting', 'accepted'].includes(driverOfferStatus);
+
+    ridesService
+      .rejectRide(currentRide.id, hasOfferedOrNegotiatedPrice ? 'driver_withdrew_offer' : 'not_interested')
+      .catch((error: any) => {
+        console.warn('[RidePreviewScreen] No se pudo registrar rechazo de ride:', error);
       })
       .finally(() => {
-        finishReject();
-        if (user?.id) {
-          driverOfferCacheService.clearEntry(user.id, currentRide.id).catch((err) =>
-            console.warn('[RidePreviewScreen] Failed to clear cache entry', err),
-          );
-        }
-        navigation.goBack();
+        markDismissed()
+          .catch((error) => {
+            console.warn('[RidePreviewScreen] No se pudo descartar ride:', error);
+          })
+          .finally(() => {
+            finishReject();
+            if (user?.id) {
+              driverOfferCacheService.clearEntry(user.id, currentRide.id).catch((err) =>
+                console.warn('[RidePreviewScreen] Failed to clear cache entry', err),
+              );
+            }
+            allowNavigationRef.current = true;
+            navigation.goBack();
+          });
       });
   };
 

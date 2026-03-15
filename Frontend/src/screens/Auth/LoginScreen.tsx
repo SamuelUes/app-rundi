@@ -16,8 +16,7 @@ import { useGoogleAuth } from '../../hooks/useGoogleAuth';
 import GoogleSignInButton from '../../components/GoogleSignInButton';
 import PhoneDigitInput from '../../components/PhoneDigitInput';
 import phoneAuthService from '../../services/auth/phoneAuthService';
-import firebaseAuthService from '../../services/auth/firebaseAuthService';
-import registrationService from '../../services/registrationService';
+import registrationService from '../../services/auth/registrationService';
 import alertService from '../../services/alertService';
 import {
   CountryDialOption,
@@ -188,8 +187,6 @@ export default function LoginScreen({ navigation }: any) {
             emailVerified: false,
             lastStep: 'emailVerification',
           });
-
-          await firebaseAuthService.sendEmailVerificationCode();
 
           navigation.navigate('EmailVerification', {
             name: displayName,

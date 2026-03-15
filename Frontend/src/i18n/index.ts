@@ -18,7 +18,7 @@ import notificationService from '@/services/notificationService';
 import paymentsService from '@/services/paymentsService';
 import phoneLoginService from '@/services/phoneLoginService';
 import priceNegotiationService from '@/services/priceNegotiationService';
-import registrationService from '@/services/registrationService';
+import registrationService from '@/services/auth/registrationService';
 import servicesService from '@/services/servicesService';
 import trackingService from '@/services/trackingService';
 import uploadService from '@/services/uploadService';
@@ -774,7 +774,7 @@ const resources = {
             buttonProcessing: 'Processing…',
           },
           summary: {
-            title: 'Summary & price',
+            title: 'Summary and Price',
             distance: 'Distance',
             duration: 'Time',
             estimate: 'Estimate',
@@ -803,11 +803,18 @@ const resources = {
             inputLabel: 'Search location',
             placeholderOrigin: 'Search origin…',
             placeholderDestination: 'Search destination…',
+            placeholderDestinationReference: 'Ex: Conchita Palacios, 4 block to the east 3 block to the north',
             placeholderStop: 'Search stop…',
             placeholderGeneric: 'Search location…',
             close: 'Close',
             useCurrentLocation: 'Use my location',
             pickOnMap: 'Select on map',
+            destinationGuidanceTitle: 'Reference destination?',
+            destinationGuidanceBody:
+              'If you write a local reference, finish by selecting a result or using the map to pin the exact point.',
+            destinationGuidanceStep1: '1) Write reference',
+            destinationGuidanceStep2: '2) Pin exact point',
+            destinationConfirmed: 'Destination confirmed on map',
             loading: 'Searching locations…',
             error: 'We could not search for locations.',
           },
@@ -1143,6 +1150,7 @@ const resources = {
              tooManyRequests: 'Too many attempts. Please try again later.',
              deleteAccountFailed: 'We could not delete your account. Please try again later.',
              deleteDataFailed: 'We could not delete the user data.',
+             emailMismatch: 'Enter the same email that is currently logged in.',
            },
          },
          vehiclesService: {
@@ -1231,9 +1239,13 @@ const resources = {
               verifyButton: 'Verify',
               resendIn: 'Resend in {{seconds}}s',
               resendButton: 'Resend code',
+              verifyByLinkButton: 'I already verified my email',
+              cancel: 'Cancel register',
+              cancelConfirm: 'Do you want to cancel registration and return to start?',
+              linkVerificationHint: 'Open the verification link from your email. Then return here and tap the button to continue.',
               alerts: {
                 codeSentTitle: 'Code sent',
-                codeSentMessage: 'Check your email {{email}} and copy the code from the link.',
+                c: 'Check your email {{email}} and open the link. If you don\'t see it, check your spam folder.',
                 errorTitle: 'Error',
                 resendError: 'We could not resend the verification code.',
                 codeRequiredTitle: 'Code required',
@@ -1245,6 +1257,7 @@ const resources = {
                 verifiedMessage: 'Your email was verified successfully.',
                 verificationErrorTitle: 'Verification error',
                 verificationErrorMessage: 'We could not verify the code.',
+                notVerifiedYet: 'Your email is not verified yet. Open the link from your email and try again.',
               },
             },
             onboarding: {
@@ -1865,16 +1878,16 @@ const resources = {
             driverPriceLabel: "Driver's suggestion:",
             driverPricePending: 'Pending',
             clientPriceMissing: 'N/A',
-            acceptedPrimary: 'Driver accepted your price',
-            acceptedSecondary: 'The driver accepted your price',
+            acceptedPrimary: 'Driver confirmed',
+            acceptedSecondary: 'Driver confirmed',
           },
           negotiation: {
             pill: 'Negotiate',
             status: {
               clientSuggested: 'Waiting for your response',
               driverOffered: 'Waiting for your response',
-              driverAccepted: 'You accepted the driver price',
-              clientAccepted: 'Driver accepted your offer',
+              driverAccepted: 'Driver accepted your offer',
+              clientAccepted: 'You accepted the driver price',
             },
           },
           primaryAction: {
@@ -3573,7 +3586,7 @@ const resources = {
             buttonProcessing: 'Processing…',
           },
           summary: {
-            title: 'Summary & price',
+            title: 'Summary and Price',
             distance: 'Distance',
             duration: 'Time',
             estimate: 'Estimate',
@@ -3602,11 +3615,18 @@ const resources = {
             inputLabel: 'Search location',
             placeholderOrigin: 'Search origin…',
             placeholderDestination: 'Search destination…',
+            placeholderDestinationReference: 'Ex: Conchita Palacios, 4 block to the east 3 block to the north',
             placeholderStop: 'Search stop…',
             placeholderGeneric: 'Search location…',
             close: 'Close',
             useCurrentLocation: 'Use my location',
             pickOnMap: 'Select on map',
+            destinationGuidanceTitle: 'Reference destination?',
+            destinationGuidanceBody:
+              'If you write a local reference, finish by selecting a result or using the map to pin the exact point.',
+            destinationGuidanceStep1: '1) Write reference',
+            destinationGuidanceStep2: '2) Pin exact point',
+            destinationConfirmed: 'Destination confirmed on map',
             loading: 'Searching locations…',
             error: 'We could not search for locations.',
           },
@@ -4523,7 +4543,7 @@ const resources = {
             noLien: 'NONE',
           },
         },
-        deleteAccount: {
+       deleteAccount: {
          header: {
           title: 'Delete Account',
            roles: {
@@ -4545,22 +4565,22 @@ const resources = {
             locations: '• Locations and tracking',
             dataStores: '• All data stored in Firebase and Supabase',
           },
-        },
-        form: {
+         },
+         form: {
           title: 'Confirm credentials',
           emailPlaceholder: 'Email',
           passwordPlaceholder: 'Password',
-        },
-        confirmation: {
+         },
+         confirmation: {
           checkbox:
             'I understand this action is irreversible and all my data will be permanently deleted',
-        },
-        buttons: {
+         },
+         buttons: {
           delete: 'Delete account permanently',
           deleting: 'Deleting account...',
           cancel: 'Cancel',
-        },
-        alerts: {
+         },
+         alerts: {
           confirmRequiredTitle: 'Confirmation required',
           confirmRequiredMessage:
             'Confirm that you understand the consequences by checking the verification box.',
@@ -4575,7 +4595,7 @@ const resources = {
           successOk: 'OK',
           genericErrorTitle: 'Error',
           deleteErrorMessage: 'An error occurred while deleting the account.',
-        },
+         },
        },
        supportcomplaint: {
         title: 'My reports',
@@ -5363,11 +5383,18 @@ const resources = {
               inputLabel: 'Buscar ubicación',
               placeholderOrigin: 'Buscar origen…',
               placeholderDestination: 'Buscar destino…',
+              placeholderDestinationReference: 'Ej: Conchita Palacios, 4c al este 3c al norte',
               placeholderStop: 'Buscar parada…',
               placeholderGeneric: 'Buscar ubicación…',
               close: 'Cerrar',
               useCurrentLocation: 'Usar mi ubicación',
               pickOnMap: 'Seleccionar en el mapa',
+              destinationGuidanceTitle: '¿Destino por referencia?',
+              destinationGuidanceBody:
+                'Si escribes una referencia local, termina seleccionando un resultado o usando el mapa para fijar el punto exacto.',
+              destinationGuidanceStep1: '1) Escribe referencia',
+              destinationGuidanceStep2: '2) Fija punto exacto',
+              destinationConfirmed: 'Destino confirmado en mapa',
               loading: 'Buscando ubicaciones…',
               error: 'No pudimos buscar ubicaciones.',
             },
@@ -5692,6 +5719,7 @@ const resources = {
               tooManyRequests: 'Demasiados intentos. Intenta más tarde.',
               deleteAccountFailed: 'No pudimos eliminar tu cuenta. Intenta más tarde.',
               deleteDataFailed: 'No pudimos eliminar los datos del usuario.',
+              emailMismatch: 'Ingresa el mismo correo con el que iniciaste sesión.',
             },
           },
           vehiclesService: {
@@ -5780,9 +5808,13 @@ const resources = {
             verifyButton: 'Verificar',
             resendIn: 'Reenviar en {{seconds}}s',
             resendButton: 'Reenviar código',
+            verifyByLinkButton: 'Ya verifiqué mi correo',
+            cancel: 'Cancelar registro',
+            cancelConfirm: '¿Quieres cancelar el registro y volver al inicio?',
+            linkVerificationHint: 'Abre el enlace de verificación que llegó a tu correo. Luego vuelve aquí y toca el botón para continuar.',
             alerts: {
               codeSentTitle: 'Código enviado',
-              codeSentMessage: 'Revisa tu correo {{email}} y copia el código del enlace.',
+              codeSentMessage: 'Revisa tu correo {{email}} y abre del enlace. Si no lo ves, revisa tu carpeta de spam.',
               errorTitle: 'Error',
               resendError: 'No se pudo reenviar el código de verificación.',
               codeRequiredTitle: 'Código requerido',
@@ -5794,6 +5826,7 @@ const resources = {
               verifiedMessage: 'Tu correo fue verificado correctamente.',
               verificationErrorTitle: 'Error de verificación',
               verificationErrorMessage: 'No se pudo verificar el código.',
+              notVerifiedYet: 'Tu correo aún no está verificado. Abre el enlace de tu correo e intenta nuevamente.',
             },
           },
           onboarding: {
@@ -6413,16 +6446,16 @@ const resources = {
               driverPriceLabel: 'Sugerencia del conductor:',
               driverPricePending: 'Pendiente',
               clientPriceMissing: 'N/D',
-              acceptedPrimary: 'El conductor aceptó tu precio',
-              acceptedSecondary: 'El conductor aceptó tu precio',
+              acceptedPrimary: 'Conductor confirmado',
+              acceptedSecondary: 'Conductor confirmado',
             },
             negotiation: {
               pill: 'Negociar',
               status: {
                 clientSuggested: 'Esperando tu respuesta',
                 driverOffered: 'Esperando tu respuesta',
-                driverAccepted: 'Aceptaste el precio del conductor',
-                clientAccepted: 'El conductor aceptó tu oferta',
+                driverAccepted: 'El conductor aceptó tu oferta',
+                clientAccepted: 'Aceptaste el precio del conductor',
               },
             },
             primaryAction: {
@@ -8149,11 +8182,18 @@ const resources = {
             inputLabel: 'Buscar ubicación',
             placeholderOrigin: 'Buscar origen…',
             placeholderDestination: 'Buscar destino…',
+            placeholderDestinationReference: 'Ej: Conchita Palacios, 4c al este 3c al norte',
             placeholderStop: 'Buscar parada…',
             placeholderGeneric: 'Buscar ubicación…',
             close: 'Cerrar',
             useCurrentLocation: 'Usar mi ubicación',
             pickOnMap: 'Seleccionar en el mapa',
+            destinationGuidanceTitle: '¿Destino por referencia?',
+            destinationGuidanceBody:
+              'Si escribes una referencia local, termina seleccionando un resultado o usando el mapa para fijar el punto exacto.',
+            destinationGuidanceStep1: '1) Escribe referencia',
+            destinationGuidanceStep2: '2) Fija punto exacto',
+            destinationConfirmed: 'Destino confirmado en mapa',
             loading: 'Buscando ubicaciones…',
             error: 'No pudimos buscar ubicaciones.',
           },

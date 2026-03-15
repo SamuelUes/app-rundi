@@ -7,7 +7,7 @@ import LoginScreen from '../screens/Auth/LoginScreen';
 import RegisterScreenNew from '../screens/Auth/RegisterScreen';
 import AuthLandingScreen from '../screens/Auth/AuthLandingScreen';
 import RegistrationCheckpointScreen from '../screens/Auth/RegistrationCheckpointScreen';
-import registrationService from '../services/registrationService';
+import registrationService from '../services/auth/registrationService';
 import PhoneVerificationScreen from '../screens/Auth/PhoneVerificationScreen';
 import PhoneVerificationLoginScreen from '../screens/Auth/PhoneVerificationLoginScreen';
 import EmailVerificationScreen from '../screens/Auth/EmailVerificationScreen';

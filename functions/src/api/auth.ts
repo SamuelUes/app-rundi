@@ -733,26 +733,35 @@ export const logSmsVerificationCode = functions
       const rawUserId = (data?.userId as string | undefined) || (context.auth?.uid as string | undefined);
       const phoneNumber = (data?.phoneNumber as string | undefined) || undefined;
       const mail = (data?.mail as string | undefined) || undefined;
+      const emailValue = (data?.email as string | undefined) || undefined;
+      const isEmailVerification = typeof data?.isEmail === 'boolean' ? data.isEmail : false;
       const code = (data?.code as string | undefined) || undefined;
-      const verificationContext = (data?.context as string | undefined) || 'register_phone';
+      const verificationContext = (data?.context as string | undefined) || '';
       const attempts = typeof data?.attemptCount === 'number' ? data.attemptCount : 1;
 
       if (!rawUserId) {
         throw new functions.https.HttpsError('invalid-argument', 'userId es requerido para registrar la verificación SMS');
       }
 
-      if (!phoneNumber && !mail) {
-        throw new functions.https.HttpsError('invalid-argument', 'phoneNumber o mail es requerido para registrar la verificación');
+      if (!phoneNumber && !mail && !emailValue && !isEmailVerification) {
+        throw new functions.https.HttpsError(
+          'invalid-argument',
+          'phoneNumber, mail o email es requerido para registrar la verificación'
+        );
       }
 
       const userId = rawUserId.trim();
       const normalizedPhone = phoneNumber ? phoneNumber.replace(/\s+/g, '') : null;
       const normalizedMail = mail ? mail.trim().toLowerCase() : null;
+      const normalizedEmailValue = emailValue ? emailValue.trim().toLowerCase() : null;
+      const isEmailLog = Boolean(isEmailVerification || normalizedEmailValue);
 
       const now = new Date();
       const expiresAt = new Date(now.getTime() + 10 * 60 * 1000); // 10 minutos
 
-      const safeCode = (code || '').trim();
+      const safeCodeInput = (code || '').trim();
+      const safeCode = safeCodeInput || (isEmailLog ? '000000' : '');
+      const effectiveContext = (verificationContext || '').trim() || (isEmailLog ? 'register_email' : 'register_phone');
       const codeHash = safeCode
         ? crypto.createHash('sha256').update(safeCode).digest('hex')
         : crypto.createHash('sha256').update(`${userId}:${normalizedPhone || normalizedMail || now.toISOString()}`).digest('hex');
@@ -760,8 +769,9 @@ export const logSmsVerificationCode = functions
       const payload = {
         user_id: userId,
         phone_number: normalizedPhone,
-        mail: normalizedMail,
-        context: verificationContext,
+        email: normalizedEmailValue || normalizedMail,
+        is_email: isEmailLog,
+        context: effectiveContext,
         code: safeCode || null,
         code_hash: codeHash,
         verified: true,
@@ -774,7 +784,10 @@ export const logSmsVerificationCode = functions
         userId,
         phoneNumber: normalizedPhone,
         mail: normalizedMail,
-        context: verificationContext,
+        email: normalizedEmailValue,
+        isEmail: isEmailLog,
+        context: effectiveContext,
+        hasCode: Boolean(safeCode),
       });
 
       const result = await supabasePost('sms_verification_codes', payload);

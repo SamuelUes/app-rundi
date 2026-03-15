@@ -439,7 +439,7 @@ export default function SettingsScreen({ navigation }: any) {
       color: 'rgba(202, 151, 57, 1)',
     },
     logoutButton: {
-      backgroundColor: 'rgba(202, 151, 57, 1)',
+      backgroundColor: 'rgb(202, 57, 57)',
       marginHorizontal: 16,
       marginTop: 20,
       marginBottom: 40,

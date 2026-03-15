@@ -61,8 +61,14 @@ export default function DeleteAccountScreen({ navigation }: any) {
     
     // Confirmar eliminación
     Alert.alert(
-      t('deleteAccount.alerts.confirmDeleteTitle'),
-      t('deleteAccount.alerts.confirmDeleteMessage'),
+      t(
+        'deleteAccount.alerts.confirmDeleteTitle',
+        'Delete account permanently'
+      ),
+      t(
+        'deleteAccount.alerts.confirmDeleteMessage',
+        'This action cannot be undone. All your data will be permanently deleted.\n\nAre you sure you want to continue?'
+      ),
       [
         { text: t('shared.deleteAccount.alerts.confirmDeleteCancel'), style: 'cancel' },
         {

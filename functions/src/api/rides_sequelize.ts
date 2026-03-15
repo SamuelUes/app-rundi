@@ -3871,6 +3871,19 @@ export const rejectRide = functions.https.onCall(async (data, context) => {
 
     const nowTs = admin.database.ServerValue.TIMESTAMP;
 
+    const currentRideStatus = String(rideData.status || '').toLowerCase();
+    const currentOffers = (rideData.offers && typeof rideData.offers === 'object')
+      ? rideData.offers
+      : {};
+    const myOffer = currentOffers[driverId];
+    const myOfferStatus = String(myOffer?.status || '').toLowerCase();
+    const hasDriverOfferPrice = Number(myOffer?.offeredPrice || 0) > 0;
+    const hasNegotiationEvidence = hasDriverOfferPrice
+      || String(rideData.negotiationStatus || '').toLowerCase().startsWith('driver_');
+    const clientAlreadyAcceptedDriver = myOfferStatus === 'accepted'
+      || (String(rideData.driverId || '').trim() === driverId
+        && ['pending_confirm', 'driver_assigned', 'accepted', 'driver_on_route', 'driver_arrived', 'in_progress', 'completed'].includes(currentRideStatus));
+
     // Guardar registro de rechazo por conductor
     const rejectionRef = db.ref(`activeRides/${rideId}/rejections/${driverId}`);
     await rejectionRef.update({
@@ -3882,12 +3895,23 @@ export const rejectRide = functions.https.onCall(async (data, context) => {
       updatedAt: nowTs,
     });
 
-    // Marcar oferta del conductor como rechazada (si existe)
+    // Si el conductor retiró una oferta/no aceptada por cliente, eliminarla para que desaparezca en cliente
+    if (hasNegotiationEvidence && !clientAlreadyAcceptedDriver) {
+      try {
+        await db.ref(`activeRides/${rideId}/offers/${driverId}`).remove();
+      } catch (offerRemoveErr) {
+        console.warn('⚠️ [rejectRide] No se pudo eliminar offers/{driverId}:', offerRemoveErr);
+      }
+    }
+
+    // Mantener compatibilidad para flujos que consumen estado de oferta si no se eliminó
     try {
-      await db.ref(`activeRides/${rideId}/offers/${driverId}`).update({
-        status: 'rejected',
-        updatedAt: nowTs,
-      });
+      if (!hasNegotiationEvidence || clientAlreadyAcceptedDriver) {
+        await db.ref(`activeRides/${rideId}/offers/${driverId}`).update({
+          status: 'rejected',
+          updatedAt: nowTs,
+        });
+      }
     } catch (offerErr) {
       console.warn('⚠️ [rejectRide] No se pudo actualizar offers:', offerErr);
     }

@@ -25,7 +25,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTheme } from '../../context/ThemeContext';
 import phoneAuthService from '../../services/auth/phoneAuthService';
 import firebaseAuthService from '../../services/auth/firebaseAuthService';
-import registrationService from '../../services/registrationService';
+import registrationService from '../../services/auth/registrationService';
 import accountLinkingService from '../../services/auth/accountLinkingService';
 import { AuthStackParamList } from '../../navigation/types';
 import { formatPhoneNumber, getCountryDialOptions } from '../../utils/phoneUtils';

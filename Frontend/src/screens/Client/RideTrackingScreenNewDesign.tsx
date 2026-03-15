@@ -1209,7 +1209,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
-    shadowRadius: 8,
+    shadowRadius: 0,
     elevation: 60,
     zIndex: 10,
   },

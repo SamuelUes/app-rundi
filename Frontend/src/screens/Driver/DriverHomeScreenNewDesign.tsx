@@ -306,7 +306,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   const { t } = useTranslation();
   const { user, logout, logoutInProgress } = useAuth();
   const { settings: voiceSettings, speak: speakVoice, stopCategory: stopVoiceCategory } = useVoiceAssistant();
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
 
   const preflightSummary = getPreflightResult();
   const initialRegion = preflightSummary?.role === 'driver' ? preflightSummary.region : undefined;
@@ -329,7 +329,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
         }
       : DRIVER_LOCATION_OPTIONS,
   );
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
 
   const [loadingMessage, setLoadingMessage] = useState(t('driver.home.loading.initializing'));
   const [initializing, setInitializing] = useState(true);
@@ -2210,7 +2210,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   );
 }
 
-const createStyles = (colors: any) =>
+const createStyles = (colors: any, isDark: boolean) =>
   StyleSheet.create({
     container: {
       flex: 1,
@@ -2239,9 +2239,9 @@ const createStyles = (colors: any) =>
       width: 44,
       height: 44,
       borderRadius: 14,
-      backgroundColor: colors.isDark ? 'rgba(17,24,39,0.88)' : 'rgba(255,255,255,0.88)',
+      backgroundColor: isDark ? 'rgba(17,24,39,0.88)' : 'rgba(255,255,255,0.88)',
       borderWidth: 1,
-      borderColor: colors.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(17,24,39,0.1)',
+      borderColor: isDark ? 'rgba(255,255,255,0.16)' : 'rgba(17,24,39,0.1)',
       justifyContent: 'center',
       alignItems: 'center',
       shadowColor: 'rgba(15,23,42,0.22)',
@@ -2260,7 +2260,7 @@ const createStyles = (colors: any) =>
       width: '100%',
       height: 2,
       borderRadius: 10,
-      backgroundColor: colors.isDark ? '#F8FAFC' : '#111827',
+      backgroundColor: isDark ? '#F8FAFC' : '#111827',
     },
     emergencyHeaderButton: {
       width: 52,
@@ -2276,10 +2276,10 @@ const createStyles = (colors: any) =>
       paddingHorizontal: 14,
       paddingVertical: 10,
       borderRadius: 18,
-      backgroundColor: colors.isDark ? 'rgba(15,23,42,0.9)' : 'rgba(255,255,255,0.92)',
+      backgroundColor: isDark ? 'rgba(15,23,42,0.9)' : 'rgba(255,255,255,0.92)',
       shadowColor: '#000',
       shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: colors.isDark ? 0.4 : 0.18,
+      shadowOpacity: isDark ? 0.4 : 0.18,
       shadowRadius: 10,
       elevation: 6,
     },
@@ -2293,14 +2293,14 @@ const createStyles = (colors: any) =>
     headerTitle: {
       fontSize: 18,
       fontWeight: '700',
-      color: colors.isDark ? '#F8FAFC' : '#111827',
+      color: isDark ? '#F8FAFC' : '#111827',
       maxWidth: 140,
     },
     profileBubbleIcon: {
       width: 26,
       height: 26,
       resizeMode: 'contain',
-      tintColor: colors.isDark ? '#F8FAFC' : '#111827',
+      tintColor: isDark ? '#F8FAFC' : '#111827',
     },
     fallbackContainer: {
       flex: 1,
@@ -2482,7 +2482,7 @@ const createStyles = (colors: any) =>
       marginTop: Platform.select({ ios: 66, android: 74 }),
       marginBottom: Platform.select({ ios: 24, android: 20 }),
       marginRight: 14,
-      backgroundColor: colors.isDark ? 'rgba(15,23,42,0.97)' : 'rgba(255,255,255,0.98)',
+      backgroundColor: isDark ? 'rgba(15,23,42,0.97)' : 'rgba(255,255,255,0.98)',
       borderRadius: 20,
       paddingVertical: 14,
       paddingHorizontal: 14,
@@ -2499,7 +2499,7 @@ const createStyles = (colors: any) =>
       borderRadius: 999,
       marginHorizontal: 8,
       marginBottom: 10,
-      backgroundColor: colors.isDark ? 'rgba(245, 158, 11, 0.9)' : 'rgba(202, 138, 4, 0.82)',
+      backgroundColor: isDark ? 'rgba(245, 158, 11, 0.9)' : 'rgba(202, 138, 4, 0.82)',
     },
     menuHeaderRow: {
       flexDirection: 'row',
@@ -2519,7 +2519,7 @@ const createStyles = (colors: any) =>
       borderRadius: 15,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: colors.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(15,23,42,0.08)',
+      backgroundColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(15,23,42,0.08)',
     },
     menuCloseIcon: {
       fontSize: 16,
@@ -2533,12 +2533,12 @@ const createStyles = (colors: any) =>
       flexDirection: 'row',
       alignItems: 'center',
       gap: 10,
-      backgroundColor: colors.isDark ? 'rgba(255,255,255,0.05)' : 'rgba(248,250,252,0.95)',
+      backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(248,250,252,0.95)',
       borderRadius: 12,
       paddingVertical: 11,
       paddingHorizontal: 12,
       borderWidth: 1,
-      borderColor: colors.isDark ? 'rgba(255,255,255,0.1)' : 'rgba(15,23,42,0.08)',
+      borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(15,23,42,0.08)',
     },
     menuIconBadge: {
       width: 28,
@@ -2546,7 +2546,7 @@ const createStyles = (colors: any) =>
       borderRadius: 8,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: colors.isDark ? 'rgba(255,255,255,0.1)' : 'rgba(15,23,42,0.06)',
+      backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(15,23,42,0.06)',
     },
     menuEmoji: {
       fontSize: 15,
@@ -2560,22 +2560,22 @@ const createStyles = (colors: any) =>
     menuItemArrow: {
       fontSize: 20,
       lineHeight: 20,
-      color: colors.isDark ? 'rgba(248,250,252,0.72)' : 'rgba(15,23,42,0.42)',
+      color: isDark ? 'rgba(248,250,252,0.72)' : 'rgba(15,23,42,0.42)',
       fontWeight: '500',
       marginRight: 2,
     },
     menuDivider: {
       height: 1,
-      backgroundColor: colors.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(15,23,42,0.1)',
+      backgroundColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(15,23,42,0.1)',
       marginVertical: 14,
       marginHorizontal: 6,
     },
     logoutItem: {
-      backgroundColor: colors.isDark ? 'rgba(239,68,68,0.16)' : 'rgba(239,68,68,0.1)',
+      backgroundColor: isDark ? 'rgba(239,68,68,0.16)' : 'rgba(239,68,68,0.1)',
       borderColor: 'rgba(239,68,68,0.28)',
     },
     logoutIconBadge: {
-      backgroundColor: colors.isDark ? 'rgba(239,68,68,0.22)' : 'rgba(239,68,68,0.14)',
+      backgroundColor: isDark ? 'rgba(239,68,68,0.22)' : 'rgba(239,68,68,0.14)',
     },
     logoutEmoji: {
       fontSize: 14,

@@ -18,7 +18,7 @@ import { RouteProp } from '@react-navigation/native';
 
 import { useTheme } from '../../context/ThemeContext';
 import phoneAuthService from '../../services/auth/phoneAuthService';
-import registrationService from '../../services/registrationService';
+import registrationService from '../../services/auth/registrationService';
 import firebaseAuthService from '../../services/auth/firebaseAuthService';
 import { AuthStackParamList } from '../../navigation/types';
 import {

@@ -23,7 +23,7 @@ import { RouteProp } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 
 import { useTheme } from '../../context/ThemeContext';
-import registrationService from '../../services/registrationService';
+import registrationService from '../../services/auth/registrationService';
 import { getDepartments, getMunicipalitiesByDepartment } from '../../constants/nicaraguaLocations';
 import { AuthStackParamList } from '../../navigation/types';
 import { useTranslation } from 'react-i18next';

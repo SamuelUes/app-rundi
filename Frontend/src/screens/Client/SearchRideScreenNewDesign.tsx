@@ -43,7 +43,12 @@ const BACK_BUTTON_ICON = require('../../assets/icons/back_button/back_button2x.p
 const DEFAULT_FALLBACK_COORDS = { latitude: 12.1364, longitude: -86.2514 };
 const MAX_EXTRA_STOPS = 3;
 const VEHICLE_TYPES: VehicleType[] = ['moto', 'auto', 'designated_driver'];
+const DESIGNATED_DRIVER_MOTO_DISCOUNT = 70;
+const MIN_DESIGNATED_DRIVER_PRICE = 100;
 const REGION_IDLE_DELAY_MS = 900;
+const SCHEDULE_MIN_LEAD_MS = 10 * 60 * 1000;
+const SCHEDULE_MAX_AHEAD_MS = 20 * 24 * 60 * 60 * 1000;
+const SCHEDULE_MINUTE_STEP = 5;
 
 interface VehicleEstimate {
   price: number | null;
@@ -87,6 +92,21 @@ type MapSelectionState =
   | null;
 
 const formatCoords = (coords: Coords) => `${coords.latitude.toFixed(5)}, ${coords.longitude.toFixed(5)}`;
+
+const applyDesignatedDriverMotoDiscount = (breakdown: PriceBreakdown | null, enabled: boolean): PriceBreakdown | null => {
+  if (!enabled || !breakdown) {
+    return breakdown;
+  }
+
+  const discountedFinalPrice = Math.max(breakdown.finalPrice - DESIGNATED_DRIVER_MOTO_DISCOUNT, 0);
+  return {
+    ...breakdown,
+    finalPrice: discountedFinalPrice,
+    breakdown: breakdown.breakdown
+      ? `${breakdown.breakdown}\nDescuento conductor designado (moto): -C$${DESIGNATED_DRIVER_MOTO_DISCOUNT.toFixed(2)}`
+      : breakdown.breakdown,
+  };
+};
 
 function isValidCoordLocal(value: Coords | null | undefined): value is Coords {
   if (!value) return false;
@@ -152,6 +172,40 @@ function extractCoordsFromSuggestion(suggestion: any): Coords | null {
   }
 
   return null;
+}
+
+function isSameDay(a: Date, b: Date) {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+function startOfDay(date: Date) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function roundMinutesUp(date: Date, step: number) {
+  const d = new Date(date);
+  const rounded = Math.ceil(d.getMinutes() / step) * step;
+  if (rounded >= 60) {
+    d.setHours(d.getHours() + 1, 0, 0, 0);
+  } else {
+    d.setMinutes(rounded, 0, 0);
+  }
+  return d;
+}
+
+function roundMinutesDown(date: Date, step: number) {
+  const d = new Date(date);
+  const rounded = Math.floor(d.getMinutes() / step) * step;
+  d.setMinutes(rounded, 0, 0);
+  return d;
+}
+
+function getScheduleBounds(nowMs: number = Date.now()) {
+  const minDate = roundMinutesUp(new Date(nowMs + SCHEDULE_MIN_LEAD_MS), SCHEDULE_MINUTE_STEP);
+  const maxDate = roundMinutesDown(new Date(nowMs + SCHEDULE_MAX_AHEAD_MS), SCHEDULE_MINUTE_STEP);
+  return { minDate, maxDate };
 }
 
 function normalizeSuggestion(suggestion: any, fallbackLabel: string): NormalizedSuggestion {
@@ -275,6 +329,20 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     moto: { price: null, breakdown: null },
   });
   const [recommendedVehicle, setRecommendedVehicle] = useState<VehicleType | null>(null);
+
+  const designatedDriverEligibility = useMemo(() => {
+    const autoPrice = designatedDriverEstimates.auto.price ?? null;
+    const motoPrice = designatedDriverEstimates.moto.price ?? null;
+    const autoEligible = typeof autoPrice === 'number' && autoPrice >= MIN_DESIGNATED_DRIVER_PRICE;
+    const motoEligible = typeof motoPrice === 'number' && motoPrice >= MIN_DESIGNATED_DRIVER_PRICE;
+    return {
+      autoPrice,
+      motoPrice,
+      autoEligible,
+      motoEligible,
+      anyEligible: autoEligible || motoEligible,
+    };
+  }, [designatedDriverEstimates]);
 
   const [showSearchOverlay, setShowSearchOverlay] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -458,13 +526,16 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
   useEffect(() => {
     if (mapSelectionMode === 'destination') {
       setManualDestinationDragging(false);
-      if (!manualDestinationDraft) {
-        const baseDestination =
-          destinationCoords ??
-          manualOriginDraft ??
-          originCoords ??
-          coords ??
-          DEFAULT_FALLBACK_COORDS;
+      const baseDestination =
+        destinationCoords ??
+        manualOriginDraft ??
+        originCoords ??
+        coords ??
+        DEFAULT_FALLBACK_COORDS;
+      if (
+        !manualDestinationDraft ||
+        metersBetween(manualDestinationDraft, baseDestination) > 5
+      ) {
         setManualDestinationDraft(baseDestination);
       }
     } else if (manualDestinationDragging) {
@@ -535,7 +606,11 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
       return target;
     };
 
-    return VEHICLE_TYPES.map((type) => {
+    const typesToRender = designatedDriverEligibility.anyEligible
+      ? VEHICLE_TYPES
+      : VEHICLE_TYPES.filter((type) => type !== 'designated_driver');
+
+    return typesToRender.map((type) => {
       const match = findMatch(type);
       const shouldUseCatalogCopy = preferServiceCatalogCopy && match;
       return {
@@ -545,7 +620,25 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         emoji: defaults[type].emoji,
       };
     });
-  }, [servicesCatalog, tr, preferServiceCatalogCopy]);
+  }, [servicesCatalog, tr, preferServiceCatalogCopy, designatedDriverEligibility.anyEligible]);
+
+  useEffect(() => {
+    if (vehicleType === 'designated_driver') {
+      if (!designatedDriverEligibility.anyEligible) {
+        setVehicleType('auto');
+        return;
+      }
+
+      if (designatedDriverMode === 'auto' && !designatedDriverEligibility.autoEligible && designatedDriverEligibility.motoEligible) {
+        setDesignatedDriverMode('moto');
+        return;
+      }
+
+      if (designatedDriverMode === 'moto' && !designatedDriverEligibility.motoEligible && designatedDriverEligibility.autoEligible) {
+        setDesignatedDriverMode('auto');
+      }
+    }
+  }, [vehicleType, designatedDriverMode, designatedDriverEligibility, setVehicleType, setDesignatedDriverMode]);
 
   const formatPriceValue = useCallback(
     (value: number | null | undefined) => {
@@ -601,9 +694,10 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         }
 
         const designatedDriverAutoEstimate = mapped.designated_driver || { price: null, breakdown: null };
+        const discountedMotoBreakdown = applyDesignatedDriverMotoDiscount(designatedDriverMotoBreakdown, true);
         const designatedDriverMotoEstimate: VehicleEstimate = {
-          price: designatedDriverMotoBreakdown?.finalPrice ?? null,
-          breakdown: designatedDriverMotoBreakdown,
+          price: discountedMotoBreakdown?.finalPrice ?? null,
+          breakdown: discountedMotoBreakdown,
         };
         setDesignatedDriverEstimates({
           auto: designatedDriverAutoEstimate,
@@ -688,7 +782,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         const useMotorcycle = vehicleType === 'moto' || (vehicleType === 'designated_driver' && designatedDriverMode === 'moto');
         const vehicleTypeForCalc = useMotorcycle ? 'motorcycle' : 'car';
         const rideTypeForCalc = vehicleType === 'designated_driver' ? 'designated_driver' : 'normal';
-        const breakdown = await calculateRidePrice(
+        let breakdown = await calculateRidePrice(
           totalDistance,
           totalDuration,
           vehicleTypeForCalc,
@@ -697,6 +791,11 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
           startPoint.longitude,
           { extraStops: stops.length },
         );
+        const discountedBreakdown = applyDesignatedDriverMotoDiscount(
+          breakdown,
+          vehicleType === 'designated_driver' && designatedDriverMode === 'moto',
+        );
+        breakdown = discountedBreakdown ?? breakdown;
         setEstimatedPrice(breakdown.finalPrice);
         setPriceBreakdown(breakdown);
         await updateVehicleEstimates(totalDistance, totalDuration, stops.length, startPoint);
@@ -725,7 +824,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
 
         const vehicleTypeForCalc = vehicleType === 'moto' ? 'motorcycle' : 'car';
         const rideTypeForCalc = vehicleType === 'designated_driver' ? 'designated_driver' : 'normal';
-        const breakdown = await calculateRidePrice(
+        let breakdown = await calculateRidePrice(
           route.distance,
           route.duration,
           vehicleTypeForCalc,
@@ -734,6 +833,11 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
           start.longitude,
           { extraStops: stopsCount },
         );
+        const discountedBreakdown = applyDesignatedDriverMotoDiscount(
+          breakdown,
+          vehicleType === 'designated_driver' && designatedDriverMode === 'moto',
+        );
+        breakdown = discountedBreakdown ?? breakdown;
         setEstimatedPrice(breakdown.finalPrice);
         setPriceBreakdown(breakdown);
         await updateVehicleEstimates(route.distance, route.duration, stopsCount, start);
@@ -1754,36 +1858,84 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
   ]);
 
   const scheduleDayOptions = useMemo(() => {
+    const { minDate, maxDate } = getScheduleBounds();
     const days: Array<{ label: string; date: Date }> = [];
-    const base = new Date();
-    base.setHours(0, 0, 0, 0);
-    for (let i = 0; i <= 20; i++) {
-      const d = new Date(base);
-      d.setDate(base.getDate() + i);
+    const cursor = startOfDay(minDate);
+    const end = startOfDay(maxDate);
+    while (cursor.getTime() <= end.getTime()) {
+      const d = new Date(cursor);
       const label = d.toLocaleDateString(undefined, {
         weekday: 'short',
         month: 'short',
         day: '2-digit',
       });
       days.push({ label, date: d });
+      cursor.setDate(cursor.getDate() + 1);
     }
     return days;
   }, []);
 
   const scheduleMinuteOptions = useMemo(() => {
     const values: number[] = [];
-    for (let m = 0; m < 60; m += 5) {
+    for (let m = 0; m < 60; m += SCHEDULE_MINUTE_STEP) {
       values.push(m);
     }
     return values;
   }, []);
 
+  const selectedScheduleDay = useMemo(
+    () => scheduleDayOptions[scheduleDayIndex]?.date || scheduleDayOptions[0]?.date || null,
+    [scheduleDayIndex, scheduleDayOptions],
+  );
+
+  const scheduleHourOptions = useMemo(() => {
+    if (!selectedScheduleDay) return [];
+    const { minDate, maxDate } = getScheduleBounds();
+    const minHour = isSameDay(selectedScheduleDay, minDate) ? minDate.getHours() : 0;
+    const maxHour = isSameDay(selectedScheduleDay, maxDate) ? maxDate.getHours() : 23;
+    if (minHour > maxHour) return [];
+    const values: number[] = [];
+    for (let h = minHour; h <= maxHour; h++) {
+      values.push(h);
+    }
+    return values;
+  }, [selectedScheduleDay]);
+
+  const scheduleMinuteOptionsForHour = useMemo(() => {
+    if (!selectedScheduleDay) return scheduleMinuteOptions;
+    const { minDate, maxDate } = getScheduleBounds();
+    let minMinute = 0;
+    let maxMinute = 59;
+    if (isSameDay(selectedScheduleDay, minDate) && scheduleHour === minDate.getHours()) {
+      minMinute = minDate.getMinutes();
+    }
+    if (isSameDay(selectedScheduleDay, maxDate) && scheduleHour === maxDate.getHours()) {
+      maxMinute = maxDate.getMinutes();
+    }
+    return scheduleMinuteOptions.filter((minute) => minute >= minMinute && minute <= maxMinute);
+  }, [selectedScheduleDay, scheduleHour, scheduleMinuteOptions]);
+
+  useEffect(() => {
+    if (!scheduleHourOptions.length) return;
+    if (!scheduleHourOptions.includes(scheduleHour)) {
+      setScheduleHour(scheduleHourOptions[0]);
+    }
+  }, [scheduleHourOptions, scheduleHour]);
+
+  useEffect(() => {
+    if (!scheduleMinuteOptionsForHour.length) return;
+    if (!scheduleMinuteOptionsForHour.includes(scheduleMinute)) {
+      setScheduleMinute(scheduleMinuteOptionsForHour[0]);
+    }
+  }, [scheduleMinuteOptionsForHour, scheduleMinute]);
+
   const openScheduleModal = useCallback(() => {
-    const base = scheduledAt ? new Date(scheduledAt) : new Date(Date.now() + 30 * 60 * 1000);
-    const roundedMinutes = Math.ceil(base.getMinutes() / 5) * 5;
-    base.setMinutes(roundedMinutes >= 60 ? 0 : roundedMinutes);
-    if (roundedMinutes >= 60) {
-      base.setHours(base.getHours() + 1);
+    const { minDate, maxDate } = getScheduleBounds();
+    let base = scheduledAt ? roundMinutesUp(new Date(scheduledAt), SCHEDULE_MINUTE_STEP) : new Date(minDate);
+    if (base.getTime() < minDate.getTime()) {
+      base = new Date(minDate);
+    } else if (base.getTime() > maxDate.getTime()) {
+      base = new Date(maxDate);
     }
     base.setSeconds(0, 0);
 
@@ -1797,7 +1949,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
 
     setScheduleDayIndex(dayIndex >= 0 ? dayIndex : 0);
     setScheduleHour(base.getHours());
-    setScheduleMinute(base.getMinutes() - (base.getMinutes() % 5));
+    setScheduleMinute(base.getMinutes() - (base.getMinutes() % SCHEDULE_MINUTE_STEP));
     setScheduleModalVisible(true);
   }, [scheduledAt, scheduleDayOptions]);
 
@@ -1810,9 +1962,9 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     const candidate = new Date(day);
     candidate.setHours(scheduleHour, scheduleMinute, 0, 0);
     const ms = candidate.getTime();
-    const now = Date.now();
-    const minMs = now + 30 * 60 * 1000;
-    const maxMs = now + 20 * 24 * 60 * 60 * 1000;
+    const { minDate, maxDate } = getScheduleBounds();
+    const minMs = minDate.getTime();
+    const maxMs = maxDate.getTime();
 
     if (ms < minMs || ms > maxMs) {
       alertService.showErrorAlert(tr('scheduling.invalidRange'));
@@ -1821,7 +1973,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
 
     setScheduledAt(ms);
     setScheduleModalVisible(false);
-  }, [scheduleDayOptions, scheduleDayIndex, scheduleHour, scheduleMinute]);
+  }, [scheduleDayOptions, scheduleDayIndex, scheduleHour, scheduleMinute, tr]);
 
   const selectionTitle = useMemo(() => {
     if (activeSelection === 'origin') return tr('search.selectionOriginTitle');
@@ -1841,6 +1993,9 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     if (activeSelection === 'new-stop' || typeof activeSelection === 'number') return tr('search.descriptionExtra');
     return tr('search.descriptionGeneric');
   }, [activeSelection, tr]);
+  const isDestinationSelection = activeSelection === 'destination';
+  const shouldHighlightMapAction = isDestinationSelection && !destinationCoords;
+  const hasConfirmedDestination = !!destinationCoords;
   const requiresVehiclePhoto = vehicleType === 'designated_driver';
   const hasVehiclePhotoSelection = !!clientVehiclePhoto || !!clientVehiclePhotoLocalUri;
   const isRequestReady =
@@ -1876,6 +2031,18 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     mapSelectionMode === 'destination' ||
     mapSelectionMode === 'extra-new' ||
     (typeof mapSelectionMode === 'object' && mapSelectionMode?.type === 'extra-edit');
+  const editingExtraStopIndex =
+    typeof mapSelectionMode === 'object' && mapSelectionMode?.type === 'extra-edit'
+      ? mapSelectionMode.index
+      : null;
+  const visibleDestinationMarker = mapSelectionMode === 'destination' ? undefined : destinationCoords || undefined;
+  const visibleExtraStopMarkers = extraDestinations
+    .map((stop, index) => {
+      if (index === editingExtraStopIndex) return null;
+      if (!stop.coords) return null;
+      return { latitude: stop.coords.latitude, longitude: stop.coords.longitude, index };
+    })
+    .filter(Boolean) as Array<{ latitude: number; longitude: number; index: number }>;
   const autoFitEnabled =
     !centerPinActive &&
     !manualOriginDragging &&
@@ -1960,10 +2127,8 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
           onRegionChangeCenter={centerPinActive ? handleRegionChangeCenter : undefined}
           onRegionChangeCompleteCenter={centerPinActive ? handleRegionChangeCompleteCenter : undefined}
           autoFitEnabled={autoFitEnabled}
-          destinationMarker={destinationCoords || undefined}
-          extraStopMarkers={extraDestinations
-            .map((stop, index) => (stop.coords ? { latitude: stop.coords.latitude, longitude: stop.coords.longitude, index } : null))
-            .filter(Boolean) as Array<{ latitude: number; longitude: number; index: number }>}
+          destinationMarker={visibleDestinationMarker}
+          extraStopMarkers={visibleExtraStopMarkers}
           routeCoordinates={routeCoordinates}
           showUserLocation
           userLocation={coords || undefined}
@@ -2089,7 +2254,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
 
             <TouchableOpacity style={styles.panelToggle} onPress={() => setBottomPanelExpanded((prev) => !prev)}>
               <View style={styles.panelHandle} />
-              <Text style={styles.panelToggleText}>{bottomPanelExpanded ? '' : ''}</Text>
+              <Text style={styles.panelToggleText}>{bottomPanelExpanded ? '\u203E' : '\u203E'}</Text>
             </TouchableOpacity>
 
           {bottomPanelExpanded ? (
@@ -2101,7 +2266,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
               nestedScrollEnabled
             >
               
-            <View style={styles.section}>
+            <View style={[styles.section, styles.vehicleSection]}>
 
               <View style={styles.vehicleOptionsList}>
                 {vehicleOptions.map((option) => {
@@ -2229,10 +2394,10 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
               )}
             </View>
 
-            <View style={[styles.section, styles.sectionCompact]}>
+            <View style={[styles.section, styles.sectionCompact, styles.summarySection]}>
               <Text style={styles.sectionTitle}>{tr('summary.title')}</Text>
 
-              <View style={styles.estimateCard}>
+              <View style={[styles.estimateCard, styles.estimateCardElevated]}>
                 {calculatingRoute ? (
                   <View style={styles.centeredRow}>
                     <ActivityIndicator color={colors.primary} />
@@ -2341,6 +2506,20 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
                 </View>
                 <Text style={styles.collapsedSummaryPrice}>{formatPriceValue(vehicleEstimates[vehicleType]?.price ?? null)}</Text>
               </View>
+              <View style={styles.collapsedSummaryMetaRow}>
+                <View style={styles.collapsedSummaryMetaPill}>
+                  <Text style={styles.collapsedSummaryMetaPillText}>
+                    {calculatingRoute
+                      ? tr('labels.calculating')
+                      : estimatedDuration > 0
+                      ? tr('labels.etaValue', { minutes: estimatedDuration })
+                      : tr('labels.etaUnavailable')}
+                  </Text>
+                </View>
+                <View style={styles.collapsedSummaryMetaPill}>
+                  <Text style={styles.collapsedSummaryMetaPillText}>{`${getPassengersForVehicle(vehicleType)} 👤`}</Text>
+                </View>
+              </View>
             </View>
           )}
 
@@ -2400,14 +2579,37 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
               </TouchableOpacity>
             </View>
 
+            {isDestinationSelection ? (
+              <View style={styles.destinationGuidanceCard}>
+                <Text style={styles.destinationGuidanceTitle}>{tr('search.destinationGuidanceTitle')}</Text>
+                <Text style={styles.destinationGuidanceText}>{tr('search.destinationGuidanceBody')}</Text>
+                <View style={styles.destinationGuidanceSteps}>
+                  <View style={styles.destinationGuidanceStepPill}>
+                    <Text style={styles.destinationGuidanceStepText}>{tr('search.destinationGuidanceStep1')}</Text>
+                  </View>
+                  <View style={styles.destinationGuidanceStepPill}>
+                    <Text style={styles.destinationGuidanceStepText}>{tr('search.destinationGuidanceStep2')}</Text>
+                  </View>
+                </View>
+                {hasConfirmedDestination ? (
+                  <View style={styles.destinationConfirmedPill}>
+                    <Text style={styles.destinationConfirmedText}>{tr('search.destinationConfirmed')}</Text>
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
+
             <View style={styles.searchInputWrapper}>
               <Text style={styles.searchInputLabel}>{tr('search.inputLabel')}</Text>
+              {isDestinationSelection ? (
+                <Text style={styles.searchInputHelper}>{tr('search.placeholderDestinationReference')}</Text>
+              ) : null}
               <View style={styles.searchInputContainer}>
                 <TextInput
                   style={styles.searchInput}
                   placeholder={(() => {
                     if (activeSelection === 'origin') return tr('search.placeholderOrigin');
-                    if (activeSelection === 'destination') return tr('search.placeholderDestination');
+                    if (activeSelection === 'destination') return tr('search.placeholderDestinationReference');
                     if (activeSelection === 'new-stop' || typeof activeSelection === 'number') {
                       return tr('search.placeholderStop');
                     }
@@ -2426,11 +2628,16 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
             </View>
 
             <View style={styles.searchActionsRow}>
-              <TouchableOpacity style={[styles.searchActionChip, styles.searchActionPrimary]} onPress={handleUseCurrentLocation}>
-                <Text style={[styles.searchActionText, styles.searchActionTextPrimary]}>{tr('search.useCurrentLocation')}</Text>
+              <TouchableOpacity
+                style={[styles.searchActionChip, !shouldHighlightMapAction && styles.searchActionPrimary]}
+                onPress={handleUseCurrentLocation}
+              >
+                <Text style={[styles.searchActionText, !shouldHighlightMapAction && styles.searchActionTextPrimary]}>
+                  {tr('search.useCurrentLocation')}
+                </Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.searchActionChip} onPress={handlePickFromMap}>
-                <Text style={styles.searchActionText}>{tr('search.pickOnMap')}</Text>
+              <TouchableOpacity style={[styles.searchActionChip, shouldHighlightMapAction && styles.searchActionPrimary]} onPress={handlePickFromMap}>
+                <Text style={[styles.searchActionText, shouldHighlightMapAction && styles.searchActionTextPrimary]}>{tr('search.pickOnMap')}</Text>
               </TouchableOpacity>
             </View>
 
@@ -2535,7 +2742,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
                 ]}
               >
                 <Picker selectedValue={scheduleHour} onValueChange={(value) => setScheduleHour(Number(value))}>
-                  {Array.from({ length: 24 }, (_, h) => (
+                  {scheduleHourOptions.map((h) => (
                     <Picker.Item key={`hour-${h}`} label={String(h).padStart(2, '0')} value={h} />
                   ))}
                 </Picker>
@@ -2549,7 +2756,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
                 ]}
               >
                 <Picker selectedValue={scheduleMinute} onValueChange={(value) => setScheduleMinute(Number(value))}>
-                  {scheduleMinuteOptions.map((m) => (
+                  {scheduleMinuteOptionsForHour.map((m) => (
                     <Picker.Item key={`min-${m}`} label={String(m).padStart(2, '0')} value={m} />
                   ))}
                 </Picker>
@@ -2705,20 +2912,26 @@ function createStyles(colors: any, isDark: boolean = false) {
     },
     panelToggleText: { fontSize: 12, color: colors.textSecondary || '#666', fontWeight: '600' },
     collapsedSummary: {
-      paddingHorizontal: 16,
+      paddingHorizontal: 14,
       paddingVertical: 12,
-      borderRadius: 16,
-      backgroundColor: colors.surface || '#f8f8f8',
+      borderRadius: 18,
+      backgroundColor: colors.card || (isDark ? '#232323' : '#fcfcfd'),
       borderWidth: 1,
-      borderColor: colors.border || '#e0e0e0',
+      borderColor: isDark ? '#3f3f3f' : '#ece9f5',
       marginBottom: 12,
+      shadowColor: '#000',
+      shadowOpacity: Platform.OS === 'ios' ? 0.08 : 0,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 3 },
+      elevation: Platform.OS === 'android' ? 3 : 0,
+      gap: 10,
     },
-    collapsedSummaryRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+    collapsedSummaryRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
     collapsedSummaryIcon: {
       width: 44,
       height: 44,
       borderRadius: 22,
-      backgroundColor: '#fff',
+      backgroundColor: isDark ? '#2e2e2e' : '#fff',
       justifyContent: 'center',
       alignItems: 'center',
       shadowColor: '#000',
@@ -2728,9 +2941,22 @@ function createStyles(colors: any, isDark: boolean = false) {
       elevation: 3,
     },
     collapsedSummaryText: { flex: 1 },
-    collapsedSummaryTitle: { fontSize: 15, fontWeight: '700', color: colors.text || '#111' },
+    collapsedSummaryTitle: { fontSize: 16, fontWeight: '800', color: colors.text || '#111' },
     collapsedSummaryMeta: { fontSize: 12, color: colors.textSecondary || '#666', marginTop: 2 },
-    collapsedSummaryPrice: { fontSize: 18, fontWeight: '800', color: '#c87a1a' },
+    collapsedSummaryPrice: { fontSize: 22, fontWeight: '800', color: '#c87a1a' },
+    collapsedSummaryMetaRow: { flexDirection: 'row', gap: 8 },
+    collapsedSummaryMetaPill: {
+      flex: 1,
+      borderRadius: 999,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      backgroundColor: isDark ? '#2f2a35' : '#5a5a66b0',
+      borderWidth: 1,
+      borderColor: isDark ? '#453c4f' : '#5500ff',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    collapsedSummaryMetaPillText: { fontSize: 14, fontWeight: '900', color: '#cbbcff' || '#555' },
     formOverline: {
       fontSize: 12,
       fontWeight: '700',
@@ -2759,8 +2985,22 @@ function createStyles(colors: any, isDark: boolean = false) {
     counterCaption: { fontSize: 11, color: colors.textSecondary || '#666' },
 
     section: { marginBottom: 16 },
+    vehicleSection: {
+      padding: 10,
+      borderRadius: 18,
+      borderWidth: 1,
+      borderColor: isDark ? '#32343a' : '#efe6d5',
+      backgroundColor: isDark ? '#1d1f24' : '#a5a5a5ad',
+    },
+    summarySection: {
+      padding: 10,
+      borderRadius: 18,
+      borderWidth: 1,
+      borderColor: isDark ? '#3e3e3e' : '#e7e7eb',
+      backgroundColor: colors.card || (isDark ? '#252525' : '#fcfcfd'),
+    },
     sectionCompact: { marginBottom: 14 },
-    sectionTitle: { fontSize: 15, fontWeight: '700', color: colors.text || '#111', marginBottom: 6 },
+    sectionTitle: { fontSize: 16, fontWeight: '800', color: colors.text || '#111', marginBottom: 8 },
     sectionHint: { fontSize: 12, color: colors.textSecondary || '#666' },
     sectionDivider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border || '#ddd', marginVertical: 12 },
 
@@ -2768,15 +3008,15 @@ function createStyles(colors: any, isDark: boolean = false) {
     vehicleOptionCard: {
       paddingVertical: 12,
       paddingHorizontal: 14,
-      borderRadius: 16,
-      backgroundColor: colors.card || (isDark ? '#2a2a2a' : '#FFFAF5'),
+      borderRadius: 18,
+      backgroundColor: isDark ? '#26282e' : (colors.card || '#ffffff'),
       borderWidth: 1,
-      borderColor: colors.border || (isDark ? '#444' : '#e1e1e1'),
+      borderColor: isDark ? '#3a3d45' : '#ece7dc',
       gap: 8,
     },
     vehicleOptionCardSelected: {
-      borderColor: isDark ? '#9e8e7a' : '#cfa146',
-      backgroundColor: isDark ? 'rgb(206, 161, 106)'  : '#fff7df',
+      borderColor: isDark ? '#7e6746' : '#d3a24c',
+      backgroundColor: isDark ? '#2f2a24' : '#fff8e8',
       shadowColor: '#cfa146',
       shadowOpacity: Platform.OS === 'ios' ? 0.12 : 0,
       shadowRadius: 8,
@@ -2800,9 +3040,9 @@ function createStyles(colors: any, isDark: boolean = false) {
       elevation: 2,
     },
     vehicleEmoji: { fontSize: 20 },
-    vehicleOptionTitle: { fontSize: 20, fontWeight: '700', color: colors.text || '#111' },
+    vehicleOptionTitle: { fontSize: 18, fontWeight: '800', color: colors.text || '#111' },
     vehicleOptionTitleSelected: { color: '#111' },
-    vehicleOptionSubtitle: { fontSize: 16, color: colors.textSecondary || '#666', marginTop: 1 },
+    vehicleOptionSubtitle: { fontSize: 14, color: colors.textSecondary || '#666', marginTop: 2 },
     vehicleOptionSubtitleSelected: { color: '#222' },
     vehicleOptionPriceBlock: { alignItems: 'flex-end', gap: 6 },
     vehicleOptionBadge: {
@@ -2816,7 +3056,7 @@ function createStyles(colors: any, isDark: boolean = false) {
       textTransform: 'uppercase',
       letterSpacing: 0.5,
     },
-    vehicleOptionPrice: { fontSize: 20, fontWeight: '800', color: '#c87a1a' },
+    vehicleOptionPrice: { fontSize: 24, fontWeight: '800', color: '#c87a1a' },
     vehicleOptionInfoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 },
     vehicleOptionMeta: { fontSize: 12, color: colors.textSecondary || '#666', flex: 1 },
     vehicleOptionMetaSelected: { color: '#222' },
@@ -2894,8 +3134,16 @@ function createStyles(colors: any, isDark: boolean = false) {
     },
 
     photoRow: { marginTop: 8 },
-    photoHint: { fontSize: 12, color: colors.textSecondary || '#666', marginBottom: 8, textAlign: 'center' },
-    photoButton: { alignSelf: 'center', paddingVertical: 10, paddingHorizontal: 14, borderRadius: 10, backgroundColor: colors.surface || '#f1f1f1' },
+    photoHint: { fontSize: 12, color: isDark ? '#a8acb8' : (colors.textSecondary || '#666'), marginBottom: 8, textAlign: 'center' },
+    photoButton: {
+      alignSelf: 'center',
+      paddingVertical: 10,
+      paddingHorizontal: 14,
+      borderRadius: 10,
+      backgroundColor: isDark ? '#2d3038' : (colors.surface || '#f1f1f1'),
+      borderWidth: isDark ? 1 : 0,
+      borderColor: isDark ? '#414550' : 'transparent',
+    },
     photoButtonText: { color: colors.text || '#111', fontWeight: '600' },
 
     cta: {
@@ -2911,24 +3159,24 @@ function createStyles(colors: any, isDark: boolean = false) {
     ctaLoadingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
     ctaText: { color: '#fff', fontSize: 15, fontWeight: '800', textAlign: 'center' },
 
-    ctaContainer: { paddingTop: 12 },
+    ctaContainer: { paddingTop: 12, gap: 10 },
 
     scheduleCta: {
-      paddingVertical: 12,
-      borderRadius: 12,
+      paddingVertical: 14,
+      borderRadius: 14,
       borderWidth: 2,
-      borderColor: colors.SecondBorder || (isDark ? '#444444ff' : '#ddd'),
-      marginBottom: 10,
-      backgroundColor: colors.card || (isDark ? '#2a2a2a' : '#f7f7f7'),
+      borderColor: '#6e44ff',
+      marginBottom: 0,
+      backgroundColor: isDark ? '#241d3b' : '#f4f1ff',
     },
     scheduleCtaDisabled: { opacity: 0.65 },
-    scheduleCtaText: { textAlign: 'center', fontWeight: '800', color: colors.text },
+    scheduleCtaText: { textAlign: 'center', fontWeight: '800', color: isDark ? '#e6ddff' : '#2f215c' },
     scheduleClearCta: {
       paddingVertical: 10,
       borderRadius: 12,
       borderWidth: 1,
       borderColor: colors.border || (isDark ? '#444' : '#ddd'),
-      marginBottom: 10,
+      marginBottom: 0,
       backgroundColor: 'transparent',
     },
     scheduleClearText: { textAlign: 'center', fontWeight: '700', color: colors.text },
@@ -2955,16 +3203,30 @@ function createStyles(colors: any, isDark: boolean = false) {
     scheduleButtonText: { fontWeight: '800' },
     scheduleButtonTextPrimary: { fontWeight: '800', color: '#fff' },
 
-    estimateCard: { borderRadius: 12, padding: 10, backgroundColor: colors.card || (isDark ? '#2a2a2a' : '#f5f5f5'), borderWidth: 1, borderColor: colors.border || (isDark ? '#444' : 'transparent'), marginBottom: 8 },
+    estimateCard: { borderRadius: 14, padding: 12, backgroundColor: colors.card || (isDark ? '#2a2a2a' : '#f7f7f8'), borderWidth: 1, borderColor: colors.border || (isDark ? '#444' : '#e8e8ec'), marginBottom: 10 },
+    estimateCardElevated: {
+      shadowColor: '#000',
+      shadowOpacity: Platform.OS === 'ios' ? 0.06 : 0,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 3 },
+      elevation: Platform.OS === 'android' ? 2 : 0,
+    },
     centeredRow: { flexDirection: 'row', alignItems: 'center' },
     estimateText: { marginLeft: 8, color: colors.textSecondary || '#666' },
     estimateRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 },
     estimateLabel: { color: colors.textSecondary || '#666' },
-    estimateValue: { color: colors.text || '#111', fontWeight: '700' , fontSize: 20},
+    estimateValue: { color: colors.text || '#111', fontWeight: '800', fontSize: 22 },
 
-    paymentRow: { flexDirection: 'row', justifyContent: 'center', gap: 8, marginVertical: 6 },
-    paymentChip: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 16, backgroundColor: colors.surface || '#eee' },
-    paymentChipSelected: { backgroundColor: colors.primary || '#2196F3' },
+    paymentRow: { flexDirection: 'row', justifyContent: 'center', gap: 10, marginVertical: 8 },
+    paymentChip: {
+      paddingVertical: 9,
+      paddingHorizontal: 16,
+      borderRadius: 999,
+      backgroundColor: isDark ? '#313131' : '#313131',
+      borderWidth: 1,
+      borderColor: isDark ? '#434343' : '#dfdfe3',
+    },
+    paymentChipSelected: { backgroundColor: '#b88939', borderColor: '#b88939' },
     paymentChipText: { color: colors.text || '#111', fontWeight: '600' },
     paymentChipTextSelected: { color: '#fff' },
 
@@ -2978,11 +3240,11 @@ function createStyles(colors: any, isDark: boolean = false) {
     },
     priceCommentInput: {
       height: 42,
-      borderRadius: 10,
+      borderRadius: 12,
       paddingHorizontal: 12,
-      backgroundColor: colors.card || (isDark ? '#2a2a2a' : '#f5f5f5'),
-      borderWidth: 1.5,
-      borderColor: colors.border || (isDark ? '#444' : '#ddd'),
+      backgroundColor: colors.card || (isDark ? '#2b2b2b' : '#f6f6f7'),
+      borderWidth: 1.25,
+      borderColor: isDark ? '#494949' : '#e0e0e4',
       color: colors.text || '#111',
       fontSize: 14,
     },
@@ -3048,9 +3310,61 @@ function createStyles(colors: any, isDark: boolean = false) {
     searchDescription: { fontSize: 13, color: colors.textSecondary || '#666', marginTop: 2 },
     searchCloseButton: { paddingVertical: 4, paddingHorizontal: 6 },
     searchCloseText: { fontSize: 14, color: colors.primary || '#2196F3', fontWeight: '600' },
+    destinationGuidanceCard: {
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: isDark ? '#43444c' : '#e8ddc5',
+      backgroundColor: isDark ? '#262730' : '#fff8ea',
+      padding: 12,
+      marginBottom: 12,
+    },
+    destinationGuidanceTitle: {
+      fontSize: 13,
+      fontWeight: '800',
+      color: isDark ? '#f2e4c4' : '#7d5a21',
+      marginBottom: 4,
+    },
+    destinationGuidanceText: {
+      fontSize: 12,
+      color: isDark ? '#c8cbd5' : '#5f5f66',
+      lineHeight: 17,
+    },
+    destinationGuidanceSteps: { flexDirection: 'row', gap: 8, marginTop: 10 },
+    destinationGuidanceStepPill: {
+      flex: 1,
+      borderRadius: 999,
+      paddingVertical: 7,
+      paddingHorizontal: 10,
+      borderWidth: 1,
+      borderColor: isDark ? '#4f515b' : '#dfd4bc',
+      backgroundColor: isDark ? '#2f313b' : '#fff3d8',
+      alignItems: 'center',
+    },
+    destinationGuidanceStepText: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: isDark ? '#e4e7f2' : '#6d5631',
+      textAlign: 'center',
+    },
+    destinationConfirmedPill: {
+      alignSelf: 'flex-start',
+      marginTop: 10,
+      borderRadius: 999,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      backgroundColor: isDark ? '#244230' : '#e8f8ee',
+      borderWidth: 1,
+      borderColor: isDark ? '#3f6f53' : '#b8e1c4',
+    },
+    destinationConfirmedText: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: isDark ? '#9fe1b7' : '#2f8f57',
+    },
 
     searchInputWrapper: { marginBottom: 16 },
     searchInputLabel: { fontSize: 12, fontWeight: '600', color: colors.textSecondary || '#777', marginBottom: 6, textTransform: 'uppercase' },
+    searchInputHelper: { fontSize: 12, color: isDark ? '#e7cda0' : '#7b5e2d', marginBottom: 6 },
     searchInputContainer: {
       borderRadius: 12,
       backgroundColor: colors.surface || '#f4f4f5',

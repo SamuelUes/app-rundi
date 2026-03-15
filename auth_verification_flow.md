@@ -14,8 +14,9 @@ flowchart TD
   C3 --> C4[logSmsVerificationCode -> sms_verification_codes]
   C4 --> E[Verificación válida]
 
-  D --> D1[sendEmailVerification]
-  D1 --> D2[Usuario pega oobCode en EmailVerificationScreen]
+  D --> D1[Entrar a EmailVerificationScreen]
+  D1 --> D1A[sendEmailVerification automatico al montar]
+  D1A --> D2[Usuario pega oobCode en EmailVerificationScreen]
   D2 --> D3[applyActionCode]
   D3 --> D4["logSmsVerificationCode(mail, phone_number=null)"]
   D4 --> E

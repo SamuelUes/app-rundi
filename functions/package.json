@@ -1,6 +1,6 @@
 {
   "name": "rundi-functions",
-  "version": "1.6.4",
+  "version": "1.8",
   "description": "Firebase Functions para rundi-app",
   "scripts": {
     "build": "tsc",

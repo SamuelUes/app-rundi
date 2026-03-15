@@ -5,12 +5,12 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
-import client from '../api/client';
-import { ENDPOINTS } from '../api/endpoints';
+import client from '../../api/client';
+import { ENDPOINTS } from '../../api/endpoints';
 import { httpsCallable } from 'firebase/functions';
 import { GoogleAuthProvider, signInWithCredential } from 'firebase/auth';
-import { getFirebaseAuth, getFirebaseFunctions } from '../config/firebase';
-import i18n from '../i18n';
+import { getFirebaseAuth, getFirebaseFunctions } from '../../config/firebase';
+import i18n from '../../i18n';
 
 type RegistrationMethod = 'email' | 'phone' | 'google';
 type RegistrationAuthProvider = 'email/password' | 'phone' | 'google';

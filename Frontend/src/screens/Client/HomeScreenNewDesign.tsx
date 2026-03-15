@@ -37,7 +37,6 @@ import { ensureVehicleIconSource, extractVehicleTypeFromInfo } from '../../utils
 import { subscribePreflightResult, getPreflightResult, PreflightAction } from '../../state/preflightStore';
 import { useTranslation } from 'react-i18next';
 import { useLocation } from '../../hooks/useLocation';
-import TopToastProvider from '../../components/toast/TopToastProvider';
 import DynamicMap from '../../components/DynamicMap';
 
 // Importaciones para Firebase
@@ -1602,10 +1601,10 @@ export default function HomeScreen({ navigation }: any) {
   }, [mapCenter, effectiveCoords]);
 
   useEffect(() => {
-    if (!locationLoading) {
+    if (!locationLoading || !!coords || !!storedCoords) {
       markTaskCompleted('location');
     }
-  }, [locationLoading, markTaskCompleted]);
+  }, [locationLoading, coords, storedCoords, markTaskCompleted]);
 
   if (initializing) {
     console.log('⏳ [HomeScreen:init] Esperando tareas iniciales:', Array.from(pendingInitialTasks.current));
@@ -1650,7 +1649,6 @@ export default function HomeScreen({ navigation }: any) {
   const showCenterPinOverlay = !isPinLocked;
 
   return (
-    <TopToastProvider>
       <View style={styles.container}>
       {/* Mapa con ubicación actual */}
       <DynamicMap
@@ -1774,7 +1772,6 @@ export default function HomeScreen({ navigation }: any) {
         </>
       )}
     </View>
-    </TopToastProvider>
   );
 }
 
