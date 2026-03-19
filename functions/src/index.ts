@@ -29,6 +29,7 @@ import * as biometricAuthSequelizeAPI from "./api/biometric_authentications_sequ
 import * as analyticsSequelizeAPI from "./api/analytics_sequelize";
 import * as clientProfilesAPI from "./api/clientProfiles";
 import * as supportComplaintsAPI from "./api/support_complaints";
+import * as supportCallsAPI from "./api/support_calls";
 import * as smsCodesSequelizeAPI from "./api/sms_verification_codes_sequelize";
 import * as commissionHistorySequelizeAPI from "./api/service_commission_history_sequelize";
 import * as authAPI from "./api/auth";
@@ -201,6 +202,7 @@ export const getSupportTickets = supportComplaintsAPI.getSupportTickets;
 export const updateSupportTicket = supportComplaintsAPI.updateSupportTicket;
 export const requestSupportCall = supportComplaintsAPI.requestSupportCall;
 export const deleteSupportTicket = supportComplaintsAPI.deleteSupportTicket;
+export const initiateSupportCallHttp = supportCallsAPI.initiateSupportCallHttp;
 
 // Region availability
 export const checkRegionAvailability = regionAvailabilityAPI.checkRegionAvailability;

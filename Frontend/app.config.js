@@ -104,6 +104,7 @@ export default {
     }
   },
   plugins: [
+    '@config-plugins/react-native-webrtc',
     [
       'expo-location',
       {

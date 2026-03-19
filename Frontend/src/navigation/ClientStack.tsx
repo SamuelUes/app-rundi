@@ -19,6 +19,7 @@ import DeleteAccountScreen from '../screens/Shared/DeleteAccountScreen';
 import HelpScreen from '../screens/Shared/HelpScreen';
 import ChatScreen from '../screens/Shared/ChatScreen';
 import SupportChatScreen from '../screens/Shared/SupportChatScreen';
+import SupportCallScreen from '../screens/Shared/SupportCallScreen';
 import SupportComplaintScreen from '../screens/Shared/SupportComplaintScreen';
 import RideDetailsScreen from '../screens/Shared/RideDetailsScreen';
 import SavedCardsScreen from '../screens/Shared/SavedCardsScreen';
@@ -89,6 +90,10 @@ export type ClientStackParamList = {
     initialCategory?: 'service' | 'driver' | 'payment' | 'app' | 'other';
     initialTitle?: string | null;
     complaintId?: string | null;
+  } | undefined;
+  SupportCall: {
+    complaintId?: string | null;
+    rideId?: string | null;
   } | undefined;
   SupportComplaints: {
     initialTicketId?: string | null;
@@ -207,6 +212,11 @@ export default function ClientStack() {
         name="SupportChat"
         component={SupportChatScreen}
         options={{ headerShown: false, title: 'Atención al cliente' }}
+      />
+      <Stack.Screen
+        name="SupportCall"
+        component={SupportCallScreen}
+        options={{ headerShown: false, title: 'Llamada de soporte' }}
       />
       <Stack.Screen
         name="SupportComplaints"

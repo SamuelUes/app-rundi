@@ -18,7 +18,6 @@ import { useAuth } from '../../context/AuthContext';
 import ChatBubble from '../../components/ChatBubble';
 import { useChat } from '../../hooks/useChat';
 import { useCalls } from '../../hooks/useCalls';
-import { useLivekitConnection } from '../../hooks/useLivekitConnection';
 import { getFirebaseFunctions } from '../../config/firebase';
 import { useTranslation } from 'react-i18next';
 import { useNavigation } from '@react-navigation/native';
@@ -66,7 +65,6 @@ export default function SupportChatScreen({ route }: SupportChatScreenProps) {
   const [creatingComplaint, setCreatingComplaint] = useState(false);
   const [creationError, setCreationError] = useState<string | null>(null);
   const [creatingFunctionsError, setCreatingFunctionsError] = useState<string | null>(null);
-  const [requestingCall, setRequestingCall] = useState(false);
 
   const threadId = complaintId || null;
   const safeUserId = user?.id ?? '';
@@ -77,40 +75,7 @@ export default function SupportChatScreen({ route }: SupportChatScreenProps) {
 
   const chat = useChat(threadId ?? '', safeUserId, safeUserName);
   const hasActiveChat = Boolean(threadId && safeUserId);
-
-  const {
-    activeCall,
-    livekitInfo,
-    loading: callLoading,
-    error: callError,
-    acceptCall,
-    rejectCall,
-    endCall,
-    requestCall,
-  } = useCalls(complaintId);
-
-  const {
-    connect: connectLivekit,
-    disconnect: disconnectLivekit,
-    connected: livekitConnected,
-    connecting: livekitConnecting,
-    error: livekitError,
-  } = useLivekitConnection();
-
-  useEffect(() => {
-    if (!livekitInfo) {
-      disconnectLivekit();
-      return;
-    }
-
-    connectLivekit(livekitInfo);
-  }, [connectLivekit, disconnectLivekit, livekitInfo?.token]);
-
-  useEffect(() => {
-    return () => {
-      disconnectLivekit();
-    };
-  }, [complaintId, disconnectLivekit]);
+  const { activeCall } = useCalls(complaintId);
 
   const [inputText, setInputText] = useState('');
   const flatListRef = useRef<FlatList>(null);
@@ -190,75 +155,6 @@ export default function SupportChatScreen({ route }: SupportChatScreenProps) {
     } finally {
       setCreatingComplaint(false);
     }
-  };
-
-  const renderCallBanner = () => {
-    if (!activeCall) return null;
-    const isRinging = activeCall.status === 'ringing_client';
-    const isAccepted = activeCall.status === 'accepted' || activeCall.status === 'connected';
-    const isInCall = isAccepted || livekitConnected;
-    return (
-      <View style={[styles.callCard, isRinging ? styles.callCardRinging : styles.callCardNeutral]}>
-        <View style={styles.callHeaderRow}>
-          <Text style={styles.callTitle}>{t(`${ns}.call.title`, 'Llamada de soporte')}</Text>
-          <View style={[styles.callStatusPill, isRinging ? styles.callStatusPillRinging : styles.callStatusPillNeutral]}>
-            <Text style={styles.callStatusText}>{(activeCall.status || 'pendiente').replace('_', ' ').toUpperCase()}</Text>
-          </View>
-        </View>
-        {isRinging && (
-          <Text style={styles.callRingingText}>{t(`${ns}.call.ringing`, 'Te están llamando, acepta para conectar con el operador.')}</Text>
-        )}
-        {callError ? <Text style={styles.errorText}>{callError}</Text> : null}
-        <Text style={styles.callDetail}>{t(`${ns}.call.caseLabel`, 'Caso')}: {activeCall.complaintId || 'N/D'}</Text>
-        <Text style={styles.callDetail}>{t(`${ns}.call.operatorLabel`, 'Operador')}: {activeCall.operatorUid || 'N/D'}</Text>
-        <View style={styles.callActionsRow}>
-          {isRinging && (
-            <TouchableOpacity
-              style={[styles.callPrimaryButton, callLoading && styles.primaryButtonDisabled]}
-              disabled={callLoading}
-              onPress={() => acceptCall(activeCall.callId)}
-            >
-              <Text style={styles.callPrimaryText}>{callLoading ? t(`${ns}.call.info.stateConnecting`, 'Conectando...') : t(`${ns}.call.actions.accept`, 'Aceptar')}</Text>
-            </TouchableOpacity>
-          )}
-          {isRinging && (
-            <TouchableOpacity
-              style={[styles.callSecondaryButton, callLoading && styles.primaryButtonDisabled]}
-              disabled={callLoading}
-              onPress={() => rejectCall(activeCall.callId)}
-            >
-              <Text style={styles.callSecondaryText}>{t(`${ns}.call.actions.reject`, 'Rechazar')}</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-        {isAccepted && livekitInfo && (
-          <View style={styles.callInfoBox}>
-            <Text style={styles.callInfoText}>{t(`${ns}.call.info.room`, 'Sala')}: {livekitInfo.room}</Text>
-            <Text style={styles.callInfoText}>
-              {t(`${ns}.call.info.state`, 'Estado')}: {livekitConnecting
-                ? t(`${ns}.call.info.stateConnecting`, 'Conectando...')
-                : livekitConnected
-                  ? t(`${ns}.call.info.stateConnected`, 'Conectado')
-                  : t(`${ns}.call.info.stateDisconnected`, 'Desconectado')}
-            </Text>
-            {livekitError ? <Text style={styles.errorText}>{livekitError}</Text> : null}
-            <Text style={styles.callInfoHint}>{t(`${ns}.call.info.tokenReceived`, 'Token obtenido y conexión LiveKit iniciada en cliente.')}</Text>
-          </View>
-        )}
-        {isInCall && (
-          <TouchableOpacity
-            style={[styles.callSecondaryButton, callLoading && styles.primaryButtonDisabled]}
-            disabled={callLoading}
-            onPress={() => {
-              endCall(activeCall.callId);
-              disconnectLivekit();
-            }}
-          >
-            <Text style={styles.callSecondaryText}>{t(`${ns}.call.actions.hangup`, 'Colgar')}</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-    );
   };
 
   const handleSendMessage = () => {
@@ -389,6 +285,21 @@ export default function SupportChatScreen({ route }: SupportChatScreenProps) {
           </Text>
         </View>
       ) : null}
+      {activeCall && activeCall.status !== 'ended' ? (
+        <TouchableOpacity
+          style={styles.callBanner}
+          onPress={handleCallButton}
+        >
+          <View style={styles.callBannerDot} />
+          <View style={styles.callBannerTexts}>
+            <Text style={styles.callBannerTitle}>Llamada en curso</Text>
+            <Text style={styles.callBannerSubtitle}>
+              Estado: {String(activeCall.status || 'pending').replace('_', ' ')} · Toca para abrir controles
+            </Text>
+          </View>
+          <Text style={styles.callBannerArrow}>→</Text>
+        </TouchableOpacity>
+      ) : null}
     </View>
   );
 
@@ -444,51 +355,19 @@ export default function SupportChatScreen({ route }: SupportChatScreenProps) {
     );
   };
 
-  const handleCallButton = async () => {
-    if (!complaintId || requestingCall || callLoading) return;
-
-    if (activeCall && activeCall.status === 'ringing_client') {
-      acceptCall(activeCall.callId);
-      return;
-    }
-
-    if (activeCall && (activeCall.status === 'accepted' || activeCall.status === 'connected' || livekitConnected)) {
-      endCall(activeCall.callId);
-      disconnectLivekit();
-      return;
-    }
-
-    try {
-      setRequestingCall(true);
-      const functions = await getFirebaseFunctions();
-      if (!functions) {
-        throw new Error(t(`${ns}.errors.initializeService`));
-      }
-
-      const requestSupportCall = httpsCallable(functions, 'requestSupportCall');
-      await requestSupportCall({
-        complaintId,
-        rideId: rideId || null,
-      });
-      await requestCall({
-        complaintId,
-        rideId: rideId || null,
-      });
-
-      const requestMessage = t(`${ns}.call.requestMessage`, 'El cliente solicito una llamada de soporte.');
-      chat.sendMessage(requestMessage);
-      Alert.alert(
-        t(`${ns}.call.requestTitle`, 'Llamada solicitada'),
-        t(`${ns}.call.requestBody`, 'Notificamos a soporte para que te llame. Recibiras una alerta cuando inicien la llamada.'),
-      );
-    } catch (error: any) {
+  const handleCallButton = () => {
+    if (!complaintId) {
       Alert.alert(
         t(`${ns}.errors.title`, 'Error'),
-        error?.message || t(`${ns}.call.requestError`, 'No se pudo solicitar la llamada en este momento.'),
+        t(`${ns}.errors.missingComplaintId`, 'Debes crear o abrir un caso antes de gestionar llamadas.'),
       );
-    } finally {
-      setRequestingCall(false);
+      return;
     }
+
+    navigation.navigate('SupportCall', {
+      complaintId,
+      rideId: rideId || null,
+    });
   };
 
   return (
@@ -502,7 +381,6 @@ export default function SupportChatScreen({ route }: SupportChatScreenProps) {
           data={[]}
           ListHeaderComponent={
             <>
-              {renderCallBanner()}
               {renderHeader()}
             </>
           }
@@ -512,7 +390,10 @@ export default function SupportChatScreen({ route }: SupportChatScreenProps) {
           contentContainerStyle={styles.scrollContent}
         />
         <View style={styles.fabContainer}>
-          <TouchableOpacity style={[styles.fab, (requestingCall || callLoading) && styles.primaryButtonDisabled]} onPress={handleCallButton} disabled={requestingCall || callLoading}>
+          <TouchableOpacity
+            style={styles.fab}
+            onPress={handleCallButton}
+          >
             <Text style={styles.fabText}>📞</Text>
           </TouchableOpacity>
         </View> 
@@ -894,5 +775,42 @@ const createStyles = (colors: any) =>
     fabText: {
       color: '#fff',
       fontSize: 22,
+    },
+    callBanner: {
+      marginTop: 12,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: '#8b5cf6',
+      backgroundColor: 'rgba(91, 33, 182, 0.12)',
+      paddingVertical: 10,
+      paddingHorizontal: 12,
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    callBannerDot: {
+      width: 10,
+      height: 10,
+      borderRadius: 5,
+      backgroundColor: '#f59e0b',
+      marginRight: 10,
+    },
+    callBannerTexts: {
+      flex: 1,
+    },
+    callBannerTitle: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: colors.text,
+    },
+    callBannerSubtitle: {
+      marginTop: 2,
+      fontSize: 12,
+      color: colors.textSecondary,
+    },
+    callBannerArrow: {
+      color: '#d6bcfa',
+      fontSize: 18,
+      fontWeight: '700',
+      marginLeft: 8,
     },
   });

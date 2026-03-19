@@ -22,19 +22,23 @@ interface LivekitJoinInfo {
 }
 
 const API_BASE_URL = process.env.PLATFORM_API_BASE_URL || process.env.API_BASE_URL_FIREBASE;
+const API_BASE_URL_FIREBASE = process.env.API_BASE_URL_FIREBASE || "";
+const CALLS_REQUEST_BASE_URL = process.env.CALLS_REQUEST_BASE_URL || API_BASE_URL_FIREBASE || API_BASE_URL || "";
+const CALLS_REQUEST_PATH = process.env.CALLS_REQUEST_PATH || '/initiateSupportCallHttp';
 if (!API_BASE_URL) {
   console.warn('[useCalls] API_BASE_URL no definido. Configura PLATFORM_API_BASE_URL o API_BASE_URL_FIREBASE');
 } else {
   console.log('[useCalls] API_BASE_URL', API_BASE_URL);
 }
 
-async function authenticatedPost(path: string, payload: any) {
-  if (!API_BASE_URL) throw new Error('PLATFORM_API_BASE_URL no configurada');
+async function authenticatedPost(path: string, payload: any, baseUrlOverride?: string) {
+  const baseUrl = (baseUrlOverride || API_BASE_URL || "").trim();
+  if (!baseUrl) throw new Error('API base URL no configurada');
   const auth = await getFirebaseAuth();
   const idToken = await auth.currentUser?.getIdToken();
   if (!idToken) throw new Error('Sesión no disponible');
 
-  const url = `${API_BASE_URL}${path}`;
+  const url = `${baseUrl}${path}`;
   console.log('[useCalls] POST', url, payload);
   const res = await fetch(url, {
     method: 'POST',
@@ -53,7 +57,15 @@ async function authenticatedPost(path: string, payload: any) {
       statusText: res.statusText,
       body,
     });
-    throw new Error(body.error || `Error ${res.status}`);
+    const requestError = new Error(body.error || `Error ${res.status}`) as Error & {
+      status?: number;
+      body?: any;
+      url?: string;
+    };
+    requestError.status = res.status;
+    requestError.body = body;
+    requestError.url = url;
+    throw requestError;
   }
 
   return res.json();
@@ -167,12 +179,61 @@ export function useCalls(complaintId: string | null = null) {
     setLoading(true);
     setError(null);
     try {
-      await authenticatedPost('/api/calls/request', {
+      const candidatePaths = [
+        CALLS_REQUEST_PATH,
+        '/initiateSupportCallHttp',
+        '/api/calls/request',
+        '/api/calls/initiate',
+      ];
+      const candidateBaseUrls = [
+        CALLS_REQUEST_BASE_URL,
+        API_BASE_URL,
+      ].filter(Boolean) as string[];
+
+      const candidatePayload = {
         complaintId: payload.complaintId,
         rideId: payload.rideId ?? null,
         source: 'support_chat',
-      });
+      };
+
+      let lastError: any = null;
+
+      for (const baseUrl of candidateBaseUrls) {
+        for (const path of candidatePaths) {
+          try {
+            await authenticatedPost(path, candidatePayload, baseUrl);
+            console.log('[useCalls] Call request accepted by endpoint', { baseUrl, path });
+            lastError = null;
+            break;
+          } catch (endpointError: any) {
+            lastError = endpointError;
+            const status = Number(endpointError?.status || 0);
+            if (status === 404 || status === 405) {
+              continue;
+            }
+            throw endpointError;
+          }
+        }
+        if (!lastError) {
+          break;
+        }
+      }
+
+      if (lastError) {
+        throw lastError;
+      }
     } catch (err: any) {
+      const status = Number(err?.status || 0);
+      const message = String(err?.message || '');
+      const isNotFound =
+        status === 404 ||
+        /not[\s_-]?found/i.test(message);
+
+      if (isNotFound) {
+        console.warn('[useCalls] No se encontró endpoint HTTP de creación de llamada. Se conserva flujo por requestSupportCall callable.');
+        return;
+      }
+
       console.error('[useCalls] requestCall error', err);
       setError(err?.message || 'No se pudo solicitar la llamada');
       throw err;
