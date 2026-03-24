@@ -113,6 +113,11 @@ export class PaymentService {
     const payment = await this.paymentRepo.findByRideId(rideId);
     if (!payment) throw new Error('Pago no encontrado');
 
+    if (String(payment.status || '').toLowerCase() === 'completed') {
+      console.log(`ℹ️ [PaymentService] Pago ${payment.id} ya estaba completado`);
+      return payment;
+    }
+
     // ⚠️ Si el viaje tiene tarifa final, sincronizarla antes de completar
     const ride = await this.rideRepo.findById(rideId);
     const existingRate = this.parseNumber(payment.commission_rate_applied);

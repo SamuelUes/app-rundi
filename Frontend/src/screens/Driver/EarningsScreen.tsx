@@ -267,7 +267,7 @@ export default function EarningsScreen() {
         <TouchableOpacity
           style={styles.primaryNavButton}
           activeOpacity={0.9}
-          onPress={() => navigation.navigate('PayCommissions')}
+          onPress={() => navigation.navigate('RechargeFunds')}
         >
           <Image source={arrowWhiteUpIcon} style={[styles.navIcon, styles.navIconWhite]} resizeMode="contain" />
           <Text style={styles.primaryNavText}>{t('driver.earnings.nav.commissions')}</Text>

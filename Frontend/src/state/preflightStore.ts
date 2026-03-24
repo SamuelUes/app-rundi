@@ -4,6 +4,7 @@ export type PreflightActionType =
   | 'pending_payment'
   | 'active_ride'
   | 'penalties'
+  | 'recharge_funds'
   | 'programmed_ride_client_confirm'
   | 'programmed_ride_driver_confirm';
 

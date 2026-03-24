@@ -243,6 +243,7 @@ CREATE TABLE IF NOT EXISTS public.drivers (
   total_rides INTEGER NULL DEFAULT 0,
   average_rating NUMERIC(3, 2) NULL DEFAULT 0,
   total_earnings NUMERIC(10, 2) NULL DEFAULT 0,
+  current_recharge_balance NUMERIC(12, 2) NULL DEFAULT 0,
   -- ✅ ELIMINADOS: designated_driver_request_status, designated_driver_role
   -- Ahora se usan driver_services para esto
   created_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
@@ -262,6 +263,7 @@ COMMENT ON COLUMN public.drivers.license_photo_front IS 'URL de foto frontal de 
 COMMENT ON COLUMN public.drivers.license_photo_back IS 'URL de foto trasera de licencia (Supabase Storage)';
 COMMENT ON COLUMN public.drivers.department IS 'Departamento de residencia del conductor (ej: Managua, León, Granada)';
 COMMENT ON COLUMN public.drivers.municipality IS 'Municipio de residencia del conductor (ej: Managua, Masaya, Tipitapa)';
+COMMENT ON COLUMN public.drivers.current_recharge_balance IS 'Saldo actual disponible en la billetera PuntoExpress del conductor';
 
 CREATE INDEX IF NOT EXISTS idx_drivers_user_id ON public.drivers USING btree (user_id);
 CREATE INDEX IF NOT EXISTS idx_drivers_account_status ON public.drivers USING btree (account_status);
@@ -561,37 +563,43 @@ CREATE INDEX IF NOT EXISTS idx_payments_authentication_method ON public.payments
 CREATE TRIGGER update_payments_updated_at BEFORE UPDATE ON public.payments
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+-- 5. DRIVERS_RECHARGES TABLE
+-- Movimientos de fondos (recargas y deducciones) para la billetera PuntoExpress
 -- ============================================
--- 5. DRIVER_PENALTIES TABLE
--- Penalizaciones para conductores
--- ============================================
-CREATE TABLE IF NOT EXISTS public.driver_penalties (
+CREATE TABLE IF NOT EXISTS public.drivers_recharges (
   id UUID NOT NULL DEFAULT gen_random_uuid(),
   driver_id VARCHAR(255) NOT NULL,
   ride_id UUID NULL,
-  penalty_type VARCHAR(50) NOT NULL,
-  amount NUMERIC(10, 2) NOT NULL,
-  reason TEXT NULL,
-  progress_percentage NUMERIC(5, 2) NULL,
-  status VARCHAR(20) NULL DEFAULT 'pending'::VARCHAR,
-  deducted_at TIMESTAMP WITHOUT TIME ZONE NULL,
-  created_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
-  updated_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
-  CONSTRAINT driver_penalties_pkey PRIMARY KEY (id),
-  CONSTRAINT driver_penalties_ride_id_fkey FOREIGN KEY (ride_id) REFERENCES public.rides(id) ON DELETE SET NULL
+  recharge_type VARCHAR(40) NOT NULL DEFAULT 'recharge'::VARCHAR,
+  source VARCHAR(60) NOT NULL DEFAULT 'manual'::VARCHAR,
+  amount NUMERIC(12, 2) NOT NULL,
+  balance_before NUMERIC(12, 2) NOT NULL DEFAULT 0,
+  balance_after NUMERIC(12, 2) NOT NULL DEFAULT 0,
+  external_reference VARCHAR(255) NULL,
+  external_transaction_id VARCHAR(255) NULL,
+  metadata JSONB NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'confirmed'::VARCHAR,
+  created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+  CONSTRAINT drivers_recharges_pkey PRIMARY KEY (id),
+  CONSTRAINT drivers_recharges_ride_id_fkey FOREIGN KEY (ride_id) REFERENCES public.rides(id) ON DELETE SET NULL,
+  CONSTRAINT drivers_recharges_external_txn_unique UNIQUE (external_transaction_id)
 ) TABLESPACE pg_default;
 
-COMMENT ON TABLE public.driver_penalties IS 'Penalizaciones para conductores por cancelaciones u otras infracciones';
-COMMENT ON COLUMN public.driver_penalties.penalty_type IS 'Tipo: cancellation, late_arrival, customer_complaint, etc.';
-COMMENT ON COLUMN public.driver_penalties.amount IS 'Monto de la penalización (generalmente la comisión del viaje)';
-COMMENT ON COLUMN public.driver_penalties.progress_percentage IS 'Porcentaje de progreso cuando ocurrió la infracción';
-COMMENT ON COLUMN public.driver_penalties.status IS 'Estado: pending (pendiente), deducted (descontada), forgiven (perdonada)';
+COMMENT ON TABLE public.drivers_recharges IS 'Histórico de recargas y deducciones de la billetera PuntoExpress de los conductores';
+COMMENT ON COLUMN public.drivers_recharges.recharge_type IS 'Tipo de movimiento: recharge, deduction, adjustment';
+COMMENT ON COLUMN public.drivers_recharges.source IS 'Origen del movimiento: manual, ride_payment_completion, webhook, etc.';
+COMMENT ON COLUMN public.drivers_recharges.amount IS 'Monto del movimiento. Positivo = recarga, negativo = deducción';
+COMMENT ON COLUMN public.drivers_recharges.balance_before IS 'Saldo antes de aplicar el movimiento';
+COMMENT ON COLUMN public.drivers_recharges.balance_after IS 'Saldo después de aplicar el movimiento';
+COMMENT ON COLUMN public.drivers_recharges.metadata IS 'Información adicional en JSON (referencias externas, notas, etc.)';
 
-CREATE INDEX IF NOT EXISTS idx_driver_penalties_driver_id ON public.driver_penalties USING btree (driver_id);
-CREATE INDEX IF NOT EXISTS idx_driver_penalties_status ON public.driver_penalties USING btree (status);
-CREATE INDEX IF NOT EXISTS idx_driver_penalties_created_at ON public.driver_penalties USING btree (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_drivers_recharges_driver_id ON public.drivers_recharges USING btree (driver_id);
+CREATE INDEX IF NOT EXISTS idx_drivers_recharges_ride_id ON public.drivers_recharges USING btree (ride_id);
+CREATE INDEX IF NOT EXISTS idx_drivers_recharges_status ON public.drivers_recharges USING btree (status);
+CREATE INDEX IF NOT EXISTS idx_drivers_recharges_created_at ON public.drivers_recharges USING btree (created_at DESC);
 
-CREATE TRIGGER update_driver_penalties_updated_at BEFORE UPDATE ON public.driver_penalties
+CREATE TRIGGER update_drivers_recharges_updated_at BEFORE UPDATE ON public.drivers_recharges
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================
@@ -1452,7 +1460,7 @@ ALTER TABLE public.drivers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.vehicles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.rides ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.driver_penalties ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.drivers_recharges ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ratings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ride_locations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.analytics_events ENABLE ROW LEVEL SECURITY;
@@ -1648,13 +1656,13 @@ DROP POLICY IF EXISTS sms_codes_read ON public.sms_verification_codes;
 CREATE POLICY sms_codes_read ON public.sms_verification_codes
   FOR SELECT USING (user_id = public.current_firebase_uid());
 
-DROP POLICY IF EXISTS penalties_read ON public.driver_penalties;
-CREATE POLICY penalties_read ON public.driver_penalties
+DROP POLICY IF EXISTS drivers_recharges_read ON public.drivers_recharges;
+CREATE POLICY drivers_recharges_read ON public.drivers_recharges
   FOR SELECT USING (driver_id = public.current_firebase_uid());
 
 REVOKE INSERT, UPDATE, DELETE ON public.biometric_authentications FROM anon;
 REVOKE INSERT, UPDATE, DELETE ON public.sms_verification_codes FROM anon;
-REVOKE INSERT, UPDATE, DELETE ON public.driver_penalties FROM anon;
+REVOKE INSERT, UPDATE, DELETE ON public.drivers_recharges FROM anon;
 
 -- Ratings
 DROP POLICY IF EXISTS ratings_read_related ON public.ratings;
@@ -1721,7 +1729,7 @@ $$;
 -- analytics_events                | 8
 -- biometric_authentications       | 10
 -- cards                           | 12 (NUEVO - Tarjetas guardadas)
--- driver_penalties                | 10
+-- drivers_recharges               | 12 (PuntoExpress wallet movements)
 -- driver_services                 | 10
 -- drivers                         | 11
 -- emergency_calls                 | 13

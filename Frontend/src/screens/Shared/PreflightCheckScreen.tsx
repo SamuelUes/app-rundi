@@ -22,7 +22,7 @@ import type {
   GetPreflightDataResponse,
   PreflightDriverApprovalSummary,
   PreflightPendingPaymentsSummary,
-  PreflightPenaltiesSummary,
+  PreflightRechargeFundsSummary,
   PreflightRole,
   PreflightRouteConfig,
   PreflightRegionInfo,
@@ -62,7 +62,6 @@ type DriverApprovalResult = {
 const ACTIVE_DRIVER_STATUSES = ['accepted', 'driver_on_route', 'driver_arrived', 'in_progress'];
 const ACTIVE_CLIENT_TRACK_STATUSES = ['accepted', 'driver_on_route', 'driver_arrived', 'in_progress'];
 const CLIENT_WAITING_STATUSES = ['requested', 'searching', 'pending', 'pending_confirmation'];
-const PENALTIES_LIMIT_CORDOBAS = 150;
 
 const CRITICAL_CHECKS = ['auth', 'notifications', 'foregroundLocation', 'backgroundLocation', 'overlay'];
 
@@ -135,8 +134,7 @@ const getCheckLabels = (t: (key: string, opts?: any) => string): Record<string, 
   overlay: t('shared.preflight.checks.overlay'),
   activity: t('shared.preflight.checks.activity'),
   region: t('shared.preflight.checks.region'),
-  pendingPayments: t('shared.preflight.checks.pendingPayments'),
-  penalties: t('shared.preflight.checks.penalties'),
+  rechargeFunds: t('shared.preflight.checks.rechargeFunds'),
   activeRide: t('shared.preflight.checks.activeRide'),
   programmedRideConfirm: t('shared.preflight.programmedRide.checkLabel'),
 });
@@ -190,26 +188,25 @@ function buildPendingPaymentAction(
   };
 }
 
-function buildPenaltiesAction(
-  summary: PreflightPenaltiesSummary,
-  payCommissionsRoute?: string,
+function buildRechargeFundsAction(
+  summary: PreflightRechargeFundsSummary,
+  rechargeFundsRoute?: string,
 ): PreflightAction | undefined {
-  if (!payCommissionsRoute) {
+  if (!rechargeFundsRoute) {
     return undefined;
   }
-  if (summary.pendingAmount < PENALTIES_LIMIT_CORDOBAS) {
+  if (summary.availableBalance > 0 && !summary.blocked) {
     return undefined;
   }
   return {
-    type: 'penalties',
-    title: 'Comisiones pendientes',
-    subtitle: `C$${summary.pendingAmount.toFixed(2)} pendientes`,
-    ctaLabel: 'Pagar comisiones',
-    routeName: payCommissionsRoute,
+    type: 'recharge_funds',
+    title: 'Fondos insuficientes',
+    subtitle: `Saldo actual: C$${Number(summary.availableBalance || 0).toFixed(2)}`,
+    ctaLabel: 'Recargar fondos',
+    routeName: rechargeFundsRoute,
     metadata: {
-      pendingAmount: summary.pendingAmount,
-      pendingCount: summary.pendingCount,
-      blocking: summary.pendingAmount >= PENALTIES_LIMIT_CORDOBAS,
+      availableBalance: Number(summary.availableBalance || 0),
+      blocked: summary.blocked || Number(summary.availableBalance || 0) <= 0,
     },
   };
 }
@@ -300,7 +297,7 @@ function buildActionsFromPreflightData(
   t: (key: string, opts?: any) => string,
   preflightData: GetPreflightDataResponse | null,
   pendingPaymentsRoute: string,
-  payCommissionsRoute: string | undefined,
+  rechargeFundsRoute: string | undefined,
   activeRideRoute: string,
   rideTrackingRoute: string,
   waitingRideRoute: string,
@@ -328,14 +325,14 @@ function buildActionsFromPreflightData(
     actions.push(buildProgrammedRideAction(t, preflightData.programmedRide));
   }
 
-  if (preflightData.pendingPayments && preflightData.pendingPayments.count > 0) {
+  if (role === 'driver' && preflightData.pendingPayments && preflightData.pendingPayments.count > 0) {
     actions.push(buildPendingPaymentAction(t, preflightData.pendingPayments, pendingPaymentsRoute));
   }
 
-  if (role === 'driver' && preflightData.penalties) {
-    const penaltiesAction = buildPenaltiesAction(preflightData.penalties, payCommissionsRoute);
-    if (penaltiesAction) {
-      actions.push(penaltiesAction);
+  if (role === 'driver' && preflightData.rechargeFunds) {
+    const rechargeAction = buildRechargeFundsAction(preflightData.rechargeFunds, rechargeFundsRoute);
+    if (rechargeAction) {
+      actions.push(rechargeAction);
     }
   }
 
@@ -362,7 +359,7 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
   const successRoute = params?.successRoute ?? (role === 'driver' ? 'DriverHome' : 'ClientHome');
   const activeRideRoute = params?.activeRideRoute ?? (role === 'driver' ? 'ActiveRide' : 'RideTracking');
   const pendingPaymentsRoute = params?.pendingPaymentsRoute ?? 'PendingPayments';
-  const payCommissionsRoute = params?.payCommissionsRoute ?? (role === 'driver' ? 'PayCommissions' : undefined);
+  const rechargeFundsRoute = params?.rechargeFundsRoute ?? (role === 'driver' ? 'RechargeFunds' : undefined);
   const rideTrackingRoute = params?.rideTrackingRoute ?? 'RideTracking';
   const waitingRideRoute = params?.waitingRideRoute ?? 'HomeOffers';
   const pendingApprovalRoute = params?.pendingApprovalRoute;
@@ -622,7 +619,7 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
       t,
       preflightData,
       pendingPaymentsRoute,
-      payCommissionsRoute,
+      rechargeFundsRoute,
       activeRideRoute,
       rideTrackingRoute,
       waitingRideRoute,
@@ -757,7 +754,7 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
     successRoute,
     activeRideRoute,
     pendingPaymentsRoute,
-    payCommissionsRoute,
+    rechargeFundsRoute,
     rideTrackingRoute,
     waitingRideRoute,
     animateProgress,

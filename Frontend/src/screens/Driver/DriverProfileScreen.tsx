@@ -1670,7 +1670,7 @@ export default function DriverProfileScreen({ navigation }: any) {
             <Text style={styles.optionArrow}>›</Text>
           </TouchableOpacity>
 
-
+        {/* Tarjetas desactivadas temporalmente
         <TouchableOpacity
           style={styles.optionCard}
           onPress={() => navigation.navigate('PaymentMethods')}
@@ -1682,6 +1682,7 @@ export default function DriverProfileScreen({ navigation }: any) {
           <Text style={styles.optionText}>{t('driver.profile.options.paymentMethods')}</Text>
           <Text style={styles.optionArrow}>›</Text>
         </TouchableOpacity>
+        */}
 
         <TouchableOpacity
           style={styles.optionCard}

@@ -220,13 +220,14 @@ export default function SavedCardsScreen({ navigation }: SavedCardsScreenProps) 
         />
       )}
 
-      {/* Botón para agregar tarjeta */}
+      {/* Botón para agregar tarjeta - desactivado temporalmente
       <TouchableOpacity
         style={styles.addButton}
         onPress={() => navigation.navigate('AddCard')}
       >
         <Text style={styles.addButtonText}>{t('shared.savedCards.buttons.addCard')}</Text>
       </TouchableOpacity>
+      */}
 
       {/* Info de seguridad */}
       <View style={styles.securityInfo}>

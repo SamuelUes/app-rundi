@@ -1,5 +1,7 @@
 /**
  * DriverPenaltyRepository - Operaciones de penalizaciones
+ * @deprecated Legacy: reemplazado por DriverRechargeRepository + current_recharge_balance.
+ * Mantener solo para rollback/manual troubleshooting.
  */
 
 import DriverPenalty from '../models/DriverPenalty';

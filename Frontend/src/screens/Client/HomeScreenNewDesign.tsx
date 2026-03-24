@@ -138,13 +138,8 @@ export default function HomeScreen({ navigation }: any) {
 
   const [activeRide, setActiveRide] = useState<any>(null);
   const [pendingPayments, setPendingPayments] = useState<any[]>([]);
-  const initialPreflightPendingPayments = preflightSummary?.preflightData?.pendingPayments;
-  const [hasPendingPayments, setHasPendingPayments] = useState(
-    () => Number(initialPreflightPendingPayments?.count ?? 0) > 0,
-  );
-  const [totalDebt, setTotalDebt] = useState(
-    () => Number(initialPreflightPendingPayments?.amount ?? 0),
-  );
+  const [hasPendingPayments, setHasPendingPayments] = useState(false);
+  const [totalDebt, setTotalDebt] = useState(0);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
 
   const [preflightActions, setPreflightActions] = useState<PreflightAction[]>(() => preflightSummary?.actions ?? []);
@@ -170,51 +165,8 @@ export default function HomeScreen({ navigation }: any) {
 
   // Listener dedicado para deudas históricas del cliente
   useEffect(() => {
-    if (!user?.id) {
-      return;
-    }
-
-    let isMounted = true;
-    let cleanup: null | (() => void) = null;
-
-    (async () => {
-      try {
-        const { getDatabase, ref, onValue, off } = await import('firebase/database');
-        const db = getDatabase();
-        const summaryRef = ref(db, `clientPendingPayments/${user.id}/summary`);
-
-        const handleSnapshot = (snapshot: any) => {
-          if (!isMounted) return;
-          const data = snapshot.val();
-          if (!data) {
-            return;
-          }
-
-          const hasPending = !!data.hasPendingPayments;
-          const debt = Number(data.totalDebt ?? 0);
-
-          setHasPendingPayments(hasPending);
-          setTotalDebt(Number.isFinite(debt) ? debt : 0);
-        };
-
-        onValue(summaryRef, handleSnapshot, (err) => {
-          console.error('❌ [HomeScreen] Error escuchando clientPendingPayments summary:', err);
-        });
-
-        cleanup = () => {
-          off(summaryRef, 'value', handleSnapshot);
-        };
-      } catch (err) {
-        console.error('❌ [HomeScreen] Error iniciando listener de clientPendingPayments summary:', err);
-      }
-    })();
-
-    return () => {
-      isMounted = false;
-      if (cleanup) {
-        cleanup();
-      }
-    };
+    setHasPendingPayments(false);
+    setTotalDebt(0);
   }, [user?.id]);
 
   // Estado para datos
@@ -825,119 +777,9 @@ export default function HomeScreen({ navigation }: any) {
 
   // Listener para pagos pendientes
   useEffect(() => {
-    if (!user?.id) {
-      console.log('⚠️ [HomeScreen] No hay userId, no se puede escuchar pagos');
-      return;
-    }
-
-    const { getDatabase, ref, onValue, off } = require('firebase/database');
-    const db = getDatabase();
-    const paymentStatusRef = ref(db, 'paymentStatus');
-
-    console.log('👂 [HomeScreen] Escuchando pagos pendientes para usuario:', user.id);
-
-    const unsubscribe = onValue(paymentStatusRef, async (snapshot: any) => {
-      const paymentsData = snapshot.val();
-
-      console.log('📦 [HomeScreen] Snapshot de paymentStatus recibido');
-
-      if (!paymentsData) {
-        console.log('📭 [HomeScreen] No hay pagos en paymentStatus');
-        setPendingPayments([]);
-        return;
-      }
-
-      console.log('📋 [HomeScreen] Pagos en Firebase:', Object.keys(paymentsData).length);
-
-      // Filtrar pagos pendientes del usuario
-      const userPendingPayments = [];
-
-      for (const [rideId, paymentInfo] of Object.entries(paymentsData)) {
-        const payment = paymentInfo as any;
-
-        console.log(`🔍 [HomeScreen] Revisando pago ${rideId}:`, {
-          status: payment.status,
-          method: payment.method,
-        });
-
-        const normalizedStatus = String(payment.status || '').toLowerCase();
-
-        // ✅ MEJORADO: Excluir pagos completados, cancelados o fallidos
-        if (normalizedStatus === 'completed' || normalizedStatus === 'canceled' || normalizedStatus === 'failed') {
-          console.log(`✅ [HomeScreen] Pago ${rideId} ya está ${normalizedStatus}, ignorando`);
-          continue;
-        }
-
-        // Solo pagos realmente pendientes de acción del cliente
-        const isPotentialPending =
-          normalizedStatus === 'pending' ||
-          normalizedStatus === 'pending_confirmation' ||
-          normalizedStatus === 'in_progress' ||
-          normalizedStatus === 'payment_in_progress';
-
-        if (isPotentialPending) {
-          // Obtener datos del viaje
-          const { ref: refFunc, get } = require('firebase/database');
-          const rideRef = refFunc(db, `activeRides/${rideId}`);
-          const rideSnapshot = await get(rideRef);
-          const rideData = rideSnapshot.val();
-
-          if (!rideData) {
-            console.log(`⚠️ [HomeScreen] Viaje ${rideId} no encontrado en activeRides`);
-            continue;
-          }
-
-          const rideStatus = String(rideData.status || '').toLowerCase();
-
-          console.log(`🔍 [HomeScreen] Viaje ${rideId} - clientId: ${rideData.clientId}, userId: ${user.id}, status: ${rideStatus}`);
-
-          // Solo considerar pagos pendientes cuando el viaje está en estado pending_payment
-          if (rideStatus !== 'pending_payment') {
-            console.log(
-              `⏭️ [HomeScreen] Pago ${rideId} ignorado porque el viaje no está en pending_payment (status=${rideStatus})`,
-            );
-            continue;
-          }
-
-          // Verificar que el viaje pertenece al usuario
-          if (rideData.clientId === user.id) {
-            console.log(`💰 [HomeScreen] ✅ ${t('client.home.pendingAction.paymentSingle')} encontrado: ${rideId}`);
-            userPendingPayments.push({
-              rideId,
-              payment,
-              ride: rideData,
-            });
-          } else {
-            console.log(`⏭️ [HomeScreen] Pago ${rideId} no es del usuario actual`);
-          }
-        }
-      }
-
-      console.log(`📊 [HomeScreen] Total pagos pendientes del usuario: ${userPendingPayments.length}`);
-      setPendingPayments(userPendingPayments);
-      // ✅ Fallback: derivar flags y total
-      try {
-        const fallbackTotal = userPendingPayments.reduce((sum: number, item: any) => {
-          const amount = Number(
-            item?.payment?.finalAmount ??
-            item?.ride?.finalFare ??
-            item?.ride?.estimatedPrice ??
-            0
-          );
-          return sum + (Number.isFinite(amount) ? amount : 0);
-        }, 0);
-        setHasPendingPayments(userPendingPayments.length > 0);
-        setTotalDebt(Number(fallbackTotal.toFixed(2)));
-      } catch (e) {
-        console.warn('⚠️ [HomeScreen] No se pudo calcular total de deuda de fallback:', e);
-      }
-    });
-
-    return () => {
-      console.log('🔇 Limpiando listener de pagos pendientes');
-      off(paymentStatusRef);
-      unsubscribe();
-    };
+    setPendingPayments([]);
+    setHasPendingPayments(false);
+    setTotalDebt(0);
   }, [user?.id]);
 
   // Efecto para procesar conductores cercanos (mejorado con lógica del archivo viejo)
@@ -1528,7 +1370,7 @@ export default function HomeScreen({ navigation }: any) {
       const pendingCount =
         pendingPayments.length > 0
           ? pendingPayments.length
-          : Number(initialPreflightPendingPayments?.count ?? 1);
+          : 1;
       setPendingAction({
         type: 'pending_payment',
         title:
@@ -1563,7 +1405,7 @@ export default function HomeScreen({ navigation }: any) {
     }
 
     setPendingAction(null);
-  }, [hasPendingPayments, pendingPayments, activeRide, preflightActions, getActiveRideLabel, handleViewActiveRide, handleViewPendingPayments, navigation, initialPreflightPendingPayments?.count, t]);
+  }, [hasPendingPayments, pendingPayments, activeRide, preflightActions, getActiveRideLabel, handleViewActiveRide, handleViewPendingPayments, navigation, t]);
 
   const storedCoords = clientLocationData?.coords || null;
   const effectiveCoords = useMemo(() => {

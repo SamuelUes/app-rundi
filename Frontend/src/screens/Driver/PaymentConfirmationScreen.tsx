@@ -138,7 +138,7 @@ export default function PaymentConfirmationScreen({
   const [loading, setLoading] = useState(true);
   const [confirming, setConfirming] = useState(false);
   const [switching, setSwitching] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card'>(initialMethod);
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card'>('cash');
   const [paymentStatus, setPaymentStatus] = useState<any>(null);
   const [clientConfirmed, setClientConfirmed] = useState(false);
   const [hasCardOnFile, setHasCardOnFile] = useState<boolean | null>(null);
@@ -173,7 +173,9 @@ export default function PaymentConfirmationScreen({
         alertService.showConfirmAlert(
           alertsTexts.cardRequiredTitle,
           alertsTexts.cardRequiredMessage,
-          () => navigation.navigate('PaymentMethods'),
+          () => {
+            // navigation.navigate('PaymentMethods');
+          },
           undefined,
           alertsTexts.cardRequiredAction
         );
@@ -234,7 +236,8 @@ export default function PaymentConfirmationScreen({
             // Actualizar método de pago si cambió
             if (data.method && data.method !== paymentMethod) {
               console.log(`🔄 Método actualizado: ${paymentMethod} → ${data.method}`);
-              setPaymentMethod(data.method);
+              // Tarjetas desactivadas temporalmente: mantener efectivo
+              setPaymentMethod('cash');
             }
 
             // Verificar confirmación del cliente
@@ -264,7 +267,8 @@ export default function PaymentConfirmationScreen({
           const data = snapshot.val();
           if (data?.paymentMethod && data.paymentMethod !== paymentMethod) {
             console.log(`🔄 Método de pago cambiado en ride: ${data.paymentMethod}`);
-            setPaymentMethod(data.paymentMethod);
+            // Tarjetas desactivadas temporalmente: mantener efectivo
+            setPaymentMethod('cash');
           }
         });
 
@@ -352,6 +356,10 @@ export default function PaymentConfirmationScreen({
 
   // Cambiar método de pago
   const handleSwitchPaymentMethod = () => {
+    // Tarjetas desactivadas temporalmente
+    return;
+
+    /*
     const newMethod = paymentMethod === 'cash' ? 'card' : 'cash';
     const methodName = newMethod === 'cash' ? methodNames.cash : methodNames.card;
     const methodLower = newMethod === 'cash' ? methodNames.cashLower : methodNames.cardLower;
@@ -401,6 +409,7 @@ export default function PaymentConfirmationScreen({
         }
       }
     );
+    */
   };
 
   // Reportar problema
@@ -662,55 +671,9 @@ export default function PaymentConfirmationScreen({
         </>
       )}
 
-      {/* CARD PAYMENT FLOW */}
-      {paymentMethod === 'card' && (
-        <>
-          {/* Status */}
-          <View style={styles.statusCard}>
-            <View style={styles.statusRow}>
-              <View style={styles.statusDot} />
-              <Text style={styles.statusText}>
-                {paymentStatus?.status === 'processing'
-                  ? cardStatusTexts.processing
-                  : paymentStatus?.status === 'pending'
-                  ? cardStatusTexts.pending
-                  : cardStatusTexts.verifying}
-              </Text>
-            </View>
-            <Text style={styles.statusDescription}>
-              {cardStatusTexts.description}
-            </Text>
-          </View>
+      {/* CARD PAYMENT FLOW - desactivado temporalmente */}
 
-          {/* Info */}
-          <View style={styles.infoCard}>
-            <Text style={styles.infoIcon}>ℹ️</Text>
-            <Text style={styles.infoText}>{cardStatusTexts.infoMessage}</Text>
-          </View>
-        </>
-      )}
-
-      {/* Switch Payment Method Button */}
-      {!clientConfirmed ? (
-        <AnimatedButton
-          title={paymentMethod === 'cash' ? buttonTexts.switchToCard : buttonTexts.switchToCash}
-          onPress={handleSwitchPaymentMethod}
-          variant="secondary"
-          loading={switching}
-          disabled={confirming || switching}
-          style={styles.switchButton}
-        />
-      ) : (
-        <View style={styles.disabledSwitchCard}>
-          <Text style={styles.disabledSwitchIcon}>🔒</Text>
-          <Text style={styles.disabledSwitchText}>
-            {switchDisabledTexts.title}
-          </Text>
-          <Text style={styles.disabledSwitchSubtext}>
-            {switchDisabledTexts.subtitle}
-          </Text>
-        </View>
-      )}
+      {/* Switch Payment Method Button - desactivado temporalmente */}
 
       {/* Report Problem Button */}
       <AnimatedButton

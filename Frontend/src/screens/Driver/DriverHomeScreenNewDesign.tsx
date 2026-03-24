@@ -87,7 +87,7 @@ type RawRideStop = {
 };
 
 const ACTIVE_RIDE_STATUSES = ['accepted', 'driver_on_route', 'driver_arrived', 'in_progress'];
-const PENALTIES_LIMIT_CORDOBAS = 150;
+const MIN_RECHARGE_BALANCE_REQUIRED = 0;
 
 const getActiveRidePendingCopy = (ride: any, t: TFunction) => {
   const status: string = ride?.status || '';
@@ -381,13 +381,13 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
       },
     ];
   });
-  const [penaltySummary, setPenaltySummary] = useState<{ pendingCount: number; pendingAmount: number } | null>(
+  const [rechargeFundsSummary, setRechargeFundsSummary] = useState<{ availableBalance: number; blocked: boolean } | null>(
     () => {
-      const summary = preflightSummary?.preflightData?.penalties;
+      const summary = preflightSummary?.preflightData?.rechargeFunds;
       if (!summary) return null;
       return {
-        pendingCount: Number(summary.pendingCount ?? 0),
-        pendingAmount: Number(summary.pendingAmount ?? 0),
+        availableBalance: Number(summary.availableBalance ?? 0),
+        blocked: Boolean(summary.blocked),
       };
     },
   );
@@ -487,7 +487,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   const lastAvailabilityAnnouncementRef = useRef<boolean | null>(null);
   const lastActiveRideIdRef = useRef<string | null>(null);
   const initialVoiceWelcomeRef = useRef<boolean>(false);
-  const penaltyAlertShownRef = useRef<boolean>(false);
+  const rechargeAlertShownRef = useRef<boolean>(false);
   const enforcingAvailabilityRef = useRef<boolean>(false);
 
   const [currentVehicleType, setCurrentVehicleType] = useState<string | null>(null);
@@ -692,7 +692,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
     );
   }, [activeRide, voiceSettings.enabled, speakVoice, t]);
 
-  const enforceOfflineDueToPenalties = useCallback(async () => {
+  const enforceOfflineDueToRechargeFunds = useCallback(async () => {
     if (!user?.id || !coords) {
       return;
     }
@@ -710,7 +710,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
     }
 
     try {
-      console.log('⚠️ [DriverHomeScreenNewDesign] Forzando estado offline por comisiones pendientes');
+      console.log('⚠️ [DriverHomeScreenNewDesign] Forzando estado offline por fondos insuficientes');
       await driversService.updateStatus('offline', coords);
       setIsAvailable(false);
 
@@ -730,7 +730,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
         console.warn('⚠️ [DriverHomeScreenNewDesign] No se pudo limpiar estado de disponibilidad:', storageErr);
       }
     } catch (err) {
-      console.error('❌ [DriverHomeScreenNewDesign] Error forzando offline por comisiones:', err);
+      console.error('❌ [DriverHomeScreenNewDesign] Error forzando offline por fondos:', err);
     } finally {
       if (shouldManageUpdatingState) {
         setUpdatingStatus(false);
@@ -739,7 +739,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
     }
   }, [coords, isAvailable, isDesignatedDriverMode, updatingStatus, user?.id, user?.role]);
 
-  // ✅ Resumen de penalizaciones desde Realtime DB
+  // ✅ Resumen de fondos desde Realtime DB
   useEffect(() => {
     if (!user?.id) {
       markTaskCompleted('penaltySummary');
@@ -762,54 +762,46 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
         }
 
         const db = getDatabase(app);
-        const summaryRef = dbRef(db, `driverPenalties/${user.id}/summary`);
+        const walletRef = dbRef(db, `drivers/${user.id}/wallet`);
 
         const handleSnapshot = (snapshot: any) => {
           if (!isMounted) return;
           const data = snapshot.val();
 
           if (!data) {
-            setPenaltySummary({ pendingCount: 0, pendingAmount: 0 });
+            setRechargeFundsSummary({ availableBalance: 0, blocked: true });
             markTaskCompleted('penaltySummary');
             return;
           }
 
-          const pendingAmount = Number(
-            data.pendingAmount ??
-              data.paymentCommissionPendingAmount ??
-              data.paymentPendingAmount ??
-              data.penaltyPendingAmount ??
+          const availableBalance = Number(
+            data.availableBalance ??
+              data.balance ??
+              data.currentBalance ??
+              data.currentRechargeBalance ??
               0,
           );
 
-          const pendingCount = Number(
-            data.pendingCount ??
-              data.paymentCommissionPendingCount ??
-              data.paymentPendingCount ??
-              data.penaltyPendingCount ??
-              0,
-          );
-
-          setPenaltySummary({
-            pendingCount,
-            pendingAmount,
+          setRechargeFundsSummary({
+            availableBalance: Number.isFinite(availableBalance) ? availableBalance : 0,
+            blocked: Boolean(data.blocked) || Number(availableBalance || 0) <= MIN_RECHARGE_BALANCE_REQUIRED,
           });
           markTaskCompleted('penaltySummary');
         };
 
-        onValue(summaryRef, handleSnapshot, (err) => {
-          console.error('❌ [DriverHomeScreenNewDesign] Error escuchando driverPenalties summary:', err);
+        onValue(walletRef, handleSnapshot, (err) => {
+          console.error('❌ [DriverHomeScreenNewDesign] Error escuchando drivers wallet:', err);
           if (isMounted) {
-            setPenaltySummary({ pendingCount: 0, pendingAmount: 0 });
+            setRechargeFundsSummary({ availableBalance: 0, blocked: true });
           }
           markTaskCompleted('penaltySummary');
         });
 
-        cleanup = () => off(summaryRef, 'value', handleSnapshot);
+        cleanup = () => off(walletRef, 'value', handleSnapshot);
       } catch (err) {
-        console.error('❌ [DriverHomeScreenNewDesign] Error iniciando listener de penalizaciones:', err);
+        console.error('❌ [DriverHomeScreenNewDesign] Error iniciando listener de fondos:', err);
         if (isMounted) {
-          setPenaltySummary({ pendingCount: 0, pendingAmount: 0 });
+          setRechargeFundsSummary({ availableBalance: 0, blocked: true });
         }
         markTaskCompleted('penaltySummary');
       }
@@ -822,27 +814,27 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   }, [user?.id, markTaskCompleted]);
 
   useEffect(() => {
-    const pendingAmount = Number(penaltySummary?.pendingAmount ?? 0);
-    if (!Number.isFinite(pendingAmount)) {
+    const availableBalance = Number(rechargeFundsSummary?.availableBalance ?? 0);
+    if (!Number.isFinite(availableBalance)) {
       return;
     }
 
-    if (pendingAmount >= PENALTIES_LIMIT_CORDOBAS) {
-      if (!penaltyAlertShownRef.current) {
-        penaltyAlertShownRef.current = true;
+    if (availableBalance <= MIN_RECHARGE_BALANCE_REQUIRED || rechargeFundsSummary?.blocked) {
+      if (!rechargeAlertShownRef.current) {
+        rechargeAlertShownRef.current = true;
         alertService.showInfoAlert(
-          t('driver.home.alerts.penaltiesTitle'),
-          t('driver.home.alerts.penaltiesAutoDisabled', {
-            limit: PENALTIES_LIMIT_CORDOBAS.toFixed(2),
+          t('driver.home.alerts.rechargeRequiredTitle'),
+          t('driver.home.alerts.rechargeRequiredBody', {
+            amount: availableBalance.toFixed(2),
           }),
-          () => navigation.navigate('PendingPayments'),
+          () => navigation.navigate('RechargeFunds'),
         );
       }
-      void enforceOfflineDueToPenalties();
+      void enforceOfflineDueToRechargeFunds();
     } else {
-      penaltyAlertShownRef.current = false;
+      rechargeAlertShownRef.current = false;
     }
-  }, [penaltySummary?.pendingAmount, enforceOfflineDueToPenalties, navigation, t]);
+  }, [rechargeFundsSummary?.availableBalance, rechargeFundsSummary?.blocked, enforceOfflineDueToRechargeFunds, navigation, t]);
 
   useEffect(() => {
     if (!user?.id) {
@@ -1032,7 +1024,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
 
     // Prioridad 5: Acciones desde preflight (complemento)
     if (preflightActions.length > 0) {
-      const priority = ['active_ride', 'penalties', 'pending_payment'] as const;
+      const priority = ['active_ride', 'recharge_funds', 'pending_payment'] as const;
       const nextAction = priority
         .map((type) => preflightActions.find((action) => action.type === type))
         .find((action) => {
@@ -1716,18 +1708,13 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
     }
 
     // ✅ Bloquear activar disponibilidad si supera el umbral de comisiones pendientes
-    if (
-      nextValue &&
-      penaltySummary &&
-      Number(penaltySummary.pendingAmount) >= PENALTIES_LIMIT_CORDOBAS
-    ) {
+    if (nextValue && rechargeFundsSummary && Number(rechargeFundsSummary.availableBalance) <= MIN_RECHARGE_BALANCE_REQUIRED) {
       alertService.showInfoAlert(
-        t('driver.home.alerts.penaltiesTitle'),
-        t('driver.home.alerts.penaltiesBlockActivation', {
-          amount: Number(penaltySummary.pendingAmount).toFixed(2),
-          limit: PENALTIES_LIMIT_CORDOBAS.toFixed(2),
+        t('driver.home.alerts.rechargeRequiredTitle'),
+        t('driver.home.alerts.rechargeRequiredBody', {
+          amount: Number(rechargeFundsSummary.availableBalance).toFixed(2),
         }),
-        () => navigation.navigate('PendingPayments')
+        () => navigation.navigate('RechargeFunds')
       );
       return;
     }
@@ -1961,21 +1948,20 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
       )}
 
       {/* ✅ Banner de comisiones pendientes */}
-      {penaltySummary && penaltySummary.pendingAmount >= PENALTIES_LIMIT_CORDOBAS && (
+      {rechargeFundsSummary && Number(rechargeFundsSummary.availableBalance) <= MIN_RECHARGE_BALANCE_REQUIRED && (
         <TouchableOpacity
           style={[styles.pendingBanner, { backgroundColor: '#E53935' }]}
           onPress={() => {
-            navigation.navigate('PendingPayments');
+            navigation.navigate('RechargeFunds');
           }}
         >
           <View style={styles.pendingBannerContent}>
             <Text style={styles.pendingBannerTitle}>
-              {t('driver.home.banners.penaltiesTitle')}
+              {t('driver.home.banners.rechargeTitle')}
             </Text>
             <Text style={styles.pendingBannerSubtitle}>
-              {t('driver.home.banners.penaltiesSubtitle', {
-                count: penaltySummary.pendingCount,
-                amount: Number(penaltySummary.pendingAmount).toFixed(2),
+              {t('driver.home.banners.rechargeSubtitle', {
+                amount: Number(rechargeFundsSummary.availableBalance).toFixed(2),
               })}
             </Text>
           </View>
@@ -2065,7 +2051,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
                 <Text style={styles.menuItemArrow}>›</Text>
               </TouchableOpacity>
               {(user?.role === 'driver' || user?.role === 'designated_driver') && (
-                <TouchableOpacity style={styles.menuItem} onPress={() => handleNavigate('PayCommissions')}>
+                <TouchableOpacity style={styles.menuItem} onPress={() => handleNavigate('RechargeFunds')}>
                   <View style={styles.menuIconBadge}>
                     <Text style={styles.menuEmoji}>💼</Text>
                   </View>
@@ -2080,6 +2066,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
                 <Text style={styles.menuLabel}>{t('driver.home.menu.history')}</Text>
                 <Text style={styles.menuItemArrow}>›</Text>
               </TouchableOpacity>
+              {/* Tarjetas desactivadas temporalmente
               <TouchableOpacity style={styles.menuItem} onPress={() => handleNavigate('PaymentMethods')}>
                 <View style={styles.menuIconBadge}>
                   <Text style={styles.menuEmoji}>💳</Text>
@@ -2087,6 +2074,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
                 <Text style={styles.menuLabel}>{t('driver.home.menu.paymentMethods')}</Text>
                 <Text style={styles.menuItemArrow}>›</Text>
               </TouchableOpacity>
+              */}
               <TouchableOpacity style={styles.menuItem} onPress={() => handleNavigate('Settings')}>
                 <View style={styles.menuIconBadge}>
                   <Text style={styles.menuEmoji}>⚙️</Text>

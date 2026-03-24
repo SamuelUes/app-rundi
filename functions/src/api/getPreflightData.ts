@@ -30,6 +30,11 @@ type PendingPaymentsSummary = {
   firstPaymentMethod?: string;
 };
 
+type RechargeFundsSummary = {
+  availableBalance: number;
+  blocked: boolean;
+};
+
 const db = admin.database();
 const driverRepo = new DriverRepository();
 const vehicleRepo = new VehicleRepository();
@@ -62,6 +67,29 @@ function toFiniteNumber(value: unknown): number | null {
 
 function round2(value: number): number {
   return Number(value.toFixed(2));
+}
+
+function buildRechargeFundsSummary(
+  walletData: Record<string, any> | null,
+  driverData: Record<string, any> | null,
+): RechargeFundsSummary {
+  const walletBalance = toFiniteNumber(
+    walletData?.availableBalance ??
+      walletData?.balance ??
+      walletData?.currentBalance ??
+      walletData?.currentRechargeBalance,
+  );
+
+  const driverBalance = toFiniteNumber(
+    driverData?.current_recharge_balance ??
+      driverData?.currentRechargeBalance,
+  );
+
+  const availableBalance = round2(walletBalance ?? driverBalance ?? 0);
+  return {
+    availableBalance,
+    blocked: availableBalance <= 0,
+  };
 }
 
 function toEpochMs(value: unknown): number | undefined {
@@ -383,37 +411,6 @@ function buildPendingPaymentsSummary(
   };
 }
 
-function buildPenaltiesSummary(penaltiesSummaryData: Record<string, any> | null) {
-  if (!penaltiesSummaryData) {
-    return null;
-  }
-
-  const pendingAmount = toFiniteNumber(
-    penaltiesSummaryData.pendingAmount ??
-      penaltiesSummaryData.paymentCommissionPendingAmount ??
-      penaltiesSummaryData.paymentPendingAmount ??
-      penaltiesSummaryData.penaltyPendingAmount ??
-      0,
-  ) ?? 0;
-
-  const pendingCount = toFiniteNumber(
-    penaltiesSummaryData.pendingCount ??
-      penaltiesSummaryData.paymentCommissionPendingCount ??
-      penaltiesSummaryData.paymentPendingCount ??
-      penaltiesSummaryData.penaltyPendingCount ??
-      0,
-  ) ?? 0;
-
-  if (pendingAmount <= 0 || pendingCount <= 0) {
-    return null;
-  }
-
-  return {
-    pendingAmount: round2(pendingAmount),
-    pendingCount: Math.max(0, Math.round(pendingCount)),
-  };
-}
-
 async function resolveAuthenticatedUserIdFromHttpRequest(req: any): Promise<string> {
   const authHeaderRaw = req?.headers?.authorization || req?.headers?.Authorization || '';
   const authHeader = String(authHeaderRaw);
@@ -456,8 +453,11 @@ async function buildPreflightDataResponse(data: GetPreflightDataRequest, authUse
     const programmedRidesPromise = db.ref('programmedRides').once('value');
     const paymentStatusPromise = db.ref('paymentStatus').once('value');
     const completedRidesPromise = role === 'client' ? db.ref('completedRides').once('value') : Promise.resolve(null);
-    const penaltiesSummaryPromise = role === 'driver'
-      ? db.ref(`driverPenalties/${userId}/summary`).once('value')
+    const driverWalletPromise = role === 'driver'
+      ? db.ref(`drivers/${userId}/wallet`).once('value')
+      : Promise.resolve(null);
+    const driverProfilePromise = role === 'driver'
+      ? driverRepo.findByUserId(userId).catch(() => null)
       : Promise.resolve(null);
     const termsPromise = getTermsSummary(userId);
     const driverApprovalPromise = role === 'driver' ? getDriverApproval(userId) : Promise.resolve(null);
@@ -484,7 +484,8 @@ async function buildPreflightDataResponse(data: GetPreflightDataRequest, authUse
       programmedRidesPromise,
       paymentStatusPromise,
       completedRidesPromise,
-      penaltiesSummaryPromise,
+      driverWalletPromise,
+      driverProfilePromise,
       termsPromise,
       driverApprovalPromise,
       regionPromise,
@@ -494,14 +495,15 @@ async function buildPreflightDataResponse(data: GetPreflightDataRequest, authUse
     const programmedRidesSnapshot = settled[1].status === 'fulfilled' ? settled[1].value : null;
     const paymentStatusSnapshot = settled[2].status === 'fulfilled' ? settled[2].value : null;
     const completedRidesSnapshot = settled[3].status === 'fulfilled' ? settled[3].value : null;
-    const penaltiesSummarySnapshot = settled[4].status === 'fulfilled' ? settled[4].value : null;
-    const terms = settled[5].status === 'fulfilled'
-      ? settled[5].value
+    const driverWalletSnapshot = settled[4].status === 'fulfilled' ? settled[4].value : null;
+    const driverProfile = settled[5].status === 'fulfilled' ? settled[5].value : null;
+    const terms = settled[6].status === 'fulfilled'
+      ? settled[6].value
       : {
           currentVersion: CURRENT_TERMS_VERSION,
         };
-    const driverApproval = settled[6].status === 'fulfilled' ? settled[6].value : null;
-    const region = settled[7].status === 'fulfilled' ? settled[7].value : null;
+    const driverApproval = settled[7].status === 'fulfilled' ? settled[7].value : null;
+    const region = settled[8].status === 'fulfilled' ? settled[8].value : null;
 
     const activeRidesData = (activeRidesSnapshot?.val() || {}) as Record<string, any>;
     const programmedRidesData = (programmedRidesSnapshot?.val() || {}) as Record<string, any>;
@@ -509,14 +511,21 @@ async function buildPreflightDataResponse(data: GetPreflightDataRequest, authUse
     const completedRidesData = (completedRidesSnapshot && typeof completedRidesSnapshot.val === 'function'
       ? completedRidesSnapshot.val()
       : {}) as Record<string, any>;
-    const penaltiesSummaryData = (penaltiesSummarySnapshot && typeof penaltiesSummarySnapshot.val === 'function'
-      ? penaltiesSummarySnapshot.val()
+    const driverWalletData = (driverWalletSnapshot && typeof driverWalletSnapshot.val === 'function'
+      ? driverWalletSnapshot.val()
+      : null) as Record<string, any> | null;
+    const driverProfileData = (driverProfile && typeof (driverProfile as any).toJSON === 'function'
+      ? (driverProfile as any).toJSON()
       : null) as Record<string, any> | null;
 
     const activeRide = buildActiveRideSummary(role, userId, activeRidesData);
     const programmedRide = buildProgrammedRideSummary(role, userId, programmedRidesData);
-    const pendingPayments = buildPendingPaymentsSummary(role, userId, paymentStatusData, activeRidesData, completedRidesData);
-    const penalties = role === 'driver' ? buildPenaltiesSummary(penaltiesSummaryData) : null;
+    const pendingPayments = role === 'driver'
+      ? buildPendingPaymentsSummary(role, userId, paymentStatusData, activeRidesData, completedRidesData)
+      : null;
+    const rechargeFunds = role === 'driver'
+      ? buildRechargeFundsSummary(driverWalletData, driverProfileData)
+      : null;
 
     return {
       success: true,
@@ -530,7 +539,8 @@ async function buildPreflightDataResponse(data: GetPreflightDataRequest, authUse
       activeRide,
       programmedRide,
       pendingPayments,
-      penalties,
+      penalties: null,
+      rechargeFunds,
     };
   } catch (error: any) {
     console.error('❌ [getPreflightData] Error:', error);

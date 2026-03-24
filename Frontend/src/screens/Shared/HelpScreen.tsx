@@ -17,7 +17,7 @@ interface FAQItem {
 
 const SUPPORT_PHONE = '+50512345678';
 const WHATSAPP_NUMBER = '50512345678';
-const SUPPORT_EMAIL = 'soporte@rundiapp.com';
+const SUPPORT_EMAIL = ' soporte@gruporzc.com';
 
 export default function HelpScreen() {
   const { colors } = useTheme();

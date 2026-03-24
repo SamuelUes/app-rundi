@@ -208,6 +208,23 @@
         "municipality": { ".validate": "newData.isString() || newData.val() == null" },
         "phone": { ".validate": "newData.isString() || newData.val() == null" },
         "email": { ".validate": "newData.isString() || newData.val() == null" },
+        "wallet": {
+          ".read": "auth != null && auth.uid === $driverId",
+          ".write": false,
+          "currentRechargeBalance": {
+            ".validate": "newData.isNumber() || newData.val() == null"
+          },
+          "availableBalance": {
+            ".validate": "newData.isNumber() || newData.val() == null"
+          },
+          "blocked": {
+            ".validate": "newData.isBoolean() || newData.val() == null"
+          },
+          "updatedAt": {
+            ".validate": "newData.isNumber() || newData.val() == null"
+          },
+          "$other": { ".validate": "true" }
+        },
         "$other": { ".validate": "true" }
       }
     },

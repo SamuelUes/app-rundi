@@ -24,7 +24,7 @@ export type PreflightRouteConfig = {
   rideTrackingRoute?: string;
   waitingRideRoute?: string;
   pendingPaymentsRoute?: string;
-  payCommissionsRoute?: string;
+  rechargeFundsRoute?: string;
   pendingApprovalRoute?: string;
 };
 
@@ -56,6 +56,11 @@ export type PreflightPendingPaymentsSummary = {
 export type PreflightPenaltiesSummary = {
   pendingAmount: number;
   pendingCount: number;
+};
+
+export type PreflightRechargeFundsSummary = {
+  availableBalance: number;
+  blocked: boolean;
 };
 
 export type PreflightActiveRideSummary = {
@@ -96,5 +101,6 @@ export type GetPreflightDataResponse = {
   programmedRide?: PreflightProgrammedRideSummary | null;
   pendingPayments?: PreflightPendingPaymentsSummary | null;
   penalties?: PreflightPenaltiesSummary | null;
+  rechargeFunds?: PreflightRechargeFundsSummary | null;
 };
  

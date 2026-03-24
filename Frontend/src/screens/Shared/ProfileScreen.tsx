@@ -584,6 +584,7 @@ export default function ProfileScreen({ navigation }: any) {
             <Text style={styles.optionArrow}>›</Text>
           </TouchableOpacity>
 
+          {/* Tarjetas desactivadas temporalmente
           <TouchableOpacity
             style={styles.optionCard}
             onPress={() => navigation.navigate('PaymentMethods')}
@@ -595,6 +596,7 @@ export default function ProfileScreen({ navigation }: any) {
             <Text style={styles.optionText}>{t('shared.profile.config.payments')}</Text>
             <Text style={styles.optionArrow}>›</Text>
           </TouchableOpacity>
+          */}
 
           <TouchableOpacity
             style={styles.optionCard}

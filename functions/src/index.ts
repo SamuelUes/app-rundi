@@ -18,7 +18,7 @@ import * as paymentsSequelizeAPI from "./api/payments_sequelize";
 import * as ratingsSequelizeAPI from "./api/ratings_sequelize";
 import * as priceNegotiationSequelizeAPI from "./api/price_negotiation_sequelize";
 import * as vehiclesSequelizeAPI from "./api/vehicles_sequelize";
-import * as penaltiesSequelizeAPI from "./api/driver_penalties_sequelize";
+import * as rechargeFundsAPI from "./api/recharge_funds";
 import * as rideLocationsSequelizeAPI from "./api/ride_locations_sequelize";
 import * as emergencyCallsSequelizeAPI from "./api/emergency_calls_sequelize";
 import * as servicesSequelizeAPI from "./api/services_sequelize";
@@ -209,6 +209,9 @@ export const checkRegionAvailability = regionAvailabilityAPI.checkRegionAvailabi
 export const checkRegionAvailabilityHttp = regionAvailabilityAPI.checkRegionAvailabilityHttp;
 export const getPreflightData = preflightAPI.getPreflightData;
 export const getPreflightDataHttp = preflightAPI.getPreflightDataHttp;
+export const getDriverRechargeFundsSummary = rechargeFundsAPI.getDriverRechargeFundsSummary;
+export const createDriverRechargeManual = rechargeFundsAPI.createDriverRechargeManual;
+export const puntoExpressRechargeWebhookHttp = rechargeFundsAPI.puntoExpressRechargeWebhookHttp;
 
 // Public ride tracking (Landing page)
 export const getPublicRideTracking = publicRideTrackingAPI.getPublicRideTracking;
@@ -395,13 +398,14 @@ export const switchVehicle = vehiclesSequelizeAPI.switchVehicle;
 export const deleteVehicleSeq = vehiclesSequelizeAPI.deleteVehicle;
 
 // Driver Penalties
-export const createPenalty = penaltiesSequelizeAPI.createPenalty;
-export const getDriverPenalties = penaltiesSequelizeAPI.getDriverPenalties;
-export const getTotalPenalties = penaltiesSequelizeAPI.getTotalPenalties;
-export const markPenaltyAsPaid = penaltiesSequelizeAPI.markPenaltyAsPaid;
-export const deletePenalty = penaltiesSequelizeAPI.deletePenalty;
-export const getDriverPenaltySummary = penaltiesSequelizeAPI.getDriverPenaltySummary;
-export const payAllPenalties = penaltiesSequelizeAPI.payAllPenalties;
+// ⚠️ Deprecated (PuntoExpress RechargeFunds reemplaza esta lógica)
+// export const createPenalty = penaltiesSequelizeAPI.createPenalty;
+// export const getDriverPenalties = penaltiesSequelizeAPI.getDriverPenalties;
+// export const getTotalPenalties = penaltiesSequelizeAPI.getTotalPenalties;
+// export const markPenaltyAsPaid = penaltiesSequelizeAPI.markPenaltyAsPaid;
+// export const deletePenalty = penaltiesSequelizeAPI.deletePenalty;
+// export const getDriverPenaltySummary = penaltiesSequelizeAPI.getDriverPenaltySummary;
+// export const payAllPenalties = penaltiesSequelizeAPI.payAllPenalties;
 
 // Ride Locations
 export const createRideLocation = rideLocationsSequelizeAPI.createRideLocation;

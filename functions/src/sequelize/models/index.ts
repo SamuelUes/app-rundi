@@ -8,7 +8,8 @@ import Ride from './Ride';
 import Payment from './Payment';
 import Rating from './Rating';
 import Vehicle from './Vehicle';
-import DriverPenalty from './DriverPenalty';
+// import DriverPenalty from './DriverPenalty';
+import DriverRecharge from './DriverRecharge';
 import RideLocation from './RideLocation';
 import AnalyticsEvent from './AnalyticsEvent';
 import EmergencyCall from './EmergencyCall';
@@ -30,9 +31,12 @@ Rating.belongsTo(Driver, { foreignKey: 'to_user_id', as: 'driver' });
 // Driver - Vehicle (1:N)
 Driver.hasMany(Vehicle, { foreignKey: 'driver_id', as: 'vehicles' });
 Vehicle.belongsTo(Driver, { foreignKey: 'driver_id', as: 'driver' });
-// Driver - DriverPenalty (1:N)
-Driver.hasMany(DriverPenalty, { foreignKey: 'driver_id', as: 'penalties' });
-DriverPenalty.belongsTo(Driver, { foreignKey: 'driver_id', as: 'driver' });
+// Legacy penalties desactivado (migración a PuntoExpress)
+// Driver.hasMany(DriverPenalty, { foreignKey: 'driver_id', as: 'penalties' });
+// DriverPenalty.belongsTo(Driver, { foreignKey: 'driver_id', as: 'driver' });
+// Driver - DriverRecharge (1:N)
+Driver.hasMany(DriverRecharge, { foreignKey: 'driver_id', as: 'recharges' });
+DriverRecharge.belongsTo(Driver, { foreignKey: 'driver_id', as: 'driver' });
 
 export {
   Ride,
@@ -40,7 +44,8 @@ export {
   Driver,
   Rating,
   Vehicle,
-  DriverPenalty,
+  // DriverPenalty,
+  DriverRecharge,
   RideLocation,
   AnalyticsEvent,
   EmergencyCall,

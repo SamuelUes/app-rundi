@@ -328,7 +328,7 @@ export default function RideHistoryScreen({ navigation }: any) {
         <TouchableOpacity
           style={styles.primaryNavButton}
           activeOpacity={0.9}
-          onPress={() => navigation.navigate('PayCommissions')}
+          onPress={() => navigation.navigate('RechargeFunds')}
         >
           <Image source={arrowWhiteUpIcon} style={[styles.navIcon, styles.navIconWhite]} resizeMode="contain" />
           <Text style={styles.primaryNavText}>{t('shared.rideHistory.nav.commissions')}</Text>

@@ -29,7 +29,7 @@ export default function AppNavigator() {
         successRoute: 'DriverHome',
         activeRideRoute: 'ActiveRide',
         pendingPaymentsRoute: 'PendingPayments',
-        payCommissionsRoute: 'PayCommissions',
+        rechargeFundsRoute: 'RechargeFunds',
         pendingApprovalRoute: 'DriverPendingApproval',
       });
     }

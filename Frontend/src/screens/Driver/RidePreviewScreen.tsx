@@ -404,7 +404,9 @@ export default function RidePreviewScreen() {
     alertService.showConfirmAlert(
       t('driver.ridePreview.alerts.cardRequiredTitle'),
       t('driver.ridePreview.alerts.cardRequiredBody'),
-      () => navigation.navigate('PaymentMethods'),
+      () => {
+        // navigation.navigate('PaymentMethods');
+      },
       undefined,
       t('driver.ridePreview.alerts.cardRequiredConfirm'),
       t('driver.ridePreview.alerts.cardRequiredCancel'),

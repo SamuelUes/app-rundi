@@ -27,8 +27,7 @@ import { fetchClientProfile, ClientProfile } from '../../services/clientProfiles
 import { hasSavedCard } from '../../utils/cardUtils';
 import { useLocation } from '../../hooks/useLocation';
 import { useAcceptedRideListener } from '../../hooks/useAcceptedRideListener';
-import penaltiesService from '../../services/penaltiesService';
-import penaltiesRealtimeService from '../../services/realtime/penaltiesRealtimeService';
+import rechargeFundsService from '../../services/rechargeFundsService';
 import { getPreflightResult } from '../../state/preflightStore';
 import { RIDES_RADIUS_KM } from '../../constants/rideRadius';
 import { useTranslation } from 'react-i18next';
@@ -241,7 +240,18 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
   const [refreshing, setRefreshing] = useState(false);
   const [selectedRideId, setSelectedRideId] = useState<string | null>(null);
   const [clientProfiles, setClientProfiles] = useState<Record<string, ClientProfile | null>>({});
-  const [penaltySummary, setPenaltySummary] = useState<{ pendingCount: number; pendingAmount: number } | null>(null);
+  const [rechargeFundsSummary, setRechargeFundsSummary] = useState<{ availableBalance: number; blocked: boolean } | null>(
+    () => {
+      const summary = preflightSummary?.preflightData?.rechargeFunds;
+      if (!summary) {
+        return null;
+      }
+      return {
+        availableBalance: Number(summary.availableBalance ?? 0),
+        blocked: Boolean(summary.blocked),
+      };
+    },
+  );
   const [activeRideGuard, setActiveRideGuard] = useState<{ id: string } | null>(null);
   const isScreenFocusedRef = useRef(false);
   const [photoModalUrl, setPhotoModalUrl] = useState<string | null>(null);
@@ -594,40 +604,46 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
     };
   }, [navigation, serviceAreaId]);
 
-  // ✅ Supabase Realtime: resumen de penalizaciones
+  // ✅ Realtime DB: resumen de fondos del conductor
   useEffect(() => {
     if (!user?.id) return;
-    let unsubscribe: (() => void) | null = null;
-    let isActive = true;
+    const db = getDatabase();
+    const walletRef = ref(db, `drivers/${user.id}/wallet`);
+    let active = true;
 
-    const fetchSummary = async () => {
-      try {
-        const res = await penaltiesService.getDriverPenaltySummary();
-        if (!isActive || !res?.success) return;
-        setPenaltySummary({
-          pendingCount: Number(res.pendingCount || 0),
-          pendingAmount: Number(res.pendingAmount || 0),
+    const unsubscribe = onValue(
+      walletRef,
+      (snapshot) => {
+        if (!active) return;
+        const data = snapshot.val() || {};
+        const availableBalance = Number(
+          data.availableBalance ?? data.balance ?? data.currentBalance ?? data.currentRechargeBalance ?? 0,
+        );
+        setRechargeFundsSummary({
+          availableBalance: Number.isFinite(availableBalance) ? availableBalance : 0,
+          blocked: Boolean(data.blocked) || Number(availableBalance || 0) <= 0,
         });
-      } catch (e) {
-        console.error('❌ [AvailableRidesScreeNewDesign] Error obteniendo resumen de penalizaciones:', e);
+      },
+      (err) => {
+        console.error('❌ [AvailableRidesScreeNewDesign] Error escuchando wallet del conductor:', err);
+      },
+    );
+
+    const navUnsubscribe = navigation?.addListener?.('focus', async () => {
+      try {
+        const summary = await rechargeFundsService.getSummary(10);
+        setRechargeFundsSummary({
+          availableBalance: Number(summary.availableBalance || 0),
+          blocked: Boolean(summary.blocked),
+        });
+      } catch (error) {
+        console.warn('⚠️ [AvailableRidesScreeNewDesign] No se pudo refrescar resumen de fondos:', error);
       }
-    };
-
-    penaltiesRealtimeService
-      .subscribeToDriverPenaltyChanges(user.id, fetchSummary)
-      .then((unsubscribeFn) => {
-        unsubscribe = unsubscribeFn;
-      })
-      .catch((err) => {
-        console.error('❌ [AvailableRidesScreeNewDesign] Error suscribiendo a penalizaciones:', err);
-        void fetchSummary();
-      });
-
-    const navUnsubscribe = navigation?.addListener?.('focus', fetchSummary);
+    });
 
     return () => {
-      isActive = false;
-      unsubscribe?.();
+      active = false;
+      unsubscribe();
       navUnsubscribe?.();
     };
   }, [navigation, user?.id]);
@@ -672,7 +688,9 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
     alertService.showConfirmAlert(
       t('driver.available.alerts.cardRequiredTitle'),
       t('driver.available.alerts.cardRequiredBody'),
-      () => navigation.navigate('PaymentMethods'),
+      () => {
+        // navigation.navigate('PaymentMethods');
+      },
       undefined,
       t('driver.available.alerts.cardRequiredConfirm'),
       t('driver.available.alerts.cardRequiredCancel'),
@@ -698,13 +716,13 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
         return;
       }
 
-      // ✅ Bloquear aceptar si hay comisiones pendientes
-      if (penaltySummary && Number(penaltySummary.pendingAmount) > 0) {
-        const pendingAmount = Number(penaltySummary.pendingAmount).toFixed(2);
+      // ✅ Bloquear aceptar si no hay fondos disponibles
+      if (rechargeFundsSummary && (Number(rechargeFundsSummary.availableBalance) <= 0 || rechargeFundsSummary.blocked)) {
+        const currentBalance = Number(rechargeFundsSummary.availableBalance || 0).toFixed(2);
         alertService.showInfoAlert(
-          t('driver.available.alerts.penaltiesTitle'),
-          t('driver.available.alerts.penaltiesBody', { amount: pendingAmount }),
-          () => navigation.navigate('PayCommissions'),
+          t('driver.available.alerts.rechargeRequiredTitle'),
+          t('driver.available.alerts.rechargeRequiredBody', { amount: currentBalance }),
+          () => navigation.navigate('RechargeFunds'),
         );
         return;
       }

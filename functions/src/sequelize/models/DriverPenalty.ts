@@ -1,5 +1,7 @@
 /**
  * DriverPenalty Model - Penalizaciones de conductores
+ * @deprecated Legacy: reemplazado por drivers_recharges y current_recharge_balance.
+ * Mantener solo para rollback/manual troubleshooting.
  */
 
 import { DataTypes, Model } from 'sequelize';

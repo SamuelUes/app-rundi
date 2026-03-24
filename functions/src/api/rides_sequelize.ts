@@ -8,12 +8,11 @@ import { mapRides } from './rideHistory';
 import { sendNotificationToUser } from '../services/pushNotifications';
 import { notifyLiveRideUpdate, LiveRideNotificationPayload } from '../services/liveRideNotifications';
 import { RideRepository } from '../sequelize/repositories/RideRepository';
-import { DriverPenaltyRepository } from '../sequelize/repositories/DriverPenaltyRepository';
+// import { DriverPenaltyRepository } from '../sequelize/repositories/DriverPenaltyRepository';
 import { ServiceRepository } from '../sequelize/repositories/ServiceRepository';
 import { PaymentRepository } from '../sequelize/repositories/PaymentRepository';
 import { VehicleRepository } from '../sequelize/repositories/VehicleRepository';
 import { calculateRideProgress } from '../utils/rideProgressUtils';
-import { MIGRATION_FLAGS } from '../config/migration-flags';
 import { logRideEvent, AnalyticsEvents } from '../utils/analyticsUtils';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -31,7 +30,7 @@ const locationRepo = new RideLocationRepository();
 const rideService = new RideService();
 const db = admin.database();
 const DEFAULT_SERVICE_AREA_ID = 'ni-managua';
-const penaltyRepo = new DriverPenaltyRepository();
+// const penaltyRepo = new DriverPenaltyRepository();
 const serviceRepo = new ServiceRepository();
 const paymentRepo = new PaymentRepository();
 const vehicleRepo = new VehicleRepository();
@@ -1269,6 +1268,9 @@ export const getAvailableRides = functions.https.onCall(async (data, context) =>
   };
 });
 
+// Legacy penalties desactivado por migración a PuntoExpress RechargeFunds.
+// Se mantiene comentado para rollback rápido si fuera necesario.
+/*
 const updateDriverPenaltySummary = async (driverId: string) => {
   try {
     const penalties = await penaltyRepo.findByDriverId(driverId);
@@ -1333,6 +1335,7 @@ const ensureDriverPenalty = async (options: {
     console.error('⚠️ [rides] Error asegurando penalización:', penaltyErr);
   }
 };
+*/
 
 /**
  * Marcar conductor en camino (driver_on_route)
@@ -1971,18 +1974,8 @@ export const acceptRide = functions.https.onCall(async (data, context) => {
       return { success: true, ride: { id: rideId, status: firebaseRideData.status, driverId } };
     }
 
-    // ✅ Actualizado: Bloqueo por cantidad de penalizaciones pendientes (server-side)
-    try {
-      const penalties = await penaltyRepo.findByDriverId(driverId);
-      const pendingCount = (Array.isArray(penalties) ? penalties : []).filter((p: any) => String(p.status).toLowerCase() === 'pending').length;
-      if (pendingCount >= 5) {
-        console.warn(`⛔ [acceptRide] Conductor ${driverId} con ${pendingCount} penalizaciones pendientes (umbral=5)`);
-        throw new functions.https.HttpsError('failed-precondition', 'No puedes aceptar viajes: tienes 5 o más comisiones/penalizaciones pendientes. Debes pagarlas para continuar.');
-      }
-    } catch (penErr: any) {
-      if (penErr instanceof functions.https.HttpsError) throw penErr;
-      console.warn('⚠️ [acceptRide] Error verificando penalizaciones:', penErr?.message || penErr);
-    }
+    // Legacy penalties desactivado por migración a PuntoExpress RechargeFunds.
+    // El bloqueo por saldo se realiza con wallet/rechargeFunds en preflight + front driver.
 
     // ✅ NUEVO: Verificar que el conductor no esté BUSY
     try {
@@ -3077,15 +3070,16 @@ export const cancelRide = functions.https.onCall(async (data, context) => {
 
     // ✅ Penalizaciones y registros de cobro
     try {
-      if (chargeTarget === 'driver' && commissionDue > 0 && cancelerDriverId) {
-        await ensureDriverPenalty({
-          driverId: cancelerDriverId,
-          rideId,
-          amount: commissionDue,
-          penaltyType: 'driver_cancellation_after_start',
-          reason: reason || 'Cancelación del conductor con viaje iniciado',
-        });
-      }
+      // Legacy penalties desactivado (migrado a PuntoExpress RechargeFunds)
+      // if (chargeTarget === 'driver' && commissionDue > 0 && cancelerDriverId) {
+      //   await ensureDriverPenalty({
+      //     driverId: cancelerDriverId,
+      //     rideId,
+      //     amount: commissionDue,
+      //     penaltyType: 'driver_cancellation_after_start',
+      //     reason: reason || 'Cancelación del conductor con viaje iniciado',
+      //   });
+      // }
 
       if (chargeTarget === 'client' && chargeAmount > 0 && firebaseRide?.clientId) {
         await admin

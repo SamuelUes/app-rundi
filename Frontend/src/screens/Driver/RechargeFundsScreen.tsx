@@ -11,8 +11,7 @@ import {
   Image,
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
-import { useAuth } from '../../context/AuthContext';
-import penaltiesService, { DriverPenaltySummary, PayAllPenaltiesResult } from '../../services/penaltiesService';
+import rechargeFundsService, { DriverRechargeFundsSummary } from '../../services/rechargeFundsService';
 import cardsService, { Card } from '../../services/cardsService';
 import { maskCardNumber } from '../../utils/cardUtils';
 import BiometricService from '../../services/biometricService';
@@ -21,35 +20,37 @@ import { initializeFirebase } from '../../config/firebase';
 import { useTranslation } from 'react-i18next';
 import SupportChatShortcut from '../../components/SupportChatShortcut';
 
-const EMPTY_SUMMARY: DriverPenaltySummary = {
+const EMPTY_SUMMARY: DriverRechargeFundsSummary = {
   success: false,
   driverId: '',
-  pendingCount: 0,
-  pendingAmount: 0,
-  penalties: { count: 0, amount: 0 },
-  payments: { count: 0, amount: 0 },
-  paymentDetails: [],
+  availableBalance: 0,
+  blocked: true,
+  totals: {
+    totalRecharged: 0,
+    totalDeducted: 0,
+    rechargeCount: 0,
+    deductionCount: 0,
+  },
+  history: [],
 };
 
-export default function PayCommissionsScreen({ navigation }: any) {
+export default function RechargeFundsScreen({ navigation }: any) {
   const { colors, isDark } = useTheme();
   const accentColor = isDark ? '#D8A15F' : '#B77734';
   const styles = useMemo(() => createStyles(colors, accentColor), [colors, accentColor]);
-  const { user } = useAuth();
   const { t } = useTranslation();
-  const headerTitle = t('driver.payComission.header.title');
-  const loadingText = t('driver.payComission.loading');
-  const summaryTexts = t('driver.payComission.summary', {
+  const headerTitle = t('driver.rechargeFunds.header.title');
+  const loadingText = t('driver.rechargeFunds.loading');
+  const summaryTexts = t('driver.rechargeFunds.summary', {
     returnObjects: true,
   }) as {
     title: string;
-    paymentsTitle: string;
-    paymentsCaption: string;
-    penaltiesTitle: string;
-    penaltiesCaption: string;
+    currentBalanceLabel: string;
+    totalRechargedLabel: string;
+    totalDeductedLabel: string;
     hint: string;
   };
-  const methodsTexts = t('driver.payComission.methods', {
+  const methodsTexts = t('driver.rechargeFunds.methods', {
     returnObjects: true,
   }) as {
     title: string;
@@ -60,35 +61,37 @@ export default function PayCommissionsScreen({ navigation }: any) {
     bankTitle: string;
     bankDescription: string;
   };
-  const infoTexts = t('driver.payComission.info', { returnObjects: true }) as { title: string };
-  const inputTexts = t('driver.payComission.input', { returnObjects: true }) as {
-    label: string;
+  const infoTexts = t('driver.rechargeFunds.info', { returnObjects: true }) as { title: string };
+  const inputTexts = t('driver.rechargeFunds.input', { returnObjects: true }) as {
+    amountLabel: string;
+    amountPlaceholder: string;
+    referenceLabel: string;
     placeholder: string;
   };
-  const buttonTexts = t('driver.payComission.button', { returnObjects: true }) as { pay: string };
-  const alertsTexts = t('driver.payComission.alerts', {
+  const alertsTexts = t('driver.rechargeFunds.alerts', {
     returnObjects: true,
   }) as Record<string, string>;
-  const cardsTexts = t('driver.payComission.cards', {
+  const cardsTexts = t('driver.rechargeFunds.cards', {
     returnObjects: true,
   }) as { defaultBadge?: string };
-  const navigationTexts = t('driver.payComission.navigation', {
+  const navigationTexts = t('driver.rechargeFunds.navigation', {
     returnObjects: true,
   }) as { goToPaymentMethods: string };
 
   const [loading, setLoading] = useState(true);
-  const [summary, setSummary] = useState<DriverPenaltySummary>(EMPTY_SUMMARY);
+  const [summary, setSummary] = useState<DriverRechargeFundsSummary>(EMPTY_SUMMARY);
   const [submitting, setSubmitting] = useState(false);
   const [cards, setCards] = useState<Card[]>([]);
   const [selectedMethod, setSelectedMethod] = useState<'bank_transfer' | 'card'>('bank_transfer');
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
+  const [amount, setAmount] = useState('');
   const [reference, setReference] = useState('');
   useEffect(() => {
     const load = async () => {
       try {
         setLoading(true);
         const [summaryResponse, savedCards] = await Promise.all([
-          penaltiesService.getDriverPenaltySummary(),
+          rechargeFundsService.getSummary(30),
           cardsService.getCards(),
         ]);
 
@@ -116,8 +119,9 @@ export default function PayCommissionsScreen({ navigation }: any) {
   }, []);
 
   const handlePay = async () => {
-    if (!summary || summary.pendingAmount <= 0) {
-      Alert.alert(alertsTexts.noCommissionsTitle, alertsTexts.noCommissionsMessage);
+    const parsedAmount = Number(String(amount || '').replace(',', '.'));
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      Alert.alert(alertsTexts.invalidAmountTitle || alertsTexts.paymentErrorTitle, alertsTexts.invalidAmountMessage || alertsTexts.paymentErrorMessage);
       return;
     }
     if (selectedMethod === 'card' && !selectedCardId) {
@@ -125,10 +129,10 @@ export default function PayCommissionsScreen({ navigation }: any) {
       return;
     }
     try {
-      const totalToPay = summary.pendingAmount || 0;
+      const totalToPay = parsedAmount;
 
       const biometricResult = await BiometricService.authenticate(
-        t('driver.payComission.alerts.biometricPrompt', {
+        t('driver.rechargeFunds.alerts.biometricPrompt', {
           amount: formatCurrency(totalToPay),
         })
       );
@@ -152,39 +156,35 @@ export default function PayCommissionsScreen({ navigation }: any) {
             await createBiometricAuthFn({
               rideId: null,
               biometricType: biometricResult.biometryType || 'biometric',
-              context: 'commission_payment',
+              context: 'recharge_funds',
               userType: 'driver',
             });
           }
         } catch (logError) {
-          console.error('❌ Error registrando autenticación biométrica (commissions) vía Cloud Function:', logError);
+          console.error('❌ Error registrando autenticación biométrica (recharge funds) vía Cloud Function:', logError);
         }
       }
 
       setSubmitting(true);
-      const res: PayAllPenaltiesResult = await penaltiesService.payAllPenalties({
+      const res = await rechargeFundsService.createRecharge({
+        amount: totalToPay,
         reference: reference || undefined,
         method: selectedMethod,
         cardId: selectedMethod === 'card' ? selectedCardId || undefined : undefined,
       });
       if (res?.success) {
-        const penaltiesPaid = res.breakdown?.penaltiesPaid ?? 0;
-        const paymentsPaid = res.breakdown?.paymentCommissionsPaid ?? 0;
-        const detailMessage = t('driver.payComission.alerts.detailTemplate', {
-          penaltiesCount: penaltiesPaid,
-          penaltiesAmount: formatCurrency(res.breakdown?.penaltiesAmount ?? 0),
-          commissionsCount: paymentsPaid,
-          commissionsAmount: formatCurrency(res.breakdown?.paymentCommissionsAmount ?? 0),
-        });
-        const successMessage = t('driver.payComission.alerts.paymentSuccessMessage', {
-          amount: formatCurrency(res.totalPaid ?? 0),
-          concepts: res.changed ?? 0,
-          details: detailMessage,
+        const refreshedSummary = await rechargeFundsService.getSummary(30);
+        setSummary(refreshedSummary?.success ? refreshedSummary : EMPTY_SUMMARY);
+        setAmount('');
+        setReference('');
+
+        const successMessage = t('driver.rechargeFunds.alerts.paymentSuccessMessage', {
+          amount: formatCurrency(totalToPay),
+          balance: formatCurrency(Number(res.availableBalance ?? refreshedSummary?.availableBalance ?? 0)),
         });
         Alert.alert(alertsTexts.paymentSuccessTitle, successMessage, [
           {
             text: alertsTexts.paymentSuccessButton,
-            onPress: () => navigation.replace('Earnings'),
           },
         ]);
       } else {
@@ -206,6 +206,7 @@ export default function PayCommissionsScreen({ navigation }: any) {
   };
 
   const formatCurrency = (n: number) => `C$${Number(n || 0).toFixed(2)}`;
+  const parsedRechargeAmount = Number(String(amount || '').replace(',', '.'));
 
   const renderPaymentMethods = () => {
     const hasCards = cards.length > 0;
@@ -262,6 +263,7 @@ export default function PayCommissionsScreen({ navigation }: any) {
               <Text style={styles.methodOptionDescription}>
                 {methodsTexts.cardEmpty}
               </Text>
+              {/* Tarjetas desactivadas temporalmente
               <TouchableOpacity
                 style={{ marginTop: 8 }}
                 onPress={() => navigation.navigate('PaymentMethods')}
@@ -271,6 +273,7 @@ export default function PayCommissionsScreen({ navigation }: any) {
                   {navigationTexts.goToPaymentMethods}
                 </Text>
               </TouchableOpacity>
+              */}
             </View>
           )}
         </TouchableOpacity>
@@ -327,32 +330,28 @@ export default function PayCommissionsScreen({ navigation }: any) {
             <Text style={styles.summaryTitle}>{summaryTexts.title}</Text>
 
             <View style={styles.summaryHighlight}>
-              <Text style={styles.summaryHighlightAmount}>{formatCurrency(summary?.pendingAmount ?? 0)}</Text>
+              <Text style={styles.summaryHighlightAmount}>{formatCurrency(summary?.availableBalance ?? 0)}</Text>
               <Text style={styles.summaryHighlightLabel}>
-                {t('driver.payComission.summary.highlightLabel', {
-                  count: summary?.pendingCount ?? 0,
-                })}
+                {summaryTexts.currentBalanceLabel}
               </Text>
             </View>
 
             <View style={styles.summaryBreakdown}>
               <View style={styles.summaryBreakdownItem}>
                 <View style={styles.summaryBreakdownText}>
-                  <Text style={styles.summaryBreakdownLabel}>{summaryTexts.paymentsTitle}</Text>
-                  <Text style={styles.summaryBreakdownCaption}>{summaryTexts.paymentsCaption}</Text>
+                  <Text style={styles.summaryBreakdownLabel}>{summaryTexts.totalRechargedLabel}</Text>
                 </View>
                 <Text style={styles.summaryBreakdownValue}>
-                  {`${summary?.payments.count ?? 0} · ${formatCurrency(summary?.payments.amount ?? 0)}`}
+                  {`${summary?.totals?.rechargeCount ?? 0} · ${formatCurrency(summary?.totals?.totalRecharged ?? 0)}`}
                 </Text>
               </View>
 
               <View style={styles.summaryBreakdownItem}>
                 <View style={styles.summaryBreakdownText}>
-                  <Text style={styles.summaryBreakdownLabel}>{summaryTexts.penaltiesTitle}</Text>
-                  <Text style={styles.summaryBreakdownCaption}>{summaryTexts.penaltiesCaption}</Text>
+                  <Text style={styles.summaryBreakdownLabel}>{summaryTexts.totalDeductedLabel}</Text>
                 </View>
                 <Text style={styles.summaryBreakdownValue}>
-                  {`${summary?.penalties.count ?? 0} · ${formatCurrency(summary?.penalties.amount ?? 0)}`}
+                  {`${summary?.totals?.deductionCount ?? 0} · ${formatCurrency(summary?.totals?.totalDeducted ?? 0)}`}
                 </Text>
               </View>
             </View>
@@ -366,7 +365,17 @@ export default function PayCommissionsScreen({ navigation }: any) {
           </View>
 
           <View style={styles.inputCard}>
-            <Text style={styles.inputLabel}>{inputTexts.label}</Text>
+            <Text style={styles.inputLabel}>{inputTexts.amountLabel}</Text>
+            <TextInput
+              value={amount}
+              onChangeText={setAmount}
+              placeholder={inputTexts.amountPlaceholder}
+              placeholderTextColor={colors.textSecondary}
+              style={styles.input}
+              keyboardType="decimal-pad"
+            />
+
+            <Text style={[styles.inputLabel, { marginTop: 12 }]}>{inputTexts.referenceLabel}</Text>
             <TextInput
               value={reference}
               onChangeText={setReference}
@@ -380,10 +389,10 @@ export default function PayCommissionsScreen({ navigation }: any) {
           <TouchableOpacity
             style={[
               styles.payButton,
-              (submitting || (summary?.pendingAmount ?? 0) <= 0 || (selectedMethod === 'card' && !selectedCardId)) &&
+              (submitting || parsedRechargeAmount <= 0 || (selectedMethod === 'card' && !selectedCardId)) &&
                 styles.payButtonDisabled,
             ]}
-            disabled={submitting || (summary?.pendingAmount ?? 0) <= 0 || (selectedMethod === 'card' && !selectedCardId)}
+            disabled={submitting || parsedRechargeAmount <= 0 || (selectedMethod === 'card' && !selectedCardId)}
             onPress={handlePay}
             activeOpacity={0.85}
           >
@@ -391,8 +400,8 @@ export default function PayCommissionsScreen({ navigation }: any) {
               <ActivityIndicator color="#fff" />
             ) : (
               <Text style={styles.payButtonText}>
-                {t('driver.payComission.button.pay', {
-                  amount: formatCurrency(summary?.pendingAmount ?? 0),
+                {t('driver.rechargeFunds.button.pay', {
+                  amount: formatCurrency(parsedRechargeAmount > 0 ? parsedRechargeAmount : 0),
                 })}
               </Text>
             )}
@@ -401,9 +410,9 @@ export default function PayCommissionsScreen({ navigation }: any) {
           <SupportChatShortcut
             style={{ marginTop: 16 }}
             initialCategory="payment"
-            initialTitle={t('driver.payComission.support.title')}
-            label={t('driver.payComission.support.label')}
-            description={t('driver.payComission.support.description')}
+            initialTitle={t('driver.rechargeFunds.support.title')}
+            label={t('driver.rechargeFunds.support.label')}
+            description={t('driver.rechargeFunds.support.description')}
           />
         </ScrollView>
       )}

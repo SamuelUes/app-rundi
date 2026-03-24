@@ -31,7 +31,7 @@ import DriverPendingApprovalScreen from '../screens/Driver/DriverPendingApproval
 import type { PreflightRouteConfig } from '../types/preflight';
 import PaymentConfirmationScreen from '../screens/Driver/PaymentConfirmationScreen';
 import WaitingClientConfirmationScreen from '../screens/Driver/WaitingClientConfirmationScreen';
-import PayCommissionsScreen from '../screens/Driver/PayCommissionsScreen';
+import RechargeFundsScreen from '../screens/Driver/RechargeFundsScreen';
 import PendingPaymentsScreen from '../screens/Client/PendingPaymentsScreen';
 import PhoneVerificationScreen from '../screens/Auth/PhoneVerificationScreen';
 import type { RegistrationMethod, RegistrationAuthProvider } from './types';
@@ -129,7 +129,7 @@ export type DriverStackParamList = {
     estimatedFare: number;
     extraDestinations?: Array<{ lat: number; lng: number; address?: string }>;
   };
-  PayCommissions: undefined;
+  RechargeFunds: undefined;
   PendingPayments: undefined;
   PhoneVerification: {
     name: string;
@@ -208,7 +208,7 @@ export default function DriverStack() {
           successRoute: 'DriverHome',
           activeRideRoute: 'ActiveRide',
           pendingPaymentsRoute: 'PendingPayments',
-          payCommissionsRoute: 'PayCommissions',
+          rechargeFundsRoute: 'RechargeFunds',
           pendingApprovalRoute: 'DriverPendingApproval',
         }}
       />
@@ -256,7 +256,7 @@ export default function DriverStack() {
       <Stack.Screen name="RideDetails" component={RideDetailsScreen} options={{ headerShown: false }} />
       <Stack.Screen name="PaymentConfirmation" component={PaymentConfirmationScreen} options={{ headerShown: false }} />
       <Stack.Screen name="WaitingClientConfirmation" component={WaitingClientConfirmationScreen} options={{ headerShown:false }} />
-      <Stack.Screen name="PayCommissions" component={PayCommissionsScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="RechargeFunds" component={RechargeFundsScreen} options={{ headerShown: false }} />
       <Stack.Screen name="PendingPayments" component={PendingPaymentsScreen} options={{ headerShown: false }} />
       <Stack.Screen
         name="PhoneVerification"

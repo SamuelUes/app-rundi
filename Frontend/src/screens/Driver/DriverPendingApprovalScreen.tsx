@@ -61,7 +61,7 @@ export default function DriverPendingApprovalScreen({ navigation, route }: Props
       successRoute: 'DriverHome',
       activeRideRoute: 'ActiveRide',
       pendingPaymentsRoute: 'PendingPayments',
-      payCommissionsRoute: 'PayCommissions',
+      rechargeFundsRoute: 'RechargeFunds',
       pendingApprovalRoute: 'DriverPendingApproval',
     });
   };

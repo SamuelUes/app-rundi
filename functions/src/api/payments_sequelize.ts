@@ -9,14 +9,56 @@
  */
 import * as functions from 'firebase-functions';
 import { PaymentService } from '../sequelize/services/PaymentService';
-import { DriverPenaltyRepository } from '../sequelize/repositories/DriverPenaltyRepository';
 import { BiometricAuthenticationRepository } from '../sequelize/repositories/BiometricAuthenticationRepository';
 import admin from 'firebase-admin';
-import { MIGRATION_FLAGS } from '../config/migration-flags';
 import { randomInt } from 'crypto';
+import { deductCommissionFromDriverFundsByRide } from './recharge_funds';
 
 const paymentService = new PaymentService();
 const biometricAuthRepo = new BiometricAuthenticationRepository();
+
+const normalizeString = (value: unknown): string => {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  return value.trim();
+};
+
+const parseNumber = (value: unknown): number => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const applyCommissionDeductionForCompletedPayment = async (
+  rideId: string,
+  payment: any,
+  fallbackDriverId?: string | null,
+) => {
+  const paymentId = normalizeString(payment?.id);
+  const commissionAmount = parseNumber(payment?.commission);
+
+  if (!paymentId || commissionAmount <= 0) {
+    return;
+  }
+
+  if (String(payment?.commission_status || '').toLowerCase() === 'paid') {
+    return;
+  }
+
+  try {
+    await deductCommissionFromDriverFundsByRide({
+      rideId,
+      paymentId,
+      commissionAmount,
+      fallbackDriverId: normalizeString(fallbackDriverId || '') || null,
+    });
+  } catch (error) {
+    console.error('❌ [payments_sequelize] Error descontando comisión desde RechargeFunds:', error);
+  }
+};
 
 // ============================================
 // Single-session enforcement (DENY policy)
@@ -238,10 +280,14 @@ export const confirmCashPayment = functions.https.onCall(async (data, context) =
         console.log(`✅ [confirmCashPayment] Cliente ya había confirmado, completando pago automáticamente...`);
         
         // Completar pago en Supabase
+        let completedPayment: any = null;
         try {
-          const { PaymentService } = await import('../sequelize/services/PaymentService');
-          const paymentService = new PaymentService();
-          await paymentService.completeCashPayment(rideId);
+          completedPayment = await paymentService.completeCashPayment(rideId);
+          await applyCommissionDeductionForCompletedPayment(
+            rideId,
+            completedPayment,
+            paymentData?.driverId || paymentData?.driver_id || null,
+          );
         } catch (err: any) {
           console.warn(`⚠️ [confirmCashPayment] Error completando pago en Supabase:`, err.message);
         }
@@ -322,10 +368,14 @@ export const confirmCashPayment = functions.https.onCall(async (data, context) =
         console.log(`✅ [confirmCashPayment] Conductor ya había confirmado, completando pago automáticamente...`);
         
         // Completar pago en Supabase
+        let completedPayment: any = null;
         try {
-          const { PaymentService } = await import('../sequelize/services/PaymentService');
-          const paymentService = new PaymentService();
-          await paymentService.completeCashPayment(rideId);
+          completedPayment = await paymentService.completeCashPayment(rideId);
+          await applyCommissionDeductionForCompletedPayment(
+            rideId,
+            completedPayment,
+            paymentData?.driverId || paymentData?.driver_id || rideData?.driverId || null,
+          );
         } catch (err: any) {
           console.warn(`⚠️ [confirmCashPayment] Error completando pago en Supabase:`, err.message);
         }
@@ -408,6 +458,11 @@ export const completeCashPayment = functions.https.onCall(async (data, context) 
 
     // Completar pago en Sequelize
     const payment = await paymentService.completeCashPayment(rideId);
+    await applyCommissionDeductionForCompletedPayment(
+      rideId,
+      payment,
+      paymentData?.driverId || paymentData?.driver_id || null,
+    );
 
     // Actualizar paymentStatus a 'completed' en Firebase
     console.log(`🔄 [completeCashPayment] Actualizando paymentStatus.status a 'completed'...`);
@@ -496,54 +551,7 @@ export const cancelCashPayment = functions.https.onCall(async (data, context) =>
       lastUpdatedAt: admin.database.ServerValue.TIMESTAMP,
     });
 
-    // ✅ NUEVO: Si el conductor había confirmado, crear penalización por comisión
-    try {
-      const paymentSnapshot = await admin.database().ref(`paymentStatus/${rideId}`).once('value');
-      const paymentData = paymentSnapshot.val();
-      const driverConfirmed = paymentData?.confirmedByDriver === true;
-      if (driverConfirmed) {
-        const rideData = ride || (await admin.database().ref(`completedRides/${rideId}`).once('value')).val() || {};
-        const driverId = rideData?.driverId || rideData?.driver_id || null;
-        if (driverId) {
-          // Obtener pago existente para conocer comisión calculada
-          const existingPayment = await paymentService.getPaymentByRide(rideId);
-          const commission = Number(existingPayment?.commission || 0);
-          if (commission > 0) {
-            const penaltyRepo = new DriverPenaltyRepository();
-            const existingPenalty = await penaltyRepo.findByRideId(rideId);
-            if (!existingPenalty) {
-              await penaltyRepo.create({
-                driver_id: driverId,
-                ride_id: rideId,
-                penalty_type: 'commission_cash_ride',
-                amount: commission,
-                reason: reason || 'Comisión por viaje cancelado sin confirmación de cliente',
-                status: 'pending',
-                created_at: new Date(),
-              } as any);
-            }
-            // Actualizar resumen en Realtime DB (salteable por flag de migración)
-            if (MIGRATION_FLAGS.MIRROR_PENALTIES_TO_RTDB) {
-              try {
-                const all = await penaltyRepo.findByDriverId(driverId);
-                const pendingOnly = (all || []).filter((p: any) => String(p.status).toLowerCase() === 'pending');
-                const pendingCount = pendingOnly.length;
-                const pendingAmount = pendingOnly.reduce((sum: number, p: any) => sum + parseFloat(String(p.amount || 0)), 0);
-                await admin.database().ref(`driverPenalties/${driverId}/summary`).update({
-                  pendingCount,
-                  pendingAmount: Number(pendingAmount.toFixed(2)),
-                  lastUpdatedAt: admin.database.ServerValue.TIMESTAMP,
-                });
-              } catch (sumErr) {
-                console.warn('⚠️ [cancelCashPayment] Error actualizando summary de penalizaciones:', sumErr);
-              }
-            }
-          }
-        }
-      }
-    } catch (penErr) {
-      console.warn('⚠️ [cancelCashPayment] Error creando penalización por cancelación:', penErr);
-    }
+    // ⚠️ Deprecated: ya no se generan penalizaciones por comisión en cancelaciones.
 
     return {
       success: true,

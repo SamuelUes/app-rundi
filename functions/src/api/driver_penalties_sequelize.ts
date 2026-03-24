@@ -1,6 +1,8 @@
 /**
  * Driver Penalties API - Versión Sequelize
  * Gestión de penalizaciones de conductores
+ * @deprecated Legacy: reemplazado por PuntoExpress RechargeFunds (drivers_recharges + current_recharge_balance).
+ * Mantener solo para rollback/manual troubleshooting, no usar en nuevos flujos.
  */
 
 import * as functions from 'firebase-functions';
