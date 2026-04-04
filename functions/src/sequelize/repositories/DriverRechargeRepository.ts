@@ -29,6 +29,53 @@ const parseNumber = (value: unknown): number => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+const toSafeString = (value: unknown, fallback: string = ''): string => {
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  return fallback;
+};
+
+const toNullableSafeString = (value: unknown): string | null => {
+  if (value == null) {
+    return null;
+  }
+  const normalized = toSafeString(value, '');
+  return normalized || null;
+};
+
+const toSafeMetadata = (value: unknown): Record<string, any> | null => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, any>;
+};
+
+const toSafeDateString = (value: unknown): string | null => {
+  if (value == null) {
+    return null;
+  }
+
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+
+  const asString = toSafeString(value, '');
+  if (!asString) {
+    return null;
+  }
+
+  const parsed = new Date(asString);
+  if (Number.isNaN(parsed.getTime())) {
+    return asString;
+  }
+
+  return parsed.toISOString();
+};
+
 export class DriverRechargeRepository {
   async findByExternalTransactionId(externalTransactionId: string): Promise<DriverRecharge | null> {
     if (!externalTransactionId) return null;
@@ -137,19 +184,19 @@ export class DriverRechargeRepository {
         deductionCount: totals.deductionCount,
       },
       history: history.map((entry: any) => ({
-        id: String(entry?.id || ''),
-        driverId: String(entry?.driver_id || driverId),
-        rideId: entry?.ride_id ?? null,
-        rechargeType: String(entry?.recharge_type || ''),
-        source: String(entry?.source || ''),
+        id: toSafeString(entry?.id, ''),
+        driverId: toSafeString(entry?.driver_id, driverId),
+        rideId: toNullableSafeString(entry?.ride_id),
+        rechargeType: toSafeString(entry?.recharge_type, ''),
+        source: toSafeString(entry?.source, ''),
         amount: round2(parseNumber(entry?.amount)),
         balanceBefore: round2(parseNumber(entry?.balance_before)),
         balanceAfter: round2(parseNumber(entry?.balance_after)),
-        externalReference: entry?.external_reference ?? null,
-        externalTransactionId: entry?.external_transaction_id ?? null,
-        status: String(entry?.status || 'confirmed'),
-        metadata: entry?.metadata ?? null,
-        createdAt: entry?.created_at ?? null,
+        externalReference: toNullableSafeString(entry?.external_reference),
+        externalTransactionId: toNullableSafeString(entry?.external_transaction_id),
+        status: toSafeString(entry?.status, 'confirmed'),
+        metadata: toSafeMetadata(entry?.metadata),
+        createdAt: toSafeDateString(entry?.created_at),
       })),
     };
   }

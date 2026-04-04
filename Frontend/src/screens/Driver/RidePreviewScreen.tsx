@@ -76,6 +76,7 @@ interface RidePreviewData {
   negotiationStatus?: string | null;
   rideType?: string | null;
   clientVehiclePhoto?: string | null;
+  clientComment?: string | null;
 }
 
 interface RidePreviewParams {
@@ -373,6 +374,7 @@ export default function RidePreviewScreen() {
       driverOfferStatus: currentRide.driverOfferStatus || null,
       paymentMethod: (next.paymentMethod as any) || currentRide.paymentMethod,
       negotiationStatus: (next as any).negotiationStatus || currentRide.negotiationStatus || null,
+      clientComment: (next as any).clientComment || (next as any).comment || (next as any).notes || currentRide.clientComment || null,
     };
     setRideData(nextRide);
     setNearbyQueue(rest);
@@ -509,6 +511,7 @@ export default function RidePreviewScreen() {
         clientPhone: data.clientPhone || prev.clientPhone,
         clientVehiclePhoto: data.clientVehiclePhoto ?? prev.clientVehiclePhoto ?? null,
         rideType: data.rideType || prev.rideType || null,
+        clientComment: data.clientComment ?? data.comment ?? data.notes ?? prev.clientComment ?? null,
       }));
 
       if (!counterOfferTouched && typeof updatedDriverOfferedPrice === 'number') {
@@ -1161,9 +1164,7 @@ export default function RidePreviewScreen() {
         ]}
       >
         <View style={{ flex: 1 }}>
-          <Text style={[styles.nearbyTitle, { color: colors.text }]}>
-            {t('driver.ridePreview.nearby.title')}
-          </Text>
+          <Text style={[styles.nearbyTitle, { color: colors.text }]}>{t('driver.ridePreview.nearby.title')}</Text>
           <Text style={[styles.nearbySubtitle, { color: colors.textSecondary }]} numberOfLines={1}>
             {labelDistance} • {priceText} • {originText}
           </Text>
@@ -1419,11 +1420,16 @@ export default function RidePreviewScreen() {
             <Text style={[styles.clientNameText, { color: colors.text }]} numberOfLines={1}>
               {resolvedClientName}
             </Text>
-            <Text style={[styles.clientMetaText, { color: colors.textSecondary }]}>
+            <Text style={[styles.clientMetaText, { color: colors.textSecondary }]}> 
               {t('driver.ridePreview.labels.estimatedPrice', {
                 amount: formatCurrency(currentRide.estimatedPrice),
               })}
             </Text>
+            {typeof currentRide.clientComment === 'string' && currentRide.clientComment.trim().length > 0 ? (
+              <Text style={[styles.clientMetaText, { color: colors.textSecondary }]} numberOfLines={2}>
+                {`Nota: ${currentRide.clientComment.trim()}`}
+              </Text>
+            ) : null}
           </View>
           <View style={styles.contactActions}>
             <TouchableOpacity
@@ -1685,7 +1691,7 @@ const styles = StyleSheet.create({
   },
   clientMetaText: {
     fontSize: 13,
-    fontWeight: '500',
+    fontWeight: '800',
   },
   contactActions: {
     flexDirection: 'row',

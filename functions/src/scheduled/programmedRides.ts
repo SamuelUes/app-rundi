@@ -53,7 +53,7 @@ const notifyUserSafe = async (
         ...data,
         rideId: normalizedRideId || undefined,
       },
-      androidChannelId: 'rundi_default',
+      androidChannelId: 'default',
       notificationKey,
       expiresInMs: 15 * 60 * 1000,
     });

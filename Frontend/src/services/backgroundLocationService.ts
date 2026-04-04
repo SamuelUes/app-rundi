@@ -9,8 +9,6 @@ import * as TaskManager from 'expo-task-manager';
 import * as ExpoLocation from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import firebaseTrackingService from './firebaseTrackingService';
-import { getFirebaseDatabase } from '../config/firebase';
-import { ref as dbRef, update } from 'firebase/database';
 import { AppState, AppStateStatus, Platform } from 'react-native';
 import { handleLocationForProximity, isRegistrationUploadsInProgress } from './proximityService';
 import { ensureActivityRecognitionPermission } from '../utils/activityPermission';
@@ -258,19 +256,12 @@ const defineBackgroundTask = () => {
           }
         } else if (trackingState.role === 'client' && trackingState.rideId && trackingState.userId) {
           try {
-            const { getFirebaseFunctions } = await import('../config/firebase');
-            const { httpsCallable } = await import('firebase/functions');
-
-            const functions = await getFirebaseFunctions();
-            const updateTrackingFn = httpsCallable(functions, 'updateRideStatus');
-
-            await updateTrackingFn({
-              rideId: trackingState.rideId,
-              status: 'in_progress',
+            await firebaseTrackingService.updateRideTracking(trackingState.rideId, {
               clientLocation: {
                 latitude: location.coords.latitude,
                 longitude: location.coords.longitude,
                 accuracy: location.coords.accuracy || 0,
+                timestamp: location.timestamp,
               },
             });
           } catch (error) {

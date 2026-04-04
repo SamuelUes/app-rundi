@@ -28,8 +28,13 @@ class NotificationService {
       notificationId: string;
       timeoutHandle: ReturnType<typeof setTimeout>;
       expiresAt: number;
+      signature: string;
     }
   >();
+
+  private buildManagedSignature(title: string, body: string): string {
+    return `${title}::${body}`;
+  }
 
   /**
    * Inicializar servicio de notificaciones
@@ -118,6 +123,12 @@ class NotificationService {
     }
 
     const normalizedExpires = Number.isFinite(expiresInMs) && expiresInMs > 0 ? expiresInMs : 120_000;
+    const signature = this.buildManagedSignature(title, body);
+    const existingEntry = this.managedNotifications.get(notificationKey);
+
+    if (existingEntry && existingEntry.expiresAt > Date.now() && existingEntry.signature === signature) {
+      return;
+    }
 
     await this.dismissManagedNotification(notificationKey);
 
@@ -153,6 +164,7 @@ class NotificationService {
         notificationId,
         timeoutHandle,
         expiresAt: Date.now() + normalizedExpires,
+        signature,
       });
     } catch (error) {
       console.error('❌ Error mostrando notificación administrada:', error);

@@ -573,21 +573,9 @@ export default function SettingsScreen({ navigation }: any) {
               disabled={!notificationsEnabled}
             />
           </View>
-        </View>
+         </View>
 
-         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t('settings.sections.privacy')}</Text>
 
-          <TouchableOpacity style={styles.option}>
-            <Text style={styles.optionTitle}>{t('settings.privacy.policy')}</Text>
-            <Text style={styles.arrow}>›</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={[styles.option, styles.optionLast]} onPress={handleOpenTerms}>
-            <Text style={styles.optionTitle}>{t('settings.privacy.terms')}</Text>
-            <Text style={styles.arrow}>›</Text>
-          </TouchableOpacity>
-        </View>
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t('settings.sections.language')}</Text>
@@ -621,6 +609,20 @@ export default function SettingsScreen({ navigation }: any) {
             ))}
           </View>
         </View>
+        
+       <View style={styles.section}>
+          <Text style={styles.sectionTitle}>{t('settings.sections.privacy')}</Text>
+
+          <TouchableOpacity style={styles.option}>
+            <Text style={styles.optionTitle}>{t('settings.privacy.policy')}</Text>
+            <Text style={styles.arrow}>›</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={[styles.option, styles.optionLast]} onPress={handleOpenTerms}>
+            <Text style={styles.optionTitle}>{t('settings.privacy.terms')}</Text>
+            <Text style={styles.arrow}>›</Text>
+          </TouchableOpacity>
+         </View>
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t('settings.sections.about')}</Text>
@@ -638,12 +640,14 @@ export default function SettingsScreen({ navigation }: any) {
               <Text style={styles.optionDescription}>{t('settings.about.domainValue')}</Text>
             </View>
           </View>
+           
 
-          <TouchableOpacity style={[styles.option, styles.optionLast]}>
+          {/* <TouchableOpacity style={[styles.option, styles.optionLast]}>
             <Text style={styles.optionTitle}>{t('settings.about.licenses')}</Text>
             <Text style={styles.arrow}>›</Text>
-          </TouchableOpacity>
+          </TouchableOpacity> */}
         </View>
+        
 
         <TouchableOpacity style={[styles.logoutButton, logoutInProgress && { opacity: 0.7 }]} onPress={handleLogout} disabled={logoutInProgress}>
           <Text style={styles.logoutButtonText}>{t('settings.actions.logout')}</Text>
@@ -653,6 +657,8 @@ export default function SettingsScreen({ navigation }: any) {
       <TermsAndConditionsModal
         visible={showTermsModal}
         requireCheck={false}
+        showDocumentSelector
+        defaultDocumentType="general"
         saving={false}
         acceptLabel={t('settings.actions.accept')}
         onAccept={() => setShowTermsModal(false)}

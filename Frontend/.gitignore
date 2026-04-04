@@ -3,3 +3,5 @@
 # Expo
 .expo/
 expo/
+
+*.md

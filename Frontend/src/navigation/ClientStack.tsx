@@ -1,9 +1,9 @@
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useTheme } from '../context/ThemeContext';
-import HomeScreen from '../screens/Client/HomeScreenNewDesign'; //existe el .old
+import HomeScreen from '../screens/Client/HomeScreen'; //existe el .old
 import HomeScreenOffers from '../screens/Client/HomeScreenOffers';
-import SearchRideScreenNewDesign from '../screens/Client/SearchRideScreenNewDesign';
+import SearchRideScreenNewDesign from '../screens/Client/SearchRideScreen';
 // import RideConfirmationScreen from '../screens/Client/RideConfirmationScreen'; //existe el .old
 import RideTrackingScreen from '../screens/Client/RideTrackingScreenNewDesign';
 import PaymentScreen from '../screens/Client/PaymentScreen'; //existe el .old

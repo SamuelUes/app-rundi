@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 import { initializeFirebase } from '../config/firebase';
 import type { PreflightRole } from '../types/preflight';
 import type { PreflightAction } from '../state/preflightStore';
@@ -67,16 +68,32 @@ export const useProgrammedRidePrompt = ({
 
     let isMounted = true;
     let unsubscribe: (() => void) | null = null;
+    let fallbackSyncTimer: ReturnType<typeof setInterval> | null = null;
+    let appStateSubscription: { remove: () => void } | null = null;
 
     (async () => {
       try {
-        const { getDatabase, ref, query, orderByChild, equalTo, onValue } = await import('firebase/database');
+        const { getDatabase, ref, query, orderByChild, equalTo, onValue, get } = await import('firebase/database');
         const { app } = await initializeFirebase();
         if (!app) {
           return;
         }
         const database = getDatabase(app);
         const ridesQuery = query(ref(database, 'programmedRides'), orderByChild('clientId'), equalTo(userId));
+
+        const syncSnapshot = async () => {
+          try {
+            const snapshot = await get(ridesQuery);
+            if (!isMounted) {
+              return;
+            }
+            const value = snapshot.exists() ? snapshot.val() : null;
+            setClientRides(value);
+          } catch (error) {
+            console.error('[useProgrammedRidePrompt] Error sync programmedRides (client)', error);
+          }
+        };
+
         unsubscribe = onValue(
           ridesQuery,
           (snapshot) => {
@@ -90,6 +107,17 @@ export const useProgrammedRidePrompt = ({
             console.error('[useProgrammedRidePrompt] Error leyendo programmedRides (client)', error);
           },
         );
+
+        await syncSnapshot();
+        fallbackSyncTimer = setInterval(() => {
+          void syncSnapshot();
+        }, 45_000);
+
+        appStateSubscription = AppState.addEventListener('change', (state) => {
+          if (state === 'active') {
+            void syncSnapshot();
+          }
+        });
       } catch (error) {
         console.error('[useProgrammedRidePrompt] No se pudo inicializar listener client:', error);
       }
@@ -98,6 +126,10 @@ export const useProgrammedRidePrompt = ({
     return () => {
       isMounted = false;
       unsubscribe?.();
+      if (fallbackSyncTimer) {
+        clearInterval(fallbackSyncTimer);
+      }
+      appStateSubscription?.remove();
     };
   }, [userId, listenForClient]);
 
@@ -109,16 +141,32 @@ export const useProgrammedRidePrompt = ({
 
     let isMounted = true;
     let unsubscribe: (() => void) | null = null;
+    let fallbackSyncTimer: ReturnType<typeof setInterval> | null = null;
+    let appStateSubscription: { remove: () => void } | null = null;
 
     (async () => {
       try {
-        const { getDatabase, ref, query, orderByChild, equalTo, onValue } = await import('firebase/database');
+        const { getDatabase, ref, query, orderByChild, equalTo, onValue, get } = await import('firebase/database');
         const { app } = await initializeFirebase();
         if (!app) {
           return;
         }
         const database = getDatabase(app);
         const ridesQuery = query(ref(database, 'programmedRides'), orderByChild('driverId'), equalTo(userId));
+
+        const syncSnapshot = async () => {
+          try {
+            const snapshot = await get(ridesQuery);
+            if (!isMounted) {
+              return;
+            }
+            const value = snapshot.exists() ? snapshot.val() : null;
+            setDriverRides(value);
+          } catch (error) {
+            console.error('[useProgrammedRidePrompt] Error sync programmedRides (driver)', error);
+          }
+        };
+
         unsubscribe = onValue(
           ridesQuery,
           (snapshot) => {
@@ -132,6 +180,17 @@ export const useProgrammedRidePrompt = ({
             console.error('[useProgrammedRidePrompt] Error leyendo programmedRides (driver)', error);
           },
         );
+
+        await syncSnapshot();
+        fallbackSyncTimer = setInterval(() => {
+          void syncSnapshot();
+        }, 45_000);
+
+        appStateSubscription = AppState.addEventListener('change', (state) => {
+          if (state === 'active') {
+            void syncSnapshot();
+          }
+        });
       } catch (error) {
         console.error('[useProgrammedRidePrompt] No se pudo inicializar listener driver:', error);
       }
@@ -140,6 +199,10 @@ export const useProgrammedRidePrompt = ({
     return () => {
       isMounted = false;
       unsubscribe?.();
+      if (fallbackSyncTimer) {
+        clearInterval(fallbackSyncTimer);
+      }
+      appStateSubscription?.remove();
     };
   }, [userId, listenForDriver]);
 

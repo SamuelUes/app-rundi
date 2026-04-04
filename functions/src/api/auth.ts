@@ -992,3 +992,72 @@ export const upgradeClientToDriver = functions
       },
     };
   });
+
+export const deactivateUserAccount = functions
+  .region('us-central1')
+  .https.onCall(async (data, context) => {
+    if (!context.auth?.uid) {
+      throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
+    }
+
+    const uid = context.auth.uid;
+    const reason = normalizeString(data?.reason) || 'self_requested';
+
+    try {
+      await authAdmin.updateUser(uid, {
+        disabled: true,
+      });
+
+      await authAdmin.revokeRefreshTokens(uid);
+
+      const userRef = firestore.collection('users').doc(uid);
+      await userRef.set(
+        {
+          accountDisabled: true,
+          accountStatus: 'disabled',
+          status: 'disabled',
+          disabledReason: reason,
+          disabledBy: uid,
+          disabledAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+      );
+
+      try {
+        const db = admin.database();
+        await db.ref().update({
+          [`driverLocations/${uid}/status`]: 'offline',
+          [`driverLocations/${uid}/updatedAt`]: admin.database.ServerValue.TIMESTAMP,
+          [`driverLocations/${uid}/lastSeen`]: admin.database.ServerValue.TIMESTAMP,
+          [`presence/${uid}`]: null,
+          [`sessions/${uid}`]: null,
+        });
+      } catch (rtdbError: any) {
+        functions.logger.warn('⚠️ No se pudo actualizar estado RTDB al desactivar cuenta:', {
+          uid,
+          message: rtdbError?.message || rtdbError,
+        });
+      }
+
+      return {
+        success: true,
+        message: 'Cuenta desactivada exitosamente',
+        user: {
+          id: uid,
+          disabled: true,
+          reason,
+        },
+      };
+    } catch (error: any) {
+      functions.logger.error('❌ Error desactivando cuenta de usuario:', {
+        uid,
+        message: error?.message || error,
+      });
+
+      throw new functions.https.HttpsError(
+        'internal',
+        error?.message || 'No se pudo desactivar la cuenta',
+      );
+    }
+  });

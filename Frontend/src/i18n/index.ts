@@ -424,17 +424,273 @@ const resources = {
           termsModal: {
             title: 'Terms and conditions',
             version: 'Version {{version}}',
-            body:
-              'Terms and Conditions Agreement\n\n' +
-              'Designated Driver Service Terms and Conditions\n' +
-              '1. Service definition. Driveangel provides a designated driver who travels to the Client’s location to drive the Client’s vehicle to an agreed destination. The Driveangel driver acts as the Client’s independent agent while the service is performed.\n' +
-              '2. Client responsibility. The Client affirms to be the legal owner of the vehicle or to have explicit permission to use it. The Client guarantees that the vehicle has a valid liability insurance policy that covers third-party driving with permission. The Client is responsible for ensuring that no valuable personal items remain in the vehicle when the service ends.\n' +
-              '3. Liability waiver and limitation.\n' +
-              'a. Personal belongings. Driveangel is not responsible for the loss, damage, or theft of personal items that are not duly detailed in the inventory sheet prepared at the start of the service. The Client assumes all risk for their belongings.\n' +
-              'b. Vehicle damage. Driveangel will only be liable for vehicle damage that is the direct consequence of a demonstrable gross negligence or willful misconduct by its driver. Damages due to normal use or preexisting conditions are excluded.\n' +
-              'c. Accidents. In the event of an accident, liability will be determined according to the applicable insurance laws. Drivers affiliated with the platform maintain a liability policy, but primary coverage rests with the Client’s vehicle insurance.\n' +
-              '4. Risk acceptance. The Client acknowledges that the service is provided while they are under the influence of alcohol and therefore releases Driveangel from any claims arising from their condition, provided Driveangel delivered the service diligently.\n' +
-              '5. Data protection. The Client consents to the processing of their personal data for service management in accordance with our Privacy Policy.',
+            selectorLabel: 'Choose document',
+            body: 'By using this app, you accept our terms and conditions.',
+            documents: {
+              general: {
+                label: 'General terms',
+                version: 'Version {{version}}',
+                body:
+                  'RUNDI MOBILITY PLATFORM\n' +
+                  'Effective date: 03/24/26\n\n' +
+                  'I. DEFINITIONS\n' +
+                  'For the purposes of these Terms and Conditions:\n' +
+                  '• "Rundi" / "Platform" / "We": GrupoRZC, a natural person with RUC 0010205740009M, owner of the mobile application "Rundi", which acts as a technological intermediary between Users and Drivers.\n' +
+                  '• "Driver" / "You": A natural person who registers on the Platform to offer transportation services to Users.\n' +
+                  '• "User": A person who requests transportation services through the Platform.\n' +
+                  '• "Services": Passenger ground transportation services offered by the Driver to Users.\n' +
+                  '• "Commission": The amount the Driver pays Rundi for using the Platform for each completed trip.\n' +
+                  '• "Trip Fare": The price agreed directly between the User and the Driver for the transportation Services.\n\n' +
+                  'II. NATURE OF THE RELATIONSHIP\n' +
+                  '2.1. Rundi is a technology application. Rundi does not provide transportation services. Our role is to connect Users who need transportation with independent Drivers who offer such services.\n' +
+                  '2.2. Independent relationship. The relationship between Rundi and the Driver is of an independent commercial nature. Nothing in these Terms creates an employment, partnership, franchise, or agency relationship between Rundi and the Driver.\n' +
+                  '2.3. Driver autonomy. As a Driver you:\n' +
+                  '• Are free to accept or reject any trip request.\n' +
+                  '• Set the price of your Services by negotiating directly with the User.\n' +
+                  '• Determine your own work schedule.\n' +
+                  '• Use your own vehicle and assume its operating costs.\n\n' +
+                  'III. DRIVER REGISTRATION AND REQUIREMENTS\n' +
+                  '3.1. Enrollment requirements. To register as a Driver on the Platform, you must meet the following requirements:\n' +
+                  'Requirement | Description\n' +
+                  'Age | Be over 18 years old.\n' +
+                  'Driver\'s license | Hold a valid driver\'s license (category 3,1,2 or higher).\n' +
+                  'Vehicle | Be the owner of, or have legal authorization to operate, a vehicle in good mechanical condition and with valid insurance.\n' +
+                  'Documentation | Provide: ID copy, driver\'s license, registration card, vehicle insurance, and a clean police record.\n' +
+                  'Verification | Undergo the document and identity verification process established by Rundi.\n' +
+                  '3.2. Updating information. The Driver commits to keeping their information and documentation on the Platform up to date.\n' +
+                  '3.3. Background checks. Rundi reserves the right to perform police and driving background checks on applicants.\n\n' +
+                  'IV. COMMISSIONS AND PAYMENT METHODS\n' +
+                  '4.1. Commission structure. For using the Platform, Rundi will charge the Driver a commission for each completed trip.\n' +
+                  'Concept | Detail\n' +
+                  'Per-trip commission | 15% car trips, 7.5% motorcycle trips, 25% designated driver (car), 12.5% designated driver (motorcycle)\n' +
+                  'Collection method | Rundi balance, credit/debit card, or authorized top-up points\n' +
+                  'Charge timing | At the end of the trip or when the Driver confirms arrival at the pickup point\n' +
+                  '4.2. Commission changes. Rundi reserves the right to modify the commission percentage. Any change will be notified to the Driver at least 7 days in advance through the Platform. Continued use after the modification constitutes acceptance of the new commission.\n' +
+                  '4.3. Balance top-ups. The Driver may top up their Rundi account via:\n' +
+                  '• Credit or debit cards\n' +
+                  '• Bank transfers\n' +
+                  '• Authorized top-up points (Super Express, AM PM, among others)\n' +
+                  '4.4. Negative balance. If the Driver\'s balance is insufficient to cover the commission, access to the Platform will be restricted until the amount is settled. Negative balances must be paid within 2 days after notification.\n' +
+                  '4.5. Refunds. If the User cancels the trip before it begins, the commission will not be charged. If the charge was already made, it will be refunded within a maximum of 3 days.\n\n' +
+                  'V. BILLING AND TAX OBLIGATIONS\n' +
+                  '5.1. Commission invoicing. Rundi will issue an electronic invoice for the commissions charged to the Driver. The invoice will itemize the applicable VAT (15%) in accordance with Nicaragua\'s Tax Concertation Law.\n' +
+                  '5.2. Driver\'s tax responsibility. THE DRIVER IS SOLELY RESPONSIBLE BEFORE THE TAX AUTHORITIES FOR THE INCOME OBTAINED FROM THEIR TRANSPORTATION SERVICES.\n' +
+                  'Rundi does not withhold or pay taxes on behalf of the Driver. The Driver acknowledges that:\n' +
+                  '• Payments received from Users constitute taxable income under Law 822.\n' +
+                  '• They must register with the Dirección General de Ingresos (DGI) if their income exceeds the limits established by law.\n' +
+                  '• They must comply with all municipal and national tax obligations applicable to their economic activity.\n' +
+                  '5.3. Legal notice. Rundi recommends that the Driver seek advice regarding tax obligations. Failure to comply is the Driver\'s sole responsibility.\n\n' +
+                  'VI. SERVICE OPERATION\n' +
+                  '6.1. Trip process. Each trip will proceed as follows:\n' +
+                  'Step | Description\n' +
+                  '1 | The User posts a trip request and offers a price.\n' +
+                  '2 | The Driver views the request and may accept, counteroffer, or reject it.\n' +
+                  '3 | If both agree, a direct contract is formed between User and Driver.\n' +
+                  '4 | The Driver heads to the pickup point.\n' +
+                  '5 | Upon arrival, the Driver confirms presence through the app.\n' +
+                  '6 | The transportation service is performed.\n' +
+                  '7 | At the end, the commission is charged to the Driver.\n' +
+                  '6.2. Prohibitions. The Driver may not:\n' +
+                  '• Request additional payments outside the fare agreed on the Platform.\n' +
+                  '• Allow third parties to use their account or take trips on their behalf.\n' +
+                  '• Provide services under the influence of alcohol, drugs, or fatigue.\n' +
+                  '• Discriminate against Users for any reason.\n\n' +
+                  'VII. SAFETY AND LIABILITY\n' +
+                  '7.1. Platform safety. Rundi implements reasonable safety measures, including:\n' +
+                  '• Driver document verification.\n' +
+                  '• Panic button (SOS) for emergencies.\n' +
+                  '• Sharing trip data with trusted contacts.\n' +
+                  '7.2. Limitation of liability. Rundi is NOT responsible for:\n' +
+                  '• Damages, accidents, or incidents occurring during the Services.\n' +
+                  '• The Driver\'s failure to comply with their legal obligations.\n' +
+                  '7.3. Insurance. The Driver must keep their vehicle insured according to Nicaraguan law (mandatory traffic accident insurance—SOAT—and optional coverage if desired).\n\n' +
+                  'VIII. SUSPENSION AND TERMINATION\n' +
+                  '8.1. Grounds for suspension. Rundi may temporarily suspend the Driver\'s account if there is:\n' +
+                  '• Poor performance or high cancellation rates.\n' +
+                  '• Verified complaints from Users.\n' +
+                  '• Breach of any of these provisions.\n' +
+                  '• Unresolved negative balance.\n' +
+                  '8.2. Permanent termination. The account will be permanently terminated for:\n' +
+                  '• Fraudulent use of the Platform.\n' +
+                  '• Identity theft.\n' +
+                  '• Behavior that endangers User safety.\n' +
+                  '• Serious violation of Nicaraguan law.\n\n' +
+                  'IX. FINAL PROVISIONS\n' +
+                  '9.1. Modifications. Rundi may modify these Terms at any time. Changes will be notified through the Platform and will be deemed accepted if the Driver continues using the app after 7 days.\n' +
+                  '9.2. Governing law. These Terms are governed by the laws of the Republic of Nicaragua. Any dispute will be submitted to the competent courts of Managua.\n' +
+                  '9.3. Contact. For inquiries, the Driver may contact Rundi via:\n' +
+                  '• Email: support@gruporzc.com\n' +
+                  '• In-app support\n\n' +
+                  '________________________________________\n' +
+                  'DRIVER DECLARATION\n' +
+                  'By registering on the Rundi Platform, I declare that:\n' +
+                  '1. I have read and understood these Terms and Conditions.\n' +
+                  '2. I agree to pay the commissions established for using the Platform.\n' +
+                  '3. I acknowledge that I am an independent contractor and not a Rundi employee.\n' +
+                  '4. I assume sole responsibility for fulfilling my tax obligations with the DGI and local municipalities.\n' +
+                  '5. I commit to providing transportation services in compliance with all applicable laws.\n' +
+                  '________________________________________\n' +
+                  'Additional recommendations\n' +
+                  '1. Commission collection mechanism: Similar to inDrive in Nicaragua, you can use the prepaid top-up system. Drivers deposit balance at authorized points (Super Express, AM PM, etc.) or via bank transfer, and you deduct the commission from that balance.\n' +
+                  '2. Visible notice in the app: Add a clear message on the driver registration screen indicating their tax responsibility. For example:\n' +
+                  '"Rundi is a technology platform that connects Users with independent Drivers. As a Driver, you are responsible for meeting your tax obligations (DGI and local municipalities) for the income earned through your transportation services."\n' +
+                  '3. Model documentation before the DGI: When you file your tax return, make sure the income you report corresponds exclusively to the commissions charged to drivers, not the total value of trips. Keep the trip reports generated by the app as supporting documentation.',
+              },
+              users: {
+                label: 'Terms and conditions of use for users',
+                version: 'Version {{version}}',
+                body:
+                  '\n' +
+                  'RUNDI MOBILITY PLATFORM\n' +
+                  'Effective date: 03/24/2026\n\n' +
+                  'I. DEFINITIONS\n' +
+                  '• "Rundi" / "Platform" / "We": GrupoRZC, a natural person with 0010205740009M, owner of the mobile application "Rundi", acting as a technological intermediary between Users and Drivers (regular mobility) or Designated Drivers.\n' +
+                  '• "User": A person who requests services through the Platform, either regular mobility or designated-driver service.\n' +
+                  '• "Driver": A natural person who uses their own vehicle to provide transportation services to Users via the Platform (regular mobility).\n' +
+                  '• "Designated Driver": A natural person affiliated with Rundi who, at the User\'s request, drives the User\'s personal vehicle to their destination (designated-driver service).\n' +
+                  '• "Service": Any of the services offered by the Platform as selected by the User.\n' +
+                  '• "Commission": The amount the Driver or Designated Driver pays Rundi for using the Platform for each completed service.\n\n' +
+                  'II. NATURE OF THE PLATFORM\n' +
+                  '2.1. Rundi is a technology platform that connects Users with independent Drivers or Designated Drivers. We do not provide transportation or driving services; our sole function is to facilitate the connection between the parties.\n' +
+                  '2.2. Drivers and Designated Drivers are independent contractors, not Rundi employees. Each is solely responsible for providing their services.\n\n' +
+                  'III. SERVICES OFFERED\n' +
+                  '3.1. Standard mobility service (Rundi Móvil):\n' +
+                  'The User requests a trip and is transported by a Driver using their own vehicle. The fare is agreed directly between the User and the Driver through the Platform. Rundi charges the Driver a commission for using the app.\n' +
+                  '3.2. Designated-driver service (Rundi Designado):\n' +
+                  'The User requests a Designated Driver to travel to the User\'s vehicle, perform an inspection, and then drive the vehicle to the User\'s chosen destination. This service is intended for Users who, due to health, fatigue, or alcohol consumption, cannot drive.\n\n' +
+                  'IV. DESIGNATED-DRIVER SERVICE PROCESS\n' +
+                  '4.1. Request:\n' +
+                  'The User selects "Rundi Designado" in the app, indicates their location, and specifies the destination.\n' +
+                  '4.2. Arrival of the Designated Driver:\n' +
+                  'The Designated Driver arrives at the indicated location using their own vehicle and presents themselves to the User.\n' +
+                  '4.3. Inspection of the User\'s vehicle:\n' +
+                  'Before driving, the Designated Driver performs a visual inspection of the User\'s vehicle in the User\'s presence and documents the condition by:\n' +
+                  '• Taking photos of the vehicle\'s exterior and interior (tires, body, windshield, dashboard, seats, etc.).\n' +
+                  '• Completing the inspection report generated in the app and digitally signed by both parties (the User accepts in the app).\n' +
+                  '4.4. Transport:\n' +
+                  'Once the inspection is complete and the User accepts, the Designated Driver drives the User\'s vehicle to the agreed destination.\n' +
+                  '4.5. Completion:\n' +
+                  'Upon arrival, the Designated Driver parks where the User indicates, hands over the keys, and ends the service.\n' +
+                  '4.6. Commission:\n' +
+                  'Rundi charges the Designated Driver a commission for the service, according to the terms applicable to designated drivers.\n\n' +
+                  'V. USER RESPONSIBILITIES\n' +
+                  '5.1. For both services:\n' +
+                  '• Provide truthful information about location and destination.\n' +
+                  '• Treat Drivers and Designated Drivers respectfully.\n' +
+                  '• Comply with traffic laws when applicable.\n' +
+                  '5.2. For the designated-driver service:\n' +
+                  '• Declare and guarantee ownership or legal authorization for a third party to drive the vehicle provided to the Designated Driver.\n' +
+                  '• Ensure the vehicle is in legal and mechanical condition to circulate (inspection, mandatory insurance, registration, etc.).\n' +
+                  '• Accept that the Designated Driver carries out the inspection and that, if unsafe conditions are detected (worn tires, faulty lights, evident mechanical issues, lack of mandatory insurance, etc.), the Designated Driver may refuse the service without liability to Rundi.\n' +
+                  '• Acknowledge that any pre-existing damage not documented during the inspection will not be attributed to the Designated Driver.\n\n' +
+                  'VI. RESPONSIBILITIES OF THE DRIVER / DESIGNATED DRIVER\n' +
+                  'Specific responsibilities for each provider type are described in their respective Terms and Conditions. In any case, Rundi is not responsible for:\n' +
+                  '• The quality, safety, or compliance with traffic laws by Drivers or Designated Drivers.\n' +
+                  '• Damages, accidents, fines, or any incidents occurring during the service.\n\n' +
+                  'VII. PAYMENTS AND COMMISSIONS\n' +
+                  '7.1. Service payment is made directly between the User and the Driver / Designated Driver according to the app agreement (cash, transfer, etc.). Rundi neither receives nor handles payments between Users and providers.\n' +
+                  '7.2. The Driver or Designated Driver pays Rundi a commission for each completed service, following the current commission structure.\n' +
+                  '7.3. In the designated-driver service, the User does not pay a commission to Rundi; the Designated Driver covers it from their earnings.\n\n' +
+                  'VIII. RUNDI\'S LIMITATION OF LIABILITY\n' +
+                  '8.1. Rundi acts solely as a technological intermediary. Therefore, we do not assume responsibility for:\n' +
+                  '• Traffic accidents, vehicle damage, or personal injuries during the service.\n' +
+                  '• Non-compliance with tax, labor, or social-security obligations by Drivers or Designated Drivers.\n' +
+                  '• Theft, loss, or damage to belongings inside the vehicle.\n' +
+                  '• Traffic fines incurred during the service.\n' +
+                  '8.2. In the designated-driver service, the User accepts that Rundi is not responsible for pre-existing vehicle damages not documented during the inspection, nor for damages occurring during driving, unless intentional misconduct or gross negligence by the Designated Driver is proven by a final court ruling.\n\n' +
+                  'IX. PERSONAL DATA AND PRIVACY\n' +
+                  '9.1. Rundi collects and processes Users\' personal data according to our Privacy Policy available in the app.\n' +
+                  '9.2. In the designated-driver service, the User consents to vehicle photos and inspection reports being captured and stored in our systems.\n\n' +
+                  'X. MODIFICATIONS AND ACCEPTANCE\n' +
+                  '10.1. Rundi may modify these Terms at any time. Modifications will be notified through the app and will be deemed accepted if the User continues using the Platform after 7 days.\n' +
+                  '10.2. Registering for and using the app implies full acceptance of these Terms and Conditions.\n\n' +
+                  'XI. GOVERNING LAW AND JURISDICTION\n' +
+                  'These Terms are governed by the laws of the Republic of Nicaragua. Any dispute will be submitted to the competent courts of Managua.',
+              },
+              designated_driver: {
+                label: 'Terms for designated drivers',
+                version: 'Version {{version}}',
+                body:
+                  'RUNDI DESIGNATED SERVICE\n' +
+                  'Effective date: 03/24/2026\n\n' +
+                  'I. DEFINITIONS\n' +
+                  '• "Rundi" / "Platform" / "We": GrupoRZC, a natural person with RUC 0010205740009M, owner of the "Rundi" mobile application.\n' +
+                  '• "Designated Driver" / "You": A natural person who registers on the Platform to provide the service of driving Users\' vehicles.\n' +
+                  '• "User": A person who requests the designated-driver service through the app.\n' +
+                  '• "User\'s Vehicle": The private vehicle that the User makes available to be driven by the Designated Driver.\n' +
+                  '• "Inspection": The visual and documentary verification of the User\'s vehicle carried out by the Designated Driver before driving.\n\n' +
+                  'II. NATURE OF THE RELATIONSHIP\n' +
+                  '2.1. The Designated Driver is an independent contractor, not a Rundi employee. You freely decide whether to accept or reject requests, set your own schedule, and use your own means of transportation (personal vehicle) to reach the meeting point.\n' +
+                  '2.2. Rundi is not responsible for delivering the driving service; the Designated Driver bears exclusive responsibility.\n\n' +
+                  'III. REQUIREMENTS TO BECOME A DESIGNATED DRIVER\n' +
+                  'To register as a Designated Driver in Rundi you must meet:\n\n' +
+                  'Requirement | Description\n' +
+                  'Age | Be over 21 years old.\n' +
+                  'License | Hold a valid driver\'s license in category 1, 2, 3 (or higher) with at least 3 years of experience.\n' +
+                  'Documentation | Copy of ID, driver\'s license, up-to-date clean police record.\n' +
+                  'Personal vehicle | Have a personal vehicle in good condition (used to travel to the User\'s location).\n' +
+                  'Insurance | Your personal vehicle must have current mandatory accident insurance (SOA).\n' +
+                  'Course | Pass Rundi\'s induction course covering inspection procedures and defensive driving.\n\n' +
+                  'IV. SERVICE PROCESS\n' +
+                  '4.1. Acceptance:\n' +
+                  'When a request arrives, the Designated Driver may accept or reject it. Once accepted, they must head to the location indicated by the User.\n' +
+                  '4.2. Mandatory inspection:\n' +
+                  'Before driving the User\'s vehicle, the Designated Driver must follow Rundi\'s inspection procedure:\n' +
+                  '• Take clear photos of:\n' +
+                  '  o Vehicle plates\n' +
+                  '  o All four tires (including tread and apparent pressure)\n' +
+                  '  o Windshield and mirrors\n' +
+                  '  o Body (front, sides, rear)\n' +
+                  '  o Dashboard (odometer, warning lights)\n' +
+                  '  o Interior (seats, mirrors, steering wheel)\n' +
+                  '• Fill out the inspection report in the app, noting any issue or pre-existing damage.\n' +
+                  '• Show the report to the User for confirmation. The User must sign digitally in the app.\n' +
+                  '4.3. Refusal to provide the service:\n' +
+                  'The Designated Driver may decline the service without penalty if:\n' +
+                  '• The User refuses the inspection.\n' +
+                  '• The vehicle shows unsafe conditions (worn tires, lights not working, evident mechanical failures, lack of mandatory insurance, etc.).\n' +
+                  '• The User or the vehicle is under the influence of alcohol or drugs (and Rundi must be notified).\n' +
+                  '4.4. Driving:\n' +
+                  'Once the inspection is complete and accepted, the Designated Driver drives the User\'s vehicle to the indicated destination, complying with traffic laws.\n' +
+                  '4.5. Handover:\n' +
+                  'Upon arrival, the vehicle must be parked safely and the keys returned to the User. The service is then finalized in the app.\n\n' +
+                  'V. COMMISSIONS AND INVOICING\n' +
+                  '5.1. Commission structure:\n' +
+                  'For each completed service, Rundi charges the Designated Driver a commission of [25 ]% of the amount agreed with the User. The commission is deducted from the Designated Driver\'s in-app balance.\n' +
+                  '5.2. Commission payment methods:\n' +
+                  'The Designated Driver must keep a sufficient balance via top-ups at authorized points (Super Express, AM PM, etc.) or bank transfers. If the balance is insufficient, the account will be suspended until regularized.\n' +
+                  '5.3. Invoicing:\n' +
+                  'Rundi issues an electronic invoice for commissions charged, itemizing VAT (15%). The Designated Driver is solely responsible for fulfilling municipal and national tax obligations with the DGI and local authorities.\n\n' +
+                  'VI. DESIGNATED DRIVER OBLIGATIONS\n' +
+                  '6.1. Drive prudently and follow all traffic laws.\n' +
+                  '6.2. Do not consume alcohol, drugs, or substances that impair abilities while available in the app.\n' +
+                  '6.3. Keep your personal vehicle in legal and mechanical compliance.\n' +
+                  '6.4. Perform inspections diligently and truthfully. Any deliberate omission of pre-existing damage is cause for immediate termination.\n' +
+                  '6.5. Notify Rundi immediately if any accident or incident occurs during the service.\n' +
+                  '6.6. Treat the User with respect and professionalism.\n\n' +
+                  'VII. LIMITATION OF LIABILITY\n' +
+                  '7.1. Rundi is not responsible for damage to the User\'s vehicle while it is being driven. The Designated Driver is directly responsible to the User and the authorities.\n' +
+                  '7.2. Rundi recommends that the Designated Driver obtain liability insurance covering possible damage to third-party vehicles (traditional insurance on the User\'s vehicle may not cover third-party driving; it is the Designated Driver\'s duty to check coverage).\n' +
+                  '7.3. In case of a traffic accident, the Designated Driver must follow Nicaraguan law (gather information, request Traffic Police presence, etc.) and notify Rundi within 24 hours.\n\n' +
+                  'VIII. SUSPENSION AND TERMINATION\n' +
+                  '8.1. Rundi may suspend or terminate the Designated Driver\'s account for:\n' +
+                  '• Failing to follow the inspection procedure.\n' +
+                  '• Verified User complaints about risky driving or inappropriate behavior.\n' +
+                  '• Document fraud.\n' +
+                  '• Not maintaining sufficient balance to pay commissions.\n' +
+                  '• Driving under the influence of alcohol or drugs (immediate termination).\n\n' +
+                  'IX. FINAL PROVISIONS\n' +
+                  '9.1. Rundi may modify these Terms with notice via the app. Continued use after 7 days constitutes acceptance.\n' +
+                  '9.2. These Terms are governed by Nicaraguan law. Any dispute will be submitted to the courts of Managua.\n' +
+                  '________________________________________\n' +
+                  'DESIGNATED DRIVER DECLARATION\n' +
+                  'By registering as a Designated Driver in Rundi, I declare that:\n' +
+                  '• I have read and understood these Terms.\n' +
+                  '• I agree to carry out the inspection and photographic documentation as required.\n' +
+                  '• I acknowledge my status as an independent contractor.\n' +
+                  '• I assume full responsibility for my conduct when driving Users\' vehicles.',
+              },
+            },
             checkboxLabel: 'I have read and accept the terms and conditions.',
             acceptButton: 'Accept',
             saving: 'Saving...',
@@ -803,7 +1059,7 @@ const resources = {
             inputLabel: 'Search location',
             placeholderOrigin: 'Search origin…',
             placeholderDestination: 'Search destination…',
-            placeholderDestinationReference: 'Ex: Conchita Palacios, 4 block to the east 3 block to the north',
+            placeholderDestinationReference: 'Ex: Conchita Palacios',
             placeholderStop: 'Search stop…',
             placeholderGeneric: 'Search location…',
             close: 'Close',
@@ -812,7 +1068,7 @@ const resources = {
             destinationGuidanceTitle: 'Reference destination?',
             destinationGuidanceBody:
               'If you write a local reference, finish by selecting a result or using the map to pin the exact point.',
-            destinationGuidanceStep1: '1) Write reference',
+            destinationGuidanceStep1: '1) Write an exact location',
             destinationGuidanceStep2: '2) Pin exact point',
             destinationConfirmed: 'Destination confirmed on map',
             loading: 'Searching locations…',
@@ -832,6 +1088,25 @@ const resources = {
           },
         },
        services: {
+          biometricService: {
+            prompts: {
+              reason: 'Confirm your identity',
+              fallbackLabel: 'Use PIN',
+            },
+            errors: {
+              notSupported: 'This device does not support biometrics.',
+              notEnrolled: 'No biometric data is registered on this device.',
+              authFailed: 'Biometric authentication failed.',
+              unknown: 'Unknown error.',
+            },
+            modal: {
+              title: 'Identity verification',
+              scanning: 'Scanning biometrics…',
+              pinFallback: 'Biometric scan unavailable. Continue with your device PIN.',
+              success: 'Identity verified successfully.',
+              retry: 'Verification failed. Retrying…',
+            },
+          },
           auth: {
             accountLinkingService: {
               errors: {
@@ -962,18 +1237,6 @@ const resources = {
            clientStatus: {
              title: 'Trip under monitoring',
              body: 'Your ride is active and we are monitoring your location.',
-           },
-         },
-         biometricService: {
-           prompts: {
-             reason: 'Confirm your identity',
-             fallbackLabel: 'Use PIN',
-           },
-           errors: {
-             notSupported: 'This device does not support biometrics.',
-             notEnrolled: 'No biometric data is registered on this device.',
-             authFailed: 'Biometric authentication failed.',
-             unknown: 'Unknown error.',
            },
          },
          cardsService: {
@@ -1899,6 +2162,38 @@ const resources = {
           },
           buttons: {
             cancelSearch: 'Cancel search',
+            seeDriverReviews: 'See reviews',
+          },
+          reviews: {
+            complimentsTitle: 'Compliments',
+            topReviewsTitle: 'Top reviews',
+            empty: 'No reviews yet for this driver.',
+            anonymous: 'Passenger',
+            fallbackDate: 'recently',
+            fallbackReviewOne: 'Very comfortable and clean vehicle ride.',
+            fallbackReviewTwo: 'Excellent trip, highly recommended driver.',
+            stats: {
+              rides: 'Rides',
+              years: 'Years on Rundi',
+              rating: 'Rating',
+            },
+            relative: {
+              today: 'Today',
+              oneDay: '1 day ago',
+              days: '{{count}} days ago',
+              oneWeek: '1 week ago',
+              twoWeeks: '2 weeks ago',
+              weeks: '{{count}} weeks ago',
+            },
+            compliments: {
+              punctuality: 'Punctuality',
+              cleanliness: 'Vehicle cleanliness',
+              communication: 'Communication',
+              driving: 'Driving quality',
+              safety: 'Safety',
+              friendliness: 'Friendliness',
+              defaultLabel: 'Great service',
+            },
           },
           alerts: {
             confirmSuccessTitle: 'Driver confirmed',
@@ -1911,7 +2206,7 @@ const resources = {
             counterOfferError: 'Could not send the counteroffer.',
             confirmFromModalError: 'Could not confirm the driver.',
           },
-          cancelReason: 'Cancelled by the client from HomeScreenOffers.',
+          cancelReason: 'Cancelled by the client.',
           extraStopLabel: 'Stop {{index}}',
         },
       rideConfirmation: {
@@ -2835,6 +3130,36 @@ const resources = {
             label: 'Issues recharging funds?',
             description: 'Open a support chat to review wallet recharges, references, or saved cards.',
           },
+          history: {
+            title: 'Recharge history',
+            totalLabel: '{{count}} total',
+            empty: 'No recharges yet.',
+            sourceLabel: 'Source: {{source}}',
+            defaultSource: 'manual',
+            defaultStatus: 'confirmed',
+            previous: 'Previous',
+            next: 'Next',
+            page: 'Page {{current}}/{{total}}',
+          },
+          invoice: {
+            title: 'Recharge receipt',
+            close: 'Close',
+            empty: 'No movement selected',
+            amount: 'Amount',
+            fields: {
+              movementId: 'Movement ID',
+              driverId: 'Driver ID',
+              createdAt: 'Created at',
+              type: 'Type',
+              source: 'Source',
+              balanceBefore: 'Balance before',
+              balanceAfter: 'Balance after',
+              rideId: 'Ride ID',
+              externalReference: 'External reference',
+              externalTransaction: 'External transaction',
+              metadata: 'Metadata',
+            },
+          },
         },
         paymentConfirmation: {
           loading: 'Loading payment details...',
@@ -3277,6 +3602,79 @@ const resources = {
             callFailedMessage: 'We could not start the call. Please try again.',
           },
         },
+        rating: {
+          header: {
+            titleDriver: 'How was your passenger?',
+            titleClient: 'How was your trip?',
+            subtitle: 'Your feedback helps us improve the service',
+          },
+          ratingText: {
+            five: 'Excellent! 🎉',
+            four: 'Very good 👍',
+            three: 'Good 👌',
+            two: 'Fair 😐',
+            one: 'Bad 😞',
+          },
+          sections: {
+            quickComments: 'Quick comments:',
+            categories: 'Rate by categories:',
+            additionalComment: 'Additional comment (optional):',
+          },
+          categories: {
+            punctuality: {
+              driver: 'Passenger punctuality',
+              client: 'Driver punctuality',
+            },
+            cleanliness: {
+              driver: 'Cleanliness and order',
+              client: 'Vehicle cleanliness',
+            },
+            communication: {
+              driver: 'Communication',
+              client: 'Communication',
+            },
+            driving: {
+              driver: 'Respect during the ride',
+              client: 'Driving quality',
+            },
+            safety: {
+              driver: 'Safety',
+              client: 'Safety',
+            },
+            friendliness: {
+              driver: 'Friendliness',
+              client: 'Friendliness',
+            },
+          },
+          quickComments: {
+            driver: [
+              'Excellent passenger',
+              'Very punctual',
+              'Friendly and respectful',
+              'Great attitude',
+            ],
+            client: [
+              'Excellent driver',
+              'Very professional',
+              'Safe driving',
+              'Clean vehicle',
+              'Arrived on time',
+            ],
+          },
+          input: {
+            commentPlaceholder: 'Tell us about your experience...',
+          },
+          buttons: {
+            submit: 'Send rating',
+            skip: 'Skip for now',
+          },
+          alerts: {
+            missingRating: 'Please select a rating',
+            successTitle: 'Thank you!',
+            successMessage: 'Your rating has been submitted successfully',
+            submitError: 'Could not submit your rating',
+          },
+        },
         rideTracking: {
           loading: {
             connectingDriver: 'Connecting with the driver...',
@@ -3619,7 +4017,7 @@ const resources = {
             inputLabel: 'Search location',
             placeholderOrigin: 'Search origin…',
             placeholderDestination: 'Search destination…',
-            placeholderDestinationReference: 'Ex: Conchita Palacios, 4 block to the east 3 block to the north',
+            placeholderDestinationReference: 'Ex: Conchita Palacios',
             placeholderStop: 'Search stop…',
             placeholderGeneric: 'Search location…',
             close: 'Close',
@@ -3628,7 +4026,7 @@ const resources = {
             destinationGuidanceTitle: 'Reference destination?',
             destinationGuidanceBody:
               'If you write a local reference, finish by selecting a result or using the map to pin the exact point.',
-            destinationGuidanceStep1: '1) Write reference',
+            destinationGuidanceStep1: '1) Write an exact location',
             destinationGuidanceStep2: '2) Pin exact point',
             destinationConfirmed: 'Destination confirmed on map',
             loading: 'Searching locations…',
@@ -3787,6 +4185,7 @@ const resources = {
           checks: {
             starting: 'Starting checks…',
             auth: 'Verifying session',
+            driverBiometric: 'Identity verification',
             notifications: 'Checking notifications',
             foregroundLocation: 'Checking location',
             backgroundLocation: 'Checking background location',
@@ -3797,6 +4196,23 @@ const resources = {
             rechargeFunds: 'Checking wallet balance',
             activeRide: 'Looking for active rides',
             generic: '{{check}}',
+          },
+          biometric: {
+            prompt: 'Confirm your identity to continue as driver.',
+            pinFallback: 'Use PIN',
+            error: 'We could not verify your identity.',
+            maxAttempts: 'We could not verify identity after {{max}} attempts.',
+            required: 'You need to verify identity to continue in driver mode.',
+            deviceSecurityRequired:
+              'Set up a screen lock (PIN, pattern, password, fingerprint, or Face ID) in your device settings to continue.',
+            modal: {
+              title: 'Identity verification',
+              scanning: 'Scanning biometrics…',
+              pinFallback: 'Biometric scan unavailable. Continue with your device PIN.',
+              success: 'Identity verified successfully.',
+              retry: 'Verification failed. Retrying…',
+              attempt: 'Attempt {{current}} of {{max}}',
+            },
           },
           progress: {
             completedLabel: 'Verification completed',
@@ -4070,22 +4486,22 @@ const resources = {
           },
           sections: {
             route: {
-              title: '📍 Route',
+              title: 'Route',
               origin: 'Origin',
               destination: 'Destination',
               stop: 'Stop {{index}}',
             },
             info: {
-              title: '🚗 Trip information',
+              title: 'Trip information',
               distance: 'Distance',
               duration: 'Duration',
               finalPrice: 'Final price',
               passengers: 'Passengers',
-              notesLabel: '📝 Notes',
+              notesLabel: 'Notes',
             },
             person: {
-              clientTitle: '👤 Client',
-              driverTitle: '🚗 Driver',
+              clientTitle: 'Client',
+              driverTitle: 'Driver',
               clientFallback: 'User',
               driverFallback: 'Driver',
               license: 'License: {{value}}',
@@ -4093,11 +4509,11 @@ const resources = {
               missingDriver: 'Driver information unavailable',
             },
             vehicle: {
-              title: '🚙 Vehicle',
+              title: 'Vehicle',
               registration: 'Registration: {{value}}',
             },
             timeline: {
-              title: '📅 Timeline',
+              title: 'Timeline',
               requested: 'Requested',
               accepted: 'Accepted',
               started: 'Started',
@@ -4106,11 +4522,11 @@ const resources = {
               cancelReason: 'Reason: {{reason}}',
             },
             payment: {
-              title: '💰 Payment information',
+              title: 'Payment information',
               calculated: 'Calculated price',
-              clientSuggested: '💡 Client offer',
-              driverOffered: '🚗 Driver counteroffer',
-              finalAgreed: '✅ Final agreed price',
+              clientSuggested: 'Client offer',
+              driverOffered: 'Driver counteroffer',
+              finalAgreed: 'Final agreed price',
               status: 'Payment status',
               noPayment: 'No payment data',
               commission: 'Commission ({{rate}}%)',
@@ -4767,6 +5183,280 @@ const resources = {
           no: 'No',
           },
          components: {
+          termsModal: {
+            title: 'Términos y condiciones',
+            version: 'Versión {{version}}',
+            selectorLabel: 'Seleccionar documento',
+            body: 'Al usar esta aplicación, aceptas nuestros términos y condiciones.',
+            documents: {
+              general: {
+                label: 'Términos generales',
+                version: 'Versión {{version}}',
+                body:
+                  'PLATAFORMA DE MOVILIDAD RUNDI\n' +
+                  'Fecha de vigencia: 24/03/26\n\n' +
+                  'I. DEFINICIONES\n' +
+                  'Para efectos de estos Términos y Condiciones, se entenderá por:\n' +
+                  '• "Rundi" / "Plataforma" / "Nosotros": GrupoRZC, persona natural con RUC 0010205740009M, propietaria de la aplicación móvil denominada "Rundi", que actúa como intermediario tecnológico entre Usuarios y Conductores.\n' +
+                  '• "Conductor" / "Usted": Persona natural que se registra en la Plataforma para ofrecer servicios de transporte a Usuarios.\n' +
+                  '• "Usuario": Persona que solicita servicios de transporte a través de la Plataforma.\n' +
+                  '• "Servicios": Los servicios de transporte terrestre de pasajeros que el Conductor ofrece a los Usuarios.\n' +
+                  '• "Comisión": El monto que el Conductor paga a Rundi por el uso de la Plataforma por cada viaje completado.\n' +
+                  '• "Tarifa del Viaje": El precio acordado directamente entre el Usuario y el Conductor por los Servicios de transporte.\n\n' +
+                  'II. NATURALEZA DE LA RELACIÓN\n' +
+                  '2.1. Rundi es una aplicación tecnológica. Rundi no proporciona servicios de transporte. Nuestra función es conectar a Usuarios que necesitan transporte con Conductores independientes que ofrecen dichos servicios.\n' +
+                  '2.2. Relación independiente. La relación entre Rundi y el Conductor es de naturaleza mercantil independiente. Nada en estos Términos crea una relación de empleo, sociedad, franquicia, o agencia entre Rundi y el Conductor.\n' +
+                  '2.3. Autonomía del Conductor. Usted, como Conductor:\n' +
+                  '• Es libre de aceptar o rechazar cualquier solicitud de viaje.\n' +
+                  '• Fija el precio de sus Servicios mediante negociación directa con el Usuario.\n' +
+                  '• Establece su propio horario de trabajo.\n' +
+                  '• Utiliza su propio vehículo y asume los costos operativos del mismo.\n\n' +
+                  'III. REGISTRO Y REQUISITOS DEL CONDUCTOR\n' +
+                  '3.1. Requisitos de afiliación. Para registrarse como Conductor en la Plataforma, debe cumplir con los siguientes requisitos:\n' +
+                  'Requisito\tDescripción\n' +
+                  'Edad\tSer mayor de 18 años.\n' +
+                  'Licencia de conducir\tPoseer licencia de conducir vigente (categoría 3,1,2 o superior).\n' +
+                  'Vehículo\tSer propietario o tener autorización legal para operar un vehículo en buen estado mecánico y con seguro vigente.\n' +
+                  'Documentación\tPresentar: copia de cédula de identidad, licencia de conducir, tarjeta de circulación, seguro del vehículo, récord de policía limpio.\n' +
+                  'Verificación\tSometerse al proceso de verificación documental y de identidad que Rundi establezca.\n' +
+                  '3.2. Actualización de información. El Conductor se obliga a mantener actualizada su información y documentación en la Plataforma.\n' +
+                  '3.3. Verificación de antecedentes. Rundi se reserva el derecho de realizar verificaciones de antecedentes policiales y de conducción de los solicitantes.\n\n' +
+                  'IV. COMISIONES Y MÉTODOS DE PAGO\n' +
+                  '4.1. Estructura de comisiones. Por el uso de la Plataforma, Rundi cobrará al Conductor una comisión por cada viaje completado.\n' +
+                  'Concepto\tDetalle\n' +
+                  'Comisión por viaje\t15% viajes carro, 7,5% viajes motos, 25% conductor designado carro, 12,5% conductor designado moto\n' +
+                  'Forma de cobro\tSaldo en cuenta Rundi, tarjeta de crédito/débito, o puntos de recarga autorizados\n' +
+                  'Momento del cargo\tAl finalizar el viaje o cuando el Conductor confirma la llegada al punto de origen\n' +
+                  '4.2. Modificación de comisiones. Rundi se reserva el derecho de modificar el porcentaje de comisión. Cualquier cambio será notificado al Conductor con al menos 7 días de antelación a través de la Plataforma. El uso continuado de la Plataforma después de la modificación constituirá aceptación de la nueva comisión.\n' +
+                  '4.3. Recargas de saldo. El Conductor podrá recargar saldo en su cuenta Rundi a través de:\n' +
+                  '• Tarjetas de crédito o débito\n' +
+                  '• Transferencias bancarias\n' +
+                  '• Puntos de recarga autorizados (Super Express, AM PM, entre otros)\n' +
+                  '4.4. Saldo negativo. Si el saldo en cuenta del Conductor es insuficiente para cubrir la comisión, su acceso a la Plataforma será restringido hasta que regularice su situación. Los saldos negativos deberán ser pagados dentro de los 2 días siguientes a la notificación.\n' +
+                  '4.5. Devoluciones. En caso de cancelación del viaje por parte del Usuario antes del inicio, la comisión no será cargada. Si el cargo ya fue realizado, será reembolsado en un plazo máximo de 3 días.\n\n' +
+                  'V. FACTURACIÓN Y OBLIGACIONES FISCALES\n' +
+                  '5.1. Facturación de comisiones. Rundi emitirá factura electrónica por el monto de las comisiones cobradas al Conductor. La factura desglosará el IVA correspondiente (15%) conforme a la Ley de Concertación Tributaria de Nicaragua.\n' +
+                  '5.2. Responsabilidad fiscal del Conductor. EL CONDUCTOR ES EL ÚNICO RESPONSABLE ANTE LAS AUTORIDADES TRIBUTARIAS POR LOS INGRESOS OBTENIDOS DE SUS SERVICIOS DE TRANSPORTE.\n' +
+                  'Rundi no retiene ni paga impuestos en nombre del Conductor. El Conductor reconoce que:\n' +
+                  '• Los pagos que recibe de los Usuarios constituyen rentas gravadas por la Ley 822.\n' +
+                  '• Es su obligación inscribirse en la Dirección General de Ingresos (DGI) si sus ingresos superan los límites establecidos por la ley.\n' +
+                  '• Debe cumplir con todas las obligaciones tributarias municipales y nacionales aplicables a su actividad económica.\n' +
+                  '5.3. Aviso legal. Rundi recomienda al Conductor consultar sobre sus obligaciones fiscales. La falta de cumplimiento de dichas obligaciones es responsabilidad exclusiva del Conductor.\n\n' +
+                  'VI. OPERACIÓN DEL SERVICIO\n' +
+                  '6.1. Proceso del viaje. El proceso de cada viaje será el siguiente:\n' +
+                  'Paso\tDescripción\n' +
+                  '1\tEl Usuario publica su solicitud de viaje y ofrece un precio.\n' +
+                  '2\tEl Conductor visualiza la solicitud y puede aceptar, contraofertar o rechazar.\n' +
+                  '3\tSi hay acuerdo, se forma un contrato directo entre Usuario y Conductor.\n' +
+                  '4\tEl Conductor se dirige al punto de recogida.\n' +
+                  '5\tAl llegar, confirma su presencia a través de la app.\n' +
+                  '6\tRealiza el servicio de transporte.\n' +
+                  '7\tAl finalizar, la comisión se carga al Conductor.\n' +
+                  '6.2. Prohibiciones. El Conductor no podrá:\n' +
+                  '• Solicitar pagos adicionales fuera de la tarifa acordada en la Plataforma.\n' +
+                  '• Permitir que terceros utilicen su cuenta o realicen viajes en su nombre.\n' +
+                  '• Prestar servicios bajo los efectos de alcohol, drogas o fatiga.\n' +
+                  '• Discriminar a Usuarios por cualquier motivo.\n\n' +
+                  'VII. SEGURIDAD Y RESPONSABILIDAD\n' +
+                  '7.1. Seguridad de la Plataforma. Rundi implementa medidas de seguridad razonables, incluyendo:\n' +
+                  '• Verificación documental de Conductores.\n' +
+                  '• Botón de pánico (SOS) para emergencias.\n' +
+                  '• Compartición de datos de viaje con contactos de confianza.\n' +
+                  '7.2. Limitación de responsabilidad. Rundi NO es responsable por:\n' +
+                  '• Daños, accidentes o incidentes ocurridos durante la prestación de los Servicios.\n' +
+                  '• Incumplimientos del Conductor respecto de sus obligaciones legales.\n' +
+                  '7.3. Seguro. El Conductor debe mantener su vehículo asegurado conforme a la ley nicaragüense (seguro obligatorio de accidentes de tránsito - SOAT, y seguro voluntario si lo desea).\n\n' +
+                  'VIII. SUSPENSIÓN Y TERMINACIÓN\n' +
+                  '8.1. Causales de suspensión. Rundi podrá suspender temporalmente la cuenta del Conductor en caso de:\n' +
+                  '• Bajo desempeño o altas tasas de cancelación.\n' +
+                  '• Quejas de Usuarios debidamente verificadas.\n' +
+                  '• Incumplimiento de cualquiera de estas disposiciones.\n' +
+                  '• Saldo negativo no regularizado.\n' +
+                  '8.2. Terminación definitiva. La cuenta será terminada definitivamente por:\n' +
+                  '• Uso fraudulento de la Plataforma.\n' +
+                  '• Suplantación de identidad.\n' +
+                  '• Conductas que pongan en riesgo la seguridad de Usuarios.\n' +
+                  '• Incumplimiento grave de la ley nicaragüense.\n\n' +
+                  'IX. DISPOSICIONES FINALES\n' +
+                  '9.1. Modificaciones. Rundi podrá modificar estos Términos en cualquier momento. Las modificaciones serán notificadas a través de la Plataforma y se considerarán aceptadas si el Conductor continúa usando la app después de 7 días de la notificación.\n' +
+                  '9.2. Ley aplicable. Estos Términos se rigen por las leyes de la República de Nicaragua. Cualquier controversia será sometida a los tribunales competentes de la ciudad de Managua.\n' +
+                  '9.3. Contacto. Para consultas, el Conductor puede contactar a Rundi a través de:\n' +
+                  '• Correo electrónico: support@gruporzc.com\n' +
+                  '• Soporte en la aplicación\n\n' +
+                  '________________________________________\n' +
+                  'DECLARACIÓN DEL CONDUCTOR\n' +
+                  'Al registrarme en la Plataforma Rundi, declaro que:\n' +
+                  '1. He leído y comprendido estos Términos y Condiciones.\n' +
+                  '2. Acepto pagar las comisiones establecidas por el uso de la Plataforma.\n' +
+                  '3. Reconozco que soy un contratista independiente y no un empleado de Rundi.\n' +
+                  '4. Asumo la responsabilidad exclusiva de cumplir con mis obligaciones fiscales ante la DGI y las Alcaldías.\n' +
+                  '5. Me comprometo a prestar mis servicios de transporte cumpliendo con todas las leyes aplicables.\n' +
+                  '________________________________________\n' +
+                  'Recomendaciones adicionales\n' +
+                  '1. Mecanismo de cobro de comisiones: Al igual que inDrive en Nicaragua, puede utilizar el sistema de recargas prepago. Los conductores depositan saldo en puntos autorizados (Super Express, AM PM, etc.) o mediante transferencia bancaria, y usted descuenta la comisión de ese saldo.\n' +
+                  '2. Aviso visible en la app: Agregue un mensaje claro en la pantalla de registro de conductores que indique su responsabilidad fiscal. Por ejemplo:\n' +
+                  '"Rundi es una plataforma tecnológica que facilita la conexión entre Usuarios y Conductores independientes. Usted, como Conductor, es responsable de cumplir con sus obligaciones tributarias (DGI y Alcaldías) por los ingresos obtenidos a través de sus servicios de transporte."\n' +
+                  '3. Documentación del modelo ante la DGI: Cuando presente su declaración de impuestos, asegúrese de que sus ingresos declarados correspondan exclusivamente a las comisiones cobradas a los conductores, no al valor total de los viajes. Guarde los reportes de viajes generados por la app como respaldo.',
+              },
+              users: {
+                label: 'Términos para usuarios',
+                version: 'Versión {{version}}',
+                body:
+                  'PLATAFORMA DE MOVILIDAD RUNDI\n' +
+                  'Fecha de vigencia: 24/03/2026\n\n' +
+                  'I. DEFINICIONES\n' +
+                  '• “Rundi” / “Plataforma” / “Nosotros”: GrupoRZC, persona natural con 0010205740009M, propietaria de la aplicación móvil “Rundi”, que actúa como intermediario tecnológico entre Usuarios y Conductores (movilidad normal) o Conductores Designados.\n' +
+                  '• “Usuario”: Persona que solicita servicios a través de la Plataforma, ya sea de movilidad normal o de conductor designado.\n' +
+                  '• “Conductor”: Persona natural que utiliza su propio vehículo para prestar servicios de transporte a Usuarios a través de la Plataforma (servicio de movilidad normal).\n' +
+                  '• “Conductor Designado”: Persona natural afiliada a Rundi que, a solicitud del Usuario, conduce el vehículo particular del Usuario para trasladarlo a su destino (servicio de conductor designado).\n' +
+                  '• “Servicio”: Cualquiera de los servicios ofrecidos por la Plataforma, según sea seleccionado por el Usuario.\n' +
+                  '• “Comisión”: El monto que el Conductor o Conductor Designado paga a Rundi por el uso de la Plataforma por cada servicio completado.\n\n' +
+                  'II. NATURALEZA DE LA PLATAFORMA\n' +
+                  '2.1. Rundi es una plataforma de tecnología que conecta a Usuarios con Conductores o Conductores Designados independientes. No prestamos servicios de transporte ni de conducción. Nuestra única función es facilitar la conexión entre las partes.\n' +
+                  '2.2. Los Conductores y Conductores Designados son contratistas independientes, no empleados de Rundi. Cada uno es el único responsable de la prestación de sus servicios.\n\n' +
+                  'III. SERVICIOS OFRECIDOS\n' +
+                  '3.1. Servicio de movilidad standar (Rundi Móvil):\n' +
+                  'El Usuario solicita un viaje y es trasladado por un Conductor que utiliza su propio vehículo. La tarifa se acuerda directamente entre el Usuario y el Conductor a través de la Plataforma. Rundi cobra una comisión al Conductor por el uso de la aplicación.\n' +
+                  '3.2. Servicio de conductor designado (Rundi Designado):\n' +
+                  'El Usuario solicita que un Conductor Designado se desplace al lugar donde se encuentra el vehículo del Usuario, realice una inspección, y luego conduzca dicho vehículo hasta el destino indicado por el Usuario. El servicio está pensado para Usuarios que por razones de salud, fatiga o consumo de alcohol no pueden conducir.\n\n' +
+                  'IV. PROCESO DEL SERVICIO DE CONDUCTOR DESIGNADO\n' +
+                  '4.1. Solicitud:\n' +
+                  'El Usuario selecciona la opción “Rundi Designado” en la aplicación, indica su ubicación y el destino al que desea ser trasladado.\n' +
+                  '4.2. Llegada del Conductor Designado:\n' +
+                  'El Conductor Designado acude al lugar indicado en su propio vehículo (medio de traslado) y se presenta ante el Usuario.\n' +
+                  '4.3. Inspección del vehículo del Usuario:\n' +
+                  'Antes de iniciar la conducción, el Conductor Designado realizará una inspección visual del vehículo del Usuario, con la presencia de éste, y documentará el estado del mismo mediante:\n' +
+                  '• Fotografías del exterior e interior del vehículo (neumáticos, carrocería, parabrisas, tablero, asientos, etc.).\n' +
+                  '• Acta de inspección que será generada en la aplicación y firmada digitalmente por ambas partes (el Usuario acepta las condiciones en la app).\n' +
+                  '4.4. Traslado:\n' +
+                  'Una vez finalizada la inspección y obtenida la aceptación del Usuario, el Conductor Designado conduce el vehículo del Usuario hasta el destino acordado.\n' +
+                  '4.5. Finalización:\n' +
+                  'Al llegar al destino, el Conductor Designado estaciona el vehículo en el lugar indicado por el Usuario, entrega las llaves y finaliza el servicio.\n' +
+                  '4.6. Comisión:\n' +
+                  'Rundi cobra al Conductor Designado una comisión por el servicio, cuyo porcentaje se establece en los términos aplicables a los conductores designados.\n\n' +
+                  'V. RESPONSABILIDADES DEL USUARIO\n' +
+                  '5.1. En ambos servicios:\n' +
+                  '• El Usuario debe proporcionar información veraz sobre su ubicación y destino.\n' +
+                  '• El Usuario se obliga a tratar con respeto a los Conductores y Conductores Designados.\n' +
+                  '• El Usuario es responsable de cumplir con las leyes de tránsito cuando sea aplicable.\n' +
+                  '5.2. En el servicio de conductor designado:\n' +
+                  '• El Usuario declara y garantiza que es el propietario o tiene autorización legal para que un tercero conduzca el vehículo que pondrá a disposición del Conductor Designado.\n' +
+                  '• El Usuario es responsable de que el vehículo se encuentre en condiciones mecánicas y legales para circular (revisión técnica, seguro obligatorio, tarjeta de circulación, etc.).\n' +
+                  '• El Usuario acepta que el Conductor Designado realice la inspección y que, si durante la inspección se detectan condiciones inseguras (neumáticos lisos, luces defectuosas, fallas mecánicas evidentes, etc.), el Conductor Designado podrá rechazar el servicio sin responsabilidad para Rundi.\n' +
+                  '• El Usuario asume que cualquier daño preexistente al vehículo que no haya sido documentado en la inspección inicial no será atribuible al Conductor Designado.\n\n' +
+                  'VI. RESPONSABILIDADES DEL CONDUCTOR / CONDUCTOR DESIGNADO\n' +
+                  'Las responsabilidades específicas de cada tipo de prestador se encuentran en los documentos de Términos y Condiciones correspondientes. En todo caso, Rundi no será responsable por:\n' +
+                  '• La calidad, seguridad o cumplimiento de la normativa de tránsito por parte de los Conductores o Conductores Designados.\n' +
+                  '• Daños, accidentes, multas o cualquier incidente ocurrido durante la prestación de los servicios.\n\n' +
+                  'VII. PAGOS Y COMISIONES\n' +
+                  '7.1. El pago del servicio se realiza directamente entre el Usuario y el Conductor / Conductor Designado, según lo acordado en la aplicación (efectivo, transferencia, etc.). Rundi no recibe ni maneja los pagos entre Usuarios y prestadores.\n' +
+                  '7.2. El Conductor o Conductor Designado paga a Rundi una comisión por cada servicio completado, conforme a la estructura de comisiones vigente.\n' +
+                  '7.3. En el servicio de conductor designado, el Usuario no paga comisión a Rundi; la comisión es pagada por el Conductor Designado con cargo a sus ingresos.\n\n' +
+                  'VIII. LIMITACIÓN DE RESPONSABILIDAD DE RUNDI\n' +
+                  '8.1. Rundi actúa únicamente como intermediario tecnológico. En consecuencia, no asumimos responsabilidad alguna por:\n' +
+                  '• Accidentes de tránsito, daños a vehículos o lesiones personales ocurridas durante el servicio.\n' +
+                  '• Incumplimiento de obligaciones fiscales, laborales o de seguridad social por parte de los Conductores o Conductores Designados.\n' +
+                  '• Robos, hurtos o daños a pertenencias dentro del vehículo.\n' +
+                  '• Multas de tránsito impuestas durante la conducción.\n' +
+                  '8.2. En el servicio de conductor designado, el Usuario acepta que Rundi no es responsable por daños preexistentes al vehículo no documentados en la inspección inicial, ni por daños ocurridos durante la conducción, salvo que se demuestre dolo o negligencia grave del Conductor Designado mediante sentencia judicial firme.\n\n' +
+                  'IX. DATOS PERSONALES Y PRIVACIDAD\n' +
+                  '9.1. Rundi recopila y trata los datos personales de los Usuarios conforme a nuestra Política de Privacidad, disponible en la aplicación.\n' +
+                  '9.2. En el servicio de conductor designado, el Usuario consiente que se tomen fotografías del vehículo y se generen actas que serán almacenadas en nuestros sistemas.\n\n' +
+                  'X. MODIFICACIONES Y ACEPTACIÓN\n' +
+                  '10.1. Rundi podrá modificar estos Términos en cualquier momento. Las modificaciones serán notificadas a través de la aplicación y se considerarán aceptadas si el Usuario continúa usando la Plataforma después de 7 días de la notificación.\n' +
+                  '10.2. El registro y uso de la aplicación implica la aceptación íntegra de estos Términos y Condiciones.\n\n' +
+                  'XI. LEY APLICABLE Y JURISDICCIÓN\n' +
+                  'Estos Términos se rigen por las leyes de la República de Nicaragua. Cualquier controversia será sometida a los tribunales competentes de la ciudad de Managua.',
+              },
+              designated_driver: {
+                label: 'Términos para conductor designado',
+                version: 'Versión {{version}}',
+                body:
+                  'SERVICIO RUNDI DESIGNADO\n' +
+                  'Fecha de vigencia: 24/03/2026\n\n' +
+                  'I. DEFINICIONES\n' +
+                  '• “Rundi” / “Plataforma” / “Nosotros”: GrupoRZC, persona natural con RUC 0010205740009M, propietaria de la aplicación móvil “Rundi”.\n' +
+                  '• “Conductor Designado” / “Usted”: Persona natural que se registra en la Plataforma para prestar el servicio de conducción de vehículos de Usuarios.\n' +
+                  '• “Usuario”: Persona que solicita el servicio de conductor designado a través de la aplicación.\n' +
+                  '• “Vehículo del Usuario”: El automóvil particular que el Usuario pone a disposición para ser conducido por el Conductor Designado.\n' +
+                  '• “Inspección”: Proceso de verificación visual y documental del estado del vehículo del Usuario, realizado por el Conductor Designado antes de iniciar la conducción.\n\n' +
+                  'II. NATURALEZA DE LA RELACIÓN\n' +
+                  '2.1. El Conductor Designado es un contratista independiente, no un empleado de Rundi. Usted decide libremente si acepta o rechaza solicitudes, establece su horario y utiliza su propio medio de traslado (vehículo propio) para desplazarse al punto de encuentro.\n' +
+                  '2.2. Rundi no es responsable por la prestación del servicio de conducción, la cual es de exclusiva responsabilidad del Conductor Designado.\n\n' +
+                  'III. REQUISITOS PARA SER CONDUCTOR DESIGNADO\n' +
+                  'Para registrarse como Conductor Designado en Rundi, debe cumplir con:\n\n' +
+                  'Requisito | Descripción\n' +
+                  'Edad | Ser mayor de 21 años.\n' +
+                  'Licencia | Poseer licencia de conducir vigente categoría 1,2,3 (o superior) con al menos 3 años de antigüedad.\n' +
+                  'Documentación | Copia de cédula de identidad, licencia de conducir, récord de policía limpio (actualizado).\n' +
+                  'Vehículo propio | Contar con un vehículo propio en buen estado (para trasladarse al lugar del Usuario).\n' +
+                  'Seguro | El vehículo propio debe tener seguro obligatorio (SOA) al día.\n' +
+                  'Curso | Aprobar el curso de inducción que Rundi imparta sobre procedimientos de inspección y conducción defensiva.\n\n' +
+                  'IV. PROCESO DEL SERVICIO\n' +
+                  '4.1. Aceptación:\n' +
+                  'Al recibir una solicitud, el Conductor Designado puede aceptarla o rechazarla. Una vez aceptada, debe dirigirse al lugar indicado por el Usuario.\n' +
+                  '4.2. Inspección obligatoria:\n' +
+                  'Antes de iniciar la conducción del vehículo del Usuario, el Conductor Designado debe realizar la inspección conforme al procedimiento establecido por Rundi:\n' +
+                  '• Tomar fotografías claras de:\n' +
+                  'o Placas del vehículo.\n' +
+                  'o Cuatro neumáticos (incluyendo dibujo y presión aparente).\n' +
+                  'o Parabrisas y espejos.\n' +
+                  'o Carrocería (frente, laterales, parte trasera).\n' +
+                  'o Tablero (registro de kilometraje, testigos).\n' +
+                  'o Interior (asientos, espejos, volante).\n' +
+                  '• Llenar el acta de inspección en la aplicación, marcando cualquier novedad o daño preexistente.\n' +
+                  '• Mostrar el acta al Usuario para su conformidad. El Usuario debe firmar digitalmente en la aplicación.\n' +
+                  '4.3. Negativa a prestar el servicio:\n' +
+                  'El Conductor Designado podrá rechazar el servicio sin penalización si:\n' +
+                  '• El Usuario se niega a la inspección.\n' +
+                  '• El vehículo presenta condiciones inseguras (neumáticos lisos, luces apagadas, fallas mecánicas evidentes, falta de seguro obligatorio, etc.).\n' +
+                  '• El Usuario o el vehículo se encuentran bajo los efectos de alcohol o drogas (en cuyo caso deberá notificar a Rundi).\n' +
+                  '4.4. Conducción:\n' +
+                  'Una vez finalizada la inspección y obtenida la aceptación, el Conductor Designado conduce el vehículo del Usuario hasta el destino indicado, respetando las normas de tránsito.\n' +
+                  '4.5. Entrega:\n' +
+                  'Al llegar al destino, debe estacionar el vehículo en un lugar seguro y entregar las llaves al Usuario. Finalizar el servicio en la aplicación.\n\n' +
+                  'V. COMISIONES Y FACTURACIÓN\n' +
+                  '5.1. Estructura de comisiones:\n' +
+                  'Por cada servicio completado, Rundi cobra al Conductor Designado una comisión del [25 ]% sobre el valor acordado con el Usuario. La comisión se carga al saldo que el Conductor Designado mantiene en la aplicación.\n' +
+                  '5.2. Formas de pago de comisiones:\n' +
+                  'El Conductor Designado debe mantener saldo suficiente mediante recargas en puntos autorizados (Super Express, AM PM, etc.) o transferencia bancaria. Si el saldo es insuficiente, la cuenta será suspendida hasta regularizarse.\n' +
+                  '5.3. Facturación:\n' +
+                  'Rundi emitirá factura electrónica por las comisiones cobradas, con el desglose del IVA (15%). El Conductor Designado es el único responsable de cumplir con sus obligaciones fiscales ante la DGI y la Alcaldía por los ingresos obtenidos.\n\n' +
+                  'VI. OBLIGACIONES DEL CONDUCTOR DESIGNADO\n' +
+                  '6.1. Conducir con prudencia y respetar todas las leyes de tránsito.\n' +
+                  '6.2. No consumir alcohol, drogas ni ninguna sustancia que afecte sus capacidades durante el período en que esté disponible en la aplicación.\n' +
+                  '6.3. Mantener su vehículo propio en condiciones mecánicas y legales.\n' +
+                  '6.4. Realizar la inspección con diligencia y veracidad. Cualquier omisión dolosa de daños preexistentes será causa de terminación inmediata.\n' +
+                  '6.5. Informar a Rundi de inmediato si ocurre un accidente o incidente durante el servicio.\n' +
+                  '6.6. Tratar al Usuario con respeto y profesionalismo.\n\n' +
+                  'VII. LIMITACIÓN DE RESPONSABILIDAD\n' +
+                  '7.1. Rundi no es responsable por daños al vehículo del Usuario que ocurran durante la conducción. El Conductor Designado es directamente responsable ante el Usuario y ante las autoridades.\n' +
+                  '7.2. Rundi recomienda al Conductor Designado contratar un seguro de responsabilidad civil que cubra eventuales daños a vehículos de terceros (los seguros tradicionales del vehículo del Usuario pueden no cubrir la conducción por un tercero; es responsabilidad del Conductor Designado verificar su cobertura).\n' +
+                  '7.3. En caso de un accidente de tránsito, el Conductor Designado deberá seguir el procedimiento establecido por la ley nicaragüense (tomar datos, solicitar presencia de la Policía de Tránsito, etc.) y notificar a Rundi dentro de las 24 horas.\n\n' +
+                  'VIII. SUSPENSIÓN Y TERMINACIÓN\n' +
+                  '8.1. Rundi podrá suspender o terminar la cuenta del Conductor Designado por:\n' +
+                  '• Incumplimiento del procedimiento de inspección.\n' +
+                  '• Quejas de Usuarios sobre conducción riesgosa o comportamiento inapropiado.\n' +
+                  '• Fraude documental.\n' +
+                  '• No mantener saldo suficiente para pagar comisiones.\n' +
+                  '• Conducir bajo influencia de alcohol o drogas (terminación inmediata).\n\n' +
+                  'IX. DISPOSICIONES FINALES\n' +
+                  '9.1. Rundi podrá modificar estos Términos previa notificación a través de la aplicación. El uso continuado después de 7 días constituye aceptación.\n' +
+                  '9.2. Estos Términos se rigen por las leyes de Nicaragua. Cualquier controversia será sometida a los tribunales de Managua.\n' +
+                  '________________________________________\n' +
+                  'DECLARACIÓN DEL CONDUCTOR DESIGNADO\n' +
+                  'Al registrarme como Conductor Designado en Rundi, declaro que:\n' +
+                  '• He leído y comprendido estos Términos.\n' +
+                  '• Acepto realizar la inspección y documentación fotográfica conforme al procedimiento.\n' +
+                  '• Reconozco mi condición de contratista independiente.\n' +
+                  '• Asumo la responsabilidad total por mi actuación al conducir los vehículos de los Usuarios.',
+              },
+            },
+            checkboxLabel: 'He leído y acepto los términos y condiciones.',
+            acceptButton: 'Aceptar',
+            saving: 'Guardando...',
+            close: 'Cerrar',
+          },
           availableRideCard: {
             originFallback: 'Origen desconocido',
             destinationFallback: 'Destino desconocido',
@@ -5422,7 +6112,7 @@ const resources = {
               inputLabel: 'Buscar ubicación',
               placeholderOrigin: 'Buscar origen…',
               placeholderDestination: 'Buscar destino…',
-              placeholderDestinationReference: 'Ej: Conchita Palacios, 4c al este 3c al norte',
+              placeholderDestinationReference: 'Ej: Conchita Palacios',
               placeholderStop: 'Buscar parada…',
               placeholderGeneric: 'Buscar ubicación…',
               close: 'Cerrar',
@@ -5431,7 +6121,7 @@ const resources = {
               destinationGuidanceTitle: '¿Destino por referencia?',
               destinationGuidanceBody:
                 'Si escribes una referencia local, termina seleccionando un resultado o usando el mapa para fijar el punto exacto.',
-              destinationGuidanceStep1: '1) Escribe referencia',
+              destinationGuidanceStep1: '1) Escribe un lugar exacto',
               destinationGuidanceStep2: '2) Fija punto exacto',
               destinationConfirmed: 'Destino confirmado en mapa',
               loading: 'Buscando ubicaciones…',
@@ -5450,6 +6140,26 @@ const resources = {
             },
           },
          services: {
+          biometricService: {
+            prompts: {
+              reason: 'Confirma tu identidad',
+              fallbackLabel: 'Usar PIN',
+            },
+            errors: {
+              notSupported: 'Este dispositivo no soporta biometría.',
+              notEnrolled: 'No hay datos biométricos registrados en este dispositivo.',
+              authFailed: 'Falló la autenticación biométrica.',
+              unknown: 'Error desconocido.',
+            },
+            modal: {
+              title: 'Verificación de identidad',
+              scanning: 'Escaneando biometría…',
+              pinFallback: 'Escaneo biométrico no disponible. Continúa con el PIN del dispositivo.',
+              success: 'Identidad verificada correctamente.',
+              retry: 'Falló la verificación. Reintentando…',
+            },
+          },
+          
           auth: {
             accountLinkingService: {
               errors: {
@@ -5580,18 +6290,6 @@ const resources = {
             clientStatus: {
               title: 'Viaje bajo monitoreo',
               body: 'Tu viaje está activo y estamos monitoreando tu ubicación.',
-            },
-          },
-          biometricService: {
-            prompts: {
-              reason: 'Confirma tu identidad',
-              fallbackLabel: 'Usar PIN',
-            },
-            errors: {
-              notSupported: 'Este dispositivo no soporta biometría.',
-              notEnrolled: 'No hay datos biométricos registrados en este dispositivo.',
-              authFailed: 'La autenticación biométrica falló.',
-              unknown: 'Error desconocido.',
             },
           },
           cardsService: {
@@ -6506,6 +7204,38 @@ const resources = {
             },
             buttons: {
               cancelSearch: 'Cancelar búsqueda',
+              seeDriverReviews: 'Ver reseñas',
+            },
+            reviews: {
+              complimentsTitle: 'Cumplidos',
+              topReviewsTitle: 'Mejores reseñas',
+              empty: 'Este conductor aún no tiene reseñas.',
+              anonymous: 'Pasajero',
+              fallbackDate: 'recientemente',
+              fallbackReviewOne: 'Moto muy cómoda y limpia.',
+              fallbackReviewTwo: 'Excelente viaje, conductor muy recomendado.',
+              stats: {
+                rides: 'Viajes',
+                years: 'Años en Rundi',
+                rating: 'Calificación',
+              },
+              relative: {
+                today: 'Hoy',
+                oneDay: 'Hace 1 día',
+                days: 'Hace {{count}} días',
+                oneWeek: 'Hace 1 semana',
+                twoWeeks: 'Hace 2 semanas',
+                weeks: 'Hace {{count}} semanas',
+              },
+              compliments: {
+                punctuality: 'Puntualidad',
+                cleanliness: 'Limpieza del vehículo',
+                communication: 'Comunicación',
+                driving: 'Calidad de conducción',
+                safety: 'Seguridad',
+                friendliness: 'Amabilidad',
+                defaultLabel: 'Buen servicio',
+              },
             },
             alerts: {
               confirmSuccessTitle: 'Conductor confirmado',
@@ -6518,7 +7248,7 @@ const resources = {
               counterOfferError: 'No pudimos enviar la contraoferta.',
               confirmFromModalError: 'No pudimos confirmar al conductor.',
             },
-            cancelReason: 'Cancelado por el cliente desde HomeScreenOffers.',
+            cancelReason: 'Cancelado por el cliente.',
             extraStopLabel: 'Parada {{index}}',
           },
           rideConfirmation: {
@@ -7444,6 +8174,36 @@ const resources = {
             label: '¿Problemas para recargar fondos?',
             description: 'Abre un chat con soporte para revisar recargas, referencias o tarjetas guardadas.',
           },
+          history: {
+            title: 'Historial de recargas',
+            totalLabel: '{{count}} total',
+            empty: 'Aún no hay recargas.',
+            sourceLabel: 'Origen: {{source}}',
+            defaultSource: 'manual',
+            defaultStatus: 'confirmada',
+            previous: 'Anterior',
+            next: 'Siguiente',
+            page: 'Página {{current}}/{{total}}',
+          },
+          invoice: {
+            title: 'Comprobante de recarga',
+            close: 'Cerrar',
+            empty: 'No hay movimiento seleccionado',
+            amount: 'Monto',
+            fields: {
+              movementId: 'ID del movimiento',
+              driverId: 'ID del conductor',
+              createdAt: 'Fecha de creación',
+              type: 'Tipo',
+              source: 'Origen',
+              balanceBefore: 'Saldo anterior',
+              balanceAfter: 'Saldo posterior',
+              rideId: 'ID del viaje',
+              externalReference: 'Referencia externa',
+              externalTransaction: 'Transacción externa',
+              metadata: 'Metadatos',
+            },
+          },
         },
         paymentConfirmation: {
           loading: 'Cargando información del pago...',
@@ -7878,6 +8638,79 @@ const resources = {
               callFailedMessage: 'No pudimos iniciar la llamada. Intenta de nuevo.',
             },
           },
+          rating: {
+            header: {
+              titleDriver: '¿Cómo fue tu pasajero?',
+              titleClient: '¿Cómo fue tu viaje?',
+              subtitle: 'Tu opinión nos ayuda a mejorar el servicio',
+            },
+            ratingText: {
+              five: '¡Excelente! 🎉',
+              four: 'Muy bueno 👍',
+              three: 'Bueno 👌',
+              two: 'Regular 😐',
+              one: 'Malo 😞',
+            },
+            sections: {
+              quickComments: 'Comentarios rápidos:',
+              categories: 'Califica por categorías:',
+              additionalComment: 'Comentario adicional (opcional):',
+            },
+            categories: {
+              punctuality: {
+                driver: 'Puntualidad del pasajero',
+                client: 'Puntualidad del conductor',
+              },
+              cleanliness: {
+                driver: 'Limpieza y orden',
+                client: 'Limpieza del vehículo',
+              },
+              communication: {
+                driver: 'Comunicación',
+                client: 'Comunicación',
+              },
+              driving: {
+                driver: 'Respeto durante el viaje',
+                client: 'Conducción',
+              },
+              safety: {
+                driver: 'Seguridad',
+                client: 'Seguridad',
+              },
+              friendliness: {
+                driver: 'Amabilidad',
+                client: 'Amabilidad',
+              },
+            },
+            quickComments: {
+              driver: [
+                'Excelente pasajero',
+                'Muy puntual',
+                'Amable y respetuoso',
+                'Buen trato',
+              ],
+              client: [
+                'Excelente conductor',
+                'Muy profesional',
+                'Manejo seguro',
+                'Vehículo limpio',
+                'Llegó a tiempo',
+              ],
+            },
+            input: {
+              commentPlaceholder: 'Escribe tu experiencia...',
+            },
+            buttons: {
+              submit: 'Enviar calificación',
+              skip: 'Omitir por ahora',
+            },
+            alerts: {
+              missingRating: 'Por favor selecciona una calificación',
+              successTitle: '¡Gracias!',
+              successMessage: 'Tu calificación ha sido enviada exitosamente',
+              submitError: 'No se pudo enviar la calificación',
+            },
+          },
           rideTracking: {
             loading: {
               connectingDriver: 'Conectando con el conductor...',
@@ -8225,7 +9058,7 @@ const resources = {
             inputLabel: 'Buscar ubicación',
             placeholderOrigin: 'Buscar origen…',
             placeholderDestination: 'Buscar destino…',
-            placeholderDestinationReference: 'Ej: Conchita Palacios, 4c al este 3c al norte',
+            placeholderDestinationReference: 'Ej: Conchita Palacios',
             placeholderStop: 'Buscar parada…',
             placeholderGeneric: 'Buscar ubicación…',
             close: 'Cerrar',
@@ -8234,7 +9067,7 @@ const resources = {
             destinationGuidanceTitle: '¿Destino por referencia?',
             destinationGuidanceBody:
               'Si escribes una referencia local, termina seleccionando un resultado o usando el mapa para fijar el punto exacto.',
-            destinationGuidanceStep1: '1) Escribe referencia',
+            destinationGuidanceStep1: '1) Escribe un lugar exacto',
             destinationGuidanceStep2: '2) Fija punto exacto',
             destinationConfirmed: 'Destino confirmado en mapa',
             loading: 'Buscando ubicaciones…',
@@ -8393,6 +9226,7 @@ const resources = {
           checks: {
             starting: 'Iniciando verificaciones…',
             auth: 'Verificando sesión',
+            driverBiometric: 'Verificación de identidad',
             notifications: 'Comprobando notificaciones',
             foregroundLocation: 'Verificando ubicación',
             backgroundLocation: 'Verificando ubicación en segundo plano',
@@ -8403,6 +9237,23 @@ const resources = {
             rechargeFunds: 'Verificando saldo de billetera',
             activeRide: 'Buscando viajes activos',
             generic: '{{check}}',
+          },
+          biometric: {
+            prompt: 'Confirma tu identidad para continuar como conductor.',
+            pinFallback: 'Usar PIN',
+            error: 'No se pudo validar tu identidad.',
+            maxAttempts: 'No se pudo validar identidad después de {{max}} intentos.',
+            required: 'Necesitas validar identidad para continuar en modo conductor.',
+            deviceSecurityRequired:
+              'Configura un bloqueo de pantalla (PIN, patrón, contraseña, huella o Face ID) en los ajustes del dispositivo para continuar.',
+            modal: {
+              title: 'Verificación de identidad',
+              scanning: 'Escaneando biometría…',
+              pinFallback: 'Escaneo biométrico no disponible. Continúa con el PIN del dispositivo.',
+              success: 'Identidad verificada correctamente.',
+              retry: 'Falló la verificación. Reintentando…',
+              attempt: 'Intento {{current}} de {{max}}',
+            },
           },
           progress: {
             completedLabel: 'Verificación completada',
@@ -8695,22 +9546,22 @@ const resources = {
           },
           sections: {
             route: {
-              title: '📍 Ruta',
+              title: 'Ruta',
               origin: 'Origen',
               destination: 'Destino',
               stop: 'Parada {{index}}',
             },
             info: {
-              title: '🚗 Información del viaje',
+              title: 'Información del viaje',
               distance: 'Distancia',
               duration: 'Duración',
               finalPrice: 'Precio final',
               passengers: 'Pasajeros',
-              notesLabel: '📝 Notas',
+              notesLabel: 'Notas',
             },
             person: {
-              clientTitle: '👤 Cliente',
-              driverTitle: '🚗 Conductor',
+              clientTitle: 'Cliente',
+              driverTitle: 'Conductor',
               clientFallback: 'Usuario',
               driverFallback: 'Conductor',
               license: 'Licencia: {{value}}',
@@ -8718,11 +9569,11 @@ const resources = {
               missingDriver: 'Información del conductor no disponible',
             },
             vehicle: {
-              title: '🚙 Vehículo',
+              title: 'Vehículo',
               registration: 'Circulación: {{value}}',
             },
             timeline: {
-              title: '📅 Cronología',
+              title: 'Cronología',
               requested: 'Solicitado',
               accepted: 'Aceptado',
               started: 'Iniciado',
@@ -8733,9 +9584,9 @@ const resources = {
             payment: {
               title: '💰 Información de pago',
               calculated: 'Precio calculado',
-              clientSuggested: '💡 Oferta del cliente',
-              driverOffered: '🚗 Contraoferta del conductor',
-              finalAgreed: '✅ Precio final acordado',
+              clientSuggested: 'Oferta del cliente',
+              driverOffered: 'Contraoferta del conductor',
+              finalAgreed: 'Precio final acordado',
               status: 'Estado del pago',
               noPayment: 'Sin datos de pago',
               commission: 'Comisión ({{rate}}%)',

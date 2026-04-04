@@ -1,10 +1,10 @@
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useTheme } from '../context/ThemeContext';
-import DriverHomeScreen from '../screens/Driver/DriverHomeScreenNewDesign';
+import DriverHomeScreen from '../screens/Driver/DriverHomeScreen';
 import RideRequestsScreen from '../screens/Driver/RideRequestsScreen';
-import AvailableRidesScreen from '../screens/Driver/AvailableRidesScreeNewDesign';
-import ActiveRideScreen from '../screens/Driver/ActiveRideScreenNewDesign';
+import AvailableRidesScreen from '../screens/Driver/AvailableRidesScreen';
+import ActiveRideScreen from '../screens/Driver/ActiveRideScreen';
 import RidePreviewScreen from '../screens/Driver/RidePreviewScreen';
 import EarningsScreen from '../screens/Driver/EarningsScreen';
 import VehicleVerificationScreen from '../screens/Driver/VehicleVerificationScreen';

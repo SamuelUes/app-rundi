@@ -35,7 +35,7 @@ const sanitizeData = (data: PushData = {}) => {
 };
 
 const getAndroidChannelId = (message: PushMessage) => {
-  return message.androidChannelId ?? 'rundi_default';
+  return message.androidChannelId ?? 'default';
 };
 
 const chunkTokens = (tokens: TokenEntry[]) => {
@@ -137,6 +137,7 @@ const sendToTokens = async (tokens: TokenEntry[], message: PushMessage) => {
         notification: payload.notification,
         data: payload.data,
         android: payload.android,
+        apns: payload.apns,
       });
 
       response.responses.forEach((res, index) => {
@@ -206,4 +207,22 @@ export const sendNotificationToUsers = async (
 
 export const sendNotificationToUser = async (userId: string, message: PushMessage) => {
   await sendNotificationToUsers([userId], message);
+};
+
+export const sendNotificationToUserWithTokens = async (
+  userId: string,
+  tokens: string[],
+  message: PushMessage,
+) => {
+  const uniqueTokens = Array.from(new Set(tokens.filter(Boolean)));
+  if (!userId || !uniqueTokens.length) {
+    return;
+  }
+
+  const tokenEntries: TokenEntry[] = uniqueTokens.map((token) => ({
+    token,
+    userId,
+  }));
+
+  await sendToTokens(tokenEntries, message);
 };

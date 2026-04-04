@@ -38,6 +38,14 @@ let screenEntryWindowStartTs = 0;
 
 const DEFAULT_COORDINATE: { lat: number; lng: number } = { lat: 0, lng: 0 };
 
+const normalizeOptionalText = (value: any): string | undefined => {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+};
+
 type RawLocation =
   | { lat?: number; lng?: number; address?: string }
   | { latitude?: number; longitude?: number; address?: string }
@@ -222,6 +230,7 @@ interface Ride {
   waypointsCount?: number;
   hasMultipleDestinations?: boolean;
   clientVehiclePhoto?: string | null;
+  clientComment?: string;
 }
 
 export default function AvailableRidesScreeNewDesign({ navigation }: any) {
@@ -522,6 +531,7 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
           waypointsCount: rideData.waypointsCount || extraStops.length || 0,
           hasMultipleDestinations: rideData.hasMultipleDestinations || extraStops.length > 0,
           clientVehiclePhoto: rideData.clientVehiclePhoto || null,
+          clientComment: normalizeOptionalText(rideData.clientComment ?? rideData.comment ?? rideData.notes),
         });
         console.log('✅ [AvailableRides] Ride agregado a lista', rideId, {
           statusRaw,
@@ -917,6 +927,7 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
       paymentMethod: ride.paymentMethod,
       rideType: ride.rideType,
       clientVehiclePhoto: ride.clientVehiclePhoto || null,
+      clientComment: ride.clientComment,
     };
 
     navigation.navigate('RidePreview', { ride: payload });
@@ -1047,6 +1058,11 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
             {stopsCount > 0 ? (
               <Text style={[styles.detailLine, { color: colors.text + '99' }]} numberOfLines={1}>
                 {t('driver.available.rideCard.stops', { count: stopsCount })}
+              </Text>
+            ) : null}
+            {ride.clientComment ? (
+              <Text style={[styles.detailLine, { color: colors.text + 'B3' }]} numberOfLines={2}>
+                {`Nota: ${ride.clientComment}`}
               </Text>
             ) : null}
             <Text style={[styles.detailLine, styles.priceLine, { color: colors.text + 'B3' }]} numberOfLines={1}>
@@ -1502,7 +1518,7 @@ const styles = StyleSheet.create({
     letterSpacing: -0.2,
   },
   detailLine: {
-    fontSize: 13,
+    fontSize: 14,
     lineHeight: 17,
   },
   priceLine: {

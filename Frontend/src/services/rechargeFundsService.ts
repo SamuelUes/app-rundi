@@ -44,6 +44,75 @@ const toNumber = (value: unknown) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+const toSafeString = (value: unknown, fallback: string = ''): string => {
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  return fallback;
+};
+
+const toNullableSafeString = (value: unknown): string | null => {
+  if (value == null) {
+    return null;
+  }
+
+  const normalized = toSafeString(value, '');
+  return normalized || null;
+};
+
+const toSafeMetadata = (value: unknown): Record<string, any> | null => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  return value as Record<string, any>;
+};
+
+const toSafeDateString = (value: unknown): string | null => {
+  if (value == null) {
+    return null;
+  }
+
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+
+  if (typeof value === 'object' && value) {
+    const maybeToDate = (value as any).toDate;
+    if (typeof maybeToDate === 'function') {
+      const dateFromFn = maybeToDate.call(value);
+      if (dateFromFn instanceof Date && !Number.isNaN(dateFromFn.getTime())) {
+        return dateFromFn.toISOString();
+      }
+    }
+
+    const secondsCandidate = Number((value as any).seconds ?? (value as any)._seconds);
+    const nanosCandidate = Number((value as any).nanoseconds ?? (value as any)._nanoseconds ?? 0);
+    if (Number.isFinite(secondsCandidate)) {
+      const ms = secondsCandidate * 1000 + (Number.isFinite(nanosCandidate) ? nanosCandidate / 1e6 : 0);
+      const parsedFromSeconds = new Date(ms);
+      if (!Number.isNaN(parsedFromSeconds.getTime())) {
+        return parsedFromSeconds.toISOString();
+      }
+    }
+  }
+
+  const normalized = toSafeString(value, '');
+  if (!normalized) {
+    return null;
+  }
+
+  const parsed = new Date(normalized);
+  if (Number.isNaN(parsed.getTime())) {
+    return normalized;
+  }
+
+  return parsed.toISOString();
+};
+
 class RechargeFundsService {
   async getSummary(limit: number = 30): Promise<DriverRechargeFundsSummary> {
     const functions = await getFirebaseFunctions();
@@ -53,7 +122,7 @@ class RechargeFundsService {
 
     return {
       success: Boolean(data?.success),
-      driverId: String(data?.driverId || ''),
+      driverId: toSafeString(data?.driverId, ''),
       availableBalance: toNumber(data?.availableBalance),
       blocked: Boolean(data?.blocked),
       totals: {
@@ -64,19 +133,19 @@ class RechargeFundsService {
       },
       history: Array.isArray(data?.history)
         ? data.history.map((item: any) => ({
-            id: String(item?.id || ''),
-            driverId: String(item?.driverId || ''),
-            rideId: item?.rideId ?? null,
-            rechargeType: String(item?.rechargeType || ''),
-            source: String(item?.source || ''),
+            id: toSafeString(item?.id, ''),
+            driverId: toSafeString(item?.driverId, ''),
+            rideId: toNullableSafeString(item?.rideId),
+            rechargeType: toSafeString(item?.rechargeType, ''),
+            source: toSafeString(item?.source, ''),
             amount: toNumber(item?.amount),
             balanceBefore: toNumber(item?.balanceBefore),
             balanceAfter: toNumber(item?.balanceAfter),
-            externalReference: item?.externalReference ?? null,
-            externalTransactionId: item?.externalTransactionId ?? null,
-            status: String(item?.status || 'confirmed'),
-            metadata: item?.metadata ?? null,
-            createdAt: item?.createdAt ?? null,
+            externalReference: toNullableSafeString(item?.externalReference),
+            externalTransactionId: toNullableSafeString(item?.externalTransactionId),
+            status: toSafeString(item?.status, 'confirmed'),
+            metadata: toSafeMetadata(item?.metadata),
+            createdAt: toSafeDateString(item?.createdAt ?? item?.created_at),
           }))
         : [],
     };

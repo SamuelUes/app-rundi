@@ -15,9 +15,20 @@ interface BiometricResult {
   errorCode?: BiometricErrorCode;
   biometryType?: string;
   verifiedAt?: string;
+  usedPinFallback?: boolean;
 }
 
+type BiometricUserType = 'client' | 'driver' | 'designated_driver';
+
 class BiometricService {
+  private static t(key: string, fallback: string): string {
+    const value = i18n.t(key) as string;
+    if (!value || value === key) {
+      return fallback;
+    }
+    return value;
+  }
+
   /**
    * Verifica si el dispositivo soporta biometría
    */
@@ -61,15 +72,15 @@ class BiometricService {
    * Autentica usando biometría
    */
   static async authenticate(
-    reason: string = i18n.t('services.biometricService.prompts.reason'),
-    fallbackLabel: string = i18n.t('services.biometricService.prompts.fallbackLabel')
+    reason: string = this.t('services.biometricService.prompts.reason', 'Confirm your identity'),
+    fallbackLabel: string = this.t('services.biometricService.prompts.fallbackLabel', 'Use PIN')
   ): Promise<BiometricResult> {
     try {
       const compatible = await LocalAuthentication.hasHardwareAsync();
       if (!compatible) {
         return {
           success: false,
-          error: i18n.t('services.biometricService.errors.notSupported') as string,
+          error: this.t('services.biometricService.errors.notSupported', 'This device does not support biometrics.'),
           errorCode: 'NOT_SUPPORTED',
         };
       }
@@ -78,7 +89,10 @@ class BiometricService {
       if (!enrolled) {
         return {
           success: false,
-          error: i18n.t('services.biometricService.errors.notEnrolled') as string,
+          error: this.t(
+            'services.biometricService.errors.notEnrolled',
+            'No biometric data is registered on this device.',
+          ),
           errorCode: 'NOT_ENROLLED',
         };
       }
@@ -87,9 +101,10 @@ class BiometricService {
 
       const result = await LocalAuthentication.authenticateAsync({
         disableDeviceFallback: false,
-        requireConfirmation: true,
+        requireConfirmation: false,
         promptMessage: reason,
-        cancelLabel: fallbackLabel,
+        cancelLabel: this.t('common.actions.cancel', 'Cancel'),
+        fallbackLabel,
       });
 
       if (result.success) {
@@ -98,7 +113,7 @@ class BiometricService {
       } else {
         return {
           success: false,
-          error: i18n.t('services.biometricService.errors.authFailed') as string,
+          error: this.t('services.biometricService.errors.authFailed', 'Biometric authentication failed.'),
           errorCode: 'AUTH_FAILED',
         };
       }
@@ -106,7 +121,7 @@ class BiometricService {
       console.error('❌ Error en autenticación:', error);
       return {
         success: false,
-        error: error.message || (i18n.t('services.biometricService.errors.unknown') as string),
+        error: error.message || this.t('services.biometricService.errors.unknown', 'Unknown error.'),
         errorCode: 'UNKNOWN',
       };
     }
@@ -116,7 +131,10 @@ class BiometricService {
     biometricType: string;
     rideId?: string;
     context?: string;
-    userType?: 'client' | 'driver';
+    userType?: BiometricUserType;
+    success?: boolean;
+    attemptNumber?: number;
+    errorMessage?: string;
   }): Promise<void> {
     try {
       const functions = await getFirebaseFunctions();
@@ -126,9 +144,109 @@ class BiometricService {
         rideId: payload.rideId,
         context: payload.context ?? 'ride_request',
         userType: payload.userType ?? 'client',
+        success: payload.success ?? true,
+        attemptNumber: payload.attemptNumber ?? 1,
+        errorMessage: payload.errorMessage ?? null,
       });
     } catch (error) {
       console.warn('[BiometricService] No se pudo registrar autenticación biométrica', error);
+    }
+  }
+
+  static async logAuthenticationAttempt(payload: {
+    biometricType: string;
+    rideId?: string;
+    context?: string;
+    userType?: BiometricUserType;
+    success: boolean;
+    attemptNumber: number;
+    errorMessage?: string;
+  }): Promise<void> {
+    await this.logBiometricVerification(payload);
+  }
+
+  static async authenticateWithPinFallback(
+    reason: string = this.t('services.biometricService.prompts.reason', 'Confirm your identity'),
+    fallbackLabel: string = this.t('services.biometricService.prompts.fallbackLabel', 'Use PIN'),
+  ): Promise<BiometricResult> {
+    try {
+      const detectedBiometryType = await this.getBiometryType();
+      const result = await LocalAuthentication.authenticateAsync({
+        disableDeviceFallback: false,
+        requireConfirmation: false,
+        promptMessage: reason,
+        cancelLabel: this.t('common.actions.cancel', 'Cancel'),
+        fallbackLabel,
+      });
+
+      if (result.success) {
+        const warning = String((result as any)?.warning || '').toLowerCase();
+        const usedPinFallback =
+          warning.includes('fallback') || warning.includes('device') || detectedBiometryType === 'none';
+        return {
+          success: true,
+          biometryType: detectedBiometryType === 'none' ? 'device_credential' : detectedBiometryType,
+          verifiedAt: new Date().toISOString(),
+          usedPinFallback,
+        };
+      }
+
+      const rawError = String((result as any)?.error || '').toLowerCase();
+      const mappedCode: BiometricErrorCode =
+        rawError.includes('not_available') || rawError.includes('not supported')
+          ? 'NOT_SUPPORTED'
+          : rawError.includes('not_enrolled') || rawError.includes('not enrolled')
+            ? 'NOT_ENROLLED'
+            : 'AUTH_FAILED';
+
+      const mappedErrorMessage =
+        mappedCode === 'NOT_SUPPORTED'
+          ? this.t('services.biometricService.errors.notSupported', 'This device does not support biometrics.')
+          : mappedCode === 'NOT_ENROLLED'
+            ? this.t(
+                'services.biometricService.errors.notEnrolled',
+                'No biometric data is registered on this device.',
+              )
+            : this.t('services.biometricService.errors.authFailed', 'Biometric authentication failed.');
+
+      if (mappedCode === 'NOT_SUPPORTED' || mappedCode === 'NOT_ENROLLED') {
+        try {
+          const deviceCredentialResult = await LocalAuthentication.authenticateAsync({
+            disableDeviceFallback: false,
+            requireConfirmation: false,
+            promptMessage: reason,
+            cancelLabel: this.t('common.actions.cancel', 'Cancel'),
+            fallbackLabel,
+            biometricsSecurityLevel: 'weak',
+          });
+
+          if (deviceCredentialResult.success) {
+            return {
+              success: true,
+              biometryType: 'device_credential',
+              verifiedAt: new Date().toISOString(),
+              usedPinFallback: true,
+            };
+          }
+        } catch (deviceCredentialError) {
+          console.warn('[BiometricService] Device credential fallback failed:', deviceCredentialError);
+        }
+      }
+
+      return {
+        success: false,
+        error: mappedErrorMessage,
+        errorCode: mappedCode,
+        biometryType: detectedBiometryType === 'none' ? 'device_credential' : detectedBiometryType,
+        usedPinFallback: detectedBiometryType === 'none',
+      };
+    } catch (error: any) {
+      console.error('❌ Error en autenticación biométrica con fallback PIN:', error);
+      return {
+        success: false,
+        error: error?.message || this.t('services.biometricService.errors.unknown', 'Unknown error.'),
+        errorCode: 'UNKNOWN',
+      };
     }
   }
 
@@ -137,7 +255,7 @@ class BiometricService {
     fallbackLabel?: string;
     rideId?: string;
     context?: string;
-    userType?: 'client' | 'driver';
+    userType?: BiometricUserType;
   } = {}): Promise<BiometricResult> {
     const result = await this.authenticate(options.reason, options.fallbackLabel);
     if (result.success && result.biometryType) {

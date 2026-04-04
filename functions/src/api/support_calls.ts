@@ -166,12 +166,12 @@ export const initiateSupportCallHttp = functions.https.onRequest(async (req, res
         title: "Llamada de soporte solicitada",
         body: `Hay una nueva llamada para el caso ${complaintId}.`,
         data: {
-          type: "support_call_initiated",
+          type: "support_call",
           complaintId,
           callId,
           requestedByUserId: uid,
         },
-        androidChannelId: "rundi_default",
+        androidChannelId: "default",
         notificationKey: `support-call-${callId}`,
         expiresInMs: 10 * 60 * 1000,
       });

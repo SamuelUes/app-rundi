@@ -39,7 +39,10 @@ const db = admin.database();
 const driverRepo = new DriverRepository();
 const vehicleRepo = new VehicleRepository();
 
-const CURRENT_TERMS_VERSION = '2025-11-29';
+type TermsDocumentType = 'general' | 'users' | 'designated_driver';
+
+const CURRENT_TERMS_VERSION = '1.0';
+const TERMS_DOCUMENTS: TermsDocumentType[] = ['general', 'users', 'designated_driver'];
 const ACTIVE_DRIVER_STATUSES = new Set(['accepted', 'driver_on_route', 'driver_arrived', 'in_progress']);
 const ACTIVE_CLIENT_TRACK_STATUSES = new Set(['accepted', 'driver_on_route', 'driver_arrived', 'in_progress']);
 const CLIENT_WAITING_STATUSES = new Set(['requested', 'searching', 'pending', 'pending_confirmation']);
@@ -183,20 +186,79 @@ async function getTermsSummary(userId: string): Promise<{
   currentVersion: string;
   acceptedVersion?: string;
   acceptedAt?: number;
+  acceptedAllDocuments: boolean;
+  acceptedDocuments: Record<TermsDocumentType, {
+    accepted: boolean;
+    version?: string;
+    acceptedAt?: number;
+  }>;
 }> {
+  const buildEmptyDocuments = () =>
+    TERMS_DOCUMENTS.reduce((acc, documentType) => {
+      acc[documentType] = {
+        accepted: false,
+      };
+      return acc;
+    }, {} as Record<TermsDocumentType, { accepted: boolean; version?: string; acceptedAt?: number }>);
+
   try {
     const profileDoc = await firestore.collection('users').doc(userId).get();
     const profile = profileDoc.exists ? profileDoc.data() : undefined;
+
     const acceptedVersion = normalizeString(profile?.termsVersion);
+    const acceptedAt = toEpochMs(profile?.termsAcceptedAt);
+    const acceptedByLegacyVersion = acceptedVersion === CURRENT_TERMS_VERSION;
+
+    const rawTermsAcceptance =
+      profile?.termsAcceptance && typeof profile.termsAcceptance === 'object'
+        ? (profile.termsAcceptance as Record<string, any>)
+        : null;
+    const acceptanceType = normalizeString(rawTermsAcceptance?.type).toLowerCase();
+    const acceptanceVersion = normalizeString(rawTermsAcceptance?.version);
+    const acceptedByGeneralAcceptance =
+      acceptanceType === 'general' && acceptanceVersion === CURRENT_TERMS_VERSION;
+    const acceptedGlobally = acceptedByLegacyVersion || acceptedByGeneralAcceptance;
+
+    const documentAcceptances = buildEmptyDocuments();
+    const documentAcceptanceRaw =
+      rawTermsAcceptance?.documents && typeof rawTermsAcceptance.documents === 'object'
+        ? (rawTermsAcceptance.documents as Record<string, any>)
+        : null;
+
+    for (const documentType of TERMS_DOCUMENTS) {
+      const rawDocument = documentAcceptanceRaw?.[documentType];
+      const documentVersion = normalizeString(rawDocument?.version);
+      const documentAcceptedAt = toEpochMs(rawDocument?.acceptedAt);
+      const explicitAccepted = rawDocument?.accepted === true;
+      const acceptedByDocumentVersion =
+        documentVersion === CURRENT_TERMS_VERSION && (explicitAccepted || Boolean(documentAcceptedAt));
+      const accepted = acceptedGlobally || acceptedByDocumentVersion;
+
+      documentAcceptances[documentType] = {
+        accepted,
+        version: documentVersion || (accepted ? CURRENT_TERMS_VERSION : undefined),
+        acceptedAt: documentAcceptedAt || (accepted && acceptedAt ? acceptedAt : undefined),
+      };
+    }
+
+    const acceptedAllDocuments = TERMS_DOCUMENTS.every(
+      (documentType) => documentAcceptances[documentType].accepted,
+    );
+
     return {
       currentVersion: CURRENT_TERMS_VERSION,
       acceptedVersion: acceptedVersion || undefined,
-      acceptedAt: toEpochMs(profile?.termsAcceptedAt),
+      acceptedAt,
+      acceptedAllDocuments,
+      acceptedDocuments: documentAcceptances,
     };
   } catch (error) {
     console.warn('⚠️ [getPreflightData] Error leyendo términos de usuario:', error);
+
     return {
       currentVersion: CURRENT_TERMS_VERSION,
+      acceptedAllDocuments: false,
+      acceptedDocuments: buildEmptyDocuments(),
     };
   }
 }

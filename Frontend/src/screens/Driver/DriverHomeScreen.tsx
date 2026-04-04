@@ -89,6 +89,16 @@ type RawRideStop = {
 const ACTIVE_RIDE_STATUSES = ['accepted', 'driver_on_route', 'driver_arrived', 'in_progress'];
 const MIN_RECHARGE_BALANCE_REQUIRED = 0;
 
+const parseBlockedFlag = (value: unknown): boolean | null => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true') return true;
+    if (normalized === 'false') return false;
+  }
+  return null;
+};
+
 const getActiveRidePendingCopy = (ride: any, t: TFunction) => {
   const status: string = ride?.status || '';
   const clientName = ride?.client?.name || ride?.clientName || t('driver.home.ride.clientFallback');
@@ -404,6 +414,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   const [offerCacheEntries, setOfferCacheEntries] = useState<DriverOfferCacheEntry[]>([]);
   const [pendingOfferTarget, setPendingOfferTarget] = useState<PendingOfferTarget | null>(null);
   const [rideSnapshotsVersion, setRideSnapshotsVersion] = useState(0);
+  const hasInsufficientFunds = Boolean(rechargeFundsSummary?.blocked);
   const panelWidthRef = useRef(Math.min(Dimensions.get('window').width * 0.8, 336));
   const panelWidth = panelWidthRef.current;
   const menuOpacity = useRef(new Animated.Value(0)).current;
@@ -737,7 +748,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
       }
       enforcingAvailabilityRef.current = false;
     }
-  }, [coords, isAvailable, isDesignatedDriverMode, updatingStatus, user?.id, user?.role]);
+  }, [coords, hasInsufficientFunds, isAvailable, isDesignatedDriverMode, updatingStatus, user?.id, user?.role]);
 
   // ✅ Resumen de fondos desde Realtime DB
   useEffect(() => {
@@ -769,22 +780,26 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
           const data = snapshot.val();
 
           if (!data) {
-            setRechargeFundsSummary({ availableBalance: 0, blocked: true });
+            setRechargeFundsSummary((prev) => prev ?? { availableBalance: 0, blocked: false });
             markTaskCompleted('penaltySummary');
             return;
           }
 
           const availableBalance = Number(
             data.availableBalance ??
+              data.available_balance ??
               data.balance ??
+              data.current_recharge_balance ??
               data.currentBalance ??
               data.currentRechargeBalance ??
               0,
           );
+          const normalizedBalance = Number.isFinite(availableBalance) ? availableBalance : 0;
+          const explicitBlocked = parseBlockedFlag(data.blocked);
 
           setRechargeFundsSummary({
-            availableBalance: Number.isFinite(availableBalance) ? availableBalance : 0,
-            blocked: Boolean(data.blocked) || Number(availableBalance || 0) <= MIN_RECHARGE_BALANCE_REQUIRED,
+            availableBalance: normalizedBalance,
+            blocked: explicitBlocked ?? normalizedBalance <= MIN_RECHARGE_BALANCE_REQUIRED,
           });
           markTaskCompleted('penaltySummary');
         };
@@ -792,7 +807,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
         onValue(walletRef, handleSnapshot, (err) => {
           console.error('❌ [DriverHomeScreenNewDesign] Error escuchando drivers wallet:', err);
           if (isMounted) {
-            setRechargeFundsSummary({ availableBalance: 0, blocked: true });
+            setRechargeFundsSummary((prev) => prev ?? { availableBalance: 0, blocked: false });
           }
           markTaskCompleted('penaltySummary');
         });
@@ -801,7 +816,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
       } catch (err) {
         console.error('❌ [DriverHomeScreenNewDesign] Error iniciando listener de fondos:', err);
         if (isMounted) {
-          setRechargeFundsSummary({ availableBalance: 0, blocked: true });
+          setRechargeFundsSummary((prev) => prev ?? { availableBalance: 0, blocked: false });
         }
         markTaskCompleted('penaltySummary');
       }
@@ -814,12 +829,13 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   }, [user?.id, markTaskCompleted]);
 
   useEffect(() => {
-    const availableBalance = Number(rechargeFundsSummary?.availableBalance ?? 0);
-    if (!Number.isFinite(availableBalance)) {
+    if (!rechargeFundsSummary) {
       return;
     }
 
-    if (availableBalance <= MIN_RECHARGE_BALANCE_REQUIRED || rechargeFundsSummary?.blocked) {
+    const availableBalance = Number(rechargeFundsSummary.availableBalance ?? 0);
+
+    if (hasInsufficientFunds) {
       if (!rechargeAlertShownRef.current) {
         rechargeAlertShownRef.current = true;
         alertService.showInfoAlert(
@@ -834,7 +850,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
     } else {
       rechargeAlertShownRef.current = false;
     }
-  }, [rechargeFundsSummary?.availableBalance, rechargeFundsSummary?.blocked, enforceOfflineDueToRechargeFunds, navigation, t]);
+  }, [hasInsufficientFunds, rechargeFundsSummary, enforceOfflineDueToRechargeFunds, navigation, t]);
 
   useEffect(() => {
     if (!user?.id) {
@@ -885,6 +901,11 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   }, [user?.id, markTaskCompleted]);
 
   useEffect(() => {
+    if (hasInsufficientFunds) {
+      setPendingAction(null);
+      return;
+    }
+
     // Prioridad 1: Pagos pendientes detectados localmente
     if (pendingPayments.length > 0) {
       const firstPayment = pendingPayments[0];
@@ -1024,7 +1045,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
 
     // Prioridad 5: Acciones desde preflight (complemento)
     if (preflightActions.length > 0) {
-      const priority = ['active_ride', 'recharge_funds', 'pending_payment'] as const;
+      const priority = ['active_ride', 'pending_payment'] as const;
       const nextAction = priority
         .map((type) => preflightActions.find((action) => action.type === type))
         .find((action) => {
@@ -1064,11 +1085,15 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
 
     setPendingAction(null);
   }, [
+    hasInsufficientFunds,
     pendingPayments,
+    pendingOfferTarget,
     pendingNegotiationRide,
     activeRide,
     preflightActions,
     navigation,
+    t,
+    user?.id,
     preflightSummary?.preflightData?.pendingPayments?.count,
   ]);
 
@@ -1132,16 +1157,25 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
         const savedState = await driverAvailabilityService.getAvailabilityState();
         if (!savedState) return;
 
-        setIsAvailable(savedState.isAvailable);
-        setIsDesignatedDriverMode(savedState.isDesignatedDriverMode);
+        let normalizedState = savedState;
 
         if (savedState.isAvailable) {
           try {
-            await driversService.updateStatus('available', coords);
+            const statusResult = await driversService.updateStatus('available', coords);
+            normalizedState = driverAvailabilityService.normalizeAvailabilityState(
+              savedState,
+              statusResult?.status,
+              { latitude: coords.latitude, longitude: coords.longitude },
+            );
+
+            await driverAvailabilityService.saveAvailabilityState(normalizedState);
           } catch (err) {
             console.error('❌ Error restaurando estado de disponibilidad:', err);
           }
         }
+
+        setIsAvailable(normalizedState.isAvailable);
+        setIsDesignatedDriverMode(normalizedState.isDesignatedDriverMode);
       } catch (err) {
         console.error('❌ Error restaurando estado de disponibilidad:', err);
       }
@@ -1708,7 +1742,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
     }
 
     // ✅ Bloquear activar disponibilidad si supera el umbral de comisiones pendientes
-    if (nextValue && rechargeFundsSummary && Number(rechargeFundsSummary.availableBalance) <= MIN_RECHARGE_BALANCE_REQUIRED) {
+    if (nextValue && hasInsufficientFunds && rechargeFundsSummary) {
       alertService.showInfoAlert(
         t('driver.home.alerts.rechargeRequiredTitle'),
         t('driver.home.alerts.rechargeRequiredBody', {
@@ -1726,27 +1760,42 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
     setUpdatingStatus(true);
     try {
       const status = nextValue ? 'available' : 'offline';
-      await driversService.updateStatus(status, coords);
-      setIsAvailable(nextValue);
+      const statusResult = await driversService.updateStatus(status, coords);
+      const normalizedState = driverAvailabilityService.normalizeAvailabilityState(
+        {
+          isAvailable: nextValue,
+          isDesignatedDriverMode,
+          lastUpdate: new Date().toISOString(),
+          coords: { latitude: coords.latitude, longitude: coords.longitude },
+        },
+        statusResult?.status,
+        { latitude: coords.latitude, longitude: coords.longitude },
+      );
+      const effectiveAvailable = normalizedState.isAvailable;
+      const shouldDisableDesignated =
+        (!nextValue || !effectiveAvailable) && isDesignatedDriverMode && user?.role === 'designated_driver';
 
-      if (!nextValue && isDesignatedDriverMode && user?.role === 'designated_driver') {
+      setIsAvailable(effectiveAvailable);
+
+      if (shouldDisableDesignated) {
         setIsDesignatedDriverMode(false);
         await driversService.updateDesignatedDriverMode(user.id, false);
       }
 
-      const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
       await driverAvailabilityService.saveAvailabilityState({
-        isAvailable: nextValue,
-        isDesignatedDriverMode: nextValue ? isDesignatedDriverMode : false,
-        lastUpdate: new Date().toISOString(),
-        coords: { latitude: coords.latitude, longitude: coords.longitude },
+        ...normalizedState,
+        isDesignatedDriverMode: shouldDisableDesignated ? false : normalizedState.isDesignatedDriverMode,
       });
 
-      if (nextValue) {
+      if (effectiveAvailable) {
         driverAvailabilityService.startHeartbeat(coords);
       } else {
         driverAvailabilityService.stopHeartbeat();
         await driverAvailabilityService.clearAvailabilityState();
+
+        if (nextValue) {
+          alertService.showErrorAlert(t('driver.home.alerts.availabilityUpdateFailed'));
+        }
       }
     } catch (err: any) {
       alertService.showErrorAlert(
@@ -1766,7 +1815,6 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
       const next = !isDesignatedDriverMode;
       setIsDesignatedDriverMode(next);
       await driversService.updateDesignatedDriverMode(user.id, next);
-      const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
       const savedState = await driverAvailabilityService.getAvailabilityState();
       const coordsSnapshot = coords ? { latitude: coords.latitude, longitude: coords.longitude } : savedState?.coords;
       await driverAvailabilityService.saveAvailabilityState({
@@ -1948,7 +1996,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
       )}
 
       {/* ✅ Banner de comisiones pendientes */}
-      {rechargeFundsSummary && Number(rechargeFundsSummary.availableBalance) <= MIN_RECHARGE_BALANCE_REQUIRED && (
+      {rechargeFundsSummary && hasInsufficientFunds && (
         <TouchableOpacity
           style={[styles.pendingBanner, { backgroundColor: '#E53935' }]}
           onPress={() => {
@@ -1969,7 +2017,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
         </TouchableOpacity>
       )}
 
-      {pendingPayments.length > 0 && !hasPendingAction && (
+      {pendingPayments.length > 0 && !hasPendingAction && !hasInsufficientFunds && (
         <TouchableOpacity
           style={styles.pendingBanner}
           onPress={() => {
@@ -1998,7 +2046,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
         </TouchableOpacity>
       )}
 
-      {pendingAction && (
+      {pendingAction && !hasInsufficientFunds && (
         <TouchableOpacity
           style={styles.pendingActionButton}
           activeOpacity={0.85}
@@ -2156,7 +2204,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
             </TouchableOpacity>
           </View>
 
-          {!hasPendingAction && (
+          {!hasPendingAction && !hasInsufficientFunds && (
             <View style={styles.earningsSplitContainer}>
               <View style={[styles.earningsButton, styles.earningsStatsCard]}>
                 <ImageBackground

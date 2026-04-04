@@ -98,6 +98,10 @@ const applyDesignatedDriverMotoDiscount = (breakdown: PriceBreakdown | null, ena
     return breakdown;
   }
 
+  if (breakdown.serviceCode === 'designated_driver_moto') {
+    return breakdown;
+  }
+
   const discountedFinalPrice = Math.max(breakdown.finalPrice - DESIGNATED_DRIVER_MOTO_DISCOUNT, 0);
   return {
     ...breakdown,
@@ -594,14 +598,79 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
       designated_driver: { label: tr('vehicle.designatedLabel'), subtitle: tr('vehicle.designatedSubtitle'), emoji: '🧑‍✈️' },
     };
 
+    const normalizeServiceText = (value: string | undefined | null) =>
+      (value || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[\s-]+/g, '_');
+
+    const isDesignatedService = (code: string, name: string) => {
+      const haystack = `${code} ${name}`;
+      return haystack.includes('designated_driver') || haystack.includes('designated') || haystack.includes('conductor_designado');
+    };
+
+    const findByCode = (codes: string[]) =>
+      servicesCatalog.find((service) => {
+        const code = normalizeServiceText(service.code);
+        return codes.includes(code);
+      });
+
     const findMatch = (type: VehicleType) => {
-      const target = servicesCatalog.find((service) => {
-        const code = service.code?.toLowerCase() || '';
-        const name = service.name?.toLowerCase() || '';
-        if (type === 'designated_driver') {
-          return code.includes('design') || name.includes('design');
+      if (type === 'auto') {
+        const exactAuto = findByCode(['normal', 'auto']);
+        if (exactAuto) {
+          return exactAuto;
         }
-        return code.includes(type) || name.includes(type);
+      }
+
+      if (type === 'moto') {
+        const exactMoto = findByCode(['motorcycle', 'moto']);
+        if (exactMoto) {
+          return exactMoto;
+        }
+      }
+
+      if (type === 'designated_driver') {
+        const preferredDesignated = findByCode(['designated_driver_auto', 'designated_driver']);
+        if (preferredDesignated) {
+          return preferredDesignated;
+        }
+      }
+
+      const target = servicesCatalog.find((service) => {
+        const code = normalizeServiceText(service.code);
+        const name = normalizeServiceText(service.name);
+
+        if (type === 'designated_driver') {
+          return isDesignatedService(code, name);
+        }
+
+        if (isDesignatedService(code, name)) {
+          return false;
+        }
+
+        if (type === 'auto') {
+          return (
+            code === 'auto' ||
+            code.startsWith('auto_') ||
+            code.includes('car') ||
+            name.includes('auto') ||
+            name.includes('carro')
+          );
+        }
+
+        if (type === 'moto') {
+          return (
+            code === 'moto' ||
+            code.startsWith('moto_') ||
+            code.includes('motorcycle') ||
+            name.includes('moto') ||
+            name.includes('motocicleta')
+          );
+        }
+
+        return false;
       });
       return target;
     };
@@ -612,7 +681,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
 
     return typesToRender.map((type) => {
       const match = findMatch(type);
-      const shouldUseCatalogCopy = preferServiceCatalogCopy && match;
+      const shouldUseCatalogCopy = preferServiceCatalogCopy && match && type !== 'designated_driver';
       return {
         type,
         label: shouldUseCatalogCopy && match?.name ? match.name : defaults[type].label,
@@ -626,16 +695,6 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     if (vehicleType === 'designated_driver') {
       if (!designatedDriverEligibility.anyEligible) {
         setVehicleType('auto');
-        return;
-      }
-
-      if (designatedDriverMode === 'auto' && !designatedDriverEligibility.autoEligible && designatedDriverEligibility.motoEligible) {
-        setDesignatedDriverMode('moto');
-        return;
-      }
-
-      if (designatedDriverMode === 'moto' && !designatedDriverEligibility.motoEligible && designatedDriverEligibility.autoEligible) {
-        setDesignatedDriverMode('auto');
       }
     }
   }, [vehicleType, designatedDriverMode, designatedDriverEligibility, setVehicleType, setDesignatedDriverMode]);
@@ -1692,10 +1751,12 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         serviceAreaId: validatedOrigin.serviceAreaId ?? validatedDestination.serviceAreaId ?? null,
       };
 
+      const trimmedComment = rideComment.trim();
+
       if (clientSuggestedPrice) requestData.clientSuggestedPrice = clientSuggestedPrice;
-      if (rideComment.trim()) {
-        requestData.clientComment = rideComment.trim();
-        requestData.notes = rideComment.trim();
+      if (trimmedComment) {
+        requestData.clientComment = trimmedComment;
+        requestData.notes = trimmedComment;
       }
       if (extraDestinations.length > 0) {
         requestData.extraDestinations = extraDestinations
@@ -1708,7 +1769,8 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
       }
       if (vehicleType === 'designated_driver' && vehiclePhotoUrl) {
         requestData.clientVehiclePhoto = vehiclePhotoUrl;
-        requestData.notes = tr('notes.designatedDriver');
+        const designatedNote = tr('notes.designatedDriver');
+        requestData.notes = trimmedComment ? `${trimmedComment}\n${designatedNote}` : designatedNote;
         requestData.designatedDriverVehicle = designatedDriverMode;
       }
       if (biometricAcceptancePayload) {
@@ -2254,7 +2316,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
 
             <TouchableOpacity style={styles.panelToggle} onPress={() => setBottomPanelExpanded((prev) => !prev)}>
               <View style={styles.panelHandle} />
-              <Text style={styles.panelToggleText}>{bottomPanelExpanded ? '\u203E' : '\u203E'}</Text>
+              <Text style={styles.panelToggleText}>{bottomPanelExpanded ? '' : ''}</Text>
             </TouchableOpacity>
 
           {bottomPanelExpanded ? (
@@ -2272,6 +2334,12 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
                 {vehicleOptions.map((option) => {
                   const estimate = vehicleEstimates[option.type];
                   const designatedEstimate = option.type === 'designated_driver' ? designatedDriverEstimates[designatedDriverMode] : null;
+                  const showDesignatedMotoShortDistanceNotice =
+                    option.type === 'designated_driver' &&
+                    vehicleType === 'designated_driver' &&
+                    designatedDriverMode === 'moto' &&
+                    !designatedDriverEligibility.motoEligible &&
+                    (designatedDriverEstimates.moto.price ?? 0) > 0;
                   const priceLabel = formatPriceValue((designatedEstimate ?? estimate)?.price ?? null);
                   const isSelected = vehicleType === option.type;
                   const isRecommended = recommendedVehicle === option.type;
@@ -2362,6 +2430,11 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
                               );
                             })}
                           </View>
+                          {showDesignatedMotoShortDistanceNotice ? (
+                            <Text style={styles.designatedDriverModeInfoText}>
+                              La distancia es muy corta para solicitar este servicio en motocicleta.
+                            </Text>
+                          ) : null}
                         </View>
                       ) : null}
                     </TouchableOpacity>
@@ -2956,7 +3029,7 @@ function createStyles(colors: any, isDark: boolean = false) {
       alignItems: 'center',
       justifyContent: 'center',
     },
-    collapsedSummaryMetaPillText: { fontSize: 14, fontWeight: '900', color: '#cbbcff' || '#555' },
+    collapsedSummaryMetaPillText: { fontSize: 14, fontWeight: '900', color: '#cbbcff' },
     formOverline: {
       fontSize: 12,
       fontWeight: '700',
@@ -3024,8 +3097,8 @@ function createStyles(colors: any, isDark: boolean = false) {
       elevation: 5,
     },
     vehicleOptionTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 },
-    vehicleOptionTitleBlock: { flex: 1, gap: 2 },
-    vehicleOptionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    vehicleOptionTitleBlock: { flex: 1, gap: 2, minWidth: 0 },
+    vehicleOptionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, minWidth: 0 },
     vehicleOptionIconBubble: {
       width: 46,
       height: 46,
@@ -3040,11 +3113,11 @@ function createStyles(colors: any, isDark: boolean = false) {
       elevation: 2,
     },
     vehicleEmoji: { fontSize: 20 },
-    vehicleOptionTitle: { fontSize: 18, fontWeight: '800', color: colors.text || '#111' },
+    vehicleOptionTitle: { fontSize: 18, fontWeight: '800', color: colors.text || '#111', flexShrink: 1 },
     vehicleOptionTitleSelected: { color: '#111' },
     vehicleOptionSubtitle: { fontSize: 14, color: colors.textSecondary || '#666', marginTop: 2 },
     vehicleOptionSubtitleSelected: { color: '#222' },
-    vehicleOptionPriceBlock: { alignItems: 'flex-end', gap: 6 },
+    vehicleOptionPriceBlock: { alignItems: 'flex-end', gap: 6, flexShrink: 0, marginLeft: 8 },
     vehicleOptionBadge: {
       paddingHorizontal: 10,
       paddingVertical: 2,
@@ -3099,7 +3172,7 @@ function createStyles(colors: any, isDark: boolean = false) {
     designatedDriverModeLabel: {
       fontSize: 13,
       fontWeight: '600',
-      color: colors.text || '#222',
+      color:  colors.border || colors.text,
     },
     designatedDriverModeChips: {
       flexDirection: 'row',
@@ -3131,6 +3204,13 @@ function createStyles(colors: any, isDark: boolean = false) {
     },
     designatedDriverModeChipTextSelected: {
       color: '#9a5c0c',
+    },
+    designatedDriverModeInfoText: {
+      marginTop: 8,
+      fontSize: 12,
+      fontWeight: '500',
+      color: isDark ? '#f2c98a' : '#8a4f00',
+      textAlign: 'center',
     },
 
     photoRow: { marginTop: 8 },

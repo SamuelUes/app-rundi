@@ -119,6 +119,18 @@ class FirebaseAuthService {
 
       const userData = userDoc.data();
 
+      const isAccountDisabled =
+        userData?.accountDisabled === true ||
+        String(userData?.accountStatus || '').toLowerCase() === 'disabled' ||
+        String(userData?.status || '').toLowerCase() === 'disabled';
+
+      if (isAccountDisabled) {
+        await signOut(auth);
+        const accountDisabledError: any = new Error('ACCOUNT_DISABLED');
+        accountDisabledError.code = 'ACCOUNT_DISABLED';
+        throw accountDisabledError;
+      }
+
       console.log('✅ Login exitoso:', user.uid);
 
       return {
@@ -213,6 +225,17 @@ class FirebaseAuthService {
       }
 
       const data: any = userDoc.data();
+      const isAccountDisabled =
+        data?.accountDisabled === true ||
+        String(data?.accountStatus || '').toLowerCase() === 'disabled' ||
+        String(data?.status || '').toLowerCase() === 'disabled';
+
+      if (isAccountDisabled) {
+        const accountDisabledError: any = new Error('ACCOUNT_DISABLED');
+        accountDisabledError.code = 'ACCOUNT_DISABLED';
+        throw accountDisabledError;
+      }
+
       const rawRole = typeof data?.role === 'string' ? data.role : '';
       const normalizedRole = rawRole ? rawRole.trim().toLowerCase() : '';
 

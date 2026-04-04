@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   StyleSheet,
   ActivityIndicator,
   RefreshControl,
+  Image,
 } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
@@ -15,9 +16,12 @@ import { formatNicaraguaRelativeDate } from '../../utils/dateUtils';
 import { useTranslation } from 'react-i18next';
 import { formatCurrency } from '../../utils/formatters';
 
+const BACK_BUTTON_ICON = require('../../assets/icons/back_button/back_button2x.png');
+
 export default function ClientRideHistoryScreen({ navigation }: any) {
   const { user } = useAuth();
   const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { t } = useTranslation();
   const [rides, setRides] = useState<Ride[]>([]);
   const [loading, setLoading] = useState(true);
@@ -57,6 +61,27 @@ export default function ClientRideHistoryScreen({ navigation }: any) {
   const handleRefresh = () => {
     setRefreshing(true);
     loadRides();
+  };
+
+  const handleBackPress = () => {
+    if (typeof navigation?.canGoBack === 'function' && navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
+
+    const parentNavigator =
+      typeof navigation?.getParent === 'function' ? navigation.getParent() : null;
+
+    if (
+      parentNavigator &&
+      typeof parentNavigator.canGoBack === 'function' &&
+      parentNavigator.canGoBack()
+    ) {
+      parentNavigator.goBack();
+      return;
+    }
+
+    navigation.goBack?.();
   };
 
   const formatDate = (dateString: string | undefined | null): string => {
@@ -117,7 +142,7 @@ export default function ClientRideHistoryScreen({ navigation }: any) {
 
     return (
       <TouchableOpacity
-        style={[styles.rideCard, { backgroundColor: colors.surface }]}
+        style={[styles.rideCard, { borderLeftColor: getStatusColor(item.status) }]}
         onPress={() => navigation.navigate('RideDetails', { rideId: item.id })}
         activeOpacity={0.7}
       >
@@ -313,58 +338,48 @@ export default function ClientRideHistoryScreen({ navigation }: any) {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Filters */}
-      <View style={styles.filterContainer}>
+      <View style={styles.backgroundGlow} pointerEvents="none" />
+
+      <View style={styles.topActionsRow}>
         <TouchableOpacity
-          style={[
-            styles.filterButton,
-            filter === 'all' && { backgroundColor: '#996224ff' },
-          ]}
-          onPress={() => setFilter('all')}
+          style={styles.backButton}
+          onPress={handleBackPress}
+          activeOpacity={0.8}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
         >
-          <Text
-            style={[
-              styles.filterText,
-              { color: filter === 'all' ? '#FFF' : colors.text },
-            ]}
-          >
-            {t('client.rideHistory.filters.all')}
-          </Text>
+          <Image source={BACK_BUTTON_ICON} style={styles.backIcon} resizeMode="contain" />
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[
-            styles.filterButton,
-            filter === 'completed' && { backgroundColor: '#996224ff' },
-          ]}
-          onPress={() => setFilter('completed')}
-        >
-          <Text
-            style={[
-              styles.filterText,
-              { color: filter === 'completed' ? '#FFF' : colors.text },
-            ]}
-          >
-            {t('client.rideHistory.filters.completed')}
-          </Text>
-        </TouchableOpacity>
+        <View style={styles.filterRail}>
+          <View style={styles.filterContainer}>
+            <TouchableOpacity
+              style={[styles.filterButton, filter === 'all' && styles.filterButtonActive]}
+              onPress={() => setFilter('all')}
+            >
+              <Text style={[styles.filterText, filter === 'all' && styles.filterTextActive]}>
+                {t('client.rideHistory.filters.all')}
+              </Text>
+            </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[
-            styles.filterButton,
-            filter === 'canceled' && { backgroundColor: '#996224ff' },
-          ]}
-          onPress={() => setFilter('canceled')}
-        >
-          <Text
-            style={[
-              styles.filterText,
-              { color: filter === 'canceled' ? '#FFF' : colors.text },
-            ]}
-          >
-            {t('client.rideHistory.filters.canceled')}
-          </Text>
-        </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.filterButton, filter === 'completed' && styles.filterButtonActive]}
+              onPress={() => setFilter('completed')}
+            >
+              <Text style={[styles.filterText, filter === 'completed' && styles.filterTextActive]}>
+                {t('client.rideHistory.filters.completed')}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.filterButton, filter === 'canceled' && styles.filterButtonActive]}
+              onPress={() => setFilter('canceled')}
+            >
+              <Text style={[styles.filterText, filter === 'canceled' && styles.filterTextActive]}>
+                {t('client.rideHistory.filters.canceled')}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </View>
 
       {/* List */}
@@ -400,85 +415,267 @@ export default function ClientRideHistoryScreen({ navigation }: any) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1 },
-  filterContainer: { flexDirection: 'row', padding: 16, gap: 8, paddingTop: 60 },
-  filterButton: {
-    flex: 1,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 20,
-    backgroundColor: '#8080808a',
-    alignItems: 'center',
-  },
-  filterText: { fontSize: 14, fontWeight: '600' },
-  listContent: { padding: 16, paddingTop: 0 },
-  rideCard: {
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  dateText: { fontSize: 14, fontWeight: '500' },
-  statusBadge: { paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12 },
-  statusText: { color: '#FFF', fontSize: 12, fontWeight: '600' },
-  locations: { marginBottom: 12 },
-  locationRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  locationIcon: { fontSize: 16 },
-  locationText: { flex: 1, fontSize: 14 },
-  locationDivider: {
-    width: 2,
-    height: 20,
-    backgroundColor: '#E0E0E0',
-    marginLeft: 7,
-    marginVertical: 4,
-  },
-  info: { flexDirection: 'row', gap: 16, marginBottom: 8 },
-  infoItem: { flex: 1 },
-  infoLabel: { fontSize: 12, marginBottom: 2 },
-  infoValue: { fontSize: 16, fontWeight: '600' },
-  driverInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#E0E0E0',
-  },
-  driverLabel: { fontSize: 14 },
-  driverName: { fontSize: 14, fontWeight: '600' },
-  driverDetails: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  driverRating: { fontSize: 12, fontWeight: '600' },
-  paymentInfo: {
-    marginTop: 8,
-    paddingVertical: 8,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: '#E0E0E0',
-    gap: 6,
-  },
-  paymentRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  paymentLabel: { fontSize: 12 },
-  paymentValue: { fontSize: 13, fontWeight: '500' },
-  paymentValueNet: { fontSize: 14, fontWeight: '700' },
-  paymentStatusBadge: { paddingHorizontal: 10, paddingVertical: 2, borderRadius: 12 },
-  paymentStatusText: { fontSize: 12, fontWeight: '600', color: '#FFF' },
-  emptyContainer: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60 },
-  emptyIcon: { fontSize: 64, marginBottom: 16 },
-  emptyTitle: { fontSize: 18, fontWeight: '600', marginBottom: 8 },
-  emptySubtitle: { fontSize: 14, textAlign: 'center' },
-});
+const createStyles = (colors: any) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    backgroundGlow: {
+      position: 'absolute',
+      top: -80,
+      left: -40,
+      right: -40,
+      height: 240,
+      borderRadius: 140,
+      backgroundColor: colors.primary + '18',
+    },
+    topActionsRow: {
+      marginTop: 40,
+      marginHorizontal: 16,
+      marginBottom: 10,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      zIndex: 5,
+    },
+    backButton: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface || colors.background,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 0,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.18,
+      shadowRadius: 6,
+      elevation: 3,
+      marginTop: 0,
+    },
+    backIcon: {
+      width: 26,
+      height: 26,
+    },
+    filterRail: {
+      flex: 1,
+      borderRadius: 16,
+      padding: 4,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface || colors.background,
+    },
+    filterContainer: {
+      flexDirection: 'row',
+      padding: 2,
+      gap: 6,
+      backgroundColor: 'transparent',
+    },
+    filterButton: {
+      flex: 1,
+      paddingVertical: 9,
+      paddingHorizontal: 8,
+      borderRadius: 12,
+      backgroundColor: 'transparent',
+      borderWidth: 1,
+      borderColor: 'transparent',
+      alignItems: 'center',
+    },
+    filterButtonActive: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
+      shadowColor: colors.primary,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.45,
+      shadowRadius: 10,
+      elevation: 4,
+    },
+    filterText: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: colors.text,
+    },
+    filterTextActive: {
+      color: '#fff',
+    },
+    listContent: {
+      paddingHorizontal: 16,
+      paddingTop: 8,
+      paddingBottom: 20,
+    },
+    rideCard: {
+      backgroundColor: colors.card,
+      borderRadius: 18,
+      padding: 16,
+      marginBottom: 14,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderLeftWidth: 4,
+      borderLeftColor: 'transparent',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 8 },
+      shadowOpacity: 0.12,
+      shadowRadius: 18,
+      elevation: 6,
+    },
+    header: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 10,
+    },
+    dateText: {
+      fontSize: 12,
+      fontWeight: '500',
+      letterSpacing: 0.3,
+    },
+    statusBadge: {
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      borderRadius: 999,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.25,
+      shadowRadius: 6,
+      elevation: 2,
+    },
+    statusText: {
+      color: '#FFF',
+      fontSize: 11,
+      fontWeight: '700',
+    },
+    locations: {
+      marginBottom: 10,
+    },
+    locationRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    locationIcon: {
+      fontSize: 16,
+    },
+    locationText: {
+      flex: 1,
+      fontSize: 13,
+    },
+    locationDivider: {
+      width: 2,
+      height: 20,
+      backgroundColor: colors.border,
+      marginLeft: 7,
+      marginVertical: 4,
+    },
+    info: {
+      flexDirection: 'row',
+      gap: 16,
+      marginBottom: 8,
+      paddingTop: 2,
+    },
+    infoItem: {
+      flex: 1,
+    },
+    infoLabel: {
+      fontSize: 11,
+      marginBottom: 2,
+    },
+    infoValue: {
+      fontSize: 14,
+      fontWeight: '600',
+    },
+    driverInfo: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingTop: 10,
+      marginTop: 10,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+    },
+    driverLabel: {
+      fontSize: 13,
+    },
+    driverName: {
+      fontSize: 13,
+      fontWeight: '600',
+    },
+    driverDetails: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    driverRating: {
+      fontSize: 12,
+      fontWeight: '600',
+    },
+    paymentInfo: {
+      marginTop: 8,
+      paddingVertical: 10,
+      paddingHorizontal: 10,
+      borderTopWidth: 1,
+      borderBottomWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface || colors.background,
+      borderRadius: 12,
+      gap: 6,
+    },
+    paymentRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    paymentLabel: {
+      fontSize: 12,
+    },
+    paymentValue: {
+      fontSize: 13,
+      fontWeight: '500',
+    },
+    paymentValueNet: {
+      fontSize: 14,
+      fontWeight: '700',
+    },
+    paymentStatusBadge: {
+      paddingHorizontal: 10,
+      paddingVertical: 2,
+      borderRadius: 12,
+    },
+    paymentStatusText: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: '#FFF',
+    },
+    emptyContainer: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginTop: 34,
+      marginHorizontal: 16,
+      paddingVertical: 48,
+      paddingHorizontal: 20,
+      borderRadius: 18,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.card,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 8 },
+      shadowOpacity: 0.08,
+      shadowRadius: 18,
+      elevation: 4,
+    },
+    emptyIcon: {
+      fontSize: 64,
+      marginBottom: 16,
+    },
+    emptyTitle: {
+      fontSize: 18,
+      fontWeight: '600',
+      marginBottom: 8,
+    },
+    emptySubtitle: {
+      fontSize: 14,
+      textAlign: 'center',
+    },
+  });

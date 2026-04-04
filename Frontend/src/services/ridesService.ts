@@ -2,6 +2,8 @@ import { getFirebaseFunctions } from '../config/firebase';
 import { httpsCallable } from 'firebase/functions';
 import sessionService from './sessionService';
 import analyticsService, { AnalyticsEvents } from './analyticsService';
+import ratingService from './ratingService';
+import { calculateRidePrice as calculateRidePriceCentralized } from '../utils/priceCalculatorCentralize';
 import i18n from '../i18n';
 
 export interface Location {
@@ -37,6 +39,7 @@ export interface RequestRideData {
   passengers?: number; // Cantidad de pasajeros
   extraDestinations?: Array<{lat: number; lng: number; address: string}>; // Paradas adicionales
   clientSuggestedPrice?: number;
+  clientComment?: string;
   notes?: string;
   paymentMethod?: 'cash' | 'card'; // Método de pago: cash (efectivo) o card (bancos nacionales)
   serviceId?: string; // ✅ NUEVO: ID del servicio (normal, motorcycle, night, designated_driver)
@@ -485,6 +488,25 @@ class RidesService {
     return i18n.t(`services.ridesService.${path}`, options) as string;
   }
 
+  private normalizeRidePreservingRaw(rawRide: any): Ride & Record<string, any> {
+    const normalized = normalizeRide(rawRide);
+    if (!rawRide || typeof rawRide !== 'object') {
+      return normalized as Ride & Record<string, any>;
+    }
+
+    return {
+      ...normalized,
+      ...rawRide,
+      id: normalized.id,
+      status: normalized.status,
+    } as Ride & Record<string, any>;
+  }
+
+  private normalizeRideListPreservingRaw(rawRides: any[]): Array<Ride & Record<string, any>> {
+    if (!Array.isArray(rawRides)) return [];
+    return rawRides.map((ride) => this.normalizeRidePreservingRaw(ride));
+  }
+
   private async getFunctions() {
     if (!this.functions) {
       this.functions = await getFirebaseFunctions();
@@ -527,7 +549,7 @@ class RidesService {
         vehicleType: data.vehicleType || 'auto',
       });
 
-      return result.ride;
+      return this.normalizeRidePreservingRaw(result.ride);
     } catch (error: any) {
       console.error('Error en requestRide:', error);
       throw error;
@@ -714,6 +736,13 @@ class RidesService {
       });
     }
 
+    if (data?.ride) {
+      return {
+        ...data,
+        ride: this.normalizeRidePreservingRaw(data.ride),
+      };
+    }
+
     return data;
   }
 
@@ -728,42 +757,40 @@ class RidesService {
     comment?: string,
     punctuality?: number,
     cleanliness?: number,
-    communication?: number
+    communication?: number,
+    driving?: number,
+    safety?: number,
+    friendliness?: number
   ): Promise<void> {
-    const functions = await this.getFunctions();
-    const submitRatingFunction = httpsCallable(functions, 'submitRating');
-    
-    await submitRatingFunction({
+    await ratingService.submitRideRating({
       rideId,
       rating,
       comment,
       punctuality,
       cleanliness,
       communication,
+      driving,
+      safety,
+      friendliness,
     });
   }
 
   async skipRating(rideId: string): Promise<void> {
-    const functions = await this.getFunctions();
-    const skipRatingFunction = httpsCallable(functions, 'skipRating');
-    
-    await skipRatingFunction({ rideId });
+    await ratingService.skipRideRating(rideId);
   }
 
+  // ⚠️ Legacy method:
+  // Backend callable `getUserRating` ya no está exportado en functions/src/index.ts.
+  // Mantener por compatibilidad con código histórico (actualmente no usado en pantallas auditadas).
   async getUserRating(userId: string): Promise<any> {
-    const functions = await this.getFunctions();
-    const getUserRatingFunction = httpsCallable(functions, 'getUserRating');
-    
-    const response = await getUserRatingFunction({ userId });
-    return response.data;
+    return ratingService.getUserRating(userId);
   }
 
+  // ⚠️ Legacy method:
+  // Backend callable `getRideRatings` ya no está exportado en functions/src/index.ts.
+  // Mantener por compatibilidad con código histórico (actualmente no usado en pantallas auditadas).
   async getRideRatings(rideId: string): Promise<any> {
-    const functions = await this.getFunctions();
-    const getRideRatingsFunction = httpsCallable(functions, 'getRideRatings');
-    
-    const response = await getRideRatingsFunction({ rideId });
-    return response.data;
+    return ratingService.getRideRatings(rideId);
   }
 
   // Para conductores
@@ -780,7 +807,7 @@ class RidesService {
       deviceId,
     });
     const result = response.data as { success: boolean; rides: any[] };
-    return result.rides;
+    return this.normalizeRideListPreservingRaw(result?.rides || []);
   }
 
   async acceptRide(rideId: string, data: AcceptRideData): Promise<Ride> {
@@ -797,7 +824,7 @@ class RidesService {
       });
     }
 
-    return result.ride;
+    return this.normalizeRidePreservingRaw(result.ride);
   }
 
   async markDriverOnRoute(rideId: string): Promise<Ride> {
@@ -810,7 +837,7 @@ class RidesService {
       throw new Error(this.tr('errors.driverOnRouteFailed'));
     }
     await analyticsService.logRideEvent(AnalyticsEvents.RIDE_DRIVER_ON_ROUTE, rideId);
-    return result.ride;
+    return this.normalizeRidePreservingRaw(result.ride);
   }
 
   async confirmDriver(rideId: string, selectedDriverId: string): Promise<Ride> {
@@ -830,7 +857,7 @@ class RidesService {
       });
     }
 
-    return result.ride;
+    return this.normalizeRidePreservingRaw(result.ride);
   }
 
   /**
@@ -863,7 +890,8 @@ class RidesService {
       const startRideFunction = httpsCallable(functions, 'startRide');
       const deviceId = await sessionService.getDeviceId();
       const response = await startRideFunction({ rideId, deviceId });
-      const ride = response.data as Ride;
+      const startResult = response.data as { success?: boolean; ride?: any };
+      const ride = this.normalizeRidePreservingRaw(startResult?.ride || { id: rideId, status: 'in_progress' });
       await analyticsService.logRideEvent(AnalyticsEvents.RIDE_STARTED, rideId);
       return ride;
     } else if (status === 'completed' || status === 'pending_payment') {
@@ -883,7 +911,7 @@ class RidesService {
       const summary = {
         ...data,
         pgRideId: data.pgRideId,  // ← Extraer pgRideId
-        ride: data.ride,
+        ride: data?.ride ? this.normalizeRidePreservingRaw(data.ride) : data?.ride,
       };
       await analyticsService.logRideEvent(AnalyticsEvents.RIDE_COMPLETED, rideId, {
         finalFare: additionalData?.finalFare || 0,
@@ -895,6 +923,8 @@ class RidesService {
     throw new Error(this.tr('errors.unsupportedStatus', { status }));
   }
 
+  // Mantiene firma legacy, pero calcula usando el contrato HTTP vigente
+  // (`calculateRidePriceHttp`) a través del centralizador de precios.
   async calculatePrice(distanceInMeters: number, extraStops: number = 0, isDesignatedDriver: boolean = false): Promise<{
     price: number;
     basePrice: number;
@@ -903,18 +933,33 @@ class RidesService {
     breakdown: string;
     pricingInfo: any;
   }> {
-    const functions = await this.getFunctions();
-    const calculatePriceFunction = httpsCallable(functions, 'calculatePrice');
-    const deviceId = await sessionService.getDeviceId();
-    const response = await calculatePriceFunction({ distanceInMeters, extraStops, isDesignatedDriver, deviceId });
-    const result = response.data as any;
+    const rideType = isDesignatedDriver ? 'designated_driver' : 'normal';
+    const result = await calculateRidePriceCentralized(
+      distanceInMeters,
+      0,
+      'car',
+      rideType,
+      undefined,
+      undefined,
+      { extraStops: Math.max(extraStops, 0) },
+    );
+
     return {
-      price: result.price,
+      price: result.finalPrice,
       basePrice: result.basePrice,
       distanceKm: result.distanceKm,
       multiplier: result.multiplier,
-      breakdown: result.breakdown,
-      pricingInfo: result.pricingInfo,
+      breakdown: result.breakdown ?? '',
+      pricingInfo: {
+        distancePrice: result.distancePrice,
+        timePrice: result.timePrice,
+        commission: result.commission,
+        commissionRate: result.commissionRate,
+        peakHourAdjustment: result.peakHourAdjustment,
+        serviceCode: result.serviceCode,
+        serviceId: result.serviceId,
+        extraStopsCharge: result.extraStopsCharge,
+      },
     };
   }
 }

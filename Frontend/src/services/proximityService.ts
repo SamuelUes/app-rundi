@@ -1,8 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { httpsCallable } from 'firebase/functions';
 import notificationService from './notificationService';
 import ridesService from './ridesService';
 import { navigate, navigationRef } from '../navigation/NavigationService';
-import { getFirebaseAuth, getFirebaseDatabase } from '../config/firebase';
+import { getFirebaseAuth, getFirebaseDatabase, getFirebaseFunctions } from '../config/firebase';
 import { AppState, AppStateStatus, Platform } from 'react-native';
 import { overlayManager } from '../native/overlay';
 import { get, ref } from 'firebase/database';
@@ -46,11 +47,53 @@ const THROTTLE_MS = 15000; // no más de 1 chequeo cada 15s
 const SUPPRESSION_MS = 60000; // suprime notificación 60s después de disparar una
 const DISMISS_TTL_MS = 5 * 60 * 1000; // mantener rides rechazados fuera por 5 minutos
 const REGISTRATION_UPLOADS_TTL_MS = 10 * 60 * 1000; // caducar flag tras 10 minutos
+const PROXIMITY_PUSH_RETRY_INTERVAL_MS = 5 * 60 * 1000;
 
 let overlayEnabledCache: boolean | null = null;
 let registrationUploadsCache: boolean | null = null;
+let proximityPushCallableDisabled = false;
+let proximityPushRetryAt: number | null = null;
 type RegistrationUploadsListener = (value: boolean) => void;
 const registrationUploadsListeners = new Set<RegistrationUploadsListener>();
+
+async function notifyProximityRideViaBackend(
+  driverId: string,
+  ride: ProximityRidePreview,
+  nearbyRides: ProximityRidePreview[],
+): Promise<void> {
+  const now = Date.now();
+  if (proximityPushCallableDisabled) {
+    if (proximityPushRetryAt && now < proximityPushRetryAt) {
+      return;
+    }
+    proximityPushCallableDisabled = false;
+    proximityPushRetryAt = null;
+  }
+
+  try {
+    const functions = await getFirebaseFunctions();
+    const notifyFn = httpsCallable(functions, 'notifyProximityRide');
+    await notifyFn({
+      driverId,
+      ride,
+      nearbyRides,
+    });
+  } catch (error: any) {
+    const code = String(error?.code || '').toLowerCase();
+    const message = String(error?.message || '').toLowerCase();
+    if (code.includes('functions/not-found') || (message.includes('not found') && message.includes('notifyproximityride'))) {
+      proximityPushCallableDisabled = true;
+      proximityPushRetryAt = Date.now() + PROXIMITY_PUSH_RETRY_INTERVAL_MS;
+      console.warn(
+        `[proximity] notifyProximityRide no disponible. Reintento en ${Math.round(
+          PROXIMITY_PUSH_RETRY_INTERVAL_MS / 1000,
+        )}s`,
+      );
+      return;
+    }
+    throw error;
+  }
+}
 
 function notifyRegistrationUploadsListeners(value: boolean) {
   registrationUploadsListeners.forEach((listener) => {
@@ -576,6 +619,7 @@ async function handleLocationForProximity(
 
       const distance = Math.max(1, Math.round((closest.distanceMeters || 0)));
       const price = Math.round(closest.estimatedPrice || 0);
+      let localNotificationSent = false;
 
       // 1. Notificación local (administrada con auto-dismiss)
       try {
@@ -587,10 +631,19 @@ async function handleLocationForProximity(
           `proximity-ride-${closest.id}`,
           120_000 // 120 segundos
         );
+        localNotificationSent = true;
         console.log('📢 [proximity] Notificación administrada mostrada (120s auto-dismiss)');
       } catch (error) {
         console.error('❌ [proximity] Error mostrando notificación:', error);
         console.error('❌ [proximity] Error stack:', error instanceof Error ? error.stack : 'No stack');
+      }
+
+      if (!localNotificationSent) {
+        try {
+          await notifyProximityRideViaBackend(userId, closest, rest);
+        } catch (pushErr) {
+          console.warn('[proximity] No se pudo enviar fallback push proximity:', pushErr);
+        }
       }
 
       await AsyncStorage.setItem(STORAGE_KEYS.lastRideId, closest.id);

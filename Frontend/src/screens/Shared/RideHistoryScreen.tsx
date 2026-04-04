@@ -324,7 +324,20 @@ export default function RideHistoryScreen({ navigation }: any) {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={styles.navigationButtons}>
+      <View style={styles.topSection}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.goBack()}
+          activeOpacity={0.8}
+        >
+          <Image
+            source={require('../../assets/icons/back_button/back_button2x.png')}
+            style={styles.backIcon}
+            resizeMode="contain"
+          />
+        </TouchableOpacity>
+
+        <View style={styles.navigationButtons}>
         <TouchableOpacity
           style={styles.primaryNavButton}
           activeOpacity={0.9}
@@ -341,10 +354,10 @@ export default function RideHistoryScreen({ navigation }: any) {
           <Image source={arrowBlackDownIcon} style={[styles.navIcon, styles.navIconDark]} resizeMode="contain" />
           <Text style={styles.secondaryNavText}>{t('shared.rideHistory.nav.history')}</Text>
         </TouchableOpacity>
-      </View>
+        </View>
 
-      {/* Filtros */}
-      <View style={styles.filterContainer}>
+        {/* Filtros */}
+        <View style={styles.filterContainer}>
         <TouchableOpacity
           style={[styles.filterButton, filter === 'all' && styles.filterButtonActive]}
           onPress={() => setFilter('all')}
@@ -369,6 +382,7 @@ export default function RideHistoryScreen({ navigation }: any) {
             {t('shared.rideHistory.filters.canceled')}
           </Text>
         </TouchableOpacity>
+      </View>
       </View>
 
       {/* Lista */}
@@ -416,38 +430,68 @@ const createStyles = (colors: any) =>
       alignItems: 'center',
       backgroundColor: colors.background,
     },
+    topSection: {
+      marginTop: 10,
+      marginHorizontal: 16,
+      marginBottom: 8,
+      padding: 10,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.card,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.03,
+      shadowRadius: 4,
+      elevation: 1,
+    },
     filterContainer: {
       flexDirection: 'row',
-      padding: 16,
+      padding: 0,
       paddingTop: 8,
       gap: 8,
-      backgroundColor: colors.card,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.border,
+      backgroundColor: 'transparent',
+    },
+    backButton: {
+      width: 42,
+      height: 42,
+      borderRadius: 21,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface || colors.background,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 10,
+    },
+    backIcon: {
+      width: 26,
+      height: 26,
     },
     navigationButtons: {
       flexDirection: 'row',
       justifyContent: 'space-between',
-      paddingHorizontal: 16,
-      paddingTop: 10,
-      paddingBottom: 8,
+      paddingHorizontal: 0,
+      paddingTop: 0,
+      paddingBottom: 0,
       gap: 12,
-      backgroundColor: colors.background,
-      marginTop: 40,
+      backgroundColor: 'transparent',
+      marginTop: 0,
     },
     primaryNavButton: {
       flex: 1,
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: colors.text,
-      borderRadius: 999,
-      paddingVertical: 14,
+      backgroundColor: colors.surface || colors.background,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: colors.border,
+      paddingVertical: 12,
       gap: 8,
     },
     primaryNavText: {
-      color: colors.background,
-      fontSize: 14,
+      color: colors.text,
+      fontSize: 13,
       fontWeight: '700',
     },
     secondaryNavButton: {
@@ -455,16 +499,16 @@ const createStyles = (colors: any) =>
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      borderRadius: 999,
-      paddingVertical: 14,
+      borderRadius: 14,
+      paddingVertical: 12,
       gap: 8,
       borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.card,
+      borderColor: colors.text,
+      backgroundColor: colors.text,
     },
     secondaryNavText: {
-      color: colors.text,
-      fontSize: 14,
+      color: colors.background,
+      fontSize: 13,
       fontWeight: '700',
     },
     navIcon: {
@@ -472,18 +516,18 @@ const createStyles = (colors: any) =>
       height: 14,
     },
     navIconWhite: {
-      tintColor: colors.background,
+      tintColor: colors.text,
     },
     navIconDark: {
-      tintColor: colors.text,
+      tintColor: colors.background,
       transform: [{ rotate: '90deg' }],
     },
     filterButton: {
       flex: 1,
-      paddingVertical: 8,
-      paddingHorizontal: 16,
-      borderRadius: 20,
-      backgroundColor: colors.background,
+      paddingVertical: 9,
+      paddingHorizontal: 14,
+      borderRadius: 12,
+      backgroundColor: colors.surface || colors.background,
       borderWidth: 1,
       borderColor: colors.border,
       alignItems: 'center',
@@ -493,7 +537,7 @@ const createStyles = (colors: any) =>
       borderColor: colors.primary,
     },
     filterText: {
-      fontSize: 14,
+      fontSize: 12,
       fontWeight: '600',
       color: colors.text,
     },
@@ -501,38 +545,46 @@ const createStyles = (colors: any) =>
       color: '#fff',
     },
     listContent: {
-      padding: 16,
+      paddingHorizontal: 16,
+      paddingTop: 6,
+      paddingBottom: 18,
     },
     rideCard: {
       backgroundColor: colors.card,
-      borderRadius: 12,
-      padding: 16,
-      marginBottom: 12,
+      borderRadius: 14,
+      padding: 14,
+      marginBottom: 10,
       borderWidth: 1,
       borderColor: colors.border,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.02,
+      shadowRadius: 3,
+      elevation: 1,
     },
     rideHeader: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
-      marginBottom: 12,
+      marginBottom: 10,
     },
     dateText: {
-      fontSize: 14,
+      fontSize: 12,
       color: colors.textSecondary,
+      letterSpacing: 0.3,
     },
     statusBadge: {
-      paddingHorizontal: 12,
+      paddingHorizontal: 9,
       paddingVertical: 4,
-      borderRadius: 12,
+      borderRadius: 999,
     },
     statusText: {
-      fontSize: 12,
-      fontWeight: '600',
+      fontSize: 11,
+      fontWeight: '700',
       color: '#fff',
     },
     locationContainer: {
-      marginBottom: 12,
+      marginBottom: 10,
     },
     locationRow: {
       flexDirection: 'row',
@@ -544,7 +596,7 @@ const createStyles = (colors: any) =>
     },
     locationText: {
       flex: 1,
-      fontSize: 14,
+      fontSize: 13,
       color: colors.text,
     },
     locationDivider: {
@@ -556,25 +608,29 @@ const createStyles = (colors: any) =>
     },
     rideInfo: {
       flexDirection: 'row',
-      justifyContent: 'space-around',
-      paddingVertical: 12,
+      justifyContent: 'space-between',
+      paddingVertical: 10,
+      paddingHorizontal: 6,
       borderTopWidth: 1,
       borderBottomWidth: 1,
       borderColor: colors.border,
-      marginBottom: 12,
+      marginBottom: 10,
     },
     infoItem: {
       alignItems: 'center',
+      flex: 1,
     },
     infoLabel: {
-      fontSize: 12,
+      fontSize: 11,
       color: colors.textSecondary,
-      marginBottom: 4,
+      marginBottom: 3,
+      textAlign: 'center',
     },
     infoValue: {
-      fontSize: 16,
+      fontSize: 14,
       fontWeight: '600',
       color: colors.text,
+      textAlign: 'center',
     },
     personInfo: {
       flexDirection: 'row',
@@ -583,16 +639,16 @@ const createStyles = (colors: any) =>
       marginBottom: 8,
     },
     personLabel: {
-      fontSize: 14,
+      fontSize: 13,
       color: colors.textSecondary,
     },
     personName: {
-      fontSize: 14,
+      fontSize: 13,
       fontWeight: '600',
       color: colors.text,
     },
     personRating: {
-      fontSize: 14,
+      fontSize: 13,
       color: colors.primary,
     },
     ratingContainer: {
@@ -602,7 +658,7 @@ const createStyles = (colors: any) =>
       marginTop: 8,
     },
     ratingLabel: {
-      fontSize: 14,
+      fontSize: 13,
       color: colors.textSecondary,
     },
     ratingValue: {
@@ -610,21 +666,28 @@ const createStyles = (colors: any) =>
     },
     rateButton: {
       backgroundColor: colors.primary,
-      paddingVertical: 8,
+      paddingVertical: 9,
       paddingHorizontal: 16,
-      borderRadius: 8,
+      borderRadius: 10,
       alignItems: 'center',
       marginTop: 8,
     },
     rateButtonText: {
-      fontSize: 14,
+      fontSize: 13,
       fontWeight: '600',
       color: '#fff',
     },
     emptyContainer: {
       alignItems: 'center',
       justifyContent: 'center',
-      paddingVertical: 60,
+      marginTop: 34,
+      marginHorizontal: 16,
+      paddingVertical: 44,
+      paddingHorizontal: 20,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.card,
     },
     emptyText: {
       fontSize: 64,

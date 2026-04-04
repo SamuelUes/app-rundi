@@ -154,30 +154,48 @@ function getMultiplier(distanceKm: number, vehicleType: VehicleType, rideType: R
   let multiplier: number;
   let tramo: string;
 
-   if (rideType === 'designated_driver') {
-    if (distanceKm >= 0.2 && distanceKm <= 0.4) {
-      multiplier = 18;
-      tramo = '0.2-0.4 km';
-    } else if (distanceKm >= 0.401 && distanceKm <= 1) {
-      multiplier = 23;
-      tramo = '0.401-1 km';
+  if (rideType === 'designated_driver') {
+    if (distanceKm >= 0.01 && distanceKm <= 0.2) {
+      multiplier = 16;
+      tramo = '0.01-0.2 km';
+    } else if (distanceKm >= 0.201 && distanceKm <= 0.7) {
+      multiplier = 24;
+      tramo = '0.201-0.7 km';
+    } else if (distanceKm >= 0.701 && distanceKm <= 1) {
+      multiplier = 24;
+      tramo = '0.701-1 km';
     } else if (distanceKm >= 1.01 && distanceKm <= 2) {
-      multiplier = 26.5;
+      multiplier = 30;
       tramo = '1.01-2 km';
-    } else if (distanceKm >= 2.01 && distanceKm <= 4) {
-      multiplier = 28;
-      tramo = '2.01-4 km';
-    } else if (distanceKm >= 4.01) {
-      multiplier = 20;
-      tramo = 'Mayor a 4.01 km';
+    } else if (distanceKm >= 2.01 && distanceKm <= 3) {
+      multiplier = 32.5;
+      tramo = '2.01-3 km';
+    } else if (distanceKm >= 3.01 && distanceKm <= 4.5) {
+      multiplier = 28.5;
+      tramo = '3.01-4.5 km';
+    } else if (distanceKm >= 4.51 && distanceKm <= 6) {
+      multiplier = 26;
+      tramo = '4.51-6 km';
+    } else if (distanceKm >= 6.01 && distanceKm <= 8) {
+      multiplier = 24.5;
+      tramo = '6.01-8 km';
+    } else if (distanceKm >= 8.01 && distanceKm <= 9.5) {
+      multiplier = 20.5;
+      tramo = 'Mayor a 8.01 km';
+    } else if (distanceKm >= 9.51 ) {
+      multiplier = 21.5;
+      tramo = 'Mayor a 9.51 km';
     } else {
-      multiplier = 18;
+      multiplier = 2;
       tramo = 'Menor a 0.2 km (mínimo)';
     }
   } else if (vehicleType === 'motorcycle') {
-    if (distanceKm >= 0.1 && distanceKm <= 4) {
+    if (distanceKm >= 0.1 && distanceKm <= 2) {
+      multiplier = 2;
+      tramo = '0.1-1 km';
+    } else if (distanceKm >= 2.01 && distanceKm <= 4) {
       multiplier = 4;
-      tramo = '0.1-4 km';
+      tramo = '2.01-4 km';
     } else if (distanceKm >= 4.01 && distanceKm <= 6) {
       multiplier = 6;
       tramo = '4.01-6 km';
@@ -189,26 +207,35 @@ function getMultiplier(distanceKm: number, vehicleType: VehicleType, rideType: R
       tramo = 'Menor a 0.2 km (mínimo)';
     }
   } else {
-    if (distanceKm >= 0.2 && distanceKm <= 0.4) {
-      multiplier = 10;
+    if (distanceKm >= 0.01 && distanceKm <= 0.2) {
+      multiplier = 13;
       tramo = '0.2-0.4 km';
-    } else if (distanceKm >= 0.401 && distanceKm <= 1) {
-      multiplier = 12;
+    } else if (distanceKm >= 0.201 && distanceKm <= 0.7) {
+      multiplier = 16;
+      tramo = '0.401-1 km';
+    } else if (distanceKm >= 0.701 && distanceKm <= 1) {
+      multiplier = 19;
       tramo = '0.401-1 km';
     } else if (distanceKm >= 1.01 && distanceKm <= 2) {
-      multiplier = 15;
+      multiplier = 14;
       tramo = '1.01-2 km';
-    } else if (distanceKm >= 2.01 && distanceKm <= 6) {
-      multiplier = 18;
-      tramo = '2.01-6 km';
+    } else if (distanceKm >= 2.01 && distanceKm <= 3) {
+      multiplier = 11;
+      tramo = '2.01-3 km';
+    } else if (distanceKm >= 3.01 && distanceKm <= 4.5) {
+      multiplier = 11.5;
+      tramo = '3.01-4.5 km';
+    } else if (distanceKm >= 4.51 && distanceKm <= 6) {
+      multiplier = 12;
+      tramo = '4.51-6 km';
     } else if (distanceKm >= 6.01 && distanceKm <= 8) {
-      multiplier = 20;
+      multiplier = 13;
       tramo = '6.01-8 km';
     } else if (distanceKm >= 8.01) {
-      multiplier = 12;
+      multiplier = 12.5;
       tramo = 'Mayor a 8.01 km';
     } else {
-      multiplier = 8;
+      multiplier = 2;
       tramo = 'Menor a 0.2 km (mínimo)';
     }
   }
@@ -224,6 +251,9 @@ function getMultiplier(distanceKm: number, vehicleType: VehicleType, rideType: R
 export function getCommissionRate(vehicleType: VehicleType, rideType: RideType): number {
   // Valores por defecto (fallback si falla la BD)
   if (rideType === 'designated_driver') {
+    if (vehicleType === 'motorcycle') {
+      return 0.125; // 12.5%
+    }
     return 0.25; // 25%
   } else if (vehicleType === 'motorcycle') {
     return 0.07; // 7%
@@ -258,7 +288,13 @@ export async function getCommissionFromDatabase(
   } catch (error) {
     console.error('❌ Error obteniendo comisión desde BD:', error);
     // Fallback a valores por defecto
-    return serviceCode === 'designated_driver' ? 0.25 : 0.11;
+    if (serviceCode === 'designated_driver_moto') {
+      return 0.125;
+    }
+    if (serviceCode === 'designated_driver_auto' || serviceCode === 'designated_driver') {
+      return 0.25;
+    }
+    return 0.11;
   } finally {
     client.release();
   }
@@ -269,7 +305,7 @@ export async function getCommissionFromDatabase(
  */
 export function mapRideTypeToServiceCode(vehicleType: VehicleType, rideType: RideType): string {
   if (rideType === 'designated_driver') {
-    return 'designated_driver';
+    return vehicleType === 'motorcycle' ? 'designated_driver_moto' : 'designated_driver_auto';
   } else if (vehicleType === 'motorcycle') {
     return 'motorcycle';
   } else {
@@ -511,8 +547,9 @@ export async function calculateRidePrice(
   if (!service) {
     console.warn(`⚠️ Usando fallback legacy para calcular precio de ${serviceCode}.`);
     const { multiplier } = getMultiplier(distanceKm, vehicleType, rideType);
+    const fallbackBasePrice = vehicleType === 'motorcycle' && rideType !== 'designated_driver' ? 40 : 50;
     const legacyDistance = Math.max(distanceKm, 0) * multiplier;
-    const legacySubtotal = Math.max(legacyDistance + STOP_FEE * extraStops + 50, 50);
+    const legacySubtotal = Math.max(legacyDistance + STOP_FEE * extraStops + fallbackBasePrice, 50);
     const commissionRateLegacy = getCommissionRate(vehicleType, rideType);
     const legacyCommission = roundCurrency(legacySubtotal * commissionRateLegacy);
     const finalLegacyPrice = roundCurrency(legacySubtotal + legacyCommission);
@@ -520,7 +557,7 @@ export async function calculateRidePrice(
     return {
       distancePrice: roundCurrency(legacyDistance),
       timePrice: 0,
-      basePrice: 50,
+      basePrice: fallbackBasePrice,
       distanceKm: parseFloat(distanceKm.toFixed(2)),
       durationMinutes,
       multiplier,
@@ -578,7 +615,7 @@ export async function calculateRidePrice(
     breakdownLines.push(`Paradas extra (${extraStops} × C$${STOP_FEE}): C$${extraStopsCharge.toFixed(2)}`);
   }
 
-  if (serviceCode === 'designated_driver') {
+  if (rideType === 'designated_driver') {
     const normalService = await fetchServiceConfig('normal');
     if (normalService) {
       const normalMultiplier = getMultiplier(distanceKm, vehicleType, 'normal').multiplier;

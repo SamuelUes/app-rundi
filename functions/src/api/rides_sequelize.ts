@@ -457,6 +457,8 @@ export const createProgrammedRide = functions.https.onCall(async (data, context)
   }
 
   const rideId = uuidv4();
+  const normalizedClientComment = data?.clientComment ?? data?.comment ?? data?.notes ?? null;
+  const normalizedNotes = data?.notes ?? data?.clientComment ?? data?.comment ?? null;
 
   const payload: Record<string, any> = {
     id: rideId,
@@ -481,7 +483,8 @@ export const createProgrammedRide = functions.https.onCall(async (data, context)
     serviceId: data?.serviceId ?? null,
     clientVehiclePhoto: data?.clientVehiclePhoto ?? null,
     clientSuggestedPrice: data?.clientSuggestedPrice ?? null,
-    notes: data?.notes ?? null,
+    clientComment: normalizedClientComment,
+    notes: normalizedNotes,
     clientName: clientProfile?.fullName ?? null,
     clientPhone: clientProfile?.phone ?? null,
     clientRating: clientProfile?.rating ?? null,
@@ -1459,6 +1462,8 @@ export const createRide = functions.https.onCall(async (data, context) => {
   await ensureActiveSession(context, data);
   try {
     const clientId = context.auth.uid;
+    const normalizedClientComment = data?.clientComment ?? data?.comment ?? data?.notes ?? null;
+    const normalizedNotes = data?.notes ?? data?.clientComment ?? data?.comment ?? null;
     console.log(`👤 [createRide] Cliente ID: ${clientId}`);
     console.log(`📦 [createRide] Data recibida:`, JSON.stringify(data, null, 2));
     
@@ -1542,6 +1547,8 @@ export const createRide = functions.https.onCall(async (data, context) => {
         clientSuggestedPrice: data.clientSuggestedPrice || null,
         driverOfferedPrice: null,
         negotiationStatus: data.clientSuggestedPrice ? 'client_suggested' : null,
+        clientComment: normalizedClientComment,
+        notes: normalizedNotes,
         createdAt: admin.database.ServerValue.TIMESTAMP,
         updatedAt: admin.database.ServerValue.TIMESTAMP,
       };
@@ -1640,7 +1647,7 @@ export const createRide = functions.https.onCall(async (data, context) => {
       estimated_duration: estimatedDuration,  // ✅ Correcto: estimated_duration
       estimated_price: estimatedPrice,
       passengers: passengers,
-      notes: data.notes || null,
+      notes: normalizedNotes,
       ride_type: rideType,
       vehicle_type: vehicleType,
       designated_driver_vehicle: designatedDriverVehicle ?? null,
@@ -1753,6 +1760,8 @@ export const createRide = functions.https.onCall(async (data, context) => {
       clientSuggestedPrice: data.clientSuggestedPrice || null,
       driverOfferedPrice: null,
       negotiationStatus: data.clientSuggestedPrice ? 'client_suggested' : null,
+      clientComment: normalizedClientComment,
+      notes: normalizedNotes,
       createdAt: admin.database.ServerValue.TIMESTAMP,
       updatedAt: admin.database.ServerValue.TIMESTAMP,
     };

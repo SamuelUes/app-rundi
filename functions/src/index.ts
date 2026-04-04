@@ -387,6 +387,7 @@ export const getEarningsByDay = rideHistoryAPI.getEarningsByDay;
 export const submitRating = ratingsSequelizeAPI.submitRating;
 export const getDriverRatings = ratingsSequelizeAPI.getDriverRatings;
 export const getRecentRatings = ratingsSequelizeAPI.getRecentRatings;
+export const getDriverPublicInsights = ratingsSequelizeAPI.getDriverPublicInsights;
 
 // Vehicles (Sequelize)
 export const createVehicleSeq = vehiclesSequelizeAPI.createVehicle;
@@ -481,6 +482,7 @@ export const getSupabaseJwt = authAPI.getSupabaseJwt;
 export const exchangeIdTokenForCustomToken = authAPI.exchangeIdTokenForCustomToken;
 export const hasVerifiedRegisterPhoneLog = authAPI.hasVerifiedRegisterPhoneLog;
 export const upgradeClientToDriver = authAPI.upgradeClientToDriver;
+export const deactivateUserAccount = authAPI.deactivateUserAccount;
 
 // Service Commission History (Sequelize)
 export const recordCommissionChangeSeq = commissionHistorySequelizeAPI.recordCommissionChange;

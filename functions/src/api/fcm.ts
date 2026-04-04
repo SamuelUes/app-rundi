@@ -1,6 +1,7 @@
 import * as functions from "firebase-functions";
 import admin from "firebase-admin";
-import { firestore, messaging } from "../config/firebase";
+import { firestore } from "../config/firebase";
+import { sendNotificationToUserWithTokens } from "../services/pushNotifications";
 
 const TOKENS_SUBCOLLECTION = "fcmTokens";
 
@@ -97,38 +98,17 @@ export const notifyProximityRide = functions.https.onCall(async (data: NotifyPro
   const title = "🚨 Solicitud cercana";
   const body = `${ride?.distanceMeters ? Math.max(1, Math.round(Number(ride.distanceMeters))) + 'm' : ''} • C$${Math.round(Number(ride.estimatedPrice || 0))} • ${ride?.origin?.address || 'Cerca de ti'}`;
 
-  // TTL 10s para evitar notificaciones tardías
-  await messaging.sendEachForMulticast({
-    tokens,
-    notification: {
-      title,
-      body,
-    },
+  await sendNotificationToUserWithTokens(driverId, tokens, {
+    title,
+    body,
     data: {
       type: "proximity_ride",
       ride: JSON.stringify(ride),
       nearbyRides: JSON.stringify(Array.isArray(data?.nearbyRides) ? data?.nearbyRides : []),
     },
-    android: {
-      priority: "high",
-      ttl: 10 * 1000,
-      notification: {
-        channelId: "default",
-        sound: "default",
-      },
-    },
-    apns: {
-      headers: {
-        "apns-expiration": String(Math.floor(Date.now() / 1000) + 10),
-        "apns-priority": "10",
-      },
-      payload: {
-        aps: {
-          sound: "default",
-          contentAvailable: false,
-        },
-      },
-    },
+    androidChannelId: "default",
+    notificationKey: `proximity-ride-${ride.id}`,
+    expiresInMs: 10 * 1000,
   });
 
   // Marcar último envío
@@ -166,15 +146,15 @@ export const sendTestNotification = functions.https.onCall(async (_data, context
     throw new functions.https.HttpsError("not-found", "No se encontraron tokens FCM para el usuario");
   }
 
-  await messaging.sendEachForMulticast({
-    tokens,
-    notification: {
-      title: "Notificación de prueba",
-      body: "¡Todo está funcionando correctamente!",
-    },
+  await sendNotificationToUserWithTokens(context.auth.uid, tokens, {
+    title: "Notificación de prueba",
+    body: "¡Todo está funcionando correctamente!",
     data: {
       type: "general",
     },
+    androidChannelId: "default",
+    notificationKey: `test-${Date.now()}`,
+    expiresInMs: 120_000,
   });
 
   await Promise.all(

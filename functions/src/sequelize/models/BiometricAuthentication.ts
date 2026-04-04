@@ -16,7 +16,6 @@ class BiometricAuthentication extends Model {
   declare attempt_number: number;
   declare error_message: string | null;
   declare attempted_at: Date;
-  declare status: string;
   declare created_at: Date;
 }
 
@@ -64,10 +63,6 @@ BiometricAuthentication.init(
     attempted_at: {
       type: DataTypes.DATE,
       defaultValue: DataTypes.NOW,
-    },
-    status: {
-      type: DataTypes.STRING(20),
-      defaultValue: 'pending',
     },
     created_at: {
       type: DataTypes.DATE,

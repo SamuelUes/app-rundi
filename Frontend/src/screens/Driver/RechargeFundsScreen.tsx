@@ -11,14 +11,16 @@ import {
   Image,
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
-import rechargeFundsService, { DriverRechargeFundsSummary } from '../../services/rechargeFundsService';
-import cardsService, { Card } from '../../services/cardsService';
-import { maskCardNumber } from '../../utils/cardUtils';
+import rechargeFundsService, {
+  DriverRechargeFundsSummary,
+  DriverRechargeHistoryItem,
+} from '../../services/rechargeFundsService';
 import BiometricService from '../../services/biometricService';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { initializeFirebase } from '../../config/firebase';
 import { useTranslation } from 'react-i18next';
 import SupportChatShortcut from '../../components/SupportChatShortcut';
+import RechargeInvoiceModal from '../../components/RechargeInvoiceModal';
 
 const EMPTY_SUMMARY: DriverRechargeFundsSummary = {
   success: false,
@@ -32,6 +34,14 @@ const EMPTY_SUMMARY: DriverRechargeFundsSummary = {
     deductionCount: 0,
   },
   history: [],
+};
+
+const HISTORY_PAGE_SIZE = 5;
+
+const asText = (value: unknown, fallback: string = '-') => {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return fallback;
 };
 
 export default function RechargeFundsScreen({ navigation }: any) {
@@ -50,67 +60,40 @@ export default function RechargeFundsScreen({ navigation }: any) {
     totalDeductedLabel: string;
     hint: string;
   };
-  const methodsTexts = t('driver.rechargeFunds.methods', {
-    returnObjects: true,
-  }) as {
-    title: string;
-    cardTitle: string;
-    cardDescription: string;
-    cardEmpty: string;
-    cardManageLink: string;
-    bankTitle: string;
-    bankDescription: string;
-  };
-  const infoTexts = t('driver.rechargeFunds.info', { returnObjects: true }) as { title: string };
   const inputTexts = t('driver.rechargeFunds.input', { returnObjects: true }) as {
     amountLabel: string;
     amountPlaceholder: string;
-    referenceLabel: string;
-    placeholder: string;
+  };
+  const historyTexts = t('driver.rechargeFunds.history', { returnObjects: true }) as {
+    title: string;
+    totalLabel: string;
+    empty: string;
+    sourceLabel: string;
+    previous: string;
+    next: string;
+    page: string;
   };
   const alertsTexts = t('driver.rechargeFunds.alerts', {
     returnObjects: true,
   }) as Record<string, string>;
-  const cardsTexts = t('driver.rechargeFunds.cards', {
-    returnObjects: true,
-  }) as { defaultBadge?: string };
-  const navigationTexts = t('driver.rechargeFunds.navigation', {
-    returnObjects: true,
-  }) as { goToPaymentMethods: string };
 
   const [loading, setLoading] = useState(true);
   const [summary, setSummary] = useState<DriverRechargeFundsSummary>(EMPTY_SUMMARY);
   const [submitting, setSubmitting] = useState(false);
-  const [cards, setCards] = useState<Card[]>([]);
-  const [selectedMethod, setSelectedMethod] = useState<'bank_transfer' | 'card'>('bank_transfer');
-  const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [amount, setAmount] = useState('');
-  const [reference, setReference] = useState('');
+  const [historyPage, setHistoryPage] = useState(1);
+  const [selectedMovement, setSelectedMovement] = useState<DriverRechargeHistoryItem | null>(null);
+  const [invoiceVisible, setInvoiceVisible] = useState(false);
+
   useEffect(() => {
     const load = async () => {
       try {
         setLoading(true);
-        const [summaryResponse, savedCards] = await Promise.all([
-          rechargeFundsService.getSummary(30),
-          cardsService.getCards(),
-        ]);
+        const summaryResponse = await rechargeFundsService.getSummary(30);
 
         setSummary(summaryResponse?.success ? summaryResponse : EMPTY_SUMMARY);
-
-        const activeCards = (savedCards || []).filter((card: Card) => card && card.isActive);
-        setCards(activeCards);
-        if (activeCards.length > 0) {
-          setSelectedMethod('card');
-          const defaultCard = activeCards.find((c: Card) => c.isDefault) || activeCards[0];
-          setSelectedCardId(defaultCard.id);
-        } else {
-          setSelectedMethod('bank_transfer');
-          setSelectedCardId(null);
-        }
       } catch (e) {
         setSummary(EMPTY_SUMMARY);
-        setCards([]);
-        setSelectedMethod('bank_transfer');
       } finally {
         setLoading(false);
       }
@@ -124,10 +107,7 @@ export default function RechargeFundsScreen({ navigation }: any) {
       Alert.alert(alertsTexts.invalidAmountTitle || alertsTexts.paymentErrorTitle, alertsTexts.invalidAmountMessage || alertsTexts.paymentErrorMessage);
       return;
     }
-    if (selectedMethod === 'card' && !selectedCardId) {
-      Alert.alert(alertsTexts.selectCardTitle, alertsTexts.selectCardMessage);
-      return;
-    }
+
     try {
       const totalToPay = parsedAmount;
 
@@ -138,10 +118,11 @@ export default function RechargeFundsScreen({ navigation }: any) {
       );
 
       if (!biometricResult.success) {
-        if (
-          biometricResult.error === 'Dispositivo no soporta biometría' ||
-          biometricResult.error === 'No hay biometría registrada'
-        ) {
+        const isNonBlockingBiometricError =
+          biometricResult.errorCode === 'NOT_SUPPORTED' ||
+          biometricResult.errorCode === 'NOT_ENROLLED';
+
+        if (isNonBlockingBiometricError) {
           console.log('Biometría no disponible o no registrada. Continuando sin autenticación biométrica.');
         } else {
           Alert.alert(alertsTexts.biometricErrorTitle, biometricResult.error || alertsTexts.biometricErrorMessage);
@@ -168,15 +149,13 @@ export default function RechargeFundsScreen({ navigation }: any) {
       setSubmitting(true);
       const res = await rechargeFundsService.createRecharge({
         amount: totalToPay,
-        reference: reference || undefined,
-        method: selectedMethod,
-        cardId: selectedMethod === 'card' ? selectedCardId || undefined : undefined,
+        method: 'manual',
       });
       if (res?.success) {
         const refreshedSummary = await rechargeFundsService.getSummary(30);
         setSummary(refreshedSummary?.success ? refreshedSummary : EMPTY_SUMMARY);
         setAmount('');
-        setReference('');
+        setHistoryPage(1);
 
         const successMessage = t('driver.rechargeFunds.alerts.paymentSuccessMessage', {
           amount: formatCurrency(totalToPay),
@@ -206,104 +185,39 @@ export default function RechargeFundsScreen({ navigation }: any) {
   };
 
   const formatCurrency = (n: number) => `C$${Number(n || 0).toFixed(2)}`;
-  const parsedRechargeAmount = Number(String(amount || '').replace(',', '.'));
-
-  const renderPaymentMethods = () => {
-    const hasCards = cards.length > 0;
-
-    return (
-      <View style={styles.methodsContainer}>
-        <Text style={styles.methodsTitle}>{methodsTexts.title}</Text>
-
-        <TouchableOpacity
-          style={[
-            styles.methodOption,
-            selectedMethod === 'card' && styles.methodOptionSelected,
-          ]}
-          onPress={() => setSelectedMethod('card')}
-          activeOpacity={0.8}
-        >
-          <View style={styles.methodOptionHeader}>
-            <View style={styles.methodOptionHeaderLeft}>
-              <View style={styles.methodOptionIconBadge}>
-                <Text style={styles.methodOptionIcon}>C</Text>
-              </View>
-              <Text style={styles.methodOptionLabel}>{methodsTexts.cardTitle}</Text>
-            </View>
-            <View style={[styles.radioDot, selectedMethod === 'card' && styles.radioDotActive]}>
-              {selectedMethod === 'card' && <View style={styles.radioDotInner} />}
-            </View>
-          </View>
-          <Text style={styles.methodOptionDescription}>
-            {methodsTexts.cardDescription}
-          </Text>
-
-          {hasCards && selectedMethod === 'card' && (
-            <View style={styles.cardsList}>
-              {cards.map((card) => {
-                const isSelected = selectedCardId === card.id;
-                return (
-                  <TouchableOpacity
-                    key={card.id}
-                    style={[styles.cardItem, isSelected && styles.cardItemSelected]}
-                    onPress={() => setSelectedCardId(card.id)}
-                  >
-                    <Text style={styles.cardItemLabel}>
-                      {`${card.brand.toUpperCase()} ${maskCardNumber(card.last4)} · Exp ${card.expMonth}/${card.expYear}`}
-                      {card.isDefault ? cardsTexts.defaultBadge ?? '' : ''}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          )}
-
-          {!hasCards && (
-            <View style={{ marginTop: 8 }}>
-              <Text style={styles.methodOptionDescription}>
-                {methodsTexts.cardEmpty}
-              </Text>
-              {/* Tarjetas desactivadas temporalmente
-              <TouchableOpacity
-                style={{ marginTop: 8 }}
-                onPress={() => navigation.navigate('PaymentMethods')}
-                activeOpacity={0.8}
-              >
-                <Text style={[styles.cardItemLabel, { color: colors.primary }]}>
-                  {navigationTexts.goToPaymentMethods}
-                </Text>
-              </TouchableOpacity>
-              */}
-            </View>
-          )}
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[
-            styles.methodOption,
-            selectedMethod === 'bank_transfer' && styles.methodOptionSelected,
-          ]}
-          onPress={() => setSelectedMethod('bank_transfer')}
-          activeOpacity={0.8}
-        >
-          <View style={styles.methodOptionHeader}>
-            <View style={styles.methodOptionHeaderLeft}>
-              <View style={styles.methodOptionIconBadge}>
-                <Text style={styles.methodOptionIcon}>T</Text>
-              </View>
-              <Text style={styles.methodOptionLabel}>{methodsTexts.bankTitle}</Text>
-            </View>
-            <View style={[styles.radioDot, selectedMethod === 'bank_transfer' && styles.radioDotActive]}>
-              {selectedMethod === 'bank_transfer' && <View style={styles.radioDotInner} />}
-            </View>
-          </View>
-          <Text style={styles.methodOptionDescription}>
-            {methodsTexts.bankDescription}
-          </Text>
-        </TouchableOpacity>
-      </View>
-    );
+  const formatDateLabel = (value?: string | null) => {
+    const raw = asText(value, '-');
+    if (raw === '-') return '-';
+    const date = new Date(raw);
+    if (Number.isNaN(date.getTime())) return raw;
+    return date.toLocaleString();
   };
+
+  const rechargeHistory = useMemo(
+    () =>
+      (summary?.history || []).filter(
+        (item) => item && (item.rechargeType === 'recharge' || Number(item.amount) > 0),
+      ),
+    [summary?.history],
+  );
+
+  const totalHistoryPages = Math.max(1, Math.ceil(rechargeHistory.length / HISTORY_PAGE_SIZE));
+
+  useEffect(() => {
+    setHistoryPage((prev) => Math.min(Math.max(prev, 1), totalHistoryPages));
+  }, [totalHistoryPages]);
+
+  const historyItems = useMemo(() => {
+    const start = (historyPage - 1) * HISTORY_PAGE_SIZE;
+    return rechargeHistory.slice(start, start + HISTORY_PAGE_SIZE);
+  }, [rechargeHistory, historyPage]);
+
+  const openInvoice = (item: DriverRechargeHistoryItem) => {
+    setSelectedMovement(item);
+    setInvoiceVisible(true);
+  };
+
+  const parsedRechargeAmount = Number(String(amount || '').replace(',', '.'));
 
   return (
     <View style={styles.container}>
@@ -359,11 +273,6 @@ export default function RechargeFundsScreen({ navigation }: any) {
             <Text style={styles.summaryHint}>{summaryTexts.hint}</Text>
           </View>
 
-          <View style={styles.infoCard}>
-            <Text style={styles.infoTitle}>{infoTexts.title}</Text>
-            {renderPaymentMethods()}
-          </View>
-
           <View style={styles.inputCard}>
             <Text style={styles.inputLabel}>{inputTexts.amountLabel}</Text>
             <TextInput
@@ -374,25 +283,15 @@ export default function RechargeFundsScreen({ navigation }: any) {
               style={styles.input}
               keyboardType="decimal-pad"
             />
-
-            <Text style={[styles.inputLabel, { marginTop: 12 }]}>{inputTexts.referenceLabel}</Text>
-            <TextInput
-              value={reference}
-              onChangeText={setReference}
-              placeholder={inputTexts.placeholder}
-              placeholderTextColor={colors.textSecondary}
-              style={styles.input}
-              autoCapitalize="characters"
-            />
           </View>
 
           <TouchableOpacity
             style={[
               styles.payButton,
-              (submitting || parsedRechargeAmount <= 0 || (selectedMethod === 'card' && !selectedCardId)) &&
+              (submitting || parsedRechargeAmount <= 0) &&
                 styles.payButtonDisabled,
             ]}
-            disabled={submitting || parsedRechargeAmount <= 0 || (selectedMethod === 'card' && !selectedCardId)}
+            disabled={submitting || parsedRechargeAmount <= 0}
             onPress={handlePay}
             activeOpacity={0.85}
           >
@@ -414,8 +313,78 @@ export default function RechargeFundsScreen({ navigation }: any) {
             label={t('driver.rechargeFunds.support.label')}
             description={t('driver.rechargeFunds.support.description')}
           />
+
+          <View style={styles.historyCard}>
+            <View style={styles.historyHeader}>
+              <Text style={styles.historyTitle}>{historyTexts.title}</Text>
+              <Text style={styles.historyCounter}>{t('driver.rechargeFunds.history.totalLabel', { count: rechargeHistory.length })}</Text>
+            </View>
+
+            {historyItems.length === 0 ? (
+              <Text style={styles.historyEmptyText}>{historyTexts.empty}</Text>
+            ) : (
+              <View style={styles.historyList}>
+                {historyItems.map((item) => (
+                  <TouchableOpacity
+                    key={item.id}
+                    style={styles.historyItem}
+                    activeOpacity={0.8}
+                    onPress={() => openInvoice(item)}
+                  >
+                    <View style={styles.historyItemTop}>
+                      <Text style={styles.historyItemAmount}>{formatCurrency(item.amount)}</Text>
+                      <Text style={styles.historyItemStatus}>{asText(item.status, t('driver.rechargeFunds.history.defaultStatus'))}</Text>
+                    </View>
+                    <Text style={styles.historyItemMeta}>{formatDateLabel(item.createdAt)}</Text>
+                    <Text style={styles.historyItemMeta}>
+                      {t('driver.rechargeFunds.history.sourceLabel', {
+                        source: asText(item.source, t('driver.rechargeFunds.history.defaultSource')),
+                      })}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
+            <View style={styles.paginationRow}>
+              <TouchableOpacity
+                style={[styles.paginationBtn, historyPage <= 1 && styles.paginationBtnDisabled]}
+                disabled={historyPage <= 1}
+                onPress={() => setHistoryPage((prev) => Math.max(1, prev - 1))}
+              >
+                <Text style={styles.paginationBtnText}>{historyTexts.previous}</Text>
+              </TouchableOpacity>
+
+              <Text style={styles.paginationText}>
+                {t('driver.rechargeFunds.history.page', {
+                  current: historyPage,
+                  total: totalHistoryPages,
+                })}
+              </Text>
+
+              <TouchableOpacity
+                style={[
+                  styles.paginationBtn,
+                  historyPage >= totalHistoryPages && styles.paginationBtnDisabled,
+                ]}
+                disabled={historyPage >= totalHistoryPages}
+                onPress={() => setHistoryPage((prev) => Math.min(totalHistoryPages, prev + 1))}
+              >
+                <Text style={styles.paginationBtnText}>{historyTexts.next}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         </ScrollView>
       )}
+
+      <RechargeInvoiceModal
+        visible={invoiceVisible}
+        movement={selectedMovement}
+        onClose={() => {
+          setInvoiceVisible(false);
+          setSelectedMovement(null);
+        }}
+      />
     </View>
   );
 }
@@ -650,4 +619,98 @@ const createStyles = (colors: any, accentColor: string) =>
       elevation: 0,
     },
     payButtonText: { fontSize: 15, color: '#fff', fontWeight: '800', letterSpacing: 0.2 },
+
+    historyCard: {
+      backgroundColor: colors.card,
+      borderRadius: 20,
+      padding: 16,
+      borderWidth: 1,
+      borderColor: colors.border,
+      gap: 12,
+      marginTop: 4,
+    },
+    historyHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      gap: 12,
+    },
+    historyTitle: {
+      fontSize: 16,
+      fontWeight: '700',
+      color: colors.text,
+    },
+    historyCounter: {
+      fontSize: 12,
+      color: colors.textSecondary,
+      fontWeight: '600',
+    },
+    historyEmptyText: {
+      fontSize: 13,
+      color: colors.textSecondary,
+      fontStyle: 'italic',
+    },
+    historyList: {
+      gap: 8,
+    },
+    historyItem: {
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      gap: 3,
+    },
+    historyItemTop: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      gap: 10,
+    },
+    historyItemAmount: {
+      fontSize: 14,
+      fontWeight: '800',
+      color: accentColor,
+    },
+    historyItemStatus: {
+      fontSize: 11,
+      color: colors.textSecondary,
+      textTransform: 'uppercase',
+      fontWeight: '700',
+    },
+    historyItemMeta: {
+      fontSize: 12,
+      color: colors.textSecondary,
+    },
+    paginationRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginTop: 2,
+    },
+    paginationBtn: {
+      minWidth: 76,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      paddingHorizontal: 10,
+      paddingVertical: 8,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    paginationBtnDisabled: {
+      opacity: 0.45,
+    },
+    paginationBtnText: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: colors.text,
+    },
+    paginationText: {
+      fontSize: 12,
+      color: colors.textSecondary,
+      fontWeight: '600',
+    },
   });

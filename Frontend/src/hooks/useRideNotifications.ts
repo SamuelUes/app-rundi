@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { Alert } from 'react-native';
 import { getFirebaseDatabase } from '../config/firebase';
 import { ref, onChildAdded, off } from 'firebase/database';
+import notificationService from '../services/notificationService';
 
 interface NewRideNotification {
   id: string;
@@ -53,23 +53,24 @@ export function useRideNotifications(driverId?: string) {
             return [rideData, ...prev];
           });
 
-          // Mostrar notificación
-          Alert.alert(
+          notificationService.showManagedNotification(
             '🚗 Nuevo Viaje Disponible',
             `${rideData.originAddress} → ${rideData.destinationAddress}\nPrecio: C$${rideData.estimatedFare}`,
-            [
-              { text: 'Ver después', style: 'cancel' },
-              { text: 'Ver ahora', onPress: () => {
-                // TODO: Navegar a la pantalla de viajes disponibles
-              }},
-            ]
-          );
+            { type: 'new_ride', rideId: rideData.id },
+            `new-ride-${rideData.id}`,
+            120_000,
+          ).catch(() => {
+            // noop
+          });
         }
       });
+
+      setConnected(true);
 
       console.log('✅ Listener de notificaciones configurado');
     } catch (error) {
       console.error('❌ Error configurando notificaciones:', error);
+      setConnected(false);
     }
   };
 

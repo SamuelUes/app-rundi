@@ -26,6 +26,7 @@ import type {
   PreflightRole,
   PreflightRouteConfig,
   PreflightRegionInfo,
+  TermsDocumentType,
   PreflightTermsSummary,
   ServiceAreaPoint,
 } from '../../types/preflight';
@@ -36,6 +37,8 @@ import proximityService, {
 } from '../../services/proximityService';
 import ridesService from '../../services/ridesService';
 import firebaseAuthService from '../../services/auth/firebaseAuthService';
+import BiometricService from '../../services/biometricService';
+import PreflightBiometricPrompt from '../../components/PreflightBiometricPrompt';
 import TermsAndConditionsModal, { CURRENT_TERMS_VERSION } from '../../components/TermsAndConditionsModal';
 import PermissionsExplanation from '../../components/permissions/PermissionsExplanation';
 import type { User as FirebaseUser } from 'firebase/auth';
@@ -62,8 +65,13 @@ type DriverApprovalResult = {
 const ACTIVE_DRIVER_STATUSES = ['accepted', 'driver_on_route', 'driver_arrived', 'in_progress'];
 const ACTIVE_CLIENT_TRACK_STATUSES = ['accepted', 'driver_on_route', 'driver_arrived', 'in_progress'];
 const CLIENT_WAITING_STATUSES = ['requested', 'searching', 'pending', 'pending_confirmation'];
+const TERMS_DOCUMENTS: TermsDocumentType[] = ['general', 'users', 'designated_driver'];
 
 const CRITICAL_CHECKS = ['auth', 'notifications', 'foregroundLocation', 'backgroundLocation', 'overlay'];
+const DRIVER_BIOMETRIC_CONTEXT = 'app_access_preflight';
+const DRIVER_BIOMETRIC_MAX_ATTEMPTS = 3;
+const DRIVER_BIOMETRIC_RISK_WINDOW_MS = 15 * 60 * 1000;
+const recentDriverBiometricAuthByUserId = new Map<string, number>();
 
 const DEFAULT_MANAGUA_POLYGON: ServiceAreaPoint[] = [
   { lat: 12.2, lng: -86.35 },
@@ -92,6 +100,187 @@ function isPointInPolygon(lat: number, lng: number, polygon: ServiceAreaPoint[])
   }
 
   return inside;
+}
+
+function getDriverBiometricUserType(user: any, role: PreflightRole): 'driver' | 'designated_driver' | null {
+  if (role !== 'driver') {
+    return null;
+  }
+
+  const rawRole = String(user?.role || '')
+    .trim()
+    .toLowerCase();
+
+  if (rawRole === 'designated_driver') {
+    return 'designated_driver';
+  }
+
+  if (rawRole === 'driver') {
+    return 'driver';
+  }
+
+  return 'driver';
+}
+
+function shouldRequireDriverBiometricCheck(user: any, role: PreflightRole): boolean {
+  const userType = getDriverBiometricUserType(user, role);
+  if (!userType || !user?.id) {
+    return false;
+  }
+
+  const now = Date.now();
+  const lastSuccessAt = recentDriverBiometricAuthByUserId.get(user.id);
+  if (!lastSuccessAt) {
+    return true;
+  }
+
+  return now - lastSuccessAt > DRIVER_BIOMETRIC_RISK_WINDOW_MS;
+}
+
+async function checkDriverBiometricAccess(
+  user: any,
+  role: PreflightRole,
+  t: (key: string, opts?: any) => string,
+  onPhaseChange?: (payload: {
+    phase: 'scanning' | 'pin_fallback' | 'success' | 'failed';
+    attempt: number;
+    maxAttempts: number;
+  }) => void,
+): Promise<{ success: boolean; message?: string }> {
+  const userType = getDriverBiometricUserType(user, role);
+  if (!userType || !user?.id) {
+    return { success: true };
+  }
+
+  let lastErrorMessage = '';
+
+  for (let attempt = 1; attempt <= DRIVER_BIOMETRIC_MAX_ATTEMPTS; attempt += 1) {
+    onPhaseChange?.({
+      phase: 'scanning',
+      attempt,
+      maxAttempts: DRIVER_BIOMETRIC_MAX_ATTEMPTS,
+    });
+
+    const result = await BiometricService.authenticateWithPinFallback(
+      t('shared.preflight.biometric.prompt'),
+      t('shared.preflight.biometric.pinFallback'),
+    );
+
+    const success = result.success === true;
+    const attemptError = result.error || t('shared.preflight.biometric.error');
+
+    if (result.usedPinFallback) {
+      onPhaseChange?.({
+        phase: 'pin_fallback',
+        attempt,
+        maxAttempts: DRIVER_BIOMETRIC_MAX_ATTEMPTS,
+      });
+    }
+
+    await BiometricService.logAuthenticationAttempt({
+      biometricType: result.biometryType || 'biometric',
+      context: DRIVER_BIOMETRIC_CONTEXT,
+      userType,
+      success,
+      attemptNumber: attempt,
+      errorMessage: success ? undefined : attemptError,
+    });
+
+    if (success) {
+      onPhaseChange?.({
+        phase: 'success',
+        attempt,
+        maxAttempts: DRIVER_BIOMETRIC_MAX_ATTEMPTS,
+      });
+      recentDriverBiometricAuthByUserId.set(user.id, Date.now());
+      return { success: true };
+    }
+
+    lastErrorMessage = attemptError;
+
+    onPhaseChange?.({
+      phase: 'failed',
+      attempt,
+      maxAttempts: DRIVER_BIOMETRIC_MAX_ATTEMPTS,
+    });
+
+    if (result.errorCode === 'NOT_SUPPORTED' || result.errorCode === 'NOT_ENROLLED') {
+      return {
+        success: false,
+        message: t('shared.preflight.biometric.deviceSecurityRequired'),
+      };
+    }
+
+    if (attempt < DRIVER_BIOMETRIC_MAX_ATTEMPTS) {
+      await new Promise((resolve) => setTimeout(resolve, 450));
+    }
+  }
+
+  return {
+    success: false,
+    message: t('shared.preflight.biometric.maxAttempts', { max: DRIVER_BIOMETRIC_MAX_ATTEMPTS }),
+  };
+}
+
+function buildInitialTermsCheckedState(): Record<TermsDocumentType, boolean> {
+  return {
+    general: false,
+    users: false,
+    designated_driver: false,
+  };
+}
+
+function hasAcceptedAllCurrentTerms(
+  termsSummary: PreflightTermsSummary | null | undefined,
+  fallbackProfile?: Record<string, any> | null,
+): boolean {
+  const summaryAccepted = termsSummary?.acceptedAllDocuments === true;
+  if (summaryAccepted) {
+    return true;
+  }
+
+  const summaryDocuments = termsSummary?.acceptedDocuments;
+  const summaryAllDocsAccepted =
+    summaryDocuments &&
+    TERMS_DOCUMENTS.every((documentType) => summaryDocuments[documentType]?.accepted === true);
+  if (summaryAllDocsAccepted) {
+    return true;
+  }
+
+  const acceptedVersion = termsSummary?.acceptedVersion || String(fallbackProfile?.termsVersion || '').trim();
+  if (acceptedVersion === CURRENT_TERMS_VERSION) {
+    return true;
+  }
+
+  const termsAcceptance =
+    fallbackProfile?.termsAcceptance && typeof fallbackProfile.termsAcceptance === 'object'
+      ? (fallbackProfile.termsAcceptance as Record<string, any>)
+      : null;
+
+  const acceptanceType = String(termsAcceptance?.type || '').trim().toLowerCase();
+  const acceptanceVersion = String(termsAcceptance?.version || '').trim();
+  if (acceptanceType === 'general' && acceptanceVersion === CURRENT_TERMS_VERSION) {
+    return true;
+  }
+
+  const acceptanceDocs =
+    termsAcceptance?.documents && typeof termsAcceptance.documents === 'object'
+      ? (termsAcceptance.documents as Record<string, any>)
+      : null;
+
+  if (!acceptanceDocs) {
+    return false;
+  }
+
+  return TERMS_DOCUMENTS.every((documentType) => {
+    const documentAcceptance = acceptanceDocs[documentType];
+    if (!documentAcceptance || typeof documentAcceptance !== 'object') {
+      return false;
+    }
+    const documentVersion = String(documentAcceptance.version || '').trim();
+    const accepted = documentAcceptance.accepted === true;
+    return accepted && documentVersion === CURRENT_TERMS_VERSION;
+  });
 }
 
 function getLocalRegionFallback(
@@ -128,6 +317,7 @@ function getLocalRegionFallback(
 
 const getCheckLabels = (t: (key: string, opts?: any) => string): Record<string, string> => ({
   auth: t('shared.preflight.checks.auth'),
+  driverBiometric: t('shared.preflight.checks.driverBiometric'),
   notifications: t('shared.preflight.checks.notifications'),
   foregroundLocation: t('shared.preflight.checks.foregroundLocation'),
   backgroundLocation: t('shared.preflight.checks.backgroundLocation'),
@@ -370,8 +560,14 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
   const [completed, setCompleted] = useState(false);
   const [canRetry, setCanRetry] = useState(false);
   const [showTerms, setShowTerms] = useState(false);
-  const [termsChecked, setTermsChecked] = useState(false);
+  const [termsCheckedDocuments, setTermsCheckedDocuments] = useState<Record<TermsDocumentType, boolean>>(
+    () => buildInitialTermsCheckedState(),
+  );
   const [savingTerms, setSavingTerms] = useState(false);
+  const [biometricPromptVisible, setBiometricPromptVisible] = useState(false);
+  const [biometricPromptPhase, setBiometricPromptPhase] = useState<'scanning' | 'pin_fallback' | 'success' | 'failed'>('scanning');
+  const [biometricPromptAttempt, setBiometricPromptAttempt] = useState(1);
+  const [biometricPromptMaxAttempts, setBiometricPromptMaxAttempts] = useState(DRIVER_BIOMETRIC_MAX_ATTEMPTS);
   
   const progressAnim = useRef(new Animated.Value(0)).current;
   const actionsRef = useRef<PreflightAction[]>([]);
@@ -411,16 +607,14 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
         return true;
       }
 
-      const existingVersion = termsSummary?.acceptedVersion
-        ? termsSummary.acceptedVersion
-        : (await firebaseAuthService.getUserProfile(user.id) as any)?.termsVersion;
+      const profile = await firebaseAuthService.getUserProfile(user.id) as any;
 
-      if (existingVersion === CURRENT_TERMS_VERSION) {
+      if (hasAcceptedAllCurrentTerms(termsSummary || null, profile || null)) {
         return true;
       }
 
       setShowTerms(true);
-      setTermsChecked(false);
+      setTermsCheckedDocuments(buildInitialTermsCheckedState());
       return false;
     } catch (err: any) {
       console.error('❌ [Preflight] Error obteniendo perfil para términos:', err);
@@ -442,7 +636,7 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
 
       if (user?.id) {
         setShowTerms(true);
-        setTermsChecked(false);
+        setTermsCheckedDocuments(buildInitialTermsCheckedState());
         return false;
       }
       return true;
@@ -475,6 +669,8 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
       checksRunRef.current = false;
       return;
     }
+
+    const shouldRunDriverBiometricCheck = shouldRequireDriverBiometricCheck(user, role);
 
     const localTasks: Array<{
       id: string;
@@ -521,12 +717,37 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
     ];
 
     let completedSteps = 0;
-    const totalSteps = localTasks.length + 1; // + server preflight
+    const totalSteps = localTasks.length + 1 + (shouldRunDriverBiometricCheck ? 1 : 0); // + server preflight (+ driver biometric if needed)
     const updateProgress = () => {
       const value = Math.min(100, (completedSteps / totalSteps) * 100);
       setProgress(value);
       animateProgress(value);
     };
+
+    if (shouldRunDriverBiometricCheck) {
+      setCurrentCheckLabel(labels.driverBiometric || 'driverBiometric');
+      setBiometricPromptVisible(true);
+      const biometricResult = await checkDriverBiometricAccess(user, role, t, ({ phase, attempt, maxAttempts }) => {
+        setBiometricPromptPhase(phase);
+        setBiometricPromptAttempt(attempt);
+        setBiometricPromptMaxAttempts(maxAttempts);
+      });
+      completedSteps += 1;
+      updateProgress();
+
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      setBiometricPromptVisible(false);
+
+      if (!biometricResult.success) {
+        setError(
+          biometricResult.message ||
+            t('shared.preflight.biometric.required'),
+        );
+        setCanRetry(true);
+        checksRunRef.current = false;
+        return;
+      }
+    }
 
     let criticalFailureCheck: string | null = null;
     let criticalFailureError: any = null;
@@ -826,15 +1047,39 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
     if (!user?.id) {
       return;
     }
-    if (!termsChecked || savingTerms) {
+    const hasCheckedAllDocuments = TERMS_DOCUMENTS.every((documentType) => termsCheckedDocuments[documentType]);
+    if (!hasCheckedAllDocuments || savingTerms) {
       return;
     }
 
     try {
       setSavingTerms(true);
+      const now = new Date();
       await firebaseAuthService.updateUserProfile(user.id, {
         termsVersion: CURRENT_TERMS_VERSION,
-        termsAcceptedAt: new Date(),
+        termsAcceptedAt: now,
+        termsAcceptance: {
+          type: 'by_document',
+          version: CURRENT_TERMS_VERSION,
+          acceptedAt: now,
+          documents: {
+            general: {
+              accepted: true,
+              version: CURRENT_TERMS_VERSION,
+              acceptedAt: now,
+            },
+            users: {
+              accepted: true,
+              version: CURRENT_TERMS_VERSION,
+              acceptedAt: now,
+            },
+            designated_driver: {
+              accepted: true,
+              version: CURRENT_TERMS_VERSION,
+              acceptedAt: now,
+            },
+          },
+        },
       });
       setShowTerms(false);
       setTimeout(() => {
@@ -863,7 +1108,7 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
     } finally {
       setSavingTerms(false);
     }
-  }, [user?.id, termsChecked, savingTerms, navigateAfterChecks]);
+  }, [user?.id, termsCheckedDocuments, savingTerms, navigateAfterChecks]);
 
   const handleSkip = useCallback(() => {
     alertService.showInfoAlert(
@@ -966,14 +1211,39 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
         visible={showTerms}
         saving={savingTerms}
         requireCheck
-        checked={termsChecked}
+        showDocumentSelector
+        requireAllDocumentsCheck
+        defaultDocumentType="general"
+        checkedDocuments={termsCheckedDocuments}
         acceptLabel={t('shared.preflight.terms.accept')}
-        onToggleChecked={() => {
+        onToggleDocumentChecked={(documentType) => {
           if (!savingTerms) {
-            setTermsChecked(!termsChecked);
+            setTermsCheckedDocuments((prev) => ({
+              ...prev,
+              [documentType]: !prev[documentType],
+            }));
           }
         }}
         onAccept={handleAcceptTerms}
+      />
+
+      <PreflightBiometricPrompt
+        visible={biometricPromptVisible}
+        title={t('shared.preflight.biometric.modal.title')}
+        subtitle={
+          biometricPromptPhase === 'pin_fallback'
+            ? t('shared.preflight.biometric.modal.pinFallback')
+            : biometricPromptPhase === 'success'
+            ? t('shared.preflight.biometric.modal.success')
+            : biometricPromptPhase === 'failed'
+            ? t('shared.preflight.biometric.modal.retry')
+            : t('shared.preflight.biometric.modal.scanning')
+        }
+        attemptText={t('shared.preflight.biometric.modal.attempt', {
+          current: biometricPromptAttempt,
+          max: biometricPromptMaxAttempts,
+        })}
+        phase={biometricPromptPhase}
       />
     </View>
   );

@@ -32,6 +32,17 @@ import SupportChatShortcut from '../../components/SupportChatShortcut';
 import sessionService from '../../services/sessionService';
 import BiometricService from '../../services/biometricService';
 
+const resolveDriverName = (driverInfo: any): string | null => {
+  const fullName = [driverInfo?.firstName, driverInfo?.lastName].filter(Boolean).join(' ').trim();
+  return (
+    fullName ||
+    driverInfo?.fullName ||
+    driverInfo?.name ||
+    driverInfo?.displayName ||
+    null
+  );
+};
+
 // Crear estilos fuera del componente para mejor rendimiento
 const createStyles = (colors: any) => StyleSheet.create({
   container: {
@@ -200,9 +211,11 @@ export default function CashPaymentScreen({ route, navigation }: any) {
   const [confirming, setConfirming] = useState(false);
   const [paymentStatus, setPaymentStatus] = useState<string>('pending');
   const [driverPhotoURL, setDriverPhotoURL] = useState<string | null>(null);
+  const [driverNameFromInfo, setDriverNameFromInfo] = useState<string | null>(null);
   const [biometricRequested, setBiometricRequested] = useState(false);
   const [currentPaymentMethod, setCurrentPaymentMethod] = useState<string>('cash');
   const currentPaymentMethodRef = useRef<string>('cash');
+  const fetchedDriverInfoForRef = useRef<string | null>(null);
   const isNavigatingRef = useRef(false);
   const [cashCode, setCashCode] = useState<string | null>(null);
   
@@ -233,26 +246,39 @@ export default function CashPaymentScreen({ route, navigation }: any) {
           setCurrentPaymentMethod(ridePaymentMethod);
         }
         
-        // Obtener foto de perfil del conductor desde driversInfo
-        if (data.driverId && !data.driver?.photoURL) {
-          console.log('📸 Obteniendo foto de perfil del conductor:', data.driverId);
+        if (data.driver?.photoURL) {
+          setDriverPhotoURL(data.driver.photoURL);
+        }
+
+        // Obtener nombre/foto del conductor desde driversInfo
+        if (data.driverId && fetchedDriverInfoForRef.current !== data.driverId) {
+          console.log('📸🪪 Obteniendo perfil del conductor desde driversInfo:', data.driverId);
           try {
             const { get } = await import('firebase/database');
             const driverInfoRef = ref(db, `driversInfo/${data.driverId}`);
             const driverInfoSnapshot = await get(driverInfoRef);
             const driverInfo = driverInfoSnapshot.val();
-            
-            if (driverInfo?.photoURL) {
-              console.log('✅ Foto de perfil encontrada:', driverInfo.photoURL);
-              setDriverPhotoURL(driverInfo.photoURL);
-            } else {
-              console.log('⚠️ No se encontró foto en driversInfo');
+
+            const resolvedName = resolveDriverName(driverInfo);
+            const resolvedPhoto =
+              driverInfo?.photoURL ||
+              driverInfo?.profilePhoto ||
+              driverInfo?.photoUrl ||
+              null;
+
+            if (resolvedName) {
+              setDriverNameFromInfo(resolvedName);
             }
+
+            if (resolvedPhoto) {
+              console.log('✅ Foto de perfil encontrada:', resolvedPhoto);
+              setDriverPhotoURL(resolvedPhoto);
+            }
+
+            fetchedDriverInfoForRef.current = data.driverId;
           } catch (error) {
-            console.error('❌ Error obteniendo foto de perfil:', error);
+            console.error('❌ Error obteniendo perfil del conductor:', error);
           }
-        } else if (data.driver?.photoURL) {
-          setDriverPhotoURL(data.driver.photoURL);
         }
       } else {
         console.log('⚠️ Viaje no encontrado en activeRides, puede estar completado');
@@ -305,8 +331,8 @@ export default function CashPaymentScreen({ route, navigation }: any) {
                 navigation.replace('Payment', {
                   rideId,
                   amount: finalAmount,
-                  driverName: ride?.driver?.name || paramDriverName,
-                  driverPhoto: ride?.driver?.photoURL || driverPhoto,
+                  driverName: driverNameFromInfo || ride?.driver?.name || paramDriverName,
+                  driverPhoto: driverPhotoURL || ride?.driver?.photoURL || driverPhoto,
                 });
               }
             );
@@ -462,7 +488,11 @@ export default function CashPaymentScreen({ route, navigation }: any) {
   }
   
   // Valores seguros
-  const driverName = ride?.driver?.name ? String(ride.driver.name) : t('common.roles.driver');
+  const driverName =
+    driverNameFromInfo ||
+    (ride?.driver?.name ? String(ride.driver.name) : null) ||
+    (paramDriverName ? String(paramDriverName) : null) ||
+    t('common.roles.driver');
   const driverInitial = driverName.charAt(0).toUpperCase();
   const driverRating = ride?.driver?.rating ? parseFloat(ride.driver.rating) : 0;
   const amount = ride?.finalFare || ride?.estimatedPrice || paramAmount || 0;

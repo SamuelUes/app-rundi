@@ -223,6 +223,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                   phone: userData.phone,
                 });
               } catch (profileError: any) {
+                if (profileError?.code === 'ACCOUNT_DISABLED' || profileError?.message === 'ACCOUNT_DISABLED') {
+                  try {
+                    await authService.logout();
+                  } catch (logoutError) {
+                    console.warn('⚠️ [AuthContext] Error cerrando sesión tras cuenta desactivada:', logoutError);
+                  }
+                  await AsyncStorage.removeItem('user');
+                  setUser(null);
+                  setUserModeState('client');
+                  alertService.showErrorAlert('Tu cuenta está desactivada. Contacta soporte para reactivarla.');
+                  return;
+                }
                 if (profileError?.code === 'PROFILE_NOT_FOUND') {
                   console.log('ℹ️ Perfil pendiente de creación; se mantiene usuario anónimo hasta completar registro.');
                   setUser(null);
@@ -403,6 +415,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     } catch (error: any) {
       console.error('Login error:', error);
+      if (error?.code === 'ACCOUNT_DISABLED' || error?.message === 'ACCOUNT_DISABLED') {
+        throw new Error('Tu cuenta está desactivada. Contacta soporte para reactivarla.');
+      }
       throw error;
     }
   };

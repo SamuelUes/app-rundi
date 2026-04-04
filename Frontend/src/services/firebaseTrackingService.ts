@@ -63,6 +63,10 @@ let callableTrackingDisabled = false;
 let callableTrackingRetryAt: number | null = null;
 const CALLABLE_RETRY_INTERVAL_MS = 60_000; // 1 minuto de enfriamiento antes de reintentar
 
+let locationPersistenceCallableDisabled = false;
+let locationPersistenceRetryAt: number | null = null;
+const LOCATION_PERSIST_RETRY_INTERVAL_MS = 5 * 60_000; // 5 minutos antes de reintentar callable legacy
+
 function getCurrentServiceAreaId(): string | null {
   try {
     const summary = getPreflightResult();
@@ -216,6 +220,16 @@ class FirebaseTrackingService {
     location: Location,
     retries: number = 3
   ): Promise<void> {
+    const now = Date.now();
+    if (locationPersistenceCallableDisabled) {
+      if (locationPersistenceRetryAt && now < locationPersistenceRetryAt) {
+        return;
+      }
+
+      locationPersistenceCallableDisabled = false;
+      locationPersistenceRetryAt = null;
+    }
+
     for (let i = 0; i < retries; i++) {
       try {
         console.log(
@@ -240,6 +254,24 @@ class FirebaseTrackingService {
         console.log('✅ Ubicación guardada en PostgreSQL:', result.data);
         return; // Éxito
       } catch (error: any) {
+        const errCode = String(error?.code || '').toLowerCase();
+        const errMsg = String(error?.message || '').toLowerCase();
+
+        if (
+          errCode.includes('functions/not-found') ||
+          (errMsg.includes('not found') && errMsg.includes('saveridelocationwithretry'))
+        ) {
+          locationPersistenceCallableDisabled = true;
+          locationPersistenceRetryAt = Date.now() + LOCATION_PERSIST_RETRY_INTERVAL_MS;
+          console.warn(
+            `⚠️ [FirebaseTrackingService] Callable legacy saveRideLocationWithRetry no disponible. ` +
+              `Se omite persistencia SQL temporalmente y se reintentará en ${
+                LOCATION_PERSIST_RETRY_INTERVAL_MS / 1000
+              }s.`,
+          );
+          return;
+        }
+
         console.error(`❌ Intento ${i + 1} falló:`, error.message);
 
         if (i === retries - 1) {
@@ -459,14 +491,20 @@ class FirebaseTrackingService {
   ): Promise<() => void> {
     const database = await getFirebaseDatabase();
     const serviceAreaId = getCurrentServiceAreaId();
-    const path = serviceAreaId
+    const preferredPath = serviceAreaId
       ? `activeRidesByArea/${serviceAreaId}/${rideId}`
       : `activeRides/${rideId}`;
-    const rideRef = ref(database, path);
+    const fallbackPath = `activeRides/${rideId}`;
+    const rideRef = ref(database, preferredPath);
+    const fallbackRideRef = ref(database, fallbackPath);
     
     console.log(
-      `[subscribeToRideTracking] Escuchando tracking de viaje ${rideId} en ${path}`,
+      `[subscribeToRideTracking] Escuchando tracking de viaje ${rideId} en ${preferredPath}`,
     );
+
+    let hasReceivedData = false;
+    let fallbackActive = false;
+    let unsubscribeFallback: (() => void) | null = null;
 
     const unsubscribe = onValue(
       rideRef,
@@ -474,9 +512,31 @@ class FirebaseTrackingService {
         const data = snapshot.val();
         
         if (data) {
+          hasReceivedData = true;
           callback(data as RideTracking);
+
+          if (fallbackActive && unsubscribeFallback) {
+            unsubscribeFallback();
+            unsubscribeFallback = null;
+            fallbackActive = false;
+          }
         } else {
-          callback(null);
+          if (!hasReceivedData && serviceAreaId && preferredPath !== fallbackPath && !fallbackActive) {
+            fallbackActive = true;
+            unsubscribeFallback = onValue(
+              fallbackRideRef,
+              (fallbackSnapshot) => {
+                const fallbackData = fallbackSnapshot.val();
+                callback(fallbackData ? (fallbackData as RideTracking) : null);
+              },
+              (fallbackError) => {
+                console.error('❌ Error en fallback de tracking (activeRides):', fallbackError);
+                callback(null);
+              },
+            );
+          } else if (!fallbackActive) {
+            callback(null);
+          }
         }
       },
       (error) => {
@@ -491,6 +551,10 @@ class FirebaseTrackingService {
     // Retornar función de limpieza
     return () => {
       off(rideRef);
+      off(fallbackRideRef);
+      if (unsubscribeFallback) {
+        unsubscribeFallback();
+      }
       this.listeners.delete(`ride_${rideId}`);
       console.log(`🛑 Detenido listener de viaje: ${rideId}`);
     };

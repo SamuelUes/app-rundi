@@ -31,10 +31,20 @@ export type PreflightRouteConfig = {
 export type DriverApprovalStatus = 'active' | 'pending' | 'suspended' | 'rejected';
 export type DriverDocumentsStatus = 'verified' | 'pending' | 'suspended' | 'rejected';
 
+export type TermsDocumentType = 'general' | 'users' | 'designated_driver';
+
+export type PreflightTermsDocumentAcceptance = {
+  accepted: boolean;
+  version?: string;
+  acceptedAt?: number;
+};
+
 export type PreflightTermsSummary = {
   currentVersion: string;
   acceptedVersion?: string;
   acceptedAt?: number;
+  acceptedAllDocuments?: boolean;
+  acceptedDocuments?: Record<TermsDocumentType, PreflightTermsDocumentAcceptance>;
 };
 
 export type PreflightDriverApprovalSummary = {

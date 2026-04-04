@@ -105,7 +105,7 @@ export const notifySupportChatMessage = async (params: {
         title,
         fromUserId: fromUserId || undefined,
       },
-      androidChannelId: "rundi_default",
+      androidChannelId: "default",
       notificationKey: `support-${complaintId}`,
       expiresInMs: 60 * 60 * 1000,
     });
@@ -403,7 +403,7 @@ export const requestSupportCall = functions.https.onCall(async (data, context) =
           requestId: requestId || undefined,
           requestedByUserId: uid,
         },
-        androidChannelId: "rundi_default",
+        androidChannelId: "default",
         notificationKey: `support-call-request-${complaintId}`,
         expiresInMs: 30 * 60 * 1000,
       });

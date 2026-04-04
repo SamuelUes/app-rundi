@@ -5,11 +5,66 @@
 
 import { httpsCallable } from 'firebase/functions';
 import { getFirebaseFunctions } from '../config/firebase';
+import { getFirebaseDatabase } from '../config/firebase';
+import { ref, onValue, off, type DataSnapshot } from 'firebase/database';
 import i18n from '../i18n';
+
+export interface RideNegotiationSnapshot {
+  rideId: string;
+  negotiationStatus?: string | null;
+  clientSuggestedPrice?: number | null;
+  driverOfferedPrice?: number | null;
+  finalFare?: number | null;
+  acceptedClientPrice?: boolean;
+  driverId?: string | null;
+  offers?: Record<string, any>;
+  negotiation?: Record<string, any>;
+}
 
 class PriceNegotiationService {
   private tr(path: string, options?: Record<string, any>) {
     return i18n.t(`services.priceNegotiationService.${path}`, options) as string;
+  }
+
+  async subscribeToRideNegotiation(
+    rideId: string,
+    onChange: (snapshot: RideNegotiationSnapshot | null) => void,
+    onError?: (error: unknown) => void,
+  ): Promise<() => void> {
+    const database = await getFirebaseDatabase();
+    const rideRef = ref(database, `activeRides/${rideId}`);
+
+    const unsubscribe = onValue(
+      rideRef,
+      (snapshot: DataSnapshot) => {
+        const data = snapshot.val();
+        if (!data) {
+          onChange(null);
+          return;
+        }
+
+        onChange({
+          rideId,
+          negotiationStatus: data.negotiationStatus ?? null,
+          clientSuggestedPrice: data.clientSuggestedPrice ?? null,
+          driverOfferedPrice: data.driverOfferedPrice ?? null,
+          finalFare: data.finalFare ?? null,
+          acceptedClientPrice: !!data.acceptedClientPrice,
+          driverId: data.driverId ?? null,
+          offers: data.offers ?? undefined,
+          negotiation: data.negotiation ?? undefined,
+        });
+      },
+      (error) => {
+        console.error('[priceNegotiationService] subscribeToRideNegotiation error:', error);
+        onError?.(error);
+      },
+    );
+
+    return () => {
+      off(rideRef);
+      unsubscribe();
+    };
   }
 
   /**
@@ -161,12 +216,13 @@ class PriceNegotiationService {
   async acceptDriverOffer(rideId: string, driverId: string, acceptedPrice: number) {
     try {
       const functions = await getFirebaseFunctions();
-      const acceptDriverOfferFunction = httpsCallable(functions, 'acceptDriverOffer');
+      const acceptDriverOfferFunction = httpsCallable(functions, 'acceptCounterOffer');
       
       const response = await acceptDriverOfferFunction({
         rideId,
         driverId,
         acceptedPrice,
+        role: 'client',
       });
 
       const result = response.data as any;

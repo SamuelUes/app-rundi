@@ -8,6 +8,10 @@ import DynamicMap from '../../components/DynamicMap';
 import alertService from '../../services/alertService';
 import ridesService from '../../services/ridesService';
 import PriceNegotiationModal from '../../components/PriceNegotiationModal';
+import DriverReviewsModal, {
+  DriverComplimentItem,
+  DriverReviewItem,
+} from '../../components/DriverReviewsModal';
 import priceNegotiationService from '../../services/priceNegotiationService';
 import { useFirebaseData } from '../../hooks/useFirebaseData';
 import { extractVehicleTypeFromInfo, ensureVehicleIconSource } from '../../utils/vehicleIcons';
@@ -15,6 +19,7 @@ import mapsService from '../../services/mapsService';
 import { clearClientActiveRideState } from '../../utils/clientRideState';
 import { getPreflightResult } from '../../state/preflightStore';
 import { RIDES_RADIUS_KM } from '../../constants/rideRadius';
+import { fetchDriverPublicInsights, type DriverPublicInsights } from '../../services/driverPublicInsightsService';
 
 const USER_LOCATION_LIGHT_ICON = require('../../assets/icons/actuall-position-white/actuallpositionwhite2x.png');
 const USER_LOCATION_DARK_ICON = require('../../assets/icons/actuall-position-black/actuallpositionblack2x.png');
@@ -121,6 +126,30 @@ const extractNameFromSource = (source: any): string | null => {
     source.driverName,
     source.username
   );
+};
+
+const parseInteger = (value: any): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.max(0, Math.round(value));
+  if (typeof value === 'string') {
+    const parsed = parseInt(value, 10);
+    return Number.isFinite(parsed) ? Math.max(0, parsed) : null;
+  }
+  return null;
+};
+
+const parseTimestamp = (value: any): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value > 9999999999 ? value : value * 1000;
+  }
+  if (typeof value === 'string') {
+    const asNumber = Number(value);
+    if (Number.isFinite(asNumber)) {
+      return asNumber > 9999999999 ? asNumber : asNumber * 1000;
+    }
+    const parsedDate = Date.parse(value);
+    return Number.isFinite(parsedDate) ? parsedDate : null;
+  }
+  return null;
 };
 
 const mergeName = (fallback: string, ...sources: Array<any | null | undefined>): string => {
@@ -248,6 +277,8 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
   const [rideSnapshot, setRideSnapshot] = useState<any | null>(null);
   const [driverLocations, setDriverLocations] = useState<Record<string, any> | null>(null);
   const [showNegotiation, setShowNegotiation] = useState(false);
+  const [showDriverReviews, setShowDriverReviews] = useState(false);
+  const [driverPublicInsights, setDriverPublicInsights] = useState<DriverPublicInsights | null>(null);
   const [isConfirming, setIsConfirming] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
   const [routeCoordinates, setRouteCoordinates] = useState<Array<{ latitude: number; longitude: number }>>([]);
@@ -430,6 +461,163 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
     () => offers.find(o => o.driverId === selectedDriverId),
     [offers, selectedDriverId],
   );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const selectedId = selectedOffer?.driverId;
+    if (!selectedId) {
+      setDriverPublicInsights(null);
+      return;
+    }
+
+    (async () => {
+      try {
+        const insights = await fetchDriverPublicInsights(selectedId, { limit: 20, forceRefresh: true });
+        if (!cancelled) {
+          setDriverPublicInsights(insights);
+        }
+      } catch {
+        if (!cancelled) {
+          setDriverPublicInsights(null);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedOffer?.driverId]);
+
+  const selectedDriverReviewsData = useMemo(() => {
+    const complimentCatalog = [
+      { id: 'punctuality', icon: '⏱️' },
+      { id: 'cleanliness', icon: '🧼' },
+      { id: 'communication', icon: '💬' },
+      { id: 'driving', icon: '🚗' },
+      { id: 'safety', icon: '🛡️' },
+      { id: 'friendliness', icon: '🙂' },
+    ] as const;
+
+    const defaultCompliments: DriverComplimentItem[] = complimentCatalog.map((item) => ({
+      id: item.id,
+      label: t(`client.homeOffers.reviews.compliments.${item.id}`, item.id),
+      count: 0,
+      icon: item.icon,
+    }));
+
+    const formatRelativeDate = (value: any): string => {
+      const timestamp = parseTimestamp(value);
+      if (!timestamp) return t('client.homeOffers.reviews.fallbackDate');
+      const diffMs = Math.max(0, Date.now() - timestamp);
+      const dayMs = 24 * 60 * 60 * 1000;
+      const days = Math.floor(diffMs / dayMs);
+
+      if (days <= 0) return t('client.homeOffers.reviews.relative.today');
+      if (days === 1) return t('client.homeOffers.reviews.relative.oneDay');
+      if (days < 7) return t('client.homeOffers.reviews.relative.days', { count: days });
+
+      const weeks = Math.floor(days / 7);
+      if (weeks <= 1) return t('client.homeOffers.reviews.relative.oneWeek');
+      return t('client.homeOffers.reviews.relative.weeks', { count: weeks });
+    };
+
+    const selectedId = selectedOffer?.driverId;
+    if (!selectedId) {
+      return {
+        ridesCount: 0,
+        yearsWithApp: 0,
+        compliments: defaultCompliments,
+        reviews: [] as DriverReviewItem[],
+      };
+    }
+
+    const info = driversInfo?.[selectedId] || {};
+    const raw = driversRaw?.[selectedId] || {};
+    const rideStats = info?.stats || raw?.stats || {};
+
+    const ridesCount =
+      parseInteger(rideStats?.completedRides) ??
+      parseInteger(rideStats?.totalRides) ??
+      parseInteger(info?.completedRides) ??
+      parseInteger(raw?.completedRides) ??
+      0;
+
+    const yearsWithApp =
+      parseInteger(driverPublicInsights?.stats?.yearsOnPlatform) ??
+      parseInteger(info?.yearsOnPlatform) ??
+      parseInteger(raw?.yearsOnPlatform) ??
+      parseInteger(info?.experienceYears) ??
+      parseInteger(raw?.experienceYears) ??
+      0;
+
+    const rawCompliments = info?.compliments || raw?.compliments;
+    const insightsCountById = new Map(
+      Array.isArray(driverPublicInsights?.compliments)
+        ? driverPublicInsights.compliments.map((item) => [item.id, Math.max(0, Math.round(Number(item.count) || 0))])
+        : [],
+    );
+
+    const compliments: DriverComplimentItem[] = complimentCatalog.map((meta) => {
+      const rawValue = rawCompliments && typeof rawCompliments === 'object' ? (rawCompliments as any)[meta.id] : null;
+      const fromRaw =
+        parseInteger(rawValue?.count) ??
+        parseInteger(rawValue?.total) ??
+        parseInteger(rawValue);
+
+      return {
+        id: meta.id,
+        label: t(`client.homeOffers.reviews.compliments.${meta.id}`, meta.id),
+        icon: meta.icon,
+        count: insightsCountById.get(meta.id) ?? fromRaw ?? 0,
+      };
+    });
+
+    const rawReviews =
+      (Array.isArray(driverPublicInsights?.reviews) ? driverPublicInsights.reviews : null) ||
+      (Array.isArray(info?.topReviews) ? info.topReviews : null) ||
+      (Array.isArray(raw?.topReviews) ? raw.topReviews : null) ||
+      (Array.isArray(info?.reviews) ? info.reviews : null) ||
+      (Array.isArray(raw?.reviews) ? raw.reviews : null) ||
+      [];
+
+    const reviews = rawReviews
+      .map((entry: any, index: number) => {
+        const parsedRating = extractRatingValue(entry?.rating) ?? 5;
+        const comment =
+          typeof entry?.comment === 'string' && entry.comment.trim().length > 0
+            ? entry.comment.trim()
+            : typeof entry?.text === 'string' && entry.text.trim().length > 0
+            ? entry.text.trim()
+            : null;
+
+        if (!comment) return null;
+
+        const author =
+          typeof entry?.author === 'string' && entry.author.trim().length > 0
+            ? entry.author.trim()
+            : typeof entry?.name === 'string' && entry.name.trim().length > 0
+            ? entry.name.trim()
+            : t('client.homeOffers.reviews.anonymous');
+
+        return {
+          id: String(entry?.id || index),
+          author,
+          comment,
+          rating: parsedRating,
+          relativeDate: formatRelativeDate(entry?.createdAt ?? entry?.timestamp ?? entry?.date ?? entry?.created_at),
+        };
+      })
+      .filter((item: DriverReviewItem | null): item is DriverReviewItem => item !== null)
+      .slice(0, 5);
+
+    return {
+      ridesCount: parseInteger(driverPublicInsights?.stats?.totalRides) ?? ridesCount,
+      yearsWithApp,
+      compliments,
+      reviews,
+    };
+  }, [driverPublicInsights, driversInfo, driversRaw, selectedOffer?.driverId, t]);
 
   const negotiationBasePrice = useMemo(
     () => resolveNegotiationBasePrice(rideSnapshot, selectedOffer),
@@ -1095,6 +1283,16 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
           />
         )}
 
+        {selectedOffer ? (
+          <TouchableOpacity
+            style={styles.reviewsBtn}
+            onPress={() => setShowDriverReviews(true)}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.reviewsBtnText}>{t('client.homeOffers.buttons.seeDriverReviews')}</Text>
+          </TouchableOpacity>
+        ) : null}
+
         <AnimatedTouchableOpacity
           style={[
             styles.primaryBtn,
@@ -1220,6 +1418,22 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
             alertService.showErrorAlert(e?.message || t('client.homeOffers.alerts.confirmFromModalError'));
           }
         }}
+      />
+
+      <DriverReviewsModal
+        visible={showDriverReviews}
+        onClose={() => setShowDriverReviews(false)}
+        driverName={selectedOffer?.driver?.name || driverFallbackName}
+        driverPhoto={selectedOffer?.driver?.photoURL || null}
+        rating={
+          typeof driverPublicInsights?.stats?.averageRating === 'number'
+            ? driverPublicInsights.stats.averageRating
+            : (selectedOffer?.driver?.rating ?? null)
+        }
+        ridesCount={selectedDriverReviewsData.ridesCount}
+        yearsWithApp={selectedDriverReviewsData.yearsWithApp}
+        compliments={selectedDriverReviewsData.compliments}
+        reviews={selectedDriverReviewsData.reviews}
       />
     </View>
   );
@@ -1493,4 +1707,19 @@ const createStyles = (colors: any) => StyleSheet.create({
     borderRadius: 28,
   },
   cancelBtnText: { color: '#fff', fontWeight: '700', fontSize: 18 },
+  reviewsBtn: {
+    marginTop: 4,
+    marginBottom: 8,
+    paddingVertical: 13,
+    alignItems: 'center',
+    borderRadius: 16,
+    borderWidth: 1,
+    backgroundColor: 'rgba(211, 152, 56, 0.14)',
+    borderColor: 'rgba(211, 152, 56, 0.7)',
+  },
+  reviewsBtnText: {
+    color: colors.text,
+    fontWeight: '800',
+    fontSize: 15,
+  },
 });

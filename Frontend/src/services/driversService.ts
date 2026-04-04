@@ -135,6 +135,7 @@ class DriversService {
       longitude: location.longitude,
       radius,
       vehicleType,
+      designatedDriverVehicle,
     });
 
     const payload: Record<string, any> = {
