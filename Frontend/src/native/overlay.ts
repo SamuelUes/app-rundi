@@ -1,14 +1,19 @@
-import { NativeModules, Platform } from 'react-native';
+import { Platform, EventSubscription } from 'react-native';
+import { requireNativeModule } from 'expo';
 
-const Bridge = NativeModules.OverlayPermissionModule as
-  | {
-      hasOverlayPermission: () => Promise<boolean>;
-      requestOverlayPermission: () => Promise<boolean>;
-      showRideOverlay: (rideId: string, price: number, distanceKm: number, clientName?: string | null) => Promise<boolean>;
-      hideRideOverlay: () => Promise<boolean>;
-      openOverlaySettings: () => Promise<boolean>;
-    }
-  | undefined;
+const Bridge = requireNativeModule<{
+  hasOverlayPermission: () => Promise<boolean>;
+  requestOverlayPermission: () => Promise<boolean>;
+  showRideOverlay: (args: {
+    rideId: string;
+    price: number;
+    distanceKm: number;
+    clientName?: string | null;
+  }) => Promise<boolean>;
+  hideRideOverlay: () => Promise<boolean>;
+  openOverlaySettings: () => Promise<boolean>;
+  addListener: (eventName: string, listener: (data: { rideId: string }) => void) => EventSubscription;
+}>('OverlayPermissionModule');
 
 const isAndroid = Platform.OS === 'android';
 let isOperationInProgress = false;
@@ -123,7 +128,12 @@ export const overlayManager = {
       });
       
       await Promise.race([
-        module.showRideOverlay(rideId, sanitizedPrice, sanitizedDistance, clientName ?? null),
+        module.showRideOverlay({
+          rideId,
+          price: sanitizedPrice,
+          distanceKm: sanitizedDistance,
+          clientName: clientName ?? null,
+        }),
         new Promise((_, reject) => 
           setTimeout(() => reject(new Error('Timeout showing overlay')), 5000)
         )
@@ -175,3 +185,5 @@ export const overlayManager = {
     }
   },
 };
+
+export { Bridge as OverlayPermissionModule };

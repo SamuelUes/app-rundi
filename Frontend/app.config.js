@@ -53,11 +53,14 @@ export default {
       'ACCESS_FINE_LOCATION',
       'ACCESS_BACKGROUND_LOCATION',
       'FOREGROUND_SERVICE',
+      'FOREGROUND_SERVICE_LOCATION',
+      'SYSTEM_ALERT_WINDOW',
       'INTERNET',
       'VIBRATE',
       'WAKE_LOCK',
       'ACTIVITY_RECOGNITION',
       'CAMERA',
+      'RECORD_AUDIO',
       'READ_EXTERNAL_STORAGE',
       'WRITE_EXTERNAL_STORAGE',
       'POST_NOTIFICATIONS',
@@ -104,6 +107,7 @@ export default {
     }
   },
   plugins: [
+    './modules/rundi-native/app.plugin.js',
     [
       'expo-location',
       {
@@ -146,6 +150,14 @@ export default {
     //     messaging_android_notification_priority: 'priority_high',
     //   },
     // ],
+    [
+      'expo-build-properties',
+      {
+        ios: {
+          useFrameworks: 'static',
+        },
+      },
+    ],
   ],
   extra: {
     eas: {

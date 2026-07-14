@@ -1,4 +1,4 @@
-package com.driveangel.rundidev.service
+package com.driveangel.rundidev.rundinative.service
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -10,8 +10,6 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
-import com.driveangel.rundidev.MainActivity
-import com.driveangel.rundidev.R
 
 class TrackingForegroundService : Service() {
 
@@ -32,9 +30,9 @@ class TrackingForegroundService : Service() {
     }
 
     val title = intent?.getStringExtra(EXTRA_TITLE)
-      ?: getString(R.string.tracking_foreground_title)
+      ?: DEFAULT_TITLE
     val body = intent?.getStringExtra(EXTRA_BODY)
-      ?: getString(R.string.tracking_foreground_message)
+      ?: DEFAULT_BODY
 
     val notification = buildNotification(title, body)
     startForeground(notificationId, notification)
@@ -53,9 +51,10 @@ class TrackingForegroundService : Service() {
   }
 
   private fun buildNotification(title: String, body: String): Notification {
-    val launchIntent = Intent(this, MainActivity::class.java).apply {
-      addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-    }
+    val launchIntent = packageManager
+      .getLaunchIntentForPackage(packageName)?.apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+      }
 
     val pendingIntent = PendingIntent.getActivity(
       this,
@@ -67,7 +66,7 @@ class TrackingForegroundService : Service() {
     return NotificationCompat.Builder(this, channelId)
       .setContentTitle(title)
       .setContentText(body)
-      .setSmallIcon(R.mipmap.ic_launcher)
+      .setSmallIcon(applicationInfo.icon)
       .setContentIntent(pendingIntent)
       .setOngoing(true)
       .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -83,10 +82,10 @@ class TrackingForegroundService : Service() {
 
     val channel = NotificationChannel(
       channelId,
-      getString(R.string.tracking_foreground_channel_name),
+      DEFAULT_CHANNEL_NAME,
       NotificationManager.IMPORTANCE_LOW
     ).apply {
-      description = getString(R.string.tracking_foreground_channel_description)
+      description = DEFAULT_CHANNEL_DESCRIPTION
       setShowBadge(false)
       enableLights(false)
       enableVibration(false)
@@ -109,5 +108,10 @@ class TrackingForegroundService : Service() {
     const val ACTION_START = "com.driveangel.action.FOREGROUND_START"
     const val ACTION_STOP = "com.driveangel.action.FOREGROUND_STOP"
     const val CHANNEL_ID = "tracking_foreground_channel"
+
+    private const val DEFAULT_TITLE = "Rundi está rastreando tu viaje"
+    private const val DEFAULT_BODY = "Tu ubicación se comparte para ofrecer el mejor servicio."
+    private const val DEFAULT_CHANNEL_NAME = "Seguimiento en segundo plano"
+    private const val DEFAULT_CHANNEL_DESCRIPTION = "Muestra una notificación persistente cuando el seguimiento de ubicación está activo."
   }
 }

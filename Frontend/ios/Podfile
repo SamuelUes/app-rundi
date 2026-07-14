@@ -47,8 +47,8 @@ target 'Rundi' do
 # @generated end react-native-maps
   config = use_native_modules!(config_command)
 
-#   use_frameworks! :linkage => podfile_properties['ios.useFrameworks'].to_sym if podfile_properties['ios.useFrameworks']
-#   use_frameworks! :linkage => ENV['USE_FRAMEWORKS'].to_sym if ENV['USE_FRAMEWORKS']
+  use_frameworks! :linkage => podfile_properties['ios.useFrameworks'].to_sym if podfile_properties['ios.useFrameworks']
+  use_frameworks! :linkage => ENV['USE_FRAMEWORKS'].to_sym if ENV['USE_FRAMEWORKS']
 
   use_react_native!(
     :path => config[:reactNativePath],
@@ -66,49 +66,26 @@ target 'Rundi' do
       :ccache_enabled => ccache_enabled?(podfile_properties),
     )
 
-    # Make React pods modular without re-declaring them in Podfile
-      react_pods = [
-        'React-Core',
-        'React-RCTBridge',
-        'React-RCTText',
-        'React-RCTImage',
-        'ReactCommon',
-        'React-jsi',
-        'React-jsiexecutor',
-        'React-cxxreact',
-        'RCT-Folly'
-      ]
-
-      installer.pods_project.targets.each do |t|
-        if react_pods.include?(t.name)
-          t.build_configurations.each do |config|
-            config.build_settings['DEFINES_MODULE'] = 'YES'
-          end
-        end
-      end
-
+    # RundiNative: custom post_install
     installer.pods_project.targets.each do |t|
-        t.build_configurations.each do |config|
-          # Avoid Pods failing on warnings as errors
-          config.build_settings['GCC_TREAT_WARNINGS_AS_ERRORS'] = 'NO'
-          config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
+      t.build_configurations.each do |config|
+        config.build_settings['GCC_TREAT_WARNINGS_AS_ERRORS'] = 'NO'
+        config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
 
-          # Remove explicit -Werror if present
-          %w[OTHER_CFLAGS OTHER_CPLUSPLUSFLAGS OTHER_SWIFT_FLAGS].each do |key|
-            flags = config.build_settings[key]
-            next unless flags
-            if flags.is_a?(String)
-              config.build_settings[key] = flags.gsub(' -Werror', '').gsub('-Werror', '')
-            elsif flags.is_a?(Array)
-              config.build_settings[key] = flags.reject { |f| f == '-Werror' }
-            end
-          end
-
-          # Critical: don't compile these pods as strict framework modules
-          if t.name.start_with?('RNFB') || t.name.include?('react_native_maps') || t.name.include?('react-native-maps') || t.name.include?('AIRMap')
-            config.build_settings['DEFINES_MODULE'] = 'NO'
+        %w[OTHER_CFLAGS OTHER_CPLUSPLUSFLAGS OTHER_SWIFT_FLAGS].each do |key|
+          flags = config.build_settings[key]
+          next unless flags
+          if flags.is_a?(String)
+            config.build_settings[key] = flags.gsub(' -Werror', '').gsub('-Werror', '')
+          elsif flags.is_a?(Array)
+            config.build_settings[key] = flags.reject { |f| f == '-Werror' }
           end
         end
+
+        if t.name.start_with?('RNFB') || t.name.include?('react_native_maps') || t.name.include?('react-native-maps') || t.name.include?('AIRMap')
+          config.build_settings['DEFINES_MODULE'] = 'NO'
+        end
       end
+    end
   end
 end

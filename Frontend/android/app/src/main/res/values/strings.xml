@@ -4,11 +4,11 @@
   <string name="expo_runtime_version">Beta - 1.6.4</string>
   <string name="expo_splash_screen_resize_mode" translatable="false">contain</string>
   <string name="expo_splash_screen_status_bar_translucent" translatable="false">false</string>
-  <string name="default_notification_channel_id" translatable="false">rundi_default_channel</string>
-  <string name="default_notification_channel_name">Notificaciones de Rundi</string>
-  <string name="default_notification_channel_description">Alertas y notificaciones generales de la app.</string>
   <string name="tracking_foreground_channel_name">Seguimiento en segundo plano</string>
-  <string name="tracking_foreground_channel_description">"\n    Muestra una notificación persistente cuando el seguimiento de ubicación está activo.\n  "</string>
+  <string name="tracking_foreground_channel_description">Muestra una notificación persistente cuando el seguimiento de ubicación está activo.</string>
   <string name="tracking_foreground_title">Rundi está rastreando tu viaje</string>
   <string name="tracking_foreground_message">Tu ubicación se comparte para ofrecer el mejor servicio.</string>
+  <string name="default_notification_channel_id">rundi_default_channel</string>
+  <string name="default_notification_channel_name">Notificaciones de Rundi</string>
+  <string name="default_notification_channel_description">Alertas y notificaciones generales de la app.</string>
 </resources>

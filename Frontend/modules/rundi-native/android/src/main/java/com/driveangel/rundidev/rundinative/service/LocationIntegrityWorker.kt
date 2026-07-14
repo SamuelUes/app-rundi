@@ -1,12 +1,10 @@
-package com.driveangel.rundidev.service
+package com.driveangel.rundidev.rundinative.service
 
 import android.content.Context
 import android.content.Intent
 import androidx.core.content.ContextCompat
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
-import androidx.work.WorkManager
-import androidx.work.ListenableWorker
 
 class LocationIntegrityWorker(
   appContext: Context,

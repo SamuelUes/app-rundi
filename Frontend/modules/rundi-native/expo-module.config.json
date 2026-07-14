@@ -1,0 +1,11 @@
+{
+  "platforms": ["android"],
+  "android": {
+    "modules": [
+      "com.driveangel.rundidev.rundinative.overlay.OverlayModule",
+      "com.driveangel.rundidev.rundinative.service.ForegroundServiceModule",
+      "com.driveangel.rundidev.rundinative.service.WorkManagerModule",
+      "com.driveangel.rundidev.rundinative.service.BatteryOptimizationModule"
+    ]
+  }
+}

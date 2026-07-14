@@ -23,28 +23,6 @@ plugins {
 }
 
 extensions.configure(com.facebook.react.ReactSettingsExtension) { ex ->
-  def autolinkJson = new File(rootDir, 'build/generated/autolinking/autolinking.json')
-  if (autolinkJson.exists()) {
-    def txt = autolinkJson.getText('UTF-8')
-    if (txt.contains('E:/Frontend/') || txt.contains('E:\\Frontend\\')) {
-      autolinkJson.delete()
-      def autolinkCacheDir = new File(rootDir, 'build/generated/autolinking')
-      autolinkCacheDir.listFiles()?.each { f ->
-        if (f.name.endsWith('.sha')) {
-          f.delete()
-        }
-      }
-    }
-  }
-
-  def autolinkCmake = new File(rootDir, 'app/build/generated/autolinking/src/main/jni/Android-autolinking.cmake')
-  if (autolinkCmake.exists()) {
-    def txt = autolinkCmake.getText('UTF-8')
-    if (txt.contains('E:/Frontend/') || txt.contains('E:\\Frontend\\')) {
-      autolinkCmake.delete()
-    }
-  }
-
   if (System.getenv('EXPO_USE_COMMUNITY_AUTOLINKING') == '1') {
     ex.autolinkLibrariesFromCommand()
   } else {
@@ -59,29 +37,3 @@ expoAutolinking.useExpoVersionCatalog()
 
 include ':app'
 includeBuild(expoAutolinking.reactNativeGradlePlugin)
-
-def setAutolinkedProjectDir = { String projectPath, String relativeDir ->
-  def p = findProject(projectPath)
-  if (p != null) {
-    def dir = new File(rootDir, relativeDir)
-    if (dir.exists()) {
-      p.projectDir = dir
-    }
-  }
-}
-
-setAutolinkedProjectDir(':react-native-async-storage_async-storage', '../node_modules/@react-native-async-storage/async-storage/android')
-setAutolinkedProjectDir(':react-native-firebase_app', '../node_modules/@react-native-firebase/app/android')
-setAutolinkedProjectDir(':react-native-firebase_auth', '../node_modules/@react-native-firebase/auth/android')
-setAutolinkedProjectDir(':react-native-firebase_database', '../node_modules/@react-native-firebase/database/android')
-setAutolinkedProjectDir(':react-native-firebase_firestore', '../node_modules/@react-native-firebase/firestore/android')
-setAutolinkedProjectDir(':react-native-firebase_messaging', '../node_modules/@react-native-firebase/messaging/android')
-setAutolinkedProjectDir(':react-native-picker_picker', '../node_modules/@react-native-picker/picker/android')
-setAutolinkedProjectDir(':react-native-gesture-handler', '../node_modules/react-native-gesture-handler/android')
-setAutolinkedProjectDir(':react-native-linear-gradient', '../node_modules/react-native-linear-gradient/android')
-setAutolinkedProjectDir(':react-native-maps', '../node_modules/react-native-maps/android')
-setAutolinkedProjectDir(':react-native-reanimated', '../node_modules/react-native-reanimated/android')
-setAutolinkedProjectDir(':react-native-safe-area-context', '../node_modules/react-native-safe-area-context/android')
-setAutolinkedProjectDir(':react-native-screens', '../node_modules/react-native-screens/android')
-setAutolinkedProjectDir(':react-native-webview', '../node_modules/react-native-webview/android')
-setAutolinkedProjectDir(':react-native-worklets', '../node_modules/react-native-worklets/android')

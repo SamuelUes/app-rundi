@@ -1,11 +1,10 @@
-import { NativeModules, Platform } from 'react-native';
+import { Platform } from 'react-native';
+import { requireNativeModule } from 'expo';
 
-const Module = NativeModules.BatteryOptimizationModule as
-  | {
-      isIgnoringOptimizations: () => Promise<boolean>;
-      requestIgnoreOptimizations: () => Promise<boolean>;
-    }
-  | undefined;
+const Module = requireNativeModule<{
+  isIgnoringOptimizations: () => Promise<boolean>;
+  requestIgnoreOptimizations: () => Promise<boolean>;
+}>('BatteryOptimizationModule');
 
 const isAndroid = Platform.OS === 'android';
 

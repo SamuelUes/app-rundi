@@ -1,6 +1,6 @@
 # Rundi — Frontend
 
-App móvil de Rundi construida con Expo (bare workflow con carpetas nativas `android/` e `ios/`), React Native, Firebase, Supabase, Google Maps y módulos nativos custom (overlay flotante y foreground service).
+App móvil de Rundi construida con Expo (CNG — Continuous Native Generation), React Native, Firebase, Supabase, Google Maps y módulos nativos custom (overlay flotante, foreground service, work manager y battery optimization) integrados via Expo Modules autolinked en `modules/rundi-native/`.
 
 ---
 
@@ -99,20 +99,22 @@ cd ios && rm -rf Pods Podfile.lock && pod install
 
 ## Prebuild (CNG)
 
-Este proyecto usa bare workflow con carpetas nativas commiteadas. Los comandos de prebuild regeneran `android/` e `ios/` desde `app.config.js`:
+Este proyecto usa **CNG (Continuous Native Generation)**. Las carpetas `android/` e `ios/` se generan desde `app.config.js` y el config plugin de `modules/rundi-native/`. Todo el código nativo custom (overlay, foreground service, work manager, battery optimization) vive en el módulo Expo y se reinyecta automáticamente en cada prebuild.
 
 ```bash
-# Generar nativo sin borrar cambios existentes
-npx expo prebuild
-
-# Regenerar nativo desde cero (BORRA android/ e ios/ y los recrea)
+# Regenerar nativo desde cero (borra y recrea android/ e ios/)
 npx expo prebuild --clean
 
-# Generar sin limpiar (mantiene carpetas existentes)
-npx expo prebuild --no-clean
+# Generar nativo sin borrar cambios existentes
+npx expo prebuild
 ```
 
-> **Advertencia:** `--clean` borra las carpetas nativas y las regenera. Las personalizaciones nativas manuales (módulos Kotlin de overlay/service, tweaks del Podfile) se pierden. Solo usar cuando se haya migrado el código custom a config plugins / Expo Modules.
+> **Importante:** Después de `prebuild --clean`, recrear `android/local.properties`:
+> ```bash
+> echo "sdk.dir=/Users/$USER/Library/Android/sdk" > android/local.properties
+> ```
+
+> El código nativo custom **no se pierde** con `--clean` porque está en `modules/rundi-native/` (Expo Module autolinked) y el config plugin `app.plugin.js` reinyecta permisos, servicios, strings, colores y modificaciones del Podfile automáticamente.
 
 ---
 
@@ -230,7 +232,7 @@ Para depuración nativa en Android:
 
 **Casos de uso:**
 - Inspeccionar logs nativos (Logcat)
-- Depurar código Kotlin (breakpoints en `overlay/` o `service/`)
+- Depurar código Kotlin (breakpoints en `modules/rundi-native/android/`)
 - Editar configuración de Gradle, manifest o recursos
 - Generar APK/AAB desde **Build > Generate Signed Bundle/APK**
 
@@ -304,13 +306,33 @@ cd android && ./gradlew clean
 
 ### Error: "Google Maps no carga en Android"
 
-Verificar que la API key de Google Maps esté configurada en `android/app/src/main/AndroidManifest.xml` (meta-data `com.google.android.geo.API_KEY`) y en `app.config.js > android.config.googleMaps.apiKey`.
+Verificar que la API key de Google Maps esté configurada en `app.config.js > android.config.googleMaps.apiKey`. El config plugin la inyecta automáticamente en el `AndroidManifest.xml` durante el prebuild.
 
 ### Error: "Firebase no inicializa"
 
 Verificar que `google-services.json` (Android) y `GoogleService-Info.plist` (iOS) estén presentes y actualizados:
 - Android: `android/app/google-services.json`
 - iOS: `ios/Rundi/GoogleService-Info.plist`
+
+> Estos archivos no se borran con `prebuild --clean` si están commiteados. Si no, colocarlos manualmente después de prebuild.
+
+### Error: Manifest merger failed (tools:replace)
+
+Si aparece un conflicto de `meta-data#com.google.firebase.messaging.default_notification_color`, el config plugin de `rundi-native` ya inyecta `tools:replace="android:resource"` automáticamente. Si persiste, verificar que `./modules/rundi-native/app.plugin.js` esté **primero** en el array `plugins` de `app.config.js`.
+
+---
+
+## Módulo nativo custom (`modules/rundi-native/`)
+
+El módulo Expo `rundi-native` contiene todo el código nativo custom de la app:
+
+- **`overlay/`** — OverlayManager, OverlayView, OverlayConfig, OverlayContract, OverlayModule (permiso de superposición, burbuja flotante, eventos)
+- **`service/`** — TrackingForegroundService, LocationIntegrityWorker, ForegroundServiceModule, WorkManagerModule, BatteryOptimizationModule
+- **`app.plugin.js`** — Config plugin que inyecta permisos, servicio, strings, colores y `tools:replace` en Android; y modificaciones de Podfile en iOS
+- **`expo-module.config.json`** — Registro de los 4 módulos para autolinking
+- **`src/index.ts`** — API TypeScript del módulo
+
+> **No editar** `android/` ni `ios/` directamente para cambios en overlay/service. Editar los archivos en `modules/rundi-native/` y correr `npx expo prebuild --clean`.
 
 ---
 

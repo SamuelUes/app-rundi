@@ -1,11 +1,10 @@
-import { NativeModules, Platform } from 'react-native';
+import { Platform } from 'react-native';
+import { requireNativeModule } from 'expo';
 
-const Module = NativeModules.ForegroundServiceModule as
-  | {
-      start: (title: string | null, body: string | null) => Promise<boolean>;
-      stop: () => Promise<boolean>;
-    }
-  | undefined;
+const Module = requireNativeModule<{
+  start: (title: string | null, body: string | null) => Promise<boolean>;
+  stop: () => Promise<boolean>;
+}>('ForegroundServiceModule');
 
 const isAndroid = Platform.OS === 'android';
 

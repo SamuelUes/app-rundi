@@ -1,11 +1,10 @@
-import { NativeModules, Platform } from 'react-native';
+import { Platform } from 'react-native';
+import { requireNativeModule } from 'expo';
 
-const Module = NativeModules.WorkManagerModule as
-  | {
-      scheduleLocationIntegrity: (intervalMinutes: number) => Promise<boolean>;
-      cancelLocationIntegrity: () => Promise<boolean>;
-    }
-  | undefined;
+const Module = requireNativeModule<{
+  scheduleLocationIntegrity: (intervalMinutes: number) => Promise<boolean>;
+  cancelLocationIntegrity: () => Promise<boolean>;
+}>('WorkManagerModule');
 
 const isAndroid = Platform.OS === 'android';
 
