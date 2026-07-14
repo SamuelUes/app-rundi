@@ -1,5 +1,5 @@
 {
-  "platforms": ["android"],
+  "platforms": ["android", "ios"],
   "android": {
     "modules": [
       "com.driveangel.rundidev.rundinative.overlay.OverlayModule",
@@ -7,5 +7,8 @@
       "com.driveangel.rundidev.rundinative.service.WorkManagerModule",
       "com.driveangel.rundidev.rundinative.service.BatteryOptimizationModule"
     ]
+  },
+  "ios": {
+    "modules": ["RundiNativeModule"]
   }
 }

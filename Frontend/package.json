@@ -12,7 +12,10 @@
     "web": "expo start --web",
     "test": "jest",
     "env:dev": "node scripts/switch-env.js development",
-    "env:prod": "node scripts/switch-env.js production"
+    "env:prod": "node scripts/switch-env.js production",
+    "prebuild:clean": "npx expo prebuild --clean",
+    "prebuild:clean:android": "npx expo prebuild --clean --platform android",
+    "prebuild:clean:ios": "npx expo prebuild --clean --platform ios"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

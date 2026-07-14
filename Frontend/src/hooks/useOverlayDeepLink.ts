@@ -1,13 +1,14 @@
 import { useEffect } from 'react';
-import { Platform, EventSubscription } from 'react-native';
-import { requireNativeModule } from 'expo';
+import { NativeModules, Platform, EventSubscription } from 'react-native';
 import { navigate, navigationRef } from '../navigation/NavigationService';
 import { getDatabase, ref, get } from 'firebase/database';
 import { FALLBACK_OVERLAY_RIDE_ID } from '../services/proximityService';
 
-const OverlayPermissionModule = requireNativeModule<{
-  addListener: (eventName: string, listener: (data: { rideId: string }) => void) => EventSubscription;
-}>('OverlayPermissionModule');
+const OverlayPermissionModule = NativeModules.OverlayPermissionModule as
+  | {
+      addListener: (eventName: string, listener: (data: { rideId: string }) => void) => EventSubscription;
+    }
+  | undefined;
 
 /**
  * Hook para detectar cuando la app se abre desde el overlay

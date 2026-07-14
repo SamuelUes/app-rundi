@@ -1,19 +1,20 @@
-import { Platform, EventSubscription } from 'react-native';
-import { requireNativeModule } from 'expo';
+import { NativeModules, Platform, EventSubscription } from 'react-native';
 
-const Bridge = requireNativeModule<{
-  hasOverlayPermission: () => Promise<boolean>;
-  requestOverlayPermission: () => Promise<boolean>;
-  showRideOverlay: (args: {
-    rideId: string;
-    price: number;
-    distanceKm: number;
-    clientName?: string | null;
-  }) => Promise<boolean>;
-  hideRideOverlay: () => Promise<boolean>;
-  openOverlaySettings: () => Promise<boolean>;
-  addListener: (eventName: string, listener: (data: { rideId: string }) => void) => EventSubscription;
-}>('OverlayPermissionModule');
+const Bridge = NativeModules.OverlayPermissionModule as
+  | {
+      hasOverlayPermission: () => Promise<boolean>;
+      requestOverlayPermission: () => Promise<boolean>;
+      showRideOverlay: (args: {
+        rideId: string;
+        price: number;
+        distanceKm: number;
+        clientName?: string | null;
+      }) => Promise<boolean>;
+      hideRideOverlay: () => Promise<boolean>;
+      openOverlaySettings: () => Promise<boolean>;
+      addListener: (eventName: string, listener: (data: { rideId: string }) => void) => EventSubscription;
+    }
+  | undefined;
 
 const isAndroid = Platform.OS === 'android';
 let isOperationInProgress = false;

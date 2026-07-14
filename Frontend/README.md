@@ -102,14 +102,20 @@ cd ios && rm -rf Pods Podfile.lock && pod install
 Este proyecto usa **CNG (Continuous Native Generation)**. Las carpetas `android/` e `ios/` se generan desde `app.config.js` y el config plugin de `modules/rundi-native/`. Todo el código nativo custom (overlay, foreground service, work manager, battery optimization) vive en el módulo Expo y se reinyecta automáticamente en cada prebuild.
 
 ```bash
-# Regenerar nativo desde cero (borra y recrea android/ e ios/)
-npx expo prebuild --clean
+# Regenerar ambas plataformas desde cero (borra y recrea android/ e ios/)
+npm run prebuild:clean
+
+# Regenerar solo Android desde cero
+npm run prebuild:clean:android
+
+# Regenerar solo iOS desde cero
+npm run prebuild:clean:ios
 
 # Generar nativo sin borrar cambios existentes
 npx expo prebuild
 ```
 
-> **Importante:** Después de `prebuild --clean`, recrear `android/local.properties`:
+> **Importante:** Después de `prebuild --clean` o `prebuild:clean:android`, recrear `android/local.properties`:
 > ```bash
 > echo "sdk.dir=/Users/$USER/Library/Android/sdk" > android/local.properties
 > ```
@@ -326,13 +332,19 @@ Si aparece un conflicto de `meta-data#com.google.firebase.messaging.default_noti
 
 El módulo Expo `rundi-native` contiene todo el código nativo custom de la app:
 
+**Android (`android/`):**
 - **`overlay/`** — OverlayManager, OverlayView, OverlayConfig, OverlayContract, OverlayModule (permiso de superposición, burbuja flotante, eventos)
 - **`service/`** — TrackingForegroundService, LocationIntegrityWorker, ForegroundServiceModule, WorkManagerModule, BatteryOptimizationModule
+
+**iOS (`ios/`):**
+- **`RundiNativeModule.swift`** — Módulo Expo placeholder con registro de eventos (preparado para futura funcionalidad nativa en iOS)
+
+**Compartido:**
 - **`app.plugin.js`** — Config plugin que inyecta permisos, servicio, strings, colores y `tools:replace` en Android; y modificaciones de Podfile en iOS
-- **`expo-module.config.json`** — Registro de los 4 módulos para autolinking
+- **`expo-module.config.json`** — Registro de módulos para autolinking (Android: 4 módulos Kotlin, iOS: 1 módulo Swift)
 - **`src/index.ts`** — API TypeScript del módulo
 
-> **No editar** `android/` ni `ios/` directamente para cambios en overlay/service. Editar los archivos en `modules/rundi-native/` y correr `npx expo prebuild --clean`.
+> **No editar** `android/` ni `ios/` directamente para cambios en overlay/service. Editar los archivos en `modules/rundi-native/` y correr `npm run prebuild:clean`.
 
 ---
 
@@ -349,3 +361,6 @@ El módulo Expo `rundi-native` contiene todo el código nativo custom de la app:
 | `test` | `jest` | Tests unitarios |
 | `env:dev` | `node scripts/switch-env.js development` | Cambia a env de desarrollo |
 | `env:prod` | `node scripts/switch-env.js production` | Cambia a env de producción |
+| `prebuild:clean` | `npx expo prebuild --clean` | Regenera `android/` e `ios/` desde cero |
+| `prebuild:clean:android` | `npx expo prebuild --clean --platform android` | Regenera solo `android/` desde cero |
+| `prebuild:clean:ios` | `npx expo prebuild --clean --platform ios` | Regenera solo `ios/` desde cero |
