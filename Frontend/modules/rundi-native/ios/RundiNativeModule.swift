@@ -2,8 +2,8 @@ import ExpoModulesCore
 
 public class RundiNativeModule: Module {
   public func definition() -> ModuleDefinition {
-    name("RundiNative")
+    Name("RundiNative")
 
-    events("onOverlayOpened", "onOverlayClosed", "onOverlayClicked")
+    Events("onOverlayOpened", "onOverlayClosed", "onOverlayClicked")
   }
 }

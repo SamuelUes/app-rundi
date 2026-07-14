@@ -225,6 +225,38 @@ function withRundiNative(config) {
     },
   ]);
 
+  // 6. iOS: inject FirebaseCore import and FirebaseApp.configure() into AppDelegate.swift
+  config = withDangerousMod(config, [
+    'ios',
+    (config) => {
+      const appDelegatePath = path.join(
+        config.modRequest.platformProjectRoot,
+        'Rundi',
+        'AppDelegate.swift'
+      );
+      let appDelegateContent = fs.readFileSync(appDelegatePath, 'utf8');
+
+      // Add import FirebaseCore if not present
+      if (!appDelegateContent.includes('import FirebaseCore')) {
+        appDelegateContent = appDelegateContent.replace(
+          /import ReactAppDependencyProvider/,
+          'import ReactAppDependencyProvider\nimport FirebaseCore'
+        );
+      }
+
+      // Add FirebaseApp.configure() if not present
+      if (!appDelegateContent.includes('FirebaseApp.configure()')) {
+        appDelegateContent = appDelegateContent.replace(
+          /bindReactNativeFactory\(factory\)/,
+          'bindReactNativeFactory(factory)\n\n    FirebaseApp.configure()'
+        );
+      }
+
+      fs.writeFileSync(appDelegatePath, appDelegateContent);
+      return config;
+    },
+  ]);
+
   return config;
 }
 
