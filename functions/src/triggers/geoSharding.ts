@@ -237,34 +237,46 @@ export const syncProgrammedRidesByArea = functions.database
     const after = change.after.val();
     const before = change.before.val();
 
-    const rideData = after || before;
-    if (!rideData) {
-      return null;
-    }
+    const resolveServiceAreaId = async (ride: any): Promise<string | null> => {
+      if (!ride) {
+        return null;
+      }
 
-    const origin = rideData.origin || {};
-    const originLat = origin.lat ?? origin.latitude ?? rideData.originLat;
-    const originLng = origin.lng ?? origin.longitude ?? rideData.originLng;
+      const direct = typeof ride.serviceAreaId === 'string' ? ride.serviceAreaId.trim() : '';
+      if (direct) {
+        return direct;
+      }
 
-    const serviceAreaId = await deriveServiceAreaIdFromCoords(originLat, originLng);
+      const origin = ride.origin || {};
+      const originLat = origin.lat ?? origin.latitude ?? ride.originLat;
+      const originLng = origin.lng ?? origin.longitude ?? ride.originLng;
+      return deriveServiceAreaIdFromCoords(originLat, originLng);
+    };
 
-    if (!serviceAreaId) {
-      return null;
-    }
-
-    const shardRef = db.ref(`programmedRidesByArea/${serviceAreaId}/${rideId}`);
+    const beforeServiceAreaId = await resolveServiceAreaId(before);
+    const afterServiceAreaId = await resolveServiceAreaId(after);
 
     if (!after) {
-      await shardRef.remove();
+      if (beforeServiceAreaId) {
+        await db.ref(`programmedRidesByArea/${beforeServiceAreaId}/${rideId}`).remove();
+      }
+      return null;
+    }
+
+    if (beforeServiceAreaId && beforeServiceAreaId !== afterServiceAreaId) {
+      await db.ref(`programmedRidesByArea/${beforeServiceAreaId}/${rideId}`).remove();
+    }
+
+    if (!afterServiceAreaId) {
       return null;
     }
 
     const payload = {
       ...after,
-      serviceAreaId,
+      serviceAreaId: afterServiceAreaId,
     };
 
-    await shardRef.set(payload);
+    await db.ref(`programmedRidesByArea/${afterServiceAreaId}/${rideId}`).set(payload);
     return null;
   });
 

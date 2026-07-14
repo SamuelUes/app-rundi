@@ -202,6 +202,8 @@ const deriveVehicleType = (vehicleDataType: string | null, rideData: any): strin
   return rideData?.vehicleType ?? null;
 };
 
+const OSRM_EXPECTED_FALLBACK_STATUSES = new Set([502, 503, 504]);
+
 const calculateRealRoute = async (
   start: { latitude: number; longitude: number },
   end: { latitude: number; longitude: number },
@@ -231,11 +233,12 @@ const calculateRealRoute = async (
   try {
     const response = await fetch(url);
     if (!response.ok) {
-      // Manejar estados 4xx/5xx como una advertencia silenciosa con fallback
-      console.warn('⚠️ OSRM respondió estado no OK, usando ruta directa', {
-        status: response.status,
-        url,
-      });
+      if (!OSRM_EXPECTED_FALLBACK_STATUSES.has(response.status)) {
+        console.warn('⚠️ OSRM respondió estado no OK, usando ruta directa', {
+          status: response.status,
+          url,
+        });
+      }
       return [start, end];
     }
 
@@ -243,8 +246,7 @@ const calculateRealRoute = async (
     const coordinates: Array<[number, number]> = data?.routes?.[0]?.geometry?.coordinates ?? [];
     if (!coordinates.length) return [start, end];
     return coordinates.map(([lng, lat]) => ({ latitude: lat, longitude: lng }));
-  } catch (error) {
-    console.error('❌ Error de red al llamar OSRM, usando ruta directa', error);
+  } catch {
     return [start, end];
   }
 };
@@ -1210,7 +1212,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 0,
-    elevation: 60,
+    elevation: 6,
     zIndex: 10,
   },
   backButtonImage: {

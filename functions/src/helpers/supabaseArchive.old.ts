@@ -67,12 +67,12 @@ export async function saveCompletedRideToSupabase(
   const estimatedDuration = pickNumber(ride.estimatedDuration);
   const actualDistance = pickNumber(ride.actualDistance, ride.estimatedDistance) ?? 0;
   const actualDuration = pickNumber(ride.actualDuration, ride.estimatedDuration) ?? 0;
-  const estimatedPrice = pickNumber(ride.estimatedPrice, paymentStatus?.amount);
+  const estimatedPrice = pickNumber(ride.estimatedPrice, paymentStatus?.estimatedPrice, paymentStatus?.amount);
   const clientSuggestedPrice = pickNumber(ride.clientSuggestedPrice);
   const driverOfferedPrice = pickNumber(ride.driverOfferedPrice);
-  const paymentAmount = pickNumber(paymentStatus?.finalAmount, paymentStatus?.amount);
+  const paymentAmount = pickNumber(paymentStatus?.finalAmount, paymentStatus?.amount, paymentStatus?.total);
   const rideFinalFare = pickNumber(ride.finalFare);
-  const finalFare = paymentAmount ?? rideFinalFare ?? estimatedPrice ?? clientSuggestedPrice ?? driverOfferedPrice ?? 0;
+  const finalFare = rideFinalFare ?? paymentAmount ?? estimatedPrice ?? clientSuggestedPrice ?? driverOfferedPrice ?? 0;
   const clientVehiclePhoto = ride.clientVehiclePhoto || ride.clientVehiclePhotoUrl || null;
   const serviceId = ride.serviceId || null;
   const biometricRequired = !!ride.biometricAcceptanceRequired;

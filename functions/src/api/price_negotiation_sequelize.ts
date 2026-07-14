@@ -8,6 +8,15 @@ import admin from 'firebase-admin';
 
 const db = admin.database();
 
+const toOptionalPrice = (value: any): number | null => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
 /**
  * Negociar precio - Cliente o conductor sugiere un precio
  */
@@ -222,6 +231,7 @@ export const acceptClientPrice = functions.https.onCall(async (data, context) =>
       ...(rideData.negotiation || {}),
       status: 'driver_accepted',
       clientSuggestedPrice: clientPrice,
+      driverOfferedPrice: rideData.driverOfferedPrice ?? null,
       acceptedClientPrice: true,
       driverId,
       updatedAt: admin.database.ServerValue.TIMESTAMP,
@@ -230,7 +240,7 @@ export const acceptClientPrice = functions.https.onCall(async (data, context) =>
     const rideUpdate: any = {
       finalFare: clientPrice,
       negotiationStatus: 'driver_accepted',
-      driverOfferedPrice: null,
+      driverOfferedPrice: rideData.driverOfferedPrice ?? null,
       clientSuggestedPrice: clientPrice,
       acceptedClientPrice: true,
       driverId,
@@ -257,8 +267,11 @@ export const acceptClientPrice = functions.https.onCall(async (data, context) =>
     try {
       const { RideRepository } = await import('../sequelize/repositories/RideRepository');
       const rideRepo = new RideRepository();
+      const existingDriverOfferedPrice = toOptionalPrice(rideData.driverOfferedPrice);
       await rideRepo.update(rideId, {
         final_fare: clientPrice,
+        client_suggested_price: clientPrice,
+        driver_offered_price: existingDriverOfferedPrice,
         negotiation_status: 'driver_accepted',
         status: 'pending_confirm',
         driver_id: driverId,
@@ -359,6 +372,17 @@ export const makeCounterOffer = functions.https.onCall(async (data, context) => 
       updatedAt: admin.database.ServerValue.TIMESTAMP,
     });
 
+    // ✅ Sincronizar también la última oferta del conductor en Supabase
+    try {
+      const { RideRepository } = await import('../sequelize/repositories/RideRepository');
+      const rideRepo = new RideRepository();
+      await rideRepo.update(rideId, {
+        driver_offered_price: counterPrice,
+      });
+    } catch (supabaseError: any) {
+      console.warn('⚠️ [makeCounterOffer] Error sincronizando driver_offered_price a Supabase:', supabaseError.message);
+    }
+
     console.log(`✅ [makeCounterOffer] Contraoferta registrada: C$${counterPrice}`);
 
     return {
@@ -448,6 +472,22 @@ export const acceptCounterOffer = functions.https.onCall(async (data, context) =
     };
 
     await db.ref(`activeRides/${rideId}`).update(baseUpdate);
+
+    // ✅ Sincronizar información clave a Supabase
+    try {
+      const { RideRepository } = await import('../sequelize/repositories/RideRepository');
+      const rideRepo = new RideRepository();
+      const existingClientSuggestedPrice = toOptionalPrice(rideData.clientSuggestedPrice);
+      await rideRepo.update(rideId, {
+        final_fare: acceptedPrice,
+        client_suggested_price: existingClientSuggestedPrice,
+        driver_offered_price: acceptedPrice,
+        negotiation_status: 'client_accepted',
+        driver_id: driverId || null,
+      });
+    } catch (supabaseError: any) {
+      console.warn('⚠️ [acceptCounterOffer] Error sincronizando a Supabase:', supabaseError.message);
+    }
 
     // ✅ NUEVO: Actualizar el status de la oferta a "accepted" si se proporciona driverId
     if (driverId && rideData.offers && rideData.offers[driverId]) {

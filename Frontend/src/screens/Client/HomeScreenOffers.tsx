@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, Image, ActivityIndicator, Animated } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, Image, ActivityIndicator, Animated, useWindowDimensions } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
@@ -264,6 +264,8 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
   const { t } = useTranslation();
   const driverFallbackName = t('common.roles.driver');
   const { user } = useAuth();
+  const { width: screenWidth } = useWindowDimensions();
+  const isNarrowOfferLayout = screenWidth <= 380;
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { coords } = useLocation();
@@ -1173,14 +1175,22 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
               </View>
               <View style={styles.priceItems}>
                 <View style={styles.priceItemRow}>
-                  <Text style={[styles.priceItemLabel, { color: priceLabelColor }]}>
+                  <Text
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                    style={[styles.priceItemLabel, { color: priceLabelColor }]}
+                  >
                     {t('client.homeOffers.list.clientPriceLabel')}
                   </Text>
                   <Text style={[styles.priceItemValue, { color: priceTextColor }]}>{clientPriceLabel}</Text>
                 </View>
                 <View style={styles.priceItemDivider} />
                 <View style={styles.priceItemRow}>
-                  <Text style={[styles.priceItemLabel, { color: priceLabelColor }]}>
+                  <Text
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                    style={[styles.priceItemLabel, { color: priceLabelColor }]}
+                  >
                     {t('client.homeOffers.list.driverPriceLabel')}
                   </Text>
                   <Text style={[styles.priceItemValue, { color: priceTextColor }]}>{driverPriceLabel}</Text>
@@ -1190,10 +1200,10 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
           )}
         </View>
         {selected ? (
-          <View style={styles.selectedActions}>
+          <View style={[styles.selectedActions, isNarrowOfferLayout && styles.selectedActionsCompact]}>
             <TouchableOpacity
               onPress={() => handleMessageDriver(item)}
-              style={styles.messageButton}
+              style={[styles.messageButton, isNarrowOfferLayout && styles.messageButtonCompact]}
               activeOpacity={0.9}
             >
               <Text style={styles.iconText}>💬</Text>
@@ -1202,6 +1212,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
               <Animated.View
                 style={[
                   styles.acceptedStatusChip,
+                  isNarrowOfferLayout && styles.acceptedStatusChipCompact,
                   {
                     transform: [
                       {
@@ -1218,10 +1229,16 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
                   },
                 ]}
               >
-                <Text style={styles.acceptedStatusText}>{t('client.homeOffers.list.acceptedPrimary')}</Text>
+                <Text style={[styles.acceptedStatusText, isNarrowOfferLayout && styles.acceptedStatusTextCompact]}>
+                  {t('client.homeOffers.list.acceptedPrimary')}
+                </Text>
               </Animated.View>
             ) : (
-              <TouchableOpacity onPress={openNegotiation} style={styles.negotiatePill} activeOpacity={0.9}>
+              <TouchableOpacity
+                onPress={openNegotiation}
+                style={[styles.negotiatePill, isNarrowOfferLayout && styles.negotiatePillCompact]}
+                activeOpacity={0.9}
+              >
                 <Text style={styles.negotiateText}>{t('client.homeOffers.negotiation.pill')}</Text>
               </TouchableOpacity>
             )}
@@ -1529,7 +1546,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     height: 52,
     resizeMode: 'contain',
   },
-  offerInfo: { flex: 1, paddingRight: 4 },
+  offerInfo: { flex: 1, paddingRight: 6, minWidth: 0 },
   offerTitle: { fontSize: 18, fontWeight: '800', lineHeight: 22 },
   offerTitleDefault: { color: colors.text },
   offerTitleSelected: { color: '#FFFFFF' },
@@ -1591,14 +1608,16 @@ const createStyles = (colors: any) => StyleSheet.create({
     marginHorizontal: 8,
   },
   priceItemLabel: {
-    flex: 1,
+    flexGrow: 1,
     flexShrink: 1,
+    minWidth: 0,
     fontSize: 12,
     fontWeight: '700',
-    paddingRight: 6,
+    paddingRight: 8,
   },
   priceItemValue: {
-    minWidth: 88,
+    flexShrink: 0,
+    minWidth: 0,
     textAlign: 'right',
     fontSize: 14,
     fontWeight: '800',
@@ -1620,13 +1639,25 @@ const createStyles = (colors: any) => StyleSheet.create({
     elevation: 4,
     marginTop: 22,
   },
+  negotiatePillCompact: {
+    marginTop: 8,
+    alignSelf: 'stretch',
+    paddingHorizontal: 10,
+  },
   negotiateText: { color: '#FFFFFF', fontWeight: '800', fontSize: 12, letterSpacing: 0.2 },
   selectedActions: {
     flexDirection: 'column',
     alignItems: 'flex-end',
     justifyContent: 'space-between',
+    flexShrink: 0,
+    marginLeft: 6,
+    maxWidth: 122,
     marginTop: 0,
     minHeight: 66,
+  },
+  selectedActionsCompact: {
+    maxWidth: 104,
+    justifyContent: 'flex-start',
   },
   messageButton: {
     width: 38,
@@ -1643,6 +1674,10 @@ const createStyles = (colors: any) => StyleSheet.create({
     shadowOpacity: 0.16,
     shadowRadius: 6,
     elevation: 3,
+  },
+  messageButtonCompact: {
+    marginRight: 0,
+    marginBottom: 8,
   },
   iconText: { fontSize: 16 },
   messageButtonText: {
@@ -1676,7 +1711,12 @@ const createStyles = (colors: any) => StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(187, 247, 208, 0.55)',
   },
+  acceptedStatusChipCompact: {
+    alignSelf: 'stretch',
+    paddingHorizontal: 8,
+  },
   acceptedStatusText: { color: '#F0FDF4', fontWeight: '800', fontSize: 11 },
+  acceptedStatusTextCompact: { textAlign: 'center', fontSize: 10 },
   acceptedStatusChipSecondary: {
     paddingHorizontal: 10,
     paddingVertical: 5,

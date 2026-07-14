@@ -8,6 +8,21 @@ import * as functions from 'firebase-functions';
 import admin from 'firebase-admin';
 
 const DEFAULT_SERVICE_AREA_ID = 'ni-managua';
+const PROGRAMMED_RIDE_CANCELED_RETENTION_MS = 24 * 60 * 60 * 1000;
+const PROGRAMMED_RIDE_STALE_RETENTION_MS = 48 * 60 * 60 * 1000;
+
+const parseEpochMs = (value: any): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return Math.floor(value);
+  }
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return Math.floor(parsed);
+    }
+  }
+  return null;
+};
 
 /**
  * Limpia ubicaciones antiguas de conductores
@@ -312,6 +327,125 @@ export const cleanupPresenceHistory = functions.pubsub
     } catch (error: any) {
       console.error('❌ Error limpiando presencia:', error);
       return { success: false, error: error.message };
+    }
+  });
+
+/**
+ * Limpia viajes programados cancelados/obsoletos y shards huérfanos
+ * Se ejecuta cada 6 horas
+ */
+export const cleanupProgrammedRides = functions.pubsub
+  .schedule('every 6 hours')
+  .timeZone('America/Managua')
+  .onRun(async () => {
+    console.log('🧹 Iniciando limpieza de programmedRides...');
+
+    try {
+      const db = admin.database();
+      const programmedRef = db.ref('/programmedRides');
+      const shardsRef = db.ref('/programmedRidesByArea');
+      const now = Date.now();
+
+      const programmedSnapshot = await programmedRef.once('value');
+      const programmedRides = programmedSnapshot.val() || {};
+
+      const updates: Record<string, null> = {};
+      let deletedProgrammedRides = 0;
+      let deletedShardEntries = 0;
+
+      for (const [rideId, rideData] of Object.entries<any>(programmedRides)) {
+        const status = String(rideData?.status || '').trim().toLowerCase();
+        const scheduledAt = parseEpochMs(rideData?.scheduledAt ?? rideData?.scheduled_at);
+        const canceledAt = parseEpochMs(rideData?.canceledAt ?? rideData?.canceled_at);
+        const updatedAt = parseEpochMs(rideData?.updatedAt ?? rideData?.updated_at);
+        const createdAt = parseEpochMs(rideData?.createdAt ?? rideData?.created_at);
+        const serviceAreaId =
+          typeof rideData?.serviceAreaId === 'string' && rideData.serviceAreaId.trim().length > 0
+            ? rideData.serviceAreaId.trim()
+            : null;
+
+        let shouldDelete = false;
+
+        if (status === 'canceled') {
+          const refTs = canceledAt ?? updatedAt ?? createdAt ?? scheduledAt;
+          if (refTs && refTs < now - PROGRAMMED_RIDE_CANCELED_RETENTION_MS) {
+            shouldDelete = true;
+          }
+        } else if (scheduledAt && scheduledAt < now - PROGRAMMED_RIDE_STALE_RETENTION_MS) {
+          shouldDelete = true;
+        } else if (!scheduledAt) {
+          const refTs = updatedAt ?? createdAt;
+          if (refTs && refTs < now - PROGRAMMED_RIDE_STALE_RETENTION_MS) {
+            shouldDelete = true;
+          }
+        }
+
+        if (!shouldDelete) {
+          continue;
+        }
+
+        updates[`/programmedRides/${rideId}`] = null;
+        deletedProgrammedRides += 1;
+
+        if (serviceAreaId) {
+          updates[`/programmedRidesByArea/${serviceAreaId}/${rideId}`] = null;
+        }
+      }
+
+      const shardsSnapshot = await shardsRef.once('value');
+      const shardsByArea = shardsSnapshot.val() || {};
+
+      for (const [areaId, ridesMap] of Object.entries<any>(shardsByArea)) {
+        if (!ridesMap || typeof ridesMap !== 'object') {
+          continue;
+        }
+
+        for (const rideId of Object.keys(ridesMap)) {
+          if (updates[`/programmedRides/${rideId}`] === null) {
+            updates[`/programmedRidesByArea/${areaId}/${rideId}`] = null;
+            deletedShardEntries += 1;
+            continue;
+          }
+
+          const rideData = programmedRides[rideId];
+          if (!rideData) {
+            updates[`/programmedRidesByArea/${areaId}/${rideId}`] = null;
+            deletedShardEntries += 1;
+            continue;
+          }
+
+          const rideServiceAreaId =
+            typeof rideData?.serviceAreaId === 'string' && rideData.serviceAreaId.trim().length > 0
+              ? rideData.serviceAreaId.trim()
+              : null;
+
+          if (rideServiceAreaId && rideServiceAreaId !== areaId) {
+            updates[`/programmedRidesByArea/${areaId}/${rideId}`] = null;
+            deletedShardEntries += 1;
+          }
+        }
+      }
+
+      if (Object.keys(updates).length > 0) {
+        await db.ref().update(updates);
+      }
+
+      console.log('✅ Limpieza programmedRides completada', {
+        deletedProgrammedRides,
+        deletedShardEntries,
+      });
+
+      return {
+        success: true,
+        deletedProgrammedRides,
+        deletedShardEntries,
+      };
+    } catch (error: any) {
+      console.error('❌ Error limpiando programmedRides:', error);
+      return {
+        success: false,
+        error: error?.message || String(error),
+      };
     }
   });
 

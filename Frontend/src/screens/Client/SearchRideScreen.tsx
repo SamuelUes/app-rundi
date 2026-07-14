@@ -46,7 +46,7 @@ const VEHICLE_TYPES: VehicleType[] = ['moto', 'auto', 'designated_driver'];
 const DESIGNATED_DRIVER_MOTO_DISCOUNT = 70;
 const MIN_DESIGNATED_DRIVER_PRICE = 100;
 const REGION_IDLE_DELAY_MS = 900;
-const SCHEDULE_MIN_LEAD_MS = 10 * 60 * 1000;
+const SCHEDULE_MIN_LEAD_MS = 30 * 60 * 1000;
 const SCHEDULE_MAX_AHEAD_MS = 20 * 24 * 60 * 60 * 1000;
 const SCHEDULE_MINUTE_STEP = 5;
 
@@ -360,6 +360,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
 
   const [mapSelectionMode, setMapSelectionMode] = useState<MapSelectionState | null>(null);
   const [submittingRequest, setSubmittingRequest] = useState(false);
+  const submitRideInFlightRef = useRef(false);
   const [scheduleModalVisible, setScheduleModalVisible] = useState(false);
   const [scheduledAt, setScheduledAt] = useState<number | null>(null);
   const [scheduleDayIndex, setScheduleDayIndex] = useState(0);
@@ -1657,77 +1658,78 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
   }, [tr]);
 
   const onConfirmRequest = useCallback(async () => {
-    if (submittingRequest) return;
-    if (!user) {
-      alertService.showErrorAlert(tr('alerts.loginRequired'));
-      return;
-    }
-    const startPoint = originCoords || coords;
-    if (!startPoint || !destinationCoords) {
-      alertService.showErrorAlert(tr('alerts.destinationRequired'));
-      return;
-    }
-
-    const validatedOrigin = await validateLocationForContext(startPoint, 'origin');
-    if (!validatedOrigin) {
-      return;
-    }
-
-    const validatedDestination = await validateLocationForContext(destinationCoords, 'destination');
-    if (!validatedDestination) {
-      return;
-    }
-
-    let clientSuggestedPrice: number | undefined;
-    if (priceSuggestion.trim().length > 0) {
-      const value = Number(priceSuggestion);
-      if (!Number.isFinite(value) || value <= 0) {
-        alertService.showErrorAlert(tr('alerts.invalidAmount'));
-        return;
-      }
-      clientSuggestedPrice = value;
-    }
-
-    let biometricAcceptancePayload: Record<string, any> | null = null;
-    let vehiclePhotoUrl = clientVehiclePhoto;
-    if (vehicleType === 'designated_driver') {
-      if (uploadingPhoto) {
-        alertService.showInfoAlert(tr('alerts.vehiclePhotoProcessTitle'), tr('alerts.vehiclePhotoProcess'));
-        return;
-      }
-      if (!vehiclePhotoUrl && !clientVehiclePhotoLocalUri) {
-        alertService.showErrorAlert(tr('alerts.vehiclePhotoRequired'));
-        return;
-      }
-      biometricAcceptancePayload = await runDesignatedDriverBiometricVerification();
-      if (!biometricAcceptancePayload) {
-        return;
-      }
-
-      if (!vehiclePhotoUrl && clientVehiclePhotoLocalUri) {
-        setUploadingPhoto(true);
-        try {
-          vehiclePhotoUrl = await uploadClientVehiclePhoto(user.id, clientVehiclePhotoLocalUri);
-          setClientVehiclePhoto(vehiclePhotoUrl);
-          alertService.showSuccessAlert(tr('alerts.photoUploadedTitle'), tr('alerts.photoUploadedMessage'), { duration: 2000 });
-        } catch (uploadError) {
-          console.error('[vehiclePhotoUpload] Error', uploadError);
-          alertService.showErrorAlert(tr('alerts.photoUploadFailed'));
-          setUploadingPhoto(false);
-          return;
-        }
-        setUploadingPhoto(false);
-      }
-
-      if (!vehiclePhotoUrl) {
-        alertService.showErrorAlert(tr('alerts.photoUploadFailed'));
-        return;
-      }
-    }
-
+    if (submittingRequest || submitRideInFlightRef.current) return;
+    submitRideInFlightRef.current = true;
     let requestData: any;
 
     try {
+      if (!user) {
+        alertService.showErrorAlert(tr('alerts.loginRequired'));
+        return;
+      }
+      const startPoint = originCoords || coords;
+      if (!startPoint || !destinationCoords) {
+        alertService.showErrorAlert(tr('alerts.destinationRequired'));
+        return;
+      }
+
+      const validatedOrigin = await validateLocationForContext(startPoint, 'origin');
+      if (!validatedOrigin) {
+        return;
+      }
+
+      const validatedDestination = await validateLocationForContext(destinationCoords, 'destination');
+      if (!validatedDestination) {
+        return;
+      }
+
+      let clientSuggestedPrice: number | undefined;
+      if (priceSuggestion.trim().length > 0) {
+        const value = Number(priceSuggestion);
+        if (!Number.isFinite(value) || value <= 0) {
+          alertService.showErrorAlert(tr('alerts.invalidAmount'));
+          return;
+        }
+        clientSuggestedPrice = value;
+      }
+
+      let biometricAcceptancePayload: Record<string, any> | null = null;
+      let vehiclePhotoUrl = clientVehiclePhoto;
+      if (vehicleType === 'designated_driver') {
+        if (uploadingPhoto) {
+          alertService.showInfoAlert(tr('alerts.vehiclePhotoProcessTitle'), tr('alerts.vehiclePhotoProcess'));
+          return;
+        }
+        if (!vehiclePhotoUrl && !clientVehiclePhotoLocalUri) {
+          alertService.showErrorAlert(tr('alerts.vehiclePhotoRequired'));
+          return;
+        }
+        biometricAcceptancePayload = await runDesignatedDriverBiometricVerification();
+        if (!biometricAcceptancePayload) {
+          return;
+        }
+
+        if (!vehiclePhotoUrl && clientVehiclePhotoLocalUri) {
+          setUploadingPhoto(true);
+          try {
+            vehiclePhotoUrl = await uploadClientVehiclePhoto(user.id, clientVehiclePhotoLocalUri);
+            setClientVehiclePhoto(vehiclePhotoUrl);
+            alertService.showSuccessAlert(tr('alerts.photoUploadedTitle'), tr('alerts.photoUploadedMessage'), { duration: 2000 });
+          } catch (uploadError) {
+            console.error('[vehiclePhotoUpload] Error', uploadError);
+            alertService.showErrorAlert(tr('alerts.photoUploadFailed'));
+            setUploadingPhoto(false);
+            return;
+          }
+          setUploadingPhoto(false);
+        }
+
+        if (!vehiclePhotoUrl) {
+          alertService.showErrorAlert(tr('alerts.photoUploadFailed'));
+          return;
+        }
+      }
+
       setSubmittingRequest(true);
       requestData = {
         clientId: user.id,
@@ -1889,6 +1891,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
       alertService.showErrorAlert(error?.message || tr('alerts.requestError'));
     } finally {
       setSubmittingRequest(false);
+      submitRideInFlightRef.current = false;
     }
   }, [
     user,

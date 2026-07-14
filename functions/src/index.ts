@@ -578,6 +578,7 @@ export const cleanupOldChatsScheduled = cleanupScheduled.cleanupOldChats;
 
 // Procesar viajes programados (cada minuto)
 export const processProgrammedRidesScheduled = programmedRidesScheduled.processProgrammedRides;
+export const processProgrammedRidesWebhook = programmedRidesScheduled.processProgrammedRidesWebhook;
 
 // ============================================
 // REALTIME DATABASE CLEANUP (Reemplaza extensiones)
@@ -597,6 +598,9 @@ export const cleanupNotifications = cleanupRealtimeDB.cleanupNotifications;
 
 // Limpiar historial de presencia (diario) - Mantiene últimos 10
 export const cleanupPresenceHistory = cleanupRealtimeDB.cleanupPresenceHistory;
+
+// Limpiar viajes programados cancelados/obsoletos y shards huérfanos (cada 6 horas)
+export const cleanupProgrammedRides = cleanupRealtimeDB.cleanupProgrammedRides;
 
 export const cleanupInactiveUsers = cleanupRealtimeDB.cleanupInactiveUsers;
 

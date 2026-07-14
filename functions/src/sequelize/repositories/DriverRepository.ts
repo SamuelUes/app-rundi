@@ -6,6 +6,24 @@ import Driver from '../models/Driver';
 import { Op } from 'sequelize';
 
 export class DriverRepository {
+  private isUuid(value: string): boolean {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+  }
+
+  private async findByIdOrUserId(identifier: string) {
+    if (!identifier || typeof identifier !== 'string') return null;
+
+    const normalized = identifier.trim();
+    if (!normalized) return null;
+
+    if (this.isUuid(normalized)) {
+      const byPk = await Driver.findByPk(normalized);
+      if (byPk) return byPk;
+    }
+
+    return await Driver.findOne({ where: { user_id: normalized } });
+  }
+
   async create(data: any) {
     return await Driver.create(data);
   }
@@ -72,13 +90,13 @@ export class DriverRepository {
   }
 
   async incrementTotalRides(driverId: string) {
-    const driver = await Driver.findByPk(driverId);
+    const driver = await this.findByIdOrUserId(driverId);
     if (!driver) throw new Error('Conductor no encontrado');
     return await driver.increment('total_rides');
   }
 
   async incrementEarnings(driverId: string, amount: number) {
-    const driver = await Driver.findByPk(driverId);
+    const driver = await this.findByIdOrUserId(driverId);
     if (!driver) throw new Error('Conductor no encontrado');
     return await driver.increment('total_earnings', { by: amount });
   }

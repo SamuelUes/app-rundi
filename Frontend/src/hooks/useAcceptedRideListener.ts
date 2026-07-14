@@ -24,6 +24,20 @@ export function useAcceptedRideListener(navigation: any, rideId?: string) {
   const { user } = useAuth();
   const navigationTriggeredRef = useRef(false);
 
+  const shouldNavigateToActiveRide = (targetRideId: string): boolean => {
+    const isFocused = typeof navigation?.isFocused === 'function' ? navigation.isFocused() : true;
+    if (!isFocused) {
+      return false;
+    }
+
+    const currentRoute = navigation?.getCurrentRoute?.();
+    const currentRideId = currentRoute?.params?.rideId;
+    const alreadyInSameRide =
+      currentRoute?.name === 'ActiveRide' && String(currentRideId ?? '') === String(targetRideId ?? '');
+
+    return !alreadyInSameRide;
+  };
+
   useEffect(() => {
     if (!user?.id || !['driver', 'designated_driver'].includes(user.role as any)) {
       return;
@@ -52,15 +66,17 @@ export function useAcceptedRideListener(navigation: any, rideId?: string) {
             // Si es un ride específico
             if (rideId) {
               if (isActiveDriverRide(data, user.id)) {
-                navigationTriggeredRef.current = true;
-                console.log('[useAcceptedRideListener] ✅ Ride aceptado, navegando a ActiveRide:', rideId);
-                navigation.replace('ActiveRide', {
-                  rideId,
-                  clientId: data.clientId,
-                  origin: data.origin,
-                  destination: data.destination,
-                  estimatedFare: data.finalFare || data.estimatedPrice,
-                });
+                if (shouldNavigateToActiveRide(rideId)) {
+                  navigationTriggeredRef.current = true;
+                  console.log('[useAcceptedRideListener] ✅ Ride aceptado, navegando a ActiveRide:', rideId);
+                  navigation.replace('ActiveRide', {
+                    rideId,
+                    clientId: data.clientId,
+                    origin: data.origin,
+                    destination: data.destination,
+                    estimatedFare: data.finalFare || data.estimatedPrice,
+                  });
+                }
               }
             } else {
               // Si es monitoreo global, buscar rides aceptados
@@ -69,15 +85,17 @@ export function useAcceptedRideListener(navigation: any, rideId?: string) {
                   !navigationTriggeredRef.current &&
                   isActiveDriverRide(rideData, user.id)
                 ) {
-                  navigationTriggeredRef.current = true;
-                  console.log('[useAcceptedRideListener] ✅ Ride aceptado, navegando a ActiveRide:', id);
-                  navigation.replace('ActiveRide', {
-                    rideId: id,
-                    clientId: rideData.clientId,
-                    origin: rideData.origin,
-                    destination: rideData.destination,
-                    estimatedFare: rideData.finalFare || rideData.estimatedPrice,
-                  });
+                  if (shouldNavigateToActiveRide(id)) {
+                    navigationTriggeredRef.current = true;
+                    console.log('[useAcceptedRideListener] ✅ Ride aceptado, navegando a ActiveRide:', id);
+                    navigation.replace('ActiveRide', {
+                      rideId: id,
+                      clientId: rideData.clientId,
+                      origin: rideData.origin,
+                      destination: rideData.destination,
+                      estimatedFare: rideData.finalFare || rideData.estimatedPrice,
+                    });
+                  }
                 }
               });
             }

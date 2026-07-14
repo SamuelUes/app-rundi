@@ -291,10 +291,16 @@ export const confirmCashPayment = functions.https.onCall(async (data, context) =
         } catch (err: any) {
           console.warn(`⚠️ [confirmCashPayment] Error completando pago en Supabase:`, err.message);
         }
+
+        const completedAmount = Number(
+          completedPayment?.amount ?? paymentData?.finalAmount ?? paymentData?.amount ?? paymentData?.total ?? 0,
+        );
         
         // Actualizar paymentStatus a 'completed'
         await db.ref(`paymentStatus/${rideId}`).update({
           status: 'completed',
+          finalAmount: completedAmount,
+          amount: completedAmount,
           confirmedAt: admin.database.ServerValue.TIMESTAMP,
           lastUpdatedAt: admin.database.ServerValue.TIMESTAMP,
         });
@@ -356,7 +362,7 @@ export const confirmCashPayment = functions.https.onCall(async (data, context) =
 
       await db.ref(`activeRides/${rideId}`).update({
         status: 'completed',
-        finalFare: rideData.finalFare ?? paymentData.amount ?? rideData.estimatedPrice ?? 0,
+        finalFare: rideData.finalFare ?? paymentData.finalAmount ?? paymentData.amount ?? paymentData.total ?? rideData.estimatedPrice ?? 0,
         updatedAt: admin.database.ServerValue.TIMESTAMP,
       });
 
@@ -379,11 +385,16 @@ export const confirmCashPayment = functions.https.onCall(async (data, context) =
         } catch (err: any) {
           console.warn(`⚠️ [confirmCashPayment] Error completando pago en Supabase:`, err.message);
         }
+
+        const completedAmount = Number(
+          completedPayment?.amount ?? paymentData?.finalAmount ?? paymentData?.amount ?? paymentData?.total ?? 0,
+        );
         
-        // ✅ ACTUALIZADO: Cambiar a 'payment_completed' (no 'completed')
-        // El viaje solo pasa a 'completed' después del rating
+        // Mantener estado final consistente para activar archivado en Supabase
         await db.ref(`paymentStatus/${rideId}`).update({
-          status: 'payment_completed',
+          status: 'completed',
+          finalAmount: completedAmount,
+          amount: completedAmount,
           confirmedAt: admin.database.ServerValue.TIMESTAMP,
           lastUpdatedAt: admin.database.ServerValue.TIMESTAMP,
         });
@@ -392,7 +403,7 @@ export const confirmCashPayment = functions.https.onCall(async (data, context) =
         // NO eliminar de activeRides aún
         await db.ref(`activeRides/${rideId}`).update({
           status: 'pending_rating',
-          finalFare: rideData.finalFare ?? paymentData.amount ?? rideData.estimatedPrice ?? 0,
+          finalFare: rideData.finalFare ?? paymentData.finalAmount ?? paymentData.amount ?? paymentData.total ?? rideData.estimatedPrice ?? 0,
           paymentCompletedAt: admin.database.ServerValue.TIMESTAMP,
           updatedAt: admin.database.ServerValue.TIMESTAMP,
         });

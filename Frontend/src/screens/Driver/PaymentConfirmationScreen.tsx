@@ -592,9 +592,9 @@ export default function PaymentConfirmationScreen({
           {/* Ingreso del código de 4 dígitos cuando ya fue generado */}
           {code && (
             <View style={{ alignItems: 'center', marginBottom: 16 }}>
-              <Text style={{ marginBottom: 8, color: colors.text }}>
+              {/* <Text style={{ marginBottom: 8, color: colors.text }}>
                 {t('driver.paymentConfirmation.codeLabel', { code })}
-              </Text>
+              </Text> */}
               <View style={{ flexDirection: 'row', justifyContent: 'center' }}>
                 {[0, 1, 2, 3].map((index) => (
                   <TextInput

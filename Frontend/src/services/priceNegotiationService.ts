@@ -7,7 +7,7 @@ import { httpsCallable } from 'firebase/functions';
 import { getFirebaseFunctions } from '../config/firebase';
 import { getFirebaseDatabase } from '../config/firebase';
 import { ref, onValue, off, type DataSnapshot } from 'firebase/database';
-import i18n from '../i18n';
+import i18next from 'i18next';
 
 export interface RideNegotiationSnapshot {
   rideId: string;
@@ -23,7 +23,7 @@ export interface RideNegotiationSnapshot {
 
 class PriceNegotiationService {
   private tr(path: string, options?: Record<string, any>) {
-    return i18n.t(`services.priceNegotiationService.${path}`, options) as string;
+    return i18next.t(`common.services.priceNegotiationService.${path}`, options) as string;
   }
 
   async subscribeToRideNegotiation(
@@ -139,6 +139,7 @@ class PriceNegotiationService {
 
       const functions = await getFirebaseFunctions();
       const negotiatePriceFunction = httpsCallable(functions, 'negotiatePrice');
+      const makeCounterOfferFunction = httpsCallable(functions, 'makeCounterOffer');
       
       const payload: any = {
         rideId,
@@ -151,7 +152,31 @@ class PriceNegotiationService {
         payload.driverId = driverId;
         console.log(`💰 [negotiatePrice] Enviando driverId: ${driverId}`);
       }
-      
+
+      if (role === 'driver') {
+        try {
+          const counterPayload: any = {
+            rideId,
+            counterPrice: suggestedPrice,
+          };
+
+          if (driverId) {
+            counterPayload.driverId = driverId;
+          }
+
+          const counterResponse = await makeCounterOfferFunction(counterPayload);
+          const counterResult = counterResponse.data as any;
+
+          if (counterResult?.success) {
+            return counterResult.ride;
+          }
+
+          console.warn('[priceNegotiationService] makeCounterOffer sin éxito, fallback a negotiatePrice');
+        } catch (counterError: any) {
+          console.warn('[priceNegotiationService] makeCounterOffer falló, fallback a negotiatePrice:', counterError?.message || counterError);
+        }
+      }
+
       const response = await negotiatePriceFunction(payload);
 
       const result = response.data as any;
@@ -324,32 +349,11 @@ class PriceNegotiationService {
       console.log(`  - Viaje: ${rideId}`);
       console.log(`  - Conductor: ${driverId}`);
       console.log(`  - Precio: C$${offerPrice}`);
-      
-      const { getFirebaseAuth } = require('../config/firebase');
-      const auth = await getFirebaseAuth();
-      const currentUser = auth.currentUser;
-      
-      if (!currentUser) {
-        throw new Error(this.tr('errors.notAuthenticated'));
-      }
-      
-      const functions = await getFirebaseFunctions();
-      const sendDriverOfferFunction = httpsCallable(functions, 'sendDriverOffer');
-      
-      const response = await sendDriverOfferFunction({
-        rideId,
-        driverId,
-        offerPrice,
-      });
 
-      const result = response.data as any;
-      
-      if (!result.success) {
-        throw new Error(result.message || this.tr('errors.sendOfferFailed'));
-      }
+      await this.negotiatePrice(rideId, offerPrice, 'driver', estimatedPrice, driverId);
 
       console.log('✅ Oferta enviada exitosamente');
-      return result;
+      return { success: true };
     } catch (error: any) {
       console.error('❌ Error enviando oferta:', error);
       console.error('Código de error:', error.code);

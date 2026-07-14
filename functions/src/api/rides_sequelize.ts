@@ -777,26 +777,6 @@ export const cancelProgrammedRide = functions.https.onCall(async (data, context)
     canceledBy,
   });
 
-  // Eliminar completamente el viaje programado para evitar residuos
-  try {
-    await rideRef.remove();
-  } catch (error) {
-    console.error('❌ [cancelProgrammedRide] Error eliminando programmedRide', { rideId, error });
-  }
-
-  const serviceAreaId = rideData.serviceAreaId;
-  if (serviceAreaId) {
-    try {
-      await db.ref(`programmedRidesByArea/${serviceAreaId}/${rideId}`).remove();
-    } catch (error) {
-      console.error('⚠️ [cancelProgrammedRide] No se pudo eliminar de programmedRidesByArea', {
-        rideId,
-        serviceAreaId,
-        error,
-      });
-    }
-  }
-
   return { success: true, ride: { id: rideId, status: 'canceled' } };
 });
 
@@ -2721,18 +2701,29 @@ export const completeRide = functions.https.onCall(async (data, context) => {
     }
 
     const ride = await rideService.completeRide(rideId, finalFare);
-    if (driverId) {
+    const currentRideSnapshot = await db.ref(`activeRides/${rideId}`).once('value');
+    const currentRideData = currentRideSnapshot.val() || {};
+
+    const resolvedDriverId =
+      (typeof driverId === 'string' && driverId.trim().length > 0 ? driverId.trim() : null) ||
+      (typeof (ride as any)?.driver_id === 'string' && (ride as any).driver_id.trim().length > 0
+        ? (ride as any).driver_id.trim()
+        : null) ||
+      (typeof currentRideData?.driverId === 'string' && currentRideData.driverId.trim().length > 0
+        ? currentRideData.driverId.trim()
+        : null);
+    const wasAlreadyCompleted = ride?.status === 'completed';
+
+    if (!wasAlreadyCompleted && resolvedDriverId) {
       const earnings = finalFare * 0.90;
-      await driverRepo.incrementTotalRides(driverId);
-      await driverRepo.incrementEarnings(driverId, earnings);
+      await driverRepo.incrementTotalRides(resolvedDriverId);
+      await driverRepo.incrementEarnings(resolvedDriverId, earnings);
     }
     
     // Sincronizar a Firebase Realtime DB - mover a completedRides
     console.log(`🔥 [completeRide] Sincronizando a Firebase...`);
     try {
-      // Obtener datos actuales para preservar negociación
-      const currentRide = await db.ref(`activeRides/${rideId}`).once('value');
-      const currentData = currentRide.val() || {};
+      const currentData = currentRideData;
       
       // ✅ IMPORTANTE: Cambiar a 'pending_payment' (no directamente a 'completed')
       // El viaje solo pasa a 'completed' después de que se confirme el pago
@@ -2779,7 +2770,7 @@ export const completeRide = functions.https.onCall(async (data, context) => {
     
     await safeLogRideEvent(AnalyticsEvents.RIDE_COMPLETED, rideId, context.auth.uid, {
       finalFare,
-      driverId,
+      driverId: resolvedDriverId,
     });
 
     return { success: true, ride: { id: ride.id, status: ride.status, finalFare: ride.final_fare, completedAt: ride.completed_at } };

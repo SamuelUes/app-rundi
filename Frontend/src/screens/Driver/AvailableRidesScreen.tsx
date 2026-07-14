@@ -31,6 +31,7 @@ import rechargeFundsService from '../../services/rechargeFundsService';
 import { getPreflightResult } from '../../state/preflightStore';
 import { RIDES_RADIUS_KM } from '../../constants/rideRadius';
 import { useTranslation } from 'react-i18next';
+import { useIsFocused } from '@react-navigation/native';
 
 const SCREEN_ENTRY_WINDOW_MS = 3000;
 let screenEntryCountInWindow = 0;
@@ -236,6 +237,7 @@ interface Ride {
 export default function AvailableRidesScreeNewDesign({ navigation }: any) {
   const { t } = useTranslation();
   const { colors, isDark } = useTheme();
+  const isScreenFocused = useIsFocused();
   const { user } = useAuth();
   const { coords } = useLocation();
   const { settings: voiceSettings, speak: speakVoice, stopCategory: stopCategory } = useVoiceAssistant();
@@ -375,14 +377,21 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
 
       if (found) {
         setActiveRideGuard({ id: found });
-        navigation.replace('ActiveRide', { rideId: found });
+        const currentRoute = navigation.getCurrentRoute?.();
+        const currentRideId = currentRoute?.params?.rideId;
+        const isAlreadyInSameActiveRide =
+          currentRoute?.name === 'ActiveRide' && String(currentRideId ?? '') === String(found);
+
+        if (isScreenFocused && !isAlreadyInSameActiveRide) {
+          navigation.replace('ActiveRide', { rideId: found });
+        }
       } else {
         setActiveRideGuard(null);
       }
     });
 
     return () => unsubscribe();
-  }, [user?.id, navigation, serviceAreaId]);
+  }, [user?.id, navigation, serviceAreaId, isScreenFocused]);
 
   const selectSnapshotData = useCallback((): Record<string, any> | null => {
     if (serviceAreaId) {
