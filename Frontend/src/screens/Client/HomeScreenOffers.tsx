@@ -8,6 +8,10 @@ import DynamicMap from '../../components/DynamicMap';
 import alertService from '../../services/alertService';
 import ridesService from '../../services/ridesService';
 import PriceNegotiationModal from '../../components/PriceNegotiationModal';
+import DriverReviewsModal, {
+  DriverComplimentItem,
+  DriverReviewItem,
+} from '../../components/DriverReviewsModal';
 import priceNegotiationService from '../../services/priceNegotiationService';
 import { useFirebaseData } from '../../hooks/useFirebaseData';
 import { extractVehicleTypeFromInfo, ensureVehicleIconSource } from '../../utils/vehicleIcons';
@@ -15,6 +19,7 @@ import mapsService from '../../services/mapsService';
 import { clearClientActiveRideState } from '../../utils/clientRideState';
 import { getPreflightResult } from '../../state/preflightStore';
 import { RIDES_RADIUS_KM } from '../../constants/rideRadius';
+import { fetchDriverPublicInsights, type DriverPublicInsights } from '../../services/driverPublicInsightsService';
 
 const USER_LOCATION_LIGHT_ICON = require('../../assets/icons/actuall-position-white/actuallpositionwhite2x.png');
 const USER_LOCATION_DARK_ICON = require('../../assets/icons/actuall-position-black/actuallpositionblack2x.png');
@@ -121,6 +126,30 @@ const extractNameFromSource = (source: any): string | null => {
     source.driverName,
     source.username
   );
+};
+
+const parseInteger = (value: any): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.max(0, Math.round(value));
+  if (typeof value === 'string') {
+    const parsed = parseInt(value, 10);
+    return Number.isFinite(parsed) ? Math.max(0, parsed) : null;
+  }
+  return null;
+};
+
+const parseTimestamp = (value: any): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value > 9999999999 ? value : value * 1000;
+  }
+  if (typeof value === 'string') {
+    const asNumber = Number(value);
+    if (Number.isFinite(asNumber)) {
+      return asNumber > 9999999999 ? asNumber : asNumber * 1000;
+    }
+    const parsedDate = Date.parse(value);
+    return Number.isFinite(parsedDate) ? parsedDate : null;
+  }
+  return null;
 };
 
 const mergeName = (fallback: string, ...sources: Array<any | null | undefined>): string => {
@@ -248,6 +277,8 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
   const [rideSnapshot, setRideSnapshot] = useState<any | null>(null);
   const [driverLocations, setDriverLocations] = useState<Record<string, any> | null>(null);
   const [showNegotiation, setShowNegotiation] = useState(false);
+  const [showDriverReviews, setShowDriverReviews] = useState(false);
+  const [driverPublicInsights, setDriverPublicInsights] = useState<DriverPublicInsights | null>(null);
   const [isConfirming, setIsConfirming] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
   const [routeCoordinates, setRouteCoordinates] = useState<Array<{ latitude: number; longitude: number }>>([]);
@@ -330,26 +361,28 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
 
         // transform offers to array and enrich with driversInfo
         if (offersData && typeof offersData === 'object') {
-          const arr: OfferItem[] = Object.entries<any>(offersData).map(([driverId, offer]) => {
-            const info = driversInfo?.[driverId] || {};
-            const raw = driversRaw?.[driverId] || {};
-            const fullName = mergeName(driverFallbackName, info, raw, offer?.driver);
-            const rating = mergeRating(info, raw, offer?.driver ?? offer);
-            const photoURL = info?.profilePhoto || info?.photoURL || info?.photoUrl || raw?.profilePhoto || raw?.photoURL || raw?.photoUrl || offer?.driver?.photoURL || null;
-            const vehicle = info?.vehicle || info?.activeVehicle || info?.currentVehicle || raw?.vehicle || raw?.activeVehicle || offer?.driver?.vehicle || undefined;
-            return {
-              driverId,
-              offeredPrice: offer?.offeredPrice,
-              status: offer?.status || 'pending',
-              estimatedArrivalTime: offer?.estimatedArrivalTime,
-              driver: {
-                name: fullName,
-                rating,
-                photoURL,
-                vehicle,
-              },
-            };
-          });
+          const arr: OfferItem[] = Object.entries<any>(offersData)
+            .filter(([, offer]) => String(offer?.status || 'pending').toLowerCase() !== 'rejected')
+            .map(([driverId, offer]) => {
+              const info = driversInfo?.[driverId] || {};
+              const raw = driversRaw?.[driverId] || {};
+              const fullName = mergeName(driverFallbackName, info, raw, offer?.driver);
+              const rating = mergeRating(info, raw, offer?.driver ?? offer);
+              const photoURL = info?.profilePhoto || info?.photoURL || info?.photoUrl || raw?.profilePhoto || raw?.photoURL || raw?.photoUrl || offer?.driver?.photoURL || null;
+              const vehicle = info?.vehicle || info?.activeVehicle || info?.currentVehicle || raw?.vehicle || raw?.activeVehicle || offer?.driver?.vehicle || undefined;
+              return {
+                driverId,
+                offeredPrice: offer?.offeredPrice,
+                status: offer?.status || 'pending',
+                estimatedArrivalTime: offer?.estimatedArrivalTime,
+                driver: {
+                  name: fullName,
+                  rating,
+                  photoURL,
+                  vehicle,
+                },
+              };
+            });
           // order by accepted first, then ETA/price
           arr.sort((a, b) => {
             const sa = a.status === 'accepted' ? 0 : 1;
@@ -428,6 +461,163 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
     () => offers.find(o => o.driverId === selectedDriverId),
     [offers, selectedDriverId],
   );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const selectedId = selectedOffer?.driverId;
+    if (!selectedId) {
+      setDriverPublicInsights(null);
+      return;
+    }
+
+    (async () => {
+      try {
+        const insights = await fetchDriverPublicInsights(selectedId, { limit: 20, forceRefresh: true });
+        if (!cancelled) {
+          setDriverPublicInsights(insights);
+        }
+      } catch {
+        if (!cancelled) {
+          setDriverPublicInsights(null);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedOffer?.driverId]);
+
+  const selectedDriverReviewsData = useMemo(() => {
+    const complimentCatalog = [
+      { id: 'punctuality', icon: '⏱️' },
+      { id: 'cleanliness', icon: '🧼' },
+      { id: 'communication', icon: '💬' },
+      { id: 'driving', icon: '🚗' },
+      { id: 'safety', icon: '🛡️' },
+      { id: 'friendliness', icon: '🙂' },
+    ] as const;
+
+    const defaultCompliments: DriverComplimentItem[] = complimentCatalog.map((item) => ({
+      id: item.id,
+      label: t(`client.homeOffers.reviews.compliments.${item.id}`, item.id),
+      count: 0,
+      icon: item.icon,
+    }));
+
+    const formatRelativeDate = (value: any): string => {
+      const timestamp = parseTimestamp(value);
+      if (!timestamp) return t('client.homeOffers.reviews.fallbackDate');
+      const diffMs = Math.max(0, Date.now() - timestamp);
+      const dayMs = 24 * 60 * 60 * 1000;
+      const days = Math.floor(diffMs / dayMs);
+
+      if (days <= 0) return t('client.homeOffers.reviews.relative.today');
+      if (days === 1) return t('client.homeOffers.reviews.relative.oneDay');
+      if (days < 7) return t('client.homeOffers.reviews.relative.days', { count: days });
+
+      const weeks = Math.floor(days / 7);
+      if (weeks <= 1) return t('client.homeOffers.reviews.relative.oneWeek');
+      return t('client.homeOffers.reviews.relative.weeks', { count: weeks });
+    };
+
+    const selectedId = selectedOffer?.driverId;
+    if (!selectedId) {
+      return {
+        ridesCount: 0,
+        yearsWithApp: 0,
+        compliments: defaultCompliments,
+        reviews: [] as DriverReviewItem[],
+      };
+    }
+
+    const info = driversInfo?.[selectedId] || {};
+    const raw = driversRaw?.[selectedId] || {};
+    const rideStats = info?.stats || raw?.stats || {};
+
+    const ridesCount =
+      parseInteger(rideStats?.completedRides) ??
+      parseInteger(rideStats?.totalRides) ??
+      parseInteger(info?.completedRides) ??
+      parseInteger(raw?.completedRides) ??
+      0;
+
+    const yearsWithApp =
+      parseInteger(driverPublicInsights?.stats?.yearsOnPlatform) ??
+      parseInteger(info?.yearsOnPlatform) ??
+      parseInteger(raw?.yearsOnPlatform) ??
+      parseInteger(info?.experienceYears) ??
+      parseInteger(raw?.experienceYears) ??
+      0;
+
+    const rawCompliments = info?.compliments || raw?.compliments;
+    const insightsCountById = new Map(
+      Array.isArray(driverPublicInsights?.compliments)
+        ? driverPublicInsights.compliments.map((item) => [item.id, Math.max(0, Math.round(Number(item.count) || 0))])
+        : [],
+    );
+
+    const compliments: DriverComplimentItem[] = complimentCatalog.map((meta) => {
+      const rawValue = rawCompliments && typeof rawCompliments === 'object' ? (rawCompliments as any)[meta.id] : null;
+      const fromRaw =
+        parseInteger(rawValue?.count) ??
+        parseInteger(rawValue?.total) ??
+        parseInteger(rawValue);
+
+      return {
+        id: meta.id,
+        label: t(`client.homeOffers.reviews.compliments.${meta.id}`, meta.id),
+        icon: meta.icon,
+        count: insightsCountById.get(meta.id) ?? fromRaw ?? 0,
+      };
+    });
+
+    const rawReviews =
+      (Array.isArray(driverPublicInsights?.reviews) ? driverPublicInsights.reviews : null) ||
+      (Array.isArray(info?.topReviews) ? info.topReviews : null) ||
+      (Array.isArray(raw?.topReviews) ? raw.topReviews : null) ||
+      (Array.isArray(info?.reviews) ? info.reviews : null) ||
+      (Array.isArray(raw?.reviews) ? raw.reviews : null) ||
+      [];
+
+    const reviews = rawReviews
+      .map((entry: any, index: number) => {
+        const parsedRating = extractRatingValue(entry?.rating) ?? 5;
+        const comment =
+          typeof entry?.comment === 'string' && entry.comment.trim().length > 0
+            ? entry.comment.trim()
+            : typeof entry?.text === 'string' && entry.text.trim().length > 0
+            ? entry.text.trim()
+            : null;
+
+        if (!comment) return null;
+
+        const author =
+          typeof entry?.author === 'string' && entry.author.trim().length > 0
+            ? entry.author.trim()
+            : typeof entry?.name === 'string' && entry.name.trim().length > 0
+            ? entry.name.trim()
+            : t('client.homeOffers.reviews.anonymous');
+
+        return {
+          id: String(entry?.id || index),
+          author,
+          comment,
+          rating: parsedRating,
+          relativeDate: formatRelativeDate(entry?.createdAt ?? entry?.timestamp ?? entry?.date ?? entry?.created_at),
+        };
+      })
+      .filter((item: DriverReviewItem | null): item is DriverReviewItem => item !== null)
+      .slice(0, 5);
+
+    return {
+      ridesCount: parseInteger(driverPublicInsights?.stats?.totalRides) ?? ridesCount,
+      yearsWithApp,
+      compliments,
+      reviews,
+    };
+  }, [driverPublicInsights, driversInfo, driversRaw, selectedOffer?.driverId, t]);
 
   const negotiationBasePrice = useMemo(
     () => resolveNegotiationBasePrice(rideSnapshot, selectedOffer),
@@ -920,8 +1110,8 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
     const ratingPrefix = ratingLabel ? t('client.homeOffers.list.ratingPrefix', { rating: ratingLabel }) : '';
     const displayName = mergeName(driverFallbackName, info, raw, item.driver);
     const vehicleIconSource = ensureVehicleIconSource(vehicleType);
-    const priceTextColor = selected ? '#ddddddff' : colors.text;
-    const priceLabelColor = selected ? 'rgba(255, 255, 255, 1)' : colors.textSecondary;
+    const priceTextColor = selected ? '#F8FAFC' : colors.text;
+    const priceLabelColor = selected ? 'rgba(248, 250, 252, 0.88)' : colors.textSecondary;
     const driverPriceLabel = driverPrice
       ? `C$${driverPrice.toFixed(2)}`
       : t('client.homeOffers.list.driverPricePending');
@@ -977,20 +1167,23 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
           </Text>
           {selected && (
             <View style={styles.priceRow}>
-              <Text style={[styles.priceLabel, { color: priceLabelColor }]}>{t('client.homeOffers.list.priceLabel')}</Text>
-              <View style={styles.priceValues}>
-                <View style={styles.priceValueGroup}>
-                  <Text style={[styles.priceValueLabel, { color: priceLabelColor }]}>
-                    {t('client.homeOffers.list.clientPriceLabel')}{' '}
+              <View style={styles.priceHeaderRow}>
+                <View style={styles.priceHeaderDot} />
+                <Text style={[styles.priceLabel, { color: priceLabelColor }]}>{t('client.homeOffers.list.priceLabel')}</Text>
+              </View>
+              <View style={styles.priceItems}>
+                <View style={styles.priceItemRow}>
+                  <Text style={[styles.priceItemLabel, { color: priceLabelColor }]}>
+                    {t('client.homeOffers.list.clientPriceLabel')}
                   </Text>
-                  <Text style={[styles.priceValueText, { color: priceTextColor }]}>{clientPriceLabel}</Text>
+                  <Text style={[styles.priceItemValue, { color: priceTextColor }]}>{clientPriceLabel}</Text>
                 </View>
-                {/*<Text style={[styles.priceDivider, { color: priceLabelColor }]}>•••</Text>*/}
-                <View style={styles.priceValueGroup}>
-                  <Text style={[styles.priceValueLabel, { color: priceLabelColor }]}>
-                    {t('client.homeOffers.list.driverPriceLabel')}{' '}
+                <View style={styles.priceItemDivider} />
+                <View style={styles.priceItemRow}>
+                  <Text style={[styles.priceItemLabel, { color: priceLabelColor }]}>
+                    {t('client.homeOffers.list.driverPriceLabel')}
                   </Text>
-                  <Text style={[styles.priceValueText, { color: priceTextColor }]}>{driverPriceLabel}</Text>
+                  <Text style={[styles.priceItemValue, { color: priceTextColor }]}>{driverPriceLabel}</Text>
                 </View>
               </View>
             </View>
@@ -1038,7 +1231,9 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
             <Text style={styles.acceptedStatusTextSecondary}>{t('client.homeOffers.list.acceptedSecondary')}</Text>
           </View>
         ) : (
-          <Text style={styles.offerEtaText}>{negotiationLabel ?? etaValueText}</Text>
+          <View style={styles.offerEtaBadge}>
+            <Text style={styles.offerEtaText}>{negotiationLabel ?? etaValueText}</Text>
+          </View>
         )}
       </TouchableOpacity>
     );
@@ -1087,6 +1282,16 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
             contentContainerStyle={{ paddingBottom: 12 }}
           />
         )}
+
+        {selectedOffer ? (
+          <TouchableOpacity
+            style={styles.reviewsBtn}
+            onPress={() => setShowDriverReviews(true)}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.reviewsBtnText}>{t('client.homeOffers.buttons.seeDriverReviews')}</Text>
+          </TouchableOpacity>
+        ) : null}
 
         <AnimatedTouchableOpacity
           style={[
@@ -1214,6 +1419,22 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
           }
         }}
       />
+
+      <DriverReviewsModal
+        visible={showDriverReviews}
+        onClose={() => setShowDriverReviews(false)}
+        driverName={selectedOffer?.driver?.name || driverFallbackName}
+        driverPhoto={selectedOffer?.driver?.photoURL || null}
+        rating={
+          typeof driverPublicInsights?.stats?.averageRating === 'number'
+            ? driverPublicInsights.stats.averageRating
+            : (selectedOffer?.driver?.rating ?? null)
+        }
+        ridesCount={selectedDriverReviewsData.ridesCount}
+        yearsWithApp={selectedDriverReviewsData.yearsWithApp}
+        compliments={selectedDriverReviewsData.compliments}
+        reviews={selectedDriverReviewsData.reviews}
+      />
     </View>
   );
 }
@@ -1253,19 +1474,24 @@ const createStyles = (colors: any) => StyleSheet.create({
   offerRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    paddingVertical: 20,
-    paddingHorizontal: 8,
-    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    borderRadius: 14,
     borderWidth: 1,
     marginBottom: 8,
   },
   offerRowDefault: {
     backgroundColor: colors.surface,
-    borderColor: '#EFBC06',
+    borderColor: 'rgba(239, 188, 6, 0.85)',
   },
   offerRowSelected: {
     backgroundColor: '#D39838',
-    borderColor: 'rgba(185, 121, 37, 0.12)',
+    borderColor: '#F7CD76',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.24,
+    shadowRadius: 10,
+    elevation: 7,
   },
   offerAvatarWrap: {
     width: 70,
@@ -1303,55 +1529,122 @@ const createStyles = (colors: any) => StyleSheet.create({
     height: 52,
     resizeMode: 'contain',
   },
-  offerInfo: { flex: 1, paddingRight: 8 },
-  offerTitle: { fontSize: 18, fontWeight: '800' },
+  offerInfo: { flex: 1, paddingRight: 4 },
+  offerTitle: { fontSize: 18, fontWeight: '800', lineHeight: 22 },
   offerTitleDefault: { color: colors.text },
-  offerTitleSelected: { color: '#FFFFFFFF' },
-  offerSubtitle: { fontSize: 14, fontWeight: '700', marginTop: 2 },
+  offerTitleSelected: { color: '#FFFFFF' },
+  offerSubtitle: { fontSize: 13, fontWeight: '700', marginTop: 1 },
   offerSubtitleDefault: { color: colors.textSecondary },
-  offerSubtitleSelected: { color: '#E5E7EB' },
-  offerEtaText: { fontSize: 13, fontWeight: '700', color: colors.text, marginLeft: 8 },
-  priceRow: { marginTop: 4 },
-  priceLabel: { fontSize: 16, fontWeight: '700' },
-  priceValues: {
-    flexDirection: 'row',
-    //alignItems: 'center',
-    marginLeft: -70,
-    flexWrap: 'wrap',
-    marginTop: 4,
+  offerSubtitleSelected: { color: '#F8FAFC' },
+  offerEtaBadge: {
+    marginTop: 8,
+    marginLeft: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(239, 188, 6, 0.65)',
+    backgroundColor: 'rgba(239, 188, 6, 0.12)',
   },
-  priceValueGroup: {
+  offerEtaText: { fontSize: 11, fontWeight: '700', color: colors.text },
+  priceRow: {
+    marginTop: 6,
+    borderRadius: 12,
+    paddingHorizontal: 4,
+    paddingVertical: 7,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.34)',
+  },
+  priceHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginRight: 6,
+    gap: 6,
+    marginBottom: 5,
   },
-  priceValueLabel: { fontSize: 16, fontWeight: '600' },
-  priceValueText: { fontSize: 16, fontWeight: '800' },
-  priceDivider: { fontSize: 12, fontWeight: '600' },
+  priceHeaderDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255,255,255,0.92)',
+  },
+  priceLabel: { fontSize: 14, fontWeight: '800', letterSpacing: 0.15 },
+  priceItems: {
+    width: '100%',
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    overflow: 'hidden',
+  },
+  priceItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    columnGap: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+  },
+  priceItemDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    marginHorizontal: 8,
+  },
+  priceItemLabel: {
+    flex: 1,
+    flexShrink: 1,
+    fontSize: 12,
+    fontWeight: '700',
+    paddingRight: 6,
+  },
+  priceItemValue: {
+    minWidth: 88,
+    textAlign: 'right',
+    fontSize: 14,
+    fontWeight: '800',
+  },
   negotiatePill: {
+    minHeight: 40,
     paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 18,
-    backgroundColor: '#8330c7ff',
-    paddingBottom: 8,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: '#5B2AB0',
+    borderWidth: 1.2,
+    borderColor: 'rgba(255,255,255,0.42)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#2E1065',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 4,
+    marginTop: 22,
   },
-  negotiateText: { color: '#FFFFFF', fontWeight: '700', fontSize: 13},
+  negotiateText: { color: '#FFFFFF', fontWeight: '800', fontSize: 12, letterSpacing: 0.2 },
   selectedActions: {
     flexDirection: 'column',
     alignItems: 'flex-end',
-    marginTop: 8,
-    gap: 8,
+    justifyContent: 'space-between',
+    marginTop: 0,
+    minHeight: 66,
   },
   messageButton: {
-    backgroundColor: 'rgba(255,255,255,0.12)',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 18,
-    marginRight: 10,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    borderWidth: 1.2,
+    borderColor: 'rgba(120, 53, 15, 0.35)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.16,
+    shadowRadius: 6,
+    elevation: 3,
   },
-  iconText: {
-    fontSize: 20,
-  },
+  iconText: { fontSize: 16 },
   messageButtonText: {
     color: '#00000060',
     fontWeight: '700',
@@ -1378,25 +1671,24 @@ const createStyles = (colors: any) => StyleSheet.create({
   acceptedStatusChip: {
     paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 16,
-    backgroundColor: 'rgba(33, 150, 83, 0.15)',
+    borderRadius: 14,
+    backgroundColor: 'rgba(22, 101, 52, 0.22)',
     borderWidth: 1,
-    borderColor: 'rgba(33, 150, 83, 0.45)',
-    marginVertical: '10%',
+    borderColor: 'rgba(187, 247, 208, 0.55)',
   },
-  acceptedStatusText: { color: '#166534', fontWeight: '700', fontSize: 13 },
+  acceptedStatusText: { color: '#F0FDF4', fontWeight: '800', fontSize: 11 },
   acceptedStatusChipSecondary: {
     paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingVertical: 5,
     borderRadius: 16,
-    backgroundColor: 'rgba(33, 150, 83, 0.15)',
+    backgroundColor: 'rgba(22, 101, 52, 0.14)',
     borderWidth: 1,
-    borderColor: 'rgba(33, 150, 83, 0.35)',
-    marginVertical: 20,
+    borderColor: 'rgba(22, 101, 52, 0.34)',
+    marginVertical: 18,
   },
   acceptedStatusTextSecondary: { 
-    color: '#166534', 
-    fontWeight: '600', 
+    color: '#166534',
+    fontWeight: '700',
     fontSize: 11
   },
 
@@ -1415,4 +1707,19 @@ const createStyles = (colors: any) => StyleSheet.create({
     borderRadius: 28,
   },
   cancelBtnText: { color: '#fff', fontWeight: '700', fontSize: 18 },
+  reviewsBtn: {
+    marginTop: 4,
+    marginBottom: 8,
+    paddingVertical: 13,
+    alignItems: 'center',
+    borderRadius: 16,
+    borderWidth: 1,
+    backgroundColor: 'rgba(211, 152, 56, 0.14)',
+    borderColor: 'rgba(211, 152, 56, 0.7)',
+  },
+  reviewsBtnText: {
+    color: colors.text,
+    fontWeight: '800',
+    fontSize: 15,
+  },
 });

@@ -18,7 +18,7 @@ import { RouteProp } from '@react-navigation/native';
 
 import { useTheme } from '../../context/ThemeContext';
 import phoneAuthService from '../../services/auth/phoneAuthService';
-import registrationService from '../../services/registrationService';
+import registrationService from '../../services/auth/registrationService';
 import firebaseAuthService from '../../services/auth/firebaseAuthService';
 import { AuthStackParamList } from '../../navigation/types';
 import {
@@ -78,6 +78,7 @@ const DriverPhoneScreen: React.FC<Props> = ({ navigation, route }) => {
     method,
     authProvider,
     googleIdToken,
+    emailVerified,
     context,
   } = route.params;
   const countryOptions = useMemo(() => getCountryDialOptions(), []);
@@ -180,6 +181,7 @@ const DriverPhoneScreen: React.FC<Props> = ({ navigation, route }) => {
         googleIdToken,
         role: 'driver',
         phoneVerified: false,
+        emailVerified: Boolean(emailVerified),
         lastStep: 'driverPhone',
       });
 
@@ -193,6 +195,7 @@ const DriverPhoneScreen: React.FC<Props> = ({ navigation, route }) => {
         googleIdToken,
         role: 'driver',
         phoneVerified: false,
+        emailVerified: Boolean(emailVerified),
         context: context || 'register_phone',
       });
     } catch (error: any) {

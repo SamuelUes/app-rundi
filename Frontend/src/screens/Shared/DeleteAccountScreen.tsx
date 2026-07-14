@@ -27,13 +27,25 @@ export default function DeleteAccountScreen({ navigation }: any) {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
+  const roleKey =
+    user?.role === 'driver' ? 'driver' : user?.role === 'client' ? 'client' : 'default';
+  const warningBulletKeys = [
+    'profile',
+    'rideHistory',
+    'vehicles',
+    'ratings',
+    'paymentMethods',
+    'notifications',
+    'locations',
+    'dataStores',
+  ];
   
   const handleDeleteAccount = async () => {
     // Validar que el usuario haya confirmado
     if (!confirmed) {
       Alert.alert(
-        'Confirmación requerida',
-        'Debes confirmar que entiendes las consecuencias de eliminar tu cuenta marcando la casilla de verificación.'
+        t('shared.deleteAccount.alerts.confirmRequiredTitle'),
+        t('shared.deleteAccount.alerts.confirmRequiredMessage')
       );
       return;
     }
@@ -41,20 +53,26 @@ export default function DeleteAccountScreen({ navigation }: any) {
     // Validar campos
     if (!email || !password) {
       Alert.alert(
-        'Campos incompletos',
-        'Por favor ingresa tu email y contraseña para confirmar la eliminación.'
+        t('shared.deleteAccount.alerts.missingFieldsTitle'),
+        t('shared.deleteAccount.alerts.missingFieldsMessage')
       );
       return;
     }
     
     // Confirmar eliminación
     Alert.alert(
-      'Eliminar cuenta permanentemente',
-      'Esta acción no se puede deshacer. Todos tus datos serán eliminados permanentemente.\n\n¿Estás seguro que deseas continuar?',
+      t(
+        'deleteAccount.alerts.confirmDeleteTitle',
+        'Delete account permanently'
+      ),
+      t(
+        'deleteAccount.alerts.confirmDeleteMessage',
+        'This action cannot be undone. All your data will be permanently deleted.\n\nAre you sure you want to continue?'
+      ),
       [
-        { text: 'Cancelar', style: 'cancel' },
+        { text: t('shared.deleteAccount.alerts.confirmDeleteCancel'), style: 'cancel' },
         {
-          text: 'Eliminar Cuenta',
+          text: t('shared.deleteAccount.alerts.confirmDeleteConfirm'),
           style: 'destructive',
           onPress: async () => {
             setLoading(true);
@@ -70,11 +88,11 @@ export default function DeleteAccountScreen({ navigation }: any) {
                 }
 
                 Alert.alert(
-                  'Cuenta eliminada',
+                  t('shared.deleteAccount.alerts.successTitle'),
                   result.message,
                   [
                     {
-                      text: 'OK',
+                      text: t('shared.deleteAccount.alerts.successOk'),
                       onPress: () => {
                         // Redirigir a login
                         navigation.reset({
@@ -87,14 +105,14 @@ export default function DeleteAccountScreen({ navigation }: any) {
                 );
               } else {
                 Alert.alert(
-                  'Error',
+                  t('deleteAccount.alerts.genericErrorTitle'),
                   result.message
                 );
               }
             } catch (error: any) {
               Alert.alert(
-                'Error',
-                error.message || 'Ocurrió un error al eliminar la cuenta'
+                t('shared.deleteAccount.alerts.genericErrorTitle'),
+                error.message || t('shared.deleteAccount.alerts.deleteErrorMessage')
               );
             } finally {
               setLoading(false);
@@ -229,50 +247,29 @@ export default function DeleteAccountScreen({ navigation }: any) {
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>Eliminar Cuenta</Text>
+          <Text style={styles.headerTitle}>{t('shared.deleteAccount.header.title')}</Text>
           <Text style={styles.headerSubtitle}>
-            {user?.name} • {user?.role === 'driver' ? 'Conductor' : 'Cliente'}
+            {user?.name} • {t(`shared.deleteAccount.header.roles.${roleKey}`)}
           </Text>
         </View>
         
         <ScrollView style={styles.content}>
           <View style={styles.warningBox}>
-            <Text style={styles.warningTitle}>⚠️ Acción irreversible</Text>
-            <Text style={styles.warningText}>
-              Al eliminar tu cuenta, se borrarán permanentemente todos tus datos incluyendo:
-            </Text>
-            <Text style={styles.warningText}>
-              • Tu perfil y datos personales
-            </Text>
-            <Text style={styles.warningText}>
-              • Historial de viajes
-            </Text>
-            <Text style={styles.warningText}>
-              • Vehículos registrados (si eres conductor)
-            </Text>
-            <Text style={styles.warningText}>
-              • Calificaciones y comentarios
-            </Text>
-            <Text style={styles.warningText}>
-              • Métodos de pago guardados
-            </Text>
-            <Text style={styles.warningText}>
-              • Notificaciones y mensajes
-            </Text>
-            <Text style={styles.warningText}>
-              • Ubicaciones y tracking
-            </Text>
-            <Text style={styles.warningText}>
-              • Todos los datos en Firebase y Supabase
-            </Text>
+            <Text style={styles.warningTitle}>{t('shared.deleteAccount.warning.title')}</Text>
+            <Text style={styles.warningText}>{t('shared.deleteAccount.warning.intro')}</Text>
+            {warningBulletKeys.map((key) => (
+              <Text key={key} style={styles.warningText}>
+                {t(`shared.deleteAccount.warning.bullets.${key}`)}
+              </Text>
+            ))}
           </View>
           
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Confirmar credenciales</Text>
+            <Text style={styles.sectionTitle}>{t('shared.deleteAccount.form.title')}</Text>
             
             <TextInput
               style={styles.input}
-              placeholder="Email"
+              placeholder={t('shared.deleteAccount.form.emailPlaceholder')}
               placeholderTextColor={colors.textSecondary}
               value={email}
               onChangeText={setEmail}
@@ -283,7 +280,7 @@ export default function DeleteAccountScreen({ navigation }: any) {
             
             <TextInput
               style={styles.input}
-              placeholder="Contraseña"
+              placeholder={t('shared.deleteAccount.form.passwordPlaceholder')}
               placeholderTextColor={colors.textSecondary}
               value={password}
               onChangeText={setPassword}
@@ -303,7 +300,7 @@ export default function DeleteAccountScreen({ navigation }: any) {
               )}
             </TouchableOpacity>
             <Text style={styles.checkboxText}>
-              Entiendo que esta acción es irreversible y que todos mis datos serán eliminados permanentemente
+              {t('shared.deleteAccount.confirmation.checkbox')}
             </Text>
           </View>
           
@@ -316,7 +313,7 @@ export default function DeleteAccountScreen({ navigation }: any) {
             disabled={loading}
           >
             <Text style={styles.deleteButtonText}>
-              {loading ? 'Eliminando cuenta...' : 'Eliminar Cuenta Permanentemente'}
+              {loading ? t('shared.deleteAccount.buttons.deleting') : t('shared.deleteAccount.buttons.delete')}
             </Text>
           </TouchableOpacity>
           
@@ -325,7 +322,7 @@ export default function DeleteAccountScreen({ navigation }: any) {
             onPress={() => navigation.goBack()}
             disabled={loading}
           >
-            <Text style={styles.cancelButtonText}>Cancelar</Text>
+            <Text style={styles.cancelButtonText}>{t('shared.deleteAccount.buttons.cancel')}</Text>
           </TouchableOpacity>
         </ScrollView>
       </View>

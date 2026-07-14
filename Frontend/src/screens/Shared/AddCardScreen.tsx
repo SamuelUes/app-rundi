@@ -10,10 +10,12 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  Image,
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
 import cardsService from '../../services/cardsService';
 import { useTranslation } from 'react-i18next';
+import SupportChatShortcut from '../../components/SupportChatShortcut';
 
 interface AddCardScreenProps {
   navigation: any;
@@ -225,7 +227,10 @@ export default function AddCardScreen({ navigation }: AddCardScreenProps) {
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backButtonText}>←</Text>
+            <Image
+              source={require('../../assets/icons/back_button/back_button.png')}
+              style={styles.backButtonIcon}
+            />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>{t('shared.addCards.header.title')}</Text>
           <View style={{ width: 40 }} />
@@ -359,6 +364,14 @@ export default function AddCardScreen({ navigation }: AddCardScreenProps) {
             {t('shared.addCards.security.message')}
           </Text>
         </View>
+
+        <SupportChatShortcut
+          style={{ margin: 16 }}
+          initialCategory="payment"
+          initialTitle={t('shared.addCards.support.title')}
+          label={t('shared.addCards.support.label')}
+          description={t('shared.addCards.support.description')}
+        />
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -380,6 +393,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     backgroundColor: colors.card,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
+    paddingTop: 50,
   },
   backButton: {
     width: 40,
@@ -387,9 +401,11 @@ const createStyles = (colors: any) => StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  backButtonText: {
-    fontSize: 24,
-    color: colors.text,
+  backButtonIcon: {
+    width: 30,
+    height: 30,
+    resizeMode: 'contain',
+    tintColor: colors.text,
   },
   headerTitle: {
     fontSize: 20,

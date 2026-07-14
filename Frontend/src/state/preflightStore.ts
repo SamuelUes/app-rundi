@@ -1,6 +1,12 @@
-import type { PreflightRole, PreflightRegionInfo } from '../types/preflight';
+import type { GetPreflightDataResponse, PreflightRole, PreflightRegionInfo } from '../types/preflight';
 
-export type PreflightActionType = 'pending_payment' | 'active_ride' | 'penalties';
+export type PreflightActionType =
+  | 'pending_payment'
+  | 'active_ride'
+  | 'penalties'
+  | 'recharge_funds'
+  | 'programmed_ride_client_confirm'
+  | 'programmed_ride_driver_confirm';
 
 export type PreflightAction = {
   type: PreflightActionType;
@@ -17,6 +23,7 @@ export type PreflightSummary = {
   timestamp: number;
   actions: PreflightAction[];
   region?: PreflightRegionInfo;
+  preflightData?: GetPreflightDataResponse;
 };
 
 let currentSummary: PreflightSummary | null = null;
@@ -42,6 +49,6 @@ export function subscribePreflightResult(listener: (summary: PreflightSummary | 
   return () => listeners.delete(listener);
 }
 
-export function clearPreflightResult() {
+export function clearPreflightResult() { 
   setPreflightResult(null);
 }

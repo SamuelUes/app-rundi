@@ -1,7 +1,9 @@
 import { useEffect } from 'react';
+import { AppState, AppStateStatus } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import backgroundLocationService, { checkBackgroundLocationPermission } from '../services/backgroundLocationService';
 import { ensureActivityRecognitionPermission } from '../utils/activityPermission';
+import { isRegistrationUploadsInProgress, subscribeRegistrationUploadsInProgress } from '../services/proximityService';
 
 /**
  * Inicia tracking de ubicación en segundo plano para conductores
@@ -18,11 +20,23 @@ export default function useDriverProximityTracking() {
     }
 
     let cancelled = false;
+    let currentAppState: AppStateStatus = AppState.currentState;
 
     const start = async () => {
       try {
         console.log('🚀 [useDriverProximityTracking] Inicializando...');
-        
+
+        const uploadsGate = await isRegistrationUploadsInProgress();
+        if (uploadsGate) {
+          console.log('⏸️ [useDriverProximityTracking] Uploads de registro activos, se difiere start');
+          return;
+        }
+
+        if (currentAppState !== 'active') {
+          console.log(`⏸️ [useDriverProximityTracking] AppState=${currentAppState}, se espera foreground`);
+          return;
+        }
+
         console.log('🚀 [useDriverProximityTracking] Role: driver (modo activo)');
 
         console.log('🔐 [useDriverProximityTracking] Solicitando permiso de activity recognition...');
@@ -57,8 +71,26 @@ export default function useDriverProximityTracking() {
     };
 
     start();
+
+    const unsubscribeFlag = subscribeRegistrationUploadsInProgress((value) => {
+      if (!cancelled && !value) {
+        console.log('▶️ [useDriverProximityTracking] Uploads completados, reintentando iniciar tracking');
+        start();
+      }
+    });
+
+    const appStateListener = AppState.addEventListener('change', (nextState) => {
+      currentAppState = nextState;
+      if (!cancelled && nextState === 'active') {
+        console.log('▶️ [useDriverProximityTracking] App volvió a foreground, reintentando start');
+        start();
+      }
+    });
+
     return () => {
       cancelled = true;
+      unsubscribeFlag();
+      appStateListener.remove();
       console.log('🔇 [useDriverProximityTracking] Hook cleanup');
       // No detenemos tracking para permitir "viaje por aproximación" en background
     };

@@ -195,7 +195,25 @@ class EarningsService {
       const response = await getDriverStatsFn({ deviceId });
       const result = response.data as any;
 
-      return result.stats;
+      const stats = result.stats || {};
+
+      return {
+        totalRides: stats.totalRides ?? stats.completedRides ?? 0,
+        totalEarnings: stats.totalEarnings ?? 0,
+        totalCommission: stats.totalCommission ?? 0,
+        totalNetEarnings: stats.totalNetEarnings ?? (stats.totalEarnings ?? 0) - (stats.totalCommission ?? 0),
+        averageFare: stats.averageFare ?? stats.averageEarning ?? 0,
+        totalDistance: stats.totalDistance ?? 0,
+        totalDuration: stats.totalDuration ?? 0,
+        ridesToday: stats.ridesToday ?? 0,
+        earningsToday: stats.earningsToday ?? 0,
+        ridesWeek: stats.ridesWeek ?? 0,
+        earningsWeek: stats.earningsWeek ?? 0,
+        netEarningsWeek: stats.netEarningsWeek ?? 0,
+        ridesMonth: stats.ridesMonth ?? 0,
+        earningsMonth: stats.earningsMonth ?? 0,
+        netEarningsMonth: stats.netEarningsMonth ?? 0,
+      };
     } catch (error: any) {
       console.error('❌ Error obteniendo estadísticas:', error);
       throw new Error(error.message || this.tr('errors.statsFailed'));

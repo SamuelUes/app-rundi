@@ -192,6 +192,10 @@ export default function DriverProfileScreen({ navigation }: any) {
   const [overlayCheckingPermission, setOverlayCheckingPermission] = useState<boolean>(false);
   const currentYear = useMemo(() => new Date().getFullYear(), []);
 
+  const handleGoToSupportComplaints = () => {
+  navigation.navigate('SupportComplaints');
+  };
+
   const extractDesignatedRequestStatus = (driver: DriverData | null | undefined) =>
     driver?.designated_rol_requested || driver?.designatedRoleRequested || driver?.designatedRolRequested || null;
 
@@ -1203,46 +1207,116 @@ export default function DriverProfileScreen({ navigation }: any) {
           <View style={styles.earningsCardsContainer}>
             {/* Fila superior: Ganancias Totales + Ganancias Hoy, centradas */}
             <View style={styles.earningsCardsRowTop}>
-              <View style={styles.earningCard}>
+              <View style={[styles.earningCard, styles.earningCardTop]}>
                 <View style={styles.earningCardIcon}>
                   <Text style={styles.earningCardIconText}>💵</Text>
                 </View>
-                <Text style={styles.earningCardValue}>{formatCurrency(stats.totalEarnings)}</Text>
-                <Text style={styles.earningCardLabel}>{t('driver.profile.stats.totalEarnings')}</Text>
+                <Text
+                  style={styles.earningCardValue}
+                  adjustsFontSizeToFit
+                  numberOfLines={1}
+                  minimumFontScale={0.6}
+                >
+                  {formatCurrency(stats.totalEarnings)}
+                </Text>
+                <Text
+                  style={styles.earningCardLabel}
+                  numberOfLines={2}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.8}
+                >
+                  {t('driver.profile.stats.totalEarnings')}
+                </Text>
               </View>
-              <View style={styles.earningCard}>
+              <View style={[styles.earningCard, styles.earningCardTop]}>
                 <View style={styles.earningCardIconGreen}>
                   <Text style={styles.earningCardIconText}>💰</Text>
                 </View>
-                <Text style={styles.earningCardValue}>{formatCurrency(dailyStats.earnings)}</Text>
-                <Text style={styles.earningCardLabel}>{t('driver.profile.stats.todaysEarnings')}</Text>
+                <Text
+                  style={styles.earningCardValue}
+                  adjustsFontSizeToFit
+                  numberOfLines={1}
+                  minimumFontScale={0.6}
+                >
+                  {formatCurrency(dailyStats.earnings)}
+                </Text>
+                <Text
+                  style={styles.earningCardLabel}
+                  numberOfLines={2}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.8}
+                >
+                  {t('driver.profile.stats.todaysEarnings')}
+                </Text>
               </View>
             </View>
 
             {/* Fila inferior: Viajes Hechos + Viajes Hoy + Calificación, en una sola línea */}
             <View style={styles.earningsCardsRow}>
-              <View style={styles.earningCard}>
+              <View style={[styles.earningCard, styles.earningCardBottom]}>
                 <View style={styles.earningCardIcon}>
                   <Text style={styles.earningCardIconText}>🚗</Text>
                 </View>
-                <Text style={styles.earningCardValue}>{stats.totalRides}</Text>
-                <Text style={styles.earningCardLabel}>{t('driver.profile.stats.totalRides')}</Text>
+                <Text
+                  style={styles.earningCardValue}
+                  adjustsFontSizeToFit
+                  numberOfLines={1}
+                  minimumFontScale={0.6}
+                >
+                  {stats.totalRides}
+                </Text>
+                <Text
+                  style={styles.earningCardLabel}
+                  numberOfLines={2}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.8}
+                >
+                  {t('driver.profile.stats.totalRides')}
+                </Text>
               </View>
 
-              <View style={styles.earningCard}>
+              <View style={[styles.earningCard, styles.earningCardBottom]}>
                 <View style={styles.earningCardIconBlue}>
                   <Text style={styles.earningCardIconText}>📍</Text>
                 </View>
-                <Text style={styles.earningCardValue}>{dailyStats.rides}</Text>
-                <Text style={styles.earningCardLabel}>{t('driver.profile.stats.todaysRides')}</Text>
+                <Text
+                  style={styles.earningCardValue}
+                  adjustsFontSizeToFit
+                  numberOfLines={1}
+                  minimumFontScale={0.6}
+                >
+                  {dailyStats.rides}
+                </Text>
+                <Text
+                  style={styles.earningCardLabel}
+                  numberOfLines={2}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.8}
+                >
+                  {t('driver.profile.stats.todaysRides')}
+                </Text>
               </View>
 
-              <View style={styles.earningCard}>
+              <View style={[styles.earningCard, styles.earningCardBottom]}>
                 <View style={styles.earningCardIconYellow}>
                   <Text style={styles.earningCardIconText}>⭐</Text>
                 </View>
-                <Text style={styles.earningCardValue}>{(typeof stats.averageRating === 'number' ? stats.averageRating : 5).toFixed(1)}</Text>
-                <Text style={styles.earningCardLabel}>{t('driver.profile.stats.rating')}</Text>
+                <Text
+                  style={styles.earningCardValue}
+                  adjustsFontSizeToFit
+                  numberOfLines={1}
+                  minimumFontScale={0.6}
+                >
+                  {(typeof stats.averageRating === 'number' ? stats.averageRating : 5).toFixed(1)}
+                </Text>
+                <Text
+                  style={styles.earningCardLabel}
+                  numberOfLines={2}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.8}
+                >
+                  {t('driver.profile.stats.rating')}
+                </Text>
               </View>
             </View>
           </View>
@@ -1596,7 +1670,7 @@ export default function DriverProfileScreen({ navigation }: any) {
             <Text style={styles.optionArrow}>›</Text>
           </TouchableOpacity>
 
-
+        {/* Tarjetas desactivadas temporalmente
         <TouchableOpacity
           style={styles.optionCard}
           onPress={() => navigation.navigate('PaymentMethods')}
@@ -1608,6 +1682,7 @@ export default function DriverProfileScreen({ navigation }: any) {
           <Text style={styles.optionText}>{t('driver.profile.options.paymentMethods')}</Text>
           <Text style={styles.optionArrow}>›</Text>
         </TouchableOpacity>
+        */}
 
         <TouchableOpacity
           style={styles.optionCard}
@@ -1631,6 +1706,21 @@ export default function DriverProfileScreen({ navigation }: any) {
             />
           <Text style={styles.optionText}>{t('driver.profile.options.help')}</Text>
           <Text style={styles.optionArrow}>›</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity
+           style={styles.optionCard}
+            onPress={handleGoToSupportComplaints}
+             >
+             <Image
+              source={require('../../assets/icons/report-icon/reporticon.png')}
+              style={styles.optionIconImage}
+             />
+             <Text style={styles.optionText}>{t('shared.profile.support.title')}</Text>
+                      {/* <Text style={styles.supportAccessSubtitle}>
+                        {t('shared.profile.support.subtitle', 'Revisa y continúa conversaciones con soporte')}
+                      </Text> */}
+             <Text style={styles.optionArrow}>›</Text>
         </TouchableOpacity>
       </View>
 
@@ -2083,7 +2173,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     width: 110,
     height: 80,
     borderRadius: 40,
-    backgroundColor: colors.primary,
+    backgroundColor: '#6e44ff',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -2167,8 +2257,7 @@ const createStyles = (colors: any) => StyleSheet.create({
   earningsCardsRowTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignSelf: 'center',
-    width: '75%',
+    gap: 12,
   },
   earningsCardsRow: {
     flexDirection: 'row',
@@ -2208,6 +2297,12 @@ const createStyles = (colors: any) => StyleSheet.create({
     elevation: 3,
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  earningCardTop: {
+    minHeight: 72,
+  },
+  earningCardBottom: {
+    minHeight: 32,
   },
   earningCardIcon: {
     width: 44,
@@ -2253,12 +2348,18 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontWeight: '800',
     color: colors.text,
     marginBottom: 4,
+    textAlign: 'center',
+    alignSelf: 'stretch',
+    includeFontPadding: false,
   },
   earningCardLabel: {
     fontSize: 12,
     color: colors.textSecondary,
     textAlign: 'center',
     fontWeight: '500',
+    minHeight: 30,
+    alignSelf: 'stretch',
+    includeFontPadding: false,
   },
   voiceAssistantCard: {
     backgroundColor: colors.card,

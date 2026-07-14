@@ -18,7 +18,7 @@ import * as paymentsSequelizeAPI from "./api/payments_sequelize";
 import * as ratingsSequelizeAPI from "./api/ratings_sequelize";
 import * as priceNegotiationSequelizeAPI from "./api/price_negotiation_sequelize";
 import * as vehiclesSequelizeAPI from "./api/vehicles_sequelize";
-import * as penaltiesSequelizeAPI from "./api/driver_penalties_sequelize";
+import * as rechargeFundsAPI from "./api/recharge_funds";
 import * as rideLocationsSequelizeAPI from "./api/ride_locations_sequelize";
 import * as emergencyCallsSequelizeAPI from "./api/emergency_calls_sequelize";
 import * as servicesSequelizeAPI from "./api/services_sequelize";
@@ -28,11 +28,14 @@ import * as driverServicesSequelizeAPI from "./api/driver_services_sequelize";
 import * as biometricAuthSequelizeAPI from "./api/biometric_authentications_sequelize";
 import * as analyticsSequelizeAPI from "./api/analytics_sequelize";
 import * as clientProfilesAPI from "./api/clientProfiles";
+import * as supportComplaintsAPI from "./api/support_complaints";
+import * as supportCallsAPI from "./api/support_calls";
 import * as smsCodesSequelizeAPI from "./api/sms_verification_codes_sequelize";
 import * as commissionHistorySequelizeAPI from "./api/service_commission_history_sequelize";
 import * as authAPI from "./api/auth";
 import * as pendingPaymentsAPI from "./api/pendingPayments_sequelize";
 import * as regionAvailabilityAPI from "./api/region_availability";
+import * as preflightAPI from "./api/getPreflightData";
 import * as publicRideTrackingAPI from "./api/WebPage_publicRideTracking";
 
 // ⚠️ COMENTADOS: Archivos .old.ts eliminados
@@ -102,6 +105,9 @@ import * as fcmAPI from "./api/fcm";
 // Importar scheduled functions
 import * as cleanupScheduled from "./scheduled/cleanupOldRides";
 import * as cleanupRealtimeDB from "./scheduled/cleanupRealtimeDB";
+import * as programmedRidesScheduled from "./scheduled/programmedRides";
+import * as supportChatNotifications from "./triggers/supportChatNotifications";
+import * as userRolesAPI from "./api/userRoles";
 
 // Importar presence functions
 import * as presenceAPI from "./api/presence";
@@ -124,6 +130,11 @@ import { calculateRidePrice as calculateRidePriceHelper, type VehicleType as Bac
 // Rides
 export const createRide = ridesSequelizeAPI.createRide;
 export const requestRide = ridesSequelizeAPI.createRide; // Alias para compatibilidad
+export const createProgrammedRide = ridesSequelizeAPI.createProgrammedRide;
+export const assignDriverToProgrammedRide = ridesSequelizeAPI.assignDriverToProgrammedRide;
+export const confirmProgrammedRideClient = ridesSequelizeAPI.confirmProgrammedRideClient;
+export const confirmProgrammedRideDriver = ridesSequelizeAPI.confirmProgrammedRideDriver;
+export const cancelProgrammedRide = ridesSequelizeAPI.cancelProgrammedRide;
 export const acceptRide = ridesSequelizeAPI.acceptRide;
 export const confirmDriver = ridesSequelizeAPI.confirmDriver; // ✅ NUEVO: Cliente confirma conductor específico
 export const markDriverOnRoute = ridesSequelizeAPI.markDriverOnRoute;
@@ -185,9 +196,22 @@ export const rejectCounterOffer = priceNegotiationSequelizeAPI.rejectCounterOffe
 // Client profiles
 export const getClientProfile = clientProfilesAPI.getClientProfile;
 
+// Support / Complaints
+export const createSupportComplaint = supportComplaintsAPI.createSupportComplaint;
+export const getSupportTickets = supportComplaintsAPI.getSupportTickets;
+export const updateSupportTicket = supportComplaintsAPI.updateSupportTicket;
+export const requestSupportCall = supportComplaintsAPI.requestSupportCall;
+export const deleteSupportTicket = supportComplaintsAPI.deleteSupportTicket;
+export const initiateSupportCallHttp = supportCallsAPI.initiateSupportCallHttp;
+
 // Region availability
 export const checkRegionAvailability = regionAvailabilityAPI.checkRegionAvailability;
 export const checkRegionAvailabilityHttp = regionAvailabilityAPI.checkRegionAvailabilityHttp;
+export const getPreflightData = preflightAPI.getPreflightData;
+export const getPreflightDataHttp = preflightAPI.getPreflightDataHttp;
+export const getDriverRechargeFundsSummary = rechargeFundsAPI.getDriverRechargeFundsSummary;
+export const createDriverRechargeManual = rechargeFundsAPI.createDriverRechargeManual;
+export const puntoExpressRechargeWebhookHttp = rechargeFundsAPI.puntoExpressRechargeWebhookHttp;
 
 // Public ride tracking (Landing page)
 export const getPublicRideTracking = publicRideTrackingAPI.getPublicRideTracking;
@@ -363,6 +387,7 @@ export const getEarningsByDay = rideHistoryAPI.getEarningsByDay;
 export const submitRating = ratingsSequelizeAPI.submitRating;
 export const getDriverRatings = ratingsSequelizeAPI.getDriverRatings;
 export const getRecentRatings = ratingsSequelizeAPI.getRecentRatings;
+export const getDriverPublicInsights = ratingsSequelizeAPI.getDriverPublicInsights;
 
 // Vehicles (Sequelize)
 export const createVehicleSeq = vehiclesSequelizeAPI.createVehicle;
@@ -374,13 +399,14 @@ export const switchVehicle = vehiclesSequelizeAPI.switchVehicle;
 export const deleteVehicleSeq = vehiclesSequelizeAPI.deleteVehicle;
 
 // Driver Penalties
-export const createPenalty = penaltiesSequelizeAPI.createPenalty;
-export const getDriverPenalties = penaltiesSequelizeAPI.getDriverPenalties;
-export const getTotalPenalties = penaltiesSequelizeAPI.getTotalPenalties;
-export const markPenaltyAsPaid = penaltiesSequelizeAPI.markPenaltyAsPaid;
-export const deletePenalty = penaltiesSequelizeAPI.deletePenalty;
-export const getDriverPenaltySummary = penaltiesSequelizeAPI.getDriverPenaltySummary;
-export const payAllPenalties = penaltiesSequelizeAPI.payAllPenalties;
+// ⚠️ Deprecated (PuntoExpress RechargeFunds reemplaza esta lógica)
+// export const createPenalty = penaltiesSequelizeAPI.createPenalty;
+// export const getDriverPenalties = penaltiesSequelizeAPI.getDriverPenalties;
+// export const getTotalPenalties = penaltiesSequelizeAPI.getTotalPenalties;
+// export const markPenaltyAsPaid = penaltiesSequelizeAPI.markPenaltyAsPaid;
+// export const deletePenalty = penaltiesSequelizeAPI.deletePenalty;
+// export const getDriverPenaltySummary = penaltiesSequelizeAPI.getDriverPenaltySummary;
+// export const payAllPenalties = penaltiesSequelizeAPI.payAllPenalties;
 
 // Ride Locations
 export const createRideLocation = rideLocationsSequelizeAPI.createRideLocation;
@@ -445,15 +471,18 @@ export const registerFCMToken = fcmAPI.registerFCMToken;
 export const clearFCMToken = fcmAPI.clearFCMToken;
 export const sendTestNotification = fcmAPI.sendTestNotification;
 export const notifyProximityRide = fcmAPI.notifyProximityRide;
+export const syncUserRoleFromCms = userRolesAPI.syncUserRoleFromCms;
 
 // Auth API (HTTP + Callable)
 export const auth = authAPI.auth;
 export const registerCallable = authAPI.registerCallable;
 export const checkUserAvailability = authAPI.checkUserAvailability;
 export const logSmsVerificationCode = authAPI.logSmsVerificationCode;
+export const getSupabaseJwt = authAPI.getSupabaseJwt;
 export const exchangeIdTokenForCustomToken = authAPI.exchangeIdTokenForCustomToken;
 export const hasVerifiedRegisterPhoneLog = authAPI.hasVerifiedRegisterPhoneLog;
 export const upgradeClientToDriver = authAPI.upgradeClientToDriver;
+export const deactivateUserAccount = authAPI.deactivateUserAccount;
 
 // Service Commission History (Sequelize)
 export const recordCommissionChangeSeq = commissionHistorySequelizeAPI.recordCommissionChange;
@@ -506,8 +535,10 @@ export const onRideCreated = ridesTriggers.onRideCreated;
 
 // Geo-sharding triggers para RTDB (activeRidesByArea, driverLocationsByArea, clientsLocationsByArea)
 export const syncActiveRidesByArea = geoShardingTriggers.syncActiveRidesByArea;
+export const syncProgrammedRidesByArea = geoShardingTriggers.syncProgrammedRidesByArea;
 export const syncDriverLocationsByArea = geoShardingTriggers.syncDriverLocationsByArea;
 export const syncClientsLocationsByArea = geoShardingTriggers.syncClientsLocationsByArea;
+export const onSupportChatMessage = supportChatNotifications.onSupportChatMessage;
 
 // Payments Triggers
 // ⚠️ DEPRECADO: onPaymentCompleted (función vacía, solo loguea)
@@ -545,6 +576,9 @@ export const cleanupOrphanPaymentsScheduled = cleanupScheduled.cleanupOrphanPaym
 // Limpiar chats huérfanos (cada 12 horas)
 export const cleanupOldChatsScheduled = cleanupScheduled.cleanupOldChats;
 
+// Procesar viajes programados (cada minuto)
+export const processProgrammedRidesScheduled = programmedRidesScheduled.processProgrammedRides;
+
 // ============================================
 // REALTIME DATABASE CLEANUP (Reemplaza extensiones)
 // ============================================
@@ -563,6 +597,8 @@ export const cleanupNotifications = cleanupRealtimeDB.cleanupNotifications;
 
 // Limpiar historial de presencia (diario) - Mantiene últimos 10
 export const cleanupPresenceHistory = cleanupRealtimeDB.cleanupPresenceHistory;
+
+export const cleanupInactiveUsers = cleanupRealtimeDB.cleanupInactiveUsers;
 
 // ============================================
 // PENDING PAYMENTS

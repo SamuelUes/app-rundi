@@ -17,7 +17,7 @@ interface FAQItem {
 
 const SUPPORT_PHONE = '+50512345678';
 const WHATSAPP_NUMBER = '50512345678';
-const SUPPORT_EMAIL = 'soporte@rundiapp.com';
+const SUPPORT_EMAIL = ' soporte@gruporzc.com';
 
 export default function HelpScreen() {
   const { colors } = useTheme();
@@ -58,6 +58,10 @@ export default function HelpScreen() {
       {
         question: t('shared.help.faqs.shareRide.question'),
         answer: t('shared.help.faqs.shareRide.answer'),
+      },
+      {
+        question: t('shared.help.faqs.comission.question'),
+        answer: t('shared.help.faqs.comission.answer'),
       },
     ],
     [t]
@@ -202,7 +206,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontSize: 28,
     fontWeight: '700',
     color: colors.text,
-    marginBottom: 8,
+    marginTop: 28,
   },
   subtitle: {
     fontSize: 14,

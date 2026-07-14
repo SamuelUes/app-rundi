@@ -3,6 +3,9 @@ import { FieldValue } from "firebase-admin/firestore";
 import * as functions from 'firebase-functions';
 import crypto from 'crypto';
 import { supabasePost, supabaseGet, supabaseUpdate } from '../supabase/client';
+import jwt from 'jsonwebtoken';
+import { existsSync, readFileSync } from 'fs';
+import path from 'path';
 
 interface DriverData {
   licenseNumber?: string;
@@ -31,6 +34,7 @@ interface RegisterPayload {
   method?: string;
   authProvider?: "email/password" | "phone" | "google" | string;
   phoneVerified?: boolean;
+  emailVerified?: boolean;
   googleIdToken?: string;
   driverData?: DriverData | null;
   vehicleData?: VehicleData | null;
@@ -46,6 +50,7 @@ interface RegisterResult {
     authProvider: string;
     method: string;
     phoneVerified: boolean;
+    emailVerified: boolean;
   };
   token?: string;
 }
@@ -63,6 +68,104 @@ const firestore = admin.firestore();
 
 const allowedRoles = new Set(["client", "driver"]);
 const allowedProviders = new Set(["email/password", "phone", "google"]);
+
+let cachedSupabaseJwtSecret: string | null = null;
+
+function readSupabaseSecretFromRuntimeFile(): string | undefined {
+  const candidatePaths = [
+    path.resolve(process.cwd(), '.runtimeconfig.json'),
+    path.resolve(__dirname, '..', '.runtimeconfig.json'),
+    path.resolve(__dirname, '..', '..', '.runtimeconfig.json'),
+  ];
+
+  for (const candidate of candidatePaths) {
+    try {
+      if (!existsSync(candidate)) continue;
+      const raw = readFileSync(candidate, 'utf8');
+      const json = JSON.parse(raw);
+      const secret = json?.supabase?.jwt_secret;
+      if (typeof secret === 'string' && secret.trim().length > 0) {
+        console.log(`✅ [getSupabaseJwt] jwt_secret obtenido de ${candidate}`);
+        return secret.trim();
+      }
+    } catch (error: any) {
+      console.log(`⚠️ [getSupabaseJwt] No se pudo leer ${candidate}:`, error.message);
+    }
+  }
+
+  return undefined;
+}
+
+function resolveSupabaseJwtSecret(): string | null {
+  if (cachedSupabaseJwtSecret) {
+    return cachedSupabaseJwtSecret;
+  }
+
+  try {
+    const config = (functions as any).config ? (functions as any).config() : undefined;
+    const secret = config?.supabase?.jwt_secret;
+    if (typeof secret === 'string' && secret.trim().length > 0) {
+      cachedSupabaseJwtSecret = secret.trim();
+      console.log('✅ [getSupabaseJwt] jwt_secret obtenido de functions.config().supabase');
+      return cachedSupabaseJwtSecret;
+    }
+  } catch (error: any) {
+    console.log('⚠️ [getSupabaseJwt] No se pudo leer functions.config():', error.message);
+  }
+
+  const envSecret = process.env.SUPABASE_JWT_SECRET;
+  if (typeof envSecret === 'string' && envSecret.trim().length > 0) {
+    cachedSupabaseJwtSecret = envSecret.trim();
+    console.log('✅ [getSupabaseJwt] jwt_secret obtenido de process.env');
+    return cachedSupabaseJwtSecret;
+  }
+
+  const runtimeSecret = readSupabaseSecretFromRuntimeFile();
+  if (runtimeSecret) {
+    cachedSupabaseJwtSecret = runtimeSecret;
+    return cachedSupabaseJwtSecret;
+  }
+
+  return null;
+}
+
+export const getSupabaseJwt = functions
+  .region('us-central1')
+  .https.onCall(async (_data, context) => {
+    if (!context.auth?.uid) {
+      throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
+    }
+
+    const secret = resolveSupabaseJwtSecret();
+    if (!secret) {
+      console.error('❌ [getSupabaseJwt] SUPABASE_JWT_SECRET no configurado. Usa firebase functions:config:set supabase.jwt_secret="..."');
+      throw new functions.https.HttpsError(
+        'failed-precondition',
+        'SUPABASE_JWT_SECRET no configurado. Ejecuta firebase functions:config:set supabase.jwt_secret="TU_SECRETO"',
+      );
+    }
+
+    const uid = context.auth.uid;
+    const nowSec = Math.floor(Date.now() / 1000);
+    const expSec = nowSec + 10 * 60;
+
+    const token = jwt.sign(
+      {
+        aud: 'authenticated',
+        role: 'authenticated',
+        sub: uid,
+        iat: nowSec,
+        exp: expSec,
+      },
+      secret,
+      { algorithm: 'HS256' },
+    );
+
+    return {
+      token,
+      expiresAtMs: expSec * 1000,
+    };
+  });
 
 async function upsertDriverAndVehicleInSupabase(
   userId: string,
@@ -155,6 +258,12 @@ async function upsertDriverAndVehicleInSupabase(
   if (driverIdForVehicle && vehicleDataInput) {
     const vehiclePayload: any = vehicleDataInput || {};
 
+    const registrationNumberValue = normalizeString(vehiclePayload.registrationNumber);
+    const registrationExpiryValue = normalizeString(vehiclePayload.registrationExpiry);
+    const insuranceNumberValue = normalizeString(vehiclePayload.insuranceNumber);
+    const insuranceCompanyValue = normalizeString(vehiclePayload.insuranceCompany);
+    const insuranceExpiryValue = normalizeString(vehiclePayload.insuranceExpiry);
+
     const existingVehicles: any[] = await supabaseGet(
       'vehicles',
       { driver_id: driverIdForVehicle },
@@ -166,6 +275,13 @@ async function upsertDriverAndVehicleInSupabase(
     );
 
     const hasVehicles = Array.isArray(existingVehicles) && existingVehicles.length > 0;
+
+    const vehicleMetaUpdate: any = {};
+    if (registrationNumberValue !== undefined) vehicleMetaUpdate.registration_number = registrationNumberValue;
+    if (registrationExpiryValue !== undefined) vehicleMetaUpdate.registration_expiry = registrationExpiryValue;
+    if (insuranceNumberValue !== undefined) vehicleMetaUpdate.insurance_number = insuranceNumberValue;
+    if (insuranceCompanyValue !== undefined) vehicleMetaUpdate.insurance_company = insuranceCompanyValue;
+    if (insuranceExpiryValue !== undefined) vehicleMetaUpdate.insurance_expiry = insuranceExpiryValue;
 
     if (!hasVehicles) {
       const yearValue =
@@ -190,6 +306,11 @@ async function upsertDriverAndVehicleInSupabase(
         color: vehiclePayload.color || null,
         type: vehiclePayload.type || null,
         passengers: passengersValue,
+        registration_number: registrationNumberValue ?? null,
+        registration_expiry: registrationExpiryValue ?? null,
+        insurance_number: insuranceNumberValue ?? null,
+        insurance_company: insuranceCompanyValue ?? null,
+        insurance_expiry: insuranceExpiryValue ?? null,
         is_active: false,
       };
 
@@ -204,6 +325,21 @@ async function upsertDriverAndVehicleInSupabase(
           vehicleRow?.id || ''
         }`,
       );
+    } else if (Object.keys(vehicleMetaUpdate).length > 0) {
+      try {
+        const existingVehicleId = existingVehicles[0]?.id;
+        if (existingVehicleId) {
+          await supabaseUpdate('vehicles', existingVehicleId, vehicleMetaUpdate);
+          functions.logger.info(
+            `✅ Vehículo actualizado con metadata (registration/insurance) para conductor ${userId}: ${existingVehicleId}`,
+          );
+        }
+      } catch (error: any) {
+        functions.logger.warn('⚠️ No se pudo actualizar metadata del vehículo durante registro:', {
+          userId,
+          message: error?.message || error,
+        });
+      }
     }
   }
 }
@@ -344,6 +480,9 @@ async function handleRegister(payload: RegisterPayload): Promise<RegisterResult>
     if (!email || !password) {
       throw new RegisterError(400, "Correo y contraseña son requeridos");
     }
+    if (!payload.emailVerified) {
+      throw new RegisterError(400, "Correo verificado es requerido para este método");
+    }
   }
 
   if (authProvider === "phone") {
@@ -354,6 +493,10 @@ async function handleRegister(payload: RegisterPayload): Promise<RegisterResult>
 
   if (authProvider === "google" && !email) {
     throw new RegisterError(400, "El email es requerido para registros con Google");
+  }
+
+  if (authProvider === "google" && !payload.emailVerified) {
+    throw new RegisterError(400, "Correo verificado es requerido para registros con Google");
   }
 
   let userRecord: admin.auth.UserRecord;
@@ -444,6 +587,7 @@ async function handleRegister(payload: RegisterPayload): Promise<RegisterResult>
     authProvider: mergedAuthProvider,
     method: mergedMethod,
     phoneVerified: Boolean(payload.phoneVerified || authProvider === "phone"),
+    emailVerified: Boolean(payload.emailVerified),
     updatedAt: FieldValue.serverTimestamp(),
   };
 
@@ -469,6 +613,7 @@ async function handleRegister(payload: RegisterPayload): Promise<RegisterResult>
       await upsertDriverAndVehicleInSupabase(userRecord.uid, payload.driverData, payload.vehicleData);
     } catch (supabaseError: any) {
       functions.logger.error('❌ Error gestionando conductor en Supabase:', supabaseError);
+      throw new RegisterError(500, supabaseError?.message || 'Error guardando conductor/vehículo en Supabase');
     }
   }
 
@@ -489,6 +634,7 @@ async function handleRegister(payload: RegisterPayload): Promise<RegisterResult>
       authProvider: mergedAuthProvider || authProvider,
       method: mergedMethod || method,
       phoneVerified: Boolean(payload.phoneVerified || authProvider === "phone"),
+      emailVerified: Boolean(payload.emailVerified),
     },
     token: customToken,
   };
@@ -586,33 +732,46 @@ export const logSmsVerificationCode = functions
     try {
       const rawUserId = (data?.userId as string | undefined) || (context.auth?.uid as string | undefined);
       const phoneNumber = (data?.phoneNumber as string | undefined) || undefined;
+      const mail = (data?.mail as string | undefined) || undefined;
+      const emailValue = (data?.email as string | undefined) || undefined;
+      const isEmailVerification = typeof data?.isEmail === 'boolean' ? data.isEmail : false;
       const code = (data?.code as string | undefined) || undefined;
-      const verificationContext = (data?.context as string | undefined) || 'register_phone';
+      const verificationContext = (data?.context as string | undefined) || '';
       const attempts = typeof data?.attemptCount === 'number' ? data.attemptCount : 1;
 
       if (!rawUserId) {
         throw new functions.https.HttpsError('invalid-argument', 'userId es requerido para registrar la verificación SMS');
       }
 
-      if (!phoneNumber) {
-        throw new functions.https.HttpsError('invalid-argument', 'phoneNumber es requerido para registrar la verificación SMS');
+      if (!phoneNumber && !mail && !emailValue && !isEmailVerification) {
+        throw new functions.https.HttpsError(
+          'invalid-argument',
+          'phoneNumber, mail o email es requerido para registrar la verificación'
+        );
       }
 
       const userId = rawUserId.trim();
-      const normalizedPhone = phoneNumber.replace(/\s+/g, '');
+      const normalizedPhone = phoneNumber ? phoneNumber.replace(/\s+/g, '') : null;
+      const normalizedMail = mail ? mail.trim().toLowerCase() : null;
+      const normalizedEmailValue = emailValue ? emailValue.trim().toLowerCase() : null;
+      const isEmailLog = Boolean(isEmailVerification || normalizedEmailValue);
 
       const now = new Date();
       const expiresAt = new Date(now.getTime() + 10 * 60 * 1000); // 10 minutos
 
-      const safeCode = (code || '').trim();
+      const safeCodeInput = (code || '').trim();
+      const safeCode = safeCodeInput || (isEmailLog ? '000000' : '');
+      const effectiveContext = (verificationContext || '').trim() || (isEmailLog ? 'register_email' : 'register_phone');
       const codeHash = safeCode
         ? crypto.createHash('sha256').update(safeCode).digest('hex')
-        : crypto.createHash('sha256').update(`${userId}:${normalizedPhone}:${now.toISOString()}`).digest('hex');
+        : crypto.createHash('sha256').update(`${userId}:${normalizedPhone || normalizedMail || now.toISOString()}`).digest('hex');
 
       const payload = {
         user_id: userId,
         phone_number: normalizedPhone,
-        context: verificationContext,
+        email: normalizedEmailValue || normalizedMail,
+        is_email: isEmailLog,
+        context: effectiveContext,
         code: safeCode || null,
         code_hash: codeHash,
         verified: true,
@@ -624,7 +783,11 @@ export const logSmsVerificationCode = functions
       functions.logger.info('📲 Registrando verificación SMS en Supabase:', {
         userId,
         phoneNumber: normalizedPhone,
-        context: verificationContext,
+        mail: normalizedMail,
+        email: normalizedEmailValue,
+        isEmail: isEmailLog,
+        context: effectiveContext,
+        hasCode: Boolean(safeCode),
       });
 
       const result = await supabasePost('sms_verification_codes', payload);
@@ -814,6 +977,10 @@ export const upgradeClientToDriver = functions
       await upsertDriverAndVehicleInSupabase(uid, driverData, vehicleData);
     } catch (supabaseError: any) {
       functions.logger.error('❌ Error gestionando conductor en Supabase (upgradeClientToDriver):', supabaseError);
+      throw new functions.https.HttpsError(
+        'internal',
+        supabaseError?.message || 'Error guardando conductor/vehículo en Supabase'
+      );
     }
 
     return {
@@ -824,4 +991,73 @@ export const upgradeClientToDriver = functions
         role: 'driver',
       },
     };
+  });
+
+export const deactivateUserAccount = functions
+  .region('us-central1')
+  .https.onCall(async (data, context) => {
+    if (!context.auth?.uid) {
+      throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
+    }
+
+    const uid = context.auth.uid;
+    const reason = normalizeString(data?.reason) || 'self_requested';
+
+    try {
+      await authAdmin.updateUser(uid, {
+        disabled: true,
+      });
+
+      await authAdmin.revokeRefreshTokens(uid);
+
+      const userRef = firestore.collection('users').doc(uid);
+      await userRef.set(
+        {
+          accountDisabled: true,
+          accountStatus: 'disabled',
+          status: 'disabled',
+          disabledReason: reason,
+          disabledBy: uid,
+          disabledAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+      );
+
+      try {
+        const db = admin.database();
+        await db.ref().update({
+          [`driverLocations/${uid}/status`]: 'offline',
+          [`driverLocations/${uid}/updatedAt`]: admin.database.ServerValue.TIMESTAMP,
+          [`driverLocations/${uid}/lastSeen`]: admin.database.ServerValue.TIMESTAMP,
+          [`presence/${uid}`]: null,
+          [`sessions/${uid}`]: null,
+        });
+      } catch (rtdbError: any) {
+        functions.logger.warn('⚠️ No se pudo actualizar estado RTDB al desactivar cuenta:', {
+          uid,
+          message: rtdbError?.message || rtdbError,
+        });
+      }
+
+      return {
+        success: true,
+        message: 'Cuenta desactivada exitosamente',
+        user: {
+          id: uid,
+          disabled: true,
+          reason,
+        },
+      };
+    } catch (error: any) {
+      functions.logger.error('❌ Error desactivando cuenta de usuario:', {
+        uid,
+        message: error?.message || error,
+      });
+
+      throw new functions.https.HttpsError(
+        'internal',
+        error?.message || 'No se pudo desactivar la cuenta',
+      );
+    }
   });

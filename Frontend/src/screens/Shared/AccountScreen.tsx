@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -11,12 +11,14 @@ import {
   Alert,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ExpoImagePicker from 'expo-image-picker';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import backendConfig from '../../config/backendConfig';
 import alertService from '../../services/alertService';
 import accountLinkingService from '../../services/auth/accountLinkingService';
 import firebaseAuthService from '../../services/auth/firebaseAuthService';
+import supabaseStorage from '../../services/supabaseStorage';
 import PhoneNumberModal, { type PhoneNumberModalResult } from '../../components/PhoneNumberModal';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import {
@@ -26,6 +28,23 @@ import {
   extractLocalNumber,
 } from '../../utils/phoneUtils';
 import { useTranslation } from 'react-i18next';
+
+const formatBirthDateInput = (value: string): string => {
+  const digits = (value || '').replace(/\D/g, '').slice(0, 8);
+  const segments: string[] = [];
+
+  if (digits.length > 0) {
+    segments.push(digits.slice(0, Math.min(2, digits.length)));
+  }
+  if (digits.length > 2) {
+    segments.push(digits.slice(2, Math.min(4, digits.length)));
+  }
+  if (digits.length > 4) {
+    segments.push(digits.slice(4, 8));
+  }
+
+  return segments.join('-');
+};
 
 const BACK_BUTTON_ICON = require('../../assets/icons/back_button/back_button.png');
 
@@ -53,6 +72,14 @@ type PhoneFormState = {
   codeSent: boolean;
   sendingCode: boolean;
   confirming: boolean;
+};
+
+type ProfileFormSnapshot = {
+  name: string;
+  birthDate: string;
+  email: string;
+  phone: string;
+  photo: string;
 };
 
 const buildProviderSummary = (
@@ -110,12 +137,15 @@ export default function AccountScreen({ navigation }: any) {
   });
   const [accountError, setAccountError] = useState<string | null>(null);
   const [profileName, setProfileName] = useState<string>(user?.name || '');
-  const [birthDate, setBirthDate] = useState<string>('');
+  const [birthDate, setBirthDate] = useState<string>(formatBirthDateInput(''));
   const [profileEmail, setProfileEmail] = useState<string>(user?.email || '');
   const [profilePhone, setProfilePhone] = useState<string>('');
   const [savingProfile, setSavingProfile] = useState<boolean>(false);
   const [phoneModalVisible, setPhoneModalVisible] = useState(false);
   const [phoneUpdating, setPhoneUpdating] = useState(false);
+  const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const initialSnapshotRef = useRef<ProfileFormSnapshot | null>(null);
 
   const countryOptions = useMemo(() => getCountryDialOptions(), []);
   const defaultCountry = useMemo(
@@ -163,20 +193,23 @@ export default function AccountScreen({ navigation }: any) {
     [t],
   );
 
-  const styles = StyleSheet.create({
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
     container: {
       flex: 1,
       backgroundColor: colors.background,
     },
     content: {
       paddingHorizontal: 20,
-      paddingVertical: 32,
+      paddingTop: 20,
+      paddingBottom: 36,
     },
     headerRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingTop: 26,
-      marginBottom: 26,
+      paddingTop: 14,
+      marginBottom: 20,
     },
     backButton: {
       paddingRight: 8,
@@ -189,50 +222,82 @@ export default function AccountScreen({ navigation }: any) {
       resizeMode: 'contain',
     },
     headerTitle: {
-      fontSize: 20,
-      fontWeight: '700',
+      fontSize: 24,
+      fontWeight: '800',
       color: colors.text,
-      marginLeft: 4,
+      marginLeft: 6,
     },
     profileEditSection: {
-      alignItems: 'center',
-      marginBottom: 24,
+      marginBottom: 16,
+      backgroundColor: colors.card,
+      borderRadius: 20,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: 16,
+      shadowColor: '#000',
+      shadowOpacity: 0.08,
+      shadowRadius: 10,
+      shadowOffset: { width: 0, height: 4 },
+      elevation: 4,
     },
     avatarWrapper: {
-      marginBottom: 16,
+      marginBottom: 14,
       position: 'relative',
+      alignSelf: 'center',
     },
     avatarCircle: {
-      width: 116,
-      height: 116,
-      borderRadius: 58,
+      width: 120,
+      height: 120,
+      borderRadius: 60,
       backgroundColor: colors.primary + '22',
       alignItems: 'center',
       justifyContent: 'center',
+      borderWidth: 2,
+      borderColor: colors.primary + '33',
+    },
+    avatarImage: {
+      width: '100%',
+      height: '100%',
+      borderRadius: 58,
     },
     avatarInitial: {
-      fontSize: 32,
-      fontWeight: '700',
-      color: '#fff',
+      fontSize: 34,
+      fontWeight: '800',
+      color: colors.primary,
     },
     avatarEditButton: {
       position: 'absolute',
-      right: -2,
-      bottom: -2,
-      width: 28,
-      height: 28,
-      borderRadius: 14,
+      right: 2,
+      bottom: 2,
+      width: 34,
+      height: 34,
+      borderRadius: 17,
       backgroundColor: colors.primary,
       alignItems: 'center',
       justifyContent: 'center',
+      borderWidth: 2,
+      borderColor: colors.card,
+      shadowColor: '#000',
+      shadowOpacity: 0.18,
+      shadowRadius: 6,
+      shadowOffset: { width: 0, height: 3 },
+      elevation: 4,
     },
     avatarEditIcon: {
       color: '#fff',
-      fontSize: 14,
+      fontSize: 15,
     },
     profileFormCard: {
       width: '100%',
-      marginTop: 8,
+      marginTop: 6,
+    },
+    profileCardTitle: {
+      fontSize: 13,
+      fontWeight: '700',
+      letterSpacing: 0.4,
+      textTransform: 'uppercase',
+      color: colors.textSecondary,
+      marginBottom: 10,
     },
     accountCard: {
       marginBottom: 16,
@@ -303,13 +368,13 @@ export default function AccountScreen({ navigation }: any) {
     input: {
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: 10,
-      paddingHorizontal: 14,
-      paddingVertical: 12,
+      borderRadius: 12,
+      paddingHorizontal: 15,
+      paddingVertical: 13,
       color: colors.text,
       backgroundColor: colors.surface,
       marginBottom: 12,
-      fontSize: 14,
+      fontSize: 15,
     },
     phoneButton: {
       flexDirection: 'row',
@@ -321,25 +386,33 @@ export default function AccountScreen({ navigation }: any) {
       color: colors.text,
     },
     phonePlaceholder: {
-      fontSize: 14,
+      fontSize: 15,
       color: colors.textSecondary,
     },
     button: {
       backgroundColor: 'rgba(202, 151, 57, 1)',
-      borderRadius: 10,
-      paddingVertical: 12,
+      borderRadius: 12,
+      paddingVertical: 14,
       alignItems: 'center',
       justifyContent: 'center',
+      marginTop: 4,
+      shadowColor: '#000',
+      shadowOpacity: 0.12,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 4 },
+      elevation: 4,
     },
     buttonDisabled: {
       opacity: 0.6,
     },
     buttonText: {
-      fontSize: 15,
-      fontWeight: '600',
+      fontSize: 16,
+      fontWeight: '700',
       color: '#fff',
     },
-  });
+      }),
+    [colors],
+  );
 
   const updateLocalUserCache = async (data: Record<string, any>) => {
     try {
@@ -350,6 +423,67 @@ export default function AccountScreen({ navigation }: any) {
     } catch (error) {
       console.warn('⚠️ No se pudo actualizar caché local del usuario:', error);
     }
+  };
+
+  const resolveProfilePhoto = (data: Record<string, any> | null | undefined): string | null => {
+    if (!data) return null;
+    return data.profilePhoto || data.profile_photo || data.photoURL || data.photoUrl || null;
+  };
+
+  const buildSnapshot = (data: {
+    name?: string | null;
+    birthDate?: string | null;
+    email?: string | null;
+    phone?: string | null;
+    photo?: string | null;
+  }): ProfileFormSnapshot => ({
+    name: (data.name || '').trim(),
+    birthDate: formatBirthDateInput(data.birthDate || ''),
+    email: (data.email || '').trim().toLowerCase(),
+    phone: (data.phone || '').trim(),
+    photo: (data.photo || '').trim(),
+  });
+
+  const getCurrentSnapshot = (): ProfileFormSnapshot =>
+    buildSnapshot({
+      name: profileName,
+      birthDate,
+      email: profileEmail,
+      phone: profilePhone,
+      photo: profilePhoto,
+    });
+
+  const hasUnsavedChanges = (): boolean => {
+    const initial = initialSnapshotRef.current;
+    if (!initial) return false;
+    const current = getCurrentSnapshot();
+    return (
+      current.name !== initial.name ||
+      current.birthDate !== initial.birthDate ||
+      current.email !== initial.email ||
+      current.phone !== initial.phone ||
+      current.photo !== initial.photo
+    );
+  };
+
+  const handleBackPress = () => {
+    if (!hasUnsavedChanges()) {
+      navigation.goBack();
+      return;
+    }
+
+    Alert.alert(
+      t('shared.account.header.discardTitle'),
+      t('shared.account.header.discardMessage'),
+      [
+        { text: t('shared.account.header.discardCancel'), style: 'cancel' },
+        {
+          text: t('shared.account.header.discardExit'),
+          style: 'destructive',
+          onPress: () => navigation.goBack(),
+        },
+      ],
+    );
   };
 
   const syncFirestoreProfile = async (data: Record<string, any>) => {
@@ -388,13 +522,45 @@ export default function AccountScreen({ navigation }: any) {
       ]);
 
       if (profileData) {
+        const nextName = profileData.name || user?.name || '';
+        const nextBirthDate = formatBirthDateInput(profileData.birthDate || '');
+        const nextEmail = profileData.email || user?.email || '';
+        const nextPhone = profileData.phone || '';
+        const nextPhoto = resolveProfilePhoto(profileData) || resolveProfilePhoto(user as any);
+
         setProfile(profileData);
-        setProfileName(profileData.name || user?.name || '');
-        setBirthDate(profileData.birthDate || '');
-        setProfileEmail(profileData.email || user?.email || '');
-        setProfilePhone(profileData.phone || '');
+        setProfileName(nextName);
+        setBirthDate(nextBirthDate);
+        setProfileEmail(nextEmail);
+        setProfilePhone(nextPhone);
+        setProfilePhoto(nextPhoto);
+        initialSnapshotRef.current = buildSnapshot({
+          name: nextName,
+          birthDate: nextBirthDate,
+          email: nextEmail,
+          phone: nextPhone,
+          photo: nextPhoto,
+        });
         setEmailForm((prev) => ({ ...prev, email: profileData.email || user?.email || prev.email }));
         setPhoneForm((prev) => ({ ...prev, phone: profileData.phone || prev.phone }));
+      } else {
+        const nextName = user?.name || '';
+        const nextBirthDate = formatBirthDateInput('');
+        const nextEmail = user?.email || '';
+        const nextPhoto = resolveProfilePhoto(user as any);
+
+        setProfileName(nextName);
+        setBirthDate(nextBirthDate);
+        setProfileEmail(nextEmail);
+        setProfilePhone('');
+        setProfilePhoto(nextPhoto);
+        initialSnapshotRef.current = buildSnapshot({
+          name: nextName,
+          birthDate: nextBirthDate,
+          email: nextEmail,
+          phone: '',
+          photo: nextPhoto,
+        });
       }
 
       if (providers) {
@@ -603,6 +769,13 @@ export default function AccountScreen({ navigation }: any) {
         email: data.email,
         phone: data.phone,
       });
+      initialSnapshotRef.current = buildSnapshot({
+        name: data.name,
+        birthDate: data.birthDate,
+        email: data.email,
+        phone: data.phone,
+        photo: profilePhoto,
+      });
       alertService.showSuccessAlert(
         t('shared.account.alerts.profileUpdatedTitle'),
         t('shared.account.alerts.profileUpdatedMessage'),
@@ -616,26 +789,73 @@ export default function AccountScreen({ navigation }: any) {
     }
   };
 
+  const handlePickProfilePhoto = async () => {
+    if (!user?.id) {
+      return;
+    }
+
+    try {
+      const { status } = await ExpoImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        alertService.showErrorAlert(t('shared.account.alerts.profileUpdateError'));
+        return;
+      }
+
+      const result = await ExpoImagePicker.launchImageLibraryAsync({
+        mediaTypes: ExpoImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (result.canceled || !result.assets?.[0]?.uri) {
+        return;
+      }
+
+      setUploadingPhoto(true);
+
+      const uploadedPhotoUrl = await supabaseStorage.uploadProfilePhoto(user.id, result.assets[0].uri);
+      setProfilePhoto(uploadedPhotoUrl);
+
+      const photoPayload = {
+        profilePhoto: uploadedPhotoUrl,
+        profile_photo: uploadedPhotoUrl,
+        photoURL: uploadedPhotoUrl,
+      };
+
+      if (isFirebaseBackend) {
+        await syncFirestoreProfile(photoPayload);
+      }
+
+      await updateLocalUserCache(photoPayload);
+      setProfile((prev: any) => ({ ...(prev || {}), ...photoPayload }));
+      initialSnapshotRef.current = buildSnapshot({
+        name: profileName,
+        birthDate,
+        email: profileEmail,
+        phone: profilePhone,
+        photo: uploadedPhotoUrl,
+      });
+
+      alertService.showSuccessAlert(
+        t('shared.account.alerts.profileUpdatedTitle'),
+        t('shared.account.alerts.profileUpdatedMessage'),
+      );
+    } catch (error) {
+      console.error(' Error actualizando foto de perfil:', error);
+      alertService.showErrorAlert(t('shared.account.alerts.profileUpdateError'));
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.headerRow}>
           <TouchableOpacity
             style={styles.backButton}
-            onPress={() => {
-              Alert.alert(
-                t('shared.account.header.discardTitle'),
-                t('shared.account.header.discardMessage'),
-                [
-                  { text: t('shared.account.header.discardCancel'), style: 'cancel' },
-                  {
-                    text: t('shared.account.header.discardExit'),
-                    style: 'destructive',
-                    onPress: () => navigation.goBack(),
-                  },
-                ],
-              );
-            }}
+            onPress={handleBackPress}
           >
             <Image source={BACK_BUTTON_ICON} style={styles.backIcon} />
           </TouchableOpacity>
@@ -645,24 +865,29 @@ export default function AccountScreen({ navigation }: any) {
         <View style={styles.profileEditSection}>
           <View style={styles.avatarWrapper}>
             <View style={styles.avatarCircle}>
-              <Text style={styles.avatarInitial}>
-                {user?.name ? user.name.charAt(0).toUpperCase() : '?'}
-              </Text>
+              {profilePhoto ? (
+                <Image source={{ uri: profilePhoto }} style={styles.avatarImage} />
+              ) : (
+                <Text style={styles.avatarInitial}>
+                  {(profileName || user?.name || '?').charAt(0).toUpperCase()}
+                </Text>
+              )}
             </View>
             <TouchableOpacity
               style={styles.avatarEditButton}
-              onPress={() => {
-                Alert.alert(
-                  t('shared.account.profile.avatarTitle'),
-                  t('shared.account.profile.avatarMessage'),
-                );
-              }}
+              disabled={uploadingPhoto}
+              onPress={handlePickProfilePhoto}
             >
-              <Text style={styles.avatarEditIcon}>✏️</Text>
+              {uploadingPhoto ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.avatarEditIcon}>✏️</Text>
+              )}
             </TouchableOpacity>
           </View>
 
           <View style={styles.profileFormCard}>
+            <Text style={styles.profileCardTitle}>{t('shared.account.profile.avatarTitle')}</Text>
             <TextInput
               style={styles.input}
               placeholder={t('shared.account.profile.namePlaceholder')}
@@ -675,8 +900,9 @@ export default function AccountScreen({ navigation }: any) {
               placeholder={t('shared.account.profile.birthPlaceholder')}
               placeholderTextColor={colors.textSecondary}
               value={birthDate}
-              onChangeText={setBirthDate}
+              onChangeText={(text) => setBirthDate(formatBirthDateInput(text))}
               keyboardType="numeric"
+              maxLength={10}
             />
             <TextInput
               style={styles.input}
@@ -844,3 +1070,4 @@ export default function AccountScreen({ navigation }: any) {
     </View>
   );
 }
+

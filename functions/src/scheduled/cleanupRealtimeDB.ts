@@ -7,6 +7,8 @@
 import * as functions from 'firebase-functions';
 import admin from 'firebase-admin';
 
+const DEFAULT_SERVICE_AREA_ID = 'ni-managua';
+
 /**
  * Limpia ubicaciones antiguas de conductores
  * Se ejecuta cada hora
@@ -309,6 +311,75 @@ export const cleanupPresenceHistory = functions.pubsub
       
     } catch (error: any) {
       console.error('❌ Error limpiando presencia:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+export const cleanupInactiveUsers = functions.pubsub
+  .schedule('every 1 hours')
+  .timeZone('America/Managua')
+  .onRun(async () => {
+    try {
+      const db = admin.database();
+      const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+      const batchSize = 500;
+
+      const snapshot = await db
+        .ref('/sessions')
+        .orderByChild('lastSeen')
+        .endAt(cutoff)
+        .limitToFirst(batchSize)
+        .once('value');
+
+      if (!snapshot.exists()) {
+        return { success: true, cleanedUsers: 0 };
+      }
+
+      const sessions = snapshot.val() || {};
+      const userIds = Object.keys(sessions);
+      if (userIds.length === 0) {
+        return { success: true, cleanedUsers: 0 };
+      }
+
+      const updates: Record<string, null> = {};
+      let cleanedUsers = 0;
+
+      for (const userId of userIds) {
+        const session = sessions[userId] || {};
+        const lastSeen = typeof session.lastSeen === 'number' ? session.lastSeen : null;
+        if (!lastSeen || lastSeen > cutoff) {
+          continue;
+        }
+
+        cleanedUsers += 1;
+
+        const serviceAreaId =
+          typeof session.serviceAreaId === 'string' && session.serviceAreaId.trim()
+            ? session.serviceAreaId.trim()
+            : DEFAULT_SERVICE_AREA_ID;
+
+        updates[`/driversInfo/${userId}`] = null;
+        updates[`/driverLocations/${userId}`] = null;
+        updates[`/clientsInfo/${userId}`] = null;
+        updates[`/clientsLocations/${userId}`] = null;
+        updates[`/presence/${userId}`] = null;
+
+        updates[`/driverLocationsByArea/${serviceAreaId}/${userId}`] = null;
+        updates[`/driverLocationsByArea/${DEFAULT_SERVICE_AREA_ID}/${userId}`] = null;
+        updates[`/clientsLocationsByArea/${serviceAreaId}/${userId}`] = null;
+        updates[`/clientsLocationsByArea/${DEFAULT_SERVICE_AREA_ID}/${userId}`] = null;
+
+        updates[`/sessions/${userId}`] = null;
+      }
+
+      if (Object.keys(updates).length === 0) {
+        return { success: true, cleanedUsers: 0 };
+      }
+
+      await db.ref().update(updates);
+      return { success: true, cleanedUsers };
+    } catch (error: any) {
+      console.error('❌ Error limpiando usuarios inactivos:', error);
       return { success: false, error: error.message };
     }
   });

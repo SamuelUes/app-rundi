@@ -1,6 +1,9 @@
 import { useEffect, useRef } from 'react';
 import { AppState, AppStateStatus, Platform } from 'react-native';
-import proximityService from '../services/proximityService';
+import proximityService, {
+  isRegistrationUploadsInProgress,
+  subscribeRegistrationUploadsInProgress,
+} from '../services/proximityService';
 
 /**
  * Hook automático: Muestra la burbuja al ir a background y la oculta al volver a foreground.
@@ -19,7 +22,10 @@ import proximityService from '../services/proximityService';
 export function useOverlayVisibilityOnBackground(enabled: boolean) {
   const appState = useRef<AppStateStatus>(AppState.currentState);
   const isProcessingRef = useRef(false);
+  const uploadsGateRef = useRef(false);
   const activeStabilizeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const backgroundConfirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingHideReasonRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (Platform.OS !== 'android' || !enabled) {
@@ -28,7 +34,27 @@ export function useOverlayVisibilityOnBackground(enabled: boolean) {
 
     console.log('✅ [overlay:hook] Listener activado - gestión automática de burbuja');
 
+    let cancelled = false;
+
+    const initGate = async () => {
+      uploadsGateRef.current = await isRegistrationUploadsInProgress();
+      if (uploadsGateRef.current) {
+        console.log('⏸️ [overlay:hook] Overlay suspendido por uploads de registro');
+      }
+    };
+    initGate();
+
+    const unsubscribeGate = subscribeRegistrationUploadsInProgress((value) => {
+      uploadsGateRef.current = value;
+      console.log(
+        value
+          ? '⏸️ [overlay:hook] Overlay suspendido por uploads de registro'
+          : '▶️ [overlay:hook] Overlay reanudado (uploads finalizados)',
+      );
+    });
+
     const ACTIVE_STABILIZE_MS = 2000;
+    const BACKGROUND_CONFIRM_MS = 700;
 
     const isBackgroundLike = (state: AppStateStatus) => state === 'background' || state === 'inactive';
 
@@ -36,6 +62,13 @@ export function useOverlayVisibilityOnBackground(enabled: boolean) {
       if (activeStabilizeTimeoutRef.current) {
         clearTimeout(activeStabilizeTimeoutRef.current);
         activeStabilizeTimeoutRef.current = null;
+      }
+    };
+
+    const clearBackgroundConfirmTimer = () => {
+      if (backgroundConfirmTimeoutRef.current) {
+        clearTimeout(backgroundConfirmTimeoutRef.current);
+        backgroundConfirmTimeoutRef.current = null;
       }
     };
 
@@ -49,8 +82,14 @@ export function useOverlayVisibilityOnBackground(enabled: boolean) {
     };
 
     const hideOverlay = async (reason: string) => {
+      if (uploadsGateRef.current) {
+        console.log(`⏭️ [overlay:hook] hideOverlayBubble saltado (${reason}) - uploads en progreso`);
+        return;
+      }
+
       if (isProcessingRef.current) {
-        console.log(`⏭️ [overlay:hook] skip hideOverlayBubble (${reason}) - operación en curso`);
+        pendingHideReasonRef.current = reason;
+        console.log(`⏭️ [overlay:hook] hideOverlayBubble en cola (${reason}) - operación en curso`);
         return;
       }
 
@@ -66,7 +105,30 @@ export function useOverlayVisibilityOnBackground(enabled: boolean) {
       }
     };
 
+    const flushPendingHideIfNeeded = async () => {
+      if (isProcessingRef.current) {
+        return;
+      }
+
+      if (appState.current !== 'active') {
+        return;
+      }
+
+      if (!pendingHideReasonRef.current) {
+        return;
+      }
+
+      const reason = pendingHideReasonRef.current;
+      pendingHideReasonRef.current = null;
+      await hideOverlay(reason);
+    };
+
     const showOverlayForBackground = async (force = false) => {
+      if (uploadsGateRef.current) {
+        console.log('⏭️ [overlay:hook] Mostrar overlay omitido - uploads en progreso');
+        return;
+      }
+
       if (!isBackgroundLike(appState.current)) {
         console.log(`🫧 [overlay:hook] Estado actual ${appState.current}, se cancela mostrar burbuja`);
         return;
@@ -92,7 +154,23 @@ export function useOverlayVisibilityOnBackground(enabled: boolean) {
         console.warn('[overlay:hook] Error mostrando overlay en background:', error);
       } finally {
         isProcessingRef.current = false;
+        if (!cancelled) {
+          await flushPendingHideIfNeeded();
+        }
       }
+    };
+
+    const scheduleOverlayForBackground = (force = false) => {
+      clearBackgroundConfirmTimer();
+      backgroundConfirmTimeoutRef.current = setTimeout(async () => {
+        backgroundConfirmTimeoutRef.current = null;
+        if (!isBackgroundLike(appState.current)) {
+          console.log('⏭️ [overlay:hook] Background transitorio detectado, no se mostrará burbuja');
+          return;
+        }
+        await showOverlayForBackground(force);
+      }, BACKGROUND_CONFIRM_MS);
+      console.log(`⏳ [overlay:hook] Confirmando background estable por ${BACKGROUND_CONFIRM_MS}ms`);
     };
 
     const listener = AppState.addEventListener('change', async (nextState) => {
@@ -103,26 +181,32 @@ export function useOverlayVisibilityOnBackground(enabled: boolean) {
 
       // App va a background (de active a background/inactive)
       if (previousState === 'active' && nextState === 'background') {
-        await showOverlayForBackground(true);
+        scheduleOverlayForBackground(true);
         return;
       }
 
       if (previousState === 'active' && nextState === 'inactive') {
-        await showOverlayForBackground();
+        scheduleOverlayForBackground();
         return;
       }
 
       // App vuelve a foreground (de background/inactive a active)
       if ((previousState === 'background' || previousState === 'inactive') && nextState === 'active') {
+        clearBackgroundConfirmTimer();
         startActiveStabilization();
         await hideOverlay('appReturnedToForeground');
+        await flushPendingHideIfNeeded();
       }
     });
 
     return () => {
       listener.remove();
       clearActiveStabilizationTimer();
+      clearBackgroundConfirmTimer();
+      pendingHideReasonRef.current = null;
       isProcessingRef.current = false;
+      unsubscribeGate();
+      cancelled = true;
       console.log('🔇 [overlay:hook] Listener removido');
     };
   }, [enabled]);

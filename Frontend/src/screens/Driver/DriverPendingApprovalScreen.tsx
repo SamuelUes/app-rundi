@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import type { DriverStackParamList } from '../../navigation/DriverStack';
+import SupportChatShortcut from '../../components/SupportChatShortcut';
 
 export type NormalizedAccountStatus = 'active' | 'pending' | 'suspended' | 'rejected';
 export type NormalizedDocumentsStatus = 'verified' | 'pending' | 'suspended' | 'rejected';
@@ -60,7 +61,7 @@ export default function DriverPendingApprovalScreen({ navigation, route }: Props
       successRoute: 'DriverHome',
       activeRideRoute: 'ActiveRide',
       pendingPaymentsRoute: 'PendingPayments',
-      payCommissionsRoute: 'PayCommissions',
+      rechargeFundsRoute: 'RechargeFunds',
       pendingApprovalRoute: 'DriverPendingApproval',
     });
   };
@@ -124,11 +125,11 @@ export default function DriverPendingApprovalScreen({ navigation, route }: Props
 
         {isHardBlock && (
           <View style={styles.supportBox}>
-            <Text style={styles.supportTitle}>{t(`${ns}.support.title`)}</Text>
-            <Text style={styles.supportText}>{t(`${ns}.support.description`)}</Text>
+            <Text style={styles.supportTitle}>{t(`${ns}.supportbasic.title`)}</Text>
+            <Text style={styles.supportText}>{t(`${ns}.supportbasic.description`)}</Text>
 
             <TouchableOpacity style={styles.supportButton} onPress={handleCallSupport}>
-              <Text style={styles.supportButtonText}>{t(`${ns}.support.button`)}</Text>
+              <Text style={styles.supportButtonText}>{t(`${ns}.supportbasic.button`)}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -152,6 +153,16 @@ export default function DriverPendingApprovalScreen({ navigation, route }: Props
           <Text style={styles.primaryButtonText}>{t(`${ns}.buttons.logout`)}</Text>
         </TouchableOpacity>
       </View>
+
+      <SupportChatShortcut
+        style={{ marginTop: 16 }}
+        initialCategory="service"
+        initialTitle={t(`${ns}.support.supportChatTitle`)}
+        label={t(`${ns}.support.supportChatLabel`)}
+        description={t(
+          `${ns}.support.supportChatDescription`,
+        )}
+      />
     </View>
   );
 }

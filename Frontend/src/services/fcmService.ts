@@ -11,7 +11,7 @@ import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 // import messaging from '@react-native-firebase/messaging';
 // import auth from '@react-native-firebase/auth';
-import { getFirebaseFunctions } from '../config/firebase';
+import { getFirebaseFunctions, getFirebaseAuth } from '../config/firebase';
 import { httpsCallable } from 'firebase/functions';
 import notificationService from './notificationService';
 import i18n from '../i18n';
@@ -263,6 +263,16 @@ class FCMService {
     return nativeAuthModule.default();
   }
 
+  private async getWebAuthUser() {
+    try {
+      const webAuth = await getFirebaseAuth();
+      return webAuth.currentUser;
+    } catch (error) {
+      console.warn('⚠️ No se pudo obtener usuario de Firebase Auth Web:', error);
+      return null;
+    }
+  }
+
   /**
    * Verificar si FCM está disponible
    */
@@ -350,10 +360,10 @@ class FCMService {
    */
   async registerToken(): Promise<void> {
     try {
-      const auth = await this.getAuth();
-      const user = auth.currentUser;
-      if (!user) {
-        console.log('⚠️ Usuario no autenticado, saltando registro de token');
+      const webUser = await this.getWebAuthUser();
+
+      if (!webUser) {
+        console.log('⚠️ Usuario no autenticado en Firebase (web), saltando registro de token');
         return;
       }
 
@@ -540,10 +550,8 @@ class FCMService {
     const { data } = remoteMessage;
     console.log('👆 Tap en notificación FCM:', data);
 
-    if (!data?.rideId) {
-      console.warn('⚠️ No rideId en notificación');
-      return;
-    }
+    const type = data?.type as string | undefined;
+    const rideId = data?.rideId as string | undefined;
 
     try {
       // Importar dinámicamente para evitar dependencias circulares
@@ -562,13 +570,32 @@ class FCMService {
         return;
       }
 
-      // Obtener datos del viaje desde Firebase
+      // 🔔 Viajes programados: redirigir a Preflight para flujo de confirmación
+      if (type === 'programmed_ride_client_confirm') {
+        console.log('🚀 [FCM] Navegando a ClientPreflight para confirmar viaje programado');
+        navigate('ClientPreflight', {});
+        return;
+      }
+
+      if (type === 'programmed_ride_driver_confirm') {
+        console.log('🚀 [FCM] Navegando a DriverPreflight para confirmar viaje programado');
+        navigate('DriverPreflight', {});
+        return;
+      }
+
+      // Resto de notificaciones de viaje requieren rideId en activeRides
+      if (!rideId) {
+        console.warn('⚠️ No rideId en notificación');
+        return;
+      }
+
+      // Obtener datos del viaje desde Firebase (activeRides)
       const db = getDatabase();
-      const rideRef = ref(db, `activeRides/${data.rideId}`);
+      const rideRef = ref(db, `activeRides/${rideId}`);
       const snapshot = await get(rideRef);
 
       if (!snapshot.exists()) {
-        console.warn('⚠️ Ride no encontrado:', data.rideId);
+        console.warn('⚠️ Ride no encontrado en activeRides:', rideId);
         return;
       }
 
@@ -576,7 +603,7 @@ class FCMService {
 
       // Construir objeto de viaje para RidePreviewScreen
       const ride = {
-        id: data.rideId,
+        id: rideId,
         clientId: rideData.clientId || '',
         clientName: rideData.clientName,
         clientPhone: rideData.clientPhone,
@@ -635,14 +662,15 @@ class FCMService {
    */
   async clearToken(): Promise<void> {
     try {
-      const auth = await this.getAuth();
-      const user = auth.currentUser;
+      const webUser = await this.getWebAuthUser();
       const storedToken = this.fcmToken ?? (await AsyncStorage.getItem('fcmToken'));
 
-      if (user && storedToken) {
+      if (webUser && storedToken) {
         const functions = await this.getFunctions();
         const clearTokenFunction = httpsCallable(functions, 'clearFCMToken');
         await clearTokenFunction({ fcmToken: storedToken });
+      } else if (storedToken && !webUser) {
+        console.log('⚠️ Sesión Firebase no disponible, limpiando token FCM solo de manera local.');
       }
 
       if (storedToken) {

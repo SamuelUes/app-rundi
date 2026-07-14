@@ -17,7 +17,15 @@ export const createBiometricAuth = functions.https.onCall(async (data, context) 
   }
 
   try {
-    const { rideId, biometricType, context: ctx, userType } = data;
+    const {
+      rideId,
+      biometricType,
+      context: ctx,
+      userType,
+      success,
+      attemptNumber,
+      errorMessage,
+    } = data;
     const userId = context.auth.uid;
 
     if (!biometricType) {
@@ -25,9 +33,21 @@ export const createBiometricAuth = functions.https.onCall(async (data, context) 
     }
 
     const contextValue = typeof ctx === 'string' && ctx.trim() ? ctx.trim() : 'generic';
-    const userTypeValue = typeof userType === 'string' && userType.trim() ? userType.trim() : 'client';
+    const rawUserType = typeof userType === 'string' ? userType.trim().toLowerCase() : 'client';
+    const userTypeValue =
+      rawUserType === 'driver' || rawUserType === 'designated_driver' || rawUserType === 'client'
+        ? rawUserType
+        : 'client';
+    const successValue = success === false ? false : true;
+    const parsedAttemptNumber = Number(attemptNumber);
+    const attemptNumberValue =
+      Number.isFinite(parsedAttemptNumber) && parsedAttemptNumber > 0
+        ? Math.floor(parsedAttemptNumber)
+        : 1;
+    const errorMessageValue =
+      typeof errorMessage === 'string' && errorMessage.trim().length > 0 ? errorMessage.trim() : null;
 
-    console.log(`🔐 [createBiometricAuth] Creando autenticación biométrica: ${biometricType} · context=${contextValue} · userType=${userTypeValue}`);
+    console.log(`🔐 [createBiometricAuth] Creando autenticación biométrica: ${biometricType} · context=${contextValue} · userType=${userTypeValue} · success=${successValue} · attempt=${attemptNumberValue}`);
 
     const auth = await bioAuthRepo.create({
       ride_id: rideId || null,
@@ -35,10 +55,10 @@ export const createBiometricAuth = functions.https.onCall(async (data, context) 
       user_type: userTypeValue,
       biometric_type: biometricType,
       context: contextValue,
-      success: true,
-      attempt_number: 1,
+      success: successValue,
+      attempt_number: attemptNumberValue,
+      error_message: errorMessageValue,
       attempted_at: new Date(),
-      status: 'completed',
     });
 
     return {
@@ -48,7 +68,9 @@ export const createBiometricAuth = functions.https.onCall(async (data, context) 
         userId: auth.user_id,
         rideId: auth.ride_id,
         biometricType: auth.biometric_type,
-        status: auth.status,
+        success: auth.success,
+        attemptNumber: auth.attempt_number,
+        errorMessage: auth.error_message,
         createdAt: auth.created_at,
       },
     };
@@ -79,7 +101,9 @@ export const getUserBiometricAuths = functions.https.onCall(async (data, context
       auths: auths.map((a: any) => ({
         id: a.id,
         biometricType: a.biometric_type,
-        status: a.status,
+        success: a.success,
+        attemptNumber: a.attempt_number,
+        errorMessage: a.error_message,
         createdAt: a.created_at,
       })),
     };
@@ -98,21 +122,26 @@ export const updateBiometricAuthStatus = functions.https.onCall(async (data, con
   }
 
   try {
-    const { authId, status } = data;
+    const { authId, status, success } = data;
 
-    if (!authId || !status) {
-      throw new functions.https.HttpsError('invalid-argument', 'authId y status son requeridos');
+    if (!authId) {
+      throw new functions.https.HttpsError('invalid-argument', 'authId es requerido');
     }
 
-    console.log(`✏️ [updateBiometricAuthStatus] Actualizando estado: ${authId} -> ${status}`);
+    const resolvedSuccess =
+      typeof success === 'boolean'
+        ? success
+        : String(status || '').toLowerCase().trim() === 'completed';
 
-    const auth = await bioAuthRepo.update(authId, { status });
+    console.log(`✏️ [updateBiometricAuthStatus] Actualizando resultado: ${authId} -> success=${resolvedSuccess}`);
+
+    const auth = await bioAuthRepo.update(authId, { success: resolvedSuccess });
 
     return {
       success: true,
       auth: {
         id: auth.id,
-        status: auth.status,
+        success: auth.success,
       },
     };
   } catch (error: any) {

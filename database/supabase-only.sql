@@ -55,7 +55,7 @@ END;
 $$ language 'plpgsql';
 
 -- ============================================
--- STORAGE BUCKETS (drivers-documents, rides-documents)
+-- STORAGE BUCKETS (drivers-documents, rides-documents, support-chats)
 -- ============================================
 INSERT INTO storage.buckets (id, name, public)
 VALUES ('drivers-documents', 'drivers-documents', TRUE)
@@ -63,6 +63,14 @@ ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO storage.buckets (id, name, public)
 VALUES ('rides-documents', 'rides-documents', TRUE)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('support-chats', 'support-chats', TRUE)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('support-calls', 'support-calls', TRUE)
 ON CONFLICT (id) DO NOTHING;
 
 COMMENT ON TABLE storage.buckets IS 'Buckets utilizados por la aplicación móvil';
@@ -79,6 +87,15 @@ DROP POLICY IF EXISTS "rides_docs_read_own" ON storage.objects;
 DROP POLICY IF EXISTS "rides_docs_update_own" ON storage.objects;
 DROP POLICY IF EXISTS "rides_docs_delete_own" ON storage.objects;
 DROP POLICY IF EXISTS "rides_docs_insert_public_paths" ON storage.objects;
+
+DROP POLICY IF EXISTS "support_chats_insert_own" ON storage.objects;
+DROP POLICY IF EXISTS "support_chats_read_own" ON storage.objects;
+DROP POLICY IF EXISTS "support_chats_update_own" ON storage.objects;
+DROP POLICY IF EXISTS "support_chats_delete_own" ON storage.objects;
+DROP POLICY IF EXISTS "support_calls_read_public" ON storage.objects;
+DROP POLICY IF EXISTS "support_calls_insert_auth" ON storage.objects;
+DROP POLICY IF EXISTS "support_calls_update_auth" ON storage.objects;
+DROP POLICY IF EXISTS "support_calls_delete_auth" ON storage.objects;
 
 -- Políticas drivers-documents (rol anon porque los uploads usan anon key)
 CREATE POLICY "drivers_docs_insert_own"
@@ -154,6 +171,44 @@ USING (
   AND name LIKE '%' || public.current_firebase_uid() || '%'
 );
 
+--Politica de support_chats Lectura pública (URLs públicas)
+create policy "support_chats_read_public"
+on storage.objects for select
+using (bucket_id = 'support_chats');
+
+-- Escritura/actualización/borrado para usuarios autenticados
+create policy "support_chats_insert_auth"
+on storage.objects for insert
+with check (bucket_id = 'support_chats' and auth.role() = 'authenticated');
+ 
+create policy "support_chats_update_auth"
+on storage.objects for update
+using (bucket_id = 'support_chats' and auth.role() = 'authenticated');
+ 
+create policy "support_chats_delete_auth"
+on storage.objects for delete
+using (bucket_id = 'support_chats' and auth.role() = 'authenticated');
+
+CREATE POLICY "support_calls_read_public"
+ON storage.objects
+FOR SELECT
+USING (bucket_id = 'support-calls');
+
+CREATE POLICY "support_calls_insert_auth"
+ON storage.objects
+FOR INSERT
+WITH CHECK (bucket_id = 'support-calls' AND auth.role() = 'authenticated');
+
+CREATE POLICY "support_calls_update_auth"
+ON storage.objects
+FOR UPDATE
+USING (bucket_id = 'support-calls' AND auth.role() = 'authenticated');
+
+CREATE POLICY "support_calls_delete_auth"
+ON storage.objects
+FOR DELETE
+USING (bucket_id = 'support-calls' AND auth.role() = 'authenticated');
+
 -- Fallback para clientes móviles (anon key) limitado a prefijos permitidos
 CREATE POLICY "rides_docs_insert_public_paths"
 ON storage.objects
@@ -188,6 +243,7 @@ CREATE TABLE IF NOT EXISTS public.drivers (
   total_rides INTEGER NULL DEFAULT 0,
   average_rating NUMERIC(3, 2) NULL DEFAULT 0,
   total_earnings NUMERIC(10, 2) NULL DEFAULT 0,
+  current_recharge_balance NUMERIC(12, 2) NULL DEFAULT 0,
   -- ✅ ELIMINADOS: designated_driver_request_status, designated_driver_role
   -- Ahora se usan driver_services para esto
   created_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
@@ -207,6 +263,7 @@ COMMENT ON COLUMN public.drivers.license_photo_front IS 'URL de foto frontal de 
 COMMENT ON COLUMN public.drivers.license_photo_back IS 'URL de foto trasera de licencia (Supabase Storage)';
 COMMENT ON COLUMN public.drivers.department IS 'Departamento de residencia del conductor (ej: Managua, León, Granada)';
 COMMENT ON COLUMN public.drivers.municipality IS 'Municipio de residencia del conductor (ej: Managua, Masaya, Tipitapa)';
+COMMENT ON COLUMN public.drivers.current_recharge_balance IS 'Saldo actual disponible en la billetera PuntoExpress del conductor';
 
 CREATE INDEX IF NOT EXISTS idx_drivers_user_id ON public.drivers USING btree (user_id);
 CREATE INDEX IF NOT EXISTS idx_drivers_account_status ON public.drivers USING btree (account_status);
@@ -429,9 +486,9 @@ CREATE TABLE IF NOT EXISTS public.payments (
   -- Montos
   amount NUMERIC(10, 2) NOT NULL,
   tip NUMERIC(10, 2) NULL DEFAULT 0,
-  commission NUMERIC(10, 2) NULL,
+  commission NUMERIC(10, 2) NOT NULL,
   commission_rate_applied NUMERIC(5, 4) NULL,
-  total NUMERIC(10, 2) GENERATED ALWAYS AS (amount + tip) STORED,
+  total NUMERIC(10, 2) NULL DEFAULT (amount + tip),
   
   -- Método de pago: cash (efectivo) o card (bancos locales)
   payment_method VARCHAR(20) NULL,
@@ -439,7 +496,7 @@ CREATE TABLE IF NOT EXISTS public.payments (
   
   -- Estado
   status VARCHAR(20) NULL DEFAULT 'pending'::VARCHAR,
-  commission_status VARCHAR(20) NULL DEFAULT 'pending'::VARCHAR,
+  commission_status VARCHAR(20) NULL,
   
   -- Bancos Locales (para card payments)
   local_transaction_id VARCHAR(255) NULL,
@@ -463,7 +520,7 @@ CREATE TABLE IF NOT EXISTS public.payments (
   
   -- Timestamps
   paid_at TIMESTAMP WITHOUT TIME ZONE NULL,
-  commission_paid_at TIMESTAMP WITHOUT TIME ZONE NULL,
+  commission_paid_at TIMESTAMP WITH TIME ZONE NULL,
   created_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
   updated_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
   
@@ -506,9 +563,48 @@ CREATE INDEX IF NOT EXISTS idx_payments_authentication_method ON public.payments
 CREATE TRIGGER update_payments_updated_at BEFORE UPDATE ON public.payments
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+-- 5. DRIVERS_RECHARGES TABLE
+-- Movimientos de fondos (recargas y deducciones) para la billetera PuntoExpress
 -- ============================================
--- 5. DRIVER_PENALTIES TABLE
--- Penalizaciones para conductores
+CREATE TABLE IF NOT EXISTS public.drivers_recharges (
+  id UUID NOT NULL DEFAULT gen_random_uuid(),
+  driver_id VARCHAR(255) NOT NULL,
+  ride_id UUID NULL,
+  recharge_type VARCHAR(40) NOT NULL DEFAULT 'recharge'::VARCHAR,
+  source VARCHAR(60) NOT NULL DEFAULT 'manual'::VARCHAR,
+  amount NUMERIC(12, 2) NOT NULL,
+  balance_before NUMERIC(12, 2) NOT NULL DEFAULT 0,
+  balance_after NUMERIC(12, 2) NOT NULL DEFAULT 0,
+  external_reference VARCHAR(255) NULL,
+  external_transaction_id VARCHAR(255) NULL,
+  metadata JSONB NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'confirmed'::VARCHAR,
+  created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+  CONSTRAINT drivers_recharges_pkey PRIMARY KEY (id),
+  CONSTRAINT drivers_recharges_ride_id_fkey FOREIGN KEY (ride_id) REFERENCES public.rides(id) ON DELETE SET NULL,
+  CONSTRAINT drivers_recharges_external_txn_unique UNIQUE (external_transaction_id)
+) TABLESPACE pg_default;
+
+COMMENT ON TABLE public.drivers_recharges IS 'Histórico de recargas y deducciones de la billetera PuntoExpress de los conductores';
+COMMENT ON COLUMN public.drivers_recharges.recharge_type IS 'Tipo de movimiento: recharge, deduction, adjustment';
+COMMENT ON COLUMN public.drivers_recharges.source IS 'Origen del movimiento: manual, ride_payment_completion, webhook, etc.';
+COMMENT ON COLUMN public.drivers_recharges.amount IS 'Monto del movimiento. Positivo = recarga, negativo = deducción';
+COMMENT ON COLUMN public.drivers_recharges.balance_before IS 'Saldo antes de aplicar el movimiento';
+COMMENT ON COLUMN public.drivers_recharges.balance_after IS 'Saldo después de aplicar el movimiento';
+COMMENT ON COLUMN public.drivers_recharges.metadata IS 'Información adicional en JSON (referencias externas, notas, etc.)';
+
+CREATE INDEX IF NOT EXISTS idx_drivers_recharges_driver_id ON public.drivers_recharges USING btree (driver_id);
+CREATE INDEX IF NOT EXISTS idx_drivers_recharges_ride_id ON public.drivers_recharges USING btree (ride_id);
+CREATE INDEX IF NOT EXISTS idx_drivers_recharges_status ON public.drivers_recharges USING btree (status);
+CREATE INDEX IF NOT EXISTS idx_drivers_recharges_created_at ON public.drivers_recharges USING btree (created_at DESC);
+
+CREATE TRIGGER update_drivers_recharges_updated_at BEFORE UPDATE ON public.drivers_recharges
+FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================
+-- 5.1 DRIVER_PENALTIES TABLE
+-- Penalizaciones aplicadas a conductores
 -- ============================================
 CREATE TABLE IF NOT EXISTS public.driver_penalties (
   id UUID NOT NULL DEFAULT gen_random_uuid(),
@@ -522,17 +618,20 @@ CREATE TABLE IF NOT EXISTS public.driver_penalties (
   deducted_at TIMESTAMP WITHOUT TIME ZONE NULL,
   created_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
   updated_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
+  cancel_reason TEXT NULL,
   CONSTRAINT driver_penalties_pkey PRIMARY KEY (id),
   CONSTRAINT driver_penalties_ride_id_fkey FOREIGN KEY (ride_id) REFERENCES public.rides(id) ON DELETE SET NULL
 ) TABLESPACE pg_default;
 
-COMMENT ON TABLE public.driver_penalties IS 'Penalizaciones para conductores por cancelaciones u otras infracciones';
-COMMENT ON COLUMN public.driver_penalties.penalty_type IS 'Tipo: cancellation, late_arrival, customer_complaint, etc.';
-COMMENT ON COLUMN public.driver_penalties.amount IS 'Monto de la penalización (generalmente la comisión del viaje)';
-COMMENT ON COLUMN public.driver_penalties.progress_percentage IS 'Porcentaje de progreso cuando ocurrió la infracción';
-COMMENT ON COLUMN public.driver_penalties.status IS 'Estado: pending (pendiente), deducted (descontada), forgiven (perdonada)';
+COMMENT ON TABLE public.driver_penalties IS 'Penalizaciones aplicadas a conductores por incidencias operativas';
+COMMENT ON COLUMN public.driver_penalties.driver_id IS 'Firebase Auth UID del conductor penalizado';
+COMMENT ON COLUMN public.driver_penalties.penalty_type IS 'Tipo de penalización: cancellation, complaint, fraud, etc.';
+COMMENT ON COLUMN public.driver_penalties.amount IS 'Monto de la penalización';
+COMMENT ON COLUMN public.driver_penalties.progress_percentage IS 'Progreso de liquidación de la penalización';
+COMMENT ON COLUMN public.driver_penalties.status IS 'Estado: pending, applied, canceled';
 
 CREATE INDEX IF NOT EXISTS idx_driver_penalties_driver_id ON public.driver_penalties USING btree (driver_id);
+CREATE INDEX IF NOT EXISTS idx_driver_penalties_ride_id ON public.driver_penalties USING btree (ride_id);
 CREATE INDEX IF NOT EXISTS idx_driver_penalties_status ON public.driver_penalties USING btree (status);
 CREATE INDEX IF NOT EXISTS idx_driver_penalties_created_at ON public.driver_penalties USING btree (created_at DESC);
 
@@ -631,6 +730,38 @@ CREATE INDEX IF NOT EXISTS idx_ride_locations_order ON public.ride_locations USI
 CREATE TRIGGER update_ride_locations_updated_at 
 BEFORE UPDATE ON public.ride_locations 
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'fk_rides_origin_location'
+      AND conrelid = 'public.rides'::regclass
+  ) THEN
+    ALTER TABLE public.rides
+      ADD CONSTRAINT fk_rides_origin_location
+      FOREIGN KEY (origin_location_id)
+      REFERENCES public.ride_locations(id);
+  END IF;
+END
+$$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'fk_rides_destination_location'
+      AND conrelid = 'public.rides'::regclass
+  ) THEN
+    ALTER TABLE public.rides
+      ADD CONSTRAINT fk_rides_destination_location
+      FOREIGN KEY (destination_location_id)
+      REFERENCES public.ride_locations(id);
+  END IF;
+END
+$$;
 
 -- ============================================
 -- 7.1 FUNCIONES Y VISTAS PARA RUTAS DE VIAJES
@@ -1028,8 +1159,9 @@ INSERT INTO public.services (id, name, description, code, commission_rate, base_
 VALUES
   ('e1cdd47c-9f57-4ed4-93a0-59cdfdffff8a', 'Viaje Normal', 'Servicio estándar de transporte urbano', 'normal', 0.1100, 50.00, 10.00, 0.00, 50.00, '["auto"]'::jsonb, FALSE, NULL, NULL, 'car', '#0A84FF', 1, TRUE, TRUE),
   ('5e88177d-38f2-4864-addc-272dda26ef28', 'Viaje en Moto', 'Transporte rápido en motocicleta', 'motorcycle', 0.0750, 50.00, 8.00, 0.00, 50.00, '["motorcycle"]'::jsonb, FALSE, NULL, NULL, 'motorcycle', '#FFAA00', 2, TRUE, FALSE),
-  ('b3c69940-2e43-459f-8c2e-459773c56f8e', 'Conductor Designado', 'Servicio de conductor designado para eventos', 'designated_driver', 0.2500, 50.00, 13.00, 0.00, 50.00, '["auto"]'::jsonb, TRUE, NULL, NULL, 'steering-wheel', '#8E44AD', 3, TRUE, TRUE),
-  ('691f8f01-3faf-4e39-aeb7-1bc4dda3fc19', 'Viaje Nocturno', 'Servicio nocturno con tarifa especial (10pm-4am)', 'night', 0.1200, 40.00, 12.00, 0.00, 40.00, '["auto"]'::jsonb, FALSE, NULL, '{"start": "22:00", "end": "04:00"}'::jsonb, 'moon', '#2C3E50', 4, TRUE, FALSE)
+  ('b3c69940-2e43-459f-8c2e-459773c56f8e', 'Conductor Designado Auto', 'Servicio de conductor para auto designado para eventos', 'designated_driver_auto', 0.2500, 50.00, 13.00, 0.00, 50.00, '["auto"]'::jsonb, TRUE, NULL, NULL, 'bar', '#8E44AD', 3, TRUE, TRUE),
+  ('b3c69940-2e43-459f-8c2e-459773c56f8e', 'Conductor Designado Moto', 'Servicio de conductor designado para moto para eventos', 'designated_driver_moto', 0.2500, 50.00, 13.00, 0.00, 50.00, '["motorcycle"]'::jsonb, TRUE, NULL, NULL, 'bar', '#ad7f44', 3, TRUE, TRUE),
+  ('691f8f01-3faf-4e39-aeb7-1bc4dda3fc19', 'Viaje Nocturno', 'Servicio nocturno con tarifa especial (10pm-4am)', 'night', 0.1200, 40.00, 12.00, 0.00, 40.00, '["auto"]'::jsonb, FALSE, NULL, '{"start": "22:00", "end": "04:00"}'::jsonb, 'moon', '#2C3E50', 5, TRUE, FALSE)
 ON CONFLICT (code) DO UPDATE
 SET
   name = EXCLUDED.name,
@@ -1129,16 +1261,20 @@ CREATE TABLE IF NOT EXISTS public.sms_verification_codes (
   id UUID NOT NULL DEFAULT gen_random_uuid(),
   ride_id UUID NULL,
   user_id VARCHAR(255) NOT NULL,
-  phone_number VARCHAR(20) NOT NULL,
-  code VARCHAR(6) NULL,
+  phone_number VARCHAR(20) NULL,
+  email TEXT NULL,
+  is_email BOOLEAN NULL DEFAULT FALSE,
+  code VARCHAR(6) NOT NULL,
   code_hash VARCHAR(255) NOT NULL,
-  context VARCHAR(50) NOT NULL,
+  context VARCHAR(50) NULL,
   verified BOOLEAN NOT NULL DEFAULT FALSE,
   attempt_count INTEGER NOT NULL DEFAULT 0,
-  expires_at TIMESTAMP WITHOUT TIME ZONE NOT NULL,
-  verified_at TIMESTAMP WITHOUT TIME ZONE NULL,
+  max_attempts INTEGER NULL DEFAULT 3,
   sent_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
+  verified_at TIMESTAMP WITHOUT TIME ZONE NULL,
+  expires_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT (NOW() + '00:10:00'::interval),
   created_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
+  updated_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
   CONSTRAINT sms_verification_codes_pkey PRIMARY KEY (id),
   CONSTRAINT sms_verification_codes_ride_fkey FOREIGN KEY (ride_id) REFERENCES public.rides(id) ON DELETE SET NULL
 ) TABLESPACE pg_default;
@@ -1149,7 +1285,9 @@ ALTER TABLE public.payments
 
 COMMENT ON TABLE public.sms_verification_codes IS 'Códigos SMS para verificación de pagos y otras acciones';
 COMMENT ON COLUMN public.sms_verification_codes.user_id IS 'Firebase Auth UID del usuario';
-COMMENT ON COLUMN public.sms_verification_codes.phone_number IS 'Número de teléfono del usuario';
+COMMENT ON COLUMN public.sms_verification_codes.phone_number IS 'Número de teléfono del usuario (nullable para códigos por correo)';
+COMMENT ON COLUMN public.sms_verification_codes.email IS 'Correo usado en la verificación (nullable para códigos SMS)';
+COMMENT ON COLUMN public.sms_verification_codes.is_email IS 'Indica si corresponde a verificación vía correo electrónico';
 COMMENT ON COLUMN public.sms_verification_codes.code_hash IS 'Hash SHA-256 del código (NUNCA almacenar en texto plano)';
 COMMENT ON COLUMN public.sms_verification_codes.context IS 'Contexto: payment_confirmation, ride_acceptance, etc';
 COMMENT ON COLUMN public.sms_verification_codes.verified IS 'Indica si el código fue verificado correctamente';
@@ -1158,6 +1296,8 @@ COMMENT ON COLUMN public.sms_verification_codes.expires_at IS 'Timestamp de expi
 
 CREATE INDEX IF NOT EXISTS idx_sms_user ON public.sms_verification_codes USING btree (user_id);
 CREATE INDEX IF NOT EXISTS idx_sms_ride ON public.sms_verification_codes USING btree (ride_id);
+CREATE INDEX IF NOT EXISTS idx_sms_email_value ON public.sms_verification_codes USING btree (email);
+CREATE INDEX IF NOT EXISTS idx_sms_is_email ON public.sms_verification_codes USING btree (is_email);
 CREATE INDEX IF NOT EXISTS idx_sms_context ON public.sms_verification_codes USING btree (context);
 CREATE INDEX IF NOT EXISTS idx_sms_verified ON public.sms_verification_codes USING btree (verified);
 CREATE INDEX IF NOT EXISTS idx_sms_expires ON public.sms_verification_codes USING btree (expires_at) WHERE verified = FALSE;
@@ -1206,6 +1346,61 @@ CREATE INDEX IF NOT EXISTS idx_cards_user ON public.cards USING btree (user_id);
 CREATE INDEX IF NOT EXISTS idx_cards_default ON public.cards USING btree (user_id, is_default) WHERE is_active = TRUE;
 CREATE INDEX IF NOT EXISTS idx_cards_active ON public.cards USING btree (user_id, is_active);
 CREATE INDEX IF NOT EXISTS idx_cards_created ON public.cards USING btree (created_at DESC);
+
+-- ============================================
+-- SUPPORT_CALL_SESSIONS TABLE (WebRTC/llamadas)
+-- ============================================
+CREATE TABLE IF NOT EXISTS public.support_call_sessions (
+  id UUID NOT NULL DEFAULT gen_random_uuid(),
+  call_id VARCHAR(64) NOT NULL,
+  complaint_id VARCHAR(255) NULL,
+  ride_id VARCHAR(255) NULL,
+  operator_uid VARCHAR(255) NOT NULL,
+  client_uid VARCHAR(255) NOT NULL,
+  direction VARCHAR(32) NOT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'initiated',
+  recording_url TEXT NULL,
+  signaling_notes JSONB NULL,
+  created_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
+  updated_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
+  connected_at TIMESTAMP WITHOUT TIME ZONE NULL,
+  ended_at TIMESTAMP WITHOUT TIME ZONE NULL,
+  CONSTRAINT support_call_sessions_pkey PRIMARY KEY (id),
+  CONSTRAINT support_call_sessions_call_id_key UNIQUE (call_id),
+  CONSTRAINT support_call_sessions_direction_check CHECK (direction IN ('operator_to_client','client_to_operator')),
+  CONSTRAINT support_call_sessions_status_check CHECK (status IN ('initiated','ringing_client','ringing_operator','accepted','rejected','missed','connected','ended'))
+) TABLESPACE pg_default;
+
+COMMENT ON TABLE public.support_call_sessions IS 'Sesiones de llamadas WebRTC entre operador y cliente asociadas a quejas';
+COMMENT ON COLUMN public.support_call_sessions.call_id IS 'Identificador lógico usado también en Realtime DB (calls/{callId})';
+COMMENT ON COLUMN public.support_call_sessions.complaint_id IS 'ID de la queja en cms_complaints';
+COMMENT ON COLUMN public.support_call_sessions.direction IS 'operator_to_client o client_to_operator';
+COMMENT ON COLUMN public.support_call_sessions.status IS 'Estado actual de la llamada';
+COMMENT ON COLUMN public.support_call_sessions.recording_url IS 'URL de grabación si se almacenó';
+
+CREATE INDEX IF NOT EXISTS idx_support_call_sessions_call_id ON public.support_call_sessions USING btree (call_id);
+CREATE INDEX IF NOT EXISTS idx_support_call_sessions_complaint ON public.support_call_sessions USING btree (complaint_id);
+CREATE INDEX IF NOT EXISTS idx_support_call_sessions_operator ON public.support_call_sessions USING btree (operator_uid);
+CREATE INDEX IF NOT EXISTS idx_support_call_sessions_client ON public.support_call_sessions USING btree (client_uid);
+
+CREATE TRIGGER update_support_call_sessions_updated_at BEFORE UPDATE ON public.support_call_sessions
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Campos de llamada en cms_complaints (enlazar ticket con sesión de llamada)
+ALTER TABLE public.cms_complaints
+  ADD COLUMN IF NOT EXISTS call_id VARCHAR(64),
+  ADD COLUMN IF NOT EXISTS call_status VARCHAR(32),
+  ADD COLUMN IF NOT EXISTS call_direction VARCHAR(32),
+  ADD COLUMN IF NOT EXISTS call_recording_url TEXT,
+  ADD COLUMN IF NOT EXISTS call_started_at TIMESTAMP WITHOUT TIME ZONE,
+  ADD COLUMN IF NOT EXISTS call_ended_at TIMESTAMP WITHOUT TIME ZONE;
+
+COMMENT ON COLUMN public.cms_complaints.call_id IS 'Referencia a support_call_sessions.call_id y RTDB calls/{callId}';
+COMMENT ON COLUMN public.cms_complaints.call_status IS 'Estado de la llamada WebRTC asociado a la queja';
+COMMENT ON COLUMN public.cms_complaints.call_direction IS 'operator_to_client o client_to_operator';
+COMMENT ON COLUMN public.cms_complaints.call_recording_url IS 'Grabación si existe';
+COMMENT ON COLUMN public.cms_complaints.call_started_at IS 'Marca de conexión';
+COMMENT ON COLUMN public.cms_complaints.call_ended_at IS 'Marca de término/rechazo';
 
 -- ============================================
 -- 16. SERVICE_COMMISSION_HISTORY TABLE
@@ -1336,6 +1531,7 @@ ALTER TABLE public.drivers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.vehicles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.rides ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.drivers_recharges ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.driver_penalties ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ratings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ride_locations ENABLE ROW LEVEL SECURITY;
@@ -1532,12 +1728,17 @@ DROP POLICY IF EXISTS sms_codes_read ON public.sms_verification_codes;
 CREATE POLICY sms_codes_read ON public.sms_verification_codes
   FOR SELECT USING (user_id = public.current_firebase_uid());
 
-DROP POLICY IF EXISTS penalties_read ON public.driver_penalties;
-CREATE POLICY penalties_read ON public.driver_penalties
+DROP POLICY IF EXISTS drivers_recharges_read ON public.drivers_recharges;
+CREATE POLICY drivers_recharges_read ON public.drivers_recharges
+  FOR SELECT USING (driver_id = public.current_firebase_uid());
+
+DROP POLICY IF EXISTS driver_penalties_read ON public.driver_penalties;
+CREATE POLICY driver_penalties_read ON public.driver_penalties
   FOR SELECT USING (driver_id = public.current_firebase_uid());
 
 REVOKE INSERT, UPDATE, DELETE ON public.biometric_authentications FROM anon;
 REVOKE INSERT, UPDATE, DELETE ON public.sms_verification_codes FROM anon;
+REVOKE INSERT, UPDATE, DELETE ON public.drivers_recharges FROM anon;
 REVOKE INSERT, UPDATE, DELETE ON public.driver_penalties FROM anon;
 
 -- Ratings
@@ -1605,7 +1806,7 @@ $$;
 -- analytics_events                | 8
 -- biometric_authentications       | 10
 -- cards                           | 12 (NUEVO - Tarjetas guardadas)
--- driver_penalties                | 10
+-- drivers_recharges               | 12 (PuntoExpress wallet movements)
 -- driver_services                 | 10
 -- drivers                         | 11
 -- emergency_calls                 | 13
@@ -1639,11 +1840,16 @@ CREATE TABLE IF NOT EXISTS public.cms_complaints (
   title TEXT NOT NULL,
   description TEXT NULL,
   resolution_notes TEXT NULL,
+  chat_log_url TEXT NULL,
+  show VARCHAR(32) NOT NULL DEFAULT 'All'::VARCHAR,
   resolved_at TIMESTAMP WITHOUT TIME ZONE NULL,
   created_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
   updated_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
   CONSTRAINT cms_complaints_pkey PRIMARY KEY (id)
 ) TABLESPACE pg_default;
+
+ALTER TABLE public.cms_complaints
+  ADD COLUMN IF NOT EXISTS show VARCHAR(32) NOT NULL DEFAULT 'All'::VARCHAR;
 
 COMMENT ON TABLE public.cms_complaints IS 'Quejas registradas desde el CMS (clientes, conductores, operadores)';
 COMMENT ON COLUMN public.cms_complaints.ride_id IS 'Referencia opcional al viaje relacionado (public.rides.id)';
@@ -1655,6 +1861,7 @@ COMMENT ON COLUMN public.cms_complaints.assigned_to_user_id IS 'Firebase UID del
 COMMENT ON COLUMN public.cms_complaints.category IS 'Categoría de la queja: service, driver, payment, app, other';
 COMMENT ON COLUMN public.cms_complaints.status IS 'Estado: open, in_progress, resolved, rejected';
 COMMENT ON COLUMN public.cms_complaints.priority IS 'Prioridad: low, normal, high, urgent';
+COMMENT ON COLUMN public.cms_complaints.chat_log_url IS 'URL en Supabase Storage del JSON con el historial de chat de esta queja';
 
 CREATE INDEX IF NOT EXISTS idx_cms_complaints_ride_id ON public.cms_complaints USING btree (ride_id);
 CREATE INDEX IF NOT EXISTS idx_cms_complaints_client_id ON public.cms_complaints USING btree (client_id);

@@ -8,6 +8,8 @@ import {
   ScrollView,
   TextInput,
 } from 'react-native';
+import LoadingOverlay from '../../components/LoadingOverlay';
+import SupportChatShortcut from '../../components/SupportChatShortcut';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { getFunctions, httpsCallable } from 'firebase/functions';
@@ -43,8 +45,8 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
   const [tip, setTip] = useState(0);
   const [selectedTipPercent, setSelectedTipPercent] = useState<number | null>(null);
   const [customTip, setCustomTip] = useState('');
-  // ✅ NUEVO: Si es pago pendiente, forzar 'card', si no, iniciar con 'card' por defecto
-  const [paymentMethod, setPaymentMethod] = useState<'card' | 'cash'>(isPendingPayment ? 'card' : 'card');
+  // Tarjetas desactivadas temporalmente: forzar efectivo
+  const [paymentMethod, setPaymentMethod] = useState<'card' | 'cash'>('cash');
   const [selectedBank, setSelectedBank] = useState<'bac' | 'banpro' | 'lafise' | 'ficohsa' | 'avanz'>('bac');
   const [processing, setProcessing] = useState(false);
   const [rideDetails, setRideDetails] = useState<any>(null);
@@ -52,8 +54,8 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
   const [selectedCard, setSelectedCard] = useState<SavedCard | null>(null);
   const [useNewCard, setUseNewCard] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [currentPaymentMethod, setCurrentPaymentMethod] = useState<string>('card');
-  const currentPaymentMethodRef = useRef<string>('card');
+  const [currentPaymentMethod, setCurrentPaymentMethod] = useState<string>('cash');
+  const currentPaymentMethodRef = useRef<string>('cash');
   const isNavigatingRef = useRef(false);
   const [changingPaymentMethod, setChangingPaymentMethod] = useState(false);
 
@@ -91,27 +93,28 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
       const paymentData = snapshot.val();
       const methodFromStatus = paymentData?.method || paymentData?.paymentMethod;
 
-      if (methodFromStatus !== 'card') {
+      if (methodFromStatus !== 'cash') {
         try {
-          const functions = getFunctions(app);
-          const changePaymentMethodFn = httpsCallable(functions, 'changePaymentMethod');
-          const deviceId = await sessionService.getDeviceId();
-          await changePaymentMethodFn({
-            rideId,
-            newPaymentMethod: 'card',
-            reason: 'Pago pendiente - se fuerza tarjeta',
-            deviceId,
-          });
+          // Tarjetas desactivadas temporalmente
+          // const functions = getFunctions(app);
+          // const changePaymentMethodFn = httpsCallable(functions, 'changePaymentMethod');
+          // const deviceId = await sessionService.getDeviceId();
+          // await changePaymentMethodFn({
+          //   rideId,
+          //   newPaymentMethod: 'card',
+          //   reason: 'Pago pendiente - se fuerza tarjeta',
+          //   deviceId,
+          // });
         } catch (changeError) {
-          console.warn('⚠️ [PaymentScreen] No se pudo forzar método tarjeta:', changeError);
+          console.warn('⚠️ [PaymentScreen] No se pudo forzar método efectivo:', changeError);
         }
       }
     } catch (error) {
       console.warn('⚠️ [PaymentScreen] Error verificando método de pago pendiente:', error);
     } finally {
-      currentPaymentMethodRef.current = 'card';
-      setCurrentPaymentMethod('card');
-      setPaymentMethod('card');
+      currentPaymentMethodRef.current = 'cash';
+      setCurrentPaymentMethod('cash');
+      setPaymentMethod('cash');
     }
   }, [isPendingPayment, rideId]);
 
@@ -200,20 +203,18 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
 
   const handleBackendMethodChange = (newMethod?: string) => {
     if (isPendingPayment) {
-      currentPaymentMethodRef.current = 'card';
-      setCurrentPaymentMethod('card');
-      setPaymentMethod('card');
+      currentPaymentMethodRef.current = 'cash';
+      setCurrentPaymentMethod('cash');
+      setPaymentMethod('cash');
       isNavigatingRef.current = false;
       return;
     }
 
     if (!newMethod) return;
-    const normalizedMethod: 'card' | 'cash' = newMethod === 'cash' ? 'cash' : 'card';
+    const normalizedMethod: 'card' | 'cash' = 'cash';
 
     if (normalizedMethod === currentPaymentMethodRef.current) {
-      if (normalizedMethod === 'card') {
-        isNavigatingRef.current = false;
-      }
+      isNavigatingRef.current = false;
       return;
     }
 
@@ -282,6 +283,10 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
   const handleSelectPaymentMethod = async (method: 'card' | 'cash') => {
     if (changingPaymentMethod || processing) return;
 
+    if (method !== 'cash') {
+      return;
+    }
+
     if (isPendingPayment && method === 'cash') {
       return;
     }
@@ -340,11 +345,13 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
   };
 
   const handlePayment = async () => {
-    if (paymentMethod === 'card') {
-      await processCardPayment();
-    } else {
-      await processCashPayment();
-    }
+    // Tarjetas desactivadas temporalmente
+    // if (paymentMethod === 'card') {
+    //   await processCardPayment();
+    // } else {
+    //   await processCashPayment();
+    // }
+    await processCashPayment();
   };
 
   const processCardPayment = async () => {
@@ -705,6 +712,7 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
         {/* Método de pago */}
         <View style={styles.paymentMethodCard}>
           <Text style={styles.paymentMethodTitle}>{t('shared.payment.paymentMethod.title')}</Text>
+          {/* Tarjetas desactivadas temporalmente
           <TouchableOpacity
             style={[
               styles.methodButton,
@@ -724,27 +732,21 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
               <Text style={styles.methodCheck}>✓</Text>
             )}
           </TouchableOpacity>
+          */}
 
-          {/* ✅ NUEVO: Deshabilitar efectivo para pagos pendientes */}
           <TouchableOpacity
             style={[
               styles.methodButton,
               paymentMethod === 'cash' && styles.methodButtonActive,
-              isPendingPayment && styles.methodButtonDisabled, // Deshabilitar si es pago pendiente
             ]}
             onPress={() => handleSelectPaymentMethod('cash')}
-            disabled={isPendingPayment || changingPaymentMethod}
+            disabled={changingPaymentMethod}
           >
             <Text style={styles.methodIcon}>💵</Text>
             <View style={styles.methodInfo}>
               <Text style={styles.methodName}>{t('shared.payment.paymentMethod.cashTitle')}</Text>
-              <Text style={[
-                styles.methodDescription,
-                isPendingPayment && styles.methodDescriptionDisabled
-              ]}>
-                {isPendingPayment
-                  ? t('shared.payment.paymentMethod.cashUnavailable')
-                  : t('shared.payment.paymentMethod.cashSubtitle')}
+              <Text style={styles.methodDescription}>
+                {t('shared.payment.paymentMethod.cashSubtitle')}
               </Text>
             </View>
             {paymentMethod === 'cash' && (
@@ -753,8 +755,8 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
           </TouchableOpacity>
         </View>
 
-        {/* Tarjetas Guardadas (solo si es tarjeta y hay tarjetas) */}
-        {paymentMethod === 'card' && savedCards.length > 0 && (
+        {/* Tarjetas Guardadas desactivadas temporalmente */}
+        {false && (
           <View style={styles.savedCardsCard}>
             <View style={styles.savedCardsHeader}>
               <Text style={styles.savedCardsTitle}>{t('shared.payment.savedCards.title')}</Text>
@@ -812,11 +814,27 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
               </View>
               {useNewCard && <Text style={styles.savedCardCheck}>✓</Text>}
             </TouchableOpacity>
+
+            <SupportChatShortcut
+              style={{ marginBottom: 24 }}
+              rideId={rideId}
+              initialCategory={isPendingPayment ? 'payment' : 'service'}
+              initialTitle={
+                isPendingPayment
+                  ? t('shared.payment.support.supportPendingTitle', 'Tengo dudas sobre mi pago pendiente')
+                  : t('shared.payment.support.supportTitle', 'Ayuda con el pago de mi viaje')
+              }
+              label={t('shared.payment.support.supportLabel', '¿Necesitas ayuda con este pago?')}
+              description={t(
+                'shared.payment.support.supportDescription',
+                'Abre un chat con soporte para revisar cargos, reembolsos o problemas con tu tarjeta.',
+              )}
+            />
           </View>
         )}
 
-        {/* Selector de Proveedor de Pago (solo si es tarjeta nueva) */}
-        {paymentMethod === 'card' && (savedCards.length === 0 || useNewCard) && (
+        {/* Selector de Proveedor de Pago desactivado temporalmente */}
+        {false && (
           <View style={styles.providerCard}>
             <Text style={styles.providerTitle}>{t('shared.payment.banks.title')}</Text>
             
@@ -862,13 +880,7 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
             <ActivityIndicator color="#fff" />
           ) : (
             <Text style={styles.payButtonText}>
-              {paymentMethod === 'card'
-                ? t(
-                    isPendingPayment
-                      ? 'shared.payment.buttons.payCardPending'
-                      : 'shared.payment.buttons.payCard',
-                  )
-                : t('shared.payment.buttons.payCash')}
+              {t('shared.payment.buttons.payCash')}
             </Text>
           )}
         </TouchableOpacity>

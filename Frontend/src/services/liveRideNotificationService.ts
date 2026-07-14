@@ -1,4 +1,5 @@
 import i18n from '../i18n';
+import { AppState } from 'react-native';
 import notificationService from './notificationService';
 
 export type LiveRideStatus =
@@ -26,6 +27,15 @@ const DEFAULT_PROGRESS: Record<LiveRideStatus, number> = {
   trip_in_progress: 0.8,
   completed: 1,
   canceled: 0,
+};
+
+const STATUS_ORDER: Record<LiveRideStatus, number> = {
+  driver_assigned: 1,
+  driver_on_route: 2,
+  arrived_pickup: 3,
+  trip_in_progress: 4,
+  completed: 5,
+  canceled: 5,
 };
 
 const clamp = (value: number, min = 0, max = 1) => Math.min(Math.max(value, min), max);
@@ -79,6 +89,9 @@ const resolveStatus = (rawStatus?: string | null): LiveRideStatus => {
   if (status === 'driver_on_route') {
     return 'driver_on_route';
   }
+  if (status === 'arrived_pickup') {
+    return 'arrived_pickup';
+  }
   if (status === 'driver_arrived') {
     return 'arrived_pickup';
   }
@@ -88,6 +101,9 @@ const resolveStatus = (rawStatus?: string | null): LiveRideStatus => {
   if (status === 'in_progress') {
     return 'trip_in_progress';
   }
+  if (status === 'trip_in_progress') {
+    return 'trip_in_progress';
+  }
   if (status === 'pending_payment' || status === 'completed') {
     return 'completed';
   }
@@ -95,11 +111,71 @@ const resolveStatus = (rawStatus?: string | null): LiveRideStatus => {
 };
 
 class LiveRideNotificationService {
+  private lastStatusByRide = new Map<string, LiveRideStatus>();
+  private discardedUpdateCounters: Record<'terminal_locked' | 'status_regression', number> = {
+    terminal_locked: 0,
+    status_regression: 0,
+  };
+
   private keyFor(rideId: string) {
     return `live-ride-${rideId}`;
   }
 
+  private isAppActive() {
+    return AppState.currentState === 'active';
+  }
+
+  private isTerminalStatus(status: LiveRideStatus): boolean {
+    return status === 'completed' || status === 'canceled';
+  }
+
+  private logDiscardedUpdate(
+    reason: 'terminal_locked' | 'status_regression',
+    rideId: string,
+    previous: LiveRideStatus,
+    next: LiveRideStatus,
+  ) {
+    this.discardedUpdateCounters[reason] += 1;
+    console.log('[liveRideNotification] update descartado', {
+      reason,
+      rideId,
+      previous,
+      next,
+      counters: this.discardedUpdateCounters,
+    });
+  }
+
+  private shouldApplyStatusUpdate(rideId: string, nextStatus: LiveRideStatus): boolean {
+    const previous = this.lastStatusByRide.get(rideId);
+    if (!previous) {
+      return true;
+    }
+
+    if (previous === nextStatus) {
+      return true;
+    }
+
+    if (this.isTerminalStatus(previous)) {
+      this.logDiscardedUpdate('terminal_locked', rideId, previous, nextStatus);
+      return false;
+    }
+
+    if (this.isTerminalStatus(nextStatus)) {
+      return true;
+    }
+
+    const shouldAdvance = STATUS_ORDER[nextStatus] >= STATUS_ORDER[previous];
+    if (!shouldAdvance) {
+      this.logDiscardedUpdate('status_regression', rideId, previous, nextStatus);
+    }
+    return shouldAdvance;
+  }
+
   async updateFromApp(payload: LiveRideUpdatePayload) {
+    if (this.isAppActive()) {
+      this.lastStatusByRide.set(payload.rideId, payload.status);
+      return;
+    }
     await this.showNotification(payload);
   }
 
@@ -113,6 +189,11 @@ class LiveRideNotificationService {
     const etaMinutes = parseNumber(data?.etaMinutes ?? data?.fallbackEtaMinutes);
     const distanceKm = parseNumber(data?.distanceKm ?? data?.fallbackDistanceKm);
     const progress = parseNumber(data?.progress);
+
+    if (this.isAppActive()) {
+      this.lastStatusByRide.set(rideId, status);
+      return;
+    }
 
     await this.showNotification({
       rideId,
@@ -129,12 +210,17 @@ class LiveRideNotificationService {
     if (!rideId) return;
     try {
       await notificationService.dismissManagedNotification(this.keyFor(rideId));
+      this.lastStatusByRide.delete(rideId);
     } catch (error) {
       console.warn('[liveRideNotification] Error dismissing notification:', error);
     }
   }
 
   private async showNotification(payload: LiveRideUpdatePayload) {
+    if (!this.shouldApplyStatusUpdate(payload.rideId, payload.status)) {
+      return;
+    }
+
     const statusCopy = getStatusCopy(payload.status);
     const etaText = formatEta(payload.etaMinutes);
     const distanceText = formatDistance(payload.distanceKm);
@@ -169,6 +255,8 @@ class LiveRideNotificationService {
       this.keyFor(payload.rideId),
       payload.expiresInMs ?? 15 * 60 * 1000,
     );
+
+    this.lastStatusByRide.set(payload.rideId, payload.status);
   }
 }
 

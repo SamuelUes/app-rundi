@@ -9,33 +9,98 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
-import ridesService from '../../services/ridesService';
+import ratingService, { type RatingCategoryKey } from '../../services/ratingService';
 import { useAuth } from '../../context/AuthContext';
 import alertService from '../../services/alertService';
+import { useTranslation } from 'react-i18next';
+
+const CATEGORY_KEYS: RatingCategoryKey[] = [
+  'punctuality',
+  'cleanliness',
+  'communication',
+  'driving',
+  'safety',
+  'friendliness',
+];
 
 export default function RatingScreen({ route, navigation }: any) {
   const { rideId } = route.params;
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { user } = useAuth();
   const [rating, setRating] = useState(0);
   const [comment, setComment] = useState('');
+  const [categoryRatings, setCategoryRatings] = useState<Record<RatingCategoryKey, number>>({
+    punctuality: 0,
+    cleanliness: 0,
+    communication: 0,
+    driving: 0,
+    safety: 0,
+    friendliness: 0,
+  });
   const [submitting, setSubmitting] = useState(false);
 
   const isDriver = user?.role === 'driver';
 
+  const categoryLabels = useMemo<Record<RatingCategoryKey, string>>(
+    () => ({
+      punctuality: isDriver
+        ? t('shared.rating.categories.punctuality.driver')
+        : t('shared.rating.categories.punctuality.client'),
+      cleanliness: isDriver
+        ? t('shared.rating.categories.cleanliness.driver')
+        : t('shared.rating.categories.cleanliness.client'),
+      communication: isDriver
+        ? t('shared.rating.categories.communication.driver')
+        : t('shared.rating.categories.communication.client'),
+      driving: isDriver
+        ? t('shared.rating.categories.driving.driver')
+        : t('shared.rating.categories.driving.client'),
+      safety: isDriver
+        ? t('shared.rating.categories.safety.driver')
+        : t('shared.rating.categories.safety.client'),
+      friendliness: isDriver
+        ? t('shared.rating.categories.friendliness.driver')
+        : t('shared.rating.categories.friendliness.client'),
+    }),
+    [isDriver, t],
+  );
+
   const handleSubmitRating = async () => {
     if (rating === 0) {
-      alertService.showErrorAlert('Por favor selecciona una calificación');
+      alertService.showErrorAlert(t('shared.rating.alerts.missingRating'));
       return;
     }
 
     try {
       setSubmitting(true);
       console.log('📝 Enviando calificación para rideId:', rideId);
-      await ridesService.rateRide(rideId, rating, comment);
+      const resolvedCategories: Record<RatingCategoryKey, number> = {
+        punctuality: categoryRatings.punctuality > 0 ? categoryRatings.punctuality : rating,
+        cleanliness: categoryRatings.cleanliness > 0 ? categoryRatings.cleanliness : rating,
+        communication: categoryRatings.communication > 0 ? categoryRatings.communication : rating,
+        driving: categoryRatings.driving > 0 ? categoryRatings.driving : rating,
+        safety: categoryRatings.safety > 0 ? categoryRatings.safety : rating,
+        friendliness: categoryRatings.friendliness > 0 ? categoryRatings.friendliness : rating,
+      };
+
+      await ratingService.submitRideRating({
+        rideId,
+        rating,
+        comment,
+        punctuality: resolvedCategories.punctuality,
+        cleanliness: resolvedCategories.cleanliness,
+        communication: resolvedCategories.communication,
+        driving: resolvedCategories.driving,
+        safety: resolvedCategories.safety,
+        friendliness: resolvedCategories.friendliness,
+      });
       
-      alertService.showSuccessAlert('¡Gracias!', 'Tu calificación ha sido enviada exitosamente', () => {
+      alertService.showSuccessAlert(
+        t('shared.rating.alerts.successTitle'),
+        t('shared.rating.alerts.successMessage'),
+        () => {
         if (isDriver) {
           navigation.replace('DriverHome');
         } else {
@@ -44,26 +109,19 @@ export default function RatingScreen({ route, navigation }: any) {
       });
     } catch (error: any) {
       console.error('Error enviando calificación:', error);
-      alertService.showErrorAlert(error.message || 'No se pudo enviar la calificación');
+      alertService.showErrorAlert(error.message || t('shared.rating.alerts.submitError'));
     } finally {
       setSubmitting(false);
     }
   };
 
-  const quickComments = isDriver
-    ? [
-        'Excelente pasajero',
-        'Muy puntual',
-        'Amable y respetuoso',
-        'Buen trato',
-      ]
-    : [
-        'Excelente conductor',
-        'Muy profesional',
-        'Manejo seguro',
-        'Vehículo limpio',
-        'Llegó a tiempo',
-      ];
+  const quickCommentsRaw = isDriver
+    ? t('shared.rating.quickComments.driver', { returnObjects: true })
+    : t('shared.rating.quickComments.client', { returnObjects: true });
+
+  const quickComments: string[] = Array.isArray(quickCommentsRaw)
+    ? quickCommentsRaw.map((item) => String(item))
+    : [];
 
   return (
     <ScrollView style={styles.container}>
@@ -71,10 +129,10 @@ export default function RatingScreen({ route, navigation }: any) {
         {/* Header */}
         <View style={styles.header}>
           <Text style={styles.title}>
-            {isDriver ? '¿Cómo fue tu pasajero?' : '¿Cómo fue tu viaje?'}
+            {isDriver ? t('shared.rating.header.titleDriver') : t('shared.rating.header.titleClient')}
           </Text>
           <Text style={styles.subtitle}>
-            Tu opinión nos ayuda a mejorar el servicio
+            {t('shared.rating.header.subtitle')}
           </Text>
         </View>
 
@@ -95,18 +153,18 @@ export default function RatingScreen({ route, navigation }: any) {
 
         {rating > 0 && (
           <Text style={styles.ratingText}>
-            {rating === 5 && '¡Excelente! 🎉'}
-            {rating === 4 && 'Muy bueno 👍'}
-            {rating === 3 && 'Bueno 👌'}
-            {rating === 2 && 'Regular 😐'}
-            {rating === 1 && 'Malo 😞'}
+            {rating === 5 && t('shared.rating.ratingText.five')}
+            {rating === 4 && t('shared.rating.ratingText.four')}
+            {rating === 3 && t('shared.rating.ratingText.three')}
+            {rating === 2 && t('shared.rating.ratingText.two')}
+            {rating === 1 && t('shared.rating.ratingText.one')}
           </Text>
         )}
 
         {/* Comentarios rápidos */}
         {rating > 0 && (
           <View style={styles.quickCommentsContainer}>
-            <Text style={styles.quickCommentsTitle}>Comentarios rápidos:</Text>
+            <Text style={styles.quickCommentsTitle}>{t('shared.rating.sections.quickComments')}</Text>
             <View style={styles.quickComments}>
               {quickComments.map((quickComment, index) => (
                 <TouchableOpacity
@@ -131,13 +189,43 @@ export default function RatingScreen({ route, navigation }: any) {
           </View>
         )}
 
+        {rating > 0 && (
+          <View style={styles.categoriesContainer}>
+            <Text style={styles.quickCommentsTitle}>{t('shared.rating.sections.categories')}</Text>
+
+            {CATEGORY_KEYS.map((categoryKey) => (
+              <View key={categoryKey} style={styles.categoryRow}>
+                <Text style={styles.categoryLabel}>{categoryLabels[categoryKey]}</Text>
+                <View style={styles.categoryStarsRow}>
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <TouchableOpacity
+                      key={`${categoryKey}-${star}`}
+                      onPress={() => {
+                        setCategoryRatings((prev) => ({
+                          ...prev,
+                          [categoryKey]: star,
+                        }));
+                      }}
+                      style={styles.categoryStarButton}
+                    >
+                      <Text style={styles.categoryStarText}>
+                        {star <= (categoryRatings[categoryKey] || 0) ? '⭐' : '☆'}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
+
         {/* Comentario personalizado */}
         {rating > 0 && (
           <View style={styles.commentContainer}>
-            <Text style={styles.commentLabel}>Comentario adicional (opcional):</Text>
+            <Text style={styles.commentLabel}>{t('shared.rating.sections.additionalComment')}</Text>
             <TextInput
               style={styles.commentInput}
-              placeholder="Escribe tu experiencia..."
+              placeholder={t('shared.rating.input.commentPlaceholder')}
               placeholderTextColor="#999"
               multiline
               numberOfLines={4}
@@ -158,7 +246,7 @@ export default function RatingScreen({ route, navigation }: any) {
             {submitting ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <Text style={styles.submitButtonText}>Enviar Calificación</Text>
+              <Text style={styles.submitButtonText}>{t('shared.rating.buttons.submit')}</Text>
             )}
           </TouchableOpacity>
         )}
@@ -169,7 +257,7 @@ export default function RatingScreen({ route, navigation }: any) {
           onPress={async () => {
             try {
               // Llamar a skipRating para marcar que omitió
-              await ridesService.skipRating(rideId);
+              await ratingService.skipRideRating(rideId);
               
               // Navegar según el rol del usuario
               if (isDriver) {
@@ -188,7 +276,7 @@ export default function RatingScreen({ route, navigation }: any) {
             }
           }}
         >
-          <Text style={styles.skipButtonText}>Omitir por ahora</Text>
+          <Text style={styles.skipButtonText}>{t('shared.rating.buttons.skip')}</Text>
         </TouchableOpacity>
       </View>
     </ScrollView>
@@ -270,6 +358,33 @@ const createStyles = (colors: any) => StyleSheet.create({
   quickCommentTextActive: {
     color: '#fff',
     fontWeight: '600',
+  },
+  categoriesContainer: {
+    marginBottom: 24,
+  },
+  categoryRow: {
+    marginBottom: 12,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  categoryLabel: {
+    fontSize: 14,
+    color: colors.text,
+    fontWeight: '600',
+    marginBottom: 6,
+  },
+  categoryStarsRow: {
+    flexDirection: 'row',
+  },
+  categoryStarButton: {
+    paddingRight: 6,
+  },
+  categoryStarText: {
+    fontSize: 22,
   },
   commentContainer: {
     marginBottom: 24,

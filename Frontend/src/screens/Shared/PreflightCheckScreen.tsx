@@ -18,15 +18,34 @@ import { overlayManager } from '../../native/overlay';
 import { ensureActivityRecognitionPermission } from '../../utils/activityPermission';
 import alertService from '../../services/alertService';
 import { setPreflightResult, PreflightAction, PreflightSummary } from '../../state/preflightStore';
-import type { PreflightRole, PreflightRouteConfig, PreflightRegionInfo } from '../../types/preflight';
+import type {
+  GetPreflightDataResponse,
+  PreflightDriverApprovalSummary,
+  PreflightPendingPaymentsSummary,
+  PreflightRechargeFundsSummary,
+  PreflightRole,
+  PreflightRouteConfig,
+  PreflightRegionInfo,
+  TermsDocumentType,
+  PreflightTermsSummary,
+  ServiceAreaPoint,
+} from '../../types/preflight';
 import { fetchDriverProfile } from '../../services/driverProfilesService';
-import proximityService from '../../services/proximityService';
+import proximityService, {
+  isRegistrationUploadsInProgress,
+  subscribeRegistrationUploadsInProgress,
+} from '../../services/proximityService';
+import ridesService from '../../services/ridesService';
 import firebaseAuthService from '../../services/auth/firebaseAuthService';
+import BiometricService from '../../services/biometricService';
+import PreflightBiometricPrompt from '../../components/PreflightBiometricPrompt';
 import TermsAndConditionsModal, { CURRENT_TERMS_VERSION } from '../../components/TermsAndConditionsModal';
 import PermissionsExplanation from '../../components/permissions/PermissionsExplanation';
 import type { User as FirebaseUser } from 'firebase/auth';
 import { useTranslation } from 'react-i18next';
 import { isNativeFirebaseSupported, loadNativeFirebaseAuth } from '../../utils/nativeFirebase';
+import preflightService from '../../services/preflightService';
+import { waitForFirebaseAuthUser } from '../../utils/firebaseAuthReady';
 
 type NavigationLike = {
   replace: (routeName: string, params?: any) => void;
@@ -46,37 +65,241 @@ type DriverApprovalResult = {
 const ACTIVE_DRIVER_STATUSES = ['accepted', 'driver_on_route', 'driver_arrived', 'in_progress'];
 const ACTIVE_CLIENT_TRACK_STATUSES = ['accepted', 'driver_on_route', 'driver_arrived', 'in_progress'];
 const CLIENT_WAITING_STATUSES = ['requested', 'searching', 'pending', 'pending_confirmation'];
-const PENALTIES_LIMIT_CORDOBAS = 150;
+const TERMS_DOCUMENTS: TermsDocumentType[] = ['general', 'users', 'designated_driver'];
 
 const CRITICAL_CHECKS = ['auth', 'notifications', 'foregroundLocation', 'backgroundLocation', 'overlay'];
+const DRIVER_BIOMETRIC_CONTEXT = 'app_access_preflight';
+const DRIVER_BIOMETRIC_MAX_ATTEMPTS = 3;
+const DRIVER_BIOMETRIC_RISK_WINDOW_MS = 15 * 60 * 1000;
+const recentDriverBiometricAuthByUserId = new Map<string, number>();
 
-const MANAGUA_BOUNDS = {
-  north: 12.2,
-  south: 12.05,
-  east: -86.15,
-  west: -86.35,
-};
+const DEFAULT_MANAGUA_POLYGON: ServiceAreaPoint[] = [
+  { lat: 12.2, lng: -86.35 },
+  { lat: 12.2, lng: -86.15 },
+  { lat: 12.05, lng: -86.15 },
+  { lat: 12.05, lng: -86.35 },
+  { lat: 12.2, lng: -86.35 },
+];
 
-const getLocalRegionFallback = (
+function isPointInPolygon(lat: number, lng: number, polygon: ServiceAreaPoint[]): boolean {
+  let inside = false;
+
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i].lng;
+    const yi = polygon[i].lat;
+    const xj = polygon[j].lng;
+    const yj = polygon[j].lat;
+
+    const intersects =
+      yi > lat !== yj > lat &&
+      lng < ((xj - xi) * (lat - yi)) / (yj - yi || Number.EPSILON) + xi;
+
+    if (intersects) {
+      inside = !inside;
+    }
+  }
+
+  return inside;
+}
+
+function getDriverBiometricUserType(user: any, role: PreflightRole): 'driver' | 'designated_driver' | null {
+  if (role !== 'driver') {
+    return null;
+  }
+
+  const rawRole = String(user?.role || '')
+    .trim()
+    .toLowerCase();
+
+  if (rawRole === 'designated_driver') {
+    return 'designated_driver';
+  }
+
+  if (rawRole === 'driver') {
+    return 'driver';
+  }
+
+  return 'driver';
+}
+
+function shouldRequireDriverBiometricCheck(user: any, role: PreflightRole): boolean {
+  const userType = getDriverBiometricUserType(user, role);
+  if (!userType || !user?.id) {
+    return false;
+  }
+
+  const now = Date.now();
+  const lastSuccessAt = recentDriverBiometricAuthByUserId.get(user.id);
+  if (!lastSuccessAt) {
+    return true;
+  }
+
+  return now - lastSuccessAt > DRIVER_BIOMETRIC_RISK_WINDOW_MS;
+}
+
+async function checkDriverBiometricAccess(
+  user: any,
+  role: PreflightRole,
+  t: (key: string, opts?: any) => string,
+  onPhaseChange?: (payload: {
+    phase: 'scanning' | 'pin_fallback' | 'success' | 'failed';
+    attempt: number;
+    maxAttempts: number;
+  }) => void,
+): Promise<{ success: boolean; message?: string }> {
+  const userType = getDriverBiometricUserType(user, role);
+  if (!userType || !user?.id) {
+    return { success: true };
+  }
+
+  let lastErrorMessage = '';
+
+  for (let attempt = 1; attempt <= DRIVER_BIOMETRIC_MAX_ATTEMPTS; attempt += 1) {
+    onPhaseChange?.({
+      phase: 'scanning',
+      attempt,
+      maxAttempts: DRIVER_BIOMETRIC_MAX_ATTEMPTS,
+    });
+
+    const result = await BiometricService.authenticateWithPinFallback(
+      t('shared.preflight.biometric.prompt'),
+      t('shared.preflight.biometric.pinFallback'),
+    );
+
+    const success = result.success === true;
+    const attemptError = result.error || t('shared.preflight.biometric.error');
+
+    if (result.usedPinFallback) {
+      onPhaseChange?.({
+        phase: 'pin_fallback',
+        attempt,
+        maxAttempts: DRIVER_BIOMETRIC_MAX_ATTEMPTS,
+      });
+    }
+
+    await BiometricService.logAuthenticationAttempt({
+      biometricType: result.biometryType || 'biometric',
+      context: DRIVER_BIOMETRIC_CONTEXT,
+      userType,
+      success,
+      attemptNumber: attempt,
+      errorMessage: success ? undefined : attemptError,
+    });
+
+    if (success) {
+      onPhaseChange?.({
+        phase: 'success',
+        attempt,
+        maxAttempts: DRIVER_BIOMETRIC_MAX_ATTEMPTS,
+      });
+      recentDriverBiometricAuthByUserId.set(user.id, Date.now());
+      return { success: true };
+    }
+
+    lastErrorMessage = attemptError;
+
+    onPhaseChange?.({
+      phase: 'failed',
+      attempt,
+      maxAttempts: DRIVER_BIOMETRIC_MAX_ATTEMPTS,
+    });
+
+    if (result.errorCode === 'NOT_SUPPORTED' || result.errorCode === 'NOT_ENROLLED') {
+      return {
+        success: false,
+        message: t('shared.preflight.biometric.deviceSecurityRequired'),
+      };
+    }
+
+    if (attempt < DRIVER_BIOMETRIC_MAX_ATTEMPTS) {
+      await new Promise((resolve) => setTimeout(resolve, 450));
+    }
+  }
+
+  return {
+    success: false,
+    message: t('shared.preflight.biometric.maxAttempts', { max: DRIVER_BIOMETRIC_MAX_ATTEMPTS }),
+  };
+}
+
+function buildInitialTermsCheckedState(): Record<TermsDocumentType, boolean> {
+  return {
+    general: false,
+    users: false,
+    designated_driver: false,
+  };
+}
+
+function hasAcceptedAllCurrentTerms(
+  termsSummary: PreflightTermsSummary | null | undefined,
+  fallbackProfile?: Record<string, any> | null,
+): boolean {
+  const summaryAccepted = termsSummary?.acceptedAllDocuments === true;
+  if (summaryAccepted) {
+    return true;
+  }
+
+  const summaryDocuments = termsSummary?.acceptedDocuments;
+  const summaryAllDocsAccepted =
+    summaryDocuments &&
+    TERMS_DOCUMENTS.every((documentType) => summaryDocuments[documentType]?.accepted === true);
+  if (summaryAllDocsAccepted) {
+    return true;
+  }
+
+  const acceptedVersion = termsSummary?.acceptedVersion || String(fallbackProfile?.termsVersion || '').trim();
+  if (acceptedVersion === CURRENT_TERMS_VERSION) {
+    return true;
+  }
+
+  const termsAcceptance =
+    fallbackProfile?.termsAcceptance && typeof fallbackProfile.termsAcceptance === 'object'
+      ? (fallbackProfile.termsAcceptance as Record<string, any>)
+      : null;
+
+  const acceptanceType = String(termsAcceptance?.type || '').trim().toLowerCase();
+  const acceptanceVersion = String(termsAcceptance?.version || '').trim();
+  if (acceptanceType === 'general' && acceptanceVersion === CURRENT_TERMS_VERSION) {
+    return true;
+  }
+
+  const acceptanceDocs =
+    termsAcceptance?.documents && typeof termsAcceptance.documents === 'object'
+      ? (termsAcceptance.documents as Record<string, any>)
+      : null;
+
+  if (!acceptanceDocs) {
+    return false;
+  }
+
+  return TERMS_DOCUMENTS.every((documentType) => {
+    const documentAcceptance = acceptanceDocs[documentType];
+    if (!documentAcceptance || typeof documentAcceptance !== 'object') {
+      return false;
+    }
+    const documentVersion = String(documentAcceptance.version || '').trim();
+    const accepted = documentAcceptance.accepted === true;
+    return accepted && documentVersion === CURRENT_TERMS_VERSION;
+  });
+}
+
+function getLocalRegionFallback(
   t: (key: string, opts?: any) => string,
   latitude: number,
   longitude: number,
-): PreflightRegionInfo => {
-  const inBounds =
-    latitude >= MANAGUA_BOUNDS.south &&
-    latitude <= MANAGUA_BOUNDS.north &&
-    longitude >= MANAGUA_BOUNDS.west &&
-    longitude <= MANAGUA_BOUNDS.east;
+): PreflightRegionInfo {
+  const isInsideDefault = isPointInPolygon(latitude, longitude, DEFAULT_MANAGUA_POLYGON);
 
-  if (inBounds) {
+  if (isInsideDefault) {
     return {
       allowed: true,
       serviceAreaId: 'ni-managua',
-      areaName: 'Managua',
+      areaName: 'Fallback Managua',
       message: t('shared.preflight.regionFallback.available'),
-      reasonCode: 'OK_FALLBACK_LOCAL',
+      reasonCode: 'OK_FALLBACK_LOCAL_POLYGON',
       latitude,
       longitude,
+      polygon: DEFAULT_MANAGUA_POLYGON,
     };
   }
 
@@ -85,24 +308,226 @@ const getLocalRegionFallback = (
     serviceAreaId: null,
     areaName: undefined,
     message: t('shared.preflight.regionFallback.unavailable'),
-    reasonCode: 'AREA_NOT_SUPPORTED_LOCAL',
+    reasonCode: 'AREA_NOT_SUPPORTED_LOCAL_POLYGON',
     latitude,
     longitude,
+    polygon: DEFAULT_MANAGUA_POLYGON,
   };
-};
+}
 
 const getCheckLabels = (t: (key: string, opts?: any) => string): Record<string, string> => ({
   auth: t('shared.preflight.checks.auth'),
+  driverBiometric: t('shared.preflight.checks.driverBiometric'),
   notifications: t('shared.preflight.checks.notifications'),
   foregroundLocation: t('shared.preflight.checks.foregroundLocation'),
   backgroundLocation: t('shared.preflight.checks.backgroundLocation'),
   overlay: t('shared.preflight.checks.overlay'),
   activity: t('shared.preflight.checks.activity'),
   region: t('shared.preflight.checks.region'),
-  pendingPayments: t('shared.preflight.checks.pendingPayments'),
-  penalties: t('shared.preflight.checks.penalties'),
+  rechargeFunds: t('shared.preflight.checks.rechargeFunds'),
   activeRide: t('shared.preflight.checks.activeRide'),
+  programmedRideConfirm: t('shared.preflight.programmedRide.checkLabel'),
 });
+
+function toDriverApprovalResult(
+  value: PreflightDriverApprovalSummary | null | undefined,
+): DriverApprovalResult | null {
+  if (!value) {
+    return null;
+  }
+  return {
+    allowed: value.allowed,
+    accountStatus: value.accountStatus,
+    documentsStatus: value.documentsStatus,
+    hasActiveVehicle: value.hasActiveVehicle,
+  };
+}
+
+function buildPendingPaymentAction(
+  t: (key: string, opts?: any) => string,
+  summary: PreflightPendingPaymentsSummary,
+  pendingPaymentsRoute: string,
+): PreflightAction {
+  if (summary.type === 'driver') {
+    return {
+      type: 'pending_payment',
+      title:
+        summary.count === 1 ? 'Pago pendiente' : `${summary.count} pagos pendientes`,
+      subtitle: 'Confirma los pagos pendientes',
+      ctaLabel: 'Ver pagos',
+      routeName: 'PaymentConfirmation',
+      routeParams: {
+        rideId: summary.firstRideId,
+        amount: summary.firstAmount,
+        paymentMethod: summary.firstPaymentMethod || 'cash',
+        clientName: 'Cliente',
+        fromHome: true,
+      },
+      metadata: { count: summary.count, totalDebt: summary.amount },
+    };
+  }
+
+  return {
+    type: 'pending_payment',
+    title:
+      summary.count === 1 ? 'Pago pendiente' : `${summary.count} pagos pendientes`,
+    subtitle: `Total: C$${summary.amount.toFixed(2)}`,
+    ctaLabel: 'Pagar ahora',
+    routeName: pendingPaymentsRoute,
+    metadata: { count: summary.count, totalDebt: summary.amount },
+  };
+}
+
+function buildRechargeFundsAction(
+  summary: PreflightRechargeFundsSummary,
+  rechargeFundsRoute?: string,
+): PreflightAction | undefined {
+  if (!rechargeFundsRoute) {
+    return undefined;
+  }
+  if (summary.availableBalance > 0 && !summary.blocked) {
+    return undefined;
+  }
+  return {
+    type: 'recharge_funds',
+    title: 'Fondos insuficientes',
+    subtitle: `Saldo actual: C$${Number(summary.availableBalance || 0).toFixed(2)}`,
+    ctaLabel: 'Recargar fondos',
+    routeName: rechargeFundsRoute,
+    metadata: {
+      availableBalance: Number(summary.availableBalance || 0),
+      blocked: summary.blocked || Number(summary.availableBalance || 0) <= 0,
+    },
+  };
+}
+
+function buildActiveRideAction(
+  role: PreflightRole,
+  t: (key: string, opts?: any) => string,
+  activeRide: NonNullable<GetPreflightDataResponse['activeRide']>,
+  activeRideRoute: string,
+  rideTrackingRoute: string,
+  waitingRideRoute: string,
+): PreflightAction {
+  if (role === 'driver') {
+    return {
+      type: 'active_ride',
+      title: 'Viaje activo',
+      subtitle: `Estado: ${activeRide.status}`,
+      ctaLabel: 'Ir al viaje',
+      routeName: activeRideRoute,
+      routeParams: {
+        rideId: activeRide.rideId,
+        ...(activeRide.metadata || {}),
+      },
+      metadata: {
+        rideId: activeRide.rideId,
+        status: activeRide.status,
+      },
+    };
+  }
+
+  if (activeRide.roleView === 'client_waiting') {
+    return {
+      type: 'active_ride',
+      title: 'Viaje en espera',
+      subtitle: `Estado: ${activeRide.status}`,
+      ctaLabel: 'Ver viaje',
+      routeName: waitingRideRoute,
+      routeParams: {
+        rideId: activeRide.rideId,
+      },
+      metadata: {
+        rideId: activeRide.rideId,
+        status: activeRide.status,
+      },
+    };
+  }
+
+  return {
+    type: 'active_ride',
+    title: t('client.home.activeRide.driverOnRoute'),
+    subtitle: `Estado: ${activeRide.status}`,
+    ctaLabel: 'Ver viaje',
+    routeName: rideTrackingRoute,
+    routeParams: {
+      rideId: activeRide.rideId,
+      ...(activeRide.metadata || {}),
+    },
+    metadata: {
+      rideId: activeRide.rideId,
+      status: activeRide.status,
+    },
+  };
+}
+
+function buildProgrammedRideAction(
+  t: (key: string, opts?: any) => string,
+  programmedRide: NonNullable<GetPreflightDataResponse['programmedRide']>,
+): PreflightAction {
+  const subtitleDate = programmedRide.scheduledAt
+    ? new Date(programmedRide.scheduledAt).toLocaleString()
+    : undefined;
+  return {
+    type: programmedRide.type,
+    title: t('shared.preflight.programmedRide.actionTitle'),
+    subtitle: subtitleDate
+      ? t('shared.preflight.programmedRide.actionSubtitle', { date: subtitleDate })
+      : undefined,
+    ctaLabel: t('shared.preflight.programmedRide.confirmButton'),
+    metadata: {
+      rideId: programmedRide.rideId,
+      scheduledAt: programmedRide.scheduledAt ?? null,
+    },
+  };
+}
+
+function buildActionsFromPreflightData(
+  role: PreflightRole,
+  t: (key: string, opts?: any) => string,
+  preflightData: GetPreflightDataResponse | null,
+  pendingPaymentsRoute: string,
+  rechargeFundsRoute: string | undefined,
+  activeRideRoute: string,
+  rideTrackingRoute: string,
+  waitingRideRoute: string,
+): PreflightAction[] {
+  if (!preflightData || !preflightData.success) {
+    return [];
+  }
+
+  const actions: PreflightAction[] = [];
+
+  if (preflightData.activeRide) {
+    actions.push(
+      buildActiveRideAction(
+        role,
+        t,
+        preflightData.activeRide,
+        activeRideRoute,
+        rideTrackingRoute,
+        waitingRideRoute,
+      ),
+    );
+  }
+
+  if (preflightData.programmedRide) {
+    actions.push(buildProgrammedRideAction(t, preflightData.programmedRide));
+  }
+
+  if (role === 'driver' && preflightData.pendingPayments && preflightData.pendingPayments.count > 0) {
+    actions.push(buildPendingPaymentAction(t, preflightData.pendingPayments, pendingPaymentsRoute));
+  }
+
+  if (role === 'driver' && preflightData.rechargeFunds) {
+    const rechargeAction = buildRechargeFundsAction(preflightData.rechargeFunds, rechargeFundsRoute);
+    if (rechargeAction) {
+      actions.push(rechargeAction);
+    }
+  }
+
+  return actions;
+}
 
 const PreflightCheckScreen = ({ navigation, route }: any) => {
   const nav = navigation as NavigationLike;
@@ -124,7 +549,7 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
   const successRoute = params?.successRoute ?? (role === 'driver' ? 'DriverHome' : 'ClientHome');
   const activeRideRoute = params?.activeRideRoute ?? (role === 'driver' ? 'ActiveRide' : 'RideTracking');
   const pendingPaymentsRoute = params?.pendingPaymentsRoute ?? 'PendingPayments';
-  const payCommissionsRoute = params?.payCommissionsRoute ?? (role === 'driver' ? 'PayCommissions' : undefined);
+  const rechargeFundsRoute = params?.rechargeFundsRoute ?? (role === 'driver' ? 'RechargeFunds' : undefined);
   const rideTrackingRoute = params?.rideTrackingRoute ?? 'RideTracking';
   const waitingRideRoute = params?.waitingRideRoute ?? 'HomeOffers';
   const pendingApprovalRoute = params?.pendingApprovalRoute;
@@ -135,8 +560,14 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
   const [completed, setCompleted] = useState(false);
   const [canRetry, setCanRetry] = useState(false);
   const [showTerms, setShowTerms] = useState(false);
-  const [termsChecked, setTermsChecked] = useState(false);
+  const [termsCheckedDocuments, setTermsCheckedDocuments] = useState<Record<TermsDocumentType, boolean>>(
+    () => buildInitialTermsCheckedState(),
+  );
   const [savingTerms, setSavingTerms] = useState(false);
+  const [biometricPromptVisible, setBiometricPromptVisible] = useState(false);
+  const [biometricPromptPhase, setBiometricPromptPhase] = useState<'scanning' | 'pin_fallback' | 'success' | 'failed'>('scanning');
+  const [biometricPromptAttempt, setBiometricPromptAttempt] = useState(1);
+  const [biometricPromptMaxAttempts, setBiometricPromptMaxAttempts] = useState(DRIVER_BIOMETRIC_MAX_ATTEMPTS);
   
   const progressAnim = useRef(new Animated.Value(0)).current;
   const actionsRef = useRef<PreflightAction[]>([]);
@@ -152,10 +583,10 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
     }).start();
   }, [progressAnim]);
 
-  const navigateAfterChecks = useCallback(async () => {
+  const navigateAfterChecks = useCallback(async (approvalOverride?: DriverApprovalResult | null) => {
     try {
       if (role === 'driver' && user?.id) {
-        const approval = await checkDriverApprovalStatus(user.id);
+        const approval = approvalOverride ?? (await checkDriverApprovalStatus(user.id));
         if (approval && !approval.allowed) {
           const targetRoute = pendingApprovalRoute || 'DriverPendingApproval';
           nav.replace(targetRoute as any, { approvalInfo: approval });
@@ -170,21 +601,20 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
     }
   }, [role, user?.id, nav, successRoute, pendingApprovalRoute]);
 
-  const handleTermsIfNeeded = useCallback(async (): Promise<boolean> => {
+  const handleTermsIfNeeded = useCallback(async (termsSummary?: PreflightTermsSummary | null): Promise<boolean> => {
     try {
       if (!user?.id) {
         return true;
       }
 
-      const profile = await firebaseAuthService.getUserProfile(user.id);
-      const existingVersion = (profile as any)?.termsVersion;
+      const profile = await firebaseAuthService.getUserProfile(user.id) as any;
 
-      if (existingVersion === CURRENT_TERMS_VERSION) {
+      if (hasAcceptedAllCurrentTerms(termsSummary || null, profile || null)) {
         return true;
       }
 
       setShowTerms(true);
-      setTermsChecked(false);
+      setTermsCheckedDocuments(buildInitialTermsCheckedState());
       return false;
     } catch (err: any) {
       console.error('❌ [Preflight] Error obteniendo perfil para términos:', err);
@@ -206,7 +636,7 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
 
       if (user?.id) {
         setShowTerms(true);
-        setTermsChecked(false);
+        setTermsCheckedDocuments(buildInitialTermsCheckedState());
         return false;
       }
       return true;
@@ -226,127 +656,195 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
     actionsRef.current = [];
     animateProgress(0);
 
-    const checkList: string[] = [
-      'auth',
-      'notifications',
-      'foregroundLocation',
-      'region',
-      ...(role === 'driver' ? ['backgroundLocation'] : []),
-      ...(role === 'driver' && Platform.OS === 'android' ? ['overlay'] : []),
-      ...(role === 'driver' && Platform.OS === 'android' ? ['activity'] : []),
-      'activeRide',
-      'pendingPayments',
-      ...(role === 'driver' ? ['penalties'] : []),
+    const labels = getCheckLabels(t);
+    setCurrentCheckLabel(labels.auth || 'auth');
+    const authOk = await checkAuth(user);
+    if (!authOk) {
+      console.warn('⚠️ [Preflight] Auth crítico falló, cerrando sesión y volviendo a Login');
+      try {
+        await logout();
+      } catch (logoutError) {
+        console.error('❌ [Preflight] Error durante logout tras fallo de auth:', logoutError);
+      }
+      checksRunRef.current = false;
+      return;
+    }
+
+    const shouldRunDriverBiometricCheck = shouldRequireDriverBiometricCheck(user, role);
+
+    const localTasks: Array<{
+      id: string;
+      critical: boolean;
+      run: () => Promise<boolean>;
+    }> = [
+      {
+        id: 'notifications',
+        critical: true,
+        run: () =>
+          checkNotifications({
+            isFCMAvailable,
+            configureFCM,
+          }),
+      },
+      {
+        id: 'foregroundLocation',
+        critical: role === 'driver',
+        run: () => checkForegroundLocation(),
+      },
+      ...(role === 'driver'
+        ? [
+            {
+              id: 'backgroundLocation',
+              critical: true,
+              run: () => checkBackgroundLocation(),
+            },
+          ]
+        : []),
+      ...(role === 'driver' && Platform.OS === 'android'
+        ? [
+            {
+              id: 'overlay',
+              critical: true,
+              run: () => checkOverlay(),
+            },
+            {
+              id: 'activity',
+              critical: false,
+              run: () => checkActivity(),
+            },
+          ]
+        : []),
     ];
 
-    const labels = getCheckLabels(t);
-    const totalChecks = checkList.length;
+    let completedSteps = 0;
+    const totalSteps = localTasks.length + 1 + (shouldRunDriverBiometricCheck ? 1 : 0); // + server preflight (+ driver biometric if needed)
+    const updateProgress = () => {
+      const value = Math.min(100, (completedSteps / totalSteps) * 100);
+      setProgress(value);
+      animateProgress(value);
+    };
 
-    let regionInfo: PreflightRegionInfo | undefined;
+    if (shouldRunDriverBiometricCheck) {
+      setCurrentCheckLabel(labels.driverBiometric || 'driverBiometric');
+      setBiometricPromptVisible(true);
+      const biometricResult = await checkDriverBiometricAccess(user, role, t, ({ phase, attempt, maxAttempts }) => {
+        setBiometricPromptPhase(phase);
+        setBiometricPromptAttempt(attempt);
+        setBiometricPromptMaxAttempts(maxAttempts);
+      });
+      completedSteps += 1;
+      updateProgress();
 
-    for (let i = 0; i < checkList.length; i++) {
-      const checkId = checkList[i];
-      const isCritical =
-        CRITICAL_CHECKS.includes(checkId) &&
-        !(role === 'client' && checkId === 'foregroundLocation');
-      
-      setCurrentCheckLabel(labels[checkId] || checkId);
-      console.log(`🔸 [Preflight] Verificando ${checkId} (${i + 1}/${totalChecks})`);
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      setBiometricPromptVisible(false);
 
-      try {
-        let success = false;
-        let action: PreflightAction | undefined;
-
-        switch (checkId) {
-          case 'auth':
-            success = await checkAuth(user);
-            break;
-          case 'notifications':
-            success = await checkNotifications({
-              isFCMAvailable,
-              configureFCM,
-            });
-            break;
-          case 'foregroundLocation':
-            success = await checkForegroundLocation();
-            break;
-          case 'region': {
-            const region = await checkRegionAvailabilityPreflight(t);
-            if (region) {
-              regionInfo = region;
-            }
-            success = true; // No crítico, solo informativo
-            break;
-          }
-          case 'backgroundLocation':
-            success = await checkBackgroundLocation();
-            break;
-          case 'overlay':
-            success = await checkOverlay();
-            break;
-          case 'activity':
-            success = await checkActivity();
-            break;
-          case 'pendingPayments':
-            action = await checkPendingPayments(role, user?.id, nav, pendingPaymentsRoute);
-            success = true; // No crítico
-            break;
-          case 'penalties':
-            action = await checkPenalties(user?.id, nav, payCommissionsRoute);
-            success = true; // No crítico
-            break;
-          case 'activeRide':
-            action = await checkActiveRide(role, user?.id, nav, activeRideRoute, rideTrackingRoute, waitingRideRoute);
-            success = true; // No crítico
-            break;
-        }
-
-        if (action) {
-          actionsRef.current.push(action);
-        }
-
-        if (!success && isCritical) {
-          console.error(`❌ [Preflight] Check crítico falló: ${checkId}`);
-
-          if (checkId === 'auth') {
-            console.warn('⚠️ [Preflight] Auth crítico falló, cerrando sesión y volviendo a Login');
-            try {
-              await logout();
-            } catch (logoutError) {
-              console.error('❌ [Preflight] Error durante logout tras fallo de auth:', logoutError);
-            }
-          } else {
-            setError(
-              t('shared.preflight.errors.checkFailed', {
-                label: labels[checkId] || checkId,
-              }),
-            );
-            setCanRetry(true);
-          }
-
-          checksRunRef.current = false;
-          return;
-        }
-
-        const newProgress = ((i + 1) / totalChecks) * 100;
-        setProgress(newProgress);
-        animateProgress(newProgress);
-
-      } catch (err: any) {
-        console.error(`❌ [Preflight] Error en check ${checkId}:`, err);
-        
-        if (isCritical) {
-          setError(
-            t('shared.preflight.errors.unexpected', {
-              message: err?.message || t('shared.preflight.errors.generic'),
-            }),
-          );
-          setCanRetry(true);
-          checksRunRef.current = false;
-          return;
-        }
+      if (!biometricResult.success) {
+        setError(
+          biometricResult.message ||
+            t('shared.preflight.biometric.required'),
+        );
+        setCanRetry(true);
+        checksRunRef.current = false;
+        return;
       }
     }
+
+    let criticalFailureCheck: string | null = null;
+    let criticalFailureError: any = null;
+
+    const resolveBestEffortLocation = async (): Promise<{ lat: number; lng: number } | null> => {
+      try {
+        const lastKnown = await Location.getLastKnownPositionAsync({});
+        if (lastKnown?.coords) {
+          return {
+            lat: lastKnown.coords.latitude,
+            lng: lastKnown.coords.longitude,
+          };
+        }
+      } catch (_error) {
+        // noop
+      }
+      return null;
+    };
+
+    const locationPromise = resolveBestEffortLocation();
+
+    const localChecksPromise = Promise.all(
+      localTasks.map(async (task) => {
+        setCurrentCheckLabel(labels[task.id] || task.id);
+        console.log(`🔸 [Preflight] Verificando ${task.id}`);
+        try {
+          const success = await task.run();
+          if (!success && task.critical && !criticalFailureCheck) {
+            criticalFailureCheck = task.id;
+          }
+        } catch (err: any) {
+          console.error(`❌ [Preflight] Error en check ${task.id}:`, err);
+          if (task.critical && !criticalFailureCheck) {
+            criticalFailureCheck = task.id;
+            criticalFailureError = err;
+          }
+        } finally {
+          completedSteps += 1;
+          updateProgress();
+        }
+      }),
+    );
+
+    const serverPreflightPromise = (async (): Promise<GetPreflightDataResponse | null> => {
+      setCurrentCheckLabel(labels.region || 'region');
+      try {
+        const location = await locationPromise;
+        const response = await preflightService.fetchPreflightData({
+          role,
+          userId: user?.id,
+          platform: Platform.OS,
+          location: location || undefined,
+        });
+        return response;
+      } catch (err) {
+        console.warn('⚠️ [Preflight] No se pudo obtener getPreflightData:', err);
+        return null;
+      } finally {
+        completedSteps += 1;
+        updateProgress();
+      }
+    })();
+
+    const [, preflightData] = await Promise.all([localChecksPromise, serverPreflightPromise]);
+
+    if (criticalFailureCheck) {
+      const defaultError = t('shared.preflight.errors.checkFailed', {
+        label: labels[criticalFailureCheck] || criticalFailureCheck,
+      });
+      const unexpectedError = criticalFailureError
+        ? t('shared.preflight.errors.unexpected', {
+            message: criticalFailureError?.message || t('shared.preflight.errors.generic'),
+          })
+        : defaultError;
+      setError(unexpectedError);
+      setCanRetry(true);
+      checksRunRef.current = false;
+      return;
+    }
+
+    const resolvedLocation = await locationPromise;
+    const regionInfo: PreflightRegionInfo | undefined =
+      preflightData?.region ||
+      (resolvedLocation
+        ? getLocalRegionFallback(t, resolvedLocation.lat, resolvedLocation.lng)
+        : undefined);
+
+    actionsRef.current = buildActionsFromPreflightData(
+      role,
+      t,
+      preflightData,
+      pendingPaymentsRoute,
+      rechargeFundsRoute,
+      activeRideRoute,
+      rideTrackingRoute,
+      waitingRideRoute,
+    );
 
     // ✅ Todos los checks completados
     setProgress(100);
@@ -360,24 +858,178 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
       timestamp: Date.now(),
       actions: actionsRef.current,
       region: regionInfo,
+      preflightData: preflightData || undefined,
     };
     setPreflightResult(summary);
 
     console.log(`✅ [Preflight] Verificaciones completadas. Acciones: ${actionsRef.current.length}`);
 
-    const shouldNavigate = await handleTermsIfNeeded();
+    const programmedAction = actionsRef.current.find(
+      (candidate) =>
+        candidate.type === 'programmed_ride_client_confirm' ||
+        candidate.type === 'programmed_ride_driver_confirm',
+    );
+
+    if (programmedAction) {
+      const rideId = programmedAction.metadata?.rideId as string | undefined;
+      const scheduledAt = programmedAction.metadata?.scheduledAt as number | undefined;
+
+      if (rideId) {
+        const scheduledText = scheduledAt ? new Date(scheduledAt).toLocaleString() : '';
+
+        const title = t('shared.preflight.programmedRide.promptTitle');
+        const body = scheduledText
+          ? t('shared.preflight.programmedRide.promptBody', { date: scheduledText })
+          : t('shared.preflight.programmedRide.promptBodyNoDate');
+        const confirmLabel = t('shared.preflight.programmedRide.confirmButton');
+        const cancelLabel = t('shared.preflight.programmedRide.notNowButton');
+
+        const shouldConfirm = await new Promise<boolean>((resolve) => {
+          alertService.showConfirmAlert(
+            title,
+            body,
+            () => resolve(true),
+            () => resolve(false),
+            confirmLabel,
+            cancelLabel,
+          );
+        });
+
+        if (shouldConfirm) {
+          try {
+            let confirmedRidePayload: any = null;
+
+            if (programmedAction.type === 'programmed_ride_client_confirm') {
+              const confirmResult = await ridesService.confirmProgrammedRideClient(rideId);
+              confirmedRidePayload = confirmResult?.ride ?? null;
+            } else {
+              await ridesService.confirmProgrammedRideDriver(rideId);
+            }
+
+            const nextActions = actionsRef.current.filter((action) => action !== programmedAction);
+            let derivedActions = nextActions;
+
+            if (programmedAction.type === 'programmed_ride_client_confirm' && confirmedRidePayload) {
+              const hasDriverAssigned = Boolean(confirmedRidePayload.driverId);
+              const scheduledDateText = confirmedRidePayload.scheduledAt
+                ? new Date(confirmedRidePayload.scheduledAt).toLocaleString()
+                : undefined;
+
+              const followUpAction: PreflightAction = {
+                type: 'active_ride',
+                title: hasDriverAssigned
+                  ? t('client.home.activeRide.driverOnRoute')
+                  : t('client.home.activeRide.confirm'),
+                subtitle: scheduledDateText
+                  ? t('shared.preflight.programmedRide.actionSubtitle', { date: scheduledDateText })
+                  : undefined,
+                routeName: hasDriverAssigned ? rideTrackingRoute : waitingRideRoute,
+                routeParams: {
+                  rideId: confirmedRidePayload.id || rideId,
+                  driverId: confirmedRidePayload.driverId ?? undefined,
+                  driverName: confirmedRidePayload.driver?.name ?? undefined,
+                  vehiclePlate:
+                    confirmedRidePayload.vehicle?.plate ??
+                    confirmedRidePayload.driver?.vehicle?.plate ??
+                    undefined,
+                },
+                metadata: {
+                  rideId: confirmedRidePayload.id || rideId,
+                  status: confirmedRidePayload.status ?? 'client_confirmed',
+                  driverId: confirmedRidePayload.driverId ?? null,
+                  source: 'preflight_programmed_confirm',
+                },
+              };
+
+              derivedActions = [followUpAction, ...nextActions];
+            }
+
+            actionsRef.current = derivedActions;
+            const updatedSummary: PreflightSummary = {
+              ...summary,
+              actions: derivedActions,
+            };
+            setPreflightResult(updatedSummary);
+          } catch (confirmErr: any) {
+            console.error('❌ [Preflight] Error confirmando viaje programado:', confirmErr);
+            alertService.showErrorAlert(
+              confirmErr?.message || t('shared.preflight.programmedRide.confirmError'),
+            );
+          }
+        }
+      }
+    }
+
+    const shouldNavigate = await handleTermsIfNeeded(preflightData?.terms);
     if (shouldNavigate) {
+      const approval = toDriverApprovalResult(preflightData?.driverApproval);
       setTimeout(() => {
-        navigateAfterChecks();
+        navigateAfterChecks(approval);
       }, 1000);
     }
 
-  }, [role, user, nav, successRoute, activeRideRoute, pendingPaymentsRoute, payCommissionsRoute, rideTrackingRoute, animateProgress, handleTermsIfNeeded, navigateAfterChecks]);
+  }, [
+    role,
+    user,
+    nav,
+    successRoute,
+    activeRideRoute,
+    pendingPaymentsRoute,
+    rechargeFundsRoute,
+    rideTrackingRoute,
+    waitingRideRoute,
+    animateProgress,
+    handleTermsIfNeeded,
+    navigateAfterChecks,
+    isFCMAvailable,
+    configureFCM,
+    logout,
+    t,
+  ]);
 
   const handleRetry = useCallback(() => {
     checksRunRef.current = false;
     runChecks();
   }, [runChecks]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let unsubscribeUploads: (() => void) | null = null;
+
+    const maybeRunChecks = async () => {
+      const uploadsGate = await isRegistrationUploadsInProgress();
+      if (uploadsGate) {
+        console.log('⏸️ [Preflight] Uploads de registro activos; se esperan para iniciar checks');
+        setCurrentCheckLabel(t('shared.preflight.checks.starting'));
+        setProgress(0);
+        setError(null);
+        setCompleted(false);
+        setCanRetry(false);
+        checksRunRef.current = false;
+        return;
+      }
+      if (!cancelled) {
+        runChecks();
+      }
+    };
+
+    maybeRunChecks();
+
+    unsubscribeUploads = subscribeRegistrationUploadsInProgress((value) => {
+      if (!value && !cancelled) {
+        if (checksRunRef.current) {
+          return;
+        }
+        console.log('▶️ [Preflight] Uploads de registro finalizados; iniciando checks');
+        runChecks();
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      unsubscribeUploads?.();
+    };
+  }, [runChecks, t]);
 
   const handleSwitchToClientModeFromPreflight = useCallback(async () => {
     if (role !== 'driver') {
@@ -388,42 +1040,46 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
       await setUserMode('client');
     } catch (err: any) {
       console.error('❌ [Preflight] Error cambiando a modo cliente desde preflight:', err);
-      alertService.showErrorAlert(t('shared.preflight.alerts.switchToClientError'));
     }
-  }, [role, setUserMode]);
-
-  useEffect(() => {
-    if (!checksRunRef.current) {
-      runChecks();
-    }
-  }, [runChecks]);
-
-  useEffect(() => {
-    const subscription = AppState.addEventListener('change', (nextState) => {
-      if (nextState === 'active' && error && canRetry && !checksRunRef.current) {
-        console.log('🔄 [Preflight] App volvió a primer plano, reintentando verificaciones...');
-        handleRetry();
-      }
-    });
-
-    return () => {
-      subscription.remove();
-    };
-  }, [error, canRetry, handleRetry]);
+  }, [role]);
 
   const handleAcceptTerms = useCallback(async () => {
     if (!user?.id) {
       return;
     }
-    if (!termsChecked || savingTerms) {
+    const hasCheckedAllDocuments = TERMS_DOCUMENTS.every((documentType) => termsCheckedDocuments[documentType]);
+    if (!hasCheckedAllDocuments || savingTerms) {
       return;
     }
 
     try {
       setSavingTerms(true);
+      const now = new Date();
       await firebaseAuthService.updateUserProfile(user.id, {
         termsVersion: CURRENT_TERMS_VERSION,
-        termsAcceptedAt: new Date(),
+        termsAcceptedAt: now,
+        termsAcceptance: {
+          type: 'by_document',
+          version: CURRENT_TERMS_VERSION,
+          acceptedAt: now,
+          documents: {
+            general: {
+              accepted: true,
+              version: CURRENT_TERMS_VERSION,
+              acceptedAt: now,
+            },
+            users: {
+              accepted: true,
+              version: CURRENT_TERMS_VERSION,
+              acceptedAt: now,
+            },
+            designated_driver: {
+              accepted: true,
+              version: CURRENT_TERMS_VERSION,
+              acceptedAt: now,
+            },
+          },
+        },
       });
       setShowTerms(false);
       setTimeout(() => {
@@ -452,7 +1108,7 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
     } finally {
       setSavingTerms(false);
     }
-  }, [user?.id, termsChecked, savingTerms, navigateAfterChecks]);
+  }, [user?.id, termsCheckedDocuments, savingTerms, navigateAfterChecks]);
 
   const handleSkip = useCallback(() => {
     alertService.showInfoAlert(
@@ -555,55 +1211,45 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
         visible={showTerms}
         saving={savingTerms}
         requireCheck
-        checked={termsChecked}
+        showDocumentSelector
+        requireAllDocumentsCheck
+        defaultDocumentType="general"
+        checkedDocuments={termsCheckedDocuments}
         acceptLabel={t('shared.preflight.terms.accept')}
-        onToggleChecked={() => {
+        onToggleDocumentChecked={(documentType) => {
           if (!savingTerms) {
-            setTermsChecked(!termsChecked);
+            setTermsCheckedDocuments((prev) => ({
+              ...prev,
+              [documentType]: !prev[documentType],
+            }));
           }
         }}
         onAccept={handleAcceptTerms}
+      />
+
+      <PreflightBiometricPrompt
+        visible={biometricPromptVisible}
+        title={t('shared.preflight.biometric.modal.title')}
+        subtitle={
+          biometricPromptPhase === 'pin_fallback'
+            ? t('shared.preflight.biometric.modal.pinFallback')
+            : biometricPromptPhase === 'success'
+            ? t('shared.preflight.biometric.modal.success')
+            : biometricPromptPhase === 'failed'
+            ? t('shared.preflight.biometric.modal.retry')
+            : t('shared.preflight.biometric.modal.scanning')
+        }
+        attemptText={t('shared.preflight.biometric.modal.attempt', {
+          current: biometricPromptAttempt,
+          max: biometricPromptMaxAttempts,
+        })}
+        phase={biometricPromptPhase}
       />
     </View>
   );
 };
 
 // ==================== CHECK FUNCTIONS ====================
-
-async function waitForFirebaseWebUser(timeoutMs = 2500): Promise<FirebaseUser | null> {
-  const { getFirebaseAuth } = await import('../../config/firebase');
-  const auth = await getFirebaseAuth();
-
-  if (auth.currentUser) {
-    return auth.currentUser;
-  }
-
-  return await new Promise<FirebaseUser | null>((resolve) => {
-    let resolved = false;
-    let unsubscribe: (() => void) | null = null;
-
-    const finish = (firebaseUser: any) => {
-      if (resolved) {
-        return;
-      }
-      resolved = true;
-      clearTimeout(timer);
-      if (unsubscribe) {
-        unsubscribe();
-      }
-      resolve((firebaseUser as FirebaseUser | null) ?? null);
-    };
-
-    const timer = setTimeout(() => {
-      console.warn('⚠️ [Preflight] Timeout esperando restauración de Firebase Auth');
-      finish(null);
-    }, timeoutMs);
-
-    unsubscribe = auth.onAuthStateChanged((firebaseUser) => {
-      finish(firebaseUser);
-    });
-  });
-}
 
 async function checkAuth(user: any): Promise<boolean> {
   try {
@@ -625,17 +1271,15 @@ async function checkAuth(user: any): Promise<boolean> {
           if (rnUser) {
             if (rnUser.uid === user.id) {
               console.log(`✅ [Preflight] Usuario autenticado vía RN Firebase Auth: ${user.id}`);
-              return true;
+            } else {
+              console.warn(
+                '⚠️ [Preflight] Inconsistencia entre AuthContext y RN Firebase Auth:',
+                'contextId=',
+                user.id,
+                'rnUid=',
+                rnUser.uid,
+              );
             }
-
-            console.warn(
-              '⚠️ [Preflight] Inconsistencia entre AuthContext y RN Firebase Auth:',
-              'contextId=',
-              user.id,
-              'rnUid=',
-              rnUser.uid,
-            );
-            // No retornamos aún: intentaremos validar con Firebase web auth más abajo
           }
         }
       }
@@ -643,8 +1287,8 @@ async function checkAuth(user: any): Promise<boolean> {
       console.warn('⚠️ [Preflight] No se pudo verificar sesión con RN Firebase Auth:', rnError);
     }
 
-    // 2️⃣ Fallback: validar usando Firebase Web Auth (config/firebase)
-    const firebaseUser = await waitForFirebaseWebUser();
+    // 2️⃣ Requisito definitivo: validar usando Firebase Web Auth (callable usa este token)
+    const firebaseUser = await waitForFirebaseAuthUser(user.id, 6000);
 
     if (!firebaseUser) {
       console.warn('⚠️ [Preflight] No hay sesión Firebase Auth activa');
@@ -834,329 +1478,40 @@ async function checkBackgroundLocation(): Promise<boolean> {
 }
 
 async function checkOverlay(): Promise<boolean> {
+  if (Platform.OS !== 'android') {
+    return true;
+  }
+
   try {
-    const hasPermission = await overlayManager.hasPermission();
-    if (hasPermission) {
-      // Si ya tiene permiso, asegurar que la preferencia esté guardada
-      await proximityService.setOverlayEnabled(true);
-      console.log('✅ [Preflight] Overlay permission ya activo, preferencia guardada');
-      return true;
+    if (typeof overlayManager?.hasPermission === 'function') {
+      const granted = await overlayManager.hasPermission();
+      if (granted) {
+        return true;
+      }
     }
 
-    // Sin permiso → reflejar estado en la preferencia antes de solicitarlo
-    await proximityService.setOverlayEnabled(false);
-    console.log('⚠️ [Preflight] Overlay permission faltante, solicitando al usuario');
-
-    const granted = await overlayManager.requestPermission();
-    if (granted) {
-      // Guardar preferencia cuando el usuario acepta el permiso
-      await proximityService.setOverlayEnabled(true);
-      console.log('✅ [Preflight] Overlay permission concedido, preferencia guardada');
-    } else {
-      console.warn('❌ [Preflight] Overlay permission denegado por el usuario');
+    if (typeof overlayManager?.requestPermission === 'function') {
+      const requested = await overlayManager.requestPermission();
+      return !!requested;
     }
-    return granted;
+
+    return true;
   } catch (error) {
-    console.error('❌ [Preflight] Error verificando permiso de overlay:', error);
+    console.error('❌ [Preflight] Error verificando permiso de superposición:', error);
     return false;
   }
 }
 
 async function checkActivity(): Promise<boolean> {
+  if (Platform.OS !== 'android') {
+    return true;
+  }
+
   try {
-    const granted = await ensureActivityRecognitionPermission();
-    return granted;
+    return await ensureActivityRecognitionPermission();
   } catch (error) {
     console.error('❌ [Preflight] Error verificando permiso de actividad:', error);
     return false;
-  }
-}
-
-async function checkPendingPayments(
-  role: PreflightRole,
-  userId: string | undefined,
-  navigation: NavigationLike,
-  pendingPaymentsRoute: string,
-): Promise<PreflightAction | undefined> {
-  if (!userId) return undefined;
-
-  try {
-    if (role === 'driver') {
-      return await checkDriverPendingPayments(userId, navigation, pendingPaymentsRoute);
-    } else {
-      return await checkClientPendingPayments(navigation, pendingPaymentsRoute);
-    }
-  } catch (error) {
-    console.error('❌ [Preflight] Error verificando pagos pendientes:', error);
-    return undefined;
-  }
-}
-
-async function checkDriverPendingPayments(
-  driverId: string,
-  navigation: NavigationLike,
-  pendingPaymentsRoute: string,
-): Promise<PreflightAction | undefined> {
-  try {
-    const { initializeFirebase } = await import('../../config/firebase');
-    const { getDatabase, ref, get } = await import('firebase/database');
-    const { app } = await initializeFirebase();
-    if (!app) {
-      console.warn('⚠️ [Preflight] Firebase no inicializado');
-      return undefined;
-    }
-
-    const db = getDatabase(app);
-    
-    // Intentar leer paymentStatus, pero manejar errores de permisos
-    let data: any;
-    try {
-      const snapshot = await get(ref(db, 'paymentStatus'));
-      data = snapshot.val();
-    } catch (permError: any) {
-      // Si es un error de permisos, simplemente retornar undefined sin crashear
-      if (permError?.message?.includes('permission') || permError?.message?.includes('Permission')) {
-        console.warn('⚠️ [Preflight] Sin permisos para leer paymentStatus, saltando verificación');
-        return undefined;
-      }
-      // Si es otro tipo de error, re-lanzarlo
-      throw permError;
-    }
-
-    if (!data) return undefined;
-
-    const pendingItems = Object.entries<any>(data)
-      .filter(([, payment]) => {
-        if (!payment) return false;
-
-        const rawDriverId =
-          payment.driverId ??
-          payment.driver_id ??
-          (payment.ride && (payment.ride.driverId || payment.ride.driver_id)) ??
-          null;
-        const normalizedDriverId =
-          rawDriverId != null ? String(rawDriverId).trim() : '';
-        if (normalizedDriverId !== driverId) return false;
-
-        const status = String(payment.status || '').toLowerCase();
-        const isPending = ['pending', 'pending_confirmation', 'in_progress', 'processing', 'pending_capture'].includes(status);
-        if (!isPending) return false;
-
-        const chargeTargetRaw = payment.chargeTarget || payment.charge_target || null;
-        const requiresClientPaymentFlag =
-          payment.requiresClientPayment ?? payment.requires_client_payment;
-
-        if (requiresClientPaymentFlag === false) return false;
-        if (chargeTargetRaw === 'driver') return false;
-
-        return true;
-      })
-      .map(([rideId, payment]) => ({ rideId, ...payment }));
-
-    if (pendingItems.length === 0) return undefined;
-
-    const firstPayment = pendingItems[0];
-    const baseAmount =
-      typeof firstPayment.finalAmount === 'number'
-        ? firstPayment.finalAmount
-        : typeof firstPayment.amount === 'number'
-          ? firstPayment.amount
-          : 0;
-    return {
-      type: 'pending_payment',
-      title: pendingItems.length === 1 ? 'Pago pendiente' : `${pendingItems.length} pagos pendientes`,
-      subtitle: 'Confirma los pagos pendientes',
-      ctaLabel: 'Ver pagos',
-      routeName: 'PaymentConfirmation',
-      routeParams: {
-        rideId: firstPayment.rideId,
-        amount: baseAmount,
-        paymentMethod: firstPayment.method || firstPayment.paymentMethod || 'cash',
-        clientName: 'Cliente',
-        fromHome: true,
-      },
-      metadata: { count: pendingItems.length },
-    };
-  } catch (error: any) {
-    console.warn('⚠️ [Preflight] No se pudo verificar pagos pendientes (driver):', error?.message || error);
-    return undefined;
-  }
-}
-
-async function checkClientPendingPayments(
-  navigation: NavigationLike,
-  pendingPaymentsRoute: string,
-): Promise<PreflightAction | undefined> {
-  try {
-    const { getFirebaseFunctions } = await import('../../config/firebase');
-    const { httpsCallable } = await import('firebase/functions');
-    const functions = await getFirebaseFunctions();
-    const getPendingPaymentsFn = httpsCallable(functions, 'getPendingPayments');
-    const result = await getPendingPaymentsFn();
-    const data = result.data as any;
-
-    if (data?.success && data?.count > 0) {
-      const count = Number(data.count) || 0;
-      const totalDebt = Number(data.totalDebt) || 0;
-      return {
-        type: 'pending_payment',
-        title: `${count} pago${count === 1 ? '' : 's'} pendiente${count === 1 ? '' : 's'}`,
-        subtitle: `Total: C$${totalDebt.toFixed(2)}`,
-        ctaLabel: 'Pagar ahora',
-        routeName: pendingPaymentsRoute,
-        metadata: { count, totalDebt },
-      };
-    }
-
-    return undefined;
-  } catch (error) {
-    console.error('❌ [Preflight] Error obteniendo pagos pendientes (client):', error);
-    return undefined;
-  }
-}
-
-async function checkPenalties(
-  driverId: string | undefined,
-  navigation: NavigationLike,
-  payCommissionsRoute?: string,
-): Promise<PreflightAction | undefined> {
-  if (!driverId || !payCommissionsRoute) return undefined;
-
-  try {
-    const { initializeFirebase } = await import('../../config/firebase');
-    const { getDatabase, ref, get } = await import('firebase/database');
-    const { app } = await initializeFirebase();
-    if (!app) return undefined;
-
-    const db = getDatabase(app);
-    const snapshot = await get(ref(db, `driverPenalties/${driverId}/summary`));
-    const data = snapshot.val();
-
-    const pendingAmount = Number(
-      data?.pendingAmount ??
-        data?.paymentCommissionPendingAmount ??
-        data?.paymentPendingAmount ??
-        data?.penaltyPendingAmount ??
-        0,
-    );
-
-    const pendingCount = Number(
-      data?.pendingCount ??
-        data?.paymentCommissionPendingCount ??
-        data?.paymentPendingCount ??
-        data?.penaltyPendingCount ??
-        0,
-    );
-
-    // Solo considerar acción de comisiones cuando se alcanza o supera el umbral definido
-    if (!pendingAmount || pendingAmount < PENALTIES_LIMIT_CORDOBAS) return undefined;
-
-    return {
-      type: 'penalties',
-      title: 'Comisiones pendientes',
-      subtitle: `C$${pendingAmount.toFixed(2)} pendientes`,
-      ctaLabel: 'Pagar comisiones',
-      routeName: payCommissionsRoute,
-      metadata: { pendingAmount, pendingCount, blocking: pendingAmount >= PENALTIES_LIMIT_CORDOBAS },
-    };
-  } catch (error) {
-    console.error('❌ [Preflight] Error verificando comisiones:', error);
-    return undefined;
-  }
-}
-
-async function checkActiveRide(
-  role: PreflightRole,
-  userId: string | undefined,
-  navigation: NavigationLike,
-  activeRideRoute: string,
-  rideTrackingRoute: string,
-  waitingRideRoute: string,
-): Promise<PreflightAction | undefined> {
-  if (!userId) return undefined;
-
-  try {
-    const { initializeFirebase } = await import('../../config/firebase');
-    const { getDatabase, ref, get } = await import('firebase/database');
-    const { app } = await initializeFirebase();
-    if (!app) return undefined;
-
-    const db = getDatabase(app);
-    const snapshot = await get(ref(db, 'activeRides'));
-    const data = snapshot.val();
-
-    if (!data) return undefined;
-
-    const entry = Object.entries<any>(data).find(([, ride]) => {
-      if (!ride) return false;
-      if (role === 'driver') {
-        if (ride.driverId !== userId) return false;
-        const status = String(ride.status || '').toLowerCase();
-        return ACTIVE_DRIVER_STATUSES.includes(status);
-      }
-      if (ride.clientId !== userId) return false;
-      const status = String(ride.status || '').toLowerCase();
-      return ACTIVE_CLIENT_TRACK_STATUSES.includes(status) || CLIENT_WAITING_STATUSES.includes(status);
-    });
-
-    if (!entry) return undefined;
-
-    const [rideId, rideData] = entry;
-    const status = String(rideData.status || '');
-
-    if (role === 'driver') {
-      return {
-        type: 'active_ride',
-        title: 'Viaje activo',
-        subtitle: `Estado: ${status}`,
-        ctaLabel: 'Ir al viaje',
-        routeName: activeRideRoute,
-        routeParams: {
-          rideId,
-          clientId: rideData.clientId,
-          origin: rideData.origin,
-          destination: rideData.destination,
-          estimatedFare: rideData.finalFare || rideData.estimatedPrice,
-        },
-        metadata: { rideId, status },
-      };
-    }
-
-    // Client
-    const isWaiting = CLIENT_WAITING_STATUSES.includes(status.toLowerCase());
-
-    if (isWaiting) {
-      return {
-        type: 'active_ride',
-        title: 'Viaje en espera',
-        subtitle: `Estado: ${status}`,
-        ctaLabel: 'Ver viaje',
-        routeName: waitingRideRoute,
-        routeParams: { rideId },
-        metadata: { rideId, status },
-      };
-    }
-
-    return {
-      type: 'active_ride',
-      title: 'Viaje en curso',
-      subtitle: `Estado: ${status}`,
-      ctaLabel: 'Ver viaje',
-      routeName: rideTrackingRoute,
-      routeParams: {
-        rideId,
-        driverId: rideData.driverId,
-        driverName: rideData.driver?.name,
-        vehiclePlate: rideData.vehicle?.plate,
-        vehicleBrand: rideData.vehicle?.brand,
-        vehicleModel: rideData.vehicle?.model,
-        estimatedFare: rideData.estimatedPrice,
-      },
-      metadata: { rideId, status },
-    };
-  } catch (error) {
-    console.error('❌ [Preflight] Error verificando viaje activo:', error);
-    return undefined;
   }
 }
 

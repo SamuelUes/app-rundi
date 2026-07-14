@@ -3,6 +3,7 @@ import { View, StyleSheet, Text, Image, ImageSourcePropType, TouchableOpacity, A
 import MapView, {
   LatLng,
   Marker,
+  Callout,
   Polyline,
   PROVIDER_GOOGLE,
   MapPressEvent,
@@ -338,6 +339,9 @@ const markerStyles = StyleSheet.create({
   },
   requestBubbleTouchable: {
     width: '100%',
+    minHeight: 104,
+    justifyContent: 'center',
+    paddingVertical: 4,
   },
   requestPrice: {
     fontSize: 13,
@@ -382,6 +386,13 @@ const markerStyles = StyleSheet.create({
     width: 30,
     height: 29,
     resizeMode: 'contain',
+  },
+  requestBubbleMarkerContainer: {
+    alignItems: 'center',
+  },
+  requestCalloutContainer: {
+    width: 220,
+    alignItems: 'center',
   },
   // Para vehicle image en Marker.image (bitmap nativo) no necesitamos wrapper, pero mantenemos por compatibilidad
   vehicleIconWrapper: {
@@ -606,6 +617,7 @@ export default function GoogleMap({
   googleRenderer = DEFAULT_GOOGLE_RENDERER,
 }: GoogleMapProps) {
   const mapRef = useRef<MapView>(null);
+  const rideRequestMarkerRefs = useRef<Record<string, React.ComponentRef<typeof Marker> | null>>({});
   const { isDark } = useTheme();
   const [isMarkerHeld, setIsMarkerHeld] = useState(false);
   const [isMapReady, setIsMapReady] = useState(false);
@@ -627,6 +639,14 @@ export default function GoogleMap({
   );
   const effectiveMarkerType = isMarkerHeld && markerType === 'manual_origin' ? 'manual_origin_hold' : markerType;
   const [selectedRideRequestId, setSelectedRideRequestId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (selectedRideRequestId) {
+      rideRequestMarkerRefs.current[selectedRideRequestId]?.showCallout?.();
+    } else {
+      Object.values(rideRequestMarkerRefs.current).forEach((marker) => marker?.hideCallout?.());
+    }
+  }, [selectedRideRequestId]);
   const lastFitSignatureRef = useRef<string>('');
   const effectiveUserLocation = useMemo(() => {
     // Si explícitamente no se debe mostrar la ubicación del usuario, no retornamos nada
@@ -1232,6 +1252,9 @@ export default function GoogleMap({
     if (disableMarkerPress || gestureActiveRef.current) {
       return;
     }
+    if (selectedRideRequestId) {
+      setSelectedRideRequestId(null);
+    }
     if (!onMapPress) return;
     const { latitude: lat, longitude: lng } = event.nativeEvent.coordinate;
     onMapPress({ latitude: lat, longitude: lng });
@@ -1551,74 +1574,84 @@ export default function GoogleMap({
 
         {rideRequests.map((request) => {
           if (!isValidCoord(request)) return null;
-          const isSelected = selectedRideRequestId === request.id;
+          const requestId = String(request.id);
+          const isSelected = selectedRideRequestId === requestId;
           return (
-            <React.Fragment key={`ride-request-${request.id}`}>
+            <React.Fragment key={`ride-request-${requestId}`}>
               <Marker
+                ref={(ref) => {
+                  rideRequestMarkerRefs.current[requestId] = ref;
+                }}
                 coordinate={toLatLng(request)}
-                tracksViewChanges
+                tracksViewChanges={false}
                 anchor={{ x: 0.5, y: 1 }}
+                image={toMarkerImageSource(REQUEST_PIN_IMAGE)}
+                zIndex={isSelected ? 20 : 10}
                 onPress={() => {
-                  if (selectedRideRequestId === request.id) {
+                  if (selectedRideRequestId === requestId) {
                     setSelectedRideRequestId(null);
-                    if (typeof onRideRequestPress === 'function') {
-                      onRideRequestPress(request);
-                    }
                   } else {
-                    setSelectedRideRequestId(request.id);
+                    setSelectedRideRequestId(requestId);
+                    requestAnimationFrame(() => {
+                      rideRequestMarkerRefs.current[requestId]?.showCallout?.();
+                    });
+                  }
+                }}
+                onCalloutPress={() => {
+                  setSelectedRideRequestId(null);
+                  if (typeof onRideRequestPress === 'function') {
+                    onRideRequestPress(request);
                   }
                 }}
               >
-                <View style={markerStyles.requestPinContainer}>
-                  <Image
-                    source={toMarkerImageSource(REQUEST_PIN_IMAGE)}
-                    style={markerStyles.requestMarkerImage}
-                    resizeMode="contain"
-                  />
-                </View>
-              </Marker>
-              {isSelected && showPinBubbles !== false && (
-                <Marker
-                  coordinate={toLatLng(request)}
-                  tracksViewChanges
-                  anchor={{ x: 0.5, y: 1 }}
-                  onPress={() => {
-                    setSelectedRideRequestId(null);
-                    if (typeof onRideRequestPress === 'function') {
-                      onRideRequestPress(request);
-                    }
-                  }}
-                >
-                  <View style={markerStyles.requestWrapper}>
-                    <View style={markerStyles.requestBubble}>
-                      <Text style={markerStyles.requestTitle} numberOfLines={1}>
-                        {request.clientName}
-                      </Text>
-                      <Text style={markerStyles.requestLine} numberOfLines={1}>
-                        {request.originAddress}
-                      </Text>
-                      <Text style={markerStyles.requestLine} numberOfLines={1}>
-                        {request.primaryDestination || request.finalDestination}
-                      </Text>
-                      <View style={markerStyles.requestMetaRow}>
-                        <Text style={markerStyles.requestPrice}>
-                          {request.priceLabel}{request.hasClientSuggestedPrice ? ' • Cliente' : ''}
-                        </Text>
-                        <Text style={markerStyles.requestPassengers}>
-                          {request.passengers}
-                        </Text>
-                      </View>
-                      {request.extraStopsCount > 0 && (
-                        <Text style={markerStyles.requestStops}>
-                          {request.extraStopsCount} parada{request.extraStopsCount > 1 ? 's' : ''} extra
-                        </Text>
-                      )}
-                      <Text style={markerStyles.requestHint}>Toca para negociar</Text>
+                {showPinBubbles !== false && (
+                  <Callout tooltip>
+                    <View style={markerStyles.requestCalloutContainer}>
+                      <TouchableOpacity
+                        activeOpacity={0.92}
+                        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                        style={markerStyles.requestBubbleTouchable}
+                        onPress={() => {
+                          setSelectedRideRequestId(null);
+                          if (typeof onRideRequestPress === 'function') {
+                            onRideRequestPress(request);
+                          }
+                        }}
+                      >
+                        <View style={markerStyles.requestWrapper}>
+                          <View style={markerStyles.requestBubble}>
+                            <Text style={markerStyles.requestTitle} numberOfLines={1}>
+                              {request.clientName}
+                            </Text>
+                            <Text style={markerStyles.requestLine} numberOfLines={1}>
+                              {request.originAddress}
+                            </Text>
+                            <Text style={markerStyles.requestLine} numberOfLines={1}>
+                              {request.primaryDestination || request.finalDestination}
+                            </Text>
+                            <View style={markerStyles.requestMetaRow}>
+                              <Text style={markerStyles.requestPrice}>
+                                {request.priceLabel}{request.hasClientSuggestedPrice ? ' • Cliente' : ''}
+                              </Text>
+                              <Text style={markerStyles.requestPassengers}>
+                                {request.passengers}
+                              </Text>
+                            </View>
+                            {request.extraStopsCount > 0 && (
+                              <Text style={markerStyles.requestStops}>
+                                {request.extraStopsCount} parada{request.extraStopsCount > 1 ? 's' : ''} extra
+                              </Text>
+                            )}
+                            <Text style={markerStyles.requestHint}>Toca para negociar</Text>
+                          </View>
+                          <View style={markerStyles.requestBubbleTail} />
+                        </View>
+                      </TouchableOpacity>
                     </View>
-                    <View style={markerStyles.requestBubbleTail} />
-                  </View>
-                </Marker>
-              )}
+                  </Callout>
+                )}
+              </Marker>
+              
             </React.Fragment>
           );
         })}

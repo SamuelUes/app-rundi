@@ -2,6 +2,8 @@ import { getFirebaseFunctions } from '../config/firebase';
 import { httpsCallable } from 'firebase/functions';
 import sessionService from './sessionService';
 import analyticsService, { AnalyticsEvents } from './analyticsService';
+import ratingService from './ratingService';
+import { calculateRidePrice as calculateRidePriceCentralized } from '../utils/priceCalculatorCentralize';
 import i18n from '../i18n';
 
 export interface Location {
@@ -37,6 +39,7 @@ export interface RequestRideData {
   passengers?: number; // Cantidad de pasajeros
   extraDestinations?: Array<{lat: number; lng: number; address: string}>; // Paradas adicionales
   clientSuggestedPrice?: number;
+  clientComment?: string;
   notes?: string;
   paymentMethod?: 'cash' | 'card'; // Método de pago: cash (efectivo) o card (bancos nacionales)
   serviceId?: string; // ✅ NUEVO: ID del servicio (normal, motorcycle, night, designated_driver)
@@ -106,6 +109,10 @@ export interface RideLocation {
 export interface Ride {
   id: string;
   status: string;
+  isProgrammed?: boolean;
+  scheduledAt?: number;
+  clientConfirmedAt?: number;
+  driverConfirmedAt?: number;
   clientId?: string;
   driverId?: string;
   client?: RideParticipant;
@@ -171,6 +178,16 @@ export interface Ride {
   destinationLng?: number;
 }
 
+export type CreateProgrammedRideData = RequestRideData & {
+  scheduledAt: number;
+};
+
+export type ProgrammedRideSummary = {
+  id: string;
+  status: string;
+  scheduledAt: number;
+};
+
 const toISOString = (value: any): string | undefined => {
   if (value === null || value === undefined) {
     return undefined;
@@ -186,6 +203,107 @@ const toISOString = (value: any): string | undefined => {
 const toNumber = (value: any, fallback = 0): number => {
   const num = Number(value);
   return Number.isFinite(num) ? num : fallback;
+};
+
+const VEHICLE_TYPE_KEYWORDS = {
+  moto: ['moto', 'motorcycle', 'motorbike', 'bike', 'mototaxi', 'moto taxi'],
+  auto: [
+    'auto',
+    'car',
+    'sedan',
+    'suv',
+    'pickup',
+    'truck',
+    'van',
+    'crossover',
+    'jeep',
+    'convertible',
+    'camioneta',
+    'coche',
+    'carro',
+    'automovil',
+    'automóvil',
+    'normal',
+  ],
+} as const;
+
+export const normalizeVehicleTypeForMatching = (rawType?: string | null): 'moto' | 'auto' | null => {
+  if (!rawType || typeof rawType !== 'string') {
+    return null;
+  }
+
+  const value = rawType.trim().toLowerCase();
+  if (!value) {
+    return null;
+  }
+
+  if (VEHICLE_TYPE_KEYWORDS.moto.some((keyword) => value === keyword || value.includes(keyword))) {
+    return 'moto';
+  }
+
+  if (VEHICLE_TYPE_KEYWORDS.auto.some((keyword) => value === keyword || value.includes(keyword))) {
+    return 'auto';
+  }
+
+  if (value === 'motorcycle') {
+    return 'moto';
+  }
+
+  return null;
+};
+
+export const extractRideVehicleTypeForMatching = (rideLike: any): 'moto' | 'auto' | null => {
+  if (!rideLike || typeof rideLike !== 'object') {
+    return null;
+  }
+
+  const rideType = String(rideLike.rideType ?? rideLike.ride_type ?? '').trim().toLowerCase();
+  const candidates: Array<string | null | undefined> = [];
+
+  if (rideType === 'designated_driver') {
+    candidates.push(
+      rideLike.designatedDriverVehicle,
+      rideLike.designated_driver_vehicle,
+      rideLike.vehicleType,
+      rideLike.vehicle_type,
+      rideLike.vehicle?.type,
+      rideLike.serviceId,
+      rideLike.service_id,
+    );
+  } else {
+    candidates.push(
+      rideLike.vehicleType,
+      rideLike.vehicle_type,
+      rideLike.vehicle?.type,
+      rideLike.serviceId,
+      rideLike.service_id,
+      rideLike.requestedVehicleType,
+      rideLike.requested_vehicle_type,
+    );
+  }
+
+  for (const candidate of candidates) {
+    const normalized = normalizeVehicleTypeForMatching(candidate ?? null);
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  return null;
+};
+
+export const rideMatchesVehicleType = (rideLike: any, selectedDriverVehicleType?: string | null): boolean => {
+  const normalizedDriverType = normalizeVehicleTypeForMatching(selectedDriverVehicleType ?? null);
+  if (!normalizedDriverType) {
+    return true;
+  }
+
+  const normalizedRideType = extractRideVehicleTypeForMatching(rideLike);
+  if (!normalizedRideType) {
+    return false;
+  }
+
+  return normalizedRideType === normalizedDriverType;
 };
 
 const normalizeVehicle = (vehicle: any): RideVehicle => ({
@@ -370,6 +488,25 @@ class RidesService {
     return i18n.t(`services.ridesService.${path}`, options) as string;
   }
 
+  private normalizeRidePreservingRaw(rawRide: any): Ride & Record<string, any> {
+    const normalized = normalizeRide(rawRide);
+    if (!rawRide || typeof rawRide !== 'object') {
+      return normalized as Ride & Record<string, any>;
+    }
+
+    return {
+      ...normalized,
+      ...rawRide,
+      id: normalized.id,
+      status: normalized.status,
+    } as Ride & Record<string, any>;
+  }
+
+  private normalizeRideListPreservingRaw(rawRides: any[]): Array<Ride & Record<string, any>> {
+    if (!Array.isArray(rawRides)) return [];
+    return rawRides.map((ride) => this.normalizeRidePreservingRaw(ride));
+  }
+
   private async getFunctions() {
     if (!this.functions) {
       this.functions = await getFirebaseFunctions();
@@ -412,11 +549,87 @@ class RidesService {
         vehicleType: data.vehicleType || 'auto',
       });
 
-      return result.ride;
+      return this.normalizeRidePreservingRaw(result.ride);
     } catch (error: any) {
       console.error('Error en requestRide:', error);
       throw error;
     }
+  }
+
+  async createProgrammedRide(data: CreateProgrammedRideData): Promise<ProgrammedRideSummary> {
+    if (!data.clientId) {
+      throw new Error(this.tr('errors.clientIdRequired'));
+    }
+    if (!data.origin || !data.destination) {
+      throw new Error(this.tr('errors.locationsRequired'));
+    }
+    if (!data.estimatedPrice || data.estimatedPrice <= 0) {
+      throw new Error(this.tr('errors.estimatedPricePositive'));
+    }
+    if (!data.scheduledAt || !Number.isFinite(data.scheduledAt) || data.scheduledAt <= 0) {
+      throw new Error(this.tr('errors.scheduledAtRequired'));
+    }
+
+    const functions = await this.getFunctions();
+    const createFn = httpsCallable(functions, 'createProgrammedRide');
+
+    const cleanData = Object.fromEntries(
+      Object.entries(data).filter(([_, v]) => v !== undefined)
+    );
+
+    const deviceId = await sessionService.getDeviceId();
+    const response = await createFn({ ...cleanData, deviceId });
+    const result = response.data as any;
+
+    if (!result?.success || !result?.ride?.id) {
+      throw new Error(this.tr('errors.invalidServerResponse'));
+    }
+
+    await analyticsService.logRideEvent(AnalyticsEvents.RIDE_REQUESTED, result.ride.id, {
+      isProgrammed: true,
+      scheduledAt: result.ride.scheduledAt,
+      estimatedPrice: data.estimatedPrice,
+      rideType: data.rideType || 'normal',
+      vehicleType: data.vehicleType || 'auto',
+    });
+
+    return {
+      id: result.ride.id,
+      status: result.ride.status,
+      scheduledAt: result.ride.scheduledAt,
+    };
+  }
+
+  async assignDriverToProgrammedRide(rideId: string): Promise<{ success: boolean; ride?: any; message?: string }> {
+    const functions = await this.getFunctions();
+    const assignFn = httpsCallable(functions, 'assignDriverToProgrammedRide');
+    const deviceId = await sessionService.getDeviceId();
+    const response = await assignFn({ rideId, deviceId });
+    return response.data as any;
+  }
+
+  async confirmProgrammedRideClient(rideId: string): Promise<{ success: boolean; ride?: any; message?: string }> {
+    const functions = await this.getFunctions();
+    const confirmFn = httpsCallable(functions, 'confirmProgrammedRideClient');
+    const deviceId = await sessionService.getDeviceId();
+    const response = await confirmFn({ rideId, deviceId });
+    return response.data as any;
+  }
+
+  async confirmProgrammedRideDriver(rideId: string): Promise<{ success: boolean; ride?: any; message?: string }> {
+    const functions = await this.getFunctions();
+    const confirmFn = httpsCallable(functions, 'confirmProgrammedRideDriver');
+    const deviceId = await sessionService.getDeviceId();
+    const response = await confirmFn({ rideId, deviceId });
+    return response.data as any;
+  }
+
+  async cancelProgrammedRide(rideId: string, reason?: string): Promise<{ success: boolean; ride?: any; message?: string }> {
+    const functions = await this.getFunctions();
+    const cancelFn = httpsCallable(functions, 'cancelProgrammedRide');
+    const deviceId = await sessionService.getDeviceId();
+    const response = await cancelFn({ rideId, reason, deviceId });
+    return response.data as any;
   }
 
   async getMyRides(
@@ -523,6 +736,13 @@ class RidesService {
       });
     }
 
+    if (data?.ride) {
+      return {
+        ...data,
+        ride: this.normalizeRidePreservingRaw(data.ride),
+      };
+    }
+
     return data;
   }
 
@@ -537,57 +757,57 @@ class RidesService {
     comment?: string,
     punctuality?: number,
     cleanliness?: number,
-    communication?: number
+    communication?: number,
+    driving?: number,
+    safety?: number,
+    friendliness?: number
   ): Promise<void> {
-    const functions = await this.getFunctions();
-    const submitRatingFunction = httpsCallable(functions, 'submitRating');
-    
-    await submitRatingFunction({
+    await ratingService.submitRideRating({
       rideId,
       rating,
       comment,
       punctuality,
       cleanliness,
       communication,
+      driving,
+      safety,
+      friendliness,
     });
   }
 
   async skipRating(rideId: string): Promise<void> {
-    const functions = await this.getFunctions();
-    const skipRatingFunction = httpsCallable(functions, 'skipRating');
-    
-    await skipRatingFunction({ rideId });
+    await ratingService.skipRideRating(rideId);
   }
 
+  // ⚠️ Legacy method:
+  // Backend callable `getUserRating` ya no está exportado en functions/src/index.ts.
+  // Mantener por compatibilidad con código histórico (actualmente no usado en pantallas auditadas).
   async getUserRating(userId: string): Promise<any> {
-    const functions = await this.getFunctions();
-    const getUserRatingFunction = httpsCallable(functions, 'getUserRating');
-    
-    const response = await getUserRatingFunction({ userId });
-    return response.data;
+    return ratingService.getUserRating(userId);
   }
 
+  // ⚠️ Legacy method:
+  // Backend callable `getRideRatings` ya no está exportado en functions/src/index.ts.
+  // Mantener por compatibilidad con código histórico (actualmente no usado en pantallas auditadas).
   async getRideRatings(rideId: string): Promise<any> {
-    const functions = await this.getFunctions();
-    const getRideRatingsFunction = httpsCallable(functions, 'getRideRatings');
-    
-    const response = await getRideRatingsFunction({ rideId });
-    return response.data;
+    return ratingService.getRideRatings(rideId);
   }
 
   // Para conductores
-  async getAvailableRides(lat?: number, lng?: number, radius?: number): Promise<any[]> {
+  async getAvailableRides(lat?: number, lng?: number, radius?: number, selectedVehicleType?: string): Promise<any[]> {
     const functions = await this.getFunctions();
     const getAvailableRidesFunction = httpsCallable(functions, 'getAvailableRides');
     const deviceId = await sessionService.getDeviceId();
+    const normalizedVehicleType = normalizeVehicleTypeForMatching(selectedVehicleType ?? null);
     const response = await getAvailableRidesFunction({ 
       latitude: lat, 
       longitude: lng, 
       radius: radius || 1.5, // Radio por defecto: 1.5 km
+      vehicleType: normalizedVehicleType || undefined,
       deviceId,
     });
     const result = response.data as { success: boolean; rides: any[] };
-    return result.rides;
+    return this.normalizeRideListPreservingRaw(result?.rides || []);
   }
 
   async acceptRide(rideId: string, data: AcceptRideData): Promise<Ride> {
@@ -604,7 +824,7 @@ class RidesService {
       });
     }
 
-    return result.ride;
+    return this.normalizeRidePreservingRaw(result.ride);
   }
 
   async markDriverOnRoute(rideId: string): Promise<Ride> {
@@ -617,7 +837,7 @@ class RidesService {
       throw new Error(this.tr('errors.driverOnRouteFailed'));
     }
     await analyticsService.logRideEvent(AnalyticsEvents.RIDE_DRIVER_ON_ROUTE, rideId);
-    return result.ride;
+    return this.normalizeRidePreservingRaw(result.ride);
   }
 
   async confirmDriver(rideId: string, selectedDriverId: string): Promise<Ride> {
@@ -637,7 +857,7 @@ class RidesService {
       });
     }
 
-    return result.ride;
+    return this.normalizeRidePreservingRaw(result.ride);
   }
 
   /**
@@ -670,7 +890,8 @@ class RidesService {
       const startRideFunction = httpsCallable(functions, 'startRide');
       const deviceId = await sessionService.getDeviceId();
       const response = await startRideFunction({ rideId, deviceId });
-      const ride = response.data as Ride;
+      const startResult = response.data as { success?: boolean; ride?: any };
+      const ride = this.normalizeRidePreservingRaw(startResult?.ride || { id: rideId, status: 'in_progress' });
       await analyticsService.logRideEvent(AnalyticsEvents.RIDE_STARTED, rideId);
       return ride;
     } else if (status === 'completed' || status === 'pending_payment') {
@@ -690,7 +911,7 @@ class RidesService {
       const summary = {
         ...data,
         pgRideId: data.pgRideId,  // ← Extraer pgRideId
-        ride: data.ride,
+        ride: data?.ride ? this.normalizeRidePreservingRaw(data.ride) : data?.ride,
       };
       await analyticsService.logRideEvent(AnalyticsEvents.RIDE_COMPLETED, rideId, {
         finalFare: additionalData?.finalFare || 0,
@@ -702,6 +923,8 @@ class RidesService {
     throw new Error(this.tr('errors.unsupportedStatus', { status }));
   }
 
+  // Mantiene firma legacy, pero calcula usando el contrato HTTP vigente
+  // (`calculateRidePriceHttp`) a través del centralizador de precios.
   async calculatePrice(distanceInMeters: number, extraStops: number = 0, isDesignatedDriver: boolean = false): Promise<{
     price: number;
     basePrice: number;
@@ -710,18 +933,33 @@ class RidesService {
     breakdown: string;
     pricingInfo: any;
   }> {
-    const functions = await this.getFunctions();
-    const calculatePriceFunction = httpsCallable(functions, 'calculatePrice');
-    const deviceId = await sessionService.getDeviceId();
-    const response = await calculatePriceFunction({ distanceInMeters, extraStops, isDesignatedDriver, deviceId });
-    const result = response.data as any;
+    const rideType = isDesignatedDriver ? 'designated_driver' : 'normal';
+    const result = await calculateRidePriceCentralized(
+      distanceInMeters,
+      0,
+      'car',
+      rideType,
+      undefined,
+      undefined,
+      { extraStops: Math.max(extraStops, 0) },
+    );
+
     return {
-      price: result.price,
+      price: result.finalPrice,
       basePrice: result.basePrice,
       distanceKm: result.distanceKm,
       multiplier: result.multiplier,
-      breakdown: result.breakdown,
-      pricingInfo: result.pricingInfo,
+      breakdown: result.breakdown ?? '',
+      pricingInfo: {
+        distancePrice: result.distancePrice,
+        timePrice: result.timePrice,
+        commission: result.commission,
+        commissionRate: result.commissionRate,
+        peakHourAdjustment: result.peakHourAdjustment,
+        serviceCode: result.serviceCode,
+        serviceId: result.serviceId,
+        extraStopsCharge: result.extraStopsCharge,
+      },
     };
   }
 }

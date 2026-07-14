@@ -2,6 +2,7 @@
  * AnalyticsEventRepository - Operaciones de eventos de analytics
  */
 
+import { col } from 'sequelize';
 import AnalyticsEvent from '../models/AnalyticsEvent';
 
 export class AnalyticsEventRepository {
@@ -14,7 +15,10 @@ export class AnalyticsEventRepository {
   }
 
   async findByUserId(userId: string): Promise<AnalyticsEvent[]> {
-    return await AnalyticsEvent.findAll({ where: { user_id: userId }, order: [['timestamp', 'DESC']] });
+    return await AnalyticsEvent.findAll({
+      where: { user_id: userId },
+      order: [[col('created_at'), 'DESC']],
+    });
   }
 
   async findByEventType(eventType: string): Promise<AnalyticsEvent[]> {
@@ -33,6 +37,8 @@ export class AnalyticsEventRepository {
   async deleteOlderThan(days: number): Promise<number> {
     const date = new Date();
     date.setDate(date.getDate() - days);
-    return await AnalyticsEvent.destroy({ where: { timestamp: { [require('sequelize').Op.lt]: date } } });
+    return await AnalyticsEvent.destroy({
+      where: { created_at: { [require('sequelize').Op.lt]: date } },
+    });
   }
 }

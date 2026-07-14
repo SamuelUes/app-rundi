@@ -4,6 +4,24 @@ import { cleanupPresenceNodes } from "../helpers/cleanupHelpers-new";
 
 const db = admin.database();
 
+const DEFAULT_SERVICE_AREA_ID = "ni-managua";
+
+async function getSessionServiceAreaId(uid: string): Promise<string> {
+  try {
+    const snap = await db.ref(`sessions/${uid}/serviceAreaId`).once("value");
+    const value = snap.val();
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  } catch (err) {
+    functions.logger.warn("[presence] No se pudo leer serviceAreaId de sesión", {
+      uid,
+      error: (err as any)?.message || err,
+    });
+  }
+  return DEFAULT_SERVICE_AREA_ID;
+}
+
 function assertRole(role: unknown): asserts role is "driver" | "client" {
   if (role !== "driver" && role !== "client") {
     throw new functions.https.HttpsError(
@@ -82,6 +100,22 @@ export const markAppActive = functions.https.onCall(async (data, context) => {
     }
 
     if (role === "driver") {
+      try {
+        const serviceAreaId = await getSessionServiceAreaId(uid);
+        await db.ref().update({
+          [`clientsLocations/${uid}`]: null,
+          [`clientsInfo/${uid}`]: null,
+          [`presence/${uid}`]: null,
+          [`clientsLocationsByArea/${serviceAreaId}/${uid}`]: null,
+          [`clientsLocationsByArea/${DEFAULT_SERVICE_AREA_ID}/${uid}`]: null,
+        });
+      } catch (cleanupErr: any) {
+        functions.logger.warn("[markAppActive] No se pudo limpiar nodos de cliente al activar conductor", {
+          uid,
+          error: cleanupErr?.message || cleanupErr,
+        });
+      }
+
       const location: DriverLocationPayload | undefined = data?.location;
       // No escribir 'status' en driversInfo; solo timestamps
       const driverInfoUpdate: Record<string, any> = {
@@ -144,6 +178,26 @@ export const markAppActive = functions.https.onCall(async (data, context) => {
         db.ref(`driverLocations/${uid}`).update(driverLocationUpdate),
       ]);
     } else {
+      try {
+        const serviceAreaId = await getSessionServiceAreaId(uid);
+        await db.ref().update({
+          [`driverLocationsByArea/${serviceAreaId}/${uid}`]: null,
+          [`driverLocationsByArea/${DEFAULT_SERVICE_AREA_ID}/${uid}`]: null,
+          [`driverLocations/${uid}/status`]: "offline",
+          [`driverLocations/${uid}/lat`]: null,
+          [`driverLocations/${uid}/lng`]: null,
+          [`driverLocations/${uid}/updatedAt`]: now,
+          [`driverLocations/${uid}/lastSeen`]: now,
+          [`driversInfo/${uid}/updatedAt`]: now,
+          [`driversInfo/${uid}/lastSeen`]: now,
+        });
+      } catch (cleanupErr: any) {
+        functions.logger.warn("[markAppActive] No se pudo limpiar nodos de conductor al activar cliente", {
+          uid,
+          error: cleanupErr?.message || cleanupErr,
+        });
+      }
+
       const location: ClientLocationPayload | undefined = data?.location;
       const hasLocation =
         typeof location?.latitude === "number" &&

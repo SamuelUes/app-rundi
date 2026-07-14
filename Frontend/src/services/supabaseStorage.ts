@@ -6,13 +6,12 @@
 import { createClient } from '@supabase/supabase-js';
 import Constants from 'expo-constants';
 import * as FileSystem from 'expo-file-system';
+import { Paths } from 'expo-file-system';
+import * as LegacyFileSystem from 'expo-file-system/legacy';
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
+import { httpsCallable } from 'firebase/functions';
+import { getFirebaseFunctions } from '../config/firebase';
 import i18n from '../i18n';
-
-type FileSystemEncodingOption = Parameters<typeof FileSystem.readAsStringAsync>[1] extends { encoding?: infer E }
-  ? E
-  : never;
-
-const BASE64_ENCODING = 'base64' as FileSystemEncodingOption;
 
 // Configuración de Supabase desde variables de entorno de Expo
 const SUPABASE_URL = Constants.expoConfig?.extra?.supabaseUrl || 'https://ceytngpresytjhafcadu.supabase.co';
@@ -22,6 +21,91 @@ console.log('🔧 Supabase URL:', SUPABASE_URL);
 console.log('🔧 Supabase Key:', SUPABASE_ANON_KEY ? '✅ Configurada' : '❌ No configurada');
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+let cachedSupabaseJwt: { token: string; expiresAtMs: number } | null = null;
+
+async function getSupabaseJwt(): Promise<string> {
+  const now = Date.now();
+  if (cachedSupabaseJwt && cachedSupabaseJwt.expiresAtMs - now > 30_000) {
+    return cachedSupabaseJwt.token;
+  }
+
+  const functions = await getFirebaseFunctions();
+  const callable = httpsCallable(functions, 'getSupabaseJwt');
+  const response = await callable({});
+  const data = response.data as any;
+
+  const token = typeof data?.token === 'string' ? data.token : undefined;
+  const expiresAtMs = typeof data?.expiresAtMs === 'number' ? data.expiresAtMs : undefined;
+  if (!token || !expiresAtMs) {
+    throw new Error('SUPABASE_JWT_NOT_AVAILABLE');
+  }
+
+  cachedSupabaseJwt = { token, expiresAtMs };
+  return token;
+}
+
+async function normalizeUriForUpload(uri: string): Promise<string> {
+  const trimmed = uri.trim();
+
+  if (trimmed.startsWith('file:/') && !trimmed.startsWith('file://')) {
+    return `file://${trimmed.slice('file:'.length)}`;
+  }
+
+  if (trimmed.startsWith('content://')) {
+    const extension = 'jpg';
+    const baseDir =
+      LegacyFileSystem.cacheDirectory ||
+      LegacyFileSystem.documentDirectory ||
+      (Paths.cache as any)?.uri ||
+      (Paths.document as any)?.uri ||
+      '';
+    const target = `${baseDir}supabase_upload_${Date.now()}.${extension}`;
+
+    if (!target) {
+      return trimmed;
+    }
+
+    try {
+      await LegacyFileSystem.copyAsync({ from: trimmed, to: target });
+      return target;
+    } catch (error) {
+      console.warn('⚠️ No se pudo copiar content:// a cache para upload. Se intentará usar la URI original.', error);
+      return trimmed;
+    }
+  }
+
+  return trimmed;
+}
+
+async function compressForUpload(uri: string): Promise<string> {
+  try {
+    const info = await FileSystem.getInfoAsync(uri);
+    const originalSize = info.exists && info.size ? info.size : undefined;
+
+    const result = await manipulateAsync(
+      uri,
+      [{ resize: { width: 1600 } }],
+      { compress: 0.5, format: SaveFormat.JPEG }
+    );
+
+    const compressedUri = result.uri || uri;
+    const compressedInfo = await FileSystem.getInfoAsync(compressedUri);
+    const compressedSize = compressedInfo.exists && compressedInfo.size ? compressedInfo.size : undefined;
+
+    console.log('🗜️ Imagen comprimida para upload', {
+      originalUri: uri,
+      compressedUri,
+      originalSize,
+      compressedSize,
+    });
+
+    return compressedUri;
+  } catch (error) {
+    console.warn('⚠️ No se pudo comprimir imagen, se usará original:', error);
+    return uri;
+  }
+}
 
 const tr = (path: string, options?: Record<string, any>) =>
   i18n.t(`services.supabaseStorage.${path}`, options) as string;
@@ -46,64 +130,58 @@ export const uploadImage = async (
       throw new Error(tr('errors.missingUri'));
     }
 
-    // Leer archivo usando expo-file-system
-    console.log('🔄 Leyendo archivo con FileSystem...');
-    const base64 = await FileSystem.readAsStringAsync(uri, {
-      encoding: BASE64_ENCODING,
-    });
-    console.log('✅ Archivo leído en base64:', base64.length, 'caracteres');
+    const normalizedUri = await normalizeUriForUpload(uri);
+    const uploadUri = await compressForUpload(normalizedUri);
 
-    // Convertir base64 a binary string para FormData
-    console.log('🔄 Preparando datos para upload...');
-    const binaryString = atob(base64);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
-    }
-    
-    // Crear FormData con el archivo
-    const formData = new FormData();
-    formData.append('file', {
-      uri: uri,
-      type: 'image/jpeg',
-      name: path.split('/').pop() || 'image.jpg',
-    } as any);
-
-    console.log('☁️ Subiendo a Supabase Storage con FormData...');
+    console.log('☁️ Subiendo a Supabase Storage (binary upload)...');
     
     // Usar fetch directo con FormData (más compatible con React Native)
     const uploadUrl = `${SUPABASE_URL}/storage/v1/object/${bucket}/${path}`;
-    const uploadResponse = await fetch(uploadUrl, {
-      method: 'POST',
+    const supabaseJwt = await getSupabaseJwt();
+
+    if (!uploadUri.startsWith('file://')) {
+      console.error('❌ URI no soportada para uploadAsync (se requiere file://):', uploadUri);
+      throw new Error(tr('errors.uploadFailed'));
+    }
+
+    const uploadResult = await LegacyFileSystem.uploadAsync(uploadUrl, uploadUri, {
+      uploadType: LegacyFileSystem.FileSystemUploadType.BINARY_CONTENT,
+      httpMethod: 'POST',
       headers: {
-        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-        'apikey': SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${supabaseJwt}`,
+        apikey: SUPABASE_ANON_KEY,
+        'Content-Type': 'image/jpeg',
         'x-upsert': 'true',
       },
-      body: formData,
     });
 
-    if (!uploadResponse.ok) {
-      let errorPayload: any = null;
+    if (uploadResult.status < 200 || uploadResult.status >= 300) {
+      console.error('❌ Error en respuesta:', {
+        status: uploadResult.status,
+        body: uploadResult.body,
+      });
+
+      let message = tr('errors.uploadFailed');
       try {
-        errorPayload = await uploadResponse.json();
+        const maybeJson = JSON.parse(uploadResult.body);
+        if (maybeJson?.message) {
+          message = String(maybeJson.message);
+        }
       } catch {
-        errorPayload = await uploadResponse.text();
+        if (uploadResult.body) {
+          message = uploadResult.body;
+        }
       }
-      console.error('❌ Error en respuesta:', errorPayload);
-      if (typeof errorPayload === 'object' && errorPayload !== null && errorPayload.message) {
-        throw new Error(errorPayload.message);
-      }
-      throw new Error(`${tr('errors.uploadFailed')} (${uploadResponse.statusText})`);
+
+      throw new Error(message);
     }
 
     let uploadData: any = null;
-    const rawText = await uploadResponse.text();
-    if (rawText) {
+    if (uploadResult.body) {
       try {
-        uploadData = JSON.parse(rawText);
+        uploadData = JSON.parse(uploadResult.body);
       } catch {
-        uploadData = rawText;
+        uploadData = uploadResult.body;
       }
     }
     console.log('✅ Imagen subida exitosamente:', uploadData ?? '(respuesta vacía)');

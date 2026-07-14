@@ -8,9 +8,33 @@ import * as functions from 'firebase-functions';
 import admin from 'firebase-admin';
 import { RatingService } from '../sequelize/services/RatingService';
 import { RideRepository } from '../sequelize/repositories/RideRepository';
+import { DriverRepository } from '../sequelize/repositories/DriverRepository';
 
 const ratingService = new RatingService();
 const rideRepo = new RideRepository();
+const driverRepo = new DriverRepository();
+
+const CATEGORY_KEYS = [
+  'punctuality',
+  'cleanliness',
+  'communication',
+  'driving',
+  'safety',
+  'friendliness',
+] as const;
+
+type CategoryKey = typeof CATEGORY_KEYS[number];
+
+const toNumberOrNull = (value: any): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+};
+
+const roundTwo = (value: number): number => Math.round(value * 100) / 100;
 
 /**
  * Enviar calificación después de un viaje
@@ -105,6 +129,7 @@ export const submitRating = functions.https.onCall(async (data, context) => {
       comment,
       punctuality,
       cleanliness,
+      communication,
       driving,
       safety,
       friendliness,
@@ -142,6 +167,142 @@ export const submitRating = functions.https.onCall(async (data, context) => {
     };
   } catch (error: any) {
     console.error('❌ [submitRating] Error:', error);
+    throw new functions.https.HttpsError('internal', error.message);
+  }
+});
+
+/**
+ * Obtener información unificada pública del conductor
+ * Fuente principal de reseñas/rating: Supabase ratings (to_user_id)
+ * Además sincroniza stats de conductor hacia RTDB para mantener driversInfo al día.
+ */
+export const getDriverPublicInsights = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
+  }
+
+  try {
+    const driverId = String(data?.driverId || '').trim();
+    const limit = Math.min(Math.max(Number(data?.limit || 10), 1), 30);
+
+    if (!driverId) {
+      throw new functions.https.HttpsError('invalid-argument', 'driverId es requerido');
+    }
+
+    const [avgRatingRaw, ratingsRaw, driverByUserIdRaw] = await Promise.all([
+      ratingService.getAverageRating(driverId),
+      ratingService.getDriverRatings(driverId),
+      driverRepo.findByUserId(driverId),
+    ]);
+
+    const driverRaw = driverByUserIdRaw || (await driverRepo.findById(driverId));
+
+    const allRatings = Array.isArray(ratingsRaw) ? ratingsRaw : [];
+
+    const recentCommentedRatings = allRatings
+      .filter((item: any) => typeof item?.comment === 'string' && item.comment.trim().length > 0)
+      .slice()
+      .sort((a: any, b: any) => {
+        const aTime = a?.created_at ? new Date(a.created_at).getTime() : 0;
+        const bTime = b?.created_at ? new Date(b.created_at).getTime() : 0;
+        return bTime - aTime;
+      })
+      .slice(0, limit);
+
+    const driverJson = (driverRaw as any)?.toJSON ? (driverRaw as any).toJSON() : (driverRaw as any) || {};
+
+    const averageRating = roundTwo(
+      toNumberOrNull((avgRatingRaw as any)?.averageRating) ??
+      toNumberOrNull(driverJson?.average_rating) ??
+      0,
+    );
+    const totalRatings =
+      Math.max(0, Math.round(toNumberOrNull((avgRatingRaw as any)?.totalRatings) ?? 0));
+
+    const totalRides = Math.max(0, Math.round(toNumberOrNull(driverJson?.total_rides) ?? 0));
+    const totalEarnings = roundTwo(toNumberOrNull(driverJson?.total_earnings) ?? 0);
+
+    const reviews = recentCommentedRatings
+      .map((item: any) => {
+        const createdAt = item?.created_at ? new Date(item.created_at) : null;
+        const createdAtMs = createdAt && Number.isFinite(createdAt.getTime()) ? createdAt.getTime() : null;
+        return {
+          id: String(item?.id || ''),
+          author: 'Pasajero',
+          comment: String(item.comment).trim(),
+          rating: toNumberOrNull(item?.rating) ?? 5,
+          createdAt: createdAtMs,
+        };
+      });
+
+    const categoryTotals: Record<CategoryKey, number> = {
+      punctuality: 0,
+      cleanliness: 0,
+      communication: 0,
+      driving: 0,
+      safety: 0,
+      friendliness: 0,
+    };
+
+    for (const item of allRatings) {
+      for (const category of CATEGORY_KEYS) {
+        const value = Math.round(toNumberOrNull((item as any)?.[category]) ?? 0);
+        if (value > 0) {
+          categoryTotals[category] += value;
+        }
+      }
+    }
+
+    const compliments = CATEGORY_KEYS.map((category) => ({
+      id: category,
+      count: categoryTotals[category] || 0,
+    }));
+
+    const yearsOnPlatform = (() => {
+      const createdAt = driverJson?.created_at ? new Date(driverJson.created_at) : null;
+      if (!createdAt || !Number.isFinite(createdAt.getTime())) return 0;
+      const years = (Date.now() - createdAt.getTime()) / (365 * 24 * 60 * 60 * 1000);
+      return Math.max(0, Math.floor(years));
+    })();
+
+    const now = Date.now();
+    const statsPatch = {
+      rating: averageRating,
+      averageRating,
+      totalRatings,
+      totalRides,
+      earnings: totalEarnings,
+      updatedAt: now,
+      stats: {
+        rating: averageRating,
+        averageRating,
+        totalRatings,
+        completedRides: totalRides,
+        totalRides,
+        earnings: totalEarnings,
+      },
+    };
+
+    await Promise.allSettled([
+      admin.database().ref(`driversInfo/${driverId}`).update(statsPatch),
+      admin.database().ref(`drivers/${driverId}`).update(statsPatch),
+    ]);
+
+    return {
+      success: true,
+      driverId,
+      stats: {
+        averageRating,
+        totalRatings,
+        totalRides,
+        totalEarnings,
+        yearsOnPlatform,
+      },
+      compliments,
+      reviews,
+    };
+  } catch (error: any) {
+    console.error('❌ [getDriverPublicInsights] Error:', error);
     throw new functions.https.HttpsError('internal', error.message);
   }
 });

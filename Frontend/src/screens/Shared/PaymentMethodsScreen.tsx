@@ -215,7 +215,7 @@ export default function PaymentMethodsScreen({ navigation }: any) {
         {/* Lista de tarjetas */}
         {cards.map(renderCard)}
 
-        {/* Botón agregar tarjeta */}
+        {/* Botón agregar tarjeta - desactivado temporalmente
         <TouchableOpacity
           style={styles.addButton}
           onPress={() => navigation.navigate('AddCard')}
@@ -225,6 +225,7 @@ export default function PaymentMethodsScreen({ navigation }: any) {
             {t('shared.paymentMethods.buttons.addCard')}
           </Text>
         </TouchableOpacity>
+        */}
 
         {/* Info de seguridad */}
         <View style={styles.securityInfo}>

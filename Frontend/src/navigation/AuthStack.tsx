@@ -7,9 +7,10 @@ import LoginScreen from '../screens/Auth/LoginScreen';
 import RegisterScreenNew from '../screens/Auth/RegisterScreen';
 import AuthLandingScreen from '../screens/Auth/AuthLandingScreen';
 import RegistrationCheckpointScreen from '../screens/Auth/RegistrationCheckpointScreen';
-import registrationService from '../services/registrationService';
+import registrationService from '../services/auth/registrationService';
 import PhoneVerificationScreen from '../screens/Auth/PhoneVerificationScreen';
 import PhoneVerificationLoginScreen from '../screens/Auth/PhoneVerificationLoginScreen';
+import EmailVerificationScreen from '../screens/Auth/EmailVerificationScreen';
 import GooglePhoneScreen from '../screens/Auth/GooglePhoneScreen';
 import RoleSelectionScreen from '../screens/Auth/RoleSelectionScreen';
 import DriverPhoneScreen from '../screens/Auth/DriverPhoneScreen';
@@ -143,6 +144,11 @@ export default function AuthStack() {
         name="PhoneVerificationLogin" 
         component={PhoneVerificationLoginScreen} 
         options={{headerShown: false , title: 'Verificar Teléfono' }} 
+      />
+      <Stack.Screen
+        name="EmailVerification"
+        component={EmailVerificationScreen}
+        options={{ headerShown: false, title: 'Verificar Correo' }}
       />
       <Stack.Screen 
         name="DriverData" 

@@ -8,13 +8,13 @@ import { mapRides } from './rideHistory';
 import { sendNotificationToUser } from '../services/pushNotifications';
 import { notifyLiveRideUpdate, LiveRideNotificationPayload } from '../services/liveRideNotifications';
 import { RideRepository } from '../sequelize/repositories/RideRepository';
-import { DriverPenaltyRepository } from '../sequelize/repositories/DriverPenaltyRepository';
+// import { DriverPenaltyRepository } from '../sequelize/repositories/DriverPenaltyRepository';
 import { ServiceRepository } from '../sequelize/repositories/ServiceRepository';
 import { PaymentRepository } from '../sequelize/repositories/PaymentRepository';
 import { VehicleRepository } from '../sequelize/repositories/VehicleRepository';
 import { calculateRideProgress } from '../utils/rideProgressUtils';
-import { MIGRATION_FLAGS } from '../config/migration-flags';
 import { logRideEvent, AnalyticsEvents } from '../utils/analyticsUtils';
+import { v4 as uuidv4 } from 'uuid';
 
 const IS_LOAD_TEST =
   (process.env.FUNCTIONS_EMULATOR === 'true' ||
@@ -30,7 +30,7 @@ const locationRepo = new RideLocationRepository();
 const rideService = new RideService();
 const db = admin.database();
 const DEFAULT_SERVICE_AREA_ID = 'ni-managua';
-const penaltyRepo = new DriverPenaltyRepository();
+// const penaltyRepo = new DriverPenaltyRepository();
 const serviceRepo = new ServiceRepository();
 const paymentRepo = new PaymentRepository();
 const vehicleRepo = new VehicleRepository();
@@ -257,13 +257,548 @@ export const hydrateActiveRidesClientProfiles = functions.https.onCall(async (da
 });
 
 const parseToNumber = (value: any): number | null => {
-  if (value === null || value === undefined) {
+  const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+  return parsed;
+};
+
+const parseEpochMs = (value: any): number | null => {
+  const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+  return Math.floor(parsed);
+};
+
+const PROGRAMMED_RIDE_MIN_AHEAD_MS = 30 * 60 * 1000;
+const PROGRAMMED_RIDE_MAX_AHEAD_MS = 20 * 24 * 60 * 60 * 1000;
+
+const validateScheduledAt = (value: any): number | null => {
+  const parsed = parseEpochMs(value);
+  if (parsed === null) {
     return null;
   }
 
-  const num = Number(value);
-  return Number.isFinite(num) ? num : null;
+  const now = Date.now();
+  if (parsed < now + PROGRAMMED_RIDE_MIN_AHEAD_MS || parsed > now + PROGRAMMED_RIDE_MAX_AHEAD_MS) {
+    return null;
+  }
+
+  return parsed;
 };
+
+const PROGRAMMED_RIDE_CONFLICT_BEFORE_MS = 20 * 60 * 1000; // 20 minutos antes
+const PROGRAMMED_RIDE_CONFLICT_AFTER_MS = 30 * 60 * 1000; // 30 minutos después
+
+interface ProgrammedRideConflict {
+  rideId: string;
+  scheduledAt: number;
+}
+
+const findConflictingProgrammedRideForClient = async (
+  clientId: string,
+  targetTimeMs: number,
+): Promise<ProgrammedRideConflict | null> => {
+  try {
+    const snapshot = await db
+      .ref('programmedRides')
+      .orderByChild('clientId')
+      .equalTo(clientId)
+      .once('value');
+
+    const now = Date.now();
+    const minScheduledAt = now - PROGRAMMED_RIDE_CONFLICT_AFTER_MS;
+
+    let bestConflict: ProgrammedRideConflict | null = null;
+    let bestDelta = Number.POSITIVE_INFINITY;
+
+    snapshot.forEach((child) => {
+      const value = child.val();
+      if (!value) {
+        return false;
+      }
+
+      if (value.status === 'canceled') {
+        return false;
+      }
+
+      const scheduledRaw = value.scheduledAt ?? value.scheduled_at;
+      const scheduledParsed =
+        typeof scheduledRaw === 'number' && Number.isFinite(scheduledRaw)
+          ? Math.floor(scheduledRaw)
+          : parseEpochMs(scheduledRaw);
+
+      if (scheduledParsed === null) {
+        return false;
+      }
+
+      // Ignorar viajes muy antiguos cuyo horario ya pasó hace más del margen posterior
+      if (scheduledParsed < minScheduledAt) {
+        return false;
+      }
+
+      const windowStart = scheduledParsed - PROGRAMMED_RIDE_CONFLICT_BEFORE_MS;
+      const windowEnd = scheduledParsed + PROGRAMMED_RIDE_CONFLICT_AFTER_MS;
+
+      if (targetTimeMs >= windowStart && targetTimeMs <= windowEnd) {
+        const delta = Math.abs(scheduledParsed - targetTimeMs);
+        if (delta < bestDelta) {
+          bestDelta = delta;
+          bestConflict = {
+            rideId: child.key as string,
+            scheduledAt: scheduledParsed,
+          };
+        }
+      }
+
+      return false;
+    });
+
+    return bestConflict;
+  } catch (error: any) {
+    console.warn('[findConflictingProgrammedRideForClient] Error buscando viajes programados', {
+      clientId,
+      error: error?.message || error,
+    });
+    return null;
+  }
+};
+
+const fetchFirestoreUserRole = async (uid: string): Promise<string | null> => {
+  try {
+    const userDoc = await admin.firestore().collection('users').doc(uid).get();
+    if (!userDoc.exists) {
+      return null;
+    }
+    const data = userDoc.data() as any;
+    const roleRaw = data?.role ?? data?.userRole ?? data?.type ?? null;
+    return typeof roleRaw === 'string' && roleRaw.trim().length > 0 ? roleRaw.trim() : null;
+  } catch (error: any) {
+    console.warn('[programmedRides] No se pudo leer role en Firestore', {
+      uid,
+      error: error?.message || error,
+    });
+    return null;
+  }
+};
+
+const fetchDriverInfoFromRealtime = async (driverId: string): Promise<any | null> => {
+  try {
+    const snapshot = await db.ref(`driversInfo/${driverId}`).once('value');
+    const value = snapshot.val();
+    if (!value) {
+      return null;
+    }
+
+    return {
+      id: driverId,
+      userId: driverId,
+      name: value?.name ?? value?.fullName ?? 'Conductor',
+      rating: value?.rating ?? 0,
+      profilePhoto: value?.photoURL ?? value?.photoUrl ?? null,
+    };
+  } catch (error: any) {
+    console.warn('[programmedRides] No se pudo leer driversInfo', {
+      driverId,
+      error: error?.message || error,
+    });
+    return null;
+  }
+};
+
+export const createProgrammedRide = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
+  }
+  await ensureActiveSession(context, data);
+
+  const clientId = context.auth.uid;
+  const role = await fetchFirestoreUserRole(clientId);
+  if (role !== 'client') {
+    throw new functions.https.HttpsError('permission-denied', 'Solo clientes pueden crear viajes programados');
+  }
+
+  const scheduledAt = validateScheduledAt(data?.scheduledAt);
+  if (scheduledAt === null) {
+    throw new functions.https.HttpsError(
+      'invalid-argument',
+      'scheduledAt debe estar entre 30 minutos y 20 días desde ahora',
+    );
+  }
+
+  const origin = data?.origin;
+  const destination = data?.destination;
+  const estimatedPrice = parseToNumber(data?.estimatedPrice);
+
+  if (!origin || !destination || estimatedPrice === null) {
+    throw new functions.https.HttpsError('invalid-argument', 'origin, destination y estimatedPrice son requeridos');
+  }
+
+  // Verificar si el cliente ya tiene un viaje programado que entre en conflicto
+  const programmedConflict = await findConflictingProgrammedRideForClient(clientId, scheduledAt);
+  if (programmedConflict) {
+    throw new functions.https.HttpsError('failed-precondition', 'CLIENT_PROGRAMMED_RIDE_CONFLICT', {
+      code: 'CLIENT_PROGRAMMED_RIDE_CONFLICT',
+      existingRideId: programmedConflict.rideId,
+      existingScheduledAt: programmedConflict.scheduledAt,
+    });
+  }
+
+  let clientProfile: Awaited<ReturnType<typeof fetchClientProfileFromRealtime>> | null = null;
+  try {
+    clientProfile = await fetchClientProfileFromRealtime(clientId);
+  } catch (err) {
+    console.warn('[createProgrammedRide] No se pudo obtener perfil de cliente', {
+      clientId,
+      error: (err as any)?.message || err,
+    });
+  }
+
+  const rideId = uuidv4();
+  const normalizedClientComment = data?.clientComment ?? data?.comment ?? data?.notes ?? null;
+  const normalizedNotes = data?.notes ?? data?.clientComment ?? data?.comment ?? null;
+
+  const payload: Record<string, any> = {
+    id: rideId,
+    isProgrammed: true,
+    status: 'scheduled',
+    scheduledAt,
+    clientId,
+    driverId: null,
+    clientConfirmed: false,
+    driverConfirmed: false,
+    origin,
+    destination,
+    extraDestinations: data?.extraDestinations ?? null,
+    estimatedPrice,
+    estimatedDistance: data?.estimatedDistance ?? null,
+    estimatedDuration: data?.estimatedDuration ?? null,
+    rideType: data?.rideType ?? 'normal',
+    vehicleType: data?.vehicleType ?? null,
+    designatedDriverVehicle: data?.designatedDriverVehicle ?? null,
+    passengers: data?.passengers ?? 1,
+    paymentMethod: data?.paymentMethod ?? 'cash',
+    serviceId: data?.serviceId ?? null,
+    clientVehiclePhoto: data?.clientVehiclePhoto ?? null,
+    clientSuggestedPrice: data?.clientSuggestedPrice ?? null,
+    clientComment: normalizedClientComment,
+    notes: normalizedNotes,
+    clientName: clientProfile?.fullName ?? null,
+    clientPhone: clientProfile?.phone ?? null,
+    clientRating: clientProfile?.rating ?? null,
+    clientTotalRatings: clientProfile?.totalRatings ?? null,
+    createdAt: admin.database.ServerValue.TIMESTAMP,
+    updatedAt: admin.database.ServerValue.TIMESTAMP,
+  };
+
+  await db.ref(`programmedRides/${rideId}`).set(payload);
+
+  await notifyUserSafe(clientId, '✅ Viaje programado', 'Tu viaje fue programado correctamente.', {
+    rideId,
+    type: 'programmed_ride_created',
+  });
+
+  await safeLogRideEvent(AnalyticsEvents.RIDE_REQUESTED, rideId, clientId, {
+    isProgrammed: true,
+    scheduledAt,
+  });
+
+  return {
+    success: true,
+    ride: {
+      id: rideId,
+      status: 'scheduled',
+      scheduledAt,
+    },
+  };
+});
+
+export const assignDriverToProgrammedRide = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
+  }
+  await ensureActiveSession(context, data);
+
+  const driverId = context.auth.uid;
+  const driverRole = await fetchFirestoreUserRole(driverId);
+
+  if (driverRole !== 'driver' && driverRole !== 'designated_driver') {
+    throw new functions.https.HttpsError('permission-denied', 'Solo conductores pueden asignarse a viajes programados');
+  }
+
+  const rideId = typeof data?.rideId === 'string' ? data.rideId.trim() : '';
+  if (!rideId) {
+    throw new functions.https.HttpsError('invalid-argument', 'rideId es requerido');
+  }
+
+  const rideRef = db.ref(`programmedRides/${rideId}`);
+  const rideSnap = await rideRef.once('value');
+  const rideData = rideSnap.val();
+  if (!rideData) {
+    throw new functions.https.HttpsError('not-found', 'Viaje programado no encontrado');
+  }
+
+  if (rideData.status === 'canceled') {
+    throw new functions.https.HttpsError('failed-precondition', 'Viaje programado está cancelado');
+  }
+
+  const rideType = String(rideData.rideType || '').toLowerCase();
+  if (rideType === 'designated_driver' && driverRole !== 'designated_driver') {
+    throw new functions.https.HttpsError('permission-denied', 'Este viaje requiere un conductor designado');
+  }
+
+  if (rideData.driverId && rideData.driverId !== driverId) {
+    throw new functions.https.HttpsError('failed-precondition', 'Viaje programado ya tiene conductor asignado');
+  }
+
+  const driverInfo = await fetchDriverInfoFromRealtime(driverId);
+
+  await db.ref(`programmedRides/${rideId}`).update({
+    driverId,
+    driver: driverInfo,
+    status: 'driver_assigned',
+    driverAssignedAt: admin.database.ServerValue.TIMESTAMP,
+    driverConfirmed: false,
+    driverConfirmedAt: null,
+    driverConfirmationRequestedAt: null,
+    updatedAt: admin.database.ServerValue.TIMESTAMP,
+  });
+
+  await notifyUserSafe(rideData.clientId, '🚗 Conductor asignado', 'Un conductor se asignó a tu viaje programado.', {
+    rideId,
+    type: 'programmed_ride_driver_assigned',
+    driverId,
+  });
+
+  await safeLogRideEvent(AnalyticsEvents.RIDE_ACCEPTED, rideId, driverId, {
+    isProgrammed: true,
+  });
+
+  return {
+    success: true,
+    ride: { id: rideId, driverId },
+  };
+});
+
+export const confirmProgrammedRideClient = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
+  }
+  await ensureActiveSession(context, data);
+
+  const clientId = context.auth.uid;
+  const role = await fetchFirestoreUserRole(clientId);
+  if (role !== 'client') {
+    throw new functions.https.HttpsError('permission-denied', 'Solo clientes pueden confirmar viajes programados');
+  }
+
+  const rideId = typeof data?.rideId === 'string' ? data.rideId.trim() : '';
+  if (!rideId) {
+    throw new functions.https.HttpsError('invalid-argument', 'rideId es requerido');
+  }
+
+  const rideRef = db.ref(`programmedRides/${rideId}`);
+  const rideSnap = await rideRef.once('value');
+  const rideData = rideSnap.val();
+  if (!rideData) {
+    throw new functions.https.HttpsError('not-found', 'Viaje programado no encontrado');
+  }
+
+  if (rideData.clientId !== clientId) {
+    throw new functions.https.HttpsError('permission-denied', 'No tienes permiso para confirmar este viaje');
+  }
+
+  const now = admin.database.ServerValue.TIMESTAMP;
+  await rideRef.update({
+    clientConfirmedAt: now,
+    clientConfirmed: true,
+    status: 'client_confirmed',
+    updatedAt: now,
+  });
+
+  const updatedRideSnap = await rideRef.once('value');
+  const updatedRideData = updatedRideSnap.val();
+
+  if (updatedRideData?.driverId) {
+    await notifyUserSafe(
+      updatedRideData.driverId,
+      '🕒 Confirma tu viaje programado',
+      'El cliente confirmó. Confirma para reservar el viaje.',
+      {
+        rideId,
+        type: 'programmed_ride_driver_confirm',
+      },
+    );
+  }
+
+  await safeLogRideEvent(AnalyticsEvents.CLIENT_CONFIRMED_DRIVER, rideId, clientId, {
+    isProgrammed: true,
+    step: 'client_confirmed',
+  });
+
+  const responseRide = {
+    id: rideId,
+    status: updatedRideData?.status ?? 'client_confirmed',
+    driverId: updatedRideData?.driverId ?? null,
+    driverConfirmedAt: updatedRideData?.driverConfirmedAt ?? null,
+    clientConfirmedAt: updatedRideData?.clientConfirmedAt ?? null,
+    scheduledAt: updatedRideData?.scheduledAt ?? null,
+    driver: updatedRideData?.driver ?? null,
+    vehicle: updatedRideData?.vehicle ?? null,
+    clientConfirmed: true,
+    driverConfirmed: Boolean(updatedRideData?.driverConfirmed),
+  };
+
+  return { success: true, ride: responseRide };
+});
+
+export const confirmProgrammedRideDriver = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
+  }
+  await ensureActiveSession(context, data);
+
+  const driverId = context.auth.uid;
+  const driverRole = await fetchFirestoreUserRole(driverId);
+  if (driverRole !== 'driver' && driverRole !== 'designated_driver') {
+    throw new functions.https.HttpsError('permission-denied', 'Solo conductores pueden confirmar viajes programados');
+  }
+
+  const rideId = typeof data?.rideId === 'string' ? data.rideId.trim() : '';
+  if (!rideId) {
+    throw new functions.https.HttpsError('invalid-argument', 'rideId es requerido');
+  }
+
+  const rideRef = db.ref(`programmedRides/${rideId}`);
+  const rideSnap = await rideRef.once('value');
+  const rideData = rideSnap.val();
+  if (!rideData) {
+    throw new functions.https.HttpsError('not-found', 'Viaje programado no encontrado');
+  }
+
+  const rideType = String(rideData.rideType || '').toLowerCase();
+  if (rideType === 'designated_driver' && driverRole !== 'designated_driver') {
+    throw new functions.https.HttpsError('permission-denied', 'Este viaje requiere un conductor designado');
+  }
+
+  if (rideData.driverId !== driverId) {
+    throw new functions.https.HttpsError('permission-denied', 'No eres el conductor asignado a este viaje');
+  }
+
+  const now = admin.database.ServerValue.TIMESTAMP;
+  await rideRef.update({
+    driverConfirmedAt: now,
+    driverConfirmed: true,
+    status: 'driver_confirmed',
+    updatedAt: now,
+  });
+
+  await notifyUserSafe(rideData.clientId, '✅ Conductor confirmó', 'El conductor confirmó tu viaje programado.', {
+    rideId,
+    type: 'programmed_ride_driver_confirmed',
+  });
+
+  await safeLogRideEvent(AnalyticsEvents.RIDE_DRIVER_ON_ROUTE, rideId, driverId, {
+    isProgrammed: true,
+    step: 'driver_confirmed',
+  });
+
+  const updatedRide = (await rideRef.once('value')).val();
+  return {
+    success: true,
+    ride: {
+      id: rideId,
+      status: updatedRide?.status ?? 'driver_confirmed',
+      clientConfirmed: Boolean(updatedRide?.clientConfirmed),
+      driverConfirmed: true,
+      clientConfirmedAt: updatedRide?.clientConfirmedAt ?? null,
+      driverConfirmedAt: updatedRide?.driverConfirmedAt ?? null,
+      scheduledAt: updatedRide?.scheduledAt ?? null,
+      driverId: updatedRide?.driverId ?? null,
+    },
+  };
+});
+
+export const cancelProgrammedRide = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
+  }
+  await ensureActiveSession(context, data);
+
+  const uid = context.auth.uid;
+  const rideId = typeof data?.rideId === 'string' ? data.rideId.trim() : '';
+  const reason = typeof data?.reason === 'string' ? data.reason.trim() : null;
+
+  if (!rideId) {
+    throw new functions.https.HttpsError('invalid-argument', 'rideId es requerido');
+  }
+
+  const rideRef = db.ref(`programmedRides/${rideId}`);
+  const rideSnap = await rideRef.once('value');
+  const rideData = rideSnap.val();
+  if (!rideData) {
+    throw new functions.https.HttpsError('not-found', 'Viaje programado no encontrado');
+  }
+
+  const isClient = rideData.clientId === uid;
+  const isDriver = rideData.driverId === uid;
+
+  if (!isClient && !isDriver) {
+    throw new functions.https.HttpsError('permission-denied', 'No tienes permiso para cancelar este viaje programado');
+  }
+
+  const canceledBy = isClient ? 'client' : 'driver';
+  await rideRef.update({
+    status: 'canceled',
+    cancelReason: reason || 'canceled',
+    canceledBy,
+    canceledAt: admin.database.ServerValue.TIMESTAMP,
+    updatedAt: admin.database.ServerValue.TIMESTAMP,
+  });
+
+  if (isClient && rideData.driverId) {
+    await notifyUserSafe(rideData.driverId, 'Viaje programado cancelado', 'El cliente canceló el viaje programado.', {
+      rideId,
+      type: 'programmed_ride_canceled',
+    });
+  }
+
+  if (isDriver && rideData.clientId) {
+    await notifyUserSafe(rideData.clientId, 'Viaje programado cancelado', 'El conductor canceló el viaje programado.', {
+      rideId,
+      type: 'programmed_ride_canceled',
+    });
+  }
+
+  await safeLogRideEvent(AnalyticsEvents.RIDE_CANCELED, rideId, uid, {
+    isProgrammed: true,
+    canceledBy,
+  });
+
+  // Eliminar completamente el viaje programado para evitar residuos
+  try {
+    await rideRef.remove();
+  } catch (error) {
+    console.error('❌ [cancelProgrammedRide] Error eliminando programmedRide', { rideId, error });
+  }
+
+  const serviceAreaId = rideData.serviceAreaId;
+  if (serviceAreaId) {
+    try {
+      await db.ref(`programmedRidesByArea/${serviceAreaId}/${rideId}`).remove();
+    } catch (error) {
+      console.error('⚠️ [cancelProgrammedRide] No se pudo eliminar de programmedRidesByArea', {
+        rideId,
+        serviceAreaId,
+        error,
+      });
+    }
+  }
+
+  return { success: true, ride: { id: rideId, status: 'canceled' } };
+});
 
 const getNegotiatedFare = (firebaseRide: any, rideRecord: any): number => {
   const candidates = [
@@ -736,6 +1271,9 @@ export const getAvailableRides = functions.https.onCall(async (data, context) =>
   };
 });
 
+// Legacy penalties desactivado por migración a PuntoExpress RechargeFunds.
+// Se mantiene comentado para rollback rápido si fuera necesario.
+/*
 const updateDriverPenaltySummary = async (driverId: string) => {
   try {
     const penalties = await penaltyRepo.findByDriverId(driverId);
@@ -800,6 +1338,7 @@ const ensureDriverPenalty = async (options: {
     console.error('⚠️ [rides] Error asegurando penalización:', penaltyErr);
   }
 };
+*/
 
 /**
  * Marcar conductor en camino (driver_on_route)
@@ -923,6 +1462,8 @@ export const createRide = functions.https.onCall(async (data, context) => {
   await ensureActiveSession(context, data);
   try {
     const clientId = context.auth.uid;
+    const normalizedClientComment = data?.clientComment ?? data?.comment ?? data?.notes ?? null;
+    const normalizedNotes = data?.notes ?? data?.clientComment ?? data?.comment ?? null;
     console.log(`👤 [createRide] Cliente ID: ${clientId}`);
     console.log(`📦 [createRide] Data recibida:`, JSON.stringify(data, null, 2));
     
@@ -952,6 +1493,17 @@ export const createRide = functions.https.onCall(async (data, context) => {
     // Validar datos requeridos
     if (!origin || !destination || !estimatedPrice) {
       throw new functions.https.HttpsError('invalid-argument', 'origin, destination y estimatedPrice son requeridos');
+    }
+
+    // Verificar si el cliente ya tiene un viaje programado que entre en conflicto con este horario inmediato
+    const now = Date.now();
+    const programmedConflict = await findConflictingProgrammedRideForClient(clientId, now);
+    if (programmedConflict) {
+      throw new functions.https.HttpsError('failed-precondition', 'CLIENT_PROGRAMMED_RIDE_CONFLICT', {
+        code: 'CLIENT_PROGRAMMED_RIDE_CONFLICT',
+        existingRideId: programmedConflict.rideId,
+        existingScheduledAt: programmedConflict.scheduledAt,
+      });
     }
 
     console.log(`🚗 [createRide] Creando viaje para cliente: ${clientId}`);
@@ -995,6 +1547,8 @@ export const createRide = functions.https.onCall(async (data, context) => {
         clientSuggestedPrice: data.clientSuggestedPrice || null,
         driverOfferedPrice: null,
         negotiationStatus: data.clientSuggestedPrice ? 'client_suggested' : null,
+        clientComment: normalizedClientComment,
+        notes: normalizedNotes,
         createdAt: admin.database.ServerValue.TIMESTAMP,
         updatedAt: admin.database.ServerValue.TIMESTAMP,
       };
@@ -1093,7 +1647,7 @@ export const createRide = functions.https.onCall(async (data, context) => {
       estimated_duration: estimatedDuration,  // ✅ Correcto: estimated_duration
       estimated_price: estimatedPrice,
       passengers: passengers,
-      notes: data.notes || null,
+      notes: normalizedNotes,
       ride_type: rideType,
       vehicle_type: vehicleType,
       designated_driver_vehicle: designatedDriverVehicle ?? null,
@@ -1206,6 +1760,8 @@ export const createRide = functions.https.onCall(async (data, context) => {
       clientSuggestedPrice: data.clientSuggestedPrice || null,
       driverOfferedPrice: null,
       negotiationStatus: data.clientSuggestedPrice ? 'client_suggested' : null,
+      clientComment: normalizedClientComment,
+      notes: normalizedNotes,
       createdAt: admin.database.ServerValue.TIMESTAMP,
       updatedAt: admin.database.ServerValue.TIMESTAMP,
     };
@@ -1427,18 +1983,8 @@ export const acceptRide = functions.https.onCall(async (data, context) => {
       return { success: true, ride: { id: rideId, status: firebaseRideData.status, driverId } };
     }
 
-    // ✅ Actualizado: Bloqueo por cantidad de penalizaciones pendientes (server-side)
-    try {
-      const penalties = await penaltyRepo.findByDriverId(driverId);
-      const pendingCount = (Array.isArray(penalties) ? penalties : []).filter((p: any) => String(p.status).toLowerCase() === 'pending').length;
-      if (pendingCount >= 5) {
-        console.warn(`⛔ [acceptRide] Conductor ${driverId} con ${pendingCount} penalizaciones pendientes (umbral=5)`);
-        throw new functions.https.HttpsError('failed-precondition', 'No puedes aceptar viajes: tienes 5 o más comisiones/penalizaciones pendientes. Debes pagarlas para continuar.');
-      }
-    } catch (penErr: any) {
-      if (penErr instanceof functions.https.HttpsError) throw penErr;
-      console.warn('⚠️ [acceptRide] Error verificando penalizaciones:', penErr?.message || penErr);
-    }
+    // Legacy penalties desactivado por migración a PuntoExpress RechargeFunds.
+    // El bloqueo por saldo se realiza con wallet/rechargeFunds en preflight + front driver.
 
     // ✅ NUEVO: Verificar que el conductor no esté BUSY
     try {
@@ -2533,15 +3079,16 @@ export const cancelRide = functions.https.onCall(async (data, context) => {
 
     // ✅ Penalizaciones y registros de cobro
     try {
-      if (chargeTarget === 'driver' && commissionDue > 0 && cancelerDriverId) {
-        await ensureDriverPenalty({
-          driverId: cancelerDriverId,
-          rideId,
-          amount: commissionDue,
-          penaltyType: 'driver_cancellation_after_start',
-          reason: reason || 'Cancelación del conductor con viaje iniciado',
-        });
-      }
+      // Legacy penalties desactivado (migrado a PuntoExpress RechargeFunds)
+      // if (chargeTarget === 'driver' && commissionDue > 0 && cancelerDriverId) {
+      //   await ensureDriverPenalty({
+      //     driverId: cancelerDriverId,
+      //     rideId,
+      //     amount: commissionDue,
+      //     penaltyType: 'driver_cancellation_after_start',
+      //     reason: reason || 'Cancelación del conductor con viaje iniciado',
+      //   });
+      // }
 
       if (chargeTarget === 'client' && chargeAmount > 0 && firebaseRide?.clientId) {
         await admin
@@ -3327,6 +3874,19 @@ export const rejectRide = functions.https.onCall(async (data, context) => {
 
     const nowTs = admin.database.ServerValue.TIMESTAMP;
 
+    const currentRideStatus = String(rideData.status || '').toLowerCase();
+    const currentOffers = (rideData.offers && typeof rideData.offers === 'object')
+      ? rideData.offers
+      : {};
+    const myOffer = currentOffers[driverId];
+    const myOfferStatus = String(myOffer?.status || '').toLowerCase();
+    const hasDriverOfferPrice = Number(myOffer?.offeredPrice || 0) > 0;
+    const hasNegotiationEvidence = hasDriverOfferPrice
+      || String(rideData.negotiationStatus || '').toLowerCase().startsWith('driver_');
+    const clientAlreadyAcceptedDriver = myOfferStatus === 'accepted'
+      || (String(rideData.driverId || '').trim() === driverId
+        && ['pending_confirm', 'driver_assigned', 'accepted', 'driver_on_route', 'driver_arrived', 'in_progress', 'completed'].includes(currentRideStatus));
+
     // Guardar registro de rechazo por conductor
     const rejectionRef = db.ref(`activeRides/${rideId}/rejections/${driverId}`);
     await rejectionRef.update({
@@ -3338,12 +3898,23 @@ export const rejectRide = functions.https.onCall(async (data, context) => {
       updatedAt: nowTs,
     });
 
-    // Marcar oferta del conductor como rechazada (si existe)
+    // Si el conductor retiró una oferta/no aceptada por cliente, eliminarla para que desaparezca en cliente
+    if (hasNegotiationEvidence && !clientAlreadyAcceptedDriver) {
+      try {
+        await db.ref(`activeRides/${rideId}/offers/${driverId}`).remove();
+      } catch (offerRemoveErr) {
+        console.warn('⚠️ [rejectRide] No se pudo eliminar offers/{driverId}:', offerRemoveErr);
+      }
+    }
+
+    // Mantener compatibilidad para flujos que consumen estado de oferta si no se eliminó
     try {
-      await db.ref(`activeRides/${rideId}/offers/${driverId}`).update({
-        status: 'rejected',
-        updatedAt: nowTs,
-      });
+      if (!hasNegotiationEvidence || clientAlreadyAcceptedDriver) {
+        await db.ref(`activeRides/${rideId}/offers/${driverId}`).update({
+          status: 'rejected',
+          updatedAt: nowTs,
+        });
+      }
     } catch (offerErr) {
       console.warn('⚠️ [rejectRide] No se pudo actualizar offers:', offerErr);
     }

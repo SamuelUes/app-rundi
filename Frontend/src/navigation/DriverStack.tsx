@@ -1,10 +1,10 @@
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useTheme } from '../context/ThemeContext';
-import DriverHomeScreen from '../screens/Driver/DriverHomeScreenNewDesign';
+import DriverHomeScreen from '../screens/Driver/DriverHomeScreen';
 import RideRequestsScreen from '../screens/Driver/RideRequestsScreen';
-import AvailableRidesScreen from '../screens/Driver/AvailableRidesScreeNewDesign';
-import ActiveRideScreen from '../screens/Driver/ActiveRideScreenNewDesign';
+import AvailableRidesScreen from '../screens/Driver/AvailableRidesScreen';
+import ActiveRideScreen from '../screens/Driver/ActiveRideScreen';
 import RidePreviewScreen from '../screens/Driver/RidePreviewScreen';
 import EarningsScreen from '../screens/Driver/EarningsScreen';
 import VehicleVerificationScreen from '../screens/Driver/VehicleVerificationScreen';
@@ -21,6 +21,9 @@ import AccountScreen from '../screens/Shared/AccountScreen';
 import DeleteAccountScreen from '../screens/Shared/DeleteAccountScreen';
 import HelpScreen from '../screens/Shared/HelpScreen';
 import ChatScreen from '../screens/Shared/ChatScreen';
+import SupportChatScreen from '../screens/Shared/SupportChatScreen';
+import SupportCallScreen from '../screens/Shared/SupportCallScreen';
+import SupportComplaintScreen from '../screens/Shared/SupportComplaintScreen';
 import CompleteVehicleInfoScreen from '../screens/Shared/CompleteVehicleInfoScreen';
 import RideDetailsScreen from '../screens/Shared/RideDetailsScreen';
 import PreflightCheckScreen from '../screens/Shared/PreflightCheckScreen';
@@ -28,6 +31,7 @@ import DriverPendingApprovalScreen from '../screens/Driver/DriverPendingApproval
 import type { PreflightRouteConfig } from '../types/preflight';
 import PaymentConfirmationScreen from '../screens/Driver/PaymentConfirmationScreen';
 import WaitingClientConfirmationScreen from '../screens/Driver/WaitingClientConfirmationScreen';
+import RechargeFundsScreen from '../screens/Driver/RechargeFundsScreen';
 import PayCommissionsScreen from '../screens/Driver/PayCommissionsScreen';
 import PendingPaymentsScreen from '../screens/Client/PendingPaymentsScreen';
 import PhoneVerificationScreen from '../screens/Auth/PhoneVerificationScreen';
@@ -94,6 +98,19 @@ export type DriverStackParamList = {
     rideId: string;
     otherUserName: string;
   };
+  SupportChat: {
+    rideId?: string | null;
+    initialCategory?: 'service' | 'driver' | 'payment' | 'app' | 'other';
+    initialTitle?: string | null;
+    complaintId?: string | null;
+  } | undefined;
+  SupportCall: {
+    complaintId?: string | null;
+    rideId?: string | null;
+  } | undefined;
+  SupportComplaints: {
+    initialTicketId?: string | null;
+  } | undefined;
   CompleteVehicleInfo: undefined;
   RideDetails: {
     rideId: string;
@@ -113,6 +130,7 @@ export type DriverStackParamList = {
     estimatedFare: number;
     extraDestinations?: Array<{ lat: number; lng: number; address?: string }>;
   };
+  RechargeFunds: undefined;
   PayCommissions: undefined;
   PendingPayments: undefined;
   PhoneVerification: {
@@ -192,7 +210,7 @@ export default function DriverStack() {
           successRoute: 'DriverHome',
           activeRideRoute: 'ActiveRide',
           pendingPaymentsRoute: 'PendingPayments',
-          payCommissionsRoute: 'PayCommissions',
+          rechargeFundsRoute: 'RechargeFunds',
           pendingApprovalRoute: 'DriverPendingApproval',
         }}
       />
@@ -221,10 +239,26 @@ export default function DriverStack() {
       <Stack.Screen name="DeleteAccount" component={DeleteAccountScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Help" component={HelpScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Chat" component={ChatScreen} options={{ headerShown: true, title: 'Chat' }} />
+      <Stack.Screen
+        name="SupportChat"
+        component={SupportChatScreen}
+        options={{ headerShown: false, title: 'Atención al cliente' }}
+      />
+      <Stack.Screen
+        name="SupportCall"
+        component={SupportCallScreen}
+        options={{ headerShown: false, title: 'Llamada de soporte' }}
+      />
+      <Stack.Screen
+        name="SupportComplaints"
+        component={SupportComplaintScreen}
+        options={{ headerShown: false, title: 'Mis reportes' }}
+      />
       <Stack.Screen name="CompleteVehicleInfo" component={CompleteVehicleInfoScreen} options={{ headerShown: false }} />
       <Stack.Screen name="RideDetails" component={RideDetailsScreen} options={{ headerShown: false }} />
       <Stack.Screen name="PaymentConfirmation" component={PaymentConfirmationScreen} options={{ headerShown: false }} />
       <Stack.Screen name="WaitingClientConfirmation" component={WaitingClientConfirmationScreen} options={{ headerShown:false }} />
+      <Stack.Screen name="RechargeFunds" component={RechargeFundsScreen} options={{ headerShown: false }} />
       <Stack.Screen name="PayCommissions" component={PayCommissionsScreen} options={{ headerShown: false }} />
       <Stack.Screen name="PendingPayments" component={PendingPaymentsScreen} options={{ headerShown: false }} />
       <Stack.Screen

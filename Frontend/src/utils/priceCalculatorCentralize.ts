@@ -46,36 +46,37 @@ interface ServicePricingConfig {
   pricePerMinute?: number;
 }
 
+type ServiceAreaPoint = {
+  lat: number;
+  lng: number;
+};
+
 interface ServiceAreaDoc {
   id: string;
   name?: string;
   active?: boolean;
-  bounds?: {
-    north: number;
-    south: number;
-    east: number;
-    west: number;
-  };
   centerLat?: number;
   centerLng?: number;
   radiusKm?: number;
+  points?: ServiceAreaPoint[];
 }
 
 const STOP_FEE = 20;
 const SERVICE_AREAS_CACHE_TTL_MS = 5 * 60 * 1000;
-const REMOTE_TIMEOUT_MS = 1500;
+const REMOTE_TIMEOUT_MS = 3000;
 const PRICE_ENDPOINT = '/calculateRidePriceHttp';
 
 const DEFAULT_SERVICE_AREA: ServiceAreaDoc = {
   id: 'ni-managua-default',
   name: 'Managua',
   active: true,
-  bounds: {
-    north: 12.2,
-    south: 12.05,
-    east: -86.15,
-    west: -86.35,
-  },
+  points: [
+    { lat: 12.2, lng: -86.35 },
+    { lat: 12.2, lng: -86.15 },
+    { lat: 12.05, lng: -86.15 },
+    { lat: 12.05, lng: -86.35 },
+    { lat: 12.2, lng: -86.35 },
+  ],
 };
 
 const DEFAULT_SERVICE_CONFIGS: Record<string, ServicePricingConfig> = {
@@ -85,22 +86,38 @@ const DEFAULT_SERVICE_CONFIGS: Record<string, ServicePricingConfig> = {
     pricePerKm: 10,
     pricePerMinute: 0,
     minimumFare: 50,
-    commissionRate: 0.11,
+    commissionRate: 0.15,
   },
   motorcycle: {
     code: 'motorcycle',
-    basePrice: 50,
+    basePrice: 40,
     pricePerKm: 8,
     pricePerMinute: 0,
     minimumFare: 50,
     commissionRate: 0.07,
   },
+  designated_driver_auto: {
+    code: 'designated_driver_auto',
+    basePrice: 50,
+    pricePerKm: 23,
+    pricePerMinute: 0,
+    minimumFare: 80,
+    commissionRate: 0.25,
+  },
+  designated_driver_moto: {
+    code: 'designated_driver_moto',
+    basePrice: 50,
+    pricePerKm: 23,
+    pricePerMinute: 0,
+    minimumFare: 65,
+    commissionRate: 0.125,
+  },
   designated_driver: {
     code: 'designated_driver',
     basePrice: 50,
-    pricePerKm: 13,
+    pricePerKm: 23,
     pricePerMinute: 0,
-    minimumFare: 100,
+    minimumFare: 80,
     commissionRate: 0.25,
   },
 };
@@ -219,57 +236,87 @@ function getMultiplier(distanceKm: number, vehicleType: VehicleType, rideType: R
   let tramo: string;
 
   if (rideType === 'designated_driver') {
-    if (distanceKm >= 0.2 && distanceKm <= 0.4) {
-      multiplier = 13;
-      tramo = '0.2-0.4 km';
-    } else if (distanceKm >= 0.401 && distanceKm <= 1) {
-      multiplier = 18;
-      tramo = '0.401-1 km';
-    } else if (distanceKm >= 1.01 && distanceKm <= 2) {
+    if (distanceKm >= 0.01 && distanceKm <= 0.2) {
+      multiplier = 16;
+      tramo = '0.01-0.2 km';
+    } else if (distanceKm >= 0.201 && distanceKm <= 0.7) {
       multiplier = 24;
-      tramo = '1.01-2 km';
-    } else if (distanceKm >= 2.01 && distanceKm <= 4) {
+      tramo = '0.201-0.7 km';
+    } else if (distanceKm >= 0.701 && distanceKm <= 1) {
+      multiplier = 24;
+      tramo = '0.701-1 km';
+    } else if (distanceKm >= 1.01 && distanceKm <= 2) {
       multiplier = 30;
-      tramo = '2.01-4 km';
-    } else if (distanceKm >= 4.01) {
-      multiplier = 35;
-      tramo = 'Mayor a 4.01 km';
+      tramo = '1.01-2 km';
+    } else if (distanceKm >= 2.01 && distanceKm <= 3) {
+      multiplier = 32.5;
+      tramo = '2.01-3 km';
+    } else if (distanceKm >= 3.01 && distanceKm <= 4.5) {
+      multiplier = 28.5;
+      tramo = '3.01-4.5 km';
+    } else if (distanceKm >= 4.51 && distanceKm <= 6) {
+      multiplier = 26;
+      tramo = '4.51-6 km';
+    } else if (distanceKm >= 6.01 && distanceKm <= 8) {
+      multiplier = 24.5;
+      tramo = '6.01-8 km';
+    } else if (distanceKm >= 8.01 && distanceKm <= 9.5) {
+      multiplier = 20.5;
+      tramo = 'Mayor a 8.01 km';
+    } else if (distanceKm >= 9.51 ) {
+      multiplier = 21.5;
+      tramo = 'Mayor a 9.51 km';
     } else {
-      multiplier = 13;
+      multiplier = 2;
       tramo = 'Menor a 0.2 km (mínimo)';
     }
   } else if (vehicleType === 'motorcycle') {
-    if (distanceKm >= 0.1 && distanceKm <= 4) {
-      multiplier = 5;
-      tramo = '0.1-4 km';
+    if (distanceKm >= 0.1 && distanceKm <= 2) {
+      multiplier = 2;
+      tramo = '0.1-1 km';
+    } else if (distanceKm >= 2.01 && distanceKm <= 4) {
+      multiplier = 4;
+      tramo = '2.01-4 km';
     } else if (distanceKm >= 4.01 && distanceKm <= 6) {
-      multiplier = 7;
+      multiplier = 6;
       tramo = '4.01-6 km';
     } else if (distanceKm >= 6.01) {
-      multiplier = 9;
+      multiplier = 7;
       tramo = 'Mayor a 6.01 km';
     } else {
       multiplier = 2;
       tramo = 'Menor a 0.2 km (mínimo)';
     }
   } else {
-    if (distanceKm >= 0.2 && distanceKm <= 0.4) {
-      multiplier = 10;
+    if (distanceKm >= 0.01 && distanceKm <= 0.2) {
+      multiplier = 13;
       tramo = '0.2-0.4 km';
-    } else if (distanceKm >= 0.401 && distanceKm <= 1) {
-      multiplier = 15;
+    } else if (distanceKm >= 0.201 && distanceKm <= 0.7) {
+      multiplier = 16;
+      tramo = '0.401-1 km';
+    } else if (distanceKm >= 0.701 && distanceKm <= 1) {
+      multiplier = 19;
       tramo = '0.401-1 km';
     } else if (distanceKm >= 1.01 && distanceKm <= 2) {
-      multiplier = 20;
+      multiplier = 14;
       tramo = '1.01-2 km';
-    } else if (distanceKm >= 2.01 && distanceKm <= 8) {
-      multiplier = 25;
-      tramo = '2.01-8 km';
+    } else if (distanceKm >= 2.01 && distanceKm <= 3) {
+      multiplier = 11;
+      tramo = '2.01-3 km';
+    } else if (distanceKm >= 3.01 && distanceKm <= 4.5) {
+      multiplier = 11.5;
+      tramo = '3.01-4.5 km';
+    } else if (distanceKm >= 4.51 && distanceKm <= 6) {
+      multiplier = 12;
+      tramo = '4.51-6 km';
+    } else if (distanceKm >= 6.01 && distanceKm <= 8) {
+      multiplier = 13;
+      tramo = '6.01-8 km';
     } else if (distanceKm >= 8.01) {
-      multiplier = 27;
+      multiplier = 12.5;
       tramo = 'Mayor a 8.01 km';
     } else {
-      multiplier = 8;
+      multiplier = 2;
       tramo = 'Menor a 0.2 km (mínimo)';
     }
   }
@@ -279,7 +326,7 @@ function getMultiplier(distanceKm: number, vehicleType: VehicleType, rideType: R
 
 function mapRideTypeToServiceCode(vehicleType: VehicleType, rideType: RideType): string {
   if (rideType === 'designated_driver') {
-    return 'designated_driver';
+    return vehicleType === 'motorcycle' ? 'designated_driver_moto' : 'designated_driver_auto';
   }
   return vehicleType === 'motorcycle' ? 'motorcycle' : 'normal';
 }
@@ -289,21 +336,92 @@ export function isPeakHour(date: Date = new Date()): boolean {
   return (hour >= 6 && hour < 8) || (hour >= 17 && hour < 20);
 }
 
+function getPeakHourMultiplier(subtotal: number, peak: boolean, inServiceArea: boolean): number {
+  if (!peak || !inServiceArea) {
+    return 1;
+  }
+
+  if (subtotal < 150) {
+    return 0.4;
+  }
+
+  if (subtotal < 300) {
+    return 0.25;
+  }
+
+  return 0.6;
+}
+
+function roundCurrency(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function toFiniteNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function normalizePolygon(points: unknown): ServiceAreaPoint[] | undefined {
+  if (!Array.isArray(points)) {
+    return undefined;
+  }
+
+  const normalized: ServiceAreaPoint[] = [];
+  for (const rawPoint of points) {
+    const lat = toFiniteNumber((rawPoint as any)?.lat);
+    const lng = toFiniteNumber((rawPoint as any)?.lng);
+    if (lat == null || lng == null) {
+      continue;
+    }
+    normalized.push({ lat, lng });
+  }
+
+  if (normalized.length < 3) {
+    return undefined;
+  }
+
+  return normalized;
+}
+
 function isValidCoordinate(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
-function isPointInBounds(
-  lat: number,
-  lng: number,
-  bounds: { north: number; south: number; east: number; west: number },
-): boolean {
-  return lat >= bounds.south && lat <= bounds.north && lng >= bounds.west && lng <= bounds.east;
+function hasValidPolygon(points?: ServiceAreaPoint[]): points is ServiceAreaPoint[] {
+  return Array.isArray(points) && points.length >= 3;
+}
+
+function isPointInPolygon(lat: number, lng: number, polygon: ServiceAreaPoint[]): boolean {
+  let inside = false;
+
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i].lng;
+    const yi = polygon[i].lat;
+    const xj = polygon[j].lng;
+    const yj = polygon[j].lat;
+
+    const intersects =
+      yi > lat !== yj > lat &&
+      lng <
+        ((xj - xi) * (lat - yi)) / (yj - yi || Number.EPSILON) + xi;
+
+    if (intersects) {
+      inside = !inside;
+    }
+  }
+
+  return inside;
 }
 
 function isPointInServiceArea(lat: number, lng: number, area: ServiceAreaDoc): boolean {
-  if (area.bounds) {
-    return isPointInBounds(lat, lng, area.bounds);
+  if (hasValidPolygon(area.points)) {
+    return isPointInPolygon(lat, lng, area.points);
   }
 
   if (
@@ -346,10 +464,10 @@ async function loadServiceAreas(): Promise<ServiceAreaDoc[]> {
         id: doc.id,
         name: data.name,
         active: data.active,
-        bounds: data.bounds,
         centerLat: data.centerLat,
         centerLng: data.centerLng,
         radiusKm: data.radiusKm,
+        points: normalizePolygon((data as any)?.points),
       };
     });
 
@@ -402,13 +520,33 @@ function normalizeBackendResponse(data: any): PriceCalculationResult | null {
     return null;
   }
 
-  const finalPrice = Number(payload.finalPrice ?? payload.final_price);
+  const finalPriceRaw = Number(payload.finalPrice ?? payload.final_price);
   const distancePrice = Number(payload.distancePrice ?? payload.distance_price);
   const basePrice = Number(payload.basePrice ?? payload.base_price ?? 0);
   const distanceKm = Number(payload.distanceKm ?? payload.distance_km);
+  const commissionRate = Number(payload.commissionRate ?? payload.commission_rate ?? 0);
+  const commission = Number(payload.commission ?? 0);
+  const subtotalFromPayload = Number(
+    payload.subtotal ?? payload.adjustedSubtotal ?? payload.adjusted_subtotal ?? payload.subtotal_price,
+  );
 
-  if (!Number.isFinite(finalPrice) || !Number.isFinite(distancePrice)) {
+  if (!Number.isFinite(finalPriceRaw) || !Number.isFinite(distancePrice)) {
     return null;
+  }
+
+  let finalPrice = finalPriceRaw;
+  if (Number.isFinite(commission) && commission > 0) {
+    if (Number.isFinite(subtotalFromPayload) && subtotalFromPayload > 0) {
+      finalPrice = subtotalFromPayload + commission;
+    } else if (Number.isFinite(commissionRate) && commissionRate > 0) {
+      const commissionIfFinalAlreadyIncludes = (finalPriceRaw / (1 + commissionRate)) * commissionRate;
+      const commissionIfFinalIsSubtotal = finalPriceRaw * commissionRate;
+      const diffIncludes = Math.abs(commission - commissionIfFinalAlreadyIncludes);
+      const diffSubtotal = Math.abs(commission - commissionIfFinalIsSubtotal);
+      if (diffSubtotal + 0.01 < diffIncludes) {
+        finalPrice = finalPriceRaw + commission;
+      }
+    }
   }
 
   return {
@@ -424,8 +562,8 @@ function normalizeBackendResponse(data: any): PriceCalculationResult | null {
     peakHourAdjustment: Number(payload.peakHourAdjustment ?? payload.peak_hour_adjustment ?? 1),
     vehicleType: (payload.vehicleType ?? payload.vehicle_type ?? 'car') as VehicleType,
     rideType: (payload.rideType ?? payload.ride_type ?? 'normal') as RideType,
-    commissionRate: Number(payload.commissionRate ?? payload.commission_rate ?? 0),
-    commission: Number(payload.commission ?? 0),
+    commissionRate,
+    commission,
     serviceCode: String(payload.serviceCode ?? payload.service_code ?? mapRideTypeToServiceCode('car', 'normal')),
     serviceId: payload.serviceId ?? payload.service_id ?? undefined,
     extraStopsCharge: Number(payload.extraStopsCharge ?? payload.extra_stops_charge ?? 0),
@@ -500,26 +638,22 @@ async function calculateRidePriceFallback(
   const { multiplier } = getMultiplier(distanceKm, vehicleType, rideType);
   const distanceComponent = Math.max(distanceKm, 0) * multiplier;
   const baseComponent = service.basePrice;
+  const minimumFare = service.minimumFare ?? baseComponent;
 
   let subtotal = baseComponent + distanceComponent;
-  const minimumFare = service.minimumFare ?? baseComponent;
   const minimumApplied = subtotal < minimumFare;
   if (minimumApplied) {
     subtotal = minimumFare;
   }
 
-  let peakMultiplier = 1;
   const peak = isPeakHour();
   const inServiceArea = await isInManagua(originLat, originLng);
-  if (peak && inServiceArea) {
-    peakMultiplier = 1.2;
-  }
-  subtotal *= peakMultiplier;
+  const peakMultiplier = getPeakHourMultiplier(subtotal, peak, inServiceArea);
 
+  let adjustedSubtotal = subtotal * peakMultiplier;
   const extraStopsCharge = extraStops * STOP_FEE;
-  subtotal += extraStopsCharge;
+  adjustedSubtotal += extraStopsCharge;
 
-  let adjustedSubtotal = subtotal;
   const breakdownLines: string[] = [];
   breakdownLines.push(buildBreakdownLine(`Base (${service.code})`, baseComponent));
   breakdownLines.push(
@@ -538,37 +672,39 @@ async function calculateRidePriceFallback(
     breakdownLines.push(`Paradas extra (${extraStops} × C$${STOP_FEE}): C$${extraStopsCharge.toFixed(2)}`);
   }
 
-  if (serviceCode === 'designated_driver') {
+  if (rideType === 'designated_driver') {
     const normalService = await fetchServiceConfig('normal');
     const normalMultiplier = getMultiplier(distanceKm, vehicleType, 'normal').multiplier;
     const normalDistance = Math.max(distanceKm, 0) * normalMultiplier;
-    const normalBase = normalService.basePrice + normalDistance;
-    const normalFinal = Math.max(normalBase, normalService.minimumFare ?? normalBase);
+    const normalBaseSubtotal = normalService.basePrice + normalDistance;
+    const normalFinal = Math.max(normalBaseSubtotal, normalService.minimumFare ?? normalBaseSubtotal);
     const doubledNormal = normalFinal * 2;
-    const newFinal = Math.max(doubledNormal, adjustedSubtotal, service.minimumFare ?? doubledNormal);
+    const designatedMinimum = service.minimumFare ?? doubledNormal;
+    const newFinal = Math.max(doubledNormal, adjustedSubtotal, designatedMinimum);
     breakdownLines.push(`Tarifa normal estimada: C$${normalFinal.toFixed(2)}`);
     breakdownLines.push(`Tarifa conductor designado = tarifa normal × 2: C$${doubledNormal.toFixed(2)}`);
     if (newFinal > doubledNormal) {
-      breakdownLines.push(`Se aplica tarifa mínima de conductor designado: C$${(service.minimumFare ?? doubledNormal).toFixed(2)}`);
+      breakdownLines.push(`Se aplica tarifa mínima de conductor designado: C$${designatedMinimum.toFixed(2)}`);
     }
     adjustedSubtotal = newFinal;
   }
 
-  const finalPriceRounded = Math.round(adjustedSubtotal);
   const commissionRate = service.commissionRate ?? 0.11;
-  const commission = Math.round(finalPriceRounded * commissionRate);
+  const commission = roundCurrency(adjustedSubtotal * commissionRate);
+  const finalPrice = roundCurrency(adjustedSubtotal + commission);
 
-  breakdownLines.push(`Precio final (redondeado): C$${finalPriceRounded.toFixed(2)}`);
+  breakdownLines.push(`Subtotal tras ajustes (sin comisión): C$${adjustedSubtotal.toFixed(2)}`);
   breakdownLines.push(`Comisión ${(commissionRate * 100).toFixed(2)}%: C$${commission.toFixed(2)}`);
+  breakdownLines.push(`Precio final (subtotal + comisión): C$${finalPrice.toFixed(2)}`);
 
   return {
-    distancePrice: Math.round(distanceComponent),
+    distancePrice: roundCurrency(distanceComponent),
     timePrice: 0,
-    basePrice: Math.round(baseComponent),
+    basePrice: roundCurrency(baseComponent),
     distanceKm: Number(distanceKm.toFixed(2)),
     durationMinutes,
     multiplier,
-    finalPrice: finalPriceRounded,
+    finalPrice,
     breakdown: breakdownLines.join('\n'),
     isPeakHour: peak && peakMultiplier > 1,
     peakHourAdjustment: peakMultiplier,

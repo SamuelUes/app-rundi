@@ -76,6 +76,7 @@ interface RidePreviewData {
   negotiationStatus?: string | null;
   rideType?: string | null;
   clientVehiclePhoto?: string | null;
+  clientComment?: string | null;
 }
 
 interface RidePreviewParams {
@@ -117,6 +118,7 @@ export default function RidePreviewScreen() {
   }, [rideData.negotiationStatus, rideData.driverOfferStatus]);
   const [manualOfferLock, setManualOfferLock] = useState(false);
   const navigationLocked = manualOfferLock || hasPendingOffer;
+  const allowNavigationRef = useRef(false);
   const markDismissed = useCallback(async () => {
     try {
       await proximityService.markRideDismissed(currentRide.id);
@@ -136,7 +138,7 @@ export default function RidePreviewScreen() {
     };
   }, [stopVoiceCategory]);
 
-  useAcceptedRideListener(navigation, ride.id);
+  useAcceptedRideListener(navigation, currentRide.id);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -151,9 +153,14 @@ export default function RidePreviewScreen() {
       }
 
       let found: string | null = null;
+      const normalizedUserId = String(user.id ?? '').trim();
       Object.entries<any>(data).some(([id, r]) => {
         const status = String(r?.status || '').toLowerCase();
-        if (r?.driverId === user.id && ['accepted', 'driver_on_route', 'in_progress'].includes(status)) {
+        const rideDriverId = String(r?.driverId ?? r?.driver_id ?? '').trim();
+        if (
+          rideDriverId === normalizedUserId &&
+          ['driver_assigned', 'accepted', 'driver_on_route', 'driver_arrived', 'in_progress'].includes(status)
+        ) {
           found = id;
           return true;
         }
@@ -367,6 +374,7 @@ export default function RidePreviewScreen() {
       driverOfferStatus: currentRide.driverOfferStatus || null,
       paymentMethod: (next.paymentMethod as any) || currentRide.paymentMethod,
       negotiationStatus: (next as any).negotiationStatus || currentRide.negotiationStatus || null,
+      clientComment: (next as any).clientComment || (next as any).comment || (next as any).notes || currentRide.clientComment || null,
     };
     setRideData(nextRide);
     setNearbyQueue(rest);
@@ -398,7 +406,9 @@ export default function RidePreviewScreen() {
     alertService.showConfirmAlert(
       t('driver.ridePreview.alerts.cardRequiredTitle'),
       t('driver.ridePreview.alerts.cardRequiredBody'),
-      () => navigation.navigate('PaymentMethods'),
+      () => {
+        // navigation.navigate('PaymentMethods');
+      },
       undefined,
       t('driver.ridePreview.alerts.cardRequiredConfirm'),
       t('driver.ridePreview.alerts.cardRequiredCancel'),
@@ -501,6 +511,7 @@ export default function RidePreviewScreen() {
         clientPhone: data.clientPhone || prev.clientPhone,
         clientVehiclePhoto: data.clientVehiclePhoto ?? prev.clientVehiclePhoto ?? null,
         rideType: data.rideType || prev.rideType || null,
+        clientComment: data.clientComment ?? data.comment ?? data.notes ?? prev.clientComment ?? null,
       }));
 
       if (!counterOfferTouched && typeof updatedDriverOfferedPrice === 'number') {
@@ -644,6 +655,17 @@ export default function RidePreviewScreen() {
       if (!navigationLocked) {
         return;
       }
+
+      if (allowNavigationRef.current) {
+        allowNavigationRef.current = false;
+        return;
+      }
+
+      const actionType = event.data.action?.type;
+      if (actionType === 'REPLACE' || actionType === 'RESET' || actionType === 'NAVIGATE') {
+        return;
+      }
+
       event.preventDefault();
     });
 
@@ -979,18 +1001,35 @@ export default function RidePreviewScreen() {
       setIsRejectingRide(false);
     };
 
-    markDismissed()
-      .catch((error) => {
-        console.warn('[RidePreviewScreen] No se pudo descartar ride:', error);
+    const negotiationStatus = String(currentRide.negotiationStatus || '').toLowerCase();
+    const driverOfferStatus = String(currentRide.driverOfferStatus || '').toLowerCase();
+    const hasOfferedOrNegotiatedPrice =
+      (typeof currentRide.driverOfferedPrice === 'number' &&
+        Number.isFinite(currentRide.driverOfferedPrice) &&
+        currentRide.driverOfferedPrice > 0) ||
+      negotiationStatus.startsWith('driver_') ||
+      ['pending', 'waiting', 'accepted'].includes(driverOfferStatus);
+
+    ridesService
+      .rejectRide(currentRide.id, hasOfferedOrNegotiatedPrice ? 'driver_withdrew_offer' : 'not_interested')
+      .catch((error: any) => {
+        console.warn('[RidePreviewScreen] No se pudo registrar rechazo de ride:', error);
       })
       .finally(() => {
-        finishReject();
-        if (user?.id) {
-          driverOfferCacheService.clearEntry(user.id, currentRide.id).catch((err) =>
-            console.warn('[RidePreviewScreen] Failed to clear cache entry', err),
-          );
-        }
-        navigation.goBack();
+        markDismissed()
+          .catch((error) => {
+            console.warn('[RidePreviewScreen] No se pudo descartar ride:', error);
+          })
+          .finally(() => {
+            finishReject();
+            if (user?.id) {
+              driverOfferCacheService.clearEntry(user.id, currentRide.id).catch((err) =>
+                console.warn('[RidePreviewScreen] Failed to clear cache entry', err),
+              );
+            }
+            allowNavigationRef.current = true;
+            navigation.goBack();
+          });
       });
   };
 
@@ -1125,9 +1164,7 @@ export default function RidePreviewScreen() {
         ]}
       >
         <View style={{ flex: 1 }}>
-          <Text style={[styles.nearbyTitle, { color: colors.text }]}>
-            {t('driver.ridePreview.nearby.title')}
-          </Text>
+          <Text style={[styles.nearbyTitle, { color: colors.text }]}>{t('driver.ridePreview.nearby.title')}</Text>
           <Text style={[styles.nearbySubtitle, { color: colors.textSecondary }]} numberOfLines={1}>
             {labelDistance} • {priceText} • {originText}
           </Text>
@@ -1383,11 +1420,16 @@ export default function RidePreviewScreen() {
             <Text style={[styles.clientNameText, { color: colors.text }]} numberOfLines={1}>
               {resolvedClientName}
             </Text>
-            <Text style={[styles.clientMetaText, { color: colors.textSecondary }]}>
+            <Text style={[styles.clientMetaText, { color: colors.textSecondary }]}> 
               {t('driver.ridePreview.labels.estimatedPrice', {
                 amount: formatCurrency(currentRide.estimatedPrice),
               })}
             </Text>
+            {typeof currentRide.clientComment === 'string' && currentRide.clientComment.trim().length > 0 ? (
+              <Text style={[styles.clientMetaText, { color: colors.textSecondary }]} numberOfLines={2}>
+                {`Nota: ${currentRide.clientComment.trim()}`}
+              </Text>
+            ) : null}
           </View>
           <View style={styles.contactActions}>
             <TouchableOpacity
@@ -1649,7 +1691,7 @@ const styles = StyleSheet.create({
   },
   clientMetaText: {
     fontSize: 13,
-    fontWeight: '500',
+    fontWeight: '800',
   },
   contactActions: {
     flexDirection: 'row',

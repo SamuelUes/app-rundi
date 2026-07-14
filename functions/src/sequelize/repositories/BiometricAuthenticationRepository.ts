@@ -22,7 +22,9 @@ export class BiometricAuthenticationRepository {
   }
 
   async findByStatus(status: string): Promise<BiometricAuthentication[]> {
-    return await BiometricAuthentication.findAll({ where: { status } });
+    const normalized = String(status || '').trim().toLowerCase();
+    const success = normalized === 'completed' || normalized === 'success' || normalized === 'true';
+    return await BiometricAuthentication.findAll({ where: { success } });
   }
 
   async findAll(): Promise<BiometricAuthentication[]> {

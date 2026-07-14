@@ -15,6 +15,8 @@
 
 import admin from "firebase-admin";
 
+const DEFAULT_SERVICE_AREA_ID = "ni-managua";
+
 /**
  * Helper para construir updates usando server timestamp
  */
@@ -121,6 +123,18 @@ export async function cleanupPresenceNodes(params: {
   const updates: NullableUpdate = {};
 
   for (const driverId of driverIds) {
+    let serviceAreaId: string | null = null;
+    try {
+      const serviceAreaSnap = await db.ref(`sessions/${driverId}/serviceAreaId`).once("value");
+      const value = serviceAreaSnap.val();
+      serviceAreaId = typeof value === "string" && value.trim() ? value.trim() : null;
+    } catch (err) {
+      console.warn("[cleanupPresenceNodes] No se pudo leer serviceAreaId de sesión", {
+        driverId,
+        error: (err as any)?.message || err,
+      });
+    }
+
     const timestampsOnly = {
       updatedAt: serverTimestamp,
       lastSeen: serverTimestamp,
@@ -142,13 +156,35 @@ export async function cleanupPresenceNodes(params: {
       })
       .catch((err) => console.error(`⚠️ Error actualizando driverLocations/${driverId}:`, err));
 
+    if (serviceAreaId) {
+      updates[`driverLocationsByArea/${serviceAreaId}/${driverId}`] = null;
+    }
+    updates[`driverLocationsByArea/${DEFAULT_SERVICE_AREA_ID}/${driverId}`] = null;
+
     updates[`presence/${driverId}`] = null;
   }
 
   for (const clientId of clientIds) {
+    let serviceAreaId: string | null = null;
+    try {
+      const serviceAreaSnap = await db.ref(`sessions/${clientId}/serviceAreaId`).once("value");
+      const value = serviceAreaSnap.val();
+      serviceAreaId = typeof value === "string" && value.trim() ? value.trim() : null;
+    } catch (err) {
+      console.warn("[cleanupPresenceNodes] No se pudo leer serviceAreaId de sesión", {
+        clientId,
+        error: (err as any)?.message || err,
+      });
+    }
+
     updates[`clientsLocations/${clientId}`] = null;
     updates[`clientsInfo/${clientId}`] = null;
     updates[`presence/${clientId}`] = null;
+
+    if (serviceAreaId) {
+      updates[`clientsLocationsByArea/${serviceAreaId}/${clientId}`] = null;
+    }
+    updates[`clientsLocationsByArea/${DEFAULT_SERVICE_AREA_ID}/${clientId}`] = null;
   }
 
   if (Object.keys(updates).length > 0) {

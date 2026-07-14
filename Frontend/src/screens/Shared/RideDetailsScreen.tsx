@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
+  Image,
 } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
@@ -207,11 +208,26 @@ export default function RideDetailsScreen({ navigation, route }: any) {
   const paymentMethod = primaryPayment?.paymentMethod ?? (payments[0]?.paymentMethod ?? ride.paymentType ?? 'no_payment_data');
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.contentContainer}
+      showsVerticalScrollIndicator={false}
+    >
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerRow}>
-          <Text style={styles.title}>{t('shared.rideDetail.header.title')}</Text>
+          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+            <Image
+              source={require('../../assets/icons/back_button/back_button2x.png')}
+              style={styles.backIcon}
+              resizeMode="contain"
+            />
+          </TouchableOpacity>
+
+          <View style={styles.titleContainer}>
+            <Text style={styles.title}>{t('shared.rideDetail.header.title')}</Text>
+          </View>
+
           <View style={[styles.statusBadge, { backgroundColor: getStatusColor(safeString(ride.status)) }]}>
             <Text style={styles.statusText}>{getStatusText(safeString(ride.status))}</Text>
           </View>
@@ -588,7 +604,7 @@ export default function RideDetailsScreen({ navigation, route }: any) {
         </View>
       </View>
 
-      <View style={{ height: 40 }} />
+      <View style={{ height: 28 }} />
     </ScrollView>
   );
 }
@@ -597,6 +613,10 @@ const createStyles = (colors: any) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  contentContainer: {
+    paddingBottom: 16,
+    paddingTop: 6,
   },
   loadingContainer: {
     flex: 1,
@@ -639,55 +659,92 @@ const createStyles = (colors: any) => StyleSheet.create({
   },
   header: {
     backgroundColor: colors.card,
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    marginTop: 12,
+    marginHorizontal: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 2,
   },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 10,
+  },
+  backButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: colors.surface || colors.background,
+    borderWidth: 0.5,
+    borderColor: colors.border,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  backIcon: {
+    width: 26,
+    height: 26,
+  },
+  titleContainer: {
+    flex: 1,
+    marginRight: 10,
   },
   title: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: '800',
     color: colors.text,
   },
   statusBadge: {
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 12,
+    borderRadius: 999,
   },
   statusText: {
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 11,
+    fontWeight: '700',
     color: '#fff',
   },
   rideId: {
-    fontSize: 14,
+    fontSize: 12,
+    letterSpacing: 0.4,
     color: colors.textSecondary,
   },
   section: {
-    padding: 20,
+    marginTop: 12,
+    marginHorizontal: 16,
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 13,
     fontWeight: '700',
-    color: colors.text,
-    marginBottom: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    color: colors.textSecondary,
+    marginBottom: 10,
   },
   card: {
     backgroundColor: colors.card,
-    borderRadius: 12,
+    borderRadius: 16,
     padding: 16,
     borderWidth: 1,
     borderColor: colors.border,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.03,
+    shadowRadius: 3,
+    elevation: 1,
   },
   locationRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: 8,
+    marginVertical: 9,
   },
   locationIcon: {
     fontSize: 20,
@@ -707,9 +764,9 @@ const createStyles = (colors: any) => StyleSheet.create({
   },
   routeLine: {
     width: 2,
-    height: 30,
+    height: 26,
     backgroundColor: colors.border,
-    marginLeft: 9,
+    marginLeft: 10,
     marginVertical: 4,
   },
   infoGrid: {
@@ -718,10 +775,11 @@ const createStyles = (colors: any) => StyleSheet.create({
   },
   infoItem: {
     width: '50%',
-    paddingVertical: 8,
+    paddingVertical: 9,
+    paddingRight: 8,
   },
   infoLabel: {
-    fontSize: 12,
+    fontSize: 11,
     color: colors.textSecondary,
     marginBottom: 4,
   },
@@ -734,12 +792,14 @@ const createStyles = (colors: any) => StyleSheet.create({
     marginTop: 12,
     padding: 12,
     backgroundColor: colors.surface || colors.background,
-    borderRadius: 8,
+    borderRadius: 12,
+    borderWidth: 0.5,
+    borderColor: colors.border,
   },
   notesLabel: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '600',
-    color: colors.text,
+    color: colors.textSecondary,
     marginBottom: 4,
   },
   notesText: {
@@ -747,7 +807,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     color: colors.text,
   },
   personName: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '700',
     color: colors.text,
     marginBottom: 4,
@@ -786,17 +846,17 @@ const createStyles = (colors: any) => StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
   dateLabel: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
     color: colors.text,
   },
   dateValue: {
-    fontSize: 14,
+    fontSize: 13,
     color: colors.textSecondary,
   },
   cancelReason: {
@@ -809,14 +869,14 @@ const createStyles = (colors: any) => StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 10,
   },
   priceLabel: {
-    fontSize: 14,
+    fontSize: 13,
     color: colors.text,
   },
   priceValue: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
     color: colors.text,
   },
@@ -830,9 +890,12 @@ const createStyles = (colors: any) => StyleSheet.create({
     borderTopColor: colors.border,
     marginTop: 8,
     paddingTop: 12,
+    backgroundColor: colors.surface || colors.background,
+    paddingHorizontal: 10,
+    borderRadius: 10,
   },
   finalPriceLabel: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
     color: colors.text,
   },

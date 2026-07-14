@@ -84,6 +84,59 @@
         }
       }
     },
+
+    "programmedRides": {
+      ".read": "auth != null",
+      ".indexOn": ["clientId", "driverId"],
+      "$rideId": {
+        ".write": "auth != null",
+        ".validate": "data.exists() ? true : newData.hasChildren(['id', 'clientId', 'status', 'origin', 'destination', 'estimatedPrice', 'scheduledAt'])",
+
+        "id": { ".validate": "newData.isString()" },
+        "isProgrammed": { ".validate": "!newData.exists() || newData.isBoolean()" },
+        "scheduledAt": { ".validate": "newData.isNumber() && newData.val() > 0" },
+        "clientId": { ".validate": "newData.isString()" },
+        "driverId": { ".validate": "newData.isString() || newData.val() == null" },
+        "status": { ".validate": "newData.isString()" },
+        "origin": { ".validate": "!newData.exists() || newData.hasChildren(['lat', 'lng'])" },
+        "destination": { ".validate": "!newData.exists() || newData.hasChildren(['lat', 'lng'])" },
+        "estimatedPrice": { ".validate": "!newData.exists() || (newData.isNumber() && newData.val() >= 0)" },
+        "estimatedDistance": { ".validate": "!newData.exists() || (newData.isNumber() && newData.val() >= 0)" },
+        "estimatedDuration": { ".validate": "!newData.exists() || (newData.isNumber() && newData.val() >= 0)" },
+        "clientConfirmedAt": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+        "driverConfirmedAt": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+        "clientConfirmed": { ".validate": "!newData.exists() || newData.isBoolean()" },
+        "driverConfirmed": { ".validate": "!newData.exists() || newData.isBoolean()" },
+        "canceledAt": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+        "$other": { ".validate": "true" }
+      }
+    },
+
+    "programmedRidesByArea": {
+      ".read": "auth != null",
+      "$serviceAreaId": {
+        "$rideId": {
+          ".write": "auth != null",
+          ".indexOn": ["clientId", "driverId"],
+          ".validate": "data.exists() ? true : newData.hasChildren(['id', 'clientId', 'status', 'origin', 'destination', 'estimatedPrice', 'scheduledAt'])",
+
+          "id": { ".validate": "newData.isString()" },
+          "isProgrammed": { ".validate": "!newData.exists() || newData.isBoolean()" },
+          "scheduledAt": { ".validate": "newData.isNumber() && newData.val() > 0" },
+          "clientId": { ".validate": "newData.isString()" },
+          "driverId": { ".validate": "newData.isString() || newData.val() == null" },
+          "status": { ".validate": "newData.isString()" },
+          "origin": { ".validate": "!newData.exists() || newData.hasChildren(['lat', 'lng'])" },
+          "destination": { ".validate": "!newData.exists() || newData.hasChildren(['lat', 'lng'])" },
+          "estimatedPrice": { ".validate": "!newData.exists() || (newData.isNumber() && newData.val() >= 0)" },
+          "estimatedDistance": { ".validate": "!newData.exists() || (newData.isNumber() && newData.val() >= 0)" },
+          "estimatedDuration": { ".validate": "!newData.exists() || (newData.isNumber() && newData.val() >= 0)" },
+          "clientConfirmed": { ".validate": "!newData.exists() || newData.isBoolean()" },
+          "driverConfirmed": { ".validate": "!newData.exists() || newData.isBoolean()" },
+          "$other": { ".validate": "true" }
+        }
+      }
+    },
     
     "driverLocations": {
       ".read": "auth != null",
@@ -155,6 +208,23 @@
         "municipality": { ".validate": "newData.isString() || newData.val() == null" },
         "phone": { ".validate": "newData.isString() || newData.val() == null" },
         "email": { ".validate": "newData.isString() || newData.val() == null" },
+        "wallet": {
+          ".read": "auth != null && auth.uid === $driverId",
+          ".write": false,
+          "currentRechargeBalance": {
+            ".validate": "newData.isNumber() || newData.val() == null"
+          },
+          "availableBalance": {
+            ".validate": "newData.isNumber() || newData.val() == null"
+          },
+          "blocked": {
+            ".validate": "newData.isBoolean() || newData.val() == null"
+          },
+          "updatedAt": {
+            ".validate": "newData.isNumber() || newData.val() == null"
+          },
+          "$other": { ".validate": "true" }
+        },
         "$other": { ".validate": "true" }
       }
     },
@@ -211,6 +281,17 @@
         }
       }
     },
+
+    "clientPendingPayments": {
+      "$clientId": {
+        ".read": "auth != null && auth.uid === $clientId",
+        ".write": false,
+        "summary": {
+          ".read": "auth != null && auth.uid === $clientId",
+          ".write": false
+        }
+      }
+    },
     
     "chats": {
       "$rideId": {
@@ -234,7 +315,60 @@
         }
       }
     },
-    
+
+    "calls": {
+      ".read": "auth != null",
+      ".indexOn": ["clientUid", "operatorUid", "status"],
+      "$callId": {
+        ".read": "auth != null && (auth.uid === data.child('clientUid').val() || auth.uid === data.child('operatorUid').val())",
+        ".write": "auth != null && (auth.uid === data.child('clientUid').val() || auth.uid === data.child('operatorUid').val() || auth.uid === newData.child('clientUid').val() || auth.uid === newData.child('operatorUid').val())",
+        ".validate": "newData.hasChildren(['callId','status','direction','operatorUid','clientUid','createdAt','updatedAt']) && newData.child('status').val().matches(/^(initiated|ringing_client|ringing_operator|accepted|rejected|missed|connected|ended)$/) && newData.child('direction').val().matches(/^(operator_to_client|client_to_operator)$/)",
+
+        "callId": { ".validate": "newData.isString()" },
+        "complaintId": { ".validate": "!newData.exists() || newData.isString() || newData.val() == null" },
+        "rideId": { ".validate": "!newData.exists() || newData.isString() || newData.val() == null" },
+        "operatorUid": { ".validate": "newData.isString()" },
+        "clientUid": { ".validate": "newData.isString()" },
+        "status": { ".validate": "newData.isString()" },
+        "direction": { ".validate": "newData.isString()" },
+        "recordingUrl": { ".validate": "!newData.exists() || newData.isString() || newData.val() == null" },
+        "acceptDeadline": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+        "createdAt": { ".validate": "newData.isNumber() && newData.val() > 0" },
+        "updatedAt": { ".validate": "newData.isNumber() && newData.val() > 0" },
+        "connectedAt": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+        "endedAt": { ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null" },
+
+        "offers": {
+          "$userId": {
+            ".read": "auth != null && (auth.uid === data.parent().child('clientUid').val() || auth.uid === data.parent().child('operatorUid').val())",
+            ".write": "auth != null && auth.uid === $userId",
+            ".validate": "newData.hasChildren(['sdp','type','createdAt'])"
+          }
+        },
+        "answers": {
+          "$userId": {
+            ".read": "auth != null && (auth.uid === data.parent().child('clientUid').val() || auth.uid === data.parent().child('operatorUid').val())",
+            ".write": "auth != null && auth.uid === $userId",
+            ".validate": "newData.hasChildren(['sdp','type','createdAt'])"
+          }
+        },
+        "candidates": {
+          "$candidateId": {
+            ".read": "auth != null && (auth.uid === data.parent().child('clientUid').val() || auth.uid === data.parent().child('operatorUid').val())",
+            ".write": "auth != null && (auth.uid === data.parent().child('clientUid').val() || auth.uid === data.parent().child('operatorUid').val())",
+            ".validate": "newData.hasChildren(['candidate','sdpMid','sdpMLineIndex','createdAt'])"
+          }
+        },
+        "events": {
+          "$eventId": {
+            ".read": "auth != null && (auth.uid === data.parent().child('clientUid').val() || auth.uid === data.parent().child('operatorUid').val())",
+            ".write": "auth != null && (auth.uid === data.parent().child('clientUid').val() || auth.uid === data.parent().child('operatorUid').val())",
+            ".validate": "newData.hasChildren(['type','at'])"
+          }
+        }
+      }
+    },
+
     "presence": {
       "$userId": {
         ".read": "auth != null",

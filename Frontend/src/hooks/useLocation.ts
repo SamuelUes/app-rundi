@@ -22,6 +22,26 @@ const DEFAULT_LOCATION: Coordinates = {
   longitude: -86.2514,
 };
 
+const LOCATION_TIMEOUT_ERROR = 'LOCATION_REQUEST_TIMEOUT';
+const FOREGROUND_TIMEOUT_MS = 15000;
+const FOREGROUND_TIMEOUT_HIGH_ACCURACY_MS = 25000;
+
+const withTimeout = <T>(promise: Promise<T>, timeoutMs: number, timeoutLabel: string) => {
+  return new Promise<T>((resolve, reject) => {
+    const timeoutId = setTimeout(() => reject(new Error(timeoutLabel)), timeoutMs);
+
+    promise
+      .then((value) => {
+        clearTimeout(timeoutId);
+        resolve(value);
+      })
+      .catch((error) => {
+        clearTimeout(timeoutId);
+        reject(error);
+      });
+  });
+};
+
 const LAST_KNOWN_LOCATION_KEY = 'last-known-location';
 
 export interface UseLocationOptions {
@@ -170,7 +190,12 @@ export function useLocation(options: UseLocationOptions = {}) {
         mayShowUserSettingsDialog: true,
       };
 
-      const location = await Location.getCurrentPositionAsync(currentPositionOptions);
+      const timeoutMs = highAccuracy ? FOREGROUND_TIMEOUT_HIGH_ACCURACY_MS : FOREGROUND_TIMEOUT_MS;
+      const location = await withTimeout(
+        Location.getCurrentPositionAsync(currentPositionOptions),
+        timeoutMs,
+        LOCATION_TIMEOUT_ERROR,
+      );
 
       console.log('✅ Ubicación obtenida:', location.coords.latitude, location.coords.longitude);
       const nextCoords: Coordinates = {
@@ -187,6 +212,10 @@ export function useLocation(options: UseLocationOptions = {}) {
     } catch (err: any) {
       const message = err?.message || String(err);
       const hadPreviousCoords = !!coordsRef.current;
+
+      if (message === LOCATION_TIMEOUT_ERROR) {
+        console.warn('⌛ Tiempo de espera agotado al obtener GPS (forzado).');
+      }
 
       if (message?.toLowerCase?.().includes('timeout')) {
         console.warn('⌛ Tiempo de espera agotado al obtener GPS. Reusando última ubicación conocida.');

@@ -18,11 +18,28 @@ export type AuthStackParamList = {
     authProvider: RegistrationAuthProvider;
     googleIdToken?: string;
     phoneVerified?: boolean;
+    emailVerified?: boolean;
     context?: 'register_phone' | 'add_phone' | 'register_upgrade_driver';
   };
   PhoneVerificationLogin: {
     phone: string;
-    verificationId: string;
+    displayPhone?: string;
+    country?: any;
+    verificationId?: string;
+    mode?: 'login' | 'link';
+  };
+  EmailVerification: {
+    name: string;
+    email: string;
+    phone?: string;
+    password?: string;
+    role?: 'client' | 'driver';
+    method: RegistrationMethod;
+    authProvider: RegistrationAuthProvider;
+    googleIdToken?: string;
+    phoneVerified?: boolean;
+    emailVerified?: boolean;
+    context?: 'register_email' | 'register_google' | string;
   };
   GooglePhone: {
     name: string;
@@ -38,6 +55,7 @@ export type AuthStackParamList = {
     method: RegistrationMethod;
     authProvider: RegistrationAuthProvider;
     googleIdToken?: string;
+    emailVerified?: boolean;
     context?: 'register_phone' | 'register_upgrade_driver';
   };
   RoleSelection: {
@@ -48,6 +66,7 @@ export type AuthStackParamList = {
     method: RegistrationMethod;
     authProvider: RegistrationAuthProvider;
     phoneVerified?: boolean;
+    emailVerified?: boolean;
     googleIdToken?: string;
   };
   DriverData: {
@@ -60,7 +79,10 @@ export type AuthStackParamList = {
     authProvider: RegistrationAuthProvider;
     googleIdToken?: string;
     phoneVerified: boolean;
+    emailVerified?: boolean;
     context?: 'register_driver' | 'register_upgrade_driver';
+    driverData?: any;
+    vehicleData?: any;
   };
   RegisterConfirm: {
     name: string;
@@ -71,6 +93,7 @@ export type AuthStackParamList = {
     method: RegistrationMethod;
     authProvider: RegistrationAuthProvider;
     phoneVerified?: boolean;
+    emailVerified?: boolean;
     googleIdToken?: string;
     driverData?: any;
     vehicleData?: any;

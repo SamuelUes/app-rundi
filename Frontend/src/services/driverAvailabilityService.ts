@@ -26,12 +26,35 @@ class DriverAvailabilityService {
   private heartbeatInterval: NodeJS.Timeout | null = null;
   private appStateSubscription: any = null;
 
+  private isBackendAvailableStatus(status?: string): boolean {
+    return String(status || '').toLowerCase() === 'available';
+  }
+
+  normalizeAvailabilityState(
+    baseState: AvailabilityState,
+    backendStatus?: string,
+    coords?: { latitude: number; longitude: number } | null,
+  ): AvailabilityState {
+    const isAvailable = backendStatus ? this.isBackendAvailableStatus(backendStatus) : Boolean(baseState.isAvailable);
+    return {
+      ...baseState,
+      isAvailable,
+      isDesignatedDriverMode: isAvailable ? baseState.isDesignatedDriverMode : false,
+      lastUpdate: new Date().toISOString(),
+      coords: coords ?? baseState.coords,
+    };
+  }
+
   private isAvailabilityRestrictedError(error: any): boolean {
-    const message = String(error?.message || error?.code || '').toLowerCase();
+    const message = String(error?.message || error?.details || error?.code || '').toLowerCase();
     const composed = message.replace(/\s+/g, '');
     return (
-      message.includes('comisiones') && message.includes('penalizaciones')
-    ) || composed.includes('comisiones/penalizaciones');
+      (message.includes('comisiones') && message.includes('penalizaciones')) ||
+      (message.includes('comisiones') && message.includes('pendientes')) ||
+      message.includes('liquida las comisiones') ||
+      message.includes('availability limit') ||
+      composed.includes('comisiones/penalizaciones')
+    );
   }
 
   async handleAvailabilityRestriction(context?: string): Promise<void> {
@@ -116,13 +139,26 @@ class DriverAvailabilityService {
       try {
         const state = await this.getAvailabilityState();
         
-        if (state && state.isAvailable && coords) {
+        if (state && state.isAvailable) {
           try {
+            const effectiveCoords = coords || state.coords;
+            if (!effectiveCoords) {
+              return;
+            }
+
             // Actualizar estado en el backend con reintentos
-            await driversService.updateStatus('available', coords, 2);
+            const statusResult = await driversService.updateStatus('available', effectiveCoords, 2);
+
+            if (statusResult?.status !== 'available') {
+              const normalizedState = this.normalizeAvailabilityState(state, statusResult?.status, effectiveCoords);
+              await this.saveAvailabilityState(normalizedState);
+              this.stopHeartbeat();
+              return;
+            }
             
             // Actualizar timestamp
             state.lastUpdate = new Date().toISOString();
+            state.coords = effectiveCoords;
             await this.saveAvailabilityState(state);
             
             console.log('💓 Heartbeat enviado - Conductor disponible');
@@ -180,7 +216,18 @@ class DriverAvailabilityService {
         // Restaurar estado en el backend
         if (coords) {
           try {
-            await driversService.updateStatus('available', coords);
+            const statusResult = await driversService.updateStatus('available', coords);
+
+            if (statusResult?.status !== 'available') {
+              const normalizedState = this.normalizeAvailabilityState(savedState, statusResult?.status, coords);
+              await this.saveAvailabilityState(normalizedState);
+              if (onStateRestored) {
+                onStateRestored(normalizedState);
+              }
+              this.stopHeartbeat();
+              return;
+            }
+
             console.log('✅ Estado restaurado en el backend');
           } catch (error) {
             console.error('❌ Error restaurando estado:', error);

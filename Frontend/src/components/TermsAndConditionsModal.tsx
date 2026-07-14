@@ -1,17 +1,26 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 import { useTranslation } from 'react-i18next';
 
-export const CURRENT_TERMS_VERSION = '2025-11-29';
+export const CURRENT_TERMS_VERSION = '1.0';
+
+export type TermsDocumentType = 'general' | 'users' | 'designated_driver';
+
+type TermsDocumentsCheckedState = Record<TermsDocumentType, boolean>;
 
 interface TermsAndConditionsModalProps {
   visible: boolean;
   saving?: boolean;
   requireCheck?: boolean;
   checked?: boolean;
+  checkedDocuments?: Partial<TermsDocumentsCheckedState>;
+  showDocumentSelector?: boolean;
+  requireAllDocumentsCheck?: boolean;
+  defaultDocumentType?: TermsDocumentType;
   acceptLabel?: string;
   onToggleChecked?: () => void;
+  onToggleDocumentChecked?: (documentType: TermsDocumentType) => void;
   onAccept?: () => void;
   onRequestClose?: () => void;
 }
@@ -21,36 +30,90 @@ const TermsAndConditionsModal: React.FC<TermsAndConditionsModalProps> = ({
   saving = false,
   requireCheck = false,
   checked = false,
+  checkedDocuments,
+  showDocumentSelector = false,
+  requireAllDocumentsCheck = false,
+  defaultDocumentType = 'designated_driver',
   acceptLabel,
   onToggleChecked,
+  onToggleDocumentChecked,
   onAccept,
   onRequestClose,
 }) => {
   const { colors } = useTheme();
   const { t } = useTranslation();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const [selectedDocument, setSelectedDocument] = useState<TermsDocumentType>(defaultDocumentType);
+
+  useEffect(() => {
+    if (visible) {
+      setSelectedDocument(defaultDocumentType);
+    }
+  }, [defaultDocumentType, visible]);
 
   if (!visible) {
     return null;
   }
 
   const isChecked = requireCheck ? !!checked : true;
-  const disabled = saving || !isChecked;
+  const documentOptions: TermsDocumentType[] = ['general', 'users', 'designated_driver'];
+  const effectiveCheckedDocuments: TermsDocumentsCheckedState = {
+    general: checkedDocuments?.general === true,
+    users: checkedDocuments?.users === true,
+    designated_driver: checkedDocuments?.designated_driver === true,
+  };
+  const currentDocumentChecked = effectiveCheckedDocuments[selectedDocument];
+  const allDocumentsChecked = documentOptions.every((documentType) => effectiveCheckedDocuments[documentType]);
+  const disabled = saving || (requireAllDocumentsCheck ? !allDocumentsChecked : !isChecked);
+  const documentLabel = t(`common.components.termsModal.documents.${selectedDocument}.label`);
+  const documentBody = t(`common.components.termsModal.documents.${selectedDocument}.body`, {
+    defaultValue: t('common.components.termsModal.body'),
+  });
+  const documentVersion = t(`common.components.termsModal.documents.${selectedDocument}.version`, {
+    version: CURRENT_TERMS_VERSION,
+    defaultValue: t('common.components.termsModal.version', { version: CURRENT_TERMS_VERSION }),
+  });
 
   return (
     <View style={styles.overlay}>
       <View style={styles.card}>
         <Text style={styles.title}>{t('common.components.termsModal.title')}</Text>
-        <Text style={styles.version}>
-          {t('common.components.termsModal.version', { version: CURRENT_TERMS_VERSION })}
-        </Text>
+        <Text style={styles.subtitle}>{documentLabel}</Text>
+        <Text style={styles.version}>{documentVersion}</Text>
+
+        {showDocumentSelector && (
+          <View style={styles.selectorWrapper}>
+            <Text style={styles.selectorLabel}>{t('common.components.termsModal.selectorLabel')}</Text>
+            <ScrollView
+              horizontal
+              style={styles.selectorScroll}
+              contentContainerStyle={styles.selectorRow}
+              showsHorizontalScrollIndicator={false}
+            >
+              {documentOptions.map((option) => {
+                const active = option === selectedDocument;
+                return (
+                  <TouchableOpacity
+                    key={option}
+                    style={[styles.selectorChip, active && styles.selectorChipActive]}
+                    onPress={() => setSelectedDocument(option)}
+                    disabled={saving}
+                  >
+                    <Text style={[styles.selectorChipText, active && styles.selectorChipTextActive]}>
+                      {t(`common.components.termsModal.documents.${option}.label`)}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        )}
+
         <ScrollView style={styles.content}>
-          <Text style={styles.text}>
-            {t('common.components.termsModal.body')}
-          </Text>
+          <Text style={styles.text}>{documentBody}</Text>
         </ScrollView>
 
-        {requireCheck && (
+        {requireCheck && !requireAllDocumentsCheck && (
           <TouchableOpacity
             style={styles.checkboxRow}
             onPress={onToggleChecked}
@@ -68,6 +131,32 @@ const TermsAndConditionsModal: React.FC<TermsAndConditionsModalProps> = ({
               {t('common.components.termsModal.checkboxLabel')}
             </Text>
           </TouchableOpacity>
+        )}
+
+        {requireAllDocumentsCheck && (
+          <>
+            <TouchableOpacity
+              style={styles.checkboxRow}
+              onPress={() => onToggleDocumentChecked?.(selectedDocument)}
+              disabled={saving}
+            >
+              <View
+                style={[
+                  styles.checkbox,
+                  currentDocumentChecked && styles.checkboxChecked,
+                ]}
+              >
+                {currentDocumentChecked && <Text style={styles.checkboxIcon}>✓</Text>}
+              </View>
+              <Text style={styles.checkboxLabel}>
+                {t('common.components.termsModal.checkboxLabel')}
+              </Text>
+            </TouchableOpacity>
+
+            <Text style={styles.documentProgressText}>
+              {`${documentOptions.filter((documentType) => effectiveCheckedDocuments[documentType]).length}/${documentOptions.length}`}
+            </Text>
+          </>
         )}
 
         {onAccept && (
@@ -126,14 +215,58 @@ const createStyles = (colors: any) =>
       fontSize: 18,
       fontWeight: '700',
       color: colors.text,
-      marginBottom: 4,
+      marginBottom: 2,
       textAlign: 'center',
+    },
+    subtitle: {
+      fontSize: 13,
+      color: colors.text,
+      textAlign: 'center',
+      marginBottom: 4,
+      fontWeight: '600',
     },
     version: {
       fontSize: 12,
       color: colors.textSecondary,
       marginBottom: 12,
       textAlign: 'center',
+    },
+    selectorWrapper: {
+      marginBottom: 10,
+    },
+    selectorLabel: {
+      fontSize: 12,
+      color: colors.textSecondary,
+      marginBottom: 8,
+      textAlign: 'center',
+    },
+    selectorScroll: {
+      maxHeight: 42,
+    },
+    selectorRow: {
+      flexDirection: 'row',
+      gap: 8,
+      paddingBottom: 2,
+    },
+    selectorChip: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 14,
+      paddingHorizontal: 10,
+      paddingVertical: 8,
+      backgroundColor: colors.surface || colors.background,
+    },
+    selectorChipActive: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
+    },
+    selectorChipText: {
+      fontSize: 12,
+      color: colors.text,
+      fontWeight: '600',
+    },
+    selectorChipTextActive: {
+      color: '#0F172A',
     },
     content: {
       maxHeight: 260,
@@ -173,6 +306,13 @@ const createStyles = (colors: any) =>
       flex: 1,
       fontSize: 13,
       color: colors.text,
+    },
+    documentProgressText: {
+      fontSize: 12,
+      color: colors.textSecondary,
+      textAlign: 'right',
+      marginTop: -10,
+      marginBottom: 12,
     },
     acceptButton: {
       backgroundColor: colors.primary,

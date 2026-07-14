@@ -47,8 +47,8 @@ export default function EarningsScreen() {
   const [rides, setRides] = useState<RideEarning[]>([]);
   const [stats, setStats] = useState<DriverStats | null>(null);
   const [commissionBreakdown, setCommissionBreakdown] = useState<any>(null);
-  const COMMISSION_NORMAL_PERCENT = '11%';
-  const COMMISSION_DESIGNATED_PERCENT = '15%';
+  const COMMISSION_NORMAL_PERCENT = '15%';
+  const COMMISSION_DESIGNATED_PERCENT = '25%';
   const statPlaceholder = t('driver.earnings.stats.placeholder');
 
   useEffect(() => {
@@ -267,7 +267,7 @@ export default function EarningsScreen() {
         <TouchableOpacity
           style={styles.primaryNavButton}
           activeOpacity={0.9}
-          onPress={() => navigation.navigate('PayCommissions')}
+          onPress={() => navigation.navigate('RechargeFunds')}
         >
           <Image source={arrowWhiteUpIcon} style={[styles.navIcon, styles.navIconWhite]} resizeMode="contain" />
           <Text style={styles.primaryNavText}>{t('driver.earnings.nav.commissions')}</Text>

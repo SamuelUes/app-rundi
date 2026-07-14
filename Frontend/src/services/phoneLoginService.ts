@@ -64,7 +64,12 @@ class PhoneLoginService {
         throw new Error(this.tr('errors.noFirebaseUser'));
       }
 
-      const userProfile = await firebaseAuthService.getUserProfile(firebaseUser.uid);
+      let userProfile: any = null;
+      try {
+        userProfile = await firebaseAuthService.getUserProfile(firebaseUser.uid);
+      } catch (profileError: any) {
+        console.warn('⚠️ No se pudo obtener perfil de usuario para login por SMS:', profileError);
+      }
       const idToken = await firebaseUser.getIdToken();
 
       console.log('✅ Login exitoso con Firebase Auth');
@@ -77,7 +82,7 @@ class PhoneLoginService {
           email: firebaseUser.email || '',
           name: userProfile?.name || firebaseUser.displayName || this.tr('defaults.userName'),
           phone: firebaseUser.phoneNumber || phone,
-          role: userProfile?.role || 'client',
+          role: userProfile?.role,
         },
         token: idToken,
       };

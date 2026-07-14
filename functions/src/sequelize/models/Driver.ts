@@ -22,6 +22,7 @@ class Driver extends Model {
   public total_rides!: number;
   public average_rating!: number;
   public total_earnings!: number;
+  public current_recharge_balance!: number;
   public created_at!: Date;
   public updated_at!: Date;
 }
@@ -96,6 +97,11 @@ Driver.init(
     },
     total_earnings: {
       type: DataTypes.DECIMAL(12, 2),
+      defaultValue: 0,
+    },
+    current_recharge_balance: {
+      type: DataTypes.DECIMAL(12, 2),
+      allowNull: false,
       defaultValue: 0,
     },
     created_at: {

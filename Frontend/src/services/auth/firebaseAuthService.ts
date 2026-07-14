@@ -9,10 +9,16 @@ import {
   signOut,
   onAuthStateChanged,
   User,
+  createUserWithEmailAndPassword,
+  sendEmailVerification,
+  applyActionCode,
+  reload,
+  deleteUser,
 } from 'firebase/auth';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { getFirebaseAuth, getFirebaseFirestore, getFirebaseFunctions } from '../../config/firebase';
+import { firebaseConfig } from '../../config/firebase';
 import client from '../../api/client';
 import { ENDPOINTS } from '../../api/endpoints';
 import i18n from '../../i18n';
@@ -113,6 +119,18 @@ class FirebaseAuthService {
 
       const userData = userDoc.data();
 
+      const isAccountDisabled =
+        userData?.accountDisabled === true ||
+        String(userData?.accountStatus || '').toLowerCase() === 'disabled' ||
+        String(userData?.status || '').toLowerCase() === 'disabled';
+
+      if (isAccountDisabled) {
+        await signOut(auth);
+        const accountDisabledError: any = new Error('ACCOUNT_DISABLED');
+        accountDisabledError.code = 'ACCOUNT_DISABLED';
+        throw accountDisabledError;
+      }
+
       console.log('✅ Login exitoso:', user.uid);
 
       return {
@@ -138,6 +156,18 @@ class FirebaseAuthService {
       console.error('❌ Error cerrando sesión:', error);
       throw new Error(error.message || this.tr('errors.sessionSyncFailed'));
     }
+  }
+
+  async deleteCurrentUser(): Promise<void> {
+    const auth = await getFirebaseAuth();
+    const user = auth.currentUser;
+
+    if (!user) {
+      return;
+    }
+
+    await deleteUser(user);
+    console.log('✅ Usuario eliminado de Firebase Authentication');
   }
 
   /**
@@ -182,18 +212,70 @@ class FirebaseAuthService {
    * Obtener perfil de usuario
    */
   async getUserProfile(uid: string) {
+    const profileNotFoundMessage = this.tr('errors.profileNotFound');
+
     try {
       const firestore = await getFirebaseFirestore();
       const userDoc = await getDoc(doc(firestore, 'users', uid));
       
       if (!userDoc.exists()) {
-        throw new Error(this.tr('errors.profileNotFound'));
+        const error: any = new Error(profileNotFoundMessage);
+        error.code = 'PROFILE_NOT_FOUND';
+        throw error;
       }
 
-      return userDoc.data();
+      const data: any = userDoc.data();
+      const isAccountDisabled =
+        data?.accountDisabled === true ||
+        String(data?.accountStatus || '').toLowerCase() === 'disabled' ||
+        String(data?.status || '').toLowerCase() === 'disabled';
+
+      if (isAccountDisabled) {
+        const accountDisabledError: any = new Error('ACCOUNT_DISABLED');
+        accountDisabledError.code = 'ACCOUNT_DISABLED';
+        throw accountDisabledError;
+      }
+
+      const rawRole = typeof data?.role === 'string' ? data.role : '';
+      const normalizedRole = rawRole ? rawRole.trim().toLowerCase() : '';
+
+      if (
+        normalizedRole &&
+        normalizedRole !== rawRole &&
+        (normalizedRole === 'client' ||
+          normalizedRole === 'driver' ||
+          normalizedRole === 'designated_driver' ||
+          normalizedRole === 'admin')
+      ) {
+        try {
+          await updateDoc(doc(firestore, 'users', uid), {
+            role: normalizedRole,
+          });
+          data.role = normalizedRole;
+        } catch (updateError: any) {
+          console.warn('⚠️ No se pudo normalizar role en Firestore:', updateError?.message || updateError);
+        }
+      } else if (normalizedRole && normalizedRole !== rawRole) {
+        data.role = normalizedRole;
+      }
+
+      return data;
     } catch (error: any) {
-      console.error('❌ Error obteniendo perfil:', error);
-      throw new Error(error.message || this.tr('errors.profileNotFound'));
+      const message = error?.message || profileNotFoundMessage;
+      const isProfileMissing =
+        message === profileNotFoundMessage || error?.code === 'PROFILE_NOT_FOUND';
+
+      if (!isProfileMissing) {
+        console.error('❌ Error obteniendo perfil:', error);
+      } else {
+        console.log('ℹ️ Perfil no encontrado en Firestore (probable registro pendiente).');
+      }
+
+      const forwardError: any = new Error(message);
+      if (isProfileMissing) {
+        forwardError.code = 'PROFILE_NOT_FOUND';
+      }
+      throw forwardError;
     }
   }
 
@@ -298,6 +380,108 @@ class FirebaseAuthService {
   }
 
   /**
+   * Asegurar que la sesión web de Firebase esté iniciada usando un ID token válido.
+   * Se usa antes de acceder a Firestore para evitar errores de permisos.
+   */
+  async ensureWebSessionFromIdToken(idToken: string): Promise<void> {
+    if (!idToken || typeof idToken !== 'string') {
+      return;
+    }
+
+    const auth = await getFirebaseAuth();
+
+    if (auth.currentUser?.uid) {
+      return;
+    }
+
+    const customToken = await this.exchangeIdTokenForCustomToken(idToken);
+    await signInWithCustomToken(auth, customToken);
+    console.log('✅ Sesión Firebase Web sincronizada desde idToken');
+  }
+
+  async ensureEmailVerificationSession(email: string, password: string): Promise<User> {
+    const auth = await getFirebaseAuth();
+    const normalizedEmail = (email || '').trim().toLowerCase();
+    const currentUser = auth.currentUser;
+
+    if (!normalizedEmail) {
+      throw new Error('EMAIL_REQUIRED');
+    }
+
+    if (currentUser?.email?.toLowerCase() === normalizedEmail) {
+      return currentUser;
+    }
+
+    if (!password) {
+      throw new Error('EMAIL_PASSWORD_REQUIRED');
+    }
+
+    try {
+      const credential = await signInWithEmailAndPassword(auth, normalizedEmail, password);
+      return credential.user;
+    } catch (loginError: any) {
+      const code = loginError?.code || '';
+      if (code === 'auth/user-not-found' || code === 'auth/invalid-credential') {
+        const created = await createUserWithEmailAndPassword(auth, normalizedEmail, password);
+        return created.user;
+      }
+      throw loginError;
+    }
+  }
+
+  async sendEmailVerificationCode(): Promise<void> {
+    const auth = await getFirebaseAuth();
+    const user = auth.currentUser;
+
+    if (!user?.email) {
+      throw new Error('NO_AUTH_USER_EMAIL');
+    }
+
+    console.log('📧 [EmailVerification] Enviando correo de verificación...', {
+      uid: user.uid,
+      email: user.email,
+      emailVerified: user.emailVerified,
+      providers: user.providerData?.map((provider) => provider.providerId) || [],
+      firebaseProjectId: firebaseConfig.projectId,
+      firebaseAuthDomain: firebaseConfig.authDomain,
+    });
+
+    await sendEmailVerification(user);
+
+    console.log('✅ [EmailVerification] Correo de verificación enviado correctamente', {
+      uid: user.uid,
+      email: user.email,
+      sentAt: new Date().toISOString(),
+    });
+  }
+
+  async applyEmailVerificationCode(oobCode: string): Promise<void> {
+    const auth = await getFirebaseAuth();
+    const safeCode = (oobCode || '').trim();
+
+    if (!safeCode) {
+      throw new Error('OOB_CODE_REQUIRED');
+    }
+
+    await applyActionCode(auth, safeCode);
+    if (auth.currentUser) {
+      await reload(auth.currentUser);
+    }
+  }
+
+  async isCurrentUserEmailVerified(): Promise<{ verified: boolean; user: User | null }> {
+    const auth = await getFirebaseAuth();
+    const user = auth.currentUser;
+
+    if (!user) {
+      return { verified: false, user: null };
+    }
+
+    await reload(user);
+    return { verified: Boolean(user.emailVerified), user };
+  }
+
+  /**
    * Registrar en Supabase una verificación SMS exitosa (log/historial)
    */
   async logSmsVerification(params: {
@@ -323,6 +507,48 @@ class FirebaseAuthService {
     } catch (error: any) {
       console.error('❌ Error registrando verificación SMS en Supabase:', error);
       // No romper el flujo de usuario: esto es solo logging
+    }
+  }
+
+  async logEmailVerification(params: {
+    userId: string;
+    email?: string;
+    attemptCount?: number;
+  }): Promise<void> {
+    const { userId, email, attemptCount } = params;
+
+    const normalizedProvidedEmail = (email || '').trim().toLowerCase();
+    let emailToLog = normalizedProvidedEmail;
+
+    if (!emailToLog) {
+      try {
+        const auth = await getFirebaseAuth();
+        emailToLog = (auth.currentUser?.email || '').trim().toLowerCase();
+      } catch (sessionError) {
+        console.warn('[FirebaseAuthService] No se pudo obtener auth.currentUser para log email:', sessionError);
+      }
+    }
+
+    if (!emailToLog) {
+      console.warn('[FirebaseAuthService] No se pudo registrar verificación: email vacío');
+      return;
+    }
+
+    const functions = await getFirebaseFunctions();
+
+    try {
+      const logFn = httpsCallable(functions, 'logSmsVerificationCode');
+      await logFn({
+        userId,
+        email: emailToLog,
+        mail: emailToLog,
+        isEmail: true,
+        code: '',
+        context: '',
+        attemptCount: typeof attemptCount === 'number' ? attemptCount : 1,
+      });
+    } catch (error: any) {
+      console.error('❌ Error registrando verificación por correo en Supabase:', error);
     }
   }
 }

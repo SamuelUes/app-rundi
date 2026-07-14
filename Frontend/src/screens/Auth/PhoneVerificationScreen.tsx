@@ -25,7 +25,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTheme } from '../../context/ThemeContext';
 import phoneAuthService from '../../services/auth/phoneAuthService';
 import firebaseAuthService from '../../services/auth/firebaseAuthService';
-import registrationService from '../../services/registrationService';
+import registrationService from '../../services/auth/registrationService';
 import accountLinkingService from '../../services/auth/accountLinkingService';
 import { AuthStackParamList } from '../../navigation/types';
 import { formatPhoneNumber, getCountryDialOptions } from '../../utils/phoneUtils';
@@ -74,6 +74,7 @@ export default function PhoneVerificationScreen({ navigation, route }: Props) {
     authProvider,
     googleIdToken,
     role,
+    emailVerified,
     context,
   } = route.params;
 
@@ -141,6 +142,7 @@ export default function PhoneVerificationScreen({ navigation, route }: Props) {
           authProvider,
           googleIdToken,
           phoneVerified: true,
+          emailVerified: Boolean(emailVerified),
           context: driverScreensContext,
         });
       } else {
@@ -153,6 +155,7 @@ export default function PhoneVerificationScreen({ navigation, route }: Props) {
           authProvider,
           googleIdToken,
           phoneVerified: true,
+          emailVerified: Boolean(emailVerified),
         });
       }
     } catch (error: any) {
