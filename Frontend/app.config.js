@@ -115,6 +115,7 @@ export default {
     'expo-secure-store',
     'expo-font',
     'expo-asset',
+    "expo-web-browser",
     'expo-splash-screen',
     [
       'expo-local-authentication',
