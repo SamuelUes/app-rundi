@@ -5,10 +5,11 @@ import {
   FlatList,
   TouchableOpacity,
   StyleSheet,
-  ActivityIndicator,
   RefreshControl,
   Image,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { LoadingIcon } from '../../components/LoadingIcon';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import ridesService, { Ride } from '../../services/ridesService';
@@ -166,13 +167,11 @@ export default function ClientRideHistoryScreen({ navigation }: any) {
               return (
                 <View key={`${item.id}-addr-${idx}`}>
                   <View style={styles.locationRow}>
-                    <Text style={styles.locationIcon}>
-                      {idx === 0
-                        ? '🔵'
-                        : idx === totalStops - 1
-                        ? '🔴'
-                        : '📍'}
-                    </Text>
+                    <MaterialIcons
+                      name={idx === 0 ? 'circle' : idx === totalStops - 1 ? 'circle' : 'place'}
+                      size={16}
+                      color={idx === 0 ? '#2196F3' : idx === totalStops - 1 ? '#F44336' : colors.textSecondary}
+                    />
                     <Text
                       style={[styles.locationText, { color: colors.text }]}
                       numberOfLines={1}
@@ -187,7 +186,7 @@ export default function ClientRideHistoryScreen({ navigation }: any) {
           ) : (
             <>
               <View style={styles.locationRow}>
-                <Text style={styles.locationIcon}>🔵</Text>
+                <MaterialIcons name="circle" size={16} color="#2196F3" />
                 <Text
                   style={[styles.locationText, { color: colors.text }]}
                   numberOfLines={1}
@@ -200,7 +199,7 @@ export default function ClientRideHistoryScreen({ navigation }: any) {
               </View>
               <View style={styles.locationDivider} />
               <View style={styles.locationRow}>
-                <Text style={styles.locationIcon}>🔴</Text>
+                <MaterialIcons name="circle" size={16} color="#F44336" />
                 <Text
                   style={[styles.locationText, { color: colors.text }]}
                   numberOfLines={1}
@@ -318,7 +317,7 @@ export default function ClientRideHistoryScreen({ navigation }: any) {
               </Text>
               {driverRating && (
                 <Text style={[styles.driverRating, { color: colors.textSecondary }]}>
-                  ⭐ {driverRating.toFixed(1)}
+                  <MaterialIcons name="star" size={14} color="#FFD700" /> {driverRating.toFixed(1)}
                 </Text>
               )}
             </View>
@@ -331,7 +330,7 @@ export default function ClientRideHistoryScreen({ navigation }: any) {
   if (loading) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <ActivityIndicator size="large" color={colors.primary} />
+        <LoadingIcon icon="refresh" size={32} color={colors.primary} animation="spin" />
       </View>
     );
   }
@@ -397,7 +396,7 @@ export default function ClientRideHistoryScreen({ navigation }: any) {
         }
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Text style={styles.emptyIcon}>📋</Text>
+            <MaterialIcons name="assignment" size={64} color={colors.textSecondary} />
             <Text style={[styles.emptyTitle, { color: colors.text }]}>
               {t('client.rideHistory.empty.title')}
             </Text>

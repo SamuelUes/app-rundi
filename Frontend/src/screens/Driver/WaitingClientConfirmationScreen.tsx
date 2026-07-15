@@ -3,11 +3,12 @@ import {
   View,
   Text,
   StyleSheet,
-  ActivityIndicator,
   TouchableOpacity,
   Alert,
   ScrollView,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { LoadingIcon } from '../../components/LoadingIcon';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
@@ -181,8 +182,8 @@ export default function WaitingClientConfirmationScreen({ route, navigation }: W
           <>
             {/* Animación de espera */}
             <View style={styles.animationContainer}>
-              <ActivityIndicator size="large" color={colors.primary} />
-              <Text style={styles.waitingIcon}>⏳</Text>
+              <LoadingIcon size={48} color={colors.primary} />
+              <MaterialIcons name="hourglass-empty" size={48} color={colors.primary} />
             </View>
 
             {/* Título */}
@@ -200,7 +201,7 @@ export default function WaitingClientConfirmationScreen({ route, navigation }: W
               <Text style={styles.detailsTitle}>{t(`${ns}.pending.tripDetails`)}</Text>
               
               <View style={styles.locationRow}>
-                <Text style={styles.locationIcon}>🔵</Text>
+                <MaterialIcons name="circle" size={20} color="#2196F3" />
                 <View style={styles.locationInfo}>
                   <Text style={styles.locationLabel}>{t(`${ns}.pending.originLabel`)}</Text>
                   <Text style={styles.locationAddress}>{origin.address}</Text>
@@ -211,7 +212,7 @@ export default function WaitingClientConfirmationScreen({ route, navigation }: W
 
               {extraDestinations.map((stop: { lat: number; lng: number; address?: string }, index: number) => (
                 <View key={`extra-stop-${index}`} style={styles.locationRow}>
-                  <Text style={styles.locationIcon}>🟠</Text>
+                  <MaterialIcons name="adjust" size={20} color="#FF9800" />
                   <View style={styles.locationInfo}>
                     <Text style={styles.locationLabel}>
                       {t(`${ns}.pending.stopLabel`, { index: index + 1 })}
@@ -226,7 +227,7 @@ export default function WaitingClientConfirmationScreen({ route, navigation }: W
               {extraDestinations.length > 0 && <View style={styles.divider} />}
 
               <View style={styles.locationRow}>
-                <Text style={styles.locationIcon}>🔴</Text>
+                <MaterialIcons name="place" size={20} color="#F44336" />
                 <View style={styles.locationInfo}>
                   <Text style={styles.locationLabel}>{t(`${ns}.pending.destinationLabel`)}</Text>
                   <Text style={styles.locationAddress}>{destination.address}</Text>
@@ -259,10 +260,10 @@ export default function WaitingClientConfirmationScreen({ route, navigation }: W
 
         {offerStatus === 'accepted' && (
           <View style={styles.successContainer}>
-            <Text style={styles.successIcon}>✅</Text>
+            <MaterialIcons name="check-circle" size={64} color="#4CAF50" />
             <Text style={styles.successTitle}>{t(`${ns}.accepted.title`)}</Text>
             <Text style={styles.successSubtitle}>{t(`${ns}.accepted.subtitle`)}</Text>
-            <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 20 }} />
+            <LoadingIcon size={32} color={colors.primary} style={{ marginTop: 20 }} />
           </View>
         )}
       </ScrollView>

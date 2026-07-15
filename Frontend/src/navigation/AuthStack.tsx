@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { View } from 'react-native';
+import { LoadingIcon } from '../components/LoadingIcon';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useTheme } from '../context/ThemeContext';
 import LoginScreen from '../screens/Auth/LoginScreen';
@@ -71,7 +72,7 @@ export default function AuthStack() {
           backgroundColor: colors.card,
         }}
       >
-        <ActivityIndicator size="large" color="#D4AF37" />
+        <LoadingIcon size={32} color="#D4AF37" />
       </View>
     );
   }

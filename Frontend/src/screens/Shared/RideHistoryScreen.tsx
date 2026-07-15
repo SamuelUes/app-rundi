@@ -5,10 +5,10 @@ import {
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  ActivityIndicator,
   RefreshControl,
   Image,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { RideListSkeleton } from '../../components/SkeletonLoader';
@@ -202,9 +202,7 @@ export default function RideHistoryScreen({ navigation }: any) {
             item.allAddresses.map((address: string, idx: number) => (
               <View key={`${item.id}-addr-${idx}`}>
                 <View style={styles.locationRow}>
-                  <Text style={styles.locationIcon}>
-                    {idx === 0 ? '🔵' : idx === item.allAddresses.length - 1 ? '🔴' : '📍'}
-                  </Text>
+                  <MaterialIcons name={idx === 0 ? 'circle' : idx === item.allAddresses.length - 1 ? 'place' : 'location-on'} size={16} color={idx === 0 ? '#2196F3' : idx === item.allAddresses.length - 1 ? '#F44336' : '#FF9800'} />
                   <Text style={styles.locationText} numberOfLines={1}>
                     {String(address || t('shared.rideHistory.labels.unknownLocation'))}
                   </Text>
@@ -216,14 +214,14 @@ export default function RideHistoryScreen({ navigation }: any) {
             // Si no hay múltiples paradas, mostrar origen y destino
             <>
               <View style={styles.locationRow}>
-                <Text style={styles.locationIcon}>🔵</Text>
+                <MaterialIcons name="circle" size={16} color="#2196F3" />
                 <Text style={styles.locationText} numberOfLines={1}>
                   {String(item.originAddress || t('shared.rideHistory.labels.originFallback'))}
                 </Text>
               </View>
               <View style={styles.locationDivider} />
               <View style={styles.locationRow}>
-                <Text style={styles.locationIcon}>🔴</Text>
+                <MaterialIcons name="place" size={16} color="#F44336" />
                 <Text style={styles.locationText} numberOfLines={1}>
                   {String(item.destinationAddress || t('shared.rideHistory.labels.destinationFallback'))}
                 </Text>
@@ -400,7 +398,7 @@ export default function RideHistoryScreen({ navigation }: any) {
         }
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>📋</Text>
+            <MaterialIcons name="assignment" size={48} color={colors.textSecondary} />
             <Text style={styles.emptyTitle}>{t('shared.rideHistory.empty.title')}</Text>
             <Text style={styles.emptySubtitle}>
               {filter === 'all'

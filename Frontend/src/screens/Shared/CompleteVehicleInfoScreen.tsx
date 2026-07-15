@@ -7,9 +7,9 @@ import {
   TouchableOpacity,
   TextInput,
   Alert,
-  ActivityIndicator,
   Switch,
 } from 'react-native';
+import { LoadingIcon } from '../../components/LoadingIcon';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import Button from '../../components/Button';
@@ -535,7 +535,7 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
+        <LoadingIcon size={32} color={colors.primary} />
         <Text style={styles.loadingText}>{loadingText}</Text>
       </View>
     );

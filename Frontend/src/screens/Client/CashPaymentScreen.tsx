@@ -17,6 +17,7 @@ import {
   ScrollView,
   Image,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import { AnimatedButton } from '../../components/AnimatedButton';
 import { getAuth } from 'firebase/auth';
@@ -529,7 +530,7 @@ export default function CashPaymentScreen({ route, navigation }: any) {
               </Text>
               {driverRating > 0 && !isNaN(driverRating) && (
                 <Text style={styles.driverRating}>
-                  ⭐ {driverRating.toFixed(1)}
+                  <MaterialIcons name="star" size={14} color="#FFD700" /> {driverRating.toFixed(1)}
                 </Text>
               )}
             </View>

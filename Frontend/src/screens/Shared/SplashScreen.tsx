@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
+import { LoadingIcon } from '../../components/LoadingIcon';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 
@@ -40,7 +41,7 @@ export default function SplashScreen({ navigation }: any) {
     <View style={styles.container}>
       <Text style={styles.title}>App Uber</Text>
       <Text>Cargando...</Text>
-      <ActivityIndicator size="large" color={colors.primary} />
+      <LoadingIcon size={32} color={colors.primary} />
     </View>
   );
 }

@@ -13,9 +13,9 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  ActivityIndicator,
   Image,
 } from 'react-native';
+import { LoadingIcon } from '../../components/LoadingIcon';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 
@@ -726,7 +726,7 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
               disabled={loading}
             >
               {loading ? (
-                <ActivityIndicator color="#FFFFFF" />
+                <LoadingIcon size={24} color="#FFFFFF" />
               ) : (
                 <Text style={styles.confirmButtonText}>
                   {t('authScreens.registerConfirm.buttons.confirm')}

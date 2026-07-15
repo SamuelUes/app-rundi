@@ -6,7 +6,6 @@ import React, {
   useState,
 } from 'react';
 import {
-  ActivityIndicator,
   Animated,
   Easing,
   Image,
@@ -18,6 +17,8 @@ import {
   View,
   Modal,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { LoadingIcon } from '../../components/LoadingIcon';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import GoogleMap from '../../components/GoogleMaps';
@@ -1242,7 +1243,7 @@ export default function RidePreviewScreen() {
                 style={[styles.iconButton, styles.vehiclePhotoButton, { backgroundColor: 'rgba(115,230,173,0.25)' }]}
                 onPress={() => setPhotoModalUrl(currentRide.clientVehiclePhoto || null)}
               >
-                <Text style={[styles.iconText, { color: '#FFFFFF' }]}>🚗</Text>
+                <MaterialIcons name="directions-car" size={20} color="#FFFFFF" />
               </TouchableOpacity>
             ) : null}
                 </View>
@@ -1300,7 +1301,7 @@ export default function RidePreviewScreen() {
                   disabled={sendingOffer}
                 >
                   {sendingOffer ? (
-                    <ActivityIndicator color="#FFFFFF" size="small" />
+                    <LoadingIcon size={20} color="#FFFFFF" />
                   ) : (
                     <Text style={styles.customOfferSendButtonText}>
                       {t('driver.ridePreview.negotiation.send')}
@@ -1348,7 +1349,7 @@ export default function RidePreviewScreen() {
 
         {loadingRoute && (
           <View style={styles.routeLoader}>
-            <ActivityIndicator color={colors.primary} />
+            <LoadingIcon size={24} color={colors.primary} />
             <Text style={[styles.loaderText, { color: colors.textSecondary }]}>
               {t('driver.ridePreview.loader.calculatingRoute')}
             </Text>
@@ -1441,7 +1442,7 @@ export default function RidePreviewScreen() {
               ]}
               onPress={handleMessageClient}
             >
-              <Text style={styles.iconText}>💬</Text>
+              <MaterialIcons name="chat" size={24} color={colors.textSecondary || '#666'} />
             </TouchableOpacity>
             <TouchableOpacity
               style={[
@@ -1452,7 +1453,7 @@ export default function RidePreviewScreen() {
               ]}
               onPress={handleCallClient}
             >
-              <Text style={styles.iconText}>📞</Text>
+              <MaterialIcons name="call" size={24} color={colors.textSecondary || '#666'} />
             </TouchableOpacity>
 
           </View>
@@ -1490,7 +1491,7 @@ export default function RidePreviewScreen() {
             disabled={acceptingRide}
           >
             {acceptingRide ? (
-              <ActivityIndicator color="#FFFFFF" />
+              <LoadingIcon size={20} color="#FFFFFF" />
             ) : (
               <Text style={styles.actionButtonText}>{t('driver.ridePreview.buttons.accept')}</Text>
             )}
@@ -1510,7 +1511,7 @@ export default function RidePreviewScreen() {
             disabled={isRejectingRide}
           >
             {isRejectingRide ? (
-              <ActivityIndicator color="#FFFFFF" />
+              <LoadingIcon size={20} color="#FFFFFF" />
             ) : (
               <Text style={styles.actionButtonText}>{t('driver.ridePreview.buttons.reject')}</Text>
             )}

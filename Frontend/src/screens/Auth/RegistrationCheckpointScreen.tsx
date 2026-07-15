@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { LoadingIcon } from '../../components/LoadingIcon';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 
@@ -506,7 +507,7 @@ const RegistrationCheckpointScreen: React.FC<Props> = ({ navigation }) => {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
+        <LoadingIcon size={32} color={colors.primary} />
       </View>
     );
   }
@@ -514,7 +515,7 @@ const RegistrationCheckpointScreen: React.FC<Props> = ({ navigation }) => {
   if (!tempData) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
+        <LoadingIcon size={32} color={colors.primary} />
       </View>
     );
   }

@@ -1694,9 +1694,9 @@ PODS:
   - gRPC-Core/Interface (1.69.0)
   - gRPC-Core/Privacy (1.69.0)
   - GTMSessionFetcher/Core (5.3.0)
-  - hermes-engine (0.81.6):
-    - hermes-engine/Pre-built (= 0.81.6)
-  - hermes-engine/Pre-built (0.81.6)
+  - hermes-engine (0.81.5):
+    - hermes-engine/Pre-built (= 0.81.5)
+  - hermes-engine/Pre-built (0.81.5)
   - leveldb-library (1.22.6)
   - libwebp (1.5.0):
     - libwebp/demux (= 1.5.0)
@@ -1760,7 +1760,7 @@ PODS:
     - React-utils
     - ReactNativeDependencies
     - Yoga
-  - React-Core-prebuilt (0.81.6):
+  - React-Core-prebuilt (0.81.5):
     - ReactNativeDependencies
   - React-Core/CoreModulesHeaders (0.81.5):
     - hermes-engine
@@ -3851,6 +3851,8 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
+  - RundiNative (1.0.0):
+    - ExpoModulesCore
   - SDWebImage/Core (5.21.7)
   - SDWebImageWebPCoder (0.15.0):
     - libwebp (~> 1.0)
@@ -3984,6 +3986,7 @@ DEPENDENCIES:
   - RNReanimated (from `../node_modules/react-native-reanimated`)
   - RNScreens (from `../node_modules/react-native-screens`)
   - RNWorklets (from `../node_modules/react-native-worklets`)
+  - RundiNative (from `../modules/rundi-native/ios`)
   - UMAppLoader (from `../node_modules/unimodules-app-loader/ios`)
   - Yoga (from `../node_modules/react-native/ReactCommon/yoga`)
 
@@ -4262,6 +4265,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native-screens"
   RNWorklets:
     :path: "../node_modules/react-native-worklets"
+  RundiNative:
+    :path: "../modules/rundi-native/ios"
   UMAppLoader:
     :path: "../node_modules/unimodules-app-loader/ios"
   Yoga:
@@ -4328,7 +4333,7 @@ SPEC CHECKSUMS:
   "gRPC-C++": cc207623316fb041a7a3e774c252cf68a058b9e8
   gRPC-Core: 860978b7db482de8b4f5e10677216309b5ff6330
   GTMSessionFetcher: 127211aeec0b1e904fc49f4f6f895dcc535b0ecf
-  hermes-engine: 7219f6e751ad6ec7f3d7ec121830ee34dae40749
+  hermes-engine: 9f4dfe93326146a1c99eb535b1cb0b857a3cd172
   leveldb-library: cc8b8f8e013647a295ad3f8cd2ddf49a6f19be19
   libwebp: 02b23773aedb6ff1fd38cec7a77b81414c6842a8
   livekit-react-native-webrtc: 09d18fa7c04726c159076b92111289fa9fa46d10
@@ -4341,7 +4346,7 @@ SPEC CHECKSUMS:
   React: 914f8695f9bf38e6418228c2ffb70021e559f92f
   React-callinvoker: 1c0808402aee0c6d4a0d8e7220ce6547af9fba71
   React-Core: c61410ef0ca6055e204a963992e363227e0fd1c5
-  React-Core-prebuilt: 721ab014acfaff1e4b8fc0d2f7d6f41ea9a706ed
+  React-Core-prebuilt: 02f0ad625ddd47463c009c2d0c5dd35c0d982599
   React-CoreModules: 1f6d1744b5f9f2ec684a4bb5ced25370f87e5382
   React-cxxreact: 3af79478e8187b63ffc22b794cd42d3fc1f1f2da
   React-debug: dfe7f2f01b36058f2a9b94872e071eb40e063a3c
@@ -4416,6 +4421,7 @@ SPEC CHECKSUMS:
   RNReanimated: 6ea55ec55f86624cbc5da0f0cd56e2770cb0fe15
   RNScreens: 33bbd1d0f86ed957557620dc94054b71db0a94ee
   RNWorklets: 76fce72926e28e304afb44f0da23b2d24f2c1fa0
+  RundiNative: 6aa42fad2e0795875c72e3dd334352221598cea2
   SDWebImage: e9fc87c1aab89a8ab1bbd74eba378c6f53be8abf
   SDWebImageWebPCoder: 0e06e365080397465cc73a7a9b472d8a3bd0f377
   UMAppLoader: 145337733539f9af9b3dd97eeaa7f3bd97cacb23

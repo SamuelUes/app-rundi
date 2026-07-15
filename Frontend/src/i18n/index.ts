@@ -4531,7 +4531,7 @@ const resources = {
               noPayment: 'No payment data',
               commission: 'Commission ({{rate}}%)',
               tip: 'Tip',
-              driverPayout: '💵 Driver payout',
+              driverPayout: 'Driver payout',
             },
           },
           actions: {

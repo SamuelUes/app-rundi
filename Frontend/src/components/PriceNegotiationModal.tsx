@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   TextInput,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import alertService from '../services/alertService';
 import { useTranslation } from 'react-i18next';
@@ -241,7 +242,7 @@ export default function PriceNegotiationModal({
           {driverAcceptedClientPrice ? (
             // Conductor aceptó el precio del cliente
             <View style={styles.acceptedContainer}>
-              <Text style={styles.acceptedIcon}>✅</Text>
+              <MaterialIcons name="check-circle" size={64} color="#4CAF50" style={styles.acceptedIcon} />
               <Text style={[styles.acceptedTitle, { color: textColor }]}>
                 {t('common.components.priceNegotiationModal.state.accepted.title')}
               </Text>
@@ -428,7 +429,6 @@ const styles = StyleSheet.create({
     paddingVertical: 20,
   },
   acceptedIcon: {
-    fontSize: 64,
     marginBottom: 16,
   },
   acceptedTitle: {

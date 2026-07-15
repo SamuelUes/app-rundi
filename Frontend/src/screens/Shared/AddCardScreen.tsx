@@ -6,12 +6,13 @@ import {
   TouchableOpacity,
   TextInput,
   Alert,
-  ActivityIndicator,
   ScrollView,
   KeyboardAvoidingView,
   Platform,
   Image,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { LoadingIcon } from '../../components/LoadingIcon';
 import { useTheme } from '../../context/ThemeContext';
 import cardsService from '../../services/cardsService';
 import { useTranslation } from 'react-i18next';
@@ -326,7 +327,7 @@ export default function AddCardScreen({ navigation }: AddCardScreenProps) {
             onPress={() => setSetAsDefault(!setAsDefault)}
           >
             <View style={[styles.checkbox, setAsDefault && styles.checkboxActive]}>
-              {setAsDefault && <Text style={styles.checkboxCheck}>✓</Text>}
+              {setAsDefault && <MaterialIcons name="check" size={18} color={colors.primary} />}
             </View>
             <Text style={styles.checkboxLabel}>
               {t('shared.addCards.form.checkbox')}
@@ -349,7 +350,7 @@ export default function AddCardScreen({ navigation }: AddCardScreenProps) {
               disabled={processing}
             >
               {processing ? (
-                <ActivityIndicator color="#fff" />
+                <LoadingIcon size={20} color="#fff" />
               ) : (
                 <Text style={styles.saveButtonText}>{t('shared.addCards.form.save')}</Text>
               )}
@@ -359,7 +360,7 @@ export default function AddCardScreen({ navigation }: AddCardScreenProps) {
 
         {/* Info de seguridad */}
         <View style={styles.securityInfo}>
-          <Text style={styles.securityIcon}>🔒</Text>
+          <MaterialIcons name="lock-outline" size={20} color={colors.textSecondary} />
           <Text style={styles.securityText}>
             {t('shared.addCards.security.message')}
           </Text>

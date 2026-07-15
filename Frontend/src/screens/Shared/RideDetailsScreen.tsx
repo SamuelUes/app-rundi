@@ -5,10 +5,11 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  ActivityIndicator,
   Alert,
   Image,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { LoadingIcon } from '../../components/LoadingIcon';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import ridesService from '../../services/ridesService';
@@ -150,7 +151,7 @@ export default function RideDetailsScreen({ navigation, route }: any) {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
+        <LoadingIcon size={32} color={colors.primary} />
         <Text style={styles.loadingText}>{t('shared.rideDetail.loading')}</Text>
       </View>
     );
@@ -159,7 +160,7 @@ export default function RideDetailsScreen({ navigation, route }: any) {
   if (!ride) {
     return (
       <View style={styles.errorContainer}>
-        <Text style={styles.errorEmoji}>❌</Text>
+        <MaterialIcons name="error-outline" size={48} color="#f44336" />
         <Text style={styles.errorTitle}>{t('shared.rideDetail.errors.notFound')}</Text>
         <TouchableOpacity style={styles.retryButton} onPress={loadRideDetails}>
           <Text style={styles.retryButtonText}>{t('shared.rideDetail.actions.retry')}</Text>
@@ -248,9 +249,7 @@ export default function RideDetailsScreen({ navigation, route }: any) {
             ride.allAddresses.map((address: string, idx: number) => (
               <View key={`route-${idx}`}>
                 <View style={styles.locationRow}>
-                  <Text style={styles.locationIcon}>
-                    {idx === 0 ? '🔵' : idx === ride.allAddresses.length - 1 ? '🔴' : '📍'}
-                  </Text>
+                  <MaterialIcons name={idx === 0 ? 'circle' : idx === ride.allAddresses.length - 1 ? 'place' : 'location-on'} size={16} color={idx === 0 ? '#2196F3' : idx === ride.allAddresses.length - 1 ? '#F44336' : '#FF9800'} />
                   <View style={styles.locationInfo}>
                     <Text style={styles.locationLabel}>
                       {idx === 0
@@ -269,7 +268,7 @@ export default function RideDetailsScreen({ navigation, route }: any) {
             // Si no hay múltiples paradas, mostrar origen y destino
             <>
               <View style={styles.locationRow}>
-                <Text style={styles.locationIcon}>🔵</Text>
+                <MaterialIcons name="circle" size={16} color="#2196F3" />
                 <View style={styles.locationInfo}>
                   <Text style={styles.locationLabel}>{t('shared.rideDetail.sections.route.origin')}</Text>
                   <Text style={styles.locationText}>{safeString(ride.originAddress)}</Text>
@@ -279,7 +278,7 @@ export default function RideDetailsScreen({ navigation, route }: any) {
               <View style={styles.routeLine} />
               
               <View style={styles.locationRow}>
-                <Text style={styles.locationIcon}>🔴</Text>
+                <MaterialIcons name="place" size={16} color="#F44336" />
                 <View style={styles.locationInfo}>
                   <Text style={styles.locationLabel}>{t('shared.rideDetail.sections.route.destination')}</Text>
                   <Text style={styles.locationText}>{safeString(ride.destinationAddress)}</Text>

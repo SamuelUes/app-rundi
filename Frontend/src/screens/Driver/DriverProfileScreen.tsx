@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   Image,
   Alert,
-  ActivityIndicator,
   Modal,
   TextInput,
   Animated,
@@ -16,6 +15,8 @@ import {
   Platform,
   AppState,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { LoadingIcon } from '../../components/LoadingIcon';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { useVoiceAssistant } from '../../context/VoiceAssistantContext';
@@ -261,13 +262,13 @@ export default function DriverProfileScreen({ navigation }: any) {
           ? '#4CAF50'
           : '#FF9800';
 
-  const documentStatusIcon = normalizedDocumentStatus === 'verified'
-    ? '✓'
+  const documentStatusIconName = normalizedDocumentStatus === 'verified'
+    ? 'check' as const
     : normalizedDocumentStatus === 'rejected'
-      ? '✕'
+      ? 'close' as const
       : normalizedDocumentStatus === 'suspended'
-        ? '⚠️'
-        : '⏱';
+        ? 'warning' as const
+        : 'schedule' as const;
 
   const documentStatusText =
     normalizedDocumentStatus === 'verified'
@@ -858,12 +859,12 @@ export default function DriverProfileScreen({ navigation }: any) {
       }
     }
   };
-  const getDocumentIcon = (type: string) => {
+  const getDocumentIconName = (type: string): React.ComponentProps<typeof MaterialIcons>['name'] => {
     switch (type) {
-      case 'license': return '🪪';
-      case 'registration': return '📄';
-      case 'insurance': return '🛡️';
-      default: return '📋';
+      case 'license': return 'badge';
+      case 'registration': return 'description';
+      case 'insurance': return 'security';
+      default: return 'assignment';
     }
   };
 
@@ -1121,7 +1122,7 @@ export default function DriverProfileScreen({ navigation }: any) {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
+        <LoadingIcon size={32} color={colors.primary} />
         <Text style={styles.loadingText}>{t('driver.profile.loading.message')}</Text>
       </View>
     );
@@ -1154,7 +1155,7 @@ export default function DriverProfileScreen({ navigation }: any) {
           >
             {uploadingPhoto ? (
               <View style={styles.avatarPlaceholder}>
-                <ActivityIndicator size="large" color="#fff" />
+                <LoadingIcon size={32} color="#fff" />
               </View>
             ) : profilePhoto ? (
               <Image source={{ uri: profilePhoto }} style={styles.avatar} />
@@ -1407,10 +1408,10 @@ export default function DriverProfileScreen({ navigation }: any) {
           <View style={styles.documentCard}>
             <View style={styles.documentLeft}>
               <View style={[styles.statusIndicator, { backgroundColor: documentStatusColor }]}>
-                <Text style={styles.statusIcon}>{documentStatusIcon}</Text>
+                <MaterialIcons name={documentStatusIconName} size={20} color="#fff" />
               </View>
               <View style={styles.documentInfo}>
-                <Text style={styles.documentIcon}>🪪</Text>
+                <MaterialIcons name="badge" size={28} color={colors.textSecondary} />
                 <View>
                   <Text style={styles.documentName}>{t('driver.profile.documents.licenseName')}</Text>
                   <Text style={[styles.documentStatus, { color: documentStatusColor }]}>{documentStatusText}</Text>
@@ -1497,7 +1498,7 @@ export default function DriverProfileScreen({ navigation }: any) {
             disabled={designatedButtonDisabled}
           >
             {loadingRequestStatus ? (
-              <ActivityIndicator color="#fff" />
+              <LoadingIcon size={20} color="#fff" />
             ) : (
               <Text style={styles.designatedDriverButtonText}>
                 {designatedButtonLabel}
@@ -1512,7 +1513,7 @@ export default function DriverProfileScreen({ navigation }: any) {
         <View style={styles.preferenceCard}>
           <View style={styles.preferenceHeader}>
             <View style={styles.preferenceIconWrapper}>
-              <Text style={styles.preferenceIcon}>🚘</Text>
+              <MaterialIcons name="directions-car" size={24} color={colors.primary} />
             </View>
             <View style={styles.preferenceInfo}>
               <Text style={styles.preferenceTitle}>{t('driver.profile.mode.title')}</Text>
@@ -1547,7 +1548,7 @@ export default function DriverProfileScreen({ navigation }: any) {
         <View style={styles.preferenceCard}>
           <View style={styles.preferenceHeader}>
             <View style={styles.preferenceIconWrapper}>
-              <Text style={styles.preferenceIcon}>🔔</Text>
+              <MaterialIcons name="notifications" size={24} color={colors.primary} />
             </View>
             <View style={styles.preferenceInfo}>
               <Text style={styles.preferenceTitle}>{t('driver.profile.overlay.subtitle')}</Text>
@@ -2046,7 +2047,7 @@ export default function DriverProfileScreen({ navigation }: any) {
               disabled={addingVehicle}
             >
               {addingVehicle ? (
-                <ActivityIndicator color="#fff" />
+                <LoadingIcon size={20} color="#fff" />
               ) : (
                 <Text style={styles.modalSubmitButtonText}>{t('driver.profile.modal.buttons.submit')}</Text>
               )}

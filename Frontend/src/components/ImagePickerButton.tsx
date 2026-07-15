@@ -6,8 +6,9 @@ import {
   Image,
   StyleSheet,
   Alert,
-  ActivityIndicator,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { LoadingIcon } from './LoadingIcon';
 import uploadService from '../services/uploadService';
 import { useTranslation } from 'react-i18next';
 
@@ -127,12 +128,12 @@ export default function ImagePickerButton({
         disabled={uploading}
       >
         {uploading ? (
-          <ActivityIndicator color="#fff" />
+          <LoadingIcon icon="cloud-upload" size={32} color="#fff" animation="pulse" />
         ) : imageUri ? (
           <Image source={{ uri: imageUri }} style={styles.image} />
         ) : (
           <View style={styles.placeholder}>
-            <Text style={styles.placeholderText}>📷</Text>
+            <MaterialIcons name="photo-camera" size={48} color="#999" style={styles.placeholderIcon} />
             <Text style={styles.placeholderSubtext}>
               {t('common.components.imagePickerButton.placeholder.label')}
             </Text>
@@ -174,7 +175,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   placeholderText: {
-    fontSize: 48,
+    display: 'none',
+  },
+  placeholderIcon: {
     marginBottom: 8,
   },
   placeholderSubtext: {

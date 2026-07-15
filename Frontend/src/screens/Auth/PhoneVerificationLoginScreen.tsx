@@ -16,8 +16,8 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  ActivityIndicator,
 } from 'react-native';
+import { LoadingIcon } from '../../components/LoadingIcon';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import phoneAuthService from '../../services/auth/phoneAuthService';
@@ -361,7 +361,7 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
             disabled={loading || code.length !== 6}
           >
             {loading ? (
-              <ActivityIndicator color="#FFFFFF" />
+              <LoadingIcon size={24} color="#FFFFFF" />
             ) : (
               <Text style={styles.verifyButtonText}>
                 {t('authScreens.phoneVerificationLogin.verifyButton')}
@@ -384,7 +384,7 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
                 disabled={resendLoading}
               >
                 {resendLoading ? (
-                  <ActivityIndicator color={colors.primary} />
+                  <LoadingIcon size={20} color={colors.primary} />
                 ) : (
                   <Text style={styles.resendButton}>
                     {t('authScreens.phoneVerificationLogin.resend.button')}

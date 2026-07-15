@@ -5,11 +5,11 @@ import {
   StyleSheet,
   TextInput,
   TouchableOpacity,
-  ActivityIndicator,
   Alert,
   ScrollView,
   Image,
 } from 'react-native';
+import { LoadingIcon } from '../../components/LoadingIcon';
 import { useTheme } from '../../context/ThemeContext';
 import rechargeFundsService, {
   DriverRechargeFundsSummary,
@@ -235,7 +235,7 @@ export default function RechargeFundsScreen({ navigation }: any) {
 
       {loading ? (
         <View style={styles.centerBox}>
-          <ActivityIndicator color={colors.primary} size="large" />
+          <LoadingIcon size={32} color={colors.primary} />
           <Text style={styles.loadingText}>{loadingText}</Text>
         </View>
       ) : (
@@ -296,7 +296,7 @@ export default function RechargeFundsScreen({ navigation }: any) {
             activeOpacity={0.85}
           >
             {submitting ? (
-              <ActivityIndicator color="#fff" />
+              <LoadingIcon size={20} color="#fff" />
             ) : (
               <Text style={styles.payButtonText}>
                 {t('driver.rechargeFunds.button.pay', {

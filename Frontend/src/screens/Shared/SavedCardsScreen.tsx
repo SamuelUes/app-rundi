@@ -5,8 +5,9 @@ import {
   StyleSheet,
   TouchableOpacity,
   FlatList,
-  ActivityIndicator,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { LoadingIcon } from '../../components/LoadingIcon';
 import { useTheme } from '../../context/ThemeContext';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { initializeFirebase } from '../../config/firebase';
@@ -116,10 +117,10 @@ export default function SavedCardsScreen({ navigation }: SavedCardsScreenProps) 
 
   const getCardIcon = (brand: string) => {
     const brandLower = brand.toLowerCase();
-    if (brandLower.includes('visa')) return '💳';
-    if (brandLower.includes('mastercard')) return '💳';
-    if (brandLower.includes('amex')) return '💳';
-    return '💳';
+    if (brandLower.includes('visa')) return 'credit-card';
+    if (brandLower.includes('mastercard')) return 'credit-card';
+    if (brandLower.includes('amex')) return 'credit-card';
+    return 'credit-card';
   };
 
   const getProviderName = (provider: string) => {
@@ -172,7 +173,7 @@ export default function SavedCardsScreen({ navigation }: SavedCardsScreenProps) 
           disabled={deleting === item.id}
         >
           {deleting === item.id ? (
-            <ActivityIndicator size="small" color="#fff" />
+            <LoadingIcon size={20} color="#fff" />
           ) : (
             <Text style={styles.deleteButtonText}>
               {t('shared.savedCards.cards.actions.delete')}
@@ -186,7 +187,7 @@ export default function SavedCardsScreen({ navigation }: SavedCardsScreenProps) 
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
+        <LoadingIcon size={32} color={colors.primary} />
         <Text style={styles.loadingText}>{t('shared.savedCards.loading')}</Text>
       </View>
     );
@@ -206,7 +207,7 @@ export default function SavedCardsScreen({ navigation }: SavedCardsScreenProps) 
       {/* Lista de tarjetas */}
       {cards.length === 0 ? (
         <View style={styles.emptyContainer}>
-          <Text style={styles.emptyIcon}>💳</Text>
+          <MaterialIcons name="credit-card" size={48} color={colors.textSecondary} />
           <Text style={styles.emptyTitle}>{t('shared.savedCards.empty.title')}</Text>
           <Text style={styles.emptyText}>{t('shared.savedCards.empty.description')}</Text>
         </View>
@@ -231,7 +232,7 @@ export default function SavedCardsScreen({ navigation }: SavedCardsScreenProps) 
 
       {/* Info de seguridad */}
       <View style={styles.securityInfo}>
-        <Text style={styles.securityIcon}>🔒</Text>
+        <MaterialIcons name="lock-outline" size={20} color={colors.textSecondary} />
         <Text style={styles.securityText}>{t('shared.savedCards.security.message')}</Text>
       </View>
     </View>

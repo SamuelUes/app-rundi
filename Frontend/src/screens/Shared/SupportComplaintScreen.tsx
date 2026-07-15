@@ -4,12 +4,13 @@ import {
   View,
   Text,
   StyleSheet,
-  ActivityIndicator,
   TouchableOpacity,
   ScrollView,
   RefreshControl,
   Image,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { LoadingIcon } from '../../components/LoadingIcon';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useTheme } from '../../context/ThemeContext';
 import { useTranslation } from 'react-i18next';
@@ -176,7 +177,7 @@ export default function SupportComplaintScreen({ route }: SupportComplaintScreen
     if (loading) {
       return (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
+          <LoadingIcon size={32} color={colors.primary} />
           <Text style={styles.loadingText}>
             {t('shared.supportcomplaint.tickets.loading')}
           </Text>
@@ -187,7 +188,7 @@ export default function SupportComplaintScreen({ route }: SupportComplaintScreen
     if (tickets.length === 0) {
       return (
         <View style={styles.emptyState}>
-          <Text style={styles.emptyIcon}>🙌</Text>
+          <MaterialIcons name="support" size={48} color={colors.textSecondary} />
           <Text style={styles.emptyTitle}>{t('shared.supportcomplaint.tickets.emptyTitle')}</Text>
           <Text style={styles.emptyDescription}>
             {t('shared.supportcomplaint.tickets.emptyDescription')}
@@ -254,7 +255,7 @@ export default function SupportComplaintScreen({ route }: SupportComplaintScreen
               disabled={isDeleting}
             >
               {isDeleting ? (
-                <ActivityIndicator size="small" color="#fff" />
+                <LoadingIcon size={20} color="#fff" />
               ) : (
                 <Text style={styles.deleteButtonText}>
                   {t('shared.supportcomplaint.tickets.delete')}

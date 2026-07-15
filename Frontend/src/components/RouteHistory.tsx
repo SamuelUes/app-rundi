@@ -3,7 +3,8 @@
  * Visualiza la ruta completa recorrida con marcadores y líneas
  */
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { LoadingIcon } from './LoadingIcon';
 import { useTheme } from '../context/ThemeContext';
 import { haversineKm } from '../utils/distance';
 import DynamicMap from './DynamicMap';
@@ -115,7 +116,7 @@ const RouteHistory: React.FC<RouteHistoryProps> = ({ rideId, showStats = true })
   if (loading) {
     return (
       <View style={styles.container}>
-        <ActivityIndicator size="large" color={colors.primary} />
+        <LoadingIcon size={32} color={colors.primary} />
         <Text style={styles.loadingText}>{t('common.components.routeHistory.loading')}</Text>
       </View>
     );

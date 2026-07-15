@@ -13,8 +13,9 @@ import {
   ImageBackground,
   Animated,
   Dimensions,
-  ActivityIndicator,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { LoadingIcon } from '../../components/LoadingIcon';
 import { SafeAreaView } from 'react-native-safe-area-context';
 // Contextos y hooks
 import { useTheme } from '../../context/ThemeContext';
@@ -1859,9 +1860,11 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   if (error || !coords) {
     return (
       <View style={[styles.fallbackContainer, { backgroundColor: colors.background }]}> 
-        <Text style={[styles.fallbackText, { color: colors.text }]}>{`❌ ${
-          error || t('driver.home.errors.location')
-        }`}</Text>
+        <Text style={[styles.fallbackText, { color: colors.text }]}>
+          <MaterialIcons name="error-outline" size={18} color={colors.error || '#F44336'} /> {
+            error || t('driver.home.errors.location')
+          }
+        </Text>
         <TouchableOpacity
           style={[styles.retryButton, { backgroundColor: colors.primary }]}
           onPress={handleRefreshLocation}
@@ -1980,7 +1983,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
           }
         >
           <View style={styles.activeRideIconWrapper}>
-            <Text style={styles.activeRideEmoji}>🚗</Text>
+            <MaterialIcons name="directions-car" size={28} color={colors.primary} />
           </View>
           <View style={styles.activeRideContent}>
             <Text style={styles.activeRideTitle}>
@@ -2125,14 +2128,14 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
               */}
               <TouchableOpacity style={styles.menuItem} onPress={() => handleNavigate('Settings')}>
                 <View style={styles.menuIconBadge}>
-                  <Text style={styles.menuEmoji}>⚙️</Text>
+                  <MaterialIcons name="settings" size={24} color={colors.primary} />
                 </View>
                 <Text style={styles.menuLabel}>{t('driver.home.menu.settings')}</Text>
                 <Text style={styles.menuItemArrow}>›</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.menuItem} onPress={() => handleNavigate('Help')}>
                 <View style={styles.menuIconBadge}>
-                  <Text style={styles.menuEmoji}>❓</Text>
+                  <MaterialIcons name="help-outline" size={24} color={colors.primary} />
                 </View>
                 <Text style={styles.menuLabel}>{t('driver.home.menu.help')}</Text>
                 <Text style={styles.menuItemArrow}>›</Text>
@@ -2197,7 +2200,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
                 />
                 {updatingStatus && (
                   <View style={styles.statusLoadingOverlay}>
-                    <ActivityIndicator size="small" color="#FFFFFF" />
+                    <LoadingIcon icon="refresh" size={20} color="#FFFFFF" animation="spin" />
                   </View>
                 )}
               </View>

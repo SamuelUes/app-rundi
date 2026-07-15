@@ -4,11 +4,11 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  ActivityIndicator,
   Alert,
   Platform,
   Image,
 } from 'react-native';
+import { LoadingIcon } from '../../components/LoadingIcon';
 import { useNavigation } from '@react-navigation/native';
 import { httpsCallable } from 'firebase/functions';
 import { useTranslation } from 'react-i18next';
@@ -209,7 +209,7 @@ export default function SupportCallScreen({ route }: SupportCallScreenProps) {
           onPress={handleCallAction}
         >
           {(callLoading || requestingCall) ? (
-            <ActivityIndicator color="#ffffff" />
+            <LoadingIcon size={24} color="#ffffff" />
           ) : (
             <Text style={styles.primaryButtonText}>{callActionLabel}</Text>
           )}

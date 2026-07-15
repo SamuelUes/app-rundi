@@ -7,9 +7,9 @@ import {
   StyleSheet,
   Linking,
   Alert,
-  ActivityIndicator,
   Image,
 } from 'react-native';
+import { LoadingIcon } from './LoadingIcon';
 import { useTheme } from '../context/ThemeContext';
 import { useLocation } from '../hooks/useLocation';
 import { getFirebaseFunctions } from '../config/firebase';
@@ -202,7 +202,7 @@ export default function EmergencyButton({ rideId, style, onOpen, onReady }: Emer
         disabled={calling}
       >
         {calling ? (
-          <ActivityIndicator color={colors.primary} />
+          <LoadingIcon size={24} color={colors.primary} />
         ) : (
           <Image
             source={require('../assets/icons/emergency/red-call-icon.png')}

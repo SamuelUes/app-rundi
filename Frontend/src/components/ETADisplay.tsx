@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
+import { LoadingIcon } from './LoadingIcon';
+import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import firebaseTrackingService from '../services/firebaseTrackingService';
 import { httpsCallable } from 'firebase/functions';
@@ -169,7 +171,7 @@ const ETADisplay: React.FC<ETADisplayProps> = ({
   if (loading) {
     return (
       <View style={styles.container}>
-        <ActivityIndicator size="small" color={colors.primary} />
+        <LoadingIcon size={20} color={colors.primary} />
       </View>
     );
   }
@@ -177,7 +179,7 @@ const ETADisplay: React.FC<ETADisplayProps> = ({
   if (error || !eta) {
     return (
       <View style={styles.container}>
-        <Text style={styles.errorText}>⏱️ {t('common.components.etaDisplay.loading')}</Text>
+        <Text style={styles.errorText}>{t('common.components.etaDisplay.loading')}</Text>
       </View>
     );
   }
@@ -186,7 +188,7 @@ const ETADisplay: React.FC<ETADisplayProps> = ({
     <View style={styles.container}>
       <View style={styles.etaCard}>
         <View style={styles.etaRow}>
-          <Text style={styles.etaIcon}>⏱️</Text>
+          <MaterialIcons name="timer" size={20} color={colors.primary} />
           <View style={styles.etaInfo}>
             <Text style={styles.etaLabel}>{t('common.components.etaDisplay.etaLabel')}</Text>
             <Text style={styles.etaValue}>

@@ -15,10 +15,10 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  ActivityIndicator,
   Image,
   StatusBar,
 } from 'react-native';
+import { LoadingIcon } from '../../components/LoadingIcon';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -630,7 +630,7 @@ export default function RegisterScreen() {
                 disabled={!isEmailFormValid || loading}
               >
                 {loading ? (
-                  <ActivityIndicator color="#FFFFFF" />
+                  <LoadingIcon size={24} color="#FFFFFF" />
                 ) : (
                   <Text style={styles.primaryButtonText}>
                     {t('authScreens.register.buttons.continueEmail')}
@@ -651,7 +651,7 @@ export default function RegisterScreen() {
                 disabled={!isPhoneFormValid || loading}
               >
                 {loading ? (
-                  <ActivityIndicator color="#FFFFFF" />
+                  <LoadingIcon size={24} color="#FFFFFF" />
                 ) : (
                   <Text style={styles.phoneNextIcon}>
                     {t('authScreens.register.buttons.phoneNext')}

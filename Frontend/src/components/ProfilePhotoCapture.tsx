@@ -6,8 +6,9 @@ import {
   Image,
   StyleSheet,
   Alert,
-  ActivityIndicator,
 } from 'react-native';
+import { LoadingIcon } from './LoadingIcon';
+import { MaterialIcons } from '@expo/vector-icons';
 import * as ExpoImagePicker from 'expo-image-picker';
 import { useTheme } from '../context/ThemeContext';
 import { useTranslation } from 'react-i18next';
@@ -92,7 +93,7 @@ export default function ProfilePhotoCapture({
       <View style={styles.photoContainer}>
         {loading ? (
           <View style={[styles.photoPlaceholder, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <ActivityIndicator size="large" color={colors.primary} />
+            <LoadingIcon size={32} color={colors.primary} />
             <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
               {t('common.components.profilePhotoCapture.states.uploading')}
             </Text>
@@ -101,12 +102,12 @@ export default function ProfilePhotoCapture({
           <View style={styles.photoWrapper}>
             <Image source={{ uri: photoUri }} style={styles.profilePhoto} />
             <View style={styles.checkmarkContainer}>
-              <Text style={styles.checkmark}>✓</Text>
+              <MaterialIcons name="check-circle" size={24} color="#4CAF50" />
             </View>
           </View>
         ) : (
           <View style={[styles.photoPlaceholder, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Text style={styles.placeholderIcon}>👤</Text>
+            <MaterialIcons name="person" size={48} color={colors.textSecondary} />
             <Text style={[styles.placeholderText, { color: colors.textSecondary }]}>
               {t('common.components.profilePhotoCapture.states.empty')}
             </Text>

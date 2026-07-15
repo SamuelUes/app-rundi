@@ -11,6 +11,7 @@ import {
   Modal,
   TextInput,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useVoiceAssistant } from '../../context/VoiceAssistantContext';
@@ -1174,7 +1175,7 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
             ]}
           >
             <View style={[styles.emptyStateGlow, { backgroundColor: isDark ? 'rgba(212,175,55,0.18)' : '#F9EDCC' }]} />
-            <Text style={styles.emptyStateIcon}>🚗</Text>
+            <MaterialIcons name="directions-car" size={64} color={colors.textSecondary} />
             <Text style={[styles.emptyStateTitle, { color: colors.text }]}>
               {t('common.components.emptyState.noRides.title')}
             </Text>

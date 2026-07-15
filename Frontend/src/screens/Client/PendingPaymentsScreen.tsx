@@ -8,6 +8,7 @@ import {
   Image,
   RefreshControl,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import LoadingOverlay from '../../components/LoadingOverlay';
@@ -216,7 +217,7 @@ export default function PendingPaymentsScreen({ navigation }: any) {
       >
         {pendingPayments.length === 0 ? (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyIcon}>✅</Text>
+            <MaterialIcons name="check-circle" size={64} color="#4CAF50" />
             <Text style={styles.emptyTitle}>{t('client.pendingPayments.emptyTitle')}</Text>
             <Text style={styles.emptyDescription}>
               {t('client.pendingPayments.emptyDescription')}
@@ -225,7 +226,7 @@ export default function PendingPaymentsScreen({ navigation }: any) {
         ) : (
           <>
             <View style={styles.infoCard}>
-              <Text style={styles.infoIcon}>💡</Text>
+              <MaterialIcons name="lightbulb" size={24} color={colors.primary} />
               <Text style={styles.infoText}>
                 {t('client.pendingPayments.info.message', { count: pendingPayments.length })}{' '}
                 {t('client.pendingPayments.info.instruction')}

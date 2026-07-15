@@ -7,7 +7,6 @@ import React, {
   useState,
 } from 'react';
 import {
-  ActivityIndicator,
   AppState,
   Linking,
   Platform,
@@ -19,6 +18,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import { useTranslation } from 'react-i18next';
+import { LoadingIcon } from '../LoadingIcon';
 import {
   isRegistrationUploadsInProgress,
   subscribeRegistrationUploadsInProgress,
@@ -246,7 +246,7 @@ const LocationPermissionGate: React.FC<LocationPermissionGateProps> = ({
         <View style={styles.container}>
           <View style={styles.card}>
             <View style={styles.spinnerContainer}>
-              <ActivityIndicator size="large" color="#e58b1e" />
+              <LoadingIcon size={32} color="#e58b1e" />
               <Text style={styles.spinnerLabel}>{t('shared.permissions.gate.uploadsGate')}</Text>
             </View>
           </View>
@@ -265,7 +265,7 @@ const LocationPermissionGate: React.FC<LocationPermissionGateProps> = ({
         <View style={styles.card}>
           {showSpinner ? (
             <View style={styles.spinnerContainer}>
-              <ActivityIndicator size="large" color="#e58b1e" />
+              <LoadingIcon size={32} color="#e58b1e" />
               <Text style={styles.spinnerLabel}>{t('shared.permissions.gate.spinner')}</Text>
             </View>
           ) : (

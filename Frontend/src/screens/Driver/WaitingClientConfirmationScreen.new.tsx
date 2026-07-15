@@ -16,8 +16,9 @@ import {
   StyleSheet,
   TouchableOpacity,
   Image,
-  ActivityIndicator,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { LoadingIcon } from '../../components/LoadingIcon';
 import { useTheme } from '../../context/ThemeContext';
 import { getDatabase, ref, onValue, off, update } from 'firebase/database';
 import { getAuth } from 'firebase/auth';
@@ -152,7 +153,7 @@ export default function WaitingClientConfirmationScreen({ route, navigation }: a
     <View style={styles.container}>
       {canceled ? (
         <View style={styles.canceledContainer}>
-          <Text style={styles.canceledIcon}>❌</Text>
+          <MaterialIcons name="error-outline" size={64} color="#f44336" />
           <Text style={styles.canceledText}>Viaje no disponible</Text>
           <Text style={styles.canceledSubtext}>
             Este viaje ya no está disponible o ha sido cancelado
@@ -167,7 +168,7 @@ export default function WaitingClientConfirmationScreen({ route, navigation }: a
         </View>
       ) : success ? (
         <View style={styles.successContainer}>
-          <Text style={styles.successIcon}>✅</Text>
+          <MaterialIcons name="check-circle" size={64} color="#4CAF50" />
           <Text style={styles.successTitle}>¡Cliente Te Eligió!</Text>
           <Text style={styles.successSubtitle}>Preparando viaje...</Text>
           
@@ -176,8 +177,8 @@ export default function WaitingClientConfirmationScreen({ route, navigation }: a
         <>
           {/* Animación de espera con LoadingOverlay */}
           <View style={styles.animationContainer}>
-            <ActivityIndicator size="large" color={colors.primary} style={{ marginBottom: 16 }} />
-            <Text style={styles.waitingIcon}>⏳</Text>
+            <LoadingIcon size={48} color={colors.primary} style={{ marginBottom: 16 }} />
+            <MaterialIcons name="hourglass-empty" size={48} color={colors.primary} />
           </View>
           
           <Text style={styles.title}>Esperando Confirmación</Text>

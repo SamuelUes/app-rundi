@@ -15,8 +15,8 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  ActivityIndicator,
 } from 'react-native';
+import { LoadingIcon } from '../../components/LoadingIcon';
 import { Picker } from '@react-native-picker/picker';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
@@ -978,7 +978,7 @@ export default function DriverDataScreen({ navigation, route }: Props) {
               disabled={loading || !isComplete}
             >
               {loading ? (
-                <ActivityIndicator color="#FFFFFF" />
+                <LoadingIcon size={24} color="#FFFFFF" />
               ) : (
                 <Text style={styles.label}>
                   {t('authScreens.driverData.buttons.continue')}

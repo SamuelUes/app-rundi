@@ -1,12 +1,12 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { LoadingIcon } from '../../components/LoadingIcon';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   TextInput,
-  ActivityIndicator,
   Platform,
   ScrollView,
   Image,
@@ -2053,7 +2053,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
               <View style={styles.estimateCard}>
                 {calculatingRoute ? (
                   <View style={styles.centeredRow}>
-                    <ActivityIndicator color={colors.primary} />
+                    <LoadingIcon size={20} color={colors.primary} />
                     <Text style={styles.estimateText}>{` ${tr('summary.calculatingRoute')}`}</Text>
                   </View>
                 ) : (
@@ -2170,7 +2170,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
             >
               {submittingRequest ? (
                 <View style={styles.ctaLoadingRow}>
-                  <ActivityIndicator color="#fff" size="small" style={{ marginRight: 8 }} />
+                  <LoadingIcon size={20} color="#fff" style={{ marginRight: 8 }} />
                   <Text style={styles.ctaText}>{tr('cta.loading')}</Text>
                 </View>
               ) : (
@@ -2264,7 +2264,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
               <View style={styles.searchResultsSection}>
                 {searchLoading && (
                   <View style={styles.searchLoadingRow}>
-                    <ActivityIndicator color={colors.primary || '#2196F3'} />
+                    <LoadingIcon size={20} color={colors.primary || '#2196F3'} />
                     <Text style={styles.searchLoadingText}>{tr('search.loading')}</Text>
                   </View>
                 )}
@@ -2294,7 +2294,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
       {submittingRequest && (
         <View style={styles.submittingOverlay} pointerEvents="none">
           <View style={styles.submittingCard}>
-            <ActivityIndicator color={colors.primary || '#2196F3'} size="large" />
+            <LoadingIcon size={32} color={colors.primary || '#2196F3'} />
             <Text style={styles.submittingLabel}>{tr('cta.submittingOverlay')}</Text>
           </View>
         </View>

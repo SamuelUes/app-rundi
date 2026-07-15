@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
-import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, StyleSheet } from 'react-native';
+import { LoadingIcon } from '../components/LoadingIcon';
 import { useAuth } from '../context/AuthContext';
 import AuthStack from './AuthStack';
 import ClientStack from './ClientStack';
@@ -38,7 +39,7 @@ export default function AppNavigator() {
   if (loading) {
     return (
       <View style={styles.loading}>
-        <ActivityIndicator size="large" color="#007AFF" />
+        <LoadingIcon size={32} color="#007AFF" />
       </View>
     );
   }

@@ -1,5 +1,7 @@
 import React from 'react';
-import { ActivityIndicator, Modal, StyleSheet, Text, View } from 'react-native';
+import { Modal, StyleSheet, Text, View } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { LoadingIcon } from './LoadingIcon';
 import { useTheme } from '../context/ThemeContext';
 
 type PreflightBiometricPhase = 'scanning' | 'pin_fallback' | 'success' | 'failed';
@@ -26,11 +28,11 @@ const PreflightBiometricPrompt = ({
       <View style={styles.overlay}>
         <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
           {phase === 'success' ? (
-            <Text style={styles.icon}>✅</Text>
+            <MaterialIcons name="check-circle" size={48} color="#4CAF50" style={styles.icon} />
           ) : phase === 'failed' ? (
-            <Text style={styles.icon}>⚠️</Text>
+            <MaterialIcons name="warning" size={48} color="#FF9800" style={styles.icon} />
           ) : (
-            <ActivityIndicator size="large" color={colors.primary} style={styles.spinner} />
+            <LoadingIcon icon="fingerprint" size={40} color={colors.primary} animation="pulse" style={styles.spinner} />
           )}
 
           <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
@@ -63,7 +65,6 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   icon: {
-    fontSize: 28,
     marginBottom: 10,
   },
   title: {

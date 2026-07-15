@@ -6,10 +6,11 @@ import {
   ScrollView,
   TextInput,
   TouchableOpacity,
-  ActivityIndicator,
   Image,
   Alert,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { LoadingIcon } from '../../components/LoadingIcon';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ExpoImagePicker from 'expo-image-picker';
 import { useTheme } from '../../context/ThemeContext';
@@ -879,9 +880,9 @@ export default function AccountScreen({ navigation }: any) {
               onPress={handlePickProfilePhoto}
             >
               {uploadingPhoto ? (
-                <ActivityIndicator size="small" color="#fff" />
+                <LoadingIcon size={20} color="#fff" />
               ) : (
-                <Text style={styles.avatarEditIcon}>✏️</Text>
+                <MaterialIcons name="edit" size={20} color="#fff" />
               )}
             </TouchableOpacity>
           </View>
@@ -930,7 +931,7 @@ export default function AccountScreen({ navigation }: any) {
               <View style={styles.accountSummarySection}>
                 <Text style={styles.infoLabel}>{t('shared.account.providers.title')}</Text>
                 {profileLoading || providersState.loading ? (
-                  <ActivityIndicator color={colors.primary} />
+                  <LoadingIcon size={20} color={colors.primary} />
                 ) : (
                   <Text style={styles.infoText}>
                     {buildProviderSummary(
@@ -963,7 +964,7 @@ export default function AccountScreen({ navigation }: any) {
               onPress={handleSaveProfile}
             >
               {savingProfile ? (
-                <ActivityIndicator color="#fff" />
+                <LoadingIcon size={20} color="#fff" />
               ) : (
                 <Text style={styles.buttonText}>{t('shared.account.profile.saveButton')}</Text>
               )}
@@ -999,7 +1000,7 @@ export default function AccountScreen({ navigation }: any) {
               onPress={handleCreatePasswordForGoogle}
             >
               {passwordForm.submitting ? (
-                <ActivityIndicator color="#fff" />
+                <LoadingIcon size={20} color="#fff" />
               ) : (
                 <Text style={styles.buttonText}>{t('shared.account.cards.addPassword.button')}</Text>
               )}
@@ -1044,7 +1045,7 @@ export default function AccountScreen({ navigation }: any) {
               onPress={handleLinkEmailForPhoneAccount}
             >
               {emailForm.submitting ? (
-                <ActivityIndicator color="#fff" />
+                <LoadingIcon size={20} color="#fff" />
               ) : (
                 <Text style={styles.buttonText}>{t('shared.account.cards.linkEmail.button')}</Text>
               )}

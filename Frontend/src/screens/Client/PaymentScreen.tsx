@@ -4,10 +4,11 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  ActivityIndicator,
   ScrollView,
   TextInput,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { LoadingIcon } from '../../components/LoadingIcon';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import SupportChatShortcut from '../../components/SupportChatShortcut';
 import { useTheme } from '../../context/ThemeContext';
@@ -598,7 +599,7 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#000" />
+        <LoadingIcon size={32} color="#000" />
         <Text style={styles.loadingText}>{t('shared.payment.loading')}</Text>
       </View>
     );
@@ -877,7 +878,7 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
           disabled={processing}
         >
           {processing ? (
-            <ActivityIndicator color="#fff" />
+            <LoadingIcon size={24} color="#fff" />
           ) : (
             <Text style={styles.payButtonText}>
               {t('shared.payment.buttons.payCash')}
@@ -887,7 +888,7 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
 
         {/* Info de seguridad */}
         <View style={styles.securityInfo}>
-          <Text style={styles.securityIcon}>🔒</Text>
+          <MaterialIcons name="lock-outline" size={20} color={colors.textSecondary} />
           <Text style={styles.securityText}>
             {t('shared.payment.security.message')}
           </Text>

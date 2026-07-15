@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, Image, ActivityIndicator, Animated } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, Image, Animated } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { LoadingIcon } from '../../components/LoadingIcon';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
@@ -1196,7 +1198,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
               style={styles.messageButton}
               activeOpacity={0.9}
             >
-              <Text style={styles.iconText}>💬</Text>
+              <MaterialIcons name="chat" size={24} color="#FFFFFF" />
             </TouchableOpacity>
             {item.status === 'accepted' ? (
               <Animated.View
@@ -1268,7 +1270,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
 
         {loading ? (
           <View style={styles.loadingBox}>
-            <ActivityIndicator />
+            <LoadingIcon icon="refresh" size={32} color={colors.primary} animation="spin" />
           </View>
         ) : offers.length === 0 ? (
           <View style={styles.emptyBox}>
@@ -1306,7 +1308,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
           activeOpacity={0.85}
         >
           {isConfirming ? (
-            <ActivityIndicator color="#FFFFFF" />
+            <LoadingIcon icon="refresh" size={24} color="#FFFFFF" animation="spin" />
           ) : (
             <Text style={styles.primaryBtnText}>{primaryActionLabel}</Text>
           )}
@@ -1326,7 +1328,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
           activeOpacity={0.85}
         >
           {isCancelling ? (
-            <ActivityIndicator color="#FFFFFF" />
+            <LoadingIcon icon="refresh" size={24} color="#FFFFFF" animation="spin" />
           ) : (
             <Text style={styles.cancelBtnText}>{t('client.homeOffers.buttons.cancelSearch')}</Text>
           )}

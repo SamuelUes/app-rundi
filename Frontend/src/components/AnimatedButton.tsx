@@ -4,10 +4,12 @@ import {
   Text,
   StyleSheet,
   Animated,
-  ActivityIndicator,
+  View,
   ViewStyle,
   TextStyle,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { LoadingIcon } from './LoadingIcon';
 
 interface AnimatedButtonProps {
   title: string;
@@ -16,7 +18,7 @@ interface AnimatedButtonProps {
   size?: 'small' | 'medium' | 'large';
   loading?: boolean;
   disabled?: boolean;
-  icon?: string;
+  iconName?: React.ComponentProps<typeof MaterialIcons>['name'];
   style?: ViewStyle;
   textStyle?: TextStyle;
 }
@@ -35,7 +37,7 @@ export const AnimatedButton: React.FC<AnimatedButtonProps> = ({
   size = 'medium',
   loading = false,
   disabled = false,
-  icon,
+  iconName,
   style,
   textStyle,
 }) => {
@@ -105,12 +107,12 @@ export const AnimatedButton: React.FC<AnimatedButtonProps> = ({
         activeOpacity={0.8}
       >
         {loading ? (
-          <ActivityIndicator color="#FFFFFF" size={size === 'small' ? 'small' : 'small'} />
+          <LoadingIcon icon="refresh" size={20} color="#FFFFFF" animation="spin" />
         ) : (
-          <>
-            {icon && <Text style={styles.icon}>{icon}</Text>}
+          <View style={styles.contentRow}>
+            {iconName && <MaterialIcons name={iconName} size={size === 'small' ? 16 : size === 'large' ? 22 : 20} color="#FFFFFF" style={styles.icon} />}
             <Text style={[getTextStyle(), textStyle]}>{title}</Text>
-          </>
+          </View>
         )}
       </TouchableOpacity>
     </Animated.View>
@@ -156,7 +158,11 @@ const styles = StyleSheet.create({
   },
   icon: {
     marginRight: 8,
-    fontSize: 18,
+  },
+  contentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   disabled: {
     opacity: 0.5,

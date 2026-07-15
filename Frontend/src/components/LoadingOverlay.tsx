@@ -8,7 +8,6 @@ import React, { useEffect } from 'react';
 import {
   View,
   Text,
-  ActivityIndicator,
   StyleSheet,
   Animated,
   Easing,
@@ -16,6 +15,7 @@ import {
   ViewStyle,
   TextStyle
 } from 'react-native';
+import { LoadingIcon } from './LoadingIcon';
 import { useTheme } from '../context/ThemeContext';
 import { useTranslation } from 'react-i18next';
 
@@ -69,9 +69,11 @@ const LoadingOverlay = ({
       ]}
     >
       <View style={[styles.container, { backgroundColor: colors.card }]}>
-        <ActivityIndicator
-          size={spinnerSize}
+        <LoadingIcon
+          icon="refresh"
+          size={spinnerSize === 'large' ? 36 : 24}
           color={colors.primary}
+          animation="spin"
           style={styles.spinner}
         />
         <Text style={[styles.message, { color: colors.text }]}>

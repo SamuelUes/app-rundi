@@ -8,10 +8,11 @@ import {
   TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
-  ActivityIndicator,
   Linking,
   Alert,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { LoadingIcon } from '../../components/LoadingIcon';
 import { useTheme } from '../../context/ThemeContext';
 import { SkeletonLoader } from '../../components/SkeletonLoader';
 import { EmptyState } from '../../components/EmptyState';
@@ -143,7 +144,7 @@ export default function ChatScreen({ route }: any) {
               style={styles.callButton}
               onPress={handleCall}
             >
-              <Text style={styles.callButtonText}>📞</Text>
+              <MaterialIcons name="call" size={24} color={colors.primary} />
             </TouchableOpacity>
           )}
         </View>
@@ -158,7 +159,7 @@ export default function ChatScreen({ route }: any) {
         contentContainerStyle={styles.messagesList}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Text style={styles.emptyIcon}>💬</Text>
+            <MaterialIcons name="chat" size={48} color={colors.textSecondary} />
             <Text style={styles.emptyText}>{emptyMessage}</Text>
           </View>
         }
@@ -168,7 +169,7 @@ export default function ChatScreen({ route }: any) {
       {/* Indicador de escritura */}
       {isTyping && typingUser && (
         <View style={styles.typingIndicator}>
-          <ActivityIndicator size="small" color="#666" />
+          <LoadingIcon size={16} color="#666" />
           <Text style={styles.typingText}>
             {t('shared.chat.typing', { name: typingUser })}
           </Text>
@@ -210,7 +211,7 @@ export default function ChatScreen({ route }: any) {
           onPress={handleSend}
           disabled={!inputText.trim()}
         >
-          <Text style={styles.sendButtonText}>➤</Text>
+          <MaterialIcons name="send" size={24} color={colors.primary} />
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>

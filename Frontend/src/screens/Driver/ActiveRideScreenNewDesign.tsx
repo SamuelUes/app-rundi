@@ -4,13 +4,14 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  ActivityIndicator,
   Linking,
   Platform,
   Image,
   ScrollView,
   Animated,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { LoadingIcon } from '../../components/LoadingIcon';
 import alertService from '../../services/alertService';
 import { useTheme } from '../../context/ThemeContext';
 import { MapSkeleton } from '../../components/SkeletonLoader';
@@ -789,7 +790,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
   if (loading || !ride) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
+        <LoadingIcon size={32} color={colors.primary} />
         <Text style={[styles.loadingText, { color: colors.text }]}>
           {loading
             ? t('driver.activeRide.loader.loadingDetails')
@@ -871,10 +872,10 @@ export default function ActiveRideScreen({ route, navigation }: any) {
           </View>
           <View style={styles.headerRight}>
             <TouchableOpacity onPress={handleOpenChat} style={styles.headerAction}>
-              <Text style={styles.headerActionText}>💬</Text>
+              <MaterialIcons name="chat" size={24} color={colors.textSecondary || '#666'} />
             </TouchableOpacity>
             <TouchableOpacity onPress={handleCallClient} style={styles.headerAction}>
-              <Text style={styles.headerActionText}>📞</Text>
+              <MaterialIcons name="call" size={24} color={colors.textSecondary || '#666'} />
             </TouchableOpacity>
             <TouchableOpacity
               onPress={handleVoiceToggle}
@@ -886,7 +887,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
               }
               accessibilityRole="button"
             >
-              <Text style={styles.headerActionText}>{voicePaused ? '🔊' : '🔇'}</Text>
+              <MaterialIcons name={voicePaused ? 'volume-up' : 'volume-off'} size={24} color={colors.textSecondary || '#666'} />
             </TouchableOpacity>
           </View>
         </View>
@@ -998,7 +999,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
               activeOpacity={0.85}
             >
               {isCancellingRide ? (
-                <ActivityIndicator color="#f44336" />
+                <LoadingIcon size={20} color="#f44336" />
               ) : (
                 <Text style={[styles.cancelButtonText, { color: '#f44336' }]}>
                   {t('driver.activeRide.buttons.cancelRide')}
@@ -1054,7 +1055,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
               activeOpacity={0.85}
             >
               {isCancellingRide ? (
-                <ActivityIndicator color="#f44336" />
+                <LoadingIcon size={20} color="#f44336" />
               ) : (
                 <Text style={[styles.cancelButtonText, { color: '#f44336' }]}>
                   {t('driver.activeRide.buttons.cancelRide')}

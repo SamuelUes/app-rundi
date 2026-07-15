@@ -6,8 +6,9 @@ import {
   Image,
   StyleSheet,
   Alert,
-  ActivityIndicator,
 } from 'react-native';
+import { LoadingIcon } from './LoadingIcon';
+import { MaterialIcons } from '@expo/vector-icons';
 import * as ExpoImagePicker from 'expo-image-picker';
 import { useTheme } from '../context/ThemeContext';
 import { useTranslation } from 'react-i18next';
@@ -113,12 +114,12 @@ export default function ImagePicker({
         disabled={loading}
       >
         {loading ? (
-          <ActivityIndicator size="small" color={colors.primary} />
+          <LoadingIcon size={20} color={colors.primary} />
         ) : imageUri ? (
           <Image source={{ uri: imageUri }} style={styles.imagePreview} />
         ) : (
           <View style={styles.placeholderContainer}>
-            <Text style={styles.placeholderIcon}>📷</Text>
+            <MaterialIcons name="photo-camera" size={32} color={colors.textSecondary} />
             <Text style={[styles.placeholderText, { color: colors.textSecondary }]}>
               {t('common.components.imagePicker.placeholder')}
             </Text>

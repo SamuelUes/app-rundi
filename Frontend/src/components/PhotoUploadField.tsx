@@ -5,10 +5,11 @@ import {
   TouchableOpacity,
   Image,
   StyleSheet,
-  ActivityIndicator,
   Alert,
   Platform,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { LoadingIcon } from './LoadingIcon';
 import * as ImagePicker from 'expo-image-picker';
 import { useTranslation } from 'react-i18next';
 
@@ -110,7 +111,7 @@ export const PhotoUploadField: React.FC<PhotoUploadFieldProps> = ({
           {label}
           {isRequired && <Text style={styles.required}> *</Text>}
         </Text>
-        {value && <Text style={styles.statusIcon}>✅</Text>}
+        {value && <MaterialIcons name="check-circle" size={18} color="#4CAF50" />}
       </View>
 
       {value ? (
@@ -135,10 +136,10 @@ export const PhotoUploadField: React.FC<PhotoUploadFieldProps> = ({
           disabled={loading}
         >
           {loading ? (
-            <ActivityIndicator color={colors.primary} />
+            <LoadingIcon icon="cloud-upload" size={32} color={colors.primary} animation="pulse" />
           ) : (
             <>
-              <Text style={styles.uploadIcon}>📷</Text>
+              <MaterialIcons name="photo-camera" size={32} color={colors.primary} style={styles.uploadIcon} />
               <Text style={styles.uploadText}>
                 {t('common.components.photoUploadField.buttons.add')}
               </Text>
@@ -170,7 +171,7 @@ const createStyles = (colors: any) =>
       color: '#FF6B6B',
     },
     statusIcon: {
-      fontSize: 16,
+      display: 'none',
     },
     previewContainer: {
       alignItems: 'center',
@@ -204,7 +205,6 @@ const createStyles = (colors: any) =>
       backgroundColor: colors.surface,
     },
     uploadIcon: {
-      fontSize: 32,
       marginBottom: 8,
     },
     uploadText: {

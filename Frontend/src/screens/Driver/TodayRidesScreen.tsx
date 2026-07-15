@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { LoadingIcon } from '../../components/LoadingIcon';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import ridesService from '../../services/ridesService';
@@ -236,7 +238,7 @@ export default function TodayRidesScreen({ navigation }: any) {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
+        <LoadingIcon size={32} color={colors.primary} />
       </View>
     );
   }
@@ -244,7 +246,7 @@ export default function TodayRidesScreen({ navigation }: any) {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>📊 Viajes de Hoy</Text>
+        <Text style={styles.headerTitle}><MaterialIcons name="bar-chart" size={24} color={colors.text} /> Viajes de Hoy</Text>
         <View style={styles.statsContainer}>
           <View style={styles.statItem}>
             <Text style={styles.statValue}>{stats.trips}</Text>
@@ -259,7 +261,7 @@ export default function TodayRidesScreen({ navigation }: any) {
 
       {rides.length === 0 ? (
         <View style={styles.emptyContainer}>
-          <Text style={{ fontSize: 48 }}>🚗</Text>
+          <MaterialIcons name="directions-car" size={48} color={colors.textSecondary} />
           <Text style={styles.emptyText}>
             No has realizado viajes hoy
           </Text>

@@ -9,11 +9,11 @@ import {
   Text,
   StyleSheet,
   View,
-  ActivityIndicator,
   StyleProp,
   ViewStyle,
   Image,
 } from 'react-native';
+import { LoadingIcon } from './LoadingIcon';
 import { useTheme } from '../context/ThemeContext';
 import { useTranslation } from 'react-i18next';
 
@@ -100,7 +100,7 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
         <View style={styles.buttonContent}>
           {loading ? (
             <View style={styles.loadingContainer}>
-              <ActivityIndicator size="small" color="#4285F4" />
+              <LoadingIcon size={20} color="#4285F4" />
             </View>
           ) : (
             <Image

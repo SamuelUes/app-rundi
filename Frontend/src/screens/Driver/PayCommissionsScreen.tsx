@@ -5,10 +5,11 @@ import {
   StyleSheet,
   TextInput,
   TouchableOpacity,
-  ActivityIndicator,
   Alert,
   ScrollView,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { LoadingIcon } from '../../components/LoadingIcon';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import penaltiesService, { DriverPenaltySummary, PayAllPenaltiesResult } from '../../services/penaltiesService';
@@ -222,7 +223,7 @@ export default function PayCommissionsScreen({ navigation }: any) {
         >
           <View style={styles.methodOptionHeader}>
             <Text style={styles.methodOptionLabel}>{methodsTexts.cardTitle}</Text>
-            {selectedMethod === 'card' && <Text style={styles.methodOptionCheck}>✓</Text>}
+            {selectedMethod === 'card' && <MaterialIcons name="check" size={20} color={colors.primary} />}
           </View>
           <Text style={styles.methodOptionDescription}>
             {methodsTexts.cardDescription}
@@ -277,7 +278,7 @@ export default function PayCommissionsScreen({ navigation }: any) {
         >
           <View style={styles.methodOptionHeader}>
             <Text style={styles.methodOptionLabel}>{methodsTexts.bankTitle}</Text>
-            {selectedMethod === 'bank_transfer' && <Text style={styles.methodOptionCheck}>✓</Text>}
+            {selectedMethod === 'bank_transfer' && <MaterialIcons name="check" size={20} color={colors.primary} />}
           </View>
           <Text style={styles.methodOptionDescription}>
             {methodsTexts.bankDescription}
@@ -299,7 +300,7 @@ export default function PayCommissionsScreen({ navigation }: any) {
 
       {loading ? (
         <View style={styles.centerBox}>
-          <ActivityIndicator color={colors.primary} size="large" />
+          <LoadingIcon size={32} color={colors.primary} />
           <Text style={styles.loadingText}>{loadingText}</Text>
         </View>
       ) : (
@@ -369,7 +370,7 @@ export default function PayCommissionsScreen({ navigation }: any) {
             activeOpacity={0.85}
           >
             {submitting ? (
-              <ActivityIndicator color="#fff" />
+              <LoadingIcon size={20} color="#fff" />
             ) : (
               <Text style={styles.payButtonText}>
                 {t('driver.payComission.button.pay', {

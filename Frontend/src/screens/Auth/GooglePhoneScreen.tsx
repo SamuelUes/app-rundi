@@ -14,8 +14,8 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  ActivityIndicator,
 } from 'react-native';
+import { LoadingIcon } from '../../components/LoadingIcon';
 import { RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTheme } from '../../context/ThemeContext';
@@ -203,7 +203,7 @@ const GooglePhoneScreen: React.FC<GooglePhoneScreenProps> = ({ navigation, route
               disabled={loading}
             >
               {loading ? (
-                <ActivityIndicator color="#FFFFFF" />
+                <LoadingIcon size={24} color="#FFFFFF" />
               ) : (
                 <Text style={styles.continueButtonText}>
                   {t('authScreens.googlePhone.buttons.send')}

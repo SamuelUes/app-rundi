@@ -7,10 +7,10 @@ import {
   TouchableOpacity, 
   Image, 
   Alert,
-  ActivityIndicator,
   Platform,
   TextInput
 } from 'react-native';
+import { LoadingIcon } from '../../components/LoadingIcon';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
@@ -285,7 +285,7 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
 
       {loading ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
+          <LoadingIcon size={32} color={colors.primary} />
           <Text style={styles.loadingText}>
             {t(`${diNS}.loading.uploading`, { progress: Math.round(uploadProgress * 100) })}
           </Text>

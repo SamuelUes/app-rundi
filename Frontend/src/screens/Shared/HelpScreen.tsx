@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   Linking,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import { useTranslation } from 'react-i18next';
 
@@ -103,17 +104,17 @@ export default function HelpScreen() {
           <View style={styles.contactButtons}>
             {[
               {
-                icon: '📞',
+                icon: 'call',
                 label: t('shared.help.contact.call'),
                 onPress: handleCall,
               },
               {
-                icon: '💬',
+                icon: 'chat',
                 label: t('shared.help.contact.whatsapp'),
                 onPress: handleWhatsApp,
               },
               {
-                icon: '📧',
+                icon: 'email',
                 label: t('shared.help.contact.email'),
                 onPress: handleEmail,
               },
@@ -123,7 +124,7 @@ export default function HelpScreen() {
                 style={styles.contactButton}
                 onPress={option.onPress}
               >
-                <Text style={styles.contactIcon}>{option.icon}</Text>
+                <MaterialIcons name={option.icon as any} size={28} color={colors.primary} />
                 <Text style={styles.contactText}>{option.label}</Text>
               </TouchableOpacity>
             ))}
@@ -157,28 +158,28 @@ export default function HelpScreen() {
           
           {[
             {
-              icon: '🌐',
+              icon: 'language',
               title: t('shared.help.info.website.label'),
               value: t('shared.help.info.website.value'),
             },
             {
-              icon: '📧',
+              icon: 'email',
               title: t('shared.help.info.email.label'),
               value: t('shared.help.info.email.value'),
             },
             {
-              icon: '📱',
+              icon: 'smartphone',
               title: t('shared.help.info.phone.label'),
               value: t('shared.help.info.phone.value'),
             },
             {
-              icon: '⏰',
+              icon: 'schedule',
               title: t('shared.help.info.schedule.label'),
               value: t('shared.help.info.schedule.value'),
             },
           ].map((item) => (
             <View key={item.title} style={styles.infoCard}>
-              <Text style={styles.infoIcon}>{item.icon}</Text>
+              <MaterialIcons name={item.icon as any} size={24} color={colors.primary} />
               <View style={styles.infoContent}>
                 <Text style={styles.infoTitle}>{item.title}</Text>
                 <Text style={styles.infoValue}>{item.value}</Text>

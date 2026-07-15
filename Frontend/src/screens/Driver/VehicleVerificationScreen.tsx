@@ -7,10 +7,10 @@ import {
   TouchableOpacity, 
   Image, 
   Alert,
-  ActivityIndicator,
   Platform,
   TextInput
 } from 'react-native';
+import { LoadingIcon } from '../../components/LoadingIcon';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
@@ -417,7 +417,7 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
 
       {loading ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
+          <LoadingIcon size={32} color={colors.primary} />
           <Text style={styles.loadingText}>
             {t(`${ns}.loading.verifying`, { progress: Math.round(uploadProgress * 100) })}
           </Text>

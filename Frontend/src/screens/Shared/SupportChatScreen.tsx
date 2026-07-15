@@ -8,10 +8,11 @@ import {
   TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
-  ActivityIndicator,
   Alert,
   Image,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { LoadingIcon } from '../../components/LoadingIcon';
 import { httpsCallable } from 'firebase/functions';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
@@ -266,7 +267,7 @@ export default function SupportChatScreen({ route }: SupportChatScreenProps) {
           >
             {creatingComplaint ? (
               <View style={styles.buttonContentRow}>
-                <ActivityIndicator color="#fff" style={{ marginRight: 8 }} />
+                <LoadingIcon size={20} color="#fff" style={{ marginRight: 8 }} />
                 <Text style={styles.primaryButtonText}>{t(`${ns}.actions.creatingCase`)}</Text>
               </View>
             ) : (
@@ -311,7 +312,7 @@ export default function SupportChatScreen({ route }: SupportChatScreenProps) {
     if (!chat.messages.length) {
       return (
         <View style={styles.emptyContainer}>
-          <Text style={styles.emptyIcon}>💬</Text>
+          <MaterialIcons name="chat" size={48} color={colors.textSecondary} />
           <Text style={styles.emptyText}>{t(`${ns}.emptyState.text`)}</Text>
         </View>
       );
@@ -349,7 +350,7 @@ export default function SupportChatScreen({ route }: SupportChatScreenProps) {
           disabled={disabled}
           onPress={handleSendMessage}
         >
-          <Text style={styles.sendButtonText}>➤</Text>
+          <MaterialIcons name="send" size={24} color={colors.primary} />
         </TouchableOpacity>
       </View>
     );
@@ -394,7 +395,7 @@ export default function SupportChatScreen({ route }: SupportChatScreenProps) {
             style={styles.fab}
             onPress={handleCallButton}
           >
-            <Text style={styles.fabText}>📞</Text>
+            <MaterialIcons name="call" size={24} color="#fff" />
           </TouchableOpacity>
         </View> 
       </View>

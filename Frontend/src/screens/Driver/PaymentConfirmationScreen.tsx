@@ -11,12 +11,13 @@ import {
   Text,
   StyleSheet,
   ScrollView,
-  ActivityIndicator,
   Alert,
   TextInput,
   NativeSyntheticEvent,
   TextInputKeyPressEventData,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { LoadingIcon } from '../../components/LoadingIcon';
 import { useTheme } from '../../context/ThemeContext';
 import { AnimatedButton } from '../../components/AnimatedButton';
 import { getFunctions, httpsCallable } from 'firebase/functions';
@@ -473,7 +474,7 @@ export default function PaymentConfirmationScreen({
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
+        <LoadingIcon size={32} color={colors.primary} />
         <Text style={styles.loadingText}>{loadingText}</Text>
       </View>
     );
@@ -483,9 +484,7 @@ export default function PaymentConfirmationScreen({
     <ScrollView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.icon}>
-          {paymentMethod === 'cash' ? '💵' : '💳'}
-        </Text>
+        <MaterialIcons name={paymentMethod === 'cash' ? 'payments' : 'credit-card'} size={48} color={colors.primary} />
         <Text style={styles.title}>
           {paymentMethod === 'cash' ? headerTexts.cashTitle : headerTexts.cardTitle}
         </Text>
@@ -535,13 +534,13 @@ export default function PaymentConfirmationScreen({
           {/* Estado de confirmación del cliente */}
           {clientConfirmed ? (
             <View style={[styles.statusCard, styles.statusCardSuccess]}>
-              <Text style={styles.statusIcon}>✅</Text>
+              <MaterialIcons name="check-circle" size={32} color="#4CAF50" />
               <Text style={styles.statusTextSuccess}>{cashStatusTexts.confirmedTitle}</Text>
               <Text style={styles.statusSubtext}>{cashStatusTexts.confirmedSubtitle}</Text>
             </View>
           ) : (
             <View style={[styles.statusCard, styles.statusCardWarning]}>
-              <Text style={styles.statusIcon}>⏳</Text>
+              <MaterialIcons name="hourglass-empty" size={32} color="#FF9800" />
               <Text style={styles.statusTextWarning}>{cashStatusTexts.waitingTitle}</Text>
               <Text style={styles.statusSubtext}>{cashStatusTexts.waitingSubtitle}</Text>
             </View>

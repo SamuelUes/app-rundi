@@ -7,6 +7,7 @@ import {
   StyleProp,
   ViewStyle,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useTheme } from '../context/ThemeContext';
 import { useTranslation } from 'react-i18next';
@@ -62,7 +63,7 @@ export default function SupportChatShortcut({
       activeOpacity={0.9}
     >
       <View style={styles.iconBadge}>
-        <Text style={styles.iconText}>💬</Text>
+        <MaterialIcons name="chat" size={24} color="#FFFFFF" />
       </View>
       <View style={styles.textContainer}>
         <Text style={styles.title}>{resolvedLabel}</Text>
@@ -100,7 +101,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     marginRight: 16,
   },
   iconText: {
-    fontSize: 22,
+    display: 'none',
   },
   textContainer: {
     flex: 1,

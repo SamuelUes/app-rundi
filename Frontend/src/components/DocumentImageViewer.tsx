@@ -8,8 +8,8 @@ import {
   Modal,
   Dimensions,
   ScrollView,
-  ActivityIndicator,
 } from 'react-native';
+import { LoadingIcon } from './LoadingIcon';
 import { useTheme } from '../context/ThemeContext';
 import { useTranslation } from 'react-i18next';
 
@@ -144,8 +144,8 @@ export default function DocumentImageViewer({
                     onLoadEnd={() => setImageLoading(false)}
                   />
                   {imageLoading && (
-                    <ActivityIndicator
-                      size="large"
+                    <LoadingIcon
+                      size={32}
                       color="#fff"
                       style={styles.loader}
                     />

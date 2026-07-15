@@ -6,11 +6,12 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  ActivityIndicator,
   RefreshControl,
   Alert,
   Image,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { LoadingIcon } from '../../components/LoadingIcon';
 import { useTheme } from '../../context/ThemeContext';
 import { useTranslation } from 'react-i18next';
 import { SkeletonLoader, RideListSkeleton } from '../../components/SkeletonLoader';
@@ -192,7 +193,7 @@ export default function EarningsScreen() {
   if (loading && !refreshing) {
     return (
       <View style={styles.container}>
-        <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 50 }} />
+        <LoadingIcon size={32} color={colors.primary} style={{ marginTop: 50 }} />
       </View>
     );
   }
@@ -291,7 +292,7 @@ export default function EarningsScreen() {
           {commissionBreakdown.cash.total.rides > 0 && (
             <View style={styles.commissionSection}>
               <View style={styles.commissionHeader}>
-                <Text style={styles.commissionIcon}>💵</Text>
+                <MaterialIcons name="payments" size={24} color={colors.textSecondary} />
                 <Text style={styles.commissionLabel}>{t('driver.earnings.commission.cashLabel')}</Text>
               </View>
               
@@ -336,7 +337,7 @@ export default function EarningsScreen() {
           {commissionBreakdown.card.total.rides > 0 && (
             <View style={styles.commissionSection}>
               <View style={styles.commissionHeader}>
-                <Text style={styles.commissionIcon}>💳</Text>
+                <MaterialIcons name="credit-card" size={24} color={colors.textSecondary} />
                 <Text style={styles.commissionLabel}>{t('driver.earnings.commission.cardLabel')}</Text>
               </View>
               

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, ActivityIndicator, Text } from 'react-native';
+import { View, StyleSheet, Text } from 'react-native';
+import { LoadingIcon } from './LoadingIcon';
 import MapView, { Polyline, Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import backendConfig from '../config/backendConfig';
 import { useTranslation } from 'react-i18next';
@@ -58,7 +59,7 @@ const RouteHistoryMap: React.FC<RouteHistoryMapProps> = ({
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#4CAF50" />
+        <LoadingIcon size={32} color="#4CAF50" />
         <Text style={styles.loadingText}>{t('common.components.routeHistoryMap.loading')}</Text>
       </View>
     );

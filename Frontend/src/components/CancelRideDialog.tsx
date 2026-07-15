@@ -6,9 +6,9 @@ import {
   Modal,
   TextInput,
   TouchableOpacity,
-  ActivityIndicator,
   Alert,
 } from 'react-native';
+import { LoadingIcon } from './LoadingIcon';
 import { useTranslation } from 'react-i18next';
 
 interface CancelRideDialogProps {
@@ -176,7 +176,7 @@ export default function CancelRideDialog({
               disabled={loading}
             >
               {loading ? (
-                <ActivityIndicator color="#FFFFFF" />
+                <LoadingIcon size={24} color="#FFFFFF" />
               ) : (
                 <Text style={styles.confirmButtonText}>
                   Sí, cancelar

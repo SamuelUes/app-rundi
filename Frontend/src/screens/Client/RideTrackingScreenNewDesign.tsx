@@ -22,10 +22,11 @@ import {
   Animated,
   Dimensions,
   ScrollView,
-  ActivityIndicator,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 
 // Servicios y componentes
+import LoadingIcon from '../../components/LoadingIcon';
 import alertService from '../../services/alertService';
 import SupportChatShortcut from '../../components/SupportChatShortcut';
 import { clearClientActiveRideState } from '../../utils/clientRideState';
@@ -1069,7 +1070,7 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
 
             {/* Botón de Mensaje */}
             <TouchableOpacity style={styles.messageButton} onPress={handleOpenChat}>
-              <Text style={styles.messageIcon}>💬</Text>
+              <MaterialIcons name="chat" size={24} color={colors.primary} />
             </TouchableOpacity>
           </View>
 
@@ -1077,7 +1078,7 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
           <View style={styles.locationsContainer}>
             {originCoords && (
               <View style={styles.locationItem}>
-                <Text style={styles.locationIcon}>📍</Text>
+                <MaterialIcons name="place" size={20} color={colors.primary} />
                 <View style={styles.locationContent}>
                   <Text style={[styles.locationLabel, { color: colors.textSecondary }]}>
                     {tr('labels.pickupLabel')}
@@ -1172,7 +1173,7 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
           activeOpacity={0.85}
         >
           {isCancellingRide ? (
-            <ActivityIndicator color="#FFFFFF" />
+            <LoadingIcon icon="refresh" size={24} color="#FFFFFF" animation="spin" />
           ) : (
             <Text style={styles.cancelButtonText}>{tr('buttons.cancel')}</Text>
           )}

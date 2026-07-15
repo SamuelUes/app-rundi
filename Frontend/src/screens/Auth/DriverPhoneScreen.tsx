@@ -9,9 +9,9 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  ActivityIndicator,
   Image,
 } from 'react-native';
+import { LoadingIcon } from '../../components/LoadingIcon';
 import { Picker } from '@react-native-picker/picker';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
@@ -295,7 +295,7 @@ const DriverPhoneScreen: React.FC<Props> = ({ navigation, route }) => {
               disabled={!isPhoneValid || loading}
             >
               {loading ? (
-                <ActivityIndicator color="#FFFFFF" />
+                <LoadingIcon size={24} color="#FFFFFF" />
               ) : (
                 <Image
                   source={require('../../assets/icons/continue_button/continue_button.png')}

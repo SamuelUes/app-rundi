@@ -15,9 +15,9 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  ActivityIndicator,
   Image,
 } from 'react-native';
+import { LoadingIcon } from '../../components/LoadingIcon';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -433,7 +433,7 @@ export default function PhoneVerificationScreen({ navigation, route }: Props) {
             disabled={loading || code.length !== 6}
           >
             {loading ? (
-              <ActivityIndicator color="#FFFFFF" />
+              <LoadingIcon size={24} color="#FFFFFF" />
             ) : (
               <Text style={styles.primaryButtonText}>
                 {t('authScreens.phoneVerification.verifyButton')}
@@ -452,7 +452,7 @@ export default function PhoneVerificationScreen({ navigation, route }: Props) {
             ) : (
               <TouchableOpacity onPress={handleResendCode} disabled={resendLoading}>
                 {resendLoading ? (
-                  <ActivityIndicator color={colors.primary} />
+                  <LoadingIcon size={20} color={colors.primary} />
                 ) : (
                   <Text style={styles.resendButton}>
                     {t('authScreens.phoneVerification.resend.button')}

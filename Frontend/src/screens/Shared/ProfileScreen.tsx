@@ -1,5 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Image, Switch, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Image, Switch } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { LoadingIcon } from '../../components/LoadingIcon';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { useFCM } from '../../context/FCMContext';
@@ -358,15 +360,13 @@ export default function ProfileScreen({ navigation }: any) {
                 onPress={loadDriverProfileData}
                 disabled={loadingProfile}
               >
-                <Text style={styles.refreshIconText}>
-                  {loadingProfile ? '⏳' : '🔄'}
-                </Text>
+                <MaterialIcons name={loadingProfile ? 'hourglass-empty' : 'refresh'} size={20} color={colors.textSecondary} />
               </TouchableOpacity>
             </View>
             
             {loadingProfile ? (
               <View style={styles.loadingContainer}>
-                <ActivityIndicator size="small" color={colors.primary} />
+                <LoadingIcon size={20} color={colors.primary} />
                 <Text style={styles.loadingText}>{t('shared.profile.loading.vehicle')}</Text>
                 <Text style={styles.loadingSubtext}>{t('shared.profile.vehicle.loadingSubtitle')}</Text>
               </View>
@@ -375,7 +375,7 @@ export default function ProfileScreen({ navigation }: any) {
                 {/* Mostrar un mensaje especial para conductores verificados */}
                 {driverProfile.driver.status === 'verified' && (
                   <View style={styles.successCard}>
-                    <Text style={styles.successIcon}>✅</Text>
+                    <MaterialIcons name="check-circle" size={32} color="#4CAF50" />
                     <View style={styles.successContent}>
                       <Text style={styles.successTitle}>{t('shared.profile.vehicle.successTitle')}</Text>
                       <Text style={styles.successText}>{t('shared.profile.vehicle.successText')}</Text>
@@ -389,7 +389,7 @@ export default function ProfileScreen({ navigation }: any) {
                   (!driverProfile.driver.vehicle.registration_photo_front || !driverProfile.driver.vehicle.registration_photo_back) || 
                   !driverProfile.driver.vehicle.insurance_photo) && (
                   <View style={styles.warningCard}>
-                    <Text style={styles.warningIcon}>⚠️</Text>
+                    <MaterialIcons name="warning" size={32} color="#FF9800" />
                     <View style={styles.warningContent}>
                       <Text style={styles.warningTitle}>{t('shared.profile.vehicle.warningTitle')}</Text>
                       <Text style={styles.warningText}>{t('shared.profile.vehicle.warningText')}</Text>
@@ -418,49 +418,49 @@ export default function ProfileScreen({ navigation }: any) {
 
                 <View style={styles.infoCard}>
                   <View style={styles.infoRow}>
-                    <Text style={styles.infoLabel}>🚙 {t('shared.profile.vehicle.infoLabels.brand')}</Text>
+                    <Text style={styles.infoLabel}><MaterialIcons name="directions-car" size={16} color={colors.textSecondary} /> {t('shared.profile.vehicle.infoLabels.brand')}</Text>
                     <Text style={styles.infoValue}>{driverProfile.driver.vehicle.brand}</Text>
                   </View>
                 </View>
 
                 <View style={styles.infoCard}>
                   <View style={styles.infoRow}>
-                    <Text style={styles.infoLabel}>🚗 {t('shared.profile.vehicle.infoLabels.model')}</Text>
+                    <Text style={styles.infoLabel}><MaterialIcons name="directions-car" size={16} color={colors.textSecondary} /> {t('shared.profile.vehicle.infoLabels.model')}</Text>
                     <Text style={styles.infoValue}>{driverProfile.driver.vehicle.model}</Text>
                   </View>
                 </View>
 
                 <View style={styles.infoCard}>
                   <View style={styles.infoRow}>
-                    <Text style={styles.infoLabel}>📅 {t('shared.profile.vehicle.infoLabels.year')}</Text>
+                    <Text style={styles.infoLabel}><MaterialIcons name="calendar-today" size={16} color={colors.textSecondary} /> {t('shared.profile.vehicle.infoLabels.year')}</Text>
                     <Text style={styles.infoValue}>{driverProfile.driver.vehicle.year}</Text>
                   </View>
                 </View>
 
                 <View style={styles.infoCard}>
                   <View style={styles.infoRow}>
-                    <Text style={styles.infoLabel}>🎨 {t('shared.profile.vehicle.infoLabels.color')}</Text>
+                    <Text style={styles.infoLabel}><MaterialIcons name="palette" size={16} color={colors.textSecondary} /> {t('shared.profile.vehicle.infoLabels.color')}</Text>
                     <Text style={styles.infoValue}>{driverProfile.driver.vehicle.color}</Text>
                   </View>
                 </View>
 
                 <View style={styles.infoCard}>
                   <View style={styles.infoRow}>
-                    <Text style={styles.infoLabel}>🔢 {t('shared.profile.vehicle.infoLabels.plate')}</Text>
+                    <Text style={styles.infoLabel}><MaterialIcons name="pin" size={16} color={colors.textSecondary} /> {t('shared.profile.vehicle.infoLabels.plate')}</Text>
                     <Text style={styles.infoValue}>{driverProfile.driver.vehicle.plate}</Text>
                   </View>
                 </View>
 
                 <View style={styles.infoCard}>
                   <View style={styles.infoRow}>
-                    <Text style={styles.infoLabel}>🚘 {t('shared.profile.vehicle.infoLabels.type')}</Text>
+                    <Text style={styles.infoLabel}><MaterialIcons name="directions-car" size={16} color={colors.textSecondary} /> {t('shared.profile.vehicle.infoLabels.type')}</Text>
                     <Text style={styles.infoValue}>{getVehicleTypeLabel(driverProfile.driver.vehicle.type)}</Text>
                   </View>
                 </View>
               </>
             ) : (
               <View style={styles.warningCard}>
-                <Text style={styles.warningIcon}>⚠️</Text>
+                <MaterialIcons name="warning" size={32} color="#FF9800" />
                 <View style={styles.warningContent}>
                   <Text style={styles.warningTitle}>{t('shared.profile.vehicle.emptyTitle')}</Text>
                   <Text style={styles.warningText}>{t('shared.profile.vehicle.emptyText')}</Text>

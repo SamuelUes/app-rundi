@@ -7,9 +7,10 @@ import {
   TouchableOpacity,
   TextInput,
   ScrollView,
-  ActivityIndicator,
   Image,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { LoadingIcon } from '../../components/LoadingIcon';
 import { useTheme } from '../../context/ThemeContext';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { initializeFirebase } from '../../config/firebase';
@@ -117,7 +118,7 @@ export default function PaymentMethodsScreen({ navigation }: any) {
   const renderCard = (card: Card) => (
     <View key={card.id} style={styles.methodCard}>
       <View style={styles.methodIcon}>
-        <Text style={styles.methodIconText}>💳</Text>
+        <MaterialIcons name="credit-card" size={24} color={colors.primary} />
       </View>
       <View style={styles.methodInfo}>
         <Text style={styles.methodTitle}>
@@ -150,7 +151,7 @@ export default function PaymentMethodsScreen({ navigation }: any) {
             style={styles.removeButton}
             onPress={() => handleRemoveCard(card.id)}
           >
-            <Text style={styles.removeText}>✕</Text>
+            <MaterialIcons name="close" size={20} color={colors.textSecondary} />
           </TouchableOpacity>
         </View>
       )}
@@ -160,7 +161,7 @@ export default function PaymentMethodsScreen({ navigation }: any) {
   if (loading) {
     return (
       <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
-        <ActivityIndicator size="large" color={colors.primary} />
+        <LoadingIcon size={32} color={colors.primary} />
         <Text style={styles.loadingText}>{t('shared.paymentMethods.loading')}</Text>
       </View>
     );
@@ -190,7 +191,7 @@ export default function PaymentMethodsScreen({ navigation }: any) {
         {/* Efectivo - Siempre predeterminado si no hay tarjeta predeterminada */}
         <View style={styles.methodCard}>
           <View style={styles.methodIcon}>
-            <Text style={styles.methodIconText}>💵</Text>
+            <MaterialIcons name="payments" size={24} color={colors.primary} />
           </View>
           <View style={styles.methodInfo}>
             <Text style={styles.methodTitle}>{t('shared.paymentMethods.cash.title')}</Text>
@@ -229,7 +230,7 @@ export default function PaymentMethodsScreen({ navigation }: any) {
 
         {/* Info de seguridad */}
         <View style={styles.securityInfo}>
-          <Text style={styles.securityIcon}>🔒</Text>
+          <MaterialIcons name="lock-outline" size={20} color={colors.textSecondary} />
           <Text style={styles.securityText}>
             {t('shared.paymentMethods.security.message')}
           </Text>

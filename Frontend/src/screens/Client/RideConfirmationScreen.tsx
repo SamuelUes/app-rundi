@@ -4,12 +4,12 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  ActivityIndicator,
   Linking,
   ScrollView,
   Image,
   BackHandler,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import { useFocusEffect } from '@react-navigation/native';
 import ridesService from '../../services/ridesService';
@@ -529,9 +529,9 @@ useEffect(() => {
               {(ride as any)?.vehicle && (
                 <>
                   <Text style={styles.driverVehicle}>
-                    🚗 {(ride as any).vehicle.make || (ride as any).vehicle.brand || 'N/A'} {(ride as any).vehicle.model || 'N/A'} • {(ride as any).vehicle.color || 'N/A'}
+                    <MaterialIcons name="directions-car" size={16} color={colors.textSecondary} /> {(ride as any).vehicle.make || (ride as any).vehicle.brand || 'N/A'} {(ride as any).vehicle.model || 'N/A'} • {(ride as any).vehicle.color || 'N/A'}
                   </Text>
-                  <Text style={styles.driverPlate}>📋 Placa: {(ride as any).vehicle.plate || 'N/A'}</Text>
+                  <Text style={styles.driverPlate}><MaterialIcons name="receipt" size={16} color={colors.textSecondary} /> Placa: {(ride as any).vehicle.plate || 'N/A'}</Text>
                 </>
               )}
             </View>
@@ -685,7 +685,7 @@ useEffect(() => {
 
         <View style={styles.locationContainer}>
           <View style={styles.locationRow}>
-            <Text style={styles.locationIcon}>🔵</Text>
+            <MaterialIcons name="circle" size={16} color="#2196F3" />
             <View style={styles.locationInfo}>
               <Text style={styles.locationLabel}>{t('details.origin')}</Text>
               <Text style={styles.locationAddress}>{ride.origin?.address || ride.originAddress || t('details.notSpecified')}</Text>
@@ -700,7 +700,7 @@ useEffect(() => {
               {ride.extraDestinations.map((stop: any, index: number) => (
                 <View key={`waypoint-${index}`}>
                   <View style={styles.locationRow}>
-                    <Text style={styles.locationIcon}>🟡</Text>
+                    <MaterialIcons name="place" size={16} color="#FFC107" />
                     <View style={styles.locationInfo}>
                       <Text style={styles.locationLabel}>{t('details.stop')} {index + 1}</Text>
                       <Text style={styles.locationAddress}>{stop.address || t('details.notSpecified')}</Text>
@@ -713,7 +713,7 @@ useEffect(() => {
           )}
 
           <View style={styles.locationRow}>
-            <Text style={styles.locationIcon}>🔴</Text>
+            <MaterialIcons name="circle" size={16} color="#F44336" />
             <View style={styles.locationInfo}>
               <Text style={styles.locationLabel}>{t('details.destination')}</Text>
               <Text style={styles.locationAddress}>{ride.destination?.address || ride.destinationAddress || t('details.notSpecified')}</Text>

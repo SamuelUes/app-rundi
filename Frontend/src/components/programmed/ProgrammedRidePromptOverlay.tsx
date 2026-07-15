@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Modal, View, Text, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
+import { Modal, View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { LoadingIcon } from '../LoadingIcon';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../context/ThemeContext';
 import alertService from '../../services/alertService';
@@ -194,7 +195,7 @@ const ProgrammedRidePromptOverlay: React.FC<Props> = ({ role }) => {
           <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
           <Text style={[styles.body, { color: colors.textSecondary }]}>{body}</Text>
           {processing ? (
-            <ActivityIndicator color={colors.primary} style={styles.spinner} />
+            <LoadingIcon size={24} color={colors.primary} style={styles.spinner} />
           ) : (
             <View style={styles.actions}>
               <TouchableOpacity style={[styles.button, styles.secondaryButton]} onPress={handleDismiss}>

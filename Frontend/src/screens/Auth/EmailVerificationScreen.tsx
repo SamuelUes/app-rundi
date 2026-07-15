@@ -1,6 +1,5 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -10,6 +9,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { LoadingIcon } from '../../components/LoadingIcon';
 import { RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTranslation } from 'react-i18next';
@@ -313,7 +313,7 @@ export default function EmailVerificationScreen({ navigation, route }: Props) {
             disabled={checkingVerification}
           >
             {checkingVerification ? (
-              <ActivityIndicator color="#FFFFFF" />
+              <LoadingIcon size={24} color="#FFFFFF" />
             ) : (
               <Text style={styles.primaryButtonText}>{t('authScreens.emailVerification.verifyByLinkButton')}</Text>
             )}
@@ -333,7 +333,7 @@ export default function EmailVerificationScreen({ navigation, route }: Props) {
                 disabled={resendLoading}
               >
                 {resendLoading ? (
-                  <ActivityIndicator color={colors.primary} />
+                  <LoadingIcon size={20} color={colors.primary} />
                 ) : (
                   <Text style={styles.resendButton}>{t('authScreens.emailVerification.resendButton')}</Text>
                 )}

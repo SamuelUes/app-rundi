@@ -6,8 +6,9 @@ import {
   TouchableOpacity,
   TextInput,
   ScrollView,
-  ActivityIndicator,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { LoadingIcon } from '../../components/LoadingIcon';
 import { useTheme } from '../../context/ThemeContext';
 import ratingService, { type RatingCategoryKey } from '../../services/ratingService';
 import { useAuth } from '../../context/AuthContext';
@@ -144,9 +145,7 @@ export default function RatingScreen({ route, navigation }: any) {
               onPress={() => setRating(star)}
               style={styles.starButton}
             >
-              <Text style={styles.starIcon}>
-                {star <= rating ? '⭐' : '☆'}
-              </Text>
+              <MaterialIcons name={star <= rating ? 'star' : 'star-border'} size={32} color="#FFD700" />
             </TouchableOpacity>
           ))}
         </View>
@@ -208,9 +207,7 @@ export default function RatingScreen({ route, navigation }: any) {
                       }}
                       style={styles.categoryStarButton}
                     >
-                      <Text style={styles.categoryStarText}>
-                        {star <= (categoryRatings[categoryKey] || 0) ? '⭐' : '☆'}
-                      </Text>
+                      <MaterialIcons name={star <= (categoryRatings[categoryKey] || 0) ? 'star' : 'star-border'} size={24} color="#FFD700" />
                     </TouchableOpacity>
                   ))}
                 </View>
@@ -244,7 +241,7 @@ export default function RatingScreen({ route, navigation }: any) {
             disabled={submitting}
           >
             {submitting ? (
-              <ActivityIndicator color="#fff" />
+              <LoadingIcon size={20} color="#fff" />
             ) : (
               <Text style={styles.submitButtonText}>{t('shared.rating.buttons.submit')}</Text>
             )}

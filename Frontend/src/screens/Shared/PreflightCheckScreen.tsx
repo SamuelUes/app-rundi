@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import { useTheme } from '../../context/ThemeContext';
@@ -1162,7 +1163,7 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
         {/* Error */}
         {error && (
           <View style={styles.errorContainer}>
-            <Text style={styles.errorIcon}>⚠️</Text>
+            <MaterialIcons name="warning" size={48} color="#FF9800" />
             <Text style={styles.errorText}>{error}</Text>
           </View>
         )}

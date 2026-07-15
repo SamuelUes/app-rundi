@@ -13,6 +13,7 @@ import {
   Alert,
   ScrollView,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { userManagementService } from '../../services/userManagementService';
@@ -296,7 +297,7 @@ export default function DeleteAccountScreen({ navigation }: any) {
               disabled={loading}
             >
               {confirmed && (
-                <Text style={{ color: '#FFFFFF', fontSize: 16 }}>✓</Text>
+                <MaterialIcons name="check" size={16} color="#FFFFFF" />
               )}
             </TouchableOpacity>
             <Text style={styles.checkboxText}>

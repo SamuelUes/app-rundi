@@ -4,11 +4,12 @@ import {
   Text,
   ScrollView,
   TouchableOpacity,
-  ActivityIndicator,
   Share,
   StyleSheet,
   Alert,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { LoadingIcon } from '../../components/LoadingIcon';
 import { useTheme } from '../../context/ThemeContext';
 import { supabase } from '../../config/supabase';
 
@@ -204,7 +205,7 @@ Método de pago: ${invoice.paymentMethod}
   if (loading) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <ActivityIndicator size="large" color={colors.primary} />
+        <LoadingIcon size={32} color={colors.primary} />
       </View>
     );
   }
@@ -345,7 +346,7 @@ Método de pago: ${invoice.paymentMethod}
         style={[styles.button, { backgroundColor: colors.primary }]}
         onPress={handleShare}
       >
-        <Text style={styles.buttonText}>📤 Compartir Factura</Text>
+        <Text style={styles.buttonText}><MaterialIcons name="share" size={18} color="#fff" /> Compartir Factura</Text>
       </TouchableOpacity>
 
       <TouchableOpacity

@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Animated } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { haversineKm } from '../utils/distance';
 import { useTranslation } from 'react-i18next';
@@ -126,7 +127,7 @@ const DeviationAlert: React.FC<DeviationAlertProps> = ({
     >
       <View style={styles.content}>
         <View style={styles.iconContainer}>
-          <Text style={styles.icon}>{severity === 'danger' ? '🚨' : '⚠️'}</Text>
+          <MaterialIcons name={severity === 'danger' ? 'error' : 'warning'} size={32} color={severity === 'danger' ? '#F44336' : '#FF9800'} />
         </View>
 
         <View style={styles.textContainer}>
@@ -147,7 +148,7 @@ const DeviationAlert: React.FC<DeviationAlertProps> = ({
         style={styles.dismissButton}
         onPress={() => setIsDeviated(false)}
       >
-        <Text style={styles.dismissText}>✕</Text>
+        <MaterialIcons name="close" size={20} color="#666" />
       </TouchableOpacity>
     </Animated.View>
   );

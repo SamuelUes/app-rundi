@@ -5,13 +5,14 @@ import {
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  ActivityIndicator,
   Alert,
   TextInput,
   Modal,
   ScrollView,
   Image,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { LoadingIcon } from '../../components/LoadingIcon';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useLocation } from '../../hooks/useLocation';
@@ -271,13 +272,13 @@ export default function RideRequestsScreen({ navigation }: any) {
 
         {/* Distancia desde conductor */}
         <View style={styles.distanceBadge}>
-          <Text style={styles.distanceBadgeText}>📍 ~{distanceKm} km de ti</Text>
+          <Text style={styles.distanceBadgeText}><MaterialIcons name="place" size={14} color={colors.textSecondary} /> ~{distanceKm} km de ti</Text>
         </View>
 
         {/* Ruta */}
         <View style={styles.routeContainer}>
           <View style={styles.routePoint}>
-            <Text style={styles.routeIcon}>🔵</Text>
+            <MaterialIcons name="circle" size={16} color="#2196F3" />
             <View style={styles.routeDetails}>
               <Text style={styles.routeLabel}>RECOGER EN</Text>
               <Text style={styles.routeAddress} numberOfLines={2}>
@@ -294,7 +295,7 @@ export default function RideRequestsScreen({ navigation }: any) {
               {item.extraDestinations.map((stop: any, index: number) => (
                 <View key={`waypoint-${index}`}>
                   <View style={styles.routePoint}>
-                    <Text style={styles.routeIcon}>🟡</Text>
+                    <MaterialIcons name="adjust" size={16} color="#FFC107" />
                     <View style={styles.routeDetails}>
                       <Text style={styles.routeLabel}>PARADA {index + 1}</Text>
                       <Text style={styles.routeAddress} numberOfLines={2}>
@@ -309,7 +310,7 @@ export default function RideRequestsScreen({ navigation }: any) {
           )}
 
           <View style={styles.routePoint}>
-            <Text style={styles.routeIcon}>🔴</Text>
+            <MaterialIcons name="place" size={16} color="#F44336" />
             <View style={styles.routeDetails}>
               <Text style={styles.routeLabel}>DEJAR EN</Text>
               <Text style={styles.routeAddress} numberOfLines={2}>
@@ -322,24 +323,22 @@ export default function RideRequestsScreen({ navigation }: any) {
         {/* Info del viaje */}
         <View style={styles.tripInfo}>
           <View style={styles.tripInfoItem}>
-            <Text style={styles.tripInfoIcon}>📏</Text>
+            <MaterialIcons name="straighten" size={20} color={colors.textSecondary} />
             <Text style={styles.tripInfoText}>{distanceKm} km</Text>
           </View>
           <View style={styles.tripInfoDivider} />
           <View style={styles.tripInfoItem}>
-            <Text style={styles.tripInfoIcon}>⏱️</Text>
+            <MaterialIcons name="schedule" size={20} color={colors.textSecondary} />
             <Text style={styles.tripInfoText}>{durationMin} min</Text>
           </View>
           <View style={styles.tripInfoDivider} />
           <View style={styles.tripInfoItem}>
-            <Text style={styles.tripInfoIcon}>👥</Text>
+            <MaterialIcons name="people" size={20} color={colors.textSecondary} />
             <Text style={styles.tripInfoText}>{item.passengers || 1} pax</Text>
           </View>
           <View style={styles.tripInfoDivider} />
           <View style={styles.tripInfoItem}>
-            <Text style={styles.tripInfoIcon}>
-              {item.rideType === 'designated_driver' ? '🚗' : '🚕'}
-            </Text>
+            <MaterialIcons name={item.rideType === 'designated_driver' ? 'directions-car' : 'local-taxi'} size={20} color={colors.textSecondary} />
             <Text style={styles.tripInfoText}>
               {item.rideType === 'designated_driver' ? 'C.D.' : 'Normal'}
             </Text>
@@ -349,7 +348,7 @@ export default function RideRequestsScreen({ navigation }: any) {
         {/* Foto del vehículo del cliente - Solo para conductor designado */}
         {item.rideType === 'designated_driver' && item.clientVehicle?.photos && item.clientVehicle.photos.length > 0 && (
           <View style={styles.clientVehicleContainer}>
-            <Text style={styles.clientVehicleTitle}>🚗 Vehículo del Cliente</Text>
+            <Text style={styles.clientVehicleTitle}><MaterialIcons name="directions-car" size={18} color={colors.text} /> Vehículo del Cliente</Text>
             <View style={styles.clientVehicleContent}>
               <Image
                 source={{ uri: item.clientVehicle.photos[0] }}
@@ -365,7 +364,7 @@ export default function RideRequestsScreen({ navigation }: any) {
                 </Text>
                 {item.clientVehicle.plate && (
                   <Text style={styles.clientVehiclePlate}>
-                    📋 {item.clientVehicle.plate}
+                    <MaterialIcons name="assignment" size={14} color={colors.textSecondary} /> {item.clientVehicle.plate}
                   </Text>
                 )}
               </View>
@@ -381,7 +380,7 @@ export default function RideRequestsScreen({ navigation }: any) {
             disabled={accepting}
           >
             <Text style={styles.acceptButtonText}>
-              ✓ Aceptar C${item.estimatedPrice}
+              <MaterialIcons name="check" size={18} color="#fff" /> Aceptar C${item.estimatedPrice}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -389,7 +388,7 @@ export default function RideRequestsScreen({ navigation }: any) {
             onPress={() => handleOfferCustomPrice(item)}
             disabled={accepting}
           >
-            <Text style={styles.offerButtonText}>💰 Ofrecer Tarifa</Text>
+            <Text style={styles.offerButtonText}><MaterialIcons name="payments" size={18} color={colors.primary} /> Ofrecer Tarifa</Text>
           </TouchableOpacity>
         </View>
       </TouchableOpacity>
@@ -399,7 +398,7 @@ export default function RideRequestsScreen({ navigation }: any) {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
+        <LoadingIcon size={32} color={colors.primary} />
         <Text style={styles.loadingText}>Buscando solicitudes...</Text>
       </View>
     );
@@ -424,7 +423,7 @@ export default function RideRequestsScreen({ navigation }: any) {
       {/* Lista de solicitudes */}
       {rides.length === 0 ? (
         <View style={styles.emptyContainer}>
-          <Text style={styles.emptyIcon}>🚗</Text>
+          <MaterialIcons name="directions-car" size={64} color={colors.textSecondary} />
           <Text style={styles.emptyTitle}>No hay solicitudes</Text>
           <Text style={styles.emptyText}>
             Las nuevas solicitudes aparecerán aquí automáticamente
@@ -469,7 +468,7 @@ export default function RideRequestsScreen({ navigation }: any) {
                   return (
                     <View style={[styles.priceRangeContainer, { backgroundColor: colors.background, borderColor: colors.primary }]}>
                       <Text style={[styles.priceRangeTitle, { color: colors.text }]}>
-                        📊 Rango de negociación:
+                        <MaterialIcons name="bar-chart" size={18} color={colors.primary} /> Rango de negociación:
                       </Text>
                       <View style={styles.priceRangeValues}>
                         <View style={styles.priceRangeItem}>
