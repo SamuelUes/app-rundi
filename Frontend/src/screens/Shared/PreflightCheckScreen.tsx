@@ -1483,22 +1483,40 @@ async function checkOverlay(): Promise<boolean> {
   }
 
   try {
-    if (typeof overlayManager?.hasPermission === 'function') {
-      const granted = await overlayManager.hasPermission();
-      if (granted) {
+    // Check if overlay module is available
+    if (typeof overlayManager?.hasPermission !== 'function') {
+      console.warn('⚠️ [Preflight] Overlay module not available, skipping overlay check');
+      return true; // Don't block if module not available
+    }
+
+    const granted = await overlayManager.hasPermission();
+    if (granted) {
+      console.log('✅ [Preflight] Overlay permission granted');
+      await proximityService.setOverlayEnabled(true);
+      console.log('✅ [Preflight] Overlay preference activated');
+      return true;
+    }
+
+    console.log('⚠️ [Preflight] Overlay permission not granted, requesting...');
+
+    // Request permission
+    if (typeof overlayManager?.requestPermission === 'function') {
+      // requestPermission now blocks until user returns from system settings
+      const requested = await overlayManager.requestPermission();
+      if (requested) {
+        console.log('✅ [Preflight] Overlay permission granted after request');
+        await proximityService.setOverlayEnabled(true);
+        console.log('✅ [Preflight] Overlay preference activated');
         return true;
       }
     }
 
-    if (typeof overlayManager?.requestPermission === 'function') {
-      const requested = await overlayManager.requestPermission();
-      return !!requested;
-    }
-
-    return true;
+    // Permission denied - throw error since overlay is critical
+    console.error('❌ [Preflight] Overlay permission denied by user');
+    throw new Error('Overlay permission denied. Please enable "Appear on top of other apps" in your device settings to receive ride requests.');
   } catch (error) {
     console.error('❌ [Preflight] Error verificando permiso de superposición:', error);
-    return false;
+    throw error;
   }
 }
 

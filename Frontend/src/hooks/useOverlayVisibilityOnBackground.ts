@@ -54,7 +54,7 @@ export function useOverlayVisibilityOnBackground(enabled: boolean) {
     });
 
     const ACTIVE_STABILIZE_MS = 2000;
-    const BACKGROUND_CONFIRM_MS = 700;
+    const BACKGROUND_CONFIRM_MS = 100;
 
     const isBackgroundLike = (state: AppStateStatus) => state === 'background' || state === 'inactive';
 
@@ -162,15 +162,13 @@ export function useOverlayVisibilityOnBackground(enabled: boolean) {
 
     const scheduleOverlayForBackground = (force = false) => {
       clearBackgroundConfirmTimer();
-      backgroundConfirmTimeoutRef.current = setTimeout(async () => {
-        backgroundConfirmTimeoutRef.current = null;
-        if (!isBackgroundLike(appState.current)) {
-          console.log('⏭️ [overlay:hook] Background transitorio detectado, no se mostrará burbuja');
-          return;
-        }
-        await showOverlayForBackground(force);
-      }, BACKGROUND_CONFIRM_MS);
-      console.log(`⏳ [overlay:hook] Confirmando background estable por ${BACKGROUND_CONFIRM_MS}ms`);
+      // On Android, JS thread gets suspended quickly when app goes to background.
+      // Show overlay immediately instead of waiting for a timer that may never fire.
+      if (!isBackgroundLike(appState.current)) {
+        console.log('⏭️ [overlay:hook] Background transitorio detectado, no se mostrará burbuja');
+        return;
+      }
+      showOverlayForBackground(force);
     };
 
     const listener = AppState.addEventListener('change', async (nextState) => {

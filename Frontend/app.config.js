@@ -1,7 +1,7 @@
 export default {
   name: 'Rundi',
   slug: 'rundi',
-  version: 'Beta - 1.6.4',
+  version: 'Beta - 1.8',
   orientation: 'portrait',
   userInterfaceStyle: 'automatic',
   icon: './src/assets/images/icon.png',
@@ -44,6 +44,7 @@ export default {
     versionCode: 1,
     userInterfaceStyle: 'automatic',
     allowBackup: false,
+    googleServicesFile: "./google-services.json",
     adaptiveIcon: {
       foregroundImage: './src/assets/images/icon.png',
       backgroundColor: '#0F2628',
@@ -185,6 +186,6 @@ export default {
       process.env.EXPO_PUBLIC_SUPABASE_KEY ||
       'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN5cGxsZnplc3Bremh0eWVpdGx2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQyNTExMTMsImV4cCI6MjA3OTgyNzExM30.8PN8T7kaf_acPFJAkONgqec8zxePnu8hwZ_gXkkGJ78',
   },
-  runtimeVersion: 'Beta - 1.6.4',
+  runtimeVersion: 'Beta- 1.8',
   owner: 'samuelues',
 };

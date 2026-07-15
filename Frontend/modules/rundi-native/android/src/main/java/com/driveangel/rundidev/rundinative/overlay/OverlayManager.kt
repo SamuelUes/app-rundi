@@ -56,10 +56,11 @@ class OverlayManager(
         price: Double,
         distanceKm: Double,
         clientName: String?,
+        variant: String,
         onSuccess: () -> Unit,
         onError: (String) -> Unit
     ) {
-        val data = RideOverlayData(rideId, price, distanceKm, clientName)
+        val data = RideOverlayData(rideId, price, distanceKm, clientName, variant)
         showOverlay(data) { result ->
             when (result) {
                 is OverlayResult.Success -> onSuccess()
@@ -112,7 +113,7 @@ class OverlayManager(
                 val params = createWindowParams()
                 logger.d(TAG, "📍 Posición: x=${params.x}, y=${params.y}")
 
-                val container = overlayViewFactory.createOverlayContainer() as LinearLayout
+                val container = overlayViewFactory.createOverlayContainer(data.variant) as LinearLayout
 
                 setupTouchListener(container, params, windowManager)
 

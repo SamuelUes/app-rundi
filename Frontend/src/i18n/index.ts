@@ -2304,7 +2304,7 @@ const resources = {
         },
         about: {
           version: 'Version',
-          versionValue: 'Beta - 1.6.4',
+          versionValue: 'Beta- 1.8',
           domain: 'Domain',
           domainValue: 'rundiapp.com',
           licenses: 'Open-source licenses',
@@ -4168,7 +4168,7 @@ const resources = {
             logout: 'Sign out',
           },
           appInfo: {
-            version: 'Rundi Beta - 1.6.4',
+            version: 'Rundi Beta- 1.8',
             copyright: '© 2025 All rights reserved',
           },
          support: {
@@ -7348,7 +7348,7 @@ const resources = {
           },
           about: {
             version: 'Versión',
-            versionValue: 'Beta - 1.6.4',
+            versionValue: 'Beta- 1.8',
             domain: 'Dominio',
             domainValue: 'rundiapp.com',
             licenses: 'Licencias de código abierto',
@@ -9209,7 +9209,7 @@ const resources = {
             logout: 'Cerrar sesión',
           },
           appInfo: {
-            version: 'Rundi Beta - 1.6.4',
+            version: 'Rundi Beta- 1.8',
             copyright: '© 2025 Todos los derechos reservados',
           },
          support: {

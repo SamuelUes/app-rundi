@@ -4,6 +4,14 @@ import { cleanupPresenceNodes } from "../helpers/cleanupHelpers-new";
 
 const db = admin.database();
 
+// Runtime options for presence functions - increased timeout for database operations
+const presenceRuntimeOpts: functions.RuntimeOptions = {
+  memory: '256MB',
+  timeoutSeconds: 60,
+  minInstances: 1,
+  maxInstances: 50,
+};
+
 const DEFAULT_SERVICE_AREA_ID = "ni-managua";
 
 async function getSessionServiceAreaId(uid: string): Promise<string> {
@@ -42,7 +50,7 @@ type ClientLocationPayload = {
   isManual?: boolean;
 };
 
-export const markAppClosed = functions.https.onCall(async (data, context) => {
+export const markAppClosed = functions.runWith(presenceRuntimeOpts).https.onCall(async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError("unauthenticated", "Usuario no autenticado");
   }
@@ -71,7 +79,7 @@ export const markAppClosed = functions.https.onCall(async (data, context) => {
   return { success: true };
 });
 
-export const markAppActive = functions.https.onCall(async (data, context) => {
+export const markAppActive = functions.runWith(presenceRuntimeOpts).https.onCall(async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError("unauthenticated", "Usuario no autenticado");
   }

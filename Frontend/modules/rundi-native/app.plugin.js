@@ -225,7 +225,63 @@ function withRundiNative(config) {
     },
   ]);
 
-  // 6. iOS: inject FirebaseCore import and FirebaseApp.configure() into AppDelegate.swift
+  // 6. Android: inject Google Services plugin into root and app build.gradle
+  config = withDangerousMod(config, [
+    'android',
+    (config) => {
+      const rootBuildGradlePath = path.join(
+        config.modRequest.platformProjectRoot,
+        'build.gradle'
+      );
+      let rootBuildGradle = fs.readFileSync(rootBuildGradlePath, 'utf8');
+
+      if (!rootBuildGradle.includes('com.google.gms:google-services')) {
+        rootBuildGradle = rootBuildGradle.replace(
+          /classpath\('org\.jetbrains\.kotlin:kotlin-gradle-plugin'\)/,
+          "classpath('org.jetbrains.kotlin:kotlin-gradle-plugin')\n    classpath('com.google.gms:google-services:4.4.2')"
+        );
+        fs.writeFileSync(rootBuildGradlePath, rootBuildGradle);
+      }
+
+      const appBuildGradlePath = path.join(
+        config.modRequest.platformProjectRoot,
+        'app',
+        'build.gradle'
+      );
+      let appBuildGradle = fs.readFileSync(appBuildGradlePath, 'utf8');
+
+      if (!appBuildGradle.includes('com.google.gms.google-services')) {
+        appBuildGradle = appBuildGradle.replace(
+          /apply plugin: "com\.facebook\.react"/,
+          'apply plugin: "com.facebook.react"\napply plugin: "com.google.gms.google-services"'
+        );
+        fs.writeFileSync(appBuildGradlePath, appBuildGradle);
+      }
+
+      // Ensure local.properties exists with SDK path (prebuild --clean deletes it)
+      const localPropsPath = path.join(
+        config.modRequest.platformProjectRoot,
+        'local.properties'
+      );
+      if (!fs.existsSync(localPropsPath)) {
+        const homeDir = require('os').homedir();
+        const defaultSdkPath = path.join(homeDir, 'Library', 'Android', 'sdk');
+        if (fs.existsSync(defaultSdkPath)) {
+          fs.writeFileSync(localPropsPath, `sdk.dir=${defaultSdkPath}\n`);
+          console.log('✅ [rundi-native] Created local.properties with SDK path');
+        } else if (process.env.ANDROID_HOME) {
+          fs.writeFileSync(localPropsPath, `sdk.dir=${process.env.ANDROID_HOME}\n`);
+          console.log('✅ [rundi-native] Created local.properties with ANDROID_HOME');
+        } else {
+          console.warn('⚠️ [rundi-native] Could not find Android SDK path for local.properties');
+        }
+      }
+      
+      return config;
+    },
+  ]);
+
+  // 7. iOS: inject FirebaseCore import and FirebaseApp.configure() into AppDelegate.swift
   config = withDangerousMod(config, [
     'ios',
     (config) => {

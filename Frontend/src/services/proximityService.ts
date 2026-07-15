@@ -131,6 +131,7 @@ type OverlayPayload = {
   distanceKm: number;
   clientName?: string | null;
   isFallback?: boolean;
+  variant?: 'app' | 'nearby_ride';
 };
 
 export const FALLBACK_OVERLAY_RIDE_ID = '__overlay_home__';
@@ -141,6 +142,7 @@ const createFallbackOverlayPayload = (): OverlayPayload => ({
   distanceKm: 0.03,
   clientName: '',
   isFallback: true,
+  variant: 'app',
 });
 
 const sanitizeOverlayPayload = (payload: OverlayPayload): OverlayPayload => ({
@@ -600,6 +602,7 @@ async function handleLocationForProximity(
         price: closestPrice,
         distanceKm: Math.max(0.1, Number.isFinite(closestDistanceKm) ? closestDistanceKm : 0.1),
         clientName: clientDisplayName,
+        variant: 'nearby_ride',
       };
       await saveOverlayPayload(overlayPayload);
 
@@ -653,6 +656,7 @@ async function handleLocationForProximity(
         price: closestPrice,
         distanceKm: Math.max(0.1, Number.isFinite(closestDistanceKm) ? closestDistanceKm : 0.1),
         clientName: clientDisplayName,
+        variant: 'nearby_ride',
       };
       await saveOverlayPayload(overlayPayload);
       console.log('💾 [proximity] Overlay payload guardado:', overlayPayload);
@@ -669,6 +673,7 @@ async function handleLocationForProximity(
             price: closestPrice,
             distanceKm: Math.max(0.1, Number.isFinite(closestDistanceKm) ? closestDistanceKm : 0),
             clientName: clientDisplayName,
+            variant: 'nearby_ride' as const,
           };
           console.log('🫧 [proximity] Llamando a overlayManager.showRideOverlay con:', overlayData);
           console.log('🫧 [proximity] overlayManager object:', overlayManager);
@@ -742,6 +747,7 @@ async function ensureOverlayBubbleForBackground() {
       price: payload.price,
       distanceKm: Math.max(0.1, payload.distanceKm),
       clientName: payload.clientName ?? null,
+      variant: payload.variant ?? 'app',
     });
     console.log('🫧 [overlay] Step 5: Overlay mostrado exitosamente, guardando payload...');
     await saveOverlayPayload(payload);

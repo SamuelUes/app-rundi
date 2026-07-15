@@ -1,29 +1,14 @@
-import { NativeModules, Platform, EventSubscription } from 'react-native';
-
-const Bridge = NativeModules.OverlayPermissionModule as
-  | {
-      hasOverlayPermission: () => Promise<boolean>;
-      requestOverlayPermission: () => Promise<boolean>;
-      showRideOverlay: (args: {
-        rideId: string;
-        price: number;
-        distanceKm: number;
-        clientName?: string | null;
-      }) => Promise<boolean>;
-      hideRideOverlay: () => Promise<boolean>;
-      openOverlaySettings: () => Promise<boolean>;
-      addListener: (eventName: string, listener: (data: { rideId: string }) => void) => EventSubscription;
-    }
-  | undefined;
+import { Platform, AppState } from 'react-native';
+import { OverlayPermissionModule as NativeModule } from '../../modules/rundi-native/src';
 
 const isAndroid = Platform.OS === 'android';
 let isOperationInProgress = false;
 
 const ensureModule = () => {
-  if (!isAndroid || !Bridge) {
+  if (!isAndroid || !NativeModule) {
     return null;
   }
-  return Bridge;
+  return NativeModule;
 };
 
 /**
@@ -63,7 +48,7 @@ export const overlayManager = {
       const result = await Promise.race([
         module.requestOverlayPermission(),
         new Promise<boolean>((_, reject) => 
-          setTimeout(() => reject(new Error('Timeout requesting permission')), 10000)
+          setTimeout(() => reject(new Error('Timeout requesting permission')), 120000)
         )
       ]);
       return result === true;
@@ -73,9 +58,10 @@ export const overlayManager = {
     }
   },
 
-  async showRideOverlay(options: { rideId: string; price: number; distanceKm: number; clientName?: string | null }) {
+  async showRideOverlay(options: { rideId: string; price: number; distanceKm: number; clientName?: string | null; variant?: 'app' | 'nearby_ride' }) {
     console.log('🔵 [overlayManager] showRideOverlay() LLAMADO con options:', options);
-    
+    console.log('� [overlayManager] AppState.currentState:', AppState.currentState);
+
     if (isOperationInProgress) {
       console.warn('⚠️ [overlayManager] Operation already in progress, skipping');
       return;
@@ -93,7 +79,7 @@ export const overlayManager = {
       }
       
       // Validar parámetros
-      const { rideId, price, distanceKm, clientName } = options;
+      const { rideId, price, distanceKm, clientName, variant } = options;
       console.log('🔵 [overlayManager] Step 2: Validando parámetros...');
       
       if (!rideId || typeof rideId !== 'string') {
@@ -121,19 +107,21 @@ export const overlayManager = {
       }
       
       console.log('🔵 [overlayManager] Step 4: Llamando a módulo nativo showRideOverlay()...');
-      console.log('🔵 [overlayManager] Parámetros finales:', { 
-        rideId, 
-        price: sanitizedPrice, 
-        distanceKm: sanitizedDistance, 
-        clientName: clientName ?? null
+      console.log('🔵 [overlayManager] Parámetros finales:', {
+        rideId,
+        price: sanitizedPrice,
+        distanceKm: sanitizedDistance,
+        clientName: clientName ?? null,
+        variant: variant ?? 'app',
       });
-      
+
       await Promise.race([
         module.showRideOverlay({
           rideId,
           price: sanitizedPrice,
           distanceKm: sanitizedDistance,
           clientName: clientName ?? null,
+          variant: variant ?? 'app',
         }),
         new Promise((_, reject) => 
           setTimeout(() => reject(new Error('Timeout showing overlay')), 5000)
@@ -187,4 +175,4 @@ export const overlayManager = {
   },
 };
 
-export { Bridge as OverlayPermissionModule };
+export { NativeModule as OverlayPermissionModule };

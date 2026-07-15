@@ -17,7 +17,8 @@ data class RideOverlayData(
     val rideId: String,
     val price: Double,
     val distanceKm: Double,
-    val clientName: String? = null
+    val clientName: String? = null,
+    val variant: String = "app"
 ) {
     fun isValid(): Boolean {
         return rideId.isNotEmpty() && price >= 0 && distanceKm >= 0
@@ -32,7 +33,7 @@ interface IOverlayManager {
 }
 
 interface IOverlayViewFactory {
-    fun createOverlayContainer(): android.view.View
+    fun createOverlayContainer(variant: String): android.view.View
     fun getBubbleSizeInPixels(): Int
 }
 

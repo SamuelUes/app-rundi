@@ -16,6 +16,7 @@ declare class OverlayPermissionModuleType extends NativeModule<RundiNativeModule
     price: number;
     distanceKm: number;
     clientName?: string | null;
+    variant?: 'app' | 'nearby_ride';
   }): Promise<boolean>;
   hideRideOverlay(): Promise<boolean>;
   openOverlaySettings(): Promise<boolean>;

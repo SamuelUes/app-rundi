@@ -1,14 +1,10 @@
 import { useEffect } from 'react';
-import { NativeModules, Platform, EventSubscription } from 'react-native';
+import { Platform } from 'react-native';
+import { EventEmitter } from 'expo';
 import { navigate, navigationRef } from '../navigation/NavigationService';
 import { getDatabase, ref, get } from 'firebase/database';
 import { FALLBACK_OVERLAY_RIDE_ID } from '../services/proximityService';
-
-const OverlayPermissionModule = NativeModules.OverlayPermissionModule as
-  | {
-      addListener: (eventName: string, listener: (data: { rideId: string }) => void) => EventSubscription;
-    }
-  | undefined;
+import { OverlayPermissionModule } from '../../modules/rundi-native/src';
 
 /**
  * Hook para detectar cuando la app se abre desde el overlay
@@ -20,8 +16,9 @@ export function useOverlayDeepLink() {
       return;
     }
 
-    // Escuchar evento de apertura desde overlay
-    const subscription = OverlayPermissionModule.addListener('onOverlayOpened', async (data) => {
+    // Escuchar evento de apertura desde overlay via EventEmitter
+    const emitter = new EventEmitter(OverlayPermissionModule);
+    const subscription = (emitter.addListener as (event: string, cb: (data: { rideId: string }) => void) => { remove: () => void })('onOverlayOpened', async (data) => {
       console.log('🫧 [useOverlayDeepLink] App opened from overlay:', data);
 
       const { rideId } = data;

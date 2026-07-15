@@ -4,13 +4,17 @@ import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
 import android.content.Context
 import android.graphics.Color
+import android.graphics.Outline
 import android.graphics.PorterDuff
 import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.View
+import android.view.ViewOutlineProvider
 import android.view.animation.OvershootInterpolator
 import android.widget.ImageView
 import android.widget.LinearLayout
+import com.driveangel.rundidev.rundinative.R
 
 class OverlayView(
     private val context: Context,
@@ -21,8 +25,8 @@ class OverlayView(
         private const val TAG = "OverlayView"
     }
 
-    override fun createOverlayContainer(): LinearLayout {
-        logger.d(TAG, "🎨 Creando contenedor de overlay...")
+    override fun createOverlayContainer(variant: String): LinearLayout {
+        logger.d(TAG, "🎨 Creando contenedor de overlay (variant=$variant)...")
 
         val container = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -39,10 +43,16 @@ class OverlayView(
 
         logger.d(TAG, "📏 Tamaño: ${bubbleSize}px, Sombra: ${shadowSize}px")
 
-        val bubble = createBubble(bubbleSize, shadowSize)
-        val icon = createIcon()
+        val bubble = if (variant == "nearby_ride") {
+            logger.d(TAG, "🚗 Creando burbuja de viaje cercano con imagen DriveAngel...")
+            createNearbyRideBubble(bubbleSize, shadowSize)
+        } else {
+            logger.d(TAG, "🔵 Creando burbuja por defecto con ícono de app...")
+            val b = createBubble(bubbleSize, shadowSize)
+            b.addView(createIcon())
+            b
+        }
 
-        bubble.addView(icon)
         container.addView(bubble, LinearLayout.LayoutParams(bubbleSize, bubbleSize))
 
         animateEntry(container)
@@ -94,6 +104,33 @@ class OverlayView(
             elevation = shadowSize
         }.also {
             logger.d(TAG, "🎨 Color aplicado: ${OverlayConfig.BUBBLE_COLOR} (dorado)")
+        }
+    }
+
+    private fun createNearbyRideBubble(size: Int, shadowSize: Float): LinearLayout {
+        logger.d(TAG, "🖼️ Creando burbuja de viaje cercano...")
+
+        return LinearLayout(context).apply {
+            gravity = Gravity.CENTER
+            elevation = shadowSize
+            clipToOutline = true
+            outlineProvider = object : ViewOutlineProvider() {
+                override fun getOutline(view: View, outline: Outline) {
+                    outline.setOval(0, 0, view.width, view.height)
+                }
+            }
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setStroke(OverlayConfig.STROKE_WIDTH, OverlayConfig.STROKE_COLOR)
+            }
+
+            val image = ImageView(context).apply {
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                setImageResource(R.drawable.overlay_nearby_ride)
+            }
+            addView(image, LinearLayout.LayoutParams(size, size))
+        }.also {
+            logger.d(TAG, "✅ Burbuja de viaje cercano creada con overlay_nearby_ride")
         }
     }
 

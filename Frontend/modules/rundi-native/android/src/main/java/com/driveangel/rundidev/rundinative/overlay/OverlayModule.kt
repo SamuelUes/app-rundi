@@ -1,22 +1,26 @@
 package com.driveangel.rundidev.rundinative.overlay
 
-import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.util.Log
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import expo.modules.kotlin.records.Field
 import expo.modules.kotlin.records.Record
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.runBlocking
 
 class ShowRideOverlayArgs : Record {
   @Field val rideId: String = ""
   @Field val price: Double = 0.0
   @Field val distanceKm: Double = 0.0
   @Field val clientName: String? = null
+  @Field val variant: String = "app"
 }
 
 class OverlayModule : Module() {
@@ -26,6 +30,7 @@ class OverlayModule : Module() {
   }
 
   private var overlayManager: OverlayManager? = null
+  private var pendingOverlayPermissionResult: CompletableDeferred<Boolean>? = null
 
   private val eventListener = object : OverlayEventListener {
     override fun onOverlayShown(rideId: String) {
@@ -51,14 +56,19 @@ class OverlayModule : Module() {
 
     Events("onOverlayOpened")
 
-    AsyncFunction("hasOverlayPermission") { _: Unit ->
+    AsyncFunction("hasOverlayPermission") {
       try {
         val context = appContext.reactContext
+        Log.d(TAG, "hasOverlayPermission: context=${context != null}")
         if (context == null) {
+          Log.e(TAG, "hasOverlayPermission: context is null")
           false
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-          Settings.canDrawOverlays(context)
+          val canDraw = Settings.canDrawOverlays(context)
+          Log.d(TAG, "hasOverlayPermission: SDK=${Build.VERSION.SDK_INT}, canDrawOverlays=$canDraw")
+          canDraw
         } else {
+          Log.d(TAG, "hasOverlayPermission: SDK < M, returning true")
           true
         }
       } catch (e: Exception) {
@@ -67,7 +77,7 @@ class OverlayModule : Module() {
       }
     }
 
-    AsyncFunction("requestOverlayPermission") { _: Unit ->
+    AsyncFunction("requestOverlayPermission") {
       val context = appContext.reactContext
         ?: throw Exception("React context is null")
 
@@ -88,9 +98,33 @@ class OverlayModule : Module() {
       )
 
       try {
-        activity.startActivityForResult(intent, REQUEST_CODE_OVERLAY_PERMISSION)
-        true
+        // Create a deferred that will be resolved when OnActivityResult returns
+        val deferred = CompletableDeferred<Boolean>()
+        pendingOverlayPermissionResult = deferred
+
+        // startActivityForResult must be called on the main thread
+        val mainHandler = Handler(Looper.getMainLooper())
+        mainHandler.post {
+          try {
+            activity.startActivityForResult(intent, REQUEST_CODE_OVERLAY_PERMISSION)
+            Log.d(TAG, "startActivityForResult launched successfully")
+          } catch (e: Exception) {
+            Log.e(TAG, "Error launching startActivityForResult", e)
+            pendingOverlayPermissionResult?.complete(false)
+            pendingOverlayPermissionResult = null
+          }
+        }
+
+        // Block until OnActivityResult resolves the deferred
+        val granted = runBlocking { deferred.await() }
+        Log.d(TAG, "requestOverlayPermission resolved: $granted")
+        granted
       } catch (ex: ActivityNotFoundException) {
+        pendingOverlayPermissionResult = null
+        false
+      } catch (ex: Exception) {
+        Log.e(TAG, "Unexpected error in requestOverlayPermission", ex)
+        pendingOverlayPermissionResult = null
         false
       }
     }
@@ -113,6 +147,7 @@ class OverlayModule : Module() {
         price = args.price,
         distanceKm = args.distanceKm,
         clientName = args.clientName,
+        variant = args.variant,
         onSuccess = { success = true },
         onError = { err -> errorMsg = err }
       )
@@ -123,7 +158,7 @@ class OverlayModule : Module() {
       success
     }
 
-    AsyncFunction("hideRideOverlay") { _: Unit ->
+    AsyncFunction("hideRideOverlay") {
       try {
         overlayManager?.hideOverlay { }
         true
@@ -133,7 +168,7 @@ class OverlayModule : Module() {
       }
     }
 
-    AsyncFunction("openOverlaySettings") { _: Unit ->
+    AsyncFunction("openOverlaySettings") {
       val context = appContext.reactContext
         ?: throw Exception("Context is null")
 
@@ -161,6 +196,8 @@ class OverlayModule : Module() {
           true
         }
         Log.d(TAG, "Overlay permission result: $hasPermission")
+        pendingOverlayPermissionResult?.complete(hasPermission)
+        pendingOverlayPermissionResult = null
       }
     }
   }

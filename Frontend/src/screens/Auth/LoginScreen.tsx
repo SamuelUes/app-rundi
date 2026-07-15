@@ -10,6 +10,8 @@ import {
   ScrollView,
   Image,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useGoogleAuth } from '../../hooks/useGoogleAuth';
@@ -26,6 +28,7 @@ import {
   extractLocalNumber,
 } from '../../utils/phoneUtils';
 import { useTranslation } from 'react-i18next';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Google Client ID desde variables de entorno
 // Android Client ID para Expo
@@ -40,6 +43,7 @@ export default function LoginScreen({ navigation }: any) {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { login, loginWithGoogle } = useAuth();
   const { t } = useTranslation();
+  const insets = useSafeAreaInsets();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const countryOptions = useMemo(() => getCountryDialOptions(), []);
@@ -48,6 +52,7 @@ export default function LoginScreen({ navigation }: any) {
   const [phoneDigits, setPhoneDigits] = useState('');
   const [normalizedPhone, setNormalizedPhone] = useState<string>('');
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [loginMode, setLoginMode] = useState<'email' | 'phone'>('email'); // 'email' o 'phone'
   const {
     promptAsync,
@@ -237,149 +242,168 @@ export default function LoginScreen({ navigation }: any) {
   const isPhoneValid = normalizedPhone ? /^\+\d{6,15}$/.test(normalizedPhone) : false;
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={styles.bannerContainer}>
-          <Image
-            source={require('../../assets/images/campaña2/promo_1-2.png')}
-            style={styles.bannerImage}
-          />
-        </View>
-
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <Text style={styles.title}>{t('authScreens.login.title')}</Text>
-            <Text style={styles.subtitle}>
-              {t('authScreens.login.subtitle')}
-            </Text>
+    <SafeAreaView style={styles.container} edges={['bottom']}>
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <ScrollView
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 20 }]}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+        >
+          <View style={styles.bannerContainer}>
+            <Image
+              source={require('../../assets/images/campaña2/promo_1-2.png')}
+              style={styles.bannerImage}
+            />
           </View>
 
-          {/* Tabs para cambiar entre Email y Teléfono */}
-          <View style={styles.tabsContainer}>
-            <TouchableOpacity style={styles.tab} onPress={() => setLoginMode('email')}>
-              <Text style={[styles.tabText, loginMode === 'email' && styles.tabTextActive]}>
-                {t('authScreens.login.tabs.email')}
+          <View style={styles.card}>
+            <View style={styles.cardHeader}>
+              <Text style={styles.title}>{t('authScreens.login.title')}</Text>
+              <Text style={styles.subtitle}>
+                {t('authScreens.login.subtitle')}
               </Text>
-              {loginMode === 'email' && <View style={styles.tabUnderline} />}
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.tab} onPress={() => setLoginMode('phone')}>
-              <Text style={[styles.tabText, loginMode === 'phone' && styles.tabTextActive]}>
-                {t('authScreens.login.tabs.phone')}
-              </Text>
-              {loginMode === 'phone' && <View style={styles.tabUnderline} />}
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.form}>
-            {loginMode === 'email' ? (
-              <>
-                <Text style={styles.label}>
-                  {t('authScreens.login.fields.emailLabel')}
-                </Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder={t('authScreens.login.fields.emailPlaceholder')}
-                  placeholderTextColor={colors.textSecondary}
-                  value={email}
-                  onChangeText={setEmail}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                />
-
-                <Text style={styles.label}>
-                  {t('authScreens.login.fields.passwordLabel')}
-                </Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder={t('authScreens.login.fields.passwordPlaceholder')}
-                  placeholderTextColor={colors.textSecondary}
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry
-                />
-
-                <TouchableOpacity
-                  style={styles.loginButton}
-                  onPress={handleLogin}
-                  disabled={loading || googleLoading}
-                >
-                  <Text style={styles.loginButtonText}>
-                    {loading
-                      ? t('authScreens.login.buttons.loginEmail.loading')
-                      : t('authScreens.login.buttons.loginEmail.idle')}
-                  </Text>
-                </TouchableOpacity>
-              </>
-            ) : (
-              <>
-                <Text style={styles.label}>
-                  {t('authScreens.login.fields.phoneLabel')}
-                </Text>
-                <View style={styles.countryPickerContainer}>
-                  <PhoneDigitInput
-                    countryOptions={countryOptions}
-                    selectedCountry={selectedCountry}
-                    onCountryChange={handleCountryChange}
-                    digits={phoneDigits}
-                    onChangeDigits={handlePhoneChange}
-                    disabled={loading || googleLoading}
-                  />
-                </View>
-                <Text style={styles.helperText}>
-                  {t('authScreens.login.fields.phoneHelper')}
-                </Text>
-
-                <TouchableOpacity
-                  style={styles.loginButton}
-                  onPress={handlePhoneLogin}
-                  disabled={
-                    loading ||
-                    googleLoading ||
-                    !isPhoneValid
-                  }
-                >
-                  <Text style={styles.loginButtonText}>
-                    {loading
-                      ? t('authScreens.login.buttons.loginPhone.loading')
-                      : t('authScreens.login.buttons.loginPhone.idle')}
-                  </Text>
-                </TouchableOpacity>
-              </>
-            )}
-
-            {/* Separador */}
-            <View style={styles.dividerContainer}>
-              <View style={styles.divider} />
-              <Text style={styles.dividerText}>
-                {t('authScreens.login.divider')}
-              </Text>
-              <View style={styles.divider} />
             </View>
 
-            {/* Google Sign-In Button */}
-            <GoogleSignInButton
-              onPress={handleGoogleLogin}
-              loading={googleLoading}
-              disabled={loading}
-              variant="login"
-            />
+            {/* Tabs para cambiar entre Email y Teléfono */}
+            <View style={styles.tabsContainer}>
+              <TouchableOpacity style={styles.tab} onPress={() => setLoginMode('email')}>
+                <Text style={[styles.tabText, loginMode === 'email' && styles.tabTextActive]}>
+                  {t('authScreens.login.tabs.email')}
+                </Text>
+                {loginMode === 'email' && <View style={styles.tabUnderline} />}
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.tab} onPress={() => setLoginMode('phone')}>
+                <Text style={[styles.tabText, loginMode === 'phone' && styles.tabTextActive]}>
+                  {t('authScreens.login.tabs.phone')}
+                </Text>
+                {loginMode === 'phone' && <View style={styles.tabUnderline} />}
+              </TouchableOpacity>
+            </View>
 
-            <TouchableOpacity
-              style={styles.registerButton}
-              onPress={() => navigation.navigate('RegistrationCheckpoint')}
-              disabled={loading || googleLoading}
-            >
-              <Text style={styles.registerButtonText}>
-                {t('authScreens.login.buttons.register')}
-              </Text>
-            </TouchableOpacity>
+            <View style={styles.form}>
+              {loginMode === 'email' ? (
+                <>
+                  <Text style={styles.label}>
+                    {t('authScreens.login.fields.emailLabel')}
+                  </Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder={t('authScreens.login.fields.emailPlaceholder')}
+                    placeholderTextColor={colors.textSecondary}
+                    value={email}
+                    onChangeText={setEmail}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                  />
+
+                  <Text style={styles.label}>
+                    {t('authScreens.login.fields.passwordLabel')}
+                  </Text>
+                  <View style={styles.inputWithIcon}>
+                    <TextInput
+                      style={styles.inputFlex}
+                      placeholder={t('authScreens.login.fields.passwordPlaceholder')}
+                      placeholderTextColor={colors.textSecondary}
+                      value={password}
+                      onChangeText={setPassword}
+                      secureTextEntry={!showPassword}
+                    />
+                    <TouchableOpacity
+                      style={styles.eyeButton}
+                      onPress={() => setShowPassword((prev) => !prev)}
+                      activeOpacity={0.7}
+                    >
+                      <MaterialIcons
+                        name={showPassword ? 'visibility-off' : 'visibility'}
+                        size={22}
+                        color={colors.textSecondary}
+                      />
+                    </TouchableOpacity>
+                  </View>
+
+                  <TouchableOpacity
+                    style={styles.loginButton}
+                    onPress={handleLogin}
+                    disabled={loading || googleLoading}
+                  >
+                    <Text style={styles.loginButtonText}>
+                      {loading
+                        ? t('authScreens.login.buttons.loginEmail.loading')
+                        : t('authScreens.login.buttons.loginEmail.idle')}
+                    </Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.label}>
+                    {t('authScreens.login.fields.phoneLabel')}
+                  </Text>
+                  <View style={styles.countryPickerContainer}>
+                    <PhoneDigitInput
+                      countryOptions={countryOptions}
+                      selectedCountry={selectedCountry}
+                      onCountryChange={handleCountryChange}
+                      digits={phoneDigits}
+                      onChangeDigits={handlePhoneChange}
+                      disabled={loading || googleLoading}
+                    />
+                  </View>
+                  <Text style={styles.helperText}>
+                    {t('authScreens.login.fields.phoneHelper')}
+                  </Text>
+
+                  <TouchableOpacity
+                    style={styles.loginButton}
+                    onPress={handlePhoneLogin}
+                    disabled={
+                      loading ||
+                      googleLoading ||
+                      !isPhoneValid
+                    }
+                  >
+                    <Text style={styles.loginButtonText}>
+                      {loading
+                        ? t('authScreens.login.buttons.loginPhone.loading')
+                        : t('authScreens.login.buttons.loginPhone.idle')}
+                    </Text>
+                  </TouchableOpacity>
+                </>
+              )}
+
+              {/* Separador */}
+              <View style={styles.dividerContainer}>
+                <View style={styles.divider} />
+                <Text style={styles.dividerText}>
+                  {t('authScreens.login.divider')}
+                </Text>
+                <View style={styles.divider} />
+              </View>
+
+              {/* Google Sign-In Button */}
+              <GoogleSignInButton
+                onPress={handleGoogleLogin}
+                loading={googleLoading}
+                disabled={loading}
+                variant="login"
+              />
+
+              <TouchableOpacity
+                style={styles.registerButton}
+                onPress={() => navigation.navigate('RegistrationCheckpoint')}
+                disabled={loading || googleLoading}
+              >
+                <Text style={styles.registerButtonText}>
+                  {t('authScreens.login.buttons.register')}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
-        </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
@@ -391,6 +415,7 @@ const createStyles = (colors: any) => StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     backgroundColor: 'rgba(201, 201, 201, 1)',
+    paddingHorizontal: 14,
   },
   bannerContainer: {
     width: '100%',
@@ -403,10 +428,12 @@ const createStyles = (colors: any) => StyleSheet.create({
     resizeMode: 'cover',
   },
   card: {
-    flex: 1,
     marginTop: 5,
+    marginBottom: 20,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
+    borderBottomEndRadius: 24,
+    borderBottomStartRadius: 24,
     backgroundColor: colors.card,
     paddingHorizontal: 20,
     paddingTop: 24,
@@ -484,6 +511,28 @@ const createStyles = (colors: any) => StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 3,
     elevation: 2,
+  },
+  inputWithIcon: {
+    position: 'relative',
+    marginBottom: 44,
+  },
+  inputFlex: {
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    padding: 13,
+    paddingRight: 44,
+    fontSize: 15,
+    color: colors.text,
+    borderWidth: 1.5,
+    borderColor: '#D4AF37' + '30',
+  },
+  eyeButton: {
+    position: 'absolute',
+    right: 12,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   phoneInput: {
     backgroundColor: colors.card,

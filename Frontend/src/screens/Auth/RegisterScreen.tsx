@@ -19,7 +19,10 @@ import {
   Image,
   StatusBar,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useTheme } from '../../context/ThemeContext';
 import registrationService from '../../services/auth/registrationService';
@@ -42,6 +45,7 @@ export default function RegisterScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { t } = useTranslation();
+  const insets = useSafeAreaInsets();
 
   // Estados principales
   const [method, setMethod] = useState<RegistrationMethod>('email');
@@ -63,6 +67,8 @@ export default function RegisterScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [passwordStatus, setPasswordStatus] = useState<'idle' | 'match' | 'mismatch'>('idle');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   // Métodos activos
   const isEmailMethod = method === 'email';
@@ -402,11 +408,13 @@ export default function RegisterScreen() {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+    <SafeAreaView style={styles.container} edges={['bottom']}>
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      >
+        <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.card}>
           <TouchableOpacity
             style={styles.backButton}
@@ -543,38 +551,64 @@ export default function RegisterScreen() {
                 <Text style={styles.label}>
                   {`${t('authScreens.register.fields.passwordLabel')} *`}
                 </Text>
-                <TextInput
-                  style={[
-                    styles.input,
-                    passwordStatus === 'match' && styles.inputSuccess,
-                    passwordStatus === 'mismatch' && styles.inputError,
-                  ]}
-                  placeholder={t('authScreens.register.fields.passwordPlaceholder')}
-                  placeholderTextColor={colors.textSecondary}
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry
-                  editable={!loading}
-                />
+                <View style={styles.inputWithIcon}>
+                  <TextInput
+                    style={[
+                      styles.inputFlex,
+                      passwordStatus === 'match' && styles.inputSuccess,
+                      passwordStatus === 'mismatch' && styles.inputError,
+                    ]}
+                    placeholder={t('authScreens.register.fields.passwordPlaceholder')}
+                    placeholderTextColor={colors.textSecondary}
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry={!showPassword}
+                    editable={!loading}
+                  />
+                  <TouchableOpacity
+                    style={styles.eyeButton}
+                    onPress={() => setShowPassword((prev) => !prev)}
+                    activeOpacity={0.7}
+                  >
+                    <MaterialIcons
+                      name={showPassword ? 'visibility-off' : 'visibility'}
+                      size={22}
+                      color={colors.textSecondary}
+                    />
+                  </TouchableOpacity>
+                </View>
               </View>
 
               <View style={styles.fieldGroup}>
                 <Text style={styles.label}>
                   {`${t('authScreens.register.fields.confirmPasswordLabel')} *`}
                 </Text>
-                <TextInput
-                  style={[
-                    styles.input,
-                    passwordStatus === 'match' && styles.inputSuccess,
-                    passwordStatus === 'mismatch' && styles.inputError,
-                  ]}
-                  placeholder={t('authScreens.register.fields.confirmPasswordPlaceholder')}
-                  placeholderTextColor={colors.textSecondary}
-                  value={confirmPassword}
-                  onChangeText={setConfirmPassword}
-                  secureTextEntry
-                  editable={!loading}
-                />
+                <View style={styles.inputWithIcon}>
+                  <TextInput
+                    style={[
+                      styles.inputFlex,
+                      passwordStatus === 'match' && styles.inputSuccess,
+                      passwordStatus === 'mismatch' && styles.inputError,
+                    ]}
+                    placeholder={t('authScreens.register.fields.confirmPasswordPlaceholder')}
+                    placeholderTextColor={colors.textSecondary}
+                    value={confirmPassword}
+                    onChangeText={setConfirmPassword}
+                    secureTextEntry={!showConfirmPassword}
+                    editable={!loading}
+                  />
+                  <TouchableOpacity
+                    style={styles.eyeButton}
+                    onPress={() => setShowConfirmPassword((prev) => !prev)}
+                    activeOpacity={0.7}
+                  >
+                    <MaterialIcons
+                      name={showConfirmPassword ? 'visibility-off' : 'visibility'}
+                      size={22}
+                      color={colors.textSecondary}
+                    />
+                  </TouchableOpacity>
+                </View>
                 {passwordStatus === 'match' && (
                   <Text style={styles.successText}>
                     {t('authScreens.register.statusMessages.passwordMatch')}
@@ -633,8 +667,9 @@ export default function RegisterScreen() {
             </Text>
           </View>
         </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
@@ -648,7 +683,6 @@ const createStyles = (colors: any) =>
     scrollContent: {
       flexGrow: 1,
       paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) + 12 : 12,
-      paddingBottom: 32,
       paddingHorizontal: 14,
       justifyContent: 'flex-start',
     },
@@ -758,6 +792,28 @@ const createStyles = (colors: any) =>
       color: colors.text,
       borderWidth: 1.5,
       borderColor: colors.border,
+    },
+    inputWithIcon: {
+      position: 'relative',
+    },
+    inputFlex: {
+      backgroundColor: colors.background,
+      borderRadius: 12,
+      paddingVertical: 12,
+      paddingHorizontal: 14,
+      paddingRight: 44,
+      fontSize: 15,
+      color: colors.text,
+      borderWidth: 1.5,
+      borderColor: colors.border,
+    },
+    eyeButton: {
+      position: 'absolute',
+      right: 12,
+      top: 0,
+      bottom: 0,
+      justifyContent: 'center',
+      alignItems: 'center',
     },
     inputSuccess: {
       borderColor: colors.success,
