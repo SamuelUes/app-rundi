@@ -1,5 +1,5 @@
 import SupportChatShortcut from '@/components/SupportChatShortcut';
-import RideConfirmationScreen from '@/screens/Client/RideConfirmationScreen';
+import RideConfirmationScreen from '@/screens/Client/Trabajo-revision-pendiente-RideConfirmationScreen';
 import alertService from '@/services/alertService';
 import accountLinkingService from '@/services/auth/accountLinkingService';
 import firebaseAuthService from '@/services/auth/firebaseAuthService';

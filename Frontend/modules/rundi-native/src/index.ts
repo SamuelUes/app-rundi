@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import { NativeModule, requireNativeModule } from 'expo';
 
 export type OverlayOpenedEvent = {
@@ -37,14 +38,20 @@ declare class BatteryOptimizationModuleType extends NativeModule {
   requestIgnoreOptimizations(): Promise<boolean>;
 }
 
-export const OverlayPermissionModule =
-  requireNativeModule<OverlayPermissionModuleType>('OverlayPermissionModule');
-export const ForegroundServiceModule =
-  requireNativeModule<ForegroundServiceModuleType>('ForegroundServiceModule');
-export const WorkManagerModule =
-  requireNativeModule<WorkManagerModuleType>('WorkManagerModule');
-export const BatteryOptimizationModule =
-  requireNativeModule<BatteryOptimizationModuleType>('BatteryOptimizationModule');
+const isAndroid = Platform.OS === 'android';
+
+export const OverlayPermissionModule = isAndroid
+  ? requireNativeModule<OverlayPermissionModuleType>('OverlayPermissionModule')
+  : null;
+export const ForegroundServiceModule = isAndroid
+  ? requireNativeModule<ForegroundServiceModuleType>('ForegroundServiceModule')
+  : null;
+export const WorkManagerModule = isAndroid
+  ? requireNativeModule<WorkManagerModuleType>('WorkManagerModule')
+  : null;
+export const BatteryOptimizationModule = isAndroid
+  ? requireNativeModule<BatteryOptimizationModuleType>('BatteryOptimizationModule')
+  : null;
 
 export default {
   OverlayPermissionModule,
