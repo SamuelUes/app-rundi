@@ -248,7 +248,7 @@ export default function LoginScreen({ navigation }: any) {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <ScrollView
-          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 20 }]}
+          contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
         >
@@ -413,9 +413,9 @@ const createStyles = (colors: any) => StyleSheet.create({
     backgroundColor: colors.background,
   },
   scrollContent: {
-    flexGrow: 1,
     backgroundColor: 'rgba(201, 201, 201, 1)',
     paddingHorizontal: 14,
+    paddingBottom: 20,
   },
   bannerContainer: {
     width: '100%',
@@ -429,7 +429,7 @@ const createStyles = (colors: any) => StyleSheet.create({
   },
   card: {
     marginTop: 5,
-    marginBottom: 20,
+    marginBottom: 0,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     borderBottomEndRadius: 24,

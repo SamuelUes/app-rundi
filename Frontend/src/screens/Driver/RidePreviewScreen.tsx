@@ -21,7 +21,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { LoadingIcon } from '../../components/LoadingIcon';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import GoogleMap from '../../components/GoogleMaps';
+import DynamicMap from '../../components/DynamicMap';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useVoiceAssistant } from '../../context/VoiceAssistantContext';
@@ -1333,7 +1333,7 @@ export default function RidePreviewScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={styles.mapContainer}>
-        <GoogleMap
+        <DynamicMap
           latitude={currentRide.origin.lat}
           longitude={currentRide.origin.lng}
           originMarker={{ latitude: currentRide.origin.lat, longitude: currentRide.origin.lng }}

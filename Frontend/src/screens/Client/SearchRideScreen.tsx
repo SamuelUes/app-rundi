@@ -20,6 +20,7 @@ import {
 import { Picker } from '@react-native-picker/picker';
 import * as ImagePicker from 'expo-image-picker';
 import DynamicMap from '../../components/DynamicMap';
+import { MAP_ICONS } from '../../constants/mapIcons';
 import { useLocation } from '../../hooks/useLocation';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
@@ -34,11 +35,7 @@ import { uploadClientVehiclePhoto } from '../../services/supabaseStorage';
 import BiometricService from '../../services/biometricService';
 import client from '../../api/client';
 
-const MANUAL_ORIGIN_ICON = require('../../assets/icons/select-origin-position/selectoriginposition_2x.png');
-const MANUAL_ORIGIN_HOLD_ICON = require('../../assets/icons/select-origin-position-holding/selectoriginpositionholding_2x.png');
-const ORIGIN_PIN_ICON = require('../../assets/icons/origin_marker/origin_marker.png');
-const DESTINATION_PIN_ICON = require('../../assets/icons/select-final-destination/selectfinaldestination.png');
-const STOP_PIN_ICON = require('../../assets/icons/select-extra-destination/selectextradestination.png');
+const { MANUAL_ORIGIN, MANUAL_ORIGIN_HOLD, ORIGIN_PIN, DESTINATION_PIN, MULTI_STOP_PIN } = MAP_ICONS;
 const BACK_BUTTON_ICON = require('../../assets/icons/back_button/back_button2x.png');
 const DEFAULT_FALLBACK_COORDS = { latitude: 12.1364, longitude: -86.2514 };
 const MAX_EXTRA_STOPS = 3;
@@ -2199,8 +2196,8 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
           markerPosition={manualOriginMarkerPosition}
           markerType="manual_origin"
           draggableMarker
-          manualOriginIcon={MANUAL_ORIGIN_ICON}
-          manualOriginHoldIcon={MANUAL_ORIGIN_HOLD_ICON}
+          manualOriginIcon={MANUAL_ORIGIN}
+          manualOriginHoldIcon={MANUAL_ORIGIN_HOLD}
           onMarkerDragStart={handleManualOriginDragStart}
           onMarkerDragEnd={handleManualOriginDragEnd}
           cameraTarget={cameraTarget}
@@ -2211,11 +2208,11 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
               source={
                 mapSelectionMode === 'origin'
                   ? manualOriginDragging
-                    ? MANUAL_ORIGIN_HOLD_ICON
-                    : MANUAL_ORIGIN_ICON
+                    ? MANUAL_ORIGIN_HOLD
+                    : MANUAL_ORIGIN
                   : mapSelectionMode === 'destination'
-                  ? DESTINATION_PIN_ICON
-                  : STOP_PIN_ICON
+                  ? DESTINATION_PIN
+                  : MULTI_STOP_PIN
               }
               style={[
                 styles.centerPinImage,
@@ -2251,10 +2248,10 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
 
             const iconSource =
               row.kind === 'origin'
-                ? ORIGIN_PIN_ICON
+                ? ORIGIN_PIN
                 : row.kind === 'destination'
-                ? DESTINATION_PIN_ICON
-                : STOP_PIN_ICON;
+                ? DESTINATION_PIN
+                : MULTI_STOP_PIN;
 
             return (
               <View key={`${row.kind}-${row.index ?? 'final'}`} style={styles.timelineRow}>
@@ -3082,9 +3079,9 @@ function createStyles(colors: any, isDark: boolean = false) {
       paddingVertical: 12,
       paddingHorizontal: 14,
       borderRadius: 18,
-      backgroundColor: isDark ? '#26282e' : (colors.card || '#ffffff'),
+     backgroundColor: colors.card || (isDark ? '#2a2a2a' : '#FFFAF5'),
       borderWidth: 1,
-      borderColor: isDark ? '#3a3d45' : '#ece7dc',
+      borderColor: colors.border || (isDark ? '#444' : '#e1e1e1'),
       gap: 8,
     },
     vehicleOptionCardSelected: {
@@ -3298,14 +3295,7 @@ function createStyles(colors: any, isDark: boolean = false) {
     estimateValue: { color: colors.text || '#111', fontWeight: '800', fontSize: 22 },
 
     paymentRow: { flexDirection: 'row', justifyContent: 'center', gap: 10, marginVertical: 8 },
-    paymentChip: {
-      paddingVertical: 9,
-      paddingHorizontal: 16,
-      borderRadius: 999,
-      backgroundColor: isDark ? '#313131' : '#313131',
-      borderWidth: 1,
-      borderColor: isDark ? '#434343' : '#dfdfe3',
-    },
+ paymentChip: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 16, backgroundColor: colors.surface || '#eee' },
     paymentChipSelected: { backgroundColor: '#b88939', borderColor: '#b88939' },
     paymentChipText: { color: colors.text || '#111', fontWeight: '600' },
     paymentChipTextSelected: { color: '#fff' },

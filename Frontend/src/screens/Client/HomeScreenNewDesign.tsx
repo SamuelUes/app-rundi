@@ -41,6 +41,7 @@ import { useTranslation } from 'react-i18next';
 import { useLocation } from '../../hooks/useLocation';
 import TopToastProvider from '../../components/toast/TopToastProvider';
 import DynamicMap from '../../components/DynamicMap';
+import { MAP_ICONS } from '../../constants/mapIcons';
 
 // Importaciones para Firebase
 
@@ -77,10 +78,7 @@ const areCoordsEqual = (
 const PROFILE_ICON_IMAGE = require('../../assets/icons/profile/profile-icon2.png');
 //const REQUEST_BUTTON_IMAGE = require('../../assets/icons/make_request_button/make_request_button3x.png');
 const PENDING_ACTION_IMAGE = require('../../assets/icons/pending_acction/pending_acction2x.png');
-const USER_LOCATION_LIGHT_ICON = require('../../assets/icons/actuall-position-white/actuallpositionwhite2x.png');
-const USER_LOCATION_DARK_ICON = require('../../assets/icons/actuall-position-black/actuallpositionblack2x.png');
-const USER_LOCATION_HOLDING_LIGHT_ICON = require('../../assets/icons/actuall-position-white-holding/actuallpositionwhiteholding2x.png');
-const USER_LOCATION_HOLDING_DARK_ICON = require('../../assets/icons/actuall-position-black-holding/actuallpositionblackholding2x.png');
+const { USER_LOCATION_LIGHT, USER_LOCATION_DARK, USER_LOCATION_HOLDING_LIGHT, USER_LOCATION_HOLDING_DARK } = MAP_ICONS;
 
 type PendingAction = {
   type: 'pending_payment' | 'active_ride';
@@ -1674,8 +1672,8 @@ export default function HomeScreen({ navigation }: any) {
       : t('client.home.locationStatus.dragging')
     : t('client.home.locationStatus.unlocked');
 
-  const markerIcon = isDark ? USER_LOCATION_DARK_ICON : USER_LOCATION_LIGHT_ICON;
-  const markerHoldIcon = isDark ? USER_LOCATION_HOLDING_DARK_ICON : USER_LOCATION_HOLDING_LIGHT_ICON;
+  const markerIcon = isDark ? USER_LOCATION_DARK : USER_LOCATION_LIGHT;
+  const markerHoldIcon = isDark ? USER_LOCATION_HOLDING_DARK : USER_LOCATION_HOLDING_LIGHT;
 
   const showUserLocationDot = !manualOverride?.active && isPinLocked && !hasPendingManualSelection;
   const showCenterPinOverlay = !isPinLocked;
@@ -1700,10 +1698,10 @@ export default function HomeScreen({ navigation }: any) {
         onRegionChangeCompleteCenter={handleRegionChangeCompleteCenter}
         showPinBubbles
         originLabel={isResolvingAddress ? t('client.home.map.searchingAddress') : pendingAddress}
-        userLocationLightIcon={USER_LOCATION_LIGHT_ICON}
-        userLocationDarkIcon={USER_LOCATION_DARK_ICON}
-        userLocationHoldingLightIcon={USER_LOCATION_HOLDING_LIGHT_ICON}
-        userLocationHoldingDarkIcon={USER_LOCATION_HOLDING_DARK_ICON}
+        userLocationLightIcon={USER_LOCATION_LIGHT}
+        userLocationDarkIcon={USER_LOCATION_DARK}
+        userLocationHoldingLightIcon={USER_LOCATION_HOLDING_LIGHT}
+        userLocationHoldingDarkIcon={USER_LOCATION_HOLDING_DARK}
         manualOriginIcon={isPinLocked ? markerIcon : markerHoldIcon}
         manualOriginHoldIcon={markerHoldIcon}
         manualOriginBounceValue={isPinLocked && !isHoldingPin ? markerBounceTranslateY : undefined}

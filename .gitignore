@@ -79,7 +79,7 @@ temp/
 # Carpetas ignoradas (legacy)
 Backend/
 docs/
-database/
+#database/
 tools/
 #.env
 storage.rules

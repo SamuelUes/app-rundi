@@ -16,6 +16,7 @@ import alertService from '../../services/alertService';
 import { useTheme } from '../../context/ThemeContext';
 import { MapSkeleton } from '../../components/SkeletonLoader';
 import DynamicMap from '../../components/DynamicMap';
+import { MAP_ICONS } from '../../constants/mapIcons';
 import { useAuth } from '../../context/AuthContext';
 import { useVoiceAssistant } from '../../context/VoiceAssistantContext';
 import { useLocation, DRIVER_LOCATION_OPTIONS } from '../../hooks/useLocation';
@@ -30,10 +31,7 @@ import { useTranslation } from 'react-i18next';
 
 const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
 
-// Iconos de ubicación
-const ORIGIN_PIN = require('../../assets/icons/origin_marker/origin_marker.png');
-const MULTI_STOP_PIN = require('../../assets/icons/multiplelocationmarker/multiplelocationmarker.png');
-const DEST_PIN = require('../../assets/icons/select-final-destination/selectfinaldestination.png');
+const { ORIGIN_PIN, MULTI_STOP_LIST_PIN, DESTINATION_PIN } = MAP_ICONS;
 
 interface RouteParams {
   rideId: string;
@@ -900,9 +898,9 @@ export default function ActiveRideScreen({ route, navigation }: any) {
               <View style={styles.addressesLeftCol}>
                 <Image source={ORIGIN_PIN} style={styles.listPinImage} />
                 {ride?.extraDestinations?.map?.((stop: any, idx: number) => (
-                  <Image key={`pin-${idx}`} source={MULTI_STOP_PIN} style={styles.listPinImage} />
+                  <Image key={`pin-${idx}`} source={MULTI_STOP_LIST_PIN} style={styles.listPinImage} />
                 ))}
-                <Image source={DEST_PIN} style={styles.listPinImage} />
+                <Image source={DESTINATION_PIN} style={styles.listPinImage} />
               </View>
               <View style={styles.addressesRightCol}>
                 <View style={styles.addressRow}>

@@ -7,6 +7,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { useLocation } from '../../hooks/useLocation';
 import DynamicMap from '../../components/DynamicMap';
+import { MAP_ICONS } from '../../constants/mapIcons';
 import alertService from '../../services/alertService';
 import ridesService from '../../services/ridesService';
 import PriceNegotiationModal from '../../components/PriceNegotiationModal';
@@ -23,8 +24,7 @@ import { getPreflightResult } from '../../state/preflightStore';
 import { RIDES_RADIUS_KM } from '../../constants/rideRadius';
 import { fetchDriverPublicInsights, type DriverPublicInsights } from '../../services/driverPublicInsightsService';
 
-const USER_LOCATION_LIGHT_ICON = require('../../assets/icons/actuall-position-white/actuallpositionwhite2x.png');
-const USER_LOCATION_DARK_ICON = require('../../assets/icons/actuall-position-black/actuallpositionblack2x.png');
+const { USER_LOCATION_LIGHT, USER_LOCATION_DARK } = MAP_ICONS;
 const MAX_DRIVER_RADIUS_KM = typeof RIDES_RADIUS_KM === 'number' ? RIDES_RADIUS_KM : 6;
 
 interface Props {
@@ -1251,8 +1251,8 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
           onDriverPress={handleDriverPressOnMap}
           showUserLocation
           userLocation={{ latitude: centerLat, longitude: centerLng }}
-          userLocationLightIcon={USER_LOCATION_LIGHT_ICON}
-          userLocationDarkIcon={USER_LOCATION_DARK_ICON}
+          userLocationLightIcon={USER_LOCATION_LIGHT}
+          userLocationDarkIcon={USER_LOCATION_DARK}
           originMarker={originCoords || undefined}
           destinationMarker={destinationCoords || undefined}
           originLabel={rideSnapshot?.origin?.address || rideSnapshot?.originAddress || undefined}

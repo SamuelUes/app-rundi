@@ -125,7 +125,7 @@ function DynamicMapComponent({
   const actualProvider = isExpoGo ? 'google' : provider;
   const trafficEnabled = showTraffic ?? mapTrafficEnabled;
   const effectiveMarkerHeading = restProps.markerType === 'car' ? markerVehicleHeading : undefined;
-  const defaultGoogleRenderer = Platform.OS === 'android' ? 'LEGACY' : 'LATEST';
+  const defaultGoogleRenderer = 'LATEST';
 
   // Solo loguear cuando cambia el provider (no en cada render)
   React.useEffect(() => {

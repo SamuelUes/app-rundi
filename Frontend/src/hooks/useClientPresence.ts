@@ -74,13 +74,20 @@ export function useClientPresence() {
 
       const actions = actionsRef.current;
       if (actions) {
-        sessionService.getDeviceId().then((deviceId) => {
-          actions.markClosed({ role: 'client', deviceId }).catch((err: any) => {
+        getFirebaseAuth()
+          .then((auth) => {
+            if (!auth.currentUser) return;
+            sessionService.getDeviceId().then((deviceId) => {
+              actions.markClosed({ role: 'client', deviceId }).catch((err: any) => {
+                console.warn('[useClientPresence] markAppClosed error:', err?.message || err);
+              });
+            }).catch((err) => {
+              console.warn('[useClientPresence] markAppClosed error:', err?.message || err);
+            });
+          })
+          .catch((err) => {
             console.warn('[useClientPresence] markAppClosed error:', err?.message || err);
           });
-        }).catch((err) => {
-          console.warn('[useClientPresence] markAppClosed error:', err?.message || err);
-        });
       }
     };
   }, [loading, user?.id, userMode]);

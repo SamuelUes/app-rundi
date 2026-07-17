@@ -103,12 +103,19 @@ export function usePresence() {
 
       const actions = actionsRef.current;
       if (actions && isDriverCapable) {
-        sessionService
-          .getDeviceId()
-          .then((deviceId) => {
-            actions
-              .markClosed({ role: 'driver', deviceId })
-              .catch((err: any) => {
+        getFirebaseAuth()
+          .then((auth) => {
+            if (!auth.currentUser) return;
+            sessionService
+              .getDeviceId()
+              .then((deviceId) => {
+                actions
+                  .markClosed({ role: 'driver', deviceId })
+                  .catch((err: any) => {
+                    console.error('❌ Error en cleanup de presencia (markAppClosed):', err?.message || err);
+                  });
+              })
+              .catch((err) => {
                 console.error('❌ Error en cleanup de presencia (markAppClosed):', err?.message || err);
               });
           })
