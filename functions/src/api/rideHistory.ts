@@ -4,9 +4,9 @@
  */
 
 import * as functions from 'firebase-functions';
-import admin from 'firebase-admin';
-import { supabaseGetRidesWithLocationsAndPayments, supabaseGet, supabaseGetDriverWithVehicles } from '../supabase/client';
+import { supabaseGetRidesWithLocationsAndPayments, supabaseGet, supabaseGetDriverWithVehicles, supabaseGetDriversWithVehiclesBatch } from '../supabase/client';
 import { firestore } from '../config/firebase';
+import { ensureActiveSession } from '../utils/sessionUtils';
 
 type RideContext = {
   userProfiles: Record<string, any>;
@@ -114,38 +114,6 @@ const filterRidesByDateRange = (rides: any[], range: { start: number; end: numbe
   });
 };
 
-// ============================================
-// Single-session enforcement (DENY policy)
-// ============================================
-const RH_SESSION_ACTIVE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
-
-const rhIsRecent = (lastSeen: any): boolean => {
-  if (typeof lastSeen === 'number') {
-    const diff = Date.now() - lastSeen;
-    return diff >= 0 && diff <= RH_SESSION_ACTIVE_THRESHOLD_MS;
-  }
-  return true;
-};
-
-const ensureActiveSession = async (
-  context: functions.https.CallableContext,
-  data: any,
-) => {
-  if (!context.auth?.uid) {
-    throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
-  }
-  const uid = context.auth.uid;
-  const deviceId = typeof data?.deviceId === 'string' ? data.deviceId.trim() : '';
-  if (!deviceId) {
-    throw new functions.https.HttpsError('invalid-argument', 'deviceId requerido');
-  }
-  const snap = await admin.database().ref(`sessions/${uid}`).once('value');
-  const session = snap.val();
-  if (session && session.deviceId && session.deviceId !== deviceId && rhIsRecent(session.lastSeen)) {
-    throw new functions.https.HttpsError('failed-precondition', 'SESSION_ACTIVE_ELSEWHERE');
-  }
-};
-
 const buildDisplayName = (profile: any): string | null => {
   if (!profile) return null;
   const candidates = [
@@ -175,33 +143,56 @@ const fetchRideContext = async (rides: any[]): Promise<RideContext> => {
   )) as string[];
 
   const userProfiles: Record<string, any> = {};
-  const driverDetails: Record<string, any> = {};
+  let driverDetails: Record<string, any> = {};
 
+  // ✅ Grupo 7 (H6): Batch queries para resolver N+1.
+  // Antes: N queries individuales a Firestore + N queries individuales a Supabase.
+  // Ahora: 1 query batch a Firestore (getAll) + 1 query batch a Supabase (in filter).
   const userIds = Array.from(new Set([...driverIds, ...clientIds]));
   if (userIds.length > 0) {
-    await Promise.all(userIds.map(async (uid) => {
-      try {
-        const docSnap = await firestore.collection('users').doc(uid).get();
+    try {
+      // Firestore: getAll() obtiene múltiples documentos en una sola petición
+      const docRefs = userIds.map(uid => firestore.collection('users').doc(uid));
+      const docSnaps = await firestore.getAll(...docRefs);
+      docSnaps.forEach((docSnap, index) => {
         if (docSnap.exists) {
-          userProfiles[uid] = docSnap.data();
+          userProfiles[userIds[index]] = docSnap.data();
         }
-      } catch (err: any) {
-        console.warn(`⚠️ [rideHistory] Error obteniendo perfil de usuario ${uid}:`, err.message);
-      }
-    }));
+      });
+    } catch (err: any) {
+      console.warn(`⚠️ [rideHistory] Error obteniendo perfiles de usuario en batch:`, err.message);
+      // Fallback: intentar individualmente si el batch falla
+      await Promise.all(userIds.map(async (uid) => {
+        try {
+          const docSnap = await firestore.collection('users').doc(uid).get();
+          if (docSnap.exists) {
+            userProfiles[uid] = docSnap.data();
+          }
+        } catch (err: any) {
+          console.warn(`⚠️ [rideHistory] Error obteniendo perfil de usuario ${uid}:`, err.message);
+        }
+      }));
+    }
   }
 
   if (driverIds.length > 0) {
-    await Promise.all(driverIds.map(async (driverId) => {
-      try {
-        const driverProfile = await supabaseGetDriverWithVehicles(driverId);
-        if (driverProfile) {
-          driverDetails[driverId] = driverProfile;
+    try {
+      // Supabase: una sola petición con filtro `in` para todos los driverIds
+      driverDetails = await supabaseGetDriversWithVehiclesBatch(driverIds);
+    } catch (err: any) {
+      console.warn(`⚠️ [rideHistory] Error obteniendo conductores en batch:`, err.message);
+      // Fallback: intentar individualmente si el batch falla
+      await Promise.all(driverIds.map(async (driverId) => {
+        try {
+          const driverProfile = await supabaseGetDriverWithVehicles(driverId);
+          if (driverProfile) {
+            driverDetails[driverId] = driverProfile;
+          }
+        } catch (err: any) {
+          console.warn(`⚠️ [rideHistory] Error obteniendo datos del conductor ${driverId} en Supabase:`, err.message);
         }
-      } catch (err: any) {
-        console.warn(`⚠️ [rideHistory] Error obteniendo datos del conductor ${driverId} en Supabase:`, err.message);
-      }
-    }));
+      }));
+    }
   }
 
   return { userProfiles, driverDetails };
@@ -458,7 +449,7 @@ export const diagnosticRides = functions.https.onCall(async (data, context) => {
 
     // Paso 1: Obtener TODOS los viajes
     console.log(`\n📋 PASO 1: Obteniendo TODOS los viajes...`);
-    const allRides = await supabaseGet('rides', {}, 'id,client_id,driver_id,status,created_at,final_fare', {
+    const allRides = await supabaseGet('rides', { deleted_at: null }, 'id,client_id,driver_id,status,created_at,final_fare', {
       requireServiceRole: true,
     });
     console.log(`✅ Total de viajes en BD: ${allRides.length}`);
@@ -486,14 +477,14 @@ export const diagnosticRides = functions.https.onCall(async (data, context) => {
     
     // Búsqueda como cliente
     console.log(`   - Buscando como CLIENT_ID...`);
-    const ridesAsClient = await supabaseGet('rides', { client_id: userId }, 'id,client_id,driver_id,status', {
+    const ridesAsClient = await supabaseGet('rides', { client_id: userId, deleted_at: null }, 'id,client_id,driver_id,status', {
       requireServiceRole: true,
     });
     console.log(`   ✅ Viajes como cliente: ${ridesAsClient.length}`);
     
     // Búsqueda como conductor
     console.log(`   - Buscando como DRIVER_ID...`);
-    const ridesAsDriver = await supabaseGet('rides', { driver_id: userId }, 'id,client_id,driver_id,status', {
+    const ridesAsDriver = await supabaseGet('rides', { driver_id: userId, deleted_at: null }, 'id,client_id,driver_id,status', {
       requireServiceRole: true,
     });
     console.log(`   ✅ Viajes como conductor: ${ridesAsDriver.length}`);

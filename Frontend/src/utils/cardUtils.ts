@@ -173,3 +173,14 @@ export const maskCardNumber = (last4OrNumber: string): string => {
   const last4 = digits.slice(-4).padStart(4, '0');
   return `**** ${last4}`;
 };
+
+export const detectCardBrand = (number: string): string => {
+  const cleaned = number.replace(/\s/g, '');
+
+  if (/^4/.test(cleaned)) return 'Visa';
+  if (/^5[1-5]/.test(cleaned)) return 'Mastercard';
+  if (/^3[47]/.test(cleaned)) return 'American Express';
+  if (/^6(?:011|5)/.test(cleaned)) return 'Discover';
+
+  return 'Unknown';
+};

@@ -10,525 +10,57 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
-import * as Notifications from 'expo-notifications';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useFCM } from '../../context/FCMContext';
-import { checkBackgroundLocationPermission } from '../../services/backgroundLocationService';
-import { overlayManager } from '../../native/overlay';
-import { ensureActivityRecognitionPermission } from '../../utils/activityPermission';
 import alertService from '../../services/alertService';
-import { setPreflightResult, PreflightAction, PreflightSummary } from '../../state/preflightStore';
+import { setPreflightResult, PreflightAction, PreflightSummary } from '../../stores/preflightStore';
 import type {
-  GetPreflightDataResponse,
-  PreflightDriverApprovalSummary,
-  PreflightPendingPaymentsSummary,
-  PreflightRechargeFundsSummary,
   PreflightRole,
   PreflightRouteConfig,
   PreflightRegionInfo,
-  TermsDocumentType,
   PreflightTermsSummary,
-  ServiceAreaPoint,
+  GetPreflightDataResponse,
+  TermsDocumentType,
 } from '../../types/preflight';
-import { fetchDriverProfile } from '../../services/driverProfilesService';
 import proximityService, {
   isRegistrationUploadsInProgress,
   subscribeRegistrationUploadsInProgress,
 } from '../../services/proximityService';
 import ridesService from '../../services/ridesService';
 import firebaseAuthService from '../../services/auth/firebaseAuthService';
-import BiometricService from '../../services/biometricService';
 import PreflightBiometricPrompt from '../../components/PreflightBiometricPrompt';
 import TermsAndConditionsModal, { CURRENT_TERMS_VERSION } from '../../components/TermsAndConditionsModal';
 import PermissionsExplanation from '../../components/permissions/PermissionsExplanation';
-import type { User as FirebaseUser } from 'firebase/auth';
 import { useTranslation } from 'react-i18next';
-import { isNativeFirebaseSupported, loadNativeFirebaseAuth } from '../../utils/nativeFirebase';
 import preflightService from '../../services/preflightService';
-import { waitForFirebaseAuthUser } from '../../utils/firebaseAuthReady';
+import {
+  DRIVER_BIOMETRIC_MAX_ATTEMPTS,
+  TERMS_DOCUMENTS,
+  buildInitialTermsCheckedState,
+  buildActionsFromPreflightData,
+  getCheckLabels,
+  getLocalRegionFallback,
+  hasAcceptedAllCurrentTerms,
+  shouldRequireDriverBiometricCheck,
+  toDriverApprovalResult,
+  type DriverApprovalResult,
+} from '../../utils/preflightHelpers';
+import {
+  checkAuth,
+  checkNotifications,
+  checkForegroundLocation,
+  checkBackgroundLocation,
+  checkOverlay,
+  checkActivity,
+  checkDriverApprovalStatus,
+  checkDriverBiometricAccess,
+} from '../../utils/preflightChecks';
 
 type NavigationLike = {
   replace: (routeName: string, params?: any) => void;
   navigate: (routeName: string, params?: any) => void;
 };
-
-type NormalizedAccountStatus = 'active' | 'pending' | 'suspended' | 'rejected';
-type NormalizedDocumentsStatus = 'verified' | 'pending' | 'suspended' | 'rejected';
-
-type DriverApprovalResult = {
-  allowed: boolean;
-  accountStatus: NormalizedAccountStatus;
-  documentsStatus: NormalizedDocumentsStatus;
-  hasActiveVehicle: boolean;
-};
-
-const ACTIVE_DRIVER_STATUSES = ['accepted', 'driver_on_route', 'driver_arrived', 'in_progress'];
-const ACTIVE_CLIENT_TRACK_STATUSES = ['accepted', 'driver_on_route', 'driver_arrived', 'in_progress'];
-const CLIENT_WAITING_STATUSES = ['requested', 'searching', 'pending', 'pending_confirmation'];
-const TERMS_DOCUMENTS: TermsDocumentType[] = ['general', 'users', 'designated_driver'];
-
-const CRITICAL_CHECKS = ['auth', 'notifications', 'foregroundLocation', 'backgroundLocation', 'overlay'];
-const DRIVER_BIOMETRIC_CONTEXT = 'app_access_preflight';
-const DRIVER_BIOMETRIC_MAX_ATTEMPTS = 3;
-const DRIVER_BIOMETRIC_RISK_WINDOW_MS = 15 * 60 * 1000;
-const recentDriverBiometricAuthByUserId = new Map<string, number>();
-
-const DEFAULT_MANAGUA_POLYGON: ServiceAreaPoint[] = [
-  { lat: 12.2, lng: -86.35 },
-  { lat: 12.2, lng: -86.15 },
-  { lat: 12.05, lng: -86.15 },
-  { lat: 12.05, lng: -86.35 },
-  { lat: 12.2, lng: -86.35 },
-];
-
-function isPointInPolygon(lat: number, lng: number, polygon: ServiceAreaPoint[]): boolean {
-  let inside = false;
-
-  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-    const xi = polygon[i].lng;
-    const yi = polygon[i].lat;
-    const xj = polygon[j].lng;
-    const yj = polygon[j].lat;
-
-    const intersects =
-      yi > lat !== yj > lat &&
-      lng < ((xj - xi) * (lat - yi)) / (yj - yi || Number.EPSILON) + xi;
-
-    if (intersects) {
-      inside = !inside;
-    }
-  }
-
-  return inside;
-}
-
-function getDriverBiometricUserType(user: any, role: PreflightRole): 'driver' | 'designated_driver' | null {
-  if (role !== 'driver') {
-    return null;
-  }
-
-  const rawRole = String(user?.role || '')
-    .trim()
-    .toLowerCase();
-
-  if (rawRole === 'designated_driver') {
-    return 'designated_driver';
-  }
-
-  if (rawRole === 'driver') {
-    return 'driver';
-  }
-
-  return 'driver';
-}
-
-function shouldRequireDriverBiometricCheck(user: any, role: PreflightRole): boolean {
-  const userType = getDriverBiometricUserType(user, role);
-  if (!userType || !user?.id) {
-    return false;
-  }
-
-  const now = Date.now();
-  const lastSuccessAt = recentDriverBiometricAuthByUserId.get(user.id);
-  if (!lastSuccessAt) {
-    return true;
-  }
-
-  return now - lastSuccessAt > DRIVER_BIOMETRIC_RISK_WINDOW_MS;
-}
-
-async function checkDriverBiometricAccess(
-  user: any,
-  role: PreflightRole,
-  t: (key: string, opts?: any) => string,
-  onPhaseChange?: (payload: {
-    phase: 'scanning' | 'pin_fallback' | 'success' | 'failed';
-    attempt: number;
-    maxAttempts: number;
-  }) => void,
-): Promise<{ success: boolean; message?: string }> {
-  const userType = getDriverBiometricUserType(user, role);
-  if (!userType || !user?.id) {
-    return { success: true };
-  }
-
-  let lastErrorMessage = '';
-
-  for (let attempt = 1; attempt <= DRIVER_BIOMETRIC_MAX_ATTEMPTS; attempt += 1) {
-    onPhaseChange?.({
-      phase: 'scanning',
-      attempt,
-      maxAttempts: DRIVER_BIOMETRIC_MAX_ATTEMPTS,
-    });
-
-    const result = await BiometricService.authenticateWithPinFallback(
-      t('shared.preflight.biometric.prompt'),
-      t('shared.preflight.biometric.pinFallback'),
-    );
-
-    const success = result.success === true;
-    const attemptError = result.error || t('shared.preflight.biometric.error');
-
-    if (result.usedPinFallback) {
-      onPhaseChange?.({
-        phase: 'pin_fallback',
-        attempt,
-        maxAttempts: DRIVER_BIOMETRIC_MAX_ATTEMPTS,
-      });
-    }
-
-    await BiometricService.logAuthenticationAttempt({
-      biometricType: result.biometryType || 'biometric',
-      context: DRIVER_BIOMETRIC_CONTEXT,
-      userType,
-      success,
-      attemptNumber: attempt,
-      errorMessage: success ? undefined : attemptError,
-    });
-
-    if (success) {
-      onPhaseChange?.({
-        phase: 'success',
-        attempt,
-        maxAttempts: DRIVER_BIOMETRIC_MAX_ATTEMPTS,
-      });
-      recentDriverBiometricAuthByUserId.set(user.id, Date.now());
-      return { success: true };
-    }
-
-    lastErrorMessage = attemptError;
-
-    onPhaseChange?.({
-      phase: 'failed',
-      attempt,
-      maxAttempts: DRIVER_BIOMETRIC_MAX_ATTEMPTS,
-    });
-
-    if (result.errorCode === 'NOT_SUPPORTED' || result.errorCode === 'NOT_ENROLLED') {
-      return {
-        success: false,
-        message: t('shared.preflight.biometric.deviceSecurityRequired'),
-      };
-    }
-
-    if (attempt < DRIVER_BIOMETRIC_MAX_ATTEMPTS) {
-      await new Promise((resolve) => setTimeout(resolve, 450));
-    }
-  }
-
-  return {
-    success: false,
-    message: t('shared.preflight.biometric.maxAttempts', { max: DRIVER_BIOMETRIC_MAX_ATTEMPTS }),
-  };
-}
-
-function buildInitialTermsCheckedState(): Record<TermsDocumentType, boolean> {
-  return {
-    general: false,
-    users: false,
-    designated_driver: false,
-  };
-}
-
-function hasAcceptedAllCurrentTerms(
-  termsSummary: PreflightTermsSummary | null | undefined,
-  fallbackProfile?: Record<string, any> | null,
-): boolean {
-  const summaryAccepted = termsSummary?.acceptedAllDocuments === true;
-  if (summaryAccepted) {
-    return true;
-  }
-
-  const summaryDocuments = termsSummary?.acceptedDocuments;
-  const summaryAllDocsAccepted =
-    summaryDocuments &&
-    TERMS_DOCUMENTS.every((documentType) => summaryDocuments[documentType]?.accepted === true);
-  if (summaryAllDocsAccepted) {
-    return true;
-  }
-
-  const acceptedVersion = termsSummary?.acceptedVersion || String(fallbackProfile?.termsVersion || '').trim();
-  if (acceptedVersion === CURRENT_TERMS_VERSION) {
-    return true;
-  }
-
-  const termsAcceptance =
-    fallbackProfile?.termsAcceptance && typeof fallbackProfile.termsAcceptance === 'object'
-      ? (fallbackProfile.termsAcceptance as Record<string, any>)
-      : null;
-
-  const acceptanceType = String(termsAcceptance?.type || '').trim().toLowerCase();
-  const acceptanceVersion = String(termsAcceptance?.version || '').trim();
-  if (acceptanceType === 'general' && acceptanceVersion === CURRENT_TERMS_VERSION) {
-    return true;
-  }
-
-  const acceptanceDocs =
-    termsAcceptance?.documents && typeof termsAcceptance.documents === 'object'
-      ? (termsAcceptance.documents as Record<string, any>)
-      : null;
-
-  if (!acceptanceDocs) {
-    return false;
-  }
-
-  return TERMS_DOCUMENTS.every((documentType) => {
-    const documentAcceptance = acceptanceDocs[documentType];
-    if (!documentAcceptance || typeof documentAcceptance !== 'object') {
-      return false;
-    }
-    const documentVersion = String(documentAcceptance.version || '').trim();
-    const accepted = documentAcceptance.accepted === true;
-    return accepted && documentVersion === CURRENT_TERMS_VERSION;
-  });
-}
-
-function getLocalRegionFallback(
-  t: (key: string, opts?: any) => string,
-  latitude: number,
-  longitude: number,
-): PreflightRegionInfo {
-  const isInsideDefault = isPointInPolygon(latitude, longitude, DEFAULT_MANAGUA_POLYGON);
-
-  if (isInsideDefault) {
-    return {
-      allowed: true,
-      serviceAreaId: 'ni-managua',
-      areaName: 'Fallback Managua',
-      message: t('shared.preflight.regionFallback.available'),
-      reasonCode: 'OK_FALLBACK_LOCAL_POLYGON',
-      latitude,
-      longitude,
-      polygon: DEFAULT_MANAGUA_POLYGON,
-    };
-  }
-
-  return {
-    allowed: false,
-    serviceAreaId: null,
-    areaName: undefined,
-    message: t('shared.preflight.regionFallback.unavailable'),
-    reasonCode: 'AREA_NOT_SUPPORTED_LOCAL_POLYGON',
-    latitude,
-    longitude,
-    polygon: DEFAULT_MANAGUA_POLYGON,
-  };
-}
-
-const getCheckLabels = (t: (key: string, opts?: any) => string): Record<string, string> => ({
-  auth: t('shared.preflight.checks.auth'),
-  driverBiometric: t('shared.preflight.checks.driverBiometric'),
-  notifications: t('shared.preflight.checks.notifications'),
-  foregroundLocation: t('shared.preflight.checks.foregroundLocation'),
-  backgroundLocation: t('shared.preflight.checks.backgroundLocation'),
-  overlay: t('shared.preflight.checks.overlay'),
-  activity: t('shared.preflight.checks.activity'),
-  region: t('shared.preflight.checks.region'),
-  rechargeFunds: t('shared.preflight.checks.rechargeFunds'),
-  activeRide: t('shared.preflight.checks.activeRide'),
-  programmedRideConfirm: t('shared.preflight.programmedRide.checkLabel'),
-});
-
-function toDriverApprovalResult(
-  value: PreflightDriverApprovalSummary | null | undefined,
-): DriverApprovalResult | null {
-  if (!value) {
-    return null;
-  }
-  return {
-    allowed: value.allowed,
-    accountStatus: value.accountStatus,
-    documentsStatus: value.documentsStatus,
-    hasActiveVehicle: value.hasActiveVehicle,
-  };
-}
-
-function buildPendingPaymentAction(
-  t: (key: string, opts?: any) => string,
-  summary: PreflightPendingPaymentsSummary,
-  pendingPaymentsRoute: string,
-): PreflightAction {
-  if (summary.type === 'driver') {
-    return {
-      type: 'pending_payment',
-      title:
-        summary.count === 1 ? 'Pago pendiente' : `${summary.count} pagos pendientes`,
-      subtitle: 'Confirma los pagos pendientes',
-      ctaLabel: 'Ver pagos',
-      routeName: 'PaymentConfirmation',
-      routeParams: {
-        rideId: summary.firstRideId,
-        amount: summary.firstAmount,
-        paymentMethod: summary.firstPaymentMethod || 'cash',
-        clientName: 'Cliente',
-        fromHome: true,
-      },
-      metadata: { count: summary.count, totalDebt: summary.amount },
-    };
-  }
-
-  return {
-    type: 'pending_payment',
-    title:
-      summary.count === 1 ? 'Pago pendiente' : `${summary.count} pagos pendientes`,
-    subtitle: `Total: C$${summary.amount.toFixed(2)}`,
-    ctaLabel: 'Pagar ahora',
-    routeName: pendingPaymentsRoute,
-    metadata: { count: summary.count, totalDebt: summary.amount },
-  };
-}
-
-function buildRechargeFundsAction(
-  summary: PreflightRechargeFundsSummary,
-  rechargeFundsRoute?: string,
-): PreflightAction | undefined {
-  if (!rechargeFundsRoute) {
-    return undefined;
-  }
-  if (summary.availableBalance > 0 && !summary.blocked) {
-    return undefined;
-  }
-  return {
-    type: 'recharge_funds',
-    title: 'Fondos insuficientes',
-    subtitle: `Saldo actual: C$${Number(summary.availableBalance || 0).toFixed(2)}`,
-    ctaLabel: 'Recargar fondos',
-    routeName: rechargeFundsRoute,
-    metadata: {
-      availableBalance: Number(summary.availableBalance || 0),
-      blocked: summary.blocked || Number(summary.availableBalance || 0) <= 0,
-    },
-  };
-}
-
-function buildActiveRideAction(
-  role: PreflightRole,
-  t: (key: string, opts?: any) => string,
-  activeRide: NonNullable<GetPreflightDataResponse['activeRide']>,
-  activeRideRoute: string,
-  rideTrackingRoute: string,
-  waitingRideRoute: string,
-): PreflightAction {
-  if (role === 'driver') {
-    return {
-      type: 'active_ride',
-      title: 'Viaje activo',
-      subtitle: `Estado: ${activeRide.status}`,
-      ctaLabel: 'Ir al viaje',
-      routeName: activeRideRoute,
-      routeParams: {
-        rideId: activeRide.rideId,
-        ...(activeRide.metadata || {}),
-      },
-      metadata: {
-        rideId: activeRide.rideId,
-        status: activeRide.status,
-      },
-    };
-  }
-
-  if (activeRide.roleView === 'client_waiting') {
-    return {
-      type: 'active_ride',
-      title: 'Viaje en espera',
-      subtitle: `Estado: ${activeRide.status}`,
-      ctaLabel: 'Ver viaje',
-      routeName: waitingRideRoute,
-      routeParams: {
-        rideId: activeRide.rideId,
-      },
-      metadata: {
-        rideId: activeRide.rideId,
-        status: activeRide.status,
-      },
-    };
-  }
-
-  return {
-    type: 'active_ride',
-    title: t('client.home.activeRide.driverOnRoute'),
-    subtitle: `Estado: ${activeRide.status}`,
-    ctaLabel: 'Ver viaje',
-    routeName: rideTrackingRoute,
-    routeParams: {
-      rideId: activeRide.rideId,
-      ...(activeRide.metadata || {}),
-    },
-    metadata: {
-      rideId: activeRide.rideId,
-      status: activeRide.status,
-    },
-  };
-}
-
-function buildProgrammedRideAction(
-  t: (key: string, opts?: any) => string,
-  programmedRide: NonNullable<GetPreflightDataResponse['programmedRide']>,
-): PreflightAction {
-  const subtitleDate = programmedRide.scheduledAt
-    ? new Date(programmedRide.scheduledAt).toLocaleString()
-    : undefined;
-  return {
-    type: programmedRide.type,
-    title: t('shared.preflight.programmedRide.actionTitle'),
-    subtitle: subtitleDate
-      ? t('shared.preflight.programmedRide.actionSubtitle', { date: subtitleDate })
-      : undefined,
-    ctaLabel: t('shared.preflight.programmedRide.confirmButton'),
-    metadata: {
-      rideId: programmedRide.rideId,
-      scheduledAt: programmedRide.scheduledAt ?? null,
-    },
-  };
-}
-
-function buildActionsFromPreflightData(
-  role: PreflightRole,
-  t: (key: string, opts?: any) => string,
-  preflightData: GetPreflightDataResponse | null,
-  pendingPaymentsRoute: string,
-  rechargeFundsRoute: string | undefined,
-  activeRideRoute: string,
-  rideTrackingRoute: string,
-  waitingRideRoute: string,
-): PreflightAction[] {
-  if (!preflightData || !preflightData.success) {
-    return [];
-  }
-
-  const actions: PreflightAction[] = [];
-
-  if (preflightData.activeRide) {
-    actions.push(
-      buildActiveRideAction(
-        role,
-        t,
-        preflightData.activeRide,
-        activeRideRoute,
-        rideTrackingRoute,
-        waitingRideRoute,
-      ),
-    );
-  }
-
-  if (preflightData.programmedRide) {
-    actions.push(buildProgrammedRideAction(t, preflightData.programmedRide));
-  }
-
-  if (role === 'driver' && preflightData.pendingPayments && preflightData.pendingPayments.count > 0) {
-    actions.push(buildPendingPaymentAction(t, preflightData.pendingPayments, pendingPaymentsRoute));
-  }
-
-  if (role === 'driver' && preflightData.rechargeFunds) {
-    const rechargeAction = buildRechargeFundsAction(preflightData.rechargeFunds, rechargeFundsRoute);
-    if (rechargeAction) {
-      actions.push(rechargeAction);
-    }
-  }
-
-  return actions;
-}
 
 const PreflightCheckScreen = ({ navigation, route }: any) => {
   const nav = navigation as NavigationLike;
@@ -590,15 +122,15 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
         const approval = approvalOverride ?? (await checkDriverApprovalStatus(user.id));
         if (approval && !approval.allowed) {
           const targetRoute = pendingApprovalRoute || 'DriverPendingApproval';
-          nav.replace(targetRoute as any, { approvalInfo: approval });
+          nav.replace(targetRoute as keyof typeof nav.replace, { approvalInfo: approval });
           return;
         }
       }
 
-      nav.replace(successRoute as any);
+      nav.replace(successRoute as keyof typeof nav.replace);
     } catch (err) {
       console.error('❌ [Preflight] Error en navegación post-checks:', err);
-      nav.replace(successRoute as any);
+      nav.replace(successRoute as keyof typeof nav.replace);
     }
   }, [role, user?.id, nav, successRoute, pendingApprovalRoute]);
 
@@ -608,7 +140,7 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
         return true;
       }
 
-      const profile = await firebaseAuthService.getUserProfile(user.id) as any;
+      const profile = await firebaseAuthService.getUserProfile(user.id) as Record<string, unknown>;
 
       if (hasAcceptedAllCurrentTerms(termsSummary || null, profile || null)) {
         return true;
@@ -621,7 +153,7 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
       console.error('❌ [Preflight] Error obteniendo perfil para términos:', err);
 
       const message = String(err?.message || '');
-      const code = (err && (err as any).code) || '';
+      const code = (err && (err as Record<string, unknown>).code) || '';
 
       if (
         message.includes('Missing or insufficient permissions') ||
@@ -1249,344 +781,6 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
     </View>
   );
 };
-
-// ==================== CHECK FUNCTIONS ====================
-
-async function checkAuth(user: any): Promise<boolean> {
-  try {
-    if (!user?.id) {
-      console.warn('⚠️ [Preflight] Usuario no autenticado en AuthContext');
-      return false;
-    }
-
-    // 1️⃣ Intentar validar sesión usando React Native Firebase Auth (teléfono SMS, etc.)
-    try {
-      // const { default: rnAuth } = await import('@react-native-firebase/auth');
-      if (isNativeFirebaseSupported()) {
-        const nativeAuthModule = await loadNativeFirebaseAuth();
-        const rnAuth = nativeAuthModule?.default;
-
-        if (rnAuth) {
-          const rnUser = rnAuth().currentUser;
-
-          if (rnUser) {
-            if (rnUser.uid === user.id) {
-              console.log(`✅ [Preflight] Usuario autenticado vía RN Firebase Auth: ${user.id}`);
-            } else {
-              console.warn(
-                '⚠️ [Preflight] Inconsistencia entre AuthContext y RN Firebase Auth:',
-                'contextId=',
-                user.id,
-                'rnUid=',
-                rnUser.uid,
-              );
-            }
-          }
-        }
-      }
-    } catch (rnError) {
-      console.warn('⚠️ [Preflight] No se pudo verificar sesión con RN Firebase Auth:', rnError);
-    }
-
-    // 2️⃣ Requisito definitivo: validar usando Firebase Web Auth (callable usa este token)
-    const firebaseUser = await waitForFirebaseAuthUser(user.id, 6000);
-
-    if (!firebaseUser) {
-      console.warn('⚠️ [Preflight] No hay sesión Firebase Auth activa');
-      return false;
-    }
-
-    if (firebaseUser.uid !== user.id) {
-      console.warn(
-        '⚠️ [Preflight] Inconsistencia entre AuthContext y Firebase Auth:',
-        'contextId=',
-        user.id,
-        'firebaseUid=',
-        firebaseUser.uid,
-      );
-      return false;
-    }
-
-    console.log(`✅ [Preflight] Usuario autenticado (context + Firebase web): ${user.id}`);
-    return true;
-  } catch (error) {
-    console.error('❌ [Preflight] Error verificando sesión Firebase Auth:', error);
-    return false;
-  }
-}
-
-async function checkNotifications(params?: {
-  isFCMAvailable?: boolean;
-  configureFCM?: () => Promise<void>;
-}): Promise<boolean> {
-  try {
-    const { isFCMAvailable, configureFCM } = params || {};
-
-    const permissions = await Notifications.getPermissionsAsync();
-    let granted = permissions.status === 'granted';
-
-    if (!granted) {
-      const result = await Notifications.requestPermissionsAsync();
-      granted = result.status === 'granted';
-    }
-
-    if (!granted) {
-      return false;
-    }
-
-    // Si FCM está disponible, intentar configurar FCM también para que
-    // el contexto de FCM refleje el estado real (hasPermission/isConfigured)
-    if (isFCMAvailable && configureFCM) {
-      try {
-        await configureFCM();
-      } catch (fcmError) {
-        console.error('❌ [Preflight] Error configurando FCM tras conceder notificaciones:', fcmError);
-        // No bloquear el preflight por fallo de FCM; las notificaciones del sistema sí están concedidas
-      }
-    }
-
-    return true;
-  } catch (error) {
-    console.error('❌ [Preflight] Error verificando notificaciones:', error);
-    return false;
-  }
-}
-
-async function checkRegionAvailabilityPreflight(
-  t: (key: string, opts?: any) => string,
-): Promise<PreflightRegionInfo | null> {
-  let latitude: number | null = null;
-  let longitude: number | null = null;
-
-  try {
-    // Intentar usar la última ubicación conocida para acelerar
-    try {
-      let position = await Location.getLastKnownPositionAsync();
-      if (!position) {
-        position = await Location.getCurrentPositionAsync({});
-      }
-
-      if (!position) {
-        console.warn('⚠️ [Preflight] No se pudo obtener ubicación para verificación de región');
-        return null;
-      }
-
-      latitude = position.coords.latitude;
-      longitude = position.coords.longitude;
-    } catch (locError: any) {
-      console.warn(
-        '⚠️ [Preflight] Ubicación actual no disponible. Verifica que los servicios de ubicación estén activos:',
-        locError?.message || locError,
-      );
-      return null;
-    }
-
-    const { default: client } = await import('../../api/client');
-    const { getFirebaseAuth } = await import('../../config/firebase');
-
-    const auth = await getFirebaseAuth();
-    const firebaseUser = auth.currentUser;
-    if (!firebaseUser) {
-      console.warn('[Preflight] No hay sesión Firebase Auth; omitiendo checkRegionAvailability');
-      return null;
-    }
-
-    try {
-      await firebaseUser.getIdToken(true);
-    } catch (tokenError) {
-      console.warn('[Preflight] No se pudo refrescar token antes de checkRegionAvailability:', tokenError);
-    }
-
-    const response = await client.post('/checkRegionAvailabilityHttp', {
-      latitude,
-      longitude,
-      platform: Platform.OS,
-    });
-
-    const data = response.data as any;
-
-    const region: PreflightRegionInfo = {
-      allowed: !!data?.allowed,
-      serviceAreaId:
-        typeof data?.serviceAreaId === 'string' && data.serviceAreaId.trim().length > 0
-          ? data.serviceAreaId.trim()
-          : null,
-      areaName: typeof data?.areaName === 'string' ? data.areaName : undefined,
-      message: typeof data?.message === 'string' ? data.message : undefined,
-      reasonCode: typeof data?.reasonCode === 'string' ? data.reasonCode : undefined,
-      latitude,
-      longitude,
-    };
-
-    console.log('[Preflight] Región detectada:', region);
-    return region;
-  } catch (error: any) {
-    console.error('❌ [Preflight] Error verificando región (HTTP):', error?.response?.data ?? error);
-
-    if (latitude != null && longitude != null) {
-      const region = getLocalRegionFallback(t, latitude, longitude);
-      console.log('[Preflight] Región fallback local:', region);
-      return region;
-    }
-
-    return null;
-  }
-}
-
-async function checkForegroundLocation(): Promise<boolean> {
-  try {
-    const permissions = await Location.getForegroundPermissionsAsync();
-    console.log('[Preflight] Foreground permission current status:', {
-      status: permissions.status,
-      canAskAgain: (permissions as any).canAskAgain,
-    });
-
-    if (permissions.status === 'granted') {
-      return true;
-    }
-
-    const result = await Location.requestForegroundPermissionsAsync();
-    console.log('[Preflight] Foreground permission request result:', {
-      status: result.status,
-      canAskAgain: (result as any).canAskAgain,
-    });
-    return result.status === 'granted';
-  } catch (error) {
-    console.error('❌ [Preflight] Error verificando ubicación foreground:', error);
-    return false;
-  }
-}
-
-async function checkBackgroundLocation(): Promise<boolean> {
-  try {
-    const granted = await checkBackgroundLocationPermission();
-    console.log('[Preflight] Background permission existing:', granted);
-
-    if (granted) {
-      return true;
-    }
-
-    const result = await Location.requestBackgroundPermissionsAsync();
-    console.log('[Preflight] Background permission request result:', {
-      status: result.status,
-      canAskAgain: (result as any).canAskAgain,
-    });
-    return result.status === 'granted';
-  } catch (error) {
-    console.error('❌ [Preflight] Error verificando ubicación background:', error);
-    return false;
-  }
-}
-
-async function checkOverlay(): Promise<boolean> {
-  if (Platform.OS !== 'android') {
-    return true;
-  }
-
-  try {
-    // Check if overlay module is available
-    if (typeof overlayManager?.hasPermission !== 'function') {
-      console.warn('⚠️ [Preflight] Overlay module not available, skipping overlay check');
-      return true; // Don't block if module not available
-    }
-
-    const granted = await overlayManager.hasPermission();
-    if (granted) {
-      console.log('✅ [Preflight] Overlay permission granted');
-      await proximityService.setOverlayEnabled(true);
-      console.log('✅ [Preflight] Overlay preference activated');
-      return true;
-    }
-
-    console.log('⚠️ [Preflight] Overlay permission not granted, requesting...');
-
-    // Request permission
-    if (typeof overlayManager?.requestPermission === 'function') {
-      // requestPermission now blocks until user returns from system settings
-      const requested = await overlayManager.requestPermission();
-      if (requested) {
-        console.log('✅ [Preflight] Overlay permission granted after request');
-        await proximityService.setOverlayEnabled(true);
-        console.log('✅ [Preflight] Overlay preference activated');
-        return true;
-      }
-    }
-
-    // Permission denied - throw error since overlay is critical
-    console.error('❌ [Preflight] Overlay permission denied by user');
-    throw new Error('Overlay permission denied. Please enable "Appear on top of other apps" in your device settings to receive ride requests.');
-  } catch (error) {
-    console.error('❌ [Preflight] Error verificando permiso de superposición:', error);
-    throw error;
-  }
-}
-
-async function checkActivity(): Promise<boolean> {
-  if (Platform.OS !== 'android') {
-    return true;
-  }
-
-  try {
-    return await ensureActivityRecognitionPermission();
-  } catch (error) {
-    console.error('❌ [Preflight] Error verificando permiso de actividad:', error);
-    return false;
-  }
-}
-
-async function checkDriverApprovalStatus(driverId: string): Promise<DriverApprovalResult | null> {
-  try {
-    const profile = await fetchDriverProfile(driverId, { forceRefresh: true });
-    if (!profile) {
-      return null;
-    }
-
-    const rawAccountStatus = String(
-      (profile as any)?.account_status || (profile as any)?.status || '',
-    ).toLowerCase();
-
-    let accountStatus: NormalizedAccountStatus;
-    if (['active', 'verified', 'approved'].includes(rawAccountStatus)) {
-      accountStatus = 'active';
-    } else if (rawAccountStatus === 'suspended') {
-      accountStatus = 'suspended';
-    } else if (['rejected', 'disabled', 'denied'].includes(rawAccountStatus)) {
-      accountStatus = 'rejected';
-    } else {
-      accountStatus = 'pending';
-    }
-
-    const rawDocumentsStatus = String((profile as any)?.documents_status || '').toLowerCase();
-    let documentsStatus: NormalizedDocumentsStatus;
-    if (rawDocumentsStatus === 'verified') {
-      documentsStatus = 'verified';
-    } else if (rawDocumentsStatus === 'suspended') {
-      documentsStatus = 'suspended';
-    } else if (rawDocumentsStatus === 'rejected') {
-      documentsStatus = 'rejected';
-    } else {
-      documentsStatus = 'pending';
-    }
-
-    const vehicles: any[] | undefined = (profile as any)?.vehicles;
-    const hasActiveVehicle = Array.isArray(vehicles)
-      ? vehicles.some((v) => v && (v.isActive === true || (v as any).is_active === true))
-      : false;
-
-    const allowed = accountStatus === 'active' && documentsStatus === 'verified' && hasActiveVehicle;
-
-    return {
-      allowed,
-      accountStatus,
-      documentsStatus,
-      hasActiveVehicle,
-    };
-  } catch (error) {
-    console.error('❌ [Preflight] Error verificando aprobación de conductor:', error);
-    // Si falla este check, no bloquear el flujo principal
-    return null;
-  }
-}
 
 // ==================== STYLES ====================
 

@@ -96,7 +96,7 @@ Driver.init(
       type: DataTypes.DECIMAL(3, 2),
     },
     total_earnings: {
-      type: DataTypes.DECIMAL(12, 2),
+      type: DataTypes.DECIMAL(10, 2),
       defaultValue: 0,
     },
     current_recharge_balance: {
@@ -111,12 +111,21 @@ Driver.init(
       type: DataTypes.DATE,
       defaultValue: DataTypes.NOW,
     },
+    deleted_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
+    },
   },
   {
     sequelize,
     modelName: 'Driver',
     tableName: 'drivers',
-    timestamps: false,
+    timestamps: true,
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
+    paranoid: true,
+    deletedAt: 'deleted_at',
   });
 
 export default Driver;

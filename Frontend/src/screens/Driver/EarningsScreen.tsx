@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigation, CommonActions } from '@react-navigation/native';
 import {
   View,
@@ -7,7 +7,6 @@ import {
   ScrollView,
   TouchableOpacity,
   RefreshControl,
-  Alert,
   Image,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -17,18 +16,24 @@ import { useTranslation } from 'react-i18next';
 import { SkeletonLoader, RideListSkeleton } from '../../components/SkeletonLoader';
 import { NoHistoryEmptyState } from '../../components/EmptyState';
 import earningsService, { EarningsSummary, RideEarning, DriverStats } from '../../services/earningsService';
+import {
+  formatCurrency as fmtCurrency,
+  formatDate as fmtDate,
+  formatDistance as fmtDistance,
+  formatDurationMinutes as fmtDuration,
+  formatStatNumber as fmtStatNum,
+  formatStatCurrency as fmtStatCur,
+  formatStatDuration as fmtStatDur,
+  formatStatDistance as fmtStatDist,
+  DATE_LOCALE_MAP,
+} from '../../utils/earningsFormatters';
+import { useEarningsScreenData } from '../../hooks/driver/EarningsScreen/useEarningsScreenData';
 
 const backButtonIcon = require('../../assets/icons/back_button/back_button.png');
 const arrowWhiteUpIcon = require('../../assets/icons/arrow/arrowwhiteup2x.png');
 const arrowBlackDownIcon = require('../../assets/icons/arrow/arrrowblackup2x.png');
 
 type Period = 'today' | 'week' | 'month';
-
-const DATE_LOCALE_MAP: Record<string, string> = {
-  es: 'es-NI',
-  en: 'en-US',
-  zh: 'zh-CN',
-};
 
 export default function EarningsScreen() {
   const { colors, isDark } = useTheme();
@@ -41,48 +46,12 @@ export default function EarningsScreen() {
   );
   const navigation = useNavigation<any>();
 
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState<Period>('today');
-  const [summary, setSummary] = useState<EarningsSummary | null>(null);
-  const [rides, setRides] = useState<RideEarning[]>([]);
-  const [stats, setStats] = useState<DriverStats | null>(null);
+  const { loading, refreshing, summary, rides, stats, onRefresh } = useEarningsScreenData(selectedPeriod);
   const [commissionBreakdown, setCommissionBreakdown] = useState<any>(null);
   const COMMISSION_NORMAL_PERCENT = '15%';
   const COMMISSION_DESIGNATED_PERCENT = '25%';
   const statPlaceholder = t('driver.earnings.stats.placeholder');
-
-  useEffect(() => {
-    loadEarnings();
-    loadStats();
-    // loadCommissionBreakdown(); // Deshabilitado - función eliminada
-  }, [selectedPeriod]);
-
-  const loadEarnings = async () => {
-    try {
-      setLoading(true);
-      const data = await earningsService.getDriverEarnings(selectedPeriod);
-      setSummary(data.summary);
-      setRides(data.rides || []); // ✅ Asegurar que rides es un array
-    } catch (error: any) {
-      console.error('Error cargando ganancias:', error);
-      // Establecer valores por defecto en caso de error
-      setSummary(null);
-      setRides([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-
-  const loadStats = async () => {
-    try {
-      const statsData = await earningsService.getDriverStats();
-      setStats(statsData);
-    } catch (error: any) {
-      console.error('Error cargando estadísticas:', error);
-    }
-  };
 
   useEffect(() => {
     const unsubscribe = navigation.addListener('beforeRemove', (e: any) => {
@@ -103,92 +72,12 @@ export default function EarningsScreen() {
     return unsubscribe;
   }, [navigation]);
 
-  const loadCommissionBreakdown = async () => {
-    try {
-      const { getFunctions, httpsCallable } = await import('firebase/functions');
-      const { initializeFirebase } = await import('../../config/firebase');
-      
-      const { app } = await initializeFirebase();
-      if (!app) return;
-
-      const functions = getFunctions(app);
-      const getBreakdown = httpsCallable(functions, 'getCommissionBreakdown');
-      
-      const result = await getBreakdown({ period: selectedPeriod });
-      const data = result.data as any;
-      
-      if (data.success) {
-        setCommissionBreakdown(data.breakdown);
-      }
-    } catch (error: any) {
-      console.error('Error cargando desglose de comisiones:', error);
-    }
-  };
-
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await loadEarnings();
-    await loadStats();
-    // await loadCommissionBreakdown(); // Deshabilitado - función eliminada
-    setRefreshing(false);
-  };
-
-  const formatCurrency = useCallback(
-    (amount?: number | null) =>
-      t('driver.earnings.labels.currency', {
-        amount: Number(amount ?? 0).toFixed(2),
-      }),
-    [t],
-  );
-
-  const formatDate = useCallback(
-    (dateString: string) => {
-      const date = new Date(dateString);
-      return date.toLocaleDateString(dateLocale, {
-        day: '2-digit',
-        month: 'short',
-        hour: '2-digit',
-        minute: '2-digit',
-      });
-    },
-    [dateLocale],
-  );
-
-  const formatDistance = useCallback(
-    (meters?: number | null) =>
-      t('driver.earnings.stats.kilometers', {
-        value: (Number(meters ?? 0) / 1000).toFixed(1),
-      }),
-    [t],
-  );
-
-  const formatDurationMinutes = useCallback(
-    (seconds?: number | null) =>
-      t('driver.earnings.stats.minutes', {
-        value: Math.max(0, Math.round((seconds ?? 0) / 60)),
-      }),
-    [t],
-  );
-
-  const formatStatNumber = useCallback(
-    (value?: number | null) => (value === null || value === undefined ? statPlaceholder : value.toString()),
-    [statPlaceholder],
-  );
-
-  const formatStatCurrency = useCallback(
-    (value?: number | null) => (value === null || value === undefined ? statPlaceholder : formatCurrency(value)),
-    [formatCurrency, statPlaceholder],
-  );
-
-  const formatStatDuration = useCallback(
-    (value?: number | null) => (value === null || value === undefined ? statPlaceholder : formatDurationMinutes(value)),
-    [formatDurationMinutes, statPlaceholder],
-  );
-
-  const formatStatDistance = useCallback(
-    (value?: number | null) => (value === null || value === undefined ? statPlaceholder : formatDistance(value)),
-    [formatDistance, statPlaceholder],
-  );
+  const formatCurrency = useMemo(() => (amount?: number | null) => fmtCurrency(t, amount), [t]);
+  const formatDate = useMemo(() => (dateString: string) => fmtDate(dateString, dateLocale), [dateLocale]);
+  const formatStatNumber = useMemo(() => (value?: number | null) => fmtStatNum(value, statPlaceholder), [statPlaceholder]);
+  const formatStatCurrency = useMemo(() => (value?: number | null) => fmtStatCur(t, value, statPlaceholder), [t, statPlaceholder]);
+  const formatStatDuration = useMemo(() => (value?: number | null) => fmtStatDur(t, value, statPlaceholder), [t, statPlaceholder]);
+  const formatStatDistance = useMemo(() => (value?: number | null) => fmtStatDist(t, value, statPlaceholder), [t, statPlaceholder]);
 
   if (loading && !refreshing) {
     return (

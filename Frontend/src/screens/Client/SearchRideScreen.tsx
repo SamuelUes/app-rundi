@@ -15,70 +15,40 @@ import {
   Animated,
   Easing,
   useColorScheme,
-  Share,
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
-import * as ImagePicker from 'expo-image-picker';
 import DynamicMap from '../../components/DynamicMap';
 import { MAP_ICONS } from '../../constants/mapIcons';
-import { useLocation } from '../../hooks/useLocation';
+import { useLocation } from '../../hooks/shared/location/useLocation';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
-import { useFirebaseItem } from '../../hooks/useFirebaseData';
-import mapsService from '../../services/mapsService';
-import driversService from '../../services/driversService';
-import ridesService from '../../services/ridesService';
+import { useAddressSearch } from '../../hooks/client/SearchRideScreen/useAddressSearch';
 import servicesService, { ServiceItem } from '../../services/servicesService';
-import { calculateRidePrice, formatPriceBreakdown, type PriceBreakdown } from '../../utils/priceCalculatorCentralize';
 import alertService from '../../services/alertService';
-import { uploadClientVehiclePhoto } from '../../services/supabaseStorage';
-import BiometricService from '../../services/biometricService';
-import client from '../../api/client';
+import {
+  formatCoords,
+  type Coords,
+} from '../../utils/rideCoords';
+import { normalizeSuggestion, type NormalizedSuggestion } from '../../utils/suggestions';
+import { useRideRouteCalculation } from '../../hooks/client/SearchRideScreen/useRideRouteCalculation';
+import { useScheduleRide } from '../../hooks/client/SearchRideScreen/useScheduleRide';
+import { useSearchRideState } from '../../hooks/client/SearchRideScreen/useSearchRideState';
+import { useSearchRideLocation } from '../../hooks/client/SearchRideScreen/useSearchRideLocation';
+import { useSearchRideSubmission } from '../../hooks/client/SearchRideScreen/useSearchRideSubmission';
+import { useVehiclePhoto } from '../../hooks/client/SearchRideScreen/useVehiclePhoto';
+import { useDriversAvailability } from '../../hooks/client/SearchRideScreen/useDriversAvailability';
 
 const { MANUAL_ORIGIN, MANUAL_ORIGIN_HOLD, ORIGIN_PIN, DESTINATION_PIN, MULTI_STOP_PIN } = MAP_ICONS;
 const BACK_BUTTON_ICON = require('../../assets/icons/back_button/back_button2x.png');
 const DEFAULT_FALLBACK_COORDS = { latitude: 12.1364, longitude: -86.2514 };
 const MAX_EXTRA_STOPS = 3;
-const VEHICLE_TYPES: VehicleType[] = ['moto', 'auto', 'designated_driver'];
-const DESIGNATED_DRIVER_MOTO_DISCOUNT = 70;
-const MIN_DESIGNATED_DRIVER_PRICE = 100;
-const REGION_IDLE_DELAY_MS = 900;
-const SCHEDULE_MIN_LEAD_MS = 10 * 60 * 1000;
-const SCHEDULE_MAX_AHEAD_MS = 20 * 24 * 60 * 60 * 1000;
-const SCHEDULE_MINUTE_STEP = 5;
-
-interface VehicleEstimate {
-  price: number | null;
-  breakdown: PriceBreakdown | null;
-}
-
 type VehicleType = 'moto' | 'auto' | 'designated_driver';
 type DesignatedDriverMode = 'auto' | 'moto';
 type PaymentMethod = 'cash' | 'card';
 
-interface Coords {
-  latitude: number;
-  longitude: number;
-}
-
 interface SavedLocation {
   label: string;
   coords: Coords;
-}
-
-interface LocationValidationResult {
-  allowed: boolean;
-  serviceAreaId: string | null;
-  areaName?: string;
-  message?: string;
-}
-
-interface NormalizedSuggestion {
-  mainText: string;
-  secondaryText: string;
-  fullText: string;
-  placeId: string | null;
-  coords: Coords | null;
 }
 
 type MapSelectionState =
@@ -87,166 +57,6 @@ type MapSelectionState =
   | 'extra-new'
   | { type: 'extra-edit'; index: number }
   | null;
-
-const formatCoords = (coords: Coords) => `${coords.latitude.toFixed(5)}, ${coords.longitude.toFixed(5)}`;
-
-const applyDesignatedDriverMotoDiscount = (breakdown: PriceBreakdown | null, enabled: boolean): PriceBreakdown | null => {
-  if (!enabled || !breakdown) {
-    return breakdown;
-  }
-
-  if (breakdown.serviceCode === 'designated_driver_moto') {
-    return breakdown;
-  }
-
-  const discountedFinalPrice = Math.max(breakdown.finalPrice - DESIGNATED_DRIVER_MOTO_DISCOUNT, 0);
-  return {
-    ...breakdown,
-    finalPrice: discountedFinalPrice,
-    breakdown: breakdown.breakdown
-      ? `${breakdown.breakdown}\nDescuento conductor designado (moto): -C$${DESIGNATED_DRIVER_MOTO_DISCOUNT.toFixed(2)}`
-      : breakdown.breakdown,
-  };
-};
-
-function isValidCoordLocal(value: Coords | null | undefined): value is Coords {
-  if (!value) return false;
-  const { latitude, longitude } = value;
-  if (typeof latitude !== 'number' || typeof longitude !== 'number') return false;
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return false;
-  if (Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return false;
-  return true;
-}
-
-function metersBetween(a: Coords, b: Coords) {
-  const R = 6371000; // meters
-  const toRad = (v: number) => (v * Math.PI) / 180;
-  const dLat = toRad(b.latitude - a.latitude);
-  const dLon = toRad(b.longitude - a.longitude);
-  const lat1 = toRad(a.latitude);
-  const lat2 = toRad(b.latitude);
-  const sinDLat = Math.sin(dLat / 2);
-  const sinDLon = Math.sin(dLon / 2);
-  const h = sinDLat * sinDLat + Math.cos(lat1) * Math.cos(lat2) * sinDLon * sinDLon;
-  const c = 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
-  return R * c;
-}
-
-function extractCoordsFromSuggestion(suggestion: any): Coords | null {
-  if (!suggestion) return null;
-
-  const directLat = suggestion.latitude ?? suggestion.lat;
-  const directLng = suggestion.longitude ?? suggestion.lng ?? suggestion.lon;
-  if (typeof directLat === 'number' && typeof directLng === 'number') {
-    return { latitude: directLat, longitude: directLng };
-  }
-
-  if (suggestion.coordinates) {
-    const { latitude, longitude, lat, lng } = suggestion.coordinates;
-    if (typeof latitude === 'number' && typeof longitude === 'number') {
-      return { latitude, longitude };
-    }
-    if (typeof lat === 'number' && typeof lng === 'number') {
-      return { latitude: lat, longitude: lng };
-    }
-  }
-
-  if (Array.isArray(suggestion.center) && suggestion.center.length >= 2) {
-    return { latitude: suggestion.center[1], longitude: suggestion.center[0] };
-  }
-
-  if (Array.isArray(suggestion.geometry?.coordinates) && suggestion.geometry.coordinates.length >= 2) {
-    return { latitude: suggestion.geometry.coordinates[1], longitude: suggestion.geometry.coordinates[0] };
-  }
-
-  const location = suggestion.geometry?.location || suggestion.location || suggestion.position;
-  if (location) {
-    const lat = location.lat ?? location.latitude;
-    const lng = location.lng ?? location.longitude;
-    if (typeof lat === 'number' && typeof lng === 'number') {
-      return { latitude: lat, longitude: lng };
-    }
-  }
-
-  if (Array.isArray(suggestion.coordinates) && suggestion.coordinates.length >= 2) {
-    return { latitude: suggestion.coordinates[1], longitude: suggestion.coordinates[0] };
-  }
-
-  return null;
-}
-
-function isSameDay(a: Date, b: Date) {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-}
-
-function startOfDay(date: Date) {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-function roundMinutesUp(date: Date, step: number) {
-  const d = new Date(date);
-  const rounded = Math.ceil(d.getMinutes() / step) * step;
-  if (rounded >= 60) {
-    d.setHours(d.getHours() + 1, 0, 0, 0);
-  } else {
-    d.setMinutes(rounded, 0, 0);
-  }
-  return d;
-}
-
-function roundMinutesDown(date: Date, step: number) {
-  const d = new Date(date);
-  const rounded = Math.floor(d.getMinutes() / step) * step;
-  d.setMinutes(rounded, 0, 0);
-  return d;
-}
-
-function getScheduleBounds(nowMs: number = Date.now()) {
-  const minDate = roundMinutesUp(new Date(nowMs + SCHEDULE_MIN_LEAD_MS), SCHEDULE_MINUTE_STEP);
-  const maxDate = roundMinutesDown(new Date(nowMs + SCHEDULE_MAX_AHEAD_MS), SCHEDULE_MINUTE_STEP);
-  return { minDate, maxDate };
-}
-
-function normalizeSuggestion(suggestion: any, fallbackLabel: string): NormalizedSuggestion {
-  const structured = suggestion?.structured_formatting || suggestion?.structuredFormatting;
-  const descriptor =
-    suggestion?.description ||
-    suggestion?.place_name ||
-    suggestion?.display_name ||
-    suggestion?.title ||
-    suggestion?.name ||
-    suggestion?.text ||
-    suggestion?.label;
-
-  const mainText =
-    structured?.main_text ||
-    suggestion?.main_text ||
-    suggestion?.primary_text ||
-    suggestion?.text ||
-    suggestion?.title ||
-    suggestion?.name ||
-    descriptor ||
-    fallbackLabel;
-
-  const secondaryText =
-    structured?.secondary_text ||
-    suggestion?.secondary_text ||
-    suggestion?.secondary ||
-    suggestion?.subtitle ||
-    suggestion?.vicinity ||
-    suggestion?.formatted_address ||
-    suggestion?.address ||
-    suggestion?.place_address ||
-    '';
-
-  const fullText = descriptor || (secondaryText ? `${mainText}, ${secondaryText}` : mainText);
-  const placeId = suggestion?.place_id || suggestion?.placeId || suggestion?.id || suggestion?.reference || null;
-  const coords = extractCoordsFromSuggestion(suggestion);
-
-  return { mainText, secondaryText, fullText, placeId, coords };
-}
 
 export default function SearchRideScreenNewDesign({ navigation }: any) {
   const { t, i18n } = useTranslation();
@@ -274,111 +84,166 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
   }, [navigation]);
 
   const [servicesCatalog, setServicesCatalog] = useState<ServiceItem[]>([]);
-  const [origin, setOrigin] = useState('');
-  const [destination, setDestination] = useState('');
-  const [originCoords, setOriginCoords] = useState<Coords | null>(null);
-  const [destinationCoords, setDestinationCoords] = useState<Coords | null>(null);
-  const [extraDestinations, setExtraDestinations] = useState<Array<{ address: string; coords: Coords | null }>>([]);
-  const [routeCoordinates, setRouteCoordinates] = useState<Coords[]>([]);
-  const locationValidationCacheRef = useRef<Record<string, LocationValidationResult>>({});
-  const [originServiceAreaId, setOriginServiceAreaId] = useState<string | null>(null);
-  const [destinationServiceAreaId, setDestinationServiceAreaId] = useState<string | null>(null);
-  const [calculatingRoute, setCalculatingRoute] = useState(false);
+  const state = useSearchRideState();
+  const {
+    origin, destination,
+    originCoords, destinationCoords,
+    extraDestinations,
+    vehicleType, setVehicleType,
+    designatedDriverMode, setDesignatedDriverMode,
+    paymentMethod, setPaymentMethod,
+    passengersByVehicle, setPassengersByVehicle,
+    priceSuggestion, setPriceSuggestion,
+    rideComment, setRideComment,
+    manualOriginDraft, manualOriginAddress,
+    manualOriginLoading, manualOriginDragging,
+    manualDestinationDraft, manualDestinationLoading, manualDestinationDragging,
+    extraStopSelectionLoading,
+    hasPinnedOrigin, setHasPinnedOrigin,
+    cameraTarget,
+    mapSelectionMode, setMapSelectionMode,
+    showSearchOverlay, setShowSearchOverlay,
+    searchQuery, setSearchQuery,
+    activeSelection, setActiveSelection,
+    recentLocations,
+    favoriteLocations,
+    submittingRequest, setSubmittingRequest,
+    bottomPanelExpanded, setBottomPanelExpanded,
+  } = state;
 
-  const [manualOriginDraft, setManualOriginDraft] = useState<Coords | null>(null);
-  const [manualOriginAddress, setManualOriginAddress] = useState('');
-  const [manualOriginLoading, setManualOriginLoading] = useState(false);
-  const [manualOriginDragging, setManualOriginDragging] = useState(false);
-  const [manualDestinationDraft, setManualDestinationDraft] = useState<Coords | null>(null);
-  const [manualDestinationLoading, setManualDestinationLoading] = useState(false);
-  const [manualDestinationDragging, setManualDestinationDragging] = useState(false);
-  const [extraStopSelectionLoading, setExtraStopSelectionLoading] = useState(false);
-  const [hasManualOriginOverride, setHasManualOriginOverride] = useState(false);
-  const [hasPinnedOrigin, setHasPinnedOrigin] = useState(false);
-  const [cameraTarget, setCameraTarget] = useState<Coords | null>(null);
+  const {
+    calculatingRoute,
+    routeCoordinates,
+    estimatedDistance,
+    estimatedDuration,
+    estimatedPrice,
+    vehicleEstimates,
+    designatedDriverEstimates,
+    recommendedVehicle,
+    designatedDriverEligibility,
+    recomputeRoute,
+    recalcPriceOnly,
+  } = useRideRouteCalculation({ vehicleType, designatedDriverMode, tr });
 
-  const [estimatedDistance, setEstimatedDistance] = useState(0);
-  const [estimatedDuration, setEstimatedDuration] = useState(0);
-  const [estimatedPrice, setEstimatedPrice] = useState(0);
-  const [priceBreakdown, setPriceBreakdown] = useState<PriceBreakdown | null>(null);
+  const {
+    searchResults,
+    searchLoading,
+    setSearchLoading,
+    searchError,
+    setSearchError,
+    reset: resetSearch,
+  } = useAddressSearch(
+    showSearchOverlay,
+    searchQuery,
+    coords,
+    defaultLabels.locationFallback,
+    tr('labels.noResults'),
+    tr('search.error'),
+  );
 
-  const [passengersByVehicle, setPassengersByVehicle] = useState<Record<VehicleType, number>>({
-    moto: 1,
-    auto: 1,
-    designated_driver: 1,
-  });
-  const [vehicleType, setVehicleType] = useState<VehicleType>('auto');
-  const [designatedDriverMode, setDesignatedDriverMode] = useState<DesignatedDriverMode>('auto');
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
-  const [priceSuggestion, setPriceSuggestion] = useState('');
-  const [rideComment, setRideComment] = useState('');
+  const {
+    scheduleModalVisible,
+    setScheduleModalVisible,
+    scheduledAt,
+    setScheduledAt,
+    scheduleDayIndex,
+    setScheduleDayIndex,
+    scheduleHour,
+    setScheduleHour,
+    scheduleMinute,
+    setScheduleMinute,
+    scheduleDayOptions,
+    scheduleHourOptions,
+    scheduleMinuteOptions,
+    scheduleMinuteOptionsForHour,
+    openScheduleModal,
+    applyScheduleSelection,
+  } = useScheduleRide({ tr });
 
-  const [clientVehiclePhoto, setClientVehiclePhoto] = useState<string | null>(null);
-  const [clientVehiclePhotoLocalUri, setClientVehiclePhotoLocalUri] = useState<string | null>(null);
-  const [uploadingPhoto, setUploadingPhoto] = useState(false);
-
-  const [driversAvailable, setDriversAvailable] = useState<boolean | null>(null);
-  const [checkingDrivers, setCheckingDrivers] = useState(false);
-
-  const [vehicleEstimates, setVehicleEstimates] = useState<Record<VehicleType, VehicleEstimate>>({
-    moto: { price: null, breakdown: null },
-    auto: { price: null, breakdown: null },
-    designated_driver: { price: null, breakdown: null },
-  });
-  const [designatedDriverEstimates, setDesignatedDriverEstimates] = useState<Record<DesignatedDriverMode, VehicleEstimate>>({
-    auto: { price: null, breakdown: null },
-    moto: { price: null, breakdown: null },
-  });
-  const [recommendedVehicle, setRecommendedVehicle] = useState<VehicleType | null>(null);
-
-  const designatedDriverEligibility = useMemo(() => {
-    const autoPrice = designatedDriverEstimates.auto.price ?? null;
-    const motoPrice = designatedDriverEstimates.moto.price ?? null;
-    const autoEligible = typeof autoPrice === 'number' && autoPrice >= MIN_DESIGNATED_DRIVER_PRICE;
-    const motoEligible = typeof motoPrice === 'number' && motoPrice >= MIN_DESIGNATED_DRIVER_PRICE;
-    return {
-      autoPrice,
-      motoPrice,
-      autoEligible,
-      motoEligible,
-      anyEligible: autoEligible || motoEligible,
-    };
-  }, [designatedDriverEstimates]);
-
-  const [showSearchOverlay, setShowSearchOverlay] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [searchResults, setSearchResults] = useState<NormalizedSuggestion[]>([]);
-  const [searchLoading, setSearchLoading] = useState(false);
-  const [searchError, setSearchError] = useState<string | null>(null);
-  const [recentLocations, setRecentLocations] = useState<SavedLocation[]>([]);
-  const [favoriteLocations, setFavoriteLocations] = useState<SavedLocation[]>([]);
-  const [activeSelection, setActiveSelection] = useState<'origin' | 'destination' | number | 'new-stop' | null>(null);
-
-  const [mapSelectionMode, setMapSelectionMode] = useState<MapSelectionState | null>(null);
-  const [submittingRequest, setSubmittingRequest] = useState(false);
-  const [scheduleModalVisible, setScheduleModalVisible] = useState(false);
-  const [scheduledAt, setScheduledAt] = useState<number | null>(null);
-  const [scheduleDayIndex, setScheduleDayIndex] = useState(0);
-  const [scheduleHour, setScheduleHour] = useState<number>(0);
-  const [scheduleMinute, setScheduleMinute] = useState<number>(0);
-  const [bottomPanelExpanded, setBottomPanelExpanded] = useState(true);
   const bottomPanelAnim = useRef(new Animated.Value(0)).current;
-
-  // Pequeña animación de rebote para indicar que se está resolviendo / guardando
-  // la ubicación seleccionada (origen o destino) en el mapa.
   const markerBounce = useRef(new Animated.Value(0)).current;
   const markerBounceTranslateY = markerBounce.interpolate({
     inputRange: [0, 1],
     outputRange: [0, -6],
   });
 
+  const recomputeRouteWith = useCallback(
+    async (
+      overrideOrigin?: Coords | null,
+      overrideDestination?: Coords | null,
+      overrideStops?: Array<{ address: string; coords: Coords | null }>,
+    ) => {
+      await recomputeRoute(
+        overrideOrigin,
+        overrideDestination,
+        overrideStops,
+        coords ?? null,
+        originCoords,
+        destinationCoords,
+        extraDestinations,
+      );
+    },
+    [recomputeRoute, coords, originCoords, destinationCoords, extraDestinations],
+  );
+
+  const {
+    validateLocationForContext,
+    rememberRecentLocation,
+    applySelectionForTarget,
+    handleManualOriginDragStart,
+    handleManualOriginDragEnd,
+    handleRegionChangeCenter,
+    handleRegionChangeCompleteCenter,
+    handleMapPress,
+    manualOriginMarkerPosition,
+  } = useSearchRideLocation(state, user?.id, coords, defaultLabels, tr, recomputeRouteWith);
+
+  const {
+    clientVehiclePhoto,
+    clientVehiclePhotoLocalUri,
+    uploadingPhoto,
+    handleTakeVehiclePhoto,
+    uploadPhotoIfNeeded,
+  } = useVehiclePhoto(user?.id, t);
+
+  const { driversAvailable, checkingDrivers } = useDriversAvailability(coords, vehicleType, designatedDriverMode);
+
+  const { onConfirmRequest } = useSearchRideSubmission({
+    user,
+    coords,
+    origin,
+    destination,
+    originCoords,
+    destinationCoords,
+    extraDestinations,
+    vehicleType,
+    designatedDriverMode,
+    paymentMethod,
+    passengersByVehicle,
+    priceSuggestion,
+    rideComment,
+    clientVehiclePhoto,
+    clientVehiclePhotoLocalUri,
+    routeCalc: { estimatedDistance, estimatedDuration, estimatedPrice },
+    servicesCatalog,
+    scheduledAt,
+    defaultLabels,
+    submittingRequest,
+    setSubmittingRequest,
+    validateLocationForContext,
+    uploadPhotoIfNeeded,
+    tr,
+    navigation,
+  });
+
+  useEffect(() => {
+    servicesService.listServices().then(setServicesCatalog).catch(() => undefined);
+  }, []);
+
   useEffect(() => {
     if (!mapSelectionMode) return;
-
     let title = tr('mapSelection.defaultTitle');
     let message: string | null = null;
-
     if (mapSelectionMode === 'origin') {
       title = tr('mapSelection.originTitle');
       message = tr('mapSelection.originMessage');
@@ -392,10 +257,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
       title = tr('mapSelection.editStopTitle');
       message = tr('mapSelection.editStopMessage', { index: mapSelectionMode.index + 1 });
     }
-
-    if (message) {
-      alertService.showInfoAlert(title, message);
-    }
+    if (message) alertService.showInfoAlert(title, message);
   }, [mapSelectionMode, extraDestinations.length]);
 
   const orderedRouteRows = useMemo(() => {
@@ -408,143 +270,6 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
   const canAddExtraStop = useMemo(() => extraDestinations.length < MAX_EXTRA_STOPS, [extraDestinations.length]);
 
   useEffect(() => {
-    servicesService.listServices().then(setServicesCatalog).catch(() => undefined);
-    mapsService.fetchProviderFromBackend().catch(() => undefined);
-  }, []);
-
-  const ensureLocationAllowed = useCallback(
-    async (coordsToCheck: Coords): Promise<LocationValidationResult> => {
-      const cacheKey = `${coordsToCheck.latitude.toFixed(5)},${coordsToCheck.longitude.toFixed(5)}`;
-      const cached = locationValidationCacheRef.current[cacheKey];
-      if (cached) {
-        return cached;
-      }
-
-      try {
-        const response = await client.post('/checkRegionAvailabilityHttp', {
-          latitude: coordsToCheck.latitude,
-          longitude: coordsToCheck.longitude,
-          platform: Platform.OS,
-        });
-        const data = response.data || {};
-        const result: LocationValidationResult = {
-          allowed: !!data.allowed,
-          serviceAreaId:
-            typeof data.serviceAreaId === 'string' && data.serviceAreaId.trim().length > 0
-              ? data.serviceAreaId.trim()
-              : null,
-          areaName: typeof data.areaName === 'string' ? data.areaName : undefined,
-          message: typeof data.message === 'string' ? data.message : undefined,
-        };
-        locationValidationCacheRef.current[cacheKey] = result;
-        return result;
-      } catch (error: any) {
-        console.warn('[SearchRide] Error verificando área de servicio:', error?.response?.data || error);
-        return {
-          allowed: false,
-          serviceAreaId: null,
-          message: tr('alerts.serviceValidationFailed'),
-        };
-      }
-    },
-    [tr],
-  );
-
-  const validateLocationForContext = useCallback(
-    async (coordsToCheck: Coords, context: 'origin' | 'destination' | 'stop') => {
-      const validation = await ensureLocationAllowed(coordsToCheck);
-      if (!validation.allowed) {
-        alertService.showInfoAlert(
-          tr('alerts.unavailableZoneTitle'),
-          validation.message || tr('alerts.unavailableZoneMessage'),
-        );
-        return null;
-      }
-
-      if (context === 'origin') {
-        setOriginServiceAreaId(validation.serviceAreaId ?? null);
-      } else if (context === 'destination') {
-        setDestinationServiceAreaId(validation.serviceAreaId ?? null);
-      }
-
-      return validation;
-    },
-    [ensureLocationAllowed, tr],
-  );
-
-  const { data: savedLocation } = useFirebaseItem<any>('clientsLocations', user?.id || '', { once: true });
-
-  useEffect(() => {
-    if (hasManualOriginOverride) {
-      return;
-    }
-
-    if (savedLocation?.coords) {
-      const firebaseCoords = {
-        latitude: savedLocation.coords.latitude,
-        longitude: savedLocation.coords.longitude,
-      };
-      const sameAsCurrent =
-        originCoords &&
-        Math.abs(originCoords.latitude - firebaseCoords.latitude) < 0.000001 &&
-        Math.abs(originCoords.longitude - firebaseCoords.longitude) < 0.000001;
-      if (!sameAsCurrent) {
-        setOriginCoords(firebaseCoords);
-        const savedAddress = savedLocation.address || formatCoords(firebaseCoords);
-        setOrigin(savedAddress);
-        setManualOriginAddress(savedAddress);
-        setManualOriginDraft(firebaseCoords);
-        setHasPinnedOrigin(true);
-        setCameraTarget(firebaseCoords);
-      }
-      return;
-    }
-
-    if (!originCoords && coords) {
-      const gpsCoords = { latitude: coords.latitude, longitude: coords.longitude };
-      setOriginCoords(gpsCoords);
-      setOrigin(defaultLabels.origin);
-      setManualOriginAddress(defaultLabels.origin);
-      setManualOriginDraft(gpsCoords);
-      setHasPinnedOrigin(true);
-      setCameraTarget(gpsCoords);
-    }
-  }, [coords, hasManualOriginOverride, originCoords, savedLocation, defaultLabels.origin]);
-
-  useEffect(() => {
-    const base = originCoords || savedLocation?.coords || coords;
-    if (!manualOriginDraft && base) {
-      setManualOriginDraft(base);
-      if (!manualOriginAddress) {
-        setManualOriginAddress(origin || formatCoords(base));
-      }
-      if (!hasPinnedOrigin) {
-        setHasPinnedOrigin(true);
-      }
-    }
-  }, [originCoords, coords, manualOriginDraft, manualOriginAddress, origin, savedLocation?.coords, hasPinnedOrigin]);
-
-  useEffect(() => {
-    if (mapSelectionMode === 'destination') {
-      setManualDestinationDragging(false);
-      const baseDestination =
-        destinationCoords ??
-        manualOriginDraft ??
-        originCoords ??
-        coords ??
-        DEFAULT_FALLBACK_COORDS;
-      if (
-        !manualDestinationDraft ||
-        metersBetween(manualDestinationDraft, baseDestination) > 5
-      ) {
-        setManualDestinationDraft(baseDestination);
-      }
-    } else if (manualDestinationDragging) {
-      setManualDestinationDragging(false);
-    }
-  }, [mapSelectionMode, manualDestinationDraft, destinationCoords, manualOriginDraft, originCoords, coords, manualDestinationDragging]);
-
-  useEffect(() => {
     if (vehicleType === 'moto' && passengersByVehicle.moto > 1) {
       setPassengersByVehicle(prev => ({ ...prev, moto: 1 }));
       alertService.showInfoAlert(tr('alerts.motoSelectedTitle'), tr('alerts.singlePassengerMessage'));
@@ -552,34 +277,27 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
   }, [vehicleType, passengersByVehicle.moto, tr]);
 
   useEffect(() => {
-    if (!coords) return;
-    const check = async () => {
-      setCheckingDrivers(true);
-      try {
-        const designatedDriverVehicle =
-          vehicleType === 'designated_driver' ? designatedDriverMode : undefined;
-        const result = await driversService.checkAvailableDrivers(
-          coords,
-          15,
-          vehicleType,
-          designatedDriverVehicle,
-        );
-        setDriversAvailable(result.available && result.count > 0);
-      } catch {
-        setDriversAvailable(null);
-      } finally {
-        setCheckingDrivers(false);
-      }
-    };
-    check();
-  }, [coords, vehicleType, designatedDriverMode]);
+    if (vehicleType === 'designated_driver' && designatedDriverMode === 'moto' && passengersByVehicle.designated_driver > 1) {
+      setPassengersByVehicle((prev) => ({ ...prev, designated_driver: 1 }));
+      alertService.showInfoAlert(tr('alerts.designatedDriverMotoTitle'), tr('alerts.singlePassengerMessage'));
+    }
+  }, [vehicleType, designatedDriverMode, passengersByVehicle.designated_driver, tr]);
+
+  useEffect(() => {
+    if (vehicleType === 'designated_driver' && !designatedDriverEligibility.anyEligible) {
+      setVehicleType('auto');
+    }
+  }, [vehicleType, designatedDriverEligibility, setVehicleType]);
+
+  useEffect(() => {
+    if (estimatedDistance > 0 && (originCoords || coords)) {
+      const stopsCount = extraDestinations.filter((d) => d.coords).length;
+      recalcPriceOnly(originCoords, coords ?? null, destinationCoords, stopsCount);
+    }
+  }, [coords, estimatedDistance, originCoords, destinationCoords, extraDestinations, recalcPriceOnly]);
 
   const capacityByVehicle: Record<VehicleType, number> = useMemo(
-    () => ({
-      moto: 1,
-      auto: 4,
-      designated_driver: designatedDriverMode === 'moto' ? 1 : 4,
-    }),
+    () => ({ moto: 1, auto: 4, designated_driver: designatedDriverMode === 'moto' ? 1 : 4 }),
     [designatedDriverMode],
   );
 
@@ -588,94 +306,39 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     return lang.toLowerCase().startsWith('es');
   }, [i18n.language]);
 
+  const VEHICLE_TYPES: VehicleType[] = ['moto', 'auto', 'designated_driver'];
+
   const vehicleOptions = useMemo(() => {
     const defaults: Record<VehicleType, { label: string; subtitle: string; emoji: string }> = {
       moto: { label: tr('vehicle.motoLabel'), subtitle: tr('vehicle.motoSubtitle'), emoji: '🏍️' },
       auto: { label: tr('vehicle.autoLabel'), subtitle: tr('vehicle.autoSubtitle'), emoji: '🚘' },
       designated_driver: { label: tr('vehicle.designatedLabel'), subtitle: tr('vehicle.designatedSubtitle'), emoji: '🧑‍✈️' },
     };
-
     const normalizeServiceText = (value: string | undefined | null) =>
-      (value || '')
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[\s-]+/g, '_');
-
+      (value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[\s-]+/g, '_');
     const isDesignatedService = (code: string, name: string) => {
       const haystack = `${code} ${name}`;
       return haystack.includes('designated_driver') || haystack.includes('designated') || haystack.includes('conductor_designado');
     };
-
     const findByCode = (codes: string[]) =>
-      servicesCatalog.find((service) => {
-        const code = normalizeServiceText(service.code);
-        return codes.includes(code);
-      });
-
+      servicesCatalog.find((service) => codes.includes(normalizeServiceText(service.code)));
     const findMatch = (type: VehicleType) => {
-      if (type === 'auto') {
-        const exactAuto = findByCode(['normal', 'auto']);
-        if (exactAuto) {
-          return exactAuto;
-        }
-      }
-
-      if (type === 'moto') {
-        const exactMoto = findByCode(['motorcycle', 'moto']);
-        if (exactMoto) {
-          return exactMoto;
-        }
-      }
-
-      if (type === 'designated_driver') {
-        const preferredDesignated = findByCode(['designated_driver_auto', 'designated_driver']);
-        if (preferredDesignated) {
-          return preferredDesignated;
-        }
-      }
-
-      const target = servicesCatalog.find((service) => {
+      if (type === 'auto') { const m = findByCode(['normal', 'auto']); if (m) return m; }
+      if (type === 'moto') { const m = findByCode(['motorcycle', 'moto']); if (m) return m; }
+      if (type === 'designated_driver') { const m = findByCode(['designated_driver_auto', 'designated_driver']); if (m) return m; }
+      return servicesCatalog.find((service) => {
         const code = normalizeServiceText(service.code);
         const name = normalizeServiceText(service.name);
-
-        if (type === 'designated_driver') {
-          return isDesignatedService(code, name);
-        }
-
-        if (isDesignatedService(code, name)) {
-          return false;
-        }
-
-        if (type === 'auto') {
-          return (
-            code === 'auto' ||
-            code.startsWith('auto_') ||
-            code.includes('car') ||
-            name.includes('auto') ||
-            name.includes('carro')
-          );
-        }
-
-        if (type === 'moto') {
-          return (
-            code === 'moto' ||
-            code.startsWith('moto_') ||
-            code.includes('motorcycle') ||
-            name.includes('moto') ||
-            name.includes('motocicleta')
-          );
-        }
-
+        if (type === 'designated_driver') return isDesignatedService(code, name);
+        if (isDesignatedService(code, name)) return false;
+        if (type === 'auto') return code === 'auto' || code.startsWith('auto_') || code.includes('car') || name.includes('auto') || name.includes('carro');
+        if (type === 'moto') return code === 'moto' || code.startsWith('moto_') || code.includes('motorcycle') || name.includes('moto') || name.includes('motocicleta');
         return false;
       });
-      return target;
     };
-
     const typesToRender = designatedDriverEligibility.anyEligible
       ? VEHICLE_TYPES
       : VEHICLE_TYPES.filter((type) => type !== 'designated_driver');
-
     return typesToRender.map((type) => {
       const match = findMatch(type);
       const shouldUseCatalogCopy = preferServiceCatalogCopy && match && type !== 'designated_driver';
@@ -688,14 +351,6 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     });
   }, [servicesCatalog, tr, preferServiceCatalogCopy, designatedDriverEligibility.anyEligible]);
 
-  useEffect(() => {
-    if (vehicleType === 'designated_driver') {
-      if (!designatedDriverEligibility.anyEligible) {
-        setVehicleType('auto');
-      }
-    }
-  }, [vehicleType, designatedDriverMode, designatedDriverEligibility, setVehicleType, setDesignatedDriverMode]);
-
   const formatPriceValue = useCallback(
     (value: number | null | undefined) => {
       if (value == null || Number.isNaN(value)) return tr('labels.calculating');
@@ -704,429 +359,27 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     [tr],
   );
 
-  const updateVehicleEstimates = useCallback(
-    async (distanceMeters: number, durationSeconds: number, stopsCount: number, startPoint: Coords) => {
-      try {
-        const pricing = await Promise.all(
-          VEHICLE_TYPES.map(async (type) => {
-            try {
-              const breakdown = await calculateRidePrice(
-                distanceMeters,
-                durationSeconds,
-                type === 'moto' ? 'motorcycle' : 'car',
-                type === 'designated_driver' ? 'designated_driver' : 'normal',
-                startPoint.latitude,
-                startPoint.longitude,
-                { extraStops: stopsCount },
-              );
-              return { type, price: breakdown.finalPrice, breakdown } as const;
-            } catch (error) {
-              console.warn('calculateRidePrice failed for', type, error);
-              return { type, price: null, breakdown: null } as const;
-            }
-          }),
-        );
-
-        const mapped = pricing.reduce<Record<VehicleType, VehicleEstimate>>((acc, item) => {
-          acc[item.type] = { price: item.price, breakdown: item.breakdown };
-          return acc;
-        }, { moto: { price: null, breakdown: null }, auto: { price: null, breakdown: null }, designated_driver: { price: null, breakdown: null } });
-
-        setVehicleEstimates(mapped);
-
-        let designatedDriverMotoBreakdown: PriceBreakdown | null = null;
-        try {
-          designatedDriverMotoBreakdown = await calculateRidePrice(
-            distanceMeters,
-            durationSeconds,
-            'motorcycle',
-            'designated_driver',
-            startPoint.latitude,
-            startPoint.longitude,
-            { extraStops: stopsCount },
-          );
-        } catch (error) {
-          console.warn('calculateRidePrice failed for designated_driver moto', error);
-        }
-
-        const designatedDriverAutoEstimate = mapped.designated_driver || { price: null, breakdown: null };
-        const discountedMotoBreakdown = applyDesignatedDriverMotoDiscount(designatedDriverMotoBreakdown, true);
-        const designatedDriverMotoEstimate: VehicleEstimate = {
-          price: discountedMotoBreakdown?.finalPrice ?? null,
-          breakdown: discountedMotoBreakdown,
-        };
-        setDesignatedDriverEstimates({
-          auto: designatedDriverAutoEstimate,
-          moto: designatedDriverMotoEstimate,
-        });
-
-        const valid = pricing.filter((item) => typeof item.price === 'number' && item.price !== null && !Number.isNaN(item.price));
-        if (valid.length > 0) {
-          const lowest = valid.reduce((prev, current) => (prev.price! <= current.price! ? prev : current));
-          setRecommendedVehicle(lowest.type);
-        } else {
-          setRecommendedVehicle(null);
-        }
-
-        const current =
-          vehicleType === 'designated_driver'
-            ? designatedDriverMode === 'moto'
-              ? designatedDriverMotoEstimate
-              : designatedDriverAutoEstimate
-            : mapped[vehicleType];
-
-        if (current?.price != null) {
-          setEstimatedPrice(current.price);
-          setPriceBreakdown(current.breakdown);
-        } else {
-          setEstimatedPrice(0);
-          setPriceBreakdown(null);
-        }
-      } catch (error) {
-        console.warn('updateVehicleEstimates', error);
-      }
-    },
-    [vehicleType, designatedDriverMode],
-  );
-
-  useEffect(() => {
-    if (vehicleType === 'designated_driver') {
-      const current = designatedDriverEstimates[designatedDriverMode];
-      if (current?.price != null) {
-        setEstimatedPrice(current.price);
-        setPriceBreakdown(current.breakdown);
-      } else {
-        setEstimatedPrice(0);
-        setPriceBreakdown(null);
-      }
-      return;
-    }
-
-    const current = vehicleEstimates[vehicleType];
-    if (current?.price != null) {
-      setEstimatedPrice(current.price);
-      setPriceBreakdown(current.breakdown);
-    }
-  }, [vehicleType, vehicleEstimates, designatedDriverMode, designatedDriverEstimates]);
-
-  const calculateRouteWithStops = useCallback(
-    async (startPoint: Coords | null, stops: Coords[], endPoint: Coords | null) => {
-      if (!startPoint || !endPoint) return;
-
-      try {
-        setCalculatingRoute(true);
-        const all = [startPoint, ...stops, endPoint];
-        let totalDistance = 0;
-        let totalDuration = 0;
-        let poly: Coords[] = [];
-
-        for (let i = 0; i < all.length - 1; i += 1) {
-          const segment = await mapsService.getDirections(all[i], all[i + 1]);
-          if (!segment) throw new Error('Routing failed');
-          totalDistance += segment.distance;
-          totalDuration += segment.duration;
-          poly = poly.concat(segment.polyline);
-        }
-
-        setRouteCoordinates(poly);
-
-        const distanceKm = totalDistance / 1000;
-        const durationMin = Math.ceil(totalDuration / 60);
-        setEstimatedDistance(Number(distanceKm.toFixed(2)));
-        setEstimatedDuration(durationMin);
-
-        const useMotorcycle = vehicleType === 'moto' || (vehicleType === 'designated_driver' && designatedDriverMode === 'moto');
-        const vehicleTypeForCalc = useMotorcycle ? 'motorcycle' : 'car';
-        const rideTypeForCalc = vehicleType === 'designated_driver' ? 'designated_driver' : 'normal';
-        let breakdown = await calculateRidePrice(
-          totalDistance,
-          totalDuration,
-          vehicleTypeForCalc,
-          rideTypeForCalc,
-          startPoint.latitude,
-          startPoint.longitude,
-          { extraStops: stops.length },
-        );
-        const discountedBreakdown = applyDesignatedDriverMotoDiscount(
-          breakdown,
-          vehicleType === 'designated_driver' && designatedDriverMode === 'moto',
-        );
-        breakdown = discountedBreakdown ?? breakdown;
-        setEstimatedPrice(breakdown.finalPrice);
-        setPriceBreakdown(breakdown);
-        await updateVehicleEstimates(totalDistance, totalDuration, stops.length, startPoint);
-      } catch (error) {
-        console.warn('calculateRouteWithStops', error);
-        alertService.showErrorAlert(tr('alerts.priceCalculationFailed'));
-      } finally {
-        setCalculatingRoute(false);
-      }
-    },
-    [vehicleType],
-  );
-
-  const calculateSimpleRoute = useCallback(
-    async (start: Coords, end: Coords, stopsCount: number) => {
-      try {
-        setCalculatingRoute(true);
-        const route = await mapsService.getDirections(start, end);
-        if (!route) throw new Error('Routing failed');
-        setRouteCoordinates(route.polyline);
-
-        const distanceKm = route.distance / 1000;
-        const durationMin = Math.ceil(route.duration / 60);
-        setEstimatedDistance(Number(distanceKm.toFixed(2)));
-        setEstimatedDuration(durationMin);
-
-        const vehicleTypeForCalc = vehicleType === 'moto' ? 'motorcycle' : 'car';
-        const rideTypeForCalc = vehicleType === 'designated_driver' ? 'designated_driver' : 'normal';
-        let breakdown = await calculateRidePrice(
-          route.distance,
-          route.duration,
-          vehicleTypeForCalc,
-          rideTypeForCalc,
-          start.latitude,
-          start.longitude,
-          { extraStops: stopsCount },
-        );
-        const discountedBreakdown = applyDesignatedDriverMotoDiscount(
-          breakdown,
-          vehicleType === 'designated_driver' && designatedDriverMode === 'moto',
-        );
-        breakdown = discountedBreakdown ?? breakdown;
-        setEstimatedPrice(breakdown.finalPrice);
-        setPriceBreakdown(breakdown);
-        await updateVehicleEstimates(route.distance, route.duration, stopsCount, start);
-      } catch (error) {
-        console.warn('calculateSimpleRoute', error);
-        alertService.showErrorAlert(tr('alerts.priceCalculationFailed'));
-      } finally {
-        setCalculatingRoute(false);
-      }
-    },
-    [vehicleType],
-  );
-
-  const recomputeRouteWith = useCallback(
-    async (
-      overrideOrigin?: Coords | null,
-      overrideDestination?: Coords | null,
-      overrideStops?: Array<{ address: string; coords: Coords | null }>,
-    ) => {
-      const originPoint = overrideOrigin ?? originCoords ?? manualOriginDraft ?? coords ?? null;
-      const destinationPoint = overrideDestination ?? destinationCoords ?? null;
-      const stopsSource = overrideStops ?? extraDestinations;
-      const stopsCoords = stopsSource.map((stop) => stop.coords).filter(Boolean) as Coords[];
-
-      if (!originPoint || !destinationPoint) return;
-
-      if (stopsCoords.length > 0) {
-        await calculateRouteWithStops(originPoint, stopsCoords, destinationPoint);
-      } else {
-        await calculateSimpleRoute(originPoint, destinationPoint, 0);
-      }
-    },
-    [originCoords, manualOriginDraft, coords, destinationCoords, extraDestinations, calculateRouteWithStops, calculateSimpleRoute],
-  );
-
-  const rememberRecentLocation = useCallback((label: string, coordsValue: Coords | null) => {
-    if (!coordsValue) return;
-    setRecentLocations((prev) => {
-      const existingIndex = prev.findIndex(
-        (loc) =>
-          Math.abs(loc.coords.latitude - coordsValue.latitude) < 0.0001 &&
-          Math.abs(loc.coords.longitude - coordsValue.longitude) < 0.0001,
-      );
-      const filtered = existingIndex >= 0 ? prev.filter((_, idx) => idx !== existingIndex) : prev;
-      return [{ label, coords: coordsValue }, ...filtered].slice(0, 8);
-    });
-  }, []);
-
-  const applySelectionForTarget = useCallback(
-    async (target: 'origin' | 'destination' | number | 'new-stop', label: string, coordsValue: Coords | null) => {
-      if (!target) return;
-      const sanitizedLabel = label.trim() || defaultLabels.locationFallback;
-
-      if (target === 'origin') {
-        if (!coordsValue) {
-          alertService.showInfoAlert(
-            tr('alerts.selectValidPointTitle'),
-            tr('alerts.selectValidOriginMessage'),
-          );
-          return;
-        }
-        const validation = await validateLocationForContext(coordsValue, 'origin');
-        if (!validation) {
-          return;
-        }
-        setOrigin(sanitizedLabel);
-        setManualOriginAddress(sanitizedLabel);
-        setManualOriginDraft(coordsValue);
-        setOriginCoords(coordsValue);
-        rememberRecentLocation(sanitizedLabel, coordsValue);
-        setHasPinnedOrigin(true);
-        setHasManualOriginOverride(true);
-        setCameraTarget(coordsValue);
-        await recomputeRouteWith(coordsValue, undefined, undefined);
-        return;
-      }
-
-      if (target === 'destination') {
-        if (!coordsValue) {
-          alertService.showInfoAlert(
-            tr('alerts.selectValidPointTitle'),
-            tr('alerts.selectValidDestinationMessage'),
-          );
-          return;
-        }
-        const validation = await validateLocationForContext(coordsValue, 'destination');
-        if (!validation) {
-          return;
-        }
-        setDestination(sanitizedLabel);
-        setDestinationCoords(coordsValue);
-        setManualDestinationDraft(null);
-        setManualDestinationLoading(false);
-        setManualDestinationDragging(false);
-        rememberRecentLocation(sanitizedLabel, coordsValue);
-        setCameraTarget(coordsValue);
-        await recomputeRouteWith(undefined, coordsValue, undefined);
-        return;
-      }
-
-      if (target === 'new-stop') {
-        if (!isValidCoordLocal(coordsValue)) {
-          alertService.showInfoAlert(
-            tr('alerts.selectValidPointTitle'),
-            tr('alerts.selectValidStopMessage'),
-          );
-          return;
-        }
-        const safeCoords = coordsValue as Coords;
-        const validation = await validateLocationForContext(safeCoords, 'stop');
-        if (!validation) {
-          return;
-        }
-        const nextStops = [...extraDestinations, { address: sanitizedLabel, coords: safeCoords }];
-        setExtraDestinations(nextStops);
-        rememberRecentLocation(sanitizedLabel, safeCoords);
-        setCameraTarget(safeCoords);
-        await recomputeRouteWith(undefined, undefined, nextStops);
-        return;
-      }
-
-      if (typeof target === 'number') {
-        if (!isValidCoordLocal(coordsValue)) {
-          alertService.showInfoAlert(
-            tr('alerts.selectValidPointTitle'),
-            tr('alerts.selectValidStopMessage'),
-          );
-          return;
-        }
-        const safeCoords = coordsValue as Coords;
-        const validation = await validateLocationForContext(safeCoords, 'stop');
-        if (!validation) {
-          return;
-        }
-        const nextStops = extraDestinations.map((stop, index) =>
-          index === target ? { address: sanitizedLabel, coords: safeCoords } : stop,
-        );
-        setExtraDestinations(nextStops);
-        rememberRecentLocation(sanitizedLabel, safeCoords);
-        setCameraTarget(safeCoords);
-        await recomputeRouteWith(undefined, undefined, nextStops);
-      }
-    },
-    [
-      extraDestinations,
-      rememberRecentLocation,
-      recomputeRouteWith,
-      setCameraTarget,
-      setHasPinnedOrigin,
-      setHasManualOriginOverride,
-      validateLocationForContext,
-    ],
-  );
-
   const openLocationSearch = useCallback(
     (target: 'origin' | 'destination' | number | 'new-stop') => {
       setActiveSelection(target);
       setShowSearchOverlay(true);
-      setSearchError(null);
-      setSearchResults([]);
+      resetSearch();
       setMapSelectionMode(null);
-
       let initialQuery = '';
-      if (target === 'origin') {
-        initialQuery = manualOriginAddress || origin;
-      } else if (target === 'destination') {
-        initialQuery = destination;
-      } else if (typeof target === 'number') {
-        initialQuery = extraDestinations[target]?.address || '';
-      }
+      if (target === 'origin') initialQuery = manualOriginAddress || origin;
+      else if (target === 'destination') initialQuery = destination;
+      else if (typeof target === 'number') initialQuery = extraDestinations[target]?.address || '';
       setSearchQuery(initialQuery);
     },
     [manualOriginAddress, origin, destination, extraDestinations],
   );
 
-  useEffect(() => {
-    if (!showSearchOverlay) {
-      setDebouncedSearch('');
-      return;
-    }
-
-    const handler = setTimeout(() => {
-      setDebouncedSearch(searchQuery.trim());
-    }, 450);
-
-    return () => clearTimeout(handler);
-  }, [searchQuery, showSearchOverlay]);
-
-  useEffect(() => {
-    if (!showSearchOverlay || debouncedSearch.length < 2) {
-      setSearchResults([]);
-      setSearchLoading(false);
-      if (debouncedSearch.length === 0) {
-        setSearchError(null);
-      }
-      return;
-    }
-
-    let cancelled = false;
-    const fetchSuggestions = async () => {
-      try {
-        setSearchLoading(true);
-        const results = await mapsService.autocomplete(debouncedSearch, coords ?? undefined, {
-          forceProvider: 'google',
-        });
-        if (!cancelled) {
-          setSearchResults(results.map((item) => normalizeSuggestion(item, defaultLabels.locationFallback)));
-          setSearchError(results.length === 0 ? tr('labels.noResults') : null);
-        }
-      } catch (error) {
-        console.warn('autocomplete failed', error);
-        if (!cancelled) {
-          setSearchError(tr('search.error'));
-          setSearchResults([]);
-        }
-      } finally {
-        if (!cancelled) setSearchLoading(false);
-      }
-    };
-
-    fetchSuggestions();
-    return () => {
-      cancelled = true;
-    };
-  }, [showSearchOverlay, debouncedSearch, coords, tr, defaultLabels.locationFallback]);
-
   const closeSearchOverlay = useCallback(() => {
     setShowSearchOverlay(false);
     setSearchQuery('');
-    setSearchResults([]);
-    setSearchError(null);
+    resetSearch();
     setActiveSelection(null);
-  }, []);
+  }, [resetSearch]);
 
   const handleSelectSuggestion = useCallback(
     async (suggestion: NormalizedSuggestion) => {
@@ -1135,17 +388,13 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         setSearchLoading(true);
         let coordsValue = suggestion.coords;
         if (!coordsValue && suggestion.placeId) {
-          coordsValue =
-            (await mapsService.getPlaceDetails(suggestion.placeId, undefined, {
-              forceProvider: 'google',
-            })) || null;
+          const mapsService = (await import('../../services/mapsService')).default;
+          coordsValue = (await mapsService.getPlaceDetails(suggestion.placeId, undefined, { forceProvider: 'google' })) || null;
         }
-
         if (!coordsValue) {
           alertService.showErrorAlert(tr('alerts.locationFetchFailed'));
           return;
         }
-
         await applySelectionForTarget(target, suggestion.fullText, coordsValue);
         closeSearchOverlay();
       } finally {
@@ -1166,10 +415,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
 
   const handleUseCurrentLocation = useCallback(async () => {
     if (!coords) {
-      alertService.showInfoAlert(
-        tr('alerts.locationUnavailableTitle'),
-        tr('alerts.locationUnavailableMessage'),
-      );
+      alertService.showInfoAlert(tr('alerts.locationUnavailableTitle'), tr('alerts.locationUnavailableMessage'));
       return;
     }
     const target = activeSelection || 'origin';
@@ -1195,7 +441,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
   const handleRemoveStop = useCallback(
     (index: number) => {
       const updatedStops = extraDestinations.filter((_, idx) => idx !== index);
-      setExtraDestinations(updatedStops);
+      state.setExtraDestinations(updatedStops);
       void recomputeRouteWith(undefined, undefined, updatedStops);
     },
     [extraDestinations, recomputeRouteWith],
@@ -1206,843 +452,19 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     if (activeSelection === 'origin') {
       setHasPinnedOrigin(false);
       setMapSelectionMode('origin');
-    }
-    else if (activeSelection === 'destination') setMapSelectionMode('destination');
+    } else if (activeSelection === 'destination') setMapSelectionMode('destination');
     else if (activeSelection === 'new-stop') setMapSelectionMode('extra-new');
     else if (typeof activeSelection === 'number') setMapSelectionMode({ type: 'extra-edit', index: activeSelection });
-
     setShowSearchOverlay(false);
     setSearchQuery('');
-    setSearchResults([]);
-    setSearchError(null);
-  }, [activeSelection]);
-
-  const cancelMapSelection = useCallback(() => {
-    setMapSelectionMode(null);
-  }, []);
-
-  const handleMapPress = useCallback(
-    async (event: { latitude: number; longitude: number }) => {
-      if (mapSelectionMode === 'origin' || mapSelectionMode === 'destination') {
-        // In origin selection mode, we use center-pin + region change, so ignore taps
-        return;
-      }
-      const selectedPoint: Coords = { latitude: event.latitude, longitude: event.longitude };
-      const isExtraStopMode =
-        mapSelectionMode === 'extra-new' ||
-        (mapSelectionMode && typeof mapSelectionMode === 'object' && mapSelectionMode.type === 'extra-edit');
-
-      if (isExtraStopMode) {
-        setExtraStopSelectionLoading(true);
-      }
-
-      try {
-        const address = (await mapsService.reverseGeocode(selectedPoint)) || formatCoords(selectedPoint);
-
-        if (mapSelectionMode === 'extra-new') {
-          await applySelectionForTarget('new-stop', address, selectedPoint);
-          setMapSelectionMode(null);
-          return;
-        }
-
-        if (mapSelectionMode && typeof mapSelectionMode === 'object' && mapSelectionMode.type === 'extra-edit') {
-          await applySelectionForTarget(mapSelectionMode.index, address, selectedPoint);
-          setMapSelectionMode(null);
-          return;
-        }
-
-        if (!destinationCoords) {
-          await applySelectionForTarget('destination', address, selectedPoint);
-          return;
-        }
-
-        if (!originCoords) {
-          await applySelectionForTarget('origin', address, selectedPoint);
-          return;
-        }
-
-        if (canAddExtraStop) {
-          await applySelectionForTarget('new-stop', address, selectedPoint);
-        }
-      } finally {
-        if (isExtraStopMode) {
-          setExtraStopSelectionLoading(false);
-        }
-      }
-    },
-    [mapSelectionMode, applySelectionForTarget, destinationCoords, originCoords, canAddExtraStop],
-  );
-
-  const recalcPriceOnly = useCallback(async () => {
-    const start = originCoords || coords;
-    if (!start || !destinationCoords) return;
-
-    const useMotorcycle = vehicleType === 'moto' || (vehicleType === 'designated_driver' && designatedDriverMode === 'moto');
-    const vehicleTypeForCalc = useMotorcycle ? 'motorcycle' : 'car';
-    const rideTypeForCalc = vehicleType === 'designated_driver' ? 'designated_driver' : 'normal';
-
-    const distMeters = Math.max(1, Math.round(estimatedDistance * 1000));
-    const durSeconds = Math.max(1, Math.round(estimatedDuration * 60));
-    const stopsCount = extraDestinations.filter((d) => d.coords).length;
-
-    try {
-      const breakdown = await calculateRidePrice(
-        distMeters,
-        durSeconds,
-        vehicleTypeForCalc,
-        rideTypeForCalc,
-        start.latitude,
-        start.longitude,
-        { extraStops: stopsCount },
-      );
-      setEstimatedPrice(breakdown.finalPrice);
-      setPriceBreakdown(breakdown);
-    } catch (error) {
-      console.warn('recalcPriceOnly', error);
-    }
-  }, [
-    coords,
-    destinationCoords,
-    designatedDriverMode,
-    estimatedDistance,
-    estimatedDuration,
-    extraDestinations,
-    originCoords,
-    vehicleType,
-  ]);
-
-  useEffect(() => {
-    if (estimatedDistance > 0 && (originCoords || coords)) {
-      recalcPriceOnly();
-    }
-  }, [coords, estimatedDistance, originCoords, recalcPriceOnly]);
-
-  useEffect(() => {
-    if (vehicleType === 'designated_driver' && designatedDriverMode === 'moto' && passengersByVehicle.designated_driver > 1) {
-      setPassengersByVehicle((prev) => ({ ...prev, designated_driver: 1 }));
-      alertService.showInfoAlert(
-        tr('alerts.designatedDriverMotoTitle'),
-        tr('alerts.singlePassengerMessage'),
-      );
-    }
-  }, [vehicleType, designatedDriverMode, passengersByVehicle.designated_driver, tr]);
-
-  const handleManualOriginDragStart = useCallback((startCoords: Coords) => {
-    setManualOriginDragging(true);
-    setManualOriginDraft((prev) => prev ?? startCoords);
-  }, []);
-
-  const destinationPromptShownRef = useRef(false);
-  const previousStopsCountRef = useRef(0);
-
-  const promptDestinationSelection = useCallback(() => {
-    if (destinationPromptShownRef.current) return;
-    if (destination?.trim()?.length) return;
-    destinationPromptShownRef.current = true;
-    alertService.showInfoAlert(tr('alerts.destinationPromptTitle'), tr('alerts.destinationPromptMessage'));
-  }, [destination, tr]);
-
-  useEffect(() => {
-    if (!destination && !destinationCoords) {
-      destinationPromptShownRef.current = false;
-    }
-  }, [destination, destinationCoords]);
-
-  useEffect(() => {
-    const stopsWithCoords = extraDestinations.filter((stop) => !!stop.coords).length;
-    if (stopsWithCoords > previousStopsCountRef.current && !destination && !destinationCoords) {
-      promptDestinationSelection();
-    }
-    previousStopsCountRef.current = stopsWithCoords;
-  }, [extraDestinations, destination, destinationCoords, promptDestinationSelection]);
-
-  const handleManualOriginDragEnd = useCallback(
-    async (newCoords: Coords) => {
-      setManualOriginDraft(newCoords);
-      setManualOriginDragging(false);
-      setManualOriginLoading(true);
-      setHasManualOriginOverride(true);
-      try {
-        const validation = await validateLocationForContext(newCoords, 'origin');
-        if (!validation) {
-          return;
-        }
-        const coordLabel = formatCoords(newCoords);
-        let address: string | null = null;
-        try {
-          address = await mapsService.reverseGeocode(newCoords);
-        } catch (reverseError) {
-          console.warn('reverseGeocode origin (drag) failed', reverseError);
-        }
-        const displayAddress = address?.trim()?.length ? address : coordLabel;
-
-        setManualOriginAddress(displayAddress);
-        setOriginCoords(newCoords);
-        setOrigin(displayAddress);
-        rememberRecentLocation(displayAddress, newCoords);
-        setCameraTarget(newCoords);
-        await recomputeRouteWith(newCoords, undefined, undefined);
-        promptDestinationSelection();
-      } catch (error) {
-        console.warn('Manual origin geocode failed', error);
-        const fallbackAddress = formatCoords(newCoords);
-        setManualOriginAddress(fallbackAddress);
-        setOriginCoords(newCoords);
-        setOrigin(fallbackAddress);
-        rememberRecentLocation(fallbackAddress, newCoords);
-        setCameraTarget(newCoords);
-        await recomputeRouteWith(newCoords, undefined, undefined);
-        promptDestinationSelection();
-      } finally {
-        setManualOriginLoading(false);
-        // Clear draft to rely on committed originCoords
-        setManualOriginDraft(null);
-      }
-    },
-    [
-      rememberRecentLocation,
-      recomputeRouteWith,
-      promptDestinationSelection,
-      setCameraTarget,
-      setHasManualOriginOverride,
-      validateLocationForContext,
-    ],
-  );
-
-  const manualOriginMarkerPosition = useMemo(() => {
-    if (manualOriginDraft) return manualOriginDraft;
-    if (originCoords) return originCoords;
-    if (coords) return coords;
-    return DEFAULT_FALLBACK_COORDS;
-  }, [manualOriginDraft, originCoords, coords]);
-
-  // Static center-pin selection (only for origin)
-  const lastAppliedOriginCenterRef = useRef<Coords | null>(null);
-  const originCenterIdleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastAppliedDestinationCenterRef = useRef<Coords | null>(null);
-  const destinationCenterIdleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const clearOriginIdleTimeout = useCallback(() => {
-    if (originCenterIdleTimeoutRef.current) {
-      clearTimeout(originCenterIdleTimeoutRef.current);
-      originCenterIdleTimeoutRef.current = null;
-    }
-  }, []);
-
-  const clearDestinationIdleTimeout = useCallback(() => {
-    if (destinationCenterIdleTimeoutRef.current) {
-      clearTimeout(destinationCenterIdleTimeoutRef.current);
-      destinationCenterIdleTimeoutRef.current = null;
-    }
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      clearOriginIdleTimeout();
-      clearDestinationIdleTimeout();
-    };
-  }, [clearDestinationIdleTimeout, clearOriginIdleTimeout]);
-
-  const handleRegionChangeCenter = useCallback(
-    (center: Coords) => {
-      if (mapSelectionMode === 'origin') {
-        clearOriginIdleTimeout();
-        setManualOriginDragging(true);
-        setManualOriginDraft(center);
-      } else if (mapSelectionMode === 'destination') {
-        clearDestinationIdleTimeout();
-        setManualDestinationDragging(true);
-        setManualDestinationDraft(center);
-      }
-    },
-    [clearDestinationIdleTimeout, clearOriginIdleTimeout, mapSelectionMode],
-  );
-
-  const handleRegionChangeCompleteCenter = useCallback(
-    (center: Coords) => {
-      if (mapSelectionMode === 'origin') {
-        setManualOriginDragging(false);
-        clearOriginIdleTimeout();
-        originCenterIdleTimeoutRef.current = setTimeout(async () => {
-          const last = lastAppliedOriginCenterRef.current;
-          if (last && metersBetween(last, center) < 20) return; // ignore tiny moves
-          setManualOriginLoading(true);
-          try {
-            const validation = await validateLocationForContext(center, 'origin');
-            if (!validation) {
-              return;
-            }
-            const coordLabel = formatCoords(center);
-            let address: string | null = null;
-            try {
-              address = await mapsService.reverseGeocode(center);
-            } catch (reverseError) {
-              console.warn('reverseGeocode origin (center pin) failed', reverseError);
-            }
-            const displayAddress = address?.trim()?.length ? address : coordLabel;
-
-            setManualOriginAddress(displayAddress);
-            setOriginCoords(center);
-            setOrigin(displayAddress);
-            setHasManualOriginOverride(true);
-            rememberRecentLocation(displayAddress, center);
-            lastAppliedOriginCenterRef.current = center;
-            await recomputeRouteWith(center, undefined, undefined);
-            promptDestinationSelection();
-          } catch (err) {
-            console.warn('center-pin origin selection failed', err);
-            const fallback = formatCoords(center);
-            setManualOriginAddress(fallback);
-            setOriginCoords(center);
-            setOrigin(fallback);
-            setHasManualOriginOverride(true);
-            rememberRecentLocation(fallback, center);
-            await recomputeRouteWith(center, undefined, undefined);
-            promptDestinationSelection();
-          } finally {
-            setManualOriginLoading(false);
-            setMapSelectionMode(null);
-            setManualOriginDraft(null);
-            setHasPinnedOrigin(true);
-            clearOriginIdleTimeout();
-          }
-        }, REGION_IDLE_DELAY_MS);
-        return;
-      }
-
-      if (mapSelectionMode !== 'destination') return;
-      setManualDestinationDragging(false);
-      clearDestinationIdleTimeout();
-      destinationCenterIdleTimeoutRef.current = setTimeout(async () => {
-        const last = lastAppliedDestinationCenterRef.current;
-        if (last && metersBetween(last, center) < 20) return;
-        setManualDestinationLoading(true);
-        try {
-          const coordLabel = formatCoords(center);
-          let address: string | null = null;
-          try {
-            address = await mapsService.reverseGeocode(center);
-          } catch (reverseError) {
-            console.warn('reverseGeocode destination (center pin) failed', reverseError);
-          }
-          const displayAddress = address?.trim()?.length ? address : coordLabel;
-
-          setDestination(displayAddress);
-          setDestinationCoords(center);
-          rememberRecentLocation(displayAddress, center);
-          lastAppliedDestinationCenterRef.current = center;
-          await recomputeRouteWith(undefined, center, undefined);
-        } catch (err) {
-          console.warn('center-pin destination selection failed', err);
-          const fallback = formatCoords(center);
-          setDestination(fallback);
-          setDestinationCoords(center);
-          rememberRecentLocation(fallback, center);
-          await recomputeRouteWith(undefined, center, undefined);
-        } finally {
-          setManualDestinationLoading(false);
-          setMapSelectionMode(null);
-          setManualDestinationDraft(null);
-          clearDestinationIdleTimeout();
-        }
-      }, REGION_IDLE_DELAY_MS);
-    },
-    [
-      clearDestinationIdleTimeout,
-      clearOriginIdleTimeout,
-      mapSelectionMode,
-      rememberRecentLocation,
-      recomputeRouteWith,
-      promptDestinationSelection,
-    ],
-  );
-
-  const handleTakeVehiclePhoto = useCallback(async () => {
-    if (!user?.id) {
-      alertService.showErrorAlert(tr('alerts.photoLoginRequired'));
-      return;
-    }
-
-    try {
-      const { status } = await ImagePicker.requestCameraPermissionsAsync();
-      if (status !== 'granted') {
-        alertService.showInfoAlert(tr('alerts.photoPermissionsTitle'), tr('alerts.photoPermissionsMessage'));
-        return;
-      }
-
-      const pickFrom = async (fromCamera: boolean) => {
-        try {
-          const result = fromCamera
-            ? await ImagePicker.launchCameraAsync({
-                mediaTypes: ImagePicker.MediaTypeOptions.Images,
-                allowsEditing: true,
-                quality: 0.8,
-              })
-            : await ImagePicker.launchImageLibraryAsync({
-                mediaTypes: ImagePicker.MediaTypeOptions.Images,
-                allowsEditing: true,
-                quality: 0.8,
-              });
-
-          if (!result.canceled && result.assets?.[0]) {
-            setClientVehiclePhotoLocalUri(result.assets[0].uri);
-            setClientVehiclePhoto(null);
-            alertService.showSuccessAlert(tr('alerts.photoSelectedTitle'), tr('alerts.photoSelectedMessage'), { duration: 2000 });
-          }
-        } finally {
-          setUploadingPhoto(false);
-        }
-      };
-
-      alertService.showOptionsAlert(tr('alerts.photoOptionsTitle'), tr('alerts.photoOptionsMessage'), [
-        { text: tr('alerts.photoOptionsCamera'), onPress: () => pickFrom(true) },
-        { text: tr('alerts.photoOptionsGallery'), onPress: () => pickFrom(false) },
-        { text: tr('alerts.photoOptionsCancel'), style: 'cancel' },
-      ]);
-    } catch (error) {
-      alertService.showErrorAlert(tr('alerts.photoCaptureFailed'));
-    }
-  }, [tr, user?.id]);
-
-  const runDesignatedDriverBiometricVerification = useCallback(async () => {
-    try {
-      const result = await BiometricService.authenticateAndLog({
-        reason: tr('alerts.identityRequired'),
-        fallbackLabel: Platform.OS === 'ios' ? tr('alerts.biometricFallbackLabel') : tr('alerts.photoOptionsCancel'),
-        context: 'designated_driver_request',
-        userType: 'client',
-      });
-
-      if (!result.success) {
-        const errorMessage = result.error || '';
-        const noBiometricError =
-          errorMessage.includes('no soporta biometría') ||
-          errorMessage.includes('No hay biometría registrada');
-
-        if (noBiometricError) {
-          alertService.showInfoAlert(tr('alerts.biometricUnavailableTitle'), tr('alerts.biometricUnavailableMessage'));
-          const fallbackTimestamp = new Date().toISOString();
-          return {
-            biometricAcceptanceRequired: true,
-            biometricAcceptanceType: 'device_biometric_not_found',
-            biometricAcceptanceVerified: false,
-            biometricAcceptanceAt: fallbackTimestamp,
-          };
-        }
-
-        alertService.showInfoAlert(tr('alerts.biometricRequiredTitle'), errorMessage || tr('alerts.identityRequired'));
-        return null;
-      }
-
-      if (result.biometryType !== 'fingerprint') {
-        alertService.showInfoAlert(tr('alerts.biometricRequiredTitle'), tr('alerts.biometricRequiredMessage'));
-        return null;
-      }
-
-      const verifiedAt = result.verifiedAt || new Date().toISOString();
-      return {
-        biometricAcceptanceRequired: true,
-        biometricAcceptanceType: 'fingerprint',
-        biometricAcceptanceVerified: true,
-        biometricAcceptanceAt: verifiedAt,
-      };
-    } catch (error) {
-      console.warn('[biometric] Error verificando huella', error);
-      alertService.showErrorAlert(tr('alerts.biometricGenericError'));
-      return null;
-    }
-  }, [tr]);
-
-  const onConfirmRequest = useCallback(async () => {
-    if (submittingRequest) return;
-    if (!user) {
-      alertService.showErrorAlert(tr('alerts.loginRequired'));
-      return;
-    }
-    const startPoint = originCoords || coords;
-    if (!startPoint || !destinationCoords) {
-      alertService.showErrorAlert(tr('alerts.destinationRequired'));
-      return;
-    }
-
-    const validatedOrigin = await validateLocationForContext(startPoint, 'origin');
-    if (!validatedOrigin) {
-      return;
-    }
-
-    const validatedDestination = await validateLocationForContext(destinationCoords, 'destination');
-    if (!validatedDestination) {
-      return;
-    }
-
-    let clientSuggestedPrice: number | undefined;
-    if (priceSuggestion.trim().length > 0) {
-      const value = Number(priceSuggestion);
-      if (!Number.isFinite(value) || value <= 0) {
-        alertService.showErrorAlert(tr('alerts.invalidAmount'));
-        return;
-      }
-      clientSuggestedPrice = value;
-    }
-
-    let biometricAcceptancePayload: Record<string, any> | null = null;
-    let vehiclePhotoUrl = clientVehiclePhoto;
-    if (vehicleType === 'designated_driver') {
-      if (uploadingPhoto) {
-        alertService.showInfoAlert(tr('alerts.vehiclePhotoProcessTitle'), tr('alerts.vehiclePhotoProcess'));
-        return;
-      }
-      if (!vehiclePhotoUrl && !clientVehiclePhotoLocalUri) {
-        alertService.showErrorAlert(tr('alerts.vehiclePhotoRequired'));
-        return;
-      }
-      biometricAcceptancePayload = await runDesignatedDriverBiometricVerification();
-      if (!biometricAcceptancePayload) {
-        return;
-      }
-
-      if (!vehiclePhotoUrl && clientVehiclePhotoLocalUri) {
-        setUploadingPhoto(true);
-        try {
-          vehiclePhotoUrl = await uploadClientVehiclePhoto(user.id, clientVehiclePhotoLocalUri);
-          setClientVehiclePhoto(vehiclePhotoUrl);
-          alertService.showSuccessAlert(tr('alerts.photoUploadedTitle'), tr('alerts.photoUploadedMessage'), { duration: 2000 });
-        } catch (uploadError) {
-          console.error('[vehiclePhotoUpload] Error', uploadError);
-          alertService.showErrorAlert(tr('alerts.photoUploadFailed'));
-          setUploadingPhoto(false);
-          return;
-        }
-        setUploadingPhoto(false);
-      }
-
-      if (!vehiclePhotoUrl) {
-        alertService.showErrorAlert(tr('alerts.photoUploadFailed'));
-        return;
-      }
-    }
-
-    let requestData: any;
-
-    try {
-      setSubmittingRequest(true);
-      requestData = {
-        clientId: user.id,
-        origin: {
-          lat: startPoint.latitude,
-          lng: startPoint.longitude,
-          address: origin || defaultLabels.myLocation,
-        },
-        destination: {
-          lat: destinationCoords.latitude,
-          lng: destinationCoords.longitude,
-          address: destination || defaultLabels.destination,
-        },
-        estimatedDistance: Math.max(1, Math.round(estimatedDistance * 1000)),
-        estimatedDuration: Math.max(1, Math.round(estimatedDuration * 60)),
-        estimatedPrice: Math.max(1, Math.round(estimatedPrice)),
-        rideType: vehicleType === 'designated_driver' ? 'designated_driver' : 'normal',
-        vehicleType,
-        paymentMethod,
-        passengers: passengersByVehicle[vehicleType] || 1,
-        serviceAreaId: validatedOrigin.serviceAreaId ?? validatedDestination.serviceAreaId ?? null,
-      };
-
-      const trimmedComment = rideComment.trim();
-
-      if (clientSuggestedPrice) requestData.clientSuggestedPrice = clientSuggestedPrice;
-      if (trimmedComment) {
-        requestData.clientComment = trimmedComment;
-        requestData.notes = trimmedComment;
-      }
-      if (extraDestinations.length > 0) {
-        requestData.extraDestinations = extraDestinations
-          .filter((stop) => stop.coords)
-          .map((stop) => ({
-            lat: stop.coords!.latitude,
-            lng: stop.coords!.longitude,
-            address: stop.address,
-          }));
-      }
-      if (vehicleType === 'designated_driver' && vehiclePhotoUrl) {
-        requestData.clientVehiclePhoto = vehiclePhotoUrl;
-        const designatedNote = tr('notes.designatedDriver');
-        requestData.notes = trimmedComment ? `${trimmedComment}\n${designatedNote}` : designatedNote;
-        requestData.designatedDriverVehicle = designatedDriverMode;
-      }
-      if (biometricAcceptancePayload) {
-        Object.assign(requestData, biometricAcceptancePayload);
-      }
-
-      const codeMap: Record<VehicleType, string> = {
-        moto: 'motorcycle',
-        auto: 'normal',
-        designated_driver: 'designated_driver',
-      };
-      const matched = servicesCatalog.find((service) => service.code === codeMap[vehicleType]);
-      if (matched?.id) requestData.serviceId = matched.id;
-
-      if (scheduledAt) {
-        const programmed = await ridesService.createProgrammedRide({
-          ...requestData,
-          scheduledAt,
-        });
-        const scheduledText = new Date(programmed.scheduledAt).toLocaleString();
-        const rideId = programmed.id;
-        alertService.showSuccessAlert(
-          tr('scheduling.successTitle'),
-          tr('scheduling.successMessageWithId', { date: scheduledText, id: rideId }),
-          { duration: 3500 },
-        );
-        try {
-          await Share.share({
-            message: tr('scheduling.shareMessage', { date: scheduledText, id: rideId }),
-          });
-        } catch (shareError) {
-          console.warn('Error sharing scheduled ride ID', shareError);
-        }
-        navigation?.navigate?.('ClientHome');
-        return;
-      }
-
-      const ride = await ridesService.requestRide(requestData);
-      navigation?.navigate?.('HomeOffers', { rideId: ride.id });
-    } catch (error: any) {
-      const details: any = (error && (error.details || (error as any).data)) || null;
-      const errorCode: string | null =
-        (error && (error.code || (error as any).errorInfo?.code)) || null;
-
-      const isFailedPrecondition =
-        errorCode === 'functions/failed-precondition' || errorCode === 'failed-precondition';
-
-      const isConflict =
-        isFailedPrecondition && details && details.code === 'CLIENT_PROGRAMMED_RIDE_CONFLICT';
-
-      if (isConflict && details?.existingRideId && details?.existingScheduledAt && requestData) {
-        const conflictDate = new Date(details.existingScheduledAt).toLocaleString();
-        const title = tr('scheduling.conflictTitle');
-        const body = scheduledAt
-          ? tr('scheduling.conflictBodyScheduled', { date: conflictDate })
-          : tr('scheduling.conflictBodyImmediate', { date: conflictDate });
-        const replaceLabel = tr('scheduling.conflictReplaceButton');
-        const keepLabel = tr('scheduling.conflictKeepButton');
-
-        setSubmittingRequest(false);
-
-        const shouldReplace = await new Promise<boolean>((resolve) => {
-          alertService.showConfirmAlert(
-            title,
-            body,
-            () => resolve(true),
-            () => resolve(false),
-            replaceLabel,
-            keepLabel,
-          );
-        });
-
-        if (!shouldReplace) {
-          return;
-        }
-
-        setSubmittingRequest(true);
-
-        try {
-          await ridesService.cancelProgrammedRide(
-            details.existingRideId,
-            scheduledAt ? 'replaced_by_new_programmed_ride' : 'replaced_by_new_immediate_ride',
-          );
-
-          if (scheduledAt) {
-            const programmed = await ridesService.createProgrammedRide({
-              ...requestData,
-              scheduledAt,
-            });
-            const scheduledText = new Date(programmed.scheduledAt).toLocaleString();
-            const rideId = programmed.id;
-            alertService.showSuccessAlert(
-              tr('scheduling.successTitle'),
-              tr('scheduling.successMessageWithId', { date: scheduledText, id: rideId }),
-              { duration: 3500 },
-            );
-            try {
-              await Share.share({
-                message: tr('scheduling.shareMessage', { date: scheduledText, id: rideId }),
-              });
-            } catch (shareError) {
-              console.warn('Error sharing scheduled ride ID', shareError);
-            }
-            navigation?.navigate?.('ClientHome');
-          } else {
-            const ride = await ridesService.requestRide(requestData);
-            navigation?.navigate?.('HomeOffers', { rideId: ride.id });
-          }
-        } catch (retryError: any) {
-          alertService.showErrorAlert(retryError?.message || tr('alerts.requestError'));
-        }
-
-        return;
-      }
-
-      alertService.showErrorAlert(error?.message || tr('alerts.requestError'));
-    } finally {
-      setSubmittingRequest(false);
-    }
-  }, [
-    user,
-    originCoords,
-    coords,
-    destinationCoords,
-    origin,
-    destination,
-    estimatedDistance,
-    estimatedDuration,
-    estimatedPrice,
-    vehicleType,
-    paymentMethod,
-    passengersByVehicle,
-    priceSuggestion,
-    rideComment,
-    extraDestinations,
-    clientVehiclePhoto,
-    clientVehiclePhotoLocalUri,
-    servicesCatalog,
-    navigation,
-    submittingRequest,
-    uploadingPhoto,
-    runDesignatedDriverBiometricVerification,
-    defaultLabels.destination,
-    defaultLabels.myLocation,
-    tr,
-    scheduledAt,
-  ]);
-
-  const scheduleDayOptions = useMemo(() => {
-    const { minDate, maxDate } = getScheduleBounds();
-    const days: Array<{ label: string; date: Date }> = [];
-    const cursor = startOfDay(minDate);
-    const end = startOfDay(maxDate);
-    while (cursor.getTime() <= end.getTime()) {
-      const d = new Date(cursor);
-      const label = d.toLocaleDateString(undefined, {
-        weekday: 'short',
-        month: 'short',
-        day: '2-digit',
-      });
-      days.push({ label, date: d });
-      cursor.setDate(cursor.getDate() + 1);
-    }
-    return days;
-  }, []);
-
-  const scheduleMinuteOptions = useMemo(() => {
-    const values: number[] = [];
-    for (let m = 0; m < 60; m += SCHEDULE_MINUTE_STEP) {
-      values.push(m);
-    }
-    return values;
-  }, []);
-
-  const selectedScheduleDay = useMemo(
-    () => scheduleDayOptions[scheduleDayIndex]?.date || scheduleDayOptions[0]?.date || null,
-    [scheduleDayIndex, scheduleDayOptions],
-  );
-
-  const scheduleHourOptions = useMemo(() => {
-    if (!selectedScheduleDay) return [];
-    const { minDate, maxDate } = getScheduleBounds();
-    const minHour = isSameDay(selectedScheduleDay, minDate) ? minDate.getHours() : 0;
-    const maxHour = isSameDay(selectedScheduleDay, maxDate) ? maxDate.getHours() : 23;
-    if (minHour > maxHour) return [];
-    const values: number[] = [];
-    for (let h = minHour; h <= maxHour; h++) {
-      values.push(h);
-    }
-    return values;
-  }, [selectedScheduleDay]);
-
-  const scheduleMinuteOptionsForHour = useMemo(() => {
-    if (!selectedScheduleDay) return scheduleMinuteOptions;
-    const { minDate, maxDate } = getScheduleBounds();
-    let minMinute = 0;
-    let maxMinute = 59;
-    if (isSameDay(selectedScheduleDay, minDate) && scheduleHour === minDate.getHours()) {
-      minMinute = minDate.getMinutes();
-    }
-    if (isSameDay(selectedScheduleDay, maxDate) && scheduleHour === maxDate.getHours()) {
-      maxMinute = maxDate.getMinutes();
-    }
-    return scheduleMinuteOptions.filter((minute) => minute >= minMinute && minute <= maxMinute);
-  }, [selectedScheduleDay, scheduleHour, scheduleMinuteOptions]);
-
-  useEffect(() => {
-    if (!scheduleHourOptions.length) return;
-    if (!scheduleHourOptions.includes(scheduleHour)) {
-      setScheduleHour(scheduleHourOptions[0]);
-    }
-  }, [scheduleHourOptions, scheduleHour]);
-
-  useEffect(() => {
-    if (!scheduleMinuteOptionsForHour.length) return;
-    if (!scheduleMinuteOptionsForHour.includes(scheduleMinute)) {
-      setScheduleMinute(scheduleMinuteOptionsForHour[0]);
-    }
-  }, [scheduleMinuteOptionsForHour, scheduleMinute]);
-
-  const openScheduleModal = useCallback(() => {
-    const { minDate, maxDate } = getScheduleBounds();
-    let base = scheduledAt ? roundMinutesUp(new Date(scheduledAt), SCHEDULE_MINUTE_STEP) : new Date(minDate);
-    if (base.getTime() < minDate.getTime()) {
-      base = new Date(minDate);
-    } else if (base.getTime() > maxDate.getTime()) {
-      base = new Date(maxDate);
-    }
-    base.setSeconds(0, 0);
-
-    const dayIndex = scheduleDayOptions.findIndex((opt) => {
-      return (
-        opt.date.getFullYear() === base.getFullYear() &&
-        opt.date.getMonth() === base.getMonth() &&
-        opt.date.getDate() === base.getDate()
-      );
-    });
-
-    setScheduleDayIndex(dayIndex >= 0 ? dayIndex : 0);
-    setScheduleHour(base.getHours());
-    setScheduleMinute(base.getMinutes() - (base.getMinutes() % SCHEDULE_MINUTE_STEP));
-    setScheduleModalVisible(true);
-  }, [scheduledAt, scheduleDayOptions]);
-
-  const applyScheduleSelection = useCallback(() => {
-    const day = scheduleDayOptions[scheduleDayIndex]?.date;
-    if (!day) {
-      return;
-    }
-
-    const candidate = new Date(day);
-    candidate.setHours(scheduleHour, scheduleMinute, 0, 0);
-    const ms = candidate.getTime();
-    const { minDate, maxDate } = getScheduleBounds();
-    const minMs = minDate.getTime();
-    const maxMs = maxDate.getTime();
-
-    if (ms < minMs || ms > maxMs) {
-      alertService.showErrorAlert(tr('scheduling.invalidRange'));
-      return;
-    }
-
-    setScheduledAt(ms);
-    setScheduleModalVisible(false);
-  }, [scheduleDayOptions, scheduleDayIndex, scheduleHour, scheduleMinute, tr]);
+    resetSearch();
+  }, [activeSelection, resetSearch]);
 
   const selectionTitle = useMemo(() => {
     if (activeSelection === 'origin') return tr('search.selectionOriginTitle');
     if (activeSelection === 'destination') return tr('search.selectionDestinationTitle');
-    if (activeSelection === 'new-stop') {
-      return tr('search.selectionNewStopTitle', { current: extraDestinations.length + 1, max: MAX_EXTRA_STOPS });
-    }
-    if (typeof activeSelection === 'number') {
-      return tr('search.selectionEditStopTitle', { index: activeSelection + 1 });
-    }
+    if (activeSelection === 'new-stop') return tr('search.selectionNewStopTitle', { current: extraDestinations.length + 1, max: MAX_EXTRA_STOPS });
+    if (typeof activeSelection === 'number') return tr('search.selectionEditStopTitle', { index: activeSelection + 1 });
     return tr('search.selectionGenericTitle');
   }, [activeSelection, extraDestinations.length, tr]);
 
@@ -2052,28 +474,24 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     if (activeSelection === 'new-stop' || typeof activeSelection === 'number') return tr('search.descriptionExtra');
     return tr('search.descriptionGeneric');
   }, [activeSelection, tr]);
+
   const isDestinationSelection = activeSelection === 'destination';
   const shouldHighlightMapAction = isDestinationSelection && !destinationCoords;
   const hasConfirmedDestination = !!destinationCoords;
   const requiresVehiclePhoto = vehicleType === 'designated_driver';
   const hasVehiclePhotoSelection = !!clientVehiclePhoto || !!clientVehiclePhotoLocalUri;
   const isRequestReady =
-    !!destinationCoords &&
-    estimatedPrice > 0 &&
+    !!destinationCoords && estimatedPrice > 0 &&
     (!requiresVehiclePhoto || (hasVehiclePhotoSelection && !uploadingPhoto));
+
   const maxPassengersByType: Record<VehicleType, number> = useMemo(
-    () => ({
-      moto: 1,
-      auto: 4,
-      designated_driver: designatedDriverMode === 'moto' ? 1 : 4,
-    }),
+    () => ({ moto: 1, auto: 4, designated_driver: designatedDriverMode === 'moto' ? 1 : 4 }),
     [designatedDriverMode],
   );
-  
+
   const getPassengersForVehicle = (type: VehicleType) => passengersByVehicle[type] || 1;
   const canDecreasePassengers = (type: VehicleType) => getPassengersForVehicle(type) > 1;
   const canIncreasePassengers = (type: VehicleType) => getPassengersForVehicle(type) < maxPassengersByType[type];
-  
   const updatePassengers = (type: VehicleType, delta: number) => {
     setPassengersByVehicle((prev) => {
       const current = prev[type] || 1;
@@ -2086,14 +504,11 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
   const hasRouteSelection = !!originCoords && !!destinationCoords;
   const hasRouteMetrics = hasRouteSelection && estimatedDistance > 0 && estimatedDuration > 0 && estimatedPrice > 0;
   const centerPinActive =
-    mapSelectionMode === 'origin' ||
-    mapSelectionMode === 'destination' ||
+    mapSelectionMode === 'origin' || mapSelectionMode === 'destination' ||
     mapSelectionMode === 'extra-new' ||
     (typeof mapSelectionMode === 'object' && mapSelectionMode?.type === 'extra-edit');
   const editingExtraStopIndex =
-    typeof mapSelectionMode === 'object' && mapSelectionMode?.type === 'extra-edit'
-      ? mapSelectionMode.index
-      : null;
+    typeof mapSelectionMode === 'object' && mapSelectionMode?.type === 'extra-edit' ? mapSelectionMode.index : null;
   const visibleDestinationMarker = mapSelectionMode === 'destination' ? undefined : destinationCoords || undefined;
   const visibleExtraStopMarkers = extraDestinations
     .map((stop, index) => {
@@ -2102,32 +517,13 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
       return { latitude: stop.coords.latitude, longitude: stop.coords.longitude, index };
     })
     .filter(Boolean) as Array<{ latitude: number; longitude: number; index: number }>;
-  const autoFitEnabled =
-    !centerPinActive &&
-    !manualOriginDragging &&
-    !manualOriginLoading &&
-    !manualDestinationDragging &&
-    !manualDestinationLoading;
-  const showManualOriginMarker =
-    (!centerPinActive && (hasPinnedOrigin || !!originCoords || !!manualOriginDraft)) ||
-    mapSelectionMode === 'destination';
-  const bottomPanelReady =
-    hasRouteMetrics &&
-    !calculatingRoute &&
-    !centerPinActive &&
-    !manualOriginDragging &&
-    !manualDestinationDragging &&
-    !manualOriginLoading &&
-    !manualDestinationLoading;
+  const autoFitEnabled = !centerPinActive && !manualOriginDragging && !manualOriginLoading && !manualDestinationDragging && !manualDestinationLoading;
+  const showManualOriginMarker = (!centerPinActive && (hasPinnedOrigin || !!originCoords || !!manualOriginDraft)) || mapSelectionMode === 'destination';
+  const bottomPanelReady = hasRouteMetrics && !calculatingRoute && !centerPinActive && !manualOriginDragging && !manualDestinationDragging && !manualOriginLoading && !manualDestinationLoading;
   const bottomPanelTranslate = useMemo(
-    () =>
-      bottomPanelAnim.interpolate({
-        inputRange: [0, 1],
-        outputRange: [320, 0],
-      }),
+    () => bottomPanelAnim.interpolate({ inputRange: [0, 1], outputRange: [320, 0] }),
     [bottomPanelAnim],
   );
-
   const isLocationLoading = manualOriginLoading || manualDestinationLoading || extraStopSelectionLoading;
 
   useEffect(() => {
@@ -2135,43 +531,23 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
       markerBounce.setValue(0);
       const animation = Animated.loop(
         Animated.sequence([
-          Animated.timing(markerBounce, {
-            toValue: 1,
-            duration: 350,
-            easing: Easing.inOut(Easing.quad),
-            useNativeDriver: true,
-          }),
-          Animated.timing(markerBounce, {
-            toValue: 0,
-            duration: 350,
-            easing: Easing.inOut(Easing.quad),
-            useNativeDriver: true,
-          }),
+          Animated.timing(markerBounce, { toValue: 1, duration: 350, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+          Animated.timing(markerBounce, { toValue: 0, duration: 350, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
         ]),
       );
       animation.start();
       return () => animation.stop();
     }
-
-    markerBounce.stopAnimation(() => {
-      markerBounce.setValue(0);
-    });
+    markerBounce.stopAnimation(() => markerBounce.setValue(0));
   }, [isLocationLoading, markerBounce]);
 
   useEffect(() => {
-    Animated.timing(bottomPanelAnim, {
-      toValue: bottomPanelReady ? 1 : 0,
-      duration: 250,
-      useNativeDriver: true,
-    }).start();
+    Animated.timing(bottomPanelAnim, { toValue: bottomPanelReady ? 1 : 0, duration: 250, useNativeDriver: true }).start();
   }, [bottomPanelAnim, bottomPanelReady]);
 
   useEffect(() => {
     if (!bottomPanelReady) {
-      setBottomPanelExpanded((prev) => {
-        if (prev) return prev;
-        return true;
-      });
+      setBottomPanelExpanded((prev) => (prev ? prev : true));
     }
   }, [bottomPanelReady]);
 

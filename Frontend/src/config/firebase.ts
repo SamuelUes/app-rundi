@@ -44,7 +44,7 @@ export async function initializeFirebase() {
   }
 
   try {
-    console.log('🔧 Inicializando Firebase...');
+    if (__DEV__) console.log('🔧 Inicializando Firebase...');
 
     // Inicializar Firebase App
     app = initializeApp(firebaseConfig);
@@ -54,7 +54,7 @@ export async function initializeFirebase() {
       auth = initializeAuth(app, {
         persistence: getReactNativePersistence(AsyncStorage)
       });
-      console.log('✅ Firebase Auth inicializado con persistencia AsyncStorage');
+      if (__DEV__) console.log('✅ Firebase Auth inicializado con persistencia AsyncStorage');
     } catch (error) {
       console.warn('⚠️ No se pudo inicializar Auth con persistencia, usando getAuth');
       auth = getAuth(app);
@@ -70,18 +70,18 @@ export async function initializeFirebase() {
     const emulatorHost = process.env.FIREBASE_EMULATOR_HOST || 'localhost';
 
     if (useEmulators) {
-      console.log('🔧 Conectando a Firebase Emulators...');
+      if (__DEV__) console.log('🔧 Conectando a Firebase Emulators...');
 
       connectAuthEmulator(auth, `http://${emulatorHost}:9099`);
       connectFirestoreEmulator(firestore, emulatorHost, 8080);
       connectDatabaseEmulator(database, emulatorHost, 9000);
       connectFunctionsEmulator(functions, emulatorHost, 5001);
 
-      console.log('✅ Firebase Emulators conectados');
+      if (__DEV__) console.log('✅ Firebase Emulators conectados');
     }
 
     isInitialized = true;
-    console.log('✅ Firebase inicializado correctamente');
+    if (__DEV__) console.log('✅ Firebase inicializado correctamente');
 
     return { app, auth, firestore, database, functions };
   } catch (error) {

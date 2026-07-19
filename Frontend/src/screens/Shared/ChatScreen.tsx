@@ -17,7 +17,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { SkeletonLoader } from '../../components/SkeletonLoader';
 import { EmptyState } from '../../components/EmptyState';
 import { useAuth } from '../../context/AuthContext';
-import { useChat } from '../../hooks/useChat';
+import { useChat } from '../../hooks/shared/chat/useChat';
 import ChatBubble from '../../components/ChatBubble';
 import { useTranslation } from 'react-i18next';
 

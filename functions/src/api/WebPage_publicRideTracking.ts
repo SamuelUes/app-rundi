@@ -2,6 +2,7 @@ import * as functions from 'firebase-functions';
 import admin from '../config/firebase';
 import { regionConfig, DEFAULT_REGION } from '../config/functions-config';
 import { calculateRideProgress } from '../utils/rideProgressUtils';
+import { checkRateLimit } from '../utils/rateLimiter';
 
 interface PublicRideLocation {
   latitude: number;
@@ -106,6 +107,13 @@ export const getPublicRideTracking = functions
 
     if (req.method !== 'GET' && req.method !== 'POST') {
       res.status(405).json({ success: false, error: 'Método no permitido', code: 'method-not-allowed' });
+      return;
+    }
+
+    const clientIp = (req.headers['x-forwarded-for'] as string || req.socket.remoteAddress || 'unknown').split(',')[0].trim();
+    const rateLimit = checkRateLimit(`tracking:${clientIp}`, 60);
+    if (!rateLimit.allowed) {
+      res.status(429).json({ success: false, error: 'Too many requests', retryAfter: Math.ceil((rateLimit.resetAt - Date.now()) / 1000) });
       return;
     }
 

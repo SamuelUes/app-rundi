@@ -5,6 +5,7 @@
 
 import * as functions from 'firebase-functions';
 import { ServiceRepository } from '../sequelize/repositories/ServiceRepository';
+import { requireAdmin } from '../utils/sessionUtils';
 
 const serviceRepo = new ServiceRepository();
 
@@ -12,9 +13,7 @@ const serviceRepo = new ServiceRepository();
  * Crear servicio
  */
 export const createService = functions.https.onCall(async (data, context) => {
-  if (!context.auth) {
-    throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
-  }
+  await requireAdmin(context);
 
   try {
     const { name, description, commissionRate, basePrice, code, isActive = true, isFeatured = false, status } = data;
@@ -142,9 +141,7 @@ export const getServiceById = functions.https.onCall(async (data, context) => {
  * Actualizar servicio
  */
 export const updateService = functions.https.onCall(async (data, context) => {
-  if (!context.auth) {
-    throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
-  }
+  await requireAdmin(context);
 
   try {
     const { serviceId, name, description, commissionRate, status, basePrice, code, isActive, isFeatured } = data;

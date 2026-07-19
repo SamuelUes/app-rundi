@@ -30,7 +30,8 @@ export const createSmsCode = functions.https.onCall(async (data, context) => {
       ride_id: rideId || null,
       user_id: userId,
       code,
-      status: 'pending',
+      code_hash: code,
+      verified: false,
       expires_at: new Date(expiresAt),
     });
 
@@ -39,7 +40,7 @@ export const createSmsCode = functions.https.onCall(async (data, context) => {
       smsCode: {
         id: smsCode.id,
         code: smsCode.code,
-        status: smsCode.status,
+        verified: smsCode.verified,
         expiresAt: smsCode.expires_at,
       },
     };
@@ -76,7 +77,7 @@ export const verifySmsCode = functions.https.onCall(async (data, context) => {
       throw new functions.https.HttpsError('failed-precondition', 'Código expirado');
     }
 
-    await smsCodeRepo.update(smsCode.id, { status: 'verified' });
+    await smsCodeRepo.update(smsCode.id, { verified: true, verified_at: new Date() });
 
     return {
       success: true,

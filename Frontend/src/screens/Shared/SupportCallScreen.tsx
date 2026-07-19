@@ -13,8 +13,8 @@ import { useNavigation } from '@react-navigation/native';
 import { httpsCallable } from 'firebase/functions';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../context/ThemeContext';
-import { useCalls } from '../../hooks/useCalls';
-import { useLivekitConnection } from '../../hooks/useLivekitConnection';
+import { useCalls } from '../../hooks/shared/calls/useCalls';
+import { useLivekitConnection } from '../../hooks/shared/calls/useLivekitConnection';
 import { getFirebaseFunctions } from '../../config/firebase';
 
 interface SupportCallScreenRouteParams {

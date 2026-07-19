@@ -37,6 +37,8 @@ function resolveSupabaseKey(): string {
 const SUPABASE_URL = resolveSupabaseUrl();
 const SUPABASE_ANON_KEY = resolveSupabaseKey();
 
+export { SUPABASE_URL, SUPABASE_ANON_KEY };
+
 if (!SUPABASE_URL) {
   console.warn(
     '⚠️ `EXPO_PUBLIC_SUPABASE_URL`/`SUPABASE_URL` no está definido en `app.config` ni en variables de entorno. Debes configurarlo en tu .env o app.config.'
@@ -46,9 +48,6 @@ if (!SUPABASE_URL) {
 if (!SUPABASE_ANON_KEY) {
   console.warn('⚠️ `EXPO_PUBLIC_SUPABASE_KEY`/`SUPABASE_ANON_KEY` no definido. Algunas llamadas a Supabase pueden fallar.');
 }
-
-console.log('🔧 Supabase URL:', SUPABASE_URL);
-console.log('🔧 Supabase Key:', SUPABASE_ANON_KEY ? '✅ Configurada' : '❌ No configurada');
 
 // Crear cliente de Supabase
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {

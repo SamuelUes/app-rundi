@@ -1,7 +1,5 @@
 // Configuración de la API
-import backendConfig from './backendConfig';
-
-export const API_BASE_URL = backendConfig.getApiUrl();
+export { API_BASE_URL } from './environment';
 
 export const ENDPOINTS = {
   // Auth

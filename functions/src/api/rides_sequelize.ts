@@ -5,7 +5,7 @@ import { RideLocationRepository } from '../sequelize/repositories/RideLocationRe
 import { RideService } from '../sequelize/services/RideService';
 import { supabaseGetRidesWithLocationsAndPayments } from '../supabase/client';
 import { mapRides } from './rideHistory';
-import { sendNotificationToUser } from '../services/pushNotifications';
+import { notifyUserSafe } from '../services/notifyUserSafe';
 import { notifyLiveRideUpdate, LiveRideNotificationPayload } from '../services/liveRideNotifications';
 import { RideRepository } from '../sequelize/repositories/RideRepository';
 // import { DriverPenaltyRepository } from '../sequelize/repositories/DriverPenaltyRepository';
@@ -15,21 +15,35 @@ import { VehicleRepository } from '../sequelize/repositories/VehicleRepository';
 import { calculateRideProgress } from '../utils/rideProgressUtils';
 import { logRideEvent, AnalyticsEvents } from '../utils/analyticsUtils';
 import { v4 as uuidv4 } from 'uuid';
+import { DEFAULT_SERVICE_AREA_ID, PUSH_NOTIFICATIONS_ENABLED } from '../config/constants';
+import { ensureActiveSession, requireDriver, requireClient } from '../utils/sessionUtils';
+import sequelize, { isSequelizeAvailable } from '../sequelize/config/database';
+import {
+  AcceptRideSchema,
+  StartRideSchema,
+  CompleteRideSchema,
+  CancelRideSchema,
+  GetRideDetailsSchema,
+  CreateRideRequestSchema,
+  validateData,
+  AcceptRide,
+  StartRide,
+  CompleteRide,
+  CancelRide,
+  GetRideDetails,
+  CreateRideRequest,
+} from '../sequelize/validators';
 
 const IS_LOAD_TEST =
   (process.env.FUNCTIONS_EMULATOR === 'true' ||
     (process.env.FIREBASE_EMULATOR_RUN_MODE ?? '').toLowerCase() === 'true') &&
   (process.env.SKIP_DB_FOR_LOADTEST ?? '').toLowerCase() === 'true';
 
-const FUNCTIONS_PUSH_NOTIFICATIONS_ENABLED =
-  (process.env.FUNCTIONS_PUSH_NOTIFICATIONS ?? 'false').toLowerCase() === 'true';
-
 const rideRepo = new RideRepository();
 const driverRepo = new DriverRepository();
 const locationRepo = new RideLocationRepository();
 const rideService = new RideService();
 const db = admin.database();
-const DEFAULT_SERVICE_AREA_ID = 'ni-managua';
 // const penaltyRepo = new DriverPenaltyRepository();
 const serviceRepo = new ServiceRepository();
 const paymentRepo = new PaymentRepository();
@@ -51,7 +65,7 @@ const safeLogRideEvent = async (
 };
 
 const notifyLiveRideUpdateSafe = async (payload: LiveRideNotificationPayload) => {
-  if (!FUNCTIONS_PUSH_NOTIFICATIONS_ENABLED) {
+  if (!PUSH_NOTIFICATIONS_ENABLED) {
     return;
   }
 
@@ -65,92 +79,7 @@ const notifyLiveRideUpdateSafe = async (payload: LiveRideNotificationPayload) =>
   }
 };
 
-// ============================================
-// Single-session enforcement (DENY policy)
-// ============================================
-const SESSION_ACTIVE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
-
-const isRecent = (lastSeen: any): boolean => {
-  if (typeof lastSeen === 'number') {
-    const diff = Date.now() - lastSeen;
-    return diff >= 0 && diff <= SESSION_ACTIVE_THRESHOLD_MS;
-  }
-  // If unknown type (e.g. server timestamp placeholder), treat as recent
-  return true;
-};
-
-const ensureActiveSession = async (
-  context: functions.https.CallableContext,
-  data: any,
-) => {
-  if (!context.auth?.uid) {
-    throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
-  }
-
-  const uid = context.auth.uid;
-  const deviceId = typeof data?.deviceId === 'string' ? data.deviceId.trim() : '';
-  if (!deviceId) {
-    throw new functions.https.HttpsError('invalid-argument', 'deviceId requerido');
-  }
-
-  const sessionSnap = await db.ref(`sessions/${uid}`).once('value');
-  const session = sessionSnap.val();
-  if (session && session.deviceId && session.deviceId !== deviceId && isRecent(session.lastSeen)) {
-    throw new functions.https.HttpsError('failed-precondition', 'SESSION_ACTIVE_ELSEWHERE');
-  }
-};
-
-const notifyUserSafe = async (
-  userId: string | null | undefined,
-  title: string,
-  body: string,
-  data: Record<string, string | number | boolean | null | undefined> = {},
-) => {
-  if (!FUNCTIONS_PUSH_NOTIFICATIONS_ENABLED) {
-    return;
-  }
-
-  if (!userId) {
-    return;
-  }
-
-  try {
-    const rideIdRaw = data?.rideId ?? data?.ride_id;
-    const normalizedRideId = typeof rideIdRaw === 'string'
-      ? rideIdRaw
-      : typeof rideIdRaw === 'number' && Number.isFinite(rideIdRaw)
-        ? String(rideIdRaw)
-        : '';
-    const explicitNotificationKey = typeof data?.notificationKey === 'string' && data.notificationKey.trim().length
-      ? data.notificationKey.trim()
-      : undefined;
-    const notificationKey = explicitNotificationKey || (normalizedRideId ? `ride-${normalizedRideId}` : undefined);
-    const expiresInMsRaw = data?.expiresInMs ?? data?.expires_in_ms;
-    const parsedExpires = typeof expiresInMsRaw === 'number'
-      ? expiresInMsRaw
-      : typeof expiresInMsRaw === 'string'
-        ? Number(expiresInMsRaw)
-        : NaN;
-    const expiresInMs = Number.isFinite(parsedExpires) && parsedExpires > 0 ? parsedExpires : 120_000;
-
-    await sendNotificationToUser(userId, {
-      title,
-      body,
-      data: {
-        ...data,
-        rideId: normalizedRideId || undefined,
-      },
-      notificationKey,
-      expiresInMs,
-    });
-  } catch (error) {
-    console.error('❌ [rides] Error enviando notificación push:', {
-      userId,
-      title,
-      error,
-    });
-  }
-};
+// notifyUserSafe is imported from ../services/notifyUserSafe
 
 const fetchClientProfileFromRealtime = async (
   clientId: string,
@@ -372,8 +301,8 @@ const fetchFirestoreUserRole = async (uid: string): Promise<string | null> => {
     if (!userDoc.exists) {
       return null;
     }
-    const data = userDoc.data() as any;
-    const roleRaw = data?.role ?? data?.userRole ?? data?.type ?? null;
+    const data = userDoc.data() as Record<string, unknown> | undefined;
+    const roleRaw = (data?.role ?? data?.userRole ?? data?.type ?? null) as string | null;
     return typeof roleRaw === 'string' && roleRaw.trim().length > 0 ? roleRaw.trim() : null;
   } catch (error: any) {
     console.warn('[programmedRides] No se pudo leer role en Firestore', {
@@ -452,7 +381,7 @@ export const createProgrammedRide = functions.https.onCall(async (data, context)
   } catch (err) {
     console.warn('[createProgrammedRide] No se pudo obtener perfil de cliente', {
       clientId,
-      error: (err as any)?.message || err,
+      error: err instanceof Error ? err.message : String(err),
     });
   }
 
@@ -823,7 +752,7 @@ const getNegotiatedFare = (firebaseRide: any, rideRecord: any): number => {
 };
 
 const getCommissionRateForRide = async (rideRecord: any): Promise<number> => {
-  let commissionRate = parseToNumber((rideRecord as any)?.commission_rate);
+  let commissionRate = parseToNumber((rideRecord as Record<string, any>)?.commission_rate);
 
   if (commissionRate === null && rideRecord?.service_id) {
     try {
@@ -1037,16 +966,14 @@ const normalizeRealtimeRide = (rideId: string, raw: any) => {
       name: raw?.clientName ?? 'Cliente',
       rating: clientRating ?? 0,
       phone: raw?.clientPhone ?? null,
-    } as any;
-    if (clientTotalRatings !== undefined) {
-      (client as any).totalRatings = clientTotalRatings;
-    }
+      ...(clientTotalRatings !== undefined ? { totalRatings: clientTotalRatings } : {}),
+    };
   } else {
     if (clientRating !== undefined) {
-      (client as any).rating = clientRating;
+      client.rating = clientRating;
     }
     if (clientTotalRatings !== undefined) {
-      (client as any).totalRatings = clientTotalRatings;
+      client.totalRatings = clientTotalRatings;
     }
   }
 
@@ -1125,7 +1052,7 @@ export const getAvailableRides = functions.https.onCall(async (data, context) =>
   } catch (e) {
     console.warn('[getAvailableRides] No se pudo leer serviceAreaId de sesión, usando default', {
       uid,
-      error: (e as any)?.message || e,
+      error: e instanceof Error ? e.message : String(e),
     });
   }
 
@@ -1136,7 +1063,7 @@ export const getAvailableRides = functions.https.onCall(async (data, context) =>
   } catch (driverInfoErr) {
     console.warn('[getAvailableRides] No se pudo obtener driversInfo del conductor', {
       uid,
-      error: (driverInfoErr as any)?.message || driverInfoErr,
+      error: driverInfoErr instanceof Error ? driverInfoErr.message : String(driverInfoErr),
     });
   }
 
@@ -1167,16 +1094,16 @@ export const getAvailableRides = functions.https.onCall(async (data, context) =>
     console.warn('[getAvailableRides] Error leyendo activeRidesByArea, usando activeRides global', {
       uid,
       serviceAreaId,
-      error: (err as any)?.message || err,
+      error: err instanceof Error ? err.message : String(err),
     });
     const fallbackSnap = await db.ref('activeRides').once('value');
     rawValue = fallbackSnap.val() || {};
     usedPath = 'activeRides';
   }
 
-  const entries = Object.entries<any>(rawValue);
+  const entries = Object.entries<Record<string, any>>(rawValue);
 
-  const rides = [] as any[];
+  const rides: Record<string, any>[] = [];
 
   for (const [rideId, rawRide] of entries) {
     const status = String(rawRide?.status || '').toLowerCase();
@@ -1321,7 +1248,7 @@ const ensureDriverPenalty = async (options: {
         penalty_type: penaltyType,
         reason,
         status: 'pending',
-      } as any);
+      });
     } else {
       await penaltyRepo.create({
         driver_id: driverId,
@@ -1330,7 +1257,7 @@ const ensureDriverPenalty = async (options: {
         amount: normalizedAmount,
         reason,
         status: 'pending',
-      } as any);
+      });
     }
 
     await updateDriverPenaltySummary(driverId);
@@ -1344,15 +1271,13 @@ const ensureDriverPenalty = async (options: {
  * Marcar conductor en camino (driver_on_route)
  */
 export const markDriverOnRoute = functions.https.onCall(async (data, context) => {
-  if (!context.auth) {
-    throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
-  }
+  await requireDriver(context);
   // Enforce single-session
   await ensureActiveSession(context, data);
 
   try {
     const { rideId } = data;
-    const driverId = context.auth.uid;
+    const driverId = context.auth!.uid;
 
     if (!rideId) {
       throw new functions.https.HttpsError('invalid-argument', 'rideId es requerido');
@@ -1416,7 +1341,7 @@ export const markDriverOnRoute = functions.https.onCall(async (data, context) =>
         updatedAt: admin.database.ServerValue.TIMESTAMP,
       });
     } catch (busyErr) {
-      console.warn('⚠️ [markDriverOnRoute] No se pudo marcar BUSY en driverLocations:', (busyErr as any)?.message || busyErr);
+      console.warn('⚠️ [markDriverOnRoute] No se pudo marcar BUSY en driverLocations:', busyErr instanceof Error ? busyErr.message : String(busyErr));
     }
 
     await notifyUserSafe(rideData.clientId, '🚗 Conductor en camino', 'Tu conductor se dirige al punto de recogida.', {
@@ -1442,7 +1367,7 @@ export const markDriverOnRoute = functions.https.onCall(async (data, context) =>
     };
   } catch (error: any) {
     console.error('❌ [markDriverOnRoute] Error:', error);
-    throw new functions.https.HttpsError('internal', error.message);
+    throw new functions.https.HttpsError('internal', 'Error interno del servidor');
   }
 });
 
@@ -1454,20 +1379,20 @@ export const createRide = functions.https.onCall(async (data, context) => {
   console.log(`🚗 [createRide] INICIANDO CREACIÓN DE VIAJE`);
   console.log(`🚗 [createRide] Timestamp: ${new Date().toISOString()}`);
   console.log(`${'='.repeat(60)}\n`);
-  
-  if (!context.auth) {
-    throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
-  }
+
+  await requireClient(context);
   // Enforce single-session
   await ensureActiveSession(context, data);
   try {
-    const clientId = context.auth.uid;
-    const normalizedClientComment = data?.clientComment ?? data?.comment ?? data?.notes ?? null;
-    const normalizedNotes = data?.notes ?? data?.clientComment ?? data?.comment ?? null;
+    const clientId = context.auth!.uid;
+    // Validar payload con Zod
+    const validatedData = validateData<CreateRideRequest>(CreateRideRequestSchema, data);
+    const normalizedClientComment = validatedData.clientComment ?? validatedData.comment ?? validatedData.notes ?? null;
+    const normalizedNotes = validatedData.notes ?? validatedData.clientComment ?? validatedData.comment ?? null;
     console.log(`👤 [createRide] Cliente ID: ${clientId}`);
     console.log(`📦 [createRide] Data recibida:`, JSON.stringify(data, null, 2));
     
-    // Extraer datos del Frontend
+    // Extraer datos del Frontend (ya validados)
     const {
       origin,
       destination,
@@ -1479,7 +1404,7 @@ export const createRide = functions.https.onCall(async (data, context) => {
       designatedDriverVehicle,
       passengers = 1,
       clientVehiclePhoto: clientVehiclePhotoRaw,
-    } = data;
+    } = validatedData;
 
     const clientVehiclePhoto = typeof clientVehiclePhotoRaw === 'string' && clientVehiclePhotoRaw.trim().length > 0
       ? clientVehiclePhotoRaw.trim()
@@ -1633,7 +1558,7 @@ export const createRide = functions.https.onCall(async (data, context) => {
     } catch (profileErr) {
       console.warn('[createRide] No se pudo obtener perfil de cliente', {
         clientId,
-        error: (profileErr as any)?.message || profileErr,
+        error: profileErr instanceof Error ? profileErr.message : String(profileErr),
       });
     }
 
@@ -1847,7 +1772,7 @@ export const createRide = functions.https.onCall(async (data, context) => {
     console.error(`❌ [createRide] Mensaje:`, error.message);
     console.error(`❌ [createRide] Stack:`, error.stack);
     console.error(`${'='.repeat(60)}\n`);
-    throw new functions.https.HttpsError('internal', error.message);
+    throw new functions.https.HttpsError('internal', 'Error interno del servidor');
   }
 });
 
@@ -1855,18 +1780,13 @@ export const createRide = functions.https.onCall(async (data, context) => {
  * Aceptar viaje
  */
 export const acceptRide = functions.https.onCall(async (data, context) => {
-  if (!context.auth) {
-    throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
-  }
+  await requireDriver(context);
   // Enforce single-session
   await ensureActiveSession(context, data);
   try {
-    const { rideId, vehicleId } = data;
-    const driverId = context.auth.uid;
+    const { rideId, vehicleId } = validateData<AcceptRide>(AcceptRideSchema, data);
+    const driverId = context.auth!.uid;
     let driverRealtimeInfo: any = null;
-    if (!rideId) {
-      throw new functions.https.HttpsError('invalid-argument', 'rideId es requerido');
-    }
     console.log(`✅ [acceptRide] Aceptando viaje: ${rideId} por conductor: ${driverId}`);
     
     // ✅ NUEVO: Obtener datos del viaje desde Firebase ANTES de aceptar
@@ -1999,6 +1919,9 @@ export const acceptRide = functions.https.onCall(async (data, context) => {
     }
 
     const ride = await rideService.acceptRide(rideId, driverId, firebaseRideData?.serviceId);
+    if (!ride) {
+      throw new functions.https.HttpsError('internal', 'Error al aceptar el viaje');
+    }
     const newStatus = ride.status;
     
     // Obtener datos del conductor y vehículo
@@ -2013,7 +1936,7 @@ export const acceptRide = functions.https.onCall(async (data, context) => {
       let driverName: string | null = null;
 
       if (driver) {
-        const driverJson: any = driver.toJSON ? driver.toJSON() : (driver as any);
+        const driverJson: Record<string, any> = driver.toJSON ? driver.toJSON() : (driver as Record<string, any>);
         const firstName = driverJson.first_name || driverJson.firstName || '';
         const lastName = driverJson.last_name || driverJson.lastName || '';
         const fullName = `${firstName} ${lastName}`.trim();
@@ -2035,7 +1958,7 @@ export const acceptRide = functions.https.onCall(async (data, context) => {
       }
       
       // Obtener vehículo
-      const driverCurrentVehicleId = (driver as any)?.current_vehicle_id ?? null;
+      const driverCurrentVehicleId = (driver as Record<string, any> | null)?.current_vehicle_id ?? null;
       let supabaseVehicleId = vehicleId || driverCurrentVehicleId;
       if (!supabaseVehicleId) {
         const designatedVehicle = await vehicleRepo.findByDriverId(driverId);
@@ -2068,7 +1991,7 @@ export const acceptRide = functions.https.onCall(async (data, context) => {
             };
           }
         } catch (vehicleErr) {
-          console.warn('⚠️ [acceptRide] Error obteniendo vehículo de Supabase:', (vehicleErr as any)?.message || vehicleErr);
+          console.warn('⚠️ [acceptRide] Error obteniendo vehículo de Supabase:', vehicleErr instanceof Error ? vehicleErr.message : String(vehicleErr));
         }
       }
     } catch (dataError: any) {
@@ -2201,7 +2124,7 @@ export const acceptRide = functions.https.onCall(async (data, context) => {
           });
         }
       } catch (busyErr) {
-        console.warn('⚠️ [acceptRide] No se pudo marcar BUSY en driverLocations:', (busyErr as any)?.message || busyErr);
+        console.warn('⚠️ [acceptRide] No se pudo marcar BUSY en driverLocations:', busyErr instanceof Error ? busyErr.message : String(busyErr));
       }
     } catch (firebaseError: any) {
       console.error(`⚠️ [acceptRide] Error sincronizando a Firebase:`, firebaseError.message);
@@ -2215,7 +2138,7 @@ export const acceptRide = functions.https.onCall(async (data, context) => {
     return { success: true, ride: { id: rideId, status: newStatus, driverId } };
   } catch (error: any) {
     console.error('❌ [acceptRide] Error:', error);
-    throw new functions.https.HttpsError('internal', error.message);
+    throw new functions.https.HttpsError('internal', 'Error interno del servidor');
   }
 });
 
@@ -2299,7 +2222,7 @@ export const confirmDriver = functions.https.onCall(async (data, context) => {
       }
       
       if (driver) {
-        const driverJson: any = driver.toJSON ? driver.toJSON() : (driver as any);
+        const driverJson: Record<string, any> = driver.toJSON ? driver.toJSON() : (driver as Record<string, any>);
         const firstName = driverJson.first_name || driverJson.firstName || '';
         const lastName = driverJson.last_name || driverJson.lastName || '';
         const fullName = `${firstName} ${lastName}`.trim();
@@ -2375,7 +2298,7 @@ export const confirmDriver = functions.https.onCall(async (data, context) => {
         updatedAt: admin.database.ServerValue.TIMESTAMP,
       });
     } catch (busyErr) {
-      console.warn('⚠️ [confirmDriver] No se pudo marcar BUSY en driverLocations:', (busyErr as any)?.message || busyErr);
+      console.warn('⚠️ [confirmDriver] No se pudo marcar BUSY en driverLocations:', busyErr instanceof Error ? busyErr.message : String(busyErr));
     }
 
     await notifyUserSafe(selectedDriverId, '✅ Viaje asignado', 'El cliente confirmó el viaje. Dirígete al punto de encuentro.', {
@@ -2508,7 +2431,7 @@ export const confirmDriver = functions.https.onCall(async (data, context) => {
     };
   } catch (error: any) {
     console.error('❌ [confirmDriver] Error:', error);
-    throw new functions.https.HttpsError('internal', error.message);
+    throw new functions.https.HttpsError('internal', 'Error interno del servidor');
   }
 });
 
@@ -2516,16 +2439,11 @@ export const confirmDriver = functions.https.onCall(async (data, context) => {
  * Iniciar viaje
  */
 export const startRide = functions.https.onCall(async (data, context) => {
-  if (!context.auth) {
-    throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
-  }
+  await requireDriver(context);
   // Enforce single-session
   await ensureActiveSession(context, data);
   try {
-    const { rideId } = data;
-    if (!rideId) {
-      throw new functions.https.HttpsError('invalid-argument', 'rideId es requerido');
-    }
+    const { rideId } = validateData<StartRide>(StartRideSchema, data);
     console.log(`🚗 [startRide] Iniciando viaje: ${rideId}`);
 
     let latestActiveRideSnapshot: any = null;
@@ -2561,12 +2479,15 @@ export const startRide = functions.https.onCall(async (data, context) => {
         console.error(`⚠️ [startRide][LOADTEST] Error sincronizando a Firebase:`, firebaseError.message);
       }
 
-      await safeLogRideEvent(AnalyticsEvents.RIDE_STARTED, rideId, context.auth.uid, { loadTest: true });
+      await safeLogRideEvent(AnalyticsEvents.RIDE_STARTED, rideId, context.auth!.uid, { loadTest: true });
 
       return { success: true, ride: { id: rideId, status: 'in_progress' } };
     }
 
     const ride = await rideService.startRide(rideId);
+    if (!ride) {
+      throw new functions.https.HttpsError('internal', 'Error al iniciar el viaje');
+    }
     
     // Sincronizar a Firebase Realtime DB
     console.log(`🔥 [startRide] Sincronizando a Firebase...`);
@@ -2600,14 +2521,14 @@ export const startRide = functions.https.onCall(async (data, context) => {
             });
           }
         } catch (busyErr) {
-          console.warn('⚠️ [startRide] No se pudo marcar BUSY en driverLocations:', (busyErr as any)?.message || busyErr);
+          console.warn('⚠️ [startRide] No se pudo marcar BUSY en driverLocations:', busyErr instanceof Error ? busyErr.message : String(busyErr));
         }
       }
     } catch (firebaseError: any) {
       console.error(`⚠️ [startRide] Error sincronizando a Firebase:`, firebaseError.message);
     }
 
-    await safeLogRideEvent(AnalyticsEvents.RIDE_STARTED, rideId, context.auth.uid, { driverId: ride.driver_id });
+    await safeLogRideEvent(AnalyticsEvents.RIDE_STARTED, rideId, context.auth!.uid, { driverId: ride.driver_id });
 
     try {
       const clientId = latestActiveRideSnapshot?.clientId || ride.client_id || null;
@@ -2616,7 +2537,7 @@ export const startRide = functions.https.onCall(async (data, context) => {
           latestActiveRideSnapshot?.driver?.full_name ||
           latestActiveRideSnapshot?.driver?.fullName ||
           latestActiveRideSnapshot?.driver?.name ||
-          (ride as any)?.driver_name ||
+          (ride as Record<string, any>)?.driver_name ||
           null;
         await notifyLiveRideUpdateSafe({
           userId: clientId,
@@ -2632,7 +2553,7 @@ export const startRide = functions.https.onCall(async (data, context) => {
     return { success: true, ride: { id: ride.id, status: ride.status } };
   } catch (error: any) {
     console.error('❌ [startRide] Error:', error);
-    throw new functions.https.HttpsError('internal', error.message);
+    throw new functions.https.HttpsError('internal', 'Error interno del servidor');
   }
 });
 
@@ -2640,16 +2561,11 @@ export const startRide = functions.https.onCall(async (data, context) => {
  * Completar viaje
  */
 export const completeRide = functions.https.onCall(async (data, context) => {
-  if (!context.auth) {
-    throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
-  }
+  await requireDriver(context);
   // Enforce single-session
   await ensureActiveSession(context, data);
   try {
-    const { rideId, finalFare, driverId } = data;
-    if (!rideId || !finalFare) {
-      throw new functions.https.HttpsError('invalid-argument', 'rideId y finalFare son requeridos');
-    }
+    const { rideId, finalFare, driverId } = validateData<CompleteRide>(CompleteRideSchema, data);
     console.log(`✅ [completeRide] Completando viaje: ${rideId}`);
 
     if (IS_LOAD_TEST) {
@@ -2707,7 +2623,7 @@ export const completeRide = functions.https.onCall(async (data, context) => {
         console.error(`⚠️ [completeRide][LOADTEST] Error sincronizando a Firebase:`, firebaseError.message);
       }
 
-      await safeLogRideEvent(AnalyticsEvents.RIDE_COMPLETED, rideId, context.auth.uid, { loadTest: true });
+      await safeLogRideEvent(AnalyticsEvents.RIDE_COMPLETED, rideId, context.auth!.uid, { loadTest: true });
 
       return {
         success: true,
@@ -2721,10 +2637,21 @@ export const completeRide = functions.https.onCall(async (data, context) => {
     }
 
     const ride = await rideService.completeRide(rideId, finalFare);
+    if (!ride) {
+      throw new functions.https.HttpsError('internal', 'Error al completar el viaje');
+    }
     if (driverId) {
       const earnings = finalFare * 0.90;
-      await driverRepo.incrementTotalRides(driverId);
-      await driverRepo.incrementEarnings(driverId, earnings);
+      // ✅ Grupo 4: Transacción para incrementos atómicos de driver
+      if (isSequelizeAvailable) {
+        await sequelize.transaction(async (t) => {
+          await driverRepo.incrementTotalRides(driverId, t);
+          await driverRepo.incrementEarnings(driverId, earnings, t);
+        });
+      } else {
+        await driverRepo.incrementTotalRides(driverId);
+        await driverRepo.incrementEarnings(driverId, earnings);
+      }
     }
     
     // Sincronizar a Firebase Realtime DB - mover a completedRides
@@ -2758,7 +2685,7 @@ export const completeRide = functions.https.onCall(async (data, context) => {
           });
         }
       } catch (availErr) {
-        console.warn('⚠️ [completeRide] No se pudo marcar AVAILABLE en driverLocations:', (availErr as any)?.message || availErr);
+        console.warn('⚠️ [completeRide] No se pudo marcar AVAILABLE en driverLocations:', availErr instanceof Error ? availErr.message : String(availErr));
       }
 
       await notifyUserSafe(currentData.clientId, '✅ Viaje finalizado', 'Por favor confirma y realiza el pago.', {
@@ -2777,7 +2704,7 @@ export const completeRide = functions.https.onCall(async (data, context) => {
       console.error(`⚠️ [completeRide] Error sincronizando a Firebase:`, firebaseError.message);
     }
     
-    await safeLogRideEvent(AnalyticsEvents.RIDE_COMPLETED, rideId, context.auth.uid, {
+    await safeLogRideEvent(AnalyticsEvents.RIDE_COMPLETED, rideId, context.auth!.uid, {
       finalFare,
       driverId,
     });
@@ -2785,7 +2712,7 @@ export const completeRide = functions.https.onCall(async (data, context) => {
     return { success: true, ride: { id: ride.id, status: ride.status, finalFare: ride.final_fare, completedAt: ride.completed_at } };
   } catch (error: any) {
     console.error('❌ [completeRide] Error:', error);
-    throw new functions.https.HttpsError('internal', error.message);
+    throw new functions.https.HttpsError('internal', 'Error interno del servidor');
   }
 });
 
@@ -2799,11 +2726,7 @@ export const cancelRide = functions.https.onCall(async (data, context) => {
   // Enforce single-session
   await ensureActiveSession(context, data);
   try {
-    const { rideId, reason, canceledBy } = data;
-    
-    if (!rideId) {
-      throw new functions.https.HttpsError('invalid-argument', 'rideId es requerido');
-    }
+    const { rideId, reason, canceledBy } = validateData<CancelRide>(CancelRideSchema, data);
     
     console.log(`❌ [cancelRide] Cancelando viaje: ${rideId} por: ${canceledBy || 'desconocido'}`);
     
@@ -2819,13 +2742,25 @@ export const cancelRide = functions.https.onCall(async (data, context) => {
     console.log(`📊 [cancelRide] Estado actual del viaje: ${rideStatus}`);
     
     // Cancelar en Supabase
-    const ride = await rideService.cancelRide(rideId, reason);
-    
-    // ✅ NUEVO: Actualizar cancel_reason y canceled_by en PostgreSQL
-    await rideRepo.update(rideId, {
-      cancel_reason: reason || null,
-      canceled_by: canceledBy || null,
-    });
+    const ride = await rideService.cancelRide(rideId, reason || '');
+    if (!ride) {
+      throw new functions.https.HttpsError('internal', 'Error al cancelar el viaje');
+    }
+
+    // ✅ Grupo 4: Actualizar cancel_reason y canceled_by en PostgreSQL (atómico con el cancel)
+    if (isSequelizeAvailable) {
+      await sequelize.transaction(async (t) => {
+        await rideRepo.update(rideId, {
+          cancel_reason: reason || null,
+          canceled_by: canceledBy || null,
+        }, t);
+      });
+    } else {
+      await rideRepo.update(rideId, {
+        cancel_reason: reason || null,
+        canceled_by: canceledBy || null,
+      });
+    }
     console.log(`✅ [cancelRide] Información de cancelación guardada en PostgreSQL`);
     
     // ✅ Obtener tarifa negociada/definitiva
@@ -3063,7 +2998,7 @@ export const cancelRide = functions.https.onCall(async (data, context) => {
           });
         }
       } catch (availErr) {
-        console.warn('⚠️ [cancelRide] No se pudo marcar AVAILABLE en driverLocations:', (availErr as any)?.message || availErr);
+        console.warn('⚠️ [cancelRide] No se pudo marcar AVAILABLE en driverLocations:', availErr instanceof Error ? availErr.message : String(availErr));
       }
     } catch (firebaseError: any) {
       console.error(`⚠️ [cancelRide] Error sincronizando a Firebase:`, firebaseError.message);
@@ -3106,14 +3041,28 @@ export const cancelRide = functions.https.onCall(async (data, context) => {
 
       const existingPayment = await paymentRepo.findByRideId(rideId);
       if (existingPayment) {
-        await paymentRepo.update(existingPayment.id, {
-          amount: Number((chargeAmount > 0 ? chargeAmount : negotiatedFare).toFixed(2)),
-          commission: Number(commissionDue.toFixed(2)),
-          commission_rate_applied: commissionRate,
-          status: paymentStatusUpdate.status,
-          cancel_reason: reason || null,
-          updated_at: new Date(),
-        } as any);
+        // ✅ Grupo 4: Transacción para actualización atómica del payment
+        if (isSequelizeAvailable) {
+          await sequelize.transaction(async (t) => {
+            await paymentRepo.update(existingPayment.id, {
+              amount: Number((chargeAmount > 0 ? chargeAmount : negotiatedFare).toFixed(2)),
+              commission: Number(commissionDue.toFixed(2)),
+              commission_rate_applied: commissionRate,
+              status: paymentStatusUpdate.status,
+              cancel_reason: reason || null,
+              updated_at: new Date(),
+            }, t);
+          });
+        } else {
+          await paymentRepo.update(existingPayment.id, {
+            amount: Number((chargeAmount > 0 ? chargeAmount : negotiatedFare).toFixed(2)),
+            commission: Number(commissionDue.toFixed(2)),
+            commission_rate_applied: commissionRate,
+            status: paymentStatusUpdate.status,
+            cancel_reason: reason || null,
+            updated_at: new Date(),
+          });
+        }
       }
     } catch (penaltyErr) {
       console.error('⚠️ [cancelRide] Error procesando penalizaciones/cargos:', penaltyErr);
@@ -3130,7 +3079,7 @@ export const cancelRide = functions.https.onCall(async (data, context) => {
     };
   } catch (error: any) {
     console.error('❌ [cancelRide] Error:', error);
-    throw new functions.https.HttpsError('internal', error.message);
+    throw new functions.https.HttpsError('internal', 'Error interno del servidor');
   }
 });
 
@@ -3161,7 +3110,7 @@ export const getClientRides = functions.https.onCall(async (data, context) => {
     };
   } catch (error: any) {
     console.error('❌ [getClientRides] Error:', error);
-    throw new functions.https.HttpsError('internal', error.message);
+    throw new functions.https.HttpsError('internal', 'Error interno del servidor');
   }
 });
 
@@ -3192,7 +3141,7 @@ export const getDriverRides = functions.https.onCall(async (data, context) => {
     };
   } catch (error: any) {
     console.error('❌ [getDriverRides] Error:', error);
-    throw new functions.https.HttpsError('internal', error.message);
+    throw new functions.https.HttpsError('internal', 'Error interno del servidor');
   }
 });
 
@@ -3207,10 +3156,7 @@ export const getRideDetails = functions.https.onCall(async (data, context) => {
   // Enforce single-session
   await ensureActiveSession(context, data);
   try {
-    const { rideId } = data;
-    if (!rideId) {
-      throw new functions.https.HttpsError('invalid-argument', 'rideId es requerido');
-    }
+    const { rideId } = validateData<GetRideDetails>(GetRideDetailsSchema, data);
 
     console.log(`📍 [getRideDetails] Buscando viaje: ${rideId}`);
 
@@ -3313,7 +3259,7 @@ export const getRideDetails = functions.https.onCall(async (data, context) => {
     };
   } catch (error: any) {
     console.error('❌ [getRideDetails] Error:', error);
-    throw new functions.https.HttpsError('internal', error.message);
+    throw new functions.https.HttpsError('internal', 'Error interno del servidor');
   }
 });
 
@@ -3344,7 +3290,7 @@ export const getActiveRides = functions.https.onCall(async (data, context) => {
     };
   } catch (error: any) {
     console.error('❌ [getActiveRides] Error:', error);
-    throw new functions.https.HttpsError('internal', error.message);
+    throw new functions.https.HttpsError('internal', 'Error interno del servidor');
   }
 });
 
@@ -3357,23 +3303,21 @@ export const getRideStats = functions.https.onCall(async (data, context) => {
   }
   try {
     console.log(`📊 [getRideStats] Obteniendo estadísticas de viajes`);
-    const allRides = await rideRepo.findAll();
-    const completedRides = allRides.filter((r: any) => r.status === 'completed');
-    const canceledRides = allRides.filter((r: any) => r.status === 'canceled');
-    const totalRevenue = completedRides.reduce((sum: number, r: any) => sum + (r.final_fare || 0), 0);
+    // ✅ Grupo 7 (H2): Usar agregación SQL en lugar de cargar todos los rides en memoria
+    const stats = await rideRepo.getStats();
     return {
       success: true,
       stats: {
-        totalRides: allRides.length,
-        completedRides: completedRides.length,
-        canceledRides: canceledRides.length,
-        totalRevenue,
-        averageRideValue: completedRides.length > 0 ? totalRevenue / completedRides.length : 0,
+        totalRides: stats.total,
+        completedRides: stats.completed,
+        canceledRides: stats.canceled,
+        totalRevenue: stats.totalRevenue,
+        averageRideValue: stats.completed > 0 ? stats.totalRevenue / stats.completed : 0,
       },
     };
   } catch (error: any) {
     console.error('❌ [getRideStats] Error:', error);
-    throw new functions.https.HttpsError('internal', error.message);
+    throw new functions.https.HttpsError('internal', 'Error interno del servidor');
   }
 });
 
@@ -3446,7 +3390,7 @@ export const acceptClientPrice = functions.https.onCall(async (data, context) =>
     };
   } catch (error: any) {
     console.error('❌ [acceptClientPrice] Error:', error);
-    throw new functions.https.HttpsError('internal', error.message);
+    throw new functions.https.HttpsError('internal', 'Error interno del servidor');
   }
 });
 
@@ -3506,7 +3450,7 @@ export const makeCounterOffer = functions.https.onCall(async (data, context) => 
     };
   } catch (error: any) {
     console.error('❌ [makeCounterOffer] Error:', error);
-    throw new functions.https.HttpsError('internal', error.message);
+    throw new functions.https.HttpsError('internal', 'Error interno del servidor');
   }
 });
 
@@ -3570,7 +3514,7 @@ export const acceptCounterOffer = functions.https.onCall(async (data, context) =
     };
   } catch (error: any) {
     console.error('❌ [acceptCounterOffer] Error:', error);
-    throw new functions.https.HttpsError('internal', error.message);
+    throw new functions.https.HttpsError('internal', 'Error interno del servidor');
   }
 });
 
@@ -3637,7 +3581,7 @@ export const getIntelligentETA = functions.https.onCall(async (data, context) =>
     };
   } catch (error: any) {
     console.error('❌ [getIntelligentETA] Error:', error);
-    throw new functions.https.HttpsError('internal', error.message);
+    throw new functions.https.HttpsError('internal', 'Error interno del servidor');
   }
 });
 
@@ -3682,7 +3626,7 @@ export const updateRideStatus = functions.https.onCall(async (data, context) => 
     return { success: true, message: 'Viaje actualizado correctamente' };
   } catch (error: any) {
     console.error('❌ [updateRideStatus] Error:', error);
-    throw new functions.https.HttpsError('internal', error.message);
+    throw new functions.https.HttpsError('internal', 'Error interno del servidor');
   }
 });
 
@@ -3828,7 +3772,7 @@ export const changePaymentMethod = functions.https.onCall(async (data, context) 
     };
   } catch (error: any) {
     console.error('❌ [changePaymentMethod] Error:', error);
-    throw new functions.https.HttpsError('internal', error.message);
+    throw new functions.https.HttpsError('internal', 'Error interno del servidor');
   }
 });
 
@@ -3837,13 +3781,11 @@ export const changePaymentMethod = functions.https.onCall(async (data, context) 
  * Oculta el viaje para ese conductor hasta que el precio cambie
  */
 export const rejectRide = functions.https.onCall(async (data, context) => {
-  if (!context.auth) {
-    throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
-  }
+  await requireDriver(context);
 
   try {
     const { rideId, reason } = data || {};
-    const driverId = context.auth.uid;
+    const driverId = context.auth!.uid;
 
     if (!rideId) {
       throw new functions.https.HttpsError('invalid-argument', 'rideId es requerido');
@@ -3928,6 +3870,6 @@ export const rejectRide = functions.https.onCall(async (data, context) => {
     };
   } catch (error: any) {
     console.error('❌ [rejectRide] Error:', error);
-    throw new functions.https.HttpsError('internal', error.message);
+    throw new functions.https.HttpsError('internal', 'Error interno del servidor');
   }
 });

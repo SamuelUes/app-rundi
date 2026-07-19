@@ -1,13 +1,10 @@
 /**
- * Servicio unificado de mapas con sistema de fallback
- * Jerarquía: 1. Google Maps → 2. MapBox → 3. TomTom
+ * Servicio unificado de mapas — Google Maps como único proveedor.
  */
 
 import googleMapsService from './googleMapsService';
-import mapboxService from './mapboxService';
-import tomtomService from './tomtomService';
 
-type MapProvider = 'google' | 'mapbox' | 'openstreet' | 'tomtom';
+type MapProvider = 'google';
 
 interface Coordinates {
   latitude: number;
@@ -21,284 +18,64 @@ interface RouteResult {
 }
 
 class MapsService {
-  // Jerarquía para MAPA VISUAL: 1. Google → 2. Mapbox → 3. OpenStreet → 4. TomTom
-  private visualProviders: MapProvider[] = ['google', 'mapbox', 'openstreet', 'tomtom'];
-  
-  // Jerarquía para LÓGICA/ROUTING: 1. Google → 2. Mapbox → 3. OpenStreet → 4. TomTom
-  private routingProviders: MapProvider[] = ['google', 'mapbox', 'openstreet', 'tomtom'];
-  
-  private currentProvider: MapProvider = 'google'; // Google Maps como proveedor principal
-  private mapProvider: MapProvider = 'google'; // Google Maps para mapa visual
+  private currentProvider: MapProvider = 'google';
+  private mapProvider: MapProvider = 'google';
   private providerFetched = false;
 
-  /**
-   * Obtener servicio según proveedor
-   */
-  private getService(provider: MapProvider) {
-    switch (provider) {
-      case 'google':
-        return googleMapsService;
-      case 'mapbox':
-        return mapboxService;
-      case 'tomtom':
-        return tomtomService;
-      case 'openstreet':
-        return mapboxService; // OpenStreet usa el mismo servicio que Mapbox
-      default:
-        return mapboxService;
-    }
-  }
-
-  /**
-   * Obtener proveedor de routing basado en el mapa visual
-   */
-  private getRoutingProvider(): MapProvider {
-    // Priorizar Google Maps para routing (API oficial)
-    return 'google';
-  }
-
-  /**
-   * Intentar con fallback automático
-   */
-  private async tryWithFallback<T>(
-    operation: (service: any) => Promise<T>,
-    forceProvider?: MapProvider,
-    useRoutingOrder: boolean = false
-  ): Promise<T | null> {
-    // Si se especifica un proveedor forzado, usar solo ese
-    // Si no, usar el orden correcto según el tipo de operación
-    const providersToTry = forceProvider 
-      ? [forceProvider] 
-      : (useRoutingOrder ? this.routingProviders : this.visualProviders);
-    
-    let lastResult: T | null = null;
-
-    for (const provider of providersToTry) {
-      try {
-        console.log(`🗺️ Intentando con ${provider.toUpperCase()}...`);
-        const service = this.getService(provider);
-        const result = await operation(service);
-        const isEmptyArray = Array.isArray(result) && result.length === 0;
-
-        if (result && !isEmptyArray) {
-          this.currentProvider = provider;
-          console.log(`✅ Éxito con ${provider.toUpperCase()}`);
-          return result;
-        }
-
-        if (isEmptyArray) {
-          console.log(`⚠️ ${provider.toUpperCase()} respondió sin coincidencias, probando siguiente proveedor...`);
-          lastResult = result;
-          continue;
-        }
-      } catch (error) {
-        console.warn(`⚠️ ${provider.toUpperCase()} falló:`, error);
-      }
-    }
-    
-    console.error('❌ Todos los proveedores fallaron');
-    return lastResult;
-  }
-
-  /**
-   * Consultar al backend cuál proveedor usar
-   */
   async fetchProviderFromBackend(): Promise<void> {
     if (this.providerFetched) return;
-
-    try {
-      const { API_BASE_URL } = await import('../config/environment');
-      const response = await fetch(`${API_BASE_URL}/maps/provider`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      if (!response.ok) {
-        // Si el endpoint no existe (404), simplemente usar el proveedor por defecto sin warning
-        if (response.status === 404) {
-          this.providerFetched = true;
-          return;
-        }
-        throw new Error(`HTTP ${response.status}`);
-      }
-      
-      const data = await response.json();
-      
-      if (data?.provider) {
-        console.log(`🗺️ Backend recomendó - Datos: ${data.provider.toUpperCase()} / Mapa: ${(data.mapProvider || data.provider).toUpperCase()}`);
-      }
-
-      // Forzar Google como proveedor principal; se mantienen logs para diagnóstico.
-      this.currentProvider = 'google';
-      this.mapProvider = 'google';
-      this.providerFetched = true;
-      console.log('🗺️ Forzando uso de GOOGLE MAPS según configuración local');
-    } catch (error: any) {
-      // Silenciar errores de red (Network request failed) y 404
-      if (error.message !== 'HTTP 404' && error.message !== 'Network request failed') {
-        console.warn('⚠️ Error consultando proveedor de mapas:', error.message);
-      }
-      this.providerFetched = true;
-    }
+    this.providerFetched = true;
   }
 
-  /**
-   * Obtener proveedor actual (para datos)
-   */
   getProvider(): MapProvider {
     return this.currentProvider;
   }
 
-  /**
-   * Obtener proveedor para mapa visual
-   * Intenta en orden: Google → Mapbox → OpenStreet → TomTom
-   */
-  async getMapProviderWithFallback(): Promise<MapProvider> {
-    // Intentar Google Maps primero
-    try {
-      const testResult = await googleMapsService.reverseGeocode({ latitude: 0, longitude: 0 });
-      if (testResult !== null) {
-        this.mapProvider = 'google';
-        return 'google';
-      }
-    } catch (error) {
-      console.log('⚠️ Google Maps no disponible, usando fallback');
-    }
-
-    // Fallback a Mapbox
-    try {
-      const testResult = await mapboxService.reverseGeocode({ latitude: 0, longitude: 0 });
-      if (testResult !== null) {
-        this.mapProvider = 'mapbox';
-        return 'mapbox';
-      }
-    } catch (error) {
-      console.log('⚠️ Mapbox no disponible, usando OpenStreet');
-    }
-
-    // Fallback a OpenStreet (usa Mapbox service)
-    this.mapProvider = 'openstreet';
-    return 'openstreet';
-  }
-
-  /**
-   * Obtener proveedor para mapa visual (sincrónico)
-   */
   getMapProvider(): MapProvider {
     return this.mapProvider;
   }
 
-  /**
-   * Geocoding - Convertir dirección a coordenadas
-   * Usa orden de routing (Mapbox primero)
-   */
+  async getMapProviderWithFallback(): Promise<MapProvider> {
+    return 'google';
+  }
+
   async geocode(address: string): Promise<Coordinates | null> {
-    return this.tryWithFallback(service => service.geocode(address), undefined, true);
+    return googleMapsService.geocode(address);
   }
 
-  /**
-   * Reverse Geocoding - Convertir coordenadas a dirección
-   * Usa orden de routing (Mapbox primero)
-   */
   async reverseGeocode(coords: Coordinates): Promise<string | null> {
-    return this.tryWithFallback(service => service.reverseGeocode(coords), undefined, true);
+    return googleMapsService.reverseGeocode(coords);
   }
 
-  /**
-   * Autocomplete - Búsqueda de lugares
-   * Usa orden de routing (Mapbox primero)
-   */
   async autocomplete(
     input: string,
     location?: Coordinates,
-    options?: { forceProvider?: MapProvider }
+    _options?: { forceProvider?: string }
   ): Promise<any[]> {
-    const result = await this.tryWithFallback<any[]>(
-      service => service.autocomplete(input, location),
-      options?.forceProvider,
-      true,
-    );
-    return result || [];
+    return googleMapsService.autocomplete(input, location);
   }
 
-  /**
-   * Place Details - Obtener coordenadas de un place_id
-   * Usa orden de routing (Mapbox primero)
-   */
   async getPlaceDetails(
     placeId: string,
-    position?: any,
-    options?: { forceProvider?: MapProvider }
+    _position?: any,
+    _options?: { forceProvider?: string }
   ): Promise<Coordinates | null> {
-    return this.tryWithFallback(
-      service => service.getPlaceDetails(placeId, position),
-      options?.forceProvider,
-      true,
-    );
+    return googleMapsService.getPlaceDetails(placeId);
   }
 
-  /**
-   * Obtener direcciones y ruta
-   * Usa el proveedor de routing (Mapbox) para mejor precisión
-   */
   async getDirections(origin: Coordinates, destination: Coordinates): Promise<RouteResult | null> {
-    const routingProvider = this.getRoutingProvider();
-    console.log(`🛣️ Usando ${routingProvider.toUpperCase()} para routing (mapa visual: ${this.mapProvider.toUpperCase()})`);
-    
-    // Intentar con el proveedor de routing preferido
-    const result = await this.tryWithFallback<RouteResult>(
-      service => service.getDirections(origin, destination),
-      routingProvider,
-      true // Usar orden de routing
-    );
-    
-    // Si falla, intentar con fallback completo
-    if (!result) {
-      console.log('⚠️ Routing provider falló, intentando con fallback...');
-      return this.tryWithFallback<RouteResult>(service => service.getDirections(origin, destination), undefined, true);
-    }
-    
-    return result;
+    return googleMapsService.getDirections(origin, destination);
   }
 
-  /**
-   * Calcular precio estimado (usa el proveedor actual)
-   */
   calculateEstimatedPrice(distanceMeters: number, durationSeconds: number): number {
-    const service = this.getService(this.currentProvider);
-    return service.calculateEstimatedPrice(distanceMeters, durationSeconds);
+    return googleMapsService.calculateEstimatedPrice(distanceMeters, durationSeconds);
   }
 
-  /**
-   * Encontrar conductor más cercano
-   * Usa el mismo proveedor que routing para consistencia
-   */
   async findNearestDriver(
     origin: Coordinates,
     drivers: Array<{ id: string; location: Coordinates }>
   ): Promise<{ id: string; distance: number; duration: number } | null> {
-    const routingProvider = this.getRoutingProvider();
-    console.log(`🚗 Buscando conductor más cercano con ${routingProvider.toUpperCase()}`);
-    
-    // Intentar con el proveedor de routing preferido
-    const result = await this.tryWithFallback<{ id: string; distance: number; duration: number }>(
-      service => service.findNearestDriver(origin, drivers),
-      routingProvider,
-      true // Usar orden de routing
-    );
-    
-    // Si falla, intentar con fallback completo
-    if (!result) {
-      return this.tryWithFallback<{ id: string; distance: number; duration: number }>(
-        service => service.findNearestDriver(origin, drivers),
-        undefined,
-        true // Usar orden de routing
-      );
-    }
-    
-    return result;
+    return googleMapsService.findNearestDriver(origin, drivers);
   }
 }
 

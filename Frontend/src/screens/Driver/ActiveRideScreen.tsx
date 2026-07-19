@@ -19,16 +19,24 @@ import DynamicMap from '../../components/DynamicMap';
 import { MAP_ICONS } from '../../constants/mapIcons';
 import { useAuth } from '../../context/AuthContext';
 import { useVoiceAssistant } from '../../context/VoiceAssistantContext';
-import { useLocation, DRIVER_LOCATION_OPTIONS } from '../../hooks/useLocation';
-import { useChat } from '../../hooks/useChat';
+import { useLocation, DRIVER_LOCATION_OPTIONS } from '../../hooks/shared/location/useLocation';
+import { useChat } from '../../hooks/shared/chat/useChat';
 import { RideProgressIndicator } from '../../components/RideProgressIndicator';
 import ridesService from '../../services/ridesService';
-import { getDatabase, ref, onValue, off, update, serverTimestamp } from 'firebase/database';
+import { getDatabase, ref, update, serverTimestamp } from 'firebase/database';
 import { extractVehicleTypeFromInfo, ensureVehicleIconSource } from '../../utils/vehicleIcons';
 import { fetchClientProfile, ClientProfile } from '../../services/clientProfilesService';
 import notificationService from '../../services/notificationService';
 import { useTranslation } from 'react-i18next';
 import SupportChatShortcut from '../../components/SupportChatShortcut';
+import {
+  haversineDistanceMeters,
+  computeTotalDistanceKm,
+  fetchOsrmRoute,
+} from '../../utils/rideTrackingHelpers';
+import { useRideData } from '../../hooks/shared/ride/useRideData';
+import { useCollapsiblePanel } from '../../hooks/shared/ride/useCollapsiblePanel';
+import { useRideCancellation } from '../../hooks/shared/ride/useRideCancellation';
 
 const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
 
@@ -54,12 +62,21 @@ export default function ActiveRideScreen({ route, navigation }: any) {
     [user?.name, user?.email, t]
   );
   const { messages } = useChat(rideId, user?.id || '', driverDisplayName);
-  const [ride, setRide] = useState<any | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const {
+    ride,
+    loading,
+    loadError,
+    normalizedStatus,
+    paymentMethod,
+    finalFare,
+    isAccepted,
+    isDriverOnRoute,
+    isInProgress,
+    isCompleted,
+    isCanceled,
+    isPendingPayment,
+  } = useRideData(rideId, t('driver.activeRide.alerts.rideNotFound'));
   const [updating, setUpdating] = useState(false);
-  const [isCancellingRide, setIsCancellingRide] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<string>('cash');
   const [routePolyline, setRoutePolyline] = useState<any[]>([]);
   const [clientProfile, setClientProfile] = useState<ClientProfile | null>(null);
   const [voicePaused, setVoicePaused] = useState(false);
@@ -102,11 +119,13 @@ export default function ActiveRideScreen({ route, navigation }: any) {
       : t('driver.activeRide.labels.initialFallback');
   }, [resolvedClientName, t]);
 
-  // Bottom sheet state - Alturas ajustadas
-  const COLLAPSED_HEIGHT = 250; // Solo header + botones (más alto para ver ambos botónes)
-  const EXPANDED_HEIGHT = 480; // Más espacio para direcciones
-  const [panelExpanded, setPanelExpanded] = useState(true);
-  const panelHeight = useRef(new Animated.Value(EXPANDED_HEIGHT)).current;
+  // Bottom sheet state
+  const { isPanelExpanded: panelExpanded, togglePanel, panelHeight } = useCollapsiblePanel({
+    initialExpanded: true,
+    minHeight: 250,
+    maxHeight: 480,
+    useAnimatedHeight: true,
+  });
 
   // Estado legible del viaje
   const getStatusLabel = useCallback(
@@ -122,17 +141,13 @@ export default function ActiveRideScreen({ route, navigation }: any) {
     try {
       setUpdating(true);
       await ridesService.markDriverOnRoute(rideId);
-      // Optimistic/local update
-      setRide((prev: any) => (prev ? { ...prev, status: 'driver_on_route', driverOnRouteAt: Date.now() } : prev));
     } catch (error: any) {
       try {
-        // Fallback directo a RTDB
         const db = getDatabase();
         await update(ref(db, `activeRides/${rideId}`), {
           status: 'driver_on_route',
           driverOnRouteAt: serverTimestamp(),
         });
-        setRide((prev: any) => (prev ? { ...prev, status: 'driver_on_route' } : prev));
       } catch (dbErr: any) {
         alertService.showErrorAlert(
           dbErr?.message || error?.message || t('driver.activeRide.alerts.goOnRouteError'),
@@ -142,27 +157,6 @@ export default function ActiveRideScreen({ route, navigation }: any) {
       setUpdating(false);
     }
   };
-
-  const togglePanel = () => {
-    const next = !panelExpanded;
-    setPanelExpanded(next);
-    Animated.timing(panelHeight, {
-      toValue: next ? EXPANDED_HEIGHT : COLLAPSED_HEIGHT,
-      duration: 220,
-      useNativeDriver: false,
-    }).start();
-  };
-  // Estado derivado (normalizado)
-  const normalizedStatus = useMemo(() => {
-    const raw = (ride?.status ?? ride?.offers?.status ?? ride?.state ?? '').toString();
-    return raw.trim().toLowerCase();
-  }, [ride?.status, ride?.offers?.status, ride?.state]);
-
-  const isAccepted = normalizedStatus === 'accepted';
-  const isDriverOnRoute = normalizedStatus === 'driver_on_route';
-  const isInProgress = normalizedStatus === 'in_progress';
-  const isCompleted = normalizedStatus === 'completed';
-  const isCanceled = normalizedStatus === 'canceled';
 
   useEffect(() => {
     if (!isInProgress) {
@@ -175,53 +169,6 @@ export default function ActiveRideScreen({ route, navigation }: any) {
       clearInterval(id);
     };
   }, [isInProgress]);
-
-  useEffect(() => {
-    if (!ride) return;
-
-    const rawMethod =
-      (ride.payment && (ride.payment.method || ride.payment.paymentMethod)) ||
-      ride.paymentMethod ||
-      ride.payment_type ||
-      ride.paymentType;
-
-    if (rawMethod === 'cash' || rawMethod === 'card') {
-      setPaymentMethod(rawMethod);
-    }
-  }, [ride]);
-
-  const haversineDistanceMeters = useCallback((lat1: number, lon1: number, lat2: number, lon2: number) => {
-    const toRad = (value: number) => (value * Math.PI) / 180;
-    const R = 6371000;
-    const dLat = toRad(lat2 - lat1);
-    const dLon = toRad(lon2 - lon1);
-    const a =
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
-        Math.sin(dLon / 2) * Math.sin(dLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c;
-  }, []);
-
-  // Cargar datos del viaje
-  useEffect(() => {
-    setLoading(true);
-    const db = getDatabase();
-    const rideRef = ref(db, `activeRides/${rideId}`);
-
-    const unsubscribe = onValue(rideRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) {
-        setRide(data);
-        setLoading(false);
-      } else {
-        setLoadError(t('driver.activeRide.alerts.rideNotFound'));
-        setLoading(false);
-      }
-    });
-
-    return () => off(rideRef);
-  }, [rideId]);
 
   // Notificación de retorno rápido: visible mientras el viaje está activo
   useEffect(() => {
@@ -290,36 +237,6 @@ export default function ActiveRideScreen({ route, navigation }: any) {
     },
     [t],
   );
-
-  // Helper: distancia total en km usando puntos secuenciales
-  const computeTotalDistanceKm = useCallback((data: any): number | null => {
-    const points: Array<{ lat: number; lng: number }> = [];
-    if (data?.origin) points.push({ lat: data.origin.lat || data.origin.latitude, lng: data.origin.lng || data.origin.longitude });
-    if (Array.isArray(data?.extraDestinations)) {
-      for (const stop of data.extraDestinations) {
-        const lat = stop?.lat || stop?.latitude;
-        const lng = stop?.lng || stop?.longitude;
-        if (typeof lat === 'number' && typeof lng === 'number') points.push({ lat, lng });
-      }
-    }
-    if (data?.destination) points.push({ lat: data.destination.lat || data.destination.latitude, lng: data.destination.lng || data.destination.longitude });
-    if (points.length < 2) return null;
-    const R = 6371; // km
-    const toRad = (d: number) => (d * Math.PI) / 180;
-    let total = 0;
-    for (let i = 1; i < points.length; i++) {
-      const a = points[i - 1];
-      const b = points[i];
-      const dLat = toRad(b.lat - a.lat);
-      const dLon = toRad(b.lng - a.lng);
-      const lat1 = toRad(a.lat);
-      const lat2 = toRad(b.lat);
-      const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
-      const c = 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
-      total += R * c;
-    }
-    return total;
-  }, []);
 
   const dynamicProgress = useMemo(() => {
     if (!isInProgress || !ride) {
@@ -603,32 +520,9 @@ export default function ActiveRideScreen({ route, navigation }: any) {
 
     pushPoint(ride.destination?.lat || ride.destination?.latitude, ride.destination?.lng || ride.destination?.longitude);
 
-    // Intentar ruta real con OSRM si hay al menos 2 puntos
-    const buildOsrmUrl = (pts: Array<{ latitude: number; longitude: number }>) => {
-      const coordsStr = pts
-        .map((p) => `${p.longitude},${p.latitude}`)
-        .join(';');
-      return `https://router.project-osrm.org/route/v1/driving/${coordsStr}?overview=full&geometries=geojson`;
-    };
-
     const fetchRoute = async () => {
-      try {
-        if (points.length < 2) {
-          setRoutePolyline([]);
-          return;
-        }
-        const url = buildOsrmUrl(points);
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`OSRM ${res.status}`);
-        const data = await res.json();
-        const coords = data?.routes?.[0]?.geometry?.coordinates as Array<[number, number]> | undefined;
-        if (!coords || coords.length === 0) throw new Error('No geometry');
-        const poly = coords.map(([lng, lat]) => ({ latitude: lat, longitude: lng }));
-        setRoutePolyline(poly);
-      } catch (err) {
-        // Fallback a líneas rectas
-        setRoutePolyline(points);
-      }
+      const poly = await fetchOsrmRoute(points);
+      setRoutePolyline(poly);
     };
 
     fetchRoute();
@@ -706,59 +600,29 @@ export default function ActiveRideScreen({ route, navigation }: any) {
     }
   };
 
-  const cancelButtonScale = useRef(new Animated.Value(1)).current;
-
-  const resetCancelAnimation = useCallback(() => {
-    Animated.timing(cancelButtonScale, {
-      toValue: 1,
-      duration: 170,
-      useNativeDriver: true,
-    }).start();
-    setIsCancellingRide(false);
-  }, [cancelButtonScale]);
-
-  const handleCancelRide = useCallback(() => {
-    if (isCancellingRide || updating) {
-      return;
-    }
-
-    setIsCancellingRide(true);
-    Animated.timing(cancelButtonScale, {
-      toValue: 0.95,
-      duration: 120,
-      useNativeDriver: true,
-    }).start();
-
-    alertService.showConfirmAlert(
-      t('driver.activeRide.alerts.cancelRideTitle'),
-      t('driver.activeRide.alerts.cancelRideMessage'),
-      async () => {
-        try {
-          setUpdating(true);
-          await ridesService.cancelRide(rideId, t('driver.activeRide.notifications.canceledByDriver'), {
-            canceledBy: 'driver',
-          });
-          await notificationService.clearQuickReturn();
-          handledCancellationRef.current = true;
-          navigation.reset({
-            index: 0,
-            routes: [{ name: 'DriverHome' }],
-          });
-        } catch (error: any) {
-          alertService.showErrorAlert(error.message || t('driver.activeRide.alerts.cancelRideError'));
-        } finally {
-          setUpdating(false);
-          resetCancelAnimation();
-        }
-      },
-      () => {
-        resetCancelAnimation();
-      },
-      t('driver.activeRide.alerts.cancelRideConfirm'),
-      t('driver.activeRide.alerts.cancelRideKeep'),
-      true,
-    );
-  }, [cancelButtonScale, isCancellingRide, navigation, resetCancelAnimation, rideId, updating]);
+  const { isCancellingRide, cancelButtonScale, handleCancelRide } = useRideCancellation({
+    rideId,
+    cancelReason: t('driver.activeRide.notifications.canceledByDriver'),
+    cancelOptions: { canceledBy: 'driver' },
+    canCancel: !isCompleted && !isCanceled,
+    cannotCancelTitle: t('driver.activeRide.alerts.cannotCancelTitle'),
+    cannotCancelMessage: t('driver.activeRide.alerts.cannotCancelMessage'),
+    confirmTitle: t('driver.activeRide.alerts.cancelRideTitle'),
+    confirmMessage: t('driver.activeRide.alerts.cancelRideMessage'),
+    confirmLabel: t('driver.activeRide.alerts.cancelRideConfirm'),
+    continueLabel: t('driver.activeRide.alerts.cancelRideKeep'),
+    cancelErrorLabel: t('driver.activeRide.alerts.cancelRideError'),
+    onSuccess: async () => {
+      setUpdating(true);
+      await notificationService.clearQuickReturn();
+      handledCancellationRef.current = true;
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'DriverHome' }],
+      });
+      setUpdating(false);
+    },
+  });
 
   useEffect(() => {
     if (!ride || handledCancellationRef.current || isCancellingRide) {

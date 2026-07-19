@@ -13,8 +13,9 @@ import {
   saveRideLocationsToSupabase,
   updateRideLocationIds,
   saveCanceledRideToSupabase,
-} from "../helpers/supabaseArchive.old";
-import { cleanupRideFromRealtime } from "../helpers/cleanupHelpers-new";
+} from "../helpers/supabaseArchive";
+import { cleanupRideFromRealtime } from "../helpers/cleanupHelpers";
+import { enqueueArchiveRetry } from "../helpers/archiveOutbox";
 
 /**
  * TRIGGER: paymentStatus/{rideId}.status → completed
@@ -59,13 +60,15 @@ export const onPaymentCompleted = functions.database
 
       const pgRideId = await saveCompletedRideToSupabase(ride, rideId, newPaymentStatus);
       if (!pgRideId) {
-        console.error("❌ [onPaymentCompleted] Error guardando viaje en Supabase");
+        console.error("❌ [onPaymentCompleted] Error guardando viaje en Supabase — encolando reintento");
+        await enqueueArchiveRetry(rideId, ride, newPaymentStatus, "completed", "saveCompletedRideToSupabase retornó null");
         return;
       }
 
       const paymentSaved = await savePaymentToSupabase(pgRideId, newPaymentStatus);
       if (!paymentSaved) {
-        console.error("❌ [onPaymentCompleted] Error guardando pago en Supabase");
+        console.error("❌ [onPaymentCompleted] Error guardando pago en Supabase — encolando reintento");
+        await enqueueArchiveRetry(rideId, ride, newPaymentStatus, "completed", "savePaymentToSupabase retornó false");
         return;
       }
 
@@ -104,6 +107,10 @@ export const onPaymentCompleted = functions.database
       console.log(`${"=".repeat(60)}\n`);
     } catch (error: any) {
       console.error(`\n❌❌❌ [onPaymentCompleted] ERROR CRÍTICO: ${error?.message || error}`);
+      // Encolar para reintento en lugar de perder el dato
+      await enqueueArchiveRetry(rideId, change.after.val(), newPaymentStatus, "completed", error.message);
+      // Rethrow para que Firebase marque la función como fallida y permita alertas
+      throw error;
     }
   });
 
@@ -178,7 +185,8 @@ export const onPaymentCanceled = functions.database
 
       const pgRideId = await saveCanceledRideToSupabase(rideDataForSupabase, rideId);
       if (!pgRideId) {
-        console.error("❌ [onPaymentCanceled] Error guardando viaje en Supabase");
+        console.error("❌ [onPaymentCanceled] Error guardando viaje en Supabase — encolando reintento");
+        await enqueueArchiveRetry(rideId, rideDataForSupabase, newPaymentStatus, "canceled", "saveCanceledRideToSupabase retornó null");
         return;
       }
 
@@ -194,7 +202,8 @@ export const onPaymentCanceled = functions.database
 
       const paymentSaved = await savePaymentToSupabase(pgRideId, newPaymentStatus);
       if (!paymentSaved) {
-        console.error("❌ [onPaymentCanceled] Error guardando pago cancelado en Supabase");
+        console.error("❌ [onPaymentCanceled] Error guardando pago cancelado en Supabase — encolando reintento");
+        await enqueueArchiveRetry(rideId, rideDataForSupabase, newPaymentStatus, "canceled", "savePaymentToSupabase retornó false");
         return;
       }
 
@@ -219,5 +228,7 @@ export const onPaymentCanceled = functions.database
       console.log(`${"=".repeat(60)}\n`);
     } catch (error: any) {
       console.error(`\n❌❌❌ [onPaymentCanceled] ERROR CRÍTICO: ${error?.message || error}`);
+      await enqueueArchiveRetry(rideId, change.after.val(), newPaymentStatus, "canceled", error.message);
+      throw error;
     }
   });

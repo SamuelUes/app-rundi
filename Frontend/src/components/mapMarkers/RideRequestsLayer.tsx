@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
 import { Marker, Callout } from 'react-native-maps';
 import { markerStyles } from './MarkerContent';
-import { toMarkerImageSource, toLatLng, isValidCoord } from '../../hooks/useMapCamera';
+import { toMarkerImageSource, toLatLng, isValidCoord } from '../../hooks/shared/map/useMapCamera';
 import { MAP_ICONS } from '../../constants/mapIcons';
 
 export interface RideRequest {

@@ -19,69 +19,32 @@ import {
   Image,
   ImageBackground,
   Animated,
-  Platform,
   Easing,
 } from 'react-native';
-import MapView from 'react-native-maps';
-import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
-import { haversineKm } from '../../utils/distance';
+import { getActiveRidesByAreaPath } from '../../utils/serviceArea';
 
-// Importar servicios optimizados
 import alertService from '../../services/alertService';
 import LoadingOverlay from '../../components/LoadingOverlay';
-import { useFirebaseData, useFirebaseItem } from '../../hooks/useFirebaseData';
-import mapsService from '../../services/mapsService';
-import { ensureVehicleIconSource, extractVehicleTypeFromInfo } from '../../utils/vehicleIcons';
-import { subscribePreflightResult, getPreflightResult, PreflightAction } from '../../state/preflightStore';
+import { useFirebaseData } from '../../hooks/shared/firebase/useFirebaseData';
+import { getPreflightResult } from '../../stores/preflightStore';
 import { useTranslation } from 'react-i18next';
-import { useLocation } from '../../hooks/useLocation';
+import { useLocation } from '../../hooks/shared/location/useLocation';
+import { useNearbyDrivers } from '../../hooks/client/HomeScreen/useNearbyDrivers';
+import { useActiveRideDetection } from '../../hooks/client/HomeScreen/useActiveRideDetection';
+import { useClientLocation } from '../../hooks/client/HomeScreen/useClientLocation';
+import { useRegionAvailability } from '../../hooks/client/HomeScreen/useRegionAvailability';
+import { usePendingActions } from '../../hooks/client/HomeScreen/usePendingActions';
+import { useMapPinInteraction } from '../../hooks/client/HomeScreen/useMapPinInteraction';
 import DynamicMap from '../../components/DynamicMap';
 import { MAP_ICONS } from '../../constants/mapIcons';
 
 // Importaciones para Firebase
 
-type ManualOverrideState = {
-  active: boolean;
-  coords: { latitude: number; longitude: number };
-  address?: string;
-  updatedAt: number;
-  source: 'local' | 'remote';
-};
-
-const MANUAL_OVERRIDE_RELEASE_DISTANCE_KM = 0.2; // ~200 metros
-const DEFAULT_CLIENT_LOCATION = {
-  latitude: 12.1364,
-  longitude: -86.2514,
-};
-const COORDS_EPSILON = 0.0002;
-const REGION_IDLE_DELAY_MS = 900;
-
-const areCoordsEqual = (
-  a?: { latitude: number; longitude: number } | null,
-  b?: { latitude: number; longitude: number } | null,
-  epsilon: number = COORDS_EPSILON,
-) => {
-  if (!a || !b) {
-    return false;
-  }
-  return (
-    Math.abs(a.latitude - b.latitude) <= epsilon &&
-    Math.abs(a.longitude - b.longitude) <= epsilon
-  );
-};
-
 const PROFILE_ICON_IMAGE = require('../../assets/icons/profile/profile-icon2.png');
-//const REQUEST_BUTTON_IMAGE = require('../../assets/icons/make_request_button/make_request_button3x.png');
 const PENDING_ACTION_IMAGE = require('../../assets/icons/pending_acction/pending_acction2x.png');
 const { USER_LOCATION_LIGHT, USER_LOCATION_DARK, USER_LOCATION_HOLDING_LIGHT, USER_LOCATION_HOLDING_DARK } = MAP_ICONS;
-
-type PendingAction = {
-  type: 'pending_payment' | 'active_ride';
-  title: string;
-  onPress: () => void;
-};
 
 export default function HomeScreen({ navigation }: any) {
   const { user } = useAuth();
@@ -106,7 +69,6 @@ export default function HomeScreen({ navigation }: any) {
     error: locationError,
     refreshLocation,
     loading: locationLoading,
-    isUsingMockLocation,
   } = useLocation(initialCoords ? { initialCoords } : {});
   const styles = useMemo(() => createStyles(colors), [colors]);
 
@@ -121,93 +83,199 @@ export default function HomeScreen({ navigation }: any) {
   ]));
 
   const markTaskCompleted = useCallback((taskName: string) => {
-    if (!pendingInitialTasks.current.has(taskName)) {
-      return;
-    }
-
+    if (!pendingInitialTasks.current.has(taskName)) return;
     pendingInitialTasks.current.delete(taskName);
-    console.log(`✅ [HomeScreen:init] Tarea completada: ${taskName}. Restantes: ${pendingInitialTasks.current.size}`);
-
     if (pendingInitialTasks.current.size === 0) {
-      console.log('🎉 [HomeScreen:init] Todas las tareas iniciales completadas, mostrando pantalla.');
       setInitializing(false);
     }
   }, []);
 
-  const [activeRide, setActiveRide] = useState<any>(null);
-  const [pendingPayments, setPendingPayments] = useState<any[]>([]);
-  const [hasPendingPayments, setHasPendingPayments] = useState(false);
-  const [totalDebt, setTotalDebt] = useState(0);
-  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
+  const {
+    isOutsideSupportedArea,
+    regionStatus,
+    serviceAreaId,
+    updateRegionForCoords,
+  } = useRegionAvailability(initialRegion ?? null);
 
-  const [preflightActions, setPreflightActions] = useState<PreflightAction[]>(() => preflightSummary?.actions ?? []);
-  const [isOutsideSupportedArea, setIsOutsideSupportedArea] = useState(
-    initialRegion ? !initialRegion.allowed : false,
-  );
-  const [regionStatus, setRegionStatus] = useState<{
-    checked: boolean;
-    allowed: boolean;
-    areaName?: string;
-    message?: string;
-    reasonCode?: string;
-  }>(() => ({
-    checked: !!initialRegion,
-    allowed: initialRegion ? initialRegion.allowed : true,
-    areaName: initialRegion?.areaName,
-    message: initialRegion?.message,
-    reasonCode: initialRegion?.reasonCode,
-  }));
+  const {
+    clientLocationData,
+    loadingClientLocation,
+    savedAddress,
+    manualOverride,
+    saveClientLocation,
+    committedCoords,
+    effectiveCoords,
+    storedCoords,
+    resolveAddressText,
+  } = useClientLocation(user?.id, coords, initialCoords, t);
 
-  const [serviceAreaId, setServiceAreaId] = useState<string | null>(initialRegion?.serviceAreaId ?? null);
-  const hasShownUnsupportedAlertRef = useRef(false);
-
-  // Listener dedicado para deudas históricas del cliente
   useEffect(() => {
-    setHasPendingPayments(false);
-    setTotalDebt(0);
-  }, [user?.id]);
+    if (!loadingClientLocation) markTaskCompleted('clientLocation');
+  }, [loadingClientLocation, markTaskCompleted]);
 
-  // Estado para datos
-  const [savedAddress, setSavedAddress] = useState('');
-  const [availableDrivers, setAvailableDrivers] = useState<any[]>([]);
+  // Datos de conductores disponibles
+  const {
+    data: driversInfo,
+    loading: loadingDrivers,
+  } = useFirebaseData<any>('driversInfo', { maxCacheAge: 10000 });
+
+  useEffect(() => {
+    if (!loadingDrivers) markTaskCompleted('driversInfo');
+  }, [loadingDrivers, markTaskCompleted]);
+
   const [driverLocationsSnapshot, setDriverLocationsSnapshot] = useState<Record<string, any> | null>(null);
-  const [manualOverride, setManualOverride] = useState<ManualOverrideState | null>(null);
-  const [mapCenter, setMapCenter] = useState<{ latitude: number; longitude: number } | null>(null);
-  const [pendingAddress, setPendingAddress] = useState(() => t('client.home.map.loadingAddress'));
-  const [hasPendingManualSelection, setHasPendingManualSelection] = useState(false);
-  const [isResolvingAddress, setIsResolvingAddress] = useState(false);
-  const [isSavingLocation, setIsSavingLocation] = useState(false);
-  const [isHoldingPin, setIsHoldingPin] = useState(false);
-  const [isPinLocked, setIsPinLocked] = useState(true);
+  const driverLocationsSignatureRef = useRef<string>('');
 
-  const ignoreNextRegionChangeRef = useRef(false);
-  const mapGestureActiveRef = useRef(false);
-  const lastCommittedCoordsRef = useRef<{ latitude: number; longitude: number } | null>(null);
-  const initialClientLocationBootstrapRef = useRef(false);
-  const regionIdleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const centerPinBounce = useRef(new Animated.Value(0)).current;
-  const markerBounce = useRef(new Animated.Value(0)).current;
-
+  // Listener para driverLocations en tiempo real
   useEffect(() => {
-    ignoreNextRegionChangeRef.current = true;
-  }, []);
+    let isMounted = true;
+    let cleanupFn: (() => void) | null = null;
 
-  useEffect(() => {
-    return () => {
-      if (regionIdleTimeoutRef.current) {
-        clearTimeout(regionIdleTimeoutRef.current);
-        regionIdleTimeoutRef.current = null;
+    const startDriverLocationsListener = async () => {
+      try {
+        const { getDatabase, ref: dbRef, onValue, off } = await import('firebase/database');
+        const db = getDatabase();
+        const path = serviceAreaId ? `driverLocationsByArea/${serviceAreaId}` : 'driverLocations';
+        const driverLocationsRef = dbRef(db, path);
+
+        const handleSnapshot = (snapshot: any) => {
+          if (!isMounted) return;
+
+          const data = snapshot.val();
+          if (!data || typeof data !== 'object') {
+            if (driverLocationsSignatureRef.current !== '') {
+              driverLocationsSignatureRef.current = '';
+              setDriverLocationsSnapshot(null);
+            }
+            return;
+          }
+
+          const entries = Object.entries<any>(data)
+            .map(([driverId, payload]) => {
+              const latitude = payload?.lat ?? payload?.latitude ?? payload?.coords?.latitude ?? null;
+              const longitude = payload?.lng ?? payload?.longitude ?? payload?.coords?.longitude ?? null;
+              if (latitude === null || longitude === null) return null;
+              const heading = typeof payload?.heading === 'number' ? payload.heading : null;
+              const status = payload?.status ?? payload?.driverStatus ?? payload?.availability;
+              return {
+                driverId,
+                latitude: typeof latitude === 'number' ? latitude : parseFloat(latitude),
+                longitude: typeof longitude === 'number' ? longitude : parseFloat(longitude),
+                heading,
+                status,
+                raw: payload,
+              };
+            })
+            .filter((entry): entry is NonNullable<typeof entry> => {
+              return (
+                entry !== null &&
+                typeof entry.latitude === 'number' &&
+                Number.isFinite(entry.latitude) &&
+                typeof entry.longitude === 'number' &&
+                Number.isFinite(entry.longitude)
+              );
+            })
+            .sort((a, b) => a.driverId.localeCompare(b.driverId));
+
+          const signature = entries
+            .map((entry) =>
+              `${entry.driverId}:${entry.latitude.toFixed(6)}:${entry.longitude.toFixed(6)}:${(entry.heading ?? 0).toFixed(2)}:${entry.status ?? ''}`,
+            )
+            .join('|');
+
+          if (signature !== driverLocationsSignatureRef.current) {
+            driverLocationsSignatureRef.current = signature;
+            const snapshotRecord: Record<string, any> = {};
+            entries.forEach((entry) => {
+              snapshotRecord[entry.driverId] = entry.raw;
+            });
+            setDriverLocationsSnapshot(snapshotRecord);
+          }
+        };
+
+        const handleError = (error: any) => {
+          console.error('❌ [HomeScreen] Error escuchando driverLocations:', error);
+          if (!isMounted) return;
+          driverLocationsSignatureRef.current = '';
+          setDriverLocationsSnapshot(null);
+        };
+
+        onValue(driverLocationsRef, handleSnapshot, handleError);
+        cleanupFn = () => {
+          off(driverLocationsRef, 'value', handleSnapshot);
+        };
+      } catch (error) {
+        console.error('❌ [HomeScreen] Error iniciando listener de driverLocations:', error);
       }
     };
-  }, []);
 
-  const clearRegionIdleTimeout = useCallback(() => {
-    if (regionIdleTimeoutRef.current) {
-      clearTimeout(regionIdleTimeoutRef.current);
-      regionIdleTimeoutRef.current = null;
-    }
-  }, []);
+    startDriverLocationsListener().finally(() => markTaskCompleted('driverLocations'));
 
+    return () => {
+      isMounted = false;
+      if (cleanupFn) cleanupFn();
+    };
+  }, [serviceAreaId]);
+
+  // Viajes activos
+  const activeRidesPath = useMemo(
+    () => getActiveRidesByAreaPath(serviceAreaId || undefined),
+    [serviceAreaId],
+  );
+
+  const {
+    data: activeRidesData,
+    loading: loadingRides,
+  } = useFirebaseData<Record<string, any>>(activeRidesPath, { maxCacheAge: 5000 });
+
+  useEffect(() => {
+    if (!loadingRides) markTaskCompleted('activeRides');
+  }, [loadingRides, markTaskCompleted]);
+
+  const activeRide = useActiveRideDetection(user?.id, activeRidesData, navigation);
+
+  const availableDrivers = useNearbyDrivers(
+    coords,
+    clientLocationData?.coords,
+    manualOverride,
+    driversInfo,
+    driverLocationsSnapshot,
+    loadingDrivers,
+  );
+
+  const {
+    pendingAction,
+    hasPendingPayments,
+    handleViewActiveRide,
+    handleViewPendingPayments,
+  } = usePendingActions(user?.id, activeRide, navigation, t);
+
+  const {
+    mapCenter,
+    pendingAddress,
+    hasPendingManualSelection,
+    isResolvingAddress,
+    isSavingLocation,
+    isHoldingPin,
+    isPinLocked,
+    setIsPinLocked,
+    centerPinBounce,
+    markerBounce,
+    handleRegionChangeCenter,
+    handleRegionChangeCompleteCenter,
+    handleMarkerPress,
+  } = useMapPinInteraction(
+    committedCoords,
+    manualOverride,
+    clientLocationData,
+    savedAddress,
+    saveClientLocation,
+    updateRegionForCoords,
+    resolveAddressText,
+    t,
+  );
+
+  // Pin animations
   useEffect(() => {
     if (!isPinLocked) {
       const animation = Animated.loop(
@@ -227,9 +295,7 @@ export default function HomeScreen({ navigation }: any) {
         ])
       );
       animation.start();
-      return () => {
-        animation.stop();
-      };
+      return () => animation.stop();
     }
 
     centerPinBounce.stopAnimation(() => {
@@ -274,967 +340,17 @@ export default function HomeScreen({ navigation }: any) {
     outputRange: [0, -6],
   });
 
-  // Ubicación guardada del cliente (useFirebaseItem optimizado)
-  const { data: clientLocationData, loading: loadingClientLocation } = useFirebaseItem<any>(
-    'clientsLocations',
-    user?.id || '',
-    { once: false }
-  );
-  useEffect(() => {
-    if (!loadingClientLocation) {
-      markTaskCompleted('clientLocation');
-    }
-  }, [loadingClientLocation, markTaskCompleted]);
+  const hasShownUnsupportedAlertRef = useRef(false);
 
-  // Datos de conductores disponibles (useFirebaseData optimizado)
-  const {
-    data: driversInfo,
-    loading: loadingDrivers,
-  } = useFirebaseData<any>('driversInfo', { maxCacheAge: 10000 }); // Cache 10s
-
-  useEffect(() => {
-    if (!loadingDrivers) {
-      markTaskCompleted('driversInfo');
-    }
-  }, [loadingDrivers, markTaskCompleted]);
-
-  const driverLocationsSignatureRef = useRef<string>('');
-
-  const parseCoordinate = (value: any): number | null => {
-    if (typeof value === 'number' && Number.isFinite(value)) {
-      return value;
-    }
-    if (typeof value === 'string') {
-      const parsed = parseFloat(value);
-      return Number.isFinite(parsed) ? parsed : null;
-    }
-    return null;
-  };
-
-  // Listener para driverLocations en tiempo real (por área cuando sea posible)
-  useEffect(() => {
-    let isMounted = true;
-    let cleanupFn: (() => void) | null = null;
-
-    const startDriverLocationsListener = async () => {
-      try {
-        const { getDatabase, ref: dbRef, onValue, off } = await import('firebase/database');
-        const db = getDatabase();
-        const path = serviceAreaId ? `driverLocationsByArea/${serviceAreaId}` : 'driverLocations';
-        const driverLocationsRef = dbRef(db, path);
-
-        console.log('[HomeScreen] Escuchando driverLocations desde:', path);
-
-        const handleSnapshot = (snapshot: any) => {
-          if (!isMounted) {
-            return;
-          }
-
-          const data = snapshot.val();
-          if (!data || typeof data !== 'object') {
-            if (driverLocationsSignatureRef.current !== '') {
-              driverLocationsSignatureRef.current = '';
-              setDriverLocationsSnapshot(null);
-            }
-            return;
-          }
-
-          const entries = Object.entries<any>(data)
-            .map(([driverId, payload]) => {
-              const latitude = payload?.lat ?? payload?.latitude ?? payload?.coords?.latitude ?? null;
-              const longitude = payload?.lng ?? payload?.longitude ?? payload?.coords?.longitude ?? null;
-
-              if (latitude === null || longitude === null) {
-                return null;
-              }
-
-              const heading = typeof payload?.heading === 'number' ? payload.heading : null;
-              const status = payload?.status ?? payload?.driverStatus ?? payload?.availability;
-
-              return {
-                driverId,
-                latitude: typeof latitude === 'number' ? latitude : parseFloat(latitude),
-                longitude: typeof longitude === 'number' ? longitude : parseFloat(longitude),
-                heading,
-                status,
-                raw: payload,
-              };
-            })
-            .filter((entry): entry is NonNullable<typeof entry> => {
-              return (
-                entry !== null &&
-                typeof entry.latitude === 'number' &&
-                Number.isFinite(entry.latitude) &&
-                typeof entry.longitude === 'number' &&
-                Number.isFinite(entry.longitude)
-              );
-            })
-            .sort((a, b) => a.driverId.localeCompare(b.driverId));
-
-          const signature = entries
-            .map((entry) =>
-              `${entry.driverId}:${entry.latitude.toFixed(6)}:${entry.longitude.toFixed(6)}:${(entry.heading ?? 0).toFixed(2)}:${entry.status ?? ''}`,
-            )
-            .join('|');
-
-          if (signature !== driverLocationsSignatureRef.current) {
-            driverLocationsSignatureRef.current = signature;
-            const snapshotRecord: Record<string, any> = {};
-            entries.forEach((entry) => {
-              snapshotRecord[entry.driverId] = entry.raw;
-            });
-            setDriverLocationsSnapshot(snapshotRecord);
-          }
-        };
-
-        const handleError = (error: any) => {
-          console.error('❌ [HomeScreen] Error escuchando driverLocations:', error);
-          if (!isMounted) {
-            return;
-          }
-          driverLocationsSignatureRef.current = '';
-          setDriverLocationsSnapshot(null);
-        };
-
-        onValue(driverLocationsRef, handleSnapshot, handleError);
-        cleanupFn = () => {
-          off(driverLocationsRef, 'value', handleSnapshot);
-        };
-      } catch (error) {
-        console.error('❌ [HomeScreen] Error iniciando listener de driverLocations:', error);
-      }
-    };
-
-    startDriverLocationsListener().finally(() => markTaskCompleted('driverLocations'));
-
-    return () => {
-      isMounted = false;
-      if (cleanupFn) {
-        cleanupFn();
-      }
-    };
-  }, [serviceAreaId]);
-
-  // Viajes activos (useFirebaseData optimizado, por área cuando sea posible)
-  const activeRidesPath = useMemo(
-    () => (serviceAreaId ? `activeRidesByArea/${serviceAreaId}` : 'activeRides'),
-    [serviceAreaId],
-  );
-
-  const {
-    data: activeRidesData,
-    loading: loadingRides
-  } = useFirebaseData<Record<string, any>>(activeRidesPath, { maxCacheAge: 5000 }); // Cache 5s
-
-  useEffect(() => {
-    if (!loadingRides) {
-      markTaskCompleted('activeRides');
-    }
-  }, [loadingRides, markTaskCompleted]);
-
-  // Reconocer override manual proveniente de Firebase
-  useEffect(() => {
-    if (!clientLocationData?.coords) {
-      return;
-    }
-
-    if (clientLocationData?.manualOverride?.active) {
-      setManualOverride((prev) => {
-        if (prev && prev.active && prev.source === 'local') {
-          return prev;
-        }
-        return {
-          active: true,
-          coords: {
-            latitude: clientLocationData.coords.latitude,
-            longitude: clientLocationData.coords.longitude,
-          },
-          address: clientLocationData.address,
-          updatedAt: Date.now(),
-          source: 'remote',
-        };
-      });
-    } else {
-      setManualOverride((prev) => {
-        if (!prev || prev.source === 'local') {
-          return prev;
-        }
-        return null;
-      });
-    }
-  }, [clientLocationData?.coords, clientLocationData?.manualOverride?.active, clientLocationData?.address]);
-
-  // Efecto para cargar ubicación guardada
-  useEffect(() => {
-    const loadSavedLocation = async () => {
-      if (!user?.id || !clientLocationData) return;
-
-      try {
-        if (clientLocationData.address) {
-          setSavedAddress(clientLocationData.address);
-        }
-      } catch (error) {
-        console.error('❌ Error cargando ubicación guardada:', error);
-      }
-    };
-    loadSavedLocation();
-  }, [user?.id, clientLocationData]);
-
-  const saveClientLocation = useCallback(
-    async (
-      newLocation: { latitude: number; longitude: number },
-      address: string,
-      options?: { source?: 'manual' | 'gps'; manualOverride?: { active: boolean; updatedAt?: string } },
-    ) => {
-      if (!user?.id) return;
-
-      try {
-        const { getDatabase, ref, set } = await import('firebase/database');
-        const db = getDatabase();
-        const clientLocationRef = ref(db, `clientsLocations/${user.id}`);
-
-        const now = Date.now();
-        await set(clientLocationRef, {
-          latitude: newLocation.latitude,
-          longitude: newLocation.longitude,
-          coords: {
-            latitude: newLocation.latitude,
-            longitude: newLocation.longitude,
-          },
-          address,
-          source: options?.source || 'manual',
-          isManual: (options?.source || 'manual') !== 'gps',
-          timestamp: now,
-          manualOverride:
-            options?.manualOverride || {
-              active: options?.source === 'manual',
-              updatedAt: new Date(now).toISOString(),
-            },
-        });
-
-        const locationHistory = {
-          user_id: user.id,
-          latitude: newLocation.latitude,
-          longitude: newLocation.longitude,
-          address,
-          created_at: new Date().toISOString(),
-        };
-
-        // locationTrackingService.saveLocationHistory(locationHistory);
-      } catch (error) {
-        console.error('❌ Error guardando ubicación:', error);
-        alertService.showErrorAlert(t('client.home.alerts.locationSaveError'));
-        throw error;
-      }
-    },
-    [user?.id],
-  );
-
-  useEffect(() => {
-    if (!user?.id) {
-      return;
-    }
-
-    if (!coords && !clientLocationData?.coords) {
-      return;
-    }
-
-    if (initialClientLocationBootstrapRef.current) {
-      return;
-    }
-
-    const hasValidSavedCoords =
-      !!clientLocationData?.coords &&
-      typeof clientLocationData.coords.latitude === 'number' &&
-      typeof clientLocationData.coords.longitude === 'number' &&
-      Number.isFinite(clientLocationData.coords.latitude) &&
-      Number.isFinite(clientLocationData.coords.longitude);
-
-    if (hasValidSavedCoords) {
-      initialClientLocationBootstrapRef.current = true;
-      return;
-    }
-
-    const sourceCoords = clientLocationData?.coords || coords;
-    if (!sourceCoords) {
-      return;
-    }
-
-    initialClientLocationBootstrapRef.current = true;
-
-    (async () => {
-      try {
-        const coordsToSave = {
-          latitude: sourceCoords.latitude,
-          longitude: sourceCoords.longitude,
-        };
-
-        const addressToSave =
-          clientLocationData?.address ||
-          savedAddress ||
-          resolveAddressText(coordsToSave.latitude, coordsToSave.longitude, savedAddress);
-
-        await saveClientLocation(coordsToSave, addressToSave, {
-          source: 'gps',
-          manualOverride: {
-            active: false,
-            updatedAt: new Date().toISOString(),
-          },
-        });
-      } catch (err) {
-        console.error('❌ [HomeScreen] Error bootstrapping ubicación inicial del cliente:', err);
-      }
-    })();
-  }, [
-    user?.id,
-    coords?.latitude,
-    coords?.longitude,
-    clientLocationData?.coords,
-    clientLocationData?.address,
-    savedAddress,
-    saveClientLocation,
-  ]);
-
-  const committedCoords = useMemo(() => {
-    if (manualOverride?.active) {
-      return manualOverride.coords;
-    }
-    if (clientLocationData?.coords) {
-      return {
-        latitude: clientLocationData.coords.latitude,
-        longitude: clientLocationData.coords.longitude,
-      };
-    }
-    if (coords) {
-      return {
-        latitude: coords.latitude,
-        longitude: coords.longitude,
-      };
-    }
-    return DEFAULT_CLIENT_LOCATION;
-  }, [
-    manualOverride?.active,
-    manualOverride?.coords,
-    clientLocationData?.coords,
-    coords?.latitude,
-    coords?.longitude,
-  ]);
-
-  useEffect(() => {
-    if (committedCoords) {
-      lastCommittedCoordsRef.current = committedCoords;
-    }
-
-    if (isSavingLocation || hasPendingManualSelection) {
-      return;
-    }
-
-    if (!mapCenter || !areCoordsEqual(mapCenter, committedCoords)) {
-      ignoreNextRegionChangeRef.current = true;
-      setMapCenter(committedCoords);
-    }
-
-    const baseAddress =
-      manualOverride?.address ||
-      clientLocationData?.address ||
-      savedAddress ||
-      resolveAddressText(committedCoords.latitude, committedCoords.longitude, savedAddress);
-
-    setPendingAddress(baseAddress);
-    setHasPendingManualSelection(false);
-  }, [
-    committedCoords.latitude,
-    committedCoords.longitude,
-    manualOverride?.address,
-    clientLocationData?.address,
-    savedAddress,
-    mapCenter,
-    hasPendingManualSelection,
-    isSavingLocation,
-  ]);
-
-  // Efecto para verificar viajes activos
-  useEffect(() => {
-    if (!user?.id || !activeRidesData) {
-      console.log('⚠️ [HomeScreen] No se puede verificar viajes:', { userId: user?.id, hasData: !!activeRidesData });
-      return;
-    }
-
-    const checkActiveRides = async () => {
-      try {
-        console.log('🔍 [HomeScreen] Verificando viajes activos para usuario:', user.id);
-        let activeRideFound = false;
-
-        // Primero verificar si hay un viaje guardado en AsyncStorage
-        const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
-        const savedRideId = await AsyncStorage.getItem('ACTIVE_RIDE_ID');
-
-        console.log('💾 [HomeScreen] Viaje guardado en AsyncStorage:', savedRideId);
-
-        if (savedRideId && activeRidesData[savedRideId]) {
-          console.log('💾 [HomeScreen] Encontrado viaje guardado en AsyncStorage:', savedRideId);
-
-          const rideData = activeRidesData[savedRideId];
-          console.log('📊 [HomeScreen] Datos del viaje:', { status: rideData.status, clientId: rideData.clientId });
-
-          // Verificar si el viaje sigue activo para este cliente
-          if (rideData.clientId === user.id &&
-            (rideData.status === 'requested' || rideData.status === 'pending_confirm' ||
-              rideData.status === 'accepted' || rideData.status === 'driver_on_route' || rideData.status === 'in_progress' ||
-              rideData.status === 'pending_payment' || rideData.status === 'driver_offered' || rideData.status === 'driver_assigned')) {
-
-            console.log('🚗 [HomeScreen] Viaje activo confirmado, mostrando banner...');
-            setActiveRide({ ...rideData, id: savedRideId });
-            activeRideFound = true;
-          } else {
-            // Limpiar el AsyncStorage si el viaje ya no está activo
-            await AsyncStorage.removeItem('ACTIVE_RIDE_ID');
-            console.log('🗑️ Viaje guardado ya no está activo, limpiando AsyncStorage');
-          }
-        } else {
-          console.log('⚠️ [HomeScreen] No hay viaje guardado o no existe en Firebase');
-        }
-
-        // Si no se encontró en AsyncStorage, buscar en todos los viajes activos
-        if (!activeRideFound) {
-          // Filtrar viajes del cliente actual
-          const clientRides = Object.entries(activeRidesData)
-            .filter(([_, ride]: [string, any]) =>
-              ride.clientId === user.id &&
-              (ride.status === 'requested' || ride.status === 'pending_confirm' ||
-                ride.status === 'accepted' || ride.status === 'driver_on_route' || ride.status === 'in_progress' ||
-                ride.status === 'driver_assigned' || ride.status === 'driver_offered' || ride.status === 'pending_payment')
-            );
-
-          if (clientRides.length > 0) {
-            const [activeRideId, activeRideData] = clientRides[0];
-            console.log('✅ [HomeScreen] Encontrado viaje activo:', activeRideId);
-
-            // Si el viaje está en pending_payment, navegar a pantalla de pago
-            if (activeRideData.status === 'pending_payment') {
-              const paymentMethod = activeRideData.paymentMethod || activeRideData.payment?.method || 'cash';
-              const finalAmount = activeRideData.finalFare || activeRideData.estimatedPrice || 0;
-              const driverName = activeRideData.driver?.name || 'Conductor';
-              const driverPhoto = activeRideData.driver?.photoURL || undefined;
-
-              if (paymentMethod === 'card') {
-                console.log('💳 [HomeScreen] Viaje en pending_payment con tarjeta, navegando a PaymentScreen');
-                navigation.navigate('Payment', {
-                  rideId: activeRideId,
-                  amount: finalAmount,
-                  driverId: activeRideData.driverId,
-                  driverName,
-                  vehiclePlate: activeRideData.vehicle?.plate || activeRideData.driver?.vehicle?.plate || 'N/A',
-                  driverPhoto,
-                  isPendingPayment: true,
-                });
-              } else {
-                console.log('💵 [HomeScreen] Viaje en pending_payment con efectivo, navegando a CashPaymentScreen');
-                navigation.navigate('CashPayment', {
-                  rideId: activeRideId,
-                  amount: finalAmount,
-                  driverName,
-                  driverPhoto,
-                });
-              }
-              activeRideFound = true;
-              return; // Salir temprano
-            }
-
-            setActiveRide({ ...activeRideData, id: activeRideId });
-            activeRideFound = true; // ✅ FIX: Marcar como encontrado
-
-            // Guardar en AsyncStorage
-            await AsyncStorage.setItem('ACTIVE_RIDE_ID', activeRideId);
-
-            // NOTA: No sincronizar con Supabase aquí porque los IDs de Firebase no son UUIDs
-            // La sincronización se hará cuando se confirme el viaje en HomeScreenOffers
-            console.log('💾 Viaje guardado en AsyncStorage:', activeRideId);
-          } else {
-            // No se encontró ningún viaje activo
-            console.log('📭 [HomeScreen] No hay viajes activos');
-            setActiveRide(null);
-          }
-        }
-
-        // Si no se encontró ningún viaje activo, limpiar también AsyncStorage
-        if (!activeRideFound) {
-          const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
-          await AsyncStorage.removeItem('ACTIVE_RIDE_ID');
-          setActiveRide(null);
-          console.log('🗑️ [HomeScreen] No hay viajes activos, limpiando estado');
-        }
-
-      } catch (error) {
-        console.error('❌ Error verificando viajes activos:', error);
-      }
-    };
-
-    checkActiveRides();
-  }, [user?.id, activeRidesData, navigation]);
-
-  // Listener para pagos pendientes
-  useEffect(() => {
-    setPendingPayments([]);
-    setHasPendingPayments(false);
-    setTotalDebt(0);
-  }, [user?.id]);
-
-  // Efecto para procesar conductores cercanos (mejorado con lógica del archivo viejo)
-  useEffect(() => {
-    if (!coords && !clientLocationData?.coords && !manualOverride?.active) {
-      console.log('⚠️ Sin ubicación disponible para buscar conductores');
-      setAvailableDrivers([]);
-      return;
-    }
-
-    const effectiveLocation =
-      (manualOverride?.active && manualOverride.coords) ||
-      coords ||
-      clientLocationData?.coords;
-
-    if (!effectiveLocation) {
-      console.log('⚠️ No hay effectiveLocation, no se puede buscar conductores');
-      return;
-    }
-
-    console.log('✅ Iniciando búsqueda de conductores con ubicación:', effectiveLocation);
-
-    try {
-      const SEARCH_RADIUS_KM = 3;
-
-      const driverIds = new Set<string>();
-      if (driversInfo) {
-        Object.keys(driversInfo).forEach((id) => driverIds.add(id));
-      }
-      if (driverLocationsSnapshot) {
-        Object.keys(driverLocationsSnapshot).forEach((id) => driverIds.add(id));
-      }
-
-      const allDrivers = Array.from(driverIds).map((driverId) => {
-        const infoData = driversInfo?.[driverId];
-        const realtimeData = driverLocationsSnapshot?.[driverId];
-
-        const latitude =
-          parseCoordinate(realtimeData?.lat ?? realtimeData?.latitude ?? realtimeData?.coords?.latitude) ??
-          parseCoordinate(infoData?.coords?.latitude ?? infoData?.lat ?? infoData?.latitude);
-
-        const longitude =
-          parseCoordinate(realtimeData?.lng ?? realtimeData?.longitude ?? realtimeData?.coords?.longitude) ??
-          parseCoordinate(infoData?.coords?.longitude ?? infoData?.lng ?? infoData?.longitude);
-
-        if (latitude === null || longitude === null) {
-          return null;
-        }
-
-        const statusCandidate =
-          realtimeData?.status ??
-          realtimeData?.driverStatus ??
-          realtimeData?.availability ??
-          infoData?.status ??
-          (infoData?.isAvailable ? 'available' : undefined);
-
-        const normalizedStatus = typeof statusCandidate === 'string' ? statusCandidate.toLowerCase() : '';
-        const isAvailable = normalizedStatus === '' || normalizedStatus.includes('available');
-
-        const heading =
-          (typeof realtimeData?.heading === 'number' && Number.isFinite(realtimeData.heading)
-            ? realtimeData.heading
-            : undefined) ??
-          (typeof infoData?.heading === 'number' ? infoData.heading : undefined) ??
-          0;
-
-        const driverRecord = {
-          id: driverId,
-          latitude,
-          longitude,
-          heading,
-          isAvailable,
-          name: infoData?.name || realtimeData?.name || 'Conductor',
-          vehicle: infoData?.vehicle || {},
-          lastUpdate: realtimeData?.lastUpdate || infoData?.timestamp || infoData?.updatedAt,
-        };
-
-        return driverRecord;
-      })
-        .filter((driver): driver is NonNullable<typeof driver> => driver !== null)
-        .filter((driver) => {
-          if (!driver.isAvailable) {
-            return false;
-          }
-
-          const distance = calculateDistance(
-            effectiveLocation.latitude,
-            effectiveLocation.longitude,
-            driver.latitude,
-            driver.longitude,
-          );
-
-          return Number.isFinite(distance) && distance <= SEARCH_RADIUS_KM;
-        })
-        .map((driver) => {
-          const distance = calculateDistance(
-            effectiveLocation.latitude,
-            effectiveLocation.longitude,
-            driver.latitude,
-            driver.longitude,
-          );
-
-          return {
-            ...driver,
-            distance,
-          };
-        });
-
-      allDrivers.sort((a, b) => a.distance - b.distance);
-
-      console.log(`🚗 ${allDrivers.length} conductores disponibles dentro de ${SEARCH_RADIUS_KM}km`);
-
-      const driversWithIcons = allDrivers.map((driver) => {
-        const infoData = driversInfo?.[driver.id];
-        const inferredVehicleType = extractVehicleTypeFromInfo({
-          vehicle: driver.vehicle,
-          ...(infoData || {}),
-        });
-
-        return {
-          id: driver.id,
-          latitude: driver.latitude,
-          longitude: driver.longitude,
-          heading: driver.heading,
-          vehicleIconSource: ensureVehicleIconSource(inferredVehicleType),
-        };
-      });
-
-      setAvailableDrivers(driversWithIcons);
-    } catch (error) {
-      console.error('❌ Error procesando conductores:', error);
-      setAvailableDrivers([]);
-    }
-  }, [
-    coords,
-    clientLocationData?.coords,
-    manualOverride?.active,
-    manualOverride?.coords,
-    driversInfo,
-    driverLocationsSnapshot,
-    loadingDrivers,
-  ]);
-
-  // Función para calcular distancia entre coordenadas
-  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-    return haversineKm(lat1, lon1, lat2, lon2);
-  };
-
-  const resolveAddressText = (lat: number, lng: number, fallback?: string) =>
-    fallback || `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-
-  useEffect(() => {
-    if (!manualOverride?.active || !coords) {
-      return;
-    }
-
-    if (manualOverride.source === 'local') {
-      return;
-    }
-
-    if (clientLocationData?.isManual) {
-      return;
-    }
-
-    const distance = calculateDistance(
-      manualOverride.coords.latitude,
-      manualOverride.coords.longitude,
-      coords.latitude,
-      coords.longitude,
-    );
-
-    if (distance < MANUAL_OVERRIDE_RELEASE_DISTANCE_KM) {
-      return;
-    }
-
-    console.log(
-      '🚶‍♂️ [HomeScreen] Movimiento detectado, liberando override manual. Distancia (km):',
-      distance.toFixed(3),
-    );
-
-    setManualOverride(null);
-
-    (async () => {
-      const address =
-        (await mapsService.reverseGeocode({ latitude: coords.latitude, longitude: coords.longitude })) ||
-        resolveAddressText(coords.latitude, coords.longitude, savedAddress);
-
-      setSavedAddress(address);
-
-      await saveClientLocation(
-        { latitude: coords.latitude, longitude: coords.longitude },
-        address,
-        {
-          source: 'gps',
-          manualOverride: {
-            active: false,
-            updatedAt: new Date().toISOString(),
-          },
-        },
-      );
-    })().catch((error) =>
-      console.error('❌ [HomeScreen] Error sincronizando ubicación tras liberar override manual:', error),
-    );
-  }, [coords, manualOverride, clientLocationData?.isManual, saveClientLocation, savedAddress]);
-
-  // Guardar ubicación del cliente en Firebase
-  // Navegar a pantalla de pagos pendientes
-  const handleViewPendingPayments = useCallback(() => {
-    console.log('💰 Navegando a pantalla de pagos pendientes');
-    navigation.replace('PendingPayments');
-  }, [navigation]);
-
-  const handleRegionChangeCenter = useCallback((center?: { latitude: number; longitude: number }) => {
-    if (!center) {
-      return;
-    }
-
-    if (ignoreNextRegionChangeRef.current) {
-      ignoreNextRegionChangeRef.current = false;
-      return;
-    }
-
-    clearRegionIdleTimeout();
-
-    if (isPinLocked) {
-      return;
-    }
-
-    if (!mapGestureActiveRef.current) {
-      mapGestureActiveRef.current = true;
-      setIsHoldingPin(true);
-      setHasPendingManualSelection(true);
-    }
-
-    setMapCenter({ latitude: center.latitude, longitude: center.longitude });
-  }, [clearRegionIdleTimeout, isPinLocked]);
-
-  const persistManualLocation = useCallback(
-    async (coordsToSave: { latitude: number; longitude: number } | null, preferredAddress?: string | null) => {
-      if (!coordsToSave || isSavingLocation) {
-        return;
-      }
-
-      setIsSavingLocation(true);
-      setLoadingMessage(t('client.home.loading.savingLocation'));
-
-      try {
-        let addressToSave = preferredAddress;
-        if (!addressToSave || addressToSave === t('client.home.map.loadingAddress')) {
-          addressToSave =
-            (await mapsService.reverseGeocode({
-              latitude: coordsToSave.latitude,
-              longitude: coordsToSave.longitude,
-            })) || resolveAddressText(coordsToSave.latitude, coordsToSave.longitude, savedAddress);
-        }
-
-        await saveClientLocation(coordsToSave, addressToSave, {
-          source: 'manual',
-          manualOverride: {
-            active: true,
-            updatedAt: new Date().toISOString(),
-          },
-        });
-
-        ignoreNextRegionChangeRef.current = true;
-        lastCommittedCoordsRef.current = coordsToSave;
-
-        setManualOverride({
-          active: true,
-          coords: coordsToSave,
-          address: addressToSave,
-          updatedAt: Date.now(),
-          source: 'local',
-        });
-        setSavedAddress(addressToSave);
-        setPendingAddress(addressToSave);
-        setHasPendingManualSelection(false);
-        setIsPinLocked(true);
-
-        alertService.showSuccessAlert(
-          t('client.home.alerts.locationSavedTitle'),
-          t('client.home.alerts.locationSavedMessage'),
-        );
-      } catch (error) {
-        console.error('❌ [HomeScreen] Error guardando nueva ubicación:', error);
-        alertService.showErrorAlert(t('client.home.alerts.locationSaveError'));
-      } finally {
-        setIsHoldingPin(false);
-        setIsSavingLocation(false);
-        setLoadingMessage(t('client.home.loading.preparing'));
-      }
-    },
-    [alertService, isSavingLocation, mapsService, resolveAddressText, saveClientLocation, savedAddress],
-  );
-
-  const updateRegionForCoords = useCallback(
-    async (latitude: number, longitude: number) => {
-      try {
-        const { default: client } = await import('../../api/client');
-        const { getFirebaseAuth } = await import('../../config/firebase');
-
-        const auth = await getFirebaseAuth();
-        const firebaseUser = auth.currentUser;
-        if (!firebaseUser) {
-          console.warn('[HomeScreen] No hay sesión Firebase Auth; omitiendo verificación de región para pin');
-          return;
-        }
-
-        try {
-          await firebaseUser.getIdToken(true);
-        } catch (tokenError) {
-          console.warn('[HomeScreen] No se pudo refrescar token antes de checkRegionAvailability (pin):', tokenError);
-        }
-
-        const response = await client.post('/checkRegionAvailabilityHttp', {
-          latitude,
-          longitude,
-          platform: Platform.OS,
-        });
-
-        const data = response.data as any;
-        const allowed = !!data?.allowed;
-
-        setRegionStatus({
-          checked: true,
-          allowed,
-          areaName: typeof data?.areaName === 'string' ? data.areaName : undefined,
-          message: typeof data?.message === 'string' ? data.message : undefined,
-          reasonCode: typeof data?.reasonCode === 'string' ? data.reasonCode : undefined,
-        });
-
-        const nextServiceAreaId =
-          typeof data?.serviceAreaId === 'string' && data.serviceAreaId.trim().length > 0
-            ? data.serviceAreaId.trim()
-            : null;
-
-        setServiceAreaId(nextServiceAreaId);
-        setIsOutsideSupportedArea(!allowed);
-      } catch (error: any) {
-        console.error(
-          '❌ [HomeScreen] Error verificando región para pin (HTTP):',
-          (error && (error.response?.data || error.message)) || error,
-        );
-      }
-    }, [],
-  );
-
-  const handleRegionChangeCompleteCenter = useCallback((center?: { latitude: number; longitude: number }) => {
-    if (!center) {
-      return;
-        }
-
-    mapGestureActiveRef.current = false;
-    setIsHoldingPin(false);
-
-    if (ignoreNextRegionChangeRef.current) {
-      ignoreNextRegionChangeRef.current = false;
-      return;
-    }
-
-    if (isPinLocked) {
-      clearRegionIdleTimeout();
-      return;
-    }
-
-    const normalizedCenter = { latitude: center.latitude, longitude: center.longitude };
-
-    setMapCenter(normalizedCenter);
-
-    const lastCommitted = lastCommittedCoordsRef.current;
-    const movedFromCommitted = !lastCommitted || !areCoordsEqual(lastCommitted, normalizedCenter, COORDS_EPSILON);
-
-    if (!movedFromCommitted) {
-      setHasPendingManualSelection(false);
-      setPendingAddress((prev) =>
-        prev && prev !== 'Cargando ubicación…'
-          ? prev
-          : resolveAddressText(normalizedCenter.latitude, normalizedCenter.longitude, savedAddress)
-      );
-      setIsResolvingAddress(false);
-      setIsHoldingPin(false);
-      clearRegionIdleTimeout();
-      return;
-    }
-
-    setHasPendingManualSelection(true);
-
-    clearRegionIdleTimeout();
-    regionIdleTimeoutRef.current = setTimeout(() => {
-      (async () => {
-        setIsResolvingAddress(true);
-        let resolvedAddress: string | null = null;
-
-        try {
-          resolvedAddress = await mapsService.reverseGeocode({
-            latitude: normalizedCenter.latitude,
-            longitude: normalizedCenter.longitude,
-          });
-        } catch (error) {
-          console.error('❌ [HomeScreen] Error resolviendo dirección para selección manual:', error);
-        }
-
-        const finalAddress =
-          resolvedAddress || resolveAddressText(normalizedCenter.latitude, normalizedCenter.longitude, savedAddress);
-        setPendingAddress(finalAddress);
-        setIsResolvingAddress(false);
-
-        await updateRegionForCoords(normalizedCenter.latitude, normalizedCenter.longitude);
-
-        await persistManualLocation(normalizedCenter, finalAddress);
-      })()
-        .catch((error) => {
-          console.error('❌ [HomeScreen] Error completando selección manual:', error);
-        })
-        .finally(() => {
-          regionIdleTimeoutRef.current = null;
-        });
-    }, REGION_IDLE_DELAY_MS);
-  }, [
-    clearRegionIdleTimeout,
-    isPinLocked,
-    mapsService,
-    persistManualLocation,
-    resolveAddressText,
-    savedAddress,
-    updateRegionForCoords,
-  ]);
-
-  const handleMarkerPress = useCallback(async () => {
-    if (!mapCenter || isSavingLocation) {
-      return;
-    }
-
-    if (isPinLocked) {
-      setIsPinLocked(false);
-      return;
-    }
-
-    if (isHoldingPin) {
-      return;
-    }
-
-    await persistManualLocation(mapCenter, pendingAddress);
-  }, [mapCenter, isHoldingPin, isPinLocked, isSavingLocation, pendingAddress, persistManualLocation]);
-
-  // Centrar mapa en la ubicación actual y actualizar ubicación
   const handleCenterMap = useCallback(async () => {
     try {
       await refreshLocation();
-      console.log('📍 Solicitud de actualización de ubicación enviada');
     } catch (error) {
       console.error('❌ Error actualizando ubicación:', error);
       alertService.showErrorAlert(t('client.home.alerts.locationUpdateError'));
     }
   }, [refreshLocation]);
 
-  // Ir a pantalla de solicitud de viaje
   const handleRequestRide = useCallback(() => {
     if (isOutsideSupportedArea) {
       alertService.showInfoAlert(
@@ -1252,174 +368,18 @@ export default function HomeScreen({ navigation }: any) {
     navigation.navigate('SearchRide');
   }, [handleViewPendingPayments, hasPendingPayments, isOutsideSupportedArea, navigation, regionStatus.message]);
 
-  // Ir a pantalla de viaje activo
-  const handleViewActiveRide = useCallback(async () => {
-    try {
-      if (!activeRide) {
-        console.log('❌ No hay viaje activo en el estado');
-        return;
-      }
-
-      console.log('🚗 Navegando a viaje activo:', activeRide.id, 'Estado:', activeRide.status);
-
-      if (['requested', 'driver_offered', 'pending_confirm', 'driver_assigned'].includes(activeRide.status)) {
-        navigation.replace('HomeOffers', { rideId: activeRide.id });
-        return;
-      }
-
-      if (['accepted', 'driver_on_route', 'in_progress'].includes(activeRide.status)) {
-        navigation.replace('RideTracking', {
-          rideId: activeRide.id,
-          driverId: activeRide.driverId,
-          driverName: activeRide.driver?.name || 'Conductor',
-          vehiclePlate: activeRide.vehicle?.plate || activeRide.driver?.vehicle?.plate || 'N/A',
-          vehicleBrand: activeRide.vehicle?.make || activeRide.vehicle?.brand || activeRide.driver?.vehicle?.brand || 'N/A',
-          vehicleModel: activeRide.vehicle?.model || activeRide.driver?.vehicle?.model || 'N/A',
-          vehicleColor: activeRide.vehicle?.color || activeRide.driver?.vehicle?.color || 'N/A',
-          estimatedFare: activeRide.finalFare || activeRide.estimatedPrice || 0,
-        });
-        return;
-      }
-
-      if (activeRide.status === 'pending_payment') {
-        const paymentMethod = activeRide.paymentMethod || activeRide.payment?.method || 'cash';
-        const finalAmount = activeRide.finalFare || activeRide.estimatedPrice || 0;
-        const driverName = activeRide.driver?.name || 'Conductor';
-        const driverPhoto = activeRide.driver?.photoURL || undefined;
-
-        if (paymentMethod === 'card') {
-          navigation.replace('Payment', {
-            rideId: activeRide.id,
-            amount: finalAmount,
-            driverId: activeRide.driverId,
-            driverName,
-            vehiclePlate: activeRide.vehicle?.plate || activeRide.driver?.vehicle?.plate || 'N/A',
-            driverPhoto,
-            isPendingPayment: true,
-          });
-        } else {
-          navigation.replace('CashPayment', {
-            rideId: activeRide.id,
-            amount: finalAmount,
-            driverName,
-            driverPhoto,
-          });
-        }
-        return;
-      }
-
-      console.log(`⚠️ [HomeScreen] Estado de viaje no manejado: ${activeRide.status}`);
-    } catch (error: any) {
-      console.error('❌ Error al navegar a viaje activo:', error);
-    }
-  }, [activeRide, navigation]);
-
-  const getActiveRideLabel = useCallback(
-    (status: string) => {
-      switch (status) {
-        case 'requested':
-          return t('client.home.activeRide.requested');
-        case 'pending_confirm':
-        case 'driver_offered':
-        case 'driver_assigned':
-          return t('client.home.activeRide.confirm');
-        case 'accepted':
-        case 'driver_on_route':
-          return t('client.home.activeRide.driverOnRoute');
-        case 'in_progress':
-          return t('client.home.activeRide.inProgress');
-        case 'pending_payment':
-          return t('client.home.activeRide.pendingPayment');
-        default:
-          return t('client.home.activeRide.default');
-      }
-    },
-    [t],
-  );
-
-  // Suscribirse al preflight store
-  useEffect(() => {
-    const unsubscribePreflight = subscribePreflightResult((summary) => {
-      if (!summary || summary.role !== 'client') {
-        setPreflightActions([]);
-        return;
-      }
-      setPreflightActions(summary.actions);
-    });
-
-    return () => {
-      unsubscribePreflight();
-    };
-  }, []);
+  const displayCoords = useMemo(() => {
+    if (mapCenter) return mapCenter;
+    return effectiveCoords;
+  }, [mapCenter, effectiveCoords]);
 
   useEffect(() => {
-    // Prioridad 1: Viaje activo (incluye estados de búsqueda, en curso o pending_payment)
-    if (activeRide) {
-      setPendingAction({
-        type: 'active_ride',
-        title: getActiveRideLabel(activeRide.status),
-        onPress: handleViewActiveRide,
-      });
-      return;
+    if (!locationLoading || !!coords || !!storedCoords) {
+      markTaskCompleted('location');
     }
+  }, [locationLoading, coords, storedCoords, markTaskCompleted]);
 
-    // Prioridad 2: Pagos pendientes detectados localmente / backend
-    if (hasPendingPayments) {
-      const pendingCount =
-        pendingPayments.length > 0
-          ? pendingPayments.length
-          : 1;
-      setPendingAction({
-        type: 'pending_payment',
-        title:
-          pendingCount === 1
-            ? t('client.home.pendingAction.paymentSingle')
-            : t('client.home.pendingAction.paymentMultiple', { count: pendingCount }),
-        onPress: handleViewPendingPayments,
-      });
-      return;
-    }
-
-    // Prioridad 3: Acciones desde preflight (complemento)
-    if (preflightActions.length > 0) {
-      const nextAction = preflightActions.find(
-        (action) => action.type === 'active_ride' || action.type === 'pending_payment'
-      );
-
-      if (nextAction) {
-        const actionType = nextAction.type === 'pending_payment' ? 'pending_payment' : 'active_ride';
-
-        setPendingAction({
-          type: actionType,
-          title: nextAction.title,
-          onPress: () => {
-            if (nextAction.routeName) {
-              navigation.navigate(nextAction.routeName as any, nextAction.routeParams);
-            }
-          },
-        });
-        return;
-      }
-    }
-
-    setPendingAction(null);
-  }, [hasPendingPayments, pendingPayments, activeRide, preflightActions, getActiveRideLabel, handleViewActiveRide, handleViewPendingPayments, navigation, t]);
-
-  const storedCoords = clientLocationData?.coords || null;
-  const effectiveCoords = useMemo(() => {
-    if (manualOverride?.active) {
-      return manualOverride.coords;
-    }
-    if (coords) {
-      return coords;
-    }
-    if (storedCoords) {
-      return storedCoords;
-    }
-    return DEFAULT_CLIENT_LOCATION;
-  }, [manualOverride?.active, manualOverride?.coords, coords, storedCoords]);
-
-  // Mostrar alerta de región no soportada (una sola vez por sesión de Home)
+  // Mostrar alerta de región no soportada (una sola vez)
   useEffect(() => {
     if (!isOutsideSupportedArea) return;
     if (hasShownUnsupportedAlertRef.current) return;
@@ -1433,26 +393,11 @@ export default function HomeScreen({ navigation }: any) {
 
   const waitingForLocation = locationLoading && !coords && !storedCoords;
 
-  const displayCoords = useMemo(() => {
-    if (mapCenter) {
-      return mapCenter;
-    }
-    return effectiveCoords;
-  }, [mapCenter, effectiveCoords]);
-
-  useEffect(() => {
-    if (!locationLoading || !!coords || !!storedCoords) {
-      markTaskCompleted('location');
-    }
-  }, [locationLoading, coords, storedCoords, markTaskCompleted]);
-
   if (initializing) {
-    console.log('⏳ [HomeScreen:init] Esperando tareas iniciales:', Array.from(pendingInitialTasks.current));
     return <LoadingOverlay visible message={loadingMessage} />;
   }
 
   if (waitingForLocation) {
-    console.log('⏳ Esperando coordenadas del cliente...');
     return <LoadingOverlay visible={true} message={loadingMessage} />;
   }
 
@@ -1490,7 +435,6 @@ export default function HomeScreen({ navigation }: any) {
 
   return (
       <View style={styles.container}>
-      {/* Mapa con ubicación actual */}
       <DynamicMap
         latitude={displayCoords.latitude}
         longitude={displayCoords.longitude}
@@ -1533,9 +477,6 @@ export default function HomeScreen({ navigation }: any) {
           hasPendingManualSelection ? styles.locationStatusPending : styles.locationStatusIdle,
         ]}
       >
-        {/*<Text style={styles.locationStatusAddress} numberOfLines={2}>
-          {pendingAddress}
-        </Text>*/}
         <Text style={styles.locationStatusHint}>{locationStatusHint}</Text>
         {isSavingLocation && (
           <Text style={styles.locationStatusSaving}>{t('client.home.locationStatus.savingLabel')}</Text>

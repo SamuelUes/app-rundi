@@ -8,7 +8,7 @@ import { getFirebaseAuth, getFirebaseDatabase, getFirebaseFunctions } from '../c
 import { ref, set, onValue, off, update, remove, serverTimestamp } from 'firebase/database';
 import { httpsCallable } from 'firebase/functions';
 import { signInAnonymously } from 'firebase/auth';
-import { getPreflightResult } from '../state/preflightStore';
+import { getPreflightResult } from '../stores/preflightStore';
 
 interface Location {
   latitude: number;

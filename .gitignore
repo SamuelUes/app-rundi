@@ -90,6 +90,11 @@ web/page
 web/plataform
 web/functions
 web/page/.next
+supabase/migrations
+supabase/config.toml
+supabase/readme.md
+supabase/secrets.json
+supabase/.gitignore
 
 # Permitidos
 !database/supabase-only.sql

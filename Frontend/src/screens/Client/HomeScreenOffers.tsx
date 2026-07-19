@@ -5,24 +5,30 @@ import { LoadingIcon } from '../../components/LoadingIcon';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
-import { useLocation } from '../../hooks/useLocation';
+import { useLocation } from '../../hooks/shared/location/useLocation';
 import DynamicMap from '../../components/DynamicMap';
 import { MAP_ICONS } from '../../constants/mapIcons';
-import alertService from '../../services/alertService';
-import ridesService from '../../services/ridesService';
 import PriceNegotiationModal from '../../components/PriceNegotiationModal';
-import DriverReviewsModal, {
-  DriverComplimentItem,
-  DriverReviewItem,
-} from '../../components/DriverReviewsModal';
-import priceNegotiationService from '../../services/priceNegotiationService';
-import { useFirebaseData } from '../../hooks/useFirebaseData';
+import DriverReviewsModal from '../../components/DriverReviewsModal';
+import { useRideOffers, type OfferItem } from '../../hooks/client/HomeScreenOffers/useRideOffers';
+import { useDriverLocations } from '../../hooks/client/HomeScreenOffers/useDriverLocations';
+import { useDriverPublicInsights } from '../../hooks/client/HomeScreenOffers/useDriverPublicInsights';
+import { useOfferETAs } from '../../hooks/client/HomeScreenOffers/useOfferETAs';
+import { usePriceNegotiationClient } from '../../hooks/client/HomeScreenOffers/usePriceNegotiationClient';
 import { extractVehicleTypeFromInfo, ensureVehicleIconSource } from '../../utils/vehicleIcons';
-import mapsService from '../../services/mapsService';
-import { clearClientActiveRideState } from '../../utils/clientRideState';
-import { getPreflightResult } from '../../state/preflightStore';
+import { getPreflightResult } from '../../stores/preflightStore';
 import { RIDES_RADIUS_KM } from '../../constants/rideRadius';
-import { fetchDriverPublicInsights, type DriverPublicInsights } from '../../services/driverPublicInsightsService';
+import {
+  extractCoordinateFromSource,
+  type LatLngPoint,
+} from '../../utils/coordinates';
+import { mergeName } from '../../utils/driverInfo';
+import { mergeRating } from '../../utils/rating';
+import {
+  firstPositivePrice,
+  resolveNegotiationBasePrice,
+} from '../../utils/pricing';
+import { haversineKm } from '../../utils/distance';
 
 const { USER_LOCATION_LIGHT, USER_LOCATION_DARK } = MAP_ICONS;
 const MAX_DRIVER_RADIUS_KM = typeof RIDES_RADIUS_KM === 'number' ? RIDES_RADIUS_KM : 6;
@@ -32,235 +38,7 @@ interface Props {
   route?: { params?: { rideId?: string } };
 }
 
-interface OfferItem {
-  driverId: string;
-  offeredPrice?: number;
-  status?: 'pending' | 'accepted' | 'rejected';
-  estimatedArrivalTime?: string;
-  driver: {
-    name: string;
-    rating: number | null;
-    photoURL: string | null;
-    vehicle?: any;
-  };
-}
-
 const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
-
-type LatLngPoint = { latitude: number; longitude: number };
-
-const toRadians = (deg: number) => (deg * Math.PI) / 180;
-
-const haversineKm = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-  const R = 6371;
-  const dLat = toRadians(lat2 - lat1);
-  const dLon = toRadians(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) * Math.sin(dLon / 2) ** 2;
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-};
-
-const normalizePoint = (point: any): LatLngPoint | null => {
-  if (!point) return null;
-  const latitude =
-    typeof point?.lat === 'number'
-      ? point.lat
-      : typeof point?.latitude === 'number'
-      ? point.latitude
-      : Number(point?.lat ?? point?.latitude);
-  const longitude =
-    typeof point?.lng === 'number'
-      ? point.lng
-      : typeof point?.longitude === 'number'
-      ? point.longitude
-      : Number(point?.lng ?? point?.longitude);
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
-  return { latitude, longitude };
-};
-
-const preferNonEmpty = (...candidates: Array<string | null | undefined>): string | null => {
-  for (const candidate of candidates) {
-    if (typeof candidate === 'string') {
-      const trimmed = candidate.trim();
-      if (trimmed.length > 0) {
-        return trimmed;
-      }
-    }
-  }
-  return null;
-};
-
-const parseCoordinateValue = (value: any): number | null => {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value === 'string') {
-    const parsed = parseFloat(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  return null;
-};
-
-const extractCoordinateFromSource = (source: any, axis: 'lat' | 'lng'): number | null => {
-  if (!source || typeof source !== 'object') return null;
-  const directKey = axis === 'lat' ? 'lat' : 'lng';
-  const friendlyKey = axis === 'lat' ? 'latitude' : 'longitude';
-  const candidates = [
-    source[directKey],
-    source[friendlyKey],
-    source?.coords?.[friendlyKey] ?? source?.coords?.[directKey],
-    source?.location?.[friendlyKey] ?? source?.location?.[directKey],
-  ];
-  for (const candidate of candidates) {
-    const parsed = parseCoordinateValue(candidate);
-    if (parsed !== null) return parsed;
-  }
-  return null;
-};
-
-const extractNameFromSource = (source: any): string | null => {
-  if (!source || typeof source !== 'object') return null;
-  return preferNonEmpty(
-    source.fullName,
-    source.displayName,
-    source.name,
-    [source.firstName, source.lastName].filter(Boolean).join(' '),
-    source.driverName,
-    source.username
-  );
-};
-
-const parseInteger = (value: any): number | null => {
-  if (typeof value === 'number' && Number.isFinite(value)) return Math.max(0, Math.round(value));
-  if (typeof value === 'string') {
-    const parsed = parseInt(value, 10);
-    return Number.isFinite(parsed) ? Math.max(0, parsed) : null;
-  }
-  return null;
-};
-
-const parseTimestamp = (value: any): number | null => {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value > 9999999999 ? value : value * 1000;
-  }
-  if (typeof value === 'string') {
-    const asNumber = Number(value);
-    if (Number.isFinite(asNumber)) {
-      return asNumber > 9999999999 ? asNumber : asNumber * 1000;
-    }
-    const parsedDate = Date.parse(value);
-    return Number.isFinite(parsedDate) ? parsedDate : null;
-  }
-  return null;
-};
-
-const mergeName = (fallback: string, ...sources: Array<any | null | undefined>): string => {
-  for (const source of sources) {
-    const candidate = extractNameFromSource(source);
-    if (candidate) {
-      return candidate;
-    }
-  }
-  return fallback;
-};
-
-const extractRatingValue = (value: any): number | null => {
-  if (value === null || value === undefined) return null;
-  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
-  if (typeof value === 'string') {
-    const parsed = parseFloat(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  if (typeof value === 'object') {
-    return (
-      extractRatingValue(value.value) ??
-      extractRatingValue(value.average) ??
-      extractRatingValue(value.avg) ??
-      extractRatingValue(value.rating) ??
-      extractRatingValue(value.score)
-    );
-  }
-  return null;
-};
-
-const mergeRating = (...sources: Array<any | null | undefined>): number | null => {
-  const ratingCandidates: any[] = [];
-
-  for (const source of sources) {
-    if (!source || typeof source !== 'object') continue;
-    ratingCandidates.push(
-      source.rating,
-      source.averageRating,
-      source.avgRating,
-      source?.stats?.rating,
-      source?.stats?.averageRating,
-      source?.stats?.avgRating
-    );
-  }
-
-  for (const candidate of ratingCandidates) {
-    const parsed = extractRatingValue(candidate);
-    if (parsed !== null) return parsed;
-  }
-
-  return null;
-};
-
-const parsePriceValue = (value: any): number | null => {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value;
-  }
-  if (typeof value === 'string') {
-    const normalized = value.replace(/[^\d,.-]/g, '').replace(',', '.');
-    const parsed = parseFloat(normalized);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  return null;
-};
-
-const firstPositivePrice = (...values: any[]): number | null => {
-  for (const value of values) {
-    const parsed = parsePriceValue(value);
-    if (parsed !== null && parsed > 0) {
-      return parsed;
-    }
-  }
-  return null;
-};
-
-const resolveNegotiationBasePrice = (rideSnapshot: any | null, offer?: OfferItem): number | null => {
-  const estimated = firstPositivePrice(
-    rideSnapshot?.estimatedPrice,
-    rideSnapshot?.estimatedFare,
-    rideSnapshot?.negotiation?.estimatedPrice,
-  );
-  if (estimated !== null) return estimated;
-
-  const clientPrice = firstPositivePrice(
-    rideSnapshot?.clientSuggestedPrice,
-    rideSnapshot?.negotiation?.clientSuggestedPrice,
-  );
-  if (clientPrice !== null) return clientPrice;
-
-  return firstPositivePrice(
-    offer?.offeredPrice,
-    rideSnapshot?.driverOfferedPrice,
-    rideSnapshot?.negotiation?.driverOfferedPrice,
-  );
-};
-
-const hasRidePricingData = (ride: any | null | undefined): boolean => {
-  if (!ride) return false;
-  return (
-    firstPositivePrice(
-      ride?.clientSuggestedPrice,
-      ride?.negotiation?.clientSuggestedPrice,
-      ride?.estimatedPrice,
-      ride?.estimatedFare,
-      ride?.negotiation?.estimatedPrice,
-    ) !== null
-  );
-};
 
 export default function HomeScreenOffers({ navigation, route }: Props) {
   const { t } = useTranslation();
@@ -272,170 +50,23 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
   const preflightSummary = getPreflightResult();
   const initialRegion = preflightSummary?.region;
   const [serviceAreaId] = useState<string | null>(initialRegion?.serviceAreaId ?? null);
-  const [rideId, setRideId] = useState<string | null>(route?.params?.rideId || null);
-  const [offers, setOffers] = useState<OfferItem[]>([]);
-  const [selectedDriverId, setSelectedDriverId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [rideSnapshot, setRideSnapshot] = useState<any | null>(null);
-  const [driverLocations, setDriverLocations] = useState<Record<string, any> | null>(null);
+  const { driverLocations } = useDriverLocations(serviceAreaId);
   const [showNegotiation, setShowNegotiation] = useState(false);
   const [showDriverReviews, setShowDriverReviews] = useState(false);
-  const [driverPublicInsights, setDriverPublicInsights] = useState<DriverPublicInsights | null>(null);
   const [isConfirming, setIsConfirming] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
-  const [routeCoordinates, setRouteCoordinates] = useState<Array<{ latitude: number; longitude: number }>>([]);
-  const [loadingRoute, setLoadingRoute] = useState(false);
 
-  // driversInfo: datos públicos agregados (nombre, foto, rating, vehículo). Evita leer /drivers (permiso denegado para clientes)
-  const { data: driversInfo } = useFirebaseData<any>('driversInfo', { maxCacheAge: 10000 });
-  const { data: driversRaw } = useFirebaseData<any>('drivers', { maxCacheAge: 10000 });
-
-  // Resolve current rideId if not provided (find requested or driver_offered for this user)
-  useEffect(() => {
-    if (rideId) return;
-    if (!user?.id) return;
-
-    let mounted = true;
-    (async () => {
-      const { getDatabase, ref, onValue, off } = await import('firebase/database');
-      const db = getDatabase();
-      const path = serviceAreaId ? `activeRidesByArea/${serviceAreaId}` : 'activeRides';
-      const activeRidesRef = ref(db, path);
-      const unsub = onValue(activeRidesRef, (snap) => {
-        if (!mounted) return;
-        const all = snap.val() || {};
-        const mine = Object.entries<any>(all).find(([, r]) => r?.clientId === user.id && (
-          r?.status === 'requested' || r?.status === 'driver_offered' || r?.status === 'pending_confirm' || r?.status === 'driver_assigned'
-        ));
-        if (mine) {
-          setRideId(mine[0]);
-        }
-        setTimeout(() => off(activeRidesRef), 0);
-      });
-      return () => { try { off(activeRidesRef); } catch {} };
-    })();
-  }, [rideId, user?.id, serviceAreaId]);
-
-  // Listen to active ride and its offers
-  useEffect(() => {
-    let mounted = true;
-    let cleanup: (() => void) | undefined;
-    (async () => {
-      if (!rideId) return;
-      const { getDatabase, ref, onValue, off, get } = await import('firebase/database');
-      const db = getDatabase();
-      const basePath = serviceAreaId ? `activeRidesByArea/${serviceAreaId}` : 'activeRides';
-      const rideRef = ref(db, `${basePath}/${rideId}`);
-      const fallbackRideRef = ref(db, `activeRides/${rideId}`);
-
-      const onRide = async (snapshot: any) => {
-        if (!mounted) return;
-        let ride = snapshot.val();
-
-        if (!hasRidePricingData(ride)) {
-          try {
-            const fallbackSnap = await get(fallbackRideRef);
-            if (fallbackSnap.exists()) {
-              ride = {
-                ...fallbackSnap.val(),
-                ...ride,
-              };
-            }
-          } catch (fallbackError) {
-            console.warn('[HomeScreenOffers] Error al leer fallback activeRides:', fallbackError);
-          }
-        }
-
-        setRideSnapshot(ride);
-
-        // read offers from data or nested path
-        let offersData = ride?.offers || ride?.driverOffers;
-        if (!offersData) {
-          const offersRef = ref(db, `${basePath}/${rideId}/offers`);
-          const offersSnap = await get(offersRef);
-          if (offersSnap.exists()) offersData = offersSnap.val();
-        }
-        if (!offersData) {
-          const offersRef = ref(db, `activeRides/${rideId}/offers`);
-          const offersSnap = await get(offersRef);
-          if (offersSnap.exists()) offersData = offersSnap.val();
-        }
-
-        // transform offers to array and enrich with driversInfo
-        if (offersData && typeof offersData === 'object') {
-          const arr: OfferItem[] = Object.entries<any>(offersData)
-            .filter(([, offer]) => String(offer?.status || 'pending').toLowerCase() !== 'rejected')
-            .map(([driverId, offer]) => {
-              const info = driversInfo?.[driverId] || {};
-              const raw = driversRaw?.[driverId] || {};
-              const fullName = mergeName(driverFallbackName, info, raw, offer?.driver);
-              const rating = mergeRating(info, raw, offer?.driver ?? offer);
-              const photoURL = info?.profilePhoto || info?.photoURL || info?.photoUrl || raw?.profilePhoto || raw?.photoURL || raw?.photoUrl || offer?.driver?.photoURL || null;
-              const vehicle = info?.vehicle || info?.activeVehicle || info?.currentVehicle || raw?.vehicle || raw?.activeVehicle || offer?.driver?.vehicle || undefined;
-              return {
-                driverId,
-                offeredPrice: offer?.offeredPrice,
-                status: offer?.status || 'pending',
-                estimatedArrivalTime: offer?.estimatedArrivalTime,
-                driver: {
-                  name: fullName,
-                  rating,
-                  photoURL,
-                  vehicle,
-                },
-              };
-            });
-          // order by accepted first, then ETA/price
-          arr.sort((a, b) => {
-            const sa = a.status === 'accepted' ? 0 : 1;
-            const sb = b.status === 'accepted' ? 0 : 1;
-            if (sa !== sb) return sa - sb;
-            return (a.offeredPrice ?? 0) - (b.offeredPrice ?? 0);
-          });
-          setOffers(arr);
-          setSelectedDriverId((prev) => {
-            if (prev && arr.some((offer) => offer.driverId === prev)) {
-              return prev;
-            }
-
-            const acceptedOffer = arr.find((offer) => offer.status === 'accepted');
-            if (acceptedOffer) {
-              return acceptedOffer.driverId;
-            }
-
-            return null;
-          });
-        } else {
-          setOffers([]);
-        }
-        setLoading(false);
-      };
-
-      onValue(rideRef, onRide);
-      cleanup = () => { try { off(rideRef); } catch {} };
-    })();
-
-    return () => { mounted = false; if (cleanup) cleanup(); };
-  }, [rideId, driversInfo, driversRaw, serviceAreaId]);
-
-  // Listen driverLocations for marker positions
-  useEffect(() => {
-    let mounted = true;
-    let cleanup: (() => void) | undefined;
-    (async () => {
-      const { getDatabase, ref, onValue, off } = await import('firebase/database');
-      const db = getDatabase();
-      const path = serviceAreaId ? `driverLocationsByArea/${serviceAreaId}` : 'driverLocations';
-      const locRef = ref(db, path);
-      onValue(locRef, (snap) => {
-        if (!mounted) return;
-        const val = snap.val();
-        setDriverLocations(val && typeof val === 'object' ? val : null);
-      });
-      cleanup = () => { try { off(locRef); } catch {} };
-    })();
-    return () => { mounted = false; if (cleanup) cleanup(); };
-  }, [serviceAreaId]);
+  const {
+    rideId,
+    offers,
+    selectedDriverId,
+    setSelectedDriverId,
+    loading,
+    rideSnapshot,
+    driversInfo,
+    driversRaw,
+    reset: resetRideOffers,
+  } = useRideOffers(route?.params?.rideId || null, user?.id, serviceAreaId, driverFallbackName);
 
   const handleSelectFromList = (driverId: string) => {
     setSelectedDriverId((current) => (current === driverId ? null : driverId));
@@ -464,162 +95,14 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
     [offers, selectedDriverId],
   );
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const selectedId = selectedOffer?.driverId;
-    if (!selectedId) {
-      setDriverPublicInsights(null);
-      return;
-    }
-
-    (async () => {
-      try {
-        const insights = await fetchDriverPublicInsights(selectedId, { limit: 20, forceRefresh: true });
-        if (!cancelled) {
-          setDriverPublicInsights(insights);
-        }
-      } catch {
-        if (!cancelled) {
-          setDriverPublicInsights(null);
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedOffer?.driverId]);
-
-  const selectedDriverReviewsData = useMemo(() => {
-    const complimentCatalog = [
-      { id: 'punctuality', icon: '⏱️' },
-      { id: 'cleanliness', icon: '🧼' },
-      { id: 'communication', icon: '💬' },
-      { id: 'driving', icon: '🚗' },
-      { id: 'safety', icon: '🛡️' },
-      { id: 'friendliness', icon: '🙂' },
-    ] as const;
-
-    const defaultCompliments: DriverComplimentItem[] = complimentCatalog.map((item) => ({
-      id: item.id,
-      label: t(`client.homeOffers.reviews.compliments.${item.id}`, item.id),
-      count: 0,
-      icon: item.icon,
-    }));
-
-    const formatRelativeDate = (value: any): string => {
-      const timestamp = parseTimestamp(value);
-      if (!timestamp) return t('client.homeOffers.reviews.fallbackDate');
-      const diffMs = Math.max(0, Date.now() - timestamp);
-      const dayMs = 24 * 60 * 60 * 1000;
-      const days = Math.floor(diffMs / dayMs);
-
-      if (days <= 0) return t('client.homeOffers.reviews.relative.today');
-      if (days === 1) return t('client.homeOffers.reviews.relative.oneDay');
-      if (days < 7) return t('client.homeOffers.reviews.relative.days', { count: days });
-
-      const weeks = Math.floor(days / 7);
-      if (weeks <= 1) return t('client.homeOffers.reviews.relative.oneWeek');
-      return t('client.homeOffers.reviews.relative.weeks', { count: weeks });
-    };
-
-    const selectedId = selectedOffer?.driverId;
-    if (!selectedId) {
-      return {
-        ridesCount: 0,
-        yearsWithApp: 0,
-        compliments: defaultCompliments,
-        reviews: [] as DriverReviewItem[],
-      };
-    }
-
-    const info = driversInfo?.[selectedId] || {};
-    const raw = driversRaw?.[selectedId] || {};
-    const rideStats = info?.stats || raw?.stats || {};
-
-    const ridesCount =
-      parseInteger(rideStats?.completedRides) ??
-      parseInteger(rideStats?.totalRides) ??
-      parseInteger(info?.completedRides) ??
-      parseInteger(raw?.completedRides) ??
-      0;
-
-    const yearsWithApp =
-      parseInteger(driverPublicInsights?.stats?.yearsOnPlatform) ??
-      parseInteger(info?.yearsOnPlatform) ??
-      parseInteger(raw?.yearsOnPlatform) ??
-      parseInteger(info?.experienceYears) ??
-      parseInteger(raw?.experienceYears) ??
-      0;
-
-    const rawCompliments = info?.compliments || raw?.compliments;
-    const insightsCountById = new Map(
-      Array.isArray(driverPublicInsights?.compliments)
-        ? driverPublicInsights.compliments.map((item) => [item.id, Math.max(0, Math.round(Number(item.count) || 0))])
-        : [],
+  const { insights: driverPublicInsights, reviewsData: selectedDriverReviewsData } =
+    useDriverPublicInsights(
+      selectedOffer?.driverId,
+      driversInfo,
+      driversRaw,
+      null,
+      t,
     );
-
-    const compliments: DriverComplimentItem[] = complimentCatalog.map((meta) => {
-      const rawValue = rawCompliments && typeof rawCompliments === 'object' ? (rawCompliments as any)[meta.id] : null;
-      const fromRaw =
-        parseInteger(rawValue?.count) ??
-        parseInteger(rawValue?.total) ??
-        parseInteger(rawValue);
-
-      return {
-        id: meta.id,
-        label: t(`client.homeOffers.reviews.compliments.${meta.id}`, meta.id),
-        icon: meta.icon,
-        count: insightsCountById.get(meta.id) ?? fromRaw ?? 0,
-      };
-    });
-
-    const rawReviews =
-      (Array.isArray(driverPublicInsights?.reviews) ? driverPublicInsights.reviews : null) ||
-      (Array.isArray(info?.topReviews) ? info.topReviews : null) ||
-      (Array.isArray(raw?.topReviews) ? raw.topReviews : null) ||
-      (Array.isArray(info?.reviews) ? info.reviews : null) ||
-      (Array.isArray(raw?.reviews) ? raw.reviews : null) ||
-      [];
-
-    const reviews = rawReviews
-      .map((entry: any, index: number) => {
-        const parsedRating = extractRatingValue(entry?.rating) ?? 5;
-        const comment =
-          typeof entry?.comment === 'string' && entry.comment.trim().length > 0
-            ? entry.comment.trim()
-            : typeof entry?.text === 'string' && entry.text.trim().length > 0
-            ? entry.text.trim()
-            : null;
-
-        if (!comment) return null;
-
-        const author =
-          typeof entry?.author === 'string' && entry.author.trim().length > 0
-            ? entry.author.trim()
-            : typeof entry?.name === 'string' && entry.name.trim().length > 0
-            ? entry.name.trim()
-            : t('client.homeOffers.reviews.anonymous');
-
-        return {
-          id: String(entry?.id || index),
-          author,
-          comment,
-          rating: parsedRating,
-          relativeDate: formatRelativeDate(entry?.createdAt ?? entry?.timestamp ?? entry?.date ?? entry?.created_at),
-        };
-      })
-      .filter((item: DriverReviewItem | null): item is DriverReviewItem => item !== null)
-      .slice(0, 5);
-
-    return {
-      ridesCount: parseInteger(driverPublicInsights?.stats?.totalRides) ?? ridesCount,
-      yearsWithApp,
-      compliments,
-      reviews,
-    };
-  }, [driverPublicInsights, driversInfo, driversRaw, selectedOffer?.driverId, t]);
 
   const negotiationBasePrice = useMemo(
     () => resolveNegotiationBasePrice(rideSnapshot, selectedOffer),
@@ -674,7 +157,6 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
   const acceptedAnim = useRef(new Animated.Value(0)).current;
   const confirmBtnAnim = useRef(new Animated.Value(1)).current;
   const cancelBtnAnim = useRef(new Animated.Value(1)).current;
-  const routeSignatureRef = useRef<string>('');
 
   useEffect(() => {
     if (!selectedOffer) {
@@ -703,6 +185,23 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
     setShowNegotiation(true);
   }, [selectedOffer]);
 
+  const {
+    onAcceptDriverOffer,
+    onSendCounterOffer,
+    onAcceptAndStartRide,
+    cancelSearch: cancelSearchBase,
+    confirmSelectedDriver: confirmSelectedDriverBase,
+  } = usePriceNegotiationClient(
+    rideId,
+    selectedOffer,
+    rideSnapshot,
+    negotiationBasePrice,
+    driverFallbackName,
+    navigation,
+    t,
+    resetRideOffers,
+  );
+
   const confirmSelectedDriver = useCallback(async () => {
     if (!rideId || !selectedDriverId || isConfirming) return;
     setIsConfirming(true);
@@ -712,28 +211,10 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
       useNativeDriver: true,
     }).start();
     try {
-      await ridesService.confirmDriver(rideId, selectedDriverId);
-      alertService.showSuccessAlert(
-        t('client.homeOffers.alerts.confirmSuccessTitle'),
-        t('client.homeOffers.alerts.confirmSuccessMessage'),
-      );
+      await confirmSelectedDriverBase(selectedDriverId);
       setShowNegotiation(false);
-      if (navigation?.replace) {
-        navigation.replace('RideTracking', {
-          rideId,
-          driverId: selectedDriverId,
-          driverName: offers.find(o => o.driverId === selectedDriverId)?.driver?.name || driverFallbackName,
-        });
-      } else {
-        navigation?.navigate?.('RideTracking', {
-          rideId,
-          driverId: selectedDriverId,
-          driverName: offers.find(o => o.driverId === selectedDriverId)?.driver?.name || driverFallbackName,
-        });
-      }
     } catch (e: any) {
       console.error('Error confirming driver', e);
-      alertService.showErrorAlert(e?.message || t('client.homeOffers.alerts.confirmError'));
     } finally {
       Animated.timing(confirmBtnAnim, {
         toValue: 1,
@@ -742,7 +223,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
       }).start();
       setIsConfirming(false);
     }
-  }, [confirmBtnAnim, driverFallbackName, isConfirming, navigation, offers, rideId, selectedDriverId, t]);
+  }, [confirmBtnAnim, isConfirming, rideId, selectedDriverId, confirmSelectedDriverBase]);
 
   const cancelSearch = useCallback(async () => {
     if (!rideId || isCancelling) return;
@@ -753,19 +234,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
       useNativeDriver: true,
     }).start();
     try {
-      await ridesService.cancelRide(rideId, t('client.homeOffers.cancelReason'));
-      await clearClientActiveRideState();
-      setRideId(null);
-      setRideSnapshot(null);
-      setOffers([]);
-      setSelectedDriverId(null);
-      alertService.showSuccessAlert(
-        t('client.homeOffers.alerts.cancelSuccessTitle'),
-        t('client.homeOffers.alerts.cancelSuccessMessage'),
-      );
-      navigation.replace('ClientHome');
-    } catch (e: any) {
-      alertService.showErrorAlert(e?.message || t('client.homeOffers.alerts.cancelError'));
+      await cancelSearchBase();
     } finally {
       Animated.timing(cancelBtnAnim, {
         toValue: 1,
@@ -774,7 +243,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
       }).start();
       setIsCancelling(false);
     }
-  }, [rideId, navigation, isCancelling, cancelBtnAnim]);
+  }, [rideId, isCancelling, cancelBtnAnim, cancelSearchBase]);
 
   // Location to center map
   const centerLat = coords?.latitude ?? rideSnapshot?.origin?.lat ?? 12.1364;
@@ -934,136 +403,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
     selectedDriverId,
   ]);
 
-  const etasByDriver = useMemo(() => {
-    const map: Record<string, { etaMins: number; arrivalLabel: string }> = {};
-    const origin = originCoords;
-    if (!origin) return map;
-
-    (offers || []).forEach((offer) => {
-      const lat = getDriverCoordinate(offer.driverId, 'lat');
-      const lng = getDriverCoordinate(offer.driverId, 'lng');
-      if (lat === null || lng === null) return;
-      const distKm = haversineKm(origin.latitude, origin.longitude, lat, lng);
-      const avgSpeedKmH = 24;
-      const mins = Math.max(1, Math.round((distKm / avgSpeedKmH) * 60));
-      const arrival = new Date(Date.now() + mins * 60000);
-      const hours = arrival.getHours();
-      const minutes = arrival.getMinutes();
-      const h12 = ((hours + 11) % 12) + 1;
-      const ampm = hours >= 12 ? 'pm' : 'am';
-      const arrivalLabel = `${h12}:${minutes.toString().padStart(2, '0')}${ampm}`;
-      map[offer.driverId] = { etaMins: mins, arrivalLabel };
-    });
-
-    return map;
-  }, [offers, getDriverCoordinate, originCoords]);
-
-  const routeData = useMemo(() => {
-    const originPoint = normalizePoint(rideSnapshot?.origin || rideSnapshot?.originLocation);
-    const destinationPoint = normalizePoint(rideSnapshot?.destination || rideSnapshot?.destinationLocation);
-    const extraStops =
-      Array.isArray(rideSnapshot?.extraDestinations) && rideSnapshot.extraDestinations.length > 0
-        ? rideSnapshot.extraDestinations
-            .map((stop: any) => normalizePoint(stop))
-            .filter(Boolean) as LatLngPoint[]
-        : [];
-
-    const serializePoint = (label: string, point: LatLngPoint | null) =>
-      point ? `${label}:${point.latitude.toFixed(5)},${point.longitude.toFixed(5)}` : '';
-
-    const signatureParts = [
-      serializePoint('o', originPoint),
-      serializePoint('d', destinationPoint),
-      ...extraStops.map((stop, idx) => serializePoint(`x${idx}`, stop)),
-    ].filter(Boolean);
-
-    return {
-      originPoint,
-      destinationPoint,
-      extraStops,
-      signature: signatureParts.join('|'),
-    };
-  }, [
-    rideSnapshot?.origin,
-    rideSnapshot?.originLocation,
-    rideSnapshot?.destination,
-    rideSnapshot?.destinationLocation,
-    rideSnapshot?.extraDestinations,
-  ]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const { originPoint, destinationPoint, extraStops, signature } = routeData;
-
-    if (!originPoint || !destinationPoint) {
-      routeSignatureRef.current = signature;
-      setRouteCoordinates([]);
-      setLoadingRoute(false);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    if (signature && signature === routeSignatureRef.current) {
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    routeSignatureRef.current = signature;
-    setLoadingRoute(true);
-
-    const computeRoute = async () => {
-      try {
-        const segments: Array<{ latitude: number; longitude: number }> = [];
-        let currentPoint = originPoint;
-        const targets = [...extraStops, destinationPoint];
-
-        for (const target of targets) {
-          const segment = await mapsService.getDirections(currentPoint, target);
-          if (cancelled) return;
-          if (segment?.polyline?.length) {
-            if (segments.length > 0) {
-              const last = segments[segments.length - 1];
-              const first = segment.polyline[0];
-              if (
-                Math.abs(last.latitude - first.latitude) < 1e-6 &&
-                Math.abs(last.longitude - first.longitude) < 1e-6
-              ) {
-                segments.push(...segment.polyline.slice(1));
-              } else {
-                segments.push(...segment.polyline);
-              }
-            } else {
-              segments.push(...segment.polyline);
-            }
-          } else {
-            segments.push(currentPoint, target);
-          }
-          currentPoint = target;
-        }
-
-        if (!cancelled) {
-          setRouteCoordinates(segments);
-        }
-      } catch (error) {
-        console.error('[HomeScreenOffers] Error calculando ruta:', error);
-        if (!cancelled) {
-          setRouteCoordinates([]);
-        }
-      } finally {
-        if (!cancelled) {
-          setLoadingRoute(false);
-        }
-      }
-    };
-
-    computeRoute();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [routeData]);
+  const etasByDriver = useOfferETAs(offers, getDriverCoordinate, originCoords);
 
   const negotiationStatusLabel = useCallback(
     (status?: string) => {
@@ -1260,7 +600,6 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
           extraStopMarkers={extraStopMarkers}
           showPinBubbles
           autoFitEnabled
-          provider="google"
         />
       </View>
 
@@ -1366,59 +705,13 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
         negotiationStatus={rideSnapshot?.negotiationStatus}
         acceptedClientPrice={rideSnapshot?.acceptedClientPrice}
         onAcceptDriverOffer={async () => {
-          if (!rideId || !selectedOffer) return;
-          try {
-            await priceNegotiationService.acceptDriverOffer(
-              rideId,
-              selectedOffer.driverId,
-              selectedOffer.offeredPrice || 0,
-            );
-            // Confirm driver after accepting price
-            await ridesService.confirmDriver(rideId, selectedOffer.driverId);
-            setShowNegotiation(false);
-            if (navigation?.replace) {
-              navigation.replace('RideTracking', {
-                rideId,
-                driverId: selectedOffer.driverId,
-                driverName: selectedOffer.driver?.name || driverFallbackName,
-              });
-            } else {
-              navigation?.navigate?.('RideTracking', {
-                rideId,
-                driverId: selectedOffer.driverId,
-                driverName: selectedOffer.driver?.name || driverFallbackName,
-              });
-            }
-          } catch (e: any) {
-            alertService.showErrorAlert(e?.message || t('client.homeOffers.alerts.acceptOfferError'));
-          }
+          await onAcceptDriverOffer();
+          setShowNegotiation(false);
         }}
-        onSendCounterOffer={async (price: number) => {
-          if (!rideId || !selectedOffer) return;
-          try {
-            await priceNegotiationService.negotiatePrice(
-              rideId,
-              price,
-              'client',
-              negotiationBasePrice ?? undefined,
-            );
-          } catch (e: any) {
-            alertService.showErrorAlert(e?.message || t('client.homeOffers.alerts.counterOfferError'));
-          }
-        }}
+        onSendCounterOffer={onSendCounterOffer}
         onAcceptAndStartRide={async () => {
-          if (!rideId || !selectedOffer) return;
-          try {
-            await ridesService.confirmDriver(rideId, selectedOffer.driverId);
-            setShowNegotiation(false);
-            navigation.navigate('RideTracking', {
-              rideId,
-              driverId: selectedOffer.driverId,
-              driverName: selectedOffer?.driver?.name || 'Conductor',
-            });
-          } catch (e: any) {
-            alertService.showErrorAlert(e?.message || t('client.homeOffers.alerts.confirmFromModalError'));
-          }
+          await onAcceptAndStartRide();
+          setShowNegotiation(false);
         }}
       />
 
@@ -1645,30 +938,6 @@ const createStyles = (colors: any) => StyleSheet.create({
     shadowOpacity: 0.16,
     shadowRadius: 6,
     elevation: 3,
-  },
-  iconText: { fontSize: 16 },
-  messageButtonText: {
-    color: '#00000060',
-    fontWeight: '700',
-    fontSize: 13,
-  },
-  routeLoadingBadge: {
-    position: 'absolute',
-    top: 14,
-    right: 14,
-    backgroundColor: 'rgba(15, 23, 42, 0.8)',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 18,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  routeLoadingText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '600',
-    marginLeft: 8,
   },
   acceptedStatusChip: {
     paddingHorizontal: 10,

@@ -29,11 +29,17 @@ export default function AuthStack() {
 
   useEffect(() => {
     const initAuthStack = async () => {
+      // Timeout de seguridad: si AsyncStorage tarda demasiado, ir al landing
+      const timeout = setTimeout(() => {
+        setInitialRouteName((prev) => prev ?? 'AuthLanding');
+      }, 3000);
+
       try {
         const hasSeenOnboarding = await AsyncStorage.getItem('@rundi_has_seen_onboarding');
 
         // Si el usuario aún no ha visto el onboarding, siempre lo mostramos primero
         if (hasSeenOnboarding !== 'true') {
+          clearTimeout(timeout);
           setInitialRouteName('Onboarding');
           return;
         }
@@ -44,6 +50,7 @@ export default function AuthStack() {
           const hasPendingRegistration = tempData && Object.keys(tempData).length > 0 && (tempData as any).name;
 
           if (hasPendingRegistration) {
+            clearTimeout(timeout);
             setInitialRouteName('RegistrationCheckpoint');
             return;
           }
@@ -52,8 +59,10 @@ export default function AuthStack() {
         }
 
         // Sin registro pendiente → ir al landing normal de auth
+        clearTimeout(timeout);
         setInitialRouteName('AuthLanding');
       } catch (error) {
+        clearTimeout(timeout);
         console.warn('Error reading onboarding flag', error);
         setInitialRouteName('AuthLanding');
       }

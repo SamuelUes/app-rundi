@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { clearPreflightResult } from '../state/preflightStore';
+import { clearPreflightResult } from '../stores/preflightStore';
 
 const ACTIVE_RIDE_STORAGE_KEY = 'ACTIVE_RIDE_ID';
 

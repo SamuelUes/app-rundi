@@ -54,7 +54,7 @@ export const notifySupportChatMessage = async (params: {
     // Cargar ticket para obtener título, categoría y rideId
     const rows = await supabaseGet(
       "cms_complaints",
-      { id: complaintId },
+      { id: complaintId, deleted_at: null },
       "id,ride_id,category,title,created_by_user_id,driver_id,client_id,status,priority",
       { limit: 1, requireServiceRole: true },
     );
@@ -247,6 +247,7 @@ export const createSupportComplaint = functions.https.onCall(async (data, contex
             created_by_user_id: userId,
             ride_id: rideId,
             category,
+            deleted_at: null,
           },
           "id,status,ride_id,category,client_id,driver_id,created_by_user_id,created_by_role,assigned_to_user_id,priority,title,description,resolution_notes,chat_log_url,resolved_at,created_at,updated_at",
           {
@@ -344,7 +345,7 @@ export const requestSupportCall = functions.https.onCall(async (data, context) =
   try {
     const rows = await supabaseGet(
       "cms_complaints",
-      { id: complaintId },
+      { id: complaintId, deleted_at: null },
       "id,title,ride_id,status,created_by_user_id,client_id,driver_id,assigned_to_user_id",
       { limit: 1, requireServiceRole: true },
     );
@@ -526,6 +527,9 @@ export const getSupportTickets = functions.https.onCall(async (data, context) =>
     // Ocultar tickets "borrados" desde la app.
     filters.show = "All";
   }
+
+  // Excluir tickets con soft delete
+  filters.deleted_at = null;
 
   const rawStatus = typeof data?.status === "string" ? data.status.trim() : "";
   if (rawStatus) {

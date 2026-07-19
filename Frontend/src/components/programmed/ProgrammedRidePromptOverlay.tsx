@@ -5,9 +5,9 @@ import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../context/ThemeContext';
 import alertService from '../../services/alertService';
 import ridesService from '../../services/ridesService';
-import { useProgrammedRidePrompt, ProgrammedRidePrompt, buildActiveRideAction } from '../../hooks/useProgrammedRidePrompt';
+import { useProgrammedRidePrompt, ProgrammedRidePrompt, buildActiveRideAction } from '../../hooks/shared/programmed/useProgrammedRidePrompt';
 import { useAuth } from '../../context/AuthContext';
-import { subscribePreflightResult, getPreflightResult, setPreflightResult, PreflightAction } from '../../state/preflightStore';
+import { subscribePreflightResult, getPreflightResult, setPreflightResult, PreflightAction } from '../../stores/preflightStore';
 import { useNavigation } from '@react-navigation/native';
 
 type Props = {

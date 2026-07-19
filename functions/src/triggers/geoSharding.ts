@@ -1,9 +1,9 @@
 import * as functions from 'firebase-functions';
 import admin from 'firebase-admin';
 
-const db = admin.database();
+import { DEFAULT_SERVICE_AREA_ID } from '../config/constants';
 
-const DEFAULT_SERVICE_AREA_ID = 'ni-managua';
+const db = admin.database();
 
 type ServiceAreaPoint = {
   lat: number;

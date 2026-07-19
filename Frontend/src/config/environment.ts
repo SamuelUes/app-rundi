@@ -34,7 +34,7 @@ const ENV = {
   production: {
     apiUrl: resolveApiUrl('production'),
     wsUrl: resolveWsUrl('production'),
-    domain: process.env.DOMAIN || ' rundiapp.com',
+    domain: process.env.DOMAIN || 'rundiapp.com',
   },
 };
 
@@ -60,8 +60,10 @@ export const DOMAIN = getEnvVars().domain;
 export const IS_PRODUCTION = getEnvVars() === ENV.production;
 export const IS_DEVELOPMENT = !IS_PRODUCTION;
 
-// Logging para debug
-console.log('🌍 Environment:', IS_PRODUCTION ? 'PRODUCTION' : 'DEVELOPMENT');
-console.log('🔗 API URL:', API_BASE_URL);
-console.log('🔌 WebSocket URL:', WS_URL);
-console.log('🌐 Domain:', DOMAIN);
+// Logging para debug (solo en desarrollo)
+if (__DEV__) {
+  console.log('🌍 Environment:', IS_PRODUCTION ? 'PRODUCTION' : 'DEVELOPMENT');
+  console.log('🔗 API URL:', API_BASE_URL);
+  console.log('🔌 WebSocket URL:', WS_URL);
+  console.log('🌐 Domain:', DOMAIN);
+}

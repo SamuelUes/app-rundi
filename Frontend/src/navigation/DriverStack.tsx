@@ -11,7 +11,9 @@ import VehicleVerificationScreen from '../screens/Driver/VehicleVerificationScre
 import DriversDocumentsInspectionScreen from '../screens/Driver/DriversDocumentsInspectionScreen';
 import DriverProfileScreen from '../screens/Driver/DriverProfileScreen';
 import ProfileScreen from '../screens/Shared/ProfileScreen';
-import RideHistoryScreen from '../screens/Shared/RideHistoryScreen';
+import RideHistoryScreen from '../screens/Driver/RideHistoryScreen';
+import TodayRidesScreen from '../screens/Driver/TodayRidesScreen';
+import VehicleInspectionScreen from '../screens/Driver/VehicleInspectionScreen';
 import RatingScreen from '../screens/Shared/RatingScreen';
 import PaymentMethodsScreen from '../screens/Shared/PaymentMethodsScreen';
 import AddCardScreen from '../screens/Shared/AddCardScreen';
@@ -36,8 +38,8 @@ import PayCommissionsScreen from '../screens/Driver/PayCommissionsScreen';
 import PendingPaymentsScreen from '../screens/Client/PendingPaymentsScreen';
 import PhoneVerificationScreen from '../screens/Auth/PhoneVerificationScreen';
 import type { RegistrationMethod, RegistrationAuthProvider } from './types';
-import { useOverlayVisibilityOnBackground } from '../hooks/useOverlayVisibilityOnBackground';
-import { useOverlayDeepLink } from '../hooks/useOverlayDeepLink';
+import { useOverlayVisibilityOnBackground } from '../hooks/shared/overlay/useOverlayVisibilityOnBackground';
+import { useOverlayDeepLink } from '../hooks/shared/overlay/useOverlayDeepLink';
 import proximityService from '../services/proximityService';
 
 export type DriverStackParamList = {
@@ -84,6 +86,12 @@ export type DriverStackParamList = {
   DriverProfile: undefined;
   Profile: undefined;
   RideHistory: undefined;
+  TodayRides: undefined;
+  VehicleInspection: {
+    rideId: string;
+    clientName?: string;
+    clientVehicleInfo?: string;
+  };
   Rating: {
     rideId: string;
   };
@@ -230,6 +238,8 @@ export default function DriverStack() {
       <Stack.Screen name="DriverProfile" component={DriverProfileScreen} options={{title: 'Mi Perfil' }} />
       <Stack.Screen name="Profile" component={ProfileScreen} options={{ headerShown: false }} />
       <Stack.Screen name="RideHistory" component={RideHistoryScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="TodayRides" component={TodayRidesScreen} options={{ title: 'Viajes de Hoy' }} />
+      <Stack.Screen name="VehicleInspection" component={VehicleInspectionScreen} options={{ title: 'Inspección del Vehículo' }} />
       <Stack.Screen name="Rating" component={RatingScreen} options={{ headerShown: false }} />
       <Stack.Screen name="PaymentMethods" component={PaymentMethodsScreen} options={{ headerShown: false }} />
       <Stack.Screen name="AddCard" component={AddCardScreen} options={{ headerShown: false }} />

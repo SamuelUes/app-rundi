@@ -28,7 +28,8 @@ export const assignServiceToDriver = functions.https.onCall(async (data, context
     const driverService = await driverServiceRepo.create({
       driver_id: driverId,
       service_id: serviceId,
-      status: 'active',
+      is_active: true,
+      is_approved: false,
     });
 
     return {
@@ -37,7 +38,8 @@ export const assignServiceToDriver = functions.https.onCall(async (data, context
         id: driverService.id,
         driverId: driverService.driver_id,
         serviceId: driverService.service_id,
-        status: driverService.status,
+        isActive: driverService.is_active,
+        isApproved: driverService.is_approved,
         createdAt: driverService.created_at,
       },
     };
@@ -72,7 +74,8 @@ export const getDriverServices = functions.https.onCall(async (data, context) =>
       services: services.map((s: any) => ({
         id: s.id,
         serviceId: s.service_id,
-        status: s.status,
+        isActive: s.is_active,
+        isApproved: s.is_approved,
         approvedAt: s.approved_at,
         createdAt: s.created_at,
       })),
@@ -101,7 +104,7 @@ export const approveDriverService = functions.https.onCall(async (data, context)
     console.log(`✅ [approveDriverService] Aprobando servicio: ${driverServiceId}`);
 
     const driverService = await driverServiceRepo.update(driverServiceId, {
-      status: 'approved',
+      is_approved: true,
       approved_at: new Date(),
     });
 
@@ -109,7 +112,8 @@ export const approveDriverService = functions.https.onCall(async (data, context)
       success: true,
       driverService: {
         id: driverService.id,
-        status: driverService.status,
+        isActive: driverService.is_active,
+        isApproved: driverService.is_approved,
         approvedAt: driverService.approved_at,
       },
     };
@@ -136,13 +140,14 @@ export const deactivateDriverService = functions.https.onCall(async (data, conte
 
     console.log(`⏸️ [deactivateDriverService] Desactivando servicio: ${driverServiceId}`);
 
-    const driverService = await driverServiceRepo.update(driverServiceId, { status: 'inactive' });
+    const driverService = await driverServiceRepo.update(driverServiceId, { is_active: false });
 
     return {
       success: true,
       driverService: {
         id: driverService.id,
-        status: driverService.status,
+        isActive: driverService.is_active,
+        isApproved: driverService.is_approved,
       },
     };
   } catch (error: any) {

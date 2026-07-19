@@ -2,10 +2,7 @@ import * as functions from 'firebase-functions';
 import { firestore } from '../config/firebase';
 import { notifySupportChatMessage } from '../api/support_complaints';
 import { supabaseGet } from '../supabase/client';
-
-// Flag opcional para desactivar push desde configuración de entorno
-const FUNCTIONS_PUSH_NOTIFICATIONS_ENABLED =
-  process.env.FUNCTIONS_PUSH_NOTIFICATIONS_ENABLED !== 'false';
+import { PUSH_NOTIFICATIONS_ENABLED } from '../config/constants';
 
 /**
  * Trigger de Realtime Database:
@@ -17,7 +14,7 @@ export const onSupportChatMessage = functions.database
   .ref('chats/{complaintId}/messages/{messageId}')
   .onCreate(async (snapshot, context) => {
     try {
-      if (!FUNCTIONS_PUSH_NOTIFICATIONS_ENABLED) {
+      if (!PUSH_NOTIFICATIONS_ENABLED) {
         return null;
       }
 

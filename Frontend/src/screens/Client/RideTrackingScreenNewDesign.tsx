@@ -1,6 +1,6 @@
 /**
  * RideTrackingScreenNewDesign - Diseño mejorado basado en wireframe
- * 
+ *
  * Características:
  * - Panel inferior retráctil (expandir/comprimir)
  * - Botón de regresar en esquina superior izquierda
@@ -30,12 +30,10 @@ import LoadingIcon from '../../components/LoadingIcon';
 import alertService from '../../services/alertService';
 import SupportChatShortcut from '../../components/SupportChatShortcut';
 import { clearClientActiveRideState } from '../../utils/clientRideState';
-import LoadingOverlay from '../../components/LoadingOverlay';
 import DynamicMap from '../../components/DynamicMap';
 import { useTheme } from '../../context/ThemeContext';
-import { useLocation } from '../../hooks/useLocation';
-import ridesService from '../../services/ridesService';
-import { useFirebaseItem } from '../../hooks/useFirebaseData';
+import { useLocation } from '../../hooks/shared/location/useLocation';
+import { useFirebaseItem } from '../../hooks/shared/firebase/useFirebaseData';
 import firebaseTrackingService from '../../services/firebaseTrackingService';
 import { useTranslation } from 'react-i18next';
 
@@ -43,8 +41,18 @@ import { useTranslation } from 'react-i18next';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ClientStackParamList } from '../../navigation/ClientStack';
 
-// Utils
+// Utils y hooks compartidos
 import { ensureVehicleIconSource, extractVehicleTypeFromInfo } from '../../utils/vehicleIcons';
+import {
+  type LatLngPoint,
+  formatDistanceLabel,
+  formatDurationLabel,
+  formatEtaLabel,
+  deriveVehicleType,
+} from '../../utils/rideTrackingHelpers';
+import { useRideRoute, useDynamicRoute } from '../../hooks/shared/ride/useRideRoute';
+import { useCollapsiblePanel } from '../../hooks/shared/ride/useCollapsiblePanel';
+import { useRideCancellation } from '../../hooks/shared/ride/useRideCancellation';
 
 // Iconos
 const BACK_BUTTON = require('../../assets/icons/back_button/back_button2x.png');
@@ -52,203 +60,8 @@ const BACK_BUTTON = require('../../assets/icons/back_button/back_button2x.png');
 const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
-const PANEL_MIN_HEIGHT = 240; // Panel comprimido
-const PANEL_MAX_HEIGHT = SCREEN_HEIGHT * 0.65; // Panel expandido
-const PANEL_COLLAPSED_OFFSET = Math.max(PANEL_MAX_HEIGHT - PANEL_MIN_HEIGHT, 0);
-
-const DEG_TO_RAD = Math.PI / 180;
-
-const toRadians = (deg: number) => deg * DEG_TO_RAD;
-
-const computeDistanceMeters = (
-  start: { latitude: number; longitude: number },
-  end: { latitude: number; longitude: number }
-) => {
-  const earthRadius = 6371000; // metros
-  const dLat = toRadians(end.latitude - start.latitude);
-  const dLon = toRadians(end.longitude - start.longitude);
-  const lat1 = toRadians(start.latitude);
-  const lat2 = toRadians(end.latitude);
-
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.sin(dLon / 2) * Math.sin(dLon / 2) * Math.cos(lat1) * Math.cos(lat2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return earthRadius * c;
-};
-
-const calculatePolylineDistance = (coords: Array<{ latitude: number; longitude: number }>) => {
-  if (!coords || coords.length < 2) return 0;
-  let total = 0;
-  for (let i = 1; i < coords.length; i += 1) {
-    total += computeDistanceMeters(coords[i - 1], coords[i]);
-  }
-  return total;
-};
-
-const formatDistanceLabel = (
-  meters: number | null | undefined,
-  tr: (path: string, options?: Record<string, any>) => string,
-) => {
-  if (!meters || meters <= 0) return tr('labels.distanceFallback');
-  const km = meters / 1000;
-  const decimals = km >= 100 ? 0 : km >= 10 ? 1 : 2;
-  return tr('labels.distanceValue', { value: km.toFixed(decimals) });
-};
-
-const formatDurationLabel = (
-  seconds: number | null | undefined,
-  tr: (path: string, options?: Record<string, any>) => string,
-) => {
-  if (!seconds || seconds <= 0) return tr('labels.durationFallback');
-  const minutes = Math.max(1, Math.round(seconds / 60));
-  return tr('labels.durationValue', { value: minutes });
-};
-
-const parseDate = (value: any): Date | null => {
-  if (!value) return null;
-  try {
-    if (typeof value === 'number') {
-      return new Date(value);
-    }
-    if (typeof value === 'string') {
-      const date = new Date(value);
-      return Number.isNaN(date.getTime()) ? null : date;
-    }
-    if (value instanceof Date) return value;
-    if (typeof value === 'object') {
-      if (value._seconds) {
-        return new Date(value._seconds * 1000);
-      }
-      if (value.seconds) {
-        return new Date(value.seconds * 1000);
-      }
-    }
-  } catch (error) {
-    console.warn('⚠️ No se pudo parsear fecha', value, error);
-  }
-  return null;
-};
-
-const formatEtaLabel = (
-  rideData: any,
-  durationSeconds: number | null,
-  tr: (path: string, options?: Record<string, any>) => string,
-) => {
-  const status = rideData?.status;
-
-  if (status === 'pending_payment') {
-    return tr('eta.pendingPayment');
-  }
-
-  if (status === 'completed') {
-    return tr('eta.completed');
-  }
-
-  if (status === 'canceled') {
-    return tr('eta.canceled');
-  }
-
-  const etaCandidates = [
-    rideData?.estimatedArrivalTime,
-    rideData?.estimatedArrival,
-    rideData?.etaTime,
-    rideData?.etaTimestamp,
-    rideData?.driverEta?.arrivalTime,
-    rideData?.arrivalAt,
-  ];
-
-  for (const candidate of etaCandidates) {
-    const date = parseDate(candidate);
-    if (date) {
-      return tr('eta.arrivesAt', {
-        time: date.toLocaleTimeString(undefined, {
-          hour: '2-digit',
-          minute: '2-digit',
-        }),
-      });
-    }
-  }
-
-  if (durationSeconds && durationSeconds > 0) {
-    const startDate =
-      parseDate(rideData?.startedAt) ||
-      parseDate(rideData?.acceptedAt) ||
-      new Date();
-    const etaDate = new Date(startDate.getTime() + durationSeconds * 1000);
-    return tr('eta.arrivesAt', {
-      time: etaDate.toLocaleTimeString(undefined, {
-        hour: '2-digit',
-        minute: '2-digit',
-      }),
-    });
-  }
-
-  if (rideData?.status === 'accepted') {
-    return tr('eta.driverOnTheWay');
-  }
-
-  return tr('eta.calculating');
-};
-
-const deriveVehicleType = (vehicleDataType: string | null, rideData: any): string | null => {
-  if (vehicleDataType) return vehicleDataType;
-
-  const rideVehicleType = extractVehicleTypeFromInfo({ vehicle: rideData?.vehicle, vehicleType: rideData?.vehicleType });
-  if (rideVehicleType) return rideVehicleType;
-
-  const driverVehicleType = extractVehicleTypeFromInfo(rideData?.driver);
-  if (driverVehicleType) return driverVehicleType;
-
-  return rideData?.vehicleType ?? null;
-};
-
-const calculateRealRoute = async (
-  start: { latitude: number; longitude: number },
-  end: { latitude: number; longitude: number },
-): Promise<Array<{ latitude: number; longitude: number }>> => {
-  const isValidCoord = (coord: { latitude: number; longitude: number }) =>
-    typeof coord.latitude === 'number' &&
-    typeof coord.longitude === 'number' &&
-    Number.isFinite(coord.latitude) &&
-    Number.isFinite(coord.longitude) &&
-    coord.latitude >= -90 &&
-    coord.latitude <= 90 &&
-    coord.longitude >= -180 &&
-    coord.longitude <= 180;
-
-  if (!isValidCoord(start) || !isValidCoord(end)) {
-    console.warn('⚠️ Coordenadas inválidas para OSRM, usando ruta directa', { start, end });
-    return [start, end];
-  }
-
-  // Si el punto de inicio y fin son iguales, no tiene sentido llamar a OSRM
-  if (start.latitude === end.latitude && start.longitude === end.longitude) {
-    return [start, end];
-  }
-
-  const url = `https://router.project-osrm.org/route/v1/driving/${start.longitude},${start.latitude};${end.longitude},${end.latitude}?overview=full&geometries=geojson`;
-
-  try {
-    const response = await fetch(url);
-    if (!response.ok) {
-      // Manejar estados 4xx/5xx como una advertencia silenciosa con fallback
-      console.warn('⚠️ OSRM respondió estado no OK, usando ruta directa', {
-        status: response.status,
-        url,
-      });
-      return [start, end];
-    }
-
-    const data = await response.json();
-    const coordinates: Array<[number, number]> = data?.routes?.[0]?.geometry?.coordinates ?? [];
-    if (!coordinates.length) return [start, end];
-    return coordinates.map(([lng, lat]) => ({ latitude: lat, longitude: lng }));
-  } catch (error) {
-    console.error('❌ Error de red al llamar OSRM, usando ruta directa', error);
-    return [start, end];
-  }
-};
+const PANEL_MIN_HEIGHT = 240;
+const PANEL_MAX_HEIGHT = SCREEN_HEIGHT * 0.65;
 
 interface DriverLocation {
   latitude: number;
@@ -260,7 +73,7 @@ interface DriverLocation {
 
 type RideTrackingScreenNewDesignProps = NativeStackScreenProps<ClientStackParamList, 'RideTracking'>;
 
-// Hook para ubicación del conductor (reutilizado del archivo original)
+// Hook para ubicación del conductor
 const useDriverLocation = (driverId: string) => {
   const [driverLocation, setDriverLocation] = useState<DriverLocation | null>(null);
   const [isConnected, setIsConnected] = useState(false);
@@ -318,13 +131,13 @@ const useRideStatus = (rideId: string) => {
   useEffect(() => {
     if (rideData) {
       setRideStatus(rideData.status || 'in_progress');
-      
+
       if (rideData.payment?.method) {
         setPaymentMethod(rideData.payment.method);
       } else if (rideData.paymentMethod) {
         setPaymentMethod(rideData.paymentMethod);
       }
-      
+
       setFinalFare(rideData.finalFare || rideData.estimatedPrice || 0);
     }
   }, [rideData]);
@@ -422,145 +235,6 @@ const useDriverAndVehicleData = (
   return { driverData, vehicleData };
 };
 
-type LatLngPoint = { latitude: number; longitude: number };
-
-// Hook para ubicaciones y rutas
-const useDestinationAndRoute = (rideData: any) => {
-  const [destinationCoords, setDestinationCoords] = useState<LatLngPoint | null>(null);
-  const [originCoords, setOriginCoords] = useState<LatLngPoint | null>(null);
-  const [waypointCoords, setWaypointCoords] = useState<LatLngPoint[]>([]);
-  const [routeCoordinates, setRouteCoordinates] = useState<LatLngPoint[]>([]);
-  const [routeDistanceMeters, setRouteDistanceMeters] = useState<number | null>(null);
-  const [routeDurationSeconds, setRouteDurationSeconds] = useState<number | null>(null);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const extractLatLng = (value: any): LatLngPoint | null => {
-      if (!value) return null;
-      const latitude = value.latitude ?? value.lat ?? value._latitude ?? null;
-      const longitude = value.longitude ?? value.lng ?? value._longitude ?? null;
-      if (typeof latitude === 'number' && typeof longitude === 'number') {
-        return { latitude, longitude };
-      }
-      return null;
-    };
-
-    const resolveDurationFromRide = (): number | null => {
-      const candidates = [
-        rideData?.routeDuration,
-        rideData?.duration,
-        rideData?.estimatedDuration,
-        rideData?.driverEta?.duration,
-        rideData?.driverEta?.durationSeconds,
-      ];
-      for (const value of candidates) {
-        if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
-          return value;
-        }
-      }
-      return null;
-    };
-
-    const updateStaticData = () => {
-      const destination = extractLatLng(rideData?.destination);
-      if (destination) setDestinationCoords(destination);
-
-      const origin = extractLatLng(rideData?.origin);
-      if (origin) setOriginCoords(origin);
-
-      if (Array.isArray(rideData?.extraDestinations)) {
-        const waypoints = rideData.extraDestinations
-          .map((value: any) => extractLatLng(value))
-          .filter((point: LatLngPoint | null): point is LatLngPoint => !!point);
-        setWaypointCoords(waypoints);
-      } else {
-        setWaypointCoords([]);
-      }
-    };
-
-    const buildRoute = async () => {
-      if (!isMounted) return;
-
-      const sanitizeRouteCoords = (rawRoute: any[]): LatLngPoint[] =>
-        rawRoute
-          .map((value: any) => extractLatLng(value))
-          .filter((point: LatLngPoint | null): point is LatLngPoint => !!point);
-
-      const backendRoute = Array.isArray(rideData?.route) ? sanitizeRouteCoords(rideData.route) : [];
-      if (backendRoute.length >= 2) {
-        if (!isMounted) return;
-        setRouteCoordinates(backendRoute);
-        const backendDistance =
-          typeof rideData?.routeDistance === 'number'
-            ? rideData.routeDistance
-            : typeof rideData?.distance === 'number'
-            ? rideData.distance
-            : typeof rideData?.estimatedDistance === 'number'
-            ? rideData.estimatedDistance
-            : calculatePolylineDistance(backendRoute);
-        setRouteDistanceMeters(backendDistance);
-        setRouteDurationSeconds(resolveDurationFromRide());
-        return;
-      }
-
-      const origin = extractLatLng(rideData?.origin);
-      const destination = extractLatLng(rideData?.destination);
-      const stops = Array.isArray(rideData?.extraDestinations)
-        ? rideData.extraDestinations
-            .map((value: any) => extractLatLng(value))
-            .filter((point: LatLngPoint | null): point is LatLngPoint => !!point)
-        : [];
-
-      if (!origin || !destination) {
-        setRouteCoordinates([]);
-        setRouteDistanceMeters(null);
-        setRouteDurationSeconds(resolveDurationFromRide());
-        return;
-      }
-
-      const points: LatLngPoint[] = [origin, ...stops, destination];
-      const combinedRoute: LatLngPoint[] = [];
-      let cumulativeDistance = 0;
-
-      for (let i = 0; i < points.length - 1; i += 1) {
-        const start = points[i];
-        const end = points[i + 1];
-        const segment = await calculateRealRoute(start, end);
-        const segmentDistance = calculatePolylineDistance(segment);
-        cumulativeDistance += segmentDistance;
-
-        segment.forEach((coord, index) => {
-          if (i > 0 && index === 0) return;
-          combinedRoute.push(coord);
-        });
-      }
-
-      if (!isMounted) return;
-      setRouteCoordinates(combinedRoute);
-      setRouteDistanceMeters(cumulativeDistance > 0 ? cumulativeDistance : null);
-      setRouteDurationSeconds(resolveDurationFromRide());
-    };
-
-    updateStaticData();
-    setRouteDurationSeconds(resolveDurationFromRide());
-    buildRoute();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [rideData]);
-
-  return {
-    destinationCoords,
-    originCoords,
-    waypointCoords,
-    routeCoordinates,
-    routeDistanceMeters,
-    routeDurationSeconds,
-  };
-};
-
 export default function RideTrackingScreenNewDesign({ route, navigation }: RideTrackingScreenNewDesignProps) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -589,16 +263,15 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
   const { rideStatus, paymentMethod, finalFare, rideData, loading: rideLoading } = useRideStatus(rideId);
   const { driverData, vehicleData } = useDriverAndVehicleData(driverId, { driverName, vehiclePlate, vehicleBrand, vehicleModel, vehicleColor, rideData });
   const vehicleIconSource = useMemo(() => ensureVehicleIconSource(vehicleData.type), [vehicleData.type]);
-  const { destinationCoords, originCoords, waypointCoords, routeCoordinates, routeDistanceMeters, routeDurationSeconds } = useDestinationAndRoute(rideData);
-  
-  // Panel retráctil (tap para expandir/contraer)
-  const [isPanelExpanded, setIsPanelExpanded] = useState(true);
-  const cancelButtonScale = useRef(new Animated.Value(1)).current;
-  const hasNavigatedToPaymentRef = useRef(false);
+  const { destinationCoords, originCoords, waypointCoords, routeCoordinates, routeDistanceMeters, routeDurationSeconds } = useRideRoute(rideData);
 
-  const togglePanel = () => {
-    setIsPanelExpanded((prev) => !prev);
-  };
+  // Panel retráctil (tap para expandir/contraer)
+  const { isPanelExpanded, togglePanel } = useCollapsiblePanel({
+    initialExpanded: true,
+    minHeight: PANEL_MIN_HEIGHT,
+    maxHeight: PANEL_MAX_HEIGHT,
+  });
+  const hasNavigatedToPaymentRef = useRef(false);
 
   const handleGoBack = useCallback(() => {
     navigation.reset({
@@ -654,66 +327,27 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
     });
   }, [navigation, rideId, driverData.name, driverData.phone]);
 
-  const [isCancellingRide, setIsCancellingRide] = useState(false);
-
-  const handleCancelRide = useCallback(() => {
-    if (isCancellingRide) {
-      return;
-    }
-
-    const canCancel = rideStatus !== 'completed' && rideStatus !== 'canceled';
-
-    if (!canCancel) {
-      alertService.showInfoAlert(tr('alerts.cannotCancelTitle'), tr('alerts.cannotCancelMessage'));
-      return;
-    }
-
-    setIsCancellingRide(true);
-    Animated.timing(cancelButtonScale, {
-      toValue: 0.94,
-      duration: 130,
-      useNativeDriver: true,
-    }).start();
-
-    alertService.showConfirmAlert(
-      tr('alerts.cancelRideTitle'),
-      tr('alerts.cancelRideMessage'),
-      async () => {
-        try {
-          const result = await ridesService.cancelRide(rideId, tr('alerts.cancelRideReason'));
-          if (result.success) {
-            await clearClientActiveRideState();
-            alertService.showSuccessAlert(tr('alerts.cancelRideSuccessTitle'), result.message, () => {
-              navigation.reset({
-                index: 0,
-                routes: [{ name: 'ClientHome' }],
-              });
-            });
-          } else {
-            alertService.showErrorAlert(result.message || tr('alerts.cancelRideError'));
-          }
-        } catch (error: any) {
-          alertService.showErrorAlert(error?.message || tr('alerts.cancelRideError'));
-        } finally {
-          Animated.timing(cancelButtonScale, {
-            toValue: 1,
-            duration: 170,
-            useNativeDriver: true,
-          }).start(() => setIsCancellingRide(false));
-        }
-      },
-      () => {
-        Animated.timing(cancelButtonScale, {
-          toValue: 1,
-          duration: 170,
-          useNativeDriver: true,
-        }).start(() => setIsCancellingRide(false));
-      },
-      tr('buttons.confirmCancel'),
-      tr('buttons.continue'),
-      true,
-    );
-  }, [cancelButtonScale, isCancellingRide, navigation, rideId, rideStatus]);
+  const { isCancellingRide, cancelButtonScale, handleCancelRide } = useRideCancellation({
+    rideId,
+    cancelReason: tr('alerts.cancelRideReason'),
+    canCancel: rideStatus !== 'completed' && rideStatus !== 'canceled',
+    cannotCancelTitle: tr('alerts.cannotCancelTitle'),
+    cannotCancelMessage: tr('alerts.cannotCancelMessage'),
+    confirmTitle: tr('alerts.cancelRideTitle'),
+    confirmMessage: tr('alerts.cancelRideMessage'),
+    confirmLabel: tr('buttons.confirmCancel'),
+    continueLabel: tr('buttons.continue'),
+    cancelErrorLabel: tr('alerts.cancelRideError'),
+    onSuccess: async () => {
+      await clearClientActiveRideState();
+      alertService.showSuccessAlert(tr('alerts.cancelRideSuccessTitle'), tr('alerts.cancelRideSuccessMessage'), () => {
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'ClientHome' }],
+        });
+      });
+    },
+  });
 
   const getStatusColor = () => {
     switch (rideStatus) {
@@ -797,111 +431,15 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
     }
   }, [rideStatus, rideData, paymentMethod, finalFare, estimatedFare, driverData.name, vehicleData.plate, navigation, rideId, driverId]);
 
-  // Ruta dinámica: antes de recoger al cliente mostrar ruta del conductor al origen en amarillo
-  const [driverToOriginRoute, setDriverToOriginRoute] = useState<LatLngPoint[]>([]);
-  // Ruta dinámica durante el viaje: recalcular desde la posición actual del conductor
-  const [dynamicRouteCoordinates, setDynamicRouteCoordinates] = useState<LatLngPoint[]>([]);
-  const lastDynamicRouteStartRef = useRef<LatLngPoint | null>(null);
-
-  useEffect(() => {
-    if (!isAccepted || !originCoords || !driverLocation) {
-      setDriverToOriginRoute([]);
-      return;
-    }
-
-    let isMounted = true;
-
-    (async () => {
-      try {
-        const start = {
-          latitude: driverLocation.latitude,
-          longitude: driverLocation.longitude,
-        };
-        const end = originCoords;
-        const route = await calculateRealRoute(start, end);
-        if (isMounted) {
-          setDriverToOriginRoute(route);
-        }
-      } catch (error) {
-        console.error('Error calculando ruta conductor → origen', error);
-      }
-    })();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [isAccepted, originCoords?.latitude, originCoords?.longitude, driverLocation?.latitude, driverLocation?.longitude]);
-
-  useEffect(() => {
-    if (!isInProgress || !driverLocation) {
-      setDynamicRouteCoordinates([]);
-      lastDynamicRouteStartRef.current = null;
-      return;
-    }
-
-    const targets: LatLngPoint[] = [];
-    if (Array.isArray(waypointCoords) && waypointCoords.length > 0) {
-      targets.push(...waypointCoords);
-    }
-    if (destinationCoords) {
-      targets.push(destinationCoords);
-    }
-
-    if (targets.length === 0) {
-      setDynamicRouteCoordinates([]);
-      lastDynamicRouteStartRef.current = null;
-      return;
-    }
-
-    const start: LatLngPoint = {
-      latitude: driverLocation.latitude,
-      longitude: driverLocation.longitude,
-    };
-
-    const last = lastDynamicRouteStartRef.current;
-    if (last) {
-      const movedMeters = computeDistanceMeters(last, start);
-      if (Number.isFinite(movedMeters) && movedMeters < 25) {
-        return;
-      }
-    }
-
-    let isMounted = true;
-
-    (async () => {
-      try {
-        const allPoints: LatLngPoint[] = [start, ...targets];
-        const combined: LatLngPoint[] = [];
-
-        for (let i = 0; i < allPoints.length - 1; i += 1) {
-          const segment = await calculateRealRoute(allPoints[i], allPoints[i + 1]);
-          segment.forEach((coord, index) => {
-            if (i > 0 && index === 0) return;
-            combined.push(coord);
-          });
-        }
-
-        if (!isMounted) return;
-        setDynamicRouteCoordinates(combined);
-        lastDynamicRouteStartRef.current = start;
-      } catch (error) {
-        console.error('Error recalculando ruta dinámica del viaje', error);
-      }
-    })();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [isInProgress, driverLocation?.latitude, driverLocation?.longitude, destinationCoords, waypointCoords]);
-
-  const secondaryRouteCoordinates = useMemo(
-    () => (driverToOriginRoute && driverToOriginRoute.length > 1 ? driverToOriginRoute : []),
-    [driverToOriginRoute],
-  );
-
-  const activeRouteCoordinates = useMemo(
-    () => (isInProgress && dynamicRouteCoordinates.length > 1 ? dynamicRouteCoordinates : routeCoordinates),
-    [isInProgress, dynamicRouteCoordinates, routeCoordinates],
+  // Rutas dinámicas (conductor→origen antes de recoger, ruta dinámica durante el viaje)
+  const { secondaryRouteCoordinates, activeRouteCoordinates } = useDynamicRoute(
+    isAccepted,
+    isInProgress,
+    driverLocation ? { latitude: driverLocation.latitude, longitude: driverLocation.longitude } : null,
+    originCoords,
+    destinationCoords,
+    waypointCoords,
+    routeCoordinates,
   );
 
   // Etiquetas dinámicas para ETA, distancia y duración

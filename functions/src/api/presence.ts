@@ -1,6 +1,7 @@
 import * as functions from "firebase-functions";
 import admin from "firebase-admin";
-import { cleanupPresenceNodes } from "../helpers/cleanupHelpers-new";
+import { cleanupPresenceNodes } from "../helpers/cleanupHelpers";
+import { DEFAULT_SERVICE_AREA_ID } from '../config/constants';
 
 const db = admin.database();
 
@@ -11,8 +12,6 @@ const presenceRuntimeOpts: functions.RuntimeOptions = {
   minInstances: 1,
   maxInstances: 50,
 };
-
-const DEFAULT_SERVICE_AREA_ID = "ni-managua";
 
 async function getSessionServiceAreaId(uid: string): Promise<string> {
   try {

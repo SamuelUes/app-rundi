@@ -2,7 +2,7 @@
  * Utilidades para registrar eventos de analytics
  */
 
-import pool from '../config/database';
+import { supabasePost } from '../supabase/rest';
 
 export interface AnalyticsEvent {
   userId?: string;
@@ -18,30 +18,22 @@ export interface AnalyticsEvent {
  * Registrar evento de analytics en Supabase
  */
 export async function logAnalyticsEvent(event: AnalyticsEvent): Promise<boolean> {
-  const client = await pool.connect();
   try {
-    await client.query(
-      `INSERT INTO analytics_events (
-        user_id, event_type, event_data, ip_address, user_agent, platform, app_version
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [
-        event.userId || null,
-        event.eventType,
-        event.eventData ? JSON.stringify(event.eventData) : null,
-        event.ipAddress || null,
-        event.userAgent || null,
-        event.platform || 'mobile',
-        event.appVersion || '1.6.4',
-      ]
-    );
+    await supabasePost('analytics_events', {
+      user_id: event.userId || null,
+      event_type: event.eventType,
+      event_data: event.eventData ? JSON.stringify(event.eventData) : null,
+      ip_address: event.ipAddress || null,
+      user_agent: event.userAgent || null,
+      platform: event.platform || 'mobile',
+      app_version: event.appVersion || '1.6.4',
+    });
     
     console.log(`📊 Analytics event logged: ${event.eventType}`);
     return true;
   } catch (error: any) {
     console.error(`❌ Error logging analytics event:`, error);
     return false;
-  } finally {
-    client.release();
   }
 }
 

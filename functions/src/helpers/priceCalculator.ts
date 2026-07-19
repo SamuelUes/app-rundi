@@ -78,24 +78,22 @@ async function fetchServiceConfig(serviceCode: string): Promise<ServicePricingCo
     return serviceCache.get(serviceCode)!;
   }
 
-  const pool = (await import('../config/database')).default;
-  const client = await pool.connect();
+  const { supabaseGet } = await import('../supabase/rest');
 
   try {
-    const result = await client.query(
-      `SELECT id, code, commission_rate, base_price, price_per_km, price_per_minute, minimum_fare, is_active
-       FROM public.services
-       WHERE code = $1
-       LIMIT 1`,
-      [serviceCode]
+    const rows = await supabaseGet(
+      'services',
+      { code: serviceCode },
+      'id,code,commission_rate,base_price,price_per_km,price_per_minute,minimum_fare,is_active',
+      1,
     );
 
-    if (!result.rows.length) {
+    if (!Array.isArray(rows) || !rows.length) {
       console.warn(`⚠️ Servicio ${serviceCode} no encontrado en Supabase.`);
       return null;
     }
 
-    const row = result.rows[0];
+    const row = rows[0];
     const isActive = row.is_active === null ? true : row.is_active === true || row.is_active === 't';
 
     if (!isActive) {
@@ -118,8 +116,6 @@ async function fetchServiceConfig(serviceCode: string): Promise<ServicePricingCo
   } catch (error) {
     console.error(`❌ Error consultando servicio ${serviceCode}:`, error);
     return null;
-  } finally {
-    client.release();
   }
 }
 
@@ -270,17 +266,15 @@ export async function getCommissionFromDatabase(
   driverId: string,
   serviceCode: string
 ): Promise<number> {
-  const pool = (await import('../config/database')).default;
-  const client = await pool.connect();
-  
+  const { supabaseRpc } = await import('../supabase/rest');
+
   try {
-    // Usar la función helper de PostgreSQL
-    const result = await client.query(
-      'SELECT get_driver_commission_rate($1, $2) as commission_rate',
-      [driverId, serviceCode]
-    );
-    
-    const commissionRate = parseFloat(result.rows[0].commission_rate);
+    const result = await supabaseRpc('get_driver_commission_rate', {
+      driver_id: driverId,
+      service_code: serviceCode,
+    });
+
+    const commissionRate = parseFloat(result);
     
     console.log(`💰 Comisión desde BD: ${commissionRate * 100}% (Driver: ${driverId}, Service: ${serviceCode})`);
     
@@ -295,8 +289,6 @@ export async function getCommissionFromDatabase(
       return 0.25;
     }
     return 0.11;
-  } finally {
-    client.release();
   }
 }
 

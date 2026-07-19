@@ -100,3 +100,9 @@ export type AuthStackParamList = {
     context?: 'register_driver' | 'register_upgrade_driver';
   };
 };
+
+// Import and re-export stack param lists for unified type
+import type { ClientStackParamList } from './ClientStack';
+import type { DriverStackParamList } from './DriverStack';
+
+export type RootStackParamList = AuthStackParamList & ClientStackParamList & DriverStackParamList;

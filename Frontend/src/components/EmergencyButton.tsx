@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { LoadingIcon } from './LoadingIcon';
 import { useTheme } from '../context/ThemeContext';
-import { useLocation } from '../hooks/useLocation';
+import { useLocation } from '../hooks/shared/location/useLocation';
 import { getFirebaseFunctions } from '../config/firebase';
 import { httpsCallable } from 'firebase/functions';
 import { useAuth } from '../context/AuthContext';

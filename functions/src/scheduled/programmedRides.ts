@@ -1,6 +1,6 @@
 import * as functions from 'firebase-functions';
 import admin from 'firebase-admin';
-import { sendNotificationToUser } from '../services/pushNotifications';
+import { notifyUserSafe } from '../services/notifyUserSafe';
 import { RideRepository } from '../sequelize/repositories/RideRepository';
 import { RideLocationRepository } from '../sequelize/repositories/RideLocationRepository';
 
@@ -8,9 +8,6 @@ const db = admin.database();
 
 const rideRepo = new RideRepository();
 const locationRepo = new RideLocationRepository();
-
-const FUNCTIONS_PUSH_NOTIFICATIONS_ENABLED =
-  (process.env.FUNCTIONS_PUSH_NOTIFICATIONS ?? 'false').toLowerCase() === 'true';
 
 const CONFIRM_WINDOW_MS = 10 * 60 * 1000;
 const PROMOTION_GRACE_MS = 2 * 60 * 1000;
@@ -23,48 +20,12 @@ const parseEpochMs = (value: any): number | null => {
   return Math.floor(parsed);
 };
 
-const notifyUserSafe = async (
-  userId: string | null | undefined,
-  title: string,
-  body: string,
-  data: Record<string, string | number | boolean | null | undefined> = {},
-) => {
-  if (!FUNCTIONS_PUSH_NOTIFICATIONS_ENABLED) {
-    return;
-  }
-
-  if (!userId) {
-    return;
-  }
-
-  try {
-    const rideIdRaw = data?.rideId ?? data?.ride_id;
-    const normalizedRideId = typeof rideIdRaw === 'string'
-      ? rideIdRaw
-      : typeof rideIdRaw === 'number' && Number.isFinite(rideIdRaw)
-        ? String(rideIdRaw)
-        : '';
-    const notificationKey = normalizedRideId ? `programmed-ride-${normalizedRideId}` : undefined;
-
-    await sendNotificationToUser(userId, {
-      title,
-      body,
-      data: {
-        ...data,
-        rideId: normalizedRideId || undefined,
-      },
-      androidChannelId: 'default',
-      notificationKey,
-      expiresInMs: 15 * 60 * 1000,
-    });
-  } catch (error) {
-    console.error('❌ [programmedRides] Error enviando notificación push:', {
-      userId,
-      title,
-      error,
-    });
-  }
-};
+const programmedNotify = (userId: string | null | undefined, title: string, body: string, data: Record<string, string | number | boolean | null | undefined> = {}) =>
+  notifyUserSafe(userId, title, body, data, {
+    notificationKeyPrefix: 'programmed-ride',
+    androidChannelId: 'default',
+    expiresInMs: 15 * 60 * 1000,
+  });
 
 const upsertRideInSupabase = async (rideId: string, ride: any, status: string) => {
   const existing = await rideRepo.findById(rideId);
@@ -212,18 +173,50 @@ const buildActiveRidePayload = (rideId: string, programmedRide: any, options: { 
   return payload;
 };
 
-export const processProgrammedRides = functions.pubsub
+export const processProgrammedRides = functions
+  .runWith({ maxInstances: 1 })
+  .pubsub
   .schedule('*/1 * * * *')
   .timeZone('America/Managua')
   .onRun(async () => {
-    const snapshot = await db.ref('programmedRides').once('value');
-    const rides = snapshot.val();
+    const now = Date.now();
 
-    if (!rides) {
-      return null;
+    // ✅ Grupo 7 (H9): Filtrar por scheduledAt en lugar de cargar TODOS los programmedRides.
+    // Ventana de tiempo: desde (now - CONFIRM_WINDOW_MS - buffer) hasta (now + PROMOTION_GRACE_MS + buffer)
+    // El buffer de 1 hora captura rides cancelados recientes que aún necesitan sync a Supabase.
+    const windowStart = now - CONFIRM_WINDOW_MS - 60 * 60 * 1000; // 1h antes de la ventana de confirmación
+    const windowEnd = now + PROMOTION_GRACE_MS + 60 * 60 * 1000;   // 1h después del grace period
+
+    // Query 1: Rides dentro de la ventana de tiempo relevante (usa índice scheduledAt)
+    const windowSnapshot = await db
+      .ref('programmedRides')
+      .orderByChild('scheduledAt')
+      .startAt(windowStart)
+      .endAt(windowEnd)
+      .once('value');
+
+    // Query 2: Rides cancelados que aún no se han sincronizado a Supabase (sin filtro de tiempo)
+    // Usamos limitToFirst para no cargar demasiados a la vez
+    const canceledSnapshot = await db
+      .ref('programmedRides')
+      .orderByChild('status')
+      .equalTo('canceled')
+      .limitToFirst(100)
+      .once('value');
+
+    // Combinar resultados eliminando duplicados
+    const windowRides = windowSnapshot.val() || {};
+    const canceledRides = canceledSnapshot.val() || {};
+    const rides: Record<string, any> = { ...canceledRides };
+    for (const [key, value] of Object.entries(windowRides)) {
+      if (!rides[key]) {
+        rides[key] = value;
+      }
     }
 
-    const now = Date.now();
+    if (Object.keys(rides).length === 0) {
+      return null;
+    }
 
     for (const [rideId, rawRide] of Object.entries<any>(rides)) {
       if (!rawRide) {
@@ -266,7 +259,7 @@ export const processProgrammedRides = functions.pubsub
               clientConfirmationRequestedAt: admin.database.ServerValue.TIMESTAMP,
               updatedAt: admin.database.ServerValue.TIMESTAMP,
             });
-            await notifyUserSafe(rawRide.clientId, '🕒 Confirma tu viaje programado', 'Tu viaje está por iniciar. Confirma para continuar.', {
+            await programmedNotify(rawRide.clientId, '🕒 Confirma tu viaje programado', 'Tu viaje está por iniciar. Confirma para continuar.', {
               rideId,
               type: 'programmed_ride_client_confirm',
             });
@@ -289,7 +282,7 @@ export const processProgrammedRides = functions.pubsub
               driverConfirmationRequestedAt: admin.database.ServerValue.TIMESTAMP,
               updatedAt: admin.database.ServerValue.TIMESTAMP,
             });
-            await notifyUserSafe(rawRide.driverId, '🕒 Confirma tu viaje programado', 'Tienes un viaje programado por iniciar. Confirma para reservarlo.', {
+            await programmedNotify(rawRide.driverId, '🕒 Confirma tu viaje programado', 'Tienes un viaje programado por iniciar. Confirma para reservarlo.', {
               rideId,
               type: 'programmed_ride_driver_confirm',
             });
@@ -317,7 +310,7 @@ export const processProgrammedRides = functions.pubsub
             canceledAt: admin.database.ServerValue.TIMESTAMP,
             updatedAt: admin.database.ServerValue.TIMESTAMP,
           });
-          await notifyUserSafe(rawRide.clientId, 'Viaje cancelado', 'No confirmaste tu viaje programado a tiempo.', {
+          await programmedNotify(rawRide.clientId, 'Viaje cancelado', 'No confirmaste tu viaje programado a tiempo.', {
             rideId,
             type: 'programmed_ride_canceled',
           });
@@ -395,13 +388,13 @@ export const processProgrammedRides = functions.pubsub
 
         await programmedRef.remove();
 
-        await notifyUserSafe(rawRide.clientId, '🚗 Tu viaje programado está listo', 'Tu viaje ha sido activado.', {
+        await programmedNotify(rawRide.clientId, '🚗 Tu viaje programado está listo', 'Tu viaje ha sido activado.', {
           rideId,
           type: 'programmed_ride_activated',
         });
 
         if (activateWithDriver) {
-          await notifyUserSafe(rawRide.driverId, '🚗 Viaje programado activado', 'Tu viaje programado ha sido activado.', {
+          await programmedNotify(rawRide.driverId, '🚗 Viaje programado activado', 'Tu viaje programado ha sido activado.', {
             rideId,
             type: 'programmed_ride_activated',
           });

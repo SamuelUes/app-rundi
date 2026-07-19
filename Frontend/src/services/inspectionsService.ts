@@ -3,15 +3,8 @@
  * Servicio para guardar inspecciones de vehículos en Supabase
  */
 
-import { createClient } from '@supabase/supabase-js';
-import Constants from 'expo-constants';
+import { supabase } from '../config/supabase';
 import i18n from '../i18n';
-
-// Configuración de Supabase
-const SUPABASE_URL = Constants.expoConfig?.extra?.supabaseUrl || 'https://ceytngpresytjhafcadu.supabase.co';
-const SUPABASE_ANON_KEY = Constants.expoConfig?.extra?.supabaseKey || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNleXRuZ3ByZXN5dGpoYWZjYWR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk5Nzg4NzIsImV4cCI6MjA3NTU1NDg3Mn0.3G9aCmJsjOIL-VG6E49sNnxvKBLITX-I1gFFlWKVslo';
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 interface DesignatedDriverInspection {
   ride_id: string;

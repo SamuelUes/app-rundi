@@ -3,10 +3,11 @@
  */
 
 import RideLocation from '../models/RideLocation';
+import { Transaction } from 'sequelize';
 
 export class RideLocationRepository {
-  async create(data: any): Promise<RideLocation> {
-    return await RideLocation.create(data);
+  async create(data: any, transaction?: Transaction): Promise<RideLocation> {
+    return await RideLocation.create(data, transaction ? { transaction } : undefined);
   }
 
   async findById(id: string): Promise<RideLocation | null> {

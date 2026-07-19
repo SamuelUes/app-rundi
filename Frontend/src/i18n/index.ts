@@ -1,5 +1,5 @@
 import SupportChatShortcut from '@/components/SupportChatShortcut';
-import RideConfirmationScreen from '@/screens/Client/Trabajo-revision-pendiente-RideConfirmationScreen';
+// import RideConfirmationScreen from '@/screens/Client/Trabajo-revision-pendiente-RideConfirmationScreen'; // DEPRECATED - sin uso, revisión próxima
 import alertService from '@/services/alertService';
 import accountLinkingService from '@/services/auth/accountLinkingService';
 import firebaseAuthService from '@/services/auth/firebaseAuthService';
@@ -20,7 +20,7 @@ import phoneLoginService from '@/services/phoneLoginService';
 import priceNegotiationService from '@/services/priceNegotiationService';
 import registrationService from '@/services/auth/registrationService';
 import servicesService from '@/services/servicesService';
-import trackingService from '@/services/trackingService';
+// import trackingService from '@/services/trackingService'; // DEPRECATED — socket.io sin uso, usar firebaseTrackingService
 import uploadService from '@/services/uploadService';
 import { userManagementService } from '@/services/userManagementService';
 import vehiclesService from '@/services/vehiclesService';

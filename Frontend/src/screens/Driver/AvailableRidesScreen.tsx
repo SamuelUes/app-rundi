@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -15,224 +15,32 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useVoiceAssistant } from '../../context/VoiceAssistantContext';
-import { getDatabase, ref, onValue, get } from 'firebase/database';
+import { getDatabase, ref, onValue } from 'firebase/database';
 import priceNegotiationService from '../../services/priceNegotiationService';
 import ridesService, {
-  extractRideVehicleTypeForMatching,
-  normalizeVehicleTypeForMatching,
   rideMatchesVehicleType,
 } from '../../services/ridesService';
 import { RideListSkeleton } from '../../components/SkeletonLoader';
 import alertService from '../../services/alertService';
 import { fetchClientProfile, ClientProfile } from '../../services/clientProfilesService';
 import { hasSavedCard } from '../../utils/cardUtils';
-import { useLocation } from '../../hooks/useLocation';
-import { useAcceptedRideListener } from '../../hooks/useAcceptedRideListener';
+import { useLocation } from '../../hooks/shared/location/useLocation';
+import { useAcceptedRideListener } from '../../hooks/driver/DriverHomeScreen/useAcceptedRideListener';
+import { useAvailableRidesData } from '../../hooks/driver/AvailableRidesScreen/useAvailableRidesData';
 import rechargeFundsService from '../../services/rechargeFundsService';
-import { getPreflightResult } from '../../state/preflightStore';
-import { RIDES_RADIUS_KM } from '../../constants/rideRadius';
+import { getPreflightResult } from '../../stores/preflightStore';
 import { useTranslation } from 'react-i18next';
+import {
+  type Ride,
+  extractProgrammedRideId,
+  haversineKm,
+} from '../../utils/availableRidesHelpers';
+
+const BACK_ICON = require('../../assets/icons/back_button/back_button2x.png');
 
 const SCREEN_ENTRY_WINDOW_MS = 3000;
 let screenEntryCountInWindow = 0;
 let screenEntryWindowStartTs = 0;
-
-const DEFAULT_COORDINATE: { lat: number; lng: number } = { lat: 0, lng: 0 };
-
-const normalizeOptionalText = (value: any): string | undefined => {
-  if (typeof value !== 'string') {
-    return undefined;
-  }
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-};
-
-type RawLocation =
-  | { lat?: number; lng?: number; address?: string }
-  | { latitude?: number; longitude?: number; address?: string }
-  | { coords?: { latitude?: number; longitude?: number; address?: string }; address?: string }
-  | undefined
-  | null;
-
-const parseCoordinate = (value: any): number | null => {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value;
-  }
-
-  if (typeof value === 'string') {
-    const parsed = parseFloat(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-
-  return null;
-};
-
-const normalizeLocation = (
-  raw: RawLocation,
-  fallbackLatValues: any[] = [],
-  fallbackLngValues: any[] = [],
-  fallbackAddress?: string,
-): { lat: number; lng: number; address?: string } => {
-  let lat: number | null = null;
-  let lng: number | null = null;
-  let address: string | undefined = fallbackAddress;
-
-  if (raw && typeof raw === 'object') {
-    if ('coords' in raw && raw.coords) {
-      lat = parseCoordinate(raw.coords?.latitude);
-      lng = parseCoordinate(raw.coords?.longitude);
-      address = raw.address ?? address;
-    } else {
-      lat = parseCoordinate((raw as any).lat ?? (raw as any).latitude);
-      lng = parseCoordinate((raw as any).lng ?? (raw as any).longitude);
-      address = (raw as any).address ?? address;
-    }
-  }
-
-  if (lat === null) {
-    for (const candidate of fallbackLatValues) {
-      const parsed = parseCoordinate(candidate);
-      if (parsed !== null) {
-        lat = parsed;
-        break;
-      }
-    }
-  }
-
-  if (lng === null) {
-    for (const candidate of fallbackLngValues) {
-      const parsed = parseCoordinate(candidate);
-      if (parsed !== null) {
-        lng = parsed;
-        break;
-      }
-    }
-  }
-
-  return {
-    lat: lat ?? DEFAULT_COORDINATE.lat,
-    lng: lng ?? DEFAULT_COORDINATE.lng,
-    address,
-  };
-};
-
-const normalizeStops = (stops: any[] | undefined | null): Array<{ lat: number; lng: number; address?: string }> => {
-  if (!Array.isArray(stops) || stops.length === 0) {
-    return [];
-  }
-
-  return stops
-    .map((stop) =>
-      normalizeLocation(stop as RawLocation, [stop?.lat, stop?.latitude], [stop?.lng, stop?.longitude], stop?.address),
-    )
-    .filter((stop) => Number.isFinite(stop.lat) && Number.isFinite(stop.lng));
-};
-
-const extractProgrammedRideId = (input: string): string | null => {
-  if (!input) {
-    return null;
-  }
-  const trimmed = input.trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  const uuidRegex =
-    /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/;
-  const uuidMatch = trimmed.match(uuidRegex);
-  if (uuidMatch && uuidMatch[0]) {
-    return uuidMatch[0].toLowerCase();
-  }
-
-  const genericMatch = trimmed.match(/[A-Za-z0-9_-]{10,}/g);
-  if (genericMatch && genericMatch.length) {
-    return genericMatch[genericMatch.length - 1];
-  }
-
-  if (/^[A-Za-z0-9_-]+$/.test(trimmed)) {
-    return trimmed;
-  }
-
-  return null;
-};
-const BACK_ICON = require('../../assets/icons/back_button/back_button2x.png');
-
-const resolveSelectedDriverVehicleType = (driverInfo: any): 'moto' | 'auto' | null => {
-  if (!driverInfo || typeof driverInfo !== 'object') {
-    return null;
-  }
-
-  const selectedVehicleId =
-    (typeof driverInfo.vehicle === 'string' ? driverInfo.vehicle : null) ??
-    driverInfo?.vehicle?.id ??
-    driverInfo?.activeVehicle?.id ??
-    null;
-
-  const candidateTypes: Array<string | null | undefined> = [
-    driverInfo?.currentVehicle?.type,
-    driverInfo?.activeVehicle?.type,
-    driverInfo?.vehicle?.type,
-    driverInfo?.vehicleType,
-    driverInfo?.active_vehicle?.type,
-  ];
-
-  if (selectedVehicleId && Array.isArray(driverInfo?.vehicles)) {
-    const selectedVehicle = driverInfo.vehicles.find(
-      (vehicle: any) => String(vehicle?.id ?? '') === String(selectedVehicleId),
-    );
-    candidateTypes.push(selectedVehicle?.type);
-  } else if (selectedVehicleId && driverInfo?.vehicles && typeof driverInfo.vehicles === 'object') {
-    const selectedVehicle = Object.values<any>(driverInfo.vehicles).find(
-      (vehicle: any) => String(vehicle?.id ?? '') === String(selectedVehicleId),
-    );
-    candidateTypes.push(selectedVehicle?.type);
-  }
-
-  if (Array.isArray(driverInfo?.vehicles)) {
-    const activeVehicle = driverInfo.vehicles.find((vehicle: any) => vehicle?.is_active || vehicle?.isActive);
-    candidateTypes.push(activeVehicle?.type);
-  } else if (driverInfo?.vehicles && typeof driverInfo.vehicles === 'object') {
-    const activeVehicle = Object.values<any>(driverInfo.vehicles).find(
-      (vehicle: any) => vehicle?.is_active || vehicle?.isActive,
-    );
-    candidateTypes.push(activeVehicle?.type);
-  }
-
-  for (const candidate of candidateTypes) {
-    const normalized = normalizeVehicleTypeForMatching(candidate ?? null);
-    if (normalized) {
-      return normalized;
-    }
-  }
-
-  return null;
-};
-
-interface Ride {
-  id: string;
-  clientId: string;
-  clientName?: string;
-  clientPhone?: string;
-  origin: { lat: number; lng: number; address?: string };
-  destination: { lat: number; lng: number; address?: string };
-  estimatedDistance: number;
-  estimatedDuration: number;
-  estimatedPrice: number;
-  status: string;
-  clientSuggestedPrice?: number;
-  driverOfferedPrice?: number | null;
-  driverOfferStatus?: string | null;
-  passengers?: number;
-  rideType?: string;
-  vehicleType?: string;
-  paymentMethod?: 'cash' | 'card';
-  requestedAt: number;
-  extraDestinations?: Array<{ lat: number; lng: number; address?: string }>;
-  waypointsCount?: number;
-  hasMultipleDestinations?: boolean;
-  clientVehiclePhoto?: string | null;
-  clientComment?: string;
-}
 
 export default function AvailableRidesScreeNewDesign({ navigation }: any) {
   const { t } = useTranslation();
@@ -245,10 +53,16 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
   const initialRegion = preflightSummary?.role === 'driver' ? preflightSummary.region : undefined;
   const [serviceAreaId] = useState<string | null>(initialRegion?.serviceAreaId ?? null);
 
-  const [rides, setRides] = useState<Ride[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [selectedRideId, setSelectedRideId] = useState<string | null>(null);
+  const {
+    rides,
+    loading,
+    refreshing,
+    selectedRideId,
+    setSelectedRideId,
+    activeRideGuard,
+    selectedDriverVehicleType,
+    handleRefresh,
+  } = useAvailableRidesData(user?.id, coords, serviceAreaId);
   const [clientProfiles, setClientProfiles] = useState<Record<string, ClientProfile | null>>({});
   const [rechargeFundsSummary, setRechargeFundsSummary] = useState<{ availableBalance: number; blocked: boolean } | null>(
     () => {
@@ -262,21 +76,15 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
       };
     },
   );
-  const [activeRideGuard, setActiveRideGuard] = useState<{ id: string } | null>(null);
   const isScreenFocusedRef = useRef(false);
   const [photoModalUrl, setPhotoModalUrl] = useState<string | null>(null);
   const [assignModalVisible, setAssignModalVisible] = useState(false);
   const [assignRideIdInput, setAssignRideIdInput] = useState('');
   const [assigningProgrammedRide, setAssigningProgrammedRide] = useState(false);
-  const [selectedDriverVehicleType, setSelectedDriverVehicleType] = useState<'moto' | 'auto' | null>(null);
-  const ridesSnapshotsRef = useRef<Record<string, Record<string, any> | null | undefined>>({});
   const normalizedAssignRideId = useMemo(
     () => extractProgrammedRideId(assignRideIdInput),
     [assignRideIdInput],
   );
-
-  const hasRideEntries = (data: Record<string, any> | null | undefined) =>
-    Boolean(data && typeof data === 'object' && Object.keys(data).length > 0);
 
   useEffect(() => {
     const focusUnsubscribe = navigation.addListener('focus', () => {
@@ -326,294 +134,12 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
   // Monitorear rides aceptados globalmente
   useAcceptedRideListener(navigation);
 
+  // 🔒 Guard: Si ya tengo un viaje activo, redirigir a ActiveRide
   useEffect(() => {
-    if (!user?.id) {
-      setSelectedDriverVehicleType(null);
-      return;
+    if (activeRideGuard) {
+      navigation.replace('ActiveRide', { rideId: activeRideGuard.id });
     }
-
-    const db = getDatabase();
-    const infoRef = ref(db, `driversInfo/${user.id}`);
-
-    const unsubscribe = onValue(
-      infoRef,
-      (snapshot) => {
-        const info = snapshot.val();
-        const resolvedType = resolveSelectedDriverVehicleType(info);
-        setSelectedDriverVehicleType(resolvedType);
-      },
-      (error) => {
-        console.warn('[AvailableRides] Error leyendo vehículo activo del conductor:', error);
-      },
-    );
-
-    return () => unsubscribe();
-  }, [user?.id]);
-
-  // 🔒 Guard: Si ya tengo un viaje activo (accepted/driver_on_route/in_progress), redirigir y bloquear esta pantalla
-  useEffect(() => {
-    if (!user?.id) return;
-
-    const db = getDatabase();
-    const path = serviceAreaId ? `activeRidesByArea/${serviceAreaId}` : 'activeRides';
-    const activeRef = ref(db, path);
-
-    const unsubscribe = onValue(activeRef, (snapshot) => {
-      const data = snapshot.val();
-      if (!data) {
-        setActiveRideGuard(null);
-        return;
-      }
-
-      let found: string | null = null;
-      for (const [id, ride] of Object.entries<any>(data)) {
-        const status = String(ride?.status || '').toLowerCase();
-        if (ride?.driverId === user.id && ['accepted', 'driver_on_route', 'driver_arrived', 'in_progress'].includes(status)) {
-          found = id;
-          break;
-        }
-      }
-
-      if (found) {
-        setActiveRideGuard({ id: found });
-        navigation.replace('ActiveRide', { rideId: found });
-      } else {
-        setActiveRideGuard(null);
-      }
-    });
-
-    return () => unsubscribe();
-  }, [user?.id, navigation, serviceAreaId]);
-
-  const selectSnapshotData = useCallback((): Record<string, any> | null => {
-    if (serviceAreaId) {
-      const areaKey = `area:${serviceAreaId}`;
-      const areaData = ridesSnapshotsRef.current[areaKey];
-      if (hasRideEntries(areaData)) {
-        return areaData!;
-      }
-      const globalData = ridesSnapshotsRef.current.global;
-      if (hasRideEntries(globalData)) {
-        return globalData!;
-      }
-      if (areaData !== undefined) {
-        return areaData ?? null;
-      }
-      return globalData ?? null;
-    }
-    return ridesSnapshotsRef.current.global ?? null;
-  }, [serviceAreaId]);
-
-  const applySnapshot = useCallback(
-    (data: Record<string, any> | null | undefined) => {
-      const rideKeys = data ? Object.keys(data) : [];
-      console.log('📦 [AvailableRides] Snapshot recibido', {
-        totalKeys: rideKeys.length,
-        keysPreview: rideKeys.slice(0, 5),
-      });
-
-      if (!data) {
-        setRides([]);
-        setLoading(false);
-        setRefreshing(false);
-        return;
-      }
-
-      const availableRides: Ride[] = [];
-
-      Object.entries(data).forEach(([rideId, rideData]: [string, any]) => {
-        const statusRaw = typeof rideData?.status === 'string' ? rideData.status.trim().toLowerCase() : '';
-        const driverId = rideData?.driverId ?? rideData?.driver_id ?? null;
-
-        const isCancelled =
-          statusRaw.startsWith('cancel') ||
-          statusRaw === 'cancelled' ||
-          Boolean(rideData?.cancelReason) ||
-          rideData?.paymentCanceled === true ||
-          rideData?.cancelled === true ||
-          rideData?.canceled === true;
-        if (isCancelled) {
-          console.log('⏭️ [AvailableRides] Ride omitido (cancelado)', rideId, {
-            statusRaw,
-            driverId,
-            cancelReason: rideData?.cancelReason,
-            paymentCanceled: rideData?.paymentCanceled,
-          });
-          return;
-        }
-
-        const isRequested = statusRaw === 'requested' && !driverId;
-        const isNegotiatingWithMe = Boolean(user?.id) && driverId === user?.id && ['pending_confirm', 'driver_assigned'].includes(statusRaw);
-
-        if (!(isRequested || isNegotiatingWithMe)) {
-          console.log('⏭️ [AvailableRides] Ride omitido (no elegible)', rideId, {
-            statusRaw,
-            driverId,
-            userId: user?.id,
-            isRequested,
-            isNegotiatingWithMe,
-          });
-          return;
-        }
-
-        const rideVehicleType = extractRideVehicleTypeForMatching(rideData);
-        const vehicleTypeMatches = rideMatchesVehicleType(rideData, selectedDriverVehicleType);
-        if (!vehicleTypeMatches) {
-          console.log('⏭️ [AvailableRides] Ride omitido (vehicleType no coincide)', rideId, {
-            selectedDriverVehicleType,
-            rideVehicleType,
-            rideVehicleTypeRaw: rideData?.vehicleType ?? rideData?.vehicle_type ?? rideData?.vehicle?.type ?? null,
-            serviceId: rideData?.serviceId ?? rideData?.service_id ?? null,
-          });
-          return;
-        }
-
-        const offers = rideData.offers || {};
-        const myOffer = user?.id ? offers[user.id] : null;
-
-        const origin = normalizeLocation(
-          rideData.origin as RawLocation,
-          [rideData.originLat, rideData.originLatitude, rideData.pickupLat, rideData.pickupLatitude],
-          [rideData.originLng, rideData.originLongitude, rideData.pickupLng, rideData.pickupLongitude],
-          rideData.originAddress,
-        );
-        const destination = normalizeLocation(
-          rideData.destination as RawLocation,
-          [rideData.destinationLat, rideData.destinationLatitude, rideData.dropoffLat, rideData.dropoffLatitude],
-          [rideData.destinationLng, rideData.destinationLongitude, rideData.dropoffLng, rideData.dropoffLongitude],
-          rideData.destinationAddress,
-        );
-
-        const extraStops = normalizeStops(rideData.extraDestinations || rideData.extra_stops || rideData.additionalStops);
-
-        const requestedAtRaw = rideData.requestedAt ?? rideData.createdAt ?? rideData.created_at ?? Date.now();
-        const requestedAt = typeof requestedAtRaw === 'number' ? requestedAtRaw : parseInt(requestedAtRaw, 10) || 0;
-
-        // Filtrar por radio de búsqueda del conductor si tenemos coordenadas válidas
-        const driverLat = coords?.latitude ?? null;
-        const driverLng = coords?.longitude ?? null;
-
-        if (
-          driverLat !== null &&
-          driverLng !== null &&
-          Number.isFinite(origin.lat) &&
-          Number.isFinite(origin.lng)
-        ) {
-          const distanceKm = haversineKm(driverLat, driverLng, origin.lat, origin.lng);
-          if (!Number.isFinite(distanceKm) || distanceKm > RIDES_RADIUS_KM) {
-            console.log('⏭️ [AvailableRides] Ride omitido (fuera de radio)', rideId, {
-              distanceKm,
-              RIDES_RADIUS_KM,
-            });
-            return;
-          }
-        }
-
-        availableRides.push({
-          id: rideId,
-          clientId: rideData.clientId || '',
-          clientName: rideData.clientName || rideData.client?.name || rideData.clientInfo?.name,
-          clientPhone: rideData.clientPhone || rideData.client?.phone || rideData.clientInfo?.phone,
-          origin,
-          destination,
-          estimatedDistance: rideData.estimatedDistance || 0,
-          estimatedDuration: rideData.estimatedDuration || 0,
-          estimatedPrice: rideData.estimatedPrice || 0,
-          status: statusRaw || 'requested',
-          clientSuggestedPrice: rideData.clientSuggestedPrice,
-          driverOfferedPrice: myOffer?.offeredPrice ?? null,
-          driverOfferStatus: myOffer?.status ?? null,
-          passengers: rideData.passengers || 1,
-          rideType: rideData.rideType || 'normal',
-          vehicleType: rideVehicleType ?? undefined,
-          paymentMethod: rideData.paymentMethod,
-          requestedAt,
-          extraDestinations: extraStops,
-          waypointsCount: rideData.waypointsCount || extraStops.length || 0,
-          hasMultipleDestinations: rideData.hasMultipleDestinations || extraStops.length > 0,
-          clientVehiclePhoto: rideData.clientVehiclePhoto || null,
-          clientComment: normalizeOptionalText(rideData.clientComment ?? rideData.comment ?? rideData.notes),
-        });
-        console.log('✅ [AvailableRides] Ride agregado a lista', rideId, {
-          statusRaw,
-          driverId,
-          isRequested,
-          isNegotiatingWithMe,
-          negotiationStatus: rideData?.negotiationStatus,
-        });
-      });
-
-      availableRides.sort((a, b) => (b.requestedAt || 0) - (a.requestedAt || 0));
-
-      setRides(availableRides);
-      setSelectedRideId((current) => (current && availableRides.some((ride) => ride.id === current) ? current : null));
-      setLoading(false);
-      setRefreshing(false);
-    },
-    [user?.id, coords?.latitude, coords?.longitude, selectedDriverVehicleType],
-  );
-
-  const applySnapshotRef = useRef(applySnapshot);
-  useEffect(() => {
-    applySnapshotRef.current = applySnapshot;
-  }, [applySnapshot]);
-
-  const selectSnapshotDataRef = useRef(selectSnapshotData);
-  useEffect(() => {
-    selectSnapshotDataRef.current = selectSnapshotData;
-  }, [selectSnapshotData]);
-
-  useEffect(() => {
-    applySnapshot(selectSnapshotData());
-  }, [applySnapshot, selectSnapshotData, selectedDriverVehicleType]);
-
-  useEffect(() => {
-    const db = getDatabase();
-    const pathConfigs = serviceAreaId
-      ? [
-          { key: `area:${serviceAreaId}`, path: `activeRidesByArea/${serviceAreaId}` },
-          { key: 'global', path: 'activeRides' },
-        ]
-      : [{ key: 'global', path: 'activeRides' }];
-
-    const unsubscribes = pathConfigs.map(({ key, path }) => {
-      const ridesRef = ref(db, path);
-      return onValue(
-        ridesRef,
-        (snapshot) => {
-          const raw = snapshot.val();
-          const normalized = raw && typeof raw === 'object' ? raw : null;
-          ridesSnapshotsRef.current[key] = normalized;
-          const selector = selectSnapshotDataRef.current;
-          const handler = applySnapshotRef.current;
-          if (handler && selector) {
-            handler(selector());
-          }
-        },
-        (error) => {
-          console.error(`❌ [AvailableRides] Error escuchando ${path}:`, error);
-          ridesSnapshotsRef.current[key] = null;
-          const selector = selectSnapshotDataRef.current;
-          const handler = applySnapshotRef.current;
-          if (handler && selector) {
-            handler(selector());
-          }
-          setLoading(false);
-          setRefreshing(false);
-        },
-      );
-    });
-
-    return () => {
-      unsubscribes.forEach((unsubscribe) => {
-        try {
-          unsubscribe();
-        } catch {
-          // ignore
-        }
-      });
-    };
-  }, [navigation, serviceAreaId]);
+  }, [activeRideGuard, navigation]);
 
   // ✅ Realtime DB: resumen de fondos del conductor
   useEffect(() => {
@@ -658,33 +184,6 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
       navUnsubscribe?.();
     };
   }, [navigation, user?.id]);
-
-  const handleRefresh = useCallback(async () => {
-    setRefreshing(true);
-    try {
-      const db = getDatabase();
-      const pathConfigs = serviceAreaId
-        ? [
-            { key: `area:${serviceAreaId}`, path: `activeRidesByArea/${serviceAreaId}` },
-            { key: 'global', path: 'activeRides' },
-          ]
-        : [{ key: 'global', path: 'activeRides' }];
-
-      await Promise.all(
-        pathConfigs.map(async ({ key, path }) => {
-          const ridesRef = ref(db, path);
-          const snapshot = await get(ridesRef);
-          const raw = snapshot.val();
-          ridesSnapshotsRef.current[key] = raw && typeof raw === 'object' ? raw : null;
-        }),
-      );
-      applySnapshot(selectSnapshotData());
-    } catch (error) {
-      console.error('❌ [AvailableRides] Error refrescando manualmente:', error);
-    } finally {
-      setRefreshing(false);
-    }
-  }, [applySnapshot, selectSnapshotData, serviceAreaId]);
 
   const ensureCardForCardPayments = async (ride: Ride): Promise<boolean> => {
     const ridePaymentMethod = ride?.paymentMethod || ride?.rideType;
@@ -941,24 +440,6 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
       return parts[0].charAt(0).toUpperCase();
     }
     return `${parts[0].charAt(0)}${parts[parts.length - 1].charAt(0)}`.toUpperCase();
-  };
-
-  const haversineKm = (
-    lat1: number,
-    lon1: number,
-    lat2: number,
-    lon2: number,
-  ): number => {
-    const R = 6371; // km
-    const toRad = (deg: number) => (deg * Math.PI) / 180;
-    const dLat = toRad(lat2 - lat1);
-    const dLon = toRad(lon2 - lon1);
-    const a =
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
-      Math.sin(dLon / 2) * Math.sin(dLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c;
   };
 
   const renderRideItem = ({ item }: { item: RideListItem }) => {

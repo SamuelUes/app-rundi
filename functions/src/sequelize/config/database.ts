@@ -14,11 +14,13 @@ import dotenv from 'dotenv';
 // Asegurar que las variables de entorno estén disponibles en emulador/desarrollo
 // En producción (Firebase) se usan functions.config()/process.env
 const nodeEnv = process.env.NODE_ENV === 'production' ? 'production' : 'development';
-const envFilePath = nodeEnv === 'production' ? '.env.productions' : '.env.development';
+const envFilePath = nodeEnv === 'production' ? '.env.production' : '.env.development';
 
 dotenv.config({ path: envFilePath });
 
-console.log(`🔧 [Sequelize Config] Inicializando conexión a Supabase...`);
+if (process.env.FUNCTIONS_EMULATOR || process.env.NODE_ENV === 'development') {
+  console.log(`🔧 [Sequelize Config] Inicializando conexión a Supabase...`);
+}
 
 // Obtener DATABASE_URL de múltiples fuentes
 let databaseUrl: string | undefined;
@@ -28,7 +30,9 @@ try {
   const config = functions.config();
   if (config.supabase && config.supabase.database_url) {
     databaseUrl = config.supabase.database_url;
-    console.log(`✅ [Sequelize Config] DATABASE_URL obtenida de Firebase config`);
+    if (process.env.FUNCTIONS_EMULATOR || process.env.NODE_ENV === 'development') {
+      console.log(`✅ [Sequelize Config] DATABASE_URL obtenida de Firebase config`);
+    }
   }
 } catch (error: any) {
   console.log(`⚠️ [Sequelize Config] No se pudo obtener de Firebase config:`, error.message);
@@ -39,13 +43,17 @@ if (!databaseUrl) {
   // Primero intentar DATABASE_URL clásica
   if (process.env.DATABASE_URL) {
     databaseUrl = process.env.DATABASE_URL;
-    console.log(`✅ [Sequelize Config] DATABASE_URL obtenida de process.env`);
+    if (process.env.FUNCTIONS_EMULATOR || process.env.NODE_ENV === 'development') {
+      console.log(`✅ [Sequelize Config] DATABASE_URL obtenida de process.env`);
+    }
   } else if (process.env.DATABASE_TRANS_POOLER) {
     // Luego intentar DATABASE_TRANS_POOLER (transaction pooler de Supabase)
     databaseUrl = process.env.DATABASE_TRANS_POOLER;
-    console.log(
-      `✅ [Sequelize Config] DATABASE_URL obtenida de process.env.DATABASE_TRANS_POOLER (transaction pooler)`,
-    );
+    if (process.env.FUNCTIONS_EMULATOR || process.env.NODE_ENV === 'development') {
+      console.log(
+        `✅ [Sequelize Config] DATABASE_URL obtenida de process.env.DATABASE_TRANS_POOLER (transaction pooler)`,
+      );
+    }
   }
 }
 
@@ -56,8 +64,10 @@ if (!databaseUrl) {
   console.warn(`⚠️ [Sequelize Config] Configura en Firebase Cloud Functions: firebase functions:config:set supabase.database_url="postgresql://..."`);
   console.warn(`⚠️ [Sequelize Config] O define DATABASE_URL en el archivo functions/.env`);
 } else {
-  console.log(`✅ [Sequelize Config] DATABASE_URL encontrada`);
-  console.log(`✅ [Sequelize Config] Conectando a: ${databaseUrl.split('@')[1] || 'Supabase'}`);
+  if (process.env.FUNCTIONS_EMULATOR || process.env.NODE_ENV === 'development') {
+    console.log(`✅ [Sequelize Config] DATABASE_URL encontrada`);
+    console.log(`✅ [Sequelize Config] Conectando a: ${databaseUrl.split('@')[1] || 'Supabase'}`);
+  }
 
   sequelize = new Sequelize(databaseUrl, {
     dialect: 'postgres',
@@ -65,7 +75,7 @@ if (!databaseUrl) {
     pool: {
       max: 5,
       min: 0,
-      acquire: 30000,
+      acquire: 5000,
       idle: 10000,
       evict: 10000,
     },
@@ -74,7 +84,8 @@ if (!databaseUrl) {
       // ✅ Configuración para Supabase
       statement_timeout: 30000,
       idle_in_transaction_session_timeout: 30000,
-      application_name: 'driveangel-firebase-functions',
+      connectTimeoutMS: 5000,
+      application_name: 'rundi-firebase-functions',
     },
     // ✅ Retry logic para conexiones fallidas
     retry: {
@@ -88,15 +99,27 @@ if (!databaseUrl) {
     },
   });
 
+  const isEmulator = process.env.FUNCTIONS_EMULATOR || process.env.NODE_ENV === 'development';
+
   const testConnection = async () => {
     try {
-      console.log(`🔄 [Sequelize Config] Probando conexión a Supabase...`);
+      if (isEmulator) {
+        console.log(`🔄 [Sequelize Config] Probando conexión a Supabase...`);
+      }
       await sequelize!.authenticate();
-      console.log(`✅ [Sequelize Config] Conexión a Supabase exitosa`);
+      if (isEmulator) {
+        console.log(`✅ [Sequelize Config] Conexión a Supabase exitosa`);
+      }
     } catch (error: any) {
-      console.warn(`⚠️ [Sequelize Config] No se pudo conectar a PostgreSQL directo:`, error.message);
-      console.warn(`⚠️ [Sequelize Config] Usando Supabase REST API como fallback`);
-      console.warn(`⚠️ [Sequelize Config] Esto es normal en Firebase Functions`);
+      if (isEmulator) {
+        console.warn(`⚠️ [Sequelize Config] No se pudo conectar a PostgreSQL directo:`, error.message);
+        console.warn(`⚠️ [Sequelize Config] Usando Supabase REST API como fallback`);
+        console.warn(`⚠️ [Sequelize Config] Esto es normal en Firebase Functions`);
+      } else {
+        // En producción (Firebase Functions) es esperado que la conexión directa falle
+        // Silenciamos los logs para evitar ruido en Cloud Logging
+        console.log(`ℹ️ [Sequelize Config] PostgreSQL directo no disponible, usando REST API fallback`);
+      }
     }
   };
 

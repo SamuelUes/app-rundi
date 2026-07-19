@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useMemo } from 'react';
 import {
   View,
   Text,
@@ -13,59 +13,10 @@ import { LoadingIcon } from '../../components/LoadingIcon';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import Button from '../../components/Button';
-import driversService from '../../services/driversService';
 import ImagePicker from '../../components/ImagePicker';
-import { 
-  uploadLicensePhoto,
-  uploadRegistrationPhoto,
-  uploadInsurancePhoto,
-} from '../../services/supabaseStorage';
 import { useTranslation } from 'react-i18next';
 import SupportChatShortcut from '../../components/SupportChatShortcut';
-
-interface VehicleData {
-  id: string;
-  plate: string;
-  brand: string;
-  model: string;
-  year: number;
-  color: string;
-  type: string;
-  registration_number?: string;
-  registration_expiry?: string;
-  registration_photo?: string;
-  registration_photo_front?: string;
-  registration_photo_back?: string;
-  insurance_photo?: string;
-  vehicle_photo?: string;
-  // Campos adicionales del esquema
-  motor?: string;
-  chasis?: string;
-  vin?: string;
-  cylinders?: number;
-  passengers?: number;
-  fuel_type?: string;
-  tonnage?: number;
-  vehicle_class?: string;
-  service_type?: string;
-  lien?: string;
-  insurance_number?: string;
-  insurance_company?: string;
-  insurance_expiry?: string;
-  insurance_start_date?: string;
-  is_4x4?: boolean;
-}
-
-interface DriverData {
-  license_number: string;
-  license_expiry?: string;
-  license_photo_front?: string;
-  license_photo_back?: string;
-  // Campos adicionales del esquema
-  department?: string;
-  municipality?: string;
-  profile_photo?: string;
-}
+import { useVehicleInfo } from '../../hooks/shared/vehicle/useVehicleInfo';
 
 export default function CompleteVehicleInfoScreen({ navigation }: any) {
   const { user } = useAuth();
@@ -85,7 +36,7 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
   const completionText = (t('shared.completeVehicleInfo.completion', {
     returnObjects: true,
   }) ?? {}) as Record<string, string>;
-  const photos = (t('shared.completeVehicleInfo.photos', {
+  const photosText = (t('shared.completeVehicleInfo.photos', {
     returnObjects: true,
   }) ?? {}) as {
     frontLabel?: string;
@@ -110,68 +61,42 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
   }) ?? { title: '', subtitle: '' }) as { title?: string; subtitle?: string };
   const loadingText = t('shared.completeVehicleInfo.loading');
 
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [vehicleData, setVehicleData] = useState<VehicleData | null>(null);
-  const [driverData, setDriverData] = useState<DriverData | null>(null);
-  
-  // Estado para verificación de campos completos
-  const [isComplete, setIsComplete] = useState({
-    personalInfo: false,
-    vehicleInfo: false,
-    documentsInfo: false,
-    licensePhotos: false,
-    registrationPhotos: false,
-    insurancePhotos: false,
-    vehiclePhotos: false,
-  });
+  const {
+    loading,
+    saving,
+    vehicleData,
+    driverData,
+    formState,
+    setFormState,
+    photos,
+    setPhoto,
+    handleSave: saveVehicleInfo,
+  } = useVehicleInfo(user?.id, defaultLienValue);
 
-  // Estados para fotos
-  const [licensePhotoFront, setLicensePhotoFront] = useState<string | null>(null);
-  const [licensePhotoBack, setLicensePhotoBack] = useState<string | null>(null);
-  const [registrationPhotoFront, setRegistrationPhotoFront] = useState<string | null>(null);
-  const [registrationPhotoBack, setRegistrationPhotoBack] = useState<string | null>(null);
-  const [insurancePhoto, setInsurancePhoto] = useState<string | null>(null);
-  const [vehiclePhoto, setVehiclePhoto] = useState<string | null>(null);
+  const updateField = (field: keyof typeof formState, value: string | boolean) => {
+    setFormState((prev) => ({ ...prev, [field]: value }));
+  };
 
-  // Estados para URIs locales temporales (antes de subir a Supabase)
-  const [tempLicenseFrontUri, setTempLicenseFrontUri] = useState<string | null>(null);
-  const [tempLicenseBackUri, setTempLicenseBackUri] = useState<string | null>(null);
-  const [tempRegistrationFrontUri, setTempRegistrationFrontUri] = useState<string | null>(null);
-  const [tempRegistrationBackUri, setTempRegistrationBackUri] = useState<string | null>(null);
-  const [tempInsuranceUri, setTempInsuranceUri] = useState<string | null>(null);
-  const [tempVehicleUri, setTempVehicleUri] = useState<string | null>(null);
+  const isComplete = useMemo(() => {
+    const licensePhotosComplete = !!(photos.licenseFront.tempUri || photos.licenseFront.url);
+    const registrationPhotosComplete = !!(photos.registrationFront.tempUri || photos.registrationFront.url) &&
+                                       !!(photos.registrationBack.tempUri || photos.registrationBack.url);
+    const insurancePhotosComplete = !!(photos.insurance.tempUri || photos.insurance.url);
+    const vehiclePhotosComplete = !!(photos.vehicle.tempUri || photos.vehicle.url);
 
-  // Estados para datos del conductor
-  const [department, setDepartment] = useState('');
-  const [municipality, setMunicipality] = useState('');
-  const [licenseNumber, setLicenseNumber] = useState('');
-  const [licenseExpiry, setLicenseExpiry] = useState('');
-
-  // Estados para datos del vehículo
-  const [plate, setPlate] = useState('');
-  const [brand, setBrand] = useState('');
-  const [model, setModel] = useState('');
-  const [year, setYear] = useState('');
-  const [color, setColor] = useState('');
-  const [vehicleType, setVehicleType] = useState('');
-  const [registrationNumber, setRegistrationNumber] = useState('');
-  const [registrationExpiry, setRegistrationExpiry] = useState('');
-  const [insuranceNumber, setInsuranceNumber] = useState('');
-  const [insuranceCompany, setInsuranceCompany] = useState('');
-  const [insuranceExpiry, setInsuranceExpiry] = useState('');
-  const [insuranceStartDate, setInsuranceStartDate] = useState('');
-  const [motor, setMotor] = useState('');
-  const [chasis, setChasis] = useState('');
-  const [vin, setVin] = useState('');
-  const [cylinders, setCylinders] = useState('');
-  const [passengers, setPassengers] = useState('');
-  const [fuelType, setFuelType] = useState('');
-  const [tonnage, setTonnage] = useState('');
-  const [vehicleClass, setVehicleClass] = useState('');
-  const [serviceType, setServiceType] = useState('');
-  const [lien, setLien] = useState(defaultLienValue);
-  const [is4x4, setIs4x4] = useState(false);
+    return {
+      personalInfo: !!formState.licenseNumber,
+      vehicleInfo: !!formState.plate && !!formState.brand && !!formState.model &&
+                   !!formState.year && !!formState.color && !!formState.vehicleType,
+      documentsInfo: !!formState.registrationNumber && !!formState.insuranceNumber &&
+                     !!formState.insuranceCompany && !!formState.registrationExpiry &&
+                     !!formState.insuranceExpiry,
+      licensePhotos: licensePhotosComplete,
+      registrationPhotos: registrationPhotosComplete,
+      insurancePhotos: insurancePhotosComplete,
+      vehiclePhotos: vehiclePhotosComplete,
+    };
+  }, [formState, photos]);
 
   const completedSectionsCount = Object.values(isComplete).filter(Boolean).length;
   const totalSections = Object.values(isComplete).length;
@@ -184,341 +109,9 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
         })
       : null;
 
-  useEffect(() => {
-    loadExistingData();
-  }, []);
-
-  // Función para verificar si todos los campos requeridos están completos
-  const checkCompleteness = () => {
-    // Información personal - número de licencia es obligatorio
-    const personalComplete = !!licenseNumber;
-    
-    // Información del vehículo - campos obligatorios
-    const vehicleComplete = !!plate && 
-                          !!brand && 
-                          !!model && 
-                          !!year && 
-                          !!color && 
-                          !!vehicleType;
-    
-    // Información de documentos - números y fechas importantes
-    const documentsComplete = !!registrationNumber && 
-                             !!insuranceNumber && 
-                             !!insuranceCompany &&
-                             !!registrationExpiry &&
-                             !!insuranceExpiry;
-    
-    // Fotos - todas son importantes para verificación
-    const licensePhotosComplete = !!licensePhotoFront && !!licensePhotoBack;
-    const registrationPhotosComplete = !!registrationPhotoFront && !!registrationPhotoBack;
-    const insurancePhotosComplete = !!insurancePhoto;
-    const vehiclePhotosComplete = !!vehiclePhoto;
-    
-    // Si hay cambio en alguna sección, actualizar el estado
-    const newCompletionState = {
-      personalInfo: personalComplete,
-      vehicleInfo: vehicleComplete,
-      documentsInfo: documentsComplete,
-      licensePhotos: licensePhotosComplete,
-      registrationPhotos: registrationPhotosComplete,
-      insurancePhotos: insurancePhotosComplete,
-      vehiclePhotos: vehiclePhotosComplete
-    };
-    
-    // Actualizar estado solo si ha cambiado (evitar renders innecesarios)
-    if (JSON.stringify(newCompletionState) !== JSON.stringify(isComplete)) {
-      setIsComplete(newCompletionState);
-      
-      // Log para depuración
-      console.log('✅ Estado de completitud actualizado:', newCompletionState);
-      console.log('📊 Resumen: ' + Object.values(newCompletionState).filter(Boolean).length + 
-                 ' de ' + Object.values(newCompletionState).length + ' secciones completadas');
-    }
-  };
-
-  const loadExistingData = async () => {
-    if (!user?.id) return;
-
-    setLoading(true);
-    try {
-      // ✅ Obtener perfil del conductor autenticado
-      const profile = await driversService.getMyDriverProfile();
-      console.log('✅ Perfil de conductor cargado exitosamente');
-
-      if (profile?.driver) {
-        const driver = profile.driver;
-        const vehicle = driver.vehicle;
-
-        // Función helper para convertir fechas
-        const formatDate = (dateValue: any) => {
-          // Valores null, undefined o string vacío
-          if (!dateValue || dateValue === null || dateValue === undefined) {
-            return '';
-          }
-          
-          // Si es un objeto vacío {} (problema de serialización del backend)
-          if (typeof dateValue === 'object' && Object.keys(dateValue).length === 0) {
-            return '';
-          }
-          
-          // Si es un objeto con _seconds (Firestore Timestamp)
-          if (typeof dateValue === 'object' && dateValue._seconds) {
-            const date = new Date(dateValue._seconds * 1000);
-            return date.toISOString().split('T')[0]; // YYYY-MM-DD
-          }
-          
-          // Si es un string de fecha válido
-          if (typeof dateValue === 'string' && dateValue.length > 0) {
-            // Si ya está en formato YYYY-MM-DD, devolverlo tal como está
-            if (dateValue.match(/^\d{4}-\d{2}-\d{2}$/)) {
-              return dateValue;
-            }
-            // Si está en formato ISO (YYYY-MM-DDTHH:mm:ss)
-            if (dateValue.includes('T')) {
-              return dateValue.split('T')[0];
-            }
-            // Intentar parsear otros formatos
-            const date = new Date(dateValue);
-            if (!isNaN(date.getTime())) {
-              return date.toISOString().split('T')[0];
-            }
-          }
-          
-          return '';
-        };
-
-        // Función helper para manejar campos de texto que pueden ser undefined
-        const safeString = (value: any) => {
-          if (value === null || value === undefined) {
-            return '';
-          }
-          return String(value);
-        };
-
-        // Cargar datos del conductor
-        setDriverData(driver);
-        setDepartment(safeString(driver.department));
-        setMunicipality(safeString(driver.municipality));
-        setLicenseNumber(safeString(driver.license_number));
-        setLicenseExpiry(formatDate(driver.license_expiry));
-        setLicensePhotoFront(driver.license_photo_front || null);
-        setLicensePhotoBack(driver.license_photo_back || null);
-
-        console.log('✅ Datos del conductor cargados:', {
-          department: safeString(driver.department),
-          municipality: safeString(driver.municipality),
-          license_expiry: formatDate(driver.license_expiry),
-        });
-
-        // Cargar datos del vehículo si existe
-        if (vehicle) {
-          setVehicleData(vehicle);
-          setPlate(safeString(vehicle.plate));
-          setBrand(safeString(vehicle.brand));
-          setModel(safeString(vehicle.model));
-          setYear(vehicle.year ? vehicle.year.toString() : '');
-          setColor(safeString(vehicle.color));
-          setVehicleType(safeString(vehicle.type));
-          setRegistrationNumber(safeString(vehicle.registration_number));
-          setRegistrationExpiry(formatDate(vehicle.registration_expiry));
-          setInsuranceNumber(safeString(vehicle.insurance_number));
-          setInsuranceCompany(safeString(vehicle.insurance_company));
-          setInsuranceExpiry(formatDate(vehicle.insurance_expiry));
-          setInsuranceStartDate(formatDate(vehicle.insurance_start_date));
-          setMotor(safeString(vehicle.motor));
-          setChasis(safeString(vehicle.chasis));
-          setVin(safeString(vehicle.vin));
-          setCylinders(vehicle.cylinders ? vehicle.cylinders.toString() : '');
-          setPassengers(vehicle.passengers ? vehicle.passengers.toString() : '');
-          setFuelType(safeString(vehicle.fuel_type));
-          setTonnage(vehicle.tonnage ? vehicle.tonnage.toString() : '');
-          setVehicleClass(safeString(vehicle.vehicle_class));
-          setServiceType(safeString(vehicle.service_type));
-          setLien(safeString(vehicle.lien) || defaultLienValue);
-          setIs4x4(vehicle.is_4x4 || false);
-
-          console.log('✅ Fechas del vehículo cargadas:', {
-            registration_expiry: formatDate(vehicle.registration_expiry),
-            insurance_expiry: formatDate(vehicle.insurance_expiry),
-            insurance_start_date: formatDate(vehicle.insurance_start_date),
-          });
-
-          // Cargar fotos del vehículo
-          setRegistrationPhotoFront(vehicle.registration_photo_front || null);
-          setRegistrationPhotoBack(vehicle.registration_photo_back || null);
-          setInsurancePhoto(vehicle.insurance_photo || null);
-          setVehiclePhoto(vehicle.vehicle_photo || null);
-        }
-        
-        // Esperar un momento para que los estados se actualicen antes de verificar completitud
-        setTimeout(() => {
-          checkCompleteness();
-        }, 500);
-      }
-    } catch (error) {
-      console.error('Error cargando datos:', error);
-      Alert.alert(alertsText.loadErrorTitle, alertsText.loadErrorMessage);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Funciones para seleccionar fotos (solo guardan URI local temporalmente)
-  const handleSelectLicenseFront = async (uri: string) => {
-    setTempLicenseFrontUri(uri);
-    setLicensePhotoFront(null); // Reset URL actual hasta que se guarde
-    // Actualizar estado de completitud
-    setTimeout(() => checkCompleteness(), 100);
-  };
-
-  const handleSelectLicenseBack = async (uri: string) => {
-    setTempLicenseBackUri(uri);
-    setLicensePhotoBack(null);
-    // Actualizar estado de completitud
-    setTimeout(() => checkCompleteness(), 100);
-  };
-
-  const handleSelectRegistrationFront = async (uri: string) => {
-    setTempRegistrationFrontUri(uri);
-    setRegistrationPhotoFront(null);
-    // Actualizar estado de completitud
-    setTimeout(() => checkCompleteness(), 100);
-  };
-
-  const handleSelectRegistrationBack = async (uri: string) => {
-    setTempRegistrationBackUri(uri);
-    setRegistrationPhotoBack(null);
-    // Actualizar estado de completitud
-    setTimeout(() => checkCompleteness(), 100);
-  };
-
-  const handleSelectInsurance = async (uri: string) => {
-    setTempInsuranceUri(uri);
-    setInsurancePhoto(null);
-    // Actualizar estado de completitud
-    setTimeout(() => checkCompleteness(), 100);
-  };
-
-  const handleSelectVehicle = async (uri: string) => {
-    setTempVehicleUri(uri);
-    setVehiclePhoto(null);
-    // Actualizar estado de completitud
-    setTimeout(() => checkCompleteness(), 100);
-  };
-
   const handleSave = async () => {
-    if (!user?.id) return;
-
-    setSaving(true);
     try {
-      console.log('🚀 Iniciando proceso completo de subida y guardado...');
-
-      // 1. Subir SOLO fotos nuevas a Supabase
-      console.log('📤 Subiendo fotos nuevas a Supabase...');
-
-      const uploadResults: { [key: string]: string } = {};
-
-      // Solo subir fotos que tengan URI temporal (nuevas)
-      if (tempLicenseFrontUri) {
-        uploadResults.license_photo_front = await uploadLicensePhoto(user.id, tempLicenseFrontUri, 'front');
-      }
-      if (tempLicenseBackUri) {
-        uploadResults.license_photo_back = await uploadLicensePhoto(user.id, tempLicenseBackUri, 'back');
-      }
-      if (tempRegistrationFrontUri) {
-        uploadResults.registration_photo_front = await uploadRegistrationPhoto(user.id, tempRegistrationFrontUri, 'front');
-      }
-      if (tempRegistrationBackUri) {
-        uploadResults.registration_photo_back = await uploadRegistrationPhoto(user.id, tempRegistrationBackUri, 'back');
-      }
-      if (tempInsuranceUri) {
-        uploadResults.insurance_photo = await uploadInsurancePhoto(user.id, tempInsuranceUri);
-      }
-      if (tempVehicleUri) {
-        uploadResults.vehicle_photo = await uploadInsurancePhoto(user.id, tempVehicleUri);
-      }
-
-      console.log('✅ Fotos nuevas subidas:', uploadResults);
-
-      // 2. Preparar datos para guardar en BD
-      const driverUpdates: any = {};
-      const vehicleUpdates: any = {};
-
-      // Datos del conductor
-      if (department !== (driverData?.department || '')) driverUpdates.department = department;
-      if (municipality !== (driverData?.municipality || '')) driverUpdates.municipality = municipality;
-      if (licenseNumber !== (driverData?.license_number || '')) driverUpdates.license_number = licenseNumber;
-      if (licenseExpiry !== (driverData?.license_expiry || '')) driverUpdates.license_expiry = licenseExpiry;
-
-      // Fotos nuevas del conductor
-      if (uploadResults.license_photo_front) driverUpdates.license_photo_front = uploadResults.license_photo_front;
-      if (uploadResults.license_photo_back) driverUpdates.license_photo_back = uploadResults.license_photo_back;
-
-      // Datos del vehículo
-      if (plate !== (vehicleData?.plate || '')) vehicleUpdates.plate = plate;
-      if (brand !== (vehicleData?.brand || '')) vehicleUpdates.brand = brand;
-      if (model !== (vehicleData?.model || '')) vehicleUpdates.model = model;
-      if (year !== (vehicleData?.year?.toString() || '')) vehicleUpdates.year = parseInt(year);
-      if (color !== (vehicleData?.color || '')) vehicleUpdates.color = color;
-      if (vehicleType !== (vehicleData?.type || '')) vehicleUpdates.type = vehicleType;
-      if (registrationNumber !== (vehicleData?.registration_number || '')) vehicleUpdates.registration_number = registrationNumber;
-      if (registrationExpiry !== (vehicleData?.registration_expiry || '')) vehicleUpdates.registration_expiry = registrationExpiry;
-      if (insuranceNumber !== (vehicleData?.insurance_number || '')) vehicleUpdates.insurance_number = insuranceNumber;
-      if (insuranceCompany !== (vehicleData?.insurance_company || '')) vehicleUpdates.insurance_company = insuranceCompany;
-      if (insuranceExpiry !== (vehicleData?.insurance_expiry || '')) vehicleUpdates.insurance_expiry = insuranceExpiry;
-      if (insuranceStartDate !== (vehicleData?.insurance_start_date || '')) vehicleUpdates.insurance_start_date = insuranceStartDate;
-      if (motor !== (vehicleData?.motor || '')) vehicleUpdates.motor = motor;
-      if (chasis !== (vehicleData?.chasis || '')) vehicleUpdates.chasis = chasis;
-      if (vin !== (vehicleData?.vin || '')) vehicleUpdates.vin = vin;
-      if (cylinders !== (vehicleData?.cylinders?.toString() || '')) vehicleUpdates.cylinders = parseInt(cylinders);
-      if (passengers !== (vehicleData?.passengers?.toString() || '')) vehicleUpdates.passengers = parseInt(passengers);
-      if (fuelType !== (vehicleData?.fuel_type || '')) vehicleUpdates.fuel_type = fuelType;
-      if (tonnage !== (vehicleData?.tonnage?.toString() || '')) vehicleUpdates.tonnage = parseFloat(tonnage);
-      if (vehicleClass !== (vehicleData?.vehicle_class || '')) vehicleUpdates.vehicle_class = vehicleClass;
-      if (serviceType !== (vehicleData?.service_type || '')) vehicleUpdates.service_type = serviceType;
-      if (lien !== (vehicleData?.lien || defaultLienValue)) vehicleUpdates.lien = lien;
-      if (is4x4 !== (vehicleData?.is_4x4 || false)) vehicleUpdates.is_4x4 = is4x4;
-
-      // Fotos nuevas del vehículo
-      if (uploadResults.registration_photo_front) vehicleUpdates.registration_photo_front = uploadResults.registration_photo_front;
-      if (uploadResults.registration_photo_back) vehicleUpdates.registration_photo_back = uploadResults.registration_photo_back;
-      if (uploadResults.insurance_photo) vehicleUpdates.insurance_photo = uploadResults.insurance_photo;
-      if (uploadResults.vehicle_photo) vehicleUpdates.vehicle_photo = uploadResults.vehicle_photo;
-
-      // 3. Guardar en PostgreSQL
-      console.log('💾 Guardando datos en base de datos...');
-
-      if (Object.keys(driverUpdates).length > 0) {
-        console.log('📤 Actualizando conductor:', driverUpdates);
-        const driverResult = await driversService.updateDriver(driverUpdates);
-        console.log('✅ Respuesta conductor:', driverResult);
-      }
-
-      if (vehicleData?.id && Object.keys(vehicleUpdates).length > 0) {
-        console.log('📤 Actualizando vehículo:', vehicleUpdates);
-        const vehicleResult = await driversService.updateVehicle(vehicleData.id, vehicleUpdates);
-        console.log('✅ Respuesta vehículo:', vehicleResult);
-      }
-
-      // 4. Actualizar estados locales con las URLs finales
-      if (uploadResults.license_photo_front) setLicensePhotoFront(uploadResults.license_photo_front);
-      if (uploadResults.license_photo_back) setLicensePhotoBack(uploadResults.license_photo_back);
-      if (uploadResults.registration_photo_front) setRegistrationPhotoFront(uploadResults.registration_photo_front);
-      if (uploadResults.registration_photo_back) setRegistrationPhotoBack(uploadResults.registration_photo_back);
-      if (uploadResults.insurance_photo) setInsurancePhoto(uploadResults.insurance_photo);
-      if (uploadResults.vehicle_photo) setVehiclePhoto(uploadResults.vehicle_photo);
-
-      // 5. Limpiar URIs temporales
-      setTempLicenseFrontUri(null);
-      setTempLicenseBackUri(null);
-      setTempRegistrationFrontUri(null);
-      setTempRegistrationBackUri(null);
-      setTempInsuranceUri(null);
-      setTempVehicleUri(null);
-
-      // Actualizar estado de completitud
-      checkCompleteness();
-
+      await saveVehicleInfo();
       Alert.alert(
         alertsText.saveSuccessTitle,
         alertsText.saveSuccessMessage,
@@ -527,8 +120,6 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
     } catch (error) {
       console.error('❌ Error en el proceso completo:', error);
       Alert.alert(alertsText.saveErrorTitle, alertsText.saveErrorMessage);
-    } finally {
-      setSaving(false);
     }
   };
 
@@ -570,12 +161,9 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
         <View style={styles.inputGroup}>
           <Text style={styles.inputLabel}>{fieldLabel('licenseNumber')}</Text>
           <TextInput
-            style={[styles.input, licenseNumber ? styles.inputFilled : styles.inputRequired]}
-            value={licenseNumber}
-            onChangeText={(text) => {
-              setLicenseNumber(text);
-              checkCompleteness();
-            }}
+            style={[styles.input, formState.licenseNumber ? styles.inputFilled : styles.inputRequired]}
+            value={formState.licenseNumber}
+            onChangeText={(text) => updateField('licenseNumber', text)}
             placeholder={fieldPlaceholder('licenseNumber')}
             placeholderTextColor={colors.textSecondary}
           />
@@ -585,8 +173,8 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
           <Text style={styles.inputLabel}>{fieldLabel('licenseExpiry')}</Text>
           <TextInput
             style={styles.input}
-            value={licenseExpiry}
-            onChangeText={setLicenseExpiry}
+            value={formState.licenseExpiry}
+            onChangeText={(text) => updateField('licenseExpiry', text)}
             placeholder={fieldPlaceholder('licenseExpiry')}
             placeholderTextColor={colors.textSecondary}
           />
@@ -596,8 +184,8 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
           <Text style={styles.inputLabel}>{fieldLabel('department')}</Text>
           <TextInput
             style={styles.input}
-            value={department}
-            onChangeText={setDepartment}
+            value={formState.department}
+            onChangeText={(text) => updateField('department', text)}
             placeholder={fieldPlaceholder('department')}
             placeholderTextColor={colors.textSecondary}
           />
@@ -607,8 +195,8 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
           <Text style={styles.inputLabel}>{fieldLabel('municipality')}</Text>
           <TextInput
             style={styles.input}
-            value={municipality}
-            onChangeText={setMunicipality}
+            value={formState.municipality}
+            onChangeText={(text) => updateField('municipality', text)}
             placeholder={fieldPlaceholder('municipality')}
             placeholderTextColor={colors.textSecondary}
           />
@@ -630,12 +218,9 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
         <View style={styles.inputGroup}>
           <Text style={styles.inputLabel}>{fieldLabel('plate')}</Text>
           <TextInput
-            style={[styles.input, plate ? styles.inputFilled : styles.inputRequired]}
-            value={plate}
-            onChangeText={(text) => {
-              setPlate(text);
-              checkCompleteness();
-            }}
+            style={[styles.input, formState.plate ? styles.inputFilled : styles.inputRequired]}
+            value={formState.plate}
+            onChangeText={(text) => updateField('plate', text)}
             placeholder={fieldPlaceholder('plate')}
             placeholderTextColor={colors.textSecondary}
           />
@@ -644,12 +229,9 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
         <View style={styles.inputGroup}>
           <Text style={styles.inputLabel}>{fieldLabel('brand')}</Text>
           <TextInput
-            style={[styles.input, brand ? styles.inputFilled : styles.inputRequired]}
-            value={brand}
-            onChangeText={(text) => {
-              setBrand(text);
-              checkCompleteness();
-            }}
+            style={[styles.input, formState.brand ? styles.inputFilled : styles.inputRequired]}
+            value={formState.brand}
+            onChangeText={(text) => updateField('brand', text)}
             placeholder={fieldPlaceholder('brand')}
             placeholderTextColor={colors.textSecondary}
           />
@@ -659,8 +241,8 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
           <Text style={styles.inputLabel}>{fieldLabel('model')}</Text>
           <TextInput
             style={styles.input}
-            value={model}
-            onChangeText={setModel}
+            value={formState.model}
+            onChangeText={(text) => updateField('model', text)}
             placeholder={fieldPlaceholder('model')}
             placeholderTextColor={colors.textSecondary}
           />
@@ -670,8 +252,8 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
           <Text style={styles.inputLabel}>{fieldLabel('year')}</Text>
           <TextInput
             style={styles.input}
-            value={year}
-            onChangeText={setYear}
+            value={formState.year}
+            onChangeText={(text) => updateField('year', text)}
             placeholder={fieldPlaceholder('year')}
             keyboardType="numeric"
             placeholderTextColor={colors.textSecondary}
@@ -682,8 +264,8 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
           <Text style={styles.inputLabel}>{fieldLabel('color')}</Text>
           <TextInput
             style={styles.input}
-            value={color}
-            onChangeText={setColor}
+            value={formState.color}
+            onChangeText={(text) => updateField('color', text)}
             placeholder={fieldPlaceholder('color')}
             placeholderTextColor={colors.textSecondary}
           />
@@ -693,8 +275,8 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
           <Text style={styles.inputLabel}>{fieldLabel('vehicleType')}</Text>
           <TextInput
             style={styles.input}
-            value={vehicleType}
-            onChangeText={setVehicleType}
+            value={formState.vehicleType}
+            onChangeText={(text) => updateField('vehicleType', text)}
             placeholder={fieldPlaceholder('vehicleType')}
             placeholderTextColor={colors.textSecondary}
           />
@@ -705,10 +287,10 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
           <View style={styles.switchContainer}>
             <Text style={styles.switchLabel}>{messages.switchNo}</Text>
             <Switch
-              value={is4x4}
-              onValueChange={setIs4x4}
+              value={formState.is4x4}
+              onValueChange={(val) => updateField('is4x4', val)}
               trackColor={{ false: colors.border, true: colors.primary }}
-              thumbColor={is4x4 ? colors.primary : colors.textSecondary}
+              thumbColor={formState.is4x4 ? colors.primary : colors.textSecondary}
             />
             <Text style={styles.switchLabel}>{messages.switchYes}</Text>
           </View>
@@ -729,8 +311,8 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
           <Text style={styles.inputLabel}>{fieldLabel('motor')}</Text>
           <TextInput
             style={styles.input}
-            value={motor}
-            onChangeText={setMotor}
+            value={formState.motor}
+            onChangeText={(text) => updateField('motor', text)}
             placeholder={fieldPlaceholder('motor')}
             placeholderTextColor={colors.textSecondary}
           />
@@ -740,8 +322,8 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
           <Text style={styles.inputLabel}>{fieldLabel('chasis')}</Text>
           <TextInput
             style={styles.input}
-            value={chasis}
-            onChangeText={setChasis}
+            value={formState.chasis}
+            onChangeText={(text) => updateField('chasis', text)}
             placeholder={fieldPlaceholder('chasis')}
             placeholderTextColor={colors.textSecondary}
           />
@@ -751,8 +333,8 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
           <Text style={styles.inputLabel}>{fieldLabel('vin')}</Text>
           <TextInput
             style={styles.input}
-            value={vin}
-            onChangeText={setVin}
+            value={formState.vin}
+            onChangeText={(text) => updateField('vin', text)}
             placeholder={fieldPlaceholder('vin')}
             placeholderTextColor={colors.textSecondary}
           />
@@ -762,8 +344,8 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
           <Text style={styles.inputLabel}>{fieldLabel('cylinders')}</Text>
           <TextInput
             style={styles.input}
-            value={cylinders}
-            onChangeText={setCylinders}
+            value={formState.cylinders}
+            onChangeText={(text) => updateField('cylinders', text)}
             placeholder={fieldPlaceholder('cylinders')}
             keyboardType="numeric"
             placeholderTextColor={colors.textSecondary}
@@ -774,8 +356,8 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
           <Text style={styles.inputLabel}>{fieldLabel('passengers')}</Text>
           <TextInput
             style={styles.input}
-            value={passengers}
-            onChangeText={setPassengers}
+            value={formState.passengers}
+            onChangeText={(text) => updateField('passengers', text)}
             placeholder={fieldPlaceholder('passengers')}
             keyboardType="numeric"
             placeholderTextColor={colors.textSecondary}
@@ -786,8 +368,8 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
           <Text style={styles.inputLabel}>{fieldLabel('fuelType')}</Text>
           <TextInput
             style={styles.input}
-            value={fuelType}
-            onChangeText={setFuelType}
+            value={formState.fuelType}
+            onChangeText={(text) => updateField('fuelType', text)}
             placeholder={fieldPlaceholder('fuelType')}
             placeholderTextColor={colors.textSecondary}
           />
@@ -797,8 +379,8 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
           <Text style={styles.inputLabel}>{fieldLabel('tonnage')}</Text>
           <TextInput
             style={styles.input}
-            value={tonnage}
-            onChangeText={setTonnage}
+            value={formState.tonnage}
+            onChangeText={(text) => updateField('tonnage', text)}
             placeholder={fieldPlaceholder('tonnage')}
             keyboardType="decimal-pad"
             placeholderTextColor={colors.textSecondary}
@@ -809,8 +391,8 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
           <Text style={styles.inputLabel}>{fieldLabel('vehicleClass')}</Text>
           <TextInput
             style={styles.input}
-            value={vehicleClass}
-            onChangeText={setVehicleClass}
+            value={formState.vehicleClass}
+            onChangeText={(text) => updateField('vehicleClass', text)}
             placeholder={fieldPlaceholder('vehicleClass')}
             placeholderTextColor={colors.textSecondary}
           />
@@ -820,8 +402,8 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
           <Text style={styles.inputLabel}>{fieldLabel('serviceType')}</Text>
           <TextInput
             style={styles.input}
-            value={serviceType}
-            onChangeText={setServiceType}
+            value={formState.serviceType}
+            onChangeText={(text) => updateField('serviceType', text)}
             placeholder={fieldPlaceholder('serviceType')}
             placeholderTextColor={colors.textSecondary}
           />
@@ -831,8 +413,8 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
           <Text style={styles.inputLabel}>{fieldLabel('lien')}</Text>
           <TextInput
             style={styles.input}
-            value={lien}
-            onChangeText={setLien}
+            value={formState.lien}
+            onChangeText={(text) => updateField('lien', text)}
             placeholder={fieldPlaceholder('lien')}
             placeholderTextColor={colors.textSecondary}
           />
@@ -855,8 +437,8 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
           <Text style={styles.inputLabel}>{fieldLabel('registrationNumber')}</Text>
           <TextInput
             style={styles.input}
-            value={registrationNumber}
-            onChangeText={setRegistrationNumber}
+            value={formState.registrationNumber}
+            onChangeText={(text) => updateField('registrationNumber', text)}
             placeholder={fieldPlaceholder('registrationNumber')}
             placeholderTextColor={colors.textSecondary}
           />
@@ -866,8 +448,8 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
           <Text style={styles.inputLabel}>{fieldLabel('registrationExpiry')}</Text>
           <TextInput
             style={styles.input}
-            value={registrationExpiry}
-            onChangeText={setRegistrationExpiry}
+            value={formState.registrationExpiry}
+            onChangeText={(text) => updateField('registrationExpiry', text)}
             placeholder={fieldPlaceholder('registrationExpiry')}
             placeholderTextColor={colors.textSecondary}
           />
@@ -877,8 +459,8 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
           <Text style={styles.inputLabel}>{fieldLabel('insuranceNumber')}</Text>
           <TextInput
             style={styles.input}
-            value={insuranceNumber}
-            onChangeText={setInsuranceNumber}
+            value={formState.insuranceNumber}
+            onChangeText={(text) => updateField('insuranceNumber', text)}
             placeholder={fieldPlaceholder('insuranceNumber')}
             placeholderTextColor={colors.textSecondary}
           />
@@ -888,8 +470,8 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
           <Text style={styles.inputLabel}>{fieldLabel('insuranceCompany')}</Text>
           <TextInput
             style={styles.input}
-            value={insuranceCompany}
-            onChangeText={setInsuranceCompany}
+            value={formState.insuranceCompany}
+            onChangeText={(text) => updateField('insuranceCompany', text)}
             placeholder={fieldPlaceholder('insuranceCompany')}
             placeholderTextColor={colors.textSecondary}
           />
@@ -899,8 +481,8 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
           <Text style={styles.inputLabel}>{fieldLabel('insuranceExpiry')}</Text>
           <TextInput
             style={styles.input}
-            value={insuranceExpiry}
-            onChangeText={setInsuranceExpiry}
+            value={formState.insuranceExpiry}
+            onChangeText={(text) => updateField('insuranceExpiry', text)}
             placeholder={fieldPlaceholder('insuranceExpiry')}
             placeholderTextColor={colors.textSecondary}
           />
@@ -910,8 +492,8 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
           <Text style={styles.inputLabel}>{fieldLabel('insuranceStartDate')}</Text>
           <TextInput
             style={styles.input}
-            value={insuranceStartDate}
-            onChangeText={setInsuranceStartDate}
+            value={formState.insuranceStartDate}
+            onChangeText={(text) => updateField('insuranceStartDate', text)}
             placeholder={fieldPlaceholder('insuranceStartDate')}
             placeholderTextColor={colors.textSecondary}
           />
@@ -932,20 +514,20 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
 
         <View style={styles.photoRow}>
           <View style={styles.photoContainer}>
-            <Text style={styles.photoLabel}>{photos.frontLabel ?? ''}</Text>
+            <Text style={styles.photoLabel}>{photosText.frontLabel ?? ''}</Text>
             <ImagePicker
-              imageUri={tempLicenseFrontUri || licensePhotoFront || driverData?.license_photo_front || null}
-              onImageSelected={handleSelectLicenseFront}
-              label={photos.uploadFront ?? ''}
+              imageUri={photos.licenseFront.tempUri || photos.licenseFront.url || driverData?.license_photo_front || null}
+              onImageSelected={(uri: string) => setPhoto('licenseFront', uri)}
+              label={photosText.uploadFront ?? ''}
             />
           </View>
 
           <View style={styles.photoContainer}>
-            <Text style={styles.photoLabel}>{photos.backLabel ?? ''}</Text>
+            <Text style={styles.photoLabel}>{photosText.backLabel ?? ''}</Text>
             <ImagePicker
-              imageUri={tempLicenseBackUri || licensePhotoBack || driverData?.license_photo_back || null}
-              onImageSelected={handleSelectLicenseBack}
-              label={photos.uploadBack ?? ''}
+              imageUri={photos.licenseBack.tempUri || photos.licenseBack.url || driverData?.license_photo_back || null}
+              onImageSelected={(uri: string) => setPhoto('licenseBack', uri)}
+              label={photosText.uploadBack ?? ''}
             />
           </View>
         </View>
@@ -965,20 +547,20 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
 
         <View style={styles.photoRow}>
           <View style={styles.photoContainer}>
-            <Text style={styles.photoLabel}>{photos.frontLabel ?? ''}</Text>
+            <Text style={styles.photoLabel}>{photosText.frontLabel ?? ''}</Text>
             <ImagePicker
-              imageUri={tempRegistrationFrontUri || registrationPhotoFront || vehicleData?.registration_photo_front || null}
-              onImageSelected={handleSelectRegistrationFront}
-              label={photos.uploadFront ?? ''}
+              imageUri={photos.registrationFront.tempUri || photos.registrationFront.url || vehicleData?.registration_photo_front || null}
+              onImageSelected={(uri: string) => setPhoto('registrationFront', uri)}
+              label={photosText.uploadFront ?? ''}
             />
           </View>
 
           <View style={styles.photoContainer}>
-            <Text style={styles.photoLabel}>{photos.backLabel ?? ''}</Text>
+            <Text style={styles.photoLabel}>{photosText.backLabel ?? ''}</Text>
             <ImagePicker
-              imageUri={tempRegistrationBackUri || registrationPhotoBack || vehicleData?.registration_photo_back || null}
-              onImageSelected={handleSelectRegistrationBack}
-              label={photos.uploadBack ?? ''}
+              imageUri={photos.registrationBack.tempUri || photos.registrationBack.url || vehicleData?.registration_photo_back || null}
+              onImageSelected={(uri: string) => setPhoto('registrationBack', uri)}
+              label={photosText.uploadBack ?? ''}
             />
           </View>
         </View>
@@ -997,9 +579,9 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
         </View>
 
         <ImagePicker
-          imageUri={tempInsuranceUri || insurancePhoto || vehicleData?.insurance_photo || null}
-          onImageSelected={handleSelectInsurance}
-          label={photos.uploadPolicy ?? ''}
+          imageUri={photos.insurance.tempUri || photos.insurance.url || vehicleData?.insurance_photo || null}
+          onImageSelected={(uri: string) => setPhoto('insurance', uri)}
+          label={photosText.uploadPolicy ?? ''}
         />
       </View>
 
@@ -1016,9 +598,9 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
         </View>
 
         <ImagePicker
-          imageUri={tempVehicleUri || vehiclePhoto || vehicleData?.vehicle_photo || null}
-          onImageSelected={handleSelectVehicle}
-          label={photos.uploadVehicle ?? ''}
+          imageUri={photos.vehicle.tempUri || photos.vehicle.url || vehicleData?.vehicle_photo || null}
+          onImageSelected={(uri: string) => setPhoto('vehicle', uri)}
+          label={photosText.uploadVehicle ?? ''}
         />
       </View>
 

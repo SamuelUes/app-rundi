@@ -10,7 +10,7 @@ import admin from 'firebase-admin';
 import { DriverPenaltyRepository } from '../sequelize/repositories/DriverPenaltyRepository';
 import { PaymentService } from '../sequelize/services/PaymentService';
 import { MIGRATION_FLAGS } from '../config/migration-flags';
-import { cleanupRideFromRealtime } from '../helpers/cleanupHelpers-new';
+import { cleanupRideFromRealtime } from '../helpers/cleanupHelpers';
 
 const penaltyRepo = new DriverPenaltyRepository();
 const paymentService = new PaymentService();

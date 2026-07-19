@@ -23,7 +23,7 @@ import { AnimatedButton } from '../../components/AnimatedButton';
 import { getAuth } from 'firebase/auth';
 import { getDatabase, ref, onValue, off, update } from 'firebase/database';
 import { formatNicaraguaTime } from '../../utils/dateUtils';
-import { formatCurrency } from '../../utils/formatters';
+import { formatCurrency } from '../../utils/safeFormatters';
 import { useTranslation } from 'react-i18next';
 
 // Servicios optimizados

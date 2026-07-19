@@ -1,21 +1,28 @@
-import { createNavigationContainerRef } from '@react-navigation/native';
+import { createNavigationContainerRef, CommonActions } from '@react-navigation/native';
+import type { RootStackParamList } from './types';
 
-// Global navigation ref to navigate outside React components (services, background handlers)
-export const navigationRef = createNavigationContainerRef<any>();
+export const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
-export function navigate(name: string, params?: any) {
+export function navigate<RouteName extends keyof RootStackParamList>(
+  name: RouteName,
+  params?: RootStackParamList[RouteName]
+) {
   if (navigationRef.isReady()) {
-    // @ts-ignore
-    navigationRef.navigate(name as never, params as never);
+    // CommonActions.navigate acepta (string, object?) — los tipos de react-navigation
+    // no propagan RouteName genérico, por eso usamos el overload de string.
+    navigationRef.dispatch(CommonActions.navigate(name, params));
   }
 }
 
-export function replace(name: string, params?: any) {
+export function replace<RouteName extends keyof RootStackParamList>(
+  name: RouteName,
+  params?: RootStackParamList[RouteName]
+) {
   if (navigationRef.isReady()) {
-    // @ts-ignore
+    // CommonActions no expone replace directamente; usamos dispatch con acción REPLACE.
     navigationRef.dispatch({
+      ...CommonActions.navigate(name, params),
       type: 'REPLACE',
-      payload: { name, params },
-    } as any);
+    });
   }
 }

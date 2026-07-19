@@ -25,60 +25,21 @@ import DynamicMap from '../../components/DynamicMap';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useVoiceAssistant } from '../../context/VoiceAssistantContext';
-import { fetchClientProfile, ClientProfile } from '../../services/clientProfilesService';
 import alertService from '../../services/alertService';
-import mapsService from '../../services/mapsService';
-import priceNegotiationService from '../../services/priceNegotiationService';
-import ridesService from '../../services/ridesService';
-import { hasSavedCard } from '../../utils/cardUtils';
 import { DriverStackParamList } from '../../navigation/DriverStack';
-import { useAcceptedRideListener } from '../../hooks/useAcceptedRideListener';
-import { getDatabase, onValue, ref } from 'firebase/database';
-import proximityService from '../../services/proximityService';
-import driverOfferCacheService, {
-  DriverOfferCacheEntry,
-} from '../../services/driverOfferCacheService';
+import { useAcceptedRideListener } from '../../hooks/driver/DriverHomeScreen/useAcceptedRideListener';
+import { useRidePreviewData, type RidePreviewData } from '../../hooks/driver/RidePreviewScreen/useRidePreviewData';
+import { useRidePreviewRoute } from '../../hooks/driver/RidePreviewScreen/useRidePreviewRoute';
+import { useRidePreviewVoice } from '../../hooks/driver/RidePreviewScreen/useRidePreviewVoice';
+import { useRideNegotiation } from '../../hooks/driver/RidePreviewScreen/useRideNegotiation';
+import { useRideActions } from '../../hooks/shared/ride/useRideActions';
+import { useClientProfile } from '../../hooks/driver/RidePreviewScreen/useClientProfile';
 import { useTranslation } from 'react-i18next';
+import { calculateTotalDistanceKm } from '../../utils/ridePreviewHelpers';
 
 const BACK_ICON = require('../../assets/icons/back_button/back_button2x.png');
 
 const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
-
-interface RideLocation {
-  lat: number;
-  lng: number;
-  address?: string;
-}
-
-const toNumberOrNull = (value: any): number | null => {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value === 'string') {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  return null;
-};
-
-interface RidePreviewData {
-  id: string;
-  clientId: string;
-  clientName?: string;
-  clientPhone?: string;
-  origin: RideLocation;
-  destination: RideLocation;
-  extraDestinations?: RideLocation[];
-  estimatedPrice: number;
-  estimatedDistance?: number;
-  estimatedDuration?: number;
-  clientSuggestedPrice?: number;
-  driverOfferedPrice?: number | null;
-  driverOfferStatus?: string | null;
-  paymentMethod?: 'cash' | 'card';
-  negotiationStatus?: string | null;
-  rideType?: string | null;
-  clientVehiclePhoto?: string | null;
-  clientComment?: string | null;
-}
 
 interface RidePreviewParams {
   ride: RidePreviewData;
@@ -98,150 +59,24 @@ export default function RidePreviewScreen() {
 
   const { ride } = route.params as RidePreviewParams;
   const initialNearby = (route.params as RidePreviewParams)?.nearbyRides || [];
-  const [rideData, setRideData] = useState<RidePreviewData>(ride);
-  const [activeRideGuard, setActiveRideGuard] = useState<string | null>(null);
+  const {
+    rideData,
+    setRideData,
+    activeRideGuard,
+    counterOfferTouched,
+    setCounterOfferTouched,
+    cancellationHandledRef,
+    markDismissed,
+  } = useRidePreviewData(ride, user?.id, t, navigation);
   const [nearbyQueue, setNearbyQueue] = useState<Array<Partial<RidePreviewData> & { distanceMeters?: number }>>(initialNearby);
-  const proximityParam = (route.params as any)?.proximity === true;
+  const proximityParam = (route.params as Record<string, unknown>)?.proximity === true;
   const proximityMode = proximityParam || initialNearby.length > 0;
   const autoDismissTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const lastVoiceSummaryRef = useRef<string | null>(null);
-  const lastClientOfferSpokenRef = useRef<number | null>(null);
 
-  const [acceptingRide, setAcceptingRide] = useState(false);
-  const [isRejectingRide, setIsRejectingRide] = useState(false);
-  const [clientProfile, setClientProfile] = useState<ClientProfile | null>(null);
   const [photoModalUrl, setPhotoModalUrl] = useState<string | null>(ride.clientVehiclePhoto || null);
   const currentRide = rideData;
-  const hasPendingOffer = useMemo(() => {
-    const status = (rideData.negotiationStatus || '').toLowerCase();
-    const driverStatus = (rideData.driverOfferStatus || '').toLowerCase();
-    return status === 'driver_offered' || driverStatus === 'pending' || driverStatus === 'waiting';
-  }, [rideData.negotiationStatus, rideData.driverOfferStatus]);
-  const [manualOfferLock, setManualOfferLock] = useState(false);
-  const navigationLocked = manualOfferLock || hasPendingOffer;
-  const allowNavigationRef = useRef(false);
-  const markDismissed = useCallback(async () => {
-    try {
-      await proximityService.markRideDismissed(currentRide.id);
-      await proximityService.dismissProximityNotification(currentRide.id);
-    } catch (err) {
-      console.warn('[RidePreviewScreen] No se pudo marcar ride como descartado:', err);
-    }
-  }, [currentRide.id]);
-  const cancellationHandledRef = useRef(false);
-  const acceptButtonScale = useRef(new Animated.Value(1)).current;
-  const rejectButtonScale = useRef(new Animated.Value(1)).current;
 
-  useEffect(() => {
-    return () => {
-      stopVoiceCategory('navigation');
-      stopVoiceCategory('status');
-    };
-  }, [stopVoiceCategory]);
-
-  useAcceptedRideListener(navigation, currentRide.id);
-
-  useEffect(() => {
-    if (!user?.id) return;
-
-    const db = getDatabase();
-    const activeRef = ref(db, 'activeRides');
-    const unsubscribe = onValue(activeRef, (snapshot) => {
-      const data = snapshot.val();
-      if (!data) {
-        setActiveRideGuard(null);
-        return;
-      }
-
-      let found: string | null = null;
-      const normalizedUserId = String(user.id ?? '').trim();
-      Object.entries<any>(data).some(([id, r]) => {
-        const status = String(r?.status || '').toLowerCase();
-        const rideDriverId = String(r?.driverId ?? r?.driver_id ?? '').trim();
-        if (
-          rideDriverId === normalizedUserId &&
-          ['driver_assigned', 'accepted', 'driver_on_route', 'driver_arrived', 'in_progress'].includes(status)
-        ) {
-          found = id;
-          return true;
-        }
-        return false;
-      });
-
-      if (found) {
-        setActiveRideGuard(found);
-        navigation.replace('ActiveRide', { rideId: found });
-      } else {
-        setActiveRideGuard(null);
-      }
-    });
-
-    return () => unsubscribe();
-  }, [user?.id, navigation]);
-
-  useEffect(() => {
-    const db = getDatabase();
-    const rideRef = ref(db, `rides/${ride.id}`);
-
-    const unsubscribe = onValue(rideRef, (snapshot) => {
-      const data = snapshot.val();
-
-      if (!data) {
-        if (!cancellationHandledRef.current) {
-          cancellationHandledRef.current = true;
-          alertService.showInfoAlert(
-            t('driver.ridePreview.alerts.canceledTitle'),
-            t('driver.ridePreview.alerts.canceledBody'),
-          );
-          markDismissed()
-            .catch((error) => console.warn('[RidePreviewScreen] Error al descartar viaje cancelado:', error))
-            .finally(() => navigation.goBack());
-        }
-        return;
-      }
-
-      const status = String(data.status || '').toLowerCase();
-      if (status === 'assigned' && data.driverId !== user?.id) {
-        alertService.showInfoAlert(
-          t('driver.ridePreview.alerts.assignedTitle'),
-          t('driver.ridePreview.alerts.assignedBody'),
-        );
-        markDismissed()
-          .catch((error) => console.warn('[RidePreviewScreen] Error al descartar viaje asignado:', error))
-          .finally(() => navigation.goBack());
-      }
-    });
-
-    return () => unsubscribe();
-  }, [ride.id, user?.id, navigation]);
-
-  const [routeCoordinates, setRouteCoordinates] = useState<Array<{ latitude: number; longitude: number }>>([]);
-  const [loadingRoute, setLoadingRoute] = useState(false);
-  const [isSheetExpanded, setIsSheetExpanded] = useState(true);
-  const [counterOffer, setCounterOffer] = useState(
-    ride.driverOfferedPrice ? Math.round(ride.driverOfferedPrice).toString() : ''
-  );
-  const [counterOfferTouched, setCounterOfferTouched] = useState(false);
-  const [lastSuggestedPrice, setLastSuggestedPrice] = useState<number | null>(
-    typeof ride.driverOfferedPrice === 'number' ? Math.round(ride.driverOfferedPrice) : null,
-  );
-  const priceContentAnim = useRef(new Animated.Value(1)).current;
-  const [priceContentHeight, setPriceContentHeight] = useState(0);
-  const [sendingOffer, setSendingOffer] = useState(false);
-  const [customOfferVisible, setCustomOfferVisible] = useState(false);
-  const customOfferInputRef = useRef<TextInput | null>(null);
-
-  const animatePriceContent = useCallback(
-    (expand: boolean, duration: number = 240) => {
-      Animated.timing(priceContentAnim, {
-        toValue: expand ? 1 : 0,
-        duration,
-        easing: expand ? Easing.out(Easing.cubic) : Easing.inOut(Easing.ease),
-        useNativeDriver: false,
-      }).start();
-    },
-    [priceContentAnim],
-  );
+  const { clientProfile } = useClientProfile(currentRide.clientId);
 
   const resolvedClientName = useMemo(
     () => clientProfile?.fullName || currentRide.clientName || t('driver.ridePreview.labels.clientFallback'),
@@ -258,97 +93,89 @@ export default function RidePreviewScreen() {
     [currentRide.rideType]
   );
 
-  const totalDistanceKm = useMemo(() => {
-    const d = currentRide.estimatedDistance;
-    if (typeof d === 'number' && Number.isFinite(d) && d > 0) {
-      return d > 50 ? d / 1000 : d;
-    }
-    const points: Array<{ lat: number; lng: number }> = [];
-    if (currentRide.origin) points.push({ lat: currentRide.origin.lat, lng: currentRide.origin.lng });
-    if (Array.isArray(currentRide.extraDestinations)) {
-      currentRide.extraDestinations.forEach((s) => points.push({ lat: s.lat, lng: s.lng }));
-    }
-    if (currentRide.destination) points.push({ lat: currentRide.destination.lat, lng: currentRide.destination.lng });
-    if (points.length < 2) return null;
-    const toRad = (deg: number) => (deg * Math.PI) / 180;
-    const R = 6371;
-    let sum = 0;
-    for (let i = 1; i < points.length; i++) {
-      const a = points[i - 1];
-      const b = points[i];
-      const dLat = toRad(b.lat - a.lat);
-      const dLon = toRad(b.lng - a.lng);
-      const lat1 = toRad(a.lat);
-      const lat2 = toRad(b.lat);
-      const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
-      const c = 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
-      sum += R * c;
-    }
-    return sum;
-  }, [currentRide.estimatedDistance, currentRide.origin, currentRide.destination, currentRide.extraDestinations]);
+  const totalDistanceKm = useMemo(
+    () => calculateTotalDistanceKm(currentRide),
+    [currentRide],
+  );
+
+  const {
+    counterOffer,
+    setCounterOffer,
+    lastSuggestedPrice,
+    sendingOffer,
+    customOfferVisible,
+    setCustomOfferVisible,
+    customOfferInputRef,
+    manualOfferLock,
+    setManualOfferLock,
+    hasPendingOffer,
+    navigationLocked,
+    quickSuggestions,
+    finalPricePreview,
+    cacheCurrentOffer,
+    submitCounterOffer,
+    handleApplySuggestion,
+    handleCustomOfferPress,
+    handleCustomOfferChange,
+    handleSendCustomOffer,
+    formatCurrencyFn,
+  } = useRideNegotiation(ride, currentRide, user?.id, resolvedClientName, setRideData, setCounterOfferTouched, t);
+
+  const {
+    acceptingRide,
+    isRejectingRide,
+    acceptButtonScale,
+    rejectButtonScale,
+    allowNavigationRef,
+    handleAcceptRide,
+    handleRejectRide,
+  } = useRideActions(
+    currentRide,
+    user?.id,
+    activeRideGuard,
+    setRideData,
+    setManualOfferLock,
+    cacheCurrentOffer,
+    markDismissed,
+    formatCurrencyFn,
+    navigation,
+    t,
+  );
 
   useEffect(() => {
-    if (!voiceSettings.enabled) {
-      lastVoiceSummaryRef.current = null;
-      lastClientOfferSpokenRef.current = null;
-      return;
-    }
+    return () => {
+      stopVoiceCategory('navigation');
+      stopVoiceCategory('status');
+    };
+  }, [stopVoiceCategory]);
 
-    const netPrice = Math.round(
-      typeof currentRide.clientSuggestedPrice === 'number' && Number.isFinite(currentRide.clientSuggestedPrice)
-        ? currentRide.clientSuggestedPrice
-        : currentRide.estimatedPrice || 0,
-    );
-    const distanceFix = typeof totalDistanceKm === 'number' && Number.isFinite(totalDistanceKm)
-      ? totalDistanceKm.toFixed(1)
-      : null;
+  useAcceptedRideListener(navigation, currentRide.id);
 
-    const signature = [currentRide.id, netPrice, distanceFix || 'na'].join('|');
-    if (lastVoiceSummaryRef.current === signature) return;
-    lastVoiceSummaryRef.current = signature;
+  const [isSheetExpanded, setIsSheetExpanded] = useState(true);
+  const priceContentAnim = useRef(new Animated.Value(1)).current;
+  const [priceContentHeight, setPriceContentHeight] = useState(0);
 
-    const summaryKey = distanceFix
-      ? 'driver.ridePreview.voice.summaryWithDistance'
-      : 'driver.ridePreview.voice.summary';
-    const voiceMessage = t(summaryKey, {
-      price: netPrice,
-      distance: distanceFix,
-    });
-    speakVoice(voiceMessage, 'navigation', undefined, true);
-  }, [
+  const animatePriceContent = useCallback(
+    (expand: boolean, duration: number = 240) => {
+      Animated.timing(priceContentAnim, {
+        toValue: expand ? 1 : 0,
+        duration,
+        easing: expand ? Easing.out(Easing.cubic) : Easing.inOut(Easing.ease),
+        useNativeDriver: false,
+      }).start();
+    },
+    [priceContentAnim],
+  );
+
+  useRidePreviewVoice(
     voiceSettings.enabled,
-    currentRide.id,
-    currentRide.clientSuggestedPrice,
-    currentRide.estimatedPrice,
+    currentRide,
     totalDistanceKm,
     speakVoice,
     t,
-  ]);
+  );
 
-  useEffect(() => {
-    if (!voiceSettings.enabled) {
-      return;
-    }
-
-    const status = (currentRide.negotiationStatus || '').toLowerCase();
-    if (status !== 'client_suggested') {
-      lastClientOfferSpokenRef.current = null;
-      return;
-    }
-
-    const value = typeof currentRide.clientSuggestedPrice === 'number' ? currentRide.clientSuggestedPrice : null;
-    if (value === null || !Number.isFinite(value) || value <= 0) {
-      return;
-    }
-
-    const rounded = Math.round(value);
-    if (lastClientOfferSpokenRef.current === rounded) {
-      return;
-    }
-
-    lastClientOfferSpokenRef.current = rounded;
-    speakVoice(t('driver.ridePreview.voice.clientOffer', { amount: rounded }), 'status', undefined, true);
-  }, [voiceSettings.enabled, currentRide.negotiationStatus, currentRide.clientSuggestedPrice, speakVoice, t]);
+  const { routeCoordinates, loadingRoute } = useRidePreviewRoute(currentRide, t);
 
   const toggleSheet = () => {
     const next = !isSheetExpanded;
@@ -364,18 +191,18 @@ export default function RidePreviewScreen() {
       clientId: String(next.clientId || currentRide.clientId),
       clientName: next.clientName || currentRide.clientName,
       clientPhone: next.clientPhone || currentRide.clientPhone,
-      origin: (next.origin as any) || currentRide.origin,
-      destination: (next.destination as any) || currentRide.destination,
-      extraDestinations: (next.extraDestinations as any) || currentRide.extraDestinations,
+      origin: (next.origin as RidePreviewData['origin']) || currentRide.origin,
+      destination: (next.destination as RidePreviewData['destination']) || currentRide.destination,
+      extraDestinations: (next.extraDestinations as RidePreviewData['extraDestinations']) || currentRide.extraDestinations,
       estimatedPrice: typeof next.estimatedPrice === 'number' ? next.estimatedPrice : currentRide.estimatedPrice,
       estimatedDistance: typeof next.estimatedDistance === 'number' ? next.estimatedDistance : currentRide.estimatedDistance,
       estimatedDuration: typeof next.estimatedDuration === 'number' ? next.estimatedDuration : currentRide.estimatedDuration,
       clientSuggestedPrice: typeof next.clientSuggestedPrice === 'number' ? next.clientSuggestedPrice : currentRide.clientSuggestedPrice,
       driverOfferedPrice: typeof next.driverOfferedPrice === 'number' ? next.driverOfferedPrice : currentRide.driverOfferedPrice,
       driverOfferStatus: currentRide.driverOfferStatus || null,
-      paymentMethod: (next.paymentMethod as any) || currentRide.paymentMethod,
-      negotiationStatus: (next as any).negotiationStatus || currentRide.negotiationStatus || null,
-      clientComment: (next as any).clientComment || (next as any).comment || (next as any).notes || currentRide.clientComment || null,
+      paymentMethod: (next.paymentMethod as RidePreviewData['paymentMethod']) || currentRide.paymentMethod,
+      negotiationStatus: (next as Record<string, unknown>).negotiationStatus as string | null || currentRide.negotiationStatus || null,
+      clientComment: ((next as Record<string, unknown>).clientComment as string | null) || ((next as Record<string, unknown>).comment as string | null) || ((next as Record<string, unknown>).notes as string | null) || currentRide.clientComment || null,
     };
     setRideData(nextRide);
     setNearbyQueue(rest);
@@ -393,224 +220,6 @@ export default function RidePreviewScreen() {
     },
     [priceContentHeight, isSheetExpanded, animatePriceContent],
   );
-
-  const ensureCardForCardPayments = async (): Promise<boolean> => {
-    const method = currentRide.paymentMethod;
-    if ((method || '').toLowerCase() !== 'card') {
-      return true;
-    }
-
-    if (await hasSavedCard()) {
-      return true;
-    }
-
-    alertService.showConfirmAlert(
-      t('driver.ridePreview.alerts.cardRequiredTitle'),
-      t('driver.ridePreview.alerts.cardRequiredBody'),
-      () => {
-        // navigation.navigate('PaymentMethods');
-      },
-      undefined,
-      t('driver.ridePreview.alerts.cardRequiredConfirm'),
-      t('driver.ridePreview.alerts.cardRequiredCancel'),
-    );
-
-    return false;
-  };
-
-  useEffect(() => {
-    const db = getDatabase();
-    const rideRef = ref(db, `activeRides/${ride.id}`);
-
-    const unsubscribe = onValue(rideRef, (snapshot) => {
-      const data = snapshot.val();
-
-      if (!data) {
-        if (!cancellationHandledRef.current) {
-          cancellationHandledRef.current = true;
-          alertService.showInfoAlert(
-            t('driver.ridePreview.alerts.canceledTitle'),
-            t('driver.ridePreview.alerts.canceledBody'),
-          );
-          markDismissed()
-            .catch((error) => console.warn('[RidePreviewScreen] Error al descartar viaje cancelado:', error))
-            .finally(() => navigation.goBack());
-        }
-        return;
-      }
-
-      const normalizedStatus = String(data.status || '').toLowerCase();
-      if (normalizedStatus === 'canceled' && !cancellationHandledRef.current) {
-        cancellationHandledRef.current = true;
-        const reason = data.cancelReason || t('driver.ridePreview.alerts.canceledOtherReason');
-        alertService.showInfoAlert(t('driver.ridePreview.alerts.canceledTitle'), reason);
-        markDismissed()
-          .catch((error) => console.warn('[RidePreviewScreen] Error al descartar viaje cancelado:', error))
-          .finally(() => navigation.goBack());
-        return;
-      }
-
-      const assignedDriverId = data.driverId;
-      if (
-        assignedDriverId &&
-        user?.id &&
-        assignedDriverId !== user.id &&
-        !cancellationHandledRef.current
-      ) {
-        const nonRequestedStatuses = [
-          'pending_confirm',
-          'driver_assigned',
-          'accepted',
-          'driver_on_route',
-          'driver_arrived',
-          'in_progress',
-          'completed',
-        ];
-
-        if (nonRequestedStatuses.includes(normalizedStatus)) {
-          cancellationHandledRef.current = true;
-          alertService.showInfoAlert(
-            t('driver.ridePreview.alerts.unavailableTitle'),
-            t('driver.ridePreview.alerts.unavailableBody'),
-          );
-          markDismissed()
-            .catch((error) =>
-              console.warn('[RidePreviewScreen] Error al descartar viaje no disponible:', error),
-            )
-            .finally(() => navigation.goBack());
-          return;
-        }
-      }
-
-      const offers = data.offers || {};
-      const myOffer = user?.id ? offers[user.id] : null;
-      const updatedDriverOfferedPrice =
-        myOffer?.offeredPrice ?? data.driverOfferedPrice ?? rideData.driverOfferedPrice ?? null;
-      const updatedDriverOfferStatus = myOffer?.status ?? rideData.driverOfferStatus ?? null;
-
-      setRideData((prev) => ({
-        ...prev,
-        clientId: data.clientId || prev.clientId,
-        origin: data.origin || prev.origin,
-        destination: data.destination || prev.destination,
-        extraDestinations: data.extraDestinations || prev.extraDestinations,
-        estimatedPrice:
-          typeof data.estimatedPrice === 'number' ? data.estimatedPrice : prev.estimatedPrice,
-        estimatedDistance:
-          typeof data.estimatedDistance === 'number' ? data.estimatedDistance : prev.estimatedDistance,
-        estimatedDuration:
-          typeof data.estimatedDuration === 'number' ? data.estimatedDuration : prev.estimatedDuration,
-        clientSuggestedPrice:
-          typeof data.clientSuggestedPrice === 'number'
-            ? data.clientSuggestedPrice
-            : prev.clientSuggestedPrice,
-        driverOfferedPrice: updatedDriverOfferedPrice,
-        driverOfferStatus: updatedDriverOfferStatus,
-        negotiationStatus: data.negotiationStatus || prev.negotiationStatus || null,
-        paymentMethod: data.paymentMethod || prev.paymentMethod,
-        clientName: data.clientName || prev.clientName,
-        clientPhone: data.clientPhone || prev.clientPhone,
-        clientVehiclePhoto: data.clientVehiclePhoto ?? prev.clientVehiclePhoto ?? null,
-        rideType: data.rideType || prev.rideType || null,
-        clientComment: data.clientComment ?? data.comment ?? data.notes ?? prev.clientComment ?? null,
-      }));
-
-      if (!counterOfferTouched && typeof updatedDriverOfferedPrice === 'number') {
-        setCounterOffer(Math.round(updatedDriverOfferedPrice).toString());
-      }
-    });
-
-    return () => unsubscribe();
-  }, [ride.id, user?.id, counterOfferTouched, rideData.driverOfferedPrice, rideData.driverOfferStatus]);
-
-  useEffect(() => {
-    if (typeof rideData.driverOfferedPrice === 'number' && !Number.isNaN(rideData.driverOfferedPrice)) {
-      setLastSuggestedPrice(Math.round(rideData.driverOfferedPrice));
-    } else {
-      setLastSuggestedPrice(null);
-    }
-  }, [rideData.driverOfferedPrice]);
-
-  useEffect(() => {
-    const loadRoute = async () => {
-      setLoadingRoute(true);
-      try {
-        const segments: Array<{ latitude: number; longitude: number }> = [];
-        let currentPoint = {
-          latitude: currentRide.origin.lat,
-          longitude: currentRide.origin.lng,
-        };
-
-        const targets: RideLocation[] = [];
-        if (currentRide.extraDestinations && currentRide.extraDestinations.length > 0) {
-          targets.push(...currentRide.extraDestinations);
-        }
-        targets.push(currentRide.destination);
-
-        for (const target of targets) {
-          const segment = await mapsService.getDirections(currentPoint, {
-            latitude: target.lat,
-            longitude: target.lng,
-          });
-
-          if (segment?.polyline?.length) {
-            segments.push(...segment.polyline);
-          } else {
-            segments.push(currentPoint, { latitude: target.lat, longitude: target.lng });
-          }
-
-          currentPoint = { latitude: target.lat, longitude: target.lng };
-        }
-
-        setRouteCoordinates(segments);
-      } catch (error) {
-        console.error('[RidePreviewScreen] Error calculando ruta:', error);
-        alertService.showInfoAlert(
-          t('driver.ridePreview.alerts.routeErrorTitle'),
-          t('driver.ridePreview.alerts.routeErrorBody'),
-        );
-        setRouteCoordinates([
-          { latitude: currentRide.destination.lat, longitude: currentRide.destination.lng },
-        ]);
-      } finally {
-        setLoadingRoute(false);
-      }
-    };
-
-    loadRoute();
-  }, [currentRide.destination, currentRide.extraDestinations, currentRide.origin]);
-
-  useEffect(() => {
-    let active = true;
-
-    const loadProfile = async () => {
-      try {
-        const profile = await fetchClientProfile(currentRide.clientId);
-        if (active) {
-          setClientProfile(profile);
-        }
-      } catch (error) {
-        console.warn('[RidePreviewScreen] Error cargando perfil cliente:', error);
-      }
-    };
-
-    loadProfile();
-
-    return () => {
-      active = false;
-    };
-  }, [currentRide.clientId]);
-
-  const quickSuggestions = useMemo(() => {
-    const base = currentRide.estimatedPrice || 0;
-    if (!base) {
-      return [];
-    }
-    const low = Math.max(50, Math.round(base * 0.9));
-    const mid = Math.round(base);
-    const high = Math.round(base * 1.1);
-    return Array.from(new Set([low, mid, high]));
-  }, [currentRide.estimatedPrice]);
 
   const formatCurrency = (value?: number | null) => {
     if (value === undefined || value === null) {
@@ -646,435 +255,6 @@ export default function RidePreviewScreen() {
       otherUserName: resolvedClientName,
     });
   };
-
-  useEffect(() => {
-    if (!navigationLocked) {
-      return;
-    }
-
-    const unsubscribe = navigation.addListener('beforeRemove', (event) => {
-      if (!navigationLocked) {
-        return;
-      }
-
-      if (allowNavigationRef.current) {
-        allowNavigationRef.current = false;
-        return;
-      }
-
-      const actionType = event.data.action?.type;
-      if (actionType === 'REPLACE' || actionType === 'RESET' || actionType === 'NAVIGATE') {
-        return;
-      }
-
-      event.preventDefault();
-    });
-
-    return unsubscribe;
-  }, [navigation, navigationLocked]);
-
-  useEffect(() => {
-    if (hasPendingOffer) {
-      setManualOfferLock(false);
-    }
-  }, [hasPendingOffer]);
-
-  useEffect(() => {
-    setManualOfferLock(false);
-  }, [ride.id]);
-
-  const cacheCurrentOffer = useCallback(
-    async (overrides?: Partial<DriverOfferCacheEntry>) => {
-      if (!user?.id) {
-        return;
-      }
-
-      const normalizeLocation = (location: RideLocation | undefined | null): RideLocation => {
-        const lat = toNumberOrNull(location?.lat) ?? 0;
-        const lng = toNumberOrNull(location?.lng) ?? 0;
-        return {
-          lat,
-          lng,
-          address: location?.address,
-        };
-      };
-
-      const normalizedOrigin = normalizeLocation(currentRide.origin);
-      const normalizedDestination = normalizeLocation(currentRide.destination);
-      let normalizedStops: Array<{ lat: number; lng: number; address?: string }> | undefined;
-      if (Array.isArray(currentRide.extraDestinations) && currentRide.extraDestinations.length > 0) {
-        const stops: Array<{ lat: number; lng: number; address?: string }> = [];
-        currentRide.extraDestinations.forEach((stop: RideLocation) => {
-          const lat = toNumberOrNull(stop?.lat);
-          const lng = toNumberOrNull(stop?.lng);
-          if (lat === null || lng === null) {
-            return;
-          }
-          const normalizedStop: { lat: number; lng: number; address?: string } = { lat, lng };
-          if (typeof stop?.address === 'string' && stop.address.trim().length > 0) {
-            normalizedStop.address = stop.address;
-          }
-          stops.push(normalizedStop);
-        });
-        if (stops.length > 0) {
-          normalizedStops = stops;
-        }
-      }
-
-      const entry: DriverOfferCacheEntry = {
-        rideId: currentRide.id,
-        driverId: user.id,
-        clientId: currentRide.clientId,
-        clientName: resolvedClientName,
-        origin: normalizedOrigin,
-        destination: normalizedDestination,
-        extraDestinations: normalizedStops,
-        offeredPrice:
-          overrides?.offeredPrice ??
-          (typeof currentRide.driverOfferedPrice === 'number' ? currentRide.driverOfferedPrice : null),
-        clientSuggestedPrice:
-          typeof currentRide.clientSuggestedPrice === 'number' ? currentRide.clientSuggestedPrice : null,
-        estimatedPrice: typeof currentRide.estimatedPrice === 'number' ? currentRide.estimatedPrice : null,
-        estimatedDistance:
-          overrides?.estimatedDistance ??
-          (typeof currentRide.estimatedDistance === 'number' ? currentRide.estimatedDistance : null),
-        estimatedDuration:
-          overrides?.estimatedDuration ??
-          (typeof currentRide.estimatedDuration === 'number' ? currentRide.estimatedDuration : null),
-        paymentMethod: currentRide.paymentMethod ?? null,
-        clientVehiclePhoto: currentRide.clientVehiclePhoto ?? null,
-        rideType: currentRide.rideType ?? null,
-        negotiationStatus: overrides?.negotiationStatus ?? currentRide.negotiationStatus ?? null,
-        createdAt: Date.now(),
-      };
-
-      await driverOfferCacheService.save(entry);
-    },
-    [
-      currentRide.clientId,
-      currentRide.clientSuggestedPrice,
-      currentRide.destination,
-      currentRide.driverOfferedPrice,
-      currentRide.estimatedDistance,
-      currentRide.estimatedDuration,
-      currentRide.estimatedPrice,
-      currentRide.extraDestinations,
-      currentRide.id,
-      currentRide.negotiationStatus,
-      currentRide.origin,
-      currentRide.paymentMethod,
-      currentRide.rideType,
-      currentRide.clientVehiclePhoto,
-      resolvedClientName,
-      user?.id,
-    ],
-  );
-
-  const handleApplySuggestion = async (value: number) => {
-    const rounded = Math.round(value);
-    setCounterOfferTouched(true);
-    setCounterOffer(rounded.toString());
-    await submitCounterOffer(rounded);
-  };
-
-  const submitCounterOffer = async (value: number): Promise<boolean> => {
-    if (!user?.id) {
-      alertService.showErrorAlert(t('driver.ridePreview.alerts.missingUser'));
-      return false;
-    }
-
-    let success = false;
-    try {
-      setSendingOffer(true);
-      await priceNegotiationService.negotiatePrice(
-        currentRide.id,
-        value,
-        'driver',
-        currentRide.estimatedPrice,
-        user.id,
-      );
-      setCounterOffer(value.toString());
-      setLastSuggestedPrice(value);
-      success = true;
-      setRideData((prev) => ({
-        ...prev,
-        driverOfferedPrice: value,
-        negotiationStatus: 'driver_offered',
-        driverOfferStatus: 'pending',
-      }));
-      setManualOfferLock(true);
-      await cacheCurrentOffer({
-        offeredPrice: value,
-        negotiationStatus: 'driver_offered',
-      });
-    } catch (error: any) {
-      console.error('[RidePreviewScreen] Contraoferta fallida:', error);
-      alertService.showErrorAlert(error?.message || t('driver.ridePreview.alerts.counterOfferError'));
-    } finally {
-      setSendingOffer(false);
-    }
-    return success;
-  };
-
-  const handleCustomOfferPress = useCallback(() => {
-    setCustomOfferVisible((prev) => {
-      const next = !prev;
-      if (next) {
-        setCounterOfferTouched(true);
-        if (!counterOffer) {
-          const baseSource =
-            typeof currentRide.clientSuggestedPrice === 'number' && currentRide.clientSuggestedPrice > 0
-              ? Math.round(currentRide.clientSuggestedPrice)
-              : Math.round(currentRide.estimatedPrice || 0);
-          if (baseSource > 0) {
-            setCounterOffer(baseSource.toString());
-          }
-        }
-        setTimeout(() => customOfferInputRef.current?.focus(), 80);
-      } else {
-        customOfferInputRef.current?.blur();
-      }
-      return next;
-    });
-  }, [counterOffer, currentRide.clientSuggestedPrice, currentRide.estimatedPrice]);
-
-  const handleCustomOfferChange = useCallback((text: string) => {
-    const sanitized = text.replace(/[^0-9]/g, '');
-    setCounterOfferTouched(true);
-    setCounterOffer(sanitized);
-  }, []);
-
-  const handleSendCustomOffer = useCallback(async () => {
-    if (sendingOffer) {
-      return;
-    }
-
-    const numericValue = Number(counterOffer.replace(/[^0-9]/g, ''));
-    if (!Number.isFinite(numericValue) || numericValue <= 0) {
-      alertService.showInfoAlert(
-        t('driver.ridePreview.alerts.invalidPriceTitle'),
-        t('driver.ridePreview.alerts.invalidPriceBody'),
-      );
-      return;
-    }
-
-    const roundedValue = Math.round(numericValue);
-    setCounterOffer(roundedValue.toString());
-    const wasSuccessful = await submitCounterOffer(roundedValue);
-    if (wasSuccessful) {
-      setCustomOfferVisible(false);
-      customOfferInputRef.current?.blur();
-    }
-  }, [counterOffer, sendingOffer, submitCounterOffer]);
-
-  const handleAcceptRide = async () => {
-    if (acceptingRide) {
-      return;
-    }
-
-    if (autoDismissTimerRef.current) clearTimeout(autoDismissTimerRef.current);
-    try {
-      if (activeRideGuard) {
-        alertService.showInfoAlert(
-          t('driver.ridePreview.alerts.activeRideTitle'),
-          t('driver.ridePreview.alerts.activeRideBody'),
-          () => navigation.replace('ActiveRide', { rideId: activeRideGuard }),
-        );
-        return;
-      }
-
-      if (!(await ensureCardForCardPayments())) {
-        return;
-      }
-
-      setAcceptingRide(true);
-      Animated.timing(acceptButtonScale, {
-        toValue: 0.95,
-        duration: 130,
-        useNativeDriver: true,
-      }).start();
-
-      const hasClientSuggested =
-        typeof currentRide.clientSuggestedPrice === 'number' &&
-        Number.isFinite(currentRide.clientSuggestedPrice) &&
-        currentRide.clientSuggestedPrice > 0;
-      const hasEstimatedPrice =
-        typeof currentRide.estimatedPrice === 'number' &&
-        Number.isFinite(currentRide.estimatedPrice) &&
-        currentRide.estimatedPrice > 0;
-
-      let cachedOfferValue: number | null = null;
-      if (hasClientSuggested || hasEstimatedPrice) {
-        const priceToShow = hasClientSuggested
-          ? currentRide.clientSuggestedPrice
-          : currentRide.estimatedPrice;
-
-        await priceNegotiationService.acceptClientPrice(currentRide.id);
-        alertService.showSuccessAlert(
-          t('driver.ridePreview.alerts.offerSentTitle'),
-          t('driver.ridePreview.alerts.offerAcceptedBody', {
-            amount: formatCurrency(priceToShow || 0),
-          }),
-        );
-        cachedOfferValue = Number(priceToShow) || null;
-        setRideData((prev) => ({
-          ...prev,
-          driverOfferedPrice: priceToShow ?? prev.driverOfferedPrice ?? null,
-          negotiationStatus: 'driver_accepted',
-          driverOfferStatus: 'pending',
-        }));
-      } else {
-        const acceptData = {
-          driverId: user?.id || '',
-          vehicleId: 'temp-vehicle-id',
-          currentLocation: { lat: 0, lng: 0 },
-        };
-        await ridesService.acceptRide(currentRide.id, acceptData);
-        alertService.showSuccessAlert(
-          t('driver.ridePreview.alerts.offerSentTitle'),
-          t('driver.ridePreview.alerts.offerNotifiedBody'),
-        );
-        setRideData((prev) => ({
-          ...prev,
-          negotiationStatus: prev.negotiationStatus || 'driver_offered',
-          driverOfferStatus: 'pending',
-        }));
-      }
-
-      setManualOfferLock(true);
-      await cacheCurrentOffer({
-        offeredPrice: cachedOfferValue,
-        negotiationStatus: 'driver_accepted',
-      });
-
-      navigation.replace('WaitingClientConfirmation', {
-        rideId: currentRide.id,
-        clientId: currentRide.clientId,
-        origin: {
-          lat: currentRide.origin.lat,
-          lng: currentRide.origin.lng,
-          address: currentRide.origin.address || t('driver.ridePreview.labels.originFallback'),
-        },
-        destination: {
-          lat: currentRide.destination.lat,
-          lng: currentRide.destination.lng,
-          address: currentRide.destination.address || t('driver.ridePreview.labels.destinationFallback'),
-        },
-        estimatedFare: currentRide.clientSuggestedPrice || currentRide.estimatedPrice,
-        extraDestinations: (currentRide.extraDestinations || []).map((stop) => ({
-          lat: stop.lat,
-          lng: stop.lng,
-          address: stop.address,
-        })),
-      });
-    } catch (error: any) {
-      console.error('[RidePreviewScreen] Error al aceptar viaje:', error);
-      alertService.showErrorAlert(error?.message || t('driver.ridePreview.alerts.acceptRideError'));
-    } finally {
-      Animated.timing(acceptButtonScale, {
-        toValue: 1,
-        duration: 170,
-        useNativeDriver: true,
-      }).start();
-      setAcceptingRide(false);
-    }
-  };
-
-  const handleRejectRide = () => {
-    if (isRejectingRide) {
-      return;
-    }
-
-    if (autoDismissTimerRef.current) clearTimeout(autoDismissTimerRef.current);
-    setIsRejectingRide(true);
-    Animated.timing(rejectButtonScale, {
-      toValue: 0.95,
-      duration: 130,
-      useNativeDriver: true,
-    }).start();
-
-    const finishReject = () => {
-      Animated.timing(rejectButtonScale, {
-        toValue: 1,
-        duration: 170,
-        useNativeDriver: true,
-      }).start();
-      setIsRejectingRide(false);
-    };
-
-    const negotiationStatus = String(currentRide.negotiationStatus || '').toLowerCase();
-    const driverOfferStatus = String(currentRide.driverOfferStatus || '').toLowerCase();
-    const hasOfferedOrNegotiatedPrice =
-      (typeof currentRide.driverOfferedPrice === 'number' &&
-        Number.isFinite(currentRide.driverOfferedPrice) &&
-        currentRide.driverOfferedPrice > 0) ||
-      negotiationStatus.startsWith('driver_') ||
-      ['pending', 'waiting', 'accepted'].includes(driverOfferStatus);
-
-    ridesService
-      .rejectRide(currentRide.id, hasOfferedOrNegotiatedPrice ? 'driver_withdrew_offer' : 'not_interested')
-      .catch((error: any) => {
-        console.warn('[RidePreviewScreen] No se pudo registrar rechazo de ride:', error);
-      })
-      .finally(() => {
-        markDismissed()
-          .catch((error) => {
-            console.warn('[RidePreviewScreen] No se pudo descartar ride:', error);
-          })
-          .finally(() => {
-            finishReject();
-            if (user?.id) {
-              driverOfferCacheService.clearEntry(user.id, currentRide.id).catch((err) =>
-                console.warn('[RidePreviewScreen] Failed to clear cache entry', err),
-              );
-            }
-            allowNavigationRef.current = true;
-            navigation.goBack();
-          });
-      });
-  };
-
-  const finalPricePreview = useMemo(() => {
-    if (counterOffer) {
-      const parsed = parseFloat(counterOffer);
-      if (!Number.isNaN(parsed)) {
-        return formatCurrency(parsed);
-      }
-    }
-    const candidates: number[] = [];
-
-    if (
-      typeof currentRide.driverOfferedPrice === 'number' &&
-      Number.isFinite(currentRide.driverOfferedPrice) &&
-      currentRide.driverOfferedPrice > 0
-    ) {
-      candidates.push(currentRide.driverOfferedPrice);
-    }
-
-    if (
-      typeof currentRide.clientSuggestedPrice === 'number' &&
-      Number.isFinite(currentRide.clientSuggestedPrice) &&
-      currentRide.clientSuggestedPrice > 0
-    ) {
-      candidates.push(currentRide.clientSuggestedPrice);
-    }
-
-    if (
-      typeof currentRide.estimatedPrice === 'number' &&
-      Number.isFinite(currentRide.estimatedPrice) &&
-      currentRide.estimatedPrice > 0
-    ) {
-      candidates.push(currentRide.estimatedPrice);
-    }
-
-    const value = candidates.find((v) => v > 0) ?? currentRide.estimatedPrice;
-    return formatCurrency(value || 0);
-  }, [
-    counterOffer,
-    currentRide.driverOfferedPrice,
-    currentRide.clientSuggestedPrice,
-    currentRide.estimatedPrice,
-  ]);
 
   const renderNegotiationBanner = () => {
     const status = (currentRide.negotiationStatus || '').toLowerCase();
@@ -1137,7 +317,7 @@ export default function RidePreviewScreen() {
 
   const renderNearbyCard = () => {
     if (!nearbyQueue || nearbyQueue.length === 0) return null;
-    const next = nearbyQueue[0] as any;
+    const next = nearbyQueue[0] as Partial<RidePreviewData> & { distanceMeters?: number };
     const labelDistance =
       typeof next?.distanceMeters === 'number'
         ? t('driver.ridePreview.nearby.distanceMeters', {
@@ -1371,7 +551,7 @@ export default function RidePreviewScreen() {
             },
           ]}
           onPress={() => {
-            markDismissed().finally(() => navigation.goBack());
+            markDismissed(currentRide.id).finally(() => navigation.goBack());
           }}
           activeOpacity={0.9}
         >

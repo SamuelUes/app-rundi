@@ -13,6 +13,7 @@ import { BiometricAuthenticationRepository } from '../sequelize/repositories/Bio
 import admin from 'firebase-admin';
 import { randomInt } from 'crypto';
 import { deductCommissionFromDriverFundsByRide } from './recharge_funds';
+import { ensureActiveSession } from '../utils/sessionUtils';
 
 const paymentService = new PaymentService();
 const biometricAuthRepo = new BiometricAuthenticationRepository();
@@ -57,38 +58,6 @@ const applyCommissionDeductionForCompletedPayment = async (
     });
   } catch (error) {
     console.error('❌ [payments_sequelize] Error descontando comisión desde RechargeFunds:', error);
-  }
-};
-
-// ============================================
-// Single-session enforcement (DENY policy)
-// ============================================
-const SESSION_ACTIVE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
-
-const isRecent = (lastSeen: any): boolean => {
-  if (typeof lastSeen === 'number') {
-    const diff = Date.now() - lastSeen;
-    return diff >= 0 && diff <= SESSION_ACTIVE_THRESHOLD_MS;
-  }
-  return true;
-};
-
-const ensureActiveSession = async (
-  context: functions.https.CallableContext,
-  data: any,
-) => {
-  if (!context.auth?.uid) {
-    throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
-  }
-  const uid = context.auth.uid;
-  const deviceId = typeof data?.deviceId === 'string' ? data.deviceId.trim() : '';
-  if (!deviceId) {
-    throw new functions.https.HttpsError('invalid-argument', 'deviceId requerido');
-  }
-  const sessionSnap = await admin.database().ref(`sessions/${uid}`).once('value');
-  const session = sessionSnap.val();
-  if (session && session.deviceId && session.deviceId !== deviceId && isRecent(session.lastSeen)) {
-    throw new functions.https.HttpsError('failed-precondition', 'SESSION_ACTIVE_ELSEWHERE');
   }
 };
 

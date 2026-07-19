@@ -11,8 +11,9 @@ import { ServiceRepository } from '../sequelize/repositories/ServiceRepository';
 import { DriverRepository } from '../sequelize/repositories/DriverRepository';
 import { supabaseGet, supabasePost, supabaseUpdate } from '../supabase/client';
 
+import { DEFAULT_SERVICE_AREA_ID } from '../config/constants';
+
 const db = admin.database();
-const DEFAULT_SERVICE_AREA_ID = 'ni-managua';
 const driverServiceRepo = new DriverServiceRepository();
 const serviceRepo = new ServiceRepository();
 const driverRepo = new DriverRepository();
@@ -60,7 +61,7 @@ async function markDesignatedRoleRequested(userId: string) {
 
     try {
       const driverRecord = await driverRepo.findByUserId(userId);
-      const driverId = (driverRecord as any)?.id;
+      const driverId = (driverRecord as Record<string, any> | null)?.id;
       if (driverId) {
         await supabaseUpdate('drivers', driverId, { designated_rol_requested: 'requested' });
         console.log('✅ [requestDesignatedDriverAccess] Flag actualizado vía Supabase REST');
@@ -75,7 +76,7 @@ async function markDesignatedRoleRequested(userId: string) {
 async function getDesignatedServiceId(): Promise<string | null> {
   try {
     const svc = await serviceRepo.findByName('designated_driver');
-    return (svc as any)?.id || null;
+    return (svc as Record<string, any> | null)?.id || null;
   } catch {
     return null;
   }
@@ -147,7 +148,7 @@ export const getAvailableDrivers = functions.https.onCall(async (data, context) 
       } catch (e) {
         console.warn('[getAvailableDrivers] No se pudo leer serviceAreaId de sesión, usando default', {
           uid,
-          error: (e as any)?.message || e,
+          error: e instanceof Error ? e.message : String(e),
         });
       }
     }
@@ -172,7 +173,7 @@ export const getAvailableDrivers = functions.https.onCall(async (data, context) 
       console.warn('[getAvailableDrivers] Error leyendo driverLocationsByArea, usando driverLocations global', {
         uid,
         serviceAreaId,
-        error: (err as any)?.message || err,
+        error: err instanceof Error ? err.message : String(err),
       });
       const fallbackSnap = await db.ref('driverLocations').once('value');
       driverLocations = fallbackSnap.val() || {};
@@ -195,8 +196,8 @@ export const getAvailableDrivers = functions.https.onCall(async (data, context) 
     const availableDrivers: any[] = [];
 
     for (const driverId of allDriverIds) {
-      const info = (driversInfo as any)[driverId] || {};
-      const loc = (driverLocations as any)[driverId] || {};
+      const info = (driversInfo as Record<string, any>)[driverId] || {};
+      const loc = (driverLocations as Record<string, any>)[driverId] || {};
 
       const status = String(loc?.status || '').toLowerCase();
       console.log(`🔍 [getAvailableDrivers] ${driverId}: status=${status}, type=${info?.vehicle?.type}`);
@@ -318,9 +319,9 @@ export const getDriverProfile = functions.https.onCall(async (data, context) => 
         const driver = await driverRepo.findByUserId(driverId);
         if (driver) {
           stats = {
-            totalRides: (driver as any).total_rides ?? 0,
-            totalEarnings: (driver as any).total_earnings ?? 0,
-            averageRating: (driver as any).average_rating ?? 0,
+            totalRides: (driver as Record<string, any>).total_rides ?? 0,
+            totalEarnings: (driver as Record<string, any>).total_earnings ?? 0,
+            averageRating: (driver as Record<string, any>).average_rating ?? 0,
           };
         }
       } catch (err) {
@@ -507,17 +508,22 @@ export const requestDesignatedDriverAccess = functions.https.onCall(async (data,
     const existing = await driverServiceRepo.findByDriverAndService(driverId, serviceId);
     if (existing) {
       await markDesignatedRoleRequested(driverId);
-      return { success: true, message: 'Solicitud existente', status: (existing as any).status || 'pending' };
+      const ex = existing as Record<string, any>;
+      const exStatus = ex.is_approved ? 'approved' : (ex.is_active ? 'active' : 'pending');
+      return { success: true, message: 'Solicitud existente', status: exStatus };
     }
 
     const created = await driverServiceRepo.create({
       driver_id: driverId,
       service_id: serviceId,
-      status: 'pending',
+      is_active: false,
+      is_approved: false,
     });
 
     await markDesignatedRoleRequested(driverId);
-    return { success: true, message: 'Solicitud enviada exitosamente', status: created.status || 'pending' };
+    const cr = created as Record<string, any>;
+    const crStatus = cr.is_approved ? 'approved' : (cr.is_active ? 'active' : 'pending');
+    return { success: true, message: 'Solicitud enviada exitosamente', status: crStatus };
   } catch (error: any) {
     console.error('❌ [requestDesignatedDriverAccess] Error:', error);
     throw new functions.https.HttpsError('internal', error.message);
@@ -564,8 +570,8 @@ export const getDesignatedDriverRequestStatus = functions.https.onCall(async (da
     }
     return {
       success: true,
-      status: (existing as any).status || 'unknown',
-      approvedAt: (existing as any).approved_at || null,
+      status: (existing as Record<string, any>).status || 'unknown',
+      approvedAt: (existing as Record<string, any>).approved_at || null,
     };
   } catch (error: any) {
     console.error('❌ [getDesignatedDriverRequestStatus] Error:', error);

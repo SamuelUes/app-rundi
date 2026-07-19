@@ -1,6 +1,8 @@
 import * as functions from "firebase-functions";
 import { firestore } from "../config/firebase";
 import { regionConfig } from "../config/functions-config";
+import { checkRateLimit } from "../utils/rateLimiter";
+import { DEFAULT_SERVICE_AREA_ID } from "../config/constants";
 
 type ServiceAreaPoint = {
   lat: number;
@@ -287,7 +289,7 @@ export async function handleCheckRegionAvailability(data: CheckRegionRequest): P
     const anyDocSnapshot = await collectionRef.limit(1).get();
     if (anyDocSnapshot.empty) {
       try {
-        await collectionRef.doc("ni-managua").set(
+        await collectionRef.doc(DEFAULT_SERVICE_AREA_ID).set(
           {
             name: "Managua",
             countryCode: "NI",
@@ -298,7 +300,7 @@ export async function handleCheckRegionAvailability(data: CheckRegionRequest): P
         );
       } catch (bootstrapError) {
         console.warn(
-          "⚠️ [checkRegionAvailability] No se pudo crear service_areas/ni-managua por defecto:",
+          `⚠️ [checkRegionAvailability] No se pudo crear service_areas/${DEFAULT_SERVICE_AREA_ID} por defecto:`,
           bootstrapError
         );
       }
@@ -366,7 +368,7 @@ export async function handleCheckRegionAvailability(data: CheckRegionRequest): P
     );
     return {
       allowed: true,
-      serviceAreaId: "ni-managua",
+      serviceAreaId: DEFAULT_SERVICE_AREA_ID,
       areaName: "Prueba",
       reasonCode: "OK_FALLBACK",
       message: "Servicio disponible en prueba (configuración por defecto).",
@@ -395,6 +397,13 @@ export const checkRegionAvailabilityHttp = functions
   .runWith(regionConfig)
   .https.onRequest(async (req, res) => {
     try {
+      const clientIp = (req.headers['x-forwarded-for'] as string || req.socket.remoteAddress || 'unknown').split(',')[0].trim();
+      const rateLimit = checkRateLimit(`region:${clientIp}`, 30);
+      if (!rateLimit.allowed) {
+        res.status(429).json({ error: "Too many requests", retryAfter: Math.ceil((rateLimit.resetAt - Date.now()) / 1000) });
+        return;
+      }
+
       const data = (req.body || {}) as CheckRegionRequest;
       const result = await handleCheckRegionAvailability(data);
       res.status(200).json(result);

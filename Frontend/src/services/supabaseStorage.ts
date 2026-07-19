@@ -3,24 +3,14 @@
  * Servicio para subir imágenes a Supabase Storage
  */
 
-import { createClient } from '@supabase/supabase-js';
-import Constants from 'expo-constants';
 import * as FileSystem from 'expo-file-system';
 import { Paths } from 'expo-file-system';
 import * as LegacyFileSystem from 'expo-file-system/legacy';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { httpsCallable } from 'firebase/functions';
 import { getFirebaseFunctions } from '../config/firebase';
+import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from '../config/supabase';
 import i18n from '../i18n';
-
-// Configuración de Supabase desde variables de entorno de Expo
-const SUPABASE_URL = Constants.expoConfig?.extra?.supabaseUrl || 'https://ceytngpresytjhafcadu.supabase.co';
-const SUPABASE_ANON_KEY = Constants.expoConfig?.extra?.supabaseKey || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNleXRuZ3ByZXN5dGpoYWZjYWR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk5Nzg4NzIsImV4cCI6MjA3NTU1NDg3Mn0.3G9aCmJsjOIL-VG6E49sNnxvKBLITX-I1gFFlWKVslo';
-
-console.log('🔧 Supabase URL:', SUPABASE_URL);
-console.log('🔧 Supabase Key:', SUPABASE_ANON_KEY ? '✅ Configurada' : '❌ No configurada');
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 let cachedSupabaseJwt: { token: string; expiresAtMs: number } | null = null;
 

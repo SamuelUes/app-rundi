@@ -13,11 +13,13 @@
 
 import * as functions from 'firebase-functions';
 import { DriverRepository } from '../sequelize/repositories/DriverRepository';
+import { logAuditEvent } from '../helpers/auditLog';
 import { 
   CreateDriverProfileSchema, 
   validateData,
   CreateDriverProfile
 } from '../sequelize/validators';
+import { requireDriver, requireAdmin } from '../utils/sessionUtils';
 
 const driverRepo = new DriverRepository();
 
@@ -27,15 +29,12 @@ const driverRepo = new DriverRepository();
  * Opcional: profilePhoto, department, municipality
  */
 export const createDriverProfile = functions.https.onCall(async (data, context) => {
-  if (!context.auth) {
-    throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
-  }
+  const userId = await requireDriver(context);
 
   try {
     // ✅ Validación con Zod
     const validatedData = validateData<CreateDriverProfile>(CreateDriverProfileSchema, data);
     const { licenseNumber, licenseExpiry, profilePhoto, department, municipality } = validatedData;
-    const userId = context.auth.uid;
 
     console.log(`👤 [createDriverProfile] Creando perfil para conductor: ${userId}`);
 
@@ -64,8 +63,9 @@ export const createDriverProfile = functions.https.onCall(async (data, context) 
       },
     };
   } catch (error: any) {
+    if (error instanceof functions.https.HttpsError) throw error;
     console.error('❌ [createDriverProfile] Error:', error);
-    throw new functions.https.HttpsError('internal', error.message);
+    throw new functions.https.HttpsError('internal', 'Error interno del servidor');
   }
 });
 
@@ -92,30 +92,34 @@ export const getDriverProfile = functions.https.onCall(async (data, context) => 
       throw new functions.https.HttpsError('not-found', 'Conductor no encontrado');
     }
 
+    // Verificar ownership: campos sensibles solo para el propio conductor
+    const isOwner = driver.user_id === context.auth.uid;
+
     return {
       success: true,
       driver: {
         id: driver.id,
         userId: driver.user_id,
-        licenseNumber: driver.license_number,
-        licenseExpiry: driver.license_expiry,
+        licenseNumber: isOwner ? driver.license_number : undefined,
+        licenseExpiry: isOwner ? driver.license_expiry : undefined,
         profilePhoto: driver.profile_photo,
-        licensePhotoFront: driver.license_photo_front,
-        licensePhotoBack: driver.license_photo_back,
+        licensePhotoFront: isOwner ? driver.license_photo_front : undefined,
+        licensePhotoBack: isOwner ? driver.license_photo_back : undefined,
         department: driver.department,
         municipality: driver.municipality,
         status: driver.status,
         verifiedAt: driver.verified_at,
         averageRating: driver.average_rating,
         totalRides: driver.total_rides,
-        totalEarnings: driver.total_earnings,
+        totalEarnings: isOwner ? driver.total_earnings : undefined,
         createdAt: driver.created_at,
         updatedAt: driver.updated_at,
       },
     };
   } catch (error: any) {
+    if (error instanceof functions.https.HttpsError) throw error;
     console.error('❌ [getDriverProfile] Error:', error);
-    throw new functions.https.HttpsError('internal', error.message);
+    throw new functions.https.HttpsError('internal', 'Error interno del servidor');
   }
 });
 
@@ -142,23 +146,27 @@ export const getDriverByUserId = functions.https.onCall(async (data, context) =>
       throw new functions.https.HttpsError('not-found', 'Conductor no encontrado');
     }
 
+    // Verificar ownership: earnings solo para el propio conductor
+    const isOwner = driver.user_id === context.auth.uid;
+
     return {
       success: true,
       driver: {
         id: driver.id,
         userId: driver.user_id,
-        licenseNumber: driver.license_number,
-        licenseExpiry: driver.license_expiry,
+        licenseNumber: isOwner ? driver.license_number : undefined,
+        licenseExpiry: isOwner ? driver.license_expiry : undefined,
         profilePhoto: driver.profile_photo,
         status: driver.status,
         averageRating: driver.average_rating,
         totalRides: driver.total_rides,
-        totalEarnings: driver.total_earnings,
+        totalEarnings: isOwner ? driver.total_earnings : undefined,
       },
     };
   } catch (error: any) {
+    if (error instanceof functions.https.HttpsError) throw error;
     console.error('❌ [getDriverByUserId] Error:', error);
-    throw new functions.https.HttpsError('internal', error.message);
+    throw new functions.https.HttpsError('internal', 'Error interno del servidor');
   }
 });
 
@@ -176,6 +184,15 @@ export const updateDriverProfile = functions.https.onCall(async (data, context) 
 
     if (!driverId) {
       throw new functions.https.HttpsError('invalid-argument', 'driverId es requerido');
+    }
+
+    // Verificar ownership: solo el conductor dueño del perfil puede actualizarlo
+    const existingDriver = await driverRepo.findById(driverId);
+    if (!existingDriver) {
+      throw new functions.https.HttpsError('not-found', 'Conductor no encontrado');
+    }
+    if (existingDriver.user_id !== context.auth.uid) {
+      throw new functions.https.HttpsError('permission-denied', 'No tienes permiso para actualizar este perfil');
     }
 
     console.log(`✏️ [updateDriverProfile] Actualizando perfil del conductor: ${driverId}`);
@@ -206,8 +223,9 @@ export const updateDriverProfile = functions.https.onCall(async (data, context) 
       },
     };
   } catch (error: any) {
+    if (error instanceof functions.https.HttpsError) throw error;
     console.error('❌ [updateDriverProfile] Error:', error);
-    throw new functions.https.HttpsError('internal', error.message);
+    throw new functions.https.HttpsError('internal', 'Error interno del servidor');
   }
 });
 
@@ -241,8 +259,9 @@ export const getActiveDrivers = functions.https.onCall(async (data, context) => 
       })),
     };
   } catch (error: any) {
+    if (error instanceof functions.https.HttpsError) throw error;
     console.error('❌ [getActiveDrivers] Error:', error);
-    throw new functions.https.HttpsError('internal', error.message);
+    throw new functions.https.HttpsError('internal', 'Error interno del servidor');
   }
 });
 
@@ -281,8 +300,9 @@ export const getDriversByRating = functions.https.onCall(async (data, context) =
       })),
     };
   } catch (error: any) {
+    if (error instanceof functions.https.HttpsError) throw error;
     console.error('❌ [getDriversByRating] Error:', error);
-    throw new functions.https.HttpsError('internal', error.message);
+    throw new functions.https.HttpsError('internal', 'Error interno del servidor');
   }
 });
 
@@ -321,8 +341,9 @@ export const getDriversByDepartment = functions.https.onCall(async (data, contex
       })),
     };
   } catch (error: any) {
+    if (error instanceof functions.https.HttpsError) throw error;
     console.error('❌ [getDriversByDepartment] Error:', error);
-    throw new functions.https.HttpsError('internal', error.message);
+    throw new functions.https.HttpsError('internal', 'Error interno del servidor');
   }
 });
 
@@ -349,6 +370,9 @@ export const getDriverStats = functions.https.onCall(async (data, context) => {
       throw new functions.https.HttpsError('not-found', 'Conductor no encontrado');
     }
 
+    // Verificar ownership: stats financieras solo para el propio conductor
+    const isOwner = driver.user_id === context.auth.uid;
+
     return {
       success: true,
       stats: {
@@ -356,7 +380,7 @@ export const getDriverStats = functions.https.onCall(async (data, context) => {
         userId: driver.user_id,
         averageRating: driver.average_rating,
         totalRides: driver.total_rides,
-        totalEarnings: driver.total_earnings,
+        totalEarnings: isOwner ? driver.total_earnings : undefined,
         status: driver.status,
         verifiedAt: driver.verified_at,
         createdAt: driver.created_at,
@@ -364,8 +388,9 @@ export const getDriverStats = functions.https.onCall(async (data, context) => {
       },
     };
   } catch (error: any) {
+    if (error instanceof functions.https.HttpsError) throw error;
     console.error('❌ [getDriverStats] Error:', error);
-    throw new functions.https.HttpsError('internal', error.message);
+    throw new functions.https.HttpsError('internal', 'Error interno del servidor');
   }
 });
 
@@ -391,7 +416,19 @@ export const changeDriverStatus = functions.https.onCall(async (data, context) =
 
     console.log(`🔄 [changeDriverStatus] Cambiando estado del conductor ${driverId} a ${status}`);
 
+    const oldDriver = await driverRepo.findById(driverId);
+    const previousStatus = oldDriver?.status;
+
     const driver = await driverRepo.update(driverId, { status });
+
+    await logAuditEvent({
+      actorUid: context.auth.uid,
+      actorRole: 'admin',
+      action: 'update',
+      entityType: 'driver',
+      entityId: driverId,
+      changes: { before: { status: previousStatus }, after: { status } },
+    });
 
     return {
       success: true,
@@ -403,8 +440,9 @@ export const changeDriverStatus = functions.https.onCall(async (data, context) =
       },
     };
   } catch (error: any) {
+    if (error instanceof functions.https.HttpsError) throw error;
     console.error('❌ [changeDriverStatus] Error:', error);
-    throw new functions.https.HttpsError('internal', error.message);
+    throw new functions.https.HttpsError('internal', 'Error interno del servidor');
   }
 });
 
@@ -412,9 +450,7 @@ export const changeDriverStatus = functions.https.onCall(async (data, context) =
  * Verificar conductor (marcar como verificado)
  */
 export const verifyDriver = functions.https.onCall(async (data, context) => {
-  if (!context.auth) {
-    throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
-  }
+  await requireAdmin(context);
 
   try {
     const { driverId } = data;
@@ -425,9 +461,21 @@ export const verifyDriver = functions.https.onCall(async (data, context) => {
 
     console.log(`✅ [verifyDriver] Verificando conductor: ${driverId}`);
 
+    const oldDriver = await driverRepo.findById(driverId);
+    const previousStatus = oldDriver?.status;
+
     const driver = await driverRepo.update(driverId, {
       status: 'active',
       verified_at: new Date(),
+    });
+
+    await logAuditEvent({
+      actorUid: context.auth!.uid,
+      actorRole: 'admin',
+      action: 'update',
+      entityType: 'driver',
+      entityId: driverId,
+      changes: { before: { status: previousStatus }, after: { status: 'active', verified_at: new Date().toISOString() } },
     });
 
     return {
@@ -440,8 +488,9 @@ export const verifyDriver = functions.https.onCall(async (data, context) => {
       },
     };
   } catch (error: any) {
+    if (error instanceof functions.https.HttpsError) throw error;
     console.error('❌ [verifyDriver] Error:', error);
-    throw new functions.https.HttpsError('internal', error.message);
+    throw new functions.https.HttpsError('internal', 'Error interno del servidor');
   }
 });
 
@@ -449,9 +498,7 @@ export const verifyDriver = functions.https.onCall(async (data, context) => {
  * Rechazar conductor
  */
 export const rejectDriver = functions.https.onCall(async (data, context) => {
-  if (!context.auth) {
-    throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
-  }
+  await requireAdmin(context);
 
   try {
     const { driverId, reason } = data;
@@ -462,8 +509,20 @@ export const rejectDriver = functions.https.onCall(async (data, context) => {
 
     console.log(`❌ [rejectDriver] Rechazando conductor: ${driverId}, Razón: ${reason || 'Sin especificar'}`);
 
+    const oldDriver = await driverRepo.findById(driverId);
+    const previousStatus = oldDriver?.status;
+
     const driver = await driverRepo.update(driverId, {
       status: 'rejected',
+    });
+
+    await logAuditEvent({
+      actorUid: context.auth!.uid,
+      actorRole: 'admin',
+      action: 'update',
+      entityType: 'driver',
+      entityId: driverId,
+      changes: { before: { status: previousStatus }, after: { status: 'rejected', reason: reason || null } },
     });
 
     return {
@@ -475,8 +534,9 @@ export const rejectDriver = functions.https.onCall(async (data, context) => {
       },
     };
   } catch (error: any) {
+    if (error instanceof functions.https.HttpsError) throw error;
     console.error('❌ [rejectDriver] Error:', error);
-    throw new functions.https.HttpsError('internal', error.message);
+    throw new functions.https.HttpsError('internal', 'Error interno del servidor');
   }
 });
 
@@ -484,9 +544,7 @@ export const rejectDriver = functions.https.onCall(async (data, context) => {
  * Suspender conductor
  */
 export const suspendDriver = functions.https.onCall(async (data, context) => {
-  if (!context.auth) {
-    throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
-  }
+  await requireAdmin(context);
 
   try {
     const { driverId, reason } = data;
@@ -497,8 +555,20 @@ export const suspendDriver = functions.https.onCall(async (data, context) => {
 
     console.log(`⏸️ [suspendDriver] Suspendiendo conductor: ${driverId}, Razón: ${reason || 'Sin especificar'}`);
 
+    const oldDriver = await driverRepo.findById(driverId);
+    const previousStatus = oldDriver?.status;
+
     const driver = await driverRepo.update(driverId, {
       status: 'suspended',
+    });
+
+    await logAuditEvent({
+      actorUid: context.auth!.uid,
+      actorRole: 'admin',
+      action: 'update',
+      entityType: 'driver',
+      entityId: driverId,
+      changes: { before: { status: previousStatus }, after: { status: 'suspended', reason: reason || null } },
     });
 
     return {
@@ -510,8 +580,9 @@ export const suspendDriver = functions.https.onCall(async (data, context) => {
       },
     };
   } catch (error: any) {
+    if (error instanceof functions.https.HttpsError) throw error;
     console.error('❌ [suspendDriver] Error:', error);
-    throw new functions.https.HttpsError('internal', error.message);
+    throw new functions.https.HttpsError('internal', 'Error interno del servidor');
   }
 });
 
@@ -549,8 +620,9 @@ export const updateDriverStats = functions.https.onCall(async (data, context) =>
       },
     };
   } catch (error: any) {
+    if (error instanceof functions.https.HttpsError) throw error;
     console.error('❌ [updateDriverStats] Error:', error);
-    throw new functions.https.HttpsError('internal', error.message);
+    throw new functions.https.HttpsError('internal', 'Error interno del servidor');
   }
 });
 
@@ -558,32 +630,25 @@ export const updateDriverStats = functions.https.onCall(async (data, context) =>
  * Obtener todos los conductores (con paginación)
  */
 export const getAllDrivers = functions.https.onCall(async (data, context) => {
-  if (!context.auth) {
-    throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
-  }
+  await requireAdmin(context);
 
   try {
     const { limit = 150, offset = 0, status } = data;
 
     console.log(`📋 [getAllDrivers] Obteniendo conductores - limit: ${limit}, offset: ${offset}, status: ${status || 'todos'}`);
 
-    let drivers;
-    if (status) {
-      drivers = await driverRepo.findByStatus(status);
-    } else {
-      drivers = await driverRepo.findAll();
-    }
-
-    // Aplicar paginación
-    const paginatedDrivers = drivers.slice(offset, offset + limit);
+    // ✅ Grupo 7 (H4): Paginación en BD en lugar de cargar todos y hacer slice en memoria
+    const where = status ? { status } : undefined;
+    const drivers = await driverRepo.findAll({ limit, offset, where });
+    const total = await driverRepo.count(where);
 
     return {
       success: true,
-      total: drivers.length,
+      total,
       limit,
       offset,
-      count: paginatedDrivers.length,
-      drivers: paginatedDrivers.map((d: any) => ({
+      count: drivers.length,
+      drivers: drivers.map((d: any) => ({
         id: d.id,
         userId: d.user_id,
         licenseNumber: d.license_number,
@@ -597,7 +662,8 @@ export const getAllDrivers = functions.https.onCall(async (data, context) => {
       })),
     };
   } catch (error: any) {
+    if (error instanceof functions.https.HttpsError) throw error;
     console.error('❌ [getAllDrivers] Error:', error);
-    throw new functions.https.HttpsError('internal', error.message);
+    throw new functions.https.HttpsError('internal', 'Error interno del servidor');
   }
 });

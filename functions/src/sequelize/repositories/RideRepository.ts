@@ -3,11 +3,11 @@
  */
 
 import Ride from '../models/Ride';
-import { Op } from 'sequelize';
+import { Op, Transaction } from 'sequelize';
 
 export class RideRepository {
-  async create(data: any) {
-    return await Ride.create(data);
+  async create(data: any, transaction?: Transaction) {
+    return await Ride.create(data, transaction ? { transaction } : undefined);
   }
 
   async findById(id: string) {
@@ -69,11 +69,32 @@ export class RideRepository {
     return rides;
   }
 
-  async findAll() {
-    console.log(`🔍 [RideRepository.findAll] Obteniendo todos los viajes`);
-    const rides = await Ride.findAll();
-    console.log(`📦 [RideRepository.findAll] Total de viajes: ${rides.length}`);
+  async findAll(options?: { limit?: number; offset?: number; attributes?: string[]; where?: any }) {
+    console.log(`🔍 [RideRepository.findAll] Obteniendo viajes con options:`, JSON.stringify(options || {}));
+    const rides = await Ride.findAll({
+      ...(options?.limit ? { limit: options.limit } : {}),
+      ...(options?.offset ? { offset: options.offset } : {}),
+      ...(options?.attributes ? { attributes: options.attributes } : {}),
+      ...(options?.where ? { where: options.where } : {}),
+    });
+    console.log(`📦 [RideRepository.findAll] Viajes obtenidos: ${rides.length}`);
     return rides;
+  }
+
+  /**
+   * Agregación de estadísticas usando SQL — evita cargar todos los rides en memoria.
+   */
+  async getStats(): Promise<{ total: number; completed: number; canceled: number; totalRevenue: number }> {
+    const total = await Ride.count();
+    const completed = await Ride.count({ where: { status: 'completed' } });
+    const canceled = await Ride.count({ where: { status: 'canceled' } });
+    const revenueResult = await Ride.sum('final_fare', { where: { status: 'completed' } });
+    return {
+      total,
+      completed,
+      canceled,
+      totalRevenue: Number(revenueResult) || 0,
+    };
   }
 
   async findActiveByClientId(clientId: string) {
@@ -90,10 +111,26 @@ export class RideRepository {
     return rides;
   }
 
-  async update(id: string, data: any) {
-    const ride = await Ride.findByPk(id);
+  async update(id: string, data: any, transaction?: Transaction) {
+    const ride = await Ride.findByPk(id, transaction ? { transaction } : undefined);
     if (!ride) throw new Error('Viaje no encontrado');
-    return await ride.update(data);
+    return await ride.update(data, transaction ? { transaction } : undefined);
+  }
+
+  /**
+   * Actualización condicional atómica - solo actualiza si el estado actual coincide.
+   * Retorna el número de filas afectadas (0 = no se actualizó, 1 = éxito).
+   * Previene race conditions en acceptRide y otras operaciones concurrentes.
+   */
+  async updateIfStatus(id: string, expectedStatus: string, data: any, transaction?: Transaction): Promise<number> {
+    const [updatedCount] = await Ride.update(data, {
+      where: {
+        id,
+        status: expectedStatus,
+      },
+      ...(transaction ? { transaction } : {}),
+    });
+    return updatedCount;
   }
 
   async delete(id: string) {

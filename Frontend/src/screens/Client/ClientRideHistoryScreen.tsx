@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import {
   View,
   Text,
@@ -13,9 +13,9 @@ import { LoadingIcon } from '../../components/LoadingIcon';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import ridesService, { Ride } from '../../services/ridesService';
-import { formatNicaraguaRelativeDate } from '../../utils/dateUtils';
+import { useRideHistory } from '../../hooks/shared/ride/useRideHistory';
 import { useTranslation } from 'react-i18next';
-import { formatCurrency } from '../../utils/formatters';
+import { formatCurrency } from '../../utils/safeFormatters';
 
 const BACK_BUTTON_ICON = require('../../assets/icons/back_button/back_button2x.png');
 
@@ -24,45 +24,7 @@ export default function ClientRideHistoryScreen({ navigation }: any) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { t } = useTranslation();
-  const [rides, setRides] = useState<Ride[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [filter, setFilter] = useState<'all' | 'completed' | 'canceled'>('all');
-
-  useEffect(() => {
-    loadRides();
-  }, [filter]);
-
-  const loadRides = async () => {
-    try {
-      if (!user?.id) return;
-
-      setLoading(true);
-      const data = await ridesService.getMyRides(user.id);
-
-      if (data && Array.isArray(data)) {
-        let filtered = data;
-
-        if (filter === 'completed') {
-          filtered = data.filter((r: any) => r.status === 'completed');
-        } else if (filter === 'canceled') {
-          filtered = data.filter((r: any) => r.status === 'canceled');
-        }
-
-        setRides(filtered);
-      }
-    } catch (error) {
-      console.error('Error loading rides:', error);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
-
-  const handleRefresh = () => {
-    setRefreshing(true);
-    loadRides();
-  };
+  const { rides, loading, refreshing, filter, setFilter, handleRefresh, getStatusColor, formatDate } = useRideHistory(user?.id, 'client');
 
   const handleBackPress = () => {
     if (typeof navigation?.canGoBack === 'function' && navigation.canGoBack()) {
@@ -85,27 +47,9 @@ export default function ClientRideHistoryScreen({ navigation }: any) {
     navigation.goBack?.();
   };
 
-  const formatDate = (dateString: string | undefined | null): string => {
-    if (!dateString) {
-      return t('client.rideHistory.labels.noDate');
-    }
-    return formatNicaraguaRelativeDate(dateString);
-  };
-
   const getStatusText = (status: string): string => {
     const key = `client.rideHistory.statuses.${status}`;
     return t(key, { defaultValue: t('client.rideHistory.statuses.other', { status }) });
-  };
-
-  const getStatusColor = (status: string): string => {
-    const colorMap: { [key: string]: string } = {
-      completed: '#4CAF50',
-      canceled: '#F44336',
-      requested: '#FF9800',
-      accepted: '#2196F3',
-      started: '#9C27B0',
-    };
-    return colorMap[status] || '#757575';
   };
 
   const renderRideItem = ({ item }: { item: Ride }) => {
@@ -150,7 +94,7 @@ export default function ClientRideHistoryScreen({ navigation }: any) {
         {/* Header */}
         <View style={styles.header}>
           <Text style={[styles.dateText, { color: colors.textSecondary }]}>
-            {formatDate(updatedAt)}
+            {formatDate(updatedAt, t('client.rideHistory.labels.noDate'))}
           </Text>
           <View
             style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}

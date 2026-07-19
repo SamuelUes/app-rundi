@@ -16,11 +16,19 @@ async function applyCustomClaimsFromRole(userId: string, role: string | null): P
   // Limpiar claves relacionadas con rol para evitar inconsistencias
   delete nextClaims.role;
   delete nextClaims.admin;
+  delete nextClaims.isDriver;
+  delete nextClaims.isClient;
 
   if (role) {
     nextClaims.role = role;
     if (role === 'admin') {
       nextClaims.admin = true;
+    }
+    if (role === 'driver' || role === 'designated_driver') {
+      nextClaims.isDriver = true;
+    }
+    if (role === 'client') {
+      nextClaims.isClient = true;
     }
   }
 
@@ -78,6 +86,60 @@ export const syncUserRoleFromCms = functions.https.onCall(async (data: SyncUserR
     throw new functions.https.HttpsError(
       'internal',
       error?.message || 'No se pudo sincronizar el rol del usuario desde cms_users',
+    );
+  }
+});
+
+/**
+ * Sincroniza el rol de un usuario desde la colección Firestore "users" hacia Firebase Auth custom claims.
+ * Usado para roles de app (client, driver, designated_driver).
+ *
+ * data:
+ * - userId?: string (por defecto context.auth.uid)
+ */
+export const syncAppUserRole = functions.https.onCall(async (data: SyncUserRolePayload, context) => {
+  if (!context.auth?.uid) {
+    throw new functions.https.HttpsError('unauthenticated', 'Autenticación requerida');
+  }
+
+  const targetUserId = (typeof data?.userId === 'string' ? data.userId.trim() : context.auth.uid) || context.auth.uid;
+
+  if (!targetUserId) {
+    throw new functions.https.HttpsError('invalid-argument', 'userId es requerido');
+  }
+
+  try {
+    const docSnap = await firestore.collection('users').doc(targetUserId).get();
+
+    if (!docSnap.exists) {
+      functions.logger.warn('[syncAppUserRole] No se encontró documento en users (Firestore)', {
+        userId: targetUserId,
+      });
+      await applyCustomClaimsFromRole(targetUserId, null);
+      return { success: true, userId: targetUserId, role: null };
+    }
+
+    const userData = docSnap.data() as any;
+    const rawRole = typeof userData.role === 'string' ? userData.role.trim().toLowerCase() : '';
+    const role = rawRole || null;
+
+    await applyCustomClaimsFromRole(targetUserId, role);
+
+    return {
+      success: true,
+      userId: targetUserId,
+      role,
+      isDriver: role === 'driver' || role === 'designated_driver',
+      isClient: role === 'client',
+    };
+  } catch (error: any) {
+    functions.logger.error('❌ [syncAppUserRole] Error sincronizando rol', {
+      userId: targetUserId,
+      error: error?.message,
+    });
+    throw new functions.https.HttpsError(
+      'internal',
+      error?.message || 'No se pudo sincronizar el rol del usuario',
     );
   }
 });

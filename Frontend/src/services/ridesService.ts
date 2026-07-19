@@ -579,7 +579,7 @@ class RidesService {
 
     const deviceId = await sessionService.getDeviceId();
     const response = await createFn({ ...cleanData, deviceId });
-    const result = response.data as any;
+    const result = response.data as { success?: boolean; ride?: Record<string, any> };
 
     if (!result?.success || !result?.ride?.id) {
       throw new Error(this.tr('errors.invalidServerResponse'));
@@ -605,7 +605,7 @@ class RidesService {
     const assignFn = httpsCallable(functions, 'assignDriverToProgrammedRide');
     const deviceId = await sessionService.getDeviceId();
     const response = await assignFn({ rideId, deviceId });
-    return response.data as any;
+    return response.data as { success: boolean; ride?: Record<string, unknown>; message?: string };
   }
 
   async confirmProgrammedRideClient(rideId: string): Promise<{ success: boolean; ride?: any; message?: string }> {
@@ -613,7 +613,7 @@ class RidesService {
     const confirmFn = httpsCallable(functions, 'confirmProgrammedRideClient');
     const deviceId = await sessionService.getDeviceId();
     const response = await confirmFn({ rideId, deviceId });
-    return response.data as any;
+    return response.data as { success: boolean; ride?: Record<string, unknown>; message?: string };
   }
 
   async confirmProgrammedRideDriver(rideId: string): Promise<{ success: boolean; ride?: any; message?: string }> {
@@ -621,7 +621,7 @@ class RidesService {
     const confirmFn = httpsCallable(functions, 'confirmProgrammedRideDriver');
     const deviceId = await sessionService.getDeviceId();
     const response = await confirmFn({ rideId, deviceId });
-    return response.data as any;
+    return response.data as { success: boolean; ride?: Record<string, unknown>; message?: string };
   }
 
   async cancelProgrammedRide(rideId: string, reason?: string): Promise<{ success: boolean; ride?: any; message?: string }> {
@@ -629,7 +629,7 @@ class RidesService {
     const cancelFn = httpsCallable(functions, 'cancelProgrammedRide');
     const deviceId = await sessionService.getDeviceId();
     const response = await cancelFn({ rideId, reason, deviceId });
-    return response.data as any;
+    return response.data as { success: boolean; ride?: Record<string, unknown>; message?: string };
   }
 
   async getMyRides(
@@ -727,7 +727,7 @@ class RidesService {
 
     const deviceId = await sessionService.getDeviceId();
     const response = await cancelRideFunction({ ...payload, deviceId });
-    const data = response.data as any;
+    const data = response.data as { success: boolean; ride?: Record<string, any>; canceledBy: string; progressPercentage: string; message: string };
 
     if (data?.success && data.ride?.id) {
       await analyticsService.logRideEvent(AnalyticsEvents.RIDE_CANCELED, data.ride.id, {
@@ -743,7 +743,7 @@ class RidesService {
       };
     }
 
-    return data;
+    return { ...data, ride: data.ride as Ride };
   }
 
   async findAvailableDrivers(location: Location): Promise<Driver[]> {
@@ -907,7 +907,7 @@ class RidesService {
       });
       
       // ✅ NUEVO: Retornar pgRideId junto con el ride
-      const data = response.data as any;
+      const data = response.data as Record<string, unknown>;
       const summary = {
         ...data,
         pgRideId: data.pgRideId,  // ← Extraer pgRideId

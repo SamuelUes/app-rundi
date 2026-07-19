@@ -46,35 +46,37 @@ export const deleteUserFromSupabase = functions.auth.user().onDelete(async (user
     const supabase = getSupabaseClient();
     
     // ============================================
-    // 1. ELIMINAR VEHÍCULOS
+    // 1. SOFT DELETE VEHÍCULOS
     // ============================================
-    console.log('📦 Eliminando vehículos...');
+    console.log('📦 Soft delete de vehículos...');
     const { data: vehicles, error: vehiclesError } = await supabase
       .from('vehicles')
-      .delete()
+      .update({ deleted_at: new Date().toISOString() })
       .eq('driver_id', userId)
+      .is('deleted_at', null)
       .select();
-    
+
     if (vehiclesError) {
       console.error('❌ Error eliminando vehículos:', vehiclesError);
     } else {
-      console.log(`✅ ${vehicles?.length || 0} vehículos eliminados`);
+      console.log(`✅ ${vehicles?.length || 0} vehículos marcados como eliminados`);
     }
-    
+
     // ============================================
-    // 2. ELIMINAR PERFIL DE CONDUCTOR
+    // 2. SOFT DELETE PERFIL DE CONDUCTOR
     // ============================================
-    console.log('👤 Eliminando perfil de conductor...');
+    console.log('👤 Soft delete de perfil de conductor...');
     const { data: driver, error: driverError } = await supabase
       .from('drivers')
-      .delete()
+      .update({ deleted_at: new Date().toISOString() })
       .eq('id', userId)
+      .is('deleted_at', null)
       .select();
-    
+
     if (driverError) {
       console.error('❌ Error eliminando conductor:', driverError);
     } else {
-      console.log(`✅ Perfil de conductor eliminado`);
+      console.log(`✅ Perfil de conductor marcado como eliminado`);
     }
     
     // ============================================

@@ -60,15 +60,7 @@ const getGenericNotificationCopy = (): NotificationCopy => ({
   body: i18n.t('shared.notifications.generic.defaultBody'),
 });
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
+// Notifications.setNotificationHandler is centralized in notificationService.ts
 
 let availabilityState: 'available' | 'unavailable' | null = null;
 
@@ -556,7 +548,7 @@ class FCMService {
     try {
       // Importar dinámicamente para evitar dependencias circulares
       const { navigate, navigationRef } = await import('../navigation/NavigationService');
-      const { getDatabase, ref, get } = await import('firebase/database');
+      const { fetchRidePreview } = await import('./ridePreviewService');
 
       // Esperar a que navigation esté listo
       const maxWait = 3000;
@@ -590,34 +582,12 @@ class FCMService {
       }
 
       // Obtener datos del viaje desde Firebase (activeRides)
-      const db = getDatabase();
-      const rideRef = ref(db, `activeRides/${rideId}`);
-      const snapshot = await get(rideRef);
+      const ride = await fetchRidePreview(rideId);
 
-      if (!snapshot.exists()) {
+      if (!ride) {
         console.warn('⚠️ Ride no encontrado en activeRides:', rideId);
         return;
       }
-
-      const rideData = snapshot.val();
-
-      // Construir objeto de viaje para RidePreviewScreen
-      const ride = {
-        id: rideId,
-        clientId: rideData.clientId || '',
-        clientName: rideData.clientName,
-        clientPhone: rideData.clientPhone,
-        origin: rideData.origin || { lat: 0, lng: 0 },
-        destination: rideData.destination || { lat: 0, lng: 0 },
-        extraDestinations: rideData.extraDestinations || [],
-        estimatedPrice: rideData.estimatedPrice || 0,
-        estimatedDistance: rideData.estimatedDistance,
-        estimatedDuration: rideData.estimatedDuration,
-        clientSuggestedPrice: rideData.clientSuggestedPrice,
-        driverOfferedPrice: rideData.driverOfferedPrice,
-        paymentMethod: rideData.paymentMethod || 'cash',
-        negotiationStatus: rideData.negotiationStatus,
-      };
 
       console.log('🚀 [FCM] Navegando a RidePreview:', ride.id);
       navigate('RidePreview', { ride, proximity: true });

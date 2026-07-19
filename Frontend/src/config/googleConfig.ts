@@ -23,5 +23,5 @@ if (!GOOGLE_CLIENT_ID) {
 export const GOOGLE_CONFIG = {
   clientId: GOOGLE_CLIENT_ID,
   scopes: ['profile', 'email'],
-  redirectUrl: 'https://auth.expo.io/@your-username/your-app-slug',
+  redirectUrl: 'https://auth.expo.io/@samuelues/rundi',
 };

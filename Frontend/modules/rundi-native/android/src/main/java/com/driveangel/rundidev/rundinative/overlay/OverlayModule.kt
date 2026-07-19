@@ -1,9 +1,12 @@
 package com.driveangel.rundidev.rundinative.overlay
 
+import android.app.Activity
+import android.app.Application
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
@@ -32,6 +35,22 @@ class OverlayModule : Module() {
   private var overlayManager: OverlayManager? = null
   private var pendingOverlayPermissionResult: CompletableDeferred<Boolean>? = null
 
+  private val activityLifecycleCallbacks = object : Application.ActivityLifecycleCallbacks {
+    override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}
+    override fun onActivityStarted(activity: Activity) {}
+    override fun onActivityResumed(activity: Activity) {}
+    override fun onActivityPaused(activity: Activity) {}
+    override fun onActivityStopped(activity: Activity) {}
+    override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
+    override fun onActivityDestroyed(activity: Activity) {
+      val current = appContext.currentActivity
+      if (current == null || current === activity) {
+        Log.d(TAG, "🏠 Activity destroyed - cleaning up overlay")
+        overlayManager?.cleanup()
+      }
+    }
+  }
+
   private val eventListener = object : OverlayEventListener {
     override fun onOverlayShown(rideId: String) {
       Log.d(TAG, "Overlay shown: $rideId")
@@ -55,6 +74,25 @@ class OverlayModule : Module() {
     Name("OverlayPermissionModule")
 
     Events("onOverlayOpened")
+
+    OnCreate {
+      val context = appContext.reactContext
+      if (context != null) {
+        val app = context.applicationContext as? Application
+        app?.registerActivityLifecycleCallbacks(activityLifecycleCallbacks)
+        Log.d(TAG, "ActivityLifecycleCallbacks registered")
+      }
+    }
+
+    OnDestroy {
+      Log.d(TAG, "Module OnDestroy - cleaning up overlay")
+      overlayManager?.cleanup()
+      val context = appContext.reactContext
+      if (context != null) {
+        val app = context.applicationContext as? Application
+        app?.unregisterActivityLifecycleCallbacks(activityLifecycleCallbacks)
+      }
+    }
 
     AsyncFunction("hasOverlayPermission") {
       try {

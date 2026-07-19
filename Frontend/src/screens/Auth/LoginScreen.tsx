@@ -14,7 +14,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
-import { useGoogleAuth } from '../../hooks/useGoogleAuth';
+import { useGoogleAuth } from '../../hooks/shared/auth/useGoogleAuth';
 import GoogleSignInButton from '../../components/GoogleSignInButton';
 import PhoneDigitInput from '../../components/PhoneDigitInput';
 import phoneAuthService from '../../services/auth/phoneAuthService';

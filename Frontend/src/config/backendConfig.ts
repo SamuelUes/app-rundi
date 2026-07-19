@@ -45,12 +45,14 @@ export const backendConfig = {
   },
 };
 
-// Log de configuración
-console.log('🔧 Backend Config:', {
-  mode: backendConfig.mode,
-  apiUrl: backendConfig.getApiUrl(),
-  wsUrl: backendConfig.getWsUrl(),
-  useEmulators: backendConfig.firebase.useEmulators,
-});
+// Log de configuración (solo en desarrollo)
+if (__DEV__) {
+  console.log('🔧 Backend Config:', {
+    mode: backendConfig.mode,
+    apiUrl: backendConfig.getApiUrl(),
+    wsUrl: backendConfig.getWsUrl(),
+    useEmulators: backendConfig.firebase.useEmulators,
+  });
+}
 
 export default backendConfig;

@@ -9,19 +9,21 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LoadingIcon } from '../../components/LoadingIcon';
-import LoadingOverlay from '../../components/LoadingOverlay';
 import SupportChatShortcut from '../../components/SupportChatShortcut';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { getDatabase, ref as dbRef, update as dbUpdate, get } from 'firebase/database';
+import { getDatabase, ref as dbRef, get } from 'firebase/database';
 import { initializeFirebase } from '../../config/firebase';
-import { validateAndSaveCard, getCardsList, formatCardNumber, formatExpiryDate, isValidExpiryFormat, isValidCVV } from '../../utils/cardUtils';
+import { validateAndSaveCard, getCardsList, formatCardNumber, formatExpiryDate, isValidExpiryFormat, isValidCVV, detectCardBrand } from '../../utils/cardUtils';
 import alertService from '../../services/alertService';
 import sessionService from '../../services/sessionService';
 import BiometricService from '../../services/biometricService';
 import type { Card as SavedCard } from '../../services/cardsService';
 import { useTranslation } from 'react-i18next';
+import { useRideDetails } from '../../hooks/shared/ride/useRideDetails';
+import { useSavedCards } from '../../hooks/shared/payment/useSavedCards';
+import { usePaymentMethodListener } from '../../hooks/shared/payment/usePaymentMethodListener';
 
 interface PaymentScreenProps {
   route: {
@@ -50,15 +52,39 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
   const [paymentMethod, setPaymentMethod] = useState<'card' | 'cash'>('cash');
   const [selectedBank, setSelectedBank] = useState<'bac' | 'banpro' | 'lafise' | 'ficohsa' | 'avanz'>('bac');
   const [processing, setProcessing] = useState(false);
-  const [rideDetails, setRideDetails] = useState<any>(null);
-  const [savedCards, setSavedCards] = useState<SavedCard[]>([]);
-  const [selectedCard, setSelectedCard] = useState<SavedCard | null>(null);
-  const [useNewCard, setUseNewCard] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [currentPaymentMethod, setCurrentPaymentMethod] = useState<string>('cash');
-  const currentPaymentMethodRef = useRef<string>('cash');
-  const isNavigatingRef = useRef(false);
-  const [changingPaymentMethod, setChangingPaymentMethod] = useState(false);
+
+  // Hooks compartidos
+  const { rideDetails, loading } = useRideDetails(rideId, amount);
+  const { savedCards, selectedCard, setSelectedCard, useNewCard, setUseNewCard, reload: reloadCards } = useSavedCards();
+
+  const handleMethodChange = useCallback((newMethod: string) => {
+    setPaymentMethod(newMethod as 'card' | 'cash');
+
+    if (newMethod === 'cash' && !isPendingPayment) {
+      const finalAmount = rideDetails?.finalFare || amount;
+      const driverDisplayName = rideDetails?.driver?.name || driverName;
+      const driverPhoto = rideDetails?.driver?.photoURL;
+
+      navigation.replace('CashPayment', {
+        rideId,
+        amount: finalAmount,
+        driverName: driverDisplayName,
+        driverPhoto,
+      });
+    }
+  }, [rideDetails, amount, driverName, isPendingPayment, navigation, rideId]);
+
+  const {
+    currentPaymentMethod,
+    currentPaymentMethodRef,
+    isNavigatingRef,
+    changingPaymentMethod,
+    changePaymentMethod,
+  } = usePaymentMethodListener({
+    rideId,
+    isPendingPayment,
+    onMethodChange: handleMethodChange,
+  });
 
   // Formulario de tarjeta nueva
   const [cardHolder, setCardHolder] = useState('');
@@ -76,259 +102,24 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
     [t],
   );
 
-  const enforcePendingPaymentMethod = useCallback(async () => {
-    if (!isPendingPayment) {
-      return;
-    }
-
-    try {
-      const { app } = await initializeFirebase();
-      if (!app) {
-        return;
-      }
-
-      const { getDatabase, ref: dbRef, get } = await import('firebase/database');
-      const db = getDatabase(app);
-      const paymentStatusRef = dbRef(db, `paymentStatus/${rideId}`);
-      const snapshot = await get(paymentStatusRef);
-      const paymentData = snapshot.val();
-      const methodFromStatus = paymentData?.method || paymentData?.paymentMethod;
-
-      if (methodFromStatus !== 'cash') {
-        try {
-          // Tarjetas desactivadas temporalmente
-          // const functions = getFunctions(app);
-          // const changePaymentMethodFn = httpsCallable(functions, 'changePaymentMethod');
-          // const deviceId = await sessionService.getDeviceId();
-          // await changePaymentMethodFn({
-          //   rideId,
-          //   newPaymentMethod: 'card',
-          //   reason: 'Pago pendiente - se fuerza tarjeta',
-          //   deviceId,
-          // });
-        } catch (changeError) {
-          console.warn('⚠️ [PaymentScreen] No se pudo forzar método efectivo:', changeError);
-        }
-      }
-    } catch (error) {
-      console.warn('⚠️ [PaymentScreen] Error verificando método de pago pendiente:', error);
-    } finally {
-      currentPaymentMethodRef.current = 'cash';
-      setCurrentPaymentMethod('cash');
-      setPaymentMethod('cash');
-    }
-  }, [isPendingPayment, rideId]);
-
-  useEffect(() => {
-    if (isPendingPayment) {
-      enforcePendingPaymentMethod();
-    }
-  }, [isPendingPayment, enforcePendingPaymentMethod]);
-
-  useEffect(() => {
-    loadRideDetails();
-    loadSavedCards();
-    
-    // Setup listener y guardar unsubscribe
-    let unsubscribe: (() => void) | undefined;
-    setupPaymentMethodListener().then((unsub) => {
-      unsubscribe = unsub;
-    });
-    
-    // Cleanup al desmontar
-    return () => {
-      if (unsubscribe) {
-        unsubscribe();
-      }
-    };
-  }, []);
-
-  const loadRideDetails = async () => {
-    try {
-      const { app } = await initializeFirebase();
-      if (!app) throw new Error('Firebase no inicializado');
-      
-      // Obtener datos del viaje desde Realtime DB
-      const { getDatabase, ref: dbRef, get } = await import('firebase/database');
-      const db = getDatabase(app);
-      const rideRef = dbRef(db, `activeRides/${rideId}`);
-      const snapshot = await get(rideRef);
-      
-      if (snapshot.exists()) {
-        const data = snapshot.val();
-        setRideDetails({
-          originAddress: data.origin?.address || null,
-          destinationAddress: data.destination?.address || null,
-          estimatedDistance: data.estimatedDistance || 0,
-          estimatedDuration: data.estimatedDuration || 0,
-          finalFare: data.finalFare || data.estimatedPrice || amount,
-          driverId: data.driverId,
-        });
-      } else {
-        console.log('Viaje no encontrado en activeRides, usando datos de params');
-      }
-    } catch (error: any) {
-      console.error('Error loading ride details:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadSavedCards = async () => {
-    try {
-      const cards = await getCardsList();
-
-      if (cards && cards.length > 0) {
-        setSavedCards(cards);
-        // Seleccionar la tarjeta predeterminada automáticamente
-        const defaultCard = cards.find((card) => card.isDefault);
-        if (defaultCard) {
-          setSelectedCard(defaultCard);
-          setUseNewCard(false);
-        }
-      } else {
-        setUseNewCard(true); // Si no hay tarjetas, usar nueva tarjeta
-      }
-    } catch (error: any) {
-      console.error('Error cargando tarjetas:', error);
-      setUseNewCard(true);
-    }
-  };
-
-  // Listener para detectar cambios de método de pago (solo del conductor)
-  const computeFinalAmount = () => {
-    if (rideDetails?.finalFare) return rideDetails.finalFare;
-    if (rideDetails?.estimatedPrice) return rideDetails.estimatedPrice;
-    return rideAmount;
-  };
-
-  const handleBackendMethodChange = (newMethod?: string) => {
-    if (isPendingPayment) {
-      currentPaymentMethodRef.current = 'cash';
-      setCurrentPaymentMethod('cash');
-      setPaymentMethod('cash');
-      isNavigatingRef.current = false;
-      return;
-    }
-
-    if (!newMethod) return;
-    const normalizedMethod: 'card' | 'cash' = 'cash';
-
-    if (normalizedMethod === currentPaymentMethodRef.current) {
-      isNavigatingRef.current = false;
-      return;
-    }
-
-    currentPaymentMethodRef.current = normalizedMethod;
-    setCurrentPaymentMethod(normalizedMethod);
-    setPaymentMethod(normalizedMethod);
-
-    if (normalizedMethod === 'cash') {
-      if (!isNavigatingRef.current) {
-        isNavigatingRef.current = true;
-
-        const finalAmount = computeFinalAmount();
-        const driverDisplayName = rideDetails?.driver?.name || driverName;
-        const driverPhoto = rideDetails?.driver?.photoURL;
-
-        navigation.replace('CashPayment', {
-          rideId,
-          amount: finalAmount,
-          driverName: driverDisplayName,
-          driverPhoto,
-        });
-      }
-    } else {
-      isNavigatingRef.current = false;
-    }
-  };
-
-  const setupPaymentMethodListener = async () => {
-    try {
-      const { app } = await initializeFirebase();
-      if (!app) return;
-      const { getDatabase, ref: dbRef, onValue, off } = await import('firebase/database');
-      const db = getDatabase(app);
-      const rideRef = dbRef(db, `activeRides/${rideId}`);
-      const paymentStatusRef = dbRef(db, `paymentStatus/${rideId}`);
-
-      const unsubscribeRide = onValue(rideRef, (snapshot) => {
-        const data = snapshot.val();
-        handleBackendMethodChange(data?.paymentMethod);
-      });
-
-      const unsubscribePayment = onValue(paymentStatusRef, (snapshot) => {
-        const paymentData = snapshot.val();
-        const methodFromStatus = paymentData?.method || paymentData?.paymentMethod;
-        handleBackendMethodChange(methodFromStatus);
-      });
-
-      // Cleanup al desmontar
-      return () => {
-        if (unsubscribeRide) {
-          unsubscribeRide();
-        } else {
-          off(rideRef);
-        }
-        if (unsubscribePayment) {
-          unsubscribePayment();
-        } else {
-          off(paymentStatusRef);
-        }
-      };
-    } catch (error) {
-      console.error('Error configurando listener de método de pago:', error);
-    }
-  };
-
   const handleSelectPaymentMethod = async (method: 'card' | 'cash') => {
     if (changingPaymentMethod || processing) return;
 
-    if (method !== 'cash') {
-      return;
-    }
+    if (method !== 'cash') return;
+    if (isPendingPayment && method === 'cash') return;
+    if (paymentMethod === method && currentPaymentMethodRef.current === method) return;
 
-    if (isPendingPayment && method === 'cash') {
-      return;
-    }
-
-    if (paymentMethod === method && currentPaymentMethodRef.current === method) {
-      return;
-    }
-
-    // Si ya coincide con el método actual en backend, solo actualizar UI local
     if (currentPaymentMethodRef.current === method) {
       setPaymentMethod(method);
       return;
     }
 
     try {
-      setChangingPaymentMethod(true);
-
-      const { app } = await initializeFirebase();
-      if (!app) throw new Error('Firebase no inicializado');
-
-      const functions = getFunctions(app);
-      const changePaymentMethodFn = httpsCallable(functions, 'changePaymentMethod');
-
-      const deviceId = await sessionService.getDeviceId();
-      await changePaymentMethodFn({
-        rideId,
-        newPaymentMethod: method,
-        reason: method === 'cash'
-          ? 'Cliente prefiere pagar en efectivo'
-          : 'Cliente prefiere pagar con tarjeta',
-        deviceId,
-      });
-
-      // Esperar a que el listener sincronice el estado
+      await changePaymentMethod(method);
     } catch (error: any) {
-      console.error('Error cambiando método de pago desde cliente:', error);
       alertService.showErrorAlert(
         error.message || t('shared.payment.alerts.changeMethodError'),
       );
-    } finally {
-      setChangingPaymentMethod(false);
     }
   };
 
@@ -507,17 +298,6 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
   /**
    * Guardar tarjeta nueva
    */
-  const detectCardBrand = (number: string): string => {
-    const cleaned = number.replace(/\s/g, '');
-
-    if (/^4/.test(cleaned)) return 'Visa';
-    if (/^5[1-5]/.test(cleaned)) return 'Mastercard';
-    if (/^3[47]/.test(cleaned)) return 'American Express';
-    if (/^6(?:011|5)/.test(cleaned)) return 'Discover';
-
-    return 'Unknown';
-  };
-
   const handleSaveCard = async () => {
     try {
       // Validar campos
@@ -585,7 +365,7 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
           setUseNewCard(false);
 
           // Recargar tarjetas
-          loadSavedCards();
+          reloadCards();
         }
       );
     } catch (error: any) {

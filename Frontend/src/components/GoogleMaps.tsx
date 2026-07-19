@@ -9,8 +9,8 @@ import MapView, {
   MarkerDragStartEndEvent,
 } from 'react-native-maps';
 import { useTheme } from '../context/ThemeContext';
-import { useMapCamera, isValidCoord, toLatLng, toMarkerImageSource, coordsAreClose } from '../hooks/useMapCamera';
-import { useMarkerHeading } from '../hooks/useMarkerHeading';
+import { useMapCamera, isValidCoord, toLatLng, toMarkerImageSource, coordsAreClose } from '../hooks/shared/map/useMapCamera';
+import { useMarkerHeading } from '../hooks/shared/map/useMarkerHeading';
 import { MAP_ICONS } from '../constants/mapIcons';
 import { DARK_MAP_STYLE } from '../constants/mapStyles';
 import { MainMarkerContent, markerStyles, MarkerType } from './mapMarkers/MarkerContent';

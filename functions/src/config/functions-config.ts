@@ -105,9 +105,24 @@ export const triggerConfig: FunctionConfig = {
 
 /**
  * CORS configuration para todas las funciones HTTP
+ * En producción, restringe a dominios de la app
  */
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim())
+  : [];
+
 export const corsConfig = {
-  origin: true, // Permite todos los orígenes (ajustar en producción)
+  origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+    if (process.env.FUNCTIONS_EMULATOR) {
+      callback(null, true);
+      return;
+    }
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error(`Origin ${origin} not allowed by CORS`));
+    }
+  },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,

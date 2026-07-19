@@ -4,11 +4,11 @@
 
 import Payment from '../models/Payment';
 import Ride from '../models/Ride';
-import { Op } from 'sequelize';
+import { Op, Transaction } from 'sequelize';
 
 export class PaymentRepository {
-  async create(data: any) {
-    return await Payment.create(data);
+  async create(data: any, transaction?: Transaction) {
+    return await Payment.create(data, transaction ? { transaction } : undefined);
   }
 
   async findById(id: string) {
@@ -22,10 +22,10 @@ export class PaymentRepository {
     });
   }
 
-  async update(id: string, data: any) {
-    const payment = await Payment.findByPk(id);
+  async update(id: string, data: any, transaction?: Transaction) {
+    const payment = await Payment.findByPk(id, transaction ? { transaction } : undefined);
     if (!payment) throw new Error('Pago no encontrado');
-    return await payment.update(data);
+    return await payment.update(data, transaction ? { transaction } : undefined);
   }
 
   async updateByRideId(rideId: string, data: any) {

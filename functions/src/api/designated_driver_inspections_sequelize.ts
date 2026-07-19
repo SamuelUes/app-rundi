@@ -17,7 +17,7 @@ export const createInspection = functions.https.onCall(async (data, context) => 
   }
 
   try {
-    const { rideId, driverId, inspectionPhoto } = data;
+    const { rideId, driverId, inspectionPhoto, vehicleFrontPhoto, vehicleRearPhoto, interiorFrontPhoto, interiorRearPhoto } = data;
 
     if (!rideId || !driverId) {
       throw new functions.https.HttpsError('invalid-argument', 'rideId y driverId son requeridos');
@@ -28,7 +28,10 @@ export const createInspection = functions.https.onCall(async (data, context) => 
     const inspection = await inspectionRepo.create({
       ride_id: rideId,
       driver_id: driverId,
-      inspection_photo: inspectionPhoto || null,
+      vehicle_front_photo: vehicleFrontPhoto || inspectionPhoto || null,
+      vehicle_rear_photo: vehicleRearPhoto || null,
+      interior_front_photo: interiorFrontPhoto || null,
+      interior_rear_photo: interiorRearPhoto || null,
       status: 'pending',
     });
 
@@ -38,6 +41,10 @@ export const createInspection = functions.https.onCall(async (data, context) => 
         id: inspection.id,
         rideId: inspection.ride_id,
         driverId: inspection.driver_id,
+        vehicleFrontPhoto: inspection.vehicle_front_photo,
+        vehicleRearPhoto: inspection.vehicle_rear_photo,
+        interiorFrontPhoto: inspection.interior_front_photo,
+        interiorRearPhoto: inspection.interior_rear_photo,
         status: inspection.status,
         createdAt: inspection.created_at,
       },
@@ -77,7 +84,10 @@ export const getRideInspection = functions.https.onCall(async (data, context) =>
         id: inspection.id,
         rideId: inspection.ride_id,
         driverId: inspection.driver_id,
-        inspectionPhoto: inspection.inspection_photo,
+        vehicleFrontPhoto: inspection.vehicle_front_photo,
+        vehicleRearPhoto: inspection.vehicle_rear_photo,
+        interiorFrontPhoto: inspection.interior_front_photo,
+        interiorRearPhoto: inspection.interior_rear_photo,
         status: inspection.status,
         createdAt: inspection.created_at,
       },
@@ -97,7 +107,7 @@ export const updateInspection = functions.https.onCall(async (data, context) => 
   }
 
   try {
-    const { inspectionId, inspectionPhoto, status } = data;
+    const { inspectionId, inspectionPhoto, vehicleFrontPhoto, vehicleRearPhoto, interiorFrontPhoto, interiorRearPhoto, status } = data;
 
     if (!inspectionId) {
       throw new functions.https.HttpsError('invalid-argument', 'inspectionId es requerido');
@@ -106,7 +116,10 @@ export const updateInspection = functions.https.onCall(async (data, context) => 
     console.log(`✏️ [updateInspection] Actualizando inspección: ${inspectionId}`);
 
     const updateData: any = {};
-    if (inspectionPhoto) updateData.inspection_photo = inspectionPhoto;
+    if (vehicleFrontPhoto || inspectionPhoto) updateData.vehicle_front_photo = vehicleFrontPhoto || inspectionPhoto;
+    if (vehicleRearPhoto) updateData.vehicle_rear_photo = vehicleRearPhoto;
+    if (interiorFrontPhoto) updateData.interior_front_photo = interiorFrontPhoto;
+    if (interiorRearPhoto) updateData.interior_rear_photo = interiorRearPhoto;
     if (status) updateData.status = status;
 
     const inspection = await inspectionRepo.update(inspectionId, updateData);

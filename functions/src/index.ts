@@ -5,13 +5,8 @@
 
 import * as functions from "firebase-functions";
 import "./config/firebase";
+import { checkRateLimit } from "./utils/rateLimiter";
 
-// Importar módulos
-// ⚠️ NOTA: Los archivos .old.ts fueron eliminados - usar versiones nuevas
-// import * as authAPI from "./api/auth.old";
-// import * as smsAPI from "./api/sms.old";
-
-// ✅ NUEVAS APIs CON SEQUELIZE + ZOD
 import * as ridesSequelizeAPI from "./api/rides_sequelize";
 import * as driversSequelizeAPI from "./api/drivers_sequelize";
 import * as paymentsSequelizeAPI from "./api/payments_sequelize";
@@ -38,29 +33,6 @@ import * as regionAvailabilityAPI from "./api/region_availability";
 import * as preflightAPI from "./api/getPreflightData";
 import * as publicRideTrackingAPI from "./api/WebPage_publicRideTracking";
 
-// ⚠️ COMENTADOS: Archivos .old.ts eliminados
-// import * as usersAPI from "./api/users.old";
-// import * as trackingFunctions from "./api/tracking-functions.old";
-// import * as trackingOptimized from "./api/tracking-optimized.old";
-// import * as fcmFunctions from "./api/fcm-functions.old";
-// import * as rideHistoryAPI from "./api/rideHistory.old";
-// import * as priceNegotiationAPI from "./api/priceNegotiation.old";
-// import * as emergencyAPI from "./api/emergency.old";
-// import * as earningsAPI from "./api/earnings.old";
-// import * as localPaymentsAPI from "./api/localPayments.old";
-// import * as commissionsAPI from "./api/commissions.old";
-// import * as cardsAPI from "./api/cards.old";
-// import * as cardsManagementAPI from "./api/cardsManagement.old";
-// import * as servicesAPI from "./api/services.old";
-// import * as switchPaymentMethodAPI from "./api/switchPaymentMethod.old";
-// import * as pendingPaymentsAPI from "./api/pendingPayments.old";
-// import * as penaltiesSyncAPI from "./api/penaltiesSync.old";
-// import * as locationsSyncAPI from "./api/locationsSync.old";
-// import * as driverServicesSyncAPI from "./api/driverServicesSync.old";
-// import * as driverServicesAPI from "./api/driverServices.old";
-// import * as supabasePaymentSyncAPI from "./api/supabasePaymentSync.old";
-// import * as realtimeSyncAPI from "./api/realtimeSyncToSupabase.old";
-
 import * as updateStatusAPI from "./api/updateStatus";
 import * as driversCompatibilityAPI from "./api/drivers-compatibility";
 // ✅ NUEVAS: Funciones de historial y ganancias
@@ -68,33 +40,14 @@ import * as rideHistoryAPI from "./api/rideHistory";
 // ✅ NUEVAS: Funciones de tarjetas y perfil
 import * as cardsManagementAPI from "./api/cardsManagement";
 import * as driverProfileAPI from "./api/driverProfile";
-// ⚠️ COMENTADOS: Archivos .old.ts - crear nuevas versiones si es necesario
-// import * as priceNegotiationAPI from "./api/priceNegotiation";
-// import * as emergencyAPI from "./api/emergency";
-// import * as localPaymentsAPI from "./api/localPayments";
-// import * as commissionsAPI from "./api/commissions";
-// import * as cardsAPI from "./api/cards";
-// import * as cardsManagementAPI from "./api/cardsManagement";
-// import * as servicesAPI from "./api/services";
-// import * as switchPaymentMethodAPI from "./api/switchPaymentMethod";
-// import * as pendingPaymentsAPI from "./api/pendingPayments";
-// import * as routingFunctions from "./location/routing";
-// import * as penaltiesSyncAPI from "./api/penaltiesSync";
-// import * as locationsSyncAPI from "./api/locationsSync";
-// import * as driverServicesSyncAPI from "./api/driverServicesSync";
-// import * as driverServicesAPI from "./api/driverServices";
-// import * as supabasePaymentSyncAPI from "./api/supabasePaymentSync";
-// import * as realtimeSyncAPI from "./api/realtimeSyncToSupabase";
 
 // Importar user management
 import * as userManagement from "./user/deleteUserData";
 
 // Importar triggers
-import * as authTriggers from "./triggers/auth";
-import * as ridesTriggers from "./triggers/rides";
 import * as onPaymentCompletedTrigger from "./triggers/onPaymentCompleted";
-import * as onRideCanceledTrigger from "./triggers/onRideCanceled";
-import * as onRatingCompletedTrigger from "./triggers/onRatingCompleted";
+import * as onActiveRidesWriteTrigger from "./triggers/onActiveRidesWrite";
+import { handleDelayedRideStatus } from "./helpers/cloudTasks";
 
 // Importar notificaciones
 // import * as notificationsAPI from "./api/notifications";
@@ -103,9 +56,13 @@ import * as fcmAPI from "./api/fcm";
 // ✅ Eliminado: Stripe webhook (sistema de pagos simplificado)
 
 // Importar scheduled functions
-import * as cleanupScheduled from "./scheduled/cleanupOldRides";
+import * as cleanupOldRidesAPI from "./scheduled/cleanupOldRides";
+import * as cleanupOrphanPaymentsAPI from "./scheduled/cleanupOrphanPayments";
+import * as cleanupOldChatsAPI from "./scheduled/cleanupOldChats";
 import * as cleanupRealtimeDB from "./scheduled/cleanupRealtimeDB";
 import * as programmedRidesScheduled from "./scheduled/programmedRides";
+import * as cleanupProgrammedRidesAPI from "./scheduled/cleanupProgrammedRides";
+import * as processPendingArchiveAPI from "./scheduled/processPendingArchive";
 import * as supportChatNotifications from "./triggers/supportChatNotifications";
 import * as userRolesAPI from "./api/userRoles";
 
@@ -114,17 +71,11 @@ import * as presenceAPI from "./api/presence";
 import * as sessionsAPI from "./api/sessions";
 import * as geoShardingTriggers from "./triggers/geoSharding";
 import { calculateRidePrice as calculateRidePriceHelper, type VehicleType as BackendVehicleType, type RideType as BackendRideType } from "./helpers/priceCalculator";
+import { corsConfig } from "./config/functions-config";
 
 // ============================================
 // API ENDPOINTS
 // ============================================
-
-// ⚠️ COMENTADOS: Auth y SMS - archivos .old.ts eliminados
-// import * as authAPI from "./api/auth";
-// export const register = authAPI.register;
-// export const login = authAPI.login;
-// export const logout = authAPI.logout;
-// export const completeDriverRegistration = authAPI.completeDriverRegistration;
 
 // ✅ NUEVAS APIs CON SEQUELIZE + ZOD
 // Rides
@@ -216,11 +167,9 @@ export const puntoExpressRechargeWebhookHttp = rechargeFundsAPI.puntoExpressRech
 // Public ride tracking (Landing page)
 export const getPublicRideTracking = publicRideTrackingAPI.getPublicRideTracking;
 
-export const calculateRidePriceHttp = functions.https.onRequest(async (req, res) => {
-  res.set("Access-Control-Allow-Origin", "*");
-  res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
-
+export const calculateRidePriceHttp = functions.https.onRequest((req, res) => {
+  const corsHandler = require('cors')(corsConfig);
+  corsHandler(req, res, async () => {
   if (req.method === "OPTIONS") {
     res.status(204).send("");
     return;
@@ -228,6 +177,13 @@ export const calculateRidePriceHttp = functions.https.onRequest(async (req, res)
 
   if (req.method !== "POST") {
     res.status(405).json({ error: "Method not allowed" });
+    return;
+  }
+
+  const clientIp = (req.headers['x-forwarded-for'] as string || req.socket.remoteAddress || 'unknown').split(',')[0].trim();
+  const rateLimit = checkRateLimit(`price:${clientIp}`, 20);
+  if (!rateLimit.allowed) {
+    res.status(429).json({ error: "Too many requests", retryAfter: Math.ceil((rateLimit.resetAt - Date.now()) / 1000) });
     return;
   }
 
@@ -270,6 +226,7 @@ export const calculateRidePriceHttp = functions.https.onRequest(async (req, res)
     console.error("❌ calculateRidePriceHttp error:", error);
     res.status(500).json({ error: "Failed to calculate ride price" });
   }
+  });
 });
 
 
@@ -331,56 +288,12 @@ export const setDefaultCard = cardsManagementAPI.setDefaultCard;
 export const getDriverProfileWithFallback = driverProfileAPI.getDriverProfileWithFallback;
 export const updateDriverProfileWithSync = driverProfileAPI.updateDriverProfileWithSync;
 
-// ⚠️ COMENTADOS: Users - archivos .old.ts eliminados
-// export const getUserProfile = usersAPI.getUserProfile;
-// export const updateUserProfile = usersAPI.updateUserProfile;
-
-// ⚠️ COMENTADOS: Tracking - archivos .old.ts eliminados
-// export const getETA = trackingFunctions.getETA;
-// export const saveRideLocation = trackingFunctions.saveLocation;
-// export const getRouteHistory = trackingFunctions.getRouteHistory;
-// export const updateDriverLocationOptimized = trackingOptimized.updateDriverLocationOptimized;
-// export const getIntelligentETA = trackingOptimized.getIntelligentETA;
-// export const getCompressedRouteHistory = trackingOptimized.getCompressedRouteHistory;
-
-// ⚠️ COMENTADOS: Locations Sync - archivos .old.ts eliminados
-// export const saveRideLocationWithRetry = locationsSyncAPI.saveRideLocationWithRetry;
-// export const saveRideLocationsBatch = locationsSyncAPI.saveRideLocationsBatch;
-
-// ⚠️ COMENTADOS: FCM - archivos .old.ts eliminados
-// export const registerFCMToken = fcmFunctions.registerFCMToken;
-// export const clearFCMToken = fcmFunctions.clearFCMToken;
-// export const sendTestNotification = fcmFunctions.sendTestNotification;
-
 // ✅ ACTIVAS: Ride History - Historial y Ganancias
 export const diagnosticRides = rideHistoryAPI.diagnosticRides;
 export const getMyRides = rideHistoryAPI.getMyRides;
 export const getDriverEarnings = rideHistoryAPI.getDriverEarnings;
 export const getDriverEarningsStats = rideHistoryAPI.getDriverStats;
 export const getEarningsByDay = rideHistoryAPI.getEarningsByDay;
-
-// ⚠️ COMENTADOS: Price Negotiation, Emergency, Local Payments - archivos .old.ts eliminados
-// export const negotiatePrice = priceNegotiationAPI.negotiatePrice;
-// export const acceptClientPrice = priceNegotiationAPI.acceptClientPrice;
-// export const acceptDriverOffer = priceNegotiationAPI.acceptDriverOffer;
-// export const acceptCounterOffer = priceNegotiationAPI.acceptCounterOffer;
-// export const rejectCounterOffer = priceNegotiationAPI.rejectCounterOffer;
-// export const logEmergencyCall = emergencyAPI.logEmergencyCall;
-// export const updateEmergencyCallStatus = emergencyAPI.updateEmergencyCallStatus;
-// export const getEmergencyCalls = emergencyAPI.getEmergencyCalls;
-// export const switchToLocalPayment = localPaymentsAPI.switchToLocalPayment;
-// export const getAvailableBanks = localPaymentsAPI.getAvailableBanks;
-
-// ⚠️ ELIMINADAS: Penalties antiguas (usar nuevas Sequelize)
-// export const getDriverPenaltiesOld = penaltiesAPI.getDriverPenalties;
-// export const markPenaltiesAsDeducted = penaltiesAPI.markPenaltiesAsDeducted;
-// export const forgivePenalty = penaltiesAPI.forgivePenalty;
-// export const getPenaltiesSummary = penaltiesAPI.getPenaltiesSummary;
-
-// ⚠️ COMENTADOS: Penalties Sync, Commissions - archivos .old.ts eliminados
-// export const syncPenaltyToSupabase = penaltiesSyncAPI.syncPenaltyToSupabase;
-// export const syncPenaltiesBatch = penaltiesSyncAPI.syncPenaltiesBatch;
-// export const getCommissionBreakdown = commissionsAPI.getCommissionBreakdown;
 
 // ✅ NUEVAS APIs CON SEQUELIZE + ZOD
 // Ratings
@@ -397,16 +310,6 @@ export const getDriverVehiclesSeq = vehiclesSequelizeAPI.getDriverVehicles;
 export const updateVehicleSeq = vehiclesSequelizeAPI.updateVehicle;
 export const switchVehicle = vehiclesSequelizeAPI.switchVehicle;
 export const deleteVehicleSeq = vehiclesSequelizeAPI.deleteVehicle;
-
-// Driver Penalties
-// ⚠️ Deprecated (PuntoExpress RechargeFunds reemplaza esta lógica)
-// export const createPenalty = penaltiesSequelizeAPI.createPenalty;
-// export const getDriverPenalties = penaltiesSequelizeAPI.getDriverPenalties;
-// export const getTotalPenalties = penaltiesSequelizeAPI.getTotalPenalties;
-// export const markPenaltyAsPaid = penaltiesSequelizeAPI.markPenaltyAsPaid;
-// export const deletePenalty = penaltiesSequelizeAPI.deletePenalty;
-// export const getDriverPenaltySummary = penaltiesSequelizeAPI.getDriverPenaltySummary;
-// export const payAllPenalties = penaltiesSequelizeAPI.payAllPenalties;
 
 // Ride Locations
 export const createRideLocation = rideLocationsSequelizeAPI.createRideLocation;
@@ -472,6 +375,7 @@ export const clearFCMToken = fcmAPI.clearFCMToken;
 export const sendTestNotification = fcmAPI.sendTestNotification;
 export const notifyProximityRide = fcmAPI.notifyProximityRide;
 export const syncUserRoleFromCms = userRolesAPI.syncUserRoleFromCms;
+export const syncAppUserRole = userRolesAPI.syncAppUserRole;
 
 // Auth API (HTTP + Callable)
 export const auth = authAPI.auth;
@@ -495,43 +399,14 @@ export const updateDriverStatus = updateStatusAPI.updateStatus; // Alias para co
 export const getDriverStatus = updateStatusAPI.getDriverStatus;
 export const getDriversStatus = updateStatusAPI.getDriversStatus;
 
-// ⚠️ ELIMINADAS: APIs antiguas de ratings (usar nuevas Sequelize)
-// export const skipRating = ratingsAPI.skipRating;
-// export const rateRide = ratingsAPI.rateRide;
-// export const getUserRating = ratingsAPI.getUserRating;
-// export const getRideRatings = ratingsAPI.getRideRatings;
-
-// ⚠️ COMENTADOS: Services, Driver Services, Routing - archivos .old.ts eliminados
-// export const getServices = servicesAPI.getServices;
-// export const getServiceById = servicesAPI.getServiceById;
-// export const createService = servicesAPI.createService;
-// export const updateService = servicesAPI.updateService;
-// export const getDriverServices = driverServicesAPI.getDriverServices;
-// export const getCommissionForRide = driverServicesAPI.getCommissionForRide;
-// export const assignServiceToDriver = driverServicesAPI.assignServiceToDriver;
-// export const approveDriverService = driverServicesAPI.approveDriverService;
-// export const deactivateDriverService = driverServicesAPI.deactivateDriverService;
-// export const syncDriverServiceToSupabase = driverServicesSyncAPI.syncDriverServiceToSupabase;
-// export const syncDriverServicesBatch = driverServicesSyncAPI.syncDriverServicesBatch;
-// export const switchPaymentMethod = switchPaymentMethodAPI.switchPaymentMethod;
-// export const getPaymentMethodHistory = switchPaymentMethodAPI.getPaymentMethodHistory;
-// export const calculateRoute = routingFunctions.calculateRoute;
-// export const reverseGeocode = routingFunctions.reverseGeocode;
-// export const geocodeAddress = routingFunctions.geocodeAddress;
-// export const searchPlaces = routingFunctions.searchPlaces;
-// export const calculateDistance = routingFunctions.calculateDistance;
-
 // ============================================
 // TRIGGERS AUTOMÁTICOS
 // ============================================
 
-// Auth Triggers
-export const onUserCreated = authTriggers.onUserCreated;
+// Auth Triggers - onUserCreated removed (was no-op, only logged)
 // onUserDeleted ELIMINADO - Reemplazado por deleteUserFromSupabase (ver USER MANAGEMENT section)
 
-// Rides Triggers
-export const onRideStatusChanged = ridesTriggers.onRideStatusChanged;
-export const onRideCreated = ridesTriggers.onRideCreated;
+// Rides Triggers - onRideStatusChanged & onRideCreated removed (were no-ops on wrong DB)
 
 // Geo-sharding triggers para RTDB (activeRidesByArea, driverLocationsByArea, clientsLocationsByArea)
 export const syncActiveRidesByArea = geoShardingTriggers.syncActiveRidesByArea;
@@ -539,24 +414,6 @@ export const syncProgrammedRidesByArea = geoShardingTriggers.syncProgrammedRides
 export const syncDriverLocationsByArea = geoShardingTriggers.syncDriverLocationsByArea;
 export const syncClientsLocationsByArea = geoShardingTriggers.syncClientsLocationsByArea;
 export const onSupportChatMessage = supportChatNotifications.onSupportChatMessage;
-
-// Payments Triggers
-// ⚠️ DEPRECADO: onPaymentCompleted (función vacía, solo loguea)
-// export const onPaymentCompleted = paymentsTriggers.onPaymentCompleted;
-
-// ⚠️ ELIMINADO: Listener automático reemplazado por onPaymentCompletedTrigger
-// export const onPaymentStatusChange = paymentStatusListener.onPaymentStatusChange;
-
-// ⚠️ DEPRECADO: Mantener para compatibilidad pero no usar
-// export const syncPaymentStatusToPostgres = paymentStatusSync.syncPaymentStatusToPostgres;
-// export const syncPostgresToFirebase = paymentStatusSync.syncPostgresToFirebase;
-// export const forceSyncPaymentToFirebase = paymentStatusSync.forceSyncPaymentToFirebase;
-
-// ⚠️ COMENTADOS: Payments Sync, FCM Triggers - archivos .old.ts eliminados
-// export const syncPaymentsToSupabase = supabasePaymentSyncAPI.syncPaymentsToSupabase;
-// export const forceSyncPaymentToSupabase = supabasePaymentSyncAPI.forceSyncPaymentToSupabase;
-// export const onRideAccepted = fcmFunctions.sendRideAcceptedNotification;
-// export const onRideCancelled = fcmFunctions.sendRideCancelledNotification;
 
 // ============================================
 // WEBHOOKS
@@ -568,16 +425,22 @@ export const onSupportChatMessage = supportChatNotifications.onSupportChatMessag
 // ============================================
 
 // Limpiar viajes completados/cancelados (cada hora)
-export const cleanupOldRidesScheduled = cleanupScheduled.cleanupOldRides;
+export const cleanupOldRidesScheduled = cleanupOldRidesAPI.cleanupOldRides;
 
 // Limpiar payments huérfanos (cada 6 horas)
-export const cleanupOrphanPaymentsScheduled = cleanupScheduled.cleanupOrphanPayments;
+export const cleanupOrphanPaymentsScheduled = cleanupOrphanPaymentsAPI.cleanupOrphanPayments;
 
 // Limpiar chats huérfanos (cada 12 horas)
-export const cleanupOldChatsScheduled = cleanupScheduled.cleanupOldChats;
+export const cleanupOldChatsScheduled = cleanupOldChatsAPI.cleanupOldChats;
 
 // Procesar viajes programados (cada minuto)
 export const processProgrammedRidesScheduled = programmedRidesScheduled.processProgrammedRides;
+
+// Limpiar viajes programados antiguos (diario a las 3 AM)
+export const cleanupProgrammedRides = cleanupProgrammedRidesAPI.cleanupProgrammedRides;
+
+// Procesar cola de reintentos de archivado a Supabase (cada 5 minutos)
+export const processPendingArchiveScheduled = processPendingArchiveAPI.processPendingArchive;
 
 // ============================================
 // REALTIME DATABASE CLEANUP (Reemplaza extensiones)
@@ -604,9 +467,8 @@ export const cleanupInactiveUsers = cleanupRealtimeDB.cleanupInactiveUsers;
 // PENDING PAYMENTS
 // ============================================
 
-// ⚠️ COMENTADOS: Pending Payments - archivos .old.ts eliminados
+// Pending Payments
 export const getPendingPayments = pendingPaymentsAPI.getPendingPayments;
-// export const processPendingPayment = pendingPaymentsAPI.processPendingPayment;
 
 // ============================================
 // USER MANAGEMENT
@@ -650,16 +512,15 @@ setImmediate(() => {
   }
 });
 
-// ⚠️ COMENTADOS: Realtime Sync - archivos .old.ts eliminados
-// export const syncActiveRideToSupabase = realtimeSyncAPI.syncActiveRideToSupabase;
-// export const syncPaymentStatusToSupabase = realtimeSyncAPI.syncPaymentStatusToSupabase;
-// export const syncDriverLocationToSupabase = realtimeSyncAPI.syncDriverLocationToSupabase;
-
 // Exportar triggers
 export const onPaymentCompletedAutomatic = onPaymentCompletedTrigger.onPaymentCompleted;
 export const onPaymentCanceledAutomatic = onPaymentCompletedTrigger.onPaymentCanceled;
-export const onRideCanceledAutomatic = onRideCanceledTrigger.onRideCanceled;
-export const onRatingCompletedAutomatic = onRatingCompletedTrigger.onRatingCompleted;
+export const onActiveRidesWriteAutomatic = onActiveRidesWriteTrigger.onActiveRidesWrite;
+
+// Cloud Tasks HTTP handler for delayed ride status updates
+export const handleDelayedRideStatusEndpoint = handleDelayedRideStatus;
+
+// Cloud Tasks queue is ensured lazily by scheduleDelayedTask, not on cold start
 
 // Notificaciones Push Triggers
 //export const onDriverFoundNotification = notificationsAPI.onDriverFound;

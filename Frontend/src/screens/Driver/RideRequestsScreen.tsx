@@ -15,12 +15,13 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { LoadingIcon } from '../../components/LoadingIcon';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
-import { useLocation } from '../../hooks/useLocation';
-import { useRideNotifications } from '../../hooks/useRideNotifications';
+import { useLocation } from '../../hooks/shared/location/useLocation';
+import { useRideNotifications } from '../../hooks/shared/ride/useRideNotifications';
 import ridesService from '../../services/ridesService';
 import DynamicMap from '../../components/DynamicMap';
 import { getDatabase, onValue, ref } from 'firebase/database';
 import { RIDES_RADIUS_KM } from '../../constants/rideRadius';
+import { getActiveRidesByAreaPath } from '../../utils/serviceArea';
 
 interface RideRequest {
   id: string;
@@ -83,7 +84,7 @@ export default function RideRequestsScreen({ navigation }: any) {
     if (!user?.id) return;
 
     const db = getDatabase();
-    const activeRef = ref(db, 'activeRides');
+    const activeRef = ref(db, getActiveRidesByAreaPath());
     const unsubscribe = onValue(activeRef, (snapshot) => {
       const data = snapshot.val();
       if (!data) {

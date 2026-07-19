@@ -5,6 +5,7 @@
 
 import * as functions from 'firebase-functions';
 import admin from 'firebase-admin';
+import { requireDriver } from '../utils/sessionUtils';
 
 const db = admin.database();
 
@@ -12,9 +13,7 @@ const db = admin.database();
  * Actualizar estado de disponibilidad del conductor
  */
 export const updateStatus = functions.https.onCall(async (data, context) => {
-  if (!context.auth) {
-    throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
-  }
+  const driverId = await requireDriver(context);
 
   try {
     const {
@@ -25,7 +24,6 @@ export const updateStatus = functions.https.onCall(async (data, context) => {
       speed,
       accuracy,
     } = data || {};
-    const driverId = context.auth.uid;
 
     console.log(`📍 [updateStatus] Actualizando estado del conductor: ${driverId} -> ${status}`);
 

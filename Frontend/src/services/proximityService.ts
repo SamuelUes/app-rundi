@@ -8,6 +8,7 @@ import { AppState, AppStateStatus, Platform } from 'react-native';
 import { overlayManager } from '../native/overlay';
 import { get, ref } from 'firebase/database';
 import { NEARBY_RIDES_RADIUS_KM, RIDES_RADIUS_KM } from '../constants/rideRadius';
+import { getActiveRidesByAreaPath } from '../utils/serviceArea';
 
 export interface ProximityRidePreview {
   id: string;
@@ -455,7 +456,7 @@ async function getNearbyRides(
   // 2) Fallback: leer últimos viajes desde Realtime DB y filtrar a mano
   try {
     const db = await getFirebaseDatabase();
-    const snap = await get(ref(db, 'activeRides'));
+    const snap = await get(ref(db, getActiveRidesByAreaPath()));
     const value = snap.val() || {};
     const rides = Object.values<any>(value)
       .filter((r) => !r.driverId && String(r.status || 'requested').toLowerCase() === 'requested');

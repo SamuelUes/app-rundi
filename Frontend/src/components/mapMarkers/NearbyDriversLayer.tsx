@@ -2,9 +2,9 @@ import React, { useMemo } from 'react';
 import { View, Text, Image } from 'react-native';
 import { Marker } from 'react-native-maps';
 import { MarkerBubble, markerStyles } from './MarkerContent';
-import { toLatLng, isValidCoord } from '../../hooks/useMapCamera';
+import { toLatLng, isValidCoord } from '../../hooks/shared/map/useMapCamera';
 import { VEHICLE_ICON_BASE_SIZE } from '../../constants/mapIcons';
-import type { DriverMarker } from '../../hooks/useMarkerHeading';
+import type { DriverMarker } from '../../hooks/shared/map/useMarkerHeading';
 import { MAP_ICONS } from '../../constants/mapIcons';
 
 interface NearbyDriversLayerProps {

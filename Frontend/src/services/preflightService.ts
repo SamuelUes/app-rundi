@@ -30,8 +30,29 @@ async function delay(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const PREFLIGHT_CACHE_TTL_MS = 30_000;
+
+interface CacheEntry {
+  data: GetPreflightDataResponse;
+  timestamp: number;
+  payloadKey: string;
+}
+
+const preflightCache: { entry: CacheEntry | null } = { entry: null };
+
+function makePayloadKey(payload: GetPreflightDataRequest): string {
+  return `${payload.role || ''}:${payload.userId || ''}:${payload.location?.lat || ''}:${payload.location?.lng || ''}`;
+}
+
 const preflightService = {
   async fetchPreflightData(payload: GetPreflightDataRequest): Promise<GetPreflightDataResponse> {
+    const cacheKey = makePayloadKey(payload);
+    const now = Date.now();
+    const cached = preflightCache.entry;
+    if (cached !== null && cached.payloadKey === cacheKey && (now - cached.timestamp) < PREFLIGHT_CACHE_TTL_MS) {
+      return cached.data;
+    }
+
     const functions = await getFirebaseFunctions();
     const callable = httpsCallable<GetPreflightDataRequest, GetPreflightDataResponse>(
       functions,
@@ -66,7 +87,9 @@ const preflightService = {
                 Authorization: `Bearer ${refreshedToken}`,
               },
             });
-            return response.data as GetPreflightDataResponse;
+            const result = response.data as GetPreflightDataResponse;
+            preflightCache.entry = { data: result, timestamp: Date.now(), payloadKey: cacheKey };
+            return result;
           } catch (httpError: any) {
             lastError = httpError;
 
@@ -90,8 +113,10 @@ const preflightService = {
         }
 
         try {
-          const result = await callable(payload);
-          return result.data;
+          const callableResult = await callable(payload);
+          const callableData = callableResult.data;
+          preflightCache.entry = { data: callableData, timestamp: Date.now(), payloadKey: cacheKey };
+          return callableData;
         } catch (error: any) {
           lastError = error;
           if (!isUnauthenticatedError(error) || attempt === maxAttempts) {

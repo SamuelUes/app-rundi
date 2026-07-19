@@ -13,7 +13,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import SupportChatShortcut from '../../components/SupportChatShortcut';
-import { formatCurrency } from '../../utils/formatters';
+import { formatCurrency } from '../../utils/safeFormatters';
 import { httpsCallable } from 'firebase/functions';
 import { getFirebaseFunctions } from '../../config/firebase';
 import { fetchDriverProfile } from '../../services/driverProfilesService';

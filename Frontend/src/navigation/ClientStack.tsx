@@ -30,8 +30,8 @@ import DriverPhoneScreen from '../screens/Auth/DriverPhoneScreen';
 import DriverDataScreen from '../screens/Auth/DriverDataScreen';
 import RegisterConfirm from '../screens/Auth/RegisterDriverFormConfirm';
 import type { RegistrationMethod, RegistrationAuthProvider } from './types';
-import { useClientPresence } from '../hooks/useClientPresence';
-import { useInitializeClientProfile } from '../hooks/useClientProfileSync';
+import { useClientPresence } from '../hooks/shared/presence/useClientPresence';
+import { useInitializeClientProfile } from '../hooks/client/ClientProfileSync/useClientProfileSync';
 import PreflightCheckScreen from '../screens/Shared/PreflightCheckScreen';
 import type { PreflightRouteConfig } from '../types/preflight';
 

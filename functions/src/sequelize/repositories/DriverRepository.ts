@@ -3,11 +3,11 @@
  */
 
 import Driver from '../models/Driver';
-import { Op } from 'sequelize';
+import { Op, Transaction } from 'sequelize';
 
 export class DriverRepository {
-  async create(data: any) {
-    return await Driver.create(data);
+  async create(data: any, transaction?: Transaction) {
+    return await Driver.create(data, transaction ? { transaction } : undefined);
   }
 
   async findById(id: string) {
@@ -71,16 +71,16 @@ export class DriverRepository {
     });
   }
 
-  async incrementTotalRides(driverId: string) {
-    const driver = await Driver.findByPk(driverId);
+  async incrementTotalRides(driverId: string, transaction?: Transaction) {
+    const driver = await Driver.findByPk(driverId, transaction ? { transaction } : undefined);
     if (!driver) throw new Error('Conductor no encontrado');
-    return await driver.increment('total_rides');
+    return await driver.increment('total_rides', transaction ? { transaction } : undefined);
   }
 
-  async incrementEarnings(driverId: string, amount: number) {
-    const driver = await Driver.findByPk(driverId);
+  async incrementEarnings(driverId: string, amount: number, transaction?: Transaction) {
+    const driver = await Driver.findByPk(driverId, transaction ? { transaction } : undefined);
     if (!driver) throw new Error('Conductor no encontrado');
-    return await driver.increment('total_earnings', { by: amount });
+    return await driver.increment('total_earnings', { by: amount, ...(transaction ? { transaction } : {}) });
   }
 
   async findByDepartment(department: string) {
@@ -89,13 +89,23 @@ export class DriverRepository {
     });
   }
 
-  async findByStatus(status: string) {
+  async findByStatus(status: string, options?: { limit?: number; offset?: number }) {
     return await Driver.findAll({
       where: { status },
+      ...(options?.limit ? { limit: options.limit } : {}),
+      ...(options?.offset ? { offset: options.offset } : {}),
     });
   }
 
-  async findAll() {
-    return await Driver.findAll();
+  async findAll(options?: { limit?: number; offset?: number; where?: any }) {
+    return await Driver.findAll({
+      ...(options?.limit ? { limit: options.limit } : {}),
+      ...(options?.offset ? { offset: options.offset } : {}),
+      ...(options?.where ? { where: options.where } : {}),
+    });
+  }
+
+  async count(where?: any): Promise<number> {
+    return await Driver.count(where ? { where } : undefined);
   }
 }

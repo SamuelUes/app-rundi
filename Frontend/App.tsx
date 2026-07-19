@@ -1,4 +1,5 @@
-import React, { useEffect } from 'react';
+import React from 'react';
+import { ActivityIndicator, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
 import { NavigationContainer } from '@react-navigation/native';
@@ -9,17 +10,15 @@ import { FCMProvider } from './src/context/FCMContext';
 import { LanguageProvider, useLanguage } from './src/context/LanguageContext';
 import { I18nextProvider } from 'react-i18next';
 import i18n from './src/i18n';
-import { usePresence } from './src/hooks/usePresence';
-import { useDriverProfileSync } from './src/hooks/useDriverProfileSync';
-import useDriverProximityTracking from './src/hooks/useDriverProximityTracking';
+import { usePresence } from './src/hooks/shared/presence/usePresence';
+import { useDriverProfileSync } from './src/hooks/driver/DriverProfileScreen/useDriverProfileSync';
+import useDriverProximityTracking from './src/hooks/driver/DriverHomeScreen/useDriverProximityTracking';
 import AppNavigator from './src/navigation/AppNavigator';
-import fcmService from './src/services/fcmService';
 import { useKeepAwake } from 'expo-keep-awake';
 import TopToastProvider from './src/components/toast/TopToastProvider';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { navigationRef } from './src/navigation/NavigationService';
-import { useNotifications } from './src/hooks/useNotifications';
-import { useOverlayDeepLink } from './src/hooks/useOverlayDeepLink';
+import { useNotifications } from './src/hooks/shared/notifications/useNotifications';
 import LocationPermissionGate from './src/components/permissions/LocationPermissionGate';
 // import { initializeReactNativeFirebase } from './src/config/firebase-rn-native';
 // import { getApp } from '@react-native-firebase/app';
@@ -40,9 +39,6 @@ function AppContent() {
   // Inicializar listeners de notificaciones (Expo Notifications)
   useNotifications();
   
-  // Detectar apertura desde overlay y navegar a RidePreviewScreen
-  useOverlayDeepLink();
-  
   // Activar sistema de presencia y sincronización de perfil de conductor
   usePresence();
   useDriverProfileSync();
@@ -52,23 +48,12 @@ function AppContent() {
   // Mantener la pantalla encendida mientras la app está en primer plano
   useKeepAwake();
 
-  // Inicializar FCM al abrir la app
-  useEffect(() => {
-    const initializeFCM = async () => {
-      try {
-        console.log('🔔 Inicializando FCM en App.tsx...');
-        // El FCMProvider ya maneja la inicialización
-        // Este efecto es solo para logging
-      } catch (error) {
-        console.error('❌ Error inicializando FCM:', error);
-      }
-    };
-
-    initializeFCM();
-  }, []);
-  
   if (!fontsLoaded || !isLanguageReady) {
-    return null;
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: isDark ? '#111827' : '#ffffff' }}>
+        <ActivityIndicator size="large" color={isDark ? '#ffffff' : '#111827'} />
+      </View>
+    );
   }
   
   return (
