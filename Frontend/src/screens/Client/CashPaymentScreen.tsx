@@ -19,7 +19,7 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
-import { AnimatedButton } from '../../components/AnimatedButton';
+import { AnimatedButton } from '../../components/ui/AnimatedButton';
 import { getAuth } from 'firebase/auth';
 import { getDatabase, ref, onValue, off, update } from 'firebase/database';
 import { formatNicaraguaTime } from '../../utils/dateUtils';
@@ -28,8 +28,8 @@ import { useTranslation } from 'react-i18next';
 
 // Servicios optimizados
 import alertService from '../../services/alertService';
-import LoadingOverlay from '../../components/LoadingOverlay';
-import SupportChatShortcut from '../../components/SupportChatShortcut';
+import LoadingOverlay from '../../components/ui/LoadingOverlay';
+import SupportChatShortcut from '../../components/shared/SupportChatShortcut';
 import sessionService from '../../services/sessionService';
 import BiometricService from '../../services/biometricService';
 

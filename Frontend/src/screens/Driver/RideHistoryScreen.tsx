@@ -11,8 +11,8 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
-import { RideListSkeleton } from '../../components/SkeletonLoader';
-import { NoHistoryEmptyState } from '../../components/EmptyState';
+import { RideListSkeleton } from '../../components/ui/SkeletonLoader';
+import { NoHistoryEmptyState } from '../../components/ui/EmptyState';
 import { useRideHistory } from '../../hooks/shared/ride/useRideHistory';
 import { safeString, safeFormatDateTime } from '../../utils/safeFormatters';
 import { useTranslation } from 'react-i18next';

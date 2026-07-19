@@ -7,7 +7,7 @@ import {
 import {
   DriverComplimentItem,
   DriverReviewItem,
-} from '../../../components/DriverReviewsModal';
+} from '../../../components/shared/DriverReviewsModal';
 import { parseInteger, parseTimestamp } from '../../../utils/coordinates';
 import { extractRatingValue } from '../../../utils/rating';
 

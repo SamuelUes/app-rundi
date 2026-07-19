@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { LoadingIcon } from '../../components/LoadingIcon';
+import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import {
   View,
   Text,
@@ -16,7 +16,7 @@ import {
   useColorScheme,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import DynamicMap from '../../components/DynamicMap';
+import DynamicMap from '../../components/map/DynamicMap';
 import { MAP_ICONS } from '../../constants/mapIcons';
 import { useLocation } from '../../hooks/shared/location/useLocation';
 import { useAuth } from '../../context/AuthContext';

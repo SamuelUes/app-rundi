@@ -12,13 +12,13 @@ import {
   Alert,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { LoadingIcon } from '../../components/LoadingIcon';
+import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { useTheme } from '../../context/ThemeContext';
-import { SkeletonLoader } from '../../components/SkeletonLoader';
-import { EmptyState } from '../../components/EmptyState';
+import { SkeletonLoader } from '../../components/ui/SkeletonLoader';
+import { EmptyState } from '../../components/ui/EmptyState';
 import { useAuth } from '../../context/AuthContext';
 import { useChat } from '../../hooks/shared/chat/useChat';
-import ChatBubble from '../../components/ChatBubble';
+import ChatBubble from '../../components/shared/ChatBubble';
 import { useTranslation } from 'react-i18next';
 
 export default function ChatScreen({ route }: any) {

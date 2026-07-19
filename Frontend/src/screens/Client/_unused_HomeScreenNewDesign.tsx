@@ -32,7 +32,7 @@ import { haversineKm } from '../../utils/distance';
 
 // Importar servicios optimizados
 import alertService from '../../services/alertService';
-import LoadingOverlay from '../../components/LoadingOverlay';
+import LoadingOverlay from '../../components/ui/LoadingOverlay';
 import { useFirebaseData, useFirebaseItem } from '../../hooks/shared/firebase/useFirebaseData';
 import mapsService from '../../services/mapsService';
 import { ensureVehicleIconSource, extractVehicleTypeFromInfo } from '../../utils/vehicleIcons';
@@ -40,7 +40,7 @@ import { subscribePreflightResult, getPreflightResult, PreflightAction } from '.
 import { useTranslation } from 'react-i18next';
 import { useLocation } from '../../hooks/shared/location/useLocation';
 import TopToastProvider from '../../components/toast/TopToastProvider';
-import DynamicMap from '../../components/DynamicMap';
+import DynamicMap from '../../components/map/DynamicMap';
 import { MAP_ICONS } from '../../constants/mapIcons';
 
 // Importaciones para Firebase

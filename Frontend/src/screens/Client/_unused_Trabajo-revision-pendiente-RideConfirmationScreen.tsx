@@ -14,14 +14,14 @@ import { useTheme } from '../../context/ThemeContext';
 import { useFocusEffect } from '@react-navigation/native';
 import ridesService from '../../services/ridesService';
 import { getDatabase, ref, onValue, off, get } from 'firebase/database';
-import DriverOfferCard from '../../components/DriverOfferCard';
-import PriceNegotiationModal from '../../components/PriceNegotiationModal';
+import DriverOfferCard from '../../components/shared/DriverOfferCard';
+import PriceNegotiationModal from '../../components/shared/PriceNegotiationModal';
 import priceNegotiationService from '../../services/priceNegotiationService';
-import { RideCardSkeleton } from '../../components/SkeletonLoader';
-import { NoDriversEmptyState } from '../../components/EmptyState';
-import { RatingDisplay } from '../../components/RatingDisplay';
+import { RideCardSkeleton } from '../../components/ui/SkeletonLoader';
+import { NoDriversEmptyState } from '../../components/ui/EmptyState';
+import { RatingDisplay } from '../../components/ui/RatingDisplay';
 import alertService from '../../services/alertService';
-import DynamicMap from '../../components/DynamicMap';
+import DynamicMap from '../../components/map/DynamicMap';
 import i18n from '../../i18n';
 
 interface RideConfirmationScreenProps {

@@ -17,7 +17,7 @@ import {
   Platform,
   ScrollView,
 } from 'react-native';
-import { LoadingIcon } from '../../components/LoadingIcon';
+import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import phoneAuthService from '../../services/auth/phoneAuthService';
@@ -31,7 +31,7 @@ import {
   extractLocalNumber,
 } from '../../utils/phoneUtils';
 import alertService from '../../services/alertService';
-import PhoneDigitInput from '../../components/PhoneDigitInput';
+import PhoneDigitInput from '../../components/ui/PhoneDigitInput';
 import { useTranslation } from 'react-i18next';
 
 export default function PhoneVerificationLoginScreen({ navigation, route }: any) {

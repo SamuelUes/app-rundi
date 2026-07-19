@@ -18,10 +18,10 @@ import {
   Modal,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { LoadingIcon } from '../../components/LoadingIcon';
+import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import DynamicMap from '../../components/DynamicMap';
+import DynamicMap from '../../components/map/DynamicMap';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useVoiceAssistant } from '../../context/VoiceAssistantContext';

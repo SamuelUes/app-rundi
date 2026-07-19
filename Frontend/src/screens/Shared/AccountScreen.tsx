@@ -10,7 +10,7 @@ import {
   Alert,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { LoadingIcon } from '../../components/LoadingIcon';
+import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ExpoImagePicker from 'expo-image-picker';
 import { useTheme } from '../../context/ThemeContext';
@@ -20,8 +20,8 @@ import alertService from '../../services/alertService';
 import accountLinkingService from '../../services/auth/accountLinkingService';
 import firebaseAuthService from '../../services/auth/firebaseAuthService';
 import supabaseStorage from '../../services/supabaseStorage';
-import PhoneNumberModal, { type PhoneNumberModalResult } from '../../components/PhoneNumberModal';
-import LoadingOverlay from '../../components/LoadingOverlay';
+import PhoneNumberModal, { type PhoneNumberModalResult } from '../../components/shared/PhoneNumberModal';
+import LoadingOverlay from '../../components/ui/LoadingOverlay';
 import {
   type CountryDialOption,
   getCountryDialOptions,

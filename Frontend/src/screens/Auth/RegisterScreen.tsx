@@ -18,7 +18,7 @@ import {
   Image,
   StatusBar,
 } from 'react-native';
-import { LoadingIcon } from '../../components/LoadingIcon';
+import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -37,7 +37,7 @@ import {
   normalizePhoneNumber,
   getCountryLocalNumberLength,
 } from '../../utils/phoneUtils';
-import PhoneNumberModal from '../../components/PhoneNumberModal';
+import PhoneNumberModal from '../../components/shared/PhoneNumberModal';
 import { useTranslation } from 'react-i18next';
 
 export default function RegisterScreen() {

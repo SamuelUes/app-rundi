@@ -9,7 +9,7 @@ import {
   ScrollView,
   Image,
 } from 'react-native';
-import { LoadingIcon } from '../../components/LoadingIcon';
+import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { useTheme } from '../../context/ThemeContext';
 import rechargeFundsService, {
   DriverRechargeFundsSummary,
@@ -19,8 +19,8 @@ import BiometricService from '../../services/biometricService';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { initializeFirebase } from '../../config/firebase';
 import { useTranslation } from 'react-i18next';
-import SupportChatShortcut from '../../components/SupportChatShortcut';
-import RechargeInvoiceModal from '../../components/RechargeInvoiceModal';
+import SupportChatShortcut from '../../components/shared/SupportChatShortcut';
+import RechargeInvoiceModal from '../../components/shared/RechargeInvoiceModal';
 
 const EMPTY_SUMMARY: DriverRechargeFundsSummary = {
   success: false,

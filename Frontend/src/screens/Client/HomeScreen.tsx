@@ -26,7 +26,7 @@ import { useAuth } from '../../context/AuthContext';
 import { getActiveRidesByAreaPath } from '../../utils/serviceArea';
 
 import alertService from '../../services/alertService';
-import LoadingOverlay from '../../components/LoadingOverlay';
+import LoadingOverlay from '../../components/ui/LoadingOverlay';
 import { useFirebaseData } from '../../hooks/shared/firebase/useFirebaseData';
 import { getPreflightResult } from '../../stores/preflightStore';
 import { useTranslation } from 'react-i18next';
@@ -37,7 +37,7 @@ import { useClientLocation } from '../../hooks/client/HomeScreen/useClientLocati
 import { useRegionAvailability } from '../../hooks/client/HomeScreen/useRegionAvailability';
 import { usePendingActions } from '../../hooks/client/HomeScreen/usePendingActions';
 import { useMapPinInteraction } from '../../hooks/client/HomeScreen/useMapPinInteraction';
-import DynamicMap from '../../components/DynamicMap';
+import DynamicMap from '../../components/map/DynamicMap';
 import { MAP_ICONS } from '../../constants/mapIcons';
 
 // Importaciones para Firebase

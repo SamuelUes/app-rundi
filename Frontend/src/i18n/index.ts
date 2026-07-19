@@ -1,4 +1,4 @@
-import SupportChatShortcut from '@/components/SupportChatShortcut';
+import SupportChatShortcut from '@/components/shared/SupportChatShortcut';
 // import RideConfirmationScreen from '@/screens/Client/Trabajo-revision-pendiente-RideConfirmationScreen'; // DEPRECATED - sin uso, revisión próxima
 import alertService from '@/services/alertService';
 import accountLinkingService from '@/services/auth/accountLinkingService';

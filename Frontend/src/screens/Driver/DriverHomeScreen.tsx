@@ -11,7 +11,7 @@ import {
   Animated,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { LoadingIcon } from '../../components/LoadingIcon';
+import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
@@ -20,9 +20,9 @@ import { useLocation, DRIVER_LOCATION_OPTIONS } from '../../hooks/shared/locatio
 import useDriverProximityTracking from '../../hooks/driver/DriverHomeScreen/useDriverProximityTracking';
 import { subscribePreflightResult, getPreflightResult, type PreflightAction } from '../../stores/preflightStore';
 import { useTranslation } from 'react-i18next';
-import LoadingOverlay from '../../components/LoadingOverlay';
-import DynamicMap from '../../components/DynamicMap';
-import EmergencyButton from '../../components/EmergencyButton';
+import LoadingOverlay from '../../components/ui/LoadingOverlay';
+import DynamicMap from '../../components/map/DynamicMap';
+import EmergencyButton from '../../components/shared/EmergencyButton';
 import mapsService from '../../services/mapsService';
 import { useAcceptedRideListener } from '../../hooks/driver/DriverHomeScreen/useAcceptedRideListener';
 import { useNearbyDriversMarkers } from '../../hooks/driver/DriverHomeScreen/useNearbyDriversMarkers';

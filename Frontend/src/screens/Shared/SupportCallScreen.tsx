@@ -8,7 +8,7 @@ import {
   Platform,
   Image,
 } from 'react-native';
-import { LoadingIcon } from '../../components/LoadingIcon';
+import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { useNavigation } from '@react-navigation/native';
 import { httpsCallable } from 'firebase/functions';
 import { useTranslation } from 'react-i18next';

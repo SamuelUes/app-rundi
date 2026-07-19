@@ -3,8 +3,8 @@ import { View, Text, StyleSheet, Switch, TouchableOpacity, ScrollView, Alert, Im
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useFCM } from '../../context/FCMContext';
-import LoadingOverlay from '../../components/LoadingOverlay';
-import TermsAndConditionsModal from '../../components/TermsAndConditionsModal';
+import LoadingOverlay from '../../components/ui/LoadingOverlay';
+import TermsAndConditionsModal from '../../components/shared/TermsAndConditionsModal';
 import phoneAuthService from '../../services/auth/phoneAuthService';
 import { useTranslation } from 'react-i18next';
 import { useLanguage } from '../../context/LanguageContext';

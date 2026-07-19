@@ -17,9 +17,9 @@ import {
   TextInputKeyPressEventData,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { LoadingIcon } from '../../components/LoadingIcon';
+import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { useTheme } from '../../context/ThemeContext';
-import { AnimatedButton } from '../../components/AnimatedButton';
+import { AnimatedButton } from '../../components/ui/AnimatedButton';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { getDatabase, ref, onValue, off, update } from 'firebase/database';
 import { initializeFirebase } from '../../config/firebase';
@@ -27,7 +27,7 @@ import cardsService from '../../services/cardsService';
 import alertService from '../../services/alertService';
 import sessionService from '../../services/sessionService';
 import { useTranslation } from 'react-i18next';
-import SupportChatShortcut from '../../components/SupportChatShortcut';
+import SupportChatShortcut from '../../components/shared/SupportChatShortcut';
 
 interface PaymentConfirmationScreenProps {
   route: {

@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import type { DriverStackParamList } from '../../navigation/DriverStack';
-import SupportChatShortcut from '../../components/SupportChatShortcut';
+import SupportChatShortcut from '../../components/shared/SupportChatShortcut';
 
 export type NormalizedAccountStatus = 'active' | 'pending' | 'suspended' | 'rejected';
 export type NormalizedDocumentsStatus = 'verified' | 'pending' | 'suspended' | 'rejected';

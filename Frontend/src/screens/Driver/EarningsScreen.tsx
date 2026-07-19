@@ -10,11 +10,11 @@ import {
   Image,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { LoadingIcon } from '../../components/LoadingIcon';
+import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { useTheme } from '../../context/ThemeContext';
 import { useTranslation } from 'react-i18next';
-import { SkeletonLoader, RideListSkeleton } from '../../components/SkeletonLoader';
-import { NoHistoryEmptyState } from '../../components/EmptyState';
+import { SkeletonLoader, RideListSkeleton } from '../../components/ui/SkeletonLoader';
+import { NoHistoryEmptyState } from '../../components/ui/EmptyState';
 import earningsService, { EarningsSummary, RideEarning, DriverStats } from '../../services/earningsService';
 import {
   formatCurrency as fmtCurrency,

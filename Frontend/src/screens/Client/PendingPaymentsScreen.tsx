@@ -11,8 +11,8 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
-import LoadingOverlay from '../../components/LoadingOverlay';
-import SupportChatShortcut from '../../components/SupportChatShortcut';
+import LoadingOverlay from '../../components/ui/LoadingOverlay';
+import SupportChatShortcut from '../../components/shared/SupportChatShortcut';
 import { formatCurrency } from '../../utils/safeFormatters';
 import { httpsCallable } from 'firebase/functions';
 import { getFirebaseFunctions } from '../../config/firebase';

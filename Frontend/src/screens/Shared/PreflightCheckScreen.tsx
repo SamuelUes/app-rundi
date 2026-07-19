@@ -29,8 +29,8 @@ import proximityService, {
 } from '../../services/proximityService';
 import ridesService from '../../services/ridesService';
 import firebaseAuthService from '../../services/auth/firebaseAuthService';
-import PreflightBiometricPrompt from '../../components/PreflightBiometricPrompt';
-import TermsAndConditionsModal, { CURRENT_TERMS_VERSION } from '../../components/TermsAndConditionsModal';
+import PreflightBiometricPrompt from '../../components/shared/PreflightBiometricPrompt';
+import TermsAndConditionsModal, { CURRENT_TERMS_VERSION } from '../../components/shared/TermsAndConditionsModal';
 import PermissionsExplanation from '../../components/permissions/PermissionsExplanation';
 import { useTranslation } from 'react-i18next';
 import preflightService from '../../services/preflightService';

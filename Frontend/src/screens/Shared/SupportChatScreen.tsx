@@ -12,11 +12,11 @@ import {
   Image,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { LoadingIcon } from '../../components/LoadingIcon';
+import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { httpsCallable } from 'firebase/functions';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
-import ChatBubble from '../../components/ChatBubble';
+import ChatBubble from '../../components/shared/ChatBubble';
 import { useChat } from '../../hooks/shared/chat/useChat';
 import { useCalls } from '../../hooks/shared/calls/useCalls';
 import { getFirebaseFunctions } from '../../config/firebase';

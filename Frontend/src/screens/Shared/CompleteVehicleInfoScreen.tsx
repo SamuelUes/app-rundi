@@ -9,13 +9,13 @@ import {
   Alert,
   Switch,
 } from 'react-native';
-import { LoadingIcon } from '../../components/LoadingIcon';
+import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
-import Button from '../../components/Button';
-import ImagePicker from '../../components/ImagePicker';
+import Button from '../../components/ui/Button';
+import ImagePicker from '../../components/shared/ImagePicker';
 import { useTranslation } from 'react-i18next';
-import SupportChatShortcut from '../../components/SupportChatShortcut';
+import SupportChatShortcut from '../../components/shared/SupportChatShortcut';
 import { useVehicleInfo } from '../../hooks/shared/vehicle/useVehicleInfo';
 
 export default function CompleteVehicleInfoScreen({ navigation }: any) {

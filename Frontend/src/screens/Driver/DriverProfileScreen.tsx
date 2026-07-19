@@ -11,7 +11,7 @@ import {
   Platform,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { LoadingIcon } from '../../components/LoadingIcon';
+import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { useVoiceAssistant } from '../../context/VoiceAssistantContext';
@@ -27,7 +27,9 @@ import { useDriverProfileDerived } from '../../hooks/driver/DriverProfileScreen/
 import { useDriverProfileHandlers } from '../../hooks/driver/DriverProfileScreen/useDriverProfileHandlers';
 import { formatCurrency, isVehicleComplete } from '../../utils/driverProfileHelpers';
 import { createStyles } from './DriverProfileScreen.styles';
-import { AddVehicleModal } from '../../components/AddVehicleModal';
+import { AddVehicleModal } from '../../components/driver/AddVehicleModal';
+import { DriverProfileHeader } from '../../components/driver/DriverProfileHeader';
+import { DriverProfileStats } from '../../components/driver/DriverProfileStats';
 
 export default function DriverProfileScreen({ navigation }: any) {
   const { t } = useTranslation();
@@ -222,197 +224,32 @@ export default function DriverProfileScreen({ navigation }: any) {
   return (
     <>
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      {/* Header estilo ProfileScreen */}
-      <View style={styles.header}>
-        <View style={styles.headerTopRow}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => navigation.goBack()}
-          >
-            <Image
-              source={require('../../assets/icons/back_button/back_button.png')}
-              style={styles.backIcon}
-            />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>{t('driver.profile.header.title')}</Text>
-          <View style={styles.headerTopSpacer} />
-        </View>
-
-        <View style={styles.headerMainRow}>
-          <TouchableOpacity
-            style={styles.avatarContainer}
-            onPress={() => handleUploadPhoto('profile')}
-            disabled={uploadingPhoto}
-          >
-            {uploadingPhoto ? (
-              <View style={styles.avatarPlaceholder}>
-                <LoadingIcon size={32} color="#fff" />
-              </View>
-            ) : profilePhoto ? (
-              <Image source={{ uri: profilePhoto }} style={styles.avatar} />
-            ) : (
-              <View style={styles.avatarPlaceholder}>
-                <Text style={styles.avatarText}>
-                  {displayName.charAt(0).toUpperCase() || t('driver.profile.header.initialFallback')}
-                </Text>
-              </View>
-            )}
-            <View style={styles.cameraIcon}>
-              <Text style={styles.cameraIconText}>📷</Text>
-            </View>
-          </TouchableOpacity>
-
-          <View style={styles.headerContent}>
-            <Text style={styles.driverName}>{displayName}</Text>
-            {displayEmail && <Text style={styles.driverEmail}>{displayEmail}</Text>}
-            <Text style={styles.memberId}>{t('driver.profile.header.memberId', { id: user?.id ?? '' })}</Text>
-
-            <View style={styles.headerBottomRow}>
-              {renderAccountStatusBadge()}
-              <View style={styles.ratingBadge}>
-                <Text style={styles.ratingStars}>⭐</Text>
-                <Text style={styles.ratingText}>{(typeof stats.averageRating === 'number' ? stats.averageRating : 5.0).toFixed(1)}</Text>
-              </View>
-            </View>
-
-            <TouchableOpacity onPress={() => navigation.navigate('Account')}>
-              <View style={styles.editProfileBadge}>
-                  <Text style={styles.editProfileText}>{t('driver.profile.header.edit')}</Text>
-              </View>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
+      <DriverProfileHeader
+        displayName={displayName}
+        displayEmail={displayEmail}
+        userId={user?.id}
+        profilePhoto={profilePhoto}
+        uploadingPhoto={uploadingPhoto}
+        averageRating={stats.averageRating}
+        accountStatusBadge={renderAccountStatusBadge()}
+        onUploadPhoto={handleUploadPhoto}
+        onGoBack={() => navigation.goBack()}
+        onEditProfile={() => navigation.navigate('Account')}
+        styles={styles}
+        t={t}
+      />
 
       {/* Content Card */}
       <View style={styles.contentCard}>
-        {/* Cartera / Ganancias - Cards Flotantes */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>{t('driver.profile.stats.walletTitle')}</Text>
-            <TouchableOpacity style={styles.rechargeButton}>
-              <Text style={styles.rechargeButtonText}>{t('driver.profile.stats.walletCta')}</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Cards flotantes individuales */}
-          <View style={styles.earningsCardsContainer}>
-            {/* Fila superior: Ganancias Totales + Ganancias Hoy, centradas */}
-            <View style={styles.earningsCardsRowTop}>
-              <View style={[styles.earningCard, styles.earningCardTop]}>
-                <View style={styles.earningCardIcon}>
-                  <Text style={styles.earningCardIconText}>💵</Text>
-                </View>
-                <Text
-                  style={styles.earningCardValue}
-                  adjustsFontSizeToFit
-                  numberOfLines={1}
-                  minimumFontScale={0.6}
-                >
-                  {formatCurrency(stats.totalEarnings)}
-                </Text>
-                <Text
-                  style={styles.earningCardLabel}
-                  numberOfLines={2}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.8}
-                >
-                  {t('driver.profile.stats.totalEarnings')}
-                </Text>
-              </View>
-              <View style={[styles.earningCard, styles.earningCardTop]}>
-                <View style={styles.earningCardIconGreen}>
-                  <Text style={styles.earningCardIconText}>💰</Text>
-                </View>
-                <Text
-                  style={styles.earningCardValue}
-                  adjustsFontSizeToFit
-                  numberOfLines={1}
-                  minimumFontScale={0.6}
-                >
-                  {formatCurrency(dailyStats.earnings)}
-                </Text>
-                <Text
-                  style={styles.earningCardLabel}
-                  numberOfLines={2}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.8}
-                >
-                  {t('driver.profile.stats.todaysEarnings')}
-                </Text>
-              </View>
-            </View>
-
-            {/* Fila inferior: Viajes Hechos + Viajes Hoy + Calificación, en una sola línea */}
-            <View style={styles.earningsCardsRow}>
-              <View style={[styles.earningCard, styles.earningCardBottom]}>
-                <View style={styles.earningCardIcon}>
-                  <Text style={styles.earningCardIconText}>🚗</Text>
-                </View>
-                <Text
-                  style={styles.earningCardValue}
-                  adjustsFontSizeToFit
-                  numberOfLines={1}
-                  minimumFontScale={0.6}
-                >
-                  {stats.totalRides}
-                </Text>
-                <Text
-                  style={styles.earningCardLabel}
-                  numberOfLines={2}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.8}
-                >
-                  {t('driver.profile.stats.totalRides')}
-                </Text>
-              </View>
-
-              <View style={[styles.earningCard, styles.earningCardBottom]}>
-                <View style={styles.earningCardIconBlue}>
-                  <Text style={styles.earningCardIconText}>📍</Text>
-                </View>
-                <Text
-                  style={styles.earningCardValue}
-                  adjustsFontSizeToFit
-                  numberOfLines={1}
-                  minimumFontScale={0.6}
-                >
-                  {dailyStats.rides}
-                </Text>
-                <Text
-                  style={styles.earningCardLabel}
-                  numberOfLines={2}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.8}
-                >
-                  {t('driver.profile.stats.todaysRides')}
-                </Text>
-              </View>
-
-              <View style={[styles.earningCard, styles.earningCardBottom]}>
-                <View style={styles.earningCardIconYellow}>
-                  <Text style={styles.earningCardIconText}>⭐</Text>
-                </View>
-                <Text
-                  style={styles.earningCardValue}
-                  adjustsFontSizeToFit
-                  numberOfLines={1}
-                  minimumFontScale={0.6}
-                >
-                  {(typeof stats.averageRating === 'number' ? stats.averageRating : 5).toFixed(1)}
-                </Text>
-                <Text
-                  style={styles.earningCardLabel}
-                  numberOfLines={2}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.8}
-                >
-                  {t('driver.profile.stats.rating')}
-                </Text>
-              </View>
-            </View>
-          </View>
-        </View>
+        <DriverProfileStats
+          totalEarnings={stats.totalEarnings}
+          todayEarnings={dailyStats.earnings}
+          totalRides={stats.totalRides}
+          todayRides={dailyStats.rides}
+          averageRating={stats.averageRating}
+          styles={styles}
+          t={t}
+        />
       {/* Mis Vehículos */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>{t('driver.profile.vehicles.title')}</Text>

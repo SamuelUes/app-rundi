@@ -20,7 +20,7 @@ import priceNegotiationService from '../../services/priceNegotiationService';
 import ridesService, {
   rideMatchesVehicleType,
 } from '../../services/ridesService';
-import { RideListSkeleton } from '../../components/SkeletonLoader';
+import { RideListSkeleton } from '../../components/ui/SkeletonLoader';
 import alertService from '../../services/alertService';
 import { fetchClientProfile, ClientProfile } from '../../services/clientProfilesService';
 import { hasSavedCard } from '../../utils/cardUtils';

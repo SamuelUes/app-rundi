@@ -18,7 +18,7 @@ import {
   Image,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { LoadingIcon } from '../../components/LoadingIcon';
+import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { useTheme } from '../../context/ThemeContext';
 import { getDatabase, ref, onValue, off, update } from 'firebase/database';
 import { getAuth } from 'firebase/auth';
@@ -27,7 +27,7 @@ import { formatNicaraguaTime } from '../../utils/dateUtils';
 
 // Servicios optimizados
 import alertService from '../../services/alertService';
-import LoadingOverlay from '../../components/LoadingOverlay';
+import LoadingOverlay from '../../components/ui/LoadingOverlay';
 
 export default function WaitingClientConfirmationScreen({ route, navigation }: any) {
   const { colors } = useTheme();

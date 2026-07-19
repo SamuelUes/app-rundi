@@ -15,7 +15,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { LoadingIcon } from '../../components/LoadingIcon';
+import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { SafeAreaView } from 'react-native-safe-area-context';
 // Contextos y hooks
 import { useTheme } from '../../context/ThemeContext';
@@ -27,9 +27,9 @@ import { subscribePreflightResult, getPreflightResult, PreflightAction } from '.
 import { useTranslation } from 'react-i18next';
 
 // Componentes
-import LoadingOverlay from '../../components/LoadingOverlay';
-import DynamicMap from '../../components/DynamicMap';
-import EmergencyButton from '../../components/EmergencyButton';
+import LoadingOverlay from '../../components/ui/LoadingOverlay';
+import DynamicMap from '../../components/map/DynamicMap';
+import EmergencyButton from '../../components/shared/EmergencyButton';
 
 // Servicios
 import alertService from '../../services/alertService';

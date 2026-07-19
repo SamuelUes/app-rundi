@@ -18,7 +18,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import { useTranslation } from 'react-i18next';
-import { LoadingIcon } from '../LoadingIcon';
+import { LoadingIcon } from '../ui/LoadingIcon';
 import {
   isRegistrationUploadsInProgress,
   subscribeRegistrationUploadsInProgress,

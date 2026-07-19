@@ -1,14 +1,14 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Image, Switch } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { LoadingIcon } from '../../components/LoadingIcon';
+import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { useFCM } from '../../context/FCMContext';
-import { ProfileSkeleton } from '../../components/SkeletonLoader';
-import Button from '../../components/Button';
+import { ProfileSkeleton } from '../../components/ui/SkeletonLoader';
+import Button from '../../components/ui/Button';
 import driversService from '../../services/driversService';
-import LoadingOverlay from '../../components/LoadingOverlay';
+import LoadingOverlay from '../../components/ui/LoadingOverlay';
 import phoneAuthService from '../../services/auth/phoneAuthService';
 import { fetchDriverProfile } from '../../services/driverProfilesService';
 import { useTranslation } from 'react-i18next';

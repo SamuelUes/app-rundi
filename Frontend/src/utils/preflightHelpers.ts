@@ -10,7 +10,7 @@ import type {
   ServiceAreaPoint,
 } from '../types/preflight';
 import type { PreflightAction } from '../stores/preflightStore';
-import { CURRENT_TERMS_VERSION } from '../components/TermsAndConditionsModal';
+import { CURRENT_TERMS_VERSION } from '../components/shared/TermsAndConditionsModal';
 
 export type NormalizedAccountStatus = 'active' | 'pending' | 'suspended' | 'rejected';
 export type NormalizedDocumentsStatus = 'verified' | 'pending' | 'suspended' | 'rejected';

@@ -26,11 +26,11 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 
 // Servicios y componentes
-import LoadingIcon from '../../components/LoadingIcon';
+import LoadingIcon from '../../components/ui/LoadingIcon';
 import alertService from '../../services/alertService';
-import SupportChatShortcut from '../../components/SupportChatShortcut';
+import SupportChatShortcut from '../../components/shared/SupportChatShortcut';
 import { clearClientActiveRideState } from '../../utils/clientRideState';
-import DynamicMap from '../../components/DynamicMap';
+import DynamicMap from '../../components/map/DynamicMap';
 import { useTheme } from '../../context/ThemeContext';
 import { useLocation } from '../../hooks/shared/location/useLocation';
 import { useFirebaseItem } from '../../hooks/shared/firebase/useFirebaseData';

@@ -12,13 +12,13 @@ import {
   Image,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { LoadingIcon } from '../../components/LoadingIcon';
+import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useLocation } from '../../hooks/shared/location/useLocation';
 import { useRideNotifications } from '../../hooks/shared/ride/useRideNotifications';
 import ridesService from '../../services/ridesService';
-import DynamicMap from '../../components/DynamicMap';
+import DynamicMap from '../../components/map/DynamicMap';
 import { getDatabase, onValue, ref } from 'firebase/database';
 import { RIDES_RADIUS_KM } from '../../constants/rideRadius';
 import { getActiveRidesByAreaPath } from '../../utils/serviceArea';

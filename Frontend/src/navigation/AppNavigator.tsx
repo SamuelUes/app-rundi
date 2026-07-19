@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { View, StyleSheet } from 'react-native';
-import { LoadingIcon } from '../components/LoadingIcon';
+import { LoadingIcon } from '../components/ui/LoadingIcon';
 import { useAuth } from '../context/AuthContext';
 import AuthStack from './AuthStack';
 import ClientStack from './ClientStack';

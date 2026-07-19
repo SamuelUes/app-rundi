@@ -11,24 +11,24 @@ import {
   Animated,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { LoadingIcon } from '../../components/LoadingIcon';
+import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import alertService from '../../services/alertService';
 import { useTheme } from '../../context/ThemeContext';
-import { MapSkeleton } from '../../components/SkeletonLoader';
-import DynamicMap from '../../components/DynamicMap';
+import { MapSkeleton } from '../../components/ui/SkeletonLoader';
+import DynamicMap from '../../components/map/DynamicMap';
 import { MAP_ICONS } from '../../constants/mapIcons';
 import { useAuth } from '../../context/AuthContext';
 import { useVoiceAssistant } from '../../context/VoiceAssistantContext';
 import { useLocation, DRIVER_LOCATION_OPTIONS } from '../../hooks/shared/location/useLocation';
 import { useChat } from '../../hooks/shared/chat/useChat';
-import { RideProgressIndicator } from '../../components/RideProgressIndicator';
+import { RideProgressIndicator } from '../../components/shared/RideProgressIndicator';
 import ridesService from '../../services/ridesService';
 import { getDatabase, ref, update, serverTimestamp } from 'firebase/database';
 import { extractVehicleTypeFromInfo, ensureVehicleIconSource } from '../../utils/vehicleIcons';
 import { fetchClientProfile, ClientProfile } from '../../services/clientProfilesService';
 import notificationService from '../../services/notificationService';
 import { useTranslation } from 'react-i18next';
-import SupportChatShortcut from '../../components/SupportChatShortcut';
+import SupportChatShortcut from '../../components/shared/SupportChatShortcut';
 import {
   haversineDistanceMeters,
   computeTotalDistanceKm,
