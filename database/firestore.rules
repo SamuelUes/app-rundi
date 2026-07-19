@@ -15,13 +15,23 @@ service cloud.firestore {
     }
     
     function isDriver() {
-      return isAuthenticated() && 
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'driver';
+      // Prefer custom claims (set via admin.auth().setCustomUserClaims)
+      // isDriver: true covers both 'driver' and 'designated_driver'
+      // Falls back to Firestore lookup if claims not present
+      return isAuthenticated() &&
+             (request.auth.token.isDriver == true ||
+              request.auth.token.role == 'driver' ||
+              request.auth.token.role == 'designated_driver' ||
+              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'driver' ||
+              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'designated_driver');
     }
-    
+
     function isAdmin() {
-      return isAuthenticated() && 
-             get(/databases/$(database)/documents/cms-users/$(request.auth.uid)).data.role == 'admin';
+      // Prefer custom claims (set via admin.auth().setCustomUserClaims)
+      // Falls back to Firestore lookup if claim not present
+      return isAuthenticated() &&
+             (request.auth.token.role == 'admin' ||
+              get(/databases/$(database)/documents/cms-users/$(request.auth.uid)).data.role == 'admin');
     }
     
     // ============================================
@@ -33,20 +43,40 @@ service cloud.firestore {
       // Cualquier usuario autenticado puede leer perfiles
       allow read: if isAuthenticated();
       
-      // Solo el dueño puede crear su perfil
+      // Solo el dueño puede crear su perfil — role forzado a 'client'
       allow create: if isOwner(userId) && 
                       request.resource.data.id == userId &&
-                      request.resource.data.keys().hasAll(['id', 'email', 'name', 'role']);
+                      request.resource.data.keys().hasAll(['id', 'email', 'name', 'role']) &&
+                      request.resource.data.id is string &&
+                      request.resource.data.email is string &&
+                      request.resource.data.name is string &&
+                      request.resource.data.role is string &&
+                      request.resource.data.role == 'client';
       
-      // Solo el dueño puede actualizar su perfil
-      allow update: if isOwner(userId);
+      // Solo el dueño puede actualizar su perfil (sin cambiar role)
+      allow update: if isOwner(userId) &&
+                      request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                        'name', 'phone', 'profilePhoto', 'fcmToken',
+                        'notificationsEnabled', 'currentRideId',
+                        'driverStatus', 'currentLocation', 'stats',
+                        'updatedAt'
+                      ]);
       
       // El dueño puede eliminar su perfil (para eliminar cuenta)
       allow delete: if isOwner(userId);
+
+      // Subcolección de tokens FCM (path real usado por Cloud Functions)
+      match /fcmTokens/{tokenId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId);
+        allow update: if isOwner(userId);
+        allow delete: if isOwner(userId);
+      }
     }
 
     match /cms-users/{userId} {
-      allow read: if isAuthenticated();
+      // Solo admin o el propio usuario CMS puede leer
+      allow read: if isAdmin() || isOwner(userId);
       allow create: if isAdmin();
       allow update: if isAdmin();
       allow delete: if isAdmin();
@@ -87,5 +117,10 @@ service cloud.firestore {
       // El dueño puede eliminar sus notificaciones
       allow delete: if isOwner(userId);
     }
+    // ============================================
+    // FCM TOKENS
+    // Tokens de notificación push — movidos a subcolección users/{userId}/fcmTokens
+    // La colección raíz fcmTokens ya no se usa (path legacy)
+    // ============================================
   }
 }

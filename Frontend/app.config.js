@@ -180,11 +180,10 @@ export default {
       process.env.EXPO_PUBLIC_SUPABASE_KEY ||
       process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ||
       process.env.SUPABASE_ANON_KEY,
-    supabaseUrl: process.env.SUPABASE_URL || process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://cypllfzespkzhtyeitlv.supabase.co',
+    supabaseUrl: process.env.SUPABASE_URL || process.env.EXPO_PUBLIC_SUPABASE_URL,
     supabaseKey:
       process.env.SUPABASE_ANON_KEY ||
-      process.env.EXPO_PUBLIC_SUPABASE_KEY ||
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN5cGxsZnplc3Bremh0eWVpdGx2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQyNTExMTMsImV4cCI6MjA3OTgyNzExM30.8PN8T7kaf_acPFJAkONgqec8zxePnu8hwZ_gXkkGJ78',
+      process.env.EXPO_PUBLIC_SUPABASE_KEY,
   },
   runtimeVersion: 'Beta- 1.8',
   owner: 'samuelues',

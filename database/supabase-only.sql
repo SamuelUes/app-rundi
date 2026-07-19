@@ -43,6 +43,36 @@
 -- - ✅ Sistema de Servicios y Comisiones (2025-10-21)
 -- ============================================
 
+
+-- ============================================
+-- RESULTADO ESPERADO (2025-10-25):
+-- ============================================
+-- table_name                      | columns_count
+-- --------------------------------|---------------
+-- analytics_events                | 8
+-- biometric_authentications       | 10
+-- cards                           | 12 (NUEVO - Tarjetas guardadas)
+-- drivers_recharges               | 12 (PuntoExpress wallet movements)
+-- driver_services                 | 10
+-- drivers                         | 11
+-- emergency_calls                 | 13
+-- payments                        | 23 (actualizado con biometría)
+-- ratings                         | 13
+-- ride_locations                  | 9
+-- rides                           | 32 (actualizado con biometría)
+-- service_commission_history      | 7
+-- services                        | 14
+-- sms_verification_codes          | 11
+-- vehicles                        | 18
+-- ============================================
+-- TOTAL: 15 TABLAS (+ 1 nueva de tarjetas)
+-- ============================================
+
+-- ============================================
+-- 31. CMS TABLES: QUEJAS Y ACCIONES DE OPERADOR
+-- ============================================
+
+
 -- ============================================
 -- FUNCIÓN HELPER PARA TRIGGERS
 -- ============================================
@@ -58,19 +88,19 @@ $$ language 'plpgsql';
 -- STORAGE BUCKETS (drivers-documents, rides-documents, support-chats)
 -- ============================================
 INSERT INTO storage.buckets (id, name, public)
-VALUES ('drivers-documents', 'drivers-documents', TRUE)
+VALUES ('drivers-documents', 'drivers-documents', FALSE)
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO storage.buckets (id, name, public)
-VALUES ('rides-documents', 'rides-documents', TRUE)
+VALUES ('rides-documents', 'rides-documents', FALSE)
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO storage.buckets (id, name, public)
-VALUES ('support-chats', 'support-chats', TRUE)
+VALUES ('support-chats', 'support-chats', FALSE)
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO storage.buckets (id, name, public)
-VALUES ('support-calls', 'support-calls', TRUE)
+VALUES ('support-calls', 'support-calls', FALSE)
 ON CONFLICT (id) DO NOTHING;
 
 COMMENT ON TABLE storage.buckets IS 'Buckets utilizados por la aplicación móvil';
@@ -88,14 +118,22 @@ DROP POLICY IF EXISTS "rides_docs_update_own" ON storage.objects;
 DROP POLICY IF EXISTS "rides_docs_delete_own" ON storage.objects;
 DROP POLICY IF EXISTS "rides_docs_insert_public_paths" ON storage.objects;
 
-DROP POLICY IF EXISTS "support_chats_insert_own" ON storage.objects;
+DROP POLICY IF EXISTS "support_chats_read_public" ON storage.objects;
+DROP POLICY IF EXISTS "support_chats_insert_auth" ON storage.objects;
+DROP POLICY IF EXISTS "support_chats_update_auth" ON storage.objects;
+DROP POLICY IF EXISTS "support_chats_delete_auth" ON storage.objects;
 DROP POLICY IF EXISTS "support_chats_read_own" ON storage.objects;
+DROP POLICY IF EXISTS "support_chats_insert_own" ON storage.objects;
 DROP POLICY IF EXISTS "support_chats_update_own" ON storage.objects;
 DROP POLICY IF EXISTS "support_chats_delete_own" ON storage.objects;
 DROP POLICY IF EXISTS "support_calls_read_public" ON storage.objects;
 DROP POLICY IF EXISTS "support_calls_insert_auth" ON storage.objects;
 DROP POLICY IF EXISTS "support_calls_update_auth" ON storage.objects;
 DROP POLICY IF EXISTS "support_calls_delete_auth" ON storage.objects;
+DROP POLICY IF EXISTS "support_calls_read_own" ON storage.objects;
+DROP POLICY IF EXISTS "support_calls_insert_own" ON storage.objects;
+DROP POLICY IF EXISTS "support_calls_update_own" ON storage.objects;
+DROP POLICY IF EXISTS "support_calls_delete_own" ON storage.objects;
 
 -- Políticas drivers-documents (rol anon porque los uploads usan anon key)
 CREATE POLICY "drivers_docs_insert_own"
@@ -171,43 +209,75 @@ USING (
   AND name LIKE '%' || public.current_firebase_uid() || '%'
 );
 
---Politica de support_chats Lectura pública (URLs públicas)
-create policy "support_chats_read_public"
-on storage.objects for select
-using (bucket_id = 'support_chats');
+-- Politica de support_chats Lectura por usuario autenticado (path contiene UID)
+CREATE POLICY "support_chats_read_own"
+ON storage.objects FOR SELECT
+TO authenticated
+USING (
+  bucket_id = 'support-chats'
+  AND name LIKE '%' || public.current_firebase_uid() || '%'
+);
 
--- Escritura/actualización/borrado para usuarios autenticados
-create policy "support_chats_insert_auth"
-on storage.objects for insert
-with check (bucket_id = 'support_chats' and auth.role() = 'authenticated');
- 
-create policy "support_chats_update_auth"
-on storage.objects for update
-using (bucket_id = 'support_chats' and auth.role() = 'authenticated');
- 
-create policy "support_chats_delete_auth"
-on storage.objects for delete
-using (bucket_id = 'support_chats' and auth.role() = 'authenticated');
+-- Escritura/actualización/borrado para usuarios autenticados (path contiene UID)
+CREATE POLICY "support_chats_insert_own"
+ON storage.objects FOR INSERT
+TO authenticated
+WITH CHECK (
+  bucket_id = 'support-chats'
+  AND name LIKE '%' || public.current_firebase_uid() || '%'
+);
 
-CREATE POLICY "support_calls_read_public"
+CREATE POLICY "support_chats_update_own"
+ON storage.objects FOR UPDATE
+TO authenticated
+USING (
+  bucket_id = 'support-chats'
+  AND name LIKE '%' || public.current_firebase_uid() || '%'
+);
+
+CREATE POLICY "support_chats_delete_own"
+ON storage.objects FOR DELETE
+TO authenticated
+USING (
+  bucket_id = 'support-chats'
+  AND name LIKE '%' || public.current_firebase_uid() || '%'
+);
+
+CREATE POLICY "support_calls_read_own"
 ON storage.objects
 FOR SELECT
-USING (bucket_id = 'support-calls');
+TO authenticated
+USING (
+  bucket_id = 'support-calls'
+  AND name LIKE '%' || public.current_firebase_uid() || '%'
+);
 
-CREATE POLICY "support_calls_insert_auth"
+CREATE POLICY "support_calls_insert_own"
 ON storage.objects
 FOR INSERT
-WITH CHECK (bucket_id = 'support-calls' AND auth.role() = 'authenticated');
+TO authenticated
+WITH CHECK (
+  bucket_id = 'support-calls'
+  AND name LIKE '%' || public.current_firebase_uid() || '%'
+);
 
-CREATE POLICY "support_calls_update_auth"
+CREATE POLICY "support_calls_update_own"
 ON storage.objects
 FOR UPDATE
-USING (bucket_id = 'support-calls' AND auth.role() = 'authenticated');
+TO authenticated
+USING (
+  bucket_id = 'support-calls'
+  AND name LIKE '%' || public.current_firebase_uid() || '%'
+);
 
-CREATE POLICY "support_calls_delete_auth"
+CREATE POLICY "support_calls_delete_own"
 ON storage.objects
 FOR DELETE
-USING (bucket_id = 'support-calls' AND auth.role() = 'authenticated');
+TO authenticated
+USING (
+  bucket_id = 'support-calls'
+  AND name LIKE '%' || public.current_firebase_uid() || '%'
+);
 
 -- Fallback para clientes móviles (anon key) limitado a prefijos permitidos
 CREATE POLICY "rides_docs_insert_public_paths"
@@ -273,6 +343,7 @@ CREATE INDEX IF NOT EXISTS idx_drivers_municipality ON public.drivers USING btre
 CREATE INDEX IF NOT EXISTS idx_drivers_designated_rol_requested ON public.drivers USING btree (designated_rol_requested);
 -- ✅ ELIMINADOS índices para designated_driver_request_status y designated_driver_role
 
+DROP TRIGGER IF EXISTS update_drivers_updated_at ON public.drivers;
 CREATE TRIGGER update_drivers_updated_at BEFORE UPDATE ON public.drivers
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
@@ -351,6 +422,7 @@ CREATE INDEX IF NOT EXISTS idx_vehicles_plate ON public.vehicles USING btree (pl
 CREATE INDEX IF NOT EXISTS idx_vehicles_is_4x4 ON public.vehicles USING btree (is_4x4) WHERE is_4x4 = TRUE;
 CREATE INDEX IF NOT EXISTS idx_vehicles_is_active ON public.vehicles USING btree (is_active) WHERE is_active = TRUE;
 
+DROP TRIGGER IF EXISTS update_vehicles_updated_at ON public.vehicles;
 CREATE TRIGGER update_vehicles_updated_at BEFORE UPDATE ON public.vehicles
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
@@ -430,12 +502,24 @@ CREATE TABLE IF NOT EXISTS public.rides (
   updated_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
   
   CONSTRAINT rides_pkey PRIMARY KEY (id),
-  CONSTRAINT rides_canceled_by_check CHECK (canceled_by IN ('client', 'driver'))
+  CONSTRAINT rides_canceled_by_check CHECK (canceled_by IN ('client', 'driver')),
+  CONSTRAINT rides_status_check CHECK (status IN ('requested', 'driver_offered', 'accepted', 'driver_on_route', 'driver_arrived', 'in_progress', 'pending_payment', 'rating_completed', 'rating_skipped', 'completed', 'canceled'))
 ) TABLESPACE pg_default;
 
 COMMENT ON TABLE public.rides IS 'Historial completo de viajes - Viajes activos están en Firebase Realtime DB - Ubicaciones en ride_locations';
 COMMENT ON COLUMN public.rides.client_id IS 'Firebase Auth UID del cliente';
-COMMENT ON COLUMN public.rides.driver_id IS 'Firebase Auth UID del conductor';
+COMMENT ON COLUMN public.rides.driver_id IS 'Firebase Auth UID del conductor (VARCHAR). Diferente de driver_services.driver_id que es UUID interno de drivers.id';
+
+-- FK: rides.driver_id (Firebase UID) → drivers.user_id (Firebase UID)
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'rides_driver_id_fkey'
+  ) THEN
+    ALTER TABLE public.rides
+      ADD CONSTRAINT rides_driver_id_fkey
+      FOREIGN KEY (driver_id) REFERENCES public.drivers(user_id) ON DELETE SET NULL;
+  END IF;
+END $$;
 COMMENT ON COLUMN public.rides.passengers IS 'Cantidad de pasajeros (1-6)';
 COMMENT ON COLUMN public.rides.waypoints_count IS 'Cantidad de paradas intermedias (sin contar origen ni destino)';
 COMMENT ON COLUMN public.rides.has_multiple_stops IS 'Indica si hay múltiples paradas (waypoints_count > 0)';
@@ -471,7 +555,13 @@ CREATE INDEX IF NOT EXISTS idx_rides_multiple_stops ON public.rides USING btree 
 -- ✅ NUEVO (2025-10-25): Índices para referencias de ubicaciones
 CREATE INDEX IF NOT EXISTS idx_rides_origin_location_id ON public.rides USING btree (origin_location_id);
 CREATE INDEX IF NOT EXISTS idx_rides_destination_location_id ON public.rides USING btree (destination_location_id);
+-- Composite indices for common query patterns
+CREATE INDEX IF NOT EXISTS idx_rides_client_id_status ON public.rides USING btree (client_id, status);
+CREATE INDEX IF NOT EXISTS idx_rides_driver_id_status ON public.rides USING btree (driver_id, status);
+CREATE INDEX IF NOT EXISTS idx_rides_client_id_created_at ON public.rides USING btree (client_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_rides_driver_id_created_at ON public.rides USING btree (driver_id, created_at DESC);
 
+DROP TRIGGER IF EXISTS update_rides_updated_at ON public.rides;
 CREATE TRIGGER update_rides_updated_at BEFORE UPDATE ON public.rides
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
@@ -488,7 +578,7 @@ CREATE TABLE IF NOT EXISTS public.payments (
   tip NUMERIC(10, 2) NULL DEFAULT 0,
   commission NUMERIC(10, 2) NOT NULL,
   commission_rate_applied NUMERIC(5, 4) NULL,
-  total NUMERIC(10, 2) NULL DEFAULT (amount + tip),
+  total NUMERIC(10, 2) NULL DEFAULT (amount + COALESCE(tip, 0)),
   
   -- Método de pago: cash (efectivo) o card (bancos locales)
   payment_method VARCHAR(20) NULL,
@@ -559,7 +649,9 @@ CREATE INDEX IF NOT EXISTS idx_payments_sync_status ON public.payments USING btr
 CREATE INDEX IF NOT EXISTS idx_payments_cancel_reason ON public.payments USING btree (cancel_reason) WHERE cancel_reason IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_payments_biometric ON public.payments USING btree (biometric_authenticated) WHERE biometric_authenticated = TRUE;
 CREATE INDEX IF NOT EXISTS idx_payments_authentication_method ON public.payments USING btree (authentication_method);
+CREATE INDEX IF NOT EXISTS idx_payments_commission_status ON public.payments USING btree (commission_status) WHERE commission_status = 'pending';
 
+DROP TRIGGER IF EXISTS update_payments_updated_at ON public.payments;
 CREATE TRIGGER update_payments_updated_at BEFORE UPDATE ON public.payments
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
@@ -599,6 +691,7 @@ CREATE INDEX IF NOT EXISTS idx_drivers_recharges_ride_id ON public.drivers_recha
 CREATE INDEX IF NOT EXISTS idx_drivers_recharges_status ON public.drivers_recharges USING btree (status);
 CREATE INDEX IF NOT EXISTS idx_drivers_recharges_created_at ON public.drivers_recharges USING btree (created_at DESC);
 
+DROP TRIGGER IF EXISTS update_drivers_recharges_updated_at ON public.drivers_recharges;
 CREATE TRIGGER update_drivers_recharges_updated_at BEFORE UPDATE ON public.drivers_recharges
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
@@ -635,6 +728,7 @@ CREATE INDEX IF NOT EXISTS idx_driver_penalties_ride_id ON public.driver_penalti
 CREATE INDEX IF NOT EXISTS idx_driver_penalties_status ON public.driver_penalties USING btree (status);
 CREATE INDEX IF NOT EXISTS idx_driver_penalties_created_at ON public.driver_penalties USING btree (created_at DESC);
 
+DROP TRIGGER IF EXISTS update_driver_penalties_updated_at ON public.driver_penalties;
 CREATE TRIGGER update_driver_penalties_updated_at BEFORE UPDATE ON public.driver_penalties
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
@@ -727,6 +821,7 @@ CREATE INDEX IF NOT EXISTS idx_ride_locations_type ON public.ride_locations USIN
 CREATE INDEX IF NOT EXISTS idx_ride_locations_order ON public.ride_locations USING btree (ride_id, location_order);
 
 -- Trigger para actualizar updated_at
+DROP TRIGGER IF EXISTS update_ride_locations_updated_at ON public.ride_locations;
 CREATE TRIGGER update_ride_locations_updated_at 
 BEFORE UPDATE ON public.ride_locations 
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
@@ -809,11 +904,13 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Triggers para mantener waypoints_count / has_multiple_stops
+DROP TRIGGER IF EXISTS update_ride_summary_on_waypoint_insert ON public.ride_locations;
 CREATE TRIGGER update_ride_summary_on_waypoint_insert
 AFTER INSERT ON public.ride_locations
 FOR EACH ROW
 EXECUTE FUNCTION trigger_update_ride_summary_on_insert();
 
+DROP TRIGGER IF EXISTS update_ride_summary_on_waypoint_delete ON public.ride_locations;
 CREATE TRIGGER update_ride_summary_on_waypoint_delete
 AFTER DELETE ON public.ride_locations
 FOR EACH ROW
@@ -1067,6 +1164,7 @@ CREATE INDEX IF NOT EXISTS idx_emergency_calls_ride_id ON public.emergency_calls
 CREATE INDEX IF NOT EXISTS idx_emergency_calls_type ON public.emergency_calls USING btree (emergency_type);
 CREATE INDEX IF NOT EXISTS idx_emergency_calls_created_at ON public.emergency_calls USING btree (created_at DESC);
 
+DROP TRIGGER IF EXISTS update_emergency_calls_updated_at ON public.emergency_calls;
 CREATE TRIGGER update_emergency_calls_updated_at BEFORE UPDATE ON public.emergency_calls
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
@@ -1111,6 +1209,7 @@ CREATE INDEX IF NOT EXISTS idx_designated_driver_inspections_driver_id ON public
 CREATE INDEX IF NOT EXISTS idx_designated_driver_inspections_status ON public.designated_driver_inspections USING btree (status);
 CREATE INDEX IF NOT EXISTS idx_designated_driver_inspections_created_at ON public.designated_driver_inspections USING btree (created_at DESC);
 
+DROP TRIGGER IF EXISTS update_designated_driver_inspections_updated_at ON public.designated_driver_inspections;
 CREATE TRIGGER update_designated_driver_inspections_updated_at BEFORE UPDATE ON public.designated_driver_inspections
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
@@ -1125,7 +1224,10 @@ CREATE TABLE IF NOT EXISTS public.services (
   code VARCHAR(50) UNIQUE NOT NULL,
   commission_rate DECIMAL(5, 4) NOT NULL,
   base_price DECIMAL(10, 2) NOT NULL DEFAULT 0,
+  price_per_km DECIMAL(10, 2) NULL DEFAULT 0,
+  price_per_minute DECIMAL(10, 2) NULL DEFAULT 0,
   minimum_fare DECIMAL(10, 2) NOT NULL DEFAULT 0,
+  max_distance_km DECIMAL(10, 2) NULL,
   vehicle_types JSONB NULL,
   requires_special_license BOOLEAN DEFAULT FALSE,
   available_hours JSONB NULL,
@@ -1139,9 +1241,15 @@ CREATE TABLE IF NOT EXISTS public.services (
   CONSTRAINT services_pkey PRIMARY KEY (id)
 ) TABLESPACE pg_default;
 
-ALTER TABLE public.rides
-  ADD CONSTRAINT rides_service_id_fkey
-  FOREIGN KEY (service_id) REFERENCES public.services(id) ON DELETE SET NULL;
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'rides_service_id_fkey'
+  ) THEN
+    ALTER TABLE public.rides
+      ADD CONSTRAINT rides_service_id_fkey
+      FOREIGN KEY (service_id) REFERENCES public.services(id) ON DELETE SET NULL;
+  END IF;
+END $$;
 
 COMMENT ON TABLE public.services IS 'Catálogo de servicios disponibles (Viaje Normal, Conductor Designado, etc)';
 COMMENT ON COLUMN public.services.commission_rate IS 'Tasa de comisión (0.1100 = 11%)';
@@ -1151,6 +1259,7 @@ CREATE INDEX IF NOT EXISTS idx_services_code ON public.services USING btree (cod
 CREATE INDEX IF NOT EXISTS idx_services_active ON public.services USING btree (is_active);
 CREATE INDEX IF NOT EXISTS idx_services_display_order ON public.services USING btree (display_order);
 
+DROP TRIGGER IF EXISTS update_services_updated_at ON public.services;
 CREATE TRIGGER update_services_updated_at BEFORE UPDATE ON public.services
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
@@ -1160,7 +1269,7 @@ VALUES
   ('e1cdd47c-9f57-4ed4-93a0-59cdfdffff8a', 'Viaje Normal', 'Servicio estándar de transporte urbano', 'normal', 0.1100, 50.00, 10.00, 0.00, 50.00, '["auto"]'::jsonb, FALSE, NULL, NULL, 'car', '#0A84FF', 1, TRUE, TRUE),
   ('5e88177d-38f2-4864-addc-272dda26ef28', 'Viaje en Moto', 'Transporte rápido en motocicleta', 'motorcycle', 0.0750, 50.00, 8.00, 0.00, 50.00, '["motorcycle"]'::jsonb, FALSE, NULL, NULL, 'motorcycle', '#FFAA00', 2, TRUE, FALSE),
   ('b3c69940-2e43-459f-8c2e-459773c56f8e', 'Conductor Designado Auto', 'Servicio de conductor para auto designado para eventos', 'designated_driver_auto', 0.2500, 50.00, 13.00, 0.00, 50.00, '["auto"]'::jsonb, TRUE, NULL, NULL, 'bar', '#8E44AD', 3, TRUE, TRUE),
-  ('b3c69940-2e43-459f-8c2e-459773c56f8e', 'Conductor Designado Moto', 'Servicio de conductor designado para moto para eventos', 'designated_driver_moto', 0.2500, 50.00, 13.00, 0.00, 50.00, '["motorcycle"]'::jsonb, TRUE, NULL, NULL, 'bar', '#ad7f44', 3, TRUE, TRUE),
+  ('f7a4b2c1-3d56-4e89-9f01-2c5b6e7d8a9f', 'Conductor Designado Moto', 'Servicio de conductor designado para moto para eventos', 'designated_driver_moto', 0.2500, 50.00, 13.00, 0.00, 50.00, '["motorcycle"]'::jsonb, TRUE, NULL, NULL, 'bar', '#ad7f44', 4, TRUE, TRUE),
   ('691f8f01-3faf-4e39-aeb7-1bc4dda3fc19', 'Viaje Nocturno', 'Servicio nocturno con tarifa especial (10pm-4am)', 'night', 0.1200, 40.00, 12.00, 0.00, 40.00, '["auto"]'::jsonb, FALSE, NULL, '{"start": "22:00", "end": "04:00"}'::jsonb, 'moon', '#2C3E50', 5, TRUE, FALSE)
 ON CONFLICT (code) DO UPDATE
 SET
@@ -1208,6 +1317,7 @@ CREATE TABLE IF NOT EXISTS public.driver_services (
 ) TABLESPACE pg_default;
 
 COMMENT ON TABLE public.driver_services IS 'Servicios asignados a conductores con comisiones personalizadas';
+COMMENT ON COLUMN public.driver_services.driver_id IS 'UUID interno de drivers.id (NO es Firebase UID). Diferente de rides.driver_id y drivers_recharges.driver_id que son VARCHAR Firebase UIDs';
 COMMENT ON COLUMN public.driver_services.custom_commission_rate IS 'Comisión personalizada para este conductor (override)';
 
 CREATE INDEX IF NOT EXISTS idx_driver_services_driver ON public.driver_services USING btree (driver_id);
@@ -1216,6 +1326,7 @@ CREATE INDEX IF NOT EXISTS idx_driver_services_active ON public.driver_services 
 CREATE INDEX IF NOT EXISTS idx_driver_services_expires ON public.driver_services USING btree (expires_at) 
   WHERE expires_at IS NOT NULL;
 
+DROP TRIGGER IF EXISTS update_driver_services_updated_at ON public.driver_services;
 CREATE TRIGGER update_driver_services_updated_at BEFORE UPDATE ON public.driver_services
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
@@ -1279,9 +1390,15 @@ CREATE TABLE IF NOT EXISTS public.sms_verification_codes (
   CONSTRAINT sms_verification_codes_ride_fkey FOREIGN KEY (ride_id) REFERENCES public.rides(id) ON DELETE SET NULL
 ) TABLESPACE pg_default;
 
-ALTER TABLE public.payments
-  ADD CONSTRAINT payments_sms_verification_fkey
-  FOREIGN KEY (sms_verification_id) REFERENCES public.sms_verification_codes(id) ON DELETE SET NULL;
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'payments_sms_verification_fkey'
+  ) THEN
+    ALTER TABLE public.payments
+      ADD CONSTRAINT payments_sms_verification_fkey
+      FOREIGN KEY (sms_verification_id) REFERENCES public.sms_verification_codes(id) ON DELETE SET NULL;
+  END IF;
+END $$;
 
 COMMENT ON TABLE public.sms_verification_codes IS 'Códigos SMS para verificación de pagos y otras acciones';
 COMMENT ON COLUMN public.sms_verification_codes.user_id IS 'Firebase Auth UID del usuario';
@@ -1338,6 +1455,7 @@ COMMENT ON COLUMN public.cards.is_default IS 'Indica si es la tarjeta predetermi
 COMMENT ON COLUMN public.cards.is_active IS 'Indica si la tarjeta está activa (no eliminada)';
 
 -- Crear trigger para actualizar updated_at
+DROP TRIGGER IF EXISTS update_cards_updated_at ON public.cards;
 CREATE TRIGGER update_cards_updated_at BEFORE UPDATE ON public.cards
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
@@ -1371,7 +1489,7 @@ CREATE TABLE IF NOT EXISTS public.support_call_sessions (
   CONSTRAINT support_call_sessions_status_check CHECK (status IN ('initiated','ringing_client','ringing_operator','accepted','rejected','missed','connected','ended'))
 ) TABLESPACE pg_default;
 
-COMMENT ON TABLE public.support_call_sessions IS 'Sesiones de llamadas WebRTC entre operador y cliente asociadas a quejas';
+COMMENT ON TABLE public.support_call_sessions IS 'Archivo histórico de llamadas WebRTC. Source of truth en tiempo real: RTDB calls/{callId}. Esta tabla se actualiza via trigger de archivado al finalizar la llamada';
 COMMENT ON COLUMN public.support_call_sessions.call_id IS 'Identificador lógico usado también en Realtime DB (calls/{callId})';
 COMMENT ON COLUMN public.support_call_sessions.complaint_id IS 'ID de la queja en cms_complaints';
 COMMENT ON COLUMN public.support_call_sessions.direction IS 'operator_to_client o client_to_operator';
@@ -1383,6 +1501,7 @@ CREATE INDEX IF NOT EXISTS idx_support_call_sessions_complaint ON public.support
 CREATE INDEX IF NOT EXISTS idx_support_call_sessions_operator ON public.support_call_sessions USING btree (operator_uid);
 CREATE INDEX IF NOT EXISTS idx_support_call_sessions_client ON public.support_call_sessions USING btree (client_uid);
 
+DROP TRIGGER IF EXISTS update_support_call_sessions_updated_at ON public.support_call_sessions;
 CREATE TRIGGER update_support_call_sessions_updated_at BEFORE UPDATE ON public.support_call_sessions
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
@@ -1633,7 +1752,7 @@ CREATE POLICY "Only admins can assign services" ON public.driver_services
       SELECT 1
       FROM auth.users
       WHERE auth.uid() = users.id
-        AND users.raw_user_meta_data ->> 'role' = 'admin'
+        AND users.raw_app_meta_data ->> 'role' = 'admin'
     )
   )
   WITH CHECK (
@@ -1641,7 +1760,7 @@ CREATE POLICY "Only admins can assign services" ON public.driver_services
       SELECT 1
       FROM auth.users
       WHERE auth.uid() = users.id
-        AND users.raw_user_meta_data ->> 'role' = 'admin'
+        AND users.raw_app_meta_data ->> 'role' = 'admin'
     )
   );
 
@@ -1704,7 +1823,7 @@ CREATE POLICY "Services are modifiable by admins only" ON public.services
       SELECT 1
       FROM auth.users
       WHERE auth.uid() = users.id
-        AND users.raw_user_meta_data ->> 'role' = 'admin'
+        AND users.raw_app_meta_data ->> 'role' = 'admin'
     )
   )
   WITH CHECK (
@@ -1712,7 +1831,7 @@ CREATE POLICY "Services are modifiable by admins only" ON public.services
       SELECT 1
       FROM auth.users
       WHERE auth.uid() = users.id
-        AND users.raw_user_meta_data ->> 'role' = 'admin'
+        AND users.raw_app_meta_data ->> 'role' = 'admin'
     )
   );
 
@@ -1798,34 +1917,6 @@ BEGIN
 END;
 $$;
 
--- ============================================
--- RESULTADO ESPERADO (2025-10-25):
--- ============================================
--- table_name                      | columns_count
--- --------------------------------|---------------
--- analytics_events                | 8
--- biometric_authentications       | 10
--- cards                           | 12 (NUEVO - Tarjetas guardadas)
--- drivers_recharges               | 12 (PuntoExpress wallet movements)
--- driver_services                 | 10
--- drivers                         | 11
--- emergency_calls                 | 13
--- payments                        | 23 (actualizado con biometría)
--- ratings                         | 13
--- ride_locations                  | 9
--- rides                           | 32 (actualizado con biometría)
--- service_commission_history      | 7
--- services                        | 14
--- sms_verification_codes          | 11
--- vehicles                        | 18
--- ============================================
--- TOTAL: 15 TABLAS (+ 1 nueva de tarjetas)
--- ============================================
-
--- ============================================
--- 31. CMS TABLES: QUEJAS Y ACCIONES DE OPERADOR
--- ============================================
-
 CREATE TABLE IF NOT EXISTS public.cms_complaints (
   id UUID NOT NULL DEFAULT gen_random_uuid(),
   ride_id UUID NULL,
@@ -1853,6 +1944,17 @@ ALTER TABLE public.cms_complaints
 
 COMMENT ON TABLE public.cms_complaints IS 'Quejas registradas desde el CMS (clientes, conductores, operadores)';
 COMMENT ON COLUMN public.cms_complaints.ride_id IS 'Referencia opcional al viaje relacionado (public.rides.id)';
+
+-- FK: cms_complaints.ride_id → rides.id
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'cms_complaints_ride_id_fkey'
+  ) THEN
+    ALTER TABLE public.cms_complaints
+      ADD CONSTRAINT cms_complaints_ride_id_fkey
+      FOREIGN KEY (ride_id) REFERENCES public.rides(id) ON DELETE SET NULL;
+  END IF;
+END $$;
 COMMENT ON COLUMN public.cms_complaints.client_id IS 'Firebase UID del cliente relacionado con la queja (si aplica)';
 COMMENT ON COLUMN public.cms_complaints.driver_id IS 'Firebase UID del conductor relacionado con la queja (si aplica)';
 COMMENT ON COLUMN public.cms_complaints.created_by_user_id IS 'Firebase UID de quien creó la queja (cliente, conductor, operador o admin)';
@@ -1869,6 +1971,7 @@ CREATE INDEX IF NOT EXISTS idx_cms_complaints_driver_id ON public.cms_complaints
 CREATE INDEX IF NOT EXISTS idx_cms_complaints_status ON public.cms_complaints USING btree (status);
 CREATE INDEX IF NOT EXISTS idx_cms_complaints_created_at ON public.cms_complaints USING btree (created_at DESC);
 
+DROP TRIGGER IF EXISTS update_cms_complaints_updated_at ON public.cms_complaints;
 CREATE TRIGGER update_cms_complaints_updated_at
 BEFORE UPDATE ON public.cms_complaints
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
@@ -1924,7 +2027,7 @@ CREATE POLICY cms_complaints_admin_all ON public.cms_complaints
       SELECT 1
       FROM auth.users
       WHERE auth.uid() = users.id
-        AND users.raw_user_meta_data ->> 'role' = 'admin'
+        AND users.raw_app_meta_data ->> 'role' = 'admin'
     )
   )
   WITH CHECK (
@@ -1932,7 +2035,7 @@ CREATE POLICY cms_complaints_admin_all ON public.cms_complaints
       SELECT 1
       FROM auth.users
       WHERE auth.uid() = users.id
-        AND users.raw_user_meta_data ->> 'role' = 'admin'
+        AND users.raw_app_meta_data ->> 'role' = 'admin'
     )
   );
 
@@ -1945,7 +2048,7 @@ CREATE POLICY cms_operator_actions_admin_only ON public.cms_operator_actions
       SELECT 1
       FROM auth.users
       WHERE auth.uid() = users.id
-        AND users.raw_user_meta_data ->> 'role' = 'admin'
+        AND users.raw_app_meta_data ->> 'role' = 'admin'
     )
   )
   WITH CHECK (
@@ -1953,9 +2056,69 @@ CREATE POLICY cms_operator_actions_admin_only ON public.cms_operator_actions
       SELECT 1
       FROM auth.users
       WHERE auth.uid() = users.id
-        AND users.raw_user_meta_data ->> 'role' = 'admin'
+        AND users.raw_app_meta_data ->> 'role' = 'admin'
     )
   );
 
 REVOKE INSERT, UPDATE, DELETE ON public.cms_complaints FROM anon;
 REVOKE INSERT, UPDATE, DELETE ON public.cms_operator_actions FROM anon;
+
+-- ============================================
+-- 32. RLS POLICIES FOR SUPPORT_CALL_SESSIONS & SERVICE_COMMISSION_HISTORY
+-- ============================================
+
+-- Support call sessions: participants can read their own calls
+DROP POLICY IF EXISTS support_call_sessions_read_own ON public.support_call_sessions;
+CREATE POLICY support_call_sessions_read_own ON public.support_call_sessions
+  FOR SELECT USING (
+    operator_uid = public.current_firebase_uid()
+    OR client_uid = public.current_firebase_uid()
+  );
+
+-- Admins can manage all call sessions
+DROP POLICY IF EXISTS support_call_sessions_admin_all ON public.support_call_sessions;
+CREATE POLICY support_call_sessions_admin_all ON public.support_call_sessions
+  FOR ALL
+  TO public
+  USING (
+    EXISTS (
+      SELECT 1
+      FROM auth.users
+      WHERE auth.uid() = users.id
+        AND users.raw_app_meta_data ->> 'role' = 'admin'
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1
+      FROM auth.users
+      WHERE auth.uid() = users.id
+        AND users.raw_app_meta_data ->> 'role' = 'admin'
+    )
+  );
+
+REVOKE INSERT, UPDATE, DELETE ON public.support_call_sessions FROM anon;
+
+-- Service commission history: admin only
+DROP POLICY IF EXISTS service_commission_history_admin_all ON public.service_commission_history;
+CREATE POLICY service_commission_history_admin_all ON public.service_commission_history
+  FOR ALL
+  TO public
+  USING (
+    EXISTS (
+      SELECT 1
+      FROM auth.users
+      WHERE auth.uid() = users.id
+        AND users.raw_app_meta_data ->> 'role' = 'admin'
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1
+      FROM auth.users
+      WHERE auth.uid() = users.id
+        AND users.raw_app_meta_data ->> 'role' = 'admin'
+    )
+  );
+
+REVOKE INSERT, UPDATE, DELETE ON public.service_commission_history FROM anon;

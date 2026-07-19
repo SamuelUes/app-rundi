@@ -1,6 +1,6 @@
 {
   "description": "Firebase Database Schema - SOLO DATOS EN TIEMPO REAL",
-  "updated": "2025-10-08",
+  "updated": "2026-07-17",
   "note": "Este schema es SOLO para Firebase. Datos históricos están en Supabase PostgreSQL",
   
   "firestore": {
@@ -136,7 +136,7 @@
           "id": "string",
           "clientId": "string (Firebase UID)",
           "driverId": "string | null (Firebase UID)",
-          "status": "string (requested | accepted | in_progress | completed | canceled)",
+          "status": "string (requested | searching | accepted | driver_on_route | in_progress | pending_payment | completed | rating_completed | canceled)",
           "origin": {
             "lat": "number",
             "lng": "number",
@@ -160,7 +160,7 @@
           "estimatedPrice": "number (córdobas)",
           "eta": "number | null (minutes)",
           "distanceTraveled": "number (meters)",
-          "rideType": "string (normal | premium | shared)",
+          "rideType": "string (normal | premium | shared | designated_driver | designated_driver_moto)",
           "notes": "string | null",
           "requestedAt": "number (unix timestamp)",
           "acceptedAt": "number | null",
@@ -354,6 +354,125 @@
           "read": "auth != null",
           "write": "auth != null && auth.uid == userId"
         }
+      },
+
+      "paymentStatus": {
+        "description": "Estado de pago de viajes activos",
+        "path": "paymentStatus/{rideId}",
+        "structure": {
+          "status": "string (pending | completed | canceled | failed)",
+          "finalAmount": "number",
+          "paymentMethod": "string (cash | card | wallet)",
+          "cancelReason": "string | null",
+          "timestamp": "number"
+        },
+        "security_rules": {
+          "read": "auth != null && (data.child('clientId').val() == auth.uid || data.child('driverId').val() == auth.uid)",
+          "write": "auth != null (server-side via Cloud Functions only)"
+        },
+        "triggers": ["onPaymentCompleted", "onPaymentCanceled"]
+      },
+
+      "programmedRides": {
+        "description": "Viajes programados pendientes de ejecución",
+        "path": "programmedRides/{rideId}",
+        "structure": {
+          "id": "string",
+          "clientId": "string (Firebase UID)",
+          "driverId": "string | null (Firebase UID)",
+          "status": "string (pending | assigned | confirmed | canceled | expired)",
+          "scheduledFor": "number (unix timestamp)",
+          "origin": { "lat": "number", "lng": "number", "address": "string" },
+          "destination": { "lat": "number", "lng": "number", "address": "string" },
+          "rideType": "string (normal | premium | shared | designated_driver | designated_driver_moto)",
+          "estimatedPrice": "number",
+          "createdAt": "number"
+        },
+        "security_rules": {
+          "read": "auth != null && (data.clientId == auth.uid || data.driverId == auth.uid)",
+          "write": "auth != null (server-side via Cloud Functions only)"
+        },
+        "triggers": ["syncProgrammedRidesByArea"],
+        "scheduled_functions": ["processProgrammedRides (every 1 min, maxInstances: 1)"]
+      },
+
+      "programmedRidesByArea": {
+        "description": "Viajes programados, particionados por área de servicio",
+        "path": "programmedRidesByArea/{serviceAreaId}/{rideId}",
+        "structure": "Same as programmedRides + serviceAreaId",
+        "security_rules": {
+          "read": "auth != null",
+          "write": "auth != null (server-side via triggers only)"
+        }
+      },
+
+      "calls": {
+        "description": "Llamadas WebRTC en tiempo real entre operador y cliente. Source of truth en tiempo real.",
+        "path": "calls/{callId}",
+        "structure": {
+          "callId": "string",
+          "complaintId": "string",
+          "operatorId": "string (Firebase UID)",
+          "clientId": "string (Firebase UID)",
+          "status": "string (ringing | connected | ended | failed)",
+          "offer": "string (SDP)",
+          "answer": "string | null (SDP)",
+          "iceCandidates": "object",
+          "startedAt": "number",
+          "endedAt": "number | null"
+        },
+        "security_rules": {
+          "read": "auth != null && (data.operatorId == auth.uid || data.clientId == auth.uid)",
+          "write": "auth != null && (data.operatorId == auth.uid || data.clientId == auth.uid)"
+        },
+        "archive_to": "support_call_sessions (PostgreSQL) via trigger al finalizar"
+      },
+
+      "sessions": {
+        "description": "Sesiones activas para control de dispositivo único",
+        "path": "sessions/{userId}",
+        "structure": {
+          "deviceId": "string",
+          "lastSeen": "number (unix timestamp)",
+          "platform": "string (ios | android | web)"
+        },
+        "security_rules": {
+          "read": "auth != null && auth.uid == userId",
+          "write": "auth != null && auth.uid == userId"
+        },
+        "used_by": "ensureActiveSession() en Cloud Functions para prevenir multi-dispositivo"
+      },
+
+      "rideRequests": {
+        "description": "Solicitudes de viaje enviadas a conductores específicos",
+        "path": "rideRequests/{rideId}/{driverId}",
+        "structure": {
+          "rideId": "string",
+          "driverId": "string (Firebase UID)",
+          "offeredPrice": "number",
+          "status": "string (pending | accepted | rejected | expired)",
+          "timestamp": "number"
+        },
+        "security_rules": {
+          "read": "auth != null && auth.uid == driverId",
+          "write": "auth != null (server-side via Cloud Functions only)"
+        }
+      },
+
+      "notifications": {
+        "description": "Notificaciones push en cola (procesadas por Cloud Functions)",
+        "path": "notifications/{userId}",
+        "structure": {
+          "type": "string",
+          "title": "string",
+          "body": "string",
+          "data": "object",
+          "timestamp": "number"
+        },
+        "security_rules": {
+          "read": "false (server-side only)",
+          "write": "false (server-side only)"
+        }
       }
     }
   },
@@ -363,34 +482,66 @@
       "1. Firebase Auth creates user",
       "2. Cloud Function creates Firestore profile (users collection)",
       "3. If driver: Cloud Function creates PostgreSQL record (drivers table)",
-      "4. Frontend receives complete user"
+      "4. Cloud Function sets custom claims (role, isDriver/isClient) via syncAppUserRole",
+      "5. Frontend receives complete user"
     ],
     "request_ride": [
-      "1. Client requests ride",
-      "2. Cloud Function validates data",
-      "3. Insert into PostgreSQL (rides table)",
-      "4. Publish to Realtime DB (activeRides)",
-      "5. Nearby drivers receive notification",
-      "6. Update Firestore (user.stats)"
+      "1. Client requests ride via Cloud Function (createRide)",
+      "2. Cloud Function validates data with Zod schemas",
+      "3. Insert into PostgreSQL (rides table via Sequelize)",
+      "4. Publish to Realtime DB (activeRides/{rideId})",
+      "5. Geo-sharding trigger syncs to activeRidesByArea/{serviceAreaId}/{rideId}",
+      "6. Nearby drivers receive push notification + real-time update",
+      "7. Driver can accept, make counter-offer, or reject"
     ],
     "real_time_tracking": [
-      "1. Driver accepts ride",
-      "2. Update Realtime DB (activeRides/{rideId})",
-      "3. Client listens to real-time changes",
-      "4. Driver sends location every 3 seconds",
+      "1. Driver accepts ride (acceptRide Cloud Function)",
+      "2. Update Realtime DB (activeRides/{rideId}.status = 'accepted')",
+      "3. Client listens to real-time changes via onValue",
+      "4. Driver sends location every 3 seconds via backgroundLocationService",
       "5. Update Realtime DB (driverLocations/{driverId})",
-      "6. Update Realtime DB (activeRides/{rideId}/driverLocation)",
-      "7. Client sees location on map in real-time"
+      "6. Geo-sharding trigger syncs to driverLocationsByArea/{serviceAreaId}/{driverId}",
+      "7. Update Realtime DB (activeRides/{rideId}/driverLocation)",
+      "8. Client sees location on map in real-time"
     ],
     "complete_ride": [
-      "1. Driver completes ride",
-      "2. Cloud Function fills payments table (PostgreSQL)",
-      "3. Cloud Function fills ride_locations table (PostgreSQL)",
-      "4. Cloud Function fills driver_penalties table (PostgreSQL) if applicable",
-      "5. Cloud Function updates rides table with missing data (PostgreSQL)",
-      "6. Delete from Realtime DB (activeRides/{rideId})",
-      "7. Update stats in Firestore (users/{userId}/stats)",
-      "8. Create notification in Firestore (notifications)"
+      "1. Driver completes ride (completeRide Cloud Function)",
+      "2. Update Realtime DB (activeRides/{rideId}.status = 'pending_payment')",
+      "3. Payment is processed → paymentStatus/{rideId}.status = 'completed'",
+      "4. onPaymentCompleted trigger fires:",
+      "  4a. saveCompletedRideToSupabase → INSERT/UPDATE rides table (PostgreSQL)",
+      "  4b. savePaymentToSupabase → INSERT payments table (PostgreSQL)",
+      "  4c. saveRideLocationsToSupabase → INSERT ride_locations table (PostgreSQL)",
+      "  4d. Update activeRides/{rideId} with pgRideId + archivedToSupabase=true",
+      "  4e. Update activeRides/{rideId}.status = 'completed'",
+      "  4f. cleanupRideFromRealtime → removes driverLocations, clientsLocations, chats, etc.",
+      "5. onRatingCompleted trigger fires when status → 'rating_completed':",
+      "  5a. Wait 15s, then update status to 'completed' if still 'rating_completed'",
+      "  5b. Wait 20s more, then delete activeRides/{rideId} if status is 'completed' or 'rating_completed'",
+      "6. Scheduled cleanup (cleanupRealtimeDB) removes stale entries periodically"
+    ],
+    "cancel_ride": [
+      "1. Client or driver cancels ride (cancelRide Cloud Function)",
+      "2. Update Realtime DB (activeRides/{rideId}.status = 'canceled')",
+      "3. onRideCanceled trigger fires:",
+      "  3a. saveCanceledRideToSupabase → INSERT/UPDATE rides table with cancel data",
+      "  3b. cleanupRideFromRealtime → removes related RTDB entries",
+      "4. paymentStatus/{rideId}.status = 'canceled' (if payment was initiated)",
+      "5. onPaymentCanceled trigger fires → archives canceled payment to Supabase"
+    ],
+    "programmed_ride": [
+      "1. Client creates programmed ride (createProgrammedRide Cloud Function)",
+      "2. Store in Realtime DB (programmedRides/{rideId})",
+      "3. Geo-sharding trigger syncs to programmedRidesByArea/{serviceAreaId}/{rideId}",
+      "4. processProgrammedRides scheduled function (maxInstances: 1) checks due rides every minute",
+      "5. When due: moves to activeRides and notifies nearby drivers"
+    ],
+    "role_sync": [
+      "1. Admin sets role in Firestore (users or cms-users collection)",
+      "2. syncAppUserRole / syncUserRoleFromCms Cloud Function fires",
+      "3. Sets Firebase Auth custom claims: { role, isDriver, isClient }",
+      "4. Backend functions check claims via getUserRole() (fast path) with Firestore fallback",
+      "5. Frontend receives role via getIdTokenResult()"
     ]
   },
   
