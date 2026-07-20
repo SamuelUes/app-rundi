@@ -3,11 +3,12 @@ import { ActivityIndicator, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
 import { NavigationContainer } from '@react-navigation/native';
-import { AuthProvider, useAuth } from './src/context/AuthContext';
-import { ThemeProvider, useTheme } from './src/context/ThemeContext';
+import { useAuth } from './src/hooks/shared/auth/useAuth';
+import { useTheme, useThemeInit } from './src/hooks/shared/theme/useTheme';
 import { VoiceAssistantProvider } from './src/context/VoiceAssistantContext';
 import { FCMProvider } from './src/context/FCMContext';
-import { LanguageProvider, useLanguage } from './src/context/LanguageContext';
+import { useLanguageStore } from './src/stores/languageStore';
+import { useAuthInit } from './src/hooks/shared/auth/useAuthInit';
 import { I18nextProvider } from 'react-i18next';
 import i18n from './src/i18n';
 import { usePresence } from './src/hooks/shared/presence/usePresence';
@@ -29,16 +30,25 @@ import LocationPermissionGate from './src/components/permissions/LocationPermiss
 function AppContent() {
   const { isDark } = useTheme();
   const { user } = useAuth();
-  const { isReady: isLanguageReady } = useLanguage();
+  const isLanguageReady = useLanguageStore((s) => s.isReady);
+  const loadLanguage = useLanguageStore((s) => s.loadLanguage);
   const [fontsLoaded] = useFonts({
     Montserrat: require('./src/assets/fonts/Montserrat-VariableFont_wght.ttf'),
     PlusJakartSans: require('./src/assets/fonts/PlusJakartaSans-VariableFont_wght.ttf'),
   });
   const requireBackgroundLocation =
     user?.role === 'driver' || user?.role === 'designated_driver';
+
+  // Inicializaciones de stores (reemplazan a los Providers legacy no-op)
+  useThemeInit();
+  useAuthInit();
+  React.useEffect(() => {
+    loadLanguage();
+  }, [loadLanguage]);
+
   // Inicializar listeners de notificaciones (Expo Notifications)
   useNotifications();
-  
+
   // Activar sistema de presencia y sincronización de perfil de conductor
   usePresence();
   useDriverProfileSync();
@@ -55,7 +65,7 @@ function AppContent() {
       </View>
     );
   }
-  
+
   return (
     <SafeAreaProvider>
       <TopToastProvider>
@@ -87,17 +97,11 @@ export default function App() {
 
   return (
     <I18nextProvider i18n={i18n}>
-      <LanguageProvider>
-        <ThemeProvider>
-          <VoiceAssistantProvider>
-            <AuthProvider>
-              <FCMProvider>
-                <AppContent />
-              </FCMProvider>
-            </AuthProvider>
-          </VoiceAssistantProvider>
-        </ThemeProvider>
-      </LanguageProvider>
+      <VoiceAssistantProvider>
+        <FCMProvider>
+          <AppContent />
+        </FCMProvider>
+      </VoiceAssistantProvider>
     </I18nextProvider>
   );
 }

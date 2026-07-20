@@ -26,7 +26,8 @@
     "src/types/**/*.d.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "src/**/_unused_*"
   ],
   "extends": "./node_modules/expo/tsconfig.base.json"
 }

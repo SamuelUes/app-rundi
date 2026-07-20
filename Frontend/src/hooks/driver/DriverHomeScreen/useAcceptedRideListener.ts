@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useAuth } from '../../../context/AuthContext';
+import { useAuth } from '../../shared/auth/useAuth';
 import { getDatabase, ref, onValue } from 'firebase/database';
 import { getActiveRidesByAreaPath } from '../../../utils/serviceArea';
 

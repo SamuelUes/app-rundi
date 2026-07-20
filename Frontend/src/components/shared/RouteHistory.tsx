@@ -5,7 +5,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { LoadingIcon } from '../ui/LoadingIcon';
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { haversineKm } from '../../utils/distance';
 import DynamicMap from '../map/DynamicMap';
 import { getFirebaseFunctions } from '../../config/firebase';

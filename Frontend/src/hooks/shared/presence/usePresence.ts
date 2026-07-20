@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { httpsCallable } from 'firebase/functions';
 import { getFirebaseFunctions, getFirebaseAuth, getFirebaseDatabase } from '../../../config/firebase';
 import { ref, onValue, DataSnapshot, onDisconnect, serverTimestamp, get } from 'firebase/database';
-import { useAuth } from '../../../context/AuthContext';
+import { useAuth } from '../auth/useAuth';
 import { AppState, AppStateStatus } from 'react-native';
 import sessionService from '../../../services/sessionService';
 
@@ -72,7 +72,12 @@ export function usePresence() {
         disconnectUidRef.current = uid;
         console.log('✅ [presence] onDisconnect configurado para', uid);
       } catch (error: any) {
-        console.warn('⚠️ [presence] Error configurando onDisconnect:', error?.message || error);
+        const msg = error?.message || String(error);
+        if (msg.includes('PERMISSION_DENIED') || msg.includes('Permission denied')) {
+          console.log('ℹ️ [presence] onDisconnect omitido por reglas de Firebase RTDB (best-effort)');
+        } else {
+          console.warn('⚠️ [presence] Error configurando onDisconnect:', msg);
+        }
       }
     };
 

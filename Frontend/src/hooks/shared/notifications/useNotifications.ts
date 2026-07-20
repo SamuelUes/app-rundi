@@ -7,7 +7,7 @@ import { useEffect, useState, useRef } from 'react';
 import * as Notifications from 'expo-notifications';
 import notificationService from '../../../services/notificationService';
 import liveRideNotificationService from '../../../services/liveRideNotificationService';
-import { useAuth } from '../../../context/AuthContext';
+import { useAuth } from '../auth/useAuth';
 import { navigate } from '../../../navigation/NavigationService';
 
 const parseMaybeJson = (value: any) => {

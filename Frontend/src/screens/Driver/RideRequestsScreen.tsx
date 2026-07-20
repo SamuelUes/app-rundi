@@ -13,8 +13,8 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
-import { useTheme } from '../../context/ThemeContext';
-import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
+import { useAuth } from '../../hooks/shared/auth/useAuth';
 import { useLocation } from '../../hooks/shared/location/useLocation';
 import { useRideNotifications } from '../../hooks/shared/ride/useRideNotifications';
 import ridesService from '../../services/ridesService';
@@ -22,6 +22,8 @@ import DynamicMap from '../../components/map/DynamicMap';
 import { getDatabase, onValue, ref } from 'firebase/database';
 import { RIDES_RADIUS_KM } from '../../constants/rideRadius';
 import { getActiveRidesByAreaPath } from '../../utils/serviceArea';
+import { RideRequestCard, type RideRequest as RideRequestType } from '../../components/driver/RideRequests/RideRequestCard';
+import { RideRequestOfferModal } from '../../components/driver/RideRequests/RideRequestOfferModal';
 
 interface RideRequest {
   id: string;
@@ -235,164 +237,22 @@ export default function RideRequestsScreen({ navigation }: any) {
     const distanceKm = (item.estimatedDistance / 1000).toFixed(1);
     const durationMin = Math.round(item.estimatedDuration / 60);
     const timeAgo = getTimeAgo(item.createdAt);
-    const hasSuggestedPrice = item.clientSuggestedPrice && item.clientSuggestedPrice !== item.estimatedPrice;
+    const hasSuggestedPrice = !!(item.clientSuggestedPrice && item.clientSuggestedPrice !== item.estimatedPrice);
 
     return (
-      <TouchableOpacity
-        style={styles.rideCard}
-        onPress={() => handleSelectRide(item)}
-        activeOpacity={0.7}
-      >
-        {/* Header */}
-        <View style={styles.cardHeader}>
-          <View style={styles.clientSection}>
-            <View style={styles.clientAvatar}>
-              <Text style={styles.clientAvatarText}>
-                {item.client.name.charAt(0).toUpperCase()}
-              </Text>
-            </View>
-            <View style={styles.clientInfo}>
-              <Text style={styles.clientName}>{item.client.name}</Text>
-              <View style={styles.ratingRow}>
-                <Text style={styles.ratingStar}>⭐</Text>
-                <Text style={styles.ratingText}>{item.client.rating.toFixed(1)}</Text>
-                <Text style={styles.timeText}> • {timeAgo}</Text>
-              </View>
-            </View>
-          </View>
-          <View style={styles.priceSection}>
-            <Text style={styles.priceLabel}>Tarifa</Text>
-            <Text style={styles.priceValue}>C${item.estimatedPrice}</Text>
-            {hasSuggestedPrice && (
-              <Text style={styles.suggestedPrice}>
-                Cliente ofrece: C${item.clientSuggestedPrice}
-              </Text>
-            )}
-          </View>
-        </View>
-
-        {/* Distancia desde conductor */}
-        <View style={styles.distanceBadge}>
-          <Text style={styles.distanceBadgeText}><MaterialIcons name="place" size={14} color={colors.textSecondary} /> ~{distanceKm} km de ti</Text>
-        </View>
-
-        {/* Ruta */}
-        <View style={styles.routeContainer}>
-          <View style={styles.routePoint}>
-            <MaterialIcons name="circle" size={16} color="#2196F3" />
-            <View style={styles.routeDetails}>
-              <Text style={styles.routeLabel}>RECOGER EN</Text>
-              <Text style={styles.routeAddress} numberOfLines={2}>
-                {item.origin.address}
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.routeLine} />
-
-          {/* ✅ NUEVO: Mostrar paradas extras si existen */}
-          {item.extraDestinations && item.extraDestinations.length > 0 && (
-            <>
-              {item.extraDestinations.map((stop: any, index: number) => (
-                <View key={`waypoint-${index}`}>
-                  <View style={styles.routePoint}>
-                    <MaterialIcons name="adjust" size={16} color="#FFC107" />
-                    <View style={styles.routeDetails}>
-                      <Text style={styles.routeLabel}>PARADA {index + 1}</Text>
-                      <Text style={styles.routeAddress} numberOfLines={2}>
-                        {stop.address}
-                      </Text>
-                    </View>
-                  </View>
-                  <View style={styles.routeLine} />
-                </View>
-              ))}
-            </>
-          )}
-
-          <View style={styles.routePoint}>
-            <MaterialIcons name="place" size={16} color="#F44336" />
-            <View style={styles.routeDetails}>
-              <Text style={styles.routeLabel}>DEJAR EN</Text>
-              <Text style={styles.routeAddress} numberOfLines={2}>
-                {item.destination.address}
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Info del viaje */}
-        <View style={styles.tripInfo}>
-          <View style={styles.tripInfoItem}>
-            <MaterialIcons name="straighten" size={20} color={colors.textSecondary} />
-            <Text style={styles.tripInfoText}>{distanceKm} km</Text>
-          </View>
-          <View style={styles.tripInfoDivider} />
-          <View style={styles.tripInfoItem}>
-            <MaterialIcons name="schedule" size={20} color={colors.textSecondary} />
-            <Text style={styles.tripInfoText}>{durationMin} min</Text>
-          </View>
-          <View style={styles.tripInfoDivider} />
-          <View style={styles.tripInfoItem}>
-            <MaterialIcons name="people" size={20} color={colors.textSecondary} />
-            <Text style={styles.tripInfoText}>{item.passengers || 1} pax</Text>
-          </View>
-          <View style={styles.tripInfoDivider} />
-          <View style={styles.tripInfoItem}>
-            <MaterialIcons name={item.rideType === 'designated_driver' ? 'directions-car' : 'local-taxi'} size={20} color={colors.textSecondary} />
-            <Text style={styles.tripInfoText}>
-              {item.rideType === 'designated_driver' ? 'C.D.' : 'Normal'}
-            </Text>
-          </View>
-        </View>
-
-        {/* Foto del vehículo del cliente - Solo para conductor designado */}
-        {item.rideType === 'designated_driver' && item.clientVehicle?.photos && item.clientVehicle.photos.length > 0 && (
-          <View style={styles.clientVehicleContainer}>
-            <Text style={styles.clientVehicleTitle}><MaterialIcons name="directions-car" size={18} color={colors.text} /> Vehículo del Cliente</Text>
-            <View style={styles.clientVehicleContent}>
-              <Image
-                source={{ uri: item.clientVehicle.photos[0] }}
-                style={styles.clientVehicleImage}
-                resizeMode="cover"
-              />
-              <View style={styles.clientVehicleInfo}>
-                <Text style={styles.clientVehicleText}>
-                  {item.clientVehicle.make || 'N/A'} {item.clientVehicle.model || 'N/A'}
-                </Text>
-                <Text style={styles.clientVehicleText}>
-                  {item.clientVehicle.color || 'N/A'}
-                </Text>
-                {item.clientVehicle.plate && (
-                  <Text style={styles.clientVehiclePlate}>
-                    <MaterialIcons name="assignment" size={14} color={colors.textSecondary} /> {item.clientVehicle.plate}
-                  </Text>
-                )}
-              </View>
-            </View>
-          </View>
-        )}
-
-        {/* Botones de acción */}
-        <View style={styles.actionsRow}>
-          <TouchableOpacity
-            style={styles.acceptButton}
-            onPress={() => handleAcceptWithOriginalPrice(item)}
-            disabled={accepting}
-          >
-            <Text style={styles.acceptButtonText}>
-              <MaterialIcons name="check" size={18} color="#fff" /> Aceptar C${item.estimatedPrice}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.offerButton}
-            onPress={() => handleOfferCustomPrice(item)}
-            disabled={accepting}
-          >
-            <Text style={styles.offerButtonText}><MaterialIcons name="payments" size={18} color={colors.primary} /> Ofrecer Tarifa</Text>
-          </TouchableOpacity>
-        </View>
-      </TouchableOpacity>
+      <RideRequestCard
+        item={item}
+        distanceKm={distanceKm}
+        durationMin={durationMin}
+        timeAgo={timeAgo}
+        hasSuggestedPrice={hasSuggestedPrice}
+        accepting={accepting}
+        colors={colors}
+        onSelect={handleSelectRide}
+        onAccept={handleAcceptWithOriginalPrice}
+        onOffer={handleOfferCustomPrice}
+        styles={styles}
+      />
     );
   };
 
@@ -441,92 +301,17 @@ export default function RideRequestsScreen({ navigation }: any) {
       )}
 
       {/* Modal de oferta personalizada */}
-      <Modal
+      <RideRequestOfferModal
         visible={showOfferModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowOfferModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Ofrecer Tarifa Personalizada</Text>
-            
-            {selectedRide && (
-              <View style={styles.modalInfo}>
-                <Text style={styles.modalInfoText}>
-                  Tarifa sugerida: <Text style={styles.modalInfoBold}>C${selectedRide.estimatedPrice}</Text>
-                </Text>
-                {selectedRide.clientSuggestedPrice && (
-                  <Text style={styles.modalInfoText}>
-                    Cliente ofrece: <Text style={styles.modalInfoBold}>C${selectedRide.clientSuggestedPrice}</Text>
-                  </Text>
-                )}
-                
-                {/* Rango de negociación dinámico */}
-                {(() => {
-                  const minPrice = Math.max(50, Math.round(selectedRide.estimatedPrice * 0.6667 * 100) / 100);
-                  const maxPrice = Math.min(500, Math.round(selectedRide.estimatedPrice * 1.3333 * 100) / 100);
-                  return (
-                    <View style={[styles.priceRangeContainer, { backgroundColor: colors.background, borderColor: colors.primary }]}>
-                      <Text style={[styles.priceRangeTitle, { color: colors.text }]}>
-                        <MaterialIcons name="bar-chart" size={18} color={colors.primary} /> Rango de negociación:
-                      </Text>
-                      <View style={styles.priceRangeValues}>
-                        <View style={styles.priceRangeItem}>
-                          <Text style={[styles.priceRangeLabel, { color: colors.textSecondary }]}>
-                            Mínimo
-                          </Text>
-                          <Text style={[styles.priceRangeValue, { color: '#4CAF50' }]}>
-                            C${minPrice}
-                          </Text>
-                        </View>
-                        <Text style={[styles.priceRangeDash, { color: colors.textSecondary }]}>
-                          —
-                        </Text>
-                        <View style={styles.priceRangeItem}>
-                          <Text style={[styles.priceRangeLabel, { color: colors.textSecondary }]}>
-                            Máximo
-                          </Text>
-                          <Text style={[styles.priceRangeValue, { color: '#FF9800' }]}>
-                            C${maxPrice}
-                          </Text>
-                        </View>
-                      </View>
-                    </View>
-                  );
-                })()}
-              </View>
-            )}
-
-            <Text style={styles.inputLabel}>Tu oferta:</Text>
-            <TextInput
-              style={styles.priceInput}
-              value={customOffer}
-              onChangeText={setCustomOffer}
-              keyboardType="numeric"
-              placeholder="Ej: 150"
-            />
-
-            <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={styles.modalCancelButton}
-                onPress={() => setShowOfferModal(false)}
-              >
-                <Text style={styles.modalCancelText}>Cancelar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.modalSubmitButton}
-                onPress={submitCustomOffer}
-                disabled={accepting}
-              >
-                <Text style={styles.modalSubmitText}>
-                  {accepting ? 'Enviando...' : 'Enviar Oferta'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+        selectedRide={selectedRide}
+        customOffer={customOffer}
+        accepting={accepting}
+        colors={colors}
+        onSetCustomOffer={setCustomOffer}
+        onClose={() => setShowOfferModal(false)}
+        onSubmit={submitCustomOffer}
+        styles={styles}
+      />
     </View>
   );
 }

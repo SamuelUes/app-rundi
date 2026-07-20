@@ -13,7 +13,7 @@ import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTranslation } from 'react-i18next';
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { AuthStackParamList } from '../../navigation/types';
 import firebaseAuthService from '../../services/auth/firebaseAuthService';
 import registrationService from '../../services/auth/registrationService';

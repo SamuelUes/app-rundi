@@ -1,7 +1,9 @@
 import type { TFunction } from 'i18next';
 import type { DriverStackParamList } from '../navigation/DriverStack';
 import type { DriverOfferCacheEntry } from '../services/driverOfferCacheService';
-import { haversineKm } from './distance';
+import { parseCoordinateValue as parseCoordinate } from './coordinates';
+
+export { parseCoordinate };
 
 export const ACTIVE_RIDE_STATUSES = ['accepted', 'driver_on_route', 'driver_arrived', 'in_progress'];
 export const MIN_RECHARGE_BALANCE_REQUIRED = 0;
@@ -55,19 +57,6 @@ export const getActiveRidePendingCopy = (ride: any, t: TFunction) => {
         subtitle: t('driver.home.activeRideStatus.accepted.subtitle', { client: clientName }),
       };
   }
-};
-
-export const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-  return haversineKm(lat1, lon1, lat2, lon2);
-};
-
-export const parseCoordinate = (value: any): number | null => {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value === 'string') {
-    const parsed = parseFloat(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  return null;
 };
 
 export const getDriverOfferFromRide = (ridePayload: any, driverId: string) => {

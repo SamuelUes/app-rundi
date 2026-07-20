@@ -10,7 +10,7 @@ import {
   BackHandler,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useFocusEffect } from '@react-navigation/native';
 import ridesService from '../../services/ridesService';
 import { getDatabase, ref, onValue, off, get } from 'firebase/database';

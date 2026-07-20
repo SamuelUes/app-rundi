@@ -16,7 +16,7 @@ import { Picker } from '@react-native-picker/picker';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
 import phoneAuthService from '../../services/auth/phoneAuthService';
 import registrationService from '../../services/auth/registrationService';
 import firebaseAuthService from '../../services/auth/firebaseAuthService';

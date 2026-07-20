@@ -13,11 +13,11 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import alertService from '../../services/alertService';
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { MapSkeleton } from '../../components/ui/SkeletonLoader';
 import DynamicMap from '../../components/map/DynamicMap';
 import { MAP_ICONS } from '../../constants/mapIcons';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../hooks/shared/auth/useAuth';
 import { useVoiceAssistant } from '../../context/VoiceAssistantContext';
 import { useLocation, DRIVER_LOCATION_OPTIONS } from '../../hooks/shared/location/useLocation';
 import { useChat } from '../../hooks/shared/chat/useChat';
@@ -37,6 +37,9 @@ import {
 import { useRideData } from '../../hooks/shared/ride/useRideData';
 import { useCollapsiblePanel } from '../../hooks/shared/ride/useCollapsiblePanel';
 import { useRideCancellation } from '../../hooks/shared/ride/useRideCancellation';
+import { ActiveRideSheetHeader } from '../../components/driver/ActiveRide/ActiveRideSheetHeader';
+import { ActiveRideAddressesCard } from '../../components/driver/ActiveRide/ActiveRideAddressesCard';
+import { ActiveRideCTAButtons } from '../../components/driver/ActiveRide/ActiveRideCTAButtons';
 
 const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
 
@@ -714,99 +717,41 @@ export default function ActiveRideScreen({ route, navigation }: any) {
         </TouchableOpacity>
 
         {/* Header Compacto */}
-        <View style={styles.sheetHeader}>
-          <View style={styles.headerLeft}>
-            {clientProfile?.photoUrl ? (
-              <Image source={{ uri: clientProfile.photoUrl as string }} style={styles.clientPhoto} />
-            ) : (
-              <View style={[styles.clientPhoto, { backgroundColor: colors.card }]}>
-                <Text style={styles.clientInitial}>{resolvedClientInitial}</Text>
-              </View>
-            )}
-            <View style={styles.headerText}>
-              <Text style={[styles.clientName, { color: colors.text }]}>{resolvedClientName}</Text>
-              <Text style={[styles.priceRow, { color: colors.textSecondary }]}>
-                {t('driver.activeRide.labels.fare', {
-                  amount: formatCurrency(ride?.finalFare || ride?.estimatedPrice || 0),
-                })}
-              </Text>
-              <Text style={[styles.statusPill, { color: colors.textSecondary }]}>{getStatusLabel(normalizedStatus)}</Text>
-            </View>
-          </View>
-          <View style={styles.headerRight}>
-            <TouchableOpacity onPress={handleOpenChat} style={styles.headerAction}>
-              <Text style={styles.headerActionText}>💬</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={handleCallClient} style={styles.headerAction}>
-              <Text style={styles.headerActionText}>📞</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={handleVoiceToggle}
-              style={[styles.headerAction, styles.headerActionSmall, voicePaused && styles.headerActionActive]}
-              accessibilityLabel={
-                voicePaused
-                  ? t('driver.activeRide.accessibility.resumeVoice')
-                  : t('driver.activeRide.accessibility.muteVoice')
-              }
-              accessibilityRole="button"
-            >
-              <MaterialIcons name={voicePaused ? 'volume-up' : 'volume-off'} size={24} color={colors.textSecondary || '#666'} />
-            </TouchableOpacity>
-          </View>
-        </View>
+        <ActiveRideSheetHeader
+          clientPhotoUrl={clientProfile?.photoUrl}
+          clientInitial={resolvedClientInitial}
+          clientName={resolvedClientName}
+          fareLabel={t('driver.activeRide.labels.fare', {
+            amount: formatCurrency(ride?.finalFare || ride?.estimatedPrice || 0),
+          })}
+          statusLabel={getStatusLabel(normalizedStatus)}
+          voicePaused={voicePaused}
+          colors={colors}
+          onOpenChat={handleOpenChat}
+          onCallClient={handleCallClient}
+          onToggleVoice={handleVoiceToggle}
+          styles={styles}
+          t={t}
+        />
 
         {/* Contenido expandible */}
         {panelExpanded && (
           <ScrollView style={styles.sheetContent} showsVerticalScrollIndicator={false}>
             {/* Addresses Card */}
-            <View style={[styles.addressesCard, { backgroundColor: colors.card }]}>
-              <View style={styles.addressesLeftCol}>
-                <Image source={ORIGIN_PIN} style={styles.listPinImage} />
-                {ride?.extraDestinations?.map?.((stop: any, idx: number) => (
-                  <Image key={`pin-${idx}`} source={MULTI_STOP_LIST_PIN} style={styles.listPinImage} />
-                ))}
-                <Image source={DESTINATION_PIN} style={styles.listPinImage} />
-              </View>
-              <View style={styles.addressesRightCol}>
-                <View style={styles.addressRow}>
-                  <Text numberOfLines={2} style={[styles.addressRowText, { color: colors.text }]}>
-                    {ride?.origin?.address || t('driver.activeRide.labels.originFallback')}
-                  </Text>
-                </View>
-                {ride?.extraDestinations?.map?.((w: any, i: number) => (
-                  <View key={`addr-${i}`} style={styles.addressRow}>
-                    <Text numberOfLines={2} style={[styles.addressRowText, { color: colors.text }]}>
-                      {w?.address ||
-                        t('driver.activeRide.labels.stopLabel', { index: i + 1 })}
-                    </Text>
-                  </View>
-                ))}
-                <View style={styles.addressRow}>
-                  <Text numberOfLines={2} style={[styles.addressRowText, { color: colors.text }]}>
-                    {ride?.destination?.address ||
-                      t('driver.activeRide.labels.destinationFallback')}
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.addressesSideActions}>
-                <TouchableOpacity style={[styles.navButtonGreen, { backgroundColor: '#4CAF50' }]} onPress={handleNavigate}>
-                  <Text style={styles.navButtonText}>
-                    {t('driver.activeRide.navigation.button')}
-                  </Text>
-                </TouchableOpacity>
-                <View style={[styles.etaMiniCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                  <Text style={[styles.etaTitle, { color: colors.textSecondary }]}>
-                    {t('driver.activeRide.labels.estimatedTitle')}
-                  </Text>
-                  <Text style={[styles.etaValue, { color: colors.text }]}>
-                    {formatEstimatedMinutes((ride?.estimatedDuration || 0) / 60)}
-                  </Text>
-                  <Text style={[styles.etaMeta, { color: colors.textSecondary }]}>
-                    {formatEstimatedDistance((ride?.estimatedDistance || 0) / 1000)}
-                  </Text>
-                </View>
-              </View>
-            </View>
+            <ActiveRideAddressesCard
+              originAddress={ride?.origin?.address}
+              destinationAddress={ride?.destination?.address}
+              extraDestinations={ride?.extraDestinations}
+              originPin={ORIGIN_PIN}
+              multiStopPin={MULTI_STOP_LIST_PIN}
+              destinationPin={DESTINATION_PIN}
+              etaMinutesLabel={formatEstimatedMinutes((ride?.estimatedDuration || 0) / 60)}
+              etaDistanceLabel={formatEstimatedDistance((ride?.estimatedDistance || 0) / 1000)}
+              colors={colors}
+              onNavigate={handleNavigate}
+              styles={styles}
+              t={t}
+            />
 
             {/* Progreso */}
             <View style={styles.progressIndicator}>
@@ -837,38 +782,20 @@ export default function ActiveRideScreen({ route, navigation }: any) {
                 : isDriverOnRoute
                 ? handleStartRide
                 : handleGoOnRoute;
-              return show ? (
-                <TouchableOpacity
-                  style={[styles.primaryButton, { backgroundColor: '#D4AF37' }, updating && styles.buttonDisabled]}
-                  onPress={onPress}
-                  disabled={updating}
-                >
-                  <Text style={styles.primaryButtonText}>{label}</Text>
-                </TouchableOpacity>
-              ) : null;
+              return (
+                <ActiveRideCTAButtons
+                  show={show}
+                  ctaLabel={label}
+                  updating={updating}
+                  isCancellingRide={isCancellingRide}
+                  cancelButtonScale={cancelButtonScale}
+                  onCTAPress={onPress}
+                  onCancelRide={handleCancelRide}
+                  styles={styles}
+                  t={t}
+                />
+              );
             })()}
-
-            <AnimatedTouchableOpacity
-              style={[
-                styles.cancelButton,
-                updating && styles.buttonDisabled,
-                {
-                  transform: [{ scale: cancelButtonScale }],
-                  opacity: isCancellingRide ? 0.7 : 1,
-                },
-              ]}
-              onPress={handleCancelRide}
-              disabled={updating || isCancellingRide}
-              activeOpacity={0.85}
-            >
-              {isCancellingRide ? (
-                <LoadingIcon size={20} color="#f44336" />
-              ) : (
-                <Text style={[styles.cancelButtonText, { color: '#f44336' }]}>
-                  {t('driver.activeRide.buttons.cancelRide')}
-                </Text>
-              )}
-            </AnimatedTouchableOpacity>
 
             <SupportChatShortcut
               style={{ marginTop: 16, marginHorizontal: 8 }}
@@ -902,38 +829,20 @@ export default function ActiveRideScreen({ route, navigation }: any) {
                 : isDriverOnRoute
                 ? handleStartRide
                 : handleGoOnRoute;
-              return show ? (
-                <TouchableOpacity
-                  style={[styles.primaryButton, { backgroundColor: '#D4AF37' }, updating && styles.buttonDisabled]}
-                  onPress={onPress}
-                  disabled={updating}
-                >
-                  <Text style={styles.primaryButtonText}>{label}</Text>
-                </TouchableOpacity>
-              ) : null;
+              return (
+                <ActiveRideCTAButtons
+                  show={show}
+                  ctaLabel={label}
+                  updating={updating}
+                  isCancellingRide={isCancellingRide}
+                  cancelButtonScale={cancelButtonScale}
+                  onCTAPress={onPress}
+                  onCancelRide={handleCancelRide}
+                  styles={styles}
+                  t={t}
+                />
+              );
             })()}
-
-            <AnimatedTouchableOpacity
-              style={[
-                styles.cancelButton,
-                updating && styles.buttonDisabled,
-                {
-                  transform: [{ scale: cancelButtonScale }],
-                  opacity: isCancellingRide ? 0.7 : 1,
-                },
-              ]}
-              onPress={handleCancelRide}
-              disabled={updating || isCancellingRide}
-              activeOpacity={0.85}
-            >
-              {isCancellingRide ? (
-                <LoadingIcon size={20} color="#f44336" />
-              ) : (
-                <Text style={[styles.cancelButtonText, { color: '#f44336' }]}>
-                  {t('driver.activeRide.buttons.cancelRide')}
-                </Text>
-              )}
-            </AnimatedTouchableOpacity>
           </View>
         )}
       </Animated.View>

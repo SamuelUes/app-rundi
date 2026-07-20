@@ -1413,8 +1413,6 @@ PODS:
     - Yoga
   - ExpoAsset (12.0.13):
     - ExpoModulesCore
-  - ExpoBackgroundFetch (14.0.9):
-    - ExpoModulesCore
   - ExpoCamera (17.0.10):
     - ExpoModulesCore
     - ZXingObjC/OneD
@@ -1473,8 +1471,6 @@ PODS:
   - ExpoSpeech (14.0.8):
     - ExpoModulesCore
   - ExpoSplashScreen (31.0.13):
-    - ExpoModulesCore
-  - ExpoSystemUI (6.0.9):
     - ExpoModulesCore
   - ExpoWebBrowser (15.0.11):
     - ExpoModulesCore
@@ -3880,7 +3876,6 @@ DEPENDENCIES:
   - expo-dev-menu (from `../node_modules/expo-dev-menu`)
   - expo-dev-menu-interface (from `../node_modules/expo-dev-menu-interface/ios`)
   - ExpoAsset (from `../node_modules/expo-asset/ios`)
-  - ExpoBackgroundFetch (from `../node_modules/expo-background-fetch/ios`)
   - ExpoCamera (from `../node_modules/expo-camera/ios`)
   - ExpoCrypto (from `../node_modules/expo-auth-session/node_modules/expo-crypto/ios`)
   - ExpoDevice (from `../node_modules/expo-device/ios`)
@@ -3898,7 +3893,6 @@ DEPENDENCIES:
   - ExpoSensors (from `../node_modules/expo-sensors/ios`)
   - ExpoSpeech (from `../node_modules/expo-speech/ios`)
   - ExpoSplashScreen (from `../node_modules/expo-splash-screen/ios`)
-  - ExpoSystemUI (from `../node_modules/expo-system-ui/ios`)
   - ExpoWebBrowser (from `../node_modules/expo-web-browser/ios`)
   - EXTaskManager (from `../node_modules/expo-task-manager/ios`)
   - EXUpdatesInterface (from `../node_modules/expo-updates-interface/ios`)
@@ -4054,8 +4048,6 @@ EXTERNAL SOURCES:
     :path: "../node_modules/expo-dev-menu-interface/ios"
   ExpoAsset:
     :path: "../node_modules/expo-asset/ios"
-  ExpoBackgroundFetch:
-    :path: "../node_modules/expo-background-fetch/ios"
   ExpoCamera:
     :path: "../node_modules/expo-camera/ios"
   ExpoCrypto:
@@ -4090,8 +4082,6 @@ EXTERNAL SOURCES:
     :path: "../node_modules/expo-speech/ios"
   ExpoSplashScreen:
     :path: "../node_modules/expo-splash-screen/ios"
-  ExpoSystemUI:
-    :path: "../node_modules/expo-system-ui/ios"
   ExpoWebBrowser:
     :path: "../node_modules/expo-web-browser/ios"
   EXTaskManager:
@@ -4289,7 +4279,6 @@ SPEC CHECKSUMS:
   expo-dev-menu: 0afa04b862f369caa98ca7ac5055d491f1d3d38c
   expo-dev-menu-interface: 600df12ea01efecdd822daaf13cc0ac091775533
   ExpoAsset: 9e5a7c9c0a9fb83ad5b2bb365141f2bd7f289b66
-  ExpoBackgroundFetch: 1631d1fbf59e6ad98ca83b6780ae3a35f678f632
   ExpoCamera: 6a326deb45ba840749652e4c15198317aa78497e
   ExpoCrypto: e2a2c4c748aac8485e5675f027b7901f511d43ff
   ExpoDevice: 6327c3c200816795708885adf540d26ecab83d1a
@@ -4307,7 +4296,6 @@ SPEC CHECKSUMS:
   ExpoSensors: 8f9fe9a9ffd36ca9c2f0fe40dafc0a063f844420
   ExpoSpeech: d22b56570ccfab5a27112dc9691f1ac83537de26
   ExpoSplashScreen: bc3cffefca2716e5f22350ca109badd7e50ec14d
-  ExpoSystemUI: 2ad325f361a2fcd96a464e8574e19935c461c9cc
   ExpoWebBrowser: 970dd4c64c29c955c3af664c8058ba768a4c9187
   EXTaskManager: 6f1a66e4c8cc6df6e24c3d90928704bc3013eae5
   EXUpdatesInterface: 5adf50cb41e079c861da6d9b4b954c3db9a50734
@@ -4429,6 +4417,6 @@ SPEC CHECKSUMS:
   Yoga: 65431d43277b661ebc7289c6c5d82f64ce42cfe0
   ZXingObjC: 8898711ab495761b2dbbdec76d90164a6d7e14c5
 
-PODFILE CHECKSUM: 0f4294deef3c63b36e6d8a8240a641b9916042c2
+PODFILE CHECKSUM: e2d9439d3bb082f39d423dd32a96f838b194222a
 
 COCOAPODS: 1.17.0

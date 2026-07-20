@@ -146,7 +146,7 @@ class PhoneAuthService {
       throw new Error(this.tr('errors.nativeFirebaseUnavailable'));
     }
 
-    return nativeAuthModule.default();
+    return (nativeAuthModule.getAuth ? nativeAuthModule.getAuth() : nativeAuthModule.default());
   }
 }
 

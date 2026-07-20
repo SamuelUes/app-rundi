@@ -22,8 +22,8 @@ import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import DynamicMap from '../../components/map/DynamicMap';
-import { useTheme } from '../../context/ThemeContext';
-import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
+import { useAuth } from '../../hooks/shared/auth/useAuth';
 import { useVoiceAssistant } from '../../context/VoiceAssistantContext';
 import alertService from '../../services/alertService';
 import { DriverStackParamList } from '../../navigation/DriverStack';
@@ -36,6 +36,11 @@ import { useRideActions } from '../../hooks/shared/ride/useRideActions';
 import { useClientProfile } from '../../hooks/driver/RidePreviewScreen/useClientProfile';
 import { useTranslation } from 'react-i18next';
 import { calculateTotalDistanceKm } from '../../utils/ridePreviewHelpers';
+import { RidePreviewNegotiation } from '../../components/driver/RidePreview/RidePreviewNegotiation';
+import { RidePreviewClientInfo } from '../../components/driver/RidePreview/RidePreviewClientInfo';
+import { RidePreviewActions } from '../../components/driver/RidePreview/RidePreviewActions';
+import { RidePreviewPhotoModal } from '../../components/driver/RidePreview/RidePreviewPhotoModal';
+import { RidePreviewNearbyCard } from '../../components/driver/RidePreview/RidePreviewNearbyCard';
 
 const BACK_ICON = require('../../assets/icons/back_button/back_button2x.png');
 
@@ -316,197 +321,46 @@ export default function RidePreviewScreen() {
   };
 
   const renderNearbyCard = () => {
-    if (!nearbyQueue || nearbyQueue.length === 0) return null;
-    const next = nearbyQueue[0] as Partial<RidePreviewData> & { distanceMeters?: number };
-    const labelDistance =
-      typeof next?.distanceMeters === 'number'
-        ? t('driver.ridePreview.nearby.distanceMeters', {
-            distance: Math.max(1, Math.round(next.distanceMeters)),
-          })
-        : typeof next?.estimatedDistance === 'number'
-          ? t('driver.ridePreview.nearby.distanceKilometers', {
-              distance: Math.round((next.estimatedDistance || 0) / 100) / 10,
-            })
-          : t('driver.ridePreview.nearby.distanceFallback');
-    const priceText =
-      typeof next?.estimatedPrice === 'number'
-        ? formatCurrency(next.estimatedPrice)
-        : t('driver.ridePreview.nearby.priceFallback');
-    const originText = next?.origin?.address || t('driver.ridePreview.nearby.originFallback');
-
     return (
-      <View
-        style={[
-          styles.nearbyCard,
-          {
-            backgroundColor: isDark ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.95)',
-            borderColor: colors.border,
-          },
-        ]}
-      >
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.nearbyTitle, { color: colors.text }]}>{t('driver.ridePreview.nearby.title')}</Text>
-          <Text style={[styles.nearbySubtitle, { color: colors.textSecondary }]} numberOfLines={1}>
-            {labelDistance} • {priceText} • {originText}
-          </Text>
-        </View>
-        <TouchableOpacity
-          style={[styles.nearbyButton, { backgroundColor: colors.primary }]}
-          onPress={switchToNearby}
-        >
-          <Text style={styles.nearbyButtonText}>{t('driver.ridePreview.nearby.view')}</Text>
-        </TouchableOpacity>
-      </View>
+      <RidePreviewNearbyCard
+        nearbyQueue={nearbyQueue}
+        colors={colors}
+        isDark={isDark}
+        formatCurrency={formatCurrency}
+        onSwitchToNearby={switchToNearby}
+        styles={styles}
+        t={t}
+      />
     );
   };
 
   const renderNegotiationContent = () => {
-    const customOfferButtonLabel = lastSuggestedPrice
-      ? formatCurrency(lastSuggestedPrice)
-      : t('driver.ridePreview.negotiation.customOfferButton');
-
     return (
-      <View style={styles.negotiationWrapper}>
-        {renderNegotiationBanner()}
-
-        <View
-          style={[
-            styles.priceCard,
-            {
-              backgroundColor: isDark ? 'rgba(33,33,33,0.9)' : '#FFF6E6',
-              borderColor: isDark ? 'rgba(255,255,255,0.06)' : '#E3C592',
-            },
-          ]}
-        >
-          <Text style={[styles.priceLabel, { color: colors.textSecondary }]}>
-            {t('driver.ridePreview.negotiation.estimatedLabel')}
-          </Text>
-          <Text style={[styles.priceValue, { color: colors.text }]}>
-            {formatCurrency(currentRide.clientSuggestedPrice || currentRide.estimatedPrice)}
-          </Text>
-
-                  <TouchableOpacity
-                    style={[
-                      styles.suggestButton,
-                      styles.inlineSuggestButton,
-                      { backgroundColor: colors.primary, opacity: sendingOffer ? 0.7 : 1 },
-                    ]}
-                    onPress={handleCustomOfferPress}
-                    disabled={sendingOffer}
-                    activeOpacity={0.9}
-                  >
-                    <Text style={styles.suggestButtonText}>{customOfferButtonLabel}</Text>
-                  </TouchableOpacity>
-
-          <View style={styles.suggestionsSection}>
-            {quickSuggestions.length > 0 && (
-              <>
-                <Text style={[styles.suggestionsLabel, { color: colors.textSecondary }]}>
-                  {t('driver.ridePreview.negotiation.suggestionsLabel')}
-                </Text>
-                <View style={styles.suggestionsRow}>
-                  <View style={styles.chipsRow}>
-                    {quickSuggestions.map((value) => (
-                      <TouchableOpacity
-                        key={value}
-                        style={[styles.chip, { backgroundColor: isDark ? 'rgba(125,230,173,0.18)' : 'rgba(125,230,173,0.25)' }]}
-                        onPress={() => handleApplySuggestion(value)}
-                      >
-                        <Text style={[styles.chipLabel, { color: isDark ? '#7DE6AD' : '#268C5C' }]}>
-                          {formatCurrency(value)}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-            {isDesignatedRide && currentRide.clientVehiclePhoto ? (
-              <TouchableOpacity
-                style={[styles.iconButton, styles.vehiclePhotoButton, { backgroundColor: 'rgba(115,230,173,0.25)' }]}
-                onPress={() => setPhotoModalUrl(currentRide.clientVehiclePhoto || null)}
-              >
-                <MaterialIcons name="directions-car" size={20} color="#FFFFFF" />
-              </TouchableOpacity>
-            ) : null}
-                </View>
-              </>
-            )}
-
-            {quickSuggestions.length === 0 && (
-              <TouchableOpacity
-                style={[styles.suggestButton, { backgroundColor: colors.primary, opacity: sendingOffer ? 0.7 : 1 }]}
-                onPress={handleCustomOfferPress}
-                disabled={sendingOffer}
-                activeOpacity={0.9}
-              >
-                <Text style={styles.suggestButtonText}>{customOfferButtonLabel}</Text>
-              </TouchableOpacity>
-            )}
-
-            {customOfferVisible && (
-              <View
-                style={[
-                  styles.customOfferCard,
-                  {
-                    backgroundColor: isDark ? 'rgba(23,30,38,0.92)' : '#FFFFFF',
-                    borderColor: isDark ? 'rgba(255,255,255,0.16)' : 'rgba(21, 37, 58, 0.12)',
-                  },
-                ]}
-              >
-                <Text style={[styles.customOfferLabel, { color: colors.textSecondary }]}>
-                  {t('driver.ridePreview.negotiation.customLabel')}
-                </Text>
-                <TextInput
-                  ref={customOfferInputRef}
-                  style={[
-                    styles.offerInput,
-                    {
-                      borderColor: isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.1)',
-                      backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F7F7F7',
-                      color: colors.text,
-                    },
-                  ]}
-                  value={counterOffer}
-                  onChangeText={handleCustomOfferChange}
-                  keyboardType="numeric"
-                  inputMode="numeric"
-                  placeholder={t('driver.ridePreview.negotiation.placeholderExample')}
-                  placeholderTextColor={isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.35)'}
-                  returnKeyType="done"
-                  onSubmitEditing={handleSendCustomOffer}
-                  editable={!sendingOffer}
-                />
-                <TouchableOpacity
-                  style={[styles.customOfferSendButton, { backgroundColor: colors.primary, opacity: sendingOffer ? 0.7 : 1 }]}
-                  onPress={handleSendCustomOffer}
-                  activeOpacity={0.9}
-                  disabled={sendingOffer}
-                >
-                  {sendingOffer ? (
-                    <LoadingIcon size={20} color="#FFFFFF" />
-                  ) : (
-                    <Text style={styles.customOfferSendButtonText}>
-                      {t('driver.ridePreview.negotiation.send')}
-                    </Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-            )}
-          </View>
-
-          <View
-            style={[
-              styles.finalRow,
-              {
-                borderTopColor: isDark ? 'rgba(255,255,255,0.08)' : '#E5D5B8',
-              },
-            ]}
-          >
-            <Text style={[styles.finalLabel, { color: colors.textSecondary }]}>
-              {t('driver.ridePreview.negotiation.finalLabel')}
-            </Text>
-            <Text style={[styles.finalValue, { color: colors.text }]}>{finalPricePreview}</Text>
-          </View>
-        </View>
-      </View>
+      <RidePreviewNegotiation
+        negotiationStatus={currentRide.negotiationStatus}
+        driverOfferedPrice={currentRide.driverOfferedPrice}
+        clientSuggestedPrice={currentRide.clientSuggestedPrice}
+        estimatedPrice={currentRide.estimatedPrice}
+        counterOffer={counterOffer}
+        lastSuggestedPrice={lastSuggestedPrice}
+        sendingOffer={sendingOffer}
+        customOfferVisible={customOfferVisible}
+        quickSuggestions={quickSuggestions}
+        finalPricePreview={finalPricePreview}
+        isDesignatedRide={isDesignatedRide}
+        clientVehiclePhoto={currentRide.clientVehiclePhoto}
+        colors={colors}
+        isDark={isDark}
+        formatCurrency={formatCurrency}
+        customOfferInputRef={customOfferInputRef}
+        onCustomOfferPress={handleCustomOfferPress}
+        onCustomOfferChange={handleCustomOfferChange}
+        onSendCustomOffer={handleSendCustomOffer}
+        onApplySuggestion={handleApplySuggestion}
+        onOpenPhotoModal={(url) => setPhotoModalUrl(url)}
+        styles={styles}
+        t={t}
+      />
     );
   };
 
@@ -573,70 +427,19 @@ export default function RidePreviewScreen() {
         </View>
 
         <View style={styles.clientRow}>
-          <View
-            style={[
-              styles.avatarPlaceholder,
-              {
-                backgroundColor: isDark ? 'rgba(255,255,255,0.12)' : '#ECECEC',
-              },
-            ]}
-          >
-            {clientProfile?.photoUrl ? (
-              <Image
-                source={{ uri: clientProfile.photoUrl }}
-                style={styles.avatarImage}
-                resizeMode="cover"
-              />
-            ) : (
-              <Text style={styles.avatarInitials}>
-                {resolvedClientName
-                  .split(' ')
-                  .map((part) => part.charAt(0).toUpperCase())
-                  .slice(0, 2)
-                  .join('')}
-              </Text>
-            )}
-          </View>
-          <View style={styles.clientInfo}>
-            <Text style={[styles.clientNameText, { color: colors.text }]} numberOfLines={1}>
-              {resolvedClientName}
-            </Text>
-            <Text style={[styles.clientMetaText, { color: colors.textSecondary }]}> 
-              {t('driver.ridePreview.labels.estimatedPrice', {
-                amount: formatCurrency(currentRide.estimatedPrice),
-              })}
-            </Text>
-            {typeof currentRide.clientComment === 'string' && currentRide.clientComment.trim().length > 0 ? (
-              <Text style={[styles.clientMetaText, { color: colors.textSecondary }]} numberOfLines={2}>
-                {`Nota: ${currentRide.clientComment.trim()}`}
-              </Text>
-            ) : null}
-          </View>
-          <View style={styles.contactActions}>
-            <TouchableOpacity
-              style={[
-                styles.iconButton,
-                {
-                  backgroundColor: isDark ? 'rgba(255,255,255,0.12)' : '#F2F2F2',
-                },
-              ]}
-              onPress={handleMessageClient}
-            >
-              <MaterialIcons name="chat" size={24} color={colors.textSecondary || '#666'} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.iconButton,
-                {
-                  backgroundColor: isDark ? 'rgba(255,255,255,0.12)' : '#F2F2F2',
-                },
-              ]}
-              onPress={handleCallClient}
-            >
-              <MaterialIcons name="call" size={24} color={colors.textSecondary || '#666'} />
-            </TouchableOpacity>
-
-          </View>
+          <RidePreviewClientInfo
+            resolvedClientName={resolvedClientName}
+            estimatedPrice={currentRide.estimatedPrice}
+            clientComment={currentRide.clientComment}
+            clientProfile={clientProfile}
+            colors={colors}
+            isDark={isDark}
+            formatCurrency={formatCurrency}
+            onMessageClient={handleMessageClient}
+            onCallClient={handleCallClient}
+            styles={styles}
+            t={t}
+          />
         </View>
 
         <Animated.View
@@ -656,72 +459,28 @@ export default function RidePreviewScreen() {
           </View>
         </Animated.View>
 
-        <View style={styles.actionsRow}>
-          <AnimatedTouchableOpacity
-            style={[
-              styles.acceptButton,
-              {
-                backgroundColor: colors.warning,
-                transform: [{ scale: acceptButtonScale }],
-                opacity: acceptingRide ? 0.7 : 1,
-              },
-            ]}
-            onPress={handleAcceptRide}
-            activeOpacity={0.85}
-            disabled={acceptingRide}
-          >
-            {acceptingRide ? (
-              <LoadingIcon size={20} color="#FFFFFF" />
-            ) : (
-              <Text style={styles.actionButtonText}>{t('driver.ridePreview.buttons.accept')}</Text>
-            )}
-          </AnimatedTouchableOpacity>
-
-          <AnimatedTouchableOpacity
-            style={[
-              styles.rejectButton,
-              {
-                backgroundColor: colors.error,
-                transform: [{ scale: rejectButtonScale }],
-                opacity: isRejectingRide ? 0.7 : 1,
-              },
-            ]}
-            onPress={handleRejectRide}
-            activeOpacity={0.85}
-            disabled={isRejectingRide}
-          >
-            {isRejectingRide ? (
-              <LoadingIcon size={20} color="#FFFFFF" />
-            ) : (
-              <Text style={styles.actionButtonText}>{t('driver.ridePreview.buttons.reject')}</Text>
-            )}
-          </AnimatedTouchableOpacity>
-        </View>
+        <RidePreviewActions
+          acceptingRide={acceptingRide}
+          isRejectingRide={isRejectingRide}
+          acceptButtonScale={acceptButtonScale}
+          rejectButtonScale={rejectButtonScale}
+          colors={colors}
+          onAccept={handleAcceptRide}
+          onReject={handleRejectRide}
+          styles={styles}
+          t={t}
+        />
       </View>
 
-      <Modal
+      <RidePreviewPhotoModal
         visible={!!photoModalUrl}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setPhotoModalUrl(null)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: isDark ? '#1F1F1F' : '#FFFFFF' }]}
-          >
-            <Image
-              source={{ uri: photoModalUrl || undefined }}
-              style={styles.modalImage}
-              resizeMode="contain"
-            />
-            <TouchableOpacity
-              style={[styles.closeModalButton, { backgroundColor: colors.primary }]}
-              onPress={() => setPhotoModalUrl(null)}
-            >
-              <Text style={styles.closeModalText}>{t('driver.ridePreview.modal.close')}</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+        photoUrl={photoModalUrl}
+        isDark={isDark}
+        colors={colors}
+        onClose={() => setPhotoModalUrl(null)}
+        styles={styles}
+        t={t}
+      />
     </View>
   );
 }

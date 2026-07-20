@@ -2,7 +2,7 @@ import React from 'react';
 import { Animated } from 'react-native';
 import type { ImageSourcePropType } from 'react-native';
 import GoogleMap from './GoogleMaps';
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
 
 type RideRequestMarker = {
   id: string;

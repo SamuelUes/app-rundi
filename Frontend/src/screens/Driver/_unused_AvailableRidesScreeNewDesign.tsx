@@ -10,8 +10,8 @@ import {
   Image,
   Modal,
 } from 'react-native';
-import { useTheme } from '../../context/ThemeContext';
-import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
+import { useAuth } from '../../hooks/shared/auth/useAuth';
 import { useVoiceAssistant } from '../../context/VoiceAssistantContext';
 import { getDatabase, ref, onValue, get } from 'firebase/database';
 import priceNegotiationService from '../../services/priceNegotiationService';

@@ -24,8 +24,8 @@ import {
 } from 'react-native';
 import MapView from 'react-native-maps';
 import { useFocusEffect, useIsFocused } from '@react-navigation/native';
-import { useTheme } from '../../context/ThemeContext';
-import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
+import { useAuth } from '../../hooks/shared/auth/useAuth';
 import { httpsCallable } from 'firebase/functions';
 import { getFirebaseFunctions } from '../../config/firebase';
 import { haversineKm } from '../../utils/distance';

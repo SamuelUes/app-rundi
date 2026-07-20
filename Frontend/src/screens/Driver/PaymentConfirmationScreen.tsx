@@ -18,7 +18,7 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { AnimatedButton } from '../../components/ui/AnimatedButton';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { getDatabase, ref, onValue, off, update } from 'firebase/database';
@@ -28,6 +28,11 @@ import alertService from '../../services/alertService';
 import sessionService from '../../services/sessionService';
 import { useTranslation } from 'react-i18next';
 import SupportChatShortcut from '../../components/shared/SupportChatShortcut';
+import { PaymentConfirmationHeader } from '../../components/driver/PaymentConfirmation/PaymentConfirmationHeader';
+import { PaymentConfirmationBreakdown } from '../../components/driver/PaymentConfirmation/PaymentConfirmationBreakdown';
+import { PaymentConfirmationCashStatus } from '../../components/driver/PaymentConfirmation/PaymentConfirmationCashStatus';
+import { PaymentConfirmationCodeInput } from '../../components/driver/PaymentConfirmation/PaymentConfirmationCodeInput';
+import { PaymentConfirmationActions } from '../../components/driver/PaymentConfirmation/PaymentConfirmationActions';
 
 interface PaymentConfirmationScreenProps {
   route: {
@@ -482,44 +487,23 @@ export default function PaymentConfirmationScreen({
 
   return (
     <ScrollView style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <MaterialIcons name={paymentMethod === 'cash' ? 'payments' : 'credit-card'} size={48} color={colors.primary} />
-        <Text style={styles.title}>
-          {paymentMethod === 'cash' ? headerTexts.cashTitle : headerTexts.cardTitle}
-        </Text>
-        <Text style={styles.subtitle}>
-          {paymentMethod === 'cash'
-            ? t('driver.paymentConfirmation.header.cashSubtitle', { name: clientName })
-            : t('driver.paymentConfirmation.header.cardSubtitle', { name: clientName })}
-        </Text>
-      </View>
+      <PaymentConfirmationHeader
+        paymentMethod={paymentMethod}
+        headerTexts={headerTexts}
+        clientName={clientName}
+        colors={colors}
+        t={t}
+        styles={styles}
+      />
 
-      {/* Amount Breakdown */}
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>{breakdownTexts.title}</Text>
-        
-        <View style={styles.row}>
-          <Text style={styles.label}>{breakdownTexts.fare}</Text>
-          <Text style={styles.value}>C${numericAmount.toFixed(2)}</Text>
-        </View>
+      <PaymentConfirmationBreakdown
+        breakdownTexts={breakdownTexts}
+        numericAmount={numericAmount}
+        numericTip={numericTip}
+        totalAmount={totalAmount}
+        styles={styles}
+      />
 
-        {numericTip > 0 && (
-          <View style={styles.row}>
-            <Text style={styles.label}>{breakdownTexts.tip}</Text>
-            <Text style={styles.valueGreen}>+C${numericTip.toFixed(2)}</Text>
-          </View>
-        )}
-
-        <View style={styles.divider} />
-
-        <View style={styles.row}>
-          <Text style={styles.totalLabel}>{breakdownTexts.total}</Text>
-          <Text style={styles.totalValue}>C${totalAmount.toFixed(2)}</Text>
-        </View>
-      </View>
-
-      {/* Payment Method Badge */}
       <View style={styles.methodBadge}>
         <Text style={styles.methodBadgeText}>
           {t('driver.paymentConfirmation.methodBadge.label', {
@@ -528,169 +512,45 @@ export default function PaymentConfirmationScreen({
         </Text>
       </View>
 
-      {/* CASH PAYMENT FLOW */}
       {paymentMethod === 'cash' && (
         <>
-          {/* Estado de confirmación del cliente */}
-          {clientConfirmed ? (
-            <View style={[styles.statusCard, styles.statusCardSuccess]}>
-              <MaterialIcons name="check-circle" size={32} color="#4CAF50" />
-              <Text style={styles.statusTextSuccess}>{cashStatusTexts.confirmedTitle}</Text>
-              <Text style={styles.statusSubtext}>{cashStatusTexts.confirmedSubtitle}</Text>
-            </View>
-          ) : (
-            <View style={[styles.statusCard, styles.statusCardWarning]}>
-              <MaterialIcons name="hourglass-empty" size={32} color="#FF9800" />
-              <Text style={styles.statusTextWarning}>{cashStatusTexts.waitingTitle}</Text>
-              <Text style={styles.statusSubtext}>{cashStatusTexts.waitingSubtitle}</Text>
-            </View>
-          )}
+          <PaymentConfirmationCashStatus
+            clientConfirmed={clientConfirmed}
+            cashStatusTexts={cashStatusTexts}
+            instructionsTexts={instructionsTexts}
+            styles={styles}
+          />
 
-          {/* Instructions */}
-          <View style={styles.instructionsCard}>
-            <Text style={styles.instructionsTitle}>{instructionsTexts.title}</Text>
-            <Text style={styles.instructionsText}>{instructionsTexts.text}</Text>
-          </View>
+          <PaymentConfirmationCodeInput
+            rideId={rideId}
+            code={code}
+            codeDigits={codeDigits}
+            isCodeValidated={isCodeValidated}
+            confirming={confirming}
+            switching={switching}
+            buttonTexts={buttonTexts}
+            alertsTexts={alertsTexts}
+            colors={colors}
+            t={t}
+            onSetCode={setCode}
+            onSetCodeDigits={setCodeDigits}
+            onSetIsCodeValidated={setIsCodeValidated}
+            onSetConfirming={setConfirming}
+            styles={styles}
+          />
 
-          {/* Botón para generar código de confirmación (flujo code) */}
-          {!code && (
-            <AnimatedButton
-              title={buttonTexts.generateCode}
-              onPress={async () => {
-                try {
-                  setConfirming(true);
-
-                  const { app } = await initializeFirebase();
-                  if (!app) throw new Error('Firebase no inicializado');
-
-                  const functions = getFunctions(app);
-                  const generateCashCodeFn = httpsCallable(functions, 'generateCashCode');
-                  const deviceId = await sessionService.getDeviceId();
-
-                  const res = await generateCashCodeFn({ rideId, deviceId });
-                  const data = res.data as any;
-
-                  if (data?.success && data.code) {
-                    setCode(String(data.code));
-                    setCodeDigits(['', '', '', '']);
-                    setIsCodeValidated(false);
-                  }
-                } catch (e: any) {
-                  console.error('❌ Error generando código:', e);
-                  alertService.showErrorAlert(e.message || 'No se pudo generar el código');
-                } finally {
-                  setConfirming(false);
-                }
-              }}
-              loading={confirming}
-              disabled={confirming || switching}
-              style={{ marginBottom: 12 }}
-            />
-          )}
-
-          {/* Ingreso del código de 4 dígitos cuando ya fue generado */}
-          {code && (
-            <View style={{ alignItems: 'center', marginBottom: 16 }}>
-              <Text style={{ marginBottom: 8, color: colors.text }}>
-                {t('driver.paymentConfirmation.codeLabel', { code })}
-              </Text>
-              <View style={{ flexDirection: 'row', justifyContent: 'center' }}>
-                {[0, 1, 2, 3].map((index) => (
-                  <TextInput
-                    key={index}
-                    ref={(el) => {
-                      codeInputsRef.current[index] = el;
-                    }}
-                    style={{
-                      width: 50,
-                      height: 50,
-                      marginHorizontal: 6,
-                      borderRadius: 8,
-                      borderWidth: 1,
-                      borderColor: isCodeValidated ? '#4CAF50' : colors.border,
-                      textAlign: 'center',
-                      fontSize: 20,
-                      color: colors.text,
-                      backgroundColor: colors.card,
-                    }}
-                    keyboardType="number-pad"
-                    maxLength={1}
-                    value={codeDigits[index]}
-                    onChangeText={(text) => {
-                      const digit = text.replace(/[^0-9]/g, '').slice(-1);
-                      const newDigits = [...codeDigits];
-                      newDigits[index] = digit;
-                      setCodeDigits(newDigits);
-
-                      if (digit && index < 3) {
-                        codeInputsRef.current[index + 1]?.focus();
-                      }
-
-                      const currentCode = newDigits.join('');
-                      if (currentCode.length === 4 && code) {
-                        if (currentCode === code) {
-                          setIsCodeValidated(true);
-                          alertService.showSuccessAlert(
-                            alertsTexts.codeSuccessTitle,
-                            alertsTexts.codeSuccessMessage
-                          );
-                        } else {
-                          setIsCodeValidated(false);
-                          alertService.showErrorAlert(alertsTexts.codeErrorMessage);
-                        }
-                      } else {
-                        setIsCodeValidated(false);
-                      }
-                    }}
-                    onKeyPress={(
-                      e: NativeSyntheticEvent<TextInputKeyPressEventData>
-                    ) => {
-                      if (
-                        e.nativeEvent.key === 'Backspace' &&
-                        !codeDigits[index] &&
-                        index > 0
-                      ) {
-                        codeInputsRef.current[index - 1]?.focus();
-                      }
-                    }}
-                  />
-                ))}
-              </View>
-            </View>
-          )}
-
-          {/* Confirm Button */}
-          <AnimatedButton
-            title={buttonTexts.confirmCash}
-            onPress={handleConfirmCashPayment}
-            loading={confirming}
-            disabled={confirming || switching}
-            style={styles.confirmButton}
+          <PaymentConfirmationActions
+            rideId={rideId}
+            buttonTexts={buttonTexts}
+            confirming={confirming}
+            switching={switching}
+            onConfirmCash={handleConfirmCashPayment}
+            onReportIssue={handleReportIssue}
+            t={t}
+            styles={styles}
           />
         </>
       )}
-
-      {/* CARD PAYMENT FLOW - desactivado temporalmente */}
-
-      {/* Switch Payment Method Button - desactivado temporalmente */}
-
-      {/* Report Problem Button */}
-      <AnimatedButton
-        title={buttonTexts.reportIssue}
-        onPress={handleReportIssue}
-        variant="outline"
-        disabled={confirming || switching}
-        style={styles.reportButton}
-      />
-
-      <SupportChatShortcut
-        style={{ marginTop: 16 }}
-        rideId={rideId}
-        initialCategory="payment"
-        initialTitle={t('driver.paymentConfirmation.support.title')}
-        label={t('driver.paymentConfirmation.support.label')}
-        description={t('driver.paymentConfirmation.support.description')}
-      />
     </ScrollView>
   );
 }

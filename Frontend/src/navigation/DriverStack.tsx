@@ -1,6 +1,6 @@
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { useTheme } from '../context/ThemeContext';
+import { useTheme } from '../hooks/shared/theme/useTheme';
 import DriverHomeScreen from '../screens/Driver/DriverHomeScreen';
 import RideRequestsScreen from '../screens/Driver/RideRequestsScreen';
 import AvailableRidesScreen from '../screens/Driver/AvailableRidesScreen';

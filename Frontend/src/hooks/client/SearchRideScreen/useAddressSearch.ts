@@ -43,9 +43,7 @@ export function useAddressSearch(
     const fetchSuggestions = async () => {
       try {
         setSearchLoading(true);
-        const results = await mapsService.autocomplete(debouncedSearch, coords ?? undefined, {
-          forceProvider: 'google',
-        });
+        const results = await mapsService.autocomplete(debouncedSearch, coords ?? undefined);
         if (!cancelled) {
           setSearchResults(results.map((item) => normalizeSuggestion(item, fallbackLabel)));
           setSearchError(results.length === 0 ? noResultsLabel : null);

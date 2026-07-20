@@ -1,6 +1,6 @@
 import { httpsCallable } from 'firebase/functions';
 import { getFirebaseAuth, getFirebaseFunctions } from '../config/firebase';
-import backendConfig from '../config/backendConfig';
+import apiClient from '../api/client';
 
 export type SupportTicketStatus = 'open' | 'in_progress' | 'resolved' | 'rejected' | string;
 export type SupportTicketPriority = 'low' | 'normal' | 'high' | 'urgent' | string | null;
@@ -112,31 +112,26 @@ class SupportTicketsService {
       throw new Error('ticketId is required to delete a support ticket');
     }
 
-    const baseUrl = backendConfig.getApiUrl();
-    if (!baseUrl) {
-      throw new Error('FUNCTIONS_BASE_URL_NOT_CONFIGURED');
+    let response: any;
+    try {
+      response = await apiClient.post('/deleteSupportTicketHttp', { ticketId });
+    } catch (e: any) {
+      response = e.response;
     }
 
-    const response = await fetch(`${baseUrl}/deleteSupportTicketHttp`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ ticketId }),
-    });
-
-    const rawText = await response.text();
+    const rawText = typeof response?.data === 'string' ? response.data : JSON.stringify(response?.data ?? '');
     let json: any = null;
     try {
-      json = rawText ? JSON.parse(rawText) : null;
+      json = typeof response?.data === 'string' ? JSON.parse(response.data) : response?.data;
     } catch {
       json = null;
     }
 
-    if (!response.ok) {
+    const status = response?.status ?? 0;
+    if (status < 200 || status >= 300) {
       const message = json?.error || json?.message || rawText || 'deleteSupportTicketHttp failed';
       const err: any = new Error(message);
-      err.code = `http/${response.status}`;
+      err.code = `http/${status}`;
       throw err;
     }
 

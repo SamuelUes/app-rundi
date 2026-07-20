@@ -31,7 +31,7 @@ import alertService from '../../services/alertService';
 import SupportChatShortcut from '../../components/shared/SupportChatShortcut';
 import { clearClientActiveRideState } from '../../utils/clientRideState';
 import DynamicMap from '../../components/map/DynamicMap';
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useLocation } from '../../hooks/shared/location/useLocation';
 import { useFirebaseItem } from '../../hooks/shared/firebase/useFirebaseData';
 import firebaseTrackingService from '../../services/firebaseTrackingService';
@@ -53,6 +53,9 @@ import {
 import { useRideRoute, useDynamicRoute } from '../../hooks/shared/ride/useRideRoute';
 import { useCollapsiblePanel } from '../../hooks/shared/ride/useCollapsiblePanel';
 import { useRideCancellation } from '../../hooks/shared/ride/useRideCancellation';
+import { RideTrackingDriverInfo } from '../../components/client/RideTracking/RideTrackingDriverInfo';
+import { RideTrackingLocations } from '../../components/client/RideTracking/RideTrackingLocations';
+import { RideTrackingActionButtons } from '../../components/client/RideTracking/RideTrackingActionButtons';
 
 // Iconos
 const BACK_BUTTON = require('../../assets/icons/back_button/back_button2x.png');
@@ -585,84 +588,29 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
           contentContainerStyle={{ paddingBottom: 20 }}
         >
 
-          {/* Info del Conductor */}
-          <View style={styles.driverSection}>
-            {driverData.photo ? (
-              <Image source={{ uri: driverData.photo }} style={styles.driverAvatar} />
-            ) : (
-              <View style={[styles.driverAvatar, { backgroundColor: colors.primary }]}>
-                <Text style={styles.driverInitial}>
-                  {driverData.name?.[0] || 'C'}
-                </Text>
-              </View>
-            )}
-            
-            <View style={styles.driverInfo}>
-              <Text style={[styles.driverName, { color: colors.text }]}>
-                {driverData.name} - {vehicleData.plate}
-              </Text>
-              <Text style={[styles.vehicleInfo, { color: colors.textSecondary }]}>
-                {vehicleData.brand} {vehicleData.model} - {vehicleData.color}
-              </Text>
-            </View>
+          <RideTrackingDriverInfo
+            driverName={driverData.name}
+            driverPhoto={driverData.photo}
+            vehiclePlate={vehicleData.plate}
+            vehicleBrand={vehicleData.brand}
+            vehicleModel={vehicleData.model}
+            vehicleColor={vehicleData.color}
+            colors={colors}
+            onOpenChat={handleOpenChat}
+            styles={styles}
+          />
 
-            {/* Botón de Mensaje */}
-            <TouchableOpacity style={styles.messageButton} onPress={handleOpenChat}>
-              <MaterialIcons name="chat" size={24} color={colors.primary} />
-            </TouchableOpacity>
-          </View>
-
-          {/* Ubicaciones */}
-          <View style={styles.locationsContainer}>
-            {originCoords && (
-              <View style={styles.locationItem}>
-                <MaterialIcons name="place" size={20} color={colors.primary} />
-                <View style={styles.locationContent}>
-                  <Text style={[styles.locationLabel, { color: colors.textSecondary }]}>
-                    {tr('labels.pickupLabel')}
-                  </Text>
-                  <Text style={[styles.locationAddress, { color: colors.text }]}>
-                    {rideData?.origin?.address || tr('labels.pickupFallback')}
-                  </Text>
-                </View>
-              </View>
-            )}
-
-            {waypointCoords && waypointCoords.length > 0 && (
-              <>
-                {waypointCoords.map((waypoint, index) => {
-                  const extraDest = rideData?.extraDestinations?.[index];
-                  return (
-                    <View key={`waypoint-${index}`} style={styles.locationItem}>
-                      <Text style={styles.locationIcon}>🟠</Text>
-                      <View style={styles.locationContent}>
-                        <Text style={[styles.locationLabel, { color: colors.textSecondary }]}>
-                          {tr('labels.stopLabel', { index: index + 1 })}
-                        </Text>
-                        <Text style={[styles.locationAddress, { color: colors.text }]}>
-                          {extraDest?.address || tr('labels.stopLabel', { index: index + 1 })}
-                        </Text>
-                      </View>
-                    </View>
-                  );
-                })}
-              </>
-            )}
-
-            {destinationCoords && (
-              <View style={styles.locationItem}>
-                <Text style={styles.locationIcon}>🎯</Text>
-                <View style={styles.locationContent}>
-                  <Text style={[styles.locationLabel, { color: colors.textSecondary }]}>
-                    {tr('labels.destinationLabel')}
-                  </Text>
-                  <Text style={[styles.locationAddress, { color: colors.text }]}>
-                    {rideData?.destination?.address || tr('labels.destinationFallback')}
-                  </Text>
-                </View>
-              </View>
-            )}
-          </View>
+          <RideTrackingLocations
+            originCoords={originCoords}
+            destinationCoords={destinationCoords}
+            waypointCoords={waypointCoords}
+            originAddress={rideData?.origin?.address}
+            destinationAddress={rideData?.destination?.address}
+            extraDestinations={rideData?.extraDestinations}
+            colors={colors}
+            tr={tr}
+            styles={styles}
+          />
 
           <SupportChatShortcut
             style={{ marginTop: 12 }}
@@ -678,45 +626,16 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
         </ScrollView>
       )}
 
-      {/* Botones de Acción - siempre visibles */}
-      <View style={styles.actionButtons}>
-        {rideStatus === 'pending_payment' && (
-          <TouchableOpacity
-            style={styles.paymentButton}
-            onPress={handleGoToPayment}
-            activeOpacity={0.9}
-          >
-            <Text style={styles.paymentButtonText}>{tr('buttons.goToPayment')}</Text>
-          </TouchableOpacity>
-        )}
-        <TouchableOpacity
-          style={[styles.shareButton, { backgroundColor: '#609931ff' }]}
-          onPress={handleShareTrip}
-          activeOpacity={0.9}
-        >
-          <Text style={styles.shareButtonText}>{tr('buttons.shareLocation')}</Text>
-        </TouchableOpacity>
-
-        <AnimatedTouchableOpacity
-          style={[
-            styles.cancelButton,
-            {
-              backgroundColor: '#FF4444',
-              transform: [{ scale: cancelButtonScale }],
-              opacity: isCancellingRide ? 0.7 : 1,
-            },
-          ]}
-          onPress={handleCancelRide}
-          disabled={isCancellingRide}
-          activeOpacity={0.85}
-        >
-          {isCancellingRide ? (
-            <LoadingIcon icon="refresh" size={24} color="#FFFFFF" animation="spin" />
-          ) : (
-            <Text style={styles.cancelButtonText}>{tr('buttons.cancel')}</Text>
-          )}
-        </AnimatedTouchableOpacity>
-      </View>
+      <RideTrackingActionButtons
+        rideStatus={rideStatus}
+        isCancellingRide={isCancellingRide}
+        cancelButtonScale={cancelButtonScale}
+        onGoToPayment={handleGoToPayment}
+        onShareTrip={handleShareTrip}
+        onCancelRide={handleCancelRide}
+        tr={tr}
+        styles={styles}
+      />
     </Animated.View>
   </View>
 );

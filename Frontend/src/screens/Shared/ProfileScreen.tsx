@@ -2,8 +2,8 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Image, Switch } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
-import { useAuth } from '../../context/AuthContext';
-import { useTheme } from '../../context/ThemeContext';
+import { useAuth } from '../../hooks/shared/auth/useAuth';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useFCM } from '../../context/FCMContext';
 import { ProfileSkeleton } from '../../components/ui/SkeletonLoader';
 import Button from '../../components/ui/Button';
@@ -12,6 +12,10 @@ import LoadingOverlay from '../../components/ui/LoadingOverlay';
 import phoneAuthService from '../../services/auth/phoneAuthService';
 import { fetchDriverProfile } from '../../services/driverProfilesService';
 import { useTranslation } from 'react-i18next';
+import { ProfileHeader } from '../../components/shared/Profile/ProfileHeader';
+import { ProfileModeSwitch } from '../../components/shared/Profile/ProfileModeSwitch';
+import { ProfileConfigSection } from '../../components/shared/Profile/ProfileConfigSection';
+import { ProfileLogoutAndInfo } from '../../components/shared/Profile/ProfileLogoutAndInfo';
 
 export default function ProfileScreen({ navigation }: any) {
   const { user, logout, logoutInProgress, userMode, setUserMode } = useAuth();
@@ -275,80 +279,36 @@ export default function ProfileScreen({ navigation }: any) {
   return (
     <ScrollView style={styles.container}>
       <LoadingOverlay visible={logoutInProgress} message={t('shared.profile.loading.logout')} />
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.headerTopRow}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => {
-              if (navigation.canGoBack && navigation.canGoBack()) {
-                navigation.goBack();
-              } else if (userMode === 'driver') {
-                navigation.navigate('DriverHome');
-              } else {
-                navigation.navigate('ClientHome');
-              }
-            }}
-          >
-            <Image
-              source={require('../../assets/icons/back_button/back_button.png')}
-              style={styles.backIcon}
-            />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>{headerTitle}</Text>
-          <View style={styles.headerTopSpacer} />
-        </View>
-
-        <View style={styles.headerMainRow}>
-          <View style={styles.avatarContainer}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{user.name.charAt(0).toUpperCase()}</Text>
-            </View>
-          </View>
-
-          <View style={styles.headerContent}>
-            <Text style={styles.name}>{user.name}</Text>
-            <Text style={styles.email}>{user.email}</Text>
-            <Text style={styles.memberId}>{userIdLabel}</Text>
-
-            <View style={styles.headerBottomRow}>
-              <View style={styles.roleBadge}>
-                <Text style={styles.roleText}>{roleLabel}</Text>
-              </View>
-
-              <TouchableOpacity onPress={() => navigation.navigate('Account')}>
-                <View style={styles.editProfileBadge}>
-                  <Text style={styles.editProfileText}>{headerEditLabel}</Text>
-                </View>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </View>
+      <ProfileHeader
+        headerTitle={headerTitle}
+        headerEditLabel={headerEditLabel}
+        userIdLabel={userIdLabel}
+        roleLabel={roleLabel}
+        userName={user.name}
+        userEmail={user.email}
+        onBack={() => {
+          if (navigation.canGoBack && navigation.canGoBack()) {
+            navigation.goBack();
+          } else if (userMode === 'driver') {
+            navigation.navigate('DriverHome');
+          } else {
+            navigation.navigate('ClientHome');
+          }
+        }}
+        onEditProfile={() => navigation.navigate('Account')}
+        styles={styles}
+      />
       <View style={styles.contentCard}>
         {userMode === 'client' && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>
-              {modeTitle}
-            </Text>
-            <View style={styles.optionCard}>
-              <View style={styles.modeUseTextContainer}>
-                <Text style={styles.optionText}>
-                  {modeDescription}
-                </Text>
-              </View>
-              <TouchableOpacity
-                style={[
-                  styles.modeUseButton,
-                  switchingToDriver ? styles.modeUseButtonDisabled : null,
-                ]}
-                onPress={isDriverCapable ? handleSwitchToDriverMode : handleUpgradeToDriver}
-                disabled={switchingToDriver}
-              >
-                <Text style={styles.modeUseButtonText}>{modeButtonLabel}</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+          <ProfileModeSwitch
+            modeTitle={modeTitle}
+            modeDescription={modeDescription}
+            modeButtonLabel={modeButtonLabel}
+            switchingToDriver={switchingToDriver}
+            isDriverCapable={isDriverCapable}
+            onPress={isDriverCapable ? handleSwitchToDriverMode : handleUpgradeToDriver}
+            styles={styles}
+          />
         )}
         {/* Información del Vehículo (solo modo conductor) */}
         {false && userMode === 'driver' && isDriverCapable && (
@@ -487,159 +447,29 @@ export default function ProfileScreen({ navigation }: any) {
           </View>
         )}
 
-        {/* Opciones */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t('shared.profile.config.title')}</Text>
+        <ProfileConfigSection
+          theme={theme}
+          notificationsEnabled={notificationsEnabled}
+          mapTrafficEnabled={mapTrafficEnabled}
+          soundEnabled={soundEnabled}
+          vibrationEnabled={vibrationEnabled}
+          colors={colors}
+          onThemeChange={handleThemeChange}
+          onToggleNotifications={handleToggleNotifications}
+          onToggleTraffic={setMapTrafficEnabled}
+          onToggleSounds={(value) => {
+            setSoundEnabled(value);
+            setVibrationEnabled(value);
+          }}
+          onNavigateSettings={() => navigation.navigate('Settings')}
+          onNavigateRideHistory={() => navigation.navigate('RideHistory')}
+          onNavigateHelp={() => navigation.navigate('Help')}
+          onNavigateSupport={handleGoToSupportComplaints}
+          styles={styles}
+          t={t}
+        />
 
-          {/* Tema rápido */}
-          <View style={styles.optionCard}>
-            <Text style={styles.optionText}>{t('shared.profile.config.theme')}</Text>
-            <View style={styles.themeChipsRow}>
-              <TouchableOpacity
-                style={[styles.themeChip, theme === 'light' && styles.themeChipActive]}
-                onPress={() => handleThemeChange('light')}
-              >
-                <Text style={[styles.themeChipText, theme === 'light' && styles.themeChipTextActive]}>
-                  {t('shared.profile.config.themeOptions.light')}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.themeChip, theme === 'dark' && styles.themeChipActive]}
-                onPress={() => handleThemeChange('dark')}
-              >
-                <Text style={[styles.themeChipText, theme === 'dark' && styles.themeChipTextActive]}>
-                  {t('shared.profile.config.themeOptions.dark')}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.themeChip, theme === 'auto' && styles.themeChipActive]}
-                onPress={() => handleThemeChange('auto')}
-              >
-                <Text style={[styles.themeChipText, theme === 'auto' && styles.themeChipTextActive]}>
-                  {t('shared.profile.config.themeOptions.auto')}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Notificaciones Push */}
-          <View style={styles.optionCard}>
-            <Text style={styles.optionText}>{t('shared.profile.config.notifications')}</Text>
-            <Switch
-              value={notificationsEnabled}
-              onValueChange={handleToggleNotifications}
-              trackColor={{ false: colors.border, true: colors.primary }}
-              thumbColor="#fff"
-            />
-          </View>
-
-          {/* Tráfico en el mapa */}
-          <View style={styles.optionCard}>
-            <Text style={styles.optionText}>{t('shared.profile.config.traffic')}</Text>
-            <Switch
-              value={mapTrafficEnabled}
-              onValueChange={setMapTrafficEnabled}
-              trackColor={{ false: colors.border, true: colors.primary }}
-              thumbColor="#fff"
-            />
-          </View>
-
-          {/* Sonidos de la app (agrupa sonido + vibración) */}
-          <View style={styles.optionCard}>
-            <Text style={styles.optionText}>{t('shared.profile.config.sounds')}</Text>
-            <Switch
-              value={soundEnabled && vibrationEnabled}
-              onValueChange={(value) => {
-                setSoundEnabled(value);
-                setVibrationEnabled(value);
-              }}
-              trackColor={{ false: colors.border, true: colors.primary }}
-              thumbColor="#fff"
-              disabled={!notificationsEnabled}
-            />
-          </View>
-
-          {/* Navegación a pantallas relacionadas */}
-          <TouchableOpacity
-            style={styles.optionCard}
-            onPress={() => navigation.navigate('Settings')}
-          >
-            <Image
-              source={require('../../assets/icons/settings-icon/settingsicon.png')}
-              style={styles.optionIconImage}
-            />
-            <Text style={styles.optionText}>{t('shared.profile.config.advanced')}</Text>
-            <Text style={styles.optionArrow}>›</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.optionCard}
-            onPress={() => navigation.navigate('RideHistory')}
-          >
-            <Image
-              source={require('../../assets/icons/historial-icon/historialicon2.png')}
-              style={styles.optionIconImage}
-            />
-            <Text style={styles.optionText}>{t('shared.profile.config.rideHistory')}</Text>
-            <Text style={styles.optionArrow}>›</Text>
-          </TouchableOpacity>
-
-          {/* Tarjetas desactivadas temporalmente
-          <TouchableOpacity
-            style={styles.optionCard}
-            onPress={() => navigation.navigate('PaymentMethods')}
-          >
-            <Image
-              source={require('../../assets/icons/payment-icon/paymenticon.png')}
-              style={styles.optionIconImage}
-            />
-            <Text style={styles.optionText}>{t('shared.profile.config.payments')}</Text>
-            <Text style={styles.optionArrow}>›</Text>
-          </TouchableOpacity>
-          */}
-
-          <TouchableOpacity
-            style={styles.optionCard}
-            onPress={() => navigation.navigate('Help')}
-          >
-            <Image
-              source={require('../../assets/icons/help-icon/helpicon.png')}
-              style={styles.optionIconImage}
-            />
-            <Text style={styles.optionText}>{t('shared.profile.config.help')}</Text>
-            <Text style={styles.optionArrow}>›</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.optionCard}
-            onPress={handleGoToSupportComplaints}
-          >
-            <Image
-              source={require('../../assets/icons/report-icon/reporticon.png')}
-              style={styles.optionIconImage}
-            />
-            <Text style={styles.optionText}>{t('shared.profile.support.title')}</Text>
-              {/* <Text style={styles.supportAccessSubtitle}>
-                {t('shared.profile.support.subtitle', 'Revisa y continúa conversaciones con soporte')}
-              </Text> */}
-            <Text style={styles.optionArrow}>›</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Botón Cerrar Sesión */}
-        <View style={styles.logoutContainer}>
-          <Button
-            title={t('shared.profile.buttons.logout')}
-            onPress={handleLogout}
-            style={styles.logoutButton}
-          />
-        </View>
-
-        {/* App Info */}
-        <View style={styles.appInfo}>
-          <Text style={styles.appVersion}>{t('shared.profile.appInfo.version')}</Text>
-          <Text style={styles.appCopyright}>{t('shared.profile.appInfo.copyright')}</Text>
-        </View>
+        <ProfileLogoutAndInfo onLogout={handleLogout} styles={styles} t={t} />
       </View>
     </ScrollView>
   );

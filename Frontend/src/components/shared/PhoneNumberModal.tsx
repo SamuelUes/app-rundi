@@ -14,7 +14,7 @@ import {
   Alert,
 } from 'react-native';
 
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useTranslation } from 'react-i18next';
 import {
   CountryDialOption,
@@ -252,7 +252,7 @@ const PhoneNumberModal: React.FC<Props> = ({
             <View style={styles.sheetHeader}>
               <TouchableOpacity onPress={onClose} style={styles.backButton}>
                 <Image
-                  source={require('../assets/icons/back_button/back_button.png')}
+                  source={require('../../assets/icons/back_button/back_button.png')}
                   style={styles.backIcon}
                   resizeMode="contain"
                 />

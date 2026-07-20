@@ -21,8 +21,8 @@ import {
   Animated,
   Easing,
 } from 'react-native';
-import { useTheme } from '../../context/ThemeContext';
-import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
+import { useAuth } from '../../hooks/shared/auth/useAuth';
 import { getActiveRidesByAreaPath } from '../../utils/serviceArea';
 
 import alertService from '../../services/alertService';
@@ -39,6 +39,9 @@ import { usePendingActions } from '../../hooks/client/HomeScreen/usePendingActio
 import { useMapPinInteraction } from '../../hooks/client/HomeScreen/useMapPinInteraction';
 import DynamicMap from '../../components/map/DynamicMap';
 import { MAP_ICONS } from '../../constants/mapIcons';
+import { HomeScreenHeader } from '../../components/client/HomeScreen/HomeScreenHeader';
+import { HomeScreenLocationStatus } from '../../components/client/HomeScreen/HomeScreenLocationStatus';
+import { HomeScreenBottomActions } from '../../components/client/HomeScreen/HomeScreenBottomActions';
 
 // Importaciones para Firebase
 
@@ -471,87 +474,32 @@ export default function HomeScreen({ navigation }: any) {
         </View>
       )}
 
-      <View
-        style={[
-          styles.locationStatusContainer,
-          hasPendingManualSelection ? styles.locationStatusPending : styles.locationStatusIdle,
-        ]}
-      >
-        <Text style={styles.locationStatusHint}>{locationStatusHint}</Text>
-        {isSavingLocation && (
-          <Text style={styles.locationStatusSaving}>{t('client.home.locationStatus.savingLabel')}</Text>
-        )}
-      </View>
+      <HomeScreenLocationStatus
+        locationStatusHint={locationStatusHint}
+        isSavingLocation={isSavingLocation}
+        hasPendingManualSelection={hasPendingManualSelection}
+        styles={styles}
+        t={t}
+      />
 
-      <TouchableOpacity
-        style={styles.profileContainer}
-        activeOpacity={0.85}
-        onPress={() => navigation.navigate('Profile')}
-      >
-        <Text style={styles.profileName}>{user?.name || t('client.home.profile.fallbackName')}</Text>
-        <Image source={PROFILE_ICON_IMAGE} style={styles.profileAvatar} />
-      </TouchableOpacity>
+      <HomeScreenHeader
+        userName={user?.name}
+        profileIconImage={PROFILE_ICON_IMAGE}
+        onNavigateProfile={() => navigation.navigate('Profile')}
+        onCenterMap={handleCenterMap}
+        styles={styles}
+        t={t}
+      />
 
-      <TouchableOpacity
-        style={styles.centerMapButton}
-        onPress={handleCenterMap}
-        activeOpacity={0.85}
-      >
-        <Text style={styles.centerMapIcon}>↻</Text>
-      </TouchableOpacity>
-
-      {pendingAction ? (
-        <TouchableOpacity
-          style={styles.pendingActionButton}
-          activeOpacity={0.9}
-          onPress={pendingAction.onPress}
-        >
-          <ImageBackground
-            source={PENDING_ACTION_IMAGE}
-            style={styles.pendingActionBackground}
-            imageStyle={styles.pendingActionBackgroundInner}
-            resizeMode="stretch"
-          >
-            <View style={styles.requestButtonContent}>
-              <Text style={styles.requestButtonLabel}>{pendingAction.title}</Text>
-            </View>
-          </ImageBackground>
-        </TouchableOpacity>
-      ) : (
-        <>
-          <TouchableOpacity
-            style={[
-              styles.requestButtonWrapper,
-              isOutsideSupportedArea && styles.requestButtonDisabled,
-            ]}
-            activeOpacity={0.9}
-            onPress={handleRequestRide}
-            disabled={isOutsideSupportedArea}
-          >
-            <ImageBackground
-              source={PENDING_ACTION_IMAGE}
-              style={styles.requestButtonBackground}
-              imageStyle={styles.requestButtonBackgroundInner}
-              resizeMode="stretch"
-            >
-              <View style={styles.requestButtonContent}>
-                <Text style={styles.requestButtonLabel}>{t('client.home.requestRide')}</Text>
-              </View>
-            </ImageBackground>
-          </TouchableOpacity>
-          <View style={styles.regionHintContainer}>
-            <Text style={styles.regionHintText} numberOfLines={2}>
-              {!regionStatus.checked
-                ? t('client.home.region.checking')
-                : regionStatus.allowed
-                ? regionStatus.areaName
-                  ? t('client.home.region.availableNamed', { area: regionStatus.areaName })
-                  : t('client.home.region.availableGeneric')
-                : regionStatus.message || t('client.home.region.unavailableFallback')}
-            </Text>
-          </View>
-        </>
-      )}
+      <HomeScreenBottomActions
+        pendingAction={pendingAction}
+        isOutsideSupportedArea={isOutsideSupportedArea}
+        regionStatus={regionStatus}
+        pendingActionImage={PENDING_ACTION_IMAGE}
+        onRequestRide={handleRequestRide}
+        styles={styles}
+        t={t}
+      />
     </View>
   );
 }

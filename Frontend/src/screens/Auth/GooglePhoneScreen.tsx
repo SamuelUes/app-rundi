@@ -18,7 +18,7 @@ import {
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
 import phoneAuthService from '../../services/auth/phoneAuthService';
 import registrationService from '../../services/auth/registrationService';
 import { AuthStackParamList } from '../../navigation/types';

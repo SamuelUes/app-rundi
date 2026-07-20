@@ -9,9 +9,9 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
 import ratingService, { type RatingCategoryKey } from '../../services/ratingService';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../hooks/shared/auth/useAuth';
 import alertService from '../../services/alertService';
 import { useTranslation } from 'react-i18next';
 

@@ -10,7 +10,7 @@ import {
   Image,
 } from 'react-native';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
 import rechargeFundsService, {
   DriverRechargeFundsSummary,
   DriverRechargeHistoryItem,
@@ -21,6 +21,9 @@ import { initializeFirebase } from '../../config/firebase';
 import { useTranslation } from 'react-i18next';
 import SupportChatShortcut from '../../components/shared/SupportChatShortcut';
 import RechargeInvoiceModal from '../../components/shared/RechargeInvoiceModal';
+import { RechargeFundsSummary } from '../../components/driver/RechargeFunds/RechargeFundsSummary';
+import { RechargeFundsInput } from '../../components/driver/RechargeFunds/RechargeFundsInput';
+import { RechargeFundsHistory } from '../../components/driver/RechargeFunds/RechargeFundsHistory';
 
 const EMPTY_SUMMARY: DriverRechargeFundsSummary = {
   success: false,
@@ -240,140 +243,40 @@ export default function RechargeFundsScreen({ navigation }: any) {
         </View>
       ) : (
         <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryTitle}>{summaryTexts.title}</Text>
-
-            <View style={styles.summaryHighlight}>
-              <Text style={styles.summaryHighlightAmount}>{formatCurrency(summary?.availableBalance ?? 0)}</Text>
-              <Text style={styles.summaryHighlightLabel}>
-                {summaryTexts.currentBalanceLabel}
-              </Text>
-            </View>
-
-            <View style={styles.summaryBreakdown}>
-              <View style={styles.summaryBreakdownItem}>
-                <View style={styles.summaryBreakdownText}>
-                  <Text style={styles.summaryBreakdownLabel}>{summaryTexts.totalRechargedLabel}</Text>
-                </View>
-                <Text style={styles.summaryBreakdownValue}>
-                  {`${summary?.totals?.rechargeCount ?? 0} · ${formatCurrency(summary?.totals?.totalRecharged ?? 0)}`}
-                </Text>
-              </View>
-
-              <View style={styles.summaryBreakdownItem}>
-                <View style={styles.summaryBreakdownText}>
-                  <Text style={styles.summaryBreakdownLabel}>{summaryTexts.totalDeductedLabel}</Text>
-                </View>
-                <Text style={styles.summaryBreakdownValue}>
-                  {`${summary?.totals?.deductionCount ?? 0} · ${formatCurrency(summary?.totals?.totalDeducted ?? 0)}`}
-                </Text>
-              </View>
-            </View>
-
-            <Text style={styles.summaryHint}>{summaryTexts.hint}</Text>
-          </View>
-
-          <View style={styles.inputCard}>
-            <Text style={styles.inputLabel}>{inputTexts.amountLabel}</Text>
-            <TextInput
-              value={amount}
-              onChangeText={setAmount}
-              placeholder={inputTexts.amountPlaceholder}
-              placeholderTextColor={colors.textSecondary}
-              style={styles.input}
-              keyboardType="decimal-pad"
-            />
-          </View>
-
-          <TouchableOpacity
-            style={[
-              styles.payButton,
-              (submitting || parsedRechargeAmount <= 0) &&
-                styles.payButtonDisabled,
-            ]}
-            disabled={submitting || parsedRechargeAmount <= 0}
-            onPress={handlePay}
-            activeOpacity={0.85}
-          >
-            {submitting ? (
-              <LoadingIcon size={20} color="#fff" />
-            ) : (
-              <Text style={styles.payButtonText}>
-                {t('driver.rechargeFunds.button.pay', {
-                  amount: formatCurrency(parsedRechargeAmount > 0 ? parsedRechargeAmount : 0),
-                })}
-              </Text>
-            )}
-          </TouchableOpacity>
-
-          <SupportChatShortcut
-            style={{ marginTop: 16 }}
-            initialCategory="payment"
-            initialTitle={t('driver.rechargeFunds.support.title')}
-            label={t('driver.rechargeFunds.support.label')}
-            description={t('driver.rechargeFunds.support.description')}
+          <RechargeFundsSummary
+            summary={summary}
+            summaryTexts={summaryTexts}
+            formatCurrency={formatCurrency}
+            styles={styles}
           />
 
-          <View style={styles.historyCard}>
-            <View style={styles.historyHeader}>
-              <Text style={styles.historyTitle}>{historyTexts.title}</Text>
-              <Text style={styles.historyCounter}>{t('driver.rechargeFunds.history.totalLabel', { count: rechargeHistory.length })}</Text>
-            </View>
+          <RechargeFundsInput
+            amount={amount}
+            submitting={submitting}
+            parsedRechargeAmount={parsedRechargeAmount}
+            inputTexts={inputTexts}
+            colors={colors}
+            onSetAmount={setAmount}
+            onPay={handlePay}
+            t={t}
+            styles={styles}
+          />
 
-            {historyItems.length === 0 ? (
-              <Text style={styles.historyEmptyText}>{historyTexts.empty}</Text>
-            ) : (
-              <View style={styles.historyList}>
-                {historyItems.map((item) => (
-                  <TouchableOpacity
-                    key={item.id}
-                    style={styles.historyItem}
-                    activeOpacity={0.8}
-                    onPress={() => openInvoice(item)}
-                  >
-                    <View style={styles.historyItemTop}>
-                      <Text style={styles.historyItemAmount}>{formatCurrency(item.amount)}</Text>
-                      <Text style={styles.historyItemStatus}>{asText(item.status, t('driver.rechargeFunds.history.defaultStatus'))}</Text>
-                    </View>
-                    <Text style={styles.historyItemMeta}>{formatDateLabel(item.createdAt)}</Text>
-                    <Text style={styles.historyItemMeta}>
-                      {t('driver.rechargeFunds.history.sourceLabel', {
-                        source: asText(item.source, t('driver.rechargeFunds.history.defaultSource')),
-                      })}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
-
-            <View style={styles.paginationRow}>
-              <TouchableOpacity
-                style={[styles.paginationBtn, historyPage <= 1 && styles.paginationBtnDisabled]}
-                disabled={historyPage <= 1}
-                onPress={() => setHistoryPage((prev) => Math.max(1, prev - 1))}
-              >
-                <Text style={styles.paginationBtnText}>{historyTexts.previous}</Text>
-              </TouchableOpacity>
-
-              <Text style={styles.paginationText}>
-                {t('driver.rechargeFunds.history.page', {
-                  current: historyPage,
-                  total: totalHistoryPages,
-                })}
-              </Text>
-
-              <TouchableOpacity
-                style={[
-                  styles.paginationBtn,
-                  historyPage >= totalHistoryPages && styles.paginationBtnDisabled,
-                ]}
-                disabled={historyPage >= totalHistoryPages}
-                onPress={() => setHistoryPage((prev) => Math.min(totalHistoryPages, prev + 1))}
-              >
-                <Text style={styles.paginationBtnText}>{historyTexts.next}</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+          <RechargeFundsHistory
+            historyItems={historyItems}
+            rechargeHistory={rechargeHistory}
+            historyPage={historyPage}
+            totalHistoryPages={totalHistoryPages}
+            historyTexts={historyTexts}
+            formatCurrency={formatCurrency}
+            formatDateLabel={formatDateLabel}
+            asText={asText}
+            onOpenInvoice={openInvoice}
+            onPrevPage={() => setHistoryPage((prev) => Math.max(1, prev - 1))}
+            onNextPage={() => setHistoryPage((prev) => Math.min(totalHistoryPages, prev + 1))}
+            t={t}
+            styles={styles}
+          />
         </ScrollView>
       )}
 

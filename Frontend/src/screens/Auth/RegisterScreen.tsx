@@ -24,7 +24,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
 import registrationService from '../../services/auth/registrationService';
 import phoneAuthService from '../../services/auth/phoneAuthService';
 import firebaseAuthService from '../../services/auth/firebaseAuthService';
@@ -39,6 +39,10 @@ import {
 } from '../../utils/phoneUtils';
 import PhoneNumberModal from '../../components/shared/PhoneNumberModal';
 import { useTranslation } from 'react-i18next';
+import { RegisterMethodSwitcher } from '../../components/auth/Register/RegisterMethodSwitcher';
+import { RegisterBaseFields } from '../../components/auth/Register/RegisterBaseFields';
+import { RegisterPasswordFields } from '../../components/auth/Register/RegisterPasswordFields';
+import { RegisterPhoneSubmit } from '../../components/auth/Register/RegisterPhoneSubmit';
 
 export default function RegisterScreen() {
   const navigation = useNavigation<any>();
@@ -434,231 +438,66 @@ export default function RegisterScreen() {
             {t('authScreens.register.header.subtitle')}
           </Text>
 
-          {/* Selector de método */}
-          <View style={styles.methodSwitcher}>
-            <TouchableOpacity
-              style={[styles.methodButton, isEmailMethod && styles.methodButtonActive]}
-              onPress={() => setMethod('email')}
-              disabled={loading}
-            >
-              <Text
-                style={[styles.methodButtonText, isEmailMethod && styles.methodButtonTextActive]}
-              >
-                {t('authScreens.register.methods.email')}
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.methodButton, isPhoneMethod && styles.methodButtonActive]}
-              onPress={() => setMethod('phone')}
-              disabled={loading}
-            >
-              <Text
-                style={[styles.methodButtonText, isPhoneMethod && styles.methodButtonTextActive]}
-              >
-                {t('authScreens.register.methods.phone')}
-              </Text>
-            </TouchableOpacity>
-
-          </View>
-
-          {/* Campos base */}
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>
-              {`${t('authScreens.register.fields.nameLabel')} *`}
-            </Text>
-            <TextInput
-              style={styles.input}
-              placeholder={t('authScreens.register.fields.namePlaceholder')}
-              placeholderTextColor={colors.textSecondary}
-              value={name}
-              onChangeText={setName}
-              editable={!loading}
-            />
-          </View>
-
-          {/* Email */}
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>
-              {`${t('authScreens.register.fields.emailLabel')}${isEmailMethod ? ' *' : ''}`}
-            </Text>
-            <TextInput
-              style={styles.input}
-              placeholder={t('authScreens.register.fields.emailPlaceholder')}
-              placeholderTextColor={colors.textSecondary}
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              editable={!loading}
-            />
-            <Text style={styles.helperText}>
-              {isEmailMethod
-                ? t('authScreens.register.fields.emailHelperRequired')
-                : t('authScreens.register.fields.emailHelperOptional')}
-            </Text>
-          </View>
-
-          {/* Teléfono */}
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>
-              {`${t('authScreens.register.fields.phoneLabel')}${isPhoneMethod ? ' *' : ''}`}
-            </Text>
-
-            <TouchableOpacity
-              style={styles.phoneSummary}
-              onPress={openPhoneModal}
-              disabled={loading}
-              activeOpacity={0.8}
-            >
-              <View style={styles.phoneSummaryFlagDial}>
-                <Text style={styles.phoneSummaryDial}>{selectedCountry.dialCode}</Text>
-              </View>
-              <View style={styles.phoneSummaryValueContainer}>
-                <Text
-                  style={
-                    normalizedPhone
-                      ? styles.phoneSummaryValue
-                      : styles.phoneSummaryPlaceholder
-                  }
-                  numberOfLines={1}
-                >
-                  {normalizedPhone ? phone : t('authScreens.register.fields.phonePlaceholder')}
-                </Text>
-              </View>
-            </TouchableOpacity>
-
-            <Text style={styles.helperText}>
-              {isPhoneMethod
-                ? t('authScreens.register.fields.phoneHelperRequired')
-                : t('authScreens.register.fields.phoneHelperOptional')}
-            </Text>
-          </View>
-
-          <PhoneNumberModal
-            visible={phoneModalVisible}
-            onClose={handlePhoneModalClose}
-            onConfirm={handlePhoneModalConfirm}
-            countryOptions={countryOptions}
-            initialCountry={selectedCountry}
-            initialDigits={phoneDigits}
+          <RegisterMethodSwitcher
+            isEmailMethod={isEmailMethod}
+            isPhoneMethod={isPhoneMethod}
             loading={loading}
+            onSelectEmail={() => setMethod('email')}
+            onSelectPhone={() => setMethod('phone')}
+            t={t}
+            styles={styles}
           />
 
-          {/* Contraseñas */}
+          <RegisterBaseFields
+            name={name}
+            email={email}
+            isEmailMethod={isEmailMethod}
+            isPhoneMethod={isPhoneMethod}
+            loading={loading}
+            colors={colors}
+            selectedCountry={selectedCountry}
+            normalizedPhone={normalizedPhone}
+            phone={phone}
+            phoneDigits={phoneDigits}
+            phoneModalVisible={phoneModalVisible}
+            countryOptions={countryOptions}
+            onSetName={setName}
+            onSetEmail={setEmail}
+            onOpenPhoneModal={openPhoneModal}
+            onPhoneModalClose={handlePhoneModalClose}
+            onPhoneModalConfirm={handlePhoneModalConfirm}
+            t={t}
+            styles={styles}
+          />
+
           {isEmailMethod && (
-            <>
-              <View style={styles.fieldGroup}>
-                <Text style={styles.label}>
-                  {`${t('authScreens.register.fields.passwordLabel')} *`}
-                </Text>
-                <View style={styles.inputWithIcon}>
-                  <TextInput
-                    style={[
-                      styles.inputFlex,
-                      passwordStatus === 'match' && styles.inputSuccess,
-                      passwordStatus === 'mismatch' && styles.inputError,
-                    ]}
-                    placeholder={t('authScreens.register.fields.passwordPlaceholder')}
-                    placeholderTextColor={colors.textSecondary}
-                    value={password}
-                    onChangeText={setPassword}
-                    secureTextEntry={!showPassword}
-                    editable={!loading}
-                  />
-                  <TouchableOpacity
-                    style={styles.eyeButton}
-                    onPress={() => setShowPassword((prev) => !prev)}
-                    activeOpacity={0.7}
-                  >
-                    <MaterialIcons
-                      name={showPassword ? 'visibility-off' : 'visibility'}
-                      size={22}
-                      color={colors.textSecondary}
-                    />
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              <View style={styles.fieldGroup}>
-                <Text style={styles.label}>
-                  {`${t('authScreens.register.fields.confirmPasswordLabel')} *`}
-                </Text>
-                <View style={styles.inputWithIcon}>
-                  <TextInput
-                    style={[
-                      styles.inputFlex,
-                      passwordStatus === 'match' && styles.inputSuccess,
-                      passwordStatus === 'mismatch' && styles.inputError,
-                    ]}
-                    placeholder={t('authScreens.register.fields.confirmPasswordPlaceholder')}
-                    placeholderTextColor={colors.textSecondary}
-                    value={confirmPassword}
-                    onChangeText={setConfirmPassword}
-                    secureTextEntry={!showConfirmPassword}
-                    editable={!loading}
-                  />
-                  <TouchableOpacity
-                    style={styles.eyeButton}
-                    onPress={() => setShowConfirmPassword((prev) => !prev)}
-                    activeOpacity={0.7}
-                  >
-                    <MaterialIcons
-                      name={showConfirmPassword ? 'visibility-off' : 'visibility'}
-                      size={22}
-                      color={colors.textSecondary}
-                    />
-                  </TouchableOpacity>
-                </View>
-                {passwordStatus === 'match' && (
-                  <Text style={styles.successText}>
-                    {t('authScreens.register.statusMessages.passwordMatch')}
-                  </Text>
-                )}
-                {passwordStatus === 'mismatch' && (
-                  <Text style={styles.errorText}>
-                    {t('authScreens.register.statusMessages.passwordMismatch')}
-                  </Text>
-                )}
-              </View>
-
-              <TouchableOpacity
-                style={[
-                  styles.primaryButton,
-                  (!isEmailFormValid || loading) && styles.buttonDisabled,
-                ]}
-                onPress={handleRegisterWithEmail}
-                disabled={!isEmailFormValid || loading}
-              >
-                {loading ? (
-                  <LoadingIcon size={24} color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.primaryButtonText}>
-                    {t('authScreens.register.buttons.continueEmail')}
-                  </Text>
-                )}
-              </TouchableOpacity>
-            </>
+            <RegisterPasswordFields
+              password={password}
+              confirmPassword={confirmPassword}
+              passwordStatus={passwordStatus}
+              showPassword={showPassword}
+              showConfirmPassword={showConfirmPassword}
+              loading={loading}
+              isEmailFormValid={isEmailFormValid}
+              colors={colors}
+              onSetPassword={setPassword}
+              onSetConfirmPassword={setConfirmPassword}
+              onToggleShowPassword={() => setShowPassword((prev) => !prev)}
+              onToggleShowConfirmPassword={() => setShowConfirmPassword((prev) => !prev)}
+              onSubmit={handleRegisterWithEmail}
+              t={t}
+              styles={styles}
+            />
           )}
 
           {isPhoneMethod && (
-            <View style={styles.phoneActionsRow}>
-              <TouchableOpacity
-                style={[
-                  styles.phoneNextButton,
-                  (!isPhoneFormValid || loading) && styles.buttonDisabled,
-                ]}
-                onPress={handleRegisterWithPhone}
-                disabled={!isPhoneFormValid || loading}
-              >
-                {loading ? (
-                  <LoadingIcon size={24} color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.phoneNextIcon}>
-                    {t('authScreens.register.buttons.phoneNext')}
-                  </Text>
-                )}
-              </TouchableOpacity>
-            </View>
+            <RegisterPhoneSubmit
+              isPhoneFormValid={isPhoneFormValid}
+              loading={loading}
+              onSubmit={handleRegisterWithPhone}
+              t={t}
+              styles={styles}
+            />
           )}
 
           <View style={styles.footerInfo}>

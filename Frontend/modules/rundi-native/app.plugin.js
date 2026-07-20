@@ -164,11 +164,34 @@ function withRundiNative(config) {
           end
         end
 
+        # Normalizar deployment target al del proyecto (evita warnings de mismatch)
+        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = podfile_properties['ios.deploymentTarget'] || '15.1'
+
         if t.name.start_with?('RNFB') || t.name.include?('react_native_maps') || t.name.include?('react-native-maps') || t.name.include?('AIRMap')
           config.build_settings['DEFINES_MODULE'] = 'NO'
+          # Limpiar MODULEMAP_FILE para evitar el warning "MODULEMAP_FILE has no effect if DEFINES_MODULE is not set"
+          config.build_settings.delete('MODULEMAP_FILE') if config.build_settings['MODULEMAP_FILE']
         end
       end
     end
+
+    # Desactivar "Based on dependency analysis" en build phases de scripts
+    # para evitar warnings de "ambiguous dependencies" (Xcode 15+)
+    installer.pods_project.targets.each do |t|
+      t.shell_script_build_phases.each do |phase|
+        phase.always_out_of_date = '1'
+      end
+    end
+
+    # También aplicar al target principal de la app
+    installer.aggregate_targets.each do |agg|
+      agg.user_project.native_targets.each do |native_t|
+        native_t.shell_script_build_phases.each do |phase|
+          phase.always_out_of_date = '1'
+        end
+      end
+      agg.user_project.save
+    end rescue nil
 `;
 
       // Match the closing "end" of post_install block followed by closing "end" of target block
@@ -309,6 +332,25 @@ function withRundiNative(config) {
       }
 
       fs.writeFileSync(appDelegatePath, appDelegateContent);
+      return config;
+    },
+  ]);
+
+  // 8. iOS: remove duplicate -lc++ from OTHER_LDFLAGS in project.pbxproj (Pods already link it)
+  config = withDangerousMod(config, [
+    'ios',
+    (config) => {
+      const pbxprojPath = path.join(
+        config.modRequest.platformProjectRoot,
+        'Rundi.xcodeproj',
+        'project.pbxproj'
+      );
+      if (!fs.existsSync(pbxprojPath)) return config;
+
+      let pbxContent = fs.readFileSync(pbxprojPath, 'utf8');
+      // Remove "-lc++" from OTHER_LDFLAGS arrays (Pods already link it, causing duplicate warning)
+      pbxContent = pbxContent.replace(/"\-lc\+\+",/g, '');
+      fs.writeFileSync(pbxprojPath, pbxContent);
       return config;
     },
   ]);

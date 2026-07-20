@@ -3,6 +3,9 @@
  * Funciones puras reutilizables extraídas de CompleteVehicleInfoScreen.
  */
 
+import { safeString } from './safeFormatters';
+export { safeString };
+
 /**
  * Convierte un valor de fecha (string, Firestore Timestamp, objeto vacío, null)
  * a formato YYYY-MM-DD. Devuelve '' si el valor no es válido.
@@ -35,14 +38,4 @@ export const formatDateValue = (dateValue: any): string => {
   }
 
   return '';
-};
-
-/**
- * Convierte cualquier valor a string seguro ('' si null/undefined).
- */
-export const safeString = (value: any): string => {
-  if (value === null || value === undefined) {
-    return '';
-  }
-  return String(value);
 };

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, Text } from 'react-native';
 import { LoadingIcon } from '../ui/LoadingIcon';
 import MapView, { Polyline, Marker, PROVIDER_GOOGLE } from 'react-native-maps';
-import backendConfig from '../../config/backendConfig';
+import apiClient from '../../api/client';
 import { useTranslation } from 'react-i18next';
 
 interface RoutePoint {
@@ -35,9 +35,8 @@ const RouteHistoryMap: React.FC<RouteHistoryMapProps> = ({
   useEffect(() => {
     const fetchRouteHistory = async () => {
       try {
-        const backendUrl = backendConfig.getApiUrl();
-        const response = await fetch(`${backendUrl}/tracking/route/${rideId}`);
-        const data = await response.json();
+        const response = await apiClient.get(`/tracking/route/${rideId}`);
+        const data = response.data;
 
         if (data.success) {
           setRoute(data.data.route);

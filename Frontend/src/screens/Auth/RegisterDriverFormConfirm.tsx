@@ -19,8 +19,8 @@ import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 
-import { useTheme } from '../../context/ThemeContext';
-import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
+import { useAuth } from '../../hooks/shared/auth/useAuth';
 import registrationService from '../../services/auth/registrationService';
 import driversService from '../../services/driversService';
 import vehiclesService from '../../services/vehiclesService';
@@ -28,6 +28,8 @@ import supabaseStorage from '../../services/supabaseStorage';
 import { setRegistrationUploadsInProgress } from '../../services/proximityService';
 import { AuthStackParamList } from '../../navigation/types';
 import { useTranslation } from 'react-i18next';
+import { RegisterConfirmSummary } from '../../components/auth/RegisterConfirm/RegisterConfirmSummary';
+import { RegisterConfirmActions } from '../../components/auth/RegisterConfirm/RegisterConfirmActions';
 
 type RegisterConfirmNavigationProp = NativeStackNavigationProp<
   AuthStackParamList,
@@ -482,266 +484,29 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
             </Text>
           </View>
 
-          {/* Resumen de Datos */}
-          <View style={styles.summaryContainer}>
-            {/* Datos Básicos */}
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>
-                {t('authScreens.registerConfirm.sections.basic')}
-              </Text>
+          <RegisterConfirmSummary
+            name={name}
+            email={email}
+            phone={phone}
+            role={role}
+            authProvider={authProvider}
+            phoneVerified={phoneVerified}
+            driverData={driverData}
+            vehicleData={vehicleData}
+            driverPhotoPreviews={driverPhotoPreviews}
+            vehiclePhotoPreviews={vehiclePhotoPreviews}
+            colors={colors}
+            t={t}
+            styles={styles}
+          />
 
-              <View style={styles.dataRow}>
-                <Text style={styles.dataLabel}>
-                  {t('authScreens.registerConfirm.data.name')}:
-                </Text>
-                <Text style={styles.dataValue}>{name}</Text>
-              </View>
-
-              <View style={styles.dataRow}>
-                <Text style={styles.dataLabel}>
-                  {t('authScreens.registerConfirm.data.email')}:
-                </Text>
-                <Text style={styles.dataValue}>{email}</Text>
-              </View>
-
-              <View style={styles.dataRow}>
-                <Text style={styles.dataLabel}>
-                  {t('authScreens.registerConfirm.data.phone')}:
-                </Text>
-                <Text style={styles.dataValue}>{phone}</Text>
-              </View>
-
-              <View style={styles.dataRow}>
-                <Text style={styles.dataLabel}>
-                  {t('authScreens.registerConfirm.data.role')}:
-                </Text>
-                <Text style={styles.dataValue}>
-                  {role === 'driver'
-                    ? t('authScreens.registerConfirm.data.roleLabel.driver')
-                    : t('authScreens.registerConfirm.data.roleLabel.client')}
-                </Text>
-              </View>
-
-              <View style={styles.dataRow}>
-                <Text style={styles.dataLabel}>
-                  {t('authScreens.registerConfirm.data.authMethod')}:
-                </Text>
-                <Text style={styles.dataValue}>
-                  {authProvider === 'google'
-                    ? t('authScreens.registerConfirm.data.authMethodLabel.google')
-                    : authProvider === 'phone'
-                      ? t('authScreens.registerConfirm.data.authMethodLabel.phone')
-                      : t('authScreens.registerConfirm.data.authMethodLabel.emailPassword')}
-                </Text>
-              </View>
-
-              <View style={styles.dataRow}>
-                <Text style={styles.dataLabel}>
-                  {t('authScreens.registerConfirm.data.phoneVerified')}:
-                </Text>
-                <Text style={[styles.dataValue, { color: phoneVerified ? colors.success : colors.error }]}>
-                  {phoneVerified
-                    ? t('authScreens.registerConfirm.data.phoneVerifiedYes')
-                    : t('authScreens.registerConfirm.data.phoneVerifiedNo')}
-                </Text>
-              </View>
-            </View>
-
-            {/* Datos del Conductor (si aplica) */}
-            {role === 'driver' && driverData && (
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>
-                  {t('authScreens.registerConfirm.sections.license')}
-                </Text>
-
-                <View style={styles.dataRow}>
-                  <Text style={styles.dataLabel}>
-                    {t('authScreens.registerConfirm.data.licenseNumber')}:
-                  </Text>
-                  <Text style={styles.dataValue}>{driverData.licenseNumber}</Text>
-                </View>
-
-                <View style={styles.dataRow}>
-                  <Text style={styles.dataLabel}>
-                    {t('authScreens.registerConfirm.data.expiration')}:
-                  </Text>
-                  <Text style={styles.dataValue}>{driverData.licenseExpiry}</Text>
-                </View>
-
-                <View style={styles.dataRow}>
-                  <Text style={styles.dataLabel}>
-                    {t('authScreens.registerConfirm.data.department')}:
-                  </Text>
-                  <Text style={styles.dataValue}>{driverData.department}</Text>
-                </View>
-
-                <View style={styles.dataRow}>
-                  <Text style={styles.dataLabel}>
-                    {t('authScreens.registerConfirm.data.municipality')}:
-                  </Text>
-                  <Text style={styles.dataValue}>{driverData.municipality}</Text>
-                </View>
-
-                {driverPhotoPreviews.length > 0 && (
-                  <View style={styles.photoPreviewGroup}>
-                    <Text style={styles.photoPreviewTitle}>
-                      {t('authScreens.registerConfirm.sections.photos')}
-                    </Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                      {driverPhotoPreviews.map((photo) => (
-                        <View style={styles.photoPreviewCard} key={photo.key}>
-                          <Image source={{ uri: photo.uri }} style={styles.photoPreviewImage} />
-                          <Text style={styles.photoPreviewLabel} numberOfLines={2}>
-                            {photo.label}
-                          </Text>
-                        </View>
-                      ))}
-                    </ScrollView>
-                    <Text style={styles.photoHint}>
-                      {t('authScreens.registerConfirm.photos.hint')}
-                    </Text>
-                  </View>
-                )}
-              </View>
-            )}
-
-            {/* Datos del Vehículo (si aplica) */}
-            {role === 'driver' && vehicleData && (
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>
-                  {t('authScreens.registerConfirm.sections.vehicle')}
-                </Text>
-
-                <View style={styles.dataRow}>
-                  <Text style={styles.dataLabel}>
-                    {t('authScreens.registerConfirm.data.plate')}:
-                  </Text>
-                  <Text style={styles.dataValue}>{vehicleData.plate}</Text>
-                </View>
-
-                <View style={styles.dataRow}>
-                  <Text style={styles.dataLabel}>
-                    {t('authScreens.registerConfirm.data.brand')}:
-                  </Text>
-                  <Text style={styles.dataValue}>{vehicleData.brand}</Text>
-                </View>
-
-                <View style={styles.dataRow}>
-                  <Text style={styles.dataLabel}>
-                    {t('authScreens.registerConfirm.data.model')}:
-                  </Text>
-                  <Text style={styles.dataValue}>{vehicleData.model}</Text>
-                </View>
-
-                <View style={styles.dataRow}>
-                  <Text style={styles.dataLabel}>
-                    {t('authScreens.registerConfirm.data.year')}:
-                  </Text>
-                  <Text style={styles.dataValue}>{vehicleData.year}</Text>
-                </View>
-
-                <View style={styles.dataRow}>
-                  <Text style={styles.dataLabel}>
-                    {t('authScreens.registerConfirm.data.color')}:
-                  </Text>
-                  <Text style={styles.dataValue}>{vehicleData.color}</Text>
-                </View>
-
-                <View style={styles.dataRow}>
-                  <Text style={styles.dataLabel}>
-                    {t('authScreens.registerConfirm.data.type')}:
-                  </Text>
-                  <Text style={styles.dataValue}>
-                    {vehicleData.type === 'sedan' && t('authScreens.registerConfirm.data.typeLabel.sedan')}
-                    {vehicleData.type === 'suv' && t('authScreens.registerConfirm.data.typeLabel.suv')}
-                    {vehicleData.type === 'van' && t('authScreens.registerConfirm.data.typeLabel.van')}
-                    {vehicleData.type === 'moto' && t('authScreens.registerConfirm.data.typeLabel.moto')}
-                  </Text>
-                </View>
-
-                {vehicleData.passengers && (
-                  <View style={styles.dataRow}>
-                    <Text style={styles.dataLabel}>
-                      {t('authScreens.registerConfirm.data.passengers')}:
-                    </Text>
-                    <Text style={styles.dataValue}>{vehicleData.passengers}</Text>
-                  </View>
-                )}
-
-                {vehiclePhotoPreviews.length > 0 && (
-                  <View style={styles.photoPreviewGroup}>
-                    <Text style={styles.photoPreviewTitle}>
-                      {t('authScreens.registerConfirm.sections.vehiclePhotos')}
-                    </Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                      {vehiclePhotoPreviews.map((photo) => (
-                        <View style={styles.photoPreviewCard} key={photo.key}>
-                          <Image source={{ uri: photo.uri }} style={styles.photoPreviewImage} />
-                          <Text style={styles.photoPreviewLabel} numberOfLines={2}>
-                            {photo.label}
-                          </Text>
-                        </View>
-                      ))}
-                    </ScrollView>
-                    <Text style={styles.photoHint}>
-                      {t('authScreens.registerConfirm.photos.hint')}
-                    </Text>
-                  </View>
-                )}
-              </View>
-            )}
-
-            {/* Información Importante */}
-            <View style={styles.infoBox}>
-              <Text style={styles.infoTitle}>
-                {t('authScreens.registerConfirm.sections.importantInfo')}
-              </Text>
-              <Text style={styles.infoText}>
-                {t('authScreens.registerConfirm.infoBox.line1')}
-              </Text>
-              <Text style={styles.infoText}>
-                {t('authScreens.registerConfirm.infoBox.line2')}
-              </Text>
-              <Text style={styles.infoText}>
-                {t('authScreens.registerConfirm.infoBox.line3')}
-              </Text>
-            </View>
-          </View>
-
-          {/* Botones */}
-          <View style={styles.buttonContainer}>
-            <TouchableOpacity
-              style={styles.backButton}
-              onPress={() => navigation.goBack()}
-              disabled={loading}
-            >
-              <Text style={styles.backButtonText}>
-                {t('authScreens.registerConfirm.buttons.back')}
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.confirmButton, loading && styles.buttonDisabled]}
-              onPress={handleConfirmAndRegister}
-              disabled={loading}
-            >
-              {loading ? (
-                <LoadingIcon size={24} color="#FFFFFF" />
-              ) : (
-                <Text style={styles.confirmButtonText}>
-                  {t('authScreens.registerConfirm.buttons.confirm')}
-                </Text>
-              )}
-            </TouchableOpacity>
-          </View>
-
-          {/* Progreso */}
-          <View style={styles.progressContainer}>
-            <View style={[styles.progressBar, { width: '100%' }]} />
-          </View>
-          <Text style={styles.progressText}>
-            {t('authScreens.registerConfirm.progress', { current: 4, total: 4 })}
-          </Text>
+          <RegisterConfirmActions
+            loading={loading}
+            onBack={() => navigation.goBack()}
+            onConfirm={handleConfirmAndRegister}
+            t={t}
+            styles={styles}
+          />
         </View>
       </ScrollView>
     </KeyboardAvoidingView>

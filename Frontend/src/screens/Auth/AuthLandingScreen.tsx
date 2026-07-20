@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { AuthStackParamList } from '../../navigation/types';
 import { useTranslation } from 'react-i18next';
 

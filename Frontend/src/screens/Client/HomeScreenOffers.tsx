@@ -3,8 +3,8 @@ import { View, Text, StyleSheet, TouchableOpacity, FlatList, Image, Animated } f
 import { MaterialIcons } from '@expo/vector-icons';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { useTranslation } from 'react-i18next';
-import { useAuth } from '../../context/AuthContext';
-import { useTheme } from '../../context/ThemeContext';
+import { useAuth } from '../../hooks/shared/auth/useAuth';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useLocation } from '../../hooks/shared/location/useLocation';
 import DynamicMap from '../../components/map/DynamicMap';
 import { MAP_ICONS } from '../../constants/mapIcons';
@@ -29,6 +29,8 @@ import {
   resolveNegotiationBasePrice,
 } from '../../utils/pricing';
 import { haversineKm } from '../../utils/distance';
+import { HomeScreenOffersOfferCard } from '../../components/client/HomeScreenOffers/HomeScreenOffersOfferCard';
+import { HomeScreenOffersBottomSheet } from '../../components/client/HomeScreenOffers/HomeScreenOffersBottomSheet';
 
 const { USER_LOCATION_LIGHT, USER_LOCATION_DARK } = MAP_ICONS;
 const MAX_DRIVER_RADIUS_KM = typeof RIDES_RADIUS_KM === 'number' ? RIDES_RADIUS_KM : 6;
@@ -452,132 +454,37 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
     const ratingPrefix = ratingLabel ? t('client.homeOffers.list.ratingPrefix', { rating: ratingLabel }) : '';
     const displayName = mergeName(driverFallbackName, info, raw, item.driver);
     const vehicleIconSource = ensureVehicleIconSource(vehicleType);
-    const priceTextColor = selected ? '#F8FAFC' : colors.text;
-    const priceLabelColor = selected ? 'rgba(248, 250, 252, 0.88)' : colors.textSecondary;
+    const photoUri = info?.profilePhoto || info?.photoURL || info?.photoUrl || raw?.profilePhoto || raw?.photoURL || raw?.photoUrl || item.driver?.photoURL || null;
+    const clientPriceLabel =
+      clientPrice != null ? `C$${clientPrice.toFixed(2)}` : t('client.homeOffers.list.clientPriceMissing');
     const driverPriceLabel = driverPrice
       ? `C$${driverPrice.toFixed(2)}`
       : t('client.homeOffers.list.driverPricePending');
-    const clientPriceLabel =
-      clientPrice != null ? `C$${clientPrice.toFixed(2)}` : t('client.homeOffers.list.clientPriceMissing');
     const negotiationLabel = negotiationStatusLabel(rideSnapshot?.negotiationStatus);
+
     return (
-      <TouchableOpacity
-        onPress={() => handleSelectFromList(item.driverId)}
-        style={[styles.offerRow, selected ? styles.offerRowSelected : styles.offerRowDefault]}
-        activeOpacity={0.8}
-      >
-        <View style={styles.offerAvatarWrap}>
-          <View style={styles.offerAvatarFrame}>
-            {(() => {
-              const photoUri = info?.profilePhoto || info?.photoURL || info?.photoUrl || raw?.profilePhoto || raw?.photoURL || raw?.photoUrl || item.driver?.photoURL || null;
-              if (photoUri) {
-                return (
-                  <Image
-                    source={{ uri: photoUri }}
-                    style={styles.offerAvatarPhoto}
-                  />
-                );
-              }
-              return (
-                <View style={styles.offerAvatarFallback}> 
-                  <Text style={styles.offerAvatarFallbackText}>{(displayName || 'C').charAt(0).toUpperCase()}</Text>
-                </View>
-              );
-            })()}
-          </View>
-          <Image source={vehicleIconSource} style={styles.offerVehicleOverlay} />
-        </View>
-        <View style={styles.offerInfo}>
-          <Text
-            style={[
-              styles.offerTitle,
-              selected ? styles.offerTitleSelected : styles.offerTitleDefault,
-            ]}
-            numberOfLines={selected ? 2 : 1}
-          >
-            {displayName} - {plate}
-          </Text>
-          <Text
-            style={[
-              styles.offerSubtitle,
-              selected ? styles.offerSubtitleSelected : styles.offerSubtitleDefault,
-            ]}
-            numberOfLines={2}
-          >
-            {ratingLabel ? `${ratingPrefix} • ` : ''}
-            {arrivalLabel}
-          </Text>
-          {selected && (
-            <View style={styles.priceRow}>
-              <View style={styles.priceHeaderRow}>
-                <View style={styles.priceHeaderDot} />
-                <Text style={[styles.priceLabel, { color: priceLabelColor }]}>{t('client.homeOffers.list.priceLabel')}</Text>
-              </View>
-              <View style={styles.priceItems}>
-                <View style={styles.priceItemRow}>
-                  <Text style={[styles.priceItemLabel, { color: priceLabelColor }]}>
-                    {t('client.homeOffers.list.clientPriceLabel')}
-                  </Text>
-                  <Text style={[styles.priceItemValue, { color: priceTextColor }]}>{clientPriceLabel}</Text>
-                </View>
-                <View style={styles.priceItemDivider} />
-                <View style={styles.priceItemRow}>
-                  <Text style={[styles.priceItemLabel, { color: priceLabelColor }]}>
-                    {t('client.homeOffers.list.driverPriceLabel')}
-                  </Text>
-                  <Text style={[styles.priceItemValue, { color: priceTextColor }]}>{driverPriceLabel}</Text>
-                </View>
-              </View>
-            </View>
-          )}
-        </View>
-        {selected ? (
-          <View style={styles.selectedActions}>
-            <TouchableOpacity
-              onPress={() => handleMessageDriver(item)}
-              style={styles.messageButton}
-              activeOpacity={0.9}
-            >
-              <MaterialIcons name="chat" size={24} color="#FFFFFF" />
-            </TouchableOpacity>
-            {item.status === 'accepted' ? (
-              <Animated.View
-                style={[
-                  styles.acceptedStatusChip,
-                  {
-                    transform: [
-                      {
-                        scale: acceptedAnim.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [0.6, 1],
-                        }),
-                      },
-                    ],
-                    opacity: acceptedAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [0, 1],
-                    }),
-                  },
-                ]}
-              >
-                <Text style={styles.acceptedStatusText}>{t('client.homeOffers.list.acceptedPrimary')}</Text>
-              </Animated.View>
-            ) : (
-              <TouchableOpacity onPress={openNegotiation} style={styles.negotiatePill} activeOpacity={0.9}>
-                <Text style={styles.negotiateText}>{t('client.homeOffers.negotiation.pill')}</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        ) : item.status === 'accepted' ? (
-          <View style={styles.acceptedStatusChipSecondary}>
-            <Text style={styles.acceptedStatusTextSecondary}>{t('client.homeOffers.list.acceptedSecondary')}</Text>
-          </View>
-        ) : (
-          <View style={styles.offerEtaBadge}>
-            <Text style={styles.offerEtaText}>{negotiationLabel ?? etaValueText}</Text>
-          </View>
-        )}
-      </TouchableOpacity>
+      <HomeScreenOffersOfferCard
+        item={item}
+        selected={selected}
+        eta={eta}
+        etaValueText={etaValueText}
+        arrivalLabel={arrivalLabel}
+        plate={plate}
+        clientPriceLabel={clientPriceLabel}
+        driverPriceLabel={driverPriceLabel}
+        negotiationLabel={negotiationLabel}
+        displayName={displayName}
+        vehicleIconSource={vehicleIconSource}
+        ratingPrefix={ratingPrefix}
+        photoUri={photoUri}
+        colors={colors}
+        acceptedAnim={acceptedAnim}
+        onSelect={() => handleSelectFromList(item.driverId)}
+        onMessageDriver={() => handleMessageDriver(item)}
+        onOpenNegotiation={openNegotiation}
+        styles={styles}
+        t={t}
+      />
     );
   };
 
@@ -603,76 +510,24 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
         />
       </View>
 
-      <View style={[styles.sheet, { backgroundColor: colors.card }] }>
-        <View style={styles.sheetHandle} />
-        <Text style={styles.sheetTitle}>{t('client.homeOffers.title')}</Text>
-
-        {loading ? (
-          <View style={styles.loadingBox}>
-            <LoadingIcon icon="refresh" size={32} color={colors.primary} animation="spin" />
-          </View>
-        ) : offers.length === 0 ? (
-          <View style={styles.emptyBox}>
-            <Text style={styles.emptyText}>{t('client.homeOffers.empty')}</Text>
-          </View>
-        ) : (
-          <FlatList
-            data={offers}
-            keyExtractor={(it) => it.driverId}
-            renderItem={renderOffer}
-            contentContainerStyle={{ paddingBottom: 12 }}
-          />
-        )}
-
-        {selectedOffer ? (
-          <TouchableOpacity
-            style={styles.reviewsBtn}
-            onPress={() => setShowDriverReviews(true)}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.reviewsBtnText}>{t('client.homeOffers.buttons.seeDriverReviews')}</Text>
-          </TouchableOpacity>
-        ) : null}
-
-        <AnimatedTouchableOpacity
-          style={[
-            styles.primaryBtn,
-            {
-              backgroundColor: selectedDriverId ? '#D39838' : '#BDBDBD',
-              transform: [{ scale: confirmBtnAnim }],
-            },
-          ]}
-          onPress={confirmSelectedDriver}
-          disabled={!selectedDriverId || isConfirming}
-          activeOpacity={0.85}
-        >
-          {isConfirming ? (
-            <LoadingIcon icon="refresh" size={24} color="#FFFFFF" animation="spin" />
-          ) : (
-            <Text style={styles.primaryBtnText}>{primaryActionLabel}</Text>
-          )}
-        </AnimatedTouchableOpacity>
-
-        <AnimatedTouchableOpacity
-          style={[
-            styles.cancelBtn,
-            {
-              backgroundColor: '#E53935',
-              transform: [{ scale: cancelBtnAnim }],
-              opacity: isCancelling ? 0.7 : 1,
-            },
-          ]}
-          onPress={cancelSearch}
-          disabled={isCancelling}
-          activeOpacity={0.85}
-        >
-          {isCancelling ? (
-            <LoadingIcon icon="refresh" size={24} color="#FFFFFF" animation="spin" />
-          ) : (
-            <Text style={styles.cancelBtnText}>{t('client.homeOffers.buttons.cancelSearch')}</Text>
-          )}
-        </AnimatedTouchableOpacity>
-      </View>
+      <HomeScreenOffersBottomSheet
+        loading={loading}
+        offers={offers}
+        selectedDriverId={selectedDriverId}
+        selectedOffer={selectedOffer}
+        isConfirming={isConfirming}
+        isCancelling={isCancelling}
+        confirmBtnAnim={confirmBtnAnim}
+        cancelBtnAnim={cancelBtnAnim}
+        primaryActionLabel={primaryActionLabel}
+        colors={colors}
+        renderOffer={renderOffer}
+        onShowDriverReviews={() => setShowDriverReviews(true)}
+        onConfirmSelectedDriver={confirmSelectedDriver}
+        onCancelSearch={cancelSearch}
+        styles={styles}
+        t={t}
+      />
 
       {/* Modal de Negociación */}
       <PriceNegotiationModal

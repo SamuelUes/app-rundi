@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { LoadingIcon } from '../components/ui/LoadingIcon';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { useTheme } from '../context/ThemeContext';
+import { useTheme } from '../hooks/shared/theme/useTheme';
 import LoginScreen from '../screens/Auth/LoginScreen';
 //import RegisterScreen from '../screens/Auth/RegisterScreen';
 import RegisterScreenNew from '../screens/Auth/RegisterScreen';

@@ -5,7 +5,8 @@ import {
   uploadRegistrationPhoto,
   uploadInsurancePhoto,
 } from '../../../services/supabaseStorage';
-import { formatDateValue, safeString } from '../../../utils/vehicleFormatters';
+import { formatDateValue } from '../../../utils/vehicleFormatters';
+import { safeString } from '../../../utils/safeFormatters';
 
 export interface VehicleData {
   id: string;

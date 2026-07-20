@@ -10,11 +10,11 @@ import {
   Image,
 } from 'react-native';
 import { LoadingIcon } from '../ui/LoadingIcon';
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useLocation } from '../../hooks/shared/location/useLocation';
 import { getFirebaseFunctions } from '../../config/firebase';
 import { httpsCallable } from 'firebase/functions';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../hooks/shared/auth/useAuth';
 import { useTranslation } from 'react-i18next';
 
 interface EmergencyButtonProps {
@@ -205,7 +205,7 @@ export default function EmergencyButton({ rideId, style, onOpen, onReady }: Emer
           <LoadingIcon size={24} color={colors.primary} />
         ) : (
           <Image
-            source={require('../assets/icons/emergency/red-call-icon.png')}
+            source={require('../../assets/icons/emergency/red-call-icon.png')}
             style={styles.icon}
           />
         )}

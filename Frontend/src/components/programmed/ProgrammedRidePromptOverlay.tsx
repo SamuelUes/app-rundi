@@ -2,11 +2,11 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { Modal, View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { LoadingIcon } from '../ui/LoadingIcon';
 import { useTranslation } from 'react-i18next';
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
 import alertService from '../../services/alertService';
 import ridesService from '../../services/ridesService';
 import { useProgrammedRidePrompt, ProgrammedRidePrompt, buildActiveRideAction } from '../../hooks/shared/programmed/useProgrammedRidePrompt';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../hooks/shared/auth/useAuth';
 import { subscribePreflightResult, getPreflightResult, setPreflightResult, PreflightAction } from '../../stores/preflightStore';
 import { useNavigation } from '@react-navigation/native';
 

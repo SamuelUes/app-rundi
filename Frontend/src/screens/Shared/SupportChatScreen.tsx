@@ -14,14 +14,17 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { httpsCallable } from 'firebase/functions';
-import { useTheme } from '../../context/ThemeContext';
-import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
+import { useAuth } from '../../hooks/shared/auth/useAuth';
 import ChatBubble from '../../components/shared/ChatBubble';
 import { useChat } from '../../hooks/shared/chat/useChat';
 import { useCalls } from '../../hooks/shared/calls/useCalls';
 import { getFirebaseFunctions } from '../../config/firebase';
 import { useTranslation } from 'react-i18next';
 import { useNavigation } from '@react-navigation/native';
+import { SupportChatHeader } from '../../components/shared/SupportChat/SupportChatHeader';
+import { SupportChatMessages } from '../../components/shared/SupportChat/SupportChatMessages';
+import { SupportChatInput } from '../../components/shared/SupportChat/SupportChatInput';
 
 interface SupportChatScreenRouteParams {
   rideId?: string | null;
@@ -164,198 +167,6 @@ export default function SupportChatScreen({ route }: SupportChatScreenProps) {
     setInputText('');
   };
 
-  const renderHeader = () => (
-    <View>
-      <View style={styles.headerRow}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <Image source={backIcon} style={styles.backIcon} resizeMode="contain" />
-        </TouchableOpacity>
-        <View style={styles.headerText}>
-          <Text style={styles.title}>{t(`${ns}.title`)}</Text>
-          <Text style={styles.subtitle}>{t(`${ns}.subtitle`)}</Text>
-        </View>
-      </View>
-
-      {rideId ? (
-        <View style={styles.rideTag}>
-          <Text style={styles.rideTagLabel}>{t(`${ns}.rideTagLabel`)}</Text>
-          <Text style={styles.rideTagValue}>{rideId}</Text>
-        </View>
-      ) : null}
-
-      {!complaintId && (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t(`${ns}.categories.title`)}</Text>
-          <View style={styles.chipsRow}>
-            {categoryOptions.map((item) => (
-              <TouchableOpacity
-                key={item.id}
-                style={[
-                  styles.chip,
-                  category === item.id && styles.chipSelected,
-                ]}
-                onPress={() => setCategory(item.id)}
-              >
-                <Text
-                  style={[
-                    styles.chipLabel,
-                    category === item.id && styles.chipLabelSelected,
-                  ]}
-                >
-                  {item.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          <Text style={[styles.sectionTitle, { marginTop: 20 }]}>{t(`${ns}.priorities.title`)}</Text>
-          <View style={styles.chipsRow}>
-            {priorityOptions.map((item) => (
-              <TouchableOpacity
-                key={item.id}
-                style={[
-                  styles.chipSmall,
-                  priority === item.id && styles.chipSelected,
-                ]}
-                onPress={() => setPriority(item.id)}
-              >
-                <Text
-                  style={[
-                    styles.chipLabel,
-                    priority === item.id && styles.chipLabelSelected,
-                  ]}
-                >
-                  {item.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>{t(`${ns}.form.problemTitleLabel`)}</Text>
-            <TextInput
-              style={styles.textInput}
-              placeholder={t(`${ns}.form.problemTitlePlaceholder`)}
-              placeholderTextColor={colors.textSecondary}
-              value={title}
-              onChangeText={setTitle}
-            />
-          </View>
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>{t(`${ns}.form.descriptionLabel`)}</Text>
-            <TextInput
-              style={[styles.textInput, styles.textArea]}
-              multiline
-              numberOfLines={4}
-              placeholder={t(`${ns}.form.descriptionPlaceholder`)}
-              placeholderTextColor={colors.textSecondary}
-              value={description}
-              onChangeText={setDescription}
-            />
-          </View>
-
-          {creationError ? <Text style={styles.errorText}>{creationError}</Text> : null}
-          {creatingFunctionsError ? (
-            <Text style={styles.errorText}>{creatingFunctionsError}</Text>
-          ) : null}
-
-          <TouchableOpacity
-            style={[styles.primaryButton, creatingComplaint && styles.primaryButtonDisabled]}
-            disabled={creatingComplaint}
-            onPress={handleCreateComplaint}
-          >
-            {creatingComplaint ? (
-              <View style={styles.buttonContentRow}>
-                <LoadingIcon size={20} color="#fff" style={{ marginRight: 8 }} />
-                <Text style={styles.primaryButtonText}>{t(`${ns}.actions.creatingCase`)}</Text>
-              </View>
-            ) : (
-              <Text style={styles.primaryButtonText}>{t(`${ns}.actions.createCase`)}</Text>
-            )}
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {complaintId ? (
-        <View style={styles.caseHeader}>
-          <Text style={styles.caseIdLabel}>{t(`${ns}.caseHeader.createdLabel`)}</Text>
-          <Text style={styles.caseIdValue}>{complaintId}</Text>
-          <Text style={styles.caseHint}>
-            {t(`${ns}.caseHeader.hint`)}
-          </Text>
-        </View>
-      ) : null}
-      {activeCall && activeCall.status !== 'ended' ? (
-        <TouchableOpacity
-          style={styles.callBanner}
-          onPress={handleCallButton}
-        >
-          <View style={styles.callBannerDot} />
-          <View style={styles.callBannerTexts}>
-            <Text style={styles.callBannerTitle}>Llamada en curso</Text>
-            <Text style={styles.callBannerSubtitle}>
-              Estado: {String(activeCall.status || 'pending').replace('_', ' ')} · Toca para abrir controles
-            </Text>
-          </View>
-          <Text style={styles.callBannerArrow}>→</Text>
-        </TouchableOpacity>
-      ) : null}
-    </View>
-  );
-
-  const renderMessages = () => {
-    if (!hasActiveChat || !complaintId) {
-      return null;
-    }
-
-    if (!chat.messages.length) {
-      return (
-        <View style={styles.emptyContainer}>
-          <MaterialIcons name="chat" size={48} color={colors.textSecondary} />
-          <Text style={styles.emptyText}>{t(`${ns}.emptyState.text`)}</Text>
-        </View>
-      );
-    }
-
-    return (
-      <FlatList
-        ref={flatListRef}
-        data={chat.messages}
-        renderItem={({ item }) => <ChatBubble message={item} />}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.messagesList}
-        onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
-      />
-    );
-  };
-
-  const renderChatInput = () => {
-    if (!hasActiveChat || !complaintId) return null;
-
-    const disabled = !inputText.trim();
-
-    return (
-      <View style={styles.chatInputContainer}>
-        <TextInput
-          style={styles.chatInput}
-          placeholder={t(`${ns}.chatInput.placeholder`)}
-          placeholderTextColor={colors.textSecondary}
-          multiline
-          value={inputText}
-          onChangeText={setInputText}
-        />
-        <TouchableOpacity
-          style={[styles.sendButton, disabled && styles.sendButtonDisabled]}
-          disabled={disabled}
-          onPress={handleSendMessage}
-        >
-          <MaterialIcons name="send" size={24} color={colors.primary} />
-        </TouchableOpacity>
-      </View>
-    );
-  };
-
   const handleCallButton = () => {
     if (!complaintId) {
       Alert.alert(
@@ -381,11 +192,44 @@ export default function SupportChatScreen({ route }: SupportChatScreenProps) {
         <FlatList
           data={[]}
           ListHeaderComponent={
-            <>
-              {renderHeader()}
-            </>
+            <SupportChatHeader
+              rideId={rideId}
+              complaintId={complaintId}
+              category={category}
+              priority={priority}
+              title={title}
+              description={description}
+              creatingComplaint={creatingComplaint}
+              creationError={creationError}
+              creatingFunctionsError={creatingFunctionsError}
+              categoryOptions={categoryOptions}
+              priorityOptions={priorityOptions}
+              activeCall={activeCall}
+              colors={colors}
+              onBack={() => navigation.goBack()}
+              onSetCategory={setCategory}
+              onSetPriority={setPriority}
+              onSetTitle={setTitle}
+              onSetDescription={setDescription}
+              onCreateComplaint={handleCreateComplaint}
+              onCallButton={handleCallButton}
+              t={t}
+              ns={ns}
+              styles={styles}
+            />
           }
-          ListFooterComponent={renderMessages}
+          ListFooterComponent={
+            <SupportChatMessages
+              hasActiveChat={hasActiveChat}
+              complaintId={complaintId}
+              messages={chat.messages}
+              flatListRef={flatListRef}
+              colors={colors}
+              t={t}
+              ns={ns}
+              styles={styles}
+            />
+          }
           renderItem={null as any}
           keyExtractor={(_, index) => `header-${index}`}
           contentContainerStyle={styles.scrollContent}
@@ -400,7 +244,17 @@ export default function SupportChatScreen({ route }: SupportChatScreenProps) {
         </View> 
       </View>
 
-      {renderChatInput()}
+      <SupportChatInput
+        hasActiveChat={hasActiveChat}
+        complaintId={complaintId}
+        inputText={inputText}
+        colors={colors}
+        onInputChange={setInputText}
+        onSend={handleSendMessage}
+        t={t}
+        ns={ns}
+        styles={styles}
+      />
     </KeyboardAvoidingView>
   );
 }

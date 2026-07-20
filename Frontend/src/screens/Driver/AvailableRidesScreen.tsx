@@ -12,8 +12,8 @@ import {
   TextInput,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useTheme } from '../../context/ThemeContext';
-import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
+import { useAuth } from '../../hooks/shared/auth/useAuth';
 import { useVoiceAssistant } from '../../context/VoiceAssistantContext';
 import { getDatabase, ref, onValue } from 'firebase/database';
 import priceNegotiationService from '../../services/priceNegotiationService';
@@ -35,6 +35,9 @@ import {
   extractProgrammedRideId,
   haversineKm,
 } from '../../utils/availableRidesHelpers';
+import { AvailableRidesItem } from '../../components/driver/AvailableRides/AvailableRidesItem';
+import { AvailableRidesPhotoModal } from '../../components/driver/AvailableRides/AvailableRidesPhotoModal';
+import { AvailableRidesAssignModal } from '../../components/driver/AvailableRides/AvailableRidesAssignModal';
 
 const BACK_ICON = require('../../assets/icons/back_button/back_button2x.png');
 
@@ -461,126 +464,21 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
 
     const ride = item as Ride;
     const profile = ride.clientId ? clientProfiles[ride.clientId] : undefined;
-    const name = profile?.fullName || ride.clientName || t('driver.available.rideCard.clientFallback');
-    const photoUrl = profile?.photoUrl || null;
-
-    const originLat = ride?.origin?.lat ?? 0;
-    const originLng = ride?.origin?.lng ?? 0;
-    const destLat = ride?.destination?.lat ?? 0;
-    const destLng = ride?.destination?.lng ?? 0;
-
-    const originAddress = ride?.origin?.address || `${originLat.toFixed(4)}, ${originLng.toFixed(4)}`;
-    const destinationAddress = ride?.destination?.address || `${destLat.toFixed(4)}, ${destLng.toFixed(4)}`;
-
-    const price = ride.clientSuggestedPrice ?? ride.estimatedPrice ?? 0;
-    const stopsCount = (ride.extraDestinations || []).length;
-    const isDesignatedRide = (ride.rideType || '').toLowerCase() === 'designated_driver';
-    const clientVehiclePhoto = ride.clientVehiclePhoto;
-
-    // Distancia y ETA del conductor al origen del viaje
-    const driverLat = coords?.latitude ?? null;
-    const driverLng = coords?.longitude ?? null;
-    const distanceToOriginKm =
-      driverLat !== null && driverLng !== null
-        ? haversineKm(driverLat, driverLng, originLat, originLng)
-        : 0;
-    const AVERAGE_SPEED_KMH = 28; // velocidad urbana estimada
-    const etaToOriginMin = distanceToOriginKm > 0 ? Math.max(1, Math.round((distanceToOriginKm / AVERAGE_SPEED_KMH) * 60)) : 0;
-
-    const isSelected = selectedRideId === ride.id;
 
     return (
-      <Pressable
-        style={[
-          styles.rideCard,
-          isDark ? styles.rideCardDark : styles.rideCardLight,
-          isDesignatedRide && (isDark ? styles.designatedCardDark : styles.designatedCard),
-          isSelected && styles.selectedCardHighlight,
-        ]}
-        onPress={() => handleSelectRide(ride.id)}
-      >
-        <View style={styles.cardRow}>
-          <View
-            style={[
-              styles.avatarPlaceholder,
-              isDark ? styles.avatarPlaceholderDark : styles.avatarPlaceholderLight,
-            ]}
-          >
-            {photoUrl ? (
-              <Image source={{ uri: photoUrl }} style={styles.avatarImage} />
-            ) : (
-              <Text style={[styles.avatarInitials, { color: colors.text }]}>
-                {getInitials(name, t('driver.available.rideCard.initialFallback'))}
-              </Text>
-            )}
-          </View>
-
-          <View style={styles.detailsColumn}>
-            <View
-              style={[
-                styles.distancePill,
-                isDark ? styles.distancePillDark : styles.distancePillLight,
-              ]}
-            >
-              <Text style={[styles.distancePillText, { color: isDark ? '#FFD666' : '#5D4B00' }]}>
-                {distanceToOriginKm > 0
-                  ? t('driver.available.rideCard.distanceToOrigin', { distance: distanceToOriginKm.toFixed(1) })
-                  : t('driver.available.rideCard.calculating')}
-              </Text>
-            </View>
-            <Text style={[styles.clientName, { color: colors.text }]} numberOfLines={1}>
-              {name}
-            </Text>
-            <Text style={[styles.detailLine, { color: colors.text + '99' }]} numberOfLines={1}>
-              {t('driver.available.rideCard.origin', { address: originAddress })}
-            </Text>
-            <Text style={[styles.detailLine, { color: colors.text + '99' }]} numberOfLines={1}>
-              {t('driver.available.rideCard.destination', { address: destinationAddress })}
-            </Text>
-            {stopsCount > 0 ? (
-              <Text style={[styles.detailLine, { color: colors.text + '99' }]} numberOfLines={1}>
-                {t('driver.available.rideCard.stops', { count: stopsCount })}
-              </Text>
-            ) : null}
-            {ride.clientComment ? (
-              <Text style={[styles.detailLine, { color: colors.text + 'B3' }]} numberOfLines={2}>
-                {`Nota: ${ride.clientComment}`}
-              </Text>
-            ) : null}
-            <Text style={[styles.detailLine, styles.priceLine, { color: colors.text + 'B3' }]} numberOfLines={1}>
-              {t('driver.available.rideCard.price', { amount: Number(price).toFixed(2) })}
-            </Text>
-
-            <View style={styles.cardBottomRow}>
-              <Text style={[styles.distanceSubLabel, { color: colors.text + '99' }]}>
-                {distanceToOriginKm > 0 ? t('driver.available.rideCard.etaToOrigin', { minutes: etaToOriginMin }) : ''}
-              </Text>
-              <View style={styles.metaActions}>
-                {isDesignatedRide && clientVehiclePhoto ? (
-                  <TouchableOpacity
-                    style={[styles.vehicleButton, { borderColor: colors.primary }]}
-                    onPress={() => setPhotoModalUrl(clientVehiclePhoto)}
-                    activeOpacity={0.85}
-                  >
-                    <Text style={[styles.vehicleButtonText, { color: colors.primary }]}>
-                      {t('driver.available.rideCard.viewVehicle')}
-                    </Text>
-                  </TouchableOpacity>
-                ) : null}
-                {isSelected && (
-                  <TouchableOpacity
-                    onPress={() => handleViewRideDetails(ride)}
-                    style={[styles.viewButton, { backgroundColor: colors.primary, borderColor: colors.primary }]}
-                    activeOpacity={0.85}
-                  >
-                    <Text style={styles.viewButtonText}>{t('driver.available.rideCard.view')}</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            </View>
-          </View>
-        </View>
-      </Pressable>
+      <AvailableRidesItem
+        ride={ride}
+        profile={profile}
+        selected={selectedRideId === ride.id}
+        isDark={isDark}
+        colors={colors}
+        coords={coords}
+        onSelect={() => handleSelectRide(ride.id)}
+        onViewDetails={() => handleViewRideDetails(ride)}
+        onViewVehiclePhoto={(url) => setPhotoModalUrl(url)}
+        styles={styles}
+        t={t}
+      />
     );
   };
 
@@ -674,131 +572,58 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
         )}
       />
 
-      <Modal visible={!!photoModalUrl} transparent animationType="fade" onRequestClose={() => setPhotoModalUrl(null)}>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: isDark ? '#1F1F1F' : '#FFFFFF' }]}
-          >
-            <Image
-              source={{ uri: photoModalUrl || undefined }}
-              style={styles.modalImage}
-              resizeMode="contain"
-            />
-            <TouchableOpacity
-              style={[styles.closeModalButton, { backgroundColor: colors.primary }]}
-              onPress={() => setPhotoModalUrl(null)}
-            >
-              <Text style={styles.closeModalText}>{t('driver.available.modal.close')}</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+      <AvailableRidesPhotoModal
+        visible={!!photoModalUrl}
+        photoUrl={photoModalUrl}
+        isDark={isDark}
+        colors={colors}
+        onClose={() => setPhotoModalUrl(null)}
+        styles={styles}
+        t={t}
+      />
 
-      <Modal
+      <AvailableRidesAssignModal
         visible={assignModalVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => {
-          if (!assigningProgrammedRide) {
+        assignRideIdInput={assignRideIdInput}
+        normalizedAssignRideId={normalizedAssignRideId}
+        assigningProgrammedRide={assigningProgrammedRide}
+        isDark={isDark}
+        colors={colors}
+        onInputChange={setAssignRideIdInput}
+        onCancel={() => setAssignModalVisible(false)}
+        onConfirm={async () => {
+          const rideId = normalizedAssignRideId;
+          if (!rideId) {
+            alertService.showErrorAlert(t('driver.available.alerts.assignInvalidId'));
+            return;
+          }
+
+          setAssigningProgrammedRide(true);
+          try {
+            const result = await ridesService.assignDriverToProgrammedRide(rideId);
+            if (!result?.success) {
+              throw new Error(result?.message || 'No se pudo asignar el viaje programado.');
+            }
+            alertService.showSuccessAlert(
+              t('driver.available.alerts.assignSuccessTitle'),
+              t('driver.available.alerts.assignSuccessBody'),
+              {
+                duration: 3500,
+              },
+            );
             setAssignModalVisible(false);
+            setAssignRideIdInput('');
+          } catch (err: any) {
+            alertService.showErrorAlert(
+              err?.message || t('driver.available.alerts.assignError'),
+            );
+          } finally {
+            setAssigningProgrammedRide(false);
           }
         }}
-      >
-        <View style={styles.assignOverlay}>
-          <View
-            style={[
-              styles.assignModalCard,
-              {
-                backgroundColor: isDark ? '#1F1F1F' : '#FFFFFF',
-                borderColor: isDark ? '#353535' : '#E9E0CF',
-              },
-            ]}
-          >
-            <View style={[styles.assignModalTopAccent, { backgroundColor: colors.primary }]} />
-            <Text style={[styles.assignModalTitle, { color: colors.text }]}>
-              {t('driver.available.assignModal.title')}
-            </Text>
-            <Text style={[styles.assignModalSubtitle, { color: colors.text + '99' }]}>
-              {t('driver.available.assignModal.subtitle')}
-            </Text>
-            <View
-              style={[
-                styles.assignInputWrap,
-                {
-                  borderColor: colors.border,
-                  backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
-                },
-              ]}
-            >
-              <Text style={[styles.assignInputLabel, { color: colors.text + 'AA' }]}>Ride ID</Text>
-              <TextInput
-                value={assignRideIdInput}
-                onChangeText={setAssignRideIdInput}
-                placeholder={t('driver.available.assignModal.placeholder')}
-                placeholderTextColor={colors.text + '66'}
-                autoCapitalize="none"
-                autoCorrect={false}
-                editable={!assigningProgrammedRide}
-                style={[
-                  styles.assignInput,
-                  {
-                    color: colors.text,
-                  },
-                ]}
-              />
-            </View>
-
-            <View style={styles.assignActionsRow}>
-              <TouchableOpacity
-                style={[styles.assignActionButton, styles.assignCancelButton, { borderColor: colors.border }]}
-                disabled={assigningProgrammedRide}
-                onPress={() => setAssignModalVisible(false)}
-              >
-                <Text style={[styles.assignActionText, { color: colors.text }]}>{t('driver.available.assignModal.cancel')}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.assignActionButton, { backgroundColor: colors.primary }]}
-                disabled={assigningProgrammedRide || !normalizedAssignRideId}
-                onPress={async () => {
-                  const rideId = normalizedAssignRideId;
-                  if (!rideId) {
-                    alertService.showErrorAlert(t('driver.available.alerts.assignInvalidId'));
-                    return;
-                  }
-
-                  setAssigningProgrammedRide(true);
-                  try {
-                    const result = await ridesService.assignDriverToProgrammedRide(rideId);
-                    if (!result?.success) {
-                      throw new Error(result?.message || 'No se pudo asignar el viaje programado.');
-                    }
-                    alertService.showSuccessAlert(
-                      t('driver.available.alerts.assignSuccessTitle'),
-                      t('driver.available.alerts.assignSuccessBody'),
-                      {
-                        duration: 3500,
-                      },
-                    );
-                    setAssignModalVisible(false);
-                    setAssignRideIdInput('');
-                  } catch (err: any) {
-                    alertService.showErrorAlert(
-                      err?.message || t('driver.available.alerts.assignError'),
-                    );
-                  } finally {
-                    setAssigningProgrammedRide(false);
-                  }
-                }}
-              >
-                <Text style={styles.assignActionTextPrimary}>
-                  {assigningProgrammedRide
-                    ? t('driver.available.assignModal.assigning')
-                    : t('driver.available.assignModal.confirm')}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+        styles={styles}
+        t={t}
+      />
     </View>
   );
 }

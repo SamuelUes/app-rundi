@@ -159,9 +159,11 @@ const initializeMessagingModule = async (): Promise<boolean> => {
     }
 
     // React Native Firebase se inicializa automáticamente con google-services.json
-    // Solo necesitamos obtener la instancia desde el módulo nativo
-    const instance = rnMessaging.default();
-    
+    // Usar la API modular (v22+) para evitar warnings de deprecación de la API namespaced
+    const instance = rnMessaging.getMessaging
+      ? rnMessaging.getMessaging()
+      : rnMessaging.default();
+
     if (!instance) {
       console.warn('⚠️ No se pudo obtener una instancia de Firebase Messaging.');
       logAvailability('unavailable');
@@ -170,22 +172,22 @@ const initializeMessagingModule = async (): Promise<boolean> => {
 
     messagingModule = {
       AuthorizationStatus: rnMessaging.AuthorizationStatus,
-      requestPermission: async (currentInstance: any) => currentInstance.requestPermission(),
-      hasPermission: async (currentInstance: any) => {
-        if (typeof currentInstance?.hasPermission === 'function') {
-          return currentInstance.hasPermission();
-        }
-        return 0;
-      },
-      getToken: async (currentInstance: any) => currentInstance.getToken(),
-      onMessage: (currentInstance: any, handler: any) => currentInstance.onMessage(handler),
+      requestPermission: async (currentInstance: any) =>
+        rnMessaging.requestPermission(currentInstance),
+      hasPermission: async (currentInstance: any) =>
+        rnMessaging.hasPermission(currentInstance),
+      getToken: async (currentInstance: any) =>
+        rnMessaging.getToken(currentInstance),
+      onMessage: (currentInstance: any, handler: any) =>
+        rnMessaging.onMessage(currentInstance, handler),
       onNotificationOpenedApp: (currentInstance: any, handler: any) =>
-        currentInstance.onNotificationOpenedApp(handler),
-      getInitialNotification: (currentInstance: any) => currentInstance.getInitialNotification(),
+        rnMessaging.onNotificationOpenedApp(currentInstance, handler),
+      getInitialNotification: (currentInstance: any) =>
+        rnMessaging.getInitialNotification(currentInstance),
       setBackgroundMessageHandler: (arg1: any, arg2?: any) => {
         const handler = typeof arg1 === 'function' ? arg1 : arg2;
         if (typeof handler === 'function') {
-          rnMessaging.default().setBackgroundMessageHandler(handler);
+          rnMessaging.setBackgroundMessageHandler(instance, handler);
         }
       },
     };
@@ -252,7 +254,7 @@ class FCMService {
       return { currentUser: null } as any;
     }
 
-    return nativeAuthModule.default();
+    return (nativeAuthModule.getAuth ? nativeAuthModule.getAuth() : nativeAuthModule.default());
   }
 
   private async getWebAuthUser() {

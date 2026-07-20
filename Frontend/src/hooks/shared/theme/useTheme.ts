@@ -1,21 +1,22 @@
 /**
- * Theme Context - Backward-compatible wrapper around themeStore (Zustand)
- * Use useThemeStore directly in new code. This wrapper exists for legacy imports.
+ * Hook de tema — fachada delgada sobre themeStore (Zustand).
+ * Reemplazo directo del legacy `context/ThemeContext.tsx` (sin Provider, sin Context).
+ *
+ * Expone la misma API que `useTheme` anterior para que los consumidores no cambien.
  */
-
-import React, { ReactNode, useEffect } from 'react';
 import { useColorScheme } from 'react-native';
+import { useEffect } from 'react';
 import {
   useThemeStore,
   useThemeColors,
   useIsDark,
   lightColors,
   darkColors,
-} from '../stores/themeStore';
+} from '../../../stores/themeStore';
 
-type Theme = 'light' | 'dark' | 'auto';
+export type Theme = 'light' | 'dark' | 'auto';
 
-interface ThemeContextType {
+export interface ThemeApi {
   theme: Theme;
   isDark: boolean;
   setTheme: (theme: Theme) => void;
@@ -24,7 +25,11 @@ interface ThemeContextType {
   setMapTrafficEnabled: (value: boolean) => void;
 }
 
-export function ThemeProvider({ children }: { children: ReactNode }) {
+/**
+ * Inicializa el store de tema: carga preferencias guardadas y sincroniza
+ * con el color scheme del sistema. Llamar una sola vez en la raíz de la app.
+ */
+export function useThemeInit() {
   const loadPreferences = useThemeStore((s) => s.loadPreferences);
   const setSystemTheme = useThemeStore((s) => s.setSystemTheme);
   const colorScheme = useColorScheme();
@@ -38,11 +43,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       setSystemTheme(colorScheme);
     }
   }, [colorScheme]);
-
-  return <>{children}</>;
 }
 
-export function useTheme(): ThemeContextType {
+export function useTheme(): ThemeApi {
   const theme = useThemeStore((s) => s.theme);
   const isDark = useIsDark();
   const colors = useThemeColors();

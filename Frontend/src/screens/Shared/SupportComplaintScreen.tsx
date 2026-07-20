@@ -12,9 +12,9 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useTranslation } from 'react-i18next';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../hooks/shared/auth/useAuth';
 import supportTicketsService, { SupportTicket } from '../../services/supportTicketsService';
 
 type SupportComplaintScreenRouteParams = {

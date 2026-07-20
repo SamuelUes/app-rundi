@@ -10,8 +10,8 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import SupportChatShortcut from '../../components/shared/SupportChatShortcut';
-import { useTheme } from '../../context/ThemeContext';
-import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
+import { useAuth } from '../../hooks/shared/auth/useAuth';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { getDatabase, ref as dbRef, get } from 'firebase/database';
 import { initializeFirebase } from '../../config/firebase';
@@ -24,6 +24,11 @@ import { useTranslation } from 'react-i18next';
 import { useRideDetails } from '../../hooks/shared/ride/useRideDetails';
 import { useSavedCards } from '../../hooks/shared/payment/useSavedCards';
 import { usePaymentMethodListener } from '../../hooks/shared/payment/usePaymentMethodListener';
+import { PaymentSummaryCard } from '../../components/client/Payment/PaymentSummaryCard';
+import { PaymentCostCard } from '../../components/client/Payment/PaymentCostCard';
+import { PaymentTipCard } from '../../components/client/Payment/PaymentTipCard';
+import { PaymentMethodCard } from '../../components/client/Payment/PaymentMethodCard';
+import { PaymentPayButton } from '../../components/client/Payment/PaymentPayButton';
 
 interface PaymentScreenProps {
   route: {
@@ -403,138 +408,39 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
         </View>
 
         {/* Resumen del viaje */}
-        {rideDetails && (
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryTitle}>{t('shared.payment.summary.title')}</Text>
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>{t('shared.payment.summary.origin')}:</Text>
-              <Text style={styles.summaryValue} numberOfLines={1}>
-                {rideDetails.originAddress || t('shared.payment.summary.notAvailable')}
-              </Text>
-            </View>
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>{t('shared.payment.summary.destination')}:</Text>
-              <Text style={styles.summaryValue} numberOfLines={1}>
-                {rideDetails.destinationAddress || t('shared.payment.summary.notAvailable')}
-              </Text>
-            </View>
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>{t('shared.payment.summary.distance')}:</Text>
-              <Text style={styles.summaryValue}>
-                {(rideDetails.estimatedDistance / 1000).toFixed(1)} km
-              </Text>
-            </View>
-          </View>
-        )}
+        <PaymentSummaryCard rideDetails={rideDetails} styles={styles} t={t} />
 
         {/* Desglose de costos */}
-        <View style={styles.costCard}>
-          <Text style={styles.costTitle}>{t('shared.payment.cost.title')}</Text>
-          <View style={styles.costRow}>
-            <Text style={styles.costLabel}>{t('shared.payment.cost.fare')}</Text>
-            <Text style={styles.costValue}>{formatCurrency(rideAmount)}</Text>
-          </View>
-          {tip > 0 && (
-            <View style={styles.costRow}>
-              <Text style={styles.costLabel}>{t('shared.payment.cost.tip')}</Text>
-              <Text style={styles.costValue}>{formatCurrency(tip)}</Text>
-            </View>
-          )}
-          <View style={styles.divider} />
-          <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>{t('shared.payment.cost.total')}</Text>
-            <Text style={styles.totalValue}>{formatCurrency(totalAmount)}</Text>
-          </View>
-        </View>
+        <PaymentCostCard
+          rideAmount={rideAmount}
+          tip={tip}
+          totalAmount={totalAmount}
+          formatCurrency={formatCurrency}
+          styles={styles}
+          t={t}
+        />
 
         {/* Propina */}
-        <View style={styles.tipCard}>
-          <Text style={styles.tipTitle}>{t('shared.payment.tip.title')}</Text>
-          <View style={styles.tipOptions}>
-            {tipOptions.map((percent) => (
-              <TouchableOpacity
-                key={percent}
-                style={[
-                  styles.tipButton,
-                  selectedTipPercent === percent && styles.tipButtonActive,
-                ]}
-                onPress={() => handleTipSelection(percent)}
-              >
-                <Text
-                  style={[
-                    styles.tipButtonText,
-                    selectedTipPercent === percent && styles.tipButtonTextActive,
-                  ]}
-                >
-                  {percent}%
-                </Text>
-                <Text
-                  style={[
-                    styles.tipButtonAmount,
-                    selectedTipPercent === percent && styles.tipButtonAmountActive,
-                  ]}
-                >
-                  {formatCurrency(rideAmount * (percent / 100))}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          <Text style={styles.customTipLabel}>{t('shared.payment.tip.customLabel')}</Text>
-          <TextInput
-            style={styles.customTipInput}
-            placeholder={t('shared.payment.tip.placeholder')}
-            keyboardType="numeric"
-            value={customTip}
-            onChangeText={handleCustomTip}
-          />
-        </View>
+        <PaymentTipCard
+          tipOptions={tipOptions}
+          rideAmount={rideAmount}
+          selectedTipPercent={selectedTipPercent}
+          customTip={customTip}
+          onSelectTip={handleTipSelection}
+          onCustomTip={handleCustomTip}
+          formatCurrency={formatCurrency}
+          styles={styles}
+          t={t}
+        />
 
         {/* Método de pago */}
-        <View style={styles.paymentMethodCard}>
-          <Text style={styles.paymentMethodTitle}>{t('shared.payment.paymentMethod.title')}</Text>
-          {/* Tarjetas desactivadas temporalmente
-          <TouchableOpacity
-            style={[
-              styles.methodButton,
-              paymentMethod === 'card' && styles.methodButtonActive,
-            ]}
-            onPress={() => handleSelectPaymentMethod('card')}
-            disabled={changingPaymentMethod}
-          >
-            <Text style={styles.methodIcon}>💳</Text>
-            <View style={styles.methodInfo}>
-              <Text style={styles.methodName}>{t('shared.payment.paymentMethod.cardTitle')}</Text>
-              <Text style={styles.methodDescription}>
-                {t('shared.payment.paymentMethod.cardSubtitle')}
-              </Text>
-            </View>
-            {paymentMethod === 'card' && (
-              <Text style={styles.methodCheck}>✓</Text>
-            )}
-          </TouchableOpacity>
-          */}
-
-          <TouchableOpacity
-            style={[
-              styles.methodButton,
-              paymentMethod === 'cash' && styles.methodButtonActive,
-            ]}
-            onPress={() => handleSelectPaymentMethod('cash')}
-            disabled={changingPaymentMethod}
-          >
-            <Text style={styles.methodIcon}>💵</Text>
-            <View style={styles.methodInfo}>
-              <Text style={styles.methodName}>{t('shared.payment.paymentMethod.cashTitle')}</Text>
-              <Text style={styles.methodDescription}>
-                {t('shared.payment.paymentMethod.cashSubtitle')}
-              </Text>
-            </View>
-            {paymentMethod === 'cash' && (
-              <Text style={styles.methodCheck}>✓</Text>
-            )}
-          </TouchableOpacity>
-        </View>
+        <PaymentMethodCard
+          paymentMethod={paymentMethod}
+          changingPaymentMethod={changingPaymentMethod}
+          onSelectMethod={handleSelectPaymentMethod}
+          styles={styles}
+          t={t}
+        />
 
         {/* Tarjetas Guardadas desactivadas temporalmente */}
         {false && (
@@ -648,31 +554,14 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
         )}
 
         {/* Botón de pago */}
-        <TouchableOpacity
-          style={[
-            styles.payButton,
-            isPendingPayment && styles.payButtonPending,
-            processing && styles.payButtonDisabled,
-          ]}
-          onPress={handlePayment}
-          disabled={processing}
-        >
-          {processing ? (
-            <LoadingIcon size={24} color="#fff" />
-          ) : (
-            <Text style={styles.payButtonText}>
-              {t('shared.payment.buttons.payCash')}
-            </Text>
-          )}
-        </TouchableOpacity>
-
-        {/* Info de seguridad */}
-        <View style={styles.securityInfo}>
-          <MaterialIcons name="lock-outline" size={20} color={colors.textSecondary} />
-          <Text style={styles.securityText}>
-            {t('shared.payment.security.message')}
-          </Text>
-        </View>
+        <PaymentPayButton
+          isPendingPayment={isPendingPayment}
+          processing={processing}
+          onPay={handlePayment}
+          colors={colors}
+          styles={styles}
+          t={t}
+        />
       </View>
     </ScrollView>
   );

@@ -13,11 +13,11 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import alertService from '../../services/alertService';
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { MapSkeleton } from '../../components/ui/SkeletonLoader';
 import DynamicMap from '../../components/map/DynamicMap';
 import { MAP_ICONS } from '../../constants/mapIcons';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../hooks/shared/auth/useAuth';
 import { useVoiceAssistant } from '../../context/VoiceAssistantContext';
 import { useLocation, DRIVER_LOCATION_OPTIONS } from '../../hooks/shared/location/useLocation';
 import { useChat } from '../../hooks/shared/chat/useChat';

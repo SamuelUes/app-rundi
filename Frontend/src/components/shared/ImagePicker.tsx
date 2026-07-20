@@ -10,7 +10,7 @@ import {
 import { LoadingIcon } from '../ui/LoadingIcon';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as ExpoImagePicker from 'expo-image-picker';
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useTranslation } from 'react-i18next';
 
 interface ImagePickerProps {

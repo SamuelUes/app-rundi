@@ -10,8 +10,8 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
-import { useAuth } from '../../context/AuthContext';
-import { useTheme } from '../../context/ThemeContext';
+import { useAuth } from '../../hooks/shared/auth/useAuth';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
 import ridesService, { Ride } from '../../services/ridesService';
 import { useRideHistory } from '../../hooks/shared/ride/useRideHistory';
 import { useTranslation } from 'react-i18next';

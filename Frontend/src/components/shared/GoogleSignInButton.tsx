@@ -14,7 +14,7 @@ import {
   Image,
 } from 'react-native';
 import { LoadingIcon } from '../ui/LoadingIcon';
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useTranslation } from 'react-i18next';
 
 interface GoogleSignInButtonProps {
@@ -104,7 +104,7 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
             </View>
           ) : (
             <Image
-              source={require('../assets/icons/utils/google_icon_1.png')}
+              source={require('../../assets/icons/utils/google_icon_1.png')}
               style={styles.googleIcon}
             />
           )}

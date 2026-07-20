@@ -4,7 +4,7 @@ import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
 import registrationService from '../../services/auth/registrationService';
 import { AuthStackParamList, RegistrationAuthProvider, RegistrationMethod } from '../../navigation/types';
 import { useTranslation } from 'react-i18next';

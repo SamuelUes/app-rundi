@@ -1,6 +1,6 @@
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { useTheme } from '../context/ThemeContext';
+import { useTheme } from '../hooks/shared/theme/useTheme';
 import HomeScreen from '../screens/Client/HomeScreen'; //existe el .old
 import HomeScreenOffers from '../screens/Client/HomeScreenOffers';
 import SearchRideScreenNewDesign from '../screens/Client/SearchRideScreen';

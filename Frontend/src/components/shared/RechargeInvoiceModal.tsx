@@ -7,7 +7,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { DriverRechargeHistoryItem } from '../../services/rechargeFundsService';
 import { useTranslation } from 'react-i18next';
 

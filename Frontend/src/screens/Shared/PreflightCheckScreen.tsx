@@ -10,8 +10,8 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
-import { useTheme } from '../../context/ThemeContext';
-import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
+import { useAuth } from '../../hooks/shared/auth/useAuth';
 import { useFCM } from '../../context/FCMContext';
 import alertService from '../../services/alertService';
 import { setPreflightResult, PreflightAction, PreflightSummary } from '../../stores/preflightStore';
@@ -56,6 +56,10 @@ import {
   checkDriverApprovalStatus,
   checkDriverBiometricAccess,
 } from '../../utils/preflightChecks';
+import { PreflightProgressBar } from '../../components/shared/Preflight/PreflightProgressBar';
+import { PreflightErrorDisplay } from '../../components/shared/Preflight/PreflightErrorDisplay';
+import { PreflightActionsSummary } from '../../components/shared/Preflight/PreflightActionsSummary';
+import { PreflightFooter } from '../../components/shared/Preflight/PreflightFooter';
 
 type NavigationLike = {
   replace: (routeName: string, params?: any) => void;
@@ -670,75 +674,41 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
         <PermissionsExplanation role={role} />
 
         {/* Barra de progreso */}
-        <View style={styles.progressContainer}>
-          <View style={styles.progressBackground}>
-            <Animated.View
-              style={[
-                styles.progressBar,
-                {
-                  width: progressWidth,
-                  backgroundColor: error ? '#EF4444' : completed ? '#22C55E' : colors.primary,
-                },
-              ]}
-            />
-          </View>
-          <Text style={styles.progressText}>
-            {Math.round(progress)}%
-          </Text>
-        </View>
-
-        {/* Label actual */}
-        {!error && !completed && (
-          <Text style={styles.currentCheck}>{currentCheckLabel}</Text>
-        )}
+        <PreflightProgressBar
+          progress={progress}
+          progressWidth={progressWidth}
+          error={error}
+          completed={completed}
+          currentCheckLabel={currentCheckLabel}
+          colors={colors}
+          styles={styles}
+        />
 
         {/* Error */}
         {error && (
-          <View style={styles.errorContainer}>
-            <MaterialIcons name="warning" size={48} color="#FF9800" />
-            <Text style={styles.errorText}>{error}</Text>
-          </View>
+          <PreflightErrorDisplay error={error} styles={styles} />
         )}
 
         {/* Acciones detectadas */}
-        {completed && actionsRef.current.length > 0 && (
-          <View style={styles.actionsContainer}>
-            <Text style={styles.actionsTitle}>{t('shared.preflight.actionsSummary.title')}</Text>
-            {actionsRef.current.slice(0, 3).map((action, idx) => (
-              <View key={idx} style={styles.actionItem}>
-                <Text style={styles.actionBullet}>•</Text>
-                <Text style={styles.actionText}>{action.title}</Text>
-              </View>
-            ))}
-            {actionsRef.current.length > 3 && (
-              <Text style={styles.actionsMore}>
-                {t('shared.preflight.actionsSummary.more', { count: actionsRef.current.length - 3 })}
-              </Text>
-            )}
-          </View>
+        {completed && (
+          <PreflightActionsSummary
+            actions={actionsRef.current}
+            styles={styles}
+            t={t}
+          />
         )}
       </View>
 
       {/* Botones */}
-      <View style={styles.footer}>
-        {canRetry && (
-          <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
-            <Text style={styles.retryButtonText}>{t('shared.preflight.buttons.retry')}</Text>
-          </TouchableOpacity>
-        )}
-        {role === 'driver' && (
-          <TouchableOpacity
-            style={styles.secondaryButton}
-            onPress={handleSwitchToClientModeFromPreflight}
-          >
-            <Text style={styles.secondaryButtonText}>
-              {userMode === 'client'
-                ? t('shared.preflight.buttons.continueAsClient')
-                : t('shared.preflight.buttons.useAsClient')}
-            </Text>
-          </TouchableOpacity>
-        )}
-      </View>
+      <PreflightFooter
+        canRetry={canRetry}
+        role={role}
+        userMode={userMode}
+        onRetry={handleRetry}
+        onSwitchMode={handleSwitchToClientModeFromPreflight}
+        styles={styles}
+        t={t}
+      />
 
       <TermsAndConditionsModal
         visible={showTerms}

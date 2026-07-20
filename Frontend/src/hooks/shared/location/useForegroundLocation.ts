@@ -2,7 +2,7 @@ import { useState, useRef, useCallback } from 'react';
 import * as Location from 'expo-location';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useAuth } from '../../../context/AuthContext';
+import { useAuth } from '../auth/useAuth';
 import { ensureActivityRecognitionPermission } from '../../../utils/activityPermission';
 import { requestNotificationsPermissionIfNeeded } from '../../../utils/notificationPermission';
 import type { Coordinates } from './useLocation';

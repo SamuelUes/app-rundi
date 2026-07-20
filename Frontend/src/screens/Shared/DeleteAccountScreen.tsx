@@ -14,8 +14,8 @@ import {
   ScrollView,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useTheme } from '../../context/ThemeContext';
-import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
+import { useAuth } from '../../hooks/shared/auth/useAuth';
 import { userManagementService } from '../../services/userManagementService';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { t } from 'i18next';

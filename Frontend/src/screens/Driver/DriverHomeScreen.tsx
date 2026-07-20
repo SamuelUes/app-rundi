@@ -13,8 +13,8 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useTheme } from '../../context/ThemeContext';
-import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
+import { useAuth } from '../../hooks/shared/auth/useAuth';
 import { useVoiceAssistant } from '../../context/VoiceAssistantContext';
 import { useLocation, DRIVER_LOCATION_OPTIONS } from '../../hooks/shared/location/useLocation';
 import useDriverProximityTracking from '../../hooks/driver/DriverHomeScreen/useDriverProximityTracking';
@@ -23,7 +23,6 @@ import { useTranslation } from 'react-i18next';
 import LoadingOverlay from '../../components/ui/LoadingOverlay';
 import DynamicMap from '../../components/map/DynamicMap';
 import EmergencyButton from '../../components/shared/EmergencyButton';
-import mapsService from '../../services/mapsService';
 import { useAcceptedRideListener } from '../../hooks/driver/DriverHomeScreen/useAcceptedRideListener';
 import { useNearbyDriversMarkers } from '../../hooks/driver/DriverHomeScreen/useNearbyDriversMarkers';
 import proximityService from '../../services/proximityService';
@@ -38,6 +37,10 @@ import { useDriverVoiceAnnouncements } from '../../hooks/driver/DriverHomeScreen
 import { useDriverTodayStats } from '../../hooks/driver/DriverHomeScreen/useDriverTodayStats';
 import { useDriverOfferCache } from '../../hooks/driver/DriverHomeScreen/useDriverOfferCache';
 import { useDriverMenu } from '../../hooks/driver/DriverHomeScreen/useDriverMenu';
+import { DriverHomeHeader } from '../../components/driver/DriverHome/DriverHomeHeader';
+import { DriverHomeBanners } from '../../components/driver/DriverHome/DriverHomeBanners';
+import { DriverHomeSideMenu } from '../../components/driver/DriverHome/DriverHomeSideMenu';
+import { DriverHomeBottomBar } from '../../components/driver/DriverHome/DriverHomeBottomBar';
 import type { ImageSourcePropType } from 'react-native';
 
 type NearbyDriverMarker = {
@@ -160,10 +163,6 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   }, [refreshLocation, t]);
 
   useEffect(() => {
-    mapsService.fetchProviderFromBackend();
-  }, []);
-
-  useEffect(() => {
     const unsubscribePreflight = subscribePreflightResult((summary) => {
       if (!summary || summary.role !== 'driver') {
         setPreflightActions([]);
@@ -283,322 +282,76 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
           }}
         />
 
-        <View style={styles.overlayHeader}>
-          <View style={styles.leftHeaderGroup}>
-            <TouchableOpacity
-              style={styles.menuButton}
-              activeOpacity={0.85}
-              onPress={toggleMenu}
-              accessibilityRole="button"
-            >
-              <View style={styles.menuIconGlyph}>
-                <View style={styles.menuIconLine} />
-                <View style={styles.menuIconLine} />
-                <View style={styles.menuIconLine} />
-              </View>
-            </TouchableOpacity>
-
-            <EmergencyButton
-              rideId={activeRide?.id}
-              style={styles.emergencyHeaderButton}
-              onOpen={closeMenu}
-            />
-          </View>
-
-          <TouchableOpacity
-            style={styles.rightHeaderGroup}
-            activeOpacity={0.9}
-            onPress={() => navigation.navigate('DriverProfile')}
-          >
-            <View style={styles.headerNameBubble}>
-              <Text style={styles.headerTitle} numberOfLines={1}>
-                {user?.name || t('driver.home.header.profileFallback')}
-              </Text>
-              <Image
-                source={require('../../assets/icons/profile/profile-icon2.png')}
-                style={styles.profileBubbleIcon}
-              />
-            </View>
-          </TouchableOpacity>
-        </View>
+        <DriverHomeHeader
+          userName={user?.name}
+          activeRideId={activeRide?.id}
+          onToggleMenu={toggleMenu}
+          onCloseMenu={closeMenu}
+          onNavigateProfile={() => navigation.navigate('DriverProfile')}
+          styles={styles}
+          t={t}
+        />
       </View>
 
-      {activeRide && !hasPendingAction && (
-        <TouchableOpacity
-          style={styles.activeRideCard}
-          onPress={() =>
-            navigation.replace('ActiveRide', {
-              rideId: activeRide.id,
-              clientId: activeRide.clientId,
-              origin: activeRide.origin,
-              destination: activeRide.destination,
-              estimatedFare: activeRide.finalFare || activeRide.estimatedPrice,
-            })
-          }
-        >
-          <View style={styles.activeRideIconWrapper}>
-            <MaterialIcons name="directions-car" size={28} color={colors.primary} />
-          </View>
-          <View style={styles.activeRideContent}>
-            <Text style={styles.activeRideTitle}>
-              {t('driver.home.banners.activeRideTitle')}
-            </Text>
-            <Text style={styles.activeRideSubtitle} numberOfLines={1}>
-              {activeRide?.client?.name || activeRide?.clientName || t('driver.home.ride.clientFallback')} ·{' '}
-              {activeRide?.destinationAddress || t('driver.home.ride.destinationFallback')}
-            </Text>
-          </View>
-          <Text style={styles.activeRideArrow}>→</Text>
-        </TouchableOpacity>
-      )}
+      <DriverHomeBanners
+        activeRide={activeRide}
+        hasPendingAction={hasPendingAction}
+        hasInsufficientFunds={hasInsufficientFunds}
+        rechargeFundsSummary={rechargeFundsSummary}
+        pendingPayments={pendingPayments}
+        pendingAction={pendingAction}
+        colors={colors}
+        onActiveRidePress={() =>
+          navigation.replace('ActiveRide', {
+            rideId: activeRide.id,
+            clientId: activeRide.clientId,
+            origin: activeRide.origin,
+            destination: activeRide.destination,
+            estimatedFare: activeRide.finalFare || activeRide.estimatedPrice,
+          })
+        }
+        onRechargePress={() => navigation.navigate('RechargeFunds')}
+        onPendingPaymentPress={() => {
+          const firstPayment = pendingPayments[0];
+          navigation.navigate('PaymentConfirmation', {
+            rideId: firstPayment.rideId,
+            amount: firstPayment.finalAmount,
+            method: firstPayment.method,
+          });
+        }}
+        styles={styles}
+        t={t}
+      />
 
-      {/* ✅ Banner de comisiones pendientes */}
-      {rechargeFundsSummary && hasInsufficientFunds && (
-        <TouchableOpacity
-          style={[styles.pendingBanner, { backgroundColor: '#E53935' }]}
-          onPress={() => {
-            navigation.navigate('RechargeFunds');
-          }}
-        >
-          <View style={styles.pendingBannerContent}>
-            <Text style={styles.pendingBannerTitle}>
-              {t('driver.home.banners.rechargeTitle')}
-            </Text>
-            <Text style={styles.pendingBannerSubtitle}>
-              {t('driver.home.banners.rechargeSubtitle', {
-                amount: Number(rechargeFundsSummary.availableBalance).toFixed(2),
-              })}
-            </Text>
-          </View>
-          <Text style={styles.pendingBannerArrow}>→</Text>
-        </TouchableOpacity>
-      )}
+      <DriverHomeSideMenu
+        visible={menuVisible}
+        menuOpacity={menuOpacity}
+        menuTranslate={menuTranslate}
+        panelWidth={panelWidth}
+        userRole={user?.role}
+        colors={colors}
+        onClose={closeMenu}
+        onNavigate={handleNavigate}
+        onLogout={handleLogout}
+        styles={styles}
+        t={t}
+      />
 
-      {pendingPayments.length > 0 && !hasPendingAction && !hasInsufficientFunds && (
-        <TouchableOpacity
-          style={styles.pendingBanner}
-          onPress={() => {
-            const firstPayment = pendingPayments[0];
-            navigation.navigate('PaymentConfirmation', {
-              rideId: firstPayment.rideId,
-              amount: firstPayment.finalAmount,
-              method: firstPayment.method,
-            });
-          }}
-        >
-          <View style={styles.pendingBannerIcon}>
-            <Text style={styles.pendingBannerEmoji}>💳</Text>
-          </View>
-          <View style={styles.pendingBannerContent}>
-            <Text style={styles.pendingBannerTitle}>
-              {t('driver.home.banners.paymentsTitle')}
-            </Text>
-            <Text style={styles.pendingBannerSubtitle}>
-              {pendingPayments.length === 1
-                ? t('driver.home.banners.paymentsSubtitleSingle')
-                : t('driver.home.banners.paymentsSubtitleOther', { count: pendingPayments.length })}
-            </Text>
-          </View>
-          <Text style={styles.pendingBannerArrow}>→</Text>
-        </TouchableOpacity>
-      )}
-
-      {pendingAction && !hasInsufficientFunds && (
-        <TouchableOpacity
-          style={styles.pendingActionButton}
-          activeOpacity={0.85}
-          onPress={pendingAction.onPress}
-        >
-          <ImageBackground
-            source={require('../../assets/icons/pending_acction/pending_acction2x.png')}
-            style={styles.pendingActionImage}
-            imageStyle={styles.pendingActionImageInner}
-            resizeMode="stretch"
-          >
-            <View style={styles.pendingActionContent}>
-              <View style={styles.pendingActionTextBlock}>
-                <Text style={styles.pendingActionTitle}>{pendingAction.title}</Text>
-                <Text style={styles.pendingActionSubtitle} numberOfLines={1}>
-                  {pendingAction.subtitle}
-                </Text>
-              </View>
-            </View>
-          </ImageBackground>
-        </TouchableOpacity>
-      )}
-
-      {menuVisible && (
-        <Animated.View style={[styles.menuOverlay, { opacity: menuOpacity }]}> 
-          <TouchableOpacity style={styles.menuBackdrop} activeOpacity={1} onPress={closeMenu} />
-          <Animated.View
-            style={[
-              styles.menuContainer,
-              {
-                transform: [{ translateX: menuTranslate }],
-                width: panelWidth,
-              },
-            ]}
-          >
-            <View style={styles.menuTopAccent} />
-            <View style={styles.menuHeaderRow}>
-              <Text style={styles.menuHeader}>{t('driver.home.menu.title')}</Text>
-              <TouchableOpacity onPress={closeMenu} style={styles.menuCloseBtn}>
-                <Text style={styles.menuCloseIcon}>✕</Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.menuSection}>
-              <TouchableOpacity style={styles.menuItem} onPress={() => handleNavigate('Earnings')}>
-                <View style={styles.menuIconBadge}>
-                  <Text style={styles.menuEmoji}>💵</Text>
-                </View>
-                <Text style={styles.menuLabel}>{t('driver.home.menu.earnings')}</Text>
-                <Text style={styles.menuItemArrow}>›</Text>
-              </TouchableOpacity>
-              {(user?.role === 'driver' || user?.role === 'designated_driver') && (
-                <TouchableOpacity style={styles.menuItem} onPress={() => handleNavigate('RechargeFunds')}>
-                  <View style={styles.menuIconBadge}>
-                    <Text style={styles.menuEmoji}>💼</Text>
-                  </View>
-                  <Text style={styles.menuLabel}>{t('driver.home.menu.commissions')}</Text>
-                  <Text style={styles.menuItemArrow}>›</Text>
-                </TouchableOpacity>
-              )}
-              <TouchableOpacity style={styles.menuItem} onPress={() => handleNavigate('RideHistory')}>
-                <View style={styles.menuIconBadge}>
-                  <Text style={styles.menuEmoji}>📜</Text>
-                </View>
-                <Text style={styles.menuLabel}>{t('driver.home.menu.history')}</Text>
-                <Text style={styles.menuItemArrow}>›</Text>
-              </TouchableOpacity>
-              {/* Tarjetas desactivadas temporalmente
-              <TouchableOpacity style={styles.menuItem} onPress={() => handleNavigate('PaymentMethods')}>
-                <View style={styles.menuIconBadge}>
-                  <Text style={styles.menuEmoji}>💳</Text>
-                </View>
-                <Text style={styles.menuLabel}>{t('driver.home.menu.paymentMethods')}</Text>
-                <Text style={styles.menuItemArrow}>›</Text>
-              </TouchableOpacity>
-              */}
-              <TouchableOpacity style={styles.menuItem} onPress={() => handleNavigate('Settings')}>
-                <View style={styles.menuIconBadge}>
-                  <MaterialIcons name="settings" size={24} color={colors.primary} />
-                </View>
-                <Text style={styles.menuLabel}>{t('driver.home.menu.settings')}</Text>
-                <Text style={styles.menuItemArrow}>›</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.menuItem} onPress={() => handleNavigate('Help')}>
-                <View style={styles.menuIconBadge}>
-                  <MaterialIcons name="help-outline" size={24} color={colors.primary} />
-                </View>
-                <Text style={styles.menuLabel}>{t('driver.home.menu.help')}</Text>
-                <Text style={styles.menuItemArrow}>›</Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.menuDivider} />
-
-            <TouchableOpacity style={[styles.menuItem, styles.logoutItem]} onPress={handleLogout}>
-              <View style={[styles.menuIconBadge, styles.logoutIconBadge]}>
-                <Text style={styles.logoutEmoji}>🚪</Text>
-              </View>
-              <Text style={styles.logoutLabel}>{t('driver.home.menu.logout')}</Text>
-            </TouchableOpacity>
-          </Animated.View>
-        </Animated.View>
-      )}
-
-      <View style={styles.bottomBar} pointerEvents="box-none">
-        {user?.role === 'designated_driver' && (
-          <View style={styles.designatedToggleContainer}>
-            <View style={styles.iconButtonWrapper}>
-              <TouchableOpacity
-                activeOpacity={0.8}
-                disabled={!isAvailable}
-                onPress={handleDesignatedToggle}
-              >
-                <View style={styles.designatedButton}>
-                  <Image
-                    source={
-                      isDesignatedDriverMode
-                      
-                        ? require('../../assets/icons/ready_status/readydesignado3x.png' )
-                        : require('../../assets/icons/ready_status/unready3x.png')
-                    }
-                    style={[styles.statusImage, !isAvailable && styles.disabledImage]}
-                  />
-                  {isDesignatedDriverMode && (
-                    <Text style={styles.designatedStatusLabel}>{t('driver.home.designated.activeLabel')}</Text>
-                  )}
-                </View>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
-
-        <View style={styles.controlsRow} pointerEvents="box-none">
-          <View style={styles.iconButtonWrapper}>
-            <TouchableOpacity
-              activeOpacity={0.8}
-              onPress={() => handleAvailabilityToggle(!isAvailable)}
-              disabled={updatingStatus}
-            >
-              <View style={styles.statusButtonContainer}>
-                <Image
-                  source={
-                    isAvailable
-                      ? require('../../assets/icons/ready_status/ready3x.png')
-                      : require('../../assets/icons/ready_status/unready3x.png')
-                  }
-                  style={[styles.statusImage, updatingStatus && styles.statusImageDim]}
-                />
-                {updatingStatus && (
-                  <View style={styles.statusLoadingOverlay}>
-                    <LoadingIcon icon="refresh" size={20} color="#FFFFFF" animation="spin" />
-                  </View>
-                )}
-              </View>
-            </TouchableOpacity>
-          </View>
-
-          {!hasPendingAction && !hasInsufficientFunds && (
-            <View style={styles.earningsSplitContainer}>
-              <View style={[styles.earningsButton, styles.earningsStatsCard]}>
-                <ImageBackground
-                  source={require('../../assets/icons/driver_home_bar/driver_home_net2x.png')}
-                  style={styles.earningsImage}
-                  imageStyle={styles.earningsImageInner}
-                  resizeMode="stretch"
-                >
-                  <View style={styles.earningsLeft}>
-                    <View style={styles.earningsBadge}>
-                      <Text style={styles.earningsBadgeLabel}>{t('driver.home.stats.totalToday')}</Text>
-                    </View>
-                    <Text style={styles.earningsValue}>{formatCurrency(todayStats.earnings)}</Text>
-                  </View>
-                </ImageBackground>
-              </View>
-
-              <TouchableOpacity
-                style={[styles.earningsButton, styles.requestsButton]}
-                activeOpacity={0.85}
-                onPress={() => navigation.navigate('AvailableRides')}
-              >
-                <ImageBackground
-                  source={require('../../assets/icons/driver_home_bar/driver_requests2x.png')}
-                  style={styles.earningsImage}
-                  imageStyle={styles.earningsImageInner}
-                  resizeMode="stretch"
-                >
-                  <View style={styles.earningsRequestsContent}>
-                    <Text style={styles.earningsCta}>{t('driver.home.cta.viewRequests')}</Text>
-                  </View>
-                </ImageBackground>
-              </TouchableOpacity>
-            </View>
-          )}
-        </View>
-      </View>
+      <DriverHomeBottomBar
+        userRole={user?.role}
+        isAvailable={isAvailable}
+        isDesignatedDriverMode={isDesignatedDriverMode}
+        updatingStatus={updatingStatus}
+        hasPendingAction={hasPendingAction}
+        hasInsufficientFunds={hasInsufficientFunds}
+        todayEarnings={todayStats.earnings}
+        formatCurrency={formatCurrency}
+        onToggleAvailability={() => handleAvailabilityToggle(!isAvailable)}
+        onToggleDesignated={handleDesignatedToggle}
+        onNavigateAvailableRides={() => navigation.navigate('AvailableRides')}
+        styles={styles}
+        t={t}
+      />
     </SafeAreaView>
   );
 }

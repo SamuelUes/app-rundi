@@ -12,7 +12,7 @@ import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { useNavigation } from '@react-navigation/native';
 import { httpsCallable } from 'firebase/functions';
 import { useTranslation } from 'react-i18next';
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useCalls } from '../../hooks/shared/calls/useCalls';
 import { useLivekitConnection } from '../../hooks/shared/calls/useLivekitConnection';
 import { getFirebaseFunctions } from '../../config/firebase';

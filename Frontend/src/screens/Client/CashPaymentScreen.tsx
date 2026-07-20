@@ -18,7 +18,7 @@ import {
   Image,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { AnimatedButton } from '../../components/ui/AnimatedButton';
 import { getAuth } from 'firebase/auth';
 import { getDatabase, ref, onValue, off, update } from 'firebase/database';

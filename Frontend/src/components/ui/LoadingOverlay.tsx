@@ -16,7 +16,7 @@ import {
   TextStyle
 } from 'react-native';
 import { LoadingIcon } from '../ui/LoadingIcon';
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useTranslation } from 'react-i18next';
 
 interface LoadingOverlayProps {

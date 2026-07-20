@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useAuth } from '../../../context/AuthContext';
+import { useAuth } from '../../shared/auth/useAuth';
 import { fetchDriverProfile } from '../../../services/driverProfilesService';
 
 const preferNonEmpty = (...candidates: Array<string | null | undefined>): string | null => {

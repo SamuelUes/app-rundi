@@ -95,7 +95,7 @@ export function usePendingPayments({ userId, markTaskCompleted }: UsePendingPaym
 
             const errorMsg = err?.message || String(err);
             if (errorMsg.includes('permission') || errorMsg.includes('Permission')) {
-              console.warn('⚠️ [DriverHomeScreen] Sin permisos para leer paymentStatus, saltando verificación');
+              console.log('ℹ️ [DriverHomeScreen] paymentStatus no accesible por reglas de Firebase RTDB, saltando verificación');
             } else {
               console.warn('⚠️ [DriverHomeScreen] Error escuchando pagos pendientes:', errorMsg);
             }
@@ -109,7 +109,7 @@ export function usePendingPayments({ userId, markTaskCompleted }: UsePendingPaym
 
         const errorMsg = err?.message || String(err);
         if (errorMsg.includes('permission') || errorMsg.includes('Permission')) {
-          console.warn('⚠️ [DriverHomeScreen] Sin permisos para configurar listener de pagos');
+          console.log('ℹ️ [DriverHomeScreen] paymentStatus no accesible por reglas de Firebase RTDB');
         } else {
           console.warn('⚠️ [DriverHomeScreen] Error configurando listener de pagos:', errorMsg);
         }

@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { httpsCallable } from 'firebase/functions';
 import { getFirebaseAuth, getFirebaseFunctions, getFirebaseDatabase } from '../../../config/firebase';
 import { ref, onDisconnect, get } from 'firebase/database';
-import { useAuth } from '../../../context/AuthContext';
+import { useAuth } from '../auth/useAuth';
 import sessionService from '../../../services/sessionService';
 
 const DEFAULT_SERVICE_AREA_ID = 'ni-managua';

@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import backgroundLocationService from '../../../services/backgroundLocationService';
-import { useAuth } from '../../../context/AuthContext';
+import { useAuth } from '../auth/useAuth';
 
 export interface UseBackgroundTrackingResult {
   isBackgroundTrackingActive: boolean;

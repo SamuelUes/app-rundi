@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { CountryDialOption, getCountryLocalNumberLength } from '../../utils/phoneUtils';
 
 export type PhoneDigitInputProps = {

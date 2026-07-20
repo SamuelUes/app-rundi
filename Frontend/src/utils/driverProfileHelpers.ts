@@ -1,8 +1,8 @@
 import type { Vehicle } from '../hooks/driver/DriverProfileScreen/useDriverProfile';
 import type { DriverData } from '../hooks/driver/DriverProfileScreen/useDriverProfile';
+import { formatCurrency } from './safeFormatters';
 
-export const formatCurrency = (value: number = 0): string =>
-  `C$${Number.isFinite(value) ? value.toFixed(2) : '0.00'}`;
+export { formatCurrency };
 
 export const getDocumentIconName = (type: string): string => {
   switch (type) {

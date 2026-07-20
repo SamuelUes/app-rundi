@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
 import cardsService from '../../services/cardsService';
 import { useTranslation } from 'react-i18next';
 import SupportChatShortcut from '../../components/shared/SupportChatShortcut';

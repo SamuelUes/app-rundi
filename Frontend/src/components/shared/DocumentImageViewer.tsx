@@ -10,7 +10,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { LoadingIcon } from '../ui/LoadingIcon';
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useTranslation } from 'react-i18next';
 
 const { width, height } = Dimensions.get('window');

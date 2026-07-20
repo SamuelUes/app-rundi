@@ -1,13 +1,18 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, Switch, TouchableOpacity, ScrollView, Alert, Image } from 'react-native';
-import { useTheme } from '../../context/ThemeContext';
-import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
+import { useAuth } from '../../hooks/shared/auth/useAuth';
 import { useFCM } from '../../context/FCMContext';
 import LoadingOverlay from '../../components/ui/LoadingOverlay';
 import TermsAndConditionsModal from '../../components/shared/TermsAndConditionsModal';
 import phoneAuthService from '../../services/auth/phoneAuthService';
 import { useTranslation } from 'react-i18next';
-import { useLanguage } from '../../context/LanguageContext';
+import { useLanguageStore } from '../../stores/languageStore';
+import { SettingsAccountSection } from '../../components/shared/Settings/SettingsAccountSection';
+import { SettingsConfigSection } from '../../components/shared/Settings/SettingsConfigSection';
+import { SettingsLanguageSection } from '../../components/shared/Settings/SettingsLanguageSection';
+import { SettingsPrivacySection } from '../../components/shared/Settings/SettingsPrivacySection';
+import { SettingsAboutSection } from '../../components/shared/Settings/SettingsAboutSection';
 
 const BACK_BUTTON_ICON = require('../../assets/icons/back_button/back_button2x.png');
 
@@ -16,7 +21,10 @@ export default function SettingsScreen({ navigation }: any) {
   const { user, logout, logoutInProgress } = useAuth();
   const { isConfigured, hasPermission, isFCMAvailable, configureFCM, sendTestNotification } = useFCM();
   const { t } = useTranslation();
-  const { language, deviceLanguage, preference, changeLanguage } = useLanguage();
+  const language = useLanguageStore((s) => s.language);
+  const deviceLanguage = useLanguageStore((s) => s.deviceLanguage);
+  const preference = useLanguageStore((s) => s.preference);
+  const changeLanguage = useLanguageStore((s) => s.changeLanguage);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [vibrationEnabled, setVibrationEnabled] = useState(true);
   const [showTermsModal, setShowTermsModal] = useState(false);
@@ -475,179 +483,53 @@ export default function SettingsScreen({ navigation }: any) {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t('settings.sections.account')}</Text>
+        <SettingsAccountSection
+          userRole={user?.role}
+          colors={colors}
+          onNavigateToAccount={handleNavigateToAccount}
+          onUpgradeToDriver={handleUpgradeToDriver}
+          onDeleteAccount={handleDeleteAccount}
+          t={t}
+          styles={styles}
+        />
 
-          <TouchableOpacity style={styles.option} onPress={handleNavigateToAccount}>
-            <View style={styles.optionLeft}>
-              <Text style={styles.optionTitle}>{t('settings.account.title')}</Text>
-              <Text style={styles.optionDescription}>{t('settings.account.description')}</Text>
-            </View>
-            <Text style={styles.arrow}>›</Text>
-          </TouchableOpacity>
+        <SettingsConfigSection
+          theme={theme}
+          notificationsEnabled={notificationsEnabled}
+          mapTrafficEnabled={mapTrafficEnabled}
+          soundEnabled={soundEnabled}
+          vibrationEnabled={vibrationEnabled}
+          colors={colors}
+          onThemeChange={handleThemeChange}
+          onToggleNotifications={handleToggleNotifications}
+          onToggleTraffic={setMapTrafficEnabled}
+          onToggleSoundVibration={(value) => {
+            setSoundEnabled(value);
+            setVibrationEnabled(value);
+          }}
+          t={t}
+          styles={styles}
+        />
 
-          {user?.role === 'client' && (
-            <TouchableOpacity style={styles.option} onPress={handleUpgradeToDriver}>
-              <View style={styles.optionLeft}>
-                <Text style={styles.optionTitle}>{t('settings.account.upgradeTitle')}</Text>
-                <Text style={styles.optionDescription}>{t('settings.account.upgradeDescription')}</Text>
-              </View>
-              <Text style={styles.arrow}>›</Text>
-            </TouchableOpacity>
-          )}
+        <SettingsLanguageSection
+          languageOptions={languageOptions}
+          preference={preference}
+          language={language}
+          onChangeLanguage={changeLanguage}
+          t={t}
+          styles={styles}
+        />
 
-          <TouchableOpacity style={[styles.option, styles.optionLast]} onPress={handleDeleteAccount}>
-            <View style={styles.optionLeft}>
-              <Text style={[styles.optionTitle, { color: colors.error }]}>{t('settings.account.deleteTitle')}</Text>
-              <Text style={styles.optionDescription}>{t('settings.account.deleteDescription')}</Text>
-            </View>
-            <Text style={styles.arrow}>›</Text>
-          </TouchableOpacity>
-        </View>
+        <SettingsPrivacySection
+          onOpenTerms={handleOpenTerms}
+          t={t}
+          styles={styles}
+        />
 
-       
-
-        <View style={styles.section}>
-          { <Text style={styles.sectionTitle}>{t('shared.profile.config.title')}</Text> }
-
-          <View style={styles.optionCard}>
-            <Text style={styles.optionText}>{t('shared.profile.config.theme')}</Text>
-            <View style={styles.themeChipsRow}>
-              <TouchableOpacity
-                style={[styles.themeChip, theme === 'light' && styles.themeChipActive]}
-                onPress={() => handleThemeChange('light')}
-              >
-                <Text style={[styles.themeChipText, theme === 'light' && styles.themeChipTextActive]}>
-                  {t('shared.profile.config.themeOptions.light')}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.themeChip, theme === 'dark' && styles.themeChipActive]}
-                onPress={() => handleThemeChange('dark')}
-              >
-                <Text style={[styles.themeChipText, theme === 'dark' && styles.themeChipTextActive]}>
-                  {t('shared.profile.config.themeOptions.dark')}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.themeChip, theme === 'auto' && styles.themeChipActive]}
-                onPress={() => handleThemeChange('auto')}
-              >
-                <Text style={[styles.themeChipText, theme === 'auto' && styles.themeChipTextActive]}>
-                  {t('shared.profile.config.themeOptions.auto')}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          <View style={styles.optionCard}>
-            <Text style={styles.optionText}>{t('shared.profile.config.notifications')}</Text>
-            <Switch
-              value={notificationsEnabled}
-              onValueChange={handleToggleNotifications}
-              trackColor={{ false: colors.border, true: colors.primary }}
-              thumbColor="#fff"
-            />
-          </View>
-
-          <View style={styles.optionCard}>
-            <Text style={styles.optionText}>{t('shared.profile.config.traffic')}</Text>
-            <Switch
-              value={mapTrafficEnabled}
-              onValueChange={setMapTrafficEnabled}
-              trackColor={{ false: colors.border, true: colors.primary }}
-              thumbColor="#fff"
-            />
-          </View>
-
-          <View style={styles.optionCard}>
-            <Text style={styles.optionText}>{t('shared.profile.config.sounds')}</Text>
-            <Switch
-              value={soundEnabled && vibrationEnabled}
-              onValueChange={(value) => {
-                setSoundEnabled(value);
-                setVibrationEnabled(value);
-              }}
-              trackColor={{ false: colors.border, true: colors.primary }}
-              thumbColor="#fff"
-              disabled={!notificationsEnabled}
-            />
-          </View>
-         </View>
-
-
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t('settings.sections.language')}</Text>
-          <View style={[styles.option, styles.optionLast]}>
-            <View style={styles.optionLeft}>
-              <Text style={styles.optionTitle}>{t('settings.language.title')}</Text>
-              <Text style={styles.optionDescription}>{t('settings.language.description')}</Text>
-            </View>
-          </View>
-          <View style={styles.languageOptions}>
-            {languageOptions.map(option => (
-              <TouchableOpacity
-                key={option.value}
-                style={[
-                  styles.languageButton,
-                  (preference === option.value || (option.value !== 'device' && language === option.value)) &&
-                    styles.languageButtonActive,
-                ]}
-                onPress={() => changeLanguage(option.value)}
-              >
-                <Text
-                  style={[
-                    styles.languageButtonText,
-                    (preference === option.value || (option.value !== 'device' && language === option.value)) &&
-                      styles.languageButtonTextActive,
-                  ]}
-                >
-                  {option.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-        
-       <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t('settings.sections.privacy')}</Text>
-
-          <TouchableOpacity style={styles.option}>
-            <Text style={styles.optionTitle}>{t('settings.privacy.policy')}</Text>
-            <Text style={styles.arrow}>›</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={[styles.option, styles.optionLast]} onPress={handleOpenTerms}>
-            <Text style={styles.optionTitle}>{t('settings.privacy.terms')}</Text>
-            <Text style={styles.arrow}>›</Text>
-          </TouchableOpacity>
-         </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t('settings.sections.about')}</Text>
-
-          <View style={styles.option}>
-            <View style={styles.optionLeft}>
-              <Text style={styles.optionTitle}>{t('settings.about.version')}</Text>
-              <Text style={styles.optionDescription}>{t('settings.about.versionValue')}</Text>
-            </View>
-          </View>
-
-          <View style={styles.option}>
-            <View style={styles.optionLeft}>
-              <Text style={styles.optionTitle}>{t('settings.about.domain')}</Text>
-              <Text style={styles.optionDescription}>{t('settings.about.domainValue')}</Text>
-            </View>
-          </View>
-           
-
-          {/* <TouchableOpacity style={[styles.option, styles.optionLast]}>
-            <Text style={styles.optionTitle}>{t('settings.about.licenses')}</Text>
-            <Text style={styles.arrow}>›</Text>
-          </TouchableOpacity> */}
-        </View>
-        
+        <SettingsAboutSection
+          t={t}
+          styles={styles}
+        />
 
         <TouchableOpacity style={[styles.logoutButton, logoutInProgress && { opacity: 0.7 }]} onPress={handleLogout} disabled={logoutInProgress}>
           <Text style={styles.logoutButtonText}>{t('settings.actions.logout')}</Text>

@@ -13,7 +13,7 @@ import type { ImageSourcePropType } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { AuthStackParamList } from '../../navigation/types';
 import { useTranslation } from 'react-i18next';
 

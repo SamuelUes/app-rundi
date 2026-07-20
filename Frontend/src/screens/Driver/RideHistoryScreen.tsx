@@ -9,8 +9,8 @@ import {
   Image,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useAuth } from '../../context/AuthContext';
-import { useTheme } from '../../context/ThemeContext';
+import { useAuth } from '../../hooks/shared/auth/useAuth';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { RideListSkeleton } from '../../components/ui/SkeletonLoader';
 import { NoHistoryEmptyState } from '../../components/ui/EmptyState';
 import { useRideHistory } from '../../hooks/shared/ride/useRideHistory';

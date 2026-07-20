@@ -18,8 +18,8 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { SafeAreaView } from 'react-native-safe-area-context';
 // Contextos y hooks
-import { useTheme } from '../../context/ThemeContext';
-import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
+import { useAuth } from '../../hooks/shared/auth/useAuth';
 import { useVoiceAssistant } from '../../context/VoiceAssistantContext';
 import { useLocation, DRIVER_LOCATION_OPTIONS } from '../../hooks/shared/location/useLocation';
 import useDriverProximityTracking from '../../hooks/driver/DriverHomeScreen/useDriverProximityTracking';
@@ -1645,7 +1645,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
             // Manejar errores de permisos de forma silenciosa
             const errorMsg = err?.message || String(err);
             if (errorMsg.includes('permission') || errorMsg.includes('Permission')) {
-              console.warn('⚠️ [DriverHomeScreenNewDesign] Sin permisos para leer paymentStatus, saltando verificación');
+              console.log('ℹ️ [DriverHomeScreenNewDesign] paymentStatus no accesible por reglas de Firebase RTDB, saltando verificación');
             } else {
               console.warn('⚠️ [DriverHomeScreenNewDesign] Error escuchando pagos pendientes:', errorMsg);
             }
@@ -1659,7 +1659,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
         
         const errorMsg = err?.message || String(err);
         if (errorMsg.includes('permission') || errorMsg.includes('Permission')) {
-          console.warn('⚠️ [DriverHomeScreenNewDesign] Sin permisos para configurar listener de pagos');
+          console.log('ℹ️ [DriverHomeScreenNewDesign] paymentStatus no accesible por reglas de Firebase RTDB');
         } else {
           console.warn('⚠️ [DriverHomeScreenNewDesign] Error configurando listener de pagos:', errorMsg);
         }

@@ -4,8 +4,6 @@
 
 import googleMapsService from './googleMapsService';
 
-type MapProvider = 'google';
-
 interface Coordinates {
   latitude: number;
   longitude: number;
@@ -18,27 +16,6 @@ interface RouteResult {
 }
 
 class MapsService {
-  private currentProvider: MapProvider = 'google';
-  private mapProvider: MapProvider = 'google';
-  private providerFetched = false;
-
-  async fetchProviderFromBackend(): Promise<void> {
-    if (this.providerFetched) return;
-    this.providerFetched = true;
-  }
-
-  getProvider(): MapProvider {
-    return this.currentProvider;
-  }
-
-  getMapProvider(): MapProvider {
-    return this.mapProvider;
-  }
-
-  async getMapProviderWithFallback(): Promise<MapProvider> {
-    return 'google';
-  }
-
   async geocode(address: string): Promise<Coordinates | null> {
     return googleMapsService.geocode(address);
   }
@@ -47,19 +24,11 @@ class MapsService {
     return googleMapsService.reverseGeocode(coords);
   }
 
-  async autocomplete(
-    input: string,
-    location?: Coordinates,
-    _options?: { forceProvider?: string }
-  ): Promise<any[]> {
+  async autocomplete(input: string, location?: Coordinates): Promise<any[]> {
     return googleMapsService.autocomplete(input, location);
   }
 
-  async getPlaceDetails(
-    placeId: string,
-    _position?: any,
-    _options?: { forceProvider?: string }
-  ): Promise<Coordinates | null> {
+  async getPlaceDetails(placeId: string): Promise<Coordinates | null> {
     return googleMapsService.getPlaceDetails(placeId);
   }
 

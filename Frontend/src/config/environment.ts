@@ -1,69 +1,40 @@
+/**
+ * Punto de compatibilidad para variables de entorno derivadas.
+ *
+ * Toda la lógica de resolución vive en `config/backendConfig.ts` (única fuente
+ * de verdad). Este archivo re-exporta los valores para no romper imports
+ * existentes (`API_BASE_URL`, `WS_URL`, `DOMAIN`, `IS_PRODUCTION`).
+ *
+ * Nuevo código: importar directamente desde `config/backendConfig`.
+ */
+
 import Constants from 'expo-constants';
 import backendConfig from './backendConfig';
 
-const resolveApiUrl = (target: 'development' | 'production') => {
-  if (backendConfig.isFirebase()) {
-    return backendConfig.getApiUrl();
-  }
-
-  if (target === 'production') {
-    return process.env.API_BASE_URL_PRODUCTION || backendConfig.getApiUrl();
-  }
-
-  return backendConfig.getApiUrl();
-};
-
-const resolveWsUrl = (target: 'development' | 'production') => {
-  if (backendConfig.isFirebase()) {
-    return backendConfig.getWsUrl();
-  }
-
-  if (target === 'production') {
-    return process.env.WS_URL_PRODUCTION || backendConfig.getWsUrl();
-  }
-
-  return backendConfig.getWsUrl();
-};
-
-const ENV = {
-  development: {
-    apiUrl: resolveApiUrl('development'),
-    wsUrl: resolveWsUrl('development'),
-    domain: process.env.DOMAIN || 'localhost',
-  },
-  production: {
-    apiUrl: resolveApiUrl('production'),
-    wsUrl: resolveWsUrl('production'),
-    domain: process.env.DOMAIN || 'rundiapp.com',
-  },
-};
-
-const getEnvVars = () => {
-  const nodeEnv = process.env.NODE_ENV || 'development';
+const getReleaseChannel = (): string | undefined => {
   const manifest = Constants.manifest as Partial<{ releaseChannel?: string }>;
-  const releaseChannel = manifest?.releaseChannel;
-  
-  // Si estamos en producción o el usuario configuró NODE_ENV=production
-  if (nodeEnv === 'production' || releaseChannel) {
-    return ENV.production;
-  }
-  
-  return ENV.development;
+  return manifest?.releaseChannel;
 };
 
-export default getEnvVars();
+// En EAS/standalone, releaseChannel indica producción aunque NODE_ENV no esté seteado.
+const IS_PROD =
+  backendConfig.isProduction || !!getReleaseChannel();
 
-// Exportar también las variables individuales para fácil acceso
-export const API_BASE_URL = getEnvVars().apiUrl;
-export const WS_URL = getEnvVars().wsUrl;
-export const DOMAIN = getEnvVars().domain;
-export const IS_PRODUCTION = getEnvVars() === ENV.production;
-export const IS_DEVELOPMENT = !IS_PRODUCTION;
+export const API_BASE_URL = backendConfig.getApiUrl();
+export const WS_URL = backendConfig.getWsUrl();
+export const DOMAIN = backendConfig.domain;
+export const IS_PRODUCTION = IS_PROD;
+export const IS_DEVELOPMENT = !IS_PROD;
 
-// Logging para debug (solo en desarrollo)
+export default {
+  apiUrl: API_BASE_URL,
+  wsUrl: WS_URL,
+  domain: DOMAIN,
+} as const;
+
 if (__DEV__) {
-  console.log('🌍 Environment:', IS_PRODUCTION ? 'PRODUCTION' : 'DEVELOPMENT');
-  console.log('🔗 API URL:', API_BASE_URL);
-  console.log('🔌 WebSocket URL:', WS_URL);
+  console.log('🌍 Environment:', IS_PROD ? 'PRODUCTION' : 'DEVELOPMENT');
+  console.log('🔗 API URL:', API_BASE_URL || '(vacío)');
+  console.log('🔌 WebSocket URL:', WS_URL || '(vacío)');
   console.log('🌐 Domain:', DOMAIN);
 }

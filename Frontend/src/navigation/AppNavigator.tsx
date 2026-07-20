@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { LoadingIcon } from '../components/ui/LoadingIcon';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../hooks/shared/auth/useAuth';
 import AuthStack from './AuthStack';
 import ClientStack from './ClientStack';
 import DriverStack from './DriverStack';

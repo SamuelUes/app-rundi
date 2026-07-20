@@ -22,11 +22,13 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
 import registrationService from '../../services/auth/registrationService';
 import { getDepartments, getMunicipalitiesByDepartment } from '../../constants/nicaraguaLocations';
 import { AuthStackParamList } from '../../navigation/types';
 import { useTranslation } from 'react-i18next';
+import { DriverDataLicenseTab } from '../../components/auth/DriverData/DriverDataLicenseTab';
+import { DriverDataVehicleTab } from '../../components/auth/DriverData/DriverDataVehicleTab';
 
 type DriverDataNavigationProp = NativeStackNavigationProp<AuthStackParamList, 'DriverData'>;
 type DriverDataRouteProp = RouteProp<AuthStackParamList, 'DriverData'>;
@@ -511,453 +513,67 @@ export default function DriverDataScreen({ navigation, route }: Props) {
 
           {/* Contenido por Tab */}
           {activeTab === 'license' ? (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>
-                {t('authScreens.driverData.license.sectionTitle')}
-              </Text>
-
-              {/* Número de Licencia */}
-              <View style={styles.fieldGroup}>
-                <Text style={styles.label}>
-                  {t('authScreens.driverData.license.licenseNumberLabel')}
-                </Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder={t('authScreens.driverData.license.licenseNumberPlaceholder')}
-                  placeholderTextColor={colors.textSecondary}
-                  value={licenseNumber}
-                  onChangeText={setLicenseNumber}
-                  editable={!loading}
-                />
-              </View>
-
-              {/* Fecha de Vencimiento */}
-              <View style={styles.fieldGroup}>
-                <Text style={styles.label}>
-                  {t('authScreens.driverData.license.expiryLabel')}
-                </Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder={t('authScreens.driverData.license.expiryPlaceholder')}
-                  placeholderTextColor={colors.textSecondary}
-                  value={licenseExpiry}
-                  onChangeText={(text) => setLicenseExpiry(formatDate(text, licenseExpiry))}
-                  editable={!loading}
-                />
-              </View>
-
-              {/* Departamento */}
-              <View style={styles.fieldGroup}>
-                <Text style={styles.label}>
-                  {t('authScreens.driverData.license.departmentLabel')}
-                </Text>
-                <View style={styles.pickerContainer}>
-                  <Picker
-                    selectedValue={department}
-                    onValueChange={setDepartment}
-                    enabled={!loading}
-                    style={styles.picker}
-                  >
-                    <Picker.Item
-                      label={t('authScreens.driverData.license.departmentPlaceholder')}
-                      value=""
-                    />
-                    {departments_list.map((dept) => (
-                      <Picker.Item key={dept} label={dept} value={dept} />
-                    ))}
-                  </Picker>
-                </View>
-              </View>
-
-              {/* Municipio */}
-              <View style={styles.fieldGroup}>
-                <Text style={styles.label}>
-                  {t('authScreens.driverData.license.municipalityLabel')}
-                </Text>
-                <View style={styles.pickerContainer}>
-                  <Picker
-                    selectedValue={municipality}
-                    onValueChange={setMunicipality}
-                    enabled={!loading && department !== ''}
-                    style={styles.picker}
-                  >
-                    <Picker.Item
-                      label={t('authScreens.driverData.license.municipalityPlaceholder')}
-                      value=""
-                    />
-                    {municipalities.map((mun) => (
-                      <Picker.Item key={mun} label={mun} value={mun} />
-                    ))}
-                  </Picker>
-                </View>
-              </View>
-
-              <View style={styles.photoSection}>
-                <Text style={styles.sectionTitle}>{t('authScreens.driverData.photos.sectionTitle')}</Text>
-
-                <View style={styles.photoContainer}>
-                  <Text style={styles.photoTitle}>{t('authScreens.driverData.photos.profileTitle')}</Text>
-                  {profilePhoto ? (
-                    <View style={styles.previewContainer}>
-                      <Image source={{ uri: profilePhoto }} style={styles.photoPreview} />
-                      <TouchableOpacity
-                        style={styles.retakeButton}
-                        onPress={() => takePhoto(setProfilePhoto)}
-                        disabled={loading}
-                      >
-                        <Text style={styles.retakeButtonText}>{t('authScreens.driverData.photos.retakePhoto')}</Text>
-                      </TouchableOpacity>
-                    </View>
-                  ) : (
-                    <TouchableOpacity
-                      style={styles.photoButton}
-                      onPress={() => takePhoto(setProfilePhoto)}
-                      disabled={loading}
-                    >
-                      <Text style={styles.photoButtonText}>{t('authScreens.driverData.photos.takePhoto')}</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-
-                <View style={styles.photoContainer}>
-                  <Text style={styles.photoTitle}>{t('authScreens.driverData.photos.licenseFrontTitle')}</Text>
-                  {licensePhotoFront ? (
-                    <View style={styles.previewContainer}>
-                      <Image source={{ uri: licensePhotoFront }} style={styles.photoPreview} />
-                      <TouchableOpacity
-                        style={styles.retakeButton}
-                        onPress={() => takePhoto(setLicensePhotoFront)}
-                        disabled={loading}
-                      >
-                        <Text style={styles.retakeButtonText}>{t('authScreens.driverData.photos.retakePhoto')}</Text>
-                      </TouchableOpacity>
-                    </View>
-                  ) : (
-                    <TouchableOpacity
-                      style={styles.photoButton}
-                      onPress={() => takePhoto(setLicensePhotoFront)}
-                      disabled={loading}
-                    >
-                      <Text style={styles.photoButtonText}>{t('authScreens.driverData.photos.takePhoto')}</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-
-                <View style={styles.photoContainer}>
-                  <Text style={styles.photoTitle}>{t('authScreens.driverData.photos.licenseBackTitle')}</Text>
-                  {licensePhotoBack ? (
-                    <View style={styles.previewContainer}>
-                      <Image source={{ uri: licensePhotoBack }} style={styles.photoPreview} />
-                      <TouchableOpacity
-                        style={styles.retakeButton}
-                        onPress={() => takePhoto(setLicensePhotoBack)}
-                        disabled={loading}
-                      >
-                        <Text style={styles.retakeButtonText}>{t('authScreens.driverData.photos.retakePhoto')}</Text>
-                      </TouchableOpacity>
-                    </View>
-                  ) : (
-                    <TouchableOpacity
-                      style={styles.photoButton}
-                      onPress={() => takePhoto(setLicensePhotoBack)}
-                      disabled={loading}
-                    >
-                      <Text style={styles.photoButtonText}>{t('authScreens.driverData.photos.takePhoto')}</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              </View>
-
-              {/* Info */}
-              <View style={styles.infoBox}>
-                <Text style={styles.infoText}>
-                  {t('authScreens.driverData.license.info')}
-                </Text>
-              </View>
-            </View>
+            <DriverDataLicenseTab
+              licenseNumber={licenseNumber}
+              licenseExpiry={licenseExpiry}
+              department={department}
+              municipality={municipality}
+              profilePhoto={profilePhoto}
+              licensePhotoFront={licensePhotoFront}
+              licensePhotoBack={licensePhotoBack}
+              loading={loading}
+              departmentsList={departments_list}
+              municipalities={municipalities}
+              colors={colors}
+              onSetLicenseNumber={setLicenseNumber}
+              onSetLicenseExpiry={setLicenseExpiry}
+              onSetDepartment={setDepartment}
+              onSetMunicipality={setMunicipality}
+              onTakeProfilePhoto={() => takePhoto(setProfilePhoto)}
+              onTakeLicensePhotoFront={() => takePhoto(setLicensePhotoFront)}
+              onTakeLicensePhotoBack={() => takePhoto(setLicensePhotoBack)}
+              formatDate={formatDate}
+              styles={styles}
+              t={t}
+            />
           ) : (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>
-                {t('authScreens.driverData.vehicle.sectionTitle')}
-              </Text>
-
-              {/* Placa */}
-              <View style={styles.fieldGroup}>
-                <Text style={styles.label}>
-                  {t('authScreens.driverData.vehicle.plateLabel')}
-                </Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder={t('authScreens.driverData.vehicle.platePlaceholder')}
-                  placeholderTextColor={colors.textSecondary}
-                  value={plate}
-                  onChangeText={setPlate}
-                  editable={!loading}
-                />
-              </View>
-
-              {/* Marca */}
-              <View style={styles.fieldGroup}>
-                <Text style={styles.label}>
-                  {t('authScreens.driverData.vehicle.brandLabel')}
-                </Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder={t('authScreens.driverData.vehicle.brandPlaceholder')}
-                  placeholderTextColor={colors.textSecondary}
-                  value={brand}
-                  onChangeText={setBrand}
-                  editable={!loading}
-                />
-              </View>
-
-              {/* Modelo */}
-              <View style={styles.fieldGroup}>
-                <Text style={styles.label}>
-                  {t('authScreens.driverData.vehicle.modelLabel')}
-                </Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder={t('authScreens.driverData.vehicle.modelPlaceholder')}
-                  placeholderTextColor={colors.textSecondary}
-                  value={model}
-                  onChangeText={setModel}
-                  editable={!loading}
-                />
-              </View>
-
-              {/* Año */}
-              <View style={styles.fieldGroup}>
-                <Text style={styles.label}>
-                  {t('authScreens.driverData.vehicle.yearLabel')}
-                </Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder={t('authScreens.driverData.vehicle.yearPlaceholder')}
-                  placeholderTextColor={colors.textSecondary}
-                  value={year}
-                  onChangeText={setYear}
-                  keyboardType="numeric"
-                  editable={!loading}
-                />
-              </View>
-
-              {/* Color */}
-              <View style={styles.fieldGroup}>
-                <Text style={styles.label}>
-                  {t('authScreens.driverData.vehicle.colorLabel')}
-                </Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder={t('authScreens.driverData.vehicle.colorPlaceholder')}
-                  placeholderTextColor={colors.textSecondary}
-                  value={color}
-                  onChangeText={setColor}
-                  editable={!loading}
-                />
-              </View>
-
-              {/* Tipo */}
-              <View style={styles.fieldGroup}>
-                <Text style={styles.label}>
-                  {t('authScreens.driverData.vehicle.typeLabel')}
-                </Text>
-                <View style={styles.pickerContainer}>
-                  <Picker
-                    selectedValue={type}
-                    onValueChange={setType}
-                    enabled={!loading}
-                    style={styles.picker}
-                  >
-                    <Picker.Item
-                      label={t('authScreens.driverData.vehicle.typeOptions.sedan')}
-                      value="sedan"
-                    />
-                    <Picker.Item
-                      label={t('authScreens.driverData.vehicle.typeOptions.suv')}
-                      value="suv"
-                    />
-                    <Picker.Item
-                      label={t('authScreens.driverData.vehicle.typeOptions.van')}
-                      value="van"
-                    />
-                    <Picker.Item
-                      label={t('authScreens.driverData.vehicle.typeOptions.moto')}
-                      value="moto"
-                    />
-                  </Picker>
-                </View>
-              </View>
-
-              {/* Pasajeros */}
-              <View style={styles.fieldGroup}>
-                <Text style={styles.label}>
-                  {t('authScreens.driverData.vehicle.passengersLabel')}
-                </Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder={t('authScreens.driverData.vehicle.passengersPlaceholder')}
-                  placeholderTextColor={colors.textSecondary}
-                  value={passengers}
-                  onChangeText={setPassengers}
-                  keyboardType="numeric"
-                  editable={!loading}
-                />
-              </View>
-
-              <View style={styles.fieldGroup}>
-                <Text style={styles.label}>
-                  {t('authScreens.driverData.vehicle.registrationNumberLabel')}
-                </Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder={t('authScreens.driverData.vehicle.registrationNumberPlaceholder')}
-                  placeholderTextColor={colors.textSecondary}
-                  value={registrationNumber}
-                  onChangeText={setRegistrationNumber}
-                  editable={!loading}
-                />
-              </View>
-
-              <View style={styles.fieldGroup}>
-                <Text style={styles.label}>
-                  {t('authScreens.driverData.vehicle.registrationExpiryLabel')}
-                </Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder={t('authScreens.driverData.vehicle.registrationExpiryPlaceholder')}
-                  placeholderTextColor={colors.textSecondary}
-                  value={registrationExpiry}
-                  onChangeText={(text) => setRegistrationExpiry(formatDate(text, registrationExpiry))}
-                  editable={!loading}
-                />
-              </View>
-
-              <View style={styles.fieldGroup}>
-                <Text style={styles.label}>
-                  {t('authScreens.driverData.vehicle.insuranceNumberLabel')}
-                </Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder={t('authScreens.driverData.vehicle.insuranceNumberPlaceholder')}
-                  placeholderTextColor={colors.textSecondary}
-                  value={insuranceNumber}
-                  onChangeText={setInsuranceNumber}
-                  editable={!loading}
-                />
-              </View>
-
-              <View style={styles.fieldGroup}>
-                <Text style={styles.label}>
-                  {t('authScreens.driverData.vehicle.insuranceCompanyLabel')}
-                </Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder={t('authScreens.driverData.vehicle.insuranceCompanyPlaceholder')}
-                  placeholderTextColor={colors.textSecondary}
-                  value={insuranceCompany}
-                  onChangeText={setInsuranceCompany}
-                  editable={!loading}
-                />
-              </View>
-
-              <View style={styles.fieldGroup}>
-                <Text style={styles.label}>
-                  {t('authScreens.driverData.vehicle.insuranceExpiryLabel')}
-                </Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder={t('authScreens.driverData.vehicle.insuranceExpiryPlaceholder')}
-                  placeholderTextColor={colors.textSecondary}
-                  value={insuranceExpiry}
-                  onChangeText={(text) => setInsuranceExpiry(formatDate(text, insuranceExpiry))}
-                  editable={!loading}
-                />
-              </View>
-
-              {/* Info */}
-              <View style={styles.infoBox}>
-                <Text style={styles.infoText}>
-                  {t('authScreens.driverData.vehicle.info')}
-                </Text>
-              </View>
-
-              <View style={styles.photoSection}>
-                <Text style={styles.sectionTitle}>{t('authScreens.driverData.photos.sectionTitle')}</Text>
-
-                <View style={styles.photoContainer}>
-                  <Text style={styles.photoTitle}>{t('authScreens.driverData.photos.insuranceTitle')}</Text>
-                  {insurancePhoto ? (
-                    <View style={styles.previewContainer}>
-                      <Image source={{ uri: insurancePhoto }} style={styles.photoPreview} />
-                      <TouchableOpacity
-                        style={styles.retakeButton}
-                        onPress={() => takePhoto(setInsurancePhoto)}
-                        disabled={loading}
-                      >
-                        <Text style={styles.retakeButtonText}>{t('authScreens.driverData.photos.retakePhoto')}</Text>
-                      </TouchableOpacity>
-                    </View>
-                  ) : (
-                    <TouchableOpacity
-                      style={styles.photoButton}
-                      onPress={() => takePhoto(setInsurancePhoto)}
-                      disabled={loading}
-                    >
-                      <Text style={styles.photoButtonText}>{t('authScreens.driverData.photos.takePhoto')}</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-
-                <View style={styles.photoContainer}>
-                  <Text style={styles.photoTitle}>{t('authScreens.driverData.photos.registrationFrontTitle')}</Text>
-                  {registrationPhotoFront ? (
-                    <View style={styles.previewContainer}>
-                      <Image source={{ uri: registrationPhotoFront }} style={styles.photoPreview} />
-                      <TouchableOpacity
-                        style={styles.retakeButton}
-                        onPress={() => takePhoto(setRegistrationPhotoFront)}
-                        disabled={loading}
-                      >
-                        <Text style={styles.retakeButtonText}>{t('authScreens.driverData.photos.retakePhoto')}</Text>
-                      </TouchableOpacity>
-                    </View>
-                  ) : (
-                    <TouchableOpacity
-                      style={styles.photoButton}
-                      onPress={() => takePhoto(setRegistrationPhotoFront)}
-                      disabled={loading}
-                    >
-                      <Text style={styles.photoButtonText}>{t('authScreens.driverData.photos.takePhoto')}</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-
-                <View style={styles.photoContainer}>
-                  <Text style={styles.photoTitle}>{t('authScreens.driverData.photos.registrationBackTitle')}</Text>
-                  {registrationPhotoBack ? (
-                    <View style={styles.previewContainer}>
-                      <Image source={{ uri: registrationPhotoBack }} style={styles.photoPreview} />
-                      <TouchableOpacity
-                        style={styles.retakeButton}
-                        onPress={() => takePhoto(setRegistrationPhotoBack)}
-                        disabled={loading}
-                      >
-                        <Text style={styles.retakeButtonText}>{t('authScreens.driverData.photos.retakePhoto')}</Text>
-                      </TouchableOpacity>
-                    </View>
-                  ) : (
-                    <TouchableOpacity
-                      style={styles.photoButton}
-                      onPress={() => takePhoto(setRegistrationPhotoBack)}
-                      disabled={loading}
-                    >
-                      <Text style={styles.photoButtonText}>{t('authScreens.driverData.photos.takePhoto')}</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              </View>
-            </View>
+            <DriverDataVehicleTab
+              plate={plate}
+              brand={brand}
+              model={model}
+              year={year}
+              color={color}
+              type={type}
+              passengers={passengers}
+              registrationNumber={registrationNumber}
+              registrationExpiry={registrationExpiry}
+              insuranceNumber={insuranceNumber}
+              insuranceCompany={insuranceCompany}
+              insuranceExpiry={insuranceExpiry}
+              insurancePhoto={insurancePhoto}
+              registrationPhotoFront={registrationPhotoFront}
+              registrationPhotoBack={registrationPhotoBack}
+              loading={loading}
+              colors={colors}
+              onSetPlate={setPlate}
+              onSetBrand={setBrand}
+              onSetModel={setModel}
+              onSetYear={setYear}
+              onSetColor={setColor}
+              onSetType={setType}
+              onSetPassengers={setPassengers}
+              onSetRegistrationNumber={setRegistrationNumber}
+              onSetRegistrationExpiry={setRegistrationExpiry}
+              onSetInsuranceNumber={setInsuranceNumber}
+              onSetInsuranceCompany={setInsuranceCompany}
+              onSetInsuranceExpiry={setInsuranceExpiry}
+              onTakeInsurancePhoto={() => takePhoto(setInsurancePhoto)}
+              onTakeRegistrationPhotoFront={() => takePhoto(setRegistrationPhotoFront)}
+              onTakeRegistrationPhotoBack={() => takePhoto(setRegistrationPhotoBack)}
+              formatDate={formatDate}
+              styles={styles}
+              t={t}
+            />
           )}
 
           {/* Botones */}

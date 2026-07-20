@@ -3,8 +3,8 @@ import { View, Text, StyleSheet, TouchableOpacity, Linking } from 'react-native'
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useTranslation } from 'react-i18next';
 
-import { useTheme } from '../../context/ThemeContext';
-import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
+import { useAuth } from '../../hooks/shared/auth/useAuth';
 import type { DriverStackParamList } from '../../navigation/DriverStack';
 import SupportChatShortcut from '../../components/shared/SupportChatShortcut';
 

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { getActiveRidesByAreaPath } from '../../../utils/serviceArea';
+import { haversineKm } from '../../../utils/distance';
 import {
   ACTIVE_RIDE_STATUSES,
-  calculateDistance,
   parseCoordinate,
   type RawRideStop,
 } from '../../../utils/driverHomeHelpers';
@@ -174,7 +174,7 @@ export function useDriverActiveRides({
               return;
             }
 
-            const distance = calculateDistance(coords.latitude, coords.longitude, originLat, originLng);
+            const distance = haversineKm(coords.latitude, coords.longitude, originLat, originLng);
             if (!Number.isFinite(distance) || distance > SEARCH_RADIUS_KM) {
               return;
             }

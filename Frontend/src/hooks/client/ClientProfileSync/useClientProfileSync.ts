@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useAuth } from '../../../context/AuthContext';
+import { useAuth } from '../../shared/auth/useAuth';
 import { fetchClientProfile } from '../../../services/clientProfilesService';
 
 /**

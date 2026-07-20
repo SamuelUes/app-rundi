@@ -11,7 +11,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { SpeechOptions } from 'expo-speech';
 
 import voiceAssistantService, { type VoiceAssistantCategory } from '../services/voiceAssistantService';
-import { useLanguage } from './LanguageContext';
+import { useLanguageStore } from '../stores/languageStore';
 import type { SupportedLanguage } from '../i18n';
 
 const STORAGE_KEY = '@rundi_voice_assistant_settings_v1';
@@ -57,7 +57,7 @@ type VoiceAssistantContextValue = {
 const VoiceAssistantContext = createContext<VoiceAssistantContextValue | undefined>(undefined);
 
 export function VoiceAssistantProvider({ children }: { children: ReactNode }) {
-  const { language } = useLanguage();
+  const language = useLanguageStore((s) => s.language);
   const [settings, setSettings] = useState<VoiceAssistantSettings>(DEFAULT_SETTINGS);
   const [initialized, setInitialized] = useState(false);
   const [hasLoadedFromStorage, setHasLoadedFromStorage] = useState(false);

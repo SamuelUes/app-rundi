@@ -1,8 +1,8 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { useTheme } from '../context/ThemeContext';
+import { useTheme } from '../hooks/shared/theme/useTheme';
 import fcmService from '../services/fcmService';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../hooks/shared/auth/useAuth';
 
 interface FCMContextType {
   isConfigured: boolean;

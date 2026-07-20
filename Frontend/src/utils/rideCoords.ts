@@ -1,4 +1,5 @@
 import type { PriceBreakdown } from './priceCalculatorCentralize';
+import { haversineMeters } from './distance';
 
 export const DESIGNATED_DRIVER_MOTO_DISCOUNT = 70;
 export const MIN_DESIGNATED_DRIVER_PRICE = 100;
@@ -22,17 +23,7 @@ export function isValidCoordLocal(value: Coords | null | undefined): value is Co
 }
 
 export function metersBetween(a: Coords, b: Coords): number {
-  const R = 6371000;
-  const toRad = (v: number) => (v * Math.PI) / 180;
-  const dLat = toRad(b.latitude - a.latitude);
-  const dLon = toRad(b.longitude - a.longitude);
-  const lat1 = toRad(a.latitude);
-  const lat2 = toRad(b.latitude);
-  const sinDLat = Math.sin(dLat / 2);
-  const sinDLon = Math.sin(dLon / 2);
-  const h = sinDLat * sinDLat + Math.cos(lat1) * Math.cos(lat2) * sinDLon * sinDLon;
-  const c = 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
-  return R * c;
+  return haversineMeters(a.latitude, a.longitude, b.latitude, b.longitude);
 }
 
 export function extractCoordsFromSuggestion(suggestion: any): Coords | null {

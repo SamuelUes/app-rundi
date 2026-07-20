@@ -22,7 +22,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
 import phoneAuthService from '../../services/auth/phoneAuthService';
 import firebaseAuthService from '../../services/auth/firebaseAuthService';
 import registrationService from '../../services/auth/registrationService';

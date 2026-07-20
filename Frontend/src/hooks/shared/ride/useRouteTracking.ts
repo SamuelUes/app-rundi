@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import * as Location from 'expo-location';
-import { useAuth } from '../../../context/AuthContext';
+import { useAuth } from '../auth/useAuth';
 import backgroundLocationService from '../../../services/backgroundLocationService';
 import firebaseTrackingService from '../../../services/firebaseTrackingService';
 import { Platform } from 'react-native';

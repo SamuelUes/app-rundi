@@ -10,10 +10,17 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
-import { useAuth } from '../../context/AuthContext';
-import { useTheme } from '../../context/ThemeContext';
+import { useAuth } from '../../hooks/shared/auth/useAuth';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
 import ridesService from '../../services/ridesService';
 import { useTranslation } from 'react-i18next';
+import { RideDetailsHeader } from '../../components/shared/RideDetails/RideDetailsHeader';
+import { RideDetailsRoute } from '../../components/shared/RideDetails/RideDetailsRoute';
+import { RideDetailsInfo } from '../../components/shared/RideDetails/RideDetailsInfo';
+import { RideDetailsPerson } from '../../components/shared/RideDetails/RideDetailsPerson';
+import { RideDetailsVehicle } from '../../components/shared/RideDetails/RideDetailsVehicle';
+import { RideDetailsTimeline } from '../../components/shared/RideDetails/RideDetailsTimeline';
+import { RideDetailsPayment } from '../../components/shared/RideDetails/RideDetailsPayment';
 
 const STATUS_KEY_MAP: Record<string, string> = {
   completed: 'completed',
@@ -214,394 +221,54 @@ export default function RideDetailsScreen({ navigation, route }: any) {
       contentContainerStyle={styles.contentContainer}
       showsVerticalScrollIndicator={false}
     >
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.headerRow}>
-          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-            <Image
-              source={require('../../assets/icons/back_button/back_button2x.png')}
-              style={styles.backIcon}
-              resizeMode="contain"
-            />
-          </TouchableOpacity>
+      <RideDetailsHeader
+        rideId={ride.id}
+        status={ride.status}
+        getStatusColor={getStatusColor}
+        getStatusText={getStatusText}
+        safeString={safeString}
+        onBack={() => navigation.goBack()}
+        t={t}
+        styles={styles}
+      />
 
-          <View style={styles.titleContainer}>
-            <Text style={styles.title}>{t('shared.rideDetail.header.title')}</Text>
-          </View>
+      <RideDetailsRoute ride={ride} safeString={safeString} t={t} styles={styles} />
 
-          <View style={[styles.statusBadge, { backgroundColor: getStatusColor(safeString(ride.status)) }]}>
-            <Text style={styles.statusText}>{getStatusText(safeString(ride.status))}</Text>
-          </View>
-        </View>
-        <Text style={styles.rideId}>
-          {t('shared.rideDetail.header.rideId', {
-            id: typeof ride.id === 'string' ? ride.id.slice(-8) : safeString(ride.id),
-          })}
-        </Text>
-      </View>
+      <RideDetailsInfo
+        ride={ride}
+        distanceKm={distanceKm}
+        formatDuration={formatDuration}
+        formatCurrency={formatCurrency}
+        finalPrice={finalPrice}
+        safeString={safeString}
+        t={t}
+        styles={styles}
+      />
 
-      {/* Ruta - Soportar múltiples destinos */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>{t('shared.rideDetail.sections.route.title')}</Text>
-        <View style={styles.card}>
-          {/* Si hay múltiples paradas, mostrar todas */}
-          {ride.hasMultipleStops && ride.allAddresses && ride.allAddresses.length > 0 ? (
-            ride.allAddresses.map((address: string, idx: number) => (
-              <View key={`route-${idx}`}>
-                <View style={styles.locationRow}>
-                  <MaterialIcons name={idx === 0 ? 'circle' : idx === ride.allAddresses.length - 1 ? 'place' : 'location-on'} size={16} color={idx === 0 ? '#2196F3' : idx === ride.allAddresses.length - 1 ? '#F44336' : '#FF9800'} />
-                  <View style={styles.locationInfo}>
-                    <Text style={styles.locationLabel}>
-                      {idx === 0
-                        ? t('shared.rideDetail.sections.route.origin')
-                        : idx === ride.allAddresses.length - 1
-                          ? t('shared.rideDetail.sections.route.destination')
-                          : t('shared.rideDetail.sections.route.stop', { index: idx })}
-                    </Text>
-                    <Text style={styles.locationText}>{safeString(address)}</Text>
-                  </View>
-                </View>
-                {idx < ride.allAddresses.length - 1 && <View style={styles.routeLine} />}
-              </View>
-            ))
-          ) : (
-            // Si no hay múltiples paradas, mostrar origen y destino
-            <>
-              <View style={styles.locationRow}>
-                <MaterialIcons name="circle" size={16} color="#2196F3" />
-                <View style={styles.locationInfo}>
-                  <Text style={styles.locationLabel}>{t('shared.rideDetail.sections.route.origin')}</Text>
-                  <Text style={styles.locationText}>{safeString(ride.originAddress)}</Text>
-                </View>
-              </View>
-              
-              <View style={styles.routeLine} />
-              
-              <View style={styles.locationRow}>
-                <MaterialIcons name="place" size={16} color="#F44336" />
-                <View style={styles.locationInfo}>
-                  <Text style={styles.locationLabel}>{t('shared.rideDetail.sections.route.destination')}</Text>
-                  <Text style={styles.locationText}>{safeString(ride.destinationAddress)}</Text>
-                </View>
-              </View>
-            </>
-          )}
-        </View>
-      </View>
+      <RideDetailsPerson
+        isDriver={isDriver}
+        ride={ride}
+        safeString={safeString}
+        t={t}
+        styles={styles}
+      />
 
-      {/* Información del Viaje */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>{t('shared.rideDetail.sections.info.title')}</Text>
-        <View style={styles.card}>
-          <View style={styles.infoGrid}>
-            <View style={styles.infoItem}>
-              <Text style={styles.infoLabel}>{t('shared.rideDetail.sections.info.distance')}</Text>
-              <Text style={styles.infoValue}>
-                {t('shared.rideDetail.labels.distanceKilometers', { value: distanceKm })}
-              </Text>
-            </View>
-            <View style={styles.infoItem}>
-              <Text style={styles.infoLabel}>{t('shared.rideDetail.sections.info.duration')}</Text>
-              <Text style={styles.infoValue}>{formatDuration(ride.estimatedDuration)}</Text>
-            </View>
-            <View style={styles.infoItem}>
-              <Text style={styles.infoLabel}>{t('shared.rideDetail.sections.info.finalPrice')}</Text>
-              <Text style={styles.infoValue}>{formatCurrency(finalPrice)}</Text>
-            </View>
-            <View style={styles.infoItem}>
-              <Text style={styles.infoLabel}>{t('shared.rideDetail.sections.info.passengers')}</Text>
-              <Text style={styles.infoValue}>{safeString(ride.passengers || 1)}</Text>
-            </View>
-          </View>
-          
-          {ride.notes && typeof ride.notes === 'string' && ride.notes.trim() !== '' ? (
-            <View style={styles.notesBox}>
-              <Text style={styles.notesLabel}>{t('shared.rideDetail.sections.info.notesLabel')}</Text>
-              <Text style={styles.notesText}>{ride.notes}</Text>
-            </View>
-          ) : null}
-        </View>
-      </View>
+      {!isDriver && (
+        <RideDetailsVehicle ride={ride} safeString={safeString} t={t} styles={styles} />
+      )}
 
-      {/* Información de Cliente/Conductor */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>
-          {isDriver
-            ? t('shared.rideDetail.sections.person.clientTitle')
-            : t('shared.rideDetail.sections.person.driverTitle')}
-        </Text>
-        <View style={styles.card}>
-          {isDriver ? (
-            ride.client && typeof ride.client === 'object' ? (
-              <View>
-                <Text style={styles.personName}>
-                  {safeString(ride.client.name, t('shared.rideDetail.sections.person.clientFallback'))}
-                </Text>
-                <Text style={styles.personDetail}>{safeString(ride.client.email)}</Text>
-                {ride.client.phone && typeof ride.client.phone !== 'object' ? (
-                  <Text style={styles.personDetail}>{safeString(ride.client.phone)}</Text>
-                ) : null}
-              </View>
-            ) : (
-              <Text style={styles.personName}>
-                {t('shared.rideDetail.sections.person.missingClient')}
-              </Text>
-            )
-          ) : (
-            ride.driver && typeof ride.driver === 'object' ? (
-              <View>
-                <Text style={styles.personName}>
-                  {safeString(ride.driver.name, t('shared.rideDetail.sections.person.driverFallback'))}
-                </Text>
-                <Text style={styles.personDetail}>{safeString(ride.driver.email)}</Text>
-                {ride.driver.phone && typeof ride.driver.phone !== 'object' ? (
-                  <Text style={styles.personDetail}>{safeString(ride.driver.phone)}</Text>
-                ) : null}
-                {ride.driver.licenseNumber && typeof ride.driver.licenseNumber !== 'object' ? (
-                  <Text style={styles.personDetail}>
-                    {t('shared.rideDetail.sections.person.license', {
-                      value: safeString(ride.driver.licenseNumber),
-                    })}
-                  </Text>
-                ) : null}
-                {ride.driver.rating && parseFloat(String(ride.driver.rating)) > 0 ? (
-                  <View style={styles.ratingRow}>
-                    <Text style={styles.ratingStars}>
-                      {'⭐'.repeat(Math.round(parseFloat(String(ride.driver.rating))))}
-                    </Text>
-                    <Text style={styles.ratingValue}>
-                      {parseFloat(String(ride.driver.rating)).toFixed(1)}
-                    </Text>
-                  </View>
-                ) : null}
-              </View>
-            ) : (
-              <Text style={styles.personName}>
-                {t('shared.rideDetail.sections.person.missingDriver')}
-              </Text>
-            )
-          )}
-        </View>
-      </View>
+      <RideDetailsTimeline ride={ride} formatDateTime={formatDateTime} t={t} styles={styles} />
 
-      {/* Vehículo (solo clientes) */}
-      {!isDriver && ride.vehicle && typeof ride.vehicle === 'object' ? (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t('shared.rideDetail.sections.vehicle.title')}</Text>
-          <View style={styles.card}>
-            <Text style={styles.vehicleName}>
-              {safeString(ride.vehicle.brand)} {safeString(ride.vehicle.model)} ({safeString(ride.vehicle.year)})
-            </Text>
-            <Text style={styles.vehicleDetail}>
-              {safeString(ride.vehicle.color)} • {safeString(ride.vehicle.plate)}
-            </Text>
-            {ride.vehicle.registrationNumber && typeof ride.vehicle.registrationNumber !== 'object' ? (
-              <Text style={styles.vehicleDetail}>
-                {t('shared.rideDetail.sections.vehicle.registration', {
-                  value: safeString(ride.vehicle.registrationNumber),
-                })}
-              </Text>
-            ) : null}
-          </View>
-        </View>
-      ) : null}
-
-      {/* Fechas */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>{t('shared.rideDetail.sections.timeline.title')}</Text>
-        <View style={styles.card}>
-          {ride.requestedAt && typeof ride.requestedAt !== 'object' ? (
-            <View style={styles.dateRow}>
-              <Text style={styles.dateLabel}>{t('shared.rideDetail.sections.timeline.requested')}</Text>
-              <Text style={styles.dateValue}>{formatDateTime(ride.requestedAt)}</Text>
-            </View>
-          ) : null}
-          {ride.acceptedAt && typeof ride.acceptedAt !== 'object' ? (
-            <View style={styles.dateRow}>
-              <Text style={styles.dateLabel}>{t('shared.rideDetail.sections.timeline.accepted')}</Text>
-              <Text style={styles.dateValue}>{formatDateTime(ride.acceptedAt)}</Text>
-            </View>
-          ) : null}
-          {ride.startedAt && typeof ride.startedAt !== 'object' ? (
-            <View style={styles.dateRow}>
-              <Text style={styles.dateLabel}>{t('shared.rideDetail.sections.timeline.started')}</Text>
-              <Text style={styles.dateValue}>{formatDateTime(ride.startedAt)}</Text>
-            </View>
-          ) : null}
-          {ride.completedAt && typeof ride.completedAt !== 'object' ? (
-            <View style={styles.dateRow}>
-              <Text style={styles.dateLabel}>{t('shared.rideDetail.sections.timeline.completed')}</Text>
-              <Text style={styles.dateValue}>{formatDateTime(ride.completedAt)}</Text>
-            </View>
-          ) : null}
-          {ride.canceledAt && typeof ride.canceledAt !== 'object' ? (
-            <View style={styles.dateRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.dateLabel}>{t('shared.rideDetail.sections.timeline.canceled')}</Text>
-                {ride.cancelReason && typeof ride.cancelReason === 'string' ? (
-                  <Text style={styles.cancelReason}>
-                    {t('shared.rideDetail.sections.timeline.cancelReason', {
-                      reason: ride.cancelReason,
-                    })}
-                  </Text>
-                ) : null}
-              </View>
-              <Text style={styles.dateValue}>{formatDateTime(ride.canceledAt)}</Text>
-            </View>
-          ) : null}
-          {(!ride.canceledAt || typeof ride.canceledAt === 'object') && 
-           ride.cancelReason && typeof ride.cancelReason === 'string' ? (
-            <View style={styles.dateRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.dateLabel}>{t('shared.rideDetail.sections.timeline.canceled')}</Text>
-                <Text style={styles.cancelReason}>
-                  {t('shared.rideDetail.sections.timeline.cancelReason', {
-                    reason: ride.cancelReason,
-                  })}
-                </Text>
-              </View>
-              <Text style={styles.dateValue}>{t('shared.rideDetail.labels.notAvailable')}</Text>
-            </View>
-          ) : null}
-        </View>
-      </View>
-
-      {/* Información de Pagos */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>{t('shared.rideDetail.sections.payment.title')}</Text>
-        <View style={styles.card}>
-          {/* Precio Calculado por el Sistema */}
-          <View style={styles.priceRow}>
-            <Text style={styles.priceLabel}>{t('shared.rideDetail.sections.payment.calculated')}</Text>
-            <Text style={styles.priceValue}>{formatCurrency(finalPrice)}</Text>
-          </View>
-
-          {/* Precio Sugerido por Cliente */}
-          {ride.clientSuggestedPrice ? (
-            <View style={styles.priceRow}>
-              <Text style={styles.priceLabel}>{t('shared.rideDetail.sections.payment.clientSuggested')}</Text>
-              <Text style={[styles.priceValue, { color: '#FF9800' }]}>
-                {formatCurrency(parseFloat(String(ride.clientSuggestedPrice)))}
-              </Text>
-            </View>
-          ) : null}
-
-          {/* Contraoferta del Conductor */}
-          {ride.driverOfferedPrice ? (
-            <View style={styles.priceRow}>
-              <Text style={styles.priceLabel}>{t('shared.rideDetail.sections.payment.driverOffered')}</Text>
-              <Text style={[styles.priceValue, { color: '#2196F3' }]}>
-                {formatCurrency(parseFloat(String(ride.driverOfferedPrice)))}
-              </Text>
-            </View>
-          ) : null}
-
-          {/* Precio Final Acordado */}
-          {ride.finalFare ? (
-            <View style={styles.priceRow}>
-              <Text style={styles.priceLabel}>{t('shared.rideDetail.sections.payment.finalAgreed')}</Text>
-              <Text style={[styles.priceValue, { color: '#4CAF50', fontWeight: '700' }]}>
-                {formatCurrency(parseFloat(String(ride.finalFare)))}
-              </Text>
-            </View>
-          ) : null}
-          
-          <View style={styles.priceDivider} />
-
-          {/* Estado del Pago */}
-          <View style={styles.priceRow}>
-            <Text style={styles.priceLabel}>{t('shared.rideDetail.sections.payment.status')}</Text>
-            <Text style={[styles.priceValue, { color: ride.payment ? getPaymentStatusColor(ride.payment.status) : colors.textSecondary }]}>
-              {ride.payment
-                ? getPaymentStatusText(ride.payment.status)
-                : t('shared.rideDetail.sections.payment.noPayment')}
-            </Text>
-          </View>
-          
-          {/* Comisión - Calcular si no existe */}
-          {(() => {
-            // Obtener precio final de forma segura
-            let finalFareNum = 0;
-            if (ride.finalFare) {
-              finalFareNum = typeof ride.finalFare === 'string' 
-                ? parseFloat(ride.finalFare) 
-                : ride.finalFare;
-            } else if (ride.estimatedPrice) {
-              finalFareNum = typeof ride.estimatedPrice === 'string'
-                ? parseFloat(ride.estimatedPrice)
-                : ride.estimatedPrice;
-            }
-            
-            // Validar que sea un número válido
-            if (isNaN(finalFareNum) || finalFareNum === 0) {
-              return null; // No mostrar si no hay precio válido
-            }
-            
-            const rideType = ride.rideType || 'normal';
-            const commissionRate = rideType === 'designated_driver' ? 0.25 : 0.11;
-            
-            // Convertir commission a número de forma segura
-            let commission = 0;
-            if (ride.payment?.commission) {
-              commission = typeof ride.payment.commission === 'string'
-                ? parseFloat(ride.payment.commission)
-                : ride.payment.commission;
-            } else {
-              commission = finalFareNum * commissionRate;
-            }
-            
-            // Convertir tip a número de forma segura
-            let tip = 0;
-            if (ride.payment?.tip) {
-              tip = typeof ride.payment.tip === 'string'
-                ? parseFloat(ride.payment.tip)
-                : ride.payment.tip;
-            }
-            
-            // Calcular netAmount (validar que todos sean números)
-            const netAmount = finalFareNum - commission + tip;
-            
-            // Validar que netAmount sea un número válido
-            if (isNaN(netAmount)) {
-              console.error('❌ netAmount es NaN:', { finalFareNum, commission, tip });
-              return null;
-            }
-            
-            return (
-              <>
-                <View style={styles.priceRow}>
-                  <Text style={styles.priceLabel}>
-                    {t('shared.rideDetail.sections.payment.commission', {
-                      rate: Math.round(commissionRate * 100),
-                    })}
-                  </Text>
-                  <Text style={[styles.priceValue, { color: '#F44336' }]}>
-                    -{formatCurrency(commission)}
-                  </Text>
-                </View>
-                
-                {/* Propina */}
-                {tip > 0 ? (
-                  <View style={styles.priceRow}>
-                    <Text style={styles.priceLabel}>{t('shared.rideDetail.sections.payment.tip')}</Text>
-                    <Text style={[styles.priceValue, { color: '#4CAF50' }]}>
-                      {formatCurrency(tip)}
-                    </Text>
-                  </View>
-                ) : null}
-                
-                {/* Pago Final al Conductor */}
-                <View style={[styles.priceRow, styles.finalPriceRow]}>
-                  <Text style={styles.finalPriceLabel}>{t('shared.rideDetail.sections.payment.driverPayout')}</Text>
-                  <Text style={styles.finalPriceValue}>
-                    {formatCurrency(netAmount)}
-                  </Text>
-                </View>
-              </>
-            );
-          })()}
-        </View>
-      </View>
+      <RideDetailsPayment
+        ride={ride}
+        finalPrice={finalPrice}
+        formatCurrency={formatCurrency}
+        getPaymentStatusColor={getPaymentStatusColor}
+        getPaymentStatusText={getPaymentStatusText}
+        colors={colors}
+        t={t}
+        styles={styles}
+      />
 
       <View style={{ height: 28 }} />
     </ScrollView>

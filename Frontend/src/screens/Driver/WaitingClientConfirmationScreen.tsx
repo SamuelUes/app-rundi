@@ -10,8 +10,8 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { useTranslation } from 'react-i18next';
-import { useTheme } from '../../context/ThemeContext';
-import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
+import { useAuth } from '../../hooks/shared/auth/useAuth';
 import { getDatabase, ref, onValue, off } from 'firebase/database';
 import ridesService from '../../services/ridesService';
 import { SafeAreaView } from 'react-native-safe-area-context';

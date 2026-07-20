@@ -6,22 +6,19 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  TextInput,
-  Platform,
-  ScrollView,
   Image,
+  ScrollView,
   KeyboardAvoidingView,
-  Modal,
+  Platform,
   Animated,
   Easing,
   useColorScheme,
 } from 'react-native';
-import { Picker } from '@react-native-picker/picker';
 import DynamicMap from '../../components/map/DynamicMap';
 import { MAP_ICONS } from '../../constants/mapIcons';
 import { useLocation } from '../../hooks/shared/location/useLocation';
-import { useAuth } from '../../context/AuthContext';
-import { useTheme } from '../../context/ThemeContext';
+import { useAuth } from '../../hooks/shared/auth/useAuth';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useAddressSearch } from '../../hooks/client/SearchRideScreen/useAddressSearch';
 import servicesService, { ServiceItem } from '../../services/servicesService';
 import alertService from '../../services/alertService';
@@ -37,6 +34,12 @@ import { useSearchRideLocation } from '../../hooks/client/SearchRideScreen/useSe
 import { useSearchRideSubmission } from '../../hooks/client/SearchRideScreen/useSearchRideSubmission';
 import { useVehiclePhoto } from '../../hooks/client/SearchRideScreen/useVehiclePhoto';
 import { useDriversAvailability } from '../../hooks/client/SearchRideScreen/useDriversAvailability';
+import { SearchRideRouteBubble } from '../../components/client/SearchRide/SearchRideRouteBubble';
+import { SearchRideVehicleOptions } from '../../components/client/SearchRide/SearchRideVehicleOptions';
+import { SearchRideSummary } from '../../components/client/SearchRide/SearchRideSummary';
+import { SearchRideCTA } from '../../components/client/SearchRide/SearchRideCTA';
+import { SearchRideSearchOverlay } from '../../components/client/SearchRide/SearchRideSearchOverlay';
+import { SearchRideScheduleModal } from '../../components/client/SearchRide/SearchRideScheduleModal';
 
 const { MANUAL_ORIGIN, MANUAL_ORIGIN_HOLD, ORIGIN_PIN, DESTINATION_PIN, MULTI_STOP_PIN } = MAP_ICONS;
 const BACK_BUTTON_ICON = require('../../assets/icons/back_button/back_button2x.png');
@@ -389,7 +392,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         let coordsValue = suggestion.coords;
         if (!coordsValue && suggestion.placeId) {
           const mapsService = (await import('../../services/mapsService')).default;
-          coordsValue = (await mapsService.getPlaceDetails(suggestion.placeId, undefined, { forceProvider: 'google' })) || null;
+          coordsValue = (await mapsService.getPlaceDetails(suggestion.placeId)) || null;
         }
         if (!coordsValue) {
           alertService.showErrorAlert(tr('alerts.locationFetchFailed'));
@@ -600,75 +603,24 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         )}
       </View>
 
-      <View style={styles.routeBubble}>
-        <View style={styles.routeTimeline}>
-          {orderedRouteRows.map((row, idx) => {
-            const isLast = idx === orderedRouteRows.length - 1;
-            const isExtra = row.kind === 'extra';
-            const isDestinationRow = row.kind === 'destination';
-            const showInlineAdd = isDestinationRow && canAddExtraStop;
-            let label = '';
-            let subtitle = '';
-            if (row.kind === 'origin') {
-              label = manualOriginLoading ? tr('labels.searching') : manualOriginAddress || tr('labels.originPlaceholder');
-              if (manualOriginDraft) subtitle = formatCoords(manualOriginDraft);
-            } else if (row.kind === 'destination') {
-              label = manualDestinationLoading ? tr('labels.searching') : destination || tr('labels.destinationPlaceholder');
-              if (manualDestinationDraft && mapSelectionMode === 'destination') subtitle = formatCoords(manualDestinationDraft);
-              else if (destinationCoords) subtitle = formatCoords(destinationCoords);
-            } else if (typeof row.index === 'number') {
-              const stop = extraDestinations[row.index];
-              label = stop?.address || tr('labels.stopLabel', { index: row.index + 1 });
-              if (stop?.coords) subtitle = formatCoords(stop.coords);
-            }
-
-            const iconSource =
-              row.kind === 'origin'
-                ? ORIGIN_PIN
-                : row.kind === 'destination'
-                ? DESTINATION_PIN
-                : MULTI_STOP_PIN;
-
-            return (
-              <View key={`${row.kind}-${row.index ?? 'final'}`} style={styles.timelineRow}>
-                <View style={styles.timelineLeft}>
-                  <Image source={iconSource} style={styles.timelineIcon} resizeMode="contain" />
-                  {!isLast && <View style={styles.timelineConnector} />}
-                </View>
-
-                <View style={styles.timelineCenter}>
-                  <TouchableOpacity style={[styles.timelineContent, showInlineAdd && styles.timelineContentCompact]} onPress={() => handleRouteRowPress(row)}>
-                    <Text style={styles.timelineLabel} numberOfLines={1}>
-                      {label}
-                    </Text>
-                    {subtitle ? (
-                      <Text style={styles.timelineSubtitle} numberOfLines={1}>
-                        {subtitle}
-                      </Text>
-                    ) : null}
-                  </TouchableOpacity>
-                  {showInlineAdd ? (
-                    <TouchableOpacity
-                      style={styles.inlineAddStop}
-                      onPress={beginAddExtraStop}
-                      accessibilityLabel={tr('accessibility.addExtraStop')}
-                    >
-                      <Text style={styles.inlineAddStopIcon}>＋</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                </View>
-
-                {isExtra && typeof row.index === 'number' ? (
-                  <TouchableOpacity style={styles.timelineRemove} onPress={() => handleRemoveStop(row.index!)}>
-                    <Text style={styles.timelineRemoveText}>✕</Text>
-                  </TouchableOpacity>
-                ) : null}
-              </View>
-            );
-          })}
-        </View>
-
-      </View>
+      <SearchRideRouteBubble
+        orderedRouteRows={orderedRouteRows}
+        canAddExtraStop={canAddExtraStop}
+        manualOriginLoading={manualOriginLoading}
+        manualOriginAddress={manualOriginAddress}
+        manualOriginDraft={manualOriginDraft}
+        manualDestinationLoading={manualDestinationLoading}
+        manualDestinationDraft={manualDestinationDraft}
+        destination={destination}
+        destinationCoords={destinationCoords}
+        mapSelectionMode={mapSelectionMode}
+        extraDestinations={extraDestinations}
+        onRouteRowPress={handleRouteRowPress}
+        onAddExtraStop={beginAddExtraStop}
+        onRemoveStop={handleRemoveStop}
+        styles={styles}
+        tr={tr}
+      />
 
       <Animated.View
         pointerEvents={bottomPanelReady ? 'auto' : 'none'}
@@ -701,240 +653,50 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
               nestedScrollEnabled
             >
               
-            <View style={[styles.section, styles.vehicleSection]}>
+            <SearchRideVehicleOptions
+              vehicleOptions={vehicleOptions}
+              vehicleType={vehicleType}
+              vehicleEstimates={vehicleEstimates}
+              designatedDriverEstimates={designatedDriverEstimates}
+              designatedDriverMode={designatedDriverMode}
+              designatedDriverEligibility={designatedDriverEligibility}
+              recommendedVehicle={recommendedVehicle}
+              calculatingRoute={calculatingRoute}
+              estimatedDuration={estimatedDuration}
+              capacityByVehicle={capacityByVehicle}
+              passengersByVehicle={passengersByVehicle}
+              requiresVehiclePhoto={requiresVehiclePhoto}
+              hasVehiclePhotoSelection={hasVehiclePhotoSelection}
+              uploadingPhoto={uploadingPhoto}
+              formatPriceValue={formatPriceValue}
+              getPassengersForVehicle={getPassengersForVehicle}
+              canDecreasePassengers={canDecreasePassengers}
+              canIncreasePassengers={canIncreasePassengers}
+              onSelectVehicle={setVehicleType}
+              onSetDesignatedDriverMode={setDesignatedDriverMode}
+              onUpdatePassengers={updatePassengers}
+              onTakeVehiclePhoto={handleTakeVehiclePhoto}
+              styles={styles}
+              tr={tr}
+            />
 
-              <View style={styles.vehicleOptionsList}>
-                {vehicleOptions.map((option) => {
-                  const estimate = vehicleEstimates[option.type];
-                  const designatedEstimate = option.type === 'designated_driver' ? designatedDriverEstimates[designatedDriverMode] : null;
-                  const showDesignatedMotoShortDistanceNotice =
-                    option.type === 'designated_driver' &&
-                    vehicleType === 'designated_driver' &&
-                    designatedDriverMode === 'moto' &&
-                    !designatedDriverEligibility.motoEligible &&
-                    (designatedDriverEstimates.moto.price ?? 0) > 0;
-                  const priceLabel = formatPriceValue((designatedEstimate ?? estimate)?.price ?? null);
-                  const isSelected = vehicleType === option.type;
-                  const isRecommended = recommendedVehicle === option.type;
-                  const capacity = capacityByVehicle[option.type];
-                  const etaLabel = calculatingRoute
-                    ? tr('labels.calculating')
-                    : estimatedDuration > 0
-                    ? tr('labels.etaValue', { minutes: estimatedDuration })
-                    : tr('labels.etaUnavailable');
-
-                  return (
-                    <TouchableOpacity
-                      key={option.type}
-                      style={[styles.vehicleOptionCard, isSelected && styles.vehicleOptionCardSelected]}
-                      onPress={() => setVehicleType(option.type)}
-                      accessibilityLabel={tr('vehicle.selectOption', { label: option.label })}
-                    >
-                      <View style={styles.vehicleOptionTopRow}>
-                        <View style={styles.vehicleOptionTitleBlock}>
-                          <View style={styles.vehicleOptionTitleRow}>
-                            <View style={styles.vehicleOptionIconBubble}>
-                              <Text style={styles.vehicleEmoji}>{option.emoji}</Text>
-                            </View>
-                            <Text style={[styles.vehicleOptionTitle, isSelected && styles.vehicleOptionTitleSelected]} numberOfLines={1}>
-                              {option.label}
-                            </Text>
-                          </View>
-                          <Text style={[styles.vehicleOptionSubtitle, isSelected && styles.vehicleOptionSubtitleSelected]} numberOfLines={2}>
-                            {option.subtitle}
-                          </Text>
-                        </View>
-                        <View style={styles.vehicleOptionPriceBlock}>
-                          {isRecommended ? (
-                            <Text style={styles.vehicleOptionBadge}>{tr('vehicle.recommendedBadge')}</Text>
-                          ) : null}
-                          <Text style={styles.vehicleOptionPrice}>{priceLabel}</Text>
-                        </View>
-                      </View>
-
-                      <View style={styles.vehicleOptionInfoRow}>
-                        <Text style={[styles.vehicleOptionMeta, isSelected && styles.vehicleOptionMetaSelected]} numberOfLines={1}>
-                          {etaLabel}
-                        </Text>
-                        {isSelected ? (
-                          <View style={styles.vehicleOptionPassengerControls}>
-                            <TouchableOpacity
-                              style={[styles.vehicleOptionCounterBtn, !canDecreasePassengers(option.type) && styles.vehicleOptionCounterBtnDisabled]}
-                              disabled={!canDecreasePassengers(option.type)}
-                              onPress={() => updatePassengers(option.type, -1)}
-                            >
-                              <Text style={styles.vehicleOptionCounterText}>−</Text>
-                            </TouchableOpacity>
-                            <View style={styles.vehicleOptionPassengerCount}>
-                              <Text style={[styles.vehicleOptionPassengerValue, styles.vehicleOptionPassengerValueSelected]}>{getPassengersForVehicle(option.type)}</Text>
-                              <Text style={styles.vehicleOptionPassengerIcon}>👤</Text>
-                            </View>
-                            <TouchableOpacity
-                              style={[styles.vehicleOptionCounterBtn, !canIncreasePassengers(option.type) && styles.vehicleOptionCounterBtnDisabled]}
-                              disabled={!canIncreasePassengers(option.type)}
-                              onPress={() => updatePassengers(option.type, 1)}
-                            >
-                              <Text style={styles.vehicleOptionCounterText}>+</Text>
-                            </TouchableOpacity>
-                          </View>
-                        ) : (
-                          <View style={styles.vehicleOptionPassengerDisplay}>
-                            <Text style={[styles.vehicleOptionPassengerValue, isSelected && styles.vehicleOptionPassengerValueSelected]}>{getPassengersForVehicle(option.type)}</Text>
-                            <Text style={styles.vehicleOptionPassengerIcon}>👤</Text>
-                          </View>
-                        )}
-                      </View>
-                      {option.type === 'designated_driver' && isSelected ? (
-                        <View style={styles.designatedDriverModeContainer}>
-                          <Text style={styles.designatedDriverModeLabel}>{tr('vehicle.modeLabel')}</Text>
-                          <View style={styles.designatedDriverModeChips}>
-                            {(['auto', 'moto'] as DesignatedDriverMode[]).map((mode) => {
-                              const selected = designatedDriverMode === mode;
-                              return (
-                                <TouchableOpacity
-                                  key={mode}
-                                  style={[styles.designatedDriverModeChip, selected && styles.designatedDriverModeChipSelected]}
-                                  onPress={() => setDesignatedDriverMode(mode)}
-                                >
-                                  <Text style={[styles.designatedDriverModeChipText, selected && styles.designatedDriverModeChipTextSelected]}>
-                                    {mode === 'auto' ? tr('vehicle.modeAuto') : tr('vehicle.modeMoto')}
-                                  </Text>
-                                </TouchableOpacity>
-                              );
-                            })}
-                          </View>
-                          {showDesignatedMotoShortDistanceNotice ? (
-                            <Text style={styles.designatedDriverModeInfoText}>
-                              La distancia es muy corta para solicitar este servicio en motocicleta.
-                            </Text>
-                          ) : null}
-                        </View>
-                      ) : null}
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-
-              {recommendedVehicle && vehicleEstimates[recommendedVehicle]?.price ? (
-                <View /*style={styles.vehicleRecommendationStrip}*/>
-                  {/* <Text style={styles.vehicleRecommendationLabel}>{tr('vehicle.recommendationLabel')}</Text> */}
-                  {/* <Text style={styles.vehicleRecommendationValue}> */}
-                    {formatPriceValue(vehicleEstimates[recommendedVehicle]?.price ?? null)}
-                  {/* </Text> */}
-                </View>
-              ) : null}
-
-              {vehicleType === 'designated_driver' && (
-                <View style={styles.photoRow}>
-                  <Text style={styles.photoHint}>{tr('photo.hint')}</Text>
-                  <TouchableOpacity style={styles.photoButton} onPress={handleTakeVehiclePhoto} disabled={uploadingPhoto}>
-                    <Text style={styles.photoButtonText}>
-                      {uploadingPhoto
-                        ? tr('photo.buttonProcessing')
-                        : hasVehiclePhotoSelection
-                        ? tr('photo.buttonChange')
-                        : tr('photo.buttonDefault')}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-            </View>
-
-            <View style={[styles.section, styles.sectionCompact, styles.summarySection]}>
-              <Text style={styles.sectionTitle}>{tr('summary.title')}</Text>
-
-              <View style={[styles.estimateCard, styles.estimateCardElevated]}>
-                {calculatingRoute ? (
-                  <View style={styles.centeredRow}>
-                    <LoadingIcon size={20} color={colors.primary} />
-                    <Text style={styles.estimateText}>{` ${tr('summary.calculatingRoute')}`}</Text>
-                  </View>
-                ) : (
-                  <>
-                    <View style={styles.estimateRow}>
-                      <Text style={styles.estimateLabel}>{tr('summary.distance')}</Text>
-                      <Text style={styles.estimateValue}>{estimatedDistance.toFixed(2)} km</Text>
-                    </View>
-                    <View style={styles.estimateRow}>
-                      <Text style={styles.estimateLabel}>{tr('summary.duration')}</Text>
-                      <Text style={styles.estimateValue}>{estimatedDuration} min</Text>
-                    </View>
-                    <View style={styles.estimateRow}>
-                      <Text style={styles.estimateLabel}>{tr('summary.estimate')}</Text>
-                      <Text style={styles.estimateValue}>C${estimatedPrice.toFixed(2)}</Text>
-                    </View>
-                  </>
-                )}
-              </View>
-
-              <View style={styles.paymentRow}>
-                <TouchableOpacity
-                  style={[styles.paymentChip, paymentMethod === 'cash' && styles.paymentChipSelected]}
-                  onPress={() => setPaymentMethod('cash')}
-                  accessibilityLabel={tr('accessibility.payCash')}
-                >
-                  <Text style={[styles.paymentChipText, paymentMethod === 'cash' && styles.paymentChipTextSelected]}>
-                    {tr('payment.cash')}
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.paymentChip, paymentMethod === 'card' && styles.paymentChipSelected]}
-                  onPress={() => setPaymentMethod('card')}
-                  accessibilityLabel={tr('accessibility.payCard')}
-                >
-                  <Text style={[styles.paymentChipText, paymentMethod === 'card' && styles.paymentChipTextSelected]}>
-                    {tr('payment.card')}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              <View style={styles.priceCommentRow}>
-                <View style={styles.priceCommentColumn}>
-                  <Text style={styles.priceCommentLabel}>{tr('labels.priceSuggestion')}</Text>
-                  <TextInput
-                    keyboardType={Platform.select({
-                      ios: 'numbers-and-punctuation',
-                      android: 'numeric',
-                      default: 'numeric',
-                    })}
-                    placeholder={tr('labels.pricePlaceholder')}
-                    placeholderTextColor={colors.textSecondary || '#999'}
-                    value={priceSuggestion}
-                    onChangeText={setPriceSuggestion}
-                    style={styles.priceCommentInput}
-                  />
-                </View>
-                <View style={styles.priceCommentColumn}>
-                  <Text style={styles.priceCommentLabel}>{tr('labels.comment')}</Text>
-                  <TextInput
-                    placeholder={tr('labels.commentPlaceholder')}
-                    placeholderTextColor={colors.textSecondary || '#999'}
-                    value={rideComment}
-                    onChangeText={setRideComment}
-                    style={styles.priceCommentInput}
-                    maxLength={100}
-                  />
-                </View>
-              </View>
-
-              {/* {priceBreakdown ? (
-                <View style={styles.breakdownBox}>
-                  <Text style={styles.breakdownText}>{formatPriceBreakdown(priceBreakdown)}</Text>
-                </View>
-              ) : null} */}
-
-              <View style={styles.availabilityRow}>
-                {checkingDrivers ? (
-                  <Text style={styles.availabilityText}>{tr('availability.checking')}</Text>
-                ) : driversAvailable === false ? (
-                  <Text style={styles.availabilityWarn}>{tr('availability.low')}</Text>
-                ) : driversAvailable === true ? (
-                  <Text style={styles.availabilityOk}>{tr('availability.ok')}</Text>
-                ) : (
-                  <Text style={styles.availabilityText}>{tr('availability.unknown')}</Text>
-                )}
-              </View>
-            </View>
+            <SearchRideSummary
+              calculatingRoute={calculatingRoute}
+              estimatedDistance={estimatedDistance}
+              estimatedDuration={estimatedDuration}
+              estimatedPrice={estimatedPrice}
+              paymentMethod={paymentMethod}
+              priceSuggestion={priceSuggestion}
+              rideComment={rideComment}
+              checkingDrivers={checkingDrivers}
+              driversAvailable={driversAvailable}
+              colors={colors}
+              onSetPaymentMethod={setPaymentMethod}
+              onSetPriceSuggestion={setPriceSuggestion}
+              onSetRideComment={setRideComment}
+              styles={styles}
+              tr={tr}
+            />
           </ScrollView>
           ) : (
             <View style={styles.collapsedSummary}>
@@ -969,185 +731,44 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
             </View>
           )}
 
-          <View style={styles.ctaContainer}>
-            <TouchableOpacity
-              style={[styles.scheduleCta, submittingRequest && styles.scheduleCtaDisabled]}
-              disabled={submittingRequest}
-              onPress={openScheduleModal}
-            >
-              <Text style={styles.scheduleCtaText}>
-                {scheduledAt
-                  ? tr('scheduling.scheduledLabel', {
-                      date: new Date(scheduledAt).toLocaleString(),
-                    })
-                  : tr('scheduling.openButton')}
-              </Text>
-            </TouchableOpacity>
-            {scheduledAt ? (
-              <TouchableOpacity
-                style={[styles.scheduleClearCta, submittingRequest && styles.scheduleCtaDisabled]}
-                disabled={submittingRequest}
-                onPress={() => setScheduledAt(null)}
-              >
-                <Text style={styles.scheduleClearText}>{tr('scheduling.clearButton')}</Text>
-              </TouchableOpacity>
-            ) : null}
-            <TouchableOpacity
-              style={[styles.cta, (!isRequestReady || submittingRequest) && styles.ctaDisabled]}
-              disabled={!isRequestReady || submittingRequest}
-              onPress={onConfirmRequest}
-            >
-              {submittingRequest ? (
-                <View style={styles.ctaLoadingRow}>
-                  <LoadingIcon size={20} color="#fff" style={{ marginRight: 8 }} />
-                  <Text style={styles.ctaText}>{tr('cta.loading')}</Text>
-                </View>
-              ) : (
-                <Text style={styles.ctaText}>
-                  {scheduledAt ? tr('cta.primaryScheduled') : tr('cta.primary')}
-                </Text>
-              )}
-            </TouchableOpacity>
-          </View>
+          <SearchRideCTA
+            scheduledAt={scheduledAt}
+            submittingRequest={submittingRequest}
+            isRequestReady={isRequestReady}
+            onOpenScheduleModal={openScheduleModal}
+            onClearSchedule={() => setScheduledAt(null)}
+            onConfirmRequest={onConfirmRequest}
+            styles={styles}
+            tr={tr}
+          />
         </KeyboardAvoidingView>
       </Animated.View>
 
       {showSearchOverlay && (
-        <View style={styles.searchOverlay}>
-          <View style={styles.searchCard}>
-            <View style={styles.searchHeader}>
-              <View style={styles.searchHeaderTextBlock}>
-                <Text style={styles.searchTitle}>{selectionTitle}</Text>
-                <Text style={styles.searchDescription}>{selectionDescription}</Text>
-              </View>
-              <TouchableOpacity onPress={closeSearchOverlay} style={styles.searchCloseButton}>
-                <Text style={styles.searchCloseText}>{tr('search.close')}</Text>
-              </TouchableOpacity>
-            </View>
-
-            {isDestinationSelection ? (
-              <View style={styles.destinationGuidanceCard}>
-                <Text style={styles.destinationGuidanceTitle}>{tr('search.destinationGuidanceTitle')}</Text>
-                <Text style={styles.destinationGuidanceText}>{tr('search.destinationGuidanceBody')}</Text>
-                <View style={styles.destinationGuidanceSteps}>
-                  <View style={styles.destinationGuidanceStepPill}>
-                    <Text style={styles.destinationGuidanceStepText}>{tr('search.destinationGuidanceStep1')}</Text>
-                  </View>
-                  <View style={styles.destinationGuidanceStepPill}>
-                    <Text style={styles.destinationGuidanceStepText}>{tr('search.destinationGuidanceStep2')}</Text>
-                  </View>
-                </View>
-                {hasConfirmedDestination ? (
-                  <View style={styles.destinationConfirmedPill}>
-                    <Text style={styles.destinationConfirmedText}>{tr('search.destinationConfirmed')}</Text>
-                  </View>
-                ) : null}
-              </View>
-            ) : null}
-
-            <View style={styles.searchInputWrapper}>
-              <Text style={styles.searchInputLabel}>{tr('search.inputLabel')}</Text>
-              {isDestinationSelection ? (
-                <Text style={styles.searchInputHelper}>{tr('search.placeholderDestinationReference')}</Text>
-              ) : null}
-              <View style={styles.searchInputContainer}>
-                <TextInput
-                  style={styles.searchInput}
-                  placeholder={(() => {
-                    if (activeSelection === 'origin') return tr('search.placeholderOrigin');
-                    if (activeSelection === 'destination') return tr('search.placeholderDestinationReference');
-                    if (activeSelection === 'new-stop' || typeof activeSelection === 'number') {
-                      return tr('search.placeholderStop');
-                    }
-                    return tr('search.placeholderGeneric');
-                  })()}
-                  placeholderTextColor={colors.textSecondary || '#999'}
-                  value={searchQuery}
-                  onChangeText={(text) => {
-                    setSearchQuery(text);
-                    setSearchError(null);
-                  }}
-                  autoFocus
-                  returnKeyType="search"
-                />
-              </View>
-            </View>
-
-            <View style={styles.searchActionsRow}>
-              <TouchableOpacity
-                style={[styles.searchActionChip, !shouldHighlightMapAction && styles.searchActionPrimary]}
-                onPress={handleUseCurrentLocation}
-              >
-                <Text style={[styles.searchActionText, !shouldHighlightMapAction && styles.searchActionTextPrimary]}>
-                  {tr('search.useCurrentLocation')}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.searchActionChip, shouldHighlightMapAction && styles.searchActionPrimary]} onPress={handlePickFromMap}>
-                <Text style={[styles.searchActionText, shouldHighlightMapAction && styles.searchActionTextPrimary]}>{tr('search.pickOnMap')}</Text>
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView style={styles.searchScroll} keyboardShouldPersistTaps="handled">
-              {favoriteLocations.length > 0 && (
-                <View style={styles.savedSection}>
-                  <Text style={styles.savedSectionTitle}>{tr('labels.favorites')}</Text>
-                  {favoriteLocations.map((location, index) => (
-                    <TouchableOpacity
-                      key={`fav-${index}`}
-                      style={styles.savedItem}
-                      onPress={() => handleSelectSavedLocation(location)}
-                    >
-                      <Text style={styles.savedItemLabel}>{location.label}</Text>
-                      <Text style={styles.savedItemCoords}>{formatCoords(location.coords)}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
-
-              {recentLocations.length > 0 && (
-                <View style={styles.savedSection}>
-                  <Text style={styles.savedSectionTitle}>{tr('labels.recent')}</Text>
-                  {recentLocations.map((location, index) => (
-                    <TouchableOpacity
-                      key={`recent-${index}`}
-                      style={styles.savedItem}
-                      onPress={() => handleSelectSavedLocation(location)}
-                    >
-                      <Text style={styles.savedItemLabel}>{location.label}</Text>
-                      <Text style={styles.savedItemCoords}>{formatCoords(location.coords)}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
-
-              <View style={styles.searchResultsSection}>
-                {searchLoading && (
-                  <View style={styles.searchLoadingRow}>
-                    <LoadingIcon size={20} color={colors.primary || '#2196F3'} />
-                    <Text style={styles.searchLoadingText}>{tr('search.loading')}</Text>
-                  </View>
-                )}
-
-                {!searchLoading && searchError ? (
-                  <Text style={styles.searchErrorText}>{searchError}</Text>
-                ) : null}
-
-                {searchResults.map((suggestion, index) => (
-                  <TouchableOpacity
-                    key={`result-${index}`}
-                    style={styles.searchResultItem}
-                    onPress={() => handleSelectSuggestion(suggestion)}
-                  >
-                    <Text style={styles.searchResultMain}>{suggestion.mainText}</Text>
-                    {suggestion.secondaryText ? (
-                      <Text style={styles.searchResultSecondary}>{suggestion.secondaryText}</Text>
-                    ) : null}
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </ScrollView>
-          </View>
-        </View>
+        <SearchRideSearchOverlay
+          selectionTitle={selectionTitle}
+          selectionDescription={selectionDescription}
+          isDestinationSelection={isDestinationSelection}
+          shouldHighlightMapAction={shouldHighlightMapAction}
+          hasConfirmedDestination={hasConfirmedDestination}
+          searchQuery={searchQuery}
+          searchLoading={searchLoading}
+          searchError={searchError}
+          searchResults={searchResults}
+          favoriteLocations={favoriteLocations}
+          recentLocations={recentLocations}
+          activeSelection={activeSelection}
+          colors={colors}
+          onSetSearchQuery={setSearchQuery}
+          onSetSearchError={setSearchError}
+          onClose={closeSearchOverlay}
+          onUseCurrentLocation={handleUseCurrentLocation}
+          onPickFromMap={handlePickFromMap}
+          onSelectSuggestion={handleSelectSuggestion}
+          onSelectSavedLocation={handleSelectSavedLocation}
+          styles={styles}
+          tr={tr}
+        />
       )}
 
       {submittingRequest && (
@@ -1159,74 +780,24 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         </View>
       )}
 
-      <Modal
+      <SearchRideScheduleModal
         visible={scheduleModalVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setScheduleModalVisible(false)}
-      >
-        <View style={styles.scheduleOverlay}>
-          <View style={[styles.scheduleCard, { backgroundColor: isDark ? '#1f1f1f' : colors.card }]}>
-            <Text style={[styles.scheduleTitle, { color: colors.text }]}>{tr('scheduling.modalTitle')}</Text>
-
-            <Text style={[styles.scheduleLabel, { color: colors.text }]}>{tr('scheduling.dateLabel')}</Text>
-            <View style={[styles.pickerBox, { borderColor: colors.border || (isDark ? '#444' : '#ddd') }]}>
-              <Picker selectedValue={scheduleDayIndex} onValueChange={(value) => setScheduleDayIndex(Number(value))}>
-                {scheduleDayOptions.map((opt, idx) => (
-                  <Picker.Item key={`day-${idx}`} label={opt.label} value={idx} />
-                ))}
-              </Picker>
-            </View>
-
-            <Text style={[styles.scheduleLabel, { color: colors.text }]}>{tr('scheduling.timeLabel')}</Text>
-            <View style={styles.timeRow}>
-              <View
-                style={[
-                  styles.pickerBox,
-                  styles.timePicker,
-                  { borderColor: colors.border || (isDark ? '#444' : '#ddd') },
-                ]}
-              >
-                <Picker selectedValue={scheduleHour} onValueChange={(value) => setScheduleHour(Number(value))}>
-                  {scheduleHourOptions.map((h) => (
-                    <Picker.Item key={`hour-${h}`} label={String(h).padStart(2, '0')} value={h} />
-                  ))}
-                </Picker>
-              </View>
-              <Text style={[styles.timeSeparator, { color: colors.text }]}>:</Text>
-              <View
-                style={[
-                  styles.pickerBox,
-                  styles.timePicker,
-                  { borderColor: colors.border || (isDark ? '#444' : '#ddd') },
-                ]}
-              >
-                <Picker selectedValue={scheduleMinute} onValueChange={(value) => setScheduleMinute(Number(value))}>
-                  {scheduleMinuteOptionsForHour.map((m) => (
-                    <Picker.Item key={`min-${m}`} label={String(m).padStart(2, '0')} value={m} />
-                  ))}
-                </Picker>
-              </View>
-            </View>
-
-            <View style={styles.scheduleButtonsRow}>
-              <TouchableOpacity
-                style={[
-                  styles.scheduleButton,
-                  styles.scheduleCancelButton,
-                  { borderColor: colors.border || (isDark ? '#444' : '#ddd') },
-                ]}
-                onPress={() => setScheduleModalVisible(false)}
-              >
-                <Text style={[styles.scheduleButtonText, { color: colors.text }]}>{tr('scheduling.modalCancel')}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.scheduleButton, { backgroundColor: '#b38737' }]} onPress={applyScheduleSelection}>
-                <Text style={styles.scheduleButtonTextPrimary}>{tr('scheduling.modalConfirm')}</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+        isDark={isDark}
+        colors={colors}
+        scheduleDayIndex={scheduleDayIndex}
+        scheduleDayOptions={scheduleDayOptions}
+        scheduleHour={scheduleHour}
+        scheduleHourOptions={scheduleHourOptions}
+        scheduleMinute={scheduleMinute}
+        scheduleMinuteOptionsForHour={scheduleMinuteOptionsForHour}
+        onSetScheduleDayIndex={setScheduleDayIndex}
+        onSetScheduleHour={setScheduleHour}
+        onSetScheduleMinute={setScheduleMinute}
+        onClose={() => setScheduleModalVisible(false)}
+        onConfirm={applyScheduleSelection}
+        styles={styles}
+        tr={tr}
+      />
     </View>
   );
 }

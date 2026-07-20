@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
-import { useAuth } from '../../../context/AuthContext';
+import { useAuth } from '../../shared/auth/useAuth';
 import backgroundLocationService, { checkBackgroundLocationPermission } from '../../../services/backgroundLocationService';
 import { ensureActivityRecognitionPermission } from '../../../utils/activityPermission';
 import { isRegistrationUploadsInProgress, subscribeRegistrationUploadsInProgress } from '../../../services/proximityService';

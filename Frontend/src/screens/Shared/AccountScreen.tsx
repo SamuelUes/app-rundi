@@ -13,8 +13,8 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ExpoImagePicker from 'expo-image-picker';
-import { useTheme } from '../../context/ThemeContext';
-import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
+import { useAuth } from '../../hooks/shared/auth/useAuth';
 import backendConfig from '../../config/backendConfig';
 import alertService from '../../services/alertService';
 import accountLinkingService from '../../services/auth/accountLinkingService';
@@ -29,6 +29,9 @@ import {
   extractLocalNumber,
 } from '../../utils/phoneUtils';
 import { useTranslation } from 'react-i18next';
+import { AccountProfileSection } from '../../components/shared/Account/AccountProfileSection';
+import { AccountAddPasswordCard } from '../../components/shared/Account/AccountAddPasswordCard';
+import { AccountLinkEmailCard } from '../../components/shared/Account/AccountLinkEmailCard';
 
 const formatBirthDateInput = (value: string): string => {
   const digits = (value || '').replace(/\D/g, '').slice(0, 8);
@@ -863,194 +866,63 @@ export default function AccountScreen({ navigation }: any) {
           <Text style={styles.headerTitle}>{t('shared.account.header.title')}</Text>
         </View>
 
-        <View style={styles.profileEditSection}>
-          <View style={styles.avatarWrapper}>
-            <View style={styles.avatarCircle}>
-              {profilePhoto ? (
-                <Image source={{ uri: profilePhoto }} style={styles.avatarImage} />
-              ) : (
-                <Text style={styles.avatarInitial}>
-                  {(profileName || user?.name || '?').charAt(0).toUpperCase()}
-                </Text>
-              )}
-            </View>
-            <TouchableOpacity
-              style={styles.avatarEditButton}
-              disabled={uploadingPhoto}
-              onPress={handlePickProfilePhoto}
-            >
-              {uploadingPhoto ? (
-                <LoadingIcon size={20} color="#fff" />
-              ) : (
-                <MaterialIcons name="edit" size={20} color="#fff" />
-              )}
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.profileFormCard}>
-            <Text style={styles.profileCardTitle}>{t('shared.account.profile.avatarTitle')}</Text>
-            <TextInput
-              style={styles.input}
-              placeholder={t('shared.account.profile.namePlaceholder')}
-              placeholderTextColor={colors.textSecondary}
-              value={profileName}
-              onChangeText={setProfileName}
-            />
-            <TextInput
-              style={styles.input}
-              placeholder={t('shared.account.profile.birthPlaceholder')}
-              placeholderTextColor={colors.textSecondary}
-              value={birthDate}
-              onChangeText={(text) => setBirthDate(formatBirthDateInput(text))}
-              keyboardType="numeric"
-              maxLength={10}
-            />
-            <TextInput
-              style={styles.input}
-              placeholder={t('shared.account.profile.emailPlaceholder')}
-              placeholderTextColor={colors.textSecondary}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              value={profileEmail}
-              onChangeText={setProfileEmail}
-            />
-            <TouchableOpacity
-              style={[styles.input, styles.phoneButton]}
-              onPress={() => setPhoneModalVisible(true)}
-              disabled={phoneUpdating}
-            >
-              <Text
-                style={profilePhone ? styles.phoneValue : styles.phonePlaceholder}
-                numberOfLines={1}
-              >
-                {profilePhone ? displayPhone : t('shared.account.profile.phonePlaceholder')}
-              </Text>
-            </TouchableOpacity>
-
-            {isFirebaseBackend && (
-              <View style={styles.accountSummarySection}>
-                <Text style={styles.infoLabel}>{t('shared.account.providers.title')}</Text>
-                {profileLoading || providersState.loading ? (
-                  <LoadingIcon size={20} color={colors.primary} />
-                ) : (
-                  <Text style={styles.infoText}>
-                    {buildProviderSummary(
-                      providersState.values,
-                      providerLabels,
-                      t('shared.account.providers.none'),
-                    )}
-                  </Text>
-                )}
-
-                {!!accountError && (
-                  <Text style={[styles.helperText, { color: colors.error }]}>{accountError}</Text>
-                )}
-
-                {!providersState.loading && providersState.values.length > 0 && (
-                  <View style={styles.badgeRow}>
-                    {providersState.values.map((provider) => (
-                      <View key={provider} style={styles.badge}>
-                        <Text style={styles.badgeText}>{providerLabels[provider] || provider}</Text>
-                      </View>
-                    ))}
-                  </View>
-                )}
-              </View>
-            )}
-
-            <TouchableOpacity
-              style={[styles.button, savingProfile && styles.buttonDisabled]}
-              disabled={savingProfile}
-              onPress={handleSaveProfile}
-            >
-              {savingProfile ? (
-                <LoadingIcon size={20} color="#fff" />
-              ) : (
-                <Text style={styles.buttonText}>{t('shared.account.profile.saveButton')}</Text>
-              )}
-            </TouchableOpacity>
-          </View>
-        </View>
+        <AccountProfileSection
+          profilePhoto={profilePhoto}
+          profileName={profileName}
+          birthDate={birthDate}
+          profileEmail={profileEmail}
+          profilePhone={profilePhone}
+          displayPhone={displayPhone}
+          uploadingPhoto={uploadingPhoto}
+          savingProfile={savingProfile}
+          isFirebaseBackend={isFirebaseBackend}
+          profileLoading={profileLoading}
+          providersLoading={providersState.loading}
+          providersValues={providersState.values}
+          providerLabels={providerLabels}
+          accountError={accountError}
+          userName={user?.name || ''}
+          colors={colors}
+          onPickProfilePhoto={handlePickProfilePhoto}
+          onSetProfileName={setProfileName}
+          onSetBirthDate={setBirthDate}
+          onSetProfileEmail={setProfileEmail}
+          onOpenPhoneModal={() => setPhoneModalVisible(true)}
+          onSaveProfile={handleSaveProfile}
+          formatBirthDateInput={formatBirthDateInput}
+          buildProviderSummary={buildProviderSummary}
+          styles={styles}
+          t={t}
+        />
 
         {hasGoogleProvider && !hasEmailPasswordProvider && (
-          <View style={styles.accountCard}>
-            <Text style={styles.accountTitle}>{t('shared.account.cards.addPassword.title')}</Text>
-            <Text style={styles.accountDescription}>
-              {t('shared.account.cards.addPassword.description')}
-            </Text>
-            <TextInput
-              style={styles.input}
-              placeholder={t('shared.account.cards.addPassword.newPlaceholder')}
-              placeholderTextColor={colors.textSecondary}
-              secureTextEntry
-              value={passwordForm.password}
-              onChangeText={(text) => setPasswordForm((prev) => ({ ...prev, password: text }))}
-            />
-            <TextInput
-              style={styles.input}
-              placeholder={t('shared.account.cards.addPassword.confirmPlaceholder')}
-              placeholderTextColor={colors.textSecondary}
-              secureTextEntry
-              value={passwordForm.confirmPassword}
-              onChangeText={(text) => setPasswordForm((prev) => ({ ...prev, confirmPassword: text }))}
-            />
-            <TouchableOpacity
-              style={[styles.button, passwordForm.submitting && styles.buttonDisabled]}
-              disabled={passwordForm.submitting}
-              onPress={handleCreatePasswordForGoogle}
-            >
-              {passwordForm.submitting ? (
-                <LoadingIcon size={20} color="#fff" />
-              ) : (
-                <Text style={styles.buttonText}>{t('shared.account.cards.addPassword.button')}</Text>
-              )}
-            </TouchableOpacity>
-          </View>
+          <AccountAddPasswordCard
+            password={passwordForm.password}
+            confirmPassword={passwordForm.confirmPassword}
+            submitting={passwordForm.submitting}
+            colors={colors}
+            onSetPassword={(text) => setPasswordForm((prev) => ({ ...prev, password: text }))}
+            onSetConfirmPassword={(text) => setPasswordForm((prev) => ({ ...prev, confirmPassword: text }))}
+            onSubmit={handleCreatePasswordForGoogle}
+            styles={styles}
+            t={t}
+          />
         )}
 
         {hasPhoneProvider && !hasEmailPasswordProvider && (
-          <View style={styles.accountCard}>
-            <Text style={styles.accountTitle}>{t('shared.account.cards.linkEmail.title')}</Text>
-            <Text style={styles.accountDescription}>
-              {t('shared.account.cards.linkEmail.description')}
-            </Text>
-            <TextInput
-              style={styles.input}
-              placeholder={t('shared.account.cards.linkEmail.emailPlaceholder')}
-              placeholderTextColor={colors.textSecondary}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              value={emailForm.email}
-              onChangeText={(text) => setEmailForm((prev) => ({ ...prev, email: text }))}
-            />
-            <TextInput
-              style={styles.input}
-              placeholder={t('shared.account.cards.linkEmail.passwordPlaceholder')}
-              placeholderTextColor={colors.textSecondary}
-              secureTextEntry
-              value={emailForm.password}
-              onChangeText={(text) => setEmailForm((prev) => ({ ...prev, password: text }))}
-            />
-            <TextInput
-              style={styles.input}
-              placeholder={t('shared.account.cards.linkEmail.confirmPlaceholder')}
-              placeholderTextColor={colors.textSecondary}
-              secureTextEntry
-              value={emailForm.confirmPassword}
-              onChangeText={(text) => setEmailForm((prev) => ({ ...prev, confirmPassword: text }))}
-            />
-            <TouchableOpacity
-              style={[styles.button, emailForm.submitting && styles.buttonDisabled]}
-              disabled={emailForm.submitting}
-              onPress={handleLinkEmailForPhoneAccount}
-            >
-              {emailForm.submitting ? (
-                <LoadingIcon size={20} color="#fff" />
-              ) : (
-                <Text style={styles.buttonText}>{t('shared.account.cards.linkEmail.button')}</Text>
-              )}
-            </TouchableOpacity>
-          </View>
+          <AccountLinkEmailCard
+            email={emailForm.email}
+            password={emailForm.password}
+            confirmPassword={emailForm.confirmPassword}
+            submitting={emailForm.submitting}
+            colors={colors}
+            onSetEmail={(text) => setEmailForm((prev) => ({ ...prev, email: text }))}
+            onSetPassword={(text) => setEmailForm((prev) => ({ ...prev, password: text }))}
+            onSetConfirmPassword={(text) => setEmailForm((prev) => ({ ...prev, confirmPassword: text }))}
+            onSubmit={handleLinkEmailForPhoneAccount}
+            styles={styles}
+            t={t}
+          />
         )}
 
         <PhoneNumberModal

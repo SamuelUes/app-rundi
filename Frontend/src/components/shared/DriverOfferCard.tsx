@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image, Modal, Alert } from 'react-native';
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme } from '../../hooks/shared/theme/useTheme';
 import BiometricService from '../../services/biometricService';
 import { supabase } from '../../config/supabase';
 import { ref, update } from 'firebase/database';

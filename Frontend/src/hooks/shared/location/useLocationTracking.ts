@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import * as Location from 'expo-location';
-import { useAuth } from '../../../context/AuthContext';
+import { useAuth } from '../auth/useAuth';
 import { ensureActivityRecognitionPermission } from '../../../utils/activityPermission';
 import { persistLastKnownLocation } from './useForegroundLocation';
 import type { Coordinates } from './useLocation';
