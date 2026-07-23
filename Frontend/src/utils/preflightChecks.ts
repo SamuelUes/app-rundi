@@ -351,7 +351,7 @@ export async function checkDriverBiometricAccess(
   role: PreflightRole,
   t: (key: string, opts?: any) => string,
   onPhaseChange?: (payload: {
-    phase: 'scanning' | 'pin_fallback' | 'success' | 'failed';
+    phase: 'scanning' | 'pin_fallback' | 'apple_signin' | 'success' | 'failed';
     attempt: number;
     maxAttempts: number;
   }) => void,
@@ -360,6 +360,9 @@ export async function checkDriverBiometricAccess(
   if (!userType || !user?.id) {
     return { success: true };
   }
+
+  const isIOS = Platform.OS === 'ios';
+  const appleSignInAvailable = isIOS ? await BiometricService.isAppleSignInAvailable() : false;
 
   let lastErrorMessage = '';
 
@@ -414,6 +417,46 @@ export async function checkDriverBiometricAccess(
     });
 
     if (result.errorCode === 'NOT_SUPPORTED' || result.errorCode === 'NOT_ENROLLED') {
+      if (appleSignInAvailable) {
+        onPhaseChange?.({
+          phase: 'apple_signin',
+          attempt,
+          maxAttempts: DRIVER_BIOMETRIC_MAX_ATTEMPTS,
+        });
+
+        const appleResult = await BiometricService.authenticateWithApple();
+        const appleSuccess = appleResult.success === true;
+        const appleError = appleResult.error || t('shared.preflight.biometric.error');
+
+        await BiometricService.logAuthenticationAttempt({
+          biometricType: 'apple_signin',
+          context: DRIVER_BIOMETRIC_CONTEXT,
+          userType,
+          success: appleSuccess,
+          attemptNumber: attempt,
+          errorMessage: appleSuccess ? undefined : appleError,
+        });
+
+        if (appleSuccess) {
+          onPhaseChange?.({
+            phase: 'success',
+            attempt,
+            maxAttempts: DRIVER_BIOMETRIC_MAX_ATTEMPTS,
+          });
+          recentDriverBiometricAuthByUserId.set(user.id, Date.now());
+          return { success: true };
+        }
+
+        lastErrorMessage = appleError;
+
+        if (appleResult.errorCode === 'AUTH_FAILED') {
+          if (attempt < DRIVER_BIOMETRIC_MAX_ATTEMPTS) {
+            await new Promise((resolve) => setTimeout(resolve, 450));
+            continue;
+          }
+        }
+      }
+
       return {
         success: false,
         message: t('shared.preflight.biometric.deviceSecurityRequired'),
@@ -425,8 +468,41 @@ export async function checkDriverBiometricAccess(
     }
   }
 
+  if (appleSignInAvailable) {
+    onPhaseChange?.({
+      phase: 'apple_signin',
+      attempt: DRIVER_BIOMETRIC_MAX_ATTEMPTS,
+      maxAttempts: DRIVER_BIOMETRIC_MAX_ATTEMPTS,
+    });
+
+    const appleResult = await BiometricService.authenticateWithApple();
+    const appleSuccess = appleResult.success === true;
+    const appleError = appleResult.error || t('shared.preflight.biometric.error');
+
+    await BiometricService.logAuthenticationAttempt({
+      biometricType: 'apple_signin',
+      context: DRIVER_BIOMETRIC_CONTEXT,
+      userType,
+      success: appleSuccess,
+      attemptNumber: DRIVER_BIOMETRIC_MAX_ATTEMPTS,
+      errorMessage: appleSuccess ? undefined : appleError,
+    });
+
+    if (appleSuccess) {
+      onPhaseChange?.({
+        phase: 'success',
+        attempt: DRIVER_BIOMETRIC_MAX_ATTEMPTS,
+        maxAttempts: DRIVER_BIOMETRIC_MAX_ATTEMPTS,
+      });
+      recentDriverBiometricAuthByUserId.set(user.id, Date.now());
+      return { success: true };
+    }
+
+    lastErrorMessage = appleError;
+  }
+
   return {
     success: false,
-    message: t('shared.preflight.biometric.maxAttempts', { max: DRIVER_BIOMETRIC_MAX_ATTEMPTS }),
+    message: lastErrorMessage || t('shared.preflight.biometric.maxAttempts', { max: DRIVER_BIOMETRIC_MAX_ATTEMPTS }),
   };
 }

@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { getFirebaseFunctions } from '../config/firebase';
 import { httpsCallable } from 'firebase/functions';
@@ -19,6 +20,17 @@ interface BiometricResult {
 }
 
 type BiometricUserType = 'client' | 'driver' | 'designated_driver';
+
+type AppleSignInResult = {
+  success: boolean;
+  identityToken?: string | null;
+  authorizationCode?: string | null;
+  nonce?: string;
+  user?: string;
+  fullName?: { givenName?: string | null; familyName?: string | null } | null;
+  realUserStatus?: number;
+  email?: string | null;
+};
 
 class BiometricService {
   private static t(key: string, fallback: string): string {
@@ -163,6 +175,81 @@ class BiometricService {
     errorMessage?: string;
   }): Promise<void> {
     await this.logBiometricVerification(payload);
+  }
+
+  static async isAppleSignInAvailable(): Promise<boolean> {
+    if (Platform.OS !== 'ios') {
+      return false;
+    }
+    try {
+      const AppleAuthentication = await import('expo-apple-authentication');
+      return AppleAuthentication.isAvailableAsync();
+    } catch (error) {
+      console.warn('[BiometricService] expo-apple-authentication no disponible:', error);
+      return false;
+    }
+  }
+
+  static async authenticateWithApple(): Promise<BiometricResult & AppleSignInResult> {
+    try {
+      const AppleAuthentication = await import('expo-apple-authentication');
+
+      const available = await AppleAuthentication.isAvailableAsync();
+      if (!available) {
+        return {
+          success: false,
+          error: this.t('services.biometricService.errors.appleNotAvailable', 'Sign in with Apple is not available on this device.'),
+          errorCode: 'NOT_SUPPORTED',
+        };
+      }
+
+      const nonce = Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 10);
+
+      const credential = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+        state: nonce,
+      });
+
+      if (credential.identityToken) {
+        console.log('✅ Autenticación con Apple exitosa');
+        return {
+          success: true,
+          biometryType: 'apple_signin',
+          verifiedAt: new Date().toISOString(),
+          usedPinFallback: false,
+          identityToken: credential.identityToken,
+          authorizationCode: credential.authorizationCode,
+          nonce,
+          user: credential.user,
+          fullName: credential.fullName,
+          realUserStatus: credential.realUserStatus,
+          email: credential.email,
+        };
+      }
+
+      return {
+        success: false,
+        error: this.t('services.biometricService.errors.appleNoToken', 'Apple Sign-In did not return an identity token.'),
+        errorCode: 'AUTH_FAILED',
+      };
+    } catch (error: any) {
+      if (error?.code === 'ERR_CANCELED' || error?.code === 'ERR_REQUEST_CANCELED') {
+        return {
+          success: false,
+          error: this.t('services.biometricService.errors.appleCanceled', 'Apple Sign-In was canceled.'),
+          errorCode: 'AUTH_FAILED',
+        };
+      }
+      console.error('❌ Error en autenticación con Apple:', error);
+      return {
+        success: false,
+        error: error?.message || this.t('services.biometricService.errors.unknown', 'Unknown error.'),
+        errorCode: 'UNKNOWN',
+      };
+    }
   }
 
   static async authenticateWithPinFallback(

@@ -1,10 +1,10 @@
 import React from 'react';
 import { Modal, StyleSheet, Text, View } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
+import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LoadingIcon } from '../ui/LoadingIcon';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 
-type PreflightBiometricPhase = 'scanning' | 'pin_fallback' | 'success' | 'failed';
+type PreflightBiometricPhase = 'scanning' | 'pin_fallback' | 'apple_signin' | 'success' | 'failed';
 
 type PreflightBiometricPromptProps = {
   visible: boolean;
@@ -31,6 +31,8 @@ const PreflightBiometricPrompt = ({
             <MaterialIcons name="check-circle" size={48} color="#4CAF50" style={styles.icon} />
           ) : phase === 'failed' ? (
             <MaterialIcons name="warning" size={48} color="#FF9800" style={styles.icon} />
+          ) : phase === 'apple_signin' ? (
+            <MaterialCommunityIcons name="apple" size={48} color={colors.text} style={styles.icon} />
           ) : (
             <LoadingIcon icon="fingerprint" size={40} color={colors.primary} animation="pulse" style={styles.spinner} />
           )}

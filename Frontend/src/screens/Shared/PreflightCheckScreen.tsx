@@ -102,7 +102,7 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
   );
   const [savingTerms, setSavingTerms] = useState(false);
   const [biometricPromptVisible, setBiometricPromptVisible] = useState(false);
-  const [biometricPromptPhase, setBiometricPromptPhase] = useState<'scanning' | 'pin_fallback' | 'success' | 'failed'>('scanning');
+  const [biometricPromptPhase, setBiometricPromptPhase] = useState<'scanning' | 'pin_fallback' | 'apple_signin' | 'success' | 'failed'>('scanning');
   const [biometricPromptAttempt, setBiometricPromptAttempt] = useState(1);
   const [biometricPromptMaxAttempts, setBiometricPromptMaxAttempts] = useState(DRIVER_BIOMETRIC_MAX_ATTEMPTS);
   
@@ -734,7 +734,9 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
         visible={biometricPromptVisible}
         title={t('shared.preflight.biometric.modal.title')}
         subtitle={
-          biometricPromptPhase === 'pin_fallback'
+          biometricPromptPhase === 'apple_signin'
+            ? t('shared.preflight.biometric.modal.appleSignIn')
+            : biometricPromptPhase === 'pin_fallback'
             ? t('shared.preflight.biometric.modal.pinFallback')
             : biometricPromptPhase === 'success'
             ? t('shared.preflight.biometric.modal.success')
