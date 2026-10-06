@@ -7,12 +7,13 @@ Agregar un comando opt-in para levantar la base de datos y Storage de Supabase l
 ## Contexto confirmado
 
 - `Frontend/package.json` tiene `start:dev`, que cambia `Frontend/.env` a `.env.development` y arranca Expo. Se debe conservar sin cambios de comportamiento.
-- `Frontend/src/config/backendConfig.ts` soporta los modos Firebase y NestJS local; `USE_FIREBASE_EMULATORS` activa los emuladores.
+- `Frontend/src/config/backendConfig.ts` soporta los modos Firebase y NestJS local; `USE_FIREBASE_EMULATORS` activa los emuladores. El cliente Axios y `useCalls` también construyen URLs HTTP directas desde `API_BASE_URL_FIREBASE`/`PLATFORM_API_BASE_URL`; conectar los SDKs a los emuladores no redirige esas peticiones automáticamente.
 - `Frontend/src/config/firebase.ts` conecta Firebase Auth/Firestore/Realtime Database/Functions a puertos que actualmente no coinciden con `firebase.json` para Firestore y RTDB.
 - `Frontend/src/config/supabase.ts` crea el cliente usando variables de entorno y `Frontend/src/services/supabaseStorage.ts` obtiene un JWT con la callable Firebase `getSupabaseJwt` antes de cargar archivos.
 - `functions/src/api/auth.ts` acepta `SUPABASE_JWT_SECRET` para firmar ese JWT. Las Functions también usan variables de configuración de Supabase, por lo que su entorno local debe apuntar al stack local.
 - `supabase/README.md` describe un `config.toml` y una migración inicial, pero esos archivos no existen en el árbol inspeccionado. Hay un SQL de referencia en `database/supabase-only.sql`; se debe auditar antes de usarlo como migración, sin sobrescribirlo.
 - Docker ya tiene las imágenes `supabase/storage-api` y `supabase/postgres` descargadas, según la captura proporcionada. El CLI puede requerir descargar otras imágenes para los servicios de Supabase.
+- La CLI Firebase instalada es `15.24.0`; Firebase Emulator Suite requiere Java 21 o superior, mientras que la versión activa local es Java 17. El comando debe detectarlo y explicar el requisito sin cambiar el JDK global.
 
 ## Diseño
 
@@ -20,7 +21,7 @@ Agregar un comando opt-in para levantar la base de datos y Storage de Supabase l
 
 Agregar `npm run start:local` a `Frontend/package.json` y un script coordinador local en el repositorio. Desde una sola invocación, el coordinador:
 
-1. Verifica que Docker y la CLI Supabase estén disponibles y que Docker esté iniciado; si falta un requisito, explica cómo instalarlo, sin modificar configuración del sistema automáticamente.
+1. Verifica Docker (instalado e iniciado), las CLI de Supabase/Firebase y Java 21+; si falta un requisito o Java está por debajo de 21, explica cómo resolverlo sin modificar configuración del sistema automáticamente.
 2. Arranca el proyecto Supabase local con el CLI. Postgres y Storage serán locales; Studio quedará disponible en la URL que informe el CLI.
 3. Aplica la migración local versionada y la configuración de Storage necesaria para los buckets que consume el Frontend, preservando RLS/policies existentes.
 4. Inicia Firebase Emulator Suite con los emuladores necesarios para Auth, Firestore, Realtime Database y Functions, usando puertos consistentes con `firebase.json`.
@@ -32,11 +33,12 @@ El comando será explícitamente local y opt-in; `start`, `start:dev`, `start:pr
 ### 2. Configuración aislada por entorno
 
 - Añadir los archivos de configuración local necesarios para Supabase CLI y Firebase Emulator.
-- Añadir una plantilla de variables locales sin credenciales reales. Los valores generados por Supabase (URL, anon key, service-role key y JWT secret) se obtendrán del CLI y se mantendrán fuera del control de versiones.
-- Expo usará la URL local de Supabase y la anon key local. Firebase SDK usará `USE_FIREBASE_EMULATORS=true` y host loopback de la máquina, adecuado para simuladores de iOS/Android en esa misma máquina.
+- La configuración local compartida (Supabase CLI y runner) no contendrá credenciales de producción. Los valores generados por Supabase (URL, anon key, service-role key y JWT secret) se obtendrán del CLI y se inyectarán solo en los procesos locales correspondientes, sin guardarlos en el bundle del Frontend ni en archivos versionados.
+- Expo usará la URL local de Supabase y la anon key local. Para los simuladores iOS usará loopback; en el emulador estándar de Android resolverá loopback al host especial `10.0.2.2`. Firebase SDK usará `USE_FIREBASE_EMULATORS=true` y la misma resolución de host por plataforma.
 - El proceso de Firebase Functions Emulator usará la URL local de Supabase y un service-role key/JWT secret locales. Nunca se pasarán claves privilegiadas al bundle del Frontend.
 - La función `getSupabaseJwt` se ejecutará desde Firebase Emulator y firmará JWTs aceptados por el Supabase local. Las peticiones de la app no llamarán a Cloud Functions desplegadas.
 - Ajustar los puertos de conexión del Frontend para coincidir con `firebase.json`; no cambiar los puertos existentes de `firebase.json` salvo que haya una razón técnica verificada.
+- Redirigir también las llamadas HTTP directas (cliente Axios y endpoints de `useCalls`) al URL de Functions Emulator `http://<host>:5001/rundi-dev/us-central1`; el emulador usará el proyecto Firebase local `rundi-dev`. No basta con conectar `httpsCallable` al emulador.
 
 ### 3. Esquema y Storage
 
