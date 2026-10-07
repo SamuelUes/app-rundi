@@ -1,18 +1,26 @@
 import * as functions from "firebase-functions";
-import { database } from "../config/firebase";
+import admin, { database } from "../config/firebase";
 import { supabaseGet } from "../supabase/client";
 
 interface ClientProfile {
   fullName?: string | null;
-  photoUrl?: string | null;
   phone?: string | null;
+  photoUrl?: string | null;
 }
 
-const normalizeProfile = (raw: any): ClientProfile => ({
-  fullName: raw?.fullName || raw?.full_name || raw?.name || raw?.displayName || null,
-  photoUrl: raw?.photoUrl || raw?.photo_url || raw?.avatar_url || raw?.avatarUrl || null,
-  phone: raw?.phone || raw?.phone_number || raw?.phoneNumber || null,
-});
+const normalizeProfile = (raw: any): ClientProfile => {
+  const photoUrl =
+    raw?.photoUrl || raw?.photoURL || raw?.profilePhoto || raw?.profile_photo ||
+    raw?.avatarUrl || raw?.avatarURL || raw?.avatar_url || raw?.photo_url || raw?.avatar;
+  const fullName = raw?.clientName || raw?.client?.name || raw?.fullName || raw?.full_name || raw?.name || raw?.displayName;
+  const phone = raw?.clientPhone || raw?.client?.phone || raw?.phone || raw?.phone_number || raw?.phoneNumber;
+
+  return {
+    fullName: typeof fullName === "string" ? fullName : null,
+    phone: typeof phone === "string" ? phone : null,
+    photoUrl: typeof photoUrl === "string" && photoUrl.trim() ? photoUrl.trim() : null,
+  };
+};
 
 export const getClientProfile = functions.https.onCall(async (data, context) => {
   if (!context.auth?.uid) {
@@ -30,7 +38,57 @@ export const getClientProfile = functions.https.onCall(async (data, context) => 
     );
   }
 
-  functions.logger.info("🔍 Buscando perfil de cliente", { clientId, requester: context.auth.uid });
+  const requesterId = context.auth.uid;
+  let isAdmin = context.auth.token.role === "admin";
+  let ride: any = null;
+
+  if (clientId !== requesterId && !isAdmin) {
+    isAdmin = (await admin.firestore().doc(`cms-users/${requesterId}`).get()).get("role") === "admin";
+  }
+
+  if (clientId !== requesterId && !isAdmin) {
+    const rideId = typeof data?.rideId === "string" ? data.rideId.trim() : "";
+    if (!rideId) {
+      throw new functions.https.HttpsError("invalid-argument", "Se requiere un rideId para consultar datos de otro usuario.");
+    }
+
+    const [rideSnapshot, requesterProfile] = await Promise.all([
+      database.ref(`activeRides/${rideId}`).once("value"),
+      admin.firestore().doc(`users/${requesterId}`).get(),
+    ]);
+    ride = rideSnapshot.val();
+    const role = requesterProfile.get("role");
+    const isDriver = role === "driver" || role === "designated_driver";
+    const status = String(ride?.status || "").toLowerCase();
+    const isOpenRequest = status === "requested" && !ride?.driverId && isDriver;
+    const isAssignedRide = ride?.driverId === requesterId &&
+      ["driver_offered", "pending_confirm", "driver_assigned", "accepted", "driver_on_route", "driver_arrived", "in_progress", "pending_payment", "pending_rating"].includes(status);
+
+    if (ride?.clientId !== clientId || (!isOpenRequest && !isAssignedRide)) {
+      throw new functions.https.HttpsError(
+        "permission-denied",
+        "Solo puedes consultar los datos básicos del cliente asociado a este viaje."
+      );
+    }
+  }
+
+  if (clientId !== requesterId && !isAdmin) {
+    const [profileSnapshot, cachedSnapshot] = await Promise.all([
+      admin.firestore().doc(`users/${clientId}`).get(),
+      database.ref(`clientsInfo/${clientId}`).once("value"),
+    ]);
+    const cachedProfile = cachedSnapshot.val();
+    const profile = normalizeProfile({
+      ...cachedProfile,
+      ...ride,
+      photoUrl: normalizeProfile(profileSnapshot.data()).photoUrl ?? cachedProfile?.photoUrl,
+    });
+    return profile.fullName || profile.phone || profile.photoUrl
+      ? { found: true, profile }
+      : { found: false };
+  }
+
+  functions.logger.info("🔍 Buscando perfil de cliente", { clientId, requester: requesterId });
 
   // 1) Verificar latido en clientsLocations
   const clientActiveSnapshot = await database.ref(`clientsLocations/${clientId}/lastHeartbeat`).once("value");
@@ -67,35 +125,49 @@ export const getClientProfile = functions.https.onCall(async (data, context) => 
   let profile: ClientProfile | null = null;
 
   try {
-    const snapshot = await database.ref(`clientsInfo/${clientId}`).once("value");
-    if (snapshot.exists()) {
-      profile = normalizeProfile(snapshot.val());
-      functions.logger.info("✅ Perfil encontrado en Realtime Database", { clientId });
+    const [userSnapshot, profileSnapshot] = await Promise.all([
+      admin.firestore().doc(`users/${clientId}`).get(),
+      database.ref(`clientsInfo/${clientId}`).once("value"),
+    ]);
+    const firestoreProfile = normalizeProfile(userSnapshot.data());
+    const cachedProfile = normalizeProfile(profileSnapshot.val());
+    profile = {
+      fullName: firestoreProfile.fullName ?? cachedProfile.fullName,
+      phone: firestoreProfile.phone ?? cachedProfile.phone,
+      photoUrl: firestoreProfile.photoUrl ?? cachedProfile.photoUrl,
+    };
+    if (profile.fullName || profile.phone || profile.photoUrl) {
+      functions.logger.info("✅ Perfil encontrado en Firestore/Realtime Database", { clientId });
     }
   } catch (error: any) {
-    functions.logger.warn("⚠️ Error leyendo clientsInfo", { clientId, error: error?.message });
+    functions.logger.warn("⚠️ Error leyendo perfil de usuario", { clientId, error: error?.message });
   }
 
-  if (!profile) {
+  if (!profile?.fullName || !profile.phone || !profile.photoUrl) {
     try {
       const data = await supabaseGet(
         "profiles",
         { id: clientId },
-        "id, full_name, name, display_name, avatar_url, photo_url, phone, phone_number",
+        "id, full_name, name, display_name, phone, phone_number, photo_url, avatar_url",
         1
       );
 
       const record = Array.isArray(data) ? data[0] : undefined;
       if (record) {
-        profile = normalizeProfile(record);
+        const supabaseProfile = normalizeProfile(record);
+        profile = {
+          fullName: profile?.fullName ?? supabaseProfile.fullName,
+          phone: profile?.phone ?? supabaseProfile.phone,
+          photoUrl: profile?.photoUrl ?? supabaseProfile.photoUrl,
+        };
         functions.logger.info("✅ Perfil encontrado en Supabase", { clientId });
 
         // Cachear en Realtime Database para futuras lecturas
         try {
           await database.ref(`clientsInfo/${clientId}`).update({
             fullName: profile.fullName ?? null,
-            photoUrl: profile.photoUrl ?? null,
             phone: profile.phone ?? null,
+            photoUrl: profile.photoUrl ?? null,
             updatedAt: Date.now(),
           });
           functions.logger.info("📝 Perfil cacheado en Realtime Database", { clientId });
@@ -111,7 +183,7 @@ export const getClientProfile = functions.https.onCall(async (data, context) => 
     }
   }
 
-  if (!profile) {
+  if (!profile || (!profile.fullName && !profile.phone && !profile.photoUrl)) {
     functions.logger.info("ℹ️ Perfil no encontrado", { clientId });
     return { found: false };
   }

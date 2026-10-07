@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useTheme } from '../hooks/shared/theme/useTheme';
 import fcmService from '../services/fcmService';
+import { initializeNotificationSetup } from '../services/notificationSetup';
 import { useAuth } from '../hooks/shared/auth/useAuth';
 
 interface FCMContextType {
@@ -34,6 +35,9 @@ export const FCMProvider: React.FC<FCMProviderProps> = ({ children }) => {
   const { user, loading } = useAuth();
 
   useEffect(() => {
+    initializeNotificationSetup().then((granted) => {
+      setHasPermission(granted);
+    });
     initializeFCM();
   }, []);
 

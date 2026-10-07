@@ -5,7 +5,6 @@
 
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
-import Constants from 'expo-constants';
 import i18n from '../i18n';
 
 // Configurar cómo se muestran las notificaciones
@@ -20,7 +19,6 @@ Notifications.setNotificationHandler({
 });
 
 class NotificationService {
-  private expoPushToken: string | null = null;
   private quickReturnNotificationId: string | null = null;
   private managedNotifications = new Map<
     string,
@@ -37,47 +35,10 @@ class NotificationService {
   }
 
   /**
-   * Inicializar servicio de notificaciones
+   * Inicializar servicio de notificaciones (legacy — permissions now handled by notificationSetup)
    */
   async initialize(): Promise<string | null> {
-    try {
-      const projectId = this.resolveProjectId();
-
-      if (!projectId || !this.isValidUUID(projectId)) {
-        console.log('ℹ️ Expo Push Notifications deshabilitado - usando FCM');
-        return null;
-      }
-      
-      console.log('🔔 Inicializando notificaciones con projectId:', projectId);
-
-      // Solicitar permisos
-      const { status: existingStatus } = await Notifications.getPermissionsAsync();
-      let finalStatus = existingStatus;
-
-      if (existingStatus !== 'granted') {
-        const { status } = await Notifications.requestPermissionsAsync();
-        finalStatus = status;
-      }
-
-      if (finalStatus !== 'granted') {
-        console.warn('⚠️ Permisos de notificaciones denegados');
-        return null;
-      }
-
-      // Configurar canal Android de alta prioridad
-      await this.ensureAndroidChannel();
-
-      // Obtener token de Expo Push
-      const token = await this.getExpoPushToken();
-      this.expoPushToken = token;
-
-      console.log('✅ Notificaciones inicializadas. Token:', token);
-      return token;
-    } catch (error) {
-      console.error('❌ Error inicializando notificaciones:', error);
-      console.log('ℹ️ Expo Notifications falló, usando FCM como alternativa');
-      return null;
-    }
+    return null;
   }
 
   private clearManagedNotification(notificationKey: string) {
@@ -173,39 +134,11 @@ class NotificationService {
   }
 
   /**
-   * Validar si es un UUID válido
-   */
-  private isValidUUID(uuid: string): boolean {
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    return uuidRegex.test(uuid);
-  }
-
-  /**
-   * Obtener Expo Push Token
-   */
-  private async getExpoPushToken(): Promise<string> {
-    const projectId = this.resolveProjectId();
-
-    if (!projectId) {
-      throw new Error('Expo projectId no disponible para push notifications');
-    }
-
-    console.log('🔑 Obteniendo Expo Push Token con projectId:', projectId);
-
-    const token = await Notifications.getExpoPushTokenAsync({
-      projectId,
-    });
-
-    return token.data;
-  }
-
-  /**
    * Crear canal Android de alta prioridad para proximidad
    */
   private async ensureAndroidChannel() {
     try {
       if (Platform.OS !== 'android') return;
-      // Configurar canal por defecto como alta prioridad
       await Notifications.setNotificationChannelAsync('default', {
         name: this.tr('channels.default'),
         importance: Notifications.AndroidImportance.MAX,
@@ -244,10 +177,10 @@ class NotificationService {
   }
 
   /**
-   * Obtener token actual
+   * Obtener token actual (deprecated — FCM handles tokens now)
    */
   getToken(): string | null {
-    return this.expoPushToken;
+    return null;
   }
 
   /**
@@ -472,43 +405,6 @@ class NotificationService {
     return this.tr('formats.distanceKm', { value: value.toFixed(1) });
   }
 
-  /**
-   * Resolver projectId de Expo/EAS sin importar el modo de ejecución
-   */
-  private resolveProjectId(): string | null {
-    const expoConfig = (Constants.expoConfig ?? {}) as {
-      extra?: { eas?: { projectId?: string } };
-      projectId?: string;
-    };
-    const manifest = (Constants.manifest ?? {}) as {
-      extra?: { eas?: { projectId?: string } };
-    };
-
-    const envProjectId =
-      process.env.EXPO_PUBLIC_NOTIFICATIONS_PROJECT_ID ||
-      process.env.EXPO_NOTIFICATIONS_PROJECT_ID ||
-      process.env.EXPO_PROJECT_ID ||
-      process.env.EAS_PROJECT_ID ||
-      null;
-    const extraNotificationsId =
-      (expoConfig?.extra as { notificationsProjectId?: string } | undefined)?.notificationsProjectId;
-    const expoConfigExtraProjectId = expoConfig?.extra?.eas?.projectId;
-    const manifestExtraProjectId = manifest?.extra?.eas?.projectId;
-    const legacyExpoConfigProjectId = expoConfig?.projectId;
-    const easProjectId = Constants.easConfig?.projectId;
-
-    const fallbackProjectId = '98fe5b45-4177-4d65-8ce3-6b783abfe196';
-
-    return (
-      envProjectId ||
-      extraNotificationsId ||
-      expoConfigExtraProjectId ||
-      manifestExtraProjectId ||
-      legacyExpoConfigProjectId ||
-      easProjectId ||
-      fallbackProjectId
-    );
-  }
 }
 
 export default new NotificationService();

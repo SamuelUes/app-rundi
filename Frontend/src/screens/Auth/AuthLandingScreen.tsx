@@ -1,13 +1,15 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  Image,
-  TouchableOpacity,
   Animated,
+  Image,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { AuthStackParamList } from '../../navigation/types';
@@ -20,36 +22,39 @@ type Props = {
 };
 
 const AuthLandingScreen: React.FC<Props> = ({ navigation }) => {
-  const { colors } = useTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
   const { t } = useTranslation();
 
   const logoAnim = useRef(new Animated.Value(0)).current;
   const buttonsAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    Animated.sequence([
+    const animation = Animated.sequence([
       Animated.timing(logoAnim, {
         toValue: 1,
-        duration: 600,
+        duration: 450,
         useNativeDriver: true,
       }),
       Animated.timing(buttonsAnim, {
         toValue: 1,
-        duration: 400,
+        duration: 300,
         useNativeDriver: true,
       }),
-    ]).start();
+    ]);
+
+    animation.start();
+    return () => animation.stop();
   }, [logoAnim, buttonsAnim]);
 
   const logoStyle = {
     opacity: logoAnim,
     transform: [
       {
-        translateY: logoAnim.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }),
+        translateY: logoAnim.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }),
       },
       {
-        scale: logoAnim.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }),
+        scale: logoAnim.interpolate({ inputRange: [0, 1], outputRange: [0.97, 1] }),
       },
     ],
   };
@@ -58,119 +63,139 @@ const AuthLandingScreen: React.FC<Props> = ({ navigation }) => {
     opacity: buttonsAnim,
     transform: [
       {
-        translateY: buttonsAnim.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }),
+        translateY: buttonsAnim.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }),
       },
     ],
   };
 
-  const handleLoginPress = () => {
-    navigation.navigate('Login');
-  };
-
-  const handleRegisterPress = () => {
-    navigation.navigate('RegistrationCheckpoint');
-  };
-
   return (
-    <View style={styles.container}>
-      <View style={styles.card}>
-        <Animated.View style={[styles.logoContainer, logoStyle]}>
-          <Image
-            source={require('../../assets/images/logo.png')}
-            style={styles.logo}
-            resizeMode="contain"
-          />
-          <Text style={styles.title}>{t('authScreens.landing.title')}</Text>
-          <Text style={styles.subtitle}>
-            {t('authScreens.landing.subtitle')}
-          </Text>
-        </Animated.View>
-
-        <Animated.View style={[styles.actionsContainer, buttonsStyle]}>
-          <TouchableOpacity style={styles.primaryButton} onPress={handleLoginPress}>
-            <Text style={styles.primaryButtonText}>
-              {t('authScreens.landing.login')}
+    <SafeAreaView style={styles.container}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        alwaysBounceVertical={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.card}>
+          <Animated.View style={[styles.brandContent, logoStyle]}>
+            <Image
+              source={require('../../assets/images/logo.png')}
+              style={styles.logo}
+              resizeMode="contain"
+              accessibilityLabel="Rundi"
+            />
+            <Text style={styles.title}>{t('authScreens.landing.title')}</Text>
+            <Text style={styles.subtitle}>
+              {t('authScreens.landing.subtitle')}
             </Text>
-          </TouchableOpacity>
+          </Animated.View>
 
-          <TouchableOpacity style={styles.secondaryButton} onPress={handleRegisterPress}>
-            <Text style={styles.secondaryButtonText}>
-              {t('authScreens.landing.register')}
-            </Text>
-          </TouchableOpacity>
-        </Animated.View>
-      </View>
-    </View>
+          <Animated.View style={[styles.actionsContainer, buttonsStyle]}>
+            <Pressable
+              style={({ pressed }) => [styles.primaryButton, pressed && styles.pressedButton]}
+              onPress={() => navigation.navigate('Login')}
+              accessibilityRole="button"
+            >
+              <Text style={styles.primaryButtonText}>
+                {t('authScreens.landing.login')}
+              </Text>
+            </Pressable>
+
+            <Pressable
+              style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressedButton]}
+              onPress={() => navigation.navigate('RegistrationCheckpoint')}
+              accessibilityRole="button"
+            >
+              <Text style={styles.secondaryButtonText}>
+                {t('authScreens.landing.register')}
+              </Text>
+            </Pressable>
+          </Animated.View>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
   );
 };
 
 export default AuthLandingScreen;
 
-const createStyles = (colors: any) => {
-  const gold = '#D4AF37';
+const createStyles = (colors: any, isDark: boolean) => {
+  const gold = colors.primary;
+  const readableGold = isDark ? '#E8C46A' : '#76520F';
+  const deepTeal = '#203A3E';
 
   return StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: colors.background,
+      backgroundColor: colors.surface,
+    },
+    scrollContent: {
+      flexGrow: 1,
       alignItems: 'center',
       justifyContent: 'center',
       paddingHorizontal: 24,
+      paddingVertical: 24,
     },
     card: {
       width: '100%',
-      borderRadius: 24,
-      paddingVertical: 32,
-      paddingHorizontal: 24,
+      maxWidth: 440,
+      borderRadius: 28,
+      paddingVertical: 36,
+      paddingHorizontal: 28,
       backgroundColor: colors.card,
-      borderWidth: 1,
+      borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.border,
+      boxShadow: isDark
+        ? '0 10px 28px rgba(0, 0, 0, 0.24)'
+        : '0 14px 36px rgba(32, 58, 62, 0.10)',
       alignItems: 'center',
-      justifyContent: 'center',
-      gap: 24,
+      gap: 32,
     },
-    logoContainer: {
+    brandContent: {
+      width: '100%',
       alignItems: 'center',
-      gap: 8,
-      height: 166,
+      gap: 12,
     },
     logo: {
-      width: 180,
-      height: 96,
-      //marginBottom: 2,
+      width: '88%',
+      maxWidth: 260,
+      height: 88,
     },
     title: {
-      fontSize: 24,
+      marginTop: 4,
+      fontSize: 30,
       fontWeight: '800',
       color: gold,
-      letterSpacing: 0.3,
+      letterSpacing: 0.2,
+      textAlign: 'center',
     },
     subtitle: {
-      fontSize: 14,
+      fontSize: 16,
+      lineHeight: 23,
       color: colors.textSecondary,
       textAlign: 'center',
     },
     actionsContainer: {
       width: '100%',
-      gap: 12,
-      marginTop: 8,
+      gap: 14,
     },
     primaryButton: {
+      minHeight: 58,
       width: '100%',
-      paddingVertical: 14,
+      paddingHorizontal: 20,
       borderRadius: 22,
-      backgroundColor: '#b38737',
+      backgroundColor: gold,
       alignItems: 'center',
       justifyContent: 'center',
     },
     primaryButtonText: {
       color: '#FFFFFF',
-      fontSize: 16,
+      fontSize: 17,
       fontWeight: '700',
     },
     secondaryButton: {
+      minHeight: 58,
       width: '100%',
-      paddingVertical: 14,
+      paddingHorizontal: 20,
       borderRadius: 22,
       borderWidth: 1.5,
       borderColor: gold,
@@ -179,9 +204,12 @@ const createStyles = (colors: any) => {
       backgroundColor: 'transparent',
     },
     secondaryButtonText: {
-      color: gold,
-      fontSize: 16,
+      color: readableGold,
+      fontSize: 17,
       fontWeight: '700',
+    },
+    pressedButton: {
+      opacity: 0.78,
     },
   });
 };

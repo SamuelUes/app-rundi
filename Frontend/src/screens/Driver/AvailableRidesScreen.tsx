@@ -22,7 +22,6 @@ import ridesService, {
 } from '../../services/ridesService';
 import { RideListSkeleton } from '../../components/ui/SkeletonLoader';
 import alertService from '../../services/alertService';
-import { fetchClientProfile, ClientProfile } from '../../services/clientProfilesService';
 import { hasSavedCard } from '../../utils/cardUtils';
 import { useLocation } from '../../hooks/shared/location/useLocation';
 import { useAcceptedRideListener } from '../../hooks/driver/DriverHomeScreen/useAcceptedRideListener';
@@ -66,7 +65,6 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
     selectedDriverVehicleType,
     handleRefresh,
   } = useAvailableRidesData(user?.id, coords, serviceAreaId);
-  const [clientProfiles, setClientProfiles] = useState<Record<string, ClientProfile | null>>({});
   const [rechargeFundsSummary, setRechargeFundsSummary] = useState<{ availableBalance: number; blocked: boolean } | null>(
     () => {
       const summary = preflightSummary?.preflightData?.rechargeFunds;
@@ -346,48 +344,6 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
     return items;
   }, [groupedRides]);
 
-  useEffect(() => {
-    const missingClientIds = rides
-      .map((ride) => ride.clientId)
-      .filter((id): id is string => Boolean(id) && !(id in clientProfiles));
-
-    if (missingClientIds.length === 0) {
-      return;
-    }
-
-    let cancelled = false;
-
-    const loadProfiles = async () => {
-      const entries: Array<[string, ClientProfile | null]> = await Promise.all(
-        missingClientIds.map(async (clientId) => {
-          try {
-            const profile = await fetchClientProfile(clientId);
-            return [clientId, profile ?? null];
-          } catch (error) {
-            console.warn('[AvailableRides] Error cargando perfil de cliente', clientId, error);
-            return [clientId, null];
-          }
-        })
-      );
-
-      if (!cancelled && entries.length) {
-        setClientProfiles((prev) => {
-          const next = { ...prev };
-          entries.forEach(([id, profile]) => {
-            next[id] = profile;
-          });
-          return next;
-        });
-      }
-    };
-
-    loadProfiles();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [rides, clientProfiles]);
-
   const handleSelectRide = (rideId: string) => {
     setSelectedRideId((current) => (current === rideId ? null : rideId));
   };
@@ -463,12 +419,10 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
     }
 
     const ride = item as Ride;
-    const profile = ride.clientId ? clientProfiles[ride.clientId] : undefined;
 
     return (
       <AvailableRidesItem
         ride={ride}
-        profile={profile}
         selected={selectedRideId === ride.id}
         isDark={isDark}
         colors={colors}

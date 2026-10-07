@@ -1,7 +1,7 @@
 import * as functions from "firebase-functions";
 import { database } from "../config/firebase";
 import { supabasePost, supabaseGet, supabaseUpdate, supabaseUploadJsonToStorage } from "../supabase/client";
-import { sendNotificationToUser } from "../services/pushNotifications";
+import { sendToUser } from "../services/notificationCenter";
 
 /**
  * Tipo base de ticket de soporte expuesto al frontend / CMS
@@ -94,18 +94,16 @@ export const notifySupportChatMessage = async (params: {
       ? bodyParts.join("\n")
       : "Tienes un nuevo mensaje en tu chat de soporte.";
 
-    await sendNotificationToUser(toUserId, {
-      title,
-      body,
+    await sendToUser(toUserId, "support_ticket_message", {
+      fallbackTitle: title,
+      fallbackBody: body,
       data: {
-        type: "support_ticket_message",
         complaintId,
         rideId: rideId || undefined,
         category,
         title,
         fromUserId: fromUserId || undefined,
       },
-      androidChannelId: "default",
       notificationKey: `support-${complaintId}`,
       expiresInMs: 60 * 60 * 1000,
     });
@@ -395,16 +393,14 @@ export const requestSupportCall = functions.https.onCall(async (data, context) =
     });
 
     if (complaint.assigned_to_user_id) {
-      await sendNotificationToUser(String(complaint.assigned_to_user_id), {
-        title: "Solicitud de llamada de soporte",
-        body: `El usuario solicito una llamada en el caso ${complaintId}.`,
+      await sendToUser(String(complaint.assigned_to_user_id), "support_call", {
+        fallbackTitle: "Solicitud de llamada de soporte",
+        fallbackBody: `El usuario solicito una llamada en el caso ${complaintId}.`,
         data: {
-          type: "support_call_request",
           complaintId,
           requestId: requestId || undefined,
           requestedByUserId: uid,
         },
-        androidChannelId: "default",
         notificationKey: `support-call-request-${complaintId}`,
         expiresInMs: 30 * 60 * 1000,
       });

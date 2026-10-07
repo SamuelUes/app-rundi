@@ -828,7 +828,7 @@ export default function AccountScreen({ navigation }: any) {
       };
 
       if (isFirebaseBackend) {
-        await syncFirestoreProfile(photoPayload);
+        await syncFirestoreProfile({ profilePhoto: uploadedPhotoUrl });
       }
 
       await updateLocalUserCache(photoPayload);

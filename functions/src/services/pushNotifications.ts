@@ -226,3 +226,83 @@ export const sendNotificationToUserWithTokens = async (
 
   await sendToTokens(tokenEntries, message);
 };
+
+export const sendToTopic = async (topic: string, message: PushMessage) => {
+  if (!topic) {
+    return;
+  }
+
+  const expiresInMsRaw = typeof message.expiresInMs === 'number' && Number.isFinite(message.expiresInMs)
+    ? Math.max(1, Math.floor(message.expiresInMs))
+    : 120_000;
+  const expiresInSeconds = Math.max(1, Math.round(expiresInMsRaw / 1000));
+  const sanitizedData = sanitizeData({
+    ...message.data,
+    ...(message.notificationKey ? { notificationKey: message.notificationKey } : {}),
+    expiresInMs: String(expiresInMsRaw),
+  });
+
+  const payload = {
+    notification: {
+      title: message.title,
+      body: message.body,
+    },
+    data: sanitizedData,
+    android: {
+      priority: 'high' as const,
+      ttl: expiresInSeconds,
+      notification: {
+        channelId: getAndroidChannelId(message),
+        ...(message.notificationKey ? { tag: message.notificationKey } : {}),
+      },
+    },
+    apns: {
+      headers: {
+        'apns-expiration': String(Math.floor(Date.now() / 1000) + expiresInSeconds),
+        ...(message.notificationKey ? { 'apns-collapse-id': message.notificationKey } : {}),
+      },
+      payload: {
+        aps: {
+          sound: 'default',
+        },
+      },
+    },
+  };
+
+  try {
+    await messaging.send({
+      topic,
+      notification: payload.notification,
+      data: payload.data,
+      android: payload.android,
+      apns: payload.apns,
+    });
+    console.log(`📣 [pushNotifications] Enviado a topic "${topic}"`);
+  } catch (error) {
+    console.error(`❌ [pushNotifications] Error enviando a topic "${topic}":`, error);
+  }
+};
+
+export const subscribeTokenToTopics = async (token: string, topics: string[]) => {
+  if (!token || !topics.length) {
+    return;
+  }
+  try {
+    await Promise.all(topics.map((topic) => messaging.subscribeToTopic(token, topic)));
+    console.log(`✅ [pushNotifications] Token suscrito a topics: ${topics.join(', ')}`);
+  } catch (error) {
+    console.error('❌ [pushNotifications] Error suscribiendo token a topics:', error);
+  }
+};
+
+export const unsubscribeTokenFromTopics = async (token: string, topics: string[]) => {
+  if (!token || !topics.length) {
+    return;
+  }
+  try {
+    await Promise.all(topics.map((topic) => messaging.unsubscribeFromTopic(token, topic)));
+    console.log(`✅ [pushNotifications] Token desuscrito de topics: ${topics.join(', ')}`);
+  } catch (error) {
+    console.error('❌ [pushNotifications] Error desuscribiendo token de topics:', error);
+  }
+};

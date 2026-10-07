@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, TextInput, TouchableOpacity } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 import type { TFunction } from 'i18next';
 import type { CountryDialOption } from '../../../utils/phoneUtils';
 import PhoneNumberModal from '../../shared/PhoneNumberModal';
@@ -101,6 +102,7 @@ export function RegisterBaseFields({
           onPress={onOpenPhoneModal}
           disabled={loading}
           activeOpacity={0.8}
+          accessibilityRole="button"
         >
           <View style={styles.phoneSummaryFlagDial}>
             <Text style={styles.phoneSummaryDial}>{selectedCountry.dialCode}</Text>
@@ -117,6 +119,7 @@ export function RegisterBaseFields({
               {normalizedPhone ? phone : t('authScreens.register.fields.phonePlaceholder')}
             </Text>
           </View>
+          <MaterialIcons name="keyboard-arrow-down" size={24} color={colors.textSecondary} />
         </TouchableOpacity>
 
         <Text style={styles.helperText}>

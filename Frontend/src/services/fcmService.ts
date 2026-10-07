@@ -6,14 +6,14 @@
  * Para Expo Go, usar Expo Notifications como fallback
  */
 
-import { Platform, Alert, PermissionsAndroid } from 'react-native';
+import { Platform, Alert } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-// import messaging from '@react-native-firebase/messaging';
-// import auth from '@react-native-firebase/auth';
 import { getFirebaseFunctions, getFirebaseAuth } from '../config/firebase';
 import { httpsCallable } from 'firebase/functions';
 import notificationService from './notificationService';
+import { routeNotification } from './notificationRouter';
+import { requestNotificationPermissions } from './notificationSetup';
 import i18n from '../i18n';
 import {
   isNativeFirebaseSupported,
@@ -26,39 +26,6 @@ let messagingModule: any = null;
 let messagingInstance: any = null;
 let AuthorizationStatusEnum: any = null;
 let backgroundHandlersRegistered = false;
-
-type NotificationCopy = {
-  title: string;
-  body: string;
-};
-
-const getFCMNotificationCopy = (type?: string | null): NotificationCopy => {
-  const normalized = (type || '').toLowerCase();
-
-  if (normalized === 'ride_requested') {
-    return {
-      title: i18n.t('common.services.fcm.rideRequested.title'),
-      body: i18n.t('common.services.fcm.rideRequested.body'),
-    };
-  }
-
-  if (normalized === 'proximity_ride') {
-    return {
-      title: i18n.t('common.services.fcm.proximityRide.title'),
-      body: i18n.t('common.services.fcm.proximityRide.body'),
-    };
-  }
-
-  return {
-    title: i18n.t('common.services.fcm.fallback.title'),
-    body: i18n.t('common.services.fcm.fallback.body'),
-  };
-};
-
-const getGenericNotificationCopy = (): NotificationCopy => ({
-  title: i18n.t('shared.notifications.generic.defaultTitle'),
-  body: i18n.t('shared.notifications.generic.defaultBody'),
-});
 
 // Notifications.setNotificationHandler is centralized in notificationService.ts
 
@@ -90,25 +57,22 @@ const handleBackgroundRemoteMessage = async (remoteMessage: any) => {
       return;
     }
 
-    const copy = getFCMNotificationCopy(data?.type);
-
     try {
       console.log('🔔 Mostrando notificación local en background (data-only):', {
-        copy,
         data,
       });
 
               // Usar directamente Expo Notifications en background
       await Notifications.scheduleNotificationAsync({
         content: {
-          title: copy.title,
-          body: copy.body,
+          title: i18n.t('shared.notifications.generic.defaultTitle'),
+          body: i18n.t('shared.notifications.generic.defaultBody'),
           data: data || {},
           sound: 'default',
           priority: Notifications.AndroidNotificationPriority.MAX,
           vibrate: [0, 250, 250, 250],
         },
-        trigger: null, // Mostrar inmediatamente
+        trigger: null,
       });
 
       console.log('✅ Notificación local mostrada en background');
@@ -207,34 +171,12 @@ const initializeMessagingModule = async (): Promise<boolean> => {
 class FCMService {
   private fcmToken: string | null = null;
   private functions: any = null;
-  private isFCMAvailable: boolean = true; // React Native Firebase configurado
+  private isFCMAvailable: boolean = true;
   private recentForegroundMessageIds: Set<string> = new Set();
   private listenersConfigured = false;
   private onMessageUnsubscribe: (() => void) | null = null;
   private onNotificationOpenedUnsubscribe: (() => void) | null = null;
   private messagingInitPromise: Promise<boolean> | null = null;
-
-  constructor() {
-    this.ensureAndroidChannel();
-  }
-
-  private async ensureAndroidChannel() {
-    if (Platform.OS !== 'android') {
-      return;
-    }
-
-    try {
-      await Notifications.setNotificationChannelAsync('rundi_default', {
-        name: 'Notificaciones de viajes',
-        importance: Notifications.AndroidImportance.MAX,
-        vibrationPattern: [0, 250, 250, 250],
-        sound: 'default',
-        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-      });
-    } catch (error) {
-      console.warn('⚠️ Error asegurando canal de notificaciones:', error);
-    }
-  }
 
   private async getFunctions() {
     if (!this.functions) {
@@ -278,44 +220,7 @@ class FCMService {
    * Solicitar permisos de notificación
    */
   async requestPermission(): Promise<boolean> {
-    try {
-      // Si fcm no esta disponible, retornar false
-      const ready = await this.ensureMessagingReady();
-      if (!ready) {
-        console.log('⚠️ FCM no disponible, no se pueden solicitar permisos');
-        return false;
-      }
-
-      // Para Android
-      if (Platform.OS === 'android') {
-        const granted = await PermissionsAndroid.request(
-          PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS
-        );
-        if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
-          console.log('❌ Permiso de notificaciones denegado');
-          return false;
-        }
-      }
-
-      // Para iOS
-      if (Platform.OS === 'ios' && messagingModule?.requestPermission) {
-        const authStatus = await messagingModule.requestPermission(messagingInstance);
-        const enabled =
-          authStatus === AuthorizationStatusEnum?.AUTHORIZED ||
-          authStatus === AuthorizationStatusEnum?.PROVISIONAL;
-
-        if (!enabled) {
-          console.log('❌ Permiso de notificaciones denegado');
-          return false;
-        }
-      }
-
-      console.log('✅ Permisos de notificación concedidos');
-      return true;
-    } catch (error) {
-      console.error('❌ Error solicitando permisos:', error);
-      return false;
-    }
+    return requestNotificationPermissions();
   }
 
   /**
@@ -408,7 +313,7 @@ class FCMService {
       messagingInstance,
       (remoteMessage: any) => {
         console.log('👆 Notificación tocada (app en background):', remoteMessage);
-        this.handleNotificationTap(remoteMessage);
+        routeNotification(remoteMessage?.data, { coldStart: false });
       }
     );
 
@@ -418,7 +323,7 @@ class FCMService {
       .then((remoteMessage: any) => {
         if (remoteMessage) {
           console.log('🚀 App abierta desde notificación:', remoteMessage);
-          this.handleNotificationTap(remoteMessage);
+          routeNotification(remoteMessage?.data, { coldStart: true });
         }
       });
 
@@ -478,8 +383,6 @@ class FCMService {
       let resolvedBody = i18n.t('shared.notifications.generic.defaultBody');
 
       try {
-        await this.ensureAndroidChannel();
-
         const notificationKey = typeof data?.notificationKey === 'string' && data.notificationKey.trim().length
           ? data.notificationKey.trim()
           : data?.rideId
@@ -493,9 +396,8 @@ class FCMService {
             : NaN;
         const expiresInMs = Number.isFinite(parsedExpires) && parsedExpires > 0 ? parsedExpires : 120_000;
 
-        const copy = notification?.title || notification?.body ? undefined : getGenericNotificationCopy();
-        resolvedTitle = notification?.title || copy?.title || resolvedTitle;
-        resolvedBody = notification?.body || copy?.body || resolvedBody;
+        resolvedTitle = notification?.title || resolvedTitle;
+        resolvedBody = notification?.body || resolvedBody;
 
         console.log('🔔 Mostrando notificación local (foreground):', {
           uniqueId,
@@ -525,7 +427,7 @@ class FCMService {
         Alert.alert(resolvedTitle, resolvedBody, [
           {
             text: i18n.t('common.actions.accept'),
-            onPress: () => this.handleNotificationTap(remoteMessage),
+            onPress: () => routeNotification(remoteMessage?.data, { coldStart: false }),
           },
           { text: i18n.t('common.actions.close'), style: 'cancel' },
         ]);
@@ -537,66 +439,6 @@ class FCMService {
     });
   }
 
-  /**
-   * Manejar tap en notificación
-   */
-  private async handleNotificationTap(remoteMessage: any): Promise<void> {
-    const { data } = remoteMessage;
-    console.log('👆 Tap en notificación FCM:', data);
-
-    const type = data?.type as string | undefined;
-    const rideId = data?.rideId as string | undefined;
-
-    try {
-      // Importar dinámicamente para evitar dependencias circulares
-      const { navigate, navigationRef } = await import('../navigation/NavigationService');
-      const { fetchRidePreview } = await import('./ridePreviewService');
-
-      // Esperar a que navigation esté listo
-      const maxWait = 3000;
-      const startTime = Date.now();
-      while (!navigationRef.isReady() && Date.now() - startTime < maxWait) {
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
-
-      if (!navigationRef.isReady()) {
-        console.warn('⚠️ Navigation no está listo después de 3s');
-        return;
-      }
-
-      // 🔔 Viajes programados: redirigir a Preflight para flujo de confirmación
-      if (type === 'programmed_ride_client_confirm') {
-        console.log('🚀 [FCM] Navegando a ClientPreflight para confirmar viaje programado');
-        navigate('ClientPreflight', {});
-        return;
-      }
-
-      if (type === 'programmed_ride_driver_confirm') {
-        console.log('🚀 [FCM] Navegando a DriverPreflight para confirmar viaje programado');
-        navigate('DriverPreflight', {});
-        return;
-      }
-
-      // Resto de notificaciones de viaje requieren rideId en activeRides
-      if (!rideId) {
-        console.warn('⚠️ No rideId en notificación');
-        return;
-      }
-
-      // Obtener datos del viaje desde Firebase (activeRides)
-      const ride = await fetchRidePreview(rideId);
-
-      if (!ride) {
-        console.warn('⚠️ Ride no encontrado en activeRides:', rideId);
-        return;
-      }
-
-      console.log('🚀 [FCM] Navegando a RidePreview:', ride.id);
-      navigate('RidePreview', { ride, proximity: true });
-    } catch (error) {
-      console.error('❌ Error manejando tap en notificación:', error);
-    }
-  }
   /**
    * Enviar notificación de prueba
    */

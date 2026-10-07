@@ -9,6 +9,8 @@ App móvil de Rundi construida con Expo (CNG — Continuous Native Generation), 
 - **Node.js** LTS (>= 20.19.4 recomendado para SDK 57)
 - **Xcode** (versión reciente) + Command Line Tools
 - **Android Studio** con SDK Platform/Build-Tools instalados y licencias aceptadas
+- **JDK 17** para compilar Android con el Gradle Wrapper actual (8.14.3)
+- **JDK 21 o superior** para ejecutar Firebase Emulator Suite con `npm run start:local`
 - **CocoaPods** (`sudo gem install cocoapods` o `brew install cocoapods`)
 - **Watchman** (`brew install watchman`) — recomendado para Metro
 - **EAS CLI** (`npm i -g eas-cli`)
@@ -56,10 +58,38 @@ npm run env:prod
 | `npm start` | Inicia Metro con caché limpia (`expo start --clear`) |
 | `npm run start:dev` | Cambia a env de desarrollo e inicia Metro |
 | `npm run start:prod` | Cambia a env de producción e inicia Metro |
+| `npm run start:local` | Inicia Supabase, Firebase Emulator Suite y Metro local (requiere Docker y JDK 21+) |
 | `npm run android` | Compila e instala en emulador/dispositivo Android (`expo run:android`) |
 | `npm run ios` | Compila e instala en simulador/dispositivo iOS (`expo run:ios`) |
 | `npm run web` | Inicia la versión web (`expo start --web`) |
 | `npm test` | Ejecuta tests con Jest |
+
+### Desarrollo local con Android
+
+El stack local (`npm run start:local`) requiere Java 21 o superior para Firebase Emulator Suite, mientras que el build Android usa el JDK 17 configurado para el Gradle Wrapper actual. Ejecuta cada proceso en una terminal distinta:
+
+**Terminal 1 — Supabase, Firebase Emulator Suite y Metro** (mantener ejecutándose):
+
+```bash
+export JAVA_HOME=$(/usr/libexec/java_home -v 21+) # Selecciona un JDK 21 o superior
+export PATH="$JAVA_HOME/bin:$PATH"
+java -version
+npm run start:local
+```
+
+**Terminal 2 — compilar e instalar Android** (JDK 17):
+
+```bash
+source ~/.zshrc
+java -version # Debe mostrar Java 17
+npm run android -- --no-bundler
+```
+
+`--no-bundler` reutiliza Metro, que ya está iniciado en la primera terminal. Si no usas zsh o no tienes Java 17 seleccionado en `~/.zshrc`, configura `JAVA_HOME` con la ruta de tu JDK 17 antes de ejecutar el comando.
+
+#### ¿Se puede usar Java 27 para ambos?
+
+En principio, sí: Java 27 requiere Gradle 9.8 o posterior para estar soportado al ejecutar Gradle. Este proyecto usa Gradle 8.14.3, la versión de su configuración actual de Expo, y el build ya muestra advertencias por APIs obsoletas incompatibles con Gradle 9. Actualizar el wrapper no necesariamente será un cambio aislado: puede requerir adaptar el Android Gradle Plugin, Kotlin, los plugins Gradle de Expo/React Native y módulos nativos. Hasta probar y validar esa actualización, usa Java 21+ para `start:local` y Java 17 para compilar Android.
 
 ### Parar Metro / servidor de desarrollo
 

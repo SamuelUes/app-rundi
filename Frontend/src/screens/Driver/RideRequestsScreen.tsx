@@ -16,7 +16,6 @@ import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useAuth } from '../../hooks/shared/auth/useAuth';
 import { useLocation } from '../../hooks/shared/location/useLocation';
-import { useRideNotifications } from '../../hooks/shared/ride/useRideNotifications';
 import ridesService from '../../services/ridesService';
 import DynamicMap from '../../components/map/DynamicMap';
 import { getDatabase, onValue, ref } from 'firebase/database';
@@ -30,7 +29,8 @@ interface RideRequest {
   client: {
     name: string;
     rating: number;
-    phone: string;
+    phone: string | null;
+    photoUrl?: string | null;
   };
   origin: {
     lat: number;
@@ -48,14 +48,8 @@ interface RideRequest {
   clientSuggestedPrice?: number;
   passengers?: number;
   rideType: string;
-  createdAt: string;
-  clientVehicle?: {
-    make?: string;
-    model?: string;
-    color?: string;
-    plate?: string;
-    photos?: string[];
-  };
+  createdAt: string | number;
+  clientVehiclePhoto?: string | null;
   // ✅ NUEVO: Soporte para múltiples destinos
   extraDestinations?: Array<{
     lat: number;
@@ -71,7 +65,8 @@ export default function RideRequestsScreen({ navigation }: any) {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { user } = useAuth();
   const { coords } = useLocation();
-  const { connected, newRidesCount } = useRideNotifications(user?.id);
+  const connected = true;
+  const newRidesCount = 0;
   
   const [rides, setRides] = useState<RideRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -221,7 +216,7 @@ export default function RideRequestsScreen({ navigation }: any) {
     }
   };
 
-  const getTimeAgo = (dateString: string): string => {
+  const getTimeAgo = (dateString: string | number): string => {
     if (!dateString) return 'Hace un momento';
     const date = new Date(dateString);
     const now = new Date();
@@ -410,6 +405,12 @@ const createStyles = (colors: any) => StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
+    overflow: 'hidden',
+  },
+  clientAvatarImage: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
   },
   clientAvatarText: {
     fontSize: 20,

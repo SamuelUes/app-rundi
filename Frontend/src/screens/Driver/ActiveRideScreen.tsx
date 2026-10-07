@@ -198,7 +198,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
 
     const loadProfile = async () => {
       try {
-        const profile = await fetchClientProfile(ride.clientId);
+        const profile = await fetchClientProfile(ride.clientId, rideId);
         if (!cancelled && profile) {
           setClientProfile(profile);
         }

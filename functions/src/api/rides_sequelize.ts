@@ -426,6 +426,7 @@ export const createProgrammedRide = functions.https.onCall(async (data, context)
 
   await notifyUserSafe(clientId, '✅ Viaje programado', 'Tu viaje fue programado correctamente.', {
     rideId,
+  }, {
     type: 'programmed_ride_created',
   });
 
@@ -497,7 +498,6 @@ export const assignDriverToProgrammedRide = functions.https.onCall(async (data, 
 
   await notifyUserSafe(rideData.clientId, '🚗 Conductor asignado', 'Un conductor se asignó a tu viaje programado.', {
     rideId,
-    type: 'programmed_ride_driver_assigned',
     driverId,
   });
 
@@ -626,6 +626,7 @@ export const confirmProgrammedRideDriver = functions.https.onCall(async (data, c
 
   await notifyUserSafe(rideData.clientId, '✅ Conductor confirmó', 'El conductor confirmó tu viaje programado.', {
     rideId,
+  }, {
     type: 'programmed_ride_driver_confirmed',
   });
 
@@ -690,14 +691,16 @@ export const cancelProgrammedRide = functions.https.onCall(async (data, context)
   if (isClient && rideData.driverId) {
     await notifyUserSafe(rideData.driverId, 'Viaje programado cancelado', 'El cliente canceló el viaje programado.', {
       rideId,
-      type: 'programmed_ride_canceled',
+    }, {
+      type: 'programmed_ride_canceled_by_client',
     });
   }
 
   if (isDriver && rideData.clientId) {
     await notifyUserSafe(rideData.clientId, 'Viaje programado cancelado', 'El conductor canceló el viaje programado.', {
       rideId,
-      type: 'programmed_ride_canceled',
+    }, {
+      type: 'programmed_ride_canceled_by_driver',
     });
   }
 
@@ -958,24 +961,12 @@ const normalizeRealtimeRide = (rideId: string, raw: any) => {
   const passengers = toOptionalNumber(raw?.passengers);
   const waypointsCount = toOptionalNumber(raw?.waypointsCount ?? raw?.waypoints_count);
   const clientRating = toOptionalNumber(raw?.clientRating ?? raw?.client_rating ?? raw?.client?.rating);
-  const clientTotalRatings = toOptionalNumber(raw?.clientTotalRatings ?? raw?.client_total_ratings ?? raw?.client?.totalRatings);
-
-  let client = raw?.client && typeof raw.client === 'object' ? { ...raw.client } : undefined;
-  if (!client) {
-    client = {
-      name: raw?.clientName ?? 'Cliente',
-      rating: clientRating ?? 0,
-      phone: raw?.clientPhone ?? null,
-      ...(clientTotalRatings !== undefined ? { totalRatings: clientTotalRatings } : {}),
-    };
-  } else {
-    if (clientRating !== undefined) {
-      client.rating = clientRating;
-    }
-    if (clientTotalRatings !== undefined) {
-      client.totalRatings = clientTotalRatings;
-    }
-  }
+  const client = {
+    name: raw?.client?.name ?? raw?.clientName ?? 'Cliente',
+    phone: raw?.client?.phone ?? raw?.clientPhone ?? null,
+    rating: clientRating ?? 0,
+    photoUrl: raw?.client?.photoUrl ?? raw?.client?.photoURL ?? null,
+  };
 
   const requestedAt = toTimestamp(raw?.requestedAt ?? raw?.requested_at ?? raw?.createdAt ?? raw?.created_at);
   const updatedAt = toTimestamp(raw?.updatedAt ?? raw?.updated_at);
@@ -1004,7 +995,7 @@ const normalizeRealtimeRide = (rideId: string, raw: any) => {
     clientName: raw?.clientName ?? client?.name ?? undefined,
     clientPhone: raw?.clientPhone ?? client?.phone ?? undefined,
     clientRating: clientRating ?? undefined,
-    clientTotalRatings: clientTotalRatings ?? undefined,
+    clientComment: raw?.clientComment ?? raw?.comment ?? raw?.notes ?? undefined,
     client,
     rejections: raw?.rejections ?? undefined,
     offers: raw?.offers ?? undefined,
@@ -1018,9 +1009,7 @@ const normalizeRealtimeRide = (rideId: string, raw: any) => {
 };
 
 export const getAvailableRides = functions.https.onCall(async (data, context) => {
-  if (!context.auth?.uid) {
-    throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
-  }
+  const uid = await requireDriver(context);
 
   // Enforce single-session
   await ensureActiveSession(context, data);
@@ -1040,7 +1029,6 @@ export const getAvailableRides = functions.https.onCall(async (data, context) =>
     : 25;
 
   // Resolver área de servicio del conductor desde la sesión (si existe)
-  const uid = context.auth.uid;
   let serviceAreaId = DEFAULT_SERVICE_AREA_ID;
 
   try {
@@ -1160,7 +1148,37 @@ export const getAvailableRides = functions.https.onCall(async (data, context) =>
     }
 
     rides.push({
-      ...normalized,
+      id: normalized.id,
+      status: normalized.status,
+      clientId: normalized.clientId,
+      clientName: normalized.clientName,
+      clientPhone: normalized.clientPhone,
+      client: normalized.client,
+      origin: normalized.origin,
+      clientComment: normalized.clientComment,
+      destination: normalized.destination,
+      extraDestinations: normalized.extraDestinations,
+      estimatedPrice: normalized.estimatedPrice,
+      estimatedDistance: normalized.estimatedDistance,
+      estimatedDuration: normalized.estimatedDuration,
+      clientSuggestedPrice: normalized.clientSuggestedPrice,
+      driverOfferedPrice: normalized.driverOfferedPrice,
+      passengers: normalized.passengers,
+      rideType: normalized.rideType,
+      paymentMethod: normalized.paymentMethod,
+      vehicleType: normalized.vehicleType,
+      designatedDriverVehicle: normalized.designatedDriverVehicle,
+      serviceId: normalized.serviceId,
+      clientVehiclePhoto: normalized.clientVehiclePhoto,
+      negotiationStatus: normalized.negotiationStatus,
+      rejections: normalized.rejections?.[uid]
+        ? { [uid]: normalized.rejections[uid] }
+        : undefined,
+      requestedAt: normalized.requestedAt,
+      createdAt: normalized.requestedAt,
+      updatedAt: normalized.updatedAt,
+      waypointsCount: normalized.waypointsCount,
+      hasMultipleDestinations: normalized.hasMultipleDestinations,
       distanceMeters,
     });
   }
@@ -1178,9 +1196,32 @@ export const getAvailableRides = functions.https.onCall(async (data, context) =>
   });
 
   const limited = rides.slice(0, limit);
+  const clientIds = Array.from(new Set(
+    limited.map((ride) => typeof ride.clientId === 'string' ? ride.clientId : '').filter(Boolean),
+  ));
+  const clientProfiles = clientIds.length
+    ? await admin.firestore().getAll(...clientIds.map((clientId) => admin.firestore().doc(`users/${clientId}`)))
+    : [];
+  const clientPhotos = new Map<string, string | null>();
+
+  clientProfiles.forEach((snapshot) => {
+    const profile = snapshot.data();
+    const photoUrl =
+      profile?.photoUrl ?? profile?.photoURL ?? profile?.profilePhoto ?? profile?.profile_photo ??
+      profile?.avatarUrl ?? profile?.avatarURL ?? profile?.avatar_url ?? profile?.photo_url ?? profile?.avatar;
+    clientPhotos.set(snapshot.id, typeof photoUrl === 'string' && photoUrl.trim() ? photoUrl.trim() : null);
+  });
+
+  const ridesWithClientProfiles = limited.map((ride) => ({
+    ...ride,
+    client: {
+      ...ride.client,
+      photoUrl: clientPhotos.get(ride.clientId) ?? ride.client?.photoUrl ?? null,
+    },
+  }));
 
   console.log('[getAvailableRides] Respondiendo a solicitud', {
-    auth: context.auth.uid,
+    auth: uid,
     totalFound: rides.length,
     returned: limited.length,
     hasCoords,
@@ -1192,7 +1233,7 @@ export const getAvailableRides = functions.https.onCall(async (data, context) =>
 
   return {
     success: true,
-    rides: limited,
+    rides: ridesWithClientProfiles,
     total: rides.length,
     limit,
   };
@@ -1346,8 +1387,9 @@ export const markDriverOnRoute = functions.https.onCall(async (data, context) =>
 
     await notifyUserSafe(rideData.clientId, '🚗 Conductor en camino', 'Tu conductor se dirige al punto de recogida.', {
       rideId,
-      type: 'ride_driver_on_route',
       driverId,
+    }, {
+      type: 'ride_driver_on_route',
     });
 
     await notifyLiveRideUpdateSafe({
@@ -1505,6 +1547,7 @@ export const createRide = functions.https.onCall(async (data, context) => {
 
       await notifyUserSafe(clientId, '🚗 Solicitud enviada', 'Estamos buscando un conductor para tu viaje', {
         rideId,
+      }, {
         type: 'ride_requested',
       });
 
@@ -1735,6 +1778,7 @@ export const createRide = functions.https.onCall(async (data, context) => {
 
     await notifyUserSafe(clientId, '🚗 Solicitud enviada', 'Estamos buscando un conductor para tu viaje', {
       rideId: ride.id,
+    }, {
       type: 'ride_requested',
     });
 
@@ -2060,8 +2104,9 @@ export const acceptRide = functions.https.onCall(async (data, context) => {
       if (newStatus === 'driver_offered' && currentData.status !== 'driver_offered') {
         await notifyUserSafe(currentData.clientId, '🚗 Conductor disponible', 'Un conductor está listo para tu viaje. Revísalo ahora.', {
           rideId,
-          type: 'ride_driver_offered',
           driverId,
+        }, {
+          type: 'ride_driver_offered',
         });
       }
       
@@ -2303,8 +2348,9 @@ export const confirmDriver = functions.https.onCall(async (data, context) => {
 
     await notifyUserSafe(selectedDriverId, '✅ Viaje asignado', 'El cliente confirmó el viaje. Dirígete al punto de encuentro.', {
       rideId,
-      type: 'ride_assigned',
       clientId,
+    }, {
+      type: 'ride_assigned',
     });
 
     await notifyLiveRideUpdateSafe({
@@ -2609,8 +2655,9 @@ export const completeRide = functions.https.onCall(async (data, context) => {
 
         await notifyUserSafe(currentData.clientId, 'Viaje finalizado', 'Por favor confirma y realiza el pago.', {
           rideId,
-          type: 'ride_completed',
           finalFare,
+        }, {
+          type: 'ride_completed',
         });
 
         await notifyLiveRideUpdateSafe({
@@ -2690,8 +2737,9 @@ export const completeRide = functions.https.onCall(async (data, context) => {
 
       await notifyUserSafe(currentData.clientId, '✅ Viaje finalizado', 'Por favor confirma y realiza el pago.', {
         rideId,
-        type: 'ride_completed',
         finalFare,
+      }, {
+        type: 'ride_completed',
       });
 
       await notifyLiveRideUpdateSafe({

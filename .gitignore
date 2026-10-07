@@ -78,7 +78,7 @@ temp/
 
 # Carpetas ignoradas (legacy)
 Backend/
-docs/
+#docs/
 #database/
 tools/
 #.env
@@ -95,7 +95,8 @@ supabase/config.toml
 supabase/readme.md
 supabase/secrets.json
 supabase/.gitignore
-
+docs/
+supabase/
 # Permitidos
 !database/supabase-only.sql
 !functions/.runtimeconfig.json

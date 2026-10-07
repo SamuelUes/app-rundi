@@ -17,6 +17,13 @@ export class DriverRepository {
     return driver;
   }
 
+  async findPreflightByUserId(userId: string) {
+    return await Driver.findOne({
+      attributes: ['id', 'user_id', 'status', 'documents_status', 'current_recharge_balance'],
+      where: { user_id: userId },
+    });
+  }
+
   async findByUserId(userId: string) {
     console.log(`🔍 [DriverRepository.findByUserId] Buscando conductor por user_id: ${userId}`);
     const driver = await Driver.findOne({

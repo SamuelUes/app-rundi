@@ -55,6 +55,13 @@ function normalizeString(value: unknown): string {
   return value.trim();
 }
 
+function normalizePreflightRole(value: unknown): PreflightRole | null {
+  const role = normalizeString(value).toLowerCase();
+  if (role === 'client' || role === 'admin') return 'client';
+  if (role === 'driver' || role === 'designated_driver') return 'driver';
+  return null;
+}
+
 function toFiniteNumber(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return value;
@@ -146,43 +153,47 @@ function normalizeDriverDocumentsStatus(raw: unknown): DriverDocumentsStatus {
   return 'pending';
 }
 
-async function getDriverApproval(driverId: string): Promise<{
-  allowed: boolean;
-  accountStatus: DriverApprovalStatus;
-  documentsStatus: DriverDocumentsStatus;
-  hasActiveVehicle: boolean;
-} | null> {
-  try {
-    const driver = await driverRepo.findByUserId(driverId);
-    if (!driver) {
-      return null;
-    }
+type DriverApprovalData = {
+  summary: {
+    allowed: boolean;
+    accountStatus: DriverApprovalStatus;
+    documentsStatus: DriverDocumentsStatus;
+    hasActiveVehicle: boolean;
+  };
+  driverData: Record<string, unknown> | null;
+};
 
-    const driverJson = driver.toJSON() as Record<string, unknown>;
-    const accountStatus = normalizeDriverAccountStatus(driverJson.status);
-    const documentsStatus = normalizeDriverDocumentsStatus(driverJson.documents_status);
-
-    const vehicles = await vehicleRepo.findByDriverId(String(driverJson.id || ''));
-    const hasActiveVehicle = Array.isArray(vehicles)
-      ? vehicles.some((vehicle) => {
-          const vehicleJson = vehicle.toJSON() as Record<string, unknown>;
-          return vehicleJson.is_active === true;
-        })
-      : false;
-
+async function getDriverApproval(driverId: string): Promise<DriverApprovalData> {
+  const driver = await driverRepo.findPreflightByUserId(driverId);
+  if (!driver) {
     return {
+      summary: {
+        allowed: false,
+        accountStatus: 'pending',
+        documentsStatus: 'pending',
+        hasActiveVehicle: false,
+      },
+      driverData: null,
+    };
+  }
+
+  const driverJson = driver.toJSON() as Record<string, unknown>;
+  const accountStatus = normalizeDriverAccountStatus(driverJson.status);
+  const documentsStatus = normalizeDriverDocumentsStatus(driverJson.documents_status);
+  const hasActiveVehicle = await vehicleRepo.hasActiveForDriverId(String(driverJson.id || ''));
+
+  return {
+    summary: {
       allowed: accountStatus === 'active' && documentsStatus === 'verified' && hasActiveVehicle,
       accountStatus,
       documentsStatus,
       hasActiveVehicle,
-    };
-  } catch (error) {
-    console.warn('⚠️ [getPreflightData] Error obteniendo driverApproval:', error);
-    return null;
-  }
+    },
+    driverData: driverJson,
+  };
 }
 
-async function getTermsSummary(userId: string): Promise<{
+function getTermsSummary(profile?: Record<string, any>): {
   currentVersion: string;
   acceptedVersion?: string;
   acceptedAt?: number;
@@ -192,75 +203,53 @@ async function getTermsSummary(userId: string): Promise<{
     version?: string;
     acceptedAt?: number;
   }>;
-}> {
-  const buildEmptyDocuments = () =>
-    TERMS_DOCUMENTS.reduce((acc, documentType) => {
-      acc[documentType] = {
-        accepted: false,
-      };
-      return acc;
-    }, {} as Record<TermsDocumentType, { accepted: boolean; version?: string; acceptedAt?: number }>);
+} {
+  const documentAcceptances = TERMS_DOCUMENTS.reduce((acc, documentType) => {
+    acc[documentType] = { accepted: false };
+    return acc;
+  }, {} as Record<TermsDocumentType, { accepted: boolean; version?: string; acceptedAt?: number }>);
 
-  try {
-    const profileDoc = await firestore.collection('users').doc(userId).get();
-    const profile = profileDoc.exists ? profileDoc.data() : undefined;
+  const acceptedVersion = normalizeString(profile?.termsVersion);
+  const acceptedAt = toEpochMs(profile?.termsAcceptedAt);
+  const acceptedByLegacyVersion = acceptedVersion === CURRENT_TERMS_VERSION;
+  const rawTermsAcceptance =
+    profile?.termsAcceptance && typeof profile.termsAcceptance === 'object'
+      ? (profile.termsAcceptance as Record<string, any>)
+      : null;
+  const acceptanceType = normalizeString(rawTermsAcceptance?.type).toLowerCase();
+  const acceptanceVersion = normalizeString(rawTermsAcceptance?.version);
+  const acceptedGlobally = acceptedByLegacyVersion ||
+    (acceptanceType === 'general' && acceptanceVersion === CURRENT_TERMS_VERSION);
+  const documentAcceptanceRaw =
+    rawTermsAcceptance?.documents && typeof rawTermsAcceptance.documents === 'object'
+      ? (rawTermsAcceptance.documents as Record<string, any>)
+      : null;
 
-    const acceptedVersion = normalizeString(profile?.termsVersion);
-    const acceptedAt = toEpochMs(profile?.termsAcceptedAt);
-    const acceptedByLegacyVersion = acceptedVersion === CURRENT_TERMS_VERSION;
+  for (const documentType of TERMS_DOCUMENTS) {
+    const rawDocument = documentAcceptanceRaw?.[documentType];
+    const documentVersion = normalizeString(rawDocument?.version);
+    const documentAcceptedAt = toEpochMs(rawDocument?.acceptedAt);
+    const explicitAccepted = rawDocument?.accepted === true;
+    const acceptedByDocumentVersion =
+      documentVersion === CURRENT_TERMS_VERSION && (explicitAccepted || Boolean(documentAcceptedAt));
+    const accepted = acceptedGlobally || acceptedByDocumentVersion;
 
-    const rawTermsAcceptance =
-      profile?.termsAcceptance && typeof profile.termsAcceptance === 'object'
-        ? (profile.termsAcceptance as Record<string, any>)
-        : null;
-    const acceptanceType = normalizeString(rawTermsAcceptance?.type).toLowerCase();
-    const acceptanceVersion = normalizeString(rawTermsAcceptance?.version);
-    const acceptedByGeneralAcceptance =
-      acceptanceType === 'general' && acceptanceVersion === CURRENT_TERMS_VERSION;
-    const acceptedGlobally = acceptedByLegacyVersion || acceptedByGeneralAcceptance;
-
-    const documentAcceptances = buildEmptyDocuments();
-    const documentAcceptanceRaw =
-      rawTermsAcceptance?.documents && typeof rawTermsAcceptance.documents === 'object'
-        ? (rawTermsAcceptance.documents as Record<string, any>)
-        : null;
-
-    for (const documentType of TERMS_DOCUMENTS) {
-      const rawDocument = documentAcceptanceRaw?.[documentType];
-      const documentVersion = normalizeString(rawDocument?.version);
-      const documentAcceptedAt = toEpochMs(rawDocument?.acceptedAt);
-      const explicitAccepted = rawDocument?.accepted === true;
-      const acceptedByDocumentVersion =
-        documentVersion === CURRENT_TERMS_VERSION && (explicitAccepted || Boolean(documentAcceptedAt));
-      const accepted = acceptedGlobally || acceptedByDocumentVersion;
-
-      documentAcceptances[documentType] = {
-        accepted,
-        version: documentVersion || (accepted ? CURRENT_TERMS_VERSION : undefined),
-        acceptedAt: documentAcceptedAt || (accepted && acceptedAt ? acceptedAt : undefined),
-      };
-    }
-
-    const acceptedAllDocuments = TERMS_DOCUMENTS.every(
-      (documentType) => documentAcceptances[documentType].accepted,
-    );
-
-    return {
-      currentVersion: CURRENT_TERMS_VERSION,
-      acceptedVersion: acceptedVersion || undefined,
-      acceptedAt,
-      acceptedAllDocuments,
-      acceptedDocuments: documentAcceptances,
-    };
-  } catch (error) {
-    console.warn('⚠️ [getPreflightData] Error leyendo términos de usuario:', error);
-
-    return {
-      currentVersion: CURRENT_TERMS_VERSION,
-      acceptedAllDocuments: false,
-      acceptedDocuments: buildEmptyDocuments(),
+    documentAcceptances[documentType] = {
+      accepted,
+      version: documentVersion || (accepted ? CURRENT_TERMS_VERSION : undefined),
+      acceptedAt: documentAcceptedAt || (accepted && acceptedAt ? acceptedAt : undefined),
     };
   }
+
+  return {
+    currentVersion: CURRENT_TERMS_VERSION,
+    acceptedVersion: acceptedVersion || undefined,
+    acceptedAt,
+    acceptedAllDocuments: TERMS_DOCUMENTS.every(
+      (documentType) => documentAcceptances[documentType].accepted,
+    ),
+    acceptedDocuments: documentAcceptances,
+  };
 }
 
 function buildActiveRideSummary(role: PreflightRole, userId: string, activeRides: Record<string, any>) {
@@ -371,11 +360,8 @@ function buildProgrammedRideSummary(role: PreflightRole, userId: string, program
 }
 
 function buildPendingPaymentsSummary(
-  role: PreflightRole,
   userId: string,
   paymentStatus: Record<string, any>,
-  activeRides: Record<string, any>,
-  completedRides: Record<string, any>,
 ): PendingPaymentsSummary | null {
   let count = 0;
   let amount = 0;
@@ -383,8 +369,7 @@ function buildPendingPaymentsSummary(
   let firstAmount: number | undefined;
   let firstPaymentMethod: string | undefined;
 
-  const entries = Object.entries(paymentStatus || {});
-  for (const [rideId, payment] of entries) {
+  for (const [rideId, payment] of Object.entries(paymentStatus || {})) {
     if (!payment || typeof payment !== 'object') {
       continue;
     }
@@ -399,54 +384,17 @@ function buildPendingPaymentsSummary(
       continue;
     }
 
-    if (role === 'driver') {
-      const paymentDriverId = normalizeString(
-        payment.driverId ??
-          payment.driver_id ??
-          payment?.ride?.driverId ??
-          payment?.ride?.driver_id,
-      );
-      if (paymentDriverId !== userId) {
-        continue;
-      }
+    const paymentDriverId = normalizeString(
+      payment.driverId ?? payment.driver_id ?? payment?.ride?.driverId ?? payment?.ride?.driver_id,
+    );
+    if (paymentDriverId !== userId) {
+      continue;
+    }
 
-      const chargeTargetRaw = normalizeString(payment.chargeTarget ?? payment.charge_target);
-      const requiresClientPaymentFlag = payment.requiresClientPayment ?? payment.requires_client_payment;
-      if (requiresClientPaymentFlag === false) {
-        continue;
-      }
-      if (chargeTargetRaw === 'driver') {
-        continue;
-      }
-    } else {
-      const requiresClientPayment =
-        payment.requiresClientPayment === true ||
-        payment.chargeTarget === 'client' ||
-        (typeof payment.chargeType === 'string' && payment.chargeType.includes('client')) ||
-        (typeof payment.canceledBy === 'string' && payment.canceledBy === 'client' && rawAmount > 0) ||
-        (rawAmount > 0 && typeof payment.cancelReason === 'string' && payment.cancelReason.toLowerCase().includes('cliente'));
-
-      if (!requiresClientPayment) {
-        continue;
-      }
-
-      const paymentClientId = normalizeString(
-        payment.clientId ??
-          payment.client_id ??
-          payment?.ride?.clientId ??
-          payment?.ride?.client_id,
-      );
-      if (paymentClientId) {
-        if (paymentClientId !== userId) {
-          continue;
-        }
-      } else {
-        const rideData = activeRides[rideId] || completedRides[rideId];
-        const rideClientId = normalizeString(rideData?.clientId ?? rideData?.client_id);
-        if (!rideClientId || rideClientId !== userId) {
-          continue;
-        }
-      }
+    const chargeTarget = normalizeString(payment.chargeTarget ?? payment.charge_target);
+    const requiresClientPayment = payment.requiresClientPayment ?? payment.requires_client_payment;
+    if (requiresClientPayment === false || chargeTarget === 'driver') {
+      continue;
     }
 
     count += 1;
@@ -464,7 +412,7 @@ function buildPendingPaymentsSummary(
   }
 
   return {
-    type: role,
+    type: 'driver',
     count,
     amount: round2(amount),
     firstRideId,
@@ -496,8 +444,8 @@ async function resolveAuthenticatedUserIdFromHttpRequest(req: any): Promise<stri
 
 async function buildPreflightDataResponse(data: GetPreflightDataRequest, authUserId: string) {
   const startTime = Date.now();
-  const role = data?.role;
-  if (role !== 'client' && role !== 'driver') {
+  const requestedRole = data?.role;
+  if (requestedRole !== 'client' && requestedRole !== 'driver') {
     throw new functions.https.HttpsError('invalid-argument', 'role inválido');
   }
 
@@ -506,23 +454,31 @@ async function buildPreflightDataResponse(data: GetPreflightDataRequest, authUse
     throw new functions.https.HttpsError('permission-denied', 'userId no coincide con el usuario autenticado');
   }
   const userId = authUserId;
-
+  const ownerField = requestedRole === 'driver' ? 'driverId' : 'clientId';
   const lat = toFiniteNumber(data?.location?.lat);
   const lng = toFiniteNumber(data?.location?.lng);
 
   try {
-    const activeRidesPromise = db.ref('activeRides').once('value');
-    const programmedRidesPromise = db.ref('programmedRides').once('value');
-    const paymentStatusPromise = db.ref('paymentStatus').once('value');
-    const completedRidesPromise = role === 'client' ? db.ref('completedRides').once('value') : Promise.resolve(null);
-    const driverWalletPromise = role === 'driver'
-      ? db.ref(`drivers/${userId}/wallet`).once('value')
+    const userProfilePromise = firestore.collection('users').doc(userId).get();
+    const activeRidesPromise = db.ref('activeRides').orderByChild(ownerField).equalTo(userId).once('value');
+    const programmedRidesPromise = db.ref('programmedRides').orderByChild(ownerField).equalTo(userId).once('value');
+    const paymentStatusPromise = requestedRole === 'driver'
+      ? Promise.all([
+          db.ref('paymentStatus').orderByChild('driverId').equalTo(userId).once('value'),
+          db.ref('paymentStatus').orderByChild('driver_id').equalTo(userId).once('value'),
+        ]).then((snapshots) =>
+          Object.assign({}, ...snapshots.map((snapshot) => snapshot.val() || {})) as Record<string, any>,
+        )
       : Promise.resolve(null);
-    const driverProfilePromise = role === 'driver'
-      ? driverRepo.findByUserId(userId).catch(() => null)
+    const driverWalletPromise = requestedRole === 'driver'
+      ? db.ref(`drivers/${userId}/wallet`).once('value').catch((error) => {
+          console.warn('⚠️ [getPreflightData] Error leyendo wallet de conductor:', error);
+          return null;
+        })
       : Promise.resolve(null);
-    const termsPromise = getTermsSummary(userId);
-    const driverApprovalPromise = role === 'driver' ? getDriverApproval(userId) : Promise.resolve(null);
+    const driverApprovalPromise = requestedRole === 'driver'
+      ? getDriverApproval(userId)
+      : Promise.resolve(null);
     const regionPromise = lat != null && lng != null
       ? handleCheckRegionAvailability({
           latitude: lat,
@@ -541,57 +497,49 @@ async function buildPreflightDataResponse(data: GetPreflightDataRequest, authUse
           })
       : Promise.resolve(null);
 
-    const settled = await Promise.allSettled([
-      activeRidesPromise,
-      programmedRidesPromise,
-      paymentStatusPromise,
-      completedRidesPromise,
-      driverWalletPromise,
-      driverProfilePromise,
-      termsPromise,
-      driverApprovalPromise,
-      regionPromise,
-    ]);
+    const [userProfileSnapshot, activeRidesSnapshot, programmedRidesSnapshot, paymentStatusSnapshot, driverWalletSnapshot, driverApprovalData, region] =
+      await Promise.all([
+        userProfilePromise,
+        activeRidesPromise,
+        programmedRidesPromise,
+        paymentStatusPromise,
+        driverWalletPromise,
+        driverApprovalPromise,
+        regionPromise,
+      ]);
 
-    const activeRidesSnapshot = settled[0].status === 'fulfilled' ? settled[0].value : null;
-    const programmedRidesSnapshot = settled[1].status === 'fulfilled' ? settled[1].value : null;
-    const paymentStatusSnapshot = settled[2].status === 'fulfilled' ? settled[2].value : null;
-    const completedRidesSnapshot = settled[3].status === 'fulfilled' ? settled[3].value : null;
-    const driverWalletSnapshot = settled[4].status === 'fulfilled' ? settled[4].value : null;
-    const driverProfile = settled[5].status === 'fulfilled' ? settled[5].value : null;
-    const terms = settled[6].status === 'fulfilled'
-      ? settled[6].value
-      : {
-          currentVersion: CURRENT_TERMS_VERSION,
-        };
-    const driverApproval = settled[7].status === 'fulfilled' ? settled[7].value : null;
-    const region = settled[8].status === 'fulfilled' ? settled[8].value : null;
+    const profile = userProfileSnapshot.exists ? userProfileSnapshot.data() : undefined;
+    if (!profile) {
+      throw new functions.https.HttpsError('failed-precondition', 'Perfil de usuario no disponible para preflight');
+    }
 
-    const activeRidesData = (activeRidesSnapshot?.val() || {}) as Record<string, any>;
-    const programmedRidesData = (programmedRidesSnapshot?.val() || {}) as Record<string, any>;
+    const authoritativeRole = normalizePreflightRole(profile.role);
+    if (!authoritativeRole) {
+      throw new functions.https.HttpsError('failed-precondition', 'Rol de usuario no disponible para preflight');
+    }
+    if (authoritativeRole !== requestedRole) {
+      throw new functions.https.HttpsError('permission-denied', 'role no coincide con el perfil autenticado');
+    }
+
+    const activeRidesData = (activeRidesSnapshot.val() || {}) as Record<string, any>;
+    const programmedRidesData = (programmedRidesSnapshot.val() || {}) as Record<string, any>;
     const paymentStatusData = (paymentStatusSnapshot?.val() || {}) as Record<string, any>;
-    const completedRidesData = (completedRidesSnapshot && typeof completedRidesSnapshot.val === 'function'
-      ? completedRidesSnapshot.val()
-      : {}) as Record<string, any>;
-    const driverWalletData = (driverWalletSnapshot && typeof driverWalletSnapshot.val === 'function'
-      ? driverWalletSnapshot.val()
-      : null) as Record<string, any> | null;
-    const driverProfileData = (driverProfile && typeof (driverProfile as any).toJSON === 'function'
-      ? (driverProfile as any).toJSON()
-      : null) as Record<string, any> | null;
-
-    const activeRide = buildActiveRideSummary(role, userId, activeRidesData);
-    const programmedRide = buildProgrammedRideSummary(role, userId, programmedRidesData);
-    const pendingPayments = role === 'driver'
-      ? buildPendingPaymentsSummary(role, userId, paymentStatusData, activeRidesData, completedRidesData)
+    const terms = getTermsSummary(profile);
+    const driverWalletData = driverWalletSnapshot?.val() as Record<string, any> | null;
+    const driverApproval = driverApprovalData?.summary ?? null;
+    const driverProfileData = driverApprovalData?.driverData ?? null;
+    const activeRide = buildActiveRideSummary(requestedRole, userId, activeRidesData);
+    const programmedRide = buildProgrammedRideSummary(requestedRole, userId, programmedRidesData);
+    const pendingPayments = requestedRole === 'driver'
+      ? buildPendingPaymentsSummary(userId, paymentStatusData)
       : null;
-    const rechargeFunds = role === 'driver'
+    const rechargeFunds = requestedRole === 'driver'
       ? buildRechargeFundsSummary(driverWalletData, driverProfileData)
       : null;
 
     return {
       success: true,
-      role,
+      role: requestedRole,
       userId,
       timestamp: Date.now(),
       latencyMs: Date.now() - startTime,
@@ -606,7 +554,10 @@ async function buildPreflightDataResponse(data: GetPreflightDataRequest, authUse
     };
   } catch (error: any) {
     console.error('❌ [getPreflightData] Error:', error);
-    throw new functions.https.HttpsError('internal', error?.message || 'Error obteniendo preflight');
+    if (error instanceof functions.https.HttpsError) {
+      throw error;
+    }
+    throw new functions.https.HttpsError('unavailable', 'No se pudo completar el preflight. Intenta nuevamente.');
   }
 }
 
@@ -618,6 +569,60 @@ export const getPreflightData = functions
     }
 
     return await buildPreflightDataResponse(data, context.auth.uid);
+  });
+
+export const acceptPreflightTerms = functions
+  .runWith(regionConfig)
+  .https.onCall(async (data: {
+    expectedUid: string;
+    version?: string;
+    acceptedDocuments?: Partial<Record<TermsDocumentType, boolean>>;
+  }, context) => {
+    if (!context.auth?.uid) {
+      throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
+    }
+    if (normalizeString(data?.expectedUid) !== context.auth.uid) {
+      throw new functions.https.HttpsError('permission-denied', 'UID de aceptación no coincide con el usuario autenticado');
+    }
+
+    const version = normalizeString(data?.version);
+    const acceptedDocuments = data?.acceptedDocuments;
+    if (
+      version !== CURRENT_TERMS_VERSION ||
+      !TERMS_DOCUMENTS.every((documentType) => acceptedDocuments?.[documentType] === true)
+    ) {
+      throw new functions.https.HttpsError('invalid-argument', 'Debes aceptar todos los documentos vigentes');
+    }
+
+    const userRef = firestore.collection('users').doc(context.auth.uid);
+    const userSnapshot = await userRef.get();
+    if (!userSnapshot.exists) {
+      throw new functions.https.HttpsError('failed-precondition', 'Perfil de usuario no disponible');
+    }
+
+    const acceptedAt = admin.firestore.Timestamp.now();
+    const documents = TERMS_DOCUMENTS.reduce((result, documentType) => {
+      result[documentType] = {
+        accepted: true,
+        version,
+        acceptedAt,
+      };
+      return result;
+    }, {} as Record<TermsDocumentType, { accepted: boolean; version: string; acceptedAt: admin.firestore.Timestamp }>);
+
+    await userRef.update({
+      termsVersion: version,
+      termsAcceptedAt: acceptedAt,
+      termsAcceptance: {
+        type: 'by_document',
+        version,
+        acceptedAt,
+        documents,
+      },
+      updatedAt: acceptedAt,
+    });
+
+    return { success: true, acceptedAt: acceptedAt.toMillis() };
   });
 
 export const getPreflightDataHttp = functions
@@ -641,6 +646,14 @@ export const getPreflightDataHttp = functions
       }
       if (code === 'unauthenticated') {
         res.status(401).json({ error: message, code });
+        return;
+      }
+      if (code === 'failed-precondition') {
+        res.status(412).json({ error: message, code });
+        return;
+      }
+      if (code === 'unavailable') {
+        res.status(503).json({ error: message, code });
         return;
       }
       console.error('❌ [getPreflightDataHttp] Error:', error);

@@ -17,6 +17,15 @@ export class VehicleRepository {
     return await Vehicle.findAll({ where: { driver_id: driverId } });
   }
 
+  async hasActiveForDriverId(driverId: string): Promise<boolean> {
+    const vehicle = await Vehicle.findOne({
+      attributes: ['id'],
+      where: { driver_id: driverId, is_active: true },
+      raw: true,
+    });
+    return vehicle !== null;
+  }
+
   async findAll(): Promise<Vehicle[]> {
     return await Vehicle.findAll();
   }

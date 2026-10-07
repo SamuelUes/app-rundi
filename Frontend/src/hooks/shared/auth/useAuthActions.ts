@@ -14,7 +14,9 @@ import localAuthService from '../../../services/auth/localAuthService';
 import mainAuthService from '../../../services/auth/authService';
 import backgroundLocationService from '../../../services/backgroundLocationService';
 import sessionService from '../../../services/sessionService';
+import preflightService from '../../../services/preflightService';
 import alertService from '../../../services/alertService';
+import { clearPreflightResult } from '../../../stores/preflightStore';
 import { useAuthStore, User } from '../../../stores/authStore';
 import { resolveUserModeFromRole, useUserMode } from './useUserMode';
 
@@ -136,6 +138,8 @@ export function useAuthActions() {
 
   const logout = useCallback(async () => {
     const user = useAuthStore.getState().user;
+    preflightService.clearCache();
+    clearPreflightResult();
     setLogoutInProgress(true);
     try {
       try {

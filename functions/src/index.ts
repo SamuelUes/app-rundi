@@ -52,6 +52,7 @@ import { handleDelayedRideStatus } from "./helpers/cloudTasks";
 // Importar notificaciones
 // import * as notificationsAPI from "./api/notifications";
 import * as fcmAPI from "./api/fcm";
+import * as adminNotificationsAPI from "./api/adminNotifications";
 // Importar webhooks
 // ✅ Eliminado: Stripe webhook (sistema de pagos simplificado)
 
@@ -160,6 +161,7 @@ export const checkRegionAvailability = regionAvailabilityAPI.checkRegionAvailabi
 export const checkRegionAvailabilityHttp = regionAvailabilityAPI.checkRegionAvailabilityHttp;
 export const getPreflightData = preflightAPI.getPreflightData;
 export const getPreflightDataHttp = preflightAPI.getPreflightDataHttp;
+export const acceptPreflightTerms = preflightAPI.acceptPreflightTerms;
 export const getDriverRechargeFundsSummary = rechargeFundsAPI.getDriverRechargeFundsSummary;
 export const createDriverRechargeManual = rechargeFundsAPI.createDriverRechargeManual;
 export const puntoExpressRechargeWebhookHttp = rechargeFundsAPI.puntoExpressRechargeWebhookHttp;
@@ -374,6 +376,7 @@ export const registerFCMToken = fcmAPI.registerFCMToken;
 export const clearFCMToken = fcmAPI.clearFCMToken;
 export const sendTestNotification = fcmAPI.sendTestNotification;
 export const notifyProximityRide = fcmAPI.notifyProximityRide;
+export const sendAdminNotification = adminNotificationsAPI.sendAdminNotification;
 export const syncUserRoleFromCms = userRolesAPI.syncUserRoleFromCms;
 export const syncAppUserRole = userRolesAPI.syncAppUserRole;
 

@@ -11,8 +11,10 @@ import { User as FirebaseAuthUser } from 'firebase/auth';
 import backendConfig from '../../../config/backendConfig';
 import firebaseAuthService from '../../../services/auth/firebaseAuthService';
 import sessionService from '../../../services/sessionService';
+import preflightService from '../../../services/preflightService';
 import alertService from '../../../services/alertService';
 import storageCleanupService from '../../../services/storageCleanupService';
+import { clearPreflightResult } from '../../../stores/preflightStore';
 import { useAuthStore, User } from '../../../stores/authStore';
 import { resolveUserModeFromRole } from './useUserMode';
 
@@ -52,12 +54,27 @@ export function useAuthInit() {
 
     if (backendConfig.isFirebase()) {
       const setupAuthListener = async () => {
+        let observedUid: string | null | undefined;
+        let observedRole: User['role'] | null | undefined;
         try {
           const unsubscribe = await firebaseAuthService.onAuthStateChange(async (firebaseUser) => {
+            const nextUid = firebaseUser?.uid ?? null;
+            if (observedUid !== nextUid) {
+              preflightService.clearCache();
+              clearPreflightResult();
+              observedUid = nextUid;
+            }
+
             if (firebaseUser) {
               try {
                 const userData = await firebaseAuthService.getUserProfile(firebaseUser.uid);
+                if (observedUid !== firebaseUser.uid) return;
                 const role = (normalizeRoleValue(userData.role) || 'client') as User['role'];
+                if (observedRole !== role) {
+                  preflightService.clearCache();
+                  clearPreflightResult();
+                  observedRole = role;
+                }
                 setUser({
                   id: firebaseUser.uid,
                   email: firebaseUser.email || '',
@@ -66,6 +83,7 @@ export function useAuthInit() {
                   phone: userData.phone,
                 });
               } catch (profileError: any) {
+                if (observedUid !== firebaseUser.uid) return;
                 if (profileError?.code === 'ACCOUNT_DISABLED' || profileError?.message === 'ACCOUNT_DISABLED') {
                   try { await firebaseAuthService.logout(); } catch {}
                   await AsyncStorage.removeItem('user');
@@ -82,6 +100,7 @@ export function useAuthInit() {
                 console.error('[AuthInit] Error obteniendo perfil:', profileError);
               }
             } else {
+              observedRole = null;
               setUser(null);
               setUserMode('client');
             }

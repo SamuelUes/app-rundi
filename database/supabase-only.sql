@@ -1,13 +1,28 @@
 -- ============================================
--- SUPABASE POSTGRESQL - SCHEMA COMPLETO
--- DriveAngel.ni
--- Actualizado: 2025-10-25
+-- SUPABASE POSTGRESQL - ESQUEMA DE REFERENCIA
+-- Rundi / proyecto remoto rundiapp-dev
+-- Estado verificado: 2026-10-06
+-- Fuente: esquema remoto contrastado con migrations versionadas hasta 2026-10-06.
+-- El MCP reporta vacío el historial remoto de migrations; este archivo no las ejecuta.
+-- Los efectos observados de las migrations se distinguen de los cambios locales.
+-- El event trigger remoto ensure_rls (public.rls_auto_enable()) se documenta
+-- como infraestructura externa y no se recrea en este esquema de aplicación.
 -- ============================================
 -- 
 -- IMPORTANTE: Este schema es SOLO para Supabase PostgreSQL
 -- Los datos en tiempo real están en Firebase Realtime DB
--- 
--- CAMBIOS EN ESTA VERSIÓN (2025-10-25):
+--
+-- SECCIONES
+-- 1. Funciones helper y objetos de public (tablas, vistas, RLS, auditoría)
+-- 2. Storage (buckets privados de base y políticas de storage.objects)
+-- 3. Diferencias exclusivamente locales, documentadas como comentarios al final
+--
+-- STORAGE EN PRODUCCIÓN (observado, no replicado por seguridad aquí):
+-- drivers-documents, rides-documents, support-calls y support_chats son públicos;
+-- support-chats (con guion) es privado. Los inserts siguientes crean buckets
+-- privados para entornos nuevos/locales y no deben usarse para igualar producción.
+--
+-- HISTORIAL DE DISEÑO (2025-10-25):
 -- - ✅ REFACTORIZADO: Esquema de ride_locations
 --   * Eliminados campos de ubicación de rides (origin_lat, origin_lng, etc)
 --   * Actualizado ride_locations con nueva estructura:
@@ -32,7 +47,7 @@
 --   * biometric_acceptance_verified: Si se verificó la biometría
 --   * biometric_acceptance_at: Timestamp de verificación
 -- 
--- CAMBIOS ANTERIORES:
+-- CAMBIOS PREVIOS DEL ESQUEMA:
 -- - ✅ Eliminada tabla cash_recharges (sistema de recargas removido)
 -- - ✅ Agregadas columnas de ratings: driving, safety, friendliness
 -- - ✅ Agregada columna notes a payments
@@ -44,35 +59,9 @@
 -- ============================================
 
 
+-- ESTADO REMOTO: 21 tablas y 3 vistas en public; incluye audit_log y soft delete.
 -- ============================================
--- RESULTADO ESPERADO (2025-10-25):
--- ============================================
--- table_name                      | columns_count
--- --------------------------------|---------------
--- analytics_events                | 8
--- biometric_authentications       | 10
--- cards                           | 12 (NUEVO - Tarjetas guardadas)
--- drivers_recharges               | 12 (PuntoExpress wallet movements)
--- driver_services                 | 10
--- drivers                         | 11
--- emergency_calls                 | 13
--- payments                        | 23 (actualizado con biometría)
--- ratings                         | 13
--- ride_locations                  | 9
--- rides                           | 32 (actualizado con biometría)
--- service_commission_history      | 7
--- services                        | 14
--- sms_verification_codes          | 11
--- vehicles                        | 18
--- ============================================
--- TOTAL: 15 TABLAS (+ 1 nueva de tarjetas)
--- ============================================
-
--- ============================================
--- 31. CMS TABLES: QUEJAS Y ACCIONES DE OPERADOR
--- ============================================
-
-
+-- DATABASE OBJECTS: HELPERS, TABLES, VIEWS AND POLICIES
 -- ============================================
 -- FUNCIÓN HELPER PARA TRIGGERS
 -- ============================================
@@ -84,8 +73,19 @@ BEGIN
 END;
 $$ language 'plpgsql';
 
+CREATE OR REPLACE FUNCTION public.current_firebase_uid()
+RETURNS text
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT coalesce(
+    current_setting('request.jwt.claim.sub', true),
+    (current_setting('request.jwt.claims', true)::json ->> 'sub')
+  );
+$$;
+
 -- ============================================
--- STORAGE BUCKETS (drivers-documents, rides-documents, support-chats)
+-- STORAGE: BUCKETS AND OBJECT POLICIES
 -- ============================================
 INSERT INTO storage.buckets (id, name, public)
 VALUES ('drivers-documents', 'drivers-documents', FALSE)
@@ -293,6 +293,8 @@ WITH CHECK (
 );
 
 -- ============================================
+-- PRODUCTION DATABASE OBJECTS: TABLES, VIEWS, RLS AND POLICIES
+-- ============================================
 -- 1. DRIVERS TABLE
 -- Datos sensibles de conductores
 -- ============================================
@@ -313,7 +315,7 @@ CREATE TABLE IF NOT EXISTS public.drivers (
   total_rides INTEGER NULL DEFAULT 0,
   average_rating NUMERIC(3, 2) NULL DEFAULT 0,
   total_earnings NUMERIC(10, 2) NULL DEFAULT 0,
-  current_recharge_balance NUMERIC(12, 2) NULL DEFAULT 0,
+  current_recharge_balance NUMERIC(12, 2) NOT NULL DEFAULT 0,
   -- ✅ ELIMINADOS: designated_driver_request_status, designated_driver_role
   -- Ahora se usan driver_services para esto
   created_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
@@ -578,7 +580,7 @@ CREATE TABLE IF NOT EXISTS public.payments (
   tip NUMERIC(10, 2) NULL DEFAULT 0,
   commission NUMERIC(10, 2) NOT NULL,
   commission_rate_applied NUMERIC(5, 4) NULL,
-  total NUMERIC(10, 2) NULL DEFAULT (amount + COALESCE(tip, 0)),
+  total NUMERIC(10, 2) NULL,
   
   -- Método de pago: cash (efectivo) o card (bancos locales)
   payment_method VARCHAR(20) NULL,
@@ -616,7 +618,7 @@ CREATE TABLE IF NOT EXISTS public.payments (
   
   CONSTRAINT payments_pkey PRIMARY KEY (id),
   CONSTRAINT payments_local_transaction_id_key UNIQUE (local_transaction_id),
-  CONSTRAINT payments_ride_id_fkey FOREIGN KEY (ride_id) REFERENCES public.rides(id) ON DELETE CASCADE
+  CONSTRAINT payments_ride_id_fkey FOREIGN KEY (ride_id) REFERENCES public.rides(id) ON DELETE RESTRICT
 ) TABLESPACE pg_default;
 
 COMMENT ON TABLE public.payments IS 'Historial de pagos: Cash (Efectivo) y Card (Bancos Locales)';
@@ -757,7 +759,7 @@ CREATE TABLE IF NOT EXISTS public.ratings (
   created_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
   
   CONSTRAINT ratings_pkey PRIMARY KEY (id),
-  CONSTRAINT ratings_ride_id_fkey FOREIGN KEY (ride_id) REFERENCES public.rides(id) ON DELETE CASCADE,
+  CONSTRAINT ratings_ride_id_fkey FOREIGN KEY (ride_id) REFERENCES public.rides(id) ON DELETE RESTRICT,
   CONSTRAINT ratings_rating_check CHECK ((rating >= 1) AND (rating <= 5)),
   CONSTRAINT ratings_punctuality_check CHECK ((punctuality >= 1) AND (punctuality <= 5)),
   CONSTRAINT ratings_cleanliness_check CHECK ((cleanliness >= 1) AND (cleanliness <= 5)),
@@ -805,7 +807,7 @@ CREATE TABLE IF NOT EXISTS public.ride_locations (
   updated_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
   
   CONSTRAINT ride_locations_pkey PRIMARY KEY (id),
-  CONSTRAINT ride_locations_ride_id_fkey FOREIGN KEY (ride_id) REFERENCES public.rides(id) ON DELETE CASCADE,
+  CONSTRAINT ride_locations_ride_id_fkey FOREIGN KEY (ride_id) REFERENCES public.rides(id) ON DELETE RESTRICT,
   CONSTRAINT unique_ride_location_order UNIQUE(ride_id, location_order)
 ) TABLESPACE pg_default;
 
@@ -837,7 +839,7 @@ BEGIN
     ALTER TABLE public.rides
       ADD CONSTRAINT fk_rides_origin_location
       FOREIGN KEY (origin_location_id)
-      REFERENCES public.ride_locations(id);
+      REFERENCES public.ride_locations(id) ON DELETE SET NULL;
   END IF;
 END
 $$;
@@ -853,7 +855,7 @@ BEGIN
     ALTER TABLE public.rides
       ADD CONSTRAINT fk_rides_destination_location
       FOREIGN KEY (destination_location_id)
-      REFERENCES public.ride_locations(id);
+      REFERENCES public.ride_locations(id) ON DELETE SET NULL;
   END IF;
 END
 $$;
@@ -1192,7 +1194,7 @@ CREATE TABLE IF NOT EXISTS public.designated_driver_inspections (
   updated_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
   
   CONSTRAINT designated_driver_inspections_pkey PRIMARY KEY (id),
-  CONSTRAINT designated_driver_inspections_ride_id_fkey FOREIGN KEY (ride_id) REFERENCES public.rides(id) ON DELETE CASCADE
+  CONSTRAINT designated_driver_inspections_ride_id_fkey FOREIGN KEY (ride_id) REFERENCES public.rides(id) ON DELETE RESTRICT
 ) TABLESPACE pg_default;
 
 COMMENT ON TABLE public.designated_driver_inspections IS 'Inspecciones de vehículos del cliente para viajes de conductor designado - Fotos en Supabase Storage';
@@ -1644,7 +1646,7 @@ GROUP BY s.id, s.code, s.name;
 COMMENT ON VIEW services_stats IS 'Estadísticas agregadas por servicio: viajes, ingresos y comisiones';
 
 -- ============================================
--- DESACTIVAR ROW LEVEL SECURITY (Temporal)
+-- ROW LEVEL SECURITY (RLS)
 -- ============================================
 ALTER TABLE public.drivers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.vehicles ENABLE ROW LEVEL SECURITY;
@@ -1900,22 +1902,10 @@ REVOKE INSERT, UPDATE, DELETE ON public.designated_driver_inspections FROM anon;
 ALTER VIEW public.services_stats SET (security_barrier = true);
 ALTER VIEW public.driver_active_services SET (security_barrier = true);
 
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1
-    FROM information_schema.tables
-    WHERE table_schema = 'auth'
-      AND table_name = 'config'
-  ) THEN
-    UPDATE auth.config
-    SET
-      external_firebase_enabled = true,
-      external_firebase_issuer = 'https://securetoken.google.com/rundi-prod',
-      external_firebase_client_id = 'rundi-prod';
-  END IF;
-END;
-$$;
+-- Configuración Firebase Auth de producción retirada del DDL ejecutable.
+-- El bloque legado apuntaba a rundi-prod; auth.config no existe en rundiapp-dev.
+-- No copiar esa configuración al stack Docker local. Configurar issuer/client
+-- por separado solo si el proyecto destino soporta external Firebase Auth.
 
 CREATE TABLE IF NOT EXISTS public.cms_complaints (
   id UUID NOT NULL DEFAULT gen_random_uuid(),
@@ -2122,3 +2112,215 @@ CREATE POLICY service_commission_history_admin_all ON public.service_commission_
   );
 
 REVOKE INSERT, UPDATE, DELETE ON public.service_commission_history FROM anon;
+
+-- ============================================
+-- OBJETOS REMOTOS QUE COINCIDEN CON MIGRATIONS 2025-10-27 Y 2025-10-28
+-- Reflejados por inspección directa de rundiapp-dev; el historial MCP remoto
+-- está vacío. No incluye el workaround local de payments.total.
+-- ============================================
+
+-- Soft delete: conservar historial en tablas críticas.
+ALTER TABLE public.rides ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP WITHOUT TIME ZONE NULL;
+ALTER TABLE public.drivers ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP WITHOUT TIME ZONE NULL;
+ALTER TABLE public.payments ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP WITHOUT TIME ZONE NULL;
+ALTER TABLE public.ratings ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP WITHOUT TIME ZONE NULL;
+ALTER TABLE public.vehicles ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP WITHOUT TIME ZONE NULL;
+ALTER TABLE public.cms_complaints ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP WITHOUT TIME ZONE NULL;
+
+COMMENT ON COLUMN public.rides.deleted_at IS 'Fecha de soft delete. NULL = activo. Permite recuperar viajes eliminados por error.';
+COMMENT ON COLUMN public.drivers.deleted_at IS 'Fecha de soft delete. NULL = activo. Permite mantener historial de conductores inactivos.';
+COMMENT ON COLUMN public.payments.deleted_at IS 'Fecha de soft delete. NULL = activo. Los pagos nunca deben eliminarse permanentemente.';
+COMMENT ON COLUMN public.ratings.deleted_at IS 'Fecha de soft delete. NULL = activo.';
+COMMENT ON COLUMN public.vehicles.deleted_at IS 'Fecha de soft delete. NULL = activo.';
+COMMENT ON COLUMN public.cms_complaints.deleted_at IS 'Fecha de soft delete. NULL = activo.';
+
+CREATE INDEX IF NOT EXISTS idx_rides_deleted_at ON public.rides USING btree (deleted_at) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_drivers_deleted_at ON public.drivers USING btree (deleted_at) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_payments_deleted_at ON public.payments USING btree (deleted_at) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_ratings_deleted_at ON public.ratings USING btree (deleted_at) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_vehicles_deleted_at ON public.vehicles USING btree (deleted_at) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_cms_complaints_deleted_at ON public.cms_complaints USING btree (deleted_at) WHERE deleted_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS public.audit_log (
+  id UUID NOT NULL DEFAULT gen_random_uuid(),
+  actor_uid TEXT NOT NULL,
+  actor_role VARCHAR(20) NOT NULL,
+  action VARCHAR(50) NOT NULL,
+  entity_type VARCHAR(30) NOT NULL,
+  entity_id TEXT NOT NULL,
+  changes JSONB NULL,
+  ip_address INET NULL,
+  user_agent TEXT NULL,
+  source VARCHAR(20) NULL DEFAULT 'api',
+  created_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
+  CONSTRAINT audit_log_pkey PRIMARY KEY (id)
+) TABLESPACE pg_default;
+
+COMMENT ON TABLE public.audit_log IS 'Bitácora general de auditoría para cambios críticos en el sistema';
+COMMENT ON COLUMN public.audit_log.actor_uid IS 'Firebase UID del usuario que ejecutó la acción';
+COMMENT ON COLUMN public.audit_log.actor_role IS 'Rol del actor: client, driver, admin, operator, system';
+COMMENT ON COLUMN public.audit_log.action IS 'Tipo de acción: create, update, delete, restore, cancel, complete';
+COMMENT ON COLUMN public.audit_log.entity_type IS 'Tipo de entidad: ride, driver, payment, rating, vehicle, complaint, user';
+COMMENT ON COLUMN public.audit_log.entity_id IS 'Identificador de la entidad afectada (UUID o Firebase UID)';
+COMMENT ON COLUMN public.audit_log.changes IS 'Diff de cambios en formato JSON: { before: {...}, after: {...} }';
+COMMENT ON COLUMN public.audit_log.source IS 'Origen de la acción: api, trigger, scheduled, manual';
+CREATE INDEX IF NOT EXISTS idx_audit_log_actor_uid ON public.audit_log USING btree (actor_uid);
+CREATE INDEX IF NOT EXISTS idx_audit_log_entity ON public.audit_log USING btree (entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_audit_log_action ON public.audit_log USING btree (action);
+CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON public.audit_log USING btree (created_at DESC);
+
+ALTER TABLE public.audit_log ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS audit_log_admin_read ON public.audit_log;
+CREATE POLICY audit_log_admin_read ON public.audit_log
+  FOR SELECT TO authenticated USING (
+    public.current_firebase_uid() IS NOT NULL
+    AND (
+      (current_setting('request.jwt.claims', true)::json ->> 'role') = 'admin'
+      OR (current_setting('request.jwt.claims', true)::json ->> 'app_role') = 'admin'
+      OR EXISTS (
+        SELECT 1 FROM auth.users u
+        WHERE u.id = auth.uid()
+          AND u.raw_app_meta_data ->> 'role' = 'admin'
+      )
+    )
+  );
+DROP POLICY IF EXISTS audit_log_service_insert ON public.audit_log;
+CREATE POLICY audit_log_service_insert ON public.audit_log
+  FOR INSERT TO service_role WITH CHECK (true);
+REVOKE UPDATE, DELETE ON public.audit_log FROM anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.audit_ride_status_change()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  IF TG_OP = 'UPDATE' AND OLD.status IS DISTINCT FROM NEW.status THEN
+    INSERT INTO public.audit_log (actor_uid, actor_role, action, entity_type, entity_id, changes, source)
+    VALUES (
+      COALESCE(NEW.driver_id::text, NEW.client_id::text, 'system'),
+      COALESCE(
+        CASE WHEN NEW.driver_id IS NOT NULL THEN 'driver' END,
+        CASE WHEN NEW.client_id IS NOT NULL THEN 'client' END,
+        'system'
+      ),
+      'update',
+      'ride',
+      NEW.id::text,
+      jsonb_build_object(
+        'before', jsonb_build_object('status', OLD.status),
+        'after', jsonb_build_object('status', NEW.status)
+      ),
+      'trigger'
+    );
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trigger_audit_ride_status ON public.rides;
+CREATE TRIGGER trigger_audit_ride_status
+AFTER UPDATE OF status ON public.rides
+FOR EACH ROW EXECUTE FUNCTION public.audit_ride_status_change();
+COMMENT ON FUNCTION public.audit_ride_status_change() IS 'Registra cambios de status de rides en audit_log automáticamente';
+REVOKE EXECUTE ON FUNCTION public.audit_ride_status_change() FROM PUBLIC;
+
+DO $$ BEGIN
+  ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
+EXCEPTION WHEN insufficient_privilege THEN
+  RAISE NOTICE 'Sin permisos para habilitar RLS en storage.objects. Revisar desde Supabase Storage > Policies';
+END $$;
+
+ALTER VIEW IF EXISTS public.rides_with_complete_route SET (security_invoker = true);
+ALTER VIEW IF EXISTS public.driver_active_services SET (security_invoker = true);
+ALTER VIEW IF EXISTS public.services_stats SET (security_invoker = true);
+
+CREATE INDEX IF NOT EXISTS idx_payments_ride_status ON public.payments USING btree (ride_id, status);
+CREATE INDEX IF NOT EXISTS idx_payments_ride_created_at ON public.payments USING btree (ride_id, created_at DESC);
+
+REVOKE INSERT, UPDATE, DELETE ON public.driver_services FROM authenticated;
+REVOKE INSERT, UPDATE, DELETE ON public.services FROM authenticated;
+
+-- El remoto conserva también las restricciones previas (CASCADE) en este objeto,
+-- además de la restricción RESTRICT incorporada por la migration 20251028000000.
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'service_commission_history_service_id_fkey'
+      AND conrelid = 'public.service_commission_history'::regclass
+  ) THEN
+    ALTER TABLE public.service_commission_history
+      ADD CONSTRAINT service_commission_history_service_id_fkey
+      FOREIGN KEY (service_id) REFERENCES public.services(id) ON DELETE RESTRICT;
+  END IF;
+END $$;
+
+-- Objetos adicionales observados en el proyecto remoto y ausentes de migrations.
+CREATE OR REPLACE FUNCTION public.log_commission_change()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF OLD.commission_rate IS DISTINCT FROM NEW.commission_rate THEN
+    INSERT INTO public.service_commission_history (
+      service_id, old_commission_rate, new_commission_rate, changed_by, change_reason
+    ) VALUES (
+      NEW.id,
+      OLD.commission_rate,
+      NEW.commission_rate,
+      COALESCE(current_setting('app.current_user_id', true), 'system'),
+      'Commission rate updated'
+    );
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trigger_log_commission_change ON public.services;
+CREATE TRIGGER trigger_log_commission_change
+AFTER UPDATE ON public.services
+FOR EACH ROW EXECUTE FUNCTION public.log_commission_change();
+
+CREATE OR REPLACE FUNCTION public.get_driver_commission_rate(
+  p_driver_id UUID,
+  p_service_code VARCHAR
+)
+RETURNS NUMERIC
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_commission_rate DECIMAL(5, 4);
+BEGIN
+  SELECT COALESCE(ds.custom_commission_rate, s.commission_rate)
+  INTO v_commission_rate
+  FROM public.services s
+  LEFT JOIN public.driver_services ds ON ds.service_id = s.id AND ds.driver_id = p_driver_id
+  WHERE s.code = p_service_code
+    AND s.is_active = true
+    AND (ds.is_active IS NULL OR ds.is_active = true)
+    AND (ds.is_approved IS NULL OR ds.is_approved = true)
+    AND (ds.expires_at IS NULL OR ds.expires_at > NOW());
+
+  RETURN COALESCE(v_commission_rate, 0.10);
+END;
+$$;
+
+-- ============================================
+-- LOCAL ONLY: DOCKER MIGRATION DIFFERENCE (NOT EXECUTED BY THIS FILE)
+-- ============================================
+-- supabase/migrations/20251025000000_initial_schema.sql evita un DEFAULT
+-- basado en otras columnas para payments.total y usa el trigger
+-- set_payment_total_default() para calcular amount + COALESCE(tip, 0).
+-- Esa adaptación se conserva en la migration local; no existe en
+-- rundiapp-dev, donde payments.total no tiene DEFAULT ni trigger de cálculo; solo hay trigger de updated_at.
+--
+-- La migration local 20261006193656_storage_authenticated_jwt_roles.sql amplía
+-- las policies drivers_docs_* y rides_docs_* a anon, authenticated. En producción,
+-- el catálogo remoto consultado todavía las limita a anon; no incluir ese
+-- cambio local en el baseline de producción sin desplegarlo explícitamente.
+--
+-- Los buckets Storage de producción observados son:
+--   públicos: drivers-documents, rides-documents, support-calls, support_chats
+--   privado:  support-chats
+-- Los INSERT de Storage de arriba son defaults privados para entornos nuevos;
+-- no cambian flags de buckets existentes y no representan esos flags remotos.

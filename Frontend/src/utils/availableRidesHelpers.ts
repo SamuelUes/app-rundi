@@ -176,6 +176,7 @@ export interface Ride {
   clientId: string;
   clientName?: string;
   clientPhone?: string;
+  client?: { name?: string | null; phone?: string | null; rating?: number; photoUrl?: string | null };
   origin: { lat: number; lng: number; address?: string };
   destination: { lat: number; lng: number; address?: string };
   estimatedDistance: number;
@@ -189,6 +190,7 @@ export interface Ride {
   rideType?: string;
   vehicleType?: string;
   paymentMethod?: 'cash' | 'card';
+  createdAt?: string | number;
   requestedAt: number;
   extraDestinations?: Array<{ lat: number; lng: number; address?: string }>;
   waypointsCount?: number;

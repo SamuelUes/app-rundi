@@ -11,6 +11,8 @@ import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore';
 import { getDatabase, connectDatabaseEmulator } from 'firebase/database';
 import { getFunctions, connectFunctionsEmulator, type Functions } from 'firebase/functions';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
+import { resolveLocalEmulatorHost } from './localEmulatorHost';
 
 // Configuración de Firebase (valores obtenidos únicamente desde variables de entorno)
 const firebaseConfig = {
@@ -67,14 +69,17 @@ export async function initializeFirebase() {
 
     // Conectar a emuladores si está habilitado
     const useEmulators = process.env.USE_FIREBASE_EMULATORS === 'true';
-    const emulatorHost = process.env.FIREBASE_EMULATOR_HOST || 'localhost';
+    const emulatorHost = resolveLocalEmulatorHost(
+      process.env.FIREBASE_EMULATOR_HOST || 'localhost',
+      Platform.OS,
+    );
 
     if (useEmulators) {
       if (__DEV__) console.log('🔧 Conectando a Firebase Emulators...');
 
       connectAuthEmulator(auth, `http://${emulatorHost}:9099`);
-      connectFirestoreEmulator(firestore, emulatorHost, 8080);
-      connectDatabaseEmulator(database, emulatorHost, 9000);
+      connectFirestoreEmulator(firestore, emulatorHost, 8082);
+      connectDatabaseEmulator(database, emulatorHost, 9002);
       connectFunctionsEmulator(functions, emulatorHost, 5001);
 
       if (__DEV__) console.log('✅ Firebase Emulators conectados');

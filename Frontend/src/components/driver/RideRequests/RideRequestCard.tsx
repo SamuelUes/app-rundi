@@ -7,7 +7,8 @@ interface RideRequest {
   client: {
     name: string;
     rating: number;
-    phone: string;
+    phone: string | null;
+    photoUrl?: string | null;
   };
   origin: {
     lat: number;
@@ -25,14 +26,8 @@ interface RideRequest {
   clientSuggestedPrice?: number;
   passengers?: number;
   rideType: string;
-  createdAt: string;
-  clientVehicle?: {
-    make?: string;
-    model?: string;
-    color?: string;
-    plate?: string;
-    photos?: string[];
-  };
+  createdAt: string | number;
+  clientVehiclePhoto?: string | null;
   extraDestinations?: Array<{
     lat: number;
     lng: number;
@@ -79,9 +74,13 @@ export function RideRequestCard({
       <View style={styles.cardHeader}>
         <View style={styles.clientSection}>
           <View style={styles.clientAvatar}>
-            <Text style={styles.clientAvatarText}>
-              {item.client.name.charAt(0).toUpperCase()}
-            </Text>
+            {item.client.photoUrl ? (
+              <Image source={{ uri: item.client.photoUrl }} style={styles.clientAvatarImage} resizeMode="cover" />
+            ) : (
+              <Text style={styles.clientAvatarText}>
+                {item.client.name.charAt(0).toUpperCase()}
+              </Text>
+            )}
           </View>
           <View style={styles.clientInfo}>
             <Text style={styles.clientName}>{item.client.name}</Text>
@@ -178,31 +177,16 @@ export function RideRequestCard({
       </View>
 
       {/* Foto del vehículo del cliente - Solo para conductor designado */}
-      {item.rideType === 'designated_driver' && item.clientVehicle?.photos && item.clientVehicle.photos.length > 0 && (
+      {item.rideType === 'designated_driver' && item.clientVehiclePhoto ? (
         <View style={styles.clientVehicleContainer}>
           <Text style={styles.clientVehicleTitle}><MaterialIcons name="directions-car" size={18} color={colors.text} /> Vehículo del Cliente</Text>
-          <View style={styles.clientVehicleContent}>
-            <Image
-              source={{ uri: item.clientVehicle.photos[0] }}
-              style={styles.clientVehicleImage}
-              resizeMode="cover"
-            />
-            <View style={styles.clientVehicleInfo}>
-              <Text style={styles.clientVehicleText}>
-                {item.clientVehicle.make || 'N/A'} {item.clientVehicle.model || 'N/A'}
-              </Text>
-              <Text style={styles.clientVehicleText}>
-                {item.clientVehicle.color || 'N/A'}
-              </Text>
-              {item.clientVehicle.plate && (
-                <Text style={styles.clientVehiclePlate}>
-                  <MaterialIcons name="assignment" size={14} color={colors.textSecondary} /> {item.clientVehicle.plate}
-                </Text>
-              )}
-            </View>
-          </View>
+          <Image
+            source={{ uri: item.clientVehiclePhoto }}
+            style={styles.clientVehicleImage}
+            resizeMode="cover"
+          />
         </View>
-      )}
+      ) : null}
 
       {/* Botones de acción */}
       <View style={styles.actionsRow}>

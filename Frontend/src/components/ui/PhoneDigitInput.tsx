@@ -8,6 +8,7 @@ import {
   LayoutChangeEvent,
   Animated,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 
 import { useTheme } from '../../hooks/shared/theme/useTheme';
@@ -70,9 +71,9 @@ const PhoneDigitInput: React.FC<PhoneDigitInputProps> = ({
       return;
     }
 
-    const horizontalMargin = 4; // debe coincidir con styles.digitBox marginHorizontal
+    const horizontalMargin = 1; // debe coincidir con styles.digitBox marginHorizontal
     const maxBox = 48;
-    const minBox = 20;
+    const minBox = 14;
 
     const available = width - maxDigits * horizontalMargin * 2;
     const perDigit = available / maxDigits;
@@ -112,13 +113,13 @@ const PhoneDigitInput: React.FC<PhoneDigitInputProps> = ({
           Animated.sequence([
             Animated.timing(blinkAnim, {
               toValue: 1,
-              duration: 450,
-              useNativeDriver: false,
+              duration: 600,
+              useNativeDriver: true,
             }),
             Animated.timing(blinkAnim, {
               toValue: 0,
-              duration: 450,
-              useNativeDriver: false,
+              duration: 600,
+              useNativeDriver: true,
             }),
           ]),
         );
@@ -142,14 +143,16 @@ const PhoneDigitInput: React.FC<PhoneDigitInputProps> = ({
 
   const blinkOpacity = blinkAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: [0.4, 1],
+    outputRange: [0.88, 1],
   });
 
   return (
     <View style={styles.container}>
       <View style={styles.countryContainer}>
-        <View style={styles.countryContent}>
+        <View style={styles.countryContent} pointerEvents="none">
           <Text style={styles.flag}>{flagEmoji}</Text>
+          <Text style={styles.dialCodeText}>{selectedCountry.dialCode}</Text>
+          <MaterialIcons name="keyboard-arrow-down" size={20} color={colors.textSecondary} />
         </View>
 
         {hasSelector && (
@@ -163,6 +166,7 @@ const PhoneDigitInput: React.FC<PhoneDigitInputProps> = ({
             }}
             style={styles.countryPicker}
             itemStyle={styles.countryPickerItem}
+            accessibilityLabel={`${selectedCountry.name} (${selectedCountry.dialCode})`}
           >
             {countryOptions!.map((option) => (
               <Picker.Item
@@ -191,7 +195,7 @@ const PhoneDigitInput: React.FC<PhoneDigitInputProps> = ({
         <TouchableWithoutFeedback onPress={handlePressBoxes}>
           <Animated.View
             key={`${selectedCountry.code}-${maxDigits}`}
-            style={[styles.boxesRow, isFocused && styles.boxesRowFocused]}
+            style={styles.boxesRow}
             onLayout={handleBoxesLayout}
           >
             {Array.from({ length: maxDigits }).map((_, index) => {
@@ -205,9 +209,10 @@ const PhoneDigitInput: React.FC<PhoneDigitInputProps> = ({
                     styles.digitBox,
                     {
                       width: boxSize,
-                      height: boxSize,
-                      borderRadius: boxSize / 3,
+                      height: 48,
+                      borderRadius: 12,
                     },
+                    isFocused && index === safeDigits.length && styles.digitBoxActive,
                     isBlinking && styles.digitBoxBlink,
                     isBlinking && { opacity: blinkOpacity },
                     isFilled && styles.digitBoxFilled,
@@ -238,36 +243,36 @@ const createStyles = (colors: any) =>
     container: {
       flexDirection: 'row',
       alignItems: 'center',
-      columnGap: 6,
+      columnGap: 8,
     },
     countryContainer: {
-      flexDirection: 'row',
-      alignItems: 'center',
+      minWidth: 104,
+      minHeight: 60,
       paddingHorizontal: 10,
-      paddingVertical: 2,
-      borderRadius: 6,
-      borderWidth: 1,
+      borderRadius: 16,
+      borderWidth: 1.5,
       borderColor: colors.border,
-      backgroundColor: colors.card,
-      minWidth: 26,
+      backgroundColor: colors.surface,
+      alignItems: 'center',
+      justifyContent: 'center',
+      position: 'relative',
     },
     countryContent: {
       flexDirection: 'row',
       alignItems: 'center',
-      columnGap: 4,
+      columnGap: 6,
     },
     flag: {
-      fontSize: 20,
+      fontSize: 22,
     },
     dialCodeText: {
       fontSize: 14,
-      fontWeight: '600',
+      fontWeight: '700',
       color: colors.text,
     },
     countryPicker: {
-      marginLeft: 0,
-      width: 35,
-      color: colors.text,
+      ...StyleSheet.absoluteFillObject,
+      opacity: 0,
     },
     countryPickerItem: {
       fontSize: 13,
@@ -284,26 +289,24 @@ const createStyles = (colors: any) =>
       height: 60,
     },
     boxesRow: {
+      minHeight: 60,
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'flex-start',
+      justifyContent: 'space-between',
       flex: 1,
     },
-    boxesRowFocused: {
-      borderWidth: 1,
-      borderColor: colors.primary,
-      borderRadius: 999,
-      paddingVertical: 2,
-      paddingHorizontal: 2,
-      backgroundColor: colors.background,
-    },
     digitBox: {
-      borderWidth: 2,
+      borderWidth: 1.5,
       borderColor: colors.border,
-      backgroundColor: colors.background,
+      backgroundColor: colors.card,
       justifyContent: 'center',
       alignItems: 'center',
-      marginHorizontal: 4,
+      marginHorizontal: 1,
+    },
+    digitBoxActive: {
+      borderWidth: 2,
+      borderColor: colors.primary,
+      backgroundColor: colors.primary + '12',
     },
     digitBoxFilled: {
       borderColor: colors.primary,

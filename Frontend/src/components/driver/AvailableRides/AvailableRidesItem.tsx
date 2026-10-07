@@ -1,13 +1,11 @@
 import React from 'react';
-import { View, Text, Pressable, Image, TouchableOpacity } from 'react-native';
+import { View, Text, Pressable, TouchableOpacity, Image } from 'react-native';
 import type { Ride } from '../../../utils/availableRidesHelpers';
 import { haversineKm } from '../../../utils/availableRidesHelpers';
-import type { ClientProfile } from '../../../services/clientProfilesService';
 import type { TFunction } from 'i18next';
 
 interface AvailableRidesItemProps {
   ride: Ride;
-  profile: ClientProfile | null | undefined;
   selected: boolean;
   isDark: boolean;
   colors: any;
@@ -21,7 +19,6 @@ interface AvailableRidesItemProps {
 
 export function AvailableRidesItem({
   ride,
-  profile,
   selected,
   isDark,
   colors,
@@ -32,8 +29,8 @@ export function AvailableRidesItem({
   styles,
   t,
 }: AvailableRidesItemProps) {
-  const name = profile?.fullName || ride.clientName || t('driver.available.rideCard.clientFallback');
-  const photoUrl = profile?.photoUrl || null;
+  const name = ride.client?.name || ride.clientName || t('driver.available.rideCard.clientFallback');
+  const photoUrl = ride.client?.photoUrl || null;
 
   const originLat = ride?.origin?.lat ?? 0;
   const originLng = ride?.origin?.lng ?? 0;

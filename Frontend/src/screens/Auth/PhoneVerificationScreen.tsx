@@ -17,6 +17,7 @@ import {
   ScrollView,
   Image,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { RouteProp } from '@react-navigation/native';
@@ -82,6 +83,7 @@ export default function PhoneVerificationScreen({ navigation, route }: Props) {
     context ?? 'register_phone';
 
   const [code, setCode] = useState('');
+  const [codeFocused, setCodeFocused] = useState(false);
   const [loading, setLoading] = useState(false);
   const [resendLoading, setResendLoading] = useState(false);
   const [timeLeft, setTimeLeft] = useState(60);
@@ -365,216 +367,335 @@ export default function PhoneVerificationScreen({ navigation, route }: Props) {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={styles.card}>
-          <Text style={styles.title}>{t('authScreens.phoneVerification.title')}</Text>
-          <Text style={styles.subtitle}>
-            {verificationContext === 'add_phone'
-              ? t('authScreens.phoneVerification.subtitles.addPhone')
-              : t('authScreens.phoneVerification.subtitles.register')}
-          </Text>
-          <Text style={styles.phoneNumber}>{displayPhone}</Text>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.content}>
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => navigation.goBack()}
+              accessibilityRole="button"
+              accessibilityLabel={t('common.actions.back')}
+            >
+              <Image
+                source={require('../../assets/icons/back_button/back_button.png')}
+                style={styles.backIcon}
+                resizeMode="contain"
+              />
+              <Text style={styles.backButtonTextLabel}>{t('common.actions.back')}</Text>
+            </TouchableOpacity>
 
-          <View style={styles.codeSection}>
-            <Text style={styles.label}>
-              {t('authScreens.phoneVerification.codeLabel')}
-            </Text>
+            <View style={styles.header}>
+              <Text style={styles.title}>{t('authScreens.phoneVerification.title')}</Text>
+              <Text style={styles.subtitle}>
+                {verificationContext === 'add_phone'
+                  ? t('authScreens.phoneVerification.subtitles.addPhone')
+                  : t('authScreens.phoneVerification.subtitles.register')}
+              </Text>
+              <Text style={styles.phoneNumber}>{displayPhone}</Text>
+            </View>
 
-            <TextInput
-              ref={hiddenInputRef}
-              style={styles.hiddenInput}
-              value={code}
-              onChangeText={(text) => {
-                const numeric = text.replace(/[^0-9]/g, '').slice(0, 6);
-                setCode(numeric);
-              }}
-              keyboardType="number-pad"
-              maxLength={6}
-              placeholder={t('authScreens.phoneVerification.codePlaceholder')}
-              placeholderTextColor={colors.textSecondary}
-              editable={!loading}
-            />
+            <View style={styles.codeSection}>
+              <Text style={styles.label}>
+                {t('authScreens.phoneVerification.codeLabel')}
+              </Text>
 
-            <TouchableWithoutFeedback onPress={() => hiddenInputRef.current?.focus()}>
-              <View style={styles.codeBoxesContainer}>
-                {[0, 1, 2, 3, 4, 5].map((index) => (
-                  <View
-                    key={index}
-                    style={[
-                      styles.codeBox,
-                      code.length > index && styles.codeBoxFilled,
-                    ]}
-                  >
-                    <Text style={styles.codeBoxText}>{code[index] || ''}</Text>
+              <View style={styles.codeInputWrap}>
+                <TextInput
+                  ref={hiddenInputRef}
+                  style={styles.hiddenInput}
+                  value={code}
+                  onChangeText={(text) => {
+                    const numeric = text.replace(/[^0-9]/g, '').slice(0, 6);
+                    setCode(numeric);
+                  }}
+                  keyboardType="number-pad"
+                  maxLength={6}
+                  textContentType="oneTimeCode"
+                  accessibilityLabel={t('authScreens.phoneVerification.codeLabel')}
+                  editable={!loading}
+                  onFocus={() => setCodeFocused(true)}
+                  onBlur={() => setCodeFocused(false)}
+                />
+
+                <TouchableWithoutFeedback
+                  onPress={() => !loading && hiddenInputRef.current?.focus()}
+                >
+                  <View style={styles.codeBoxesContainer}>
+                    {[0, 1, 2, 3, 4, 5].map((index) => (
+                      <View
+                        key={index}
+                        style={[
+                          styles.codeBox,
+                          codeFocused && code.length === index && styles.codeBoxActive,
+                          code.length > index && styles.codeBoxFilled,
+                        ]}
+                      >
+                        <Text style={styles.codeBoxText}>{code[index] || ''}</Text>
+                      </View>
+                    ))}
                   </View>
-                ))}
+                </TouchableWithoutFeedback>
               </View>
-            </TouchableWithoutFeedback>
-          </View>
+            </View>
 
-          {attempts > 0 && (
-            <View style={styles.attemptsWarning}>
-              <Text style={styles.attemptsText}>
-                {t('authScreens.phoneVerification.attemptsLabel', {
-                  remaining: MAX_ATTEMPTS - attempts,
-                  max: MAX_ATTEMPTS,
-                })}
+            {attempts > 0 && (
+              <View style={styles.attemptsWarning}>
+                <Text style={styles.attemptsText}>
+                  {t('authScreens.phoneVerification.attemptsLabel', {
+                    remaining: MAX_ATTEMPTS - attempts,
+                    max: MAX_ATTEMPTS,
+                  })}
+                </Text>
+              </View>
+            )}
+
+            <TouchableOpacity
+              style={[
+                styles.primaryButton,
+                (loading || code.length !== 6) && styles.buttonDisabled,
+              ]}
+              onPress={handleVerifyCode}
+              disabled={loading || code.length !== 6}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: loading || code.length !== 6 }}
+            >
+              {loading ? (
+                <LoadingIcon size={24} color="#241B0B" />
+              ) : (
+                <Text style={styles.primaryButtonText}>
+                  {t('authScreens.phoneVerification.verifyButton')}
+                </Text>
+              )}
+            </TouchableOpacity>
+
+            <View style={styles.resendSection}>
+              <Text style={styles.resendText}>
+                {t('authScreens.phoneVerification.resend.question')}
+              </Text>
+              {timeLeft > 0 ? (
+                <Text style={styles.resendTimer}>
+                  {t('authScreens.phoneVerification.resend.timer', { seconds: timeLeft })}
+                </Text>
+              ) : (
+                <TouchableOpacity
+                  style={styles.resendAction}
+                  onPress={handleResendCode}
+                  disabled={resendLoading}
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: resendLoading }}
+                >
+                  {resendLoading ? (
+                    <LoadingIcon size={20} color={colors.primary} />
+                  ) : (
+                    <Text style={styles.resendButton}>
+                      {t('authScreens.phoneVerification.resend.button')}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              )}
+            </View>
+
+            <View style={styles.infoBox}>
+              <Text style={styles.infoTitle}>
+                {t('authScreens.phoneVerification.info.title')}
+              </Text>
+              <Text style={styles.infoText}>
+                {t('authScreens.phoneVerification.info.codeValidity')}
+              </Text>
+              <Text style={styles.infoText}>
+                {t('authScreens.phoneVerification.info.attempts', { max: MAX_ATTEMPTS })}
+              </Text>
+              <Text style={styles.infoText}>
+                {t('authScreens.phoneVerification.info.checkNumber')}
               </Text>
             </View>
-          )}
-
-          <TouchableOpacity
-            style={[styles.primaryButton, (loading || code.length !== 6) && styles.buttonDisabled]}
-            onPress={handleVerifyCode}
-            disabled={loading || code.length !== 6}
-          >
-            {loading ? (
-              <LoadingIcon size={24} color="#FFFFFF" />
-            ) : (
-              <Text style={styles.primaryButtonText}>
-                {t('authScreens.phoneVerification.verifyButton')}
-              </Text>
-            )}
-          </TouchableOpacity>
-
-          <View style={styles.resendSection}>
-            <Text style={styles.resendText}>
-              {t('authScreens.phoneVerification.resend.question')}
-            </Text>
-            {timeLeft > 0 ? (
-              <Text style={styles.resendTimer}>
-                {t('authScreens.phoneVerification.resend.timer', { seconds: timeLeft })}
-              </Text>
-            ) : (
-              <TouchableOpacity onPress={handleResendCode} disabled={resendLoading}>
-                {resendLoading ? (
-                  <LoadingIcon size={20} color={colors.primary} />
-                ) : (
-                  <Text style={styles.resendButton}>
-                    {t('authScreens.phoneVerification.resend.button')}
-                  </Text>
-                )}
-              </TouchableOpacity>
-            )}
           </View>
-
-          <View style={styles.infoBox}>
-            <Text style={styles.infoTitle}>
-              {t('authScreens.phoneVerification.info.title')}
-            </Text>
-            <Text style={styles.infoText}>
-              {t('authScreens.phoneVerification.info.codeValidity')}
-            </Text>
-            <Text style={styles.infoText}>
-              {t('authScreens.phoneVerification.info.attempts', { max: MAX_ATTEMPTS })}
-            </Text>
-            <Text style={styles.infoText}>
-              {t('authScreens.phoneVerification.info.checkNumber')}
-            </Text>
-          </View>
-
-          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-            <Image
-              source={require('../../assets/icons/back_button/back_button.png')}
-              style={styles.backIcon}
-            />
-            <Text style={styles.backButtonTextLabel}>
-              {t('authScreens.phoneVerification.backButton')}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
 const createStyles = (colors: any) =>
   StyleSheet.create({
-    container: {
+    safeArea: {
       flex: 1,
       backgroundColor: colors.background,
     },
+    container: {
+      flex: 1,
+    },
+    scrollView: {
+      flex: 1,
+    },
     scrollContent: {
       flexGrow: 1,
-      padding: 24,
       justifyContent: 'center',
+      paddingHorizontal: 24,
+      paddingVertical: 20,
     },
-    card: {
-      backgroundColor: colors.card,
-      borderRadius: 20,
-      padding: 24,
-      borderWidth: 1,
-      borderColor: colors.border,
-      gap: 16,
+    content: {
+      width: '100%',
+      maxWidth: 440,
+      alignSelf: 'center',
+    },
+    backButton: {
+      minHeight: 54,
+      flexDirection: 'row',
+      alignItems: 'center',
+      alignSelf: 'flex-start',
+      top: -30,
+      gap: 8,
+      marginBottom: 20,
+    },
+    backIcon: {
+      width: 20,
+      height: 20,
+      tintColor: colors.textSecondary,
+    },
+    backButtonTextLabel: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: colors.textSecondary,
+    },
+    header: {
+      alignItems: 'center',
+      marginBottom: 28,
     },
     title: {
       fontSize: 28,
-      fontWeight: '700',
+      fontWeight: '800',
       color: colors.text,
+      textAlign: 'center',
+      marginBottom: 8,
     },
     subtitle: {
-      fontSize: 14,
+      fontSize: 15,
+      lineHeight: 22,
       color: colors.textSecondary,
+      textAlign: 'center',
+      marginBottom: 14,
     },
     phoneNumber: {
-      fontSize: 18,
-      fontWeight: '600',
+      minHeight: 40,
+      paddingHorizontal: 16,
+      paddingVertical: 8,
+      borderRadius: 999,
+      backgroundColor: colors.surface,
+      fontSize: 16,
+      fontWeight: '700',
       color: colors.primary,
+      textAlign: 'center',
+      overflow: 'hidden',
     },
     codeSection: {
-      marginTop: 12,
-      gap: 8,
+      width: '100%',
+      gap: 12,
+      marginBottom: 20,
     },
     label: {
       fontSize: 14,
       fontWeight: '600',
       color: colors.text,
-    },
-    codeInput: {
-      backgroundColor: colors.background,
-      borderRadius: 12,
-      padding: 16,
-      fontSize: 24,
-      fontWeight: '700',
       textAlign: 'center',
-      letterSpacing: 8,
-      borderWidth: 1,
+    },
+    codeInputWrap: {
+      width: '100%',
+      position: 'relative',
+    },
+    hiddenInput: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      width: '100%',
+      height: 56,
+      opacity: 0,
+    },
+    codeBoxesContainer: {
+      width: '100%',
+      flexDirection: 'row',
+      justifyContent: 'center',
+      alignItems: 'center',
+      gap: 8,
+    },
+    codeBox: {
+      flex: 1,
+      maxWidth: 56,
+      height: 56,
+      borderRadius: 14,
+      borderWidth: 1.5,
       borderColor: colors.border,
+      backgroundColor: colors.card,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    codeBoxActive: {
+      borderWidth: 2,
+      borderColor: colors.primary,
+      backgroundColor: colors.primary + '12',
+    },
+    codeBoxFilled: {
+      borderColor: colors.primary,
+      backgroundColor: colors.primary + '25',
+    },
+    codeBoxText: {
+      fontSize: 22,
+      fontWeight: '700',
       color: colors.text,
+      fontVariant: ['tabular-nums'],
     },
     attemptsWarning: {
-      borderRadius: 8,
+      borderRadius: 14,
       borderWidth: 1,
-      borderColor: colors.error,
+      borderColor: colors.error + '40',
       backgroundColor: colors.error + '10',
       padding: 12,
+      marginBottom: 16,
     },
     attemptsText: {
       fontSize: 14,
+      lineHeight: 20,
       color: colors.error,
       fontWeight: '600',
+      textAlign: 'center',
     },
     primaryButton: {
+      minHeight: 56,
+      width: '100%',
+      paddingHorizontal: 20,
+      borderRadius: 16,
       backgroundColor: colors.primary,
-      paddingVertical: 16,
-      borderRadius: 12,
       alignItems: 'center',
+      justifyContent: 'center',
     },
     primaryButtonText: {
-      color: '#FFFFFF',
+      color: '#241B0B',
       fontSize: 16,
-      fontWeight: '600',
+      fontWeight: '700',
     },
     buttonDisabled: {
-      opacity: 0.5,
+      opacity: 0.45,
     },
     resendSection: {
+      minHeight: 44,
+      flexDirection: 'row',
+      flexWrap: 'wrap',
       alignItems: 'center',
-      gap: 8,
+      justifyContent: 'center',
+      columnGap: 8,
+      rowGap: 4,
+      marginTop: 16,
+      marginBottom: 20,
     },
     resendText: {
       fontSize: 14,
@@ -582,86 +703,33 @@ const createStyles = (colors: any) =>
     },
     resendTimer: {
       fontSize: 14,
-      fontWeight: '600',
-      color: colors.textSecondary,
+      fontWeight: '700',
+      color: colors.text,
+    },
+    resendAction: {
+      minHeight: 44,
+      paddingHorizontal: 6,
+      justifyContent: 'center',
     },
     resendButton: {
       fontSize: 14,
       color: colors.primary,
-      fontWeight: '600',
+      fontWeight: '700',
     },
-    hiddenInput: {
-      position: 'absolute',
-      width: '100%',
-      height: 60,
-      opacity: 0,
-      top: 0,
-      left: 0,
+    infoBox: {
+      borderRadius: 16,
+      backgroundColor: colors.surface,
+      padding: 14,
+      gap: 6,
     },
-    codeBoxesContainer: {
-      flexDirection: 'row',
-      justifyContent: 'center',
-      alignItems: 'center',
-      marginTop: 24,
-    },
-    codeBox: {
-      width: 40,
-      height: 40,
-      borderRadius: 10,
-      borderWidth: 2,
-      borderColor: colors.border,
-      backgroundColor: colors.background,
-      justifyContent: 'center',
-      alignItems: 'center',
-      marginHorizontal: 6,
-    },
-    codeBoxFilled: {
-      borderColor: colors.primary,
-      backgroundColor: colors.primary + '25',
-    },
-    codeBoxText: {
-      fontSize: 18,
+    infoTitle: {
+      fontSize: 13,
       fontWeight: '700',
       color: colors.text,
     },
-    infoBox: {
-      borderRadius: 12,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.background,
-      padding: 16,
-      gap: 4,
-    },
-    infoTitle: {
-      fontSize: 14,
-      fontWeight: '600',
-      color: colors.text,
-    },
     infoText: {
-      fontSize: 13,
+      fontSize: 12,
+      lineHeight: 16,
       color: colors.textSecondary,
-    },
-    backButton: {
-      width: 60,
-      height: 50,
-      borderRadius: 15,
-      backgroundColor: 'rgba(231, 168, 86, 1)',
-      paddingVertical: 7.5,
-      paddingHorizontal: 10,
-      alignSelf: 'center',
-      justifyContent: 'center',
-      alignItems: 'center',
-      flexDirection: 'row',
-      gap: 6,
-    },
-    backIcon: {
-      width: 35,
-      height: 35,
-      tintColor: '#000000ff',
-    },
-    backButtonTextLabel: {
-      fontSize: 14,
-      fontWeight: '600',
-      color: colors.text,
     },
   });

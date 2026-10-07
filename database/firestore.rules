@@ -40,8 +40,8 @@ service cloud.firestore {
     // ============================================
     
     match /users/{userId} {
-      // Cualquier usuario autenticado puede leer perfiles
-      allow read: if isAuthenticated();
+      // Solo el titular o un administrador puede leer el perfil
+      allow read: if isOwner(userId) || isAdmin();
       
       // Solo el dueño puede crear su perfil — role forzado a 'client'
       allow create: if isOwner(userId) && 

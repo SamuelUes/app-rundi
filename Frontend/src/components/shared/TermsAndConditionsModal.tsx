@@ -77,35 +77,40 @@ const TermsAndConditionsModal: React.FC<TermsAndConditionsModalProps> = ({
   return (
     <View style={styles.overlay}>
       <View style={styles.card}>
-        <Text style={styles.title}>{t('common.components.termsModal.title')}</Text>
-        <Text style={styles.subtitle}>{documentLabel}</Text>
-        <Text style={styles.version}>{documentVersion}</Text>
+        <View style={styles.header}>
+          <Text style={styles.title}>{t('common.components.termsModal.title')}</Text>
+          <Text style={styles.subtitle}>{documentLabel}</Text>
+          <Text style={styles.version}>{documentVersion}</Text>
+        </View>
 
         {showDocumentSelector && (
           <View style={styles.selectorWrapper}>
             <Text style={styles.selectorLabel}>{t('common.components.termsModal.selectorLabel')}</Text>
-            <ScrollView
-              horizontal
-              style={styles.selectorScroll}
-              contentContainerStyle={styles.selectorRow}
-              showsHorizontalScrollIndicator={false}
-            >
+            <View style={styles.selectorOptions}>
               {documentOptions.map((option) => {
                 const active = option === selectedDocument;
+                const documentChecked = effectiveCheckedDocuments[option];
                 return (
                   <TouchableOpacity
                     key={option}
-                    style={[styles.selectorChip, active && styles.selectorChipActive]}
+                    style={[styles.selectorOption, active && styles.selectorOptionActive]}
                     onPress={() => setSelectedDocument(option)}
                     disabled={saving}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: active, disabled: saving }}
                   >
-                    <Text style={[styles.selectorChipText, active && styles.selectorChipTextActive]}>
+                    <Text style={[styles.selectorOptionText, active && styles.selectorOptionTextActive]}>
                       {t(`common.components.termsModal.documents.${option}.label`)}
                     </Text>
+                    {documentChecked && (
+                      <Text style={[styles.selectorOptionCheck, active && styles.selectorOptionCheckActive]}>
+                        ✓
+                      </Text>
+                    )}
                   </TouchableOpacity>
                 );
               })}
-            </ScrollView>
+            </View>
           </View>
         )}
 
@@ -197,100 +202,117 @@ const createStyles = (colors: any) =>
       left: 0,
       right: 0,
       bottom: 0,
-      backgroundColor: 'rgba(0,0,0,0.6)',
+      backgroundColor: 'rgba(0,0,0,0.64)',
       justifyContent: 'center',
       alignItems: 'center',
-      paddingHorizontal: 24,
+      paddingHorizontal: 20,
+      paddingVertical: 24,
     },
     card: {
       width: '100%',
-      maxHeight: '80%',
+      maxHeight: '88%',
       backgroundColor: colors.card,
-      borderRadius: 16,
-      padding: 20,
+      borderRadius: 24,
+      paddingHorizontal: 22,
+      paddingTop: 24,
+      paddingBottom: 20,
       borderWidth: 1,
       borderColor: colors.border,
     },
+    header: {
+      alignItems: 'flex-start',
+      marginBottom: 20,
+    },
     title: {
-      fontSize: 18,
+      fontSize: 22,
       fontWeight: '700',
       color: colors.text,
-      marginBottom: 2,
-      textAlign: 'center',
+      letterSpacing: -0.4,
+      marginBottom: 8,
     },
     subtitle: {
-      fontSize: 13,
+      fontSize: 15,
       color: colors.text,
-      textAlign: 'center',
-      marginBottom: 4,
       fontWeight: '600',
+      marginBottom: 5,
     },
     version: {
       fontSize: 12,
       color: colors.textSecondary,
-      marginBottom: 12,
-      textAlign: 'center',
     },
     selectorWrapper: {
-      marginBottom: 10,
+      marginBottom: 16,
     },
     selectorLabel: {
       fontSize: 12,
       color: colors.textSecondary,
-      marginBottom: 8,
-      textAlign: 'center',
+      fontWeight: '600',
+      marginBottom: 9,
     },
-    selectorScroll: {
-      maxHeight: 42,
-    },
-    selectorRow: {
-      flexDirection: 'row',
+    selectorOptions: {
       gap: 8,
-      paddingBottom: 2,
     },
-    selectorChip: {
-      borderWidth: 1,
-      borderColor: colors.border,
+    selectorOption: {
+      minHeight: 44,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 14,
+      paddingVertical: 10,
       borderRadius: 14,
-      paddingHorizontal: 10,
-      paddingVertical: 8,
       backgroundColor: colors.surface || colors.background,
     },
-    selectorChipActive: {
+    selectorOptionActive: {
       backgroundColor: colors.primary,
-      borderColor: colors.primary,
     },
-    selectorChipText: {
-      fontSize: 12,
+    selectorOptionText: {
+      flex: 1,
+      fontSize: 13,
+      lineHeight: 18,
       color: colors.text,
       fontWeight: '600',
     },
-    selectorChipTextActive: {
-      color: '#0F172A',
+    selectorOptionTextActive: {
+      color: '#241B0B',
+    },
+    selectorOptionCheck: {
+      marginLeft: 10,
+      fontSize: 15,
+      fontWeight: '700',
+      color: colors.primary,
+    },
+    selectorOptionCheckActive: {
+      color: '#241B0B',
     },
     content: {
-      maxHeight: 260,
+      flexShrink: 1,
+      minHeight: 120,
+      maxHeight: 280,
       marginBottom: 16,
+      padding: 16,
+      borderRadius: 16,
+      backgroundColor: colors.surface || colors.background,
     },
     text: {
-      fontSize: 13,
-      color: colors.textSecondary || 'rgba(255,255,255,0.75)',
-      lineHeight: 18,
+      fontSize: 14,
+      color: colors.textSecondary,
+      lineHeight: 21,
     },
     checkboxRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      marginBottom: 16,
+      minHeight: 44,
+      marginBottom: 12,
     },
     checkbox: {
-      width: 22,
-      height: 22,
-      borderRadius: 6,
+      width: 24,
+      height: 24,
+      borderRadius: 7,
       borderWidth: 1,
       borderColor: colors.border,
       alignItems: 'center',
       justifyContent: 'center',
-      marginRight: 8,
+      marginRight: 10,
       backgroundColor: colors.background,
     },
     checkboxChecked: {
@@ -299,41 +321,47 @@ const createStyles = (colors: any) =>
     },
     checkboxIcon: {
       fontSize: 14,
-      color: '#0F172A',
+      color: '#241B0B',
       fontWeight: '700',
     },
     checkboxLabel: {
       flex: 1,
       fontSize: 13,
+      lineHeight: 19,
       color: colors.text,
     },
     documentProgressText: {
       fontSize: 12,
       color: colors.textSecondary,
       textAlign: 'right',
-      marginTop: -10,
+      marginTop: -8,
       marginBottom: 12,
     },
     acceptButton: {
+      minHeight: 52,
       backgroundColor: colors.primary,
-      paddingVertical: 14,
-      borderRadius: 12,
+      paddingHorizontal: 16,
+      borderRadius: 16,
       alignItems: 'center',
+      justifyContent: 'center',
     },
     acceptButtonText: {
-      fontSize: 16,
-      fontWeight: '600',
-      color: '#0F172A',
+      fontSize: 15,
+      fontWeight: '700',
+      color: '#241B0B',
     },
     buttonDisabled: {
-      opacity: 0.5,
+      opacity: 0.45,
     },
     closeLink: {
-      marginTop: 12,
+      minHeight: 44,
+      marginTop: 8,
       alignItems: 'center',
+      justifyContent: 'center',
     },
     closeLinkText: {
       fontSize: 14,
+      fontWeight: '600',
       color: colors.textSecondary,
     },
   });

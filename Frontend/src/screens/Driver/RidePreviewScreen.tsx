@@ -76,12 +76,12 @@ export default function RidePreviewScreen() {
   const [nearbyQueue, setNearbyQueue] = useState<Array<Partial<RidePreviewData> & { distanceMeters?: number }>>(initialNearby);
   const proximityParam = (route.params as Record<string, unknown>)?.proximity === true;
   const proximityMode = proximityParam || initialNearby.length > 0;
-  const autoDismissTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const autoDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [photoModalUrl, setPhotoModalUrl] = useState<string | null>(ride.clientVehiclePhoto || null);
   const currentRide = rideData;
 
-  const { clientProfile } = useClientProfile(currentRide.clientId);
+  const { clientProfile } = useClientProfile(currentRide.clientId, currentRide.id);
 
   const resolvedClientName = useMemo(
     () => clientProfile?.fullName || currentRide.clientName || t('driver.ridePreview.labels.clientFallback'),

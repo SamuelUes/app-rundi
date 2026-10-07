@@ -20,12 +20,20 @@ const parseEpochMs = (value: any): number | null => {
   return Math.floor(parsed);
 };
 
-const programmedNotify = (userId: string | null | undefined, title: string, body: string, data: Record<string, string | number | boolean | null | undefined> = {}) =>
-  notifyUserSafe(userId, title, body, data, {
+const programmedNotify = (
+  userId: string | null | undefined,
+  title: string,
+  body: string,
+  data: Record<string, string | number | boolean | null | undefined> = {},
+) => {
+  const { type, ...restData } = data;
+  return notifyUserSafe(userId, title, body, restData, {
+    type: (type as any) ?? 'programmed_ride_reminder',
     notificationKeyPrefix: 'programmed-ride',
     androidChannelId: 'default',
     expiresInMs: 15 * 60 * 1000,
   });
+};
 
 const upsertRideInSupabase = async (rideId: string, ride: any, status: string) => {
   const existing = await rideRepo.findById(rideId);

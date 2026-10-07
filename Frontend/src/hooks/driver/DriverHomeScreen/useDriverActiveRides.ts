@@ -26,7 +26,6 @@ export function useDriverActiveRides({
   const [activeRide, setActiveRide] = useState<any>(null);
   const [pendingNegotiationRide, setPendingNegotiationRide] = useState<any | null>(null);
   const [rideSnapshotsVersion, setRideSnapshotsVersion] = useState(0);
-  const [clientNamesCache, setClientNamesCache] = useState<Record<string, string>>({});
 
   const rideStatusCacheRef = useRef<Record<string, string>>({});
   const activeRideSnapshotsRef = useRef<Record<string, Record<string, any> | null | undefined>>({});
@@ -228,11 +227,7 @@ export function useDriverActiveRides({
                 latitude,
                 longitude,
                 clientId: ride.clientId,
-                clientName:
-                  (typeof ride.clientId === 'string' && ride.clientId && clientNamesCache[ride.clientId]) ||
-                  ride.client?.name ||
-                  ride.clientName ||
-                  'Cliente',
+                clientName: ride.client?.name || ride.clientName || 'Cliente',
                 originAddress: ride.originAddress || ride.origin?.address || 'Origen',
                 finalDestination: ride.destinationAddress || ride.destination?.address || 'Destino',
                 priceLabel: formatCurrency(price),
@@ -280,75 +275,7 @@ export function useDriverActiveRides({
       isMounted = false;
       cleanupFns.forEach((fn) => fn?.());
     };
-  }, [coords?.latitude, coords?.longitude, isAvailable, userId, serviceAreaId, clientNamesCache, formatCurrency]);
-
-  // Actualizar clientName en availableRideRequests cuando se resuelven los nombres
-  useEffect(() => {
-    setAvailableRideRequests((prev) =>
-      prev.map((ride) => ({
-        ...ride,
-        clientName: ride.clientId && clientNamesCache[ride.clientId] ? clientNamesCache[ride.clientId] : ride.clientName,
-      }))
-    );
-  }, [clientNamesCache]);
-
-  // Resolver nombres de clientes desde clientsInfo en Realtime DB
-  useEffect(() => {
-    const clientIds = availableRideRequests
-      .map((ride) => ride.clientId)
-      .filter((id): id is string => Boolean(id) && !(id in clientNamesCache));
-
-    if (clientIds.length === 0) return;
-
-    let isMounted = true;
-    let cleanup: null | (() => void) = null;
-
-    (async () => {
-      try {
-        const { getDatabase, ref: dbRef, onValue, off } = await import('firebase/database');
-        const db = getDatabase();
-
-        const unsubscribes: Array<() => void> = [];
-
-        clientIds.forEach((clientId) => {
-          const clientInfoRef = dbRef(db, `clientsInfo/${clientId}`);
-          const unsub = onValue(
-            clientInfoRef,
-            (snapshot) => {
-              if (!isMounted) return;
-              const data = snapshot.val();
-              const fullName = data?.fullName || 'Cliente';
-              setClientNamesCache((prev) => ({
-                ...prev,
-                [clientId]: fullName,
-              }));
-            },
-            (err) => {
-              console.warn(`[DriverHomeScreen] Error leyendo clientsInfo/${clientId}:`, err);
-              if (isMounted) {
-                setClientNamesCache((prev) => ({
-                  ...prev,
-                  [clientId]: 'Cliente',
-                }));
-              }
-            }
-          );
-          unsubscribes.push(() => off(clientInfoRef, 'value', unsub));
-        });
-
-        cleanup = () => {
-          unsubscribes.forEach((unsub) => unsub());
-        };
-      } catch (err) {
-        console.error('[DriverHomeScreen] Error configurando listeners de clientsInfo:', err);
-      }
-    })();
-
-    return () => {
-      isMounted = false;
-      cleanup?.();
-    };
-  }, [availableRideRequests, clientNamesCache]);
+  }, [coords?.latitude, coords?.longitude, isAvailable, userId, serviceAreaId, formatCurrency]);
 
   return {
     availableRideRequests,
@@ -358,7 +285,5 @@ export function useDriverActiveRides({
     pendingNegotiationRide,
     setPendingNegotiationRide,
     rideSnapshotsVersion,
-    clientNamesCache,
-    setClientNamesCache,
   };
 }

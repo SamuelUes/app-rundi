@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { getFirebaseAuth, getFirebaseDatabase } from '../../../config/firebase';
 import { onAuthStateChanged, Unsubscribe } from 'firebase/auth';
 import { equalTo, onValue, orderByChild, query, ref } from 'firebase/database';
+import { Platform } from 'react-native';
+import { buildFunctionsEmulatorBaseUrl } from '../../../config/localEmulatorHost';
 
 interface CallSession {
   callId: string;
@@ -21,9 +23,22 @@ interface LivekitJoinInfo {
   room: string;
 }
 
-const API_BASE_URL_FIREBASE = process.env.API_BASE_URL_FIREBASE || "";
-const API_BASE_URL = process.env.PLATFORM_API_BASE_URL || API_BASE_URL_FIREBASE;
-const CALLS_REQUEST_BASE_URL = process.env.CALLS_REQUEST_BASE_URL || API_BASE_URL_FIREBASE || API_BASE_URL;
+const USE_FIREBASE_EMULATORS = process.env.USE_FIREBASE_EMULATORS === 'true';
+const FUNCTIONS_EMULATOR_URL = buildFunctionsEmulatorBaseUrl(
+  process.env.FIREBASE_PROJECT_ID || 'rundi-dev',
+  'us-central1',
+  process.env.FIREBASE_EMULATOR_HOST || 'localhost',
+  Platform.OS,
+);
+const API_BASE_URL_FIREBASE = USE_FIREBASE_EMULATORS
+  ? FUNCTIONS_EMULATOR_URL
+  : process.env.API_BASE_URL_FIREBASE || '';
+const API_BASE_URL = USE_FIREBASE_EMULATORS
+  ? FUNCTIONS_EMULATOR_URL
+  : process.env.PLATFORM_API_BASE_URL || API_BASE_URL_FIREBASE;
+const CALLS_REQUEST_BASE_URL = USE_FIREBASE_EMULATORS
+  ? FUNCTIONS_EMULATOR_URL
+  : process.env.CALLS_REQUEST_BASE_URL || API_BASE_URL_FIREBASE || API_BASE_URL;
 const CALLS_REQUEST_PATH = process.env.CALLS_REQUEST_PATH || '/initiateSupportCallHttp';
 if (__DEV__) {
   if (!API_BASE_URL) {

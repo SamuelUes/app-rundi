@@ -2,12 +2,7 @@ import React from 'react';
 import { View, Text, TouchableOpacity, Image } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import type { TFunction } from 'i18next';
-
-interface ClientProfile {
-  photoUrl?: string | null;
-  fullName?: string | null;
-  phone?: string | null;
-}
+import type { ClientProfile } from '../../../services/clientProfilesService';
 
 interface RidePreviewClientInfoProps {
   resolvedClientName: string;

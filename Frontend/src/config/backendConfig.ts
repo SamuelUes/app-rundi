@@ -15,26 +15,45 @@
  *  - hooks/shared/calls/  → getApiUrl() para WebRTC signaling (vía environment.ts).
  */
 
+import { Platform } from 'react-native';
+import { buildFunctionsEmulatorBaseUrl, resolveLocalEmulatorHost } from './localEmulatorHost';
+
 export type BackendMode = 'firebase' | 'local';
 export type BackendEnvironment = 'development' | 'production';
 
 const NODE_ENV = (process.env.NODE_ENV || 'development') as BackendEnvironment;
 const IS_PRODUCTION = NODE_ENV === 'production';
+const USE_FIREBASE_EMULATORS = process.env.USE_FIREBASE_EMULATORS === 'true';
+const FIREBASE_PROJECT_ID = process.env.FIREBASE_PROJECT_ID || 'rundi-dev';
+const FIREBASE_EMULATOR_HOST = resolveLocalEmulatorHost(
+  process.env.FIREBASE_EMULATOR_HOST || 'localhost',
+  Platform.OS,
+);
+const FUNCTIONS_EMULATOR_URL = buildFunctionsEmulatorBaseUrl(
+  FIREBASE_PROJECT_ID,
+  'us-central1',
+  FIREBASE_EMULATOR_HOST,
+  Platform.OS,
+);
 
 const rawMode = (process.env.BACKEND_MODE || 'firebase') as BackendMode;
 const BACKEND_MODE: BackendMode = rawMode === 'local' ? 'local' : 'firebase';
 
-const FIREBASE_API_URL = (
-  IS_PRODUCTION
-    ? process.env.API_BASE_URL_PRODUCTION || process.env.API_BASE_URL_FIREBASE
-    : process.env.API_BASE_URL_FIREBASE
-) || '';
+const FIREBASE_API_URL = USE_FIREBASE_EMULATORS
+  ? FUNCTIONS_EMULATOR_URL
+  : (
+      IS_PRODUCTION
+        ? process.env.API_BASE_URL_PRODUCTION || process.env.API_BASE_URL_FIREBASE
+        : process.env.API_BASE_URL_FIREBASE
+    ) || '';
 
-const FIREBASE_WS_URL = (
-  IS_PRODUCTION
-    ? process.env.WS_URL_PRODUCTION || process.env.WS_URL_FIREBASE
-    : process.env.WS_URL_FIREBASE
-) || '';
+const FIREBASE_WS_URL = USE_FIREBASE_EMULATORS
+  ? `http://${FIREBASE_EMULATOR_HOST}:9002?ns=${FIREBASE_PROJECT_ID}`
+  : (
+      IS_PRODUCTION
+        ? process.env.WS_URL_PRODUCTION || process.env.WS_URL_FIREBASE
+        : process.env.WS_URL_FIREBASE
+    ) || '';
 
 const LOCAL_API_URL = (
   IS_PRODUCTION
@@ -48,7 +67,6 @@ const LOCAL_WS_URL = (
     : process.env.WS_URL_LOCAL
 ) || '';
 
-const USE_FIREBASE_EMULATORS = process.env.USE_FIREBASE_EMULATORS === 'true';
 const DOMAIN = process.env.DOMAIN || (IS_PRODUCTION ? 'rundiapp.com' : 'localhost');
 
 interface BackendConfig {

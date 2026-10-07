@@ -28,7 +28,6 @@ import {
   extractLocalNumber,
 } from '../../utils/phoneUtils';
 import { useTranslation } from 'react-i18next';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Google Client ID desde variables de entorno
 // Android Client ID para Expo
@@ -43,7 +42,6 @@ export default function LoginScreen({ navigation }: any) {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { login, loginWithGoogle } = useAuth();
   const { t } = useTranslation();
-  const insets = useSafeAreaInsets();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const countryOptions = useMemo(() => getCountryDialOptions(), []);
@@ -245,12 +243,14 @@ export default function LoginScreen({ navigation }: any) {
     <SafeAreaView style={styles.container} edges={['bottom']}>
       <KeyboardAvoidingView
         style={styles.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <ScrollView
+          style={styles.scrollView}
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+          automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
         >
           <View style={styles.bannerContainer}>
             <Image
@@ -412,10 +412,14 @@ const createStyles = (colors: any) => StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
+  scrollView: {
+    flex: 1,
+  },
   scrollContent: {
-    backgroundColor: 'rgba(201, 201, 201, 1)',
+    flexGrow: 1,
+    backgroundColor: colors.background,
     paddingHorizontal: 14,
-    paddingBottom: 20,
+    paddingBottom: 24,
   },
   bannerContainer: {
     width: '100%',
@@ -453,7 +457,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     justifyContent: 'center',
   },
   countryPickerContainer: {
-    marginBottom: 14,
+    marginBottom: 10,
   },
   countryPicker: {
     backgroundColor: colors.card,
@@ -626,10 +630,9 @@ const createStyles = (colors: any) => StyleSheet.create({
     alignSelf: 'stretch',
   },
   helperText: {
-    fontSize: 12,
+    fontSize: 13,
+    lineHeight: 19,
     color: colors.textSecondary,
-    marginBottom: 14,
-    fontStyle: 'italic',
-    marginTop: -8,
+    marginBottom: 16,
   },
 });

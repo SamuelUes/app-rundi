@@ -16,6 +16,7 @@ import {
 
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useTranslation } from 'react-i18next';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   CountryDialOption,
   normalizePhoneNumber,
@@ -55,6 +56,7 @@ const PhoneNumberModal: React.FC<Props> = ({
 }) => {
   const { colors } = useTheme();
   const { t } = useTranslation();
+  const insets = useSafeAreaInsets();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
   const [selectedCountry, setSelectedCountry] = useState<CountryDialOption>(initialCountry);
@@ -237,94 +239,112 @@ const PhoneNumberModal: React.FC<Props> = ({
       transparent
       animationType="fade"
       statusBarTranslucent
+      navigationBarTranslucent={Platform.OS === 'android'}
       onRequestClose={onClose}
     >
       <KeyboardAvoidingView
         style={styles.modalRoot}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <TouchableWithoutFeedback onPress={onClose}>
           <View style={styles.backdrop} />
         </TouchableWithoutFeedback>
 
         <View style={styles.sheetDock}>
-          <Animated.View style={[styles.sheetContainer, sheetStyle]}>
-            <View style={styles.sheetHeader}>
-              <TouchableOpacity onPress={onClose} style={styles.backButton}>
-                <Image
-                  source={require('../../assets/icons/back_button/back_button.png')}
-                  style={styles.backIcon}
-                  resizeMode="contain"
-                />
-              </TouchableOpacity>
-
-              <View style={styles.headerTextContainer}>
-                <Text style={styles.sheetTitle}>{t('common.components.phoneNumberModal.title')}</Text>
-                <Text style={styles.sheetSubtitle}>
-                  {t('common.components.phoneNumberModal.subtitle')}
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.phonePreview}>
-              <Text style={styles.phonePreviewLabel}>
-                {t('common.components.phoneNumberModal.previewLabel')}
-              </Text>
-              <Text style={styles.phonePreviewValue}>{formattedPhone}</Text>
-            </View>
-
-            <View style={styles.inputRow}>
-              {areaLength > 0 && (
-                <View style={styles.areaInputRow}>
-                  <Text style={styles.areaLabel}>
-                    {t('common.components.phoneNumberModal.areaLabel')}
-                  </Text>
-                  <TextInput
-                    style={styles.areaInput}
-                    value={areaDigits}
-                    onChangeText={handleAreaChange}
-                    keyboardType="number-pad"
-                    maxLength={areaLength}
-                    editable={!loading}
-                  />
-                </View>
-              )}
-              <PhoneDigitInput
-                countryOptions={countryOptions}
-                selectedCountry={selectedCountry}
-                onCountryChange={handleCountryChange}
-                digits={digits}
-                onChangeDigits={handleDigitsChange}
-                disabled={!!loading}
-                maxDigitsOverride={maxLineDigits}
-              />
-            </View>
-
-            <View style={styles.actionsRow}>
-              <TouchableOpacity
-                style={[
-                  styles.confirmButton,
-                  (!normalizedPhone || !E164_REGEX.test(normalizedPhone) || loading) &&
-                    styles.buttonDisabled,
-                ]}
-                onPress={handleConfirm}
-                disabled={!normalizedPhone || !E164_REGEX.test(normalizedPhone) || !!loading}
-              >
-                <Text style={styles.confirmButtonText}>
-                  {t('common.components.phoneNumberModal.actions.useNumber')}
-                </Text>
-              </TouchableOpacity>
-              {(initialDigits || normalizedPhone) ? (
+          <Animated.View
+            style={[
+              styles.sheetContainer,
+              { paddingBottom: Math.max(insets.bottom, 24) },
+              sheetStyle,
+            ]}
+          >
+            <View style={styles.sheetContent}>
+              <View style={styles.sheetHeader}>
                 <TouchableOpacity
-                  style={styles.clearButton}
-                  onPress={handleClear}
-                  disabled={!!loading}
+                  onPress={onClose}
+                  style={styles.backButton}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('common.actions.close')}
                 >
-                  <Text style={styles.clearButtonText}>
-                    {t('common.components.phoneNumberModal.actions.clearNumber')}
+                  <Image
+                    source={require('../../assets/icons/back_button/back_button.png')}
+                    style={styles.backIcon}
+                    resizeMode="contain"
+                  />
+                </TouchableOpacity>
+
+                <View style={styles.headerTextContainer}>
+                  <Text style={styles.sheetTitle}>
+                    {t('common.components.phoneNumberModal.title')}
+                  </Text>
+                  <Text style={styles.sheetSubtitle}>
+                    {t('common.components.phoneNumberModal.subtitle')}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.phonePreview}>
+                <Text style={styles.phonePreviewLabel}>
+                  {t('common.components.phoneNumberModal.previewLabel')}
+                </Text>
+                <Text style={styles.phonePreviewValue}>{formattedPhone}</Text>
+              </View>
+
+              <View style={styles.inputRow}>
+                {areaLength > 0 && (
+                  <View style={styles.areaInputRow}>
+                    <Text style={styles.areaLabel}>
+                      {t('common.components.phoneNumberModal.areaLabel')}
+                    </Text>
+                    <TextInput
+                      style={styles.areaInput}
+                      value={areaDigits}
+                      onChangeText={handleAreaChange}
+                      keyboardType="number-pad"
+                      maxLength={areaLength}
+                      editable={!loading}
+                    />
+                  </View>
+                )}
+                <PhoneDigitInput
+                  countryOptions={countryOptions}
+                  selectedCountry={selectedCountry}
+                  onCountryChange={handleCountryChange}
+                  digits={digits}
+                  onChangeDigits={handleDigitsChange}
+                  disabled={!!loading}
+                  maxDigitsOverride={maxLineDigits}
+                />
+              </View>
+
+              <View style={styles.actionsRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.confirmButton,
+                    (!normalizedPhone || !E164_REGEX.test(normalizedPhone) || loading) &&
+                      styles.buttonDisabled,
+                  ]}
+                  onPress={handleConfirm}
+                  disabled={!normalizedPhone || !E164_REGEX.test(normalizedPhone) || !!loading}
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.confirmButtonText}>
+                    {t('common.components.phoneNumberModal.actions.useNumber')}
                   </Text>
                 </TouchableOpacity>
-              ) : null}
+                {initialDigits || normalizedPhone ? (
+                  <TouchableOpacity
+                    style={styles.clearButton}
+                    onPress={handleClear}
+                    disabled={!!loading}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.clearButtonText}>
+                      {t('common.components.phoneNumberModal.actions.clearNumber')}
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
             </View>
           </Animated.View>
         </View>
@@ -336,7 +356,7 @@ const PhoneNumberModal: React.FC<Props> = ({
 export default PhoneNumberModal;
 
 const createStyles = (colors: any) => {
-  const gold = '#D4AF37';
+  const gold = colors.primary;
 
   return StyleSheet.create({
     modalRoot: {
@@ -357,14 +377,18 @@ const createStyles = (colors: any) => {
     sheetContainer: {
       backgroundColor: colors.card,
       paddingHorizontal: 20,
-      paddingTop: 16,
-      paddingBottom: 24,
+      paddingTop: 12,
       width: '100%',
-      borderTopLeftRadius: 34,
-      borderTopRightRadius: 34,
+      maxHeight: '100%',
+      borderTopLeftRadius: 28,
+      borderTopRightRadius: 28,
       borderWidth: 1,
       borderColor: colors.border,
-      gap: 16,
+      overflow: 'hidden',
+    },
+    sheetContent: {
+      gap: 12,
+      paddingBottom: 4,
     },
     sheetHeader: {
       flexDirection: 'row',
@@ -372,9 +396,12 @@ const createStyles = (colors: any) => {
       gap: 8,
     },
     backButton: {
-      paddingVertical: 8,
+      minWidth: 44,
+      minHeight: 44,
       paddingRight: 8,
       paddingLeft: 4,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
     backButtonText: {
       fontSize: 20,
@@ -399,23 +426,31 @@ const createStyles = (colors: any) => {
       marginTop: 2,
     },
     phonePreview: {
-      marginTop: 4,
-      gap: 2,
+      backgroundColor: colors.surface,
+      borderRadius: 16,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      gap: 4,
     },
     phonePreviewLabel: {
       fontSize: 12,
+      fontWeight: '600',
       color: colors.textSecondary,
     },
     phonePreviewValue: {
-      fontSize: 16,
-      fontWeight: '600',
+      fontSize: 20,
+      fontWeight: '700',
       color: gold,
+      letterSpacing: 0.3,
     },
     inputRow: {
-      marginTop: 8,
+      backgroundColor: colors.surface,
+      borderRadius: 18,
+      padding: 12,
+      gap: 12,
     },
     areaInputRow: {
-      marginBottom: 8,
+      gap: 6,
     },
     areaLabel: {
       fontSize: 12,
@@ -423,39 +458,43 @@ const createStyles = (colors: any) => {
       marginBottom: 4,
     },
     areaInput: {
-      borderWidth: 1,
+      minHeight: 52,
+      borderWidth: 1.5,
       borderColor: colors.border,
-      borderRadius: 10,
-      paddingHorizontal: 12,
-      paddingVertical: 8,
-      minWidth: 90,
+      borderRadius: 14,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
       color: colors.text,
       backgroundColor: colors.card,
+      fontSize: 17,
+      fontWeight: '600',
     },
     actionsRow: {
-      marginTop: 12,
+      gap: 8,
     },
     clearButton: {
-      marginTop: 8,
+      minHeight: 44,
       alignItems: 'center',
+      justifyContent: 'center',
     },
     confirmButton: {
       width: '100%',
-      paddingVertical: 14,
-      borderRadius: 20,
-      backgroundColor: '#b38737',
+      minHeight: 56,
+      paddingHorizontal: 18,
+      borderRadius: 18,
+      backgroundColor: gold,
       alignItems: 'center',
       justifyContent: 'center',
     },
     confirmButtonText: {
-      color: '#FFFFFF',
-      fontSize: 15,
+      color: '#241B0B',
+      fontSize: 16,
       fontWeight: '700',
     },
     clearButtonText: {
       color: colors.textSecondary,
-      fontSize: 13,
-      fontWeight: '500',
+      fontSize: 14,
+      fontWeight: '600',
     },
     buttonDisabled: {
       opacity: 0.5,

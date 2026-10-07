@@ -44,8 +44,6 @@ class FirebaseAuthService {
         vehicleData: role === 'driver' ? vehicleData : undefined,
       };
 
-      console.log('📤 Enviando datos de registro:', payload);
-
       const { data } = await client.post(ENDPOINTS.auth.register, payload);
 
       if (!data?.success || !data?.user) {

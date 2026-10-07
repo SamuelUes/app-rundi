@@ -1,4 +1,6 @@
 import Constants from 'expo-constants';
+import { Platform } from 'react-native';
+import { resolveLocalEmulatorHost } from '../config/localEmulatorHost';
 
 const executionEnvironment = Constants?.executionEnvironment;
 const isExpoGoRuntime = executionEnvironment === 'storeClient';
@@ -52,8 +54,20 @@ export function isExpoGo(): boolean {
   return isExpoGoRuntime;
 }
 
+let nativeAuthEmulatorConfigured = false;
+
 export async function loadNativeFirebaseAuth() {
-  return loadModule('auth', () => import('@react-native-firebase/auth'));
+  const module = await loadModule('auth', () => import('@react-native-firebase/auth'));
+  if (module && process.env.USE_FIREBASE_EMULATORS === 'true' && !nativeAuthEmulatorConfigured) {
+    const auth = module.getAuth ? module.getAuth() : module.default();
+    const host = resolveLocalEmulatorHost(
+      process.env.FIREBASE_EMULATOR_HOST || 'localhost',
+      Platform.OS,
+    );
+    auth.useEmulator(`http://${host}:9099`);
+    nativeAuthEmulatorConfigured = true;
+  }
+  return module;
 }
 
 export async function loadNativeFirebaseApp() {

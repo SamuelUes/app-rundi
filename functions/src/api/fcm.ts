@@ -1,9 +1,37 @@
 import * as functions from "firebase-functions";
 import admin from "firebase-admin";
 import { firestore } from "../config/firebase";
-import { sendNotificationToUserWithTokens } from "../services/pushNotifications";
+import { sendNotificationToUserWithTokens, subscribeTokenToTopics, unsubscribeTokenFromTopics } from "../services/pushNotifications";
 
 const TOKENS_SUBCOLLECTION = "fcmTokens";
+
+const FCM_TOPICS_ALL = "all";
+const FCM_TOPICS_CLIENTS = "clients";
+const FCM_TOPICS_DRIVERS = "drivers";
+
+const getRoleTopics = (role: string | null): string[] => {
+  const topics = [FCM_TOPICS_ALL];
+  if (role === "client") {
+    topics.push(FCM_TOPICS_CLIENTS);
+  } else if (role === "driver" || role === "designated_driver") {
+    topics.push(FCM_TOPICS_DRIVERS);
+  }
+  return topics;
+};
+
+const fetchUserRole = async (uid: string): Promise<string | null> => {
+  try {
+    const doc = await firestore.collection("users").doc(uid).get();
+    if (!doc.exists) {
+      return null;
+    }
+    const data = doc.data() as Record<string, unknown> | undefined;
+    const roleRaw = (data?.role ?? data?.userRole ?? data?.type ?? null) as string | null;
+    return typeof roleRaw === "string" && roleRaw.trim().length > 0 ? roleRaw.trim() : null;
+  } catch {
+    return null;
+  }
+};
 
 interface RegisterTokenPayload {
   fcmToken?: string;
@@ -37,6 +65,10 @@ export const registerFCMToken = functions.https.onCall(async (data: RegisterToke
     { merge: true }
   );
 
+  const role = await fetchUserRole(context.auth.uid);
+  const topics = getRoleTopics(role);
+  await subscribeTokenToTopics(token, topics);
+
   return { success: true };
 });
 
@@ -53,6 +85,10 @@ export const clearFCMToken = functions.https.onCall(async (data: ClearTokenPaylo
   if (!token || typeof token !== "string") {
     throw new functions.https.HttpsError("invalid-argument", "Se requiere un token FCM válido");
   }
+
+  const role = await fetchUserRole(context.auth.uid);
+  const topics = getRoleTopics(role);
+  await unsubscribeTokenFromTopics(token, topics);
 
   await firestore
     .collection("users")

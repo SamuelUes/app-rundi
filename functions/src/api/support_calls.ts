@@ -1,7 +1,7 @@
 import * as functions from "firebase-functions";
 import { auth, database } from "../config/firebase";
 import { supabaseGet } from "../supabase/client";
-import { sendNotificationToUser } from "../services/pushNotifications";
+import { sendToUser } from "../services/notificationCenter";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -162,16 +162,14 @@ export const initiateSupportCallHttp = functions.https.onRequest(async (req, res
     });
 
     if (assignedOperatorUid) {
-      await sendNotificationToUser(assignedOperatorUid, {
-        title: "Llamada de soporte solicitada",
-        body: `Hay una nueva llamada para el caso ${complaintId}.`,
+      await sendToUser(assignedOperatorUid, "support_call", {
+        fallbackTitle: "Llamada de soporte solicitada",
+        fallbackBody: `Hay una nueva llamada para el caso ${complaintId}.`,
         data: {
-          type: "support_call",
           complaintId,
           callId,
           requestedByUserId: uid,
         },
-        androidChannelId: "default",
         notificationKey: `support-call-${callId}`,
         expiresInMs: 10 * 60 * 1000,
       });

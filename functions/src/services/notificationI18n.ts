@@ -77,6 +77,30 @@ const translations: Record<string, Record<NotificationLanguage, { title: string;
     es: { title: '🔔 Confirmación pendiente', body: 'Tu viaje programado necesita confirmación.' },
     en: { title: '🔔 Confirmation needed', body: 'Your scheduled ride needs confirmation.' },
   },
+  live_ride_driver_assigned: {
+    es: { title: 'Conductor confirmado', body: 'Tu viaje fue asignado. Te avisaremos del progreso.' },
+    en: { title: 'Driver confirmed', body: 'Your ride was assigned. We will keep you updated.' },
+  },
+  live_ride_driver_on_route: {
+    es: { title: 'Conductor en camino', body: 'Tu conductor se dirige al punto de encuentro.' },
+    en: { title: 'Driver on the way', body: 'Your driver is heading to the pickup point.' },
+  },
+  live_ride_arrived_pickup: {
+    es: { title: 'Conductor llegó', body: 'Tu conductor está en el punto de recogida.' },
+    en: { title: 'Driver arrived', body: 'Your driver is at the pickup point.' },
+  },
+  live_ride_trip_in_progress: {
+    es: { title: 'Viaje en progreso', body: 'Estás en camino a tu destino.' },
+    en: { title: 'Trip in progress', body: 'You are on your way to your destination.' },
+  },
+  live_ride_completed: {
+    es: { title: 'Viaje finalizado', body: 'Tu viaje terminó, revisa el resumen.' },
+    en: { title: 'Ride completed', body: 'Your ride is finished, check the summary.' },
+  },
+  live_ride_canceled: {
+    es: { title: 'Viaje cancelado', body: 'El viaje fue cancelado.' },
+    en: { title: 'Ride canceled', body: 'The ride was canceled.' },
+  },
 };
 
 /**

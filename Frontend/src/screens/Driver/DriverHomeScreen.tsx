@@ -123,7 +123,6 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
 
   const {
     availableRideRequests, activeRide, pendingNegotiationRide,
-    clientNamesCache,
   } = useDriverActiveRides({ userId: user?.id, coords, isAvailable, serviceAreaId, formatCurrency });
 
   const { currentVehicleType, currentVehicleIconSource, driverInfoCacheRef } = useDriverInfoListener(user?.id, markTaskCompleted);

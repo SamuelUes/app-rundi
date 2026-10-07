@@ -6,13 +6,14 @@
     "sessions": {
       "$uid": {
         ".read": "$uid === auth.uid",
-        ".write": "$uid === auth.uid",
+        ".write": false,
         "$other": { ".validate": "false" }
       }
     },
     
     "activeRides": {
       ".read": "false",
+      ".indexOn": ["clientId", "driverId"],
       "$rideId": {
         ".read": "auth != null && (data.child('clientId').val() === auth.uid || data.child('driverId').val() === auth.uid)",
         ".write": "auth != null && (data.child('clientId').val() === auth.uid || newData.child('clientId').val() === auth.uid || data.child('driverId').val() === auth.uid || newData.child('driverId').val() === auth.uid)",
@@ -331,7 +332,7 @@
     },
     
     "paymentStatus": {
-      ".indexOn": ["driverId", "clientId", "status"],
+      ".indexOn": ["driverId", "driver_id", "clientId", "status"],
       "$rideId": {
         ".read": "auth != null && (data.child('driverId').val() === auth.uid || data.child('clientId').val() === auth.uid || root.child('activeRides/' + $rideId + '/clientId').val() === auth.uid || root.child('activeRides/' + $rideId + '/driverId').val() === auth.uid || root.child('programmedRides/' + $rideId + '/clientId').val() === auth.uid || root.child('programmedRides/' + $rideId + '/driverId').val() === auth.uid)",
         ".write": false,
@@ -540,9 +541,8 @@
     },
 
     "clientsInfo": {
-      ".read": "auth != null",
       "$clientId": {
-        ".read": "auth != null",
+        ".read": "auth != null && auth.uid === $clientId",
         ".write": "auth != null && auth.uid === $clientId",
         "$other": { ".validate": "false" }
       }

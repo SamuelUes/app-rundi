@@ -16,12 +16,10 @@ import {
   Platform,
   ScrollView,
   Image,
-  StatusBar,
 } from 'react-native';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useTheme } from '../../hooks/shared/theme/useTheme';
@@ -49,7 +47,6 @@ export default function RegisterScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { t } = useTranslation();
-  const insets = useSafeAreaInsets();
 
   // Estados principales
   const [method, setMethod] = useState<RegistrationMethod>('email');
@@ -412,13 +409,19 @@ export default function RegisterScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['bottom']}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <KeyboardAvoidingView
         style={styles.container}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
       >
-        <ScrollView contentContainerStyle={styles.scrollContent}>
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+          automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+          showsVerticalScrollIndicator={false}
+        >
         <View style={styles.card}>
           <TouchableOpacity
             style={styles.backButton}
@@ -519,9 +522,13 @@ const createStyles = (colors: any) =>
       flex: 1,
       backgroundColor: colors.background,
     },
+    scrollView: {
+      flex: 1,
+    },
     scrollContent: {
       flexGrow: 1,
-      paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) + 12 : 12,
+      paddingTop: 16,
+      paddingBottom: 32,
       paddingHorizontal: 14,
       justifyContent: 'flex-start',
     },
@@ -667,27 +674,29 @@ const createStyles = (colors: any) =>
       color: colors.textSecondary,
     },
     phoneSummary: {
+      minHeight: 60,
       flexDirection: 'row',
       alignItems: 'center',
       paddingVertical: 8,
-      paddingHorizontal: 10,
-      borderRadius: 8,
-      borderWidth: 1,
+      paddingHorizontal: 12,
+      borderRadius: 16,
+      borderWidth: 1.5,
       borderColor: colors.border,
-      backgroundColor: colors.background,
-      gap: 6,
+      backgroundColor: colors.surface,
+      gap: 10,
     },
     phoneSummaryFlagDial: {
-      paddingHorizontal: 8,
-      paddingVertical: 4,
-      borderRadius: 6,
+      minHeight: 40,
+      paddingHorizontal: 10,
+      justifyContent: 'center',
+      borderRadius: 12,
       borderWidth: 1,
       borderColor: colors.border,
       backgroundColor: colors.card,
     },
     phoneSummaryDial: {
-      fontSize: 13,
-      fontWeight: '600',
+      fontSize: 14,
+      fontWeight: '700',
       color: colors.text,
     },
     phoneSummaryValueContainer: {
@@ -695,11 +704,12 @@ const createStyles = (colors: any) =>
       justifyContent: 'center',
     },
     phoneSummaryValue: {
-      fontSize: 13,
+      fontSize: 15,
+      fontWeight: '600',
       color: colors.text,
     },
     phoneSummaryPlaceholder: {
-      fontSize: 13,
+      fontSize: 15,
       color: colors.textSecondary,
     },
     inputError: {

@@ -10,11 +10,12 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
+import { getFirebaseAuth } from '../../config/firebase';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useAuth } from '../../hooks/shared/auth/useAuth';
 import { useFCM } from '../../context/FCMContext';
 import alertService from '../../services/alertService';
-import { setPreflightResult, PreflightAction, PreflightSummary } from '../../stores/preflightStore';
+import { clearPreflightResult, setPreflightResult, PreflightAction, PreflightSummary } from '../../stores/preflightStore';
 import type {
   PreflightRole,
   PreflightRouteConfig,
@@ -28,7 +29,6 @@ import proximityService, {
   subscribeRegistrationUploadsInProgress,
 } from '../../services/proximityService';
 import ridesService from '../../services/ridesService';
-import firebaseAuthService from '../../services/auth/firebaseAuthService';
 import PreflightBiometricPrompt from '../../components/shared/PreflightBiometricPrompt';
 import TermsAndConditionsModal, { CURRENT_TERMS_VERSION } from '../../components/shared/TermsAndConditionsModal';
 import PermissionsExplanation from '../../components/permissions/PermissionsExplanation';
@@ -53,7 +53,6 @@ import {
   checkBackgroundLocation,
   checkOverlay,
   checkActivity,
-  checkDriverApprovalStatus,
   checkDriverBiometricAccess,
 } from '../../utils/preflightChecks';
 import { PreflightProgressBar } from '../../components/shared/Preflight/PreflightProgressBar';
@@ -108,6 +107,7 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
   
   const progressAnim = useRef(new Animated.Value(0)).current;
   const actionsRef = useRef<PreflightAction[]>([]);
+  const driverApprovalRef = useRef<DriverApprovalResult | null>(null);
   const checksRunRef = useRef(false);
 
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -121,63 +121,49 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
   }, [progressAnim]);
 
   const navigateAfterChecks = useCallback(async (approvalOverride?: DriverApprovalResult | null) => {
-    try {
-      if (role === 'driver' && user?.id) {
-        const approval = approvalOverride ?? (await checkDriverApprovalStatus(user.id));
-        if (approval && !approval.allowed) {
-          const targetRoute = pendingApprovalRoute || 'DriverPendingApproval';
-          nav.replace(targetRoute as keyof typeof nav.replace, { approvalInfo: approval });
-          return;
-        }
-      }
-
-      nav.replace(successRoute as keyof typeof nav.replace);
-    } catch (err) {
-      console.error('❌ [Preflight] Error en navegación post-checks:', err);
-      nav.replace(successRoute as keyof typeof nav.replace);
+    const currentAuth = await getFirebaseAuth().catch(() => null);
+    if (!currentAuth) {
+      setError(t('shared.preflight.errors.generic'));
+      setCanRetry(true);
+      checksRunRef.current = false;
+      return;
     }
-  }, [role, user?.id, nav, successRoute, pendingApprovalRoute]);
+    if (!user?.id || currentAuth.currentUser?.uid !== user.id) {
+      preflightService.clearCache();
+      clearPreflightResult();
+      return;
+    }
+
+    if (role === 'driver' && user?.id) {
+      const approval = approvalOverride ?? driverApprovalRef.current;
+      if (!approval) {
+        setError(t('shared.preflight.errors.generic'));
+        setCanRetry(true);
+        checksRunRef.current = false;
+        return;
+      }
+      if (!approval.allowed) {
+        const targetRoute = pendingApprovalRoute || 'DriverPendingApproval';
+        nav.replace(targetRoute as keyof typeof nav.replace, { approvalInfo: approval });
+        return;
+      }
+    }
+
+    nav.replace(successRoute as keyof typeof nav.replace);
+  }, [role, user?.id, nav, successRoute, pendingApprovalRoute, t]);
 
   const handleTermsIfNeeded = useCallback(async (termsSummary?: PreflightTermsSummary | null): Promise<boolean> => {
-    try {
-      if (!user?.id) {
-        return true;
-      }
-
-      const profile = await firebaseAuthService.getUserProfile(user.id) as Record<string, unknown>;
-
-      if (hasAcceptedAllCurrentTerms(termsSummary || null, profile || null)) {
-        return true;
-      }
-
-      setShowTerms(true);
-      setTermsCheckedDocuments(buildInitialTermsCheckedState());
-      return false;
-    } catch (err: any) {
-      console.error('❌ [Preflight] Error obteniendo perfil para términos:', err);
-
-      const message = String(err?.message || '');
-      const code = (err && (err as Record<string, unknown>).code) || '';
-
-      if (
-        message.includes('Missing or insufficient permissions') ||
-        code === 'permission-denied' ||
-        code === 'unauthenticated'
-      ) {
-        console.warn(
-          '⚠️ [Preflight] Sin permisos para leer perfil/términos; permitiendo continuar sin bloqueo',
-        );
-        // No bloquear el flujo de navegación por falta de permisos en Firestore
-        return true;
-      }
-
-      if (user?.id) {
-        setShowTerms(true);
-        setTermsCheckedDocuments(buildInitialTermsCheckedState());
-        return false;
-      }
+    if (!user?.id) {
       return true;
     }
+
+    if (hasAcceptedAllCurrentTerms(termsSummary || null)) {
+      return true;
+    }
+
+    setShowTerms(true);
+    setTermsCheckedDocuments(buildInitialTermsCheckedState());
+    return false;
   }, [user?.id]);
 
   const runChecks = useCallback(async () => {
@@ -191,6 +177,8 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
     setCompleted(false);
     setCanRetry(false);
     actionsRef.current = [];
+    driverApprovalRef.current = null;
+    setPreflightResult(null);
     animateProgress(0);
 
     const labels = getCheckLabels(t);
@@ -349,6 +337,11 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
     })();
 
     const [, preflightData] = await Promise.all([localChecksPromise, serverPreflightPromise]);
+    const currentAuth = await getFirebaseAuth();
+    if (!user?.id || currentAuth.currentUser?.uid !== user.id) {
+      checksRunRef.current = false;
+      return;
+    }
 
     if (criticalFailureCheck) {
       const defaultError = t('shared.preflight.errors.checkFailed', {
@@ -365,7 +358,37 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
       return;
     }
 
+    if (!preflightData?.success || preflightData.userId !== user?.id || preflightData.role !== role) {
+      setProgress(0);
+      animateProgress(0);
+      setError(t('shared.preflight.errors.generic'));
+      setCanRetry(true);
+      checksRunRef.current = false;
+      return;
+    }
+
+    const serverDriverApproval = role === 'driver'
+      ? toDriverApprovalResult(preflightData.driverApproval)
+      : null;
+    if (role === 'driver' && !serverDriverApproval) {
+      setProgress(0);
+      animateProgress(0);
+      setError(t('shared.preflight.errors.generic'));
+      setCanRetry(true);
+      checksRunRef.current = false;
+      return;
+    }
+    driverApprovalRef.current = serverDriverApproval;
+
     const resolvedLocation = await locationPromise;
+    const authBeforeCommit = await getFirebaseAuth().catch(() => null);
+    if (!user?.id || authBeforeCommit?.currentUser?.uid !== user.id) {
+      preflightService.clearCache();
+      clearPreflightResult();
+      checksRunRef.current = false;
+      return;
+    }
+
     const regionInfo: PreflightRegionInfo | undefined =
       preflightData?.region ||
       (resolvedLocation
@@ -499,7 +522,7 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
 
     const shouldNavigate = await handleTermsIfNeeded(preflightData?.terms);
     if (shouldNavigate) {
-      const approval = toDriverApprovalResult(preflightData?.driverApproval);
+      const approval = serverDriverApproval;
       setTimeout(() => {
         navigateAfterChecks(approval);
       }, 1000);
@@ -591,61 +614,23 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
 
     try {
       setSavingTerms(true);
-      const now = new Date();
-      await firebaseAuthService.updateUserProfile(user.id, {
-        termsVersion: CURRENT_TERMS_VERSION,
-        termsAcceptedAt: now,
-        termsAcceptance: {
-          type: 'by_document',
-          version: CURRENT_TERMS_VERSION,
-          acceptedAt: now,
-          documents: {
-            general: {
-              accepted: true,
-              version: CURRENT_TERMS_VERSION,
-              acceptedAt: now,
-            },
-            users: {
-              accepted: true,
-              version: CURRENT_TERMS_VERSION,
-              acceptedAt: now,
-            },
-            designated_driver: {
-              accepted: true,
-              version: CURRENT_TERMS_VERSION,
-              acceptedAt: now,
-            },
-          },
-        },
+      await preflightService.acceptTerms(user.id, CURRENT_TERMS_VERSION, {
+        general: true,
+        users: true,
+        designated_driver: true,
       });
+      preflightService.clearCache();
       setShowTerms(false);
       setTimeout(() => {
-        navigateAfterChecks();
+        navigateAfterChecks(driverApprovalRef.current);
       }, 300);
     } catch (err: any) {
       console.error('❌ [Preflight] Error guardando aceptación de términos:', err);
-      const message = String(err?.message || '');
-      const code = err?.code;
-
-      if (
-        message.includes('Missing or insufficient permissions') ||
-        code === 'permission-denied' ||
-        code === 'unauthenticated'
-      ) {
-        console.warn(
-          '⚠️ [Preflight] Sin permisos para guardar términos; continuando sin actualizar perfil',
-        );
-        setShowTerms(false);
-        setTimeout(() => {
-          navigateAfterChecks();
-        }, 300);
-      } else {
-        alertService.showErrorAlert(t('shared.preflight.alerts.termsSaveError'));
-      }
+      alertService.showErrorAlert(t('shared.preflight.alerts.termsSaveError'));
     } finally {
       setSavingTerms(false);
     }
-  }, [user?.id, termsCheckedDocuments, savingTerms, navigateAfterChecks]);
+  }, [user?.id, termsCheckedDocuments, savingTerms, navigateAfterChecks, t]);
 
   const handleSkip = useCallback(() => {
     alertService.showInfoAlert(

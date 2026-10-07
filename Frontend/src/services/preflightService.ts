@@ -1,17 +1,27 @@
 import { getFirebaseFunctions } from '../config/firebase';
 import { httpsCallable } from 'firebase/functions';
-import type { GetPreflightDataRequest, GetPreflightDataResponse } from '../types/preflight';
+import type { GetPreflightDataRequest, GetPreflightDataResponse, TermsDocumentType } from '../types/preflight';
 import { waitForFirebaseAuthUser } from '../utils/firebaseAuthReady';
 import client from '../api/client';
 
 function isUnauthenticatedError(error: any): boolean {
   const code = String(error?.code || '').toLowerCase();
   const message = String(error?.message || '').toLowerCase();
+  return code === 'unauthenticated' || code.endsWith('/unauthenticated') || message.includes('unauthenticated');
+}
+
+function isRetryableHttpError(error: any): boolean {
+  const status = Number(error?.response?.status || 0);
+  return status === 429 || status >= 500 || (status === 0 && error?.isAxiosError === true);
+}
+
+function isRetryableCallableError(error: any): boolean {
+  const code = String(error?.code || '').toLowerCase();
   return (
-    code.includes('unauthenticated') ||
-    code.includes('auth') ||
-    message.includes('unauthenticated') ||
-    message.includes('auth')
+    isUnauthenticatedError(error) ||
+    code.endsWith('/unavailable') ||
+    code.endsWith('/deadline-exceeded') ||
+    code.endsWith('/network-request-failed')
   );
 }
 
@@ -38,18 +48,48 @@ interface CacheEntry {
   payloadKey: string;
 }
 
-const preflightCache: { entry: CacheEntry | null } = { entry: null };
+const preflightCache: { entry: CacheEntry | null; generation: number } = { entry: null, generation: 0 };
 
-function makePayloadKey(payload: GetPreflightDataRequest): string {
-  return `${payload.role || ''}:${payload.userId || ''}:${payload.location?.lat || ''}:${payload.location?.lng || ''}`;
+function makePayloadKey(payload: GetPreflightDataRequest, authenticatedUid: string): string {
+  return `${payload.role}:${authenticatedUid}:${payload.location?.lat ?? ''}:${payload.location?.lng ?? ''}`;
+}
+
+function isValidPreflightResponse(
+  response: GetPreflightDataResponse,
+  userId: string,
+  role: GetPreflightDataRequest['role'],
+): boolean {
+  return Boolean(
+    response?.success === true &&
+    response.userId === userId &&
+    response.role === role &&
+    typeof response.terms?.acceptedAllDocuments === 'boolean' &&
+    'activeRide' in response &&
+    'programmedRide' in response &&
+    'pendingPayments' in response &&
+    (role !== 'driver' || (typeof response.driverApproval?.allowed === 'boolean' && 'rechargeFunds' in response)),
+  );
 }
 
 const preflightService = {
+  clearCache() {
+    preflightCache.entry = null;
+    preflightCache.generation += 1;
+  },
+
   async fetchPreflightData(payload: GetPreflightDataRequest): Promise<GetPreflightDataResponse> {
-    const cacheKey = makePayloadKey(payload);
-    const now = Date.now();
+    const authUser = await waitForFirebaseAuthUser(payload.userId);
+    if (!authUser) {
+      throw new Error('Firebase Auth no disponible para getPreflightData');
+    }
+    if (payload.userId && authUser.uid !== payload.userId) {
+      throw new Error('UID de Firebase Auth no coincide con userId del payload');
+    }
+
+    const cacheGeneration = preflightCache.generation;
+    const cacheKey = makePayloadKey(payload, authUser.uid);
     const cached = preflightCache.entry;
-    if (cached !== null && cached.payloadKey === cacheKey && (now - cached.timestamp) < PREFLIGHT_CACHE_TTL_MS) {
+    if (cached !== null && cached.payloadKey === cacheKey && Date.now() - cached.timestamp < PREFLIGHT_CACHE_TTL_MS) {
       return cached.data;
     }
 
@@ -57,81 +97,84 @@ const preflightService = {
     const callable = httpsCallable<GetPreflightDataRequest, GetPreflightDataResponse>(
       functions,
       'getPreflightData',
+      { timeout: 30_000 },
     );
-
-    let lastError: any = null;
     const maxAttempts = 3;
+    let useCallable = false;
+    let forceTokenRefresh = false;
+    let lastError: any = null;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-      const authUser = await waitForFirebaseAuthUser(payload?.userId, 8000);
-      if (!authUser) {
-        lastError = new Error('Firebase Auth no disponible para getPreflightData');
-      } else {
-        if (payload?.userId && authUser.uid !== payload.userId) {
-          lastError = new Error('UID de Firebase Auth no coincide con userId del payload');
-          if (attempt < maxAttempts) {
-            await delay(450 * attempt);
-          }
-          continue;
+      try {
+        if (forceTokenRefresh) {
+          await authUser.getIdToken(true);
+          forceTokenRefresh = false;
         }
 
-        try {
-          const refreshedToken = await authUser.getIdToken(true);
-          if (!refreshedToken) {
-            throw new Error('No se pudo obtener token Firebase para callable');
-          }
-
+        let result: GetPreflightDataResponse;
+        if (useCallable) {
+          result = (await callable(payload)).data;
+        } else {
           try {
-            const response = await client.post('/getPreflightDataHttp', payload, {
-              headers: {
-                Authorization: `Bearer ${refreshedToken}`,
-              },
-            });
-            const result = response.data as GetPreflightDataResponse;
-            preflightCache.entry = { data: result, timestamp: Date.now(), payloadKey: cacheKey };
-            return result;
+            const response = await client.post('/getPreflightDataHttp', payload);
+            result = response.data as GetPreflightDataResponse;
           } catch (httpError: any) {
-            lastError = httpError;
-
-            if (isHttpNotFound(httpError)) {
-              // Fallback temporal mientras se despliega el endpoint HTTP
-            } else if (isHttpUnauthenticated(httpError) && attempt < maxAttempts) {
-              console.warn(`⚠️ [preflightService] getPreflightDataHttp unauthenticated (intento ${attempt}/${maxAttempts}), reintentando...`);
-              await delay(450 * attempt);
-              continue;
-            } else if (!isHttpNotFound(httpError)) {
+            const shouldFallbackToCallable =
+              isHttpNotFound(httpError) ||
+              isRetryableHttpError(httpError) ||
+              (attempt === maxAttempts && isHttpUnauthenticated(httpError));
+            if (!shouldFallbackToCallable) {
               throw httpError;
             }
+            // Fallback temporal mientras se despliega el endpoint HTTP
+            useCallable = true;
+            result = (await callable(payload)).data;
           }
-        } catch (tokenError) {
-          lastError = tokenError;
-          if (attempt < maxAttempts) {
-            console.warn(`⚠️ [preflightService] No se pudo refrescar token (intento ${attempt}/${maxAttempts}), reintentando...`);
-            await delay(450 * attempt);
-          }
-          continue;
         }
 
-        try {
-          const callableResult = await callable(payload);
-          const callableData = callableResult.data;
-          preflightCache.entry = { data: callableData, timestamp: Date.now(), payloadKey: cacheKey };
-          return callableData;
-        } catch (error: any) {
-          lastError = error;
-          if (!isUnauthenticatedError(error) || attempt === maxAttempts) {
-            break;
-          }
-          console.warn(`⚠️ [preflightService] getPreflightData unauthenticated (intento ${attempt}/${maxAttempts}), reintentando...`);
+        if (!isValidPreflightResponse(result, authUser.uid, payload.role)) {
+          throw new Error('Respuesta de preflight inválida o de otro usuario');
         }
-      }
+        if (cacheGeneration !== preflightCache.generation) {
+          throw new Error('La sesión cambió durante el preflight');
+        }
 
-      if (attempt < maxAttempts) {
+        preflightCache.entry = { data: result, timestamp: Date.now(), payloadKey: cacheKey };
+        return result;
+      } catch (error: any) {
+        lastError = error;
+        const retryable = isHttpUnauthenticated(error) || isRetryableHttpError(error) || isRetryableCallableError(error);
+        if (!retryable || attempt === maxAttempts) {
+          throw error;
+        }
+        forceTokenRefresh = isHttpUnauthenticated(error) || isUnauthenticatedError(error);
         await delay(450 * attempt);
       }
     }
 
     throw lastError || new Error('No se pudo obtener getPreflightData');
+  },
+
+  async acceptTerms(
+    expectedUid: string,
+    version: string,
+    acceptedDocuments: Record<TermsDocumentType, boolean>,
+  ): Promise<void> {
+    const authUser = await waitForFirebaseAuthUser(expectedUid);
+    if (!authUser || authUser.uid !== expectedUid) {
+      throw new Error('Firebase Auth no coincide con el usuario que acepta los términos');
+    }
+
+    const functions = await getFirebaseFunctions();
+    const callable = httpsCallable<
+      { expectedUid: string; version: string; acceptedDocuments: Record<TermsDocumentType, boolean> },
+      { success?: boolean }
+    >(functions, 'acceptPreflightTerms', { timeout: 30_000 });
+    const result = await callable({ expectedUid, version, acceptedDocuments });
+
+    if (result.data?.success !== true) {
+      throw new Error('No se pudo guardar la aceptación de términos');
+    }
   },
 };
 

@@ -5,6 +5,8 @@
 
 import { createClient } from '@supabase/supabase-js';
 import Constants from 'expo-constants';
+import { Platform } from 'react-native';
+import { resolveLocalSupabaseUrl } from './localEmulatorHost';
  
 
 const expoExtra =
@@ -13,13 +15,13 @@ const expoExtra =
   {};
 
 function resolveSupabaseUrl(): string {
-  return (
+  const url =
     expoExtra.EXPO_PUBLIC_SUPABASE_URL ||
     expoExtra.supabaseUrl ||
     process.env.EXPO_PUBLIC_SUPABASE_URL ||
     process.env.SUPABASE_URL ||
-    ''
-  );
+    '';
+  return resolveLocalSupabaseUrl(url, Platform.OS);
 }
 
 function resolveSupabaseKey(): string {

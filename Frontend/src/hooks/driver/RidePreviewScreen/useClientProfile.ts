@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { fetchClientProfile, type ClientProfile } from '../../../services/clientProfilesService';
 
-export function useClientProfile(clientId: string) {
+export function useClientProfile(clientId: string, rideId: string) {
   const [clientProfile, setClientProfile] = useState<ClientProfile | null>(null);
 
   useEffect(() => {
@@ -9,7 +9,7 @@ export function useClientProfile(clientId: string) {
 
     const loadProfile = async () => {
       try {
-        const profile = await fetchClientProfile(clientId);
+        const profile = await fetchClientProfile(clientId, rideId);
         if (active) {
           setClientProfile(profile);
         }
@@ -23,7 +23,7 @@ export function useClientProfile(clientId: string) {
     return () => {
       active = false;
     };
-  }, [clientId]);
+  }, [clientId, rideId]);
 
   return { clientProfile, setClientProfile };
 }
