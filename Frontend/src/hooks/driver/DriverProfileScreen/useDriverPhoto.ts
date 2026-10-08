@@ -40,7 +40,8 @@ export function useDriverPhoto(
               result.assets[0].uri,
             );
 
-            setProfilePhoto(photoUrl);
+            const displayPhotoUrl = await supabaseStorage.resolveDocumentPhotoUrl(photoUrl);
+            setProfilePhoto(displayPhotoUrl);
 
             await driversService.updateDriver({
               profile_photo: photoUrl,

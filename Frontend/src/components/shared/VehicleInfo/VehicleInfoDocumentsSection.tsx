@@ -1,5 +1,9 @@
 import React from 'react';
 import { View, Text, TextInput } from 'react-native';
+import { DatePickerField } from '../../ui/DatePickerField';
+import { InsuranceCompanySelectField } from '../InsuranceCompanySelectField';
+
+const DATE_FIELDS = new Set(['registrationExpiry', 'insuranceExpiry', 'insuranceStartDate']);
 
 interface VehicleInfoDocumentsSectionProps {
   isComplete: boolean;
@@ -48,13 +52,30 @@ export function VehicleInfoDocumentsSection({
       {fields.map((key) => (
         <View style={styles.inputGroup} key={key}>
           <Text style={styles.inputLabel}>{fieldLabel(key)}</Text>
-          <TextInput
-            style={styles.input}
-            value={formState[key]}
-            onChangeText={(text) => updateField(key, text)}
-            placeholder={fieldPlaceholder(key)}
-            placeholderTextColor={colors.textSecondary}
-          />
+          {DATE_FIELDS.has(key) ? (
+            <DatePickerField
+              style={styles.input}
+              value={formState[key]}
+              onChangeText={(text) => updateField(key, text)}
+              placeholder={fieldPlaceholder(key)}
+              placeholderTextColor={colors.textSecondary}
+            />
+          ) : key === 'insuranceCompany' ? (
+            <InsuranceCompanySelectField
+              style={styles.input}
+              value={formState[key]}
+              onChange={(text) => updateField(key, text)}
+              placeholder={fieldPlaceholder(key)}
+            />
+          ) : (
+            <TextInput
+              style={styles.input}
+              value={formState[key]}
+              onChangeText={(text) => updateField(key, text)}
+              placeholder={fieldPlaceholder(key)}
+              placeholderTextColor={colors.textSecondary}
+            />
+          )}
         </View>
       ))}
     </View>

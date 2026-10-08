@@ -274,7 +274,6 @@ export default function DriverProfileScreen({ navigation }: any) {
           documentStatusText={documentStatusText}
           documentButtonLabel={documentButtonLabel}
           driverLicenseExpiry={driverLicenseExpiry}
-          colors={colors}
           onUploadDocuments={() => navigation.navigate('DriversDocumentsInspection')}
           t={t}
           styles={styles}

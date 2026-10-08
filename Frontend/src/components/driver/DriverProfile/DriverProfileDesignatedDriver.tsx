@@ -27,17 +27,17 @@ export function DriverProfileDesignatedDriver({
   styles,
 }: DriverProfileDesignatedDriverProps) {
   return (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>{t('driver.profile.designated.title')}</Text>
+    <View style={styles.profileSection}>
+      <Text style={styles.profileSectionTitle}>{t('driver.profile.designated.title')}</Text>
 
-      <View style={styles.designatedDriverCard}>
+      <View style={styles.profileDesignatedCard}>
         <View style={styles.designatedDriverContent}>
-          <Text style={styles.designatedDriverTitle}>{t('driver.profile.designated.heroTitle')}</Text>
+          <Text style={styles.profileDesignatedTitle}>{t('driver.profile.designated.heroTitle')}</Text>
           <Text style={styles.designatedDriverDescription}>
             {t('driver.profile.designated.heroDescription')}
           </Text>
 
-          <View style={styles.designatedDriverBenefits}>
+          <View style={styles.profileDesignatedBenefits}>
             <Text style={styles.benefitItem}>{t('driver.profile.designated.benefits.rides')}</Text>
             <Text style={styles.benefitItem}>{t('driver.profile.designated.benefits.higherFare')}</Text>
             <Text style={styles.benefitItem}>{t('driver.profile.designated.benefits.premiumClients')}</Text>
@@ -47,7 +47,7 @@ export function DriverProfileDesignatedDriver({
 
         <TouchableOpacity
           style={[
-            styles.designatedDriverButton,
+            styles.profileDesignatedButton,
             designatedButtonDisabled && styles.designatedDriverButtonDisabled
           ]}
           onPress={() => {

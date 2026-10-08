@@ -27,8 +27,13 @@ function mapVehicleResponse(vehicle: any) {
     color: vehicle.color,
     type: vehicle.type ?? vehicle.vehicleType,
     isActive: typeof vehicle.is_active === 'boolean' ? vehicle.is_active : vehicle.isActive,
+    registrationNumber: vehicle.registration_number ?? vehicle.registrationNumber,
+    registrationExpiry: vehicle.registration_expiry ?? vehicle.registrationExpiry,
     registrationPhotoFront: vehicle.registration_photo_front ?? vehicle.registrationPhotoFront,
     registrationPhotoBack: vehicle.registration_photo_back ?? vehicle.registrationPhotoBack,
+    insuranceNumber: vehicle.insurance_number ?? vehicle.insuranceNumber,
+    insuranceCompany: vehicle.insurance_company ?? vehicle.insuranceCompany,
+    insuranceExpiry: vehicle.insurance_expiry ?? vehicle.insuranceExpiry,
     insurancePhoto: vehicle.insurance_photo ?? vehicle.insurancePhoto,
     vehiclePhoto: vehicle.vehicle_photo ?? vehicle.vehiclePhoto,
     updatedAt: vehicle.updated_at ?? vehicle.updatedAt ?? new Date().toISOString(),
@@ -317,6 +322,7 @@ export const getDriverVehicles = functions.https.onCall(async (data, context) =>
     };
   } catch (error: any) {
     console.error('❌ [getDriverVehicles] Error:', error);
+    if (error instanceof functions.https.HttpsError) throw error;
     throw new functions.https.HttpsError('internal', error.message);
   }
 });
@@ -346,6 +352,15 @@ export const updateVehicle = functions.https.onCall(async (data, context) => {
       vehicle_photo
     } = data;
 
+    // Documentos: circulación y seguro (acepta snake_case y camelCase)
+    const emissionDate = data.emission_date ?? data.emissionDate;
+    const registrationNumber = data.registration_number ?? data.registrationNumber;
+    const registrationExpiry = data.registration_expiry ?? data.registrationExpiry;
+    const insuranceNumber = data.insurance_number ?? data.insuranceNumber;
+    const insuranceCompany = data.insurance_company ?? data.insuranceCompany;
+    const insuranceStartDate = data.insurance_start_date ?? data.insuranceStartDate;
+    const insuranceExpiry = data.insurance_expiry ?? data.insuranceExpiry;
+
     if (!vehicleId) {
       throw new functions.https.HttpsError('invalid-argument', 'vehicleId es requerido');
     }
@@ -362,6 +377,15 @@ export const updateVehicle = functions.https.onCall(async (data, context) => {
     if (vehicleType) updateData.type = vehicleType;
     if (status) updateData.is_active = status === 'active';
     
+    // Agregar datos de circulación y seguro si están presentes
+    if (emissionDate !== undefined) updateData.emission_date = emissionDate;
+    if (registrationNumber !== undefined) updateData.registration_number = registrationNumber;
+    if (registrationExpiry !== undefined) updateData.registration_expiry = registrationExpiry;
+    if (insuranceNumber !== undefined) updateData.insurance_number = insuranceNumber;
+    if (insuranceCompany !== undefined) updateData.insurance_company = insuranceCompany;
+    if (insuranceStartDate !== undefined) updateData.insurance_start_date = insuranceStartDate;
+    if (insuranceExpiry !== undefined) updateData.insurance_expiry = insuranceExpiry;
+
     // Agregar campos de fotos si están presentes
     if (registration_photo_front !== undefined) updateData.registration_photo_front = registration_photo_front;
     if (registration_photo_back !== undefined) updateData.registration_photo_back = registration_photo_back;

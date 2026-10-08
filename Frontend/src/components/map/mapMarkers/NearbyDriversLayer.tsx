@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { View, Text, Image } from 'react-native';
+import StorageImage from '../../shared/StorageImage';
 import { Marker } from 'react-native-maps';
 import { MarkerBubble, markerStyles } from './MarkerContent';
 import { toLatLng, isValidCoord } from '../../../hooks/shared/map/useMapCamera';
@@ -139,7 +140,7 @@ export default React.memo(function NearbyDriversLayer({
                   <Image source={MAP_ICONS.DRIVER_PROFILE_BUBBLE} style={markerStyles.driverBubbleImage} />
                   <View style={markerStyles.driverBubbleAvatar}>
                     {driver.photoURL ? (
-                      <Image source={{ uri: driver.photoURL }} style={markerStyles.driverBubbleAvatarImage} />
+                      <StorageImage uri={driver.photoURL} style={markerStyles.driverBubbleAvatarImage} />
                     ) : (
                       <View style={markerStyles.driverBubbleAvatarFallback}>
                         <Text style={markerStyles.driverBubbleAvatarFallbackText}>

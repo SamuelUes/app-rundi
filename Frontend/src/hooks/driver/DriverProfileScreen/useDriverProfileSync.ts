@@ -104,7 +104,7 @@ export function useDriverProfileSync() {
               : 'pending';
 
         const rawDocumentsStatus = String((profile as any)?.documents_status || '').toLowerCase();
-        const documentsStatus = rawDocumentsStatus === 'verified'
+        const documentsStatus = rawDocumentsStatus === 'verified' || rawDocumentsStatus === 'active' || rawDocumentsStatus === 'approved'
           ? 'verified'
           : rawDocumentsStatus === 'suspended'
             ? 'suspended'

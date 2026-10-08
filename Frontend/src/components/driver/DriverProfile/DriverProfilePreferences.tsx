@@ -19,38 +19,38 @@ export function DriverProfileModeToggle({
   styles,
 }: DriverProfileModeToggleProps) {
   return (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>{t('driver.profile.mode.title')}</Text>
-      <View style={styles.preferenceCard}>
-        <View style={styles.preferenceHeader}>
+    <View style={styles.profileSection}>
+      <Text style={styles.profileSectionTitle}>{t('driver.profile.mode.title')}</Text>
+      <View style={styles.profileModeCard}>
+        <View style={styles.profileModeHeader}>
           <View style={styles.preferenceIconWrapper}>
             <MaterialIcons name="directions-car" size={24} color={colors.primary} />
           </View>
           <View style={styles.preferenceInfo}>
-            <Text style={styles.preferenceTitle}>{t('driver.profile.mode.title')}</Text>
             <Text style={styles.preferenceSubtitle}>
               {t('driver.profile.mode.description')}
             </Text>
           </View>
-          <TouchableOpacity
-            style={[
-              styles.modeToggleButton,
-              userMode === 'driver' ? styles.modeToggleButtonActive : null,
-            ]}
-            onPress={onModeButtonPress}
-          >
-            <Text
-              style={[
-                styles.modeToggleButtonText,
-                userMode === 'driver' ? styles.modeToggleButtonTextActive : null,
-              ]}
-            >
-              {userMode === 'driver'
-                ? t('driver.profile.mode.switchToClient')
-                : t('driver.profile.mode.switchToDriver')}
-            </Text>
-          </TouchableOpacity>
         </View>
+        <TouchableOpacity
+          style={[
+            styles.modeToggleButton,
+            styles.profileModeAction,
+            userMode === 'driver' ? styles.modeToggleButtonActive : null,
+          ]}
+          onPress={onModeButtonPress}
+        >
+          <Text
+            style={[
+              styles.modeToggleButtonText,
+              userMode === 'driver' ? styles.modeToggleButtonTextActive : null,
+            ]}
+          >
+            {userMode === 'driver'
+              ? t('driver.profile.mode.switchToClient')
+              : t('driver.profile.mode.switchToDriver')}
+          </Text>
+        </TouchableOpacity>
       </View>
     </View>
   );

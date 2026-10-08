@@ -181,6 +181,10 @@ const resources = {
             placeholder: 'Take or select a photo',
             changeButton: 'Change photo',
           },
+          insuranceCompany: {
+            selectTitle: 'Insurance company',
+            otherOption: 'Other insurer',
+          },
           imagePickerButton: {
             alerts: {
               pickTitle: 'Select image',
@@ -1593,7 +1597,7 @@ const resources = {
                 insuranceNumberLabel: 'Insurance policy number',
                 insuranceNumberPlaceholder: 'Ex: RCO30201102',
                 insuranceCompanyLabel: 'Insurance company',
-                insuranceCompanyPlaceholder: 'Ex: BAC',
+                insuranceCompanyPlaceholder: 'Select your insurance company',
                 insuranceExpiryLabel: 'Insurance expiration (YYYY-MM-DD)',
                 insuranceExpiryPlaceholder: 'Ex: 2030-02-12',
                 typeOptions: {
@@ -2425,6 +2429,10 @@ const resources = {
           },
           cta: {
             viewRequests: 'View requests',
+          },
+          status: {
+            online: 'Online',
+            offline: 'Offline',
           },
           designated: {
             activeLabel: 'Designated',
@@ -3349,8 +3357,9 @@ const resources = {
             title: 'License photos',
             frontTitle: '1. License front',
             backTitle: '2. License back',
-            takePhoto: '📷 Take photo',
+            takePhoto: 'Take photo',
             retakePhoto: 'Retake photo',
+            chooseFromGallery: 'Gallery',
           },
           notice: {
             text:
@@ -3370,8 +3379,11 @@ const resources = {
           alerts: {
             permissionTitle: 'Permission required',
             permissionMessage: 'We need camera access to take photos of your documents.',
+            galleryPermissionMessage:
+              'We need gallery access to select photos of your documents.',
             cameraErrorTitle: 'Error',
             cameraErrorMessage: 'We could not take the photo.',
+            galleryErrorMessage: 'We could not select the photo.',
             missingDataTitle: 'Error',
             missingDataMessage: 'Please complete all fields and photos to continue.',
             successTitle: 'Success',
@@ -3478,7 +3490,7 @@ const resources = {
         },
         VehicleVerificationScreen: {
           header: {
-            title: '🚗 Vehicle verification',
+            title: 'Vehicle verification',
             subtitle: 'Complete the information and upload your vehicle photos to be able to take trips.',
           },
           form: {
@@ -3490,7 +3502,7 @@ const resources = {
             insuranceNumberLabel: 'Insurance policy number *',
             insuranceNumberPlaceholder: 'Ex: RCO30201102',
             insuranceCompanyLabel: 'Insurance company *',
-            insuranceCompanyPlaceholder: 'Ex: BAC',
+            insuranceCompanyPlaceholder: 'Select your insurance company',
             insuranceExpiryLabel: 'Insurance expiration (YYYY-MM-DD) *',
             insuranceExpiryPlaceholder: 'Ex: 2030-02-12',
           },
@@ -3500,8 +3512,9 @@ const resources = {
             registrationFrontTitle: '2. Registration – front',
             registrationBackTitle: '3. Registration – back',
             insuranceTitle: '4. Insurance policy photo',
-            takePhoto: '📷 Take photo',
+            takePhoto: 'Take photo',
             retakePhoto: 'Retake photo',
+            chooseFromGallery: 'Gallery',
           },
           notice: {
             text:
@@ -3517,8 +3530,11 @@ const resources = {
           alerts: {
             permissionTitle: 'Permissions required',
             permissionMessage: 'Camera access is needed to take photos of your vehicle.',
+            galleryPermissionMessage:
+              'We need gallery access to select photos of your vehicle.',
             cameraErrorTitle: 'Error',
             cameraErrorMessage: 'We could not take the photo.',
+            galleryErrorMessage: 'We could not select the photo.',
             missingDataTitle: 'Error',
             missingDataMessage: 'Photos or required data are missing to continue.',
             successTitle: 'Success',
@@ -4632,9 +4648,13 @@ const resources = {
           profile: {
             avatarTitle: 'Profile photo',
             avatarMessage: 'Profile photo upload will be available soon.',
-            namePlaceholder: 'Full name',
-            birthPlaceholder: 'Birth date (DD/MM/YYYY)',
-            emailPlaceholder: 'Email',
+            nameLabel: 'Full name',
+            namePlaceholder: 'e.g. Ana Perez',
+            birthLabel: 'Date of birth',
+            birthPlaceholder: 'DD/MM/YYYY',
+            emailLabel: 'Email',
+            emailPlaceholder: 'name@example.com',
+            phoneLabel: 'Phone',
             phonePlaceholder: 'Tap to add your number',
             saveButton: 'Save changes',
           },
@@ -4815,7 +4835,7 @@ const resources = {
           },
           sections: {
             personal: '👤 Personal information',
-            vehicle: '🚗 Vehicle information',
+            vehicle: 'Vehicle information',
             technical: '🔧 Technical details',
             documents: '📄 Documents',
             license: '🪪 Driver license',
@@ -5580,14 +5600,18 @@ const resources = {
               permissionsMessage: 'Se necesitan permisos de cámara y galería para continuar.',
               selectTitle: 'Seleccionar imagen',
               selectMessage: 'Elige una opción',
-              cameraOption: '📷 Tomar foto',
-              galleryOption: '🖼️ Galería',
+              cameraOption: 'Tomar foto',
+              galleryOption: 'Galería',
               cancelOption: 'Cancelar',
               errorTitle: 'Error',
               selectError: 'No pudimos seleccionar la imagen.',
             },
             placeholder: 'Toma o selecciona una foto',
             changeButton: 'Cambiar foto',
+          },
+          insuranceCompany: {
+            selectTitle: 'Compañía de seguro',
+            otherOption: 'Otra aseguradora',
           },
           imagePickerButton: {
             alerts: {
@@ -6641,7 +6665,7 @@ const resources = {
               insuranceNumberLabel: 'Número de póliza',
               insuranceNumberPlaceholder: 'Ej: RCO30201102',
               insuranceCompanyLabel: 'Compañía de seguro',
-              insuranceCompanyPlaceholder: 'Ej: BAC',
+              insuranceCompanyPlaceholder: 'Selecciona tu aseguradora',
               insuranceExpiryLabel: 'Vencimiento del seguro (AAAA-MM-DD)',
               insuranceExpiryPlaceholder: 'Ej: 2030-02-12',
               typeOptions: {
@@ -7475,6 +7499,10 @@ const resources = {
             cta: {
               viewRequests: 'Ver solicitudes',
             },
+            status: {
+              online: 'En línea',
+              offline: 'Desconectado',
+            },
             designated: {
               activeLabel: 'Designado',
             },
@@ -7548,12 +7576,12 @@ const resources = {
                 default: 'Documento',
               },
               status: {
-                verified: '✅ Verificado',
-                rejected: '❌ Rechazado',
-                suspended: '⚠️ Suspendido',
-                pending: '⏱ En revisión',
-                complete: '✅ Completo (en revisión)',
-                missing: '❌ Pendiente',
+                verified: 'Verificado',
+                rejected: 'Rechazado',
+                suspended: 'Suspendido',
+                pending: 'En revisión',
+                complete: 'Completo (en revisión)',
+                missing: 'Pendiente',
               },
               button: {
                 view: 'Ver',
@@ -8382,7 +8410,7 @@ const resources = {
         },
         documentInspection: {
           header: {
-            title: '📋 Documentos del conductor',
+            title: 'Documentos del conductor',
             subtitle:
               'Completa la información de tu licencia y sube las fotos frontal y trasera.',
           },
@@ -8395,10 +8423,11 @@ const resources = {
           },
           photosSection: {
             title: 'Fotos de la licencia',
-                        frontTitle: '1. Frente de la licencia',
+            frontTitle: '1. Frente de la licencia',
             backTitle: '2. Reverso de la licencia',
-            takePhoto: '📷 Tomar foto',
+            takePhoto: 'Tomar foto',
             retakePhoto: 'Repetir foto',
+            chooseFromGallery: 'Galería',
           },
           notice: {
             text: '⚠️ Asegúrate de que las fotos sean claras y legibles. Nuestro equipo verificará estos documentos.',
@@ -8417,8 +8446,11 @@ const resources = {
           alerts: {
             permissionTitle: 'Permiso requerido',
             permissionMessage: 'Necesitamos acceso a la cámara para tomar fotos de tus documentos.',
+            galleryPermissionMessage:
+              'Necesitamos acceso a tu galería para seleccionar las fotos de tus documentos.',
             cameraErrorTitle: 'Error',
             cameraErrorMessage: 'No pudimos tomar la foto.',
+            galleryErrorMessage: 'No pudimos seleccionar la foto.',
             missingDataTitle: 'Error',
             missingDataMessage: 'Completa todos los campos y fotos para continuar.',
             successTitle: 'Éxito',
@@ -8476,6 +8508,9 @@ const resources = {
             title: 'Ayuda con la aprobación de mi cuenta',
             label: '¿Necesitas ayuda con tu verificación?',
             description: 'Chatea con soporte para acelerar la revisión de documentos o resolver bloqueos.',
+            supportChatTitle: 'Ayuda con la aprobación de mi cuenta',
+            supportChatLabel: '¿Necesitas ayuda con tu verificación?',
+            supportChatDescription: 'Chatea con soporte para acelerar la revisión de documentos o resolver bloqueos.',
           },
         },
         vehicleInspection: {
@@ -8490,7 +8525,7 @@ const resources = {
             rearTitle: '2. Foto trasera del vehículo',
             interiorFrontTitle: '3. Foto interior frontal',
             interiorRearTitle: '4. Foto interior trasera',
-            takePhoto: '📷 Tomar foto',
+            takePhoto: 'Tomar foto',
             retakePhoto: 'Repetir foto',
           },
           notice: {
@@ -8520,7 +8555,7 @@ const resources = {
         },
         VehicleVerificationScreen: {
           header: {
-            title: '🚗 Verificación del vehículo',
+            title: 'Verificación del vehículo',
             subtitle: 'Completa la información y sube las fotos de tu vehículo para poder tomar viajes.',
           },
           form: {
@@ -8532,7 +8567,7 @@ const resources = {
             insuranceNumberLabel: 'Número de póliza *',
             insuranceNumberPlaceholder: 'Ej: RCO30201102',
             insuranceCompanyLabel: 'Compañía de seguro *',
-            insuranceCompanyPlaceholder: 'Ej: BAC',
+            insuranceCompanyPlaceholder: 'Selecciona tu aseguradora',
             insuranceExpiryLabel: 'Vencimiento del seguro (YYYY-MM-DD) *',
             insuranceExpiryPlaceholder: 'Ej: 2030-02-12',
           },
@@ -8542,8 +8577,9 @@ const resources = {
             registrationFrontTitle: '2. Circulación – frente',
             registrationBackTitle: '3. Circulación – reverso',
             insuranceTitle: '4. Foto de la póliza de seguro',
-            takePhoto: '📷 Tomar foto',
+            takePhoto: 'Tomar foto',
             retakePhoto: 'Repetir foto',
+            chooseFromGallery: 'Galería',
           },
           notice: {
             text: '⚠️ Asegúrate de que cada foto sea clara y legible. Nuestro equipo revisará estos documentos.',
@@ -8558,8 +8594,11 @@ const resources = {
           alerts: {
             permissionTitle: 'Permisos requeridos',
             permissionMessage: 'Necesitamos acceso a la cámara para tomar fotos de tu vehículo.',
+            galleryPermissionMessage:
+              'Necesitamos acceso a tu galería para seleccionar las fotos de tu vehículo.',
             cameraErrorTitle: 'Error',
             cameraErrorMessage: 'No pudimos tomar la foto.',
+            galleryErrorMessage: 'No pudimos seleccionar la foto.',
             missingDataTitle: 'Error',
             missingDataMessage: 'Faltan fotos o datos requeridos para continuar.',
             successTitle: 'Éxito',
@@ -9693,9 +9732,13 @@ const resources = {
           profile: {
             avatarTitle: 'Foto de perfil',
             avatarMessage: 'La carga de foto de perfil estará disponible pronto.',
-            namePlaceholder: 'Nombre completo',
-            birthPlaceholder: 'Fecha de nacimiento (DD/MM/AAAA)',
-            emailPlaceholder: 'Correo electrónico',
+            nameLabel: 'Nombre completo',
+            namePlaceholder: 'Ej. Ana Pérez',
+            birthLabel: 'Fecha de nacimiento',
+            birthPlaceholder: 'DD/MM/AAAA',
+            emailLabel: 'Correo electrónico',
+            emailPlaceholder: 'nombre@ejemplo.com',
+            phoneLabel: 'Teléfono',
             phonePlaceholder: 'Toca para agregar tu número',
             saveButton: 'Guardar cambios',
           },

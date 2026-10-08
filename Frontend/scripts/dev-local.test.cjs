@@ -2,17 +2,20 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   buildChildEnvironments,
+  buildFirebaseEmulatorArgs,
   getJavaMajorVersion,
   isExpectedFirebaseProcess,
   isIncomingBlocked,
   isLoopbackBinding,
   parseSupabaseStatusEnv,
   redactSupabaseOutput,
+  resolveMacJavaHome,
   shouldStopSupabase,
 } = require('./dev-local.cjs');
 
 const supabaseOutput = [
   'API_URL="http://127.0.0.1:54321"',
+  'DB_URL="postgresql://postgres:local-password@127.0.0.1:54322/postgres"',
   'ANON_KEY="local-anon-key"',
   'SERVICE_ROLE_KEY="local-service-role-key"',
   'JWT_SECRET="local-jwt-secret"',
@@ -20,16 +23,30 @@ const supabaseOutput = [
 
 const localSupabase = {
   apiUrl: 'http://127.0.0.1:54321',
+  databaseUrl: 'postgresql://postgres:local-password@127.0.0.1:54322/postgres',
   anonKey: 'local-anon-key',
   serviceRoleKey: 'local-service-role-key',
   jwtSecret: 'local-jwt-secret',
 };
+
+test('imports existing Firebase emulator data and always exports on clean exit', () => {
+  const dataPath = '/tmp/rundi-firebase-data';
+  assert.deepEqual(buildFirebaseEmulatorArgs(dataPath, true), [
+    'emulators:start', '--only', 'auth,firestore,database,functions', '--project', 'rundi-dev',
+    '--import', dataPath, '--export-on-exit', dataPath,
+  ]);
+  assert.deepEqual(buildFirebaseEmulatorArgs(dataPath, false), [
+    'emulators:start', '--only', 'auth,firestore,database,functions', '--project', 'rundi-dev',
+    '--export-on-exit', dataPath,
+  ]);
+});
 
 test('parses legacy and current local Supabase API key names', () => {
   assert.deepEqual(parseSupabaseStatusEnv(supabaseOutput), localSupabase);
   assert.deepEqual(
     parseSupabaseStatusEnv([
       'API_URL=http://127.0.0.1:54321',
+      'DB_URL=postgresql://postgres:local-password@127.0.0.1:54322/postgres',
       'PUBLISHABLE_KEY=local-publishable-key',
       'SECRET_KEY=local-secret-key',
       'JWT_SECRET=local-jwt-secret',
@@ -39,7 +56,7 @@ test('parses legacy and current local Supabase API key names', () => {
 });
 
 test('rejects missing credentials without echoing key material', () => {
-  for (const missing of ['API_URL', 'ANON_KEY', 'SERVICE_ROLE_KEY', 'JWT_SECRET']) {
+  for (const missing of ['API_URL', 'DB_URL', 'ANON_KEY', 'SERVICE_ROLE_KEY', 'JWT_SECRET']) {
     const output = supabaseOutput
       .split('\n')
       .filter((line) => !line.startsWith(`${missing}=`))
@@ -70,13 +87,16 @@ test('keeps privileged local keys out of the Expo environment', () => {
   assert.equal(expo.API_BASE_URL_FIREBASE, 'http://127.0.0.1:5001/rundi-dev/us-central1');
   assert.equal(expo.PLATFORM_API_BASE_URL, expo.API_BASE_URL_FIREBASE);
   assert.equal(expo.CALLS_REQUEST_BASE_URL, expo.API_BASE_URL_FIREBASE);
-  assert.equal(expo.WS_URL_FIREBASE, 'http://127.0.0.1:9002?ns=rundi-dev');
-  assert.equal(expo.FIREBASE_DATABASE_URL, 'http://127.0.0.1:9002?ns=rundi-dev');
+  assert.equal(expo.WS_URL_FIREBASE, 'http://127.0.0.1:9002?ns=rundi-dev-default-rtdb');
+  assert.equal(expo.FIREBASE_DATABASE_URL, 'http://127.0.0.1:9002?ns=rundi-dev-default-rtdb');
   assert.equal(expo.EXPO_PUBLIC_SUPABASE_URL, localSupabase.apiUrl);
   assert.equal(expo.EXPO_PUBLIC_SUPABASE_ANON_KEY, localSupabase.anonKey);
   assert.equal(expo.SUPABASE_SERVICE_ROLE_KEY, undefined);
   assert.equal(expo.SUPABASE_JWT_SECRET, undefined);
   assert.equal(functions.SUPABASE_URL, localSupabase.apiUrl);
+  assert.equal(functions.USE_LOCAL_SUPABASE, 'true');
+  assert.equal(functions.DATABASE_URL, localSupabase.databaseUrl);
+  assert.equal(functions.DATABASE_TRANS_POOLER, localSupabase.databaseUrl);
   assert.equal(functions.SUPABASE_SERVICE_ROLE_KEY, localSupabase.serviceRoleKey);
   assert.equal(functions.SUPABASE_JWT_SECRET, localSupabase.jwtSecret);
   assert.equal(functions.GCLOUD_PROJECT, 'rundi-dev');
@@ -136,4 +156,13 @@ test('validates Firebase process identity before allowing a stop signal', () => 
 test('stops Supabase only when this runner started it', () => {
   assert.equal(shouldStopSupabase(false), true);
   assert.equal(shouldStopSupabase(true), false);
+});
+
+test('resolves a macOS JDK home only on darwin', () => {
+  if (process.platform !== 'darwin') {
+    assert.equal(resolveMacJavaHome(21), null);
+    return;
+  }
+  const javaHome = resolveMacJavaHome(21);
+  assert.ok(javaHome === null || javaHome.startsWith('/'));
 });

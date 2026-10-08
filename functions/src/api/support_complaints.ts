@@ -140,6 +140,19 @@ const mapComplaintToTicket = (row: any): SupportTicket => {
 
 const CHAT_ARCHIVE_BUCKET = "cms-complaints-logs";
 
+const addSupportChatParticipant = async (complaintId: string, userId: string | null | undefined) => {
+  if (!complaintId || !userId) return;
+  try {
+    await database.ref(`supportChatParticipants/${complaintId}/${userId}`).set(true);
+  } catch (error: any) {
+    functions.logger.warn("⚠️ No se pudo registrar participante del chat de soporte", {
+      complaintId,
+      userId,
+      error: error?.message,
+    });
+  }
+};
+
 const archiveComplaintChat = async (complaintId: string): Promise<string | null> => {
   if (!complaintId) return null;
 
@@ -268,6 +281,7 @@ export const createSupportComplaint = functions.https.onCall(async (data, contex
               category,
               userId,
             });
+            await addSupportChatParticipant(ticket.id, userId);
 
             return {
               success: true,
@@ -303,6 +317,7 @@ export const createSupportComplaint = functions.https.onCall(async (data, contex
     }
 
     const ticket = mapComplaintToTicket(row);
+    await addSupportChatParticipant(ticket.id, userId);
 
     return {
       success: true,
@@ -692,6 +707,7 @@ export const updateSupportTicket = functions.https.onCall(async (data, context) 
     }
 
     const ticket = mapComplaintToTicket(row);
+    await addSupportChatParticipant(ticketId, ticket.assignedToUserId);
 
     let archivedChatUrl: string | null = null;
     if (updateData.status === "resolved") {

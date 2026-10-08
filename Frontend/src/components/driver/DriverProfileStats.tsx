@@ -23,9 +23,9 @@ export function DriverProfileStats({
   t,
 }: DriverProfileStatsProps) {
   return (
-    <View style={styles.section}>
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>{t('driver.profile.stats.walletTitle')}</Text>
+    <View style={styles.profileSection}>
+      <View style={styles.profileSectionHeader}>
+        <Text style={styles.profileSectionHeading}>{t('driver.profile.stats.walletTitle')}</Text>
         <TouchableOpacity style={styles.rechargeButton}>
           <Text style={styles.rechargeButtonText}>{t('driver.profile.stats.walletCta')}</Text>
         </TouchableOpacity>
@@ -33,8 +33,8 @@ export function DriverProfileStats({
 
       <View style={styles.earningsCardsContainer}>
         <View style={styles.earningsCardsRowTop}>
-          <View style={[styles.earningCard, styles.earningCardTop]}>
-            <View style={styles.earningCardIcon}>
+          <View style={[styles.profileEarningCard, styles.profileEarningCardTop]}>
+            <View style={styles.profileEarningIcon}>
               <Text style={styles.earningCardIconText}>💵</Text>
             </View>
             <Text
@@ -54,8 +54,8 @@ export function DriverProfileStats({
               {t('driver.profile.stats.totalEarnings')}
             </Text>
           </View>
-          <View style={[styles.earningCard, styles.earningCardTop]}>
-            <View style={styles.earningCardIconGreen}>
+          <View style={[styles.profileEarningCard, styles.profileEarningCardTop]}>
+            <View style={styles.profileEarningIcon}>
               <Text style={styles.earningCardIconText}>💰</Text>
             </View>
             <Text
@@ -77,71 +77,20 @@ export function DriverProfileStats({
           </View>
         </View>
 
-        <View style={styles.earningsCardsRow}>
-          <View style={[styles.earningCard, styles.earningCardBottom]}>
-            <View style={styles.earningCardIcon}>
-              <Text style={styles.earningCardIconText}>🚗</Text>
-            </View>
-            <Text
-              style={styles.earningCardValue}
-              adjustsFontSizeToFit
-              numberOfLines={1}
-              minimumFontScale={0.6}
-            >
-              {totalRides}
-            </Text>
-            <Text
-              style={styles.earningCardLabel}
-              numberOfLines={2}
-              adjustsFontSizeToFit
-              minimumFontScale={0.8}
-            >
-              {t('driver.profile.stats.totalRides')}
-            </Text>
+        <View style={styles.profileSecondaryStats}>
+          <View style={styles.profileSecondaryStat}>
+            <Text style={styles.profileSecondaryValue}>{totalRides}</Text>
+            <Text style={styles.profileSecondaryLabel}>{t('driver.profile.stats.totalRides')}</Text>
           </View>
-
-          <View style={[styles.earningCard, styles.earningCardBottom]}>
-            <View style={styles.earningCardIconBlue}>
-              <Text style={styles.earningCardIconText}>📍</Text>
-            </View>
-            <Text
-              style={styles.earningCardValue}
-              adjustsFontSizeToFit
-              numberOfLines={1}
-              minimumFontScale={0.6}
-            >
-              {todayRides}
-            </Text>
-            <Text
-              style={styles.earningCardLabel}
-              numberOfLines={2}
-              adjustsFontSizeToFit
-              minimumFontScale={0.8}
-            >
-              {t('driver.profile.stats.todaysRides')}
-            </Text>
+          <View style={styles.profileSecondaryStat}>
+            <Text style={styles.profileSecondaryValue}>{todayRides}</Text>
+            <Text style={styles.profileSecondaryLabel}>{t('driver.profile.stats.todaysRides')}</Text>
           </View>
-
-          <View style={[styles.earningCard, styles.earningCardBottom]}>
-            <View style={styles.earningCardIconYellow}>
-              <Text style={styles.earningCardIconText}>⭐</Text>
-            </View>
-            <Text
-              style={styles.earningCardValue}
-              adjustsFontSizeToFit
-              numberOfLines={1}
-              minimumFontScale={0.6}
-            >
+          <View style={styles.profileSecondaryStat}>
+            <Text style={styles.profileSecondaryValue}>
               {(typeof averageRating === 'number' ? averageRating : 5).toFixed(1)}
             </Text>
-            <Text
-              style={styles.earningCardLabel}
-              numberOfLines={2}
-              adjustsFontSizeToFit
-              minimumFontScale={0.8}
-            >
-              {t('driver.profile.stats.rating')}
-            </Text>
+            <Text style={styles.profileSecondaryLabel}>{t('driver.profile.stats.rating')}</Text>
           </View>
         </View>
       </View>

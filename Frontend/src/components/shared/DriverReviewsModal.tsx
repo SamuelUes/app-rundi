@@ -1,6 +1,5 @@
 import React from 'react';
 import {
-  Image,
   Modal,
   ScrollView,
   StyleSheet,
@@ -10,6 +9,7 @@ import {
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
+import StorageImage from './StorageImage';
 
 export interface DriverReviewItem {
   id: string;
@@ -86,7 +86,7 @@ export default function DriverReviewsModal({
           <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
             <View style={styles.profileSection}>
               {driverPhoto ? (
-                <Image source={{ uri: driverPhoto }} style={styles.avatar} />
+                <StorageImage uri={driverPhoto} style={styles.avatar} />
               ) : (
                 <View style={[styles.avatar, styles.avatarFallback]}>
                   <Text style={styles.avatarFallbackText}>{asText(driverName, 'D').charAt(0).toUpperCase()}</Text>

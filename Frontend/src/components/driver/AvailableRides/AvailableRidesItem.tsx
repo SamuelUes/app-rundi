@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, Pressable, TouchableOpacity, Image } from 'react-native';
+import { View, Text, Pressable, TouchableOpacity } from 'react-native';
+import StorageImage from '../../shared/StorageImage';
 import type { Ride } from '../../../utils/availableRidesHelpers';
 import { haversineKm } from '../../../utils/availableRidesHelpers';
 import type { TFunction } from 'i18next';
@@ -79,7 +80,7 @@ export function AvailableRidesItem({
           ]}
         >
           {photoUrl ? (
-            <Image source={{ uri: photoUrl }} style={styles.avatarImage} />
+            <StorageImage uri={photoUrl} style={styles.avatarImage} />
           ) : (
             <Text style={[styles.avatarInitials, { color: colors.text }]}>
               {getInitials(name, t('driver.available.rideCard.initialFallback'))}

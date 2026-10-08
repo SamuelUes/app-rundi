@@ -23,36 +23,49 @@ if (process.env.FUNCTIONS_EMULATOR || process.env.NODE_ENV === 'development') {
 }
 
 // Obtener DATABASE_URL de múltiples fuentes
+const useLocalSupabase = process.env.USE_LOCAL_SUPABASE === 'true';
 let databaseUrl: string | undefined;
 
-// 1. Intentar obtener de Firebase config (functions:config:set)
-try {
-  const config = functions.config();
-  if (config.supabase && config.supabase.database_url) {
-    databaseUrl = config.supabase.database_url;
-    if (process.env.FUNCTIONS_EMULATOR || process.env.NODE_ENV === 'development') {
-      console.log(`✅ [Sequelize Config] DATABASE_URL obtenida de Firebase config`);
-    }
+if (useLocalSupabase) {
+  databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) {
+    throw new Error('USE_LOCAL_SUPABASE=true requiere DATABASE_URL del Supabase local');
   }
-} catch (error: any) {
-  console.log(`⚠️ [Sequelize Config] No se pudo obtener de Firebase config:`, error.message);
-}
-
-// 2. Fallback: obtener de process.env (para desarrollo local)
-if (!databaseUrl) {
-  // Primero intentar DATABASE_URL clásica
-  if (process.env.DATABASE_URL) {
-    databaseUrl = process.env.DATABASE_URL;
-    if (process.env.FUNCTIONS_EMULATOR || process.env.NODE_ENV === 'development') {
-      console.log(`✅ [Sequelize Config] DATABASE_URL obtenida de process.env`);
+  const databaseHost = new URL(databaseUrl).hostname;
+  if (!['localhost', '127.0.0.1'].includes(databaseHost)) {
+    throw new Error('USE_LOCAL_SUPABASE=true requiere una DATABASE_URL de loopback');
+  }
+  console.log('✅ [Sequelize Config] DATABASE_URL local seleccionada por USE_LOCAL_SUPABASE');
+} else {
+  // 1. Intentar obtener de Firebase config (functions:config:set)
+  try {
+    const config = functions.config();
+    if (config.supabase && config.supabase.database_url) {
+      databaseUrl = config.supabase.database_url;
+      if (process.env.FUNCTIONS_EMULATOR || process.env.NODE_ENV === 'development') {
+        console.log(`✅ [Sequelize Config] DATABASE_URL obtenida de Firebase config`);
+      }
     }
-  } else if (process.env.DATABASE_TRANS_POOLER) {
-    // Luego intentar DATABASE_TRANS_POOLER (transaction pooler de Supabase)
-    databaseUrl = process.env.DATABASE_TRANS_POOLER;
-    if (process.env.FUNCTIONS_EMULATOR || process.env.NODE_ENV === 'development') {
-      console.log(
-        `✅ [Sequelize Config] DATABASE_URL obtenida de process.env.DATABASE_TRANS_POOLER (transaction pooler)`,
-      );
+  } catch (error: any) {
+    console.log(`⚠️ [Sequelize Config] No se pudo obtener de Firebase config:`, error.message);
+  }
+
+  // 2. Fallback: obtener de process.env (para desarrollo local)
+  if (!databaseUrl) {
+    // Primero intentar DATABASE_URL clásica
+    if (process.env.DATABASE_URL) {
+      databaseUrl = process.env.DATABASE_URL;
+      if (process.env.FUNCTIONS_EMULATOR || process.env.NODE_ENV === 'development') {
+        console.log(`✅ [Sequelize Config] DATABASE_URL obtenida de process.env`);
+      }
+    } else if (process.env.DATABASE_TRANS_POOLER) {
+      // Luego intentar DATABASE_TRANS_POOLER (transaction pooler de Supabase)
+      databaseUrl = process.env.DATABASE_TRANS_POOLER;
+      if (process.env.FUNCTIONS_EMULATOR || process.env.NODE_ENV === 'development') {
+        console.log(
+          `✅ [Sequelize Config] DATABASE_URL obtenida de process.env.DATABASE_TRANS_POOLER (transaction pooler)`,
+        );
+      }
     }
   }
 }
@@ -80,7 +93,7 @@ if (!databaseUrl) {
       evict: 10000,
     },
     dialectOptions: {
-      ssl: { require: true, rejectUnauthorized: false },
+      ...(useLocalSupabase ? {} : { ssl: { require: true, rejectUnauthorized: false } }),
       // ✅ Configuración para Supabase
       statement_timeout: 30000,
       idle_in_transaction_session_timeout: 30000,

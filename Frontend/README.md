@@ -55,16 +55,18 @@ npm run env:prod
 
 | Comando | Descripción |
 |---|---|
-| `npm start` | Inicia Metro con caché limpia (`expo start --clear`) |
+| `npm start` | Inicia Metro con caché limpia |
 | `npm run start:dev` | Cambia a env de desarrollo e inicia Metro |
 | `npm run start:prod` | Cambia a env de producción e inicia Metro |
 | `npm run start:local` | Inicia Supabase, Firebase Emulator Suite y Metro local (requiere Docker y JDK 21+) |
 | `npm run android` | Compila e instala en emulador/dispositivo Android (`expo run:android`) |
-| `npm run ios` | Compila e instala en simulador/dispositivo iOS (`expo run:ios`) |
+| `npm run ios` | Compila e instala en simulador/dispositivo iOS |
 | `npm run web` | Inicia la versión web (`expo start --web`) |
 | `npm test` | Ejecuta tests con Jest |
 
-### Desarrollo local con Android
+Los scripts `start`, `start:dev`, `start:prod` e `ios` usan la CLI de Expo `57.0.27` para compatibilidad con Device Hub de Xcode 27. La app y sus dependencias siguen en Expo SDK 54.
+
+### Desarrollo local con Android e iOS
 
 El stack local (`npm run start:local`) requiere Java 21 o superior para Firebase Emulator Suite, mientras que el build Android usa el JDK 17 configurado para el Gradle Wrapper actual. Ejecuta cada proceso en una terminal distinta:
 
@@ -382,11 +384,12 @@ El módulo Expo `rundi-native` contiene todo el código nativo custom de la app:
 
 | Script | Comando | Descripción |
 |---|---|---|
-| `start` | `expo start --clear` | Inicia Metro con caché limpia |
-| `start:dev` | `node scripts/switch-env.js development && expo start --clear` | Env de desarrollo + Metro |
-| `start:prod` | `node scripts/switch-env.js production && expo start --clear` | Env de producción + Metro |
+| `start` | `npx --yes expo@57.0.27 start --clear` | Inicia Metro con caché limpia |
+| `start:dev` | `node scripts/switch-env.js development && npx --yes expo@57.0.27 start --clear` | Env de desarrollo + Metro |
+| `start:prod` | `node scripts/switch-env.js production && npx --yes expo@57.0.27 start --clear` | Env de producción + Metro |
+| `start:local` | `node scripts/dev-local.cjs` | Stack local + Metro (Docker y JDK 21+) |
 | `android` | `expo run:android` | Build y run en Android |
-| `ios` | `expo run:ios` | Build y run en iOS |
+| `ios` | `npx --yes expo@57.0.27 run:ios` | Build y run en iOS con soporte para Device Hub |
 | `web` | `expo start --web` | Versión web |
 | `test` | `jest` | Tests unitarios |
 | `env:dev` | `node scripts/switch-env.js development` | Cambia a env de desarrollo |

@@ -6,12 +6,8 @@ import {
   StyleSheet,
   TouchableOpacity,
   Platform,
-  Image,
-  ImageBackground,
-  Animated,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useAuth } from '../../hooks/shared/auth/useAuth';
@@ -22,7 +18,6 @@ import { subscribePreflightResult, getPreflightResult, type PreflightAction } fr
 import { useTranslation } from 'react-i18next';
 import LoadingOverlay from '../../components/ui/LoadingOverlay';
 import DynamicMap from '../../components/map/DynamicMap';
-import EmergencyButton from '../../components/shared/EmergencyButton';
 import { useAcceptedRideListener } from '../../hooks/driver/DriverHomeScreen/useAcceptedRideListener';
 import { useNearbyDriversMarkers } from '../../hooks/driver/DriverHomeScreen/useNearbyDriversMarkers';
 import proximityService from '../../services/proximityService';
@@ -211,16 +206,18 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
 
   if (error || !coords) {
     return (
-      <View style={[styles.fallbackContainer, { backgroundColor: colors.background }]}>
-        <Text style={[styles.fallbackText, { color: colors.text }]}>
-          <MaterialIcons name="error-outline" size={18} color={colors.error || '#F44336'} /> {
-            error || t('driver.home.errors.location')
-          }
-        </Text>
+      <View style={styles.fallbackContainer}>
+        <View style={styles.fallbackIconDisc}>
+          <MaterialIcons name="location-off" size={28} color="#C62828" />
+        </View>
+        <Text style={styles.fallbackTitle}>{t('driver.home.errors.location')}</Text>
+        {Boolean(error) && <Text style={styles.fallbackText}>{error}</Text>}
         <TouchableOpacity
-          style={[styles.retryButton, { backgroundColor: colors.primary }]}
+          style={styles.retryButton}
+          activeOpacity={0.85}
           onPress={handleRefreshLocation}
         >
+          <MaterialIcons name="refresh" size={18} color="#241A09" />
           <Text style={styles.retryButtonLabel}>{t('driver.home.buttons.retry')}</Text>
         </TouchableOpacity>
       </View>
@@ -283,6 +280,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
 
         <DriverHomeHeader
           userName={user?.name}
+          isAvailable={isAvailable}
           activeRideId={activeRide?.id}
           onToggleMenu={toggleMenu}
           onCloseMenu={closeMenu}
@@ -327,6 +325,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
         menuOpacity={menuOpacity}
         menuTranslate={menuTranslate}
         panelWidth={panelWidth}
+        userName={user?.name}
         userRole={user?.role}
         colors={colors}
         onClose={closeMenu}
@@ -345,9 +344,11 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
         hasInsufficientFunds={hasInsufficientFunds}
         todayEarnings={todayStats.earnings}
         formatCurrency={formatCurrency}
+        availableRequestsCount={availableRideRequests?.length ?? 0}
         onToggleAvailability={() => handleAvailabilityToggle(!isAvailable)}
         onToggleDesignated={handleDesignatedToggle}
         onNavigateAvailableRides={() => navigation.navigate('AvailableRides')}
+        onNavigateEarnings={() => navigation.navigate('Earnings')}
         styles={styles}
         t={t}
       />
@@ -364,533 +365,493 @@ const createStyles = (colors: any, isDark: boolean) =>
     mapContainer: {
       flex: 1,
     },
+
+    // Map overlay chips (header controls)
     overlayHeader: {
       position: 'absolute',
-      top: Platform.select({ ios: 16, android: 24 }),
-      left: 20,
-      right: 20,
+      top: Platform.select({ ios: 12, android: 16 }),
+      left: 16,
+      right: 16,
       flexDirection: 'row',
       alignItems: 'flex-start',
       justifyContent: 'space-between',
-      gap: 12,
     },
     leftHeaderGroup: {
-      top: 10,
-      flexDirection: 'column',
-      alignItems: 'flex-start',
-      gap: 8,
-    },
-    menuButton: {
-      width: 44,
-      height: 44,
-      borderRadius: 14,
-      backgroundColor: isDark ? 'rgba(17,24,39,0.88)' : 'rgba(255,255,255,0.88)',
-      borderWidth: 1,
-      borderColor: isDark ? 'rgba(255,255,255,0.16)' : 'rgba(17,24,39,0.1)',
-      justifyContent: 'center',
+      gap: 10,
       alignItems: 'center',
-      shadowColor: 'rgba(15,23,42,0.22)',
-      shadowOffset: { width: 0, height: 5 },
-      shadowOpacity: 0.26,
-      shadowRadius: 8,
-      elevation: 4,
     },
-    menuIconGlyph: {
-      width: 18,
-      gap: 3,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    menuIconLine: {
-      width: '100%',
-      height: 2,
-      borderRadius: 10,
-      backgroundColor: isDark ? '#F8FAFC' : '#111827',
-    },
-    emergencyHeaderButton: {
-      width: 52,
-      height: 52,
-    },
-    rightHeaderGroup: {
-      top: 10,
-    },
-    headerNameBubble: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-      paddingHorizontal: 14,
-      paddingVertical: 10,
-      borderRadius: 18,
-      backgroundColor: isDark ? 'rgba(15,23,42,0.9)' : 'rgba(255,255,255,0.92)',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: isDark ? 0.4 : 0.18,
-      shadowRadius: 10,
-      elevation: 6,
-    },
-    headerGreeting: {
-      fontSize: 12,
-      fontWeight: '600',
-      letterSpacing: 0.6,
-      color: colors.textSecondary,
-      textTransform: 'uppercase',
-    },
-    headerTitle: {
-      fontSize: 18,
-      fontWeight: '700',
-      color: isDark ? '#F8FAFC' : '#111827',
-      maxWidth: 140,
-    },
-    profileBubbleIcon: {
-      width: 26,
-      height: 26,
-      resizeMode: 'contain',
-      tintColor: isDark ? '#F8FAFC' : '#111827',
-    },
-    fallbackContainer: {
-      flex: 1,
-      justifyContent: 'center',
-      alignItems: 'center',
-      padding: 24,
-    },
-    fallbackText: {
-      fontSize: 16,
-      marginBottom: 16,
-      textAlign: 'center',
-    },
-    retryButton: {
-      paddingHorizontal: 20,
-      paddingVertical: 12,
-      borderRadius: 14,
-    },
-    retryButtonLabel: {
-      color: '#FFFFFF',
-      fontWeight: '600',
-    },
-    mapWrapper: {
-      // removed: map now full bleed
-    },
-    activeRideCard: {
-      position: 'absolute',
-      left: 24,
-      right: 24,
-      bottom: 220,
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: '#20263A',
-      borderRadius: 18,
-      padding: 16,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 6 },
-      shadowOpacity: 0.3,
-      shadowRadius: 12,
-      elevation: 12,
-    },
-    activeRideIconWrapper: {
+    chipButton: {
       width: 48,
       height: 48,
-      borderRadius: 16,
+      borderRadius: 24,
+      alignItems: 'center',
       justifyContent: 'center',
-      alignItems: 'center',
-      backgroundColor: 'rgba(255, 255, 255, 0.15)',
-      marginRight: 12,
-    },
-    activeRideEmoji: {
-      fontSize: 24,
-    },
-    activeRideContent: {
-      flex: 1,
-    },
-    activeRideTitle: {
-      color: '#FFFFFF',
-      fontWeight: '700',
-      fontSize: 16,
-    },
-    activeRideSubtitle: {
-      color: 'rgba(255,255,255,0.75)',
-      fontSize: 13,
-      marginTop: 4,
-    },
-    activeRideArrow: {
-      color: '#FFFFFF',
-      fontSize: 20,
-      fontWeight: '700',
-      marginLeft: 12,
-    },
-    pendingBanner: {
-      position: 'absolute',
-      left: 20,
-      right: 20,
-      bottom: 160,
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: '#FF6B6B',
-      borderRadius: 18,
-      padding: 18,
+      backgroundColor: isDark ? 'rgba(24,20,17,0.92)' : 'rgba(255,255,255,0.94)',
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: isDark ? 'rgba(255,255,255,0.14)' : 'rgba(28,25,23,0.1)',
       shadowColor: '#000',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.28,
-      shadowRadius: 10,
-      elevation: 10,
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: isDark ? 0.4 : 0.14,
+      shadowRadius: 12,
+      elevation: 8,
     },
-    pendingBannerIcon: {
-      width: 52,
-      height: 52,
-      borderRadius: 16,
-      justifyContent: 'center',
+    emergencyChipButton: {
+      width: 40,
+      height: 40,
+    },
+    profileChip: {
+      flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: 'rgba(255,255,255,0.22)',
-      marginRight: 14,
+      gap: 10,
+      height: 48,
+      paddingLeft: 6,
+      paddingRight: 14,
+      borderRadius: 24,
+      backgroundColor: isDark ? 'rgba(24,20,17,0.92)' : 'rgba(255,255,255,0.94)',
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: isDark ? 'rgba(255,255,255,0.14)' : 'rgba(28,25,23,0.1)',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: isDark ? 0.4 : 0.14,
+      shadowRadius: 12,
+      elevation: 8,
     },
-    pendingBannerEmoji: {
-      fontSize: 24,
-    },
-    pendingBannerContent: {
-      flex: 1,
-    },
-    pendingBannerTitle: {
-      color: '#FFFFFF',
-      fontWeight: '700',
-      fontSize: 16,
-    },
-    pendingBannerSubtitle: {
-      color: 'rgba(255,255,255,0.82)',
-      fontSize: 13,
-      marginTop: 2,
-    },
-    pendingBannerArrow: {
-      color: '#FFFFFF',
-      fontSize: 20,
-      fontWeight: '700',
-      marginLeft: 16,
-    },
-    pendingActionButton: {
-      position: 'absolute',
-      left: 20,
-      right: 20,
-      bottom: 120,
-      borderRadius: 20,
-      overflow: 'hidden',
-      shadowColor: 'rgba(15,23,42,0.38)',
-      shadowOffset: { width: 0, height: 8 },
-      shadowOpacity: 0.32,
-      shadowRadius: 14,
-      elevation: 18,
-    },
-    pendingActionImage: {
-      width: '100%',
-      height: '100%',
-      justifyContent: 'center',
-    },
-    pendingActionImageInner: {
+    profileAvatar: {
+      width: 36,
+      height: 36,
       borderRadius: 18,
-    },
-    pendingActionContent: {
-      flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingLeft: 12,
-      paddingRight: 20,
-      paddingVertical: 10,
-      gap: 16,
+      justifyContent: 'center',
+      backgroundColor: '#B38737',
     },
-    pendingActionTextBlock: {
+    profileAvatarText: {
+      fontFamily: '',
+      fontSize: 15,
+      fontWeight: '800',
+      color: '#241A09',
+    },
+    profileStatusDot: {
+      position: 'absolute',
+      right: -2,
+      bottom: -2,
+      width: 13,
+      height: 13,
+      borderRadius: 7,
+      borderWidth: 2.5,
+      borderColor: isDark ? '#181411' : '#FFFFFF',
+    },
+    profileName: {
+      fontFamily: '',
+      fontSize: 15,
+      fontWeight: '700',
+      color: isDark ? '#F5F1EA' : '#1C1917',
+      maxWidth: 128,
+    },
+
+    // Fallback (location error)
+    fallbackContainer: {
       flex: 1,
-    },
-    pendingActionTitle: {
-      color: '#FFFFFF',
-      fontSize: 16,
-      fontWeight: '700',
-      marginBottom: 4,
-    },
-    pendingActionSubtitle: {
-      color: 'rgba(255,255,255,0.92)',
-      fontSize: 13,
-      fontWeight: '500',
-    },
-    pendingActionArrow: {
-      color: '#FFFFFF',
-      fontSize: 24,
-      fontWeight: '700',
-    },
-    menuOverlay: {
-      ...StyleSheet.absoluteFillObject,
-      zIndex: 50,
-      justifyContent: 'flex-start',
-      alignItems: 'flex-end',
-    },
-    menuBackdrop: {
-      ...StyleSheet.absoluteFillObject,
-      backgroundColor: 'rgba(0,0,0,0.28)',
-    },
-    menuContainer: {
-      marginTop: Platform.select({ ios: 66, android: 74 }),
-      marginBottom: Platform.select({ ios: 24, android: 20 }),
-      marginRight: 14,
-      backgroundColor: isDark ? 'rgba(15,23,42,0.97)' : 'rgba(255,255,255,0.98)',
-      borderRadius: 20,
-      paddingVertical: 14,
-      paddingHorizontal: 14,
-      borderWidth: 1,
-      borderColor: colors.isDark ? 'rgba(255,255,255,0.1)' : 'rgba(15,23,42,0.08)',
-      shadowColor: 'rgba(15,23,42,0.36)',
-      shadowOffset: { width: 0, height: 12 },
-      shadowOpacity: 0.28,
-      shadowRadius: 16,
-      elevation: 18,
-    },
-    menuTopAccent: {
-      height: 4,
-      borderRadius: 999,
-      marginHorizontal: 8,
-      marginBottom: 10,
-      backgroundColor: isDark ? 'rgba(245, 158, 11, 0.9)' : 'rgba(202, 138, 4, 0.82)',
-    },
-    menuHeaderRow: {
-      flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'space-between',
-      marginBottom: 12,
-      paddingHorizontal: 6,
+      justifyContent: 'center',
+      padding: 28,
+      backgroundColor: colors.background,
     },
-    menuHeader: {
-      fontSize: 22,
+    fallbackIconDisc: {
+      width: 64,
+      height: 64,
+      borderRadius: 32,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: 'rgba(198,40,40,0.1)',
+      marginBottom: 18,
+    },
+    fallbackTitle: {
+      fontFamily: '',
+      fontSize: 17,
       fontWeight: '700',
       color: colors.text,
+      textAlign: 'center',
+      marginBottom: 6,
     },
-    menuCloseBtn: {
+    fallbackText: {
+      fontSize: 13,
+      fontWeight: '500',
+      color: colors.textSecondary,
+      textAlign: 'center',
+      lineHeight: 19,
+    },
+    retryButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      marginTop: 18,
+      paddingHorizontal: 22,
+      paddingVertical: 13,
+      borderRadius: 999,
+      backgroundColor: '#B38737',
+    },
+    retryButtonLabel: {
+      fontFamily: '',
+      color: '#241A09',
+      fontSize: 15,
+      fontWeight: '700',
+    },
+    // Floating banners (stacked above the dock)
+    bannerStack: {
+      position: 'absolute',
+      left: 16,
+      right: 16,
+      bottom: Platform.select({ ios: 112, android: 104 }),
+      gap: 10,
+      zIndex: 25,
+    },
+    banner: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      borderRadius: 22,
+      paddingVertical: 14,
+      paddingLeft: 14,
+      paddingRight: 12,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 8 },
+      shadowOpacity: 0.26,
+      shadowRadius: 16,
+      elevation: 14,
+    },
+    bannerPressed: {
+      transform: [{ scale: 0.98 }],
+      opacity: 0.96,
+    },
+    bannerDanger: {
+      backgroundColor: '#C62828',
+    },
+    bannerGold: {
+      backgroundColor: '#B38737',
+    },
+    bannerInk: {
+      backgroundColor: isDark ? '#241F1B' : '#1C1917',
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: 'rgba(255,255,255,0.08)',
+    },
+    bannerIconDisc: {
+      width: 42,
+      height: 42,
+      borderRadius: 21,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    bannerIconDiscOnColor: {
+      backgroundColor: 'rgba(255,255,255,0.2)',
+    },
+    bannerIconDiscOnGold: {
+      backgroundColor: 'rgba(36,26,9,0.14)',
+    },
+    bannerIconDiscOnInk: {
+      backgroundColor: 'rgba(179,135,55,0.22)',
+    },
+    bannerTextCol: {
+      flex: 1,
+      gap: 2,
+    },
+    bannerTitle: {
+      fontFamily: '',
+      fontSize: 15,
+      fontWeight: '700',
+    },
+    bannerTitleLight: {
+      color: '#FFFFFF',
+    },
+    bannerTitleDark: {
+      color: '#241A09',
+    },
+    bannerSubtitle: {
+      fontFamily: '',
+      fontSize: 12.5,
+      fontWeight: '500',
+      lineHeight: 17,
+    },
+    bannerSubtitleLight: {
+      color: 'rgba(255,255,255,0.8)',
+    },
+    bannerSubtitleDark: {
+      color: 'rgba(36,26,9,0.72)',
+    },
+    bannerChevron: {
       width: 30,
       height: 30,
       borderRadius: 15,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(15,23,42,0.08)',
     },
-    menuCloseIcon: {
+    bannerChevronLight: {
+      backgroundColor: 'rgba(255,255,255,0.18)',
+    },
+    bannerChevronDark: {
+      backgroundColor: 'rgba(36,26,9,0.14)',
+    },
+    // Side menu (floating panel)
+    menuOverlay: {
+      ...StyleSheet.absoluteFillObject,
+      zIndex: 50,
+      alignItems: 'flex-end',
+    },
+    menuBackdrop: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: 'rgba(12,9,6,0.42)',
+    },
+    menuContainer: {
+      marginTop: Platform.select({ ios: 64, android: 72 }),
+      marginBottom: Platform.select({ ios: 24, android: 20 }),
+      marginRight: 12,
+      backgroundColor: isDark ? '#1C1814' : 'rgba(255,255,255,0.98)',
+      borderRadius: 24,
+      padding: 14,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(28,25,23,0.08)',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 16 },
+      shadowOpacity: isDark ? 0.5 : 0.22,
+      shadowRadius: 24,
+      elevation: 24,
+    },
+    menuHeaderRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      paddingHorizontal: 4,
+      paddingBottom: 14,
+      marginBottom: 8,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(28,25,23,0.08)',
+    },
+    menuAvatar: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: '#B38737',
+    },
+    menuAvatarText: {
+      fontFamily: '',
+      fontSize: 17,
+      fontWeight: '800',
+      color: '#241A09',
+    },
+    menuHeaderTextCol: {
+      flex: 1,
+      gap: 1,
+    },
+    menuHeaderName: {
+      fontFamily: '',
       fontSize: 16,
-      color: colors.text,
       fontWeight: '700',
+      color: colors.text,
+    },
+    menuHeaderRole: {
+      fontFamily: '',
+      fontSize: 12,
+      fontWeight: '500',
+      color: colors.textSecondary,
+    },
+    menuCloseBtn: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(28,25,23,0.06)',
     },
     menuSection: {
-      gap: 8,
+      gap: 4,
     },
     menuItem: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 10,
-      backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(248,250,252,0.95)',
-      borderRadius: 12,
-      paddingVertical: 11,
-      paddingHorizontal: 12,
-      borderWidth: 1,
-      borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(15,23,42,0.08)',
+      gap: 12,
+      paddingVertical: 9,
+      paddingHorizontal: 10,
+      borderRadius: 16,
     },
-    menuIconBadge: {
-      width: 28,
-      height: 28,
-      borderRadius: 8,
+    menuItemIcon: {
+      width: 34,
+      height: 34,
+      borderRadius: 11,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(15,23,42,0.06)',
-    },
-    menuEmoji: {
-      fontSize: 15,
+      backgroundColor: 'rgba(179,135,55,0.14)',
     },
     menuLabel: {
       flex: 1,
+      fontFamily: '',
       color: colors.text,
-      fontSize: 14,
-      fontWeight: '500',
-    },
-    menuItemArrow: {
-      fontSize: 20,
-      lineHeight: 20,
-      color: isDark ? 'rgba(248,250,252,0.72)' : 'rgba(15,23,42,0.42)',
-      fontWeight: '500',
-      marginRight: 2,
+      fontSize: 15,
+      fontWeight: '600',
     },
     menuDivider: {
-      height: 1,
-      backgroundColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(15,23,42,0.1)',
-      marginVertical: 14,
-      marginHorizontal: 6,
+      height: StyleSheet.hairlineWidth,
+      backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(28,25,23,0.08)',
+      marginVertical: 10,
+      marginHorizontal: 4,
     },
     logoutItem: {
-      backgroundColor: isDark ? 'rgba(239,68,68,0.16)' : 'rgba(239,68,68,0.1)',
-      borderColor: 'rgba(239,68,68,0.28)',
+      backgroundColor: 'rgba(198,40,40,0.08)',
     },
     logoutIconBadge: {
-      backgroundColor: isDark ? 'rgba(239,68,68,0.22)' : 'rgba(239,68,68,0.14)',
-    },
-    logoutEmoji: {
-      fontSize: 14,
+      backgroundColor: 'rgba(198,40,40,0.14)',
     },
     logoutLabel: {
       flex: 1,
-      color: '#EF4444',
-      fontSize: 14,
-      fontWeight: '600',
+      fontFamily: '',
+      color: '#D32F2F',
+      fontSize: 15,
+      fontWeight: '700',
     },
+    // Bottom dock
     bottomBar: {
       position: 'absolute',
-      left: 20,
-      right: 20,
+      left: 16,
+      right: 16,
       bottom: Platform.select({ ios: 24, android: 20 }),
-      gap: 6, 
+      gap: 10,
       zIndex: 30,
-      //pointerEvents: 'box-none',
     },
-    controlsRow: {
+    designatedChip: {
+      alignSelf: 'flex-start',
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'space-between',
-      gap: 12,
-      pointerEvents: 'box-none',
-    },
-    iconButtonWrapper: {
-      shadowColor: 'rgba(15,23,42,0.4)',
-      shadowOffset: { width: 0, height: 8 },
-      shadowOpacity: 0.3,
+      gap: 7,
+      paddingVertical: 9,
+      paddingHorizontal: 14,
+      borderRadius: 999,
+      backgroundColor: isDark ? '#241F1B' : '#1C1917',
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: 'rgba(255,255,255,0.1)',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: 0.22,
       shadowRadius: 10,
-      elevation: 4,
-      //borderRadius: 20,
-      overflow: 'hidden',
+      elevation: 10,
     },
-    statusImage: {
-      width: 60,
-      height: 60,
-      resizeMode: 'cover',
+    designatedChipActive: {
+      backgroundColor: '#B38737',
+      borderColor: 'transparent',
     },
-    statusButtonContainer: {
-      width: 60,
-      height: 60,
-      position: 'relative',
+    designatedChipDisabled: {
+      opacity: 0.5,
+    },
+    designatedChipLabel: {
+      fontFamily: '',
+      fontSize: 13,
+      fontWeight: '700',
+      color: 'rgba(255,255,255,0.75)',
+    },
+    designatedChipLabelActive: {
+      color: '#241A09',
+    },
+    dock: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      padding: 9,
+      borderRadius: 30,
+      backgroundColor: isDark ? '#241F1B' : '#1C1917',
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: 'rgba(255,255,255,0.08)',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 12 },
+      shadowOpacity: 0.35,
+      shadowRadius: 22,
+      elevation: 20,
+    },
+    dockCompact: {
+      alignSelf: 'flex-start',
+    },
+    availabilityButton: {
+      width: 56,
+      height: 56,
+      borderRadius: 28,
       alignItems: 'center',
       justifyContent: 'center',
     },
-    statusImageDim: {
-      opacity: 0.6,
+    availabilityButtonOff: {
+      backgroundColor: 'rgba(255,255,255,0.07)',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.14)',
     },
-    statusLoadingOverlay: {
-      position: 'absolute',
-      top: 0,
-      right: 0,
-      bottom: 0,
-      left: 0,
+    availabilityButtonOn: {
+      backgroundColor: '#B38737',
+    },
+    availabilityPressed: {
+      transform: [{ scale: 0.92 }],
+    },
+    availabilityLoadingOverlay: {
+      ...StyleSheet.absoluteFillObject,
+      borderRadius: 28,
+      backgroundColor: 'rgba(0,0,0,0.32)',
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: 'rgba(0,0,0,0.25)',
+    },
+    earningsArea: {
+      flex: 1,
+      justifyContent: 'center',
+      gap: 2,
+      paddingLeft: 6,
+      paddingVertical: 6,
       borderRadius: 20,
     },
-    disabledImage: {
-      opacity: 0.55,
+    earningsAreaPressed: {
+      backgroundColor: 'rgba(255,255,255,0.06)',
     },
-    designatedToggleContainer: {
-      gap: 8,
-    },
-    designatedButton: {
-      backgroundColor: 'transparent',
-      borderRadius: 0,
-      paddingVertical: 0,
-    },
-    designatedStatusLabel: {
-      color: '#FFFFFF',
-      fontFamily: 'PlusJakartSans',
-      fontSize: 10,
-      fontWeight: '600',
-      alignItems: 'center',
-      letterSpacing: 0.3,
-      top: -56,
-    },
-    earningsSplitContainer: {
-      flex: 1,
-      flexDirection: 'row',
-      alignItems: 'stretch',
-      gap: 12,
-    },
-    earningsStatsCard: {
-      flexBasis: '100%',
-      maxWidth: 80,
-    },
-    earningsButton: {
-      flex: 1,
-      borderRadius: 1,
-      overflow: 'hidden',
-      shadowColor: 'rgba(15,23,42,0.38)',
-      shadowOffset: { width: 0, height: 8 },
-      shadowOpacity: 0.3,
-      shadowRadius: 12,
-      elevation: 16,
-      minHeight: 56,
-    },
-    requestsButton: {
-      flexBasis: 'auto',
-    },
-    earningsImage: {
-      flex: 1,
-      width: '100%',
-      height: '100%',
-      justifyContent: 'center',
-    },
-    earningsImageInner: {
-      borderRadius: 1,
-    },
-    earningsRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingLeft: 12,
-      paddingRight: 20,
-      paddingVertical: 10,
-      gap: 16,
-    },
-    earningsLeft: {
-      alignItems: 'flex-start',
-      gap: 2,
-    },
-    earningsRequestsContent: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingHorizontal: 25,
-      paddingVertical: 12,
-      gap: 16,
-    },
-    earningsBadge: {
-      backgroundColor: 'transparent',
-      borderRadius: 0,
-      paddingHorizontal: 7,
-      paddingVertical: 0,
-      alignItems: 'center',
-    },
-    earningsBadgeLabel: {
-      color: '#FFFFFF',
-      fontFamily: 'PlusJakartSans',
-      fontSize: 11,
-      fontWeight: '600',
-      alignItems: 'center',
-      letterSpacing: 0.3,
+    earningsLabel: {
+      fontFamily: '',
+      fontSize: 10.5,
+      fontWeight: '700',
+      letterSpacing: 1.1,
+      textTransform: 'uppercase',
+      color: 'rgba(255,255,255,0.5)',
     },
     earningsValue: {
-      color: '#FFFFFF',
-      fontFamily: 'PlusJakartSans',
-      fontSize: 16,
+      fontFamily: '',
+      fontSize: 19,
       fontWeight: '800',
-      paddingHorizontal: 10,
-    },
-    earningsRight: {
-      alignItems: 'flex-end',
-      gap: 4,
-    },
-    earningsCta: {
       color: '#FFFFFF',
-      fontFamily: 'PlusJakartSans',
-      fontSize: 17,
-      paddingVertical: 6,
-      fontWeight: '800',
+      fontVariant: ['tabular-nums'],
     },
-    chipDisabled: {
-      opacity: 0.4,
+    requestsButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      backgroundColor: '#B38737',
+      borderRadius: 999,
+      paddingVertical: 13,
+      paddingHorizontal: 16,
+    },
+    requestsButtonPressed: {
+      transform: [{ scale: 0.96 }],
+      opacity: 0.94,
+    },
+    requestsLabel: {
+      fontFamily: '',
+      fontSize: 14,
+      fontWeight: '800',
+      color: '#241A09',
+    },
+    requestsBadge: {
+      minWidth: 20,
+      height: 20,
+      borderRadius: 10,
+      paddingHorizontal: 5,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: '#241A09',
+    },
+    requestsBadgeText: {
+      fontFamily: '',
+      fontSize: 11,
+      fontWeight: '800',
+      color: '#E8C88A',
     },
   });
 

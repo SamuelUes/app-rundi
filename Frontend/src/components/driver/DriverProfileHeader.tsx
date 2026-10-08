@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, Image } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LoadingIcon } from '../ui/LoadingIcon';
 import type { TFunction } from 'i18next';
 
@@ -32,8 +33,10 @@ export function DriverProfileHeader({
   styles,
   t,
 }: DriverProfileHeaderProps) {
+  const insets = useSafeAreaInsets();
+
   return (
-    <View style={styles.header}>
+    <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
       <View style={styles.headerTopRow}>
         <TouchableOpacity style={styles.backButton} onPress={onGoBack}>
           <Image
@@ -70,9 +73,11 @@ export function DriverProfileHeader({
         </TouchableOpacity>
 
         <View style={styles.headerContent}>
-          <Text style={styles.driverName}>{displayName}</Text>
-          {displayEmail && <Text style={styles.driverEmail}>{displayEmail}</Text>}
-          <Text style={styles.memberId}>{t('driver.profile.header.memberId', { id: userId ?? '' })}</Text>
+          <Text style={styles.driverName} numberOfLines={2}>{displayName}</Text>
+          {displayEmail && <Text style={styles.driverEmail} numberOfLines={1}>{displayEmail}</Text>}
+          <Text style={styles.memberId} numberOfLines={2} ellipsizeMode="middle">
+            {t('driver.profile.header.memberId', { id: userId ?? '' })}
+          </Text>
 
           <View style={styles.headerBottomRow}>
             {accountStatusBadge}
@@ -82,10 +87,8 @@ export function DriverProfileHeader({
             </View>
           </View>
 
-          <TouchableOpacity onPress={onEditProfile}>
-            <View style={styles.editProfileBadge}>
-              <Text style={styles.editProfileText}>{t('driver.profile.header.edit')}</Text>
-            </View>
+          <TouchableOpacity style={styles.editProfileBadge} onPress={onEditProfile}>
+            <Text style={styles.editProfileText}>{t('driver.profile.header.edit')}</Text>
           </TouchableOpacity>
         </View>
       </View>

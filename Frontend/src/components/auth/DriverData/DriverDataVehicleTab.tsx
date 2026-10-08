@@ -1,6 +1,8 @@
 import React from 'react';
 import { View, Text, TextInput } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
+import { DatePickerField } from '../../ui/DatePickerField';
+import { InsuranceCompanySelectField } from '../../shared/InsuranceCompanySelectField';
 import { DriverDataPhotoField } from './DriverDataPhotoField';
 import type { TFunction } from 'i18next';
 
@@ -37,7 +39,6 @@ interface DriverDataVehicleTabProps {
   onTakeInsurancePhoto: () => void;
   onTakeRegistrationPhotoFront: () => void;
   onTakeRegistrationPhotoBack: () => void;
-  formatDate: (text: string, currentValue: string) => string;
   styles: any;
   t: TFunction;
 }
@@ -75,7 +76,6 @@ export function DriverDataVehicleTab({
   onTakeInsurancePhoto,
   onTakeRegistrationPhotoFront,
   onTakeRegistrationPhotoBack,
-  formatDate,
   styles,
   t,
 }: DriverDataVehicleTabProps) {
@@ -197,12 +197,12 @@ export function DriverDataVehicleTab({
 
       <View style={styles.fieldGroup}>
         <Text style={styles.label}>{t('authScreens.driverData.vehicle.registrationExpiryLabel')}</Text>
-        <TextInput
+        <DatePickerField
           style={styles.input}
           placeholder={t('authScreens.driverData.vehicle.registrationExpiryPlaceholder')}
           placeholderTextColor={colors.textSecondary}
           value={registrationExpiry}
-          onChangeText={(text) => onSetRegistrationExpiry(formatDate(text, registrationExpiry))}
+          onChangeText={onSetRegistrationExpiry}
           editable={!loading}
         />
       </View>
@@ -221,24 +221,23 @@ export function DriverDataVehicleTab({
 
       <View style={styles.fieldGroup}>
         <Text style={styles.label}>{t('authScreens.driverData.vehicle.insuranceCompanyLabel')}</Text>
-        <TextInput
+        <InsuranceCompanySelectField
           style={styles.input}
           placeholder={t('authScreens.driverData.vehicle.insuranceCompanyPlaceholder')}
-          placeholderTextColor={colors.textSecondary}
           value={insuranceCompany}
-          onChangeText={onSetInsuranceCompany}
-          editable={!loading}
+          onChange={onSetInsuranceCompany}
+          disabled={loading}
         />
       </View>
 
       <View style={styles.fieldGroup}>
         <Text style={styles.label}>{t('authScreens.driverData.vehicle.insuranceExpiryLabel')}</Text>
-        <TextInput
+        <DatePickerField
           style={styles.input}
           placeholder={t('authScreens.driverData.vehicle.insuranceExpiryPlaceholder')}
           placeholderTextColor={colors.textSecondary}
           value={insuranceExpiry}
-          onChangeText={(text) => onSetInsuranceExpiry(formatDate(text, insuranceExpiry))}
+          onChangeText={onSetInsuranceExpiry}
           editable={!loading}
         />
       </View>

@@ -10,13 +10,14 @@ const repoRoot = path.resolve(__dirname, '../..');
 const frontendRoot = path.resolve(__dirname, '..');
 const supabaseBin = path.join(frontendRoot, 'node_modules', '.bin', 'supabase');
 const firebaseStatePath = path.join(frontendRoot, '.expo', 'rundi-firebase-emulator.json');
+const firebaseDataPath = path.join(repoRoot, '.firebase', 'emulator-data', 'rundi-dev');
 const dockerNetworkName = 'rundi-local-loopback';
 const supabaseProjectId = 'rundi';
 const functionsBin = path.join(repoRoot, 'functions', 'node_modules', '.bin', 'tsc');
 const projectId = 'rundi-dev';
 const region = 'us-central1';
 const emulatorHost = '127.0.0.1';
-const realtimeDatabaseUrl = `http://${emulatorHost}:9002?ns=${projectId}`;
+const realtimeDatabaseUrl = `http://${emulatorHost}:9002?ns=${projectId}-default-rtdb`;
 const activeChildren = new Set();
 
 function parseSupabaseStatusEnv(text) {
@@ -39,11 +40,13 @@ function parseSupabaseStatusEnv(text) {
   }
 
   const apiUrlValue = values.API_URL;
+  const databaseUrlValue = values.DB_URL;
   const anonKey = values.ANON_KEY || values.PUBLISHABLE_KEY;
   const serviceRoleKey = values.SERVICE_ROLE_KEY || values.SECRET_KEY;
   const jwtSecret = values.JWT_SECRET;
   const missing = [
     ['API_URL', apiUrlValue],
+    ['DB_URL', databaseUrlValue],
     ['ANON_KEY/PUBLISHABLE_KEY', anonKey],
     ['SERVICE_ROLE_KEY/SECRET_KEY', serviceRoleKey],
     ['JWT_SECRET', jwtSecret],
@@ -62,8 +65,19 @@ function parseSupabaseStatusEnv(text) {
     throw new Error('Supabase CLI returned a non-local API URL; refusing to start in local mode');
   }
 
+  let databaseUrl;
+  try {
+    databaseUrl = new URL(databaseUrlValue);
+  } catch {
+    throw new Error('Supabase CLI returned an invalid local database URL');
+  }
+  if (!['postgres:', 'postgresql:'].includes(databaseUrl.protocol) || !['localhost', '127.0.0.1'].includes(databaseUrl.hostname)) {
+    throw new Error('Supabase CLI returned a non-local database URL; refusing to use a remote PostgreSQL database');
+  }
+
   return {
     apiUrl: apiUrlValue,
+    databaseUrl: databaseUrlValue,
     anonKey,
     serviceRoleKey,
     jwtSecret,
@@ -100,12 +114,17 @@ function buildChildEnvironments(baseEnv, supabaseEnv) {
   delete expo.SUPABASE_JWT_SECRET;
   delete expo.SERVICE_ROLE_KEY;
   delete expo.JWT_SECRET;
+  delete expo.DATABASE_URL;
+  delete expo.DATABASE_TRANS_POOLER;
 
   const functions = {
     ...baseEnv,
     NODE_ENV: 'development',
     GCLOUD_PROJECT: projectId,
     USE_FIREBASE_EMULATORS: 'true',
+    USE_LOCAL_SUPABASE: 'true',
+    DATABASE_URL: supabaseEnv.databaseUrl,
+    DATABASE_TRANS_POOLER: supabaseEnv.databaseUrl,
     SUPABASE_URL: supabaseEnv.apiUrl,
     SUPABASE_ANON_KEY: supabaseEnv.anonKey,
     SUPABASE_SERVICE_ROLE_KEY: supabaseEnv.serviceRoleKey,
@@ -177,12 +196,38 @@ function preflight() {
   return dockerOS;
 }
 
+function resolveMacJavaHome(minMajor) {
+  if (process.platform !== 'darwin') return null;
+  const result = spawnSync('/usr/libexec/java_home', ['-v', `${minMajor}+`], { encoding: 'utf8' });
+  if (result.status !== 0) return null;
+  const lines = (result.stdout || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  return lines[lines.length - 1] || null;
+}
+
 function requireJava21() {
   const java = spawnSync('java', ['-version'], { encoding: 'utf8' });
-  if (java.error || java.status !== 0) {
+  let javaVersion = java.error || java.status !== 0
+    ? 0
+    : getJavaMajorVersion(`${java.stdout || ''}\n${java.stderr || ''}`);
+
+  if (javaVersion < 21) {
+    const javaHome = resolveMacJavaHome(21);
+    if (javaHome) {
+      process.env.JAVA_HOME = javaHome;
+      process.env.PATH = `${javaHome}/bin:${process.env.PATH || ''}`;
+      const retry = spawnSync('java', ['-version'], { encoding: 'utf8' });
+      javaVersion = retry.error || retry.status !== 0
+        ? 0
+        : getJavaMajorVersion(`${retry.stdout || ''}\n${retry.stderr || ''}`);
+      if (javaVersion >= 21) {
+        console.log(`[dev-local] JAVA_HOME auto-seleccionado: ${javaHome} (Java ${javaVersion})`);
+      }
+    }
+  }
+
+  if (javaVersion === 0) {
     throw new Error('No se encontró Java. Firebase Emulator Suite requiere Java 21 o superior.');
   }
-  const javaVersion = getJavaMajorVersion(`${java.stdout || ''}\n${java.stderr || ''}`);
   if (javaVersion < 21) {
     throw new Error(`Java ${javaVersion || 'desconocido'} activo; Firebase Emulator Suite requiere Java 21 o superior. Actualiza JAVA_HOME para esta terminal y vuelve a ejecutar.`);
   }
@@ -331,10 +376,19 @@ function signalChild(child, signal) {
   else child.kill(signal);
 }
 
+function buildFirebaseEmulatorArgs(dataPath, hasExistingExport) {
+  const args = ['emulators:start', '--only', 'auth,firestore,database,functions', '--project', projectId];
+  if (hasExistingExport) args.push('--import', dataPath);
+  args.push('--export-on-exit', dataPath);
+  return args;
+}
+
 function startFirebaseChild(env) {
+  mkdirSync(path.dirname(firebaseDataPath), { recursive: true });
+  const hasExistingExport = existsSync(path.join(firebaseDataPath, 'firebase-export-metadata.json'));
   const child = startChild(
     'firebase',
-    ['emulators:start', '--only', 'auth,firestore,database,functions', '--project', projectId],
+    buildFirebaseEmulatorArgs(firebaseDataPath, hasExistingExport),
     repoRoot,
     env,
     true,
@@ -421,6 +475,13 @@ async function stopFirebaseEmulator() {
 
   if (!isExpectedFirebaseProcess(state, firebaseProcessCommand(state.pid))) {
     throw new Error('El PID guardado no corresponde al Firebase Emulator de rundi-dev; no se terminó ningún proceso.');
+  }
+
+  mkdirSync(path.dirname(firebaseDataPath), { recursive: true });
+  try {
+    await capture('firebase', ['emulators:export', firebaseDataPath, '--force'], repoRoot);
+  } catch {
+    throw new Error('No se pudieron exportar los datos; Firebase Emulator sigue activo y los datos no se perderán.');
   }
 
   process.kill(-state.pid, 'SIGTERM');
@@ -541,11 +602,13 @@ if (require.main === module) {
 
 module.exports = {
   buildChildEnvironments,
+  buildFirebaseEmulatorArgs,
   getJavaMajorVersion,
   isIncomingBlocked,
   isExpectedFirebaseProcess,
   isLoopbackBinding,
   parseSupabaseStatusEnv,
   redactSupabaseOutput,
+  resolveMacJavaHome,
   shouldStopSupabase,
 };

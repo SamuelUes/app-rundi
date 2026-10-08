@@ -32,10 +32,12 @@ export async function checkAuth(user: any): Promise<boolean> {
     try {
       if (isNativeFirebaseSupported()) {
         const nativeAuthModule = await loadNativeFirebaseAuth();
-        const rnAuth = nativeAuthModule?.default;
+        const rnAuth = nativeAuthModule?.getAuth
+          ? nativeAuthModule.getAuth()
+          : nativeAuthModule?.default?.();
 
         if (rnAuth) {
-          const rnUser = rnAuth().currentUser;
+          const rnUser = rnAuth.currentUser;
 
           if (rnUser) {
             if (rnUser.uid === user.id) {
@@ -317,7 +319,7 @@ export async function checkDriverApprovalStatus(driverId: string): Promise<Drive
 
     const rawDocumentsStatus = String((profile as Record<string, any>)?.documents_status || '').toLowerCase();
     let documentsStatus: NormalizedDocumentsStatus;
-    if (rawDocumentsStatus === 'verified') {
+    if (rawDocumentsStatus === 'verified' || rawDocumentsStatus === 'active' || rawDocumentsStatus === 'approved') {
       documentsStatus = 'verified';
     } else if (rawDocumentsStatus === 'suspended') {
       documentsStatus = 'suspended';

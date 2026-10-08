@@ -147,7 +147,9 @@ function normalizeDriverAccountStatus(raw: unknown): DriverApprovalStatus {
 
 function normalizeDriverDocumentsStatus(raw: unknown): DriverDocumentsStatus {
   const value = normalizeString(raw).toLowerCase();
-  if (value === 'verified') return 'verified';
+  // 'active' aparece en datos reales (enum driver_documents_status lo admite)
+  // con el mismo significado que en account_status: documentos aprobados.
+  if (value === 'verified' || value === 'active' || value === 'approved') return 'verified';
   if (value === 'suspended') return 'suspended';
   if (value === 'rejected') return 'rejected';
   return 'pending';
@@ -436,8 +438,13 @@ async function resolveAuthenticatedUserIdFromHttpRequest(req: any): Promise<stri
   try {
     const decoded = await admin.auth().verifyIdToken(token);
     return normalizeString(decoded?.uid);
-  } catch (error) {
-    console.warn('⚠️ [getPreflightDataHttp] verifyIdToken falló:', error);
+  } catch (error: any) {
+    // En el emulador los tokens persistidos quedan revocados al reiniciarlo;
+    // el cliente reintenta con token fresco vía callable.
+    console.warn(
+      '⚠️ [getPreflightDataHttp] verifyIdToken falló:',
+      error?.errorInfo?.code || error?.code || error,
+    );
     throw new functions.https.HttpsError('unauthenticated', 'Token inválido o expirado');
   }
 }
@@ -523,7 +530,7 @@ async function buildPreflightDataResponse(data: GetPreflightDataRequest, authUse
 
     const activeRidesData = (activeRidesSnapshot.val() || {}) as Record<string, any>;
     const programmedRidesData = (programmedRidesSnapshot.val() || {}) as Record<string, any>;
-    const paymentStatusData = (paymentStatusSnapshot?.val() || {}) as Record<string, any>;
+    const paymentStatusData = (paymentStatusSnapshot || {}) as Record<string, any>;
     const terms = getTermsSummary(profile);
     const driverWalletData = driverWalletSnapshot?.val() as Record<string, any> | null;
     const driverApproval = driverApprovalData?.summary ?? null;

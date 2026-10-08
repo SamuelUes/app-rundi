@@ -49,8 +49,11 @@ export function SupportChatComplaintForm({
   ns,
   styles,
 }: SupportChatComplaintFormProps) {
+  const selectedPriorityColor = (id?: string) =>
+    id === 'urgent' ? '#E5484D' : id === 'high' ? '#E8890C' : colors.primary;
+
   return (
-    <View style={styles.section}>
+    <View style={[styles.section, styles.formCard]}>
       <Text style={styles.sectionTitle}>{t(`${ns}.categories.title`)}</Text>
       <View style={styles.chipsRow}>
         {categoryOptions.map((item) => (
@@ -76,25 +79,30 @@ export function SupportChatComplaintForm({
 
       <Text style={[styles.sectionTitle, { marginTop: 20 }]}>{t(`${ns}.priorities.title`)}</Text>
       <View style={styles.chipsRow}>
-        {priorityOptions.map((item) => (
+        {priorityOptions.map((item) => {
+          const selected = priority === item.id;
+          const selectedColor = selected ? selectedPriorityColor(item.id) : undefined;
+          return (
           <TouchableOpacity
             key={item.id}
             style={[
               styles.chipSmall,
-              priority === item.id && styles.chipSelected,
+              selected && [styles.chipSelected, selectedColor && { backgroundColor: selectedColor, borderColor: selectedColor }],
             ]}
             onPress={() => onSetPriority(item.id)}
+            activeOpacity={0.75}
           >
             <Text
               style={[
                 styles.chipLabel,
-                priority === item.id && styles.chipLabelSelected,
+                selected && styles.chipLabelSelected,
               ]}
             >
               {item.label}
             </Text>
           </TouchableOpacity>
-        ))}
+          );
+        })}
       </View>
 
       <View style={styles.inputGroup}>

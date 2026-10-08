@@ -29,6 +29,7 @@ import {
   extractLocalNumber,
 } from '../../utils/phoneUtils';
 import { useTranslation } from 'react-i18next';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AccountProfileSection } from '../../components/shared/Account/AccountProfileSection';
 import { AccountAddPasswordCard } from '../../components/shared/Account/AccountAddPasswordCard';
 import { AccountLinkEmailCard } from '../../components/shared/Account/AccountLinkEmailCard';
@@ -115,6 +116,7 @@ const buildAuthProviderField = (providers: string[]) => {
 
 export default function AccountScreen({ navigation }: any) {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const { t } = useTranslation();
 
@@ -206,18 +208,22 @@ export default function AccountScreen({ navigation }: any) {
     },
     content: {
       paddingHorizontal: 20,
-      paddingTop: 20,
       paddingBottom: 36,
     },
     headerRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingTop: 14,
       marginBottom: 20,
     },
     backButton: {
-      paddingRight: 8,
-      paddingVertical: 4,
+      width: 44,
+      height: 44,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    headerSpacer: {
+      width: 44,
+      height: 44,
     },
     backIcon: {
       width: 28,
@@ -226,10 +232,11 @@ export default function AccountScreen({ navigation }: any) {
       resizeMode: 'contain',
     },
     headerTitle: {
-      fontSize: 24,
-      fontWeight: '800',
+      flex: 1,
+      fontSize: 22,
+      fontWeight: '700',
       color: colors.text,
-      marginLeft: 6,
+      textAlign: 'center',
     },
     profileEditSection: {
       marginBottom: 16,
@@ -245,7 +252,7 @@ export default function AccountScreen({ navigation }: any) {
       elevation: 4,
     },
     avatarWrapper: {
-      marginBottom: 14,
+      marginBottom: 20,
       position: 'relative',
       alignSelf: 'center',
     },
@@ -300,8 +307,15 @@ export default function AccountScreen({ navigation }: any) {
       fontWeight: '700',
       letterSpacing: 0.4,
       textTransform: 'uppercase',
+      textAlign: 'center',
       color: colors.textSecondary,
       marginBottom: 10,
+    },
+    profileFieldLabel: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: colors.text,
+      marginBottom: 6,
     },
     accountCard: {
       marginBottom: 16,
@@ -370,14 +384,15 @@ export default function AccountScreen({ navigation }: any) {
       fontWeight: '600',
     },
     input: {
+      minHeight: 50,
       borderWidth: 1,
       borderColor: colors.border,
       borderRadius: 12,
       paddingHorizontal: 15,
-      paddingVertical: 13,
+      paddingVertical: 12,
       color: colors.text,
       backgroundColor: colors.surface,
-      marginBottom: 12,
+      marginBottom: 14,
       fontSize: 15,
     },
     phoneButton: {
@@ -394,17 +409,18 @@ export default function AccountScreen({ navigation }: any) {
       color: colors.textSecondary,
     },
     button: {
-      backgroundColor: 'rgba(202, 151, 57, 1)',
+      minHeight: 52,
+      backgroundColor: colors.primary,
       borderRadius: 12,
-      paddingVertical: 14,
+      paddingHorizontal: 16,
       alignItems: 'center',
       justifyContent: 'center',
       marginTop: 4,
-      shadowColor: '#000',
+      shadowColor: colors.shadow,
       shadowOpacity: 0.12,
       shadowRadius: 8,
-      shadowOffset: { width: 0, height: 4 },
-      elevation: 4,
+      shadowOffset: { width: 0, height: 3 },
+      elevation: 3,
     },
     buttonDisabled: {
       opacity: 0.6,
@@ -530,7 +546,9 @@ export default function AccountScreen({ navigation }: any) {
         const nextBirthDate = formatBirthDateInput(profileData.birthDate || '');
         const nextEmail = profileData.email || user?.email || '';
         const nextPhone = profileData.phone || '';
-        const nextPhoto = resolveProfilePhoto(profileData) || resolveProfilePhoto(user as any);
+        const nextPhoto = await supabaseStorage.resolveDocumentPhotoUrl(
+          resolveProfilePhoto(profileData) || resolveProfilePhoto(user as any),
+        );
 
         setProfile(profileData);
         setProfileName(nextName);
@@ -551,7 +569,7 @@ export default function AccountScreen({ navigation }: any) {
         const nextName = user?.name || '';
         const nextBirthDate = formatBirthDateInput('');
         const nextEmail = user?.email || '';
-        const nextPhoto = resolveProfilePhoto(user as any);
+        const nextPhoto = await supabaseStorage.resolveDocumentPhotoUrl(resolveProfilePhoto(user as any));
 
         setProfileName(nextName);
         setBirthDate(nextBirthDate);
@@ -819,7 +837,8 @@ export default function AccountScreen({ navigation }: any) {
       setUploadingPhoto(true);
 
       const uploadedPhotoUrl = await supabaseStorage.uploadProfilePhoto(user.id, result.assets[0].uri);
-      setProfilePhoto(uploadedPhotoUrl);
+      const displayPhotoUrl = await supabaseStorage.resolveDocumentPhotoUrl(uploadedPhotoUrl);
+      setProfilePhoto(displayPhotoUrl);
 
       const photoPayload = {
         profilePhoto: uploadedPhotoUrl,
@@ -838,7 +857,7 @@ export default function AccountScreen({ navigation }: any) {
         birthDate,
         email: profileEmail,
         phone: profilePhone,
-        photo: uploadedPhotoUrl,
+        photo: displayPhotoUrl,
       });
 
       alertService.showSuccessAlert(
@@ -855,7 +874,13 @@ export default function AccountScreen({ navigation }: any) {
 
   return (
     <View style={styles.container}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.content,
+          { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 24 },
+        ]}
+        keyboardShouldPersistTaps="handled"
+      >
         <View style={styles.headerRow}>
           <TouchableOpacity
             style={styles.backButton}
@@ -864,6 +889,7 @@ export default function AccountScreen({ navigation }: any) {
             <Image source={BACK_BUTTON_ICON} style={styles.backIcon} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>{t('shared.account.header.title')}</Text>
+          <View style={styles.headerSpacer} />
         </View>
 
         <AccountProfileSection

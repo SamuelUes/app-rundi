@@ -117,6 +117,8 @@ DROP POLICY IF EXISTS "rides_docs_read_own" ON storage.objects;
 DROP POLICY IF EXISTS "rides_docs_update_own" ON storage.objects;
 DROP POLICY IF EXISTS "rides_docs_delete_own" ON storage.objects;
 DROP POLICY IF EXISTS "rides_docs_insert_public_paths" ON storage.objects;
+DROP POLICY IF EXISTS "rides_docs_read_public_paths" ON storage.objects;
+DROP POLICY IF EXISTS "drivers_docs_read_profiles" ON storage.objects;
 
 DROP POLICY IF EXISTS "support_chats_read_public" ON storage.objects;
 DROP POLICY IF EXISTS "support_chats_insert_auth" ON storage.objects;
@@ -292,6 +294,30 @@ WITH CHECK (
   )
 );
 
+-- Lectura de rutas compartidas entre usuarios (espejo del bucket público en producción):
+-- el conductor necesita ver la foto del vehículo del cliente y las fotos de inspección.
+CREATE POLICY "rides_docs_read_public_paths"
+ON storage.objects
+FOR SELECT
+TO anon, authenticated
+USING (
+  bucket_id = 'rides-documents'
+  AND (
+    name LIKE 'client-vehicles/%'
+    OR name LIKE 'rides-inspection/%'
+  )
+);
+
+-- Las fotos de perfil se muestran a otros usuarios (avatar en ofertas, mapa y viajes).
+CREATE POLICY "drivers_docs_read_profiles"
+ON storage.objects
+FOR SELECT
+TO anon, authenticated
+USING (
+  bucket_id = 'drivers-documents'
+  AND name LIKE 'profiles/%'
+);
+
 -- ============================================
 -- PRODUCTION DATABASE OBJECTS: TABLES, VIEWS, RLS AND POLICIES
 -- ============================================
@@ -414,6 +440,7 @@ COMMENT ON COLUMN public.vehicles.emission_date IS 'Fecha de emisión de la tarj
 COMMENT ON COLUMN public.vehicles.registration_photo_front IS 'URL de foto frontal de circulación (Supabase Storage)';
 COMMENT ON COLUMN public.vehicles.registration_photo_back IS 'URL de foto trasera de circulación (Supabase Storage)';
 COMMENT ON COLUMN public.vehicles.insurance_number IS 'Número de póliza de seguro';
+COMMENT ON COLUMN public.vehicles.insurance_company IS 'Aseguradora: INISER, Seguros América, Lafise Seguros, Banpro Seguros, ASSA, Mapfre, Seguros Atlántida, Otra (enum vehicle_insurance_company en status-enum-types.sql)';
 COMMENT ON COLUMN public.vehicles.insurance_start_date IS 'Fecha de inicio de la póliza de seguro';
 COMMENT ON COLUMN public.vehicles.insurance_photo IS 'URL de foto de póliza de seguro (Supabase Storage)';
 COMMENT ON COLUMN public.vehicles.is_4x4 IS 'Indica si es 4x4 (requerido para conductor designado)';

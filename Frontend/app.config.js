@@ -13,11 +13,6 @@ export default {
     url: 'https://u.expo.dev/98fe5b45-4177-4d65-8ce3-6b783abfe196'
   },
   assetBundlePatterns: ['**/*'],
-  splash: {
-    image: './src/assets/images/icon.png',
-    resizeMode: 'contain',
-    backgroundColor: '#ffffff',
-  },
   ios: {
     supportsTablet: true,
     bundleIdentifier: 'com.driveangel.rundidev',
@@ -121,7 +116,19 @@ export default {
     'expo-font',
     'expo-asset',
     "expo-web-browser",
-    'expo-splash-screen',
+    [
+      'expo-splash-screen',
+      {
+        image: './src/assets/images/splash-icon.png',
+        imageWidth: 200,
+        resizeMode: 'contain',
+        backgroundColor: '#0F2628',
+        dark: {
+          image: './src/assets/images/splash-icon.png',
+          backgroundColor: '#0F2628',
+        },
+      },
+    ],
     [
       'expo-local-authentication',
       {

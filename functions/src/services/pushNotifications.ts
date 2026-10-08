@@ -1,4 +1,8 @@
-import { firestore, messaging } from '../config/firebase';
+import { firestore, messaging, messagingCredentialsAvailable } from '../config/firebase';
+
+const MESSAGING_UNAVAILABLE_MESSAGE =
+  '⚠️ [pushNotifications] Operación FCM omitida: emulador sin service account ' +
+  '(guarda functions/firebase-service-account.json para habilitarla)';
 
 const TOKENS_SUBCOLLECTION = 'fcmTokens';
 const MAX_TOKENS_PER_BATCH = 500;
@@ -89,6 +93,11 @@ const deleteToken = async (userId: string, token: string) => {
 };
 
 const sendToTokens = async (tokens: TokenEntry[], message: PushMessage) => {
+  if (!messagingCredentialsAvailable) {
+    console.warn(`${MESSAGING_UNAVAILABLE_MESSAGE} [sendToTokens:${tokens.length} token(s)]`);
+    return;
+  }
+
   const expiresInMsRaw = typeof message.expiresInMs === 'number' && Number.isFinite(message.expiresInMs)
     ? Math.max(1, Math.floor(message.expiresInMs))
     : 120_000;
@@ -231,6 +240,10 @@ export const sendToTopic = async (topic: string, message: PushMessage) => {
   if (!topic) {
     return;
   }
+  if (!messagingCredentialsAvailable) {
+    console.warn(`${MESSAGING_UNAVAILABLE_MESSAGE} [sendToTopic:${topic}]`);
+    return;
+  }
 
   const expiresInMsRaw = typeof message.expiresInMs === 'number' && Number.isFinite(message.expiresInMs)
     ? Math.max(1, Math.floor(message.expiresInMs))
@@ -287,6 +300,10 @@ export const subscribeTokenToTopics = async (token: string, topics: string[]) =>
   if (!token || !topics.length) {
     return;
   }
+  if (!messagingCredentialsAvailable) {
+    console.warn(`${MESSAGING_UNAVAILABLE_MESSAGE} [subscribeToTopic:${topics.join(', ')}]`);
+    return;
+  }
   try {
     await Promise.all(topics.map((topic) => messaging.subscribeToTopic(token, topic)));
     console.log(`✅ [pushNotifications] Token suscrito a topics: ${topics.join(', ')}`);
@@ -297,6 +314,10 @@ export const subscribeTokenToTopics = async (token: string, topics: string[]) =>
 
 export const unsubscribeTokenFromTopics = async (token: string, topics: string[]) => {
   if (!token || !topics.length) {
+    return;
+  }
+  if (!messagingCredentialsAvailable) {
+    console.warn(`${MESSAGING_UNAVAILABLE_MESSAGE} [unsubscribeFromTopic:${topics.join(', ')}]`);
     return;
   }
   try {

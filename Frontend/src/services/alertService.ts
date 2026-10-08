@@ -51,6 +51,7 @@ export const showErrorAlert = (message: string, callback?: () => void) => {
     type: 'error',
     title: tr('titles.error'),
     message,
+    duration: 4500,
     onClose: callback,
   });
 };
@@ -131,7 +132,7 @@ export const showOptionsAlert = (
   cancelable: boolean = true
 ) => {
   emitToast({
-    type: 'info',
+    type: 'confirm',
     title,
     message,
     duration: cancelable ? 6000 : 0,

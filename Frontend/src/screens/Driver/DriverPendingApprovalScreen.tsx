@@ -1,5 +1,7 @@
 import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Linking } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Linking, ScrollView } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useTranslation } from 'react-i18next';
 
@@ -22,8 +24,9 @@ type Props = NativeStackScreenProps<DriverStackParamList, 'DriverPendingApproval
 const SUPPORT_PHONE = '+50512345678';
 
 export default function DriverPendingApprovalScreen({ navigation, route }: Props) {
-  const { colors } = useTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const { colors, isDark } = useTheme();
+  const logoutColor = isDark ? '#FF8A80' : '#B42318';
+  const styles = useMemo(() => createStyles(colors, logoutColor), [colors, logoutColor]);
   const { logout } = useAuth();
   const { t } = useTranslation();
   const ns = 'driver.driverPendingApproval';
@@ -73,7 +76,8 @@ export default function DriverPendingApprovalScreen({ navigation, route }: Props
   const renderStatusBadge = (label: string, value: string, color: string) => (
     <View style={styles.statusRow}>
       <Text style={styles.statusLabel}>{label}</Text>
-      <View style={[styles.statusBadge, { backgroundColor: color }]}>
+      <View style={[styles.statusBadge, { backgroundColor: `${color}18` }]}>
+        <View style={[styles.statusDot, { backgroundColor: color }]} />
         <Text style={styles.statusBadgeText}>{value}</Text>
       </View>
     </View>
@@ -81,152 +85,243 @@ export default function DriverPendingApprovalScreen({ navigation, route }: Props
 
   const accountColor =
     accountStatus === 'active'
-      ? '#16A34A'
+      ? colors.success
       : accountStatus === 'pending'
-      ? '#F59E0B'
-      : '#EF4444';
+      ? colors.warning
+      : colors.error;
 
   const documentsColor =
     documentsStatus === 'verified'
-      ? '#16A34A'
+      ? colors.success
       : documentsStatus === 'pending'
-      ? '#F59E0B'
-      : '#EF4444';
+      ? colors.warning
+      : colors.error;
 
-  const vehicleColor = hasActiveVehicle ? '#16A34A' : '#F59E0B';
+  const vehicleColor = hasActiveVehicle ? colors.success : colors.warning;
+  const headerColor = isHardBlock ? colors.error : colors.primary;
+  const headerIcon = isHardBlock ? 'report-problem' : 'schedule';
 
   return (
-    <View style={styles.container}>
-      <View style={styles.card}>
-        <Text style={styles.title}>{title}</Text>
-        <Text style={styles.description}>{description}</Text>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.content}>
+          <View style={styles.statusCard}>
+            <View style={styles.header}>
+              <View style={[styles.headerIcon, { backgroundColor: `${headerColor}18` }]}>
+                <MaterialIcons name={headerIcon} size={26} color={headerColor} />
+              </View>
+              <View style={styles.headerText}>
+                <Text style={styles.title}>{title}</Text>
+                <Text style={styles.description}>{description}</Text>
+              </View>
+            </View>
 
-        <View style={styles.statusContainer}>
-          {renderStatusBadge(
-            t(`${ns}.status.accountLabel`),
-            t(`${ns}.status.accountValues.${accountStatus}`),
-            accountColor,
-          )}
+            <View style={styles.statusContainer}>
+              {renderStatusBadge(
+                t(`${ns}.status.accountLabel`),
+                t(`${ns}.status.accountValues.${accountStatus}`),
+                accountColor,
+              )}
 
-          {renderStatusBadge(
-            t(`${ns}.status.documentsLabel`),
-            t(`${ns}.status.documentsValues.${documentsStatus}`),
-            documentsColor,
-          )}
+              {renderStatusBadge(
+                t(`${ns}.status.documentsLabel`),
+                t(`${ns}.status.documentsValues.${documentsStatus}`),
+                documentsColor,
+              )}
 
-          {renderStatusBadge(
-            t(`${ns}.status.vehicleLabel`),
-            hasActiveVehicle
-              ? t(`${ns}.status.vehicleValues.active`)
-              : t(`${ns}.status.vehicleValues.none`),
-            vehicleColor,
-          )}
-        </View>
+              {renderStatusBadge(
+                t(`${ns}.status.vehicleLabel`),
+                hasActiveVehicle
+                  ? t(`${ns}.status.vehicleValues.active`)
+                  : t(`${ns}.status.vehicleValues.none`),
+                vehicleColor,
+              )}
+            </View>
 
-        {isHardBlock && (
-          <View style={styles.supportBox}>
-            <Text style={styles.supportTitle}>{t(`${ns}.supportbasic.title`)}</Text>
-            <Text style={styles.supportText}>{t(`${ns}.supportbasic.description`)}</Text>
+            {isHardBlock ? (
+              <View style={styles.supportBox}>
+                <Text style={styles.supportTitle}>{t(`${ns}.supportBasic.title`)}</Text>
+                <Text style={styles.supportText}>{t(`${ns}.supportBasic.description`)}</Text>
+                <TouchableOpacity
+                  style={styles.supportButton}
+                  onPress={handleCallSupport}
+                  accessibilityRole="button"
+                >
+                  <MaterialIcons name="call" size={18} color="#241B0B" />
+                  <Text style={styles.supportButtonText}>
+                    {t(`${ns}.supportBasic.button`)}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={styles.infoBox}>
+                <MaterialIcons name="info-outline" size={20} color={colors.primary} />
+                <Text style={styles.infoText}>{t(`${ns}.info.text`)}</Text>
+              </View>
+            )}
+          </View>
 
-            <TouchableOpacity style={styles.supportButton} onPress={handleCallSupport}>
-              <Text style={styles.supportButtonText}>{t(`${ns}.supportbasic.button`)}</Text>
+          <TouchableOpacity
+            style={styles.refreshButton}
+            onPress={handleReload}
+            accessibilityRole="button"
+          >
+            <MaterialIcons name="refresh" size={20} color="#241B0B" />
+            <Text style={styles.refreshButtonText}>{t(`${ns}.buttons.refresh`)}</Text>
+          </TouchableOpacity>
+
+          <View style={styles.secondaryActions}>
+            <TouchableOpacity
+              style={styles.profileButton}
+              onPress={handleOpenProfile}
+              accessibilityRole="button"
+            >
+              <Text style={styles.profileButtonText}>{t(`${ns}.buttons.viewProfile`)}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.logoutButton}
+              onPress={handleLogout}
+              activeOpacity={0.75}
+              accessibilityRole="button"
+            >
+              <MaterialIcons name="logout" size={18} color={logoutColor} />
+              <Text style={styles.logoutButtonText}>{t(`${ns}.buttons.logout`)}</Text>
             </TouchableOpacity>
           </View>
-        )}
 
-        {!isHardBlock && (
-          <View style={styles.infoBox}>
-            <Text style={styles.infoText}>{t(`${ns}.info.text`)}</Text>
-          </View>
-        )}
-
-        <TouchableOpacity style={styles.refreshButton} onPress={handleReload}>
-          <Text style={styles.refreshButtonText}>{t(`${ns}.buttons.refresh`)}</Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.footerButtons}>
-        <TouchableOpacity style={styles.secondaryButton} onPress={handleOpenProfile}>
-          <Text style={styles.secondaryButtonText}>{t(`${ns}.buttons.viewProfile`)}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.primaryButton} onPress={handleLogout}>
-          <Text style={styles.primaryButtonText}>{t(`${ns}.buttons.logout`)}</Text>
-        </TouchableOpacity>
-      </View>
-
-      <SupportChatShortcut
-        style={{ marginTop: 16 }}
-        initialCategory="service"
-        initialTitle={t(`${ns}.support.supportChatTitle`)}
-        label={t(`${ns}.support.supportChatLabel`)}
-        description={t(
-          `${ns}.support.supportChatDescription`,
-        )}
-      />
-    </View>
+          <SupportChatShortcut
+            style={styles.supportChat}
+            destination="complaints"
+            initialCategory="service"
+            initialTitle={t(`${ns}.support.supportChatTitle`)}
+            label={t(`${ns}.support.supportChatLabel`)}
+            description={t(`${ns}.support.supportChatDescription`)}
+          />
+        </View>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
-const createStyles = (colors: any) =>
+const createStyles = (colors: any, logoutColor: string) =>
   StyleSheet.create({
-    container: {
+    safeArea: {
       flex: 1,
       backgroundColor: colors.background,
-      padding: 24,
-      justifyContent: 'space-between',
     },
-    card: {
-      borderRadius: 16,
-      backgroundColor: colors.card,
+    scrollView: {
+      flex: 1,
+    },
+    scrollContent: {
+      flexGrow: 1,
+      paddingHorizontal: 20,
+      paddingVertical: 16,
+    },
+    content: {
+      width: '100%',
+      maxWidth: 480,
+      alignSelf: 'center',
+      gap: 16,
+    },
+    statusCard: {
       padding: 20,
-      borderWidth: 1,
+      borderRadius: 22,
+      backgroundColor: colors.card,
+      borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.border,
+      gap: 18,
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: 14,
+    },
+    headerIcon: {
+      width: 52,
+      height: 52,
+      borderRadius: 18,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    headerText: {
+      flex: 1,
+      gap: 6,
     },
     title: {
-      fontSize: 22,
-      fontWeight: '700',
+      fontSize: 23,
+      lineHeight: 28,
+      fontWeight: '800',
       color: colors.text,
-      marginBottom: 8,
     },
     description: {
       fontSize: 14,
+      lineHeight: 20,
       color: colors.textSecondary,
-      marginBottom: 16,
     },
     statusContainer: {
-      marginTop: 8,
-      marginBottom: 16,
-      gap: 8,
+      gap: 10,
     },
     statusRow: {
+      minHeight: 40,
       flexDirection: 'row',
-      justifyContent: 'space-between',
       alignItems: 'center',
+      gap: 10,
     },
     statusLabel: {
-      fontSize: 14,
-      color: colors.textSecondary,
       flex: 1,
+      minWidth: 84,
+      fontSize: 14,
+      fontWeight: '600',
+      color: colors.textSecondary,
     },
     statusBadge: {
-      paddingHorizontal: 10,
-      paddingVertical: 6,
-      borderRadius: 999,
-      minWidth: 110,
+      maxWidth: '62%',
+      flexShrink: 1,
+      flexDirection: 'row',
       alignItems: 'center',
+      justifyContent: 'center',
+      gap: 7,
+      paddingHorizontal: 10,
+      paddingVertical: 7,
+      borderRadius: 12,
+    },
+    statusDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
     },
     statusBadgeText: {
+      flexShrink: 1,
       fontSize: 12,
-      fontWeight: '600',
-      color: '#FFFFFF',
+      lineHeight: 16,
+      fontWeight: '700',
+      color: colors.text,
+      textAlign: 'center',
+    },
+    infoBox: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: 10,
+      padding: 14,
+      borderRadius: 16,
+      backgroundColor: colors.primary + '12',
+    },
+    infoText: {
+      flex: 1,
+      fontSize: 13,
+      lineHeight: 18,
+      color: colors.textSecondary,
     },
     supportBox: {
-      marginTop: 8,
-      padding: 12,
-      borderRadius: 12,
+      padding: 14,
+      borderRadius: 16,
       backgroundColor: colors.error + '10',
       borderWidth: 1,
-      borderColor: colors.error,
+      borderColor: colors.error + '35',
       gap: 8,
     },
     supportTitle: {
@@ -236,72 +331,82 @@ const createStyles = (colors: any) =>
     },
     supportText: {
       fontSize: 13,
+      lineHeight: 18,
       color: colors.textSecondary,
     },
     supportButton: {
-      marginTop: 4,
-      paddingVertical: 10,
-      borderRadius: 999,
-      backgroundColor: '#1D4ED8',
+      minHeight: 48,
+      flexDirection: 'row',
       alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      marginTop: 4,
+      paddingHorizontal: 16,
+      borderRadius: 14,
+      backgroundColor: colors.error,
     },
     supportButtonText: {
       fontSize: 14,
-      fontWeight: '600',
-      color: '#FFFFFF',
-    },
-    infoBox: {
-      marginTop: 8,
-      padding: 12,
-      borderRadius: 12,
-      backgroundColor: colors.primary + '15',
-      borderWidth: 1,
-      borderColor: colors.primary,
-    },
-    infoText: {
-      fontSize: 13,
-      color: colors.textSecondary,
+      fontWeight: '700',
+      color: '#241B0B',
     },
     refreshButton: {
-      marginTop: 12,
-      paddingVertical: 10,
-      borderRadius: 999,
-      borderWidth: 1,
-      borderColor: colors.border,
+      minHeight: 56,
+      flexDirection: 'row',
       alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      paddingHorizontal: 18,
+      borderRadius: 16,
+      backgroundColor: colors.primary,
     },
     refreshButtonText: {
-      fontSize: 14,
-      fontWeight: '600',
-      color: colors.text,
+      fontSize: 15,
+      fontWeight: '700',
+      color: '#241B0B',
     },
-    footerButtons: {
+    secondaryActions: {
       flexDirection: 'row',
-      gap: 12,
+      alignItems: 'center',
+      gap: 10,
     },
-    secondaryButton: {
+    profileButton: {
       flex: 1,
-      paddingVertical: 12,
-      borderRadius: 999,
+      minHeight: 50,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 12,
+      borderRadius: 15,
       borderWidth: 1,
       borderColor: colors.border,
-      alignItems: 'center',
+      backgroundColor: colors.card,
     },
-    secondaryButtonText: {
+    profileButtonText: {
       fontSize: 14,
       fontWeight: '600',
       color: colors.text,
+      textAlign: 'center',
     },
-    primaryButton: {
+    logoutButton: {
       flex: 1,
-      paddingVertical: 12,
-      borderRadius: 999,
-      backgroundColor: colors.primary,
+      minHeight: 50,
+      flexDirection: 'row',
       alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      paddingHorizontal: 12,
+      borderRadius: 15,
+      borderWidth: 1.5,
+      borderColor: `${logoutColor}40`,
+      backgroundColor: colors.error + '12',
     },
-    primaryButtonText: {
+    logoutButtonText: {
       fontSize: 14,
-      fontWeight: '600',
-      color: '#FFFFFF',
+      fontWeight: '700',
+      color: logoutColor,
+      textAlign: 'center',
+    },
+    supportChat: {
+      marginTop: 0,
     },
   });

@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, TextInput, TouchableOpacity, Image } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LoadingIcon } from '../../ui/LoadingIcon';
+import { DatePickerField } from '../../ui/DatePickerField';
 import type { TFunction } from 'i18next';
 
 interface AccountProfileSectionProps {
@@ -56,13 +57,13 @@ export function AccountProfileSection({
   onSetProfileEmail,
   onOpenPhoneModal,
   onSaveProfile,
-  formatBirthDateInput,
   buildProviderSummary,
   styles,
   t,
 }: AccountProfileSectionProps) {
   return (
     <View style={styles.profileEditSection}>
+      <Text style={styles.profileCardTitle}>{t('shared.account.profile.avatarTitle')}</Text>
       <View style={styles.avatarWrapper}>
         <View style={styles.avatarCircle}>
           {profilePhoto ? (
@@ -87,7 +88,7 @@ export function AccountProfileSection({
       </View>
 
       <View style={styles.profileFormCard}>
-        <Text style={styles.profileCardTitle}>{t('shared.account.profile.avatarTitle')}</Text>
+        <Text style={styles.profileFieldLabel}>{t('shared.account.profile.nameLabel')}</Text>
         <TextInput
           style={styles.input}
           placeholder={t('shared.account.profile.namePlaceholder')}
@@ -95,15 +96,16 @@ export function AccountProfileSection({
           value={profileName}
           onChangeText={onSetProfileName}
         />
-        <TextInput
+        <Text style={styles.profileFieldLabel}>{t('shared.account.profile.birthLabel')}</Text>
+        <DatePickerField
           style={styles.input}
           placeholder={t('shared.account.profile.birthPlaceholder')}
           placeholderTextColor={colors.textSecondary}
           value={birthDate}
-          onChangeText={(text) => onSetBirthDate(formatBirthDateInput(text))}
-          keyboardType="numeric"
-          maxLength={10}
+          onChangeText={onSetBirthDate}
+          valueFormat="dmy"
         />
+        <Text style={styles.profileFieldLabel}>{t('shared.account.profile.emailLabel')}</Text>
         <TextInput
           style={styles.input}
           placeholder={t('shared.account.profile.emailPlaceholder')}
@@ -113,6 +115,7 @@ export function AccountProfileSection({
           value={profileEmail}
           onChangeText={onSetProfileEmail}
         />
+        <Text style={styles.profileFieldLabel}>{t('shared.account.profile.phoneLabel')}</Text>
         <TouchableOpacity
           style={[styles.input, styles.phoneButton]}
           onPress={onOpenPhoneModal}

@@ -18,6 +18,7 @@ interface SupportChatShortcutProps {
   rideId?: string | null;
   initialCategory?: SupportChatCategory;
   initialTitle?: string | null;
+  destination?: 'chat' | 'complaints';
   label?: string;
   description?: string;
   style?: StyleProp<ViewStyle>;
@@ -28,6 +29,7 @@ export default function SupportChatShortcut({
   rideId = null,
   initialCategory = 'service',
   initialTitle = null,
+  destination = 'chat',
   label,
   description,
   style,
@@ -47,6 +49,10 @@ export default function SupportChatShortcut({
     );
 
   const handlePress = () => {
+    if (destination === 'complaints') {
+      navigation.navigate('SupportComplaints', { initialTicketId: null });
+      return;
+    }
     navigation.navigate('SupportChat', {
       rideId,
       initialCategory,

@@ -119,10 +119,11 @@ const preflightService = {
             const response = await client.post('/getPreflightDataHttp', payload);
             result = response.data as GetPreflightDataResponse;
           } catch (httpError: any) {
+            if (isHttpUnauthenticated(httpError)) {
+              throw httpError;
+            }
             const shouldFallbackToCallable =
-              isHttpNotFound(httpError) ||
-              isRetryableHttpError(httpError) ||
-              (attempt === maxAttempts && isHttpUnauthenticated(httpError));
+              isHttpNotFound(httpError) || isRetryableHttpError(httpError);
             if (!shouldFallbackToCallable) {
               throw httpError;
             }
@@ -148,6 +149,9 @@ const preflightService = {
           throw error;
         }
         forceTokenRefresh = isHttpUnauthenticated(error) || isUnauthenticatedError(error);
+        if (forceTokenRefresh) {
+          useCallable = true;
+        }
         await delay(450 * attempt);
       }
     }

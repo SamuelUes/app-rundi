@@ -8,7 +8,7 @@ export function normalizeDocumentsStatus(driver: DriverData | null): string | nu
 
   const normalized = String(raw).toLowerCase();
 
-  if (['verified'].includes(normalized)) return 'verified';
+  if (['verified', 'active', 'approved'].includes(normalized)) return 'verified';
   if (['pending', 'pending_verification', 'in_review', 'under_review', 'review', 'verifying'].includes(normalized)) return 'pending';
   if (['suspended'].includes(normalized)) return 'suspended';
   if (['rejected', 'declined', 'denied'].includes(normalized)) return 'rejected';

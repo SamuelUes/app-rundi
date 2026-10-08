@@ -1,20 +1,24 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  ScrollView, 
-  TouchableOpacity, 
-  Image, 
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
   Alert,
   Platform,
   TextInput
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
+import { DatePickerField } from '../../components/ui/DatePickerField';
+import { InsuranceCompanySelectField } from '../../components/shared/InsuranceCompanySelectField';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useAuth } from '../../hooks/shared/auth/useAuth';
 import * as ImagePicker from 'expo-image-picker';
+import StorageImage from '../../components/shared/StorageImage';
 import supabaseStorage from '../../services/supabaseStorage';
 import vehiclesService from '../../services/vehiclesService';
 
@@ -25,6 +29,7 @@ interface VehicleVerificationProps {
 
 export default function VehicleVerificationScreen({ route, navigation }: VehicleVerificationProps) {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { t } = useTranslation();
@@ -45,7 +50,7 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
   const [insuranceExpiry, setInsuranceExpiry] = useState('');
   
   const [uploadProgress, setUploadProgress] = useState(0);
-  
+
   // Solicitar permisos para la cámara
   useEffect(() => {
     (async () => {
@@ -141,6 +146,8 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
   }, [vehicleId]);
 
   // Verificar si faltan datos y fotos
+  const photosCompleted = [vehiclePhoto, registrationPhotoFront, registrationPhotoBack, insurancePhoto]
+    .filter(Boolean).length;
   const allDataProvided = vehiclePhoto && registrationPhotoFront && registrationPhotoBack && insurancePhoto && 
                           registrationNumber && registrationExpiry && insuranceNumber && insuranceCompany && insuranceExpiry;
   
@@ -163,6 +170,39 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
         t(`${ns}.alerts.cameraErrorMessage`)
       );
       console.error('Error al tomar foto:', error);
+    }
+  };
+
+  // Seleccionar foto de la galería
+  const pickFromGallery = async (setPhotoFunction: React.Dispatch<React.SetStateAction<string | null>>) => {
+    try {
+      if (Platform.OS !== 'web') {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert(
+            t(`${ns}.alerts.permissionTitle`),
+            t(`${ns}.alerts.galleryPermissionMessage`)
+          );
+          return;
+        }
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.7,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        setPhotoFunction(result.assets[0].uri);
+      }
+    } catch (error) {
+      Alert.alert(
+        t(`${ns}.alerts.cameraErrorTitle`),
+        t(`${ns}.alerts.galleryErrorMessage`)
+      );
+      console.error('Error al seleccionar foto:', error);
     }
   };
 
@@ -199,8 +239,11 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
         
         // Subir la foto a Supabase
         let downloadUrl: string;
-        
-        if (photo.type === 'registration_front' || photo.type === 'registration_back') {
+
+        if (/^https?:\/\//.test(photo.uri)) {
+          // La foto ya está en Storage (cargada del vehículo); conservar su URL
+          downloadUrl = photo.uri;
+        } else if (photo.type === 'registration_front' || photo.type === 'registration_back') {
           downloadUrl = await supabaseStorage.uploadRegistrationPhoto(
             user.id,
             photo.uri,
@@ -257,10 +300,54 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
     }
   };
 
+  const renderPhotoCard = (
+    title: string,
+    photo: string | null,
+    setPhoto: React.Dispatch<React.SetStateAction<string | null>>,
+  ) => (
+    <View style={styles.photoContainer}>
+      <View style={styles.photoTitleRow}>
+        <Text style={styles.photoTitle}>{title}</Text>
+        {photo && <MaterialIcons name="check-circle" size={20} color={colors.success || '#2E7D32'} />}
+      </View>
+      {photo && <StorageImage uri={photo} style={styles.photoPreview} />}
+      <View style={styles.photoActionsRow}>
+        <TouchableOpacity
+          style={[styles.photoActionButton, styles.photoActionButtonPrimary]}
+          onPress={() => takePhoto(setPhoto)}
+        >
+          <MaterialIcons name="photo-camera" size={18} color="#fff" />
+          <Text style={styles.photoActionButtonPrimaryText}>
+            {photo ? t(`${ns}.photos.retakePhoto`) : t(`${ns}.photos.takePhoto`)}
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.photoActionButton, styles.photoActionButtonSecondary]}
+          onPress={() => pickFromGallery(setPhoto)}
+        >
+          <MaterialIcons name="photo-library" size={18} color={colors.primary} />
+          <Text style={styles.photoActionButtonSecondaryText}>
+            {t(`${ns}.photos.chooseFromGallery`)}
+          </Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>{t(`${ns}.header.title`)}</Text>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={[styles.contentContainer, { paddingBottom: insets.bottom + 24 }]}
+      keyboardShouldPersistTaps="handled"
+    >
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+        <View style={styles.headerTopRow}>
+          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+            <MaterialIcons name="arrow-back" size={22} color={colors.text} />
+          </TouchableOpacity>
+          <Text style={styles.title}>{t(`${ns}.header.title`)}</Text>
+          <View style={styles.headerSpacer} />
+        </View>
         <Text style={styles.subtitle}>{t(`${ns}.header.subtitle`)}</Text>
       </View>
       
@@ -271,6 +358,8 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
         <Text style={styles.label}>{t(`${ns}.form.registrationNumberLabel`)}</Text>
         <TextInput
           style={styles.input}
+          autoCapitalize="characters"
+          autoCorrect={false}
           placeholder={t(`${ns}.form.registrationNumberPlaceholder`)}
           value={registrationNumber}
           onChangeText={setRegistrationNumber}
@@ -278,7 +367,7 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
         />
 
         <Text style={styles.label}>{t(`${ns}.form.registrationExpiryLabel`)}</Text>
-        <TextInput
+        <DatePickerField
           style={styles.input}
           placeholder={t(`${ns}.form.registrationExpiryPlaceholder`)}
           value={registrationExpiry}
@@ -289,6 +378,8 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
         <Text style={styles.label}>{t(`${ns}.form.insuranceNumberLabel`)}</Text>
         <TextInput
           style={styles.input}
+          autoCapitalize="characters"
+          autoCorrect={false}
           placeholder={t(`${ns}.form.insuranceNumberPlaceholder`)}
           value={insuranceNumber}
           onChangeText={setInsuranceNumber}
@@ -296,16 +387,15 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
         />
 
         <Text style={styles.label}>{t(`${ns}.form.insuranceCompanyLabel`)}</Text>
-        <TextInput
+        <InsuranceCompanySelectField
           style={styles.input}
-          placeholder={t(`${ns}.form.insuranceCompanyPlaceholder`)}
           value={insuranceCompany}
-          onChangeText={setInsuranceCompany}
-          placeholderTextColor={colors.textSecondary}
+          onChange={setInsuranceCompany}
+          placeholder={t(`${ns}.form.insuranceCompanyPlaceholder`)}
         />
 
         <Text style={styles.label}>{t(`${ns}.form.insuranceExpiryLabel`)}</Text>
-        <TextInput
+        <DatePickerField
           style={styles.input}
           placeholder={t(`${ns}.form.insuranceExpiryPlaceholder`)}
           value={insuranceExpiry}
@@ -316,99 +406,15 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
 
       {/* Fotos del Vehículo */}
       <View style={styles.photoSection}>
-        <Text style={styles.sectionTitle}>{t(`${ns}.photos.title`)}</Text>
-        
-        {/* Foto del Vehículo */}
-        <View style={styles.photoContainer}>
-          <Text style={styles.photoTitle}>{t(`${ns}.photos.vehicleTitle`)}</Text>
-          {vehiclePhoto ? (
-            <View style={styles.previewContainer}>
-              <Image source={{ uri: vehiclePhoto }} style={styles.photoPreview} />
-              <TouchableOpacity 
-                style={styles.retakeButton}
-                onPress={() => takePhoto(setVehiclePhoto)}
-              >
-                <Text style={styles.retakeButtonText}>{t(`${ns}.photos.retakePhoto`)}</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <TouchableOpacity 
-              style={styles.photoButton}
-              onPress={() => takePhoto(setVehiclePhoto)}
-            >
-              <Text style={styles.photoButtonText}>{t(`${ns}.photos.takePhoto`)}</Text>
-            </TouchableOpacity>
-          )}
+        <View style={styles.photoSectionHeader}>
+          <Text style={styles.sectionTitle}>{t(`${ns}.photos.title`)}</Text>
+          <Text style={styles.photoProgress}>{photosCompleted}/4</Text>
         </View>
 
-        {/* Foto Registro Frente */}
-        <View style={styles.photoContainer}>
-          <Text style={styles.photoTitle}>{t(`${ns}.photos.registrationFrontTitle`)}</Text>
-          {registrationPhotoFront ? (
-            <View style={styles.previewContainer}>
-              <Image source={{ uri: registrationPhotoFront }} style={styles.photoPreview} />
-              <TouchableOpacity 
-                style={styles.retakeButton}
-                onPress={() => takePhoto(setRegistrationPhotoFront)}
-              >
-                <Text style={styles.retakeButtonText}>{t(`${ns}.photos.retakePhoto`)}</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <TouchableOpacity 
-              style={styles.photoButton}
-              onPress={() => takePhoto(setRegistrationPhotoFront)}
-            >
-              <Text style={styles.photoButtonText}>{t(`${ns}.photos.takePhoto`)}</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-
-        {/* Foto Registro Atrás */}
-        <View style={styles.photoContainer}>
-          <Text style={styles.photoTitle}>{t(`${ns}.photos.registrationBackTitle`)}</Text>
-          {registrationPhotoBack ? (
-            <View style={styles.previewContainer}>
-              <Image source={{ uri: registrationPhotoBack }} style={styles.photoPreview} />
-              <TouchableOpacity 
-                style={styles.retakeButton}
-                onPress={() => takePhoto(setRegistrationPhotoBack)}
-              >
-                <Text style={styles.retakeButtonText}>{t(`${ns}.photos.retakePhoto`)}</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <TouchableOpacity 
-              style={styles.photoButton}
-              onPress={() => takePhoto(setRegistrationPhotoBack)}
-            >
-              <Text style={styles.photoButtonText}>{t(`${ns}.photos.takePhoto`)}</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-
-        {/* Foto Seguro */}
-        <View style={styles.photoContainer}>
-          <Text style={styles.photoTitle}>{t(`${ns}.photos.insuranceTitle`)}</Text>
-          {insurancePhoto ? (
-            <View style={styles.previewContainer}>
-              <Image source={{ uri: insurancePhoto }} style={styles.photoPreview} />
-              <TouchableOpacity 
-                style={styles.retakeButton}
-                onPress={() => takePhoto(setInsurancePhoto)}
-              >
-                <Text style={styles.retakeButtonText}>{t(`${ns}.photos.retakePhoto`)}</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <TouchableOpacity 
-              style={styles.photoButton}
-              onPress={() => takePhoto(setInsurancePhoto)}
-            >
-              <Text style={styles.photoButtonText}>{t(`${ns}.photos.takePhoto`)}</Text>
-            </TouchableOpacity>
-          )}
-        </View>
+        {renderPhotoCard(t(`${ns}.photos.vehicleTitle`), vehiclePhoto, setVehiclePhoto)}
+        {renderPhotoCard(t(`${ns}.photos.registrationFrontTitle`), registrationPhotoFront, setRegistrationPhotoFront)}
+        {renderPhotoCard(t(`${ns}.photos.registrationBackTitle`), registrationPhotoBack, setRegistrationPhotoBack)}
+        {renderPhotoCard(t(`${ns}.photos.insuranceTitle`), insurancePhoto, setInsurancePhoto)}
       </View>
 
       <View style={styles.noticeContainer}>
@@ -428,7 +434,7 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
           onPress={uploadVehicleVerification}
           disabled={!allDataProvided}
         >
-          <Text style={styles.submitButtonText}>
+          <Text style={[styles.submitButtonText, !allDataProvided && styles.submitButtonTextDisabled]}>
             {allDataProvided
               ? t(`${ns}.buttons.submit`)
               : t(`${ns}.buttons.incomplete`)}
@@ -436,7 +442,7 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
         </TouchableOpacity>
       )}
       
-      <View style={{ height: 40 }} />
+      <View style={{ height: 12 }} />
     </ScrollView>
   );
 }
@@ -446,16 +452,39 @@ const createStyles = (colors: any) => StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
+  contentContainer: {
+    paddingBottom: 24,
+  },
   header: {
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingBottom: 20,
     backgroundColor: colors.card,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
-  title: {
-    fontSize: 22,
-    fontWeight: '700',
+  headerTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 12,
+  },
+  backButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerSpacer: {
+    width: 44,
+    height: 44,
+  },
+  title: {
+    flex: 1,
+    fontSize: 20,
+    fontWeight: '700',
+    textAlign: 'center',
     color: colors.text,
   },
   subtitle: {
@@ -464,89 +493,126 @@ const createStyles = (colors: any) => StyleSheet.create({
     lineHeight: 20,
   },
   dataSection: {
-    padding: 20,
+    marginHorizontal: 16,
+    marginTop: 16,
+    marginBottom: 24,
+    padding: 18,
+    backgroundColor: colors.card,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   sectionTitle: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '700',
     color: colors.text,
-    marginBottom: 16,
+    marginBottom: 14,
   },
   label: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
     color: colors.text,
-    marginBottom: 8,
+    marginBottom: 6,
     marginTop: 12,
   },
   input: {
-    backgroundColor: colors.card,
-    borderRadius: 8,
+    minHeight: 48,
+    backgroundColor: colors.background,
+    borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    fontSize: 14,
+    fontSize: 15,
     color: colors.text,
     borderWidth: 1,
     borderColor: colors.border,
   },
+
   photoSection: {
-    padding: 20,
-    paddingTop: 0,
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+  },
+  photoSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  photoProgress: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    backgroundColor: colors.surface,
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '600',
   },
   photoContainer: {
-    marginBottom: 24,
+    marginBottom: 12,
     backgroundColor: colors.card,
-    borderRadius: 12,
-    padding: 16,
+    borderRadius: 14,
+    padding: 14,
     borderWidth: 1,
     borderColor: colors.border,
   },
+  photoTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
   photoTitle: {
-    fontSize: 16,
+    flex: 1,
+    fontSize: 15,
+    lineHeight: 20,
     fontWeight: '600',
     marginBottom: 12,
     color: colors.text,
   },
-  photoButton: {
-    backgroundColor: colors.primary,
-    borderRadius: 8,
-    paddingVertical: 16,
+  photoActionsRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  photoActionButton: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    gap: 6,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  photoButtonText: {
+  photoActionButtonPrimary: {
+    backgroundColor: colors.primary,
+  },
+  photoActionButtonPrimaryText: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
   },
-  previewContainer: {
-    alignItems: 'center',
-  },
-  photoPreview: {
-    width: '100%',
-    height: 200,
-    borderRadius: 8,
-    marginBottom: 12,
-  },
-  retakeButton: {
-    backgroundColor: colors.background,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
+  photoActionButtonSecondary: {
+    backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.primary,
   },
-  retakeButtonText: {
+  photoActionButtonSecondaryText: {
     color: colors.primary,
     fontSize: 14,
     fontWeight: '600',
   },
+  photoPreview: {
+    width: '100%',
+    height: 190,
+    borderRadius: 10,
+    marginBottom: 12,
+    backgroundColor: colors.surface,
+  },
   noticeContainer: {
     padding: 16,
-    marginHorizontal: 20,
+    marginHorizontal: 16,
     backgroundColor: '#FFF3CD',
-    borderRadius: 8,
-    marginBottom: 20,
+    borderRadius: 12,
+    marginBottom: 16,
   },
   noticeText: {
     color: '#856404',
@@ -554,21 +620,27 @@ const createStyles = (colors: any) => StyleSheet.create({
     lineHeight: 20,
   },
   submitButton: {
+    minHeight: 52,
     backgroundColor: colors.primary,
-    borderRadius: 8,
-    paddingVertical: 16,
-    marginHorizontal: 20,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    marginHorizontal: 16,
     alignItems: 'center',
-    marginBottom: 20,
+    justifyContent: 'center',
+    marginBottom: 16,
   },
   submitButtonDisabled: {
-    backgroundColor: colors.border,
-    opacity: 0.7,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   submitButtonText: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
+  },
+  submitButtonTextDisabled: {
+    color: colors.textTertiary,
   },
   loadingContainer: {
     padding: 20,

@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import type { TFunction } from 'i18next';
 
 interface SettingsAccountSectionProps {
@@ -25,30 +26,39 @@ export function SettingsAccountSection({
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>{t('settings.sections.account')}</Text>
 
-      <TouchableOpacity style={styles.option} onPress={onNavigateToAccount}>
-        <View style={styles.optionLeft}>
-          <Text style={styles.optionTitle}>{t('settings.account.title')}</Text>
-          <Text style={styles.optionDescription}>{t('settings.account.description')}</Text>
+      <TouchableOpacity style={styles.row} onPress={onNavigateToAccount} activeOpacity={0.7}>
+        <View style={styles.rowIcon}>
+          <Ionicons name="person-outline" size={18} color={colors.primary} />
         </View>
-        <Text style={styles.arrow}>›</Text>
+        <View style={styles.rowBody}>
+          <Text style={styles.rowTitle}>{t('settings.account.title')}</Text>
+          <Text style={styles.rowDescription}>{t('settings.account.description')}</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={17} color={colors.primary} />
       </TouchableOpacity>
 
       {userRole === 'client' && (
-        <TouchableOpacity style={styles.option} onPress={onUpgradeToDriver}>
-          <View style={styles.optionLeft}>
-            <Text style={styles.optionTitle}>{t('settings.account.upgradeTitle')}</Text>
-            <Text style={styles.optionDescription}>{t('settings.account.upgradeDescription')}</Text>
+        <TouchableOpacity style={styles.row} onPress={onUpgradeToDriver} activeOpacity={0.7}>
+          <View style={styles.rowIcon}>
+            <Ionicons name="car-sport-outline" size={18} color={colors.primary} />
           </View>
-          <Text style={styles.arrow}>›</Text>
+          <View style={styles.rowBody}>
+            <Text style={styles.rowTitle}>{t('settings.account.upgradeTitle')}</Text>
+            <Text style={styles.rowDescription}>{t('settings.account.upgradeDescription')}</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={17} color={colors.primary} />
         </TouchableOpacity>
       )}
 
-      <TouchableOpacity style={[styles.option, styles.optionLast]} onPress={onDeleteAccount}>
-        <View style={styles.optionLeft}>
-          <Text style={[styles.optionTitle, { color: colors.error }]}>{t('settings.account.deleteTitle')}</Text>
-          <Text style={styles.optionDescription}>{t('settings.account.deleteDescription')}</Text>
+      <TouchableOpacity style={[styles.row, styles.rowLast]} onPress={onDeleteAccount} activeOpacity={0.7}>
+        <View style={[styles.rowIcon, styles.rowIconDanger]}>
+          <Ionicons name="trash-outline" size={18} color={colors.error} />
         </View>
-        <Text style={styles.arrow}>›</Text>
+        <View style={styles.rowBody}>
+          <Text style={[styles.rowTitle, styles.rowTitleDanger]}>{t('settings.account.deleteTitle')}</Text>
+          <Text style={styles.rowDescription}>{t('settings.account.deleteDescription')}</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={17} color={colors.primary} />
       </TouchableOpacity>
     </View>
   );

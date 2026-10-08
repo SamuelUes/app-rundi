@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, TextInput } from 'react-native';
+import { DatePickerField } from '../../ui/DatePickerField';
 
 interface VehicleInfoPersonalSectionProps {
   isComplete: boolean;
@@ -49,7 +50,7 @@ export function VehicleInfoPersonalSection({
 
       <View style={styles.inputGroup}>
         <Text style={styles.inputLabel}>{fieldLabel('licenseExpiry')}</Text>
-        <TextInput
+        <DatePickerField
           style={styles.input}
           value={formState.licenseExpiry}
           onChangeText={(text) => updateField('licenseExpiry', text)}

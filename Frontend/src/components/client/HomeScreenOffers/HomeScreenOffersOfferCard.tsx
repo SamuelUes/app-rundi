@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, Image, Animated } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import StorageImage from '../../shared/StorageImage';
 import type { OfferItem } from '../../../hooks/client/HomeScreenOffers/useRideOffers';
 import type { TFunction } from 'i18next';
 
@@ -66,7 +67,7 @@ export function HomeScreenOffersOfferCard({
       <View style={styles.offerAvatarWrap}>
         <View style={styles.offerAvatarFrame}>
           {photoUri ? (
-            <Image source={{ uri: photoUri }} style={styles.offerAvatarPhoto} />
+            <StorageImage uri={photoUri} style={styles.offerAvatarPhoto} />
           ) : (
             <View style={styles.offerAvatarFallback}>
               <Text style={styles.offerAvatarFallbackText}>{(displayName || 'C').charAt(0).toUpperCase()}</Text>

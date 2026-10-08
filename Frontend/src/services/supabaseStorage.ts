@@ -7,6 +7,7 @@ import * as FileSystem from 'expo-file-system';
 import { Paths } from 'expo-file-system';
 import * as LegacyFileSystem from 'expo-file-system/legacy';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
+import { createClient } from '@supabase/supabase-js';
 import { httpsCallable } from 'firebase/functions';
 import { getFirebaseFunctions } from '../config/firebase';
 import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from '../config/supabase';
@@ -34,6 +35,97 @@ async function getSupabaseJwt(): Promise<string> {
   cachedSupabaseJwt = { token, expiresAtMs };
   return token;
 }
+
+const documentSignedUrlTtlSeconds = 60 * 60;
+const documentSignedUrls = new Map<string, { url: string; expiresAtMs: number }>();
+let documentSigningClient: ReturnType<typeof createClient> | null = null;
+
+function getDocumentSigningClient() {
+  if (!documentSigningClient) {
+    documentSigningClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+      },
+      accessToken: getSupabaseJwt,
+    });
+  }
+  return documentSigningClient;
+}
+
+function usesLocalSupabaseUrl() {
+  try {
+    return new URL(SUPABASE_URL).protocol === 'http:';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resuelve una URL de Storage para mostrarla en la app.
+ * En el entorno local los buckets son privados, así que las URLs `/public`
+ * devuelven 400; aquí se genera una URL firmada temporal con el JWT del
+ * usuario autenticado. En producción devuelve la URL original.
+ */
+export async function resolveDocumentPhotoUrl(photoUrl: string | null | undefined): Promise<string | null> {
+  if (!photoUrl) return null;
+  if (!usesLocalSupabaseUrl()) return photoUrl;
+
+  let storageObject: { bucket: string; path: string } | null = null;
+  try {
+    const parsedUrl = new URL(photoUrl);
+    if (parsedUrl.protocol !== 'http:') return photoUrl;
+    if (parsedUrl.origin !== new URL(SUPABASE_URL).origin) return photoUrl;
+
+    const pathname = parsedUrl.pathname;
+    const routePrefix = '/storage/v1/object/';
+    const routeStart = pathname.indexOf(routePrefix);
+    if (routeStart < 0) return photoUrl;
+
+    const parts = pathname.slice(routeStart + routePrefix.length).split('/');
+    const visibility = parts.shift();
+    if (!['public', 'authenticated', 'sign'].includes(visibility || '')) return photoUrl;
+
+    const bucket = decodeURIComponent(parts.shift() || '');
+    const path = parts.map((part) => decodeURIComponent(part)).join('/');
+    if (!bucket || !path) return photoUrl;
+    storageObject = { bucket, path };
+  } catch {
+    return photoUrl;
+  }
+
+  const cacheKey = `${storageObject.bucket}/${storageObject.path}`;
+  const cached = documentSignedUrls.get(cacheKey);
+  if (cached && cached.expiresAtMs - Date.now() > 30_000) {
+    return cached.url;
+  }
+
+  try {
+    const { data, error } = await getDocumentSigningClient()
+      .storage
+      .from(storageObject.bucket)
+      .createSignedUrl(storageObject.path, documentSignedUrlTtlSeconds);
+
+    if (error || !data?.signedUrl) {
+      throw error || new Error('SIGNED_DOCUMENT_URL_NOT_AVAILABLE');
+    }
+
+    documentSignedUrls.set(cacheKey, {
+      url: data.signedUrl,
+      expiresAtMs: Date.now() + documentSignedUrlTtlSeconds * 1000,
+    });
+    return data.signedUrl;
+  } catch (error) {
+    console.warn(
+      'No se pudo generar la URL temporal del documento:',
+      error instanceof Error ? error.message : 'Error desconocido',
+    );
+    return null;
+  }
+}
+
+export const resolveProfilePhotoUrl = resolveDocumentPhotoUrl;
 
 async function normalizeUriForUpload(uri: string): Promise<string> {
   const trimmed = uri.trim();
@@ -324,5 +416,7 @@ export default {
   uploadInsurancePhoto,
   uploadClientVehiclePhoto,
   uploadVehicleInspectionPhoto,
+  resolveDocumentPhotoUrl,
+  resolveProfilePhotoUrl,
   deleteImage,
 };

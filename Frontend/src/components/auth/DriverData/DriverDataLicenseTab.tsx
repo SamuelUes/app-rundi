@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, TextInput, TouchableOpacity } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
+import { DatePickerField } from '../../ui/DatePickerField';
 import { DriverDataPhotoField } from './DriverDataPhotoField';
 import type { TFunction } from 'i18next';
 
@@ -23,7 +24,6 @@ interface DriverDataLicenseTabProps {
   onTakeProfilePhoto: () => void;
   onTakeLicensePhotoFront: () => void;
   onTakeLicensePhotoBack: () => void;
-  formatDate: (text: string, currentValue: string) => string;
   styles: any;
   t: TFunction;
 }
@@ -47,7 +47,6 @@ export function DriverDataLicenseTab({
   onTakeProfilePhoto,
   onTakeLicensePhotoFront,
   onTakeLicensePhotoBack,
-  formatDate,
   styles,
   t,
 }: DriverDataLicenseTabProps) {
@@ -77,12 +76,12 @@ export function DriverDataLicenseTab({
         <Text style={styles.label}>
           {t('authScreens.driverData.license.expiryLabel')}
         </Text>
-        <TextInput
+        <DatePickerField
           style={styles.input}
           placeholder={t('authScreens.driverData.license.expiryPlaceholder')}
           placeholderTextColor={colors.textSecondary}
           value={licenseExpiry}
-          onChangeText={(text) => onSetLicenseExpiry(formatDate(text, licenseExpiry))}
+          onChangeText={onSetLicenseExpiry}
           editable={!loading}
         />
       </View>

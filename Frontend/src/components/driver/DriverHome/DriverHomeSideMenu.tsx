@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Animated } from 'react-native';
+import { View, Text, Pressable, Animated } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import type { TFunction } from 'i18next';
 
@@ -8,6 +8,7 @@ interface DriverHomeSideMenuProps {
   menuOpacity: Animated.Value;
   menuTranslate: Animated.Value;
   panelWidth: number;
+  userName: string | undefined;
   userRole: string | undefined;
   colors: any;
   onClose: () => void;
@@ -17,11 +18,35 @@ interface DriverHomeSideMenuProps {
   t: TFunction;
 }
 
+type MenuRoute = 'Earnings' | 'RechargeFunds' | 'RideHistory' | 'PaymentMethods' | 'Settings' | 'Help';
+
+interface MenuItemConfig {
+  route: MenuRoute;
+  icon: keyof typeof MaterialIcons.glyphMap;
+  labelKey: string;
+  driverOnly?: boolean;
+}
+
+const MENU_ITEMS: MenuItemConfig[] = [
+  { route: 'Earnings', icon: 'insights', labelKey: 'driver.home.menu.earnings' },
+  {
+    route: 'RechargeFunds',
+    icon: 'account-balance-wallet',
+    labelKey: 'driver.home.menu.commissions',
+    driverOnly: true,
+  },
+  { route: 'PaymentMethods', icon: 'credit-card', labelKey: 'driver.home.menu.paymentMethods' },
+  { route: 'RideHistory', icon: 'receipt-long', labelKey: 'driver.home.menu.history' },
+  { route: 'Settings', icon: 'settings', labelKey: 'driver.home.menu.settings' },
+  { route: 'Help', icon: 'help-outline', labelKey: 'driver.home.menu.help' },
+];
+
 export function DriverHomeSideMenu({
   visible,
   menuOpacity,
   menuTranslate,
   panelWidth,
+  userName,
   userRole,
   colors,
   onClose,
@@ -32,9 +57,13 @@ export function DriverHomeSideMenu({
 }: DriverHomeSideMenuProps) {
   if (!visible) return null;
 
+  const isDriver = userRole === 'driver' || userRole === 'designated_driver';
+  const initial = (userName ?? '').trim().charAt(0).toUpperCase() || 'C';
+  const displayName = userName || t('driver.home.header.profileFallback');
+
   return (
     <Animated.View style={[styles.menuOverlay, { opacity: menuOpacity }]}>
-      <TouchableOpacity style={styles.menuBackdrop} activeOpacity={1} onPress={onClose} />
+      <Pressable style={styles.menuBackdrop} onPress={onClose} />
       <Animated.View
         style={[
           styles.menuContainer,
@@ -44,62 +73,68 @@ export function DriverHomeSideMenu({
           },
         ]}
       >
-        <View style={styles.menuTopAccent} />
         <View style={styles.menuHeaderRow}>
-          <Text style={styles.menuHeader}>{t('driver.home.menu.title')}</Text>
-          <TouchableOpacity onPress={onClose} style={styles.menuCloseBtn}>
-            <Text style={styles.menuCloseIcon}>✕</Text>
-          </TouchableOpacity>
+          <View style={styles.menuAvatar}>
+            <Text style={styles.menuAvatarText}>{initial}</Text>
+          </View>
+          <View style={styles.menuHeaderTextCol}>
+            <Text style={styles.menuHeaderName} numberOfLines={1}>
+              {displayName}
+            </Text>
+            {Boolean(userName) && (
+              <Text style={styles.menuHeaderRole}>
+                {t('driver.home.header.profileFallback')}
+              </Text>
+            )}
+          </View>
+          <Pressable
+            onPress={onClose}
+            style={({ pressed }) => [
+              styles.menuCloseBtn,
+              pressed && { opacity: 0.7 },
+            ]}
+            accessibilityRole="button"
+          >
+            <MaterialIcons name="close" size={17} color={colors.text} />
+          </Pressable>
         </View>
 
         <View style={styles.menuSection}>
-          <TouchableOpacity style={styles.menuItem} onPress={() => onNavigate('Earnings')}>
-            <View style={styles.menuIconBadge}>
-              <Text style={styles.menuEmoji}>💵</Text>
-            </View>
-            <Text style={styles.menuLabel}>{t('driver.home.menu.earnings')}</Text>
-            <Text style={styles.menuItemArrow}>›</Text>
-          </TouchableOpacity>
-          {(userRole === 'driver' || userRole === 'designated_driver') && (
-            <TouchableOpacity style={styles.menuItem} onPress={() => onNavigate('RechargeFunds')}>
-              <View style={styles.menuIconBadge}>
-                <Text style={styles.menuEmoji}>💼</Text>
+          {MENU_ITEMS.filter((item) => !item.driverOnly || isDriver).map((item) => (
+            <Pressable
+              key={item.route}
+              style={({ pressed }) => [
+                styles.menuItem,
+                pressed && { backgroundColor: 'rgba(179,135,55,0.08)' },
+              ]}
+              onPress={() => onNavigate(item.route)}
+              accessibilityRole="button"
+            >
+              <View style={styles.menuItemIcon}>
+                <MaterialIcons name={item.icon} size={19} color="#B38737" />
               </View>
-              <Text style={styles.menuLabel}>{t('driver.home.menu.commissions')}</Text>
-              <Text style={styles.menuItemArrow}>›</Text>
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity style={styles.menuItem} onPress={() => onNavigate('RideHistory')}>
-            <View style={styles.menuIconBadge}>
-              <Text style={styles.menuEmoji}>📜</Text>
-            </View>
-            <Text style={styles.menuLabel}>{t('driver.home.menu.history')}</Text>
-            <Text style={styles.menuItemArrow}>›</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.menuItem} onPress={() => onNavigate('Settings')}>
-            <View style={styles.menuIconBadge}>
-              <MaterialIcons name="settings" size={24} color={colors.primary} />
-            </View>
-            <Text style={styles.menuLabel}>{t('driver.home.menu.settings')}</Text>
-            <Text style={styles.menuItemArrow}>›</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.menuItem} onPress={() => onNavigate('Help')}>
-            <View style={styles.menuIconBadge}>
-              <MaterialIcons name="help-outline" size={24} color={colors.primary} />
-            </View>
-            <Text style={styles.menuLabel}>{t('driver.home.menu.help')}</Text>
-            <Text style={styles.menuItemArrow}>›</Text>
-          </TouchableOpacity>
+              <Text style={styles.menuLabel}>{t(item.labelKey)}</Text>
+              <MaterialIcons name="chevron-right" size={20} color={colors.textTertiary} />
+            </Pressable>
+          ))}
         </View>
 
         <View style={styles.menuDivider} />
 
-        <TouchableOpacity style={[styles.menuItem, styles.logoutItem]} onPress={onLogout}>
-          <View style={[styles.menuIconBadge, styles.logoutIconBadge]}>
-            <Text style={styles.logoutEmoji}>🚪</Text>
+        <Pressable
+          style={({ pressed }) => [
+            styles.menuItem,
+            styles.logoutItem,
+            pressed && { opacity: 0.8 },
+          ]}
+          onPress={onLogout}
+          accessibilityRole="button"
+        >
+          <View style={[styles.menuItemIcon, styles.logoutIconBadge]}>
+            <MaterialIcons name="logout" size={18} color="#D32F2F" />
           </View>
           <Text style={styles.logoutLabel}>{t('driver.home.menu.logout')}</Text>
-        </TouchableOpacity>
+        </Pressable>
       </Animated.View>
     </Animated.View>
   );

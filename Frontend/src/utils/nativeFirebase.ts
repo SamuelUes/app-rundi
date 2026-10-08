@@ -59,12 +59,16 @@ let nativeAuthEmulatorConfigured = false;
 export async function loadNativeFirebaseAuth() {
   const module = await loadModule('auth', () => import('@react-native-firebase/auth'));
   if (module && process.env.USE_FIREBASE_EMULATORS === 'true' && !nativeAuthEmulatorConfigured) {
-    const auth = module.getAuth ? module.getAuth() : module.default();
     const host = resolveLocalEmulatorHost(
       process.env.FIREBASE_EMULATOR_HOST || 'localhost',
       Platform.OS,
     );
-    auth.useEmulator(`http://${host}:9099`);
+    const emulatorUrl = `http://${host}:9099`;
+    if (typeof module.getAuth === 'function' && typeof module.connectAuthEmulator === 'function') {
+      module.connectAuthEmulator(module.getAuth(), emulatorUrl);
+    } else {
+      module.default().useEmulator(emulatorUrl);
+    }
     nativeAuthEmulatorConfigured = true;
   }
   return module;

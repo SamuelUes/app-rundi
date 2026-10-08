@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Image, ImageBackground } from 'react-native';
+import { View, Text, Pressable } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 import { LoadingIcon } from '../../ui/LoadingIcon';
 import type { TFunction } from 'i18next';
 
@@ -12,9 +13,11 @@ interface DriverHomeBottomBarProps {
   hasInsufficientFunds: boolean;
   todayEarnings: number;
   formatCurrency: (value?: number) => string;
+  availableRequestsCount: number;
   onToggleAvailability: () => void;
   onToggleDesignated: () => void;
   onNavigateAvailableRides: () => void;
+  onNavigateEarnings: () => void;
   styles: any;
   t: TFunction;
 }
@@ -28,100 +31,110 @@ export function DriverHomeBottomBar({
   hasInsufficientFunds,
   todayEarnings,
   formatCurrency,
+  availableRequestsCount,
   onToggleAvailability,
   onToggleDesignated,
   onNavigateAvailableRides,
+  onNavigateEarnings,
   styles,
   t,
 }: DriverHomeBottomBarProps) {
+  const compact = hasPendingAction || hasInsufficientFunds;
+
   return (
     <View style={styles.bottomBar} pointerEvents="box-none">
       {userRole === 'designated_driver' && (
-        <View style={styles.designatedToggleContainer}>
-          <View style={styles.iconButtonWrapper}>
-            <TouchableOpacity
-              activeOpacity={0.8}
-              disabled={!isAvailable}
-              onPress={onToggleDesignated}
-            >
-              <View style={styles.designatedButton}>
-                <Image
-                  source={
-                    isDesignatedDriverMode
-                      ? require('../../../assets/icons/ready_status/readydesignado3x.png')
-                      : require('../../../assets/icons/ready_status/unready3x.png')
-                  }
-                  style={[styles.statusImage, !isAvailable && styles.disabledImage]}
-                />
-                {isDesignatedDriverMode && (
-                  <Text style={styles.designatedStatusLabel}>{t('driver.home.designated.activeLabel')}</Text>
-                )}
-              </View>
-            </TouchableOpacity>
-          </View>
-        </View>
+        <Pressable
+          style={({ pressed }) => [
+            styles.designatedChip,
+            isDesignatedDriverMode && styles.designatedChipActive,
+            !isAvailable && styles.designatedChipDisabled,
+            pressed && { opacity: 0.85 },
+          ]}
+          disabled={!isAvailable}
+          onPress={onToggleDesignated}
+          accessibilityRole="button"
+          accessibilityLabel={t('driver.home.designated.activeLabel')}
+        >
+          <MaterialIcons
+            name="drive-eta"
+            size={16}
+            color={isDesignatedDriverMode ? '#241A09' : 'rgba(255,255,255,0.7)'}
+          />
+          <Text
+            style={[
+              styles.designatedChipLabel,
+              isDesignatedDriverMode && styles.designatedChipLabelActive,
+            ]}
+          >
+            {t('driver.home.designated.activeLabel')}
+          </Text>
+        </Pressable>
       )}
 
-      <View style={styles.controlsRow} pointerEvents="box-none">
-        <View style={styles.iconButtonWrapper}>
-          <TouchableOpacity
-            activeOpacity={0.8}
-            onPress={onToggleAvailability}
-            disabled={updatingStatus}
-          >
-            <View style={styles.statusButtonContainer}>
-              <Image
-                source={
-                  isAvailable
-                    ? require('../../../assets/icons/ready_status/ready3x.png')
-                    : require('../../../assets/icons/ready_status/unready3x.png')
-                }
-                style={[styles.statusImage, updatingStatus && styles.statusImageDim]}
-              />
-              {updatingStatus && (
-                <View style={styles.statusLoadingOverlay}>
-                  <LoadingIcon icon="refresh" size={20} color="#FFFFFF" animation="spin" />
+      <View style={[styles.dock, compact && styles.dockCompact]}>
+        <Pressable
+          style={({ pressed }) => [
+            styles.availabilityButton,
+            isAvailable ? styles.availabilityButtonOn : styles.availabilityButtonOff,
+            pressed && styles.availabilityPressed,
+          ]}
+          onPress={onToggleAvailability}
+          disabled={updatingStatus}
+          accessibilityRole="button"
+          accessibilityLabel={t(
+            isAvailable ? 'driver.home.status.online' : 'driver.home.status.offline',
+          )}
+        >
+          <MaterialIcons
+            name={isAvailable ? 'check' : 'power-settings-new'}
+            size={26}
+            color={isAvailable ? '#241A09' : 'rgba(255,255,255,0.72)'}
+          />
+          {updatingStatus && (
+            <View style={styles.availabilityLoadingOverlay}>
+              <LoadingIcon icon="refresh" size={20} color="#FFFFFF" animation="spin" />
+            </View>
+          )}
+        </Pressable>
+
+        {!compact && (
+          <>
+            <Pressable
+              style={({ pressed }) => [
+                styles.earningsArea,
+                pressed && styles.earningsAreaPressed,
+              ]}
+              onPress={onNavigateEarnings}
+              accessibilityRole="button"
+            >
+              <Text style={styles.earningsLabel}>
+                {t('driver.home.stats.totalToday')}
+              </Text>
+              <Text style={styles.earningsValue}>{formatCurrency(todayEarnings)}</Text>
+            </Pressable>
+
+            <Pressable
+              style={({ pressed }) => [
+                styles.requestsButton,
+                pressed && styles.requestsButtonPressed,
+              ]}
+              onPress={onNavigateAvailableRides}
+              accessibilityRole="button"
+            >
+              <Text style={styles.requestsLabel}>
+                {t('driver.home.cta.viewRequests')}
+              </Text>
+              {availableRequestsCount > 0 && (
+                <View style={styles.requestsBadge}>
+                  <Text style={styles.requestsBadgeText}>
+                    {availableRequestsCount > 99 ? '99+' : availableRequestsCount}
+                  </Text>
                 </View>
               )}
-            </View>
-          </TouchableOpacity>
-        </View>
-
-        {!hasPendingAction && !hasInsufficientFunds && (
-          <View style={styles.earningsSplitContainer}>
-            <View style={[styles.earningsButton, styles.earningsStatsCard]}>
-              <ImageBackground
-                source={require('../../../assets/icons/driver_home_bar/driver_home_net2x.png')}
-                style={styles.earningsImage}
-                imageStyle={styles.earningsImageInner}
-                resizeMode="stretch"
-              >
-                <View style={styles.earningsLeft}>
-                  <View style={styles.earningsBadge}>
-                    <Text style={styles.earningsBadgeLabel}>{t('driver.home.stats.totalToday')}</Text>
-                  </View>
-                  <Text style={styles.earningsValue}>{formatCurrency(todayEarnings)}</Text>
-                </View>
-              </ImageBackground>
-            </View>
-
-            <TouchableOpacity
-              style={[styles.earningsButton, styles.requestsButton]}
-              activeOpacity={0.85}
-              onPress={onNavigateAvailableRides}
-            >
-              <ImageBackground
-                source={require('../../../assets/icons/driver_home_bar/driver_requests2x.png')}
-                style={styles.earningsImage}
-                imageStyle={styles.earningsImageInner}
-                resizeMode="stretch"
-              >
-                <View style={styles.earningsRequestsContent}>
-                  <Text style={styles.earningsCta}>{t('driver.home.cta.viewRequests')}</Text>
-                </View>
-              </ImageBackground>
-            </TouchableOpacity>
-          </View>
+              <MaterialIcons name="arrow-forward" size={17} color="#241A09" />
+            </Pressable>
+          </>
         )}
       </View>
     </View>

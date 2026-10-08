@@ -32,7 +32,9 @@ export function SupportChatMessages({
   if (!messages.length) {
     return (
       <View style={styles.emptyContainer}>
-        <MaterialIcons name="chat" size={48} color={colors.textSecondary} />
+        <View style={styles.emptyIconWrap}>
+          <MaterialIcons name="chat-bubble-outline" size={30} color={colors.primary} />
+        </View>
         <Text style={styles.emptyText}>{t(`${ns}.emptyState.text`)}</Text>
       </View>
     );

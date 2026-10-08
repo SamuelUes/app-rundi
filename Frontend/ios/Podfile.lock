@@ -1204,7 +1204,7 @@ PODS:
     - React-Core
   - EXApplication (7.0.8):
     - ExpoModulesCore
-  - EXConstants (18.0.13):
+  - EXConstants (18.0.14):
     - ExpoModulesCore
   - EXImageLoader (6.0.0):
     - ExpoModulesCore
@@ -1214,7 +1214,7 @@ PODS:
     - ExpoModulesCore
   - EXNotifications (0.32.17):
     - ExpoModulesCore
-  - Expo (54.0.36):
+  - Expo (54.0.37):
     - ExpoModulesCore
     - hermes-engine
     - RCTRequired
@@ -1423,7 +1423,7 @@ PODS:
     - ExpoModulesCore
   - ExpoDevice (8.0.10):
     - ExpoModulesCore
-  - ExpoFileSystem (19.0.23):
+  - ExpoFileSystem (19.0.24):
     - ExpoModulesCore
   - ExpoFont (14.0.12):
     - ExpoModulesCore
@@ -1437,7 +1437,7 @@ PODS:
     - ExpoModulesCore
   - ExpoLinking (8.0.12):
     - ExpoModulesCore
-  - ExpoLocalAuthentication (17.0.8):
+  - ExpoLocalAuthentication (17.0.9):
     - ExpoModulesCore
   - ExpoLocalization (17.0.9):
     - ExpoModulesCore
@@ -4273,12 +4273,12 @@ SPEC CHECKSUMS:
   BoringSSL-GRPC: dded2a44897e45f28f08ae87a55ee4bcd19bc508
   BVLinearGradient: cb006ba232a1f3e4f341bb62c42d1098c284da70
   EXApplication: 1e98d4b1dccdf30627f92917f4b2c5a53c330e5f
-  EXConstants: fce59a631a06c4151602843667f7cfe35f81e271
+  EXConstants: 18ac927605517285307ea8f7ffe6fe7ca538eb5d
   EXImageLoader: 189e3476581efe3ad4d1d3fb4735b7179eb26f05
   EXJSONUtils: 1d3e4590438c3ee593684186007028a14b3686cd
   EXManifests: 378c7742de02a8605093b1c82b5774d8f9875cec
   EXNotifications: c67e92b9fdfe785ff9dbdc5f4c0ff935de357da7
-  Expo: a3f0f69d893059490516e5e2e4f596264a9e1d44
+  Expo: f9f9c4aa9292be6bc1e2d49c85787b85241cedb6
   expo-dev-client: b8adef5e6847b5335a3b95a1fd2edc731d4331ee
   expo-dev-launcher: 3be8a25ef7da1e51381186f268d5458258167348
   expo-dev-menu: 0afa04b862f369caa98ca7ac5055d491f1d3d38c
@@ -4288,13 +4288,13 @@ SPEC CHECKSUMS:
   ExpoCamera: 6a326deb45ba840749652e4c15198317aa78497e
   ExpoCrypto: e2a2c4c748aac8485e5675f027b7901f511d43ff
   ExpoDevice: 6327c3c200816795708885adf540d26ecab83d1a
-  ExpoFileSystem: a8e7fb1e958471764fb48d281cf9fa81a9e4d77c
+  ExpoFileSystem: 8e87545aef1d8d31f244edbfdd0780df4e5bac2e
   ExpoFont: dfb7c572372b610da45b41e3b436321fd6a97215
   ExpoImageManipulator: 607a5c8c88085381639458a46cc55fb9d3869148
   ExpoImagePicker: ade85e148f735fc7e6f27dfe3eef28eb3887e90a
   ExpoKeepAwake: 55f75eca6499bb9e4231ebad6f3e9cb8f99c0296
   ExpoLinking: 2ef632ad5013e3f1568fae9408d56ab9af5efc55
-  ExpoLocalAuthentication: 8a31808565da7af926dd9b595e98594d8b1553b6
+  ExpoLocalAuthentication: 58fadf98e9caeae82455d15e4bffc94691585c83
   ExpoLocalization: d936ff63557366e2e487264f5b495b1f0637fabd
   ExpoLocation: d5b61cb4970fa982e39ca94246a206a0c3b812ca
   ExpoModulesCore: b0bd53ca36654854eca93afbd73547c4553c9ba7

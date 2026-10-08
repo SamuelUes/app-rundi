@@ -1,6 +1,5 @@
 import { httpsCallable } from 'firebase/functions';
 import { getFirebaseAuth, getFirebaseFunctions } from '../config/firebase';
-import apiClient from '../api/client';
 
 export type SupportTicketStatus = 'open' | 'in_progress' | 'resolved' | 'rejected' | string;
 export type SupportTicketPriority = 'low' | 'normal' | 'high' | 'urgent' | string | null;
@@ -112,33 +111,13 @@ class SupportTicketsService {
       throw new Error('ticketId is required to delete a support ticket');
     }
 
-    let response: any;
-    try {
-      response = await apiClient.post('/deleteSupportTicketHttp', { ticketId });
-    } catch (e: any) {
-      response = e.response;
-    }
-
-    const rawText = typeof response?.data === 'string' ? response.data : JSON.stringify(response?.data ?? '');
-    let json: any = null;
-    try {
-      json = typeof response?.data === 'string' ? JSON.parse(response.data) : response?.data;
-    } catch {
-      json = null;
-    }
-
-    const status = response?.status ?? 0;
-    if (status < 200 || status >= 300) {
-      const message = json?.error || json?.message || rawText || 'deleteSupportTicketHttp failed';
-      const err: any = new Error(message);
-      err.code = `http/${status}`;
-      throw err;
-    }
-
-    const data = (json as { success?: boolean; archivedChatUrl?: string | null }) || {};
+    const data = await this.invokeCallable<{ success?: boolean; archivedChatUrl?: string | null }>(
+      'deleteSupportTicket',
+      { ticketId },
+    );
 
     if (!data?.success) {
-      throw new Error('deleteSupportTicketHttp returned an error');
+      throw new Error('deleteSupportTicket returned an error');
     }
 
     return {

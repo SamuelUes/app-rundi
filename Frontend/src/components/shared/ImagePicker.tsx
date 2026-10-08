@@ -19,6 +19,7 @@ interface ImagePickerProps {
   onImageSelected: (uri: string) => void;
   loading?: boolean;
   required?: boolean;
+  compact?: boolean;
 }
 
 export default function ImagePicker({
@@ -27,6 +28,7 @@ export default function ImagePicker({
   onImageSelected,
   loading = false,
   required = false,
+  compact = false,
 }: ImagePickerProps) {
   const { colors } = useTheme();
   const { t } = useTranslation();
@@ -97,7 +99,7 @@ export default function ImagePicker({
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, compact && styles.compactContainer]}>
       <Text style={[styles.label, { color: colors.text }]}>
         {label} {required && <Text style={styles.required}>*</Text>}
       </Text>
@@ -105,6 +107,7 @@ export default function ImagePicker({
       <TouchableOpacity
         style={[
           styles.imageButton,
+          compact && styles.compactImageButton,
           {
             backgroundColor: colors.card,
             borderColor: colors.border,
@@ -119,7 +122,7 @@ export default function ImagePicker({
           <Image source={{ uri: imageUri }} style={styles.imagePreview} />
         ) : (
           <View style={styles.placeholderContainer}>
-            <MaterialIcons name="photo-camera" size={32} color={colors.textSecondary} />
+            <MaterialIcons name="photo-camera" size={compact ? 26 : 32} color={colors.textSecondary} />
             <Text style={[styles.placeholderText, { color: colors.textSecondary }]}>
               {t('common.components.imagePicker.placeholder')}
             </Text>
@@ -145,6 +148,9 @@ const styles = StyleSheet.create({
   container: {
     marginBottom: 16,
   },
+  compactContainer: {
+    marginBottom: 12,
+  },
   label: {
     fontSize: 14,
     fontWeight: '600',
@@ -161,6 +167,11 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  compactImageButton: {
+    height: 124,
+    borderRadius: 10,
+    borderWidth: 1,
   },
   imagePreview: {
     width: '100%',

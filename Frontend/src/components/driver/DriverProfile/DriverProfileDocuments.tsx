@@ -11,7 +11,6 @@ interface DriverProfileDocumentsProps {
   documentStatusText: string;
   documentButtonLabel: string;
   driverLicenseExpiry: string | null;
-  colors: any;
   onUploadDocuments: () => void;
   t: TFunction;
   styles: any;
@@ -24,36 +23,34 @@ export function DriverProfileDocuments({
   documentStatusText,
   documentButtonLabel,
   driverLicenseExpiry,
-  colors,
   onUploadDocuments,
   t,
   styles,
 }: DriverProfileDocumentsProps) {
   return (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>{t('driver.profile.documents.title')}</Text>
+    <View style={styles.profileSection}>
+      <Text style={styles.profileSectionTitle}>{t('driver.profile.documents.title')}</Text>
 
       {driverData && (
-        <View style={styles.documentCard}>
-          <View style={styles.documentLeft}>
-            <View style={[styles.statusIndicator, { backgroundColor: documentStatusColor }]}>
+        <View style={styles.profileDocumentCard}>
+          <View style={styles.profileDocumentInfo}>
+            <View style={[styles.profileDocumentStatusIndicator, { backgroundColor: documentStatusColor }]}>
               <MaterialIcons name={documentStatusIconName} size={20} color="#fff" />
             </View>
-            <View style={styles.documentInfo}>
-              <MaterialIcons name="badge" size={28} color={colors.textSecondary} />
-              <View>
-                <Text style={styles.documentName}>{t('driver.profile.documents.licenseName')}</Text>
-                <Text style={[styles.documentStatus, { color: documentStatusColor }]}>{documentStatusText}</Text>
-                {driverLicenseExpiry && (
-                  <Text style={styles.documentExpiry}>
-                    {t('driver.profile.documents.expires', { date: safeFormatDate(driverLicenseExpiry) })}
-                  </Text>
-                )}
-              </View>
+            <View style={styles.profileDocumentText}>
+              <Text style={styles.documentName} numberOfLines={2}>{t('driver.profile.documents.licenseName')}</Text>
+              <Text style={[styles.documentStatus, { color: documentStatusColor }]} numberOfLines={1}>
+                {documentStatusText}
+              </Text>
+              {driverLicenseExpiry && (
+                <Text style={styles.documentExpiry} numberOfLines={1}>
+                  {t('driver.profile.documents.expires', { date: safeFormatDate(driverLicenseExpiry) })}
+                </Text>
+              )}
             </View>
           </View>
           <TouchableOpacity
-            style={styles.uploadButton}
+            style={styles.profileDocumentButton}
             onPress={onUploadDocuments}
           >
             <Text style={styles.uploadButtonText}>{documentButtonLabel}</Text>

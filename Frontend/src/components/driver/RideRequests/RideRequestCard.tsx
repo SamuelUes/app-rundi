@@ -1,6 +1,7 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Image } from 'react-native';
+import { View, Text, TouchableOpacity } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import StorageImage from '../../shared/StorageImage';
 
 interface RideRequest {
   id: string;
@@ -75,7 +76,7 @@ export function RideRequestCard({
         <View style={styles.clientSection}>
           <View style={styles.clientAvatar}>
             {item.client.photoUrl ? (
-              <Image source={{ uri: item.client.photoUrl }} style={styles.clientAvatarImage} resizeMode="cover" />
+              <StorageImage uri={item.client.photoUrl} style={styles.clientAvatarImage} resizeMode="cover" />
             ) : (
               <Text style={styles.clientAvatarText}>
                 {item.client.name.charAt(0).toUpperCase()}
@@ -180,8 +181,8 @@ export function RideRequestCard({
       {item.rideType === 'designated_driver' && item.clientVehiclePhoto ? (
         <View style={styles.clientVehicleContainer}>
           <Text style={styles.clientVehicleTitle}><MaterialIcons name="directions-car" size={18} color={colors.text} /> Vehículo del Cliente</Text>
-          <Image
-            source={{ uri: item.clientVehiclePhoto }}
+          <StorageImage
+            uri={item.clientVehiclePhoto}
             style={styles.clientVehicleImage}
             resizeMode="cover"
           />

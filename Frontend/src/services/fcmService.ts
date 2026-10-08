@@ -191,12 +191,15 @@ class FCMService {
     }
 
     const nativeAuthModule = await loadNativeFirebaseAuth();
-    if (!nativeAuthModule || !nativeAuthModule.default) {
+    const rnAuth = nativeAuthModule?.getAuth
+      ? nativeAuthModule.getAuth()
+      : nativeAuthModule?.default?.();
+    if (!rnAuth) {
       console.warn('⚠️ No se pudo cargar el módulo nativo de Firebase Auth.');
       return { currentUser: null } as any;
     }
 
-    return (nativeAuthModule.getAuth ? nativeAuthModule.getAuth() : nativeAuthModule.default());
+    return rnAuth;
   }
 
   private async getWebAuthUser() {

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { getFirebaseAuth, getFirebaseDatabase } from '../../../config/firebase';
 import { onAuthStateChanged, Unsubscribe } from 'firebase/auth';
-import { equalTo, onValue, orderByChild, query, ref } from 'firebase/database';
+import { equalTo, onValue, orderByChild, push, query, ref, update } from 'firebase/database';
 import { Platform } from 'react-native';
 import { buildFunctionsEmulatorBaseUrl } from '../../../config/localEmulatorHost';
 
@@ -15,6 +15,15 @@ interface CallSession {
   direction?: string;
   recordingUrl?: string | null;
   acceptDeadline?: number | null;
+  events?: {
+    initiated?: {
+      at?: number;
+      by?: string;
+      type?: string;
+      source?: string;
+    };
+    [key: string]: any;
+  };
 }
 
 interface LivekitJoinInfo {
@@ -165,15 +174,36 @@ export function useCalls(complaintId: string | null = null) {
     setError(null);
     try {
       console.log('[useCalls] Responding call', { callId, status });
-      await authenticatedPost('/api/calls/respond', { callId, status });
+      const db = await getFirebaseDatabase();
+      const now = Date.now();
+      const updates: Record<string, any> = { status, updatedAt: now };
+      if (status !== 'accepted') {
+        updates.endedAt = now;
+      }
+      await update(ref(db, `calls/${callId}`), updates);
+      await push(ref(db, `calls/${callId}/events`), {
+        type: status,
+        at: now,
+        by: resolvedUid || null,
+      });
       setActiveCall((prev) => (prev ? { ...prev, status } : prev));
       if (status === 'accepted') {
-        console.log('[useCalls] Fetching LiveKit token');
-        const tokenData = (await authenticatedPost('/api/calls/livekit-token', {
-          callId,
-          participantType: 'client',
-        })) as LivekitJoinInfo;
-        setLivekitInfo(tokenData);
+        try {
+          console.log('[useCalls] Fetching LiveKit token');
+          const tokenData = (await authenticatedPost('/api/calls/livekit-token', {
+            callId,
+            participantType: 'client',
+          })) as LivekitJoinInfo;
+          setLivekitInfo(tokenData);
+        } catch (tokenError: any) {
+          const tokenStatus = Number(tokenError?.status || 0);
+          if (tokenStatus === 404 || tokenStatus === 405) {
+            console.warn('[useCalls] Endpoint de token LiveKit no disponible. La llamada quedó aceptada sin sala.');
+          } else {
+            console.error('[useCalls] livekit-token error', tokenError);
+          }
+          setLivekitInfo(null);
+        }
       } else {
         setLivekitInfo(null);
       }
@@ -188,6 +218,7 @@ export function useCalls(complaintId: string | null = null) {
   const acceptCall = (callId: string) => respond(callId, 'accepted');
   const rejectCall = (callId: string) => respond(callId, 'rejected');
   const endCall = (callId: string) => respond(callId, 'ended');
+  const cancelCall = (callId: string) => respond(callId, 'ended');
 
   const requestCall = async (payload: { complaintId: string; rideId?: string | null }) => {
     if (!payload?.complaintId) {
@@ -264,9 +295,11 @@ export function useCalls(complaintId: string | null = null) {
     livekitInfo,
     error,
     loading,
+    resolvedUid,
     acceptCall,
     rejectCall,
     endCall,
+    cancelCall,
     requestCall,
   };
 }

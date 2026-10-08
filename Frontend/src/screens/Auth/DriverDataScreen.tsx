@@ -443,27 +443,6 @@ export default function DriverDataScreen({ navigation, route }: Props) {
     }
   };
 
-  const formatDate = (text: string, currentValue: string) => {
-    const numbers = text.replace(/[^\d]/g, '');
-
-    if (text.length < currentValue.length) {
-      return text;
-    }
-
-    if (numbers.length <= 4) {
-      return numbers;
-    } else if (numbers.length <= 6) {
-      const year = numbers.slice(0, 4);
-      const month = numbers.slice(4, 6);
-      return `${year}-${month}`;
-    } else {
-      const year = numbers.slice(0, 4);
-      const month = numbers.slice(4, 6);
-      const day = numbers.slice(6, 8);
-      return `${year}-${month}-${day}`;
-    }
-  };
-
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -532,7 +511,6 @@ export default function DriverDataScreen({ navigation, route }: Props) {
               onTakeProfilePhoto={() => takePhoto(setProfilePhoto)}
               onTakeLicensePhotoFront={() => takePhoto(setLicensePhotoFront)}
               onTakeLicensePhotoBack={() => takePhoto(setLicensePhotoBack)}
-              formatDate={formatDate}
               styles={styles}
               t={t}
             />
@@ -570,7 +548,6 @@ export default function DriverDataScreen({ navigation, route }: Props) {
               onTakeInsurancePhoto={() => takePhoto(setInsurancePhoto)}
               onTakeRegistrationPhotoFront={() => takePhoto(setRegistrationPhotoFront)}
               onTakeRegistrationPhotoBack={() => takePhoto(setRegistrationPhotoBack)}
-              formatDate={formatDate}
               styles={styles}
               t={t}
             />

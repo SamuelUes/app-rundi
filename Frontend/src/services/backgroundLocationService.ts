@@ -176,7 +176,9 @@ const defineBackgroundTask = () => {
       console.log('🎯 [background-task] Tarea ejecutándose');
       
       if (error) {
-        console.error('❌ [background-task] Error en tarea:', error);
+        // kCLErrorDomain Code=0 = ubicación temporalmente no disponible (iOS la
+        // reintenta solo). En el simulador aparece si Features → Location = None.
+        console.warn('⚠️ [background-task] Error temporal de ubicación:', error);
         return;
       }
       

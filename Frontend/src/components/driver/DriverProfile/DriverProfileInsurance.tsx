@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, Image } from 'react-native';
+import { View, Text } from 'react-native';
+import StorageImage from '../../shared/StorageImage';
 import { safeFormatDate } from '../../../utils/safeFormatters';
 import type { TFunction } from 'i18next';
 
@@ -45,7 +46,7 @@ export function DriverProfileInsurance({
         {vehicle.insurancePhoto && (
           <View style={styles.insurancePhotoContainer}>
             <Text style={styles.insuranceLabel}>{t('driver.profile.insurance.photo')}</Text>
-            <Image source={{ uri: vehicle.insurancePhoto }} style={styles.insurancePhoto} />
+            <StorageImage uri={vehicle.insurancePhoto} style={styles.insurancePhoto} />
           </View>
         )}
       </View>

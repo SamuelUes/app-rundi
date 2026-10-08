@@ -1,6 +1,7 @@
 import React from 'react';
-import { View, Text, Image, TouchableOpacity } from 'react-native';
+import { View, Text, TouchableOpacity } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import StorageImage from '../../shared/StorageImage';
 
 interface RideTrackingDriverInfoProps {
   driverName: string;
@@ -28,7 +29,7 @@ export function RideTrackingDriverInfo({
   return (
     <View style={styles.driverSection}>
       {driverPhoto ? (
-        <Image source={{ uri: driverPhoto }} style={styles.driverAvatar} />
+        <StorageImage uri={driverPhoto} style={styles.driverAvatar} />
       ) : (
         <View style={[styles.driverAvatar, { backgroundColor: colors.primary }]}>
           <Text style={styles.driverInitial}>

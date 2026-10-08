@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Modal, Image } from 'react-native';
+import { View, Text, TouchableOpacity, Modal } from 'react-native';
+import StorageImage from '../../shared/StorageImage';
 import type { TFunction } from 'i18next';
 
 interface AvailableRidesPhotoModalProps {
@@ -25,8 +26,8 @@ export function AvailableRidesPhotoModal({
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.modalOverlay}>
         <View style={[styles.modalContent, { backgroundColor: isDark ? '#1F1F1F' : '#FFFFFF' }]}>
-          <Image
-            source={{ uri: photoUrl || undefined }}
+          <StorageImage
+            uri={photoUrl}
             style={styles.modalImage}
             resizeMode="contain"
           />

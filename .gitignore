@@ -39,6 +39,7 @@ build/
 .expo-shared/
 
 # Firebase
+.firebase/
 firebase-service-account.json
 *-firebase-adminsdk-*.json
 

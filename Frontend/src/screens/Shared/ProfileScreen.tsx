@@ -134,7 +134,7 @@ export default function ProfileScreen({ navigation }: any) {
       const accountActive = ['active', 'verified', 'approved'].includes(rawAccountStatus);
 
       const rawDocumentsStatus = String((profile as any)?.documents_status || '').toLowerCase();
-      const documentsVerified = rawDocumentsStatus === 'verified';
+      const documentsVerified = ['verified', 'active', 'approved'].includes(rawDocumentsStatus);
 
       const vehicles: any[] | undefined = (profile as any)?.vehicles;
       const hasActiveVehicle = Array.isArray(vehicles)

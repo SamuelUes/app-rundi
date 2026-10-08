@@ -56,7 +56,8 @@ service cloud.firestore {
       // Solo el dueño puede actualizar su perfil (sin cambiar role)
       allow update: if isOwner(userId) &&
                       request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-                        'name', 'phone', 'profilePhoto', 'fcmToken',
+                        'name', 'phone', 'email', 'birthDate', 'profilePhoto',
+                        'authProvider', 'method', 'fcmToken',
                         'notificationsEnabled', 'currentRideId',
                         'driverStatus', 'currentLocation', 'stats',
                         'updatedAt'

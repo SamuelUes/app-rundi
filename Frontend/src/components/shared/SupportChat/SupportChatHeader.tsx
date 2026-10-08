@@ -1,7 +1,6 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, FlatList, Image } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
-import ChatBubble from '../ChatBubble';
+import { View, Text, TouchableOpacity } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { SupportChatComplaintForm } from './SupportChatComplaintForm';
 import type { TFunction } from 'i18next';
 
@@ -63,20 +62,15 @@ export function SupportChatHeader({
 }: SupportChatHeaderProps) {
   return (
     <View>
-      <View style={styles.headerRow}>
-        <TouchableOpacity onPress={onBack} style={styles.backButton}>
-          <Image source={require('../../../assets/icons/back_button/back_button2x.png')} style={styles.backIcon} resizeMode="contain" />
-        </TouchableOpacity>
-        <View style={styles.headerText}>
-          <Text style={styles.title}>{t(`${ns}.title`)}</Text>
-          <Text style={styles.subtitle}>{t(`${ns}.subtitle`)}</Text>
-        </View>
-      </View>
-
       {rideId ? (
         <View style={styles.rideTag}>
-          <Text style={styles.rideTagLabel}>{t(`${ns}.rideTagLabel`)}</Text>
-          <Text style={styles.rideTagValue}>{rideId}</Text>
+          <View style={styles.rideTagIcon}>
+            <Ionicons name="navigate-outline" size={16} color={colors.primary} />
+          </View>
+          <View style={styles.rideTagTexts}>
+            <Text style={styles.rideTagLabel}>{t(`${ns}.rideTagLabel`)}</Text>
+            <Text style={styles.rideTagValue}>{rideId}</Text>
+          </View>
         </View>
       ) : null}
 
@@ -105,11 +99,16 @@ export function SupportChatHeader({
 
       {complaintId ? (
         <View style={styles.caseHeader}>
-          <Text style={styles.caseIdLabel}>{t(`${ns}.caseHeader.createdLabel`)}</Text>
-          <Text style={styles.caseIdValue}>{complaintId}</Text>
-          <Text style={styles.caseHint}>
-            {t(`${ns}.caseHeader.hint`)}
-          </Text>
+          <View style={styles.caseIcon}>
+            <Ionicons name="clipboard-outline" size={19} color={colors.primary} />
+          </View>
+          <View style={styles.caseTexts}>
+            <Text style={styles.caseIdLabel}>{t(`${ns}.caseHeader.createdLabel`)}</Text>
+            <Text style={styles.caseIdValue}>{complaintId}</Text>
+            <Text style={styles.caseHint}>
+              {t(`${ns}.caseHeader.hint`)}
+            </Text>
+          </View>
         </View>
       ) : null}
 
@@ -117,6 +116,7 @@ export function SupportChatHeader({
         <TouchableOpacity
           style={styles.callBanner}
           onPress={onCallButton}
+          activeOpacity={0.8}
         >
           <View style={styles.callBannerDot} />
           <View style={styles.callBannerTexts}>
@@ -125,7 +125,7 @@ export function SupportChatHeader({
               Estado: {String(activeCall.status || 'pending').replace('_', ' ')} · Toca para abrir controles
             </Text>
           </View>
-          <Text style={styles.callBannerArrow}>→</Text>
+          <Ionicons name="chevron-forward" size={18} color={colors.primary} style={{ marginLeft: 8 }} />
         </TouchableOpacity>
       ) : null}
     </View>

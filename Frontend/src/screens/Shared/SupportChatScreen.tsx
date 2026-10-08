@@ -12,6 +12,7 @@ import {
   Image,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { httpsCallable } from 'firebase/functions';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
@@ -52,8 +53,9 @@ const backIcon = require('../../assets/icons/back_button/back_button2x.png');
 export default function SupportChatScreen({ route }: SupportChatScreenProps) {
   const params = route?.params || {};
   const { rideId, initialCategory, initialTitle, complaintId: initialComplaintId } = params;
-  const { colors } = useTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const { colors, isDark } = useTheme();
+  const insets = useSafeAreaInsets();
+  const styles = useMemo(() => createStyles(colors, isDark, insets), [colors, isDark, insets]);
   const navigation = useNavigation<any>();
   const { user } = useAuth();
   const { t } = useTranslation();
@@ -186,9 +188,32 @@ export default function SupportChatScreen({ route }: SupportChatScreenProps) {
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+      keyboardVerticalOffset={0}
     >
       <View style={styles.content}>
+        <View style={styles.headerCard}>
+          <TouchableOpacity
+            onPress={() => navigation.goBack()}
+            style={styles.headerCircleButton}
+            accessibilityRole="button"
+            accessibilityLabel={t('shared.paymentMethods.header.goBack')}
+          >
+            <Image source={backIcon} style={styles.headerCircleIcon} resizeMode="contain" />
+          </TouchableOpacity>
+          <View style={styles.headerTextCol}>
+            <Text style={styles.headerTitle}>{t(`${ns}.title`)}</Text>
+            <Text style={styles.headerSubtitle}>{t(`${ns}.subtitle`)}</Text>
+          </View>
+          <TouchableOpacity
+            onPress={handleCallButton}
+            style={styles.headerCircleButton}
+            accessibilityRole="button"
+            accessibilityLabel={t(`${ns}.actions.call`, 'Llamar')}
+          >
+            <MaterialIcons name="call" size={20} color="#FFFFFF" />
+          </TouchableOpacity>
+        </View>
+
         <FlatList
           data={[]}
           ListHeaderComponent={
@@ -233,15 +258,8 @@ export default function SupportChatScreen({ route }: SupportChatScreenProps) {
           renderItem={null as any}
           keyExtractor={(_, index) => `header-${index}`}
           contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
         />
-        <View style={styles.fabContainer}>
-          <TouchableOpacity
-            style={styles.fab}
-            onPress={handleCallButton}
-          >
-            <MaterialIcons name="call" size={24} color="#fff" />
-          </TouchableOpacity>
-        </View> 
       </View>
 
       <SupportChatInput
@@ -259,27 +277,8 @@ export default function SupportChatScreen({ route }: SupportChatScreenProps) {
   );
 }
 
-const createStyles = (colors: any) =>
+const createStyles = (colors: any, isDark: boolean, insets: { top: number; bottom: number }) =>
   StyleSheet.create({
-    headerRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 12,
-      marginBottom: 8,
-    },
-    backButton: {
-      width: 40,
-      height: 40,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    backIcon: {
-      width: 34,
-      height: 34,
-    },
-    headerText: {
-      flex: 1,
-    },
     container: {
       flex: 1,
       backgroundColor: colors.surface,
@@ -287,25 +286,73 @@ const createStyles = (colors: any) =>
     content: {
       flex: 1,
     },
+    headerCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      marginTop: insets.top + 8,
+      marginHorizontal: 16,
+      marginBottom: 4,
+      paddingVertical: 12,
+      paddingHorizontal: 14,
+      borderRadius: 18,
+      backgroundColor: 'rgba(211, 153, 46, 0.94)',
+      borderWidth: 1,
+      borderColor: 'rgba(255, 255, 255, 0.24)',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: 0.16,
+      shadowRadius: 16,
+      elevation: 8,
+    },
+    headerCircleButton: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: 'rgba(255, 255, 255, 0.26)',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    headerCircleIcon: {
+      width: 22,
+      height: 22,
+    },
+    headerTextCol: {
+      flex: 1,
+    },
+    headerTitle: {
+      fontSize: 19,
+      fontWeight: '700',
+      color: '#FFFFFF',
+      letterSpacing: 0.2,
+    },
+    headerSubtitle: {
+      fontSize: 12.5,
+      color: 'rgba(255, 255, 255, 0.85)',
+      marginTop: 1,
+    },
     scrollContent: {
-      padding: 16,
+      paddingTop: 8,
+      paddingHorizontal: 16,
       paddingBottom: 24,
     },
-    title: {
-      fontSize: 24,
-      fontWeight: '700',
-      color: colors.text,
-      marginBottom: 4,
-      marginTop: 16,
-    },
-    subtitle: {
-      fontSize: 14,
-      color: colors.textSecondary,
-      marginBottom: 16,
-    },
     section: {
-      marginTop: 16,
+      marginTop: 12,
       marginBottom: 8,
+    },
+    formCard: {
+      borderRadius: 20,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.card,
+      paddingHorizontal: 14,
+      paddingVertical: 14,
+      paddingBottom: 16,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.07,
+      shadowRadius: 12,
+      elevation: 4,
     },
     sectionTitle: {
       fontSize: 16,
@@ -319,9 +366,9 @@ const createStyles = (colors: any) =>
       marginHorizontal: -4,
     },
     chip: {
-      paddingHorizontal: 12,
+      paddingHorizontal: 14,
       paddingVertical: 8,
-      borderRadius: 20,
+      borderRadius: 999,
       borderWidth: 1,
       borderColor: colors.border,
       marginHorizontal: 4,
@@ -329,9 +376,9 @@ const createStyles = (colors: any) =>
       backgroundColor: colors.card,
     },
     chipSmall: {
-      paddingHorizontal: 10,
+      paddingHorizontal: 12,
       paddingVertical: 6,
-      borderRadius: 16,
+      borderRadius: 999,
       borderWidth: 1,
       borderColor: colors.border,
       marginHorizontal: 4,
@@ -339,8 +386,8 @@ const createStyles = (colors: any) =>
       backgroundColor: colors.card,
     },
     chipSelected: {
-      backgroundColor: '#000',
-      borderColor: '#000',
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
     },
     chipLabel: {
       fontSize: 13,
@@ -362,27 +409,27 @@ const createStyles = (colors: any) =>
     textInput: {
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: 12,
-      paddingHorizontal: 12,
-      paddingVertical: 10,
+      borderRadius: 14,
+      paddingHorizontal: 14,
+      paddingVertical: 11,
       fontSize: 14,
       backgroundColor: colors.card,
       color: colors.text,
     },
     textArea: {
-      minHeight: 90,
+      minHeight: 96,
       textAlignVertical: 'top',
     },
     primaryButton: {
       marginTop: 20,
-      borderRadius: 24,
-      paddingVertical: 12,
+      borderRadius: 16,
+      paddingVertical: 14,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: '#000',
+      backgroundColor: colors.primary,
     },
     primaryButtonDisabled: {
-      opacity: 0.7,
+      opacity: 0.6,
     },
     primaryButtonText: {
       color: '#fff',
@@ -396,17 +443,32 @@ const createStyles = (colors: any) =>
     },
     errorText: {
       marginTop: 8,
-      color: '#d32f2f',
+      color: colors.error,
       fontSize: 13,
     },
     rideTag: {
-      borderRadius: 12,
+      borderRadius: 14,
       paddingHorizontal: 12,
-      paddingVertical: 8,
+      paddingVertical: 10,
       backgroundColor: colors.card,
       borderWidth: 1,
       borderColor: colors.border,
-      marginBottom: 8,
+      marginBottom: 4,
+      marginTop: 8,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+    },
+    rideTagIcon: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: isDark ? 'rgba(201, 163, 90, 0.22)' : 'rgba(179, 135, 55, 0.15)',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    rideTagTexts: {
+      flex: 1,
     },
     rideTagLabel: {
       fontSize: 11,
@@ -419,12 +481,26 @@ const createStyles = (colors: any) =>
       fontWeight: '500',
     },
     caseHeader: {
-      marginTop: 20,
+      marginTop: 12,
       padding: 12,
-      borderRadius: 12,
+      borderRadius: 14,
       backgroundColor: colors.card,
       borderWidth: 1,
       borderColor: colors.border,
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    caseIcon: {
+      width: 38,
+      height: 38,
+      borderRadius: 19,
+      backgroundColor: isDark ? 'rgba(201, 163, 90, 0.22)' : 'rgba(179, 135, 55, 0.15)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: 12,
+    },
+    caseTexts: {
+      flex: 1,
     },
     caseIdLabel: {
       fontSize: 12,
@@ -449,194 +525,85 @@ const createStyles = (colors: any) =>
       alignItems: 'center',
       justifyContent: 'center',
     },
-    emptyIcon: {
-      fontSize: 48,
-      marginBottom: 12,
+    emptyIconWrap: {
+      width: 72,
+      height: 72,
+      borderRadius: 36,
+      backgroundColor: colors.card,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 14,
     },
     emptyText: {
       fontSize: 13,
       color: colors.textSecondary,
       textAlign: 'center',
+      lineHeight: 18,
     },
     chatInputContainer: {
       flexDirection: 'row',
       alignItems: 'flex-end',
-      padding: 12,
+      paddingTop: 10,
+      paddingHorizontal: 12,
+      paddingBottom: insets.bottom + 10,
       borderTopWidth: 1,
       borderTopColor: colors.border,
       backgroundColor: colors.card,
-      marginBottom: 10,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: -4 },
+      shadowOpacity: isDark ? 0.25 : 0.06,
+      shadowRadius: 12,
+      elevation: 10,
+    },
+    chatInputPill: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'flex-end',
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 24,
+      paddingLeft: 16,
+      paddingRight: 6,
+      paddingVertical: 5,
+      minHeight: 48,
+    },
+    chatInputPillFocused: {
+      borderColor: colors.primary,
+      shadowColor: colors.primary,
+      shadowOffset: { width: 0, height: 0 },
+      shadowOpacity: 0.22,
+      shadowRadius: 8,
+      elevation: 3,
     },
     chatInput: {
       flex: 1,
-      backgroundColor: colors.surface,
-      borderRadius: 24,
-      paddingHorizontal: 14,
-      paddingVertical: 10,
       fontSize: 15,
-      maxHeight: 100,
-      marginRight: 8,
+      paddingTop: 9,
+      paddingBottom: 9,
+      paddingRight: 8,
+      maxHeight: 110,
       color: colors.text,
     },
     sendButton: {
-      width: 44,
-      height: 44,
-      borderRadius: 22,
-      backgroundColor: '#000',
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      backgroundColor: colors.primary,
       justifyContent: 'center',
       alignItems: 'center',
     },
     sendButtonDisabled: {
-      backgroundColor: colors.border,
-    },
-    sendButtonText: {
-      fontSize: 20,
-      color: '#fff',
-    },
-    callCard: {
-      borderRadius: 12,
-      padding: 12,
-      //marginBottom: 12,
-      marginTop: 30,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.card,
-      shadowColor: '#000',
-      shadowOpacity: 0.06,
-      shadowOffset: { width: 0, height: 2 },
-      shadowRadius: 6,
-    },
-    callCardRinging: {
-      borderColor: '#f97316',
-      backgroundColor: '#fff7ed',
-    },
-    callCardNeutral: {
-      borderColor: colors.border,
-      backgroundColor: colors.card,
-    },
-    callHeaderRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      marginBottom: 6,
-    },
-    callTitle: {
-      fontSize: 16,
-      fontWeight: '700',
-      color: colors.text,
-    },
-    callStatus: {
-      fontSize: 12,
-      color: '#f97316',
-      fontWeight: '700',
-      textTransform: 'uppercase',
-    },
-    callStatusPill: {
-      paddingHorizontal: 10,
-      paddingVertical: 4,
-      borderRadius: 20,
-      borderWidth: 1,
-    },
-    callStatusPillRinging: {
-      backgroundColor: '#fff1e6',
-      borderColor: '#f97316',
-    },
-    callStatusPillNeutral: {
-      backgroundColor: colors.surface,
-      borderColor: colors.border,
-    },
-    callStatusText: {
-      fontSize: 11,
-      color: '#d97706',
-      fontWeight: '700',
-      letterSpacing: 0.2,
-    },
-    callRingingText: {
-      fontSize: 13,
-      color: '#b45309',
-      marginBottom: 6,
-    },
-    callDetail: {
-      fontSize: 13,
-      color: colors.textSecondary,
-      marginBottom: 4,
-    },
-    callActionsRow: {
-      flexDirection: 'row',
-      gap: 10,
-      marginTop: 12,
-    },
-    callPrimaryButton: {
-      flex: 1,
-      borderRadius: 12,
-      paddingVertical: 12,
-      alignItems: 'center',
-      backgroundColor: '#111',
-    },
-    callPrimaryText: {
-      color: '#fff',
-      fontWeight: '700',
-      fontSize: 15,
-    },
-    callSecondaryButton: {
-      flex: 1,
-      borderRadius: 12,
-      borderWidth: 1,
-      borderColor: colors.border,
-      paddingVertical: 12,
-      alignItems: 'center',
-      backgroundColor: colors.card,
-    },
-    callSecondaryText: {
-      color: colors.text,
-      fontWeight: '700',
-      fontSize: 15,
-    },
-    callInfoBox: {
-      marginTop: 10,
-      padding: 10,
-      borderRadius: 10,
-      backgroundColor: colors.surface,
-      borderWidth: 1,
-      borderColor: colors.border,
-    },
-    callInfoText: {
-      fontSize: 13,
-      color: colors.text,
-      marginBottom: 4,
-    },
-    callInfoHint: {
-      fontSize: 12,
-      color: colors.textSecondary,
-    },
-    fabContainer: {
-      position: 'absolute',
-      right: 16,
-      bottom: 90,
-    },
-    fab: {
-      width: 52,
-      height: 52,
-      borderRadius: 26,
-      backgroundColor: '#000',
-      alignItems: 'center',
-      justifyContent: 'center',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.25,
-      shadowRadius: 6,
-      elevation: 6,
-    },
-    fabText: {
-      color: '#fff',
-      fontSize: 22,
+      backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
     },
     callBanner: {
       marginTop: 12,
       borderRadius: 14,
       borderWidth: 1,
-      borderColor: '#8b5cf6',
-      backgroundColor: 'rgba(91, 33, 182, 0.12)',
+      borderColor: 'rgba(179, 135, 55, 0.45)',
+      backgroundColor: 'rgba(179, 135, 55, 0.10)',
       paddingVertical: 10,
       paddingHorizontal: 12,
       flexDirection: 'row',
@@ -646,7 +613,7 @@ const createStyles = (colors: any) =>
       width: 10,
       height: 10,
       borderRadius: 5,
-      backgroundColor: '#f59e0b',
+      backgroundColor: colors.primary,
       marginRight: 10,
     },
     callBannerTexts: {
@@ -661,11 +628,5 @@ const createStyles = (colors: any) =>
       marginTop: 2,
       fontSize: 12,
       color: colors.textSecondary,
-    },
-    callBannerArrow: {
-      color: '#d6bcfa',
-      fontSize: 18,
-      fontWeight: '700',
-      marginLeft: 8,
     },
   });

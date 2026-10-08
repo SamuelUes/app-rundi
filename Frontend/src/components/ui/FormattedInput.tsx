@@ -2,13 +2,13 @@ import React from 'react';
 import { TextInput, TextInputProps } from 'react-native';
 
 interface FormattedInputProps extends TextInputProps {
-  format?: 'date' | 'phone' | 'plate' | 'vin' | 'number' | 'decimal' | 'none';
+  format?: 'date' | 'date-dmy' | 'phone' | 'plate' | 'vin' | 'number' | 'decimal' | 'none';
   maxLength?: number;
 }
 
 /**
  * Componente de input con formateo automático
- * Soporta: fechas (YYYY-MM-DD), teléfono, placa, VIN, números, decimales
+ * Soporta: fechas (YYYY-MM-DD, DD-MM-YYYY), teléfono, placa, VIN, números, decimales
  */
 export const FormattedInput = React.forwardRef<TextInput, FormattedInputProps>(
   ({ format = 'none', value, onChangeText, maxLength, ...props }, ref) => {
@@ -26,6 +26,19 @@ export const FormattedInput = React.forwardRef<TextInput, FormattedInputProps>(
           if (cleaned.length === 4 && !cleaned.includes('-')) {
             cleaned = cleaned + '-';
           } else if (cleaned.length === 7 && cleaned.split('-').length === 2) {
+            cleaned = cleaned + '-';
+          }
+          return cleaned;
+
+        case 'date-dmy':
+          // Formato: DD-MM-YYYY
+          cleaned = text.replace(/[^\d-]/g, '');
+          if (cleaned.length > 10) cleaned = cleaned.slice(0, 10);
+
+          // Auto-insertar guiones
+          if (cleaned.length === 2 && !cleaned.includes('-')) {
+            cleaned = cleaned + '-';
+          } else if (cleaned.length === 5 && cleaned.split('-').length === 2) {
             cleaned = cleaned + '-';
           }
           return cleaned;
@@ -92,6 +105,7 @@ export const FormattedInput = React.forwardRef<TextInput, FormattedInputProps>(
     let keyboardType: TextInputProps['keyboardType'] = 'default';
     switch (format) {
       case 'date':
+      case 'date-dmy':
       case 'phone':
       case 'number':
         keyboardType = 'numeric';

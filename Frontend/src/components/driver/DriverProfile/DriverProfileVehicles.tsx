@@ -24,8 +24,8 @@ export function DriverProfileVehicles({
   styles,
 }: DriverProfileVehiclesProps) {
   return (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>{t('driver.profile.vehicles.title')}</Text>
+    <View style={styles.profileSection}>
+      <Text style={styles.profileSectionTitle}>{t('driver.profile.vehicles.title')}</Text>
 
       {vehicles && vehicles.length > 0 ? (
         <>
@@ -34,7 +34,7 @@ export function DriverProfileVehicles({
             const isApproved = Boolean(vehicle.is_active ?? vehicle.isActive);
 
             return (
-              <View key={vehicle.id} style={[styles.vehicleCard, isSelectedVehicle && styles.vehicleCardActive]}>
+              <View key={vehicle.id} style={[styles.profileVehicleCard, isSelectedVehicle && styles.profileVehicleCardActive]}>
                 <View style={styles.vehicleMainInfo}>
                   <View style={styles.vehicleIcon}>
                     <Image source={ensureVehicleIconSource(vehicle.type)} style={styles.vehicleIconImage} />

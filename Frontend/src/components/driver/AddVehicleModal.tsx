@@ -1,7 +1,8 @@
 import React from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Modal, TextInput } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LoadingIcon } from '../ui/LoadingIcon';
-import { FormattedInput } from '../ui/FormattedInput';
+import { DatePickerField } from '../ui/DatePickerField';
 import ImagePickerComponent from '../shared/ImagePicker';
 import type { TFunction } from 'i18next';
 import type { VehicleFormData } from '../../hooks/driver/DriverProfileScreen/useVehicleForm';
@@ -31,6 +32,8 @@ export function AddVehicleModal({
   styles,
   t,
 }: AddVehicleModalProps) {
+  const insets = useSafeAreaInsets();
+
   return (
     <Modal
       visible={visible}
@@ -41,13 +44,17 @@ export function AddVehicleModal({
       <View style={styles.modalContainer}>
         <View style={styles.modalContent}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>{t('driver.profile.modal.title')}</Text>
-            <TouchableOpacity onPress={onClose}>
+            <Text style={styles.modalTitle} numberOfLines={1}>{t('driver.profile.modal.title')}</Text>
+            <TouchableOpacity style={styles.modalCloseTouch} onPress={onClose} hitSlop={4}>
               <Text style={styles.modalCloseButton}>✕</Text>
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={styles.modalForm}>
+          <ScrollView
+            style={styles.modalForm}
+            contentContainerStyle={styles.modalFormContent}
+            keyboardShouldPersistTaps="handled"
+          >
             <View style={styles.formSection}>
               <Text style={styles.formSectionTitle}>{t('driver.profile.modal.labels.basicInfo')}</Text>
 
@@ -223,10 +230,9 @@ export function AddVehicleModal({
               </Text>
 
               <Text style={styles.formLabel}>{t('driver.profile.modal.labels.emissionDate')}</Text>
-              <FormattedInput
+              <DatePickerField
                 style={styles.formInput}
                 placeholder={t('driver.profile.modal.placeholders.emissionDate')}
-                format="date"
                 value={vehicleFormData.emission_date}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, emission_date: text })}
                 placeholderTextColor={colors.textSecondary}
@@ -242,22 +248,23 @@ export function AddVehicleModal({
               />
 
               <Text style={styles.formLabel}>{t('driver.profile.modal.labels.registrationExpiry')}</Text>
-              <FormattedInput
+              <DatePickerField
                 style={styles.formInput}
                 placeholder={t('driver.profile.modal.placeholders.registrationExpiry')}
-                format="date"
                 value={vehicleFormData.registration_expiry}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, registration_expiry: text })}
                 placeholderTextColor={colors.textSecondary}
               />
 
               <ImagePickerComponent
+                compact
                 label={t('driver.profile.modal.labels.registrationFront')}
                 imageUri={vehicleFormData.registration_photo_front}
                 onImageSelected={(uri: string) => setVehicleFormData({ ...vehicleFormData, registration_photo_front: uri })}
               />
 
               <ImagePickerComponent
+                compact
                 label={t('driver.profile.modal.labels.registrationBack')}
                 imageUri={vehicleFormData.registration_photo_back}
                 onImageSelected={(uri: string) => setVehicleFormData({ ...vehicleFormData, registration_photo_back: uri })}
@@ -288,26 +295,25 @@ export function AddVehicleModal({
               />
 
               <Text style={styles.formLabel}>{t('driver.profile.modal.labels.insuranceStart')}</Text>
-              <FormattedInput
+              <DatePickerField
                 style={styles.formInput}
                 placeholder={t('driver.profile.modal.placeholders.insuranceStart')}
-                format="date"
                 value={vehicleFormData.insurance_start_date}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, insurance_start_date: text })}
                 placeholderTextColor={colors.textSecondary}
               />
 
               <Text style={styles.formLabel}>{t('driver.profile.modal.labels.insuranceExpiry')}</Text>
-              <FormattedInput
+              <DatePickerField
                 style={styles.formInput}
                 placeholder={t('driver.profile.modal.placeholders.insuranceExpiry')}
-                format="date"
                 value={vehicleFormData.insurance_expiry}
                 onChangeText={(text) => setVehicleFormData({ ...vehicleFormData, insurance_expiry: text })}
                 placeholderTextColor={colors.textSecondary}
               />
 
               <ImagePickerComponent
+                compact
                 label={t('driver.profile.modal.labels.insurancePhoto')}
                 imageUri={vehicleFormData.insurance_photo}
                 onImageSelected={(uri: string) => setVehicleFormData({ ...vehicleFormData, insurance_photo: uri })}
@@ -320,6 +326,7 @@ export function AddVehicleModal({
               </Text>
 
               <ImagePickerComponent
+                compact
                 label={t('driver.profile.modal.labels.vehiclePhoto')}
                 imageUri={vehicleFormData.vehicle_photo}
                 onImageSelected={(uri: string) => setVehicleFormData({ ...vehicleFormData, vehicle_photo: uri })}
@@ -329,7 +336,7 @@ export function AddVehicleModal({
             <View style={{ height: 20 }} />
           </ScrollView>
 
-          <View style={styles.modalButtons}>
+          <View style={[styles.modalButtons, { paddingBottom: Math.max(insets.bottom, 12) }]}>
             <TouchableOpacity
               style={styles.modalCancelButton}
               onPress={onClose}

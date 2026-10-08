@@ -5,16 +5,19 @@ import {
   StyleSheet, 
   ScrollView, 
   TouchableOpacity, 
-  Image, 
   Alert,
   Platform,
   TextInput
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
+import { DatePickerField } from '../../components/ui/DatePickerField';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useAuth } from '../../hooks/shared/auth/useAuth';
 import * as ImagePicker from 'expo-image-picker';
+import StorageImage from '../../components/shared/StorageImage';
 import supabaseStorage from '../../services/supabaseStorage';
 import driversService from '../../services/driversService';
 
@@ -25,6 +28,7 @@ interface DriversDocumentsInspectionProps {
 
 export default function DriversDocumentsInspectionScreen({ route, navigation }: DriversDocumentsInspectionProps) {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { t } = useTranslation();
   const diNS = 'driver.documentInspection';
@@ -119,6 +123,37 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
     }
   };
 
+  // Seleccionar foto de la galería
+  const pickFromGallery = async (setPhotoFunction: (uri: string) => void) => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert(
+          t(`${diNS}.alerts.permissionTitle`),
+          t(`${diNS}.alerts.galleryPermissionMessage`)
+        );
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.7,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        setPhotoFunction(result.assets[0].uri);
+      }
+    } catch (error) {
+      Alert.alert(
+        t(`${diNS}.alerts.cameraErrorTitle`),
+        t(`${diNS}.alerts.galleryErrorMessage`)
+      );
+      console.error('Error al seleccionar foto:', error);
+    }
+  };
+
   // Subir fotos y datos a Supabase
   const uploadDocumentsAndContinue = async () => {
     if (!user || !allDataProvided) {
@@ -148,12 +183,14 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
         totalProgress = index / photos.length;
         setUploadProgress(totalProgress);
         
-        // Subir la foto a Supabase
-        const downloadUrl = await supabaseStorage.uploadLicensePhoto(
-          user.id,
-          photo.uri,
-          photo.type === 'license_front' ? 'front' : 'back'
-        );
+        // Subir la foto a Supabase (o conservar la URL si ya estaba en Storage)
+        const downloadUrl = /^https?:\/\//.test(photo.uri)
+          ? photo.uri
+          : await supabaseStorage.uploadLicensePhoto(
+              user.id,
+              photo.uri,
+              photo.type === 'license_front' ? 'front' : 'back'
+            );
         
         uploadedUrls[photo.type] = downloadUrl;
         
@@ -192,14 +229,25 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
     }
   };
 
+  const photosCompleted = [licensePhotoFront, licensePhotoBack].filter(Boolean).length;
   const allDataProvided = licensePhotoFront && licensePhotoBack && licenseNumber && licenseExpiry;
   const documentsStatusNormalized = (documentsStatus || '').toLowerCase();
-  const documentsVerified = documentsStatusNormalized === 'verified';
+  const documentsVerified = documentsStatusNormalized === 'verified' || documentsStatusNormalized === 'active';
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>{t(`${diNS}.header.title`)}</Text>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={[styles.contentContainer, { paddingBottom: insets.bottom + 24 }]}
+      keyboardShouldPersistTaps="handled"
+    >
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+        <View style={styles.headerTopRow}>
+          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+            <MaterialIcons name="arrow-back" size={22} color={colors.text} />
+          </TouchableOpacity>
+          <Text style={styles.title}>{t(`${diNS}.header.title`)}</Text>
+          <View style={styles.headerSpacer} />
+        </View>
         <Text style={styles.subtitle}>{t(`${diNS}.header.subtitle`)}</Text>
       </View>
       
@@ -210,6 +258,8 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
         <Text style={styles.label}>{t(`${diNS}.licenseSection.numberLabel`)}</Text>
         <TextInput
           style={styles.input}
+          autoCapitalize="characters"
+          autoCorrect={false}
           placeholder={t(`${diNS}.licenseSection.numberPlaceholder`)}
           value={licenseNumber}
           onChangeText={setLicenseNumber}
@@ -217,7 +267,7 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
         />
 
         <Text style={styles.label}>{t(`${diNS}.licenseSection.expiryLabel`)}</Text>
-        <TextInput
+        <DatePickerField
           style={styles.input}
           placeholder={t(`${diNS}.licenseSection.expiryPlaceholder`)}
           value={licenseExpiry}
@@ -228,52 +278,75 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
 
       {/* Fotos de Licencia */}
       <View style={styles.photoSection}>
-        <Text style={styles.sectionTitle}>{t(`${diNS}.photosSection.title`)}</Text>
+        <View style={styles.photoSectionHeader}>
+          <Text style={styles.sectionTitle}>{t(`${diNS}.photosSection.title`)}</Text>
+          <Text style={styles.photoProgress}>{photosCompleted}/2</Text>
+        </View>
         
         {/* Foto Frontal */}
         <View style={styles.photoContainer}>
-          <Text style={styles.photoTitle}>{t(`${diNS}.photosSection.frontTitle`)}</Text>
-          {licensePhotoFront ? (
-            <View style={styles.previewContainer}>
-              <Image source={{ uri: licensePhotoFront }} style={styles.photoPreview} />
-              <TouchableOpacity 
-                style={styles.retakeButton}
-                onPress={() => takePhoto(setLicensePhotoFront)}
-              >
-                <Text style={styles.retakeButtonText}>{t(`${diNS}.photosSection.retakePhoto`)}</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <TouchableOpacity 
-              style={styles.photoButton}
+          <View style={styles.photoTitleRow}>
+            <Text style={styles.photoTitle}>{t(`${diNS}.photosSection.frontTitle`)}</Text>
+            {licensePhotoFront && <MaterialIcons name="check-circle" size={20} color={colors.success} />}
+          </View>
+          {licensePhotoFront && (
+            <StorageImage uri={licensePhotoFront} style={styles.photoPreview} />
+          )}
+          <View style={styles.photoActionsRow}>
+            <TouchableOpacity
+              style={[styles.photoActionButton, styles.photoActionButtonPrimary]}
               onPress={() => takePhoto(setLicensePhotoFront)}
             >
-              <Text style={styles.photoButtonText}>{t(`${diNS}.photosSection.takePhoto`)}</Text>
+              <MaterialIcons name="photo-camera" size={18} color="#fff" />
+              <Text style={styles.photoActionButtonPrimaryText}>
+                {licensePhotoFront
+                  ? t(`${diNS}.photosSection.retakePhoto`)
+                  : t(`${diNS}.photosSection.takePhoto`)}
+              </Text>
             </TouchableOpacity>
-          )}
+            <TouchableOpacity
+              style={[styles.photoActionButton, styles.photoActionButtonSecondary]}
+              onPress={() => pickFromGallery(setLicensePhotoFront)}
+            >
+              <MaterialIcons name="photo-library" size={18} color={colors.primary} />
+              <Text style={styles.photoActionButtonSecondaryText}>
+                {t(`${diNS}.photosSection.chooseFromGallery`)}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Foto Trasera */}
         <View style={styles.photoContainer}>
-          <Text style={styles.photoTitle}>{t(`${diNS}.photosSection.backTitle`)}</Text>
-          {licensePhotoBack ? (
-            <View style={styles.previewContainer}>
-              <Image source={{ uri: licensePhotoBack }} style={styles.photoPreview} />
-              <TouchableOpacity 
-                style={styles.retakeButton}
-                onPress={() => takePhoto(setLicensePhotoBack)}
-              >
-                <Text style={styles.retakeButtonText}>{t(`${diNS}.photosSection.retakePhoto`)}</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <TouchableOpacity 
-              style={styles.photoButton}
+          <View style={styles.photoTitleRow}>
+            <Text style={styles.photoTitle}>{t(`${diNS}.photosSection.backTitle`)}</Text>
+            {licensePhotoBack && <MaterialIcons name="check-circle" size={20} color={colors.success} />}
+          </View>
+          {licensePhotoBack && (
+            <StorageImage uri={licensePhotoBack} style={styles.photoPreview} />
+          )}
+          <View style={styles.photoActionsRow}>
+            <TouchableOpacity
+              style={[styles.photoActionButton, styles.photoActionButtonPrimary]}
               onPress={() => takePhoto(setLicensePhotoBack)}
             >
-              <Text style={styles.photoButtonText}>{t(`${diNS}.photosSection.takePhoto`)}</Text>
+              <MaterialIcons name="photo-camera" size={18} color="#fff" />
+              <Text style={styles.photoActionButtonPrimaryText}>
+                {licensePhotoBack
+                  ? t(`${diNS}.photosSection.retakePhoto`)
+                  : t(`${diNS}.photosSection.takePhoto`)}
+              </Text>
             </TouchableOpacity>
-          )}
+            <TouchableOpacity
+              style={[styles.photoActionButton, styles.photoActionButtonSecondary]}
+              onPress={() => pickFromGallery(setLicensePhotoBack)}
+            >
+              <MaterialIcons name="photo-library" size={18} color={colors.primary} />
+              <Text style={styles.photoActionButtonSecondaryText}>
+                {t(`${diNS}.photosSection.chooseFromGallery`)}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
 
@@ -301,7 +374,7 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
           onPress={uploadDocumentsAndContinue}
           disabled={!allDataProvided}
         >
-          <Text style={styles.submitButtonText}>
+          <Text style={[styles.submitButtonText, !allDataProvided && styles.submitButtonTextDisabled]}>
             {allDataProvided
               ? t(`${diNS}.buttons.save`)
               : t(`${diNS}.buttons.missingData`)}
@@ -309,7 +382,7 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
         </TouchableOpacity>
       )}
       
-      <View style={{ height: 40 }} />
+      <View style={{ height: 12 }} />
     </ScrollView>
   );
 }
@@ -319,16 +392,39 @@ const createStyles = (colors: any) => StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
+  contentContainer: {
+    paddingBottom: 24,
+  },
   header: {
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingBottom: 20,
     backgroundColor: colors.card,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
-  title: {
-    fontSize: 22,
-    fontWeight: '700',
+  headerTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 12,
+  },
+  backButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerSpacer: {
+    width: 44,
+    height: 44,
+  },
+  title: {
+    flex: 1,
+    fontSize: 20,
+    fontWeight: '700',
+    textAlign: 'center',
     color: colors.text,
   },
   subtitle: {
@@ -337,89 +433,125 @@ const createStyles = (colors: any) => StyleSheet.create({
     lineHeight: 20,
   },
   dataSection: {
-    padding: 20,
+    marginHorizontal: 16,
+    marginTop: 16,
+    marginBottom: 24,
+    padding: 18,
+    backgroundColor: colors.card,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   sectionTitle: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '700',
     color: colors.text,
-    marginBottom: 16,
+    marginBottom: 14,
   },
   label: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
     color: colors.text,
-    marginBottom: 8,
+    marginBottom: 6,
     marginTop: 12,
   },
   input: {
-    backgroundColor: colors.card,
-    borderRadius: 8,
+    minHeight: 48,
+    backgroundColor: colors.background,
+    borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    fontSize: 14,
+    fontSize: 15,
     color: colors.text,
     borderWidth: 1,
     borderColor: colors.border,
   },
   photoSection: {
-    padding: 20,
-    paddingTop: 0,
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+  },
+  photoSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  photoProgress: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    backgroundColor: colors.surface,
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '600',
   },
   photoContainer: {
-    marginBottom: 24,
+    marginBottom: 12,
     backgroundColor: colors.card,
-    borderRadius: 12,
-    padding: 16,
+    borderRadius: 14,
+    padding: 14,
     borderWidth: 1,
     borderColor: colors.border,
   },
+  photoTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
   photoTitle: {
-    fontSize: 16,
+    flex: 1,
+    fontSize: 15,
+    lineHeight: 20,
     fontWeight: '600',
     marginBottom: 12,
     color: colors.text,
   },
-  photoButton: {
-    backgroundColor: colors.primary,
-    borderRadius: 8,
-    paddingVertical: 16,
+  photoActionsRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  photoActionButton: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    gap: 6,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  photoButtonText: {
+  photoActionButtonPrimary: {
+    backgroundColor: colors.primary,
+  },
+  photoActionButtonPrimaryText: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
   },
-  previewContainer: {
-    alignItems: 'center',
-  },
-  photoPreview: {
-    width: '100%',
-    height: 200,
-    borderRadius: 8,
-    marginBottom: 12,
-  },
-  retakeButton: {
-    backgroundColor: colors.background,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
+  photoActionButtonSecondary: {
+    backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.primary,
   },
-  retakeButtonText: {
+  photoActionButtonSecondaryText: {
     color: colors.primary,
     fontSize: 14,
     fontWeight: '600',
   },
+  photoPreview: {
+    width: '100%',
+    height: 180,
+    borderRadius: 10,
+    marginBottom: 12,
+    backgroundColor: colors.surface,
+  },
   noticeContainer: {
     padding: 16,
-    marginHorizontal: 20,
+    marginHorizontal: 16,
     backgroundColor: '#FFF3CD',
-    borderRadius: 8,
-    marginBottom: 20,
+    borderRadius: 12,
+    marginBottom: 16,
   },
   noticeText: {
     color: '#856404',
@@ -427,21 +559,27 @@ const createStyles = (colors: any) => StyleSheet.create({
     lineHeight: 20,
   },
   submitButton: {
+    minHeight: 52,
     backgroundColor: colors.primary,
-    borderRadius: 8,
-    paddingVertical: 16,
-    marginHorizontal: 20,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    marginHorizontal: 16,
     alignItems: 'center',
-    marginBottom: 20,
+    justifyContent: 'center',
+    marginBottom: 16,
   },
   submitButtonDisabled: {
-    backgroundColor: colors.border,
-    opacity: 0.7,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   submitButtonText: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
+  },
+  submitButtonTextDisabled: {
+    color: colors.textTertiary,
   },
   loadingContainer: {
     padding: 20,
@@ -453,23 +591,23 @@ const createStyles = (colors: any) => StyleSheet.create({
     color: colors.textSecondary,
   },
   verifiedNotice: {
-    padding: 20,
-    marginHorizontal: 20,
-    backgroundColor: '#D4EDDA',
-    borderRadius: 8,
-    marginBottom: 20,
+    padding: 18,
+    marginHorizontal: 16,
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    marginBottom: 16,
     borderWidth: 1,
-    borderColor: '#C3E6CB',
+    borderColor: colors.success,
   },
   verifiedNoticeText: {
-    color: '#155724',
+    color: colors.success,
     fontSize: 16,
     fontWeight: '700',
     marginBottom: 8,
     textAlign: 'center',
   },
   verifiedNoticeSubtitle: {
-    color: '#155724',
+    color: colors.textSecondary,
     fontSize: 13,
     textAlign: 'center',
     lineHeight: 18,

@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import driversService from '../../../services/driversService';
 import vehiclesService from '../../../services/vehiclesService';
+import supabaseStorage from '../../../services/supabaseStorage';
 import { initializeFirebase } from '../../../config/firebase';
 import { getDatabase, ref, get } from 'firebase/database';
 
@@ -126,13 +127,8 @@ export function useDriverProfile(userId: string | undefined) {
           }
         }
 
-        if (profile.profilePhoto) {
-          setProfilePhoto(profile.profilePhoto);
-        } else if (profile.profile_photo) {
-          setProfilePhoto(profile.profile_photo);
-        } else {
-          setProfilePhoto(null);
-        }
+        const storedProfilePhoto = profile.profilePhoto || profile.profile_photo || null;
+        setProfilePhoto(await supabaseStorage.resolveDocumentPhotoUrl(storedProfilePhoto));
       }
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Error desconocido al cargar datos del conductor';

@@ -5,10 +5,11 @@ import {
   StyleSheet,
   TouchableOpacity,
   Alert,
-  Platform,
   Image,
 } from 'react-native';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { httpsCallable } from 'firebase/functions';
 import { useTranslation } from 'react-i18next';
@@ -34,7 +35,8 @@ export default function SupportCallScreen({ route }: SupportCallScreenProps) {
   const rideId = params.rideId || null;
 
   const { colors } = useTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const insets = useSafeAreaInsets();
+  const styles = useMemo(() => createStyles(colors, insets), [colors, insets]);
   const navigation = useNavigation<any>();
   const { t } = useTranslation();
   const ns = 'shared.supportCall';
@@ -46,9 +48,11 @@ export default function SupportCallScreen({ route }: SupportCallScreenProps) {
     livekitInfo,
     loading: callLoading,
     error: callError,
+    resolvedUid,
     acceptCall,
     rejectCall,
     endCall,
+    cancelCall,
     requestCall,
   } = useCalls(complaintId);
 
@@ -73,6 +77,9 @@ export default function SupportCallScreen({ route }: SupportCallScreenProps) {
   const isRinging = activeCall?.status === 'ringing_client';
   const isAccepted = activeCall?.status === 'accepted' || activeCall?.status === 'connected';
   const isInCall = Boolean(isAccepted || livekitConnected);
+  const isCallInitiator = Boolean(
+    activeCall?.events?.initiated?.by && resolvedUid && activeCall.events.initiated.by === resolvedUid,
+  );
 
   const handleRequestCall = async () => {
     if (!complaintId || requestingCall || callLoading) return;
@@ -159,6 +166,9 @@ export default function SupportCallScreen({ route }: SupportCallScreenProps) {
   if (!complaintId) {
     return (
       <View style={styles.emptyContainer}>
+        <View style={styles.emptyIconWrap}>
+          <Ionicons name="call-outline" size={30} color="#E8C985" />
+        </View>
         <Text style={styles.emptyTitle}>{t(`${ns}.emptyState.title`, 'Sin caso activo')}</Text>
         <Text style={styles.emptySubtitle}>{t(`${ns}.emptyState.subtitle`, 'Crea o abre un caso en el chat de soporte para gestionar llamadas.')}</Text>
         <TouchableOpacity style={styles.backPill} onPress={() => navigation.goBack()}>
@@ -204,14 +214,34 @@ export default function SupportCallScreen({ route }: SupportCallScreenProps) {
 
         <View style={styles.actionsCard}>
         <TouchableOpacity
-          style={[styles.primaryButton, (callLoading || requestingCall) && styles.disabledButton]}
+          style={[
+            styles.primaryButton,
+            isRinging && styles.acceptButton,
+            isInCall && styles.dangerButton,
+            (callLoading || requestingCall) && styles.disabledButton,
+          ]}
           disabled={callLoading || requestingCall}
           onPress={handleCallAction}
+          activeOpacity={0.85}
         >
           {(callLoading || requestingCall) ? (
             <LoadingIcon size={24} color="#ffffff" />
           ) : (
-            <Text style={styles.primaryButtonText}>{callActionLabel}</Text>
+            <View style={styles.buttonRow}>
+              <MaterialIcons
+                name={isInCall ? 'call-end' : 'call'}
+                size={18}
+                color={isRinging || isInCall ? '#FFFFFF' : '#1A130B'}
+              />
+              <Text
+                style={[
+                  styles.primaryButtonText,
+                  (isRinging || isInCall) && styles.primaryButtonTextLight,
+                ]}
+              >
+                {callActionLabel}
+              </Text>
+            </View>
           )}
         </TouchableOpacity>
 
@@ -243,9 +273,13 @@ export default function SupportCallScreen({ route }: SupportCallScreenProps) {
           <TouchableOpacity
             style={[styles.ghostButton, callLoading && styles.disabledButton]}
             disabled={callLoading}
-            onPress={() => rejectCall(activeCall.callId)}
+            onPress={() => (isCallInitiator ? cancelCall(activeCall.callId) : rejectCall(activeCall.callId))}
           >
-            <Text style={styles.ghostButtonText}>{t(`${ns}.actions.reject`, 'Rechazar')}</Text>
+            <Text style={styles.ghostButtonText}>
+              {isCallInitiator
+                ? t(`${ns}.actions.cancelRequest`, 'Cancelar solicitud')
+                : t(`${ns}.actions.reject`, 'Rechazar')}
+            </Text>
           </TouchableOpacity>
         ) : null}
 
@@ -258,7 +292,13 @@ export default function SupportCallScreen({ route }: SupportCallScreenProps) {
             ]}
             disabled={!livekitConnected || callLoading}
             onPress={toggleMic}
+            activeOpacity={0.75}
           >
+            <Ionicons
+              name={micEnabled ? 'mic-outline' : 'mic-off-outline'}
+              size={15}
+              color={!micEnabled ? '#C9B8F5' : 'rgba(244,238,226,0.8)'}
+            />
             <Text style={styles.inlineControlText}>
               {micEnabled ? t(`${ns}.actions.muteMic`, 'Silenciar micrófono') : t(`${ns}.actions.unmuteMic`, 'Activar micrófono')}
             </Text>
@@ -272,7 +312,13 @@ export default function SupportCallScreen({ route }: SupportCallScreenProps) {
             ]}
             disabled={!livekitConnected || callLoading}
             onPress={toggleSpeaker}
+            activeOpacity={0.75}
           >
+            <Ionicons
+              name={speakerEnabled ? 'volume-high-outline' : 'volume-mute-outline'}
+              size={15}
+              color={speakerEnabled ? '#C9B8F5' : 'rgba(244,238,226,0.8)'}
+            />
             <Text style={styles.inlineControlText}>
               {speakerEnabled ? t(`${ns}.actions.speakerOn`, 'Altavoz encendido') : t(`${ns}.actions.speakerOff`, 'Altavoz apagado')}
             </Text>
@@ -284,14 +330,14 @@ export default function SupportCallScreen({ route }: SupportCallScreenProps) {
   );
 }
 
-const createStyles = (colors: any) =>
+const createStyles = (colors: any, insets: { top: number; bottom: number }) =>
   StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: '#09080F',
+      backgroundColor: '#100D0A',
       paddingHorizontal: 18,
-      paddingTop: Platform.OS === 'ios' ? 72 : 34,
-      paddingBottom: 18,
+      paddingTop: insets.top + 12,
+      paddingBottom: insets.bottom + 18,
     },
     contentWrap: {
       marginTop: 14,
@@ -303,7 +349,7 @@ const createStyles = (colors: any) =>
       width: 260,
       height: 260,
       borderRadius: 130,
-      backgroundColor: 'rgba(168, 85, 247, 0.24)',
+      backgroundColor: 'rgba(147, 112, 219, 0.20)',
     },
     glowBottom: {
       position: 'absolute',
@@ -312,7 +358,7 @@ const createStyles = (colors: any) =>
       width: 280,
       height: 280,
       borderRadius: 140,
-      backgroundColor: 'rgba(217, 119, 6, 0.18)',
+      backgroundColor: 'rgba(217, 119, 6, 0.12)',
     },
     header: {
       flexDirection: 'row',
@@ -325,12 +371,12 @@ const createStyles = (colors: any) =>
       borderRadius: 20,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: '#FFFFFF',
+      backgroundColor: '#F5EFE3',
       marginRight: 10,
     },
     backIcon: {
-      width: 34,
-      height: 34,
+      width: 30,
+      height: 30,
     },
     headerTexts: {
       flex: 1,
@@ -343,14 +389,14 @@ const createStyles = (colors: any) =>
     subtitle: {
       marginTop: 2,
       fontSize: 13,
-      color: '#B8ADC8',
+      color: 'rgba(244, 238, 226, 0.60)',
     },
     mainCard: {
       borderRadius: 18,
       borderWidth: 1,
-      borderColor: 'rgba(168, 85, 247, 0.35)',
+      borderColor: 'rgba(201, 163, 90, 0.30)',
       padding: 16,
-      backgroundColor: 'rgba(18, 15, 28, 0.88)',
+      backgroundColor: 'rgba(24, 20, 13, 0.88)',
       marginBottom: 14,
     },
     statusRow: {
@@ -360,21 +406,21 @@ const createStyles = (colors: any) =>
       marginBottom: 8,
     },
     caseLabel: {
-      color: '#C8BCD6',
+      color: 'rgba(244, 238, 226, 0.55)',
       fontSize: 12,
       letterSpacing: 0.4,
       textTransform: 'uppercase',
     },
     statusPill: {
-      backgroundColor: 'rgba(217, 119, 6, 0.18)',
-      borderColor: 'rgba(217, 119, 6, 0.65)',
+      backgroundColor: 'rgba(147, 112, 219, 0.16)',
+      borderColor: 'rgba(167, 139, 250, 0.55)',
       borderWidth: 1,
       borderRadius: 20,
       paddingHorizontal: 10,
       paddingVertical: 5,
     },
     statusPillText: {
-      color: '#F5D08A',
+      color: '#D8C9FF',
       fontSize: 10,
       fontWeight: '700',
       letterSpacing: 0.5,
@@ -387,28 +433,42 @@ const createStyles = (colors: any) =>
     },
     metaLine: {
       fontSize: 13,
-      color: '#D7CCE5',
+      color: 'rgba(244, 238, 226, 0.70)',
       marginBottom: 6,
     },
     actionsCard: {
       borderRadius: 18,
       borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.12)',
-      backgroundColor: 'rgba(10, 10, 16, 0.88)',
+      borderColor: 'rgba(167, 139, 250, 0.16)',
+      backgroundColor: 'rgba(16, 13, 9, 0.9)',
       padding: 14,
       gap: 10,
     },
     primaryButton: {
-      height: 48,
+      height: 50,
       borderRadius: 14,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: '#D97706',
+      backgroundColor: '#C9A35A',
+    },
+    acceptButton: {
+      backgroundColor: '#22C55E',
+    },
+    dangerButton: {
+      backgroundColor: '#E5484D',
+    },
+    buttonRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
     },
     primaryButtonText: {
-      color: '#FFFFFF',
+      color: '#1A130B',
       fontSize: 15,
       fontWeight: '700',
+    },
+    primaryButtonTextLight: {
+      color: '#FFFFFF',
     },
     secondaryButton: {
       height: 44,
@@ -416,11 +476,11 @@ const createStyles = (colors: any) =>
       alignItems: 'center',
       justifyContent: 'center',
       borderWidth: 1,
-      borderColor: 'rgba(168, 85, 247, 0.45)',
-      backgroundColor: 'rgba(56, 25, 87, 0.38)',
+      borderColor: 'rgba(167, 139, 250, 0.42)',
+      backgroundColor: 'rgba(147, 112, 219, 0.10)',
     },
     secondaryButtonText: {
-      color: '#EADBF9',
+      color: '#D8C9FF',
       fontWeight: '600',
       fontSize: 14,
     },
@@ -438,11 +498,11 @@ const createStyles = (colors: any) =>
       alignItems: 'center',
       justifyContent: 'center',
       borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.2)',
-      backgroundColor: 'rgba(255,255,255,0.03)',
+      borderColor: 'rgba(239, 83, 80, 0.45)',
+      backgroundColor: 'rgba(239, 83, 80, 0.08)',
     },
     ghostButtonText: {
-      color: colors.text,
+      color: '#F28B82',
       fontWeight: '600',
       fontSize: 14,
     },
@@ -453,62 +513,75 @@ const createStyles = (colors: any) =>
     },
     inlineControlButton: {
       flex: 1,
-      borderRadius: 12,
+      flexDirection: 'row',
+      gap: 6,
+      borderRadius: 14,
       borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.18)',
-      backgroundColor: 'rgba(255,255,255,0.04)',
-      paddingVertical: 10,
+      borderColor: 'rgba(255,255,255,0.16)',
+      backgroundColor: 'rgba(255,255,255,0.05)',
+      paddingVertical: 12,
       paddingHorizontal: 8,
       alignItems: 'center',
       justifyContent: 'center',
     },
     inlineControlButtonActive: {
-      borderColor: 'rgba(217, 119, 6, 0.75)',
-      backgroundColor: 'rgba(217, 119, 6, 0.16)',
+      borderColor: 'rgba(167, 139, 250, 0.55)',
+      backgroundColor: 'rgba(147, 112, 219, 0.15)',
     },
     inlineControlText: {
-      color: '#EDE2F8',
+      color: 'rgba(244, 238, 226, 0.85)',
       fontSize: 12,
       fontWeight: '600',
       textAlign: 'center',
     },
     disabledButton: {
-      opacity: 0.6,
+      opacity: 0.55,
     },
     errorText: {
       marginTop: 10,
-      color: '#FCA5A5',
+      color: '#F28B82',
       fontSize: 13,
     },
     emptyContainer: {
       flex: 1,
-      backgroundColor: '#09080F',
+      backgroundColor: '#100D0A',
       alignItems: 'center',
       justifyContent: 'center',
       paddingHorizontal: 24,
     },
+    emptyIconWrap: {
+      width: 72,
+      height: 72,
+      borderRadius: 36,
+      backgroundColor: 'rgba(201, 163, 90, 0.12)',
+      borderWidth: 1,
+      borderColor: 'rgba(201, 163, 90, 0.35)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 16,
+    },
     emptyTitle: {
       fontSize: 20,
       fontWeight: '700',
-      color: '#F3E8FF',
+      color: '#F4EEE2',
       marginBottom: 8,
     },
     emptySubtitle: {
       fontSize: 14,
-      color: '#B8ADC8',
+      color: 'rgba(244, 238, 226, 0.60)',
       textAlign: 'center',
       marginBottom: 20,
     },
     backPill: {
-      borderRadius: 20,
+      borderRadius: 999,
       paddingHorizontal: 18,
       paddingVertical: 10,
-      backgroundColor: 'rgba(168, 85, 247, 0.35)',
+      backgroundColor: 'rgba(201, 163, 90, 0.18)',
       borderWidth: 1,
-      borderColor: 'rgba(168, 85, 247, 0.65)',
+      borderColor: 'rgba(201, 163, 90, 0.55)',
     },
     backPillText: {
-      color: '#FFFFFF',
+      color: '#EEDCB4',
       fontWeight: '700',
     },
   });

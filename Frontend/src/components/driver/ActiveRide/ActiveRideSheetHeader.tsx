@@ -1,6 +1,7 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Image } from 'react-native';
+import { View, Text, TouchableOpacity } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import StorageImage from '../../shared/StorageImage';
 import type { TFunction } from 'i18next';
 
 interface ActiveRideSheetHeaderProps {
@@ -36,7 +37,7 @@ export function ActiveRideSheetHeader({
     <View style={styles.sheetHeader}>
       <View style={styles.headerLeft}>
         {clientPhotoUrl ? (
-          <Image source={{ uri: clientPhotoUrl }} style={styles.clientPhoto} />
+          <StorageImage uri={clientPhotoUrl} style={styles.clientPhoto} />
         ) : (
           <View style={[styles.clientPhoto, { backgroundColor: colors.card }]}>
             <Text style={styles.clientInitial}>{clientInitial}</Text>

@@ -1,7 +1,8 @@
 import React from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
+import * as SplashScreen from 'expo-splash-screen';
 import { NavigationContainer } from '@react-navigation/native';
 import { useAuth } from './src/hooks/shared/auth/useAuth';
 import { useTheme, useThemeInit } from './src/hooks/shared/theme/useTheme';
@@ -21,21 +22,27 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { navigationRef } from './src/navigation/NavigationService';
 import { useNotifications } from './src/hooks/shared/notifications/useNotifications';
 import LocationPermissionGate from './src/components/permissions/LocationPermissionGate';
+import AppSplashOverlay from './src/components/ui/AppSplashOverlay';
 // import { initializeReactNativeFirebase } from './src/config/firebase-rn-native';
 // import { getApp } from '@react-native-firebase/app';
 
 // Stripe Publishable Key (desde .env)
 //const STRIPE_PUBLISHABLE_KEY = process.env.STRIPE_PUBLIC_KEY || 'pk_test_51SEkQKHVOBNC1WbUcQQAYs6FDD0dYO3wMA8dQzzHFTLFkEJsNpgBXe9V7ZOfQ85uvhivpzT88ntqoITyLoadFDGd00hoCYtolH';
 
+// Mantener el splash nativo hasta que el overlay JS este pintado (transicion seamless)
+SplashScreen.preventAutoHideAsync().catch(() => {});
+
 function AppContent() {
   const { isDark } = useTheme();
   const { user } = useAuth();
   const isLanguageReady = useLanguageStore((s) => s.isReady);
   const loadLanguage = useLanguageStore((s) => s.loadLanguage);
-  const [fontsLoaded] = useFonts({
+  const [fontsLoaded, fontError] = useFonts({
     Montserrat: require('./src/assets/fonts/Montserrat-VariableFont_wght.ttf'),
     PlusJakartSans: require('./src/assets/fonts/PlusJakartaSans-VariableFont_wght.ttf'),
   });
+  const [splashDismissed, setSplashDismissed] = React.useState(false);
+  const [loadTimedOut, setLoadTimedOut] = React.useState(false);
   const requireBackgroundLocation =
     user?.role === 'driver' || user?.role === 'designated_driver';
 
@@ -45,6 +52,12 @@ function AppContent() {
   React.useEffect(() => {
     loadLanguage();
   }, [loadLanguage]);
+
+  // Fallback: no dejar el splash indefinidamente si algo tarda demasiado
+  React.useEffect(() => {
+    const timer = setTimeout(() => setLoadTimedOut(true), 6000);
+    return () => clearTimeout(timer);
+  }, []);
 
   // Inicializar listeners de notificaciones (Expo Notifications)
   useNotifications();
@@ -58,24 +71,34 @@ function AppContent() {
   // Mantener la pantalla encendida mientras la app está en primer plano
   useKeepAwake();
 
-  if (!fontsLoaded || !isLanguageReady) {
-    return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: isDark ? '#111827' : '#ffffff' }}>
-        <ActivityIndicator size="large" color={isDark ? '#ffffff' : '#111827'} />
-      </View>
-    );
-  }
+  const appReady = (fontsLoaded || !!fontError) && (isLanguageReady || loadTimedOut);
+  const hideNativeSplash = React.useCallback(() => {
+    SplashScreen.hideAsync().catch(() => {});
+  }, []);
 
   return (
     <SafeAreaProvider>
-      <TopToastProvider>
-        <LocationPermissionGate requireBackground={requireBackgroundLocation}>
-          <NavigationContainer ref={navigationRef}>
-            <StatusBar style={isDark ? 'light' : 'dark'} />
-            <AppNavigator />
-          </NavigationContainer>
-        </LocationPermissionGate>
-      </TopToastProvider>
+      <View
+        style={{ flex: 1, backgroundColor: '#0F2628' }}
+        onLayout={hideNativeSplash}
+      >
+        {appReady && (
+          <TopToastProvider>
+            <LocationPermissionGate requireBackground={requireBackgroundLocation}>
+              <NavigationContainer ref={navigationRef}>
+                <AppNavigator />
+              </NavigationContainer>
+            </LocationPermissionGate>
+          </TopToastProvider>
+        )}
+        {!splashDismissed && (
+          <AppSplashOverlay
+            ready={appReady}
+            onFinished={() => setSplashDismissed(true)}
+          />
+        )}
+        <StatusBar style={appReady && !isDark ? 'dark' : 'light'} />
+      </View>
     </SafeAreaProvider>
   );
 }

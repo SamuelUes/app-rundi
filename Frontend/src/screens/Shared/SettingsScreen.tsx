@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, Switch, TouchableOpacity, ScrollView, Alert, Image } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Image } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useAuth } from '../../hooks/shared/auth/useAuth';
 import { useFCM } from '../../context/FCMContext';
@@ -15,12 +17,14 @@ import { SettingsPrivacySection } from '../../components/shared/Settings/Setting
 import { SettingsAboutSection } from '../../components/shared/Settings/SettingsAboutSection';
 
 const BACK_BUTTON_ICON = require('../../assets/icons/back_button/back_button2x.png');
+const SETTINGS_FONT = '';
 
 export default function SettingsScreen({ navigation }: any) {
-  const { theme, setTheme, colors, mapTrafficEnabled, setMapTrafficEnabled } = useTheme();
+  const { theme, setTheme, colors, isDark, mapTrafficEnabled, setMapTrafficEnabled } = useTheme();
   const { user, logout, logoutInProgress } = useAuth();
   const { isConfigured, hasPermission, isFCMAvailable, configureFCM, sendTestNotification } = useFCM();
   const { t } = useTranslation();
+  const insets = useSafeAreaInsets();
   const language = useLanguageStore((s) => s.language);
   const deviceLanguage = useLanguageStore((s) => s.deviceLanguage);
   const preference = useLanguageStore((s) => s.preference);
@@ -162,53 +166,65 @@ export default function SettingsScreen({ navigation }: any) {
   const styles = StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: 'rgba(204, 180, 136, 0.91)',
+      backgroundColor: isDark ? '#211A10' : 'rgba(204, 180, 136, 0.91)',
     },
     backButton: {
-      width: 50,
-      height: 50,
-      borderRadius: 25,
-      backgroundColor: colors.button,
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: 'rgba(255, 255, 255, 0.26)',
       justifyContent: 'center',
       alignItems: 'center',
     },
     backButtonIcon: {
-      width: 35,
-      height: 35,
+      width: 24,
+      height: 24,
     },
     header: {
-      backgroundColor: 'rgba(211, 153, 46, 0.81)',
-      paddingVertical: 20,
-      paddingHorizontal: 20,
-      marginTop: 40,
+      backgroundColor: 'rgba(211, 153, 46, 0.94)',
+      paddingVertical: 18,
+      paddingHorizontal: 18,
+      marginTop: insets.top + 8,
       marginHorizontal: 16,
-      borderRadius: 14,
+      borderRadius: 18,
+      borderWidth: 1,
+      borderColor: 'rgba(255, 255, 255, 0.24)',
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 16,
+      gap: 14,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: 0.16,
+      shadowRadius: 16,
+      elevation: 8,
     },
     headerText: {
       flex: 1,
     },
     headerTitle: {
-      fontSize: 26,
+      fontFamily: SETTINGS_FONT,
+      fontSize: 24,
       fontWeight: '700',
       color: '#FFFFFF',
-      marginBottom: 4,
+      letterSpacing: 0.2,
     },
     headerSubtitle: {
-      fontSize: 14,
-      color: 'rgba(255, 255, 255, 0.95)',
+      fontFamily: SETTINGS_FONT,
+      fontSize: 13,
+      color: 'rgba(255, 255, 255, 0.85)',
+      marginTop: 3,
     },
     scrollContent: {
-      paddingTop: 8,
-      paddingBottom: 32,
+      paddingTop: 4,
+      paddingBottom: insets.bottom + 32,
     },
     section: {
-      marginTop: 14,
+      marginTop: 16,
       marginHorizontal: 16,
-      paddingVertical: 14,
+      paddingVertical: 12,
       borderRadius: 20,
+      borderWidth: 1,
+      borderColor: colors.border,
       backgroundColor: colors.card,
       shadowColor: '#000',
       shadowOffset: { width: 0, height: 4 },
@@ -216,225 +232,128 @@ export default function SettingsScreen({ navigation }: any) {
       shadowRadius: 12,
       elevation: 6,
     },
-    notificationCard: {
-      backgroundColor: colors.card,
-      marginHorizontal: 20,
-      marginBottom: 8,
-      borderRadius: 12,
-      borderWidth: 1,
-      borderColor: colors.border,
-      padding: 16,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.05,
-      shadowRadius: 3,
-      elevation: 2,
-    },
-    notificationHeader: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-    },
-    notificationDescription: {
-      fontSize: 13,
-      color: colors.textSecondary,
-      marginTop: 4,
-      maxWidth: '85%',
-    },
-    notificationStatusRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      marginTop: 16,
-    },
-    statusIndicator: {
-      paddingHorizontal: 12,
-      paddingVertical: 4,
-      borderRadius: 12,
-      backgroundColor: '#FF9800',
-    },
-    statusIndicatorActive: {
-      backgroundColor: '#4CAF50',
-    },
-    statusIndicatorText: {
-      color: '#fff',
-      fontSize: 12,
-      fontWeight: '600',
-    },
-    notificationStatusText: {
-      flex: 1,
-      marginLeft: 12,
-      fontSize: 13,
-      color: colors.textSecondary,
-      lineHeight: 18,
-    },
-    noteBox: {
-      marginTop: 16,
-      backgroundColor: colors.surface,
-      borderRadius: 10,
-      padding: 12,
-      borderWidth: 1,
-      borderColor: colors.border,
-    },
-    noteTitle: {
-      fontSize: 13,
-      fontWeight: '600',
-      color: colors.text,
-      marginBottom: 4,
-    },
-    noteText: {
-      fontSize: 12,
-      color: colors.textSecondary,
-      lineHeight: 18,
-    },
-    notificationButton: {
-      marginTop: 16,
-      backgroundColor: colors.primary,
-      paddingVertical: 12,
-      borderRadius: 10,
-      alignItems: 'center',
-    },
-    notificationButtonText: {
-      color: '#fff',
-      fontSize: 15,
-      fontWeight: '600',
-    },
-    notificationButtonSecondary: {
-      backgroundColor: 'transparent',
-      borderWidth: 1,
-      borderColor: colors.primary,
-    },
-    notificationButtonSecondaryText: {
-      color: colors.primary,
-    },
     sectionTitle: {
-      fontSize: 20,
+      fontFamily: SETTINGS_FONT,
+      fontSize: 16,
       fontWeight: '700',
       color: colors.text,
-      paddingHorizontal: 16,
-      paddingVertical: 10,
-      marginBottom: 2,
+      letterSpacing: 0.2,
+      paddingHorizontal: 18,
+      paddingTop: 4,
+      paddingBottom: 10,
     },
-    optionCard: {
+    row: {
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'space-between',
-      marginHorizontal: 16,
-      marginBottom: 10,
-      borderRadius: 14,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.surface,
-      paddingVertical: 14,
-      paddingHorizontal: 14,
-    },
-    optionText: {
-      fontSize: 16,
-      fontWeight: '500',
-      color: colors.text,
-      flex: 1,
-      marginRight: 12,
-    },
-    themeChipsRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-    },
-    themeChip: {
+      marginHorizontal: 12,
+      marginBottom: 8,
+      paddingVertical: 11,
       paddingHorizontal: 12,
-      paddingVertical: 6,
-      borderRadius: 16,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.card,
-    },
-    themeChipActive: {
-      backgroundColor: 'rgba(202, 151, 57, 1)',
-      borderColor: 'rgba(209, 165, 84, 1)',
-    },
-    themeChipText: {
-      fontSize: 13,
-      fontWeight: '500',
-      color: colors.textSecondary,
-    },
-    themeChipTextActive: {
-      color: '#FFFFFF',
-    },
-    option: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingHorizontal: 14,
-      paddingVertical: 14,
-      marginHorizontal: 16,
-      marginBottom: 10,
       borderRadius: 14,
       borderWidth: 1,
       borderColor: colors.border,
       backgroundColor: colors.surface,
     },
-    optionLast: {
-      marginBottom: 10,
-    },
-    optionLeft: {
-      flex: 1,
-      marginRight: 12,
-    },
-    optionTitle: {
-      fontSize: 16,
-      fontWeight: '500',
-      color: colors.text,
+    rowLast: {
       marginBottom: 4,
     },
-    optionDescription: {
-      fontSize: 13,
+    rowDisabled: {
+      opacity: 0.5,
+    },
+    rowIcon: {
+      width: 34,
+      height: 34,
+      borderRadius: 17,
+      backgroundColor: isDark ? 'rgba(201, 163, 90, 0.22)' : 'rgba(179, 135, 55, 0.15)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: 12,
+    },
+    rowIconDanger: {
+      backgroundColor: isDark ? 'rgba(239, 83, 80, 0.16)' : 'rgba(255, 68, 68, 0.10)',
+    },
+    rowBody: {
+      flex: 1,
+      marginRight: 8,
+    },
+    rowTitle: {
+      fontFamily: SETTINGS_FONT,
+      fontSize: 15,
+      fontWeight: '600',
+      color: colors.text,
+    },
+    rowTitleDanger: {
+      color: colors.error,
+    },
+    rowDescription: {
+      fontFamily: SETTINGS_FONT,
+      fontSize: 12.5,
       color: colors.textSecondary,
+      marginTop: 2,
+      lineHeight: 17,
     },
-    themeOptions: {
-      flexDirection: 'row',
-      gap: 8,
-      marginTop: 12,
-    },
-    themeButton: {
-      paddingHorizontal: 16,
-      paddingVertical: 8,
-      borderRadius: 20,
+    themeRow: {
+      marginHorizontal: 12,
+      marginBottom: 8,
+      paddingVertical: 11,
+      paddingHorizontal: 12,
+      borderRadius: 14,
       borderWidth: 1,
       borderColor: colors.border,
-      backgroundColor: colors.card,
+      backgroundColor: colors.surface,
     },
-    themeButtonActive: {
-      backgroundColor: 'rgba(202, 151, 57, 1)',
-      borderColor: 'rgba(209, 165, 84, 1)',
+    themeRowHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
     },
-    themeButtonText: {
+    segmentedTrack: {
+      flexDirection: 'row',
+      marginTop: 12,
+      padding: 3,
+      borderRadius: 999,
+      backgroundColor: isDark ? 'rgba(0, 0, 0, 0.28)' : 'rgba(0, 0, 0, 0.06)',
+    },
+    segment: {
+      flex: 1,
+      paddingVertical: 7,
+      borderRadius: 999,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    segmentActive: {
+      backgroundColor: colors.primary,
+    },
+    segmentText: {
+      fontFamily: SETTINGS_FONT,
       fontSize: 13,
       fontWeight: '600',
       color: colors.textSecondary,
     },
-    themeButtonTextActive: {
+    segmentTextActive: {
       color: '#FFFFFF',
     },
     languageOptions: {
       flexDirection: 'row',
       flexWrap: 'wrap',
       gap: 8,
-      paddingHorizontal: 16,
-      marginTop: 8,
-      marginBottom: 6,
+      paddingHorizontal: 12,
+      marginTop: 2,
+      marginBottom: 8,
     },
     languageButton: {
-      paddingHorizontal: 14,
-      paddingVertical: 10,
-      borderRadius: 18,
+      paddingHorizontal: 16,
+      paddingVertical: 9,
+      borderRadius: 999,
       borderWidth: 1,
       borderColor: colors.border,
-      backgroundColor: colors.card,
+      backgroundColor: colors.surface,
     },
     languageButtonActive: {
-      backgroundColor: 'rgba(202, 151, 57, 1)',
-      borderColor: 'rgba(209, 165, 84, 1)',
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
     },
     languageButtonText: {
+      fontFamily: SETTINGS_FONT,
       fontSize: 13,
       color: colors.textSecondary,
       fontWeight: '600',
@@ -442,21 +361,21 @@ export default function SettingsScreen({ navigation }: any) {
     languageButtonTextActive: {
       color: '#FFFFFF',
     },
-    arrow: {
-      fontSize: 24,
-      color: 'rgba(202, 151, 57, 1)',
-    },
     logoutButton: {
-      backgroundColor: 'rgb(202, 57, 57)',
-      marginHorizontal: 16,
-      marginTop: 20,
-      marginBottom: 40,
-      padding: 16,
-      borderRadius: 16,
+      flexDirection: 'row',
       alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      backgroundColor: '#D64545',
+      marginHorizontal: 16,
+      marginTop: 24,
+      marginBottom: 24,
+      paddingVertical: 15,
+      borderRadius: 16,
     },
     logoutButtonText: {
-      fontSize: 16,
+      fontFamily: SETTINGS_FONT,
+      fontSize: 15.5,
       fontWeight: '700',
       color: '#FFFFFF',
     },
@@ -515,23 +434,32 @@ export default function SettingsScreen({ navigation }: any) {
           languageOptions={languageOptions}
           preference={preference}
           language={language}
+          colors={colors}
           onChangeLanguage={changeLanguage}
           t={t}
           styles={styles}
         />
 
         <SettingsPrivacySection
+          colors={colors}
           onOpenTerms={handleOpenTerms}
           t={t}
           styles={styles}
         />
 
         <SettingsAboutSection
+          colors={colors}
           t={t}
           styles={styles}
         />
 
-        <TouchableOpacity style={[styles.logoutButton, logoutInProgress && { opacity: 0.7 }]} onPress={handleLogout} disabled={logoutInProgress}>
+        <TouchableOpacity
+          style={[styles.logoutButton, logoutInProgress && { opacity: 0.7 }]}
+          onPress={handleLogout}
+          disabled={logoutInProgress}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="log-out-outline" size={18} color="#FFFFFF" />
           <Text style={styles.logoutButtonText}>{t('settings.actions.logout')}</Text>
         </TouchableOpacity>
       </ScrollView>
