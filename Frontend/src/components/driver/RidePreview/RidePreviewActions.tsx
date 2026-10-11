@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, Animated } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 import { LoadingIcon } from '../../ui/LoadingIcon';
 import type { TFunction } from 'i18next';
 
@@ -28,6 +29,9 @@ export function RidePreviewActions({
   styles,
   t,
 }: RidePreviewActionsProps) {
+  const acceptLabel = t('driver.ridePreview.buttons.accept');
+  const rejectLabel = t('driver.ridePreview.buttons.reject');
+
   return (
     <View style={styles.actionsRow}>
       <AnimatedTouchableOpacity
@@ -42,11 +46,17 @@ export function RidePreviewActions({
         onPress={onAccept}
         activeOpacity={0.85}
         disabled={acceptingRide}
+        accessibilityRole="button"
+        accessibilityLabel={acceptLabel}
+        accessibilityState={{ busy: acceptingRide }}
       >
         {acceptingRide ? (
           <LoadingIcon size={20} color="#FFFFFF" />
         ) : (
-          <Text style={styles.actionButtonText}>{t('driver.ridePreview.buttons.accept')}</Text>
+          <View style={styles.actionButtonContent}>
+            <MaterialIcons name="check" size={20} color="#0D0D0D" />
+            <Text style={[styles.actionButtonText, { color: '#0D0D0D' }]}>{acceptLabel}</Text>
+          </View>
         )}
       </AnimatedTouchableOpacity>
 
@@ -62,11 +72,17 @@ export function RidePreviewActions({
         onPress={onReject}
         activeOpacity={0.85}
         disabled={isRejectingRide}
+        accessibilityRole="button"
+        accessibilityLabel={rejectLabel}
+        accessibilityState={{ busy: isRejectingRide }}
       >
         {isRejectingRide ? (
           <LoadingIcon size={20} color="#FFFFFF" />
         ) : (
-          <Text style={styles.actionButtonText}>{t('driver.ridePreview.buttons.reject')}</Text>
+          <View style={styles.actionButtonContent}>
+            <MaterialIcons name="close" size={20} color="#FFFFFF" />
+            <Text style={[styles.actionButtonText, { color: '#FFFFFF' }]}>{rejectLabel}</Text>
+          </View>
         )}
       </AnimatedTouchableOpacity>
     </View>

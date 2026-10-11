@@ -4,7 +4,7 @@
  * Mantiene solo los últimos 100 mensajes por chat
  */
 
-import * as functions from 'firebase-functions';
+import * as functions from 'firebase-functions/v1';
 import admin from 'firebase-admin';
 
 export const cleanupChatMessages = functions

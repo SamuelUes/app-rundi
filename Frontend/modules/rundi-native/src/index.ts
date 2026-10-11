@@ -21,6 +21,7 @@ declare class OverlayPermissionModuleType extends NativeModule<RundiNativeModule
   }): Promise<boolean>;
   hideRideOverlay(): Promise<boolean>;
   openOverlaySettings(): Promise<boolean>;
+  bringAppToFront(rideId: string): Promise<boolean>;
 }
 
 declare class ForegroundServiceModuleType extends NativeModule {
@@ -38,7 +39,22 @@ declare class BatteryOptimizationModuleType extends NativeModule {
   requestIgnoreOptimizations(): Promise<boolean>;
 }
 
+declare class RundiLiveActivityModuleType extends NativeModule {
+  liveActivitiesEnabled(): Promise<boolean>;
+  hasRideActivity(): Promise<boolean>;
+  showRideActivity(args: {
+    rideId: string;
+    price: number;
+    distanceKm: number;
+    clientName?: string | null;
+    variant?: 'app' | 'nearby_ride';
+  }): Promise<boolean>;
+  hideRideActivity(): Promise<boolean>;
+  openLiveActivitySettings(): Promise<boolean>;
+}
+
 const isAndroid = Platform.OS === 'android';
+const isIOS = Platform.OS === 'ios';
 
 export const OverlayPermissionModule = isAndroid
   ? requireNativeModule<OverlayPermissionModuleType>('OverlayPermissionModule')
@@ -52,10 +68,14 @@ export const WorkManagerModule = isAndroid
 export const BatteryOptimizationModule = isAndroid
   ? requireNativeModule<BatteryOptimizationModuleType>('BatteryOptimizationModule')
   : null;
+export const RundiLiveActivityModule = isIOS
+  ? requireNativeModule<RundiLiveActivityModuleType>('RundiNative')
+  : null;
 
 export default {
   OverlayPermissionModule,
   ForegroundServiceModule,
   WorkManagerModule,
   BatteryOptimizationModule,
+  RundiLiveActivityModule,
 };

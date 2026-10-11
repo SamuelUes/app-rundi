@@ -1,4 +1,4 @@
-import * as functions from 'firebase-functions';
+import * as functions from 'firebase-functions/v1';
 import admin from 'firebase-admin';
 import { notifyUserSafe } from '../services/notifyUserSafe';
 import { RideRepository } from '../sequelize/repositories/RideRepository';
@@ -212,10 +212,21 @@ export const processProgrammedRides = functions
       .limitToFirst(100)
       .once('value');
 
+    // Query 3: Rides huérfanos cuya ventana de procesamiento ya cerró (scheduledAt < windowStart)
+    // Sin este barrido, un ride no cancelado quedaría atascado para siempre en driver_assigned
+    // si el scheduler estuvo caído más de 70min o si la promoción falló repetidamente.
+    const staleSnapshot = await db
+      .ref('programmedRides')
+      .orderByChild('scheduledAt')
+      .endAt(windowStart)
+      .limitToFirst(100)
+      .once('value');
+
     // Combinar resultados eliminando duplicados
     const windowRides = windowSnapshot.val() || {};
     const canceledRides = canceledSnapshot.val() || {};
-    const rides: Record<string, any> = { ...canceledRides };
+    const staleRides = staleSnapshot.val() || {};
+    const rides: Record<string, any> = { ...staleRides, ...canceledRides };
     for (const [key, value] of Object.entries(windowRides)) {
       if (!rides[key]) {
         rides[key] = value;
@@ -250,6 +261,38 @@ export const processProgrammedRides = functions
               error,
             });
           }
+        }
+        continue;
+      }
+
+      // Ride huérfano: su ventana de procesamiento ya cerró sin ser promovido ni
+      // cancelado (scheduler caído >70min o promoción fallida repetidamente).
+      // Lo cancelamos para que no quede atascado indefinidamente.
+      if (scheduledAt < windowStart) {
+        try {
+          await db.ref(`programmedRides/${rideId}`).update({
+            status: 'canceled',
+            cancelReason: 'missed_processing_window',
+            canceledBy: 'system',
+            canceledAt: admin.database.ServerValue.TIMESTAMP,
+            updatedAt: admin.database.ServerValue.TIMESTAMP,
+          });
+          await db.ref(`programmedRideCodes/${rideId}`).remove();
+          await programmedNotify(rawRide.clientId, 'Viaje programado expirado', 'Tu viaje programado no pudo procesarse a tiempo y fue cancelado.', {
+            rideId,
+            type: 'programmed_ride_canceled',
+          });
+          if (rawRide.driverId) {
+            await programmedNotify(rawRide.driverId, 'Viaje programado cancelado', 'El viaje programado fue cancelado.', {
+              rideId,
+              type: 'programmed_ride_canceled',
+            });
+          }
+        } catch (error) {
+          console.error('❌ [programmedRides] Error cancelando ride huérfano', {
+            rideId,
+            error,
+          });
         }
         continue;
       }
@@ -318,6 +361,7 @@ export const processProgrammedRides = functions
             canceledAt: admin.database.ServerValue.TIMESTAMP,
             updatedAt: admin.database.ServerValue.TIMESTAMP,
           });
+          await db.ref(`programmedRideCodes/${rideId}`).remove();
           await programmedNotify(rawRide.clientId, 'Viaje cancelado', 'No confirmaste tu viaje programado a tiempo.', {
             rideId,
             type: 'programmed_ride_canceled',
@@ -395,6 +439,7 @@ export const processProgrammedRides = functions
         );
 
         await programmedRef.remove();
+        await db.ref(`programmedRideCodes/${rideId}`).remove();
 
         await programmedNotify(rawRide.clientId, '🚗 Tu viaje programado está listo', 'Tu viaje ha sido activado.', {
           rideId,

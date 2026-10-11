@@ -5,11 +5,12 @@
  * usando Google Maps API en el backend.
  */
 
-import * as functions from 'firebase-functions';
+import '../config/env';
+import * as functions from 'firebase-functions/v1';
 import { Client, TravelMode, UnitSystem } from '@googlemaps/google-maps-services-js';
 
 const mapsClient = new Client({});
-const GOOGLE_MAPS_API_KEY = functions.config().google?.maps_api_key || process.env.GOOGLE_MAPS_API_KEY;
+const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
 
 /**
  * Calcula una ruta entre origen y destino con waypoints opcionales

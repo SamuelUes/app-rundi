@@ -1,4 +1,4 @@
-import * as functions from 'firebase-functions';
+import * as functions from 'firebase-functions/v1';
 import admin from 'firebase-admin';
 import { DriverRepository } from '../sequelize/repositories/DriverRepository';
 import { RideLocationRepository } from '../sequelize/repositories/RideLocationRepository';
@@ -221,6 +221,72 @@ const validateScheduledAt = (value: any): number | null => {
 const PROGRAMMED_RIDE_CONFLICT_BEFORE_MS = 20 * 60 * 1000; // 20 minutos antes
 const PROGRAMMED_RIDE_CONFLICT_AFTER_MS = 30 * 60 * 1000; // 30 minutos después
 
+// Solo los viajes programados "vivos" bloquean nuevas solicitudes. Los estados
+// terminales (canceled, completed, expired, activated) no deben generar conflicto.
+const PROGRAMMED_RIDE_ACTIVE_STATUSES = new Set([
+  'scheduled',
+  'driver_assigned',
+  'client_confirmed',
+  'driver_confirmed',
+]);
+
+// Alfabeto sin caracteres ambiguos (0/O, 1/I/L) para códigos dictados por teléfono/chat
+const CLAIM_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+const CLAIM_CODE_LENGTH = 6;
+const CLAIM_CODE_MAX_ATTEMPTS = 8;
+
+const generateClaimCode = (): string => {
+  let code = '';
+  for (let i = 0; i < CLAIM_CODE_LENGTH; i += 1) {
+    code += CLAIM_CODE_ALPHABET[Math.floor(Math.random() * CLAIM_CODE_ALPHABET.length)];
+  }
+  return code;
+};
+
+const normalizeClaimCode = (value: any): string =>
+  String(value ?? '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '');
+
+const issueProgrammedRideClaimCode = async (
+  rideId: string,
+  clientId: string,
+): Promise<string | null> => {
+  for (let attempt = 0; attempt < CLAIM_CODE_MAX_ATTEMPTS; attempt += 1) {
+    const code = generateClaimCode();
+    const indexRef = db.ref(`claimCodeIndex/${code}`);
+    const existing = await indexRef.once('value');
+    if (existing.exists()) {
+      continue;
+    }
+
+    const updates: Record<string, any> = {};
+    updates[`claimCodeIndex/${code}`] = { rideId, clientId, createdAt: Date.now() };
+    updates[`programmedRideCodes/${rideId}`] = { code, clientId, createdAt: Date.now() };
+    await db.ref().update(updates);
+    return code;
+  }
+  return null;
+};
+
+const clearProgrammedRideClaimCode = async (rideId: string): Promise<void> => {
+  try {
+    const snap = await db.ref(`programmedRideCodes/${rideId}`).once('value');
+    const code = snap.val()?.code;
+    const updates: Record<string, any> = {};
+    updates[`programmedRideCodes/${rideId}`] = null;
+    if (typeof code === 'string' && code) {
+      updates[`claimCodeIndex/${code}`] = null;
+    }
+    await db.ref().update(updates);
+  } catch (error: any) {
+    console.warn('[programmedRides] No se pudo limpiar claim code', {
+      rideId,
+      error: error?.message || error,
+    });
+  }
+};
+
 interface ProgrammedRideConflict {
   rideId: string;
   scheduledAt: number;
@@ -249,7 +315,7 @@ const findConflictingProgrammedRideForClient = async (
         return false;
       }
 
-      if (value.status === 'canceled') {
+      if (!PROGRAMMED_RIDE_ACTIVE_STATUSES.has(String(value.status))) {
         return false;
       }
 
@@ -424,6 +490,11 @@ export const createProgrammedRide = functions.https.onCall(async (data, context)
 
   await db.ref(`programmedRides/${rideId}`).set(payload);
 
+  const claimCode = await issueProgrammedRideClaimCode(rideId, clientId);
+  if (!claimCode) {
+    console.warn('[createProgrammedRide] No se pudo emitir claim code', { rideId });
+  }
+
   await notifyUserSafe(clientId, '✅ Viaje programado', 'Tu viaje fue programado correctamente.', {
     rideId,
   }, {
@@ -441,9 +512,80 @@ export const createProgrammedRide = functions.https.onCall(async (data, context)
       id: rideId,
       status: 'scheduled',
       scheduledAt,
+      claimCode: claimCode ?? null,
     },
   };
 });
+
+const assignDriverToProgrammedRideCore = async (
+  rideId: string,
+  driverId: string,
+  driverRole: string | null,
+): Promise<{ id: string; driverId: string }> => {
+  const rideRef = db.ref(`programmedRides/${rideId}`);
+  const preSnap = await rideRef.once('value');
+  const preData = preSnap.val();
+  if (!preData) {
+    throw new functions.https.HttpsError('not-found', 'Viaje programado no encontrado');
+  }
+  if (preData.status === 'canceled') {
+    throw new functions.https.HttpsError('failed-precondition', 'Viaje programado está cancelado');
+  }
+
+  const rideType = String(preData.rideType || '').toLowerCase();
+  if (rideType === 'designated_driver' && driverRole !== 'designated_driver') {
+    throw new functions.https.HttpsError('permission-denied', 'Este viaje requiere un conductor designado');
+  }
+
+  // Transacción: solo un conductor puede tomar el viaje; si otro claim/assign
+  // concurrente ya puso driverId, la transacción se aborta.
+  const txResult = await rideRef.transaction((current: any) => {
+    if (current === null) {
+      return current;
+    }
+    if (current.status === 'canceled') {
+      return; // abort → canceled
+    }
+    if (current.driverId && current.driverId !== driverId) {
+      return; // abort → already assigned
+    }
+    return {
+      ...current,
+      driverId,
+      status: 'driver_assigned',
+      driverAssignedAt: Date.now(),
+      driverConfirmed: false,
+      driverConfirmedAt: null,
+      driverConfirmationRequestedAt: null,
+      updatedAt: Date.now(),
+    };
+  });
+
+  if (!txResult.committed) {
+    const snap = await rideRef.once('value');
+    const rideData = snap.val();
+    if (rideData?.status === 'canceled') {
+      throw new functions.https.HttpsError('failed-precondition', 'Viaje programado está cancelado');
+    }
+    throw new functions.https.HttpsError('failed-precondition', 'Viaje programado ya tiene conductor asignado');
+  }
+
+  const rideData = txResult.snapshot.val();
+
+  const driverInfo = await fetchDriverInfoFromRealtime(driverId);
+  await rideRef.update({ driver: driverInfo });
+
+  await notifyUserSafe(rideData.clientId, '🚗 Conductor asignado', 'Un conductor se asignó a tu viaje programado.', {
+    rideId,
+    driverId,
+  });
+
+  await safeLogRideEvent(AnalyticsEvents.RIDE_ACCEPTED, rideId, driverId, {
+    isProgrammed: true,
+  });
+
+  return { id: rideId, driverId };
+};
 
 export const assignDriverToProgrammedRide = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
@@ -463,52 +605,50 @@ export const assignDriverToProgrammedRide = functions.https.onCall(async (data, 
     throw new functions.https.HttpsError('invalid-argument', 'rideId es requerido');
   }
 
-  const rideRef = db.ref(`programmedRides/${rideId}`);
-  const rideSnap = await rideRef.once('value');
-  const rideData = rideSnap.val();
-  if (!rideData) {
-    throw new functions.https.HttpsError('not-found', 'Viaje programado no encontrado');
+  const ride = await assignDriverToProgrammedRideCore(rideId, driverId, driverRole);
+  return { success: true, ride };
+});
+
+export const claimProgrammedRideByCode = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
+  }
+  await ensureActiveSession(context, data);
+
+  const driverId = context.auth.uid;
+  const driverRole = await fetchFirestoreUserRole(driverId);
+
+  if (driverRole !== 'driver' && driverRole !== 'designated_driver') {
+    throw new functions.https.HttpsError('permission-denied', 'Solo conductores pueden reclamar viajes programados');
   }
 
-  if (rideData.status === 'canceled') {
-    throw new functions.https.HttpsError('failed-precondition', 'Viaje programado está cancelado');
+  const code = normalizeClaimCode(data?.code ?? data?.claimCode);
+  if (code.length !== CLAIM_CODE_LENGTH) {
+    throw new functions.https.HttpsError('invalid-argument', 'El código debe tener 6 caracteres');
   }
 
-  const rideType = String(rideData.rideType || '').toLowerCase();
-  if (rideType === 'designated_driver' && driverRole !== 'designated_driver') {
-    throw new functions.https.HttpsError('permission-denied', 'Este viaje requiere un conductor designado');
+  const indexSnap = await db.ref(`claimCodeIndex/${code}`).once('value');
+  const indexEntry = indexSnap.val();
+  const rideId = typeof indexEntry?.rideId === 'string' ? indexEntry.rideId : null;
+  if (!rideId) {
+    throw new functions.https.HttpsError('not-found', 'Código inválido o expirado');
   }
 
-  if (rideData.driverId && rideData.driverId !== driverId) {
-    throw new functions.https.HttpsError('failed-precondition', 'Viaje programado ya tiene conductor asignado');
+  try {
+    const ride = await assignDriverToProgrammedRideCore(rideId, driverId, driverRole);
+    return { success: true, ride: { id: ride.id, driverId: ride.driverId } };
+  } catch (error: any) {
+    // Self-heal: si el ride ya no existe (cancelado/activado/eliminado), limpiar
+    // la entrada huérfana del índice para que el código quede inutilizable.
+    if (error instanceof functions.https.HttpsError && error.code === 'not-found') {
+      const updates: Record<string, any> = {};
+      updates[`claimCodeIndex/${code}`] = null;
+      updates[`programmedRideCodes/${rideId}`] = null;
+      await db.ref().update(updates).catch(() => undefined);
+      throw new functions.https.HttpsError('not-found', 'Código inválido o expirado');
+    }
+    throw error;
   }
-
-  const driverInfo = await fetchDriverInfoFromRealtime(driverId);
-
-  await db.ref(`programmedRides/${rideId}`).update({
-    driverId,
-    driver: driverInfo,
-    status: 'driver_assigned',
-    driverAssignedAt: admin.database.ServerValue.TIMESTAMP,
-    driverConfirmed: false,
-    driverConfirmedAt: null,
-    driverConfirmationRequestedAt: null,
-    updatedAt: admin.database.ServerValue.TIMESTAMP,
-  });
-
-  await notifyUserSafe(rideData.clientId, '🚗 Conductor asignado', 'Un conductor se asignó a tu viaje programado.', {
-    rideId,
-    driverId,
-  });
-
-  await safeLogRideEvent(AnalyticsEvents.RIDE_ACCEPTED, rideId, driverId, {
-    isProgrammed: true,
-  });
-
-  return {
-    success: true,
-    ride: { id: rideId, driverId },
-  };
 });
 
 export const confirmProgrammedRideClient = functions.https.onCall(async (data, context) => {
@@ -540,12 +680,18 @@ export const confirmProgrammedRideClient = functions.https.onCall(async (data, c
   }
 
   const now = admin.database.ServerValue.TIMESTAMP;
-  await rideRef.update({
+  const confirmUpdate: Record<string, any> = {
     clientConfirmedAt: now,
     clientConfirmed: true,
     status: 'client_confirmed',
     updatedAt: now,
-  });
+  };
+  // Si ya hay conductor asignado, habilitar su confirmación de inmediato — sin
+  // esperar a que el cron abra la ventana de confirmación (scheduledAt - 10min).
+  if (rideData.driverId && !rideData.driverConfirmationRequestedAt) {
+    confirmUpdate.driverConfirmationRequestedAt = now;
+  }
+  await rideRef.update(confirmUpdate);
 
   const updatedRideSnap = await rideRef.once('value');
   const updatedRideData = updatedRideSnap.val();
@@ -715,6 +861,8 @@ export const cancelProgrammedRide = functions.https.onCall(async (data, context)
   } catch (error) {
     console.error('❌ [cancelProgrammedRide] Error eliminando programmedRide', { rideId, error });
   }
+
+  await clearProgrammedRideClaimCode(rideId);
 
   const serviceAreaId = rideData.serviceAreaId;
   if (serviceAreaId) {
@@ -1333,7 +1481,9 @@ export const markDriverOnRoute = functions.https.onCall(async (data, context) =>
       throw new functions.https.HttpsError('not-found', 'Viaje no encontrado en Firebase');
     }
 
-    if (rideData.driverId && rideData.driverId !== driverId) {
+    // Ownership estricto: sin driverId asignado el viaje aún no pertenece a
+    // nadie — un conductor cualquiera no puede auto-asignarse marcando "en camino".
+    if (!rideData.driverId || rideData.driverId !== driverId) {
       throw new functions.https.HttpsError('permission-denied', 'No eres el conductor asignado a este viaje');
     }
 
@@ -1346,7 +1496,9 @@ export const markDriverOnRoute = functions.https.onCall(async (data, context) =>
       };
     }
 
-    if (!['accepted', 'driver_offered'].includes(rideData.status)) {
+    // Según el state machine solo 'accepted → driver_on_route' es válida:
+    // 'driver_offered' requiere primero la confirmación del cliente.
+    if (rideData.status !== 'accepted') {
       throw new functions.https.HttpsError('failed-precondition', `Estado actual (${rideData.status}) no permite marcar en camino`);
     }
 
@@ -1460,6 +1612,18 @@ export const createRide = functions.https.onCall(async (data, context) => {
     // Validar datos requeridos
     if (!origin || !destination || !estimatedPrice) {
       throw new functions.https.HttpsError('invalid-argument', 'origin, destination y estimatedPrice son requeridos');
+    }
+
+    // ✅ Idempotencia: el cliente solo puede tener un viaje activo.
+    // Evita duplicados por doble-tap/retry en el frontend.
+    const activeRides = await rideRepo.findActiveByClientId(clientId);
+    if (activeRides.length > 0) {
+      console.warn(`⚠️ [createRide] Cliente ${clientId} ya tiene viaje activo: ${activeRides[0].id} (${activeRides[0].status})`);
+      throw new functions.https.HttpsError('failed-precondition', 'CLIENT_HAS_ACTIVE_RIDE', {
+        code: 'CLIENT_HAS_ACTIVE_RIDE',
+        existingRideId: activeRides[0].id,
+        existingStatus: activeRides[0].status,
+      });
     }
 
     // Verificar si el cliente ya tiene un viaje programado que entre en conflicto con este horario inmediato
@@ -1816,6 +1980,9 @@ export const createRide = functions.https.onCall(async (data, context) => {
     console.error(`❌ [createRide] Mensaje:`, error.message);
     console.error(`❌ [createRide] Stack:`, error.stack);
     console.error(`${'='.repeat(60)}\n`);
+    if (error instanceof functions.https.HttpsError) {
+      throw error;
+    }
     throw new functions.https.HttpsError('internal', 'Error interno del servidor');
   }
 });
@@ -2240,6 +2407,29 @@ export const confirmDriver = functions.https.onCall(async (data, context) => {
       throw new functions.https.HttpsError('failed-precondition', 'El viaje ya está asignado a otro conductor');
     }
 
+    // ✅ Solo estados en los que el cliente puede confirmar un conductor
+    const confirmableStatuses = ['requested', 'driver_offered', 'pending_confirm'];
+    if (!confirmableStatuses.includes(rideData.status)) {
+      throw new functions.https.HttpsError(
+        'failed-precondition',
+        `No se puede confirmar un conductor en estado: ${rideData.status}`
+      );
+    }
+
+    // ✅ Seguridad: el conductor seleccionado debe tener una oferta registrada
+    //    (aceptó el viaje, aceptó el precio del cliente o hizo contraoferta).
+    const selectedOffer = rideData.offers?.[selectedDriverId];
+    const hasValidOffer = !!selectedOffer && ['pending', 'accepted'].includes(
+      String(selectedOffer.status || 'pending').toLowerCase(),
+    );
+    const isRideLevelDriver = rideData.driverId === selectedDriverId;
+    if (!hasValidOffer && !isRideLevelDriver) {
+      throw new functions.https.HttpsError(
+        'failed-precondition',
+        'El conductor seleccionado no tiene una oferta activa para este viaje'
+      );
+    }
+
     // ✅ NUEVO: Bloquear si el conductor está BUSY
     try {
       const locSnap = await db.ref(`driverLocations/${selectedDriverId}`).once('value');
@@ -2447,8 +2637,27 @@ export const confirmDriver = functions.https.onCall(async (data, context) => {
       if (rideData.driverOfferedPrice) {
         supabaseUpdateData.driver_offered_price = rideData.driverOfferedPrice;
       }
-      
-      await rideRepo.update(rideId, supabaseUpdateData);
+
+      // ✅ Actualización condicional: no pisar un viaje cancelado/completado
+      //    entre el check en RTDB y este write.
+      const pgRide = await rideRepo.findById(rideId);
+      if (!pgRide) {
+        throw new functions.https.HttpsError('not-found', 'Viaje no encontrado en PostgreSQL');
+      }
+      const pgConfirmableStatuses = ['requested', 'driver_offered', 'pending_confirm', 'accepted'];
+      if (!pgConfirmableStatuses.includes(pgRide.status)) {
+        throw new functions.https.HttpsError(
+          'failed-precondition',
+          `El viaje ya no es confirmable (estado actual: ${pgRide.status})`
+        );
+      }
+      const updatedCount = await rideRepo.updateIfStatus(rideId, pgRide.status, supabaseUpdateData);
+      if (updatedCount === 0) {
+        throw new functions.https.HttpsError(
+          'failed-precondition',
+          'El estado del viaje cambió durante la confirmación (operación concurrente)'
+        );
+      }
       console.log(`✅ [confirmDriver] Viaje actualizado en Supabase`);
     } catch (supabaseError: any) {
       console.warn(`⚠️ [confirmDriver] Error actualizando en Supabase:`, supabaseError.message);
@@ -2489,10 +2698,35 @@ export const startRide = functions.https.onCall(async (data, context) => {
   // Enforce single-session
   await ensureActiveSession(context, data);
   try {
-    const { rideId } = validateData<StartRide>(StartRideSchema, data);
+    const { rideId, vehicleInspection } = validateData<StartRide>(StartRideSchema, data);
     console.log(`🚗 [startRide] Iniciando viaje: ${rideId}`);
 
-    let latestActiveRideSnapshot: any = null;
+    // Inspección de vehículo (conductor designado): se persiste junto al
+    // arranque para que ambos participantes la vean en activeRides.
+    const inspectionPayload =
+      vehicleInspection && typeof vehicleInspection === 'object'
+        ? {
+            inspected: vehicleInspection.inspected === true,
+            timestamp: typeof vehicleInspection.timestamp === 'number' ? vehicleInspection.timestamp : Date.now(),
+            driver_id: context.auth!.uid,
+            inspection_id: typeof vehicleInspection.inspection_id === 'string' ? vehicleInspection.inspection_id : null,
+            photos: vehicleInspection.photos && typeof vehicleInspection.photos === 'object' ? vehicleInspection.photos : null,
+            storage_provider: 'supabase',
+          }
+        : null;
+
+    // Ownership temprano: leer el viaje activo una sola vez y verificar que el
+    // caller es el conductor asignado antes de tocar PostgreSQL.
+    const earlySnapshot = await db.ref(`activeRides/${rideId}`).once('value');
+    const earlyData = earlySnapshot.val();
+    if (!earlyData) {
+      throw new functions.https.HttpsError('not-found', 'Viaje no encontrado en Firebase');
+    }
+    if (!earlyData.driverId || earlyData.driverId !== context.auth!.uid) {
+      throw new functions.https.HttpsError('permission-denied', 'No eres el conductor asignado a este viaje');
+    }
+
+    let latestActiveRideSnapshot: any = earlyData;
 
     if (IS_LOAD_TEST) {
       try {
@@ -2507,6 +2741,7 @@ export const startRide = functions.https.onCall(async (data, context) => {
           clientSuggestedPrice: currentData.clientSuggestedPrice || null,
           driverOfferedPrice: currentData.driverOfferedPrice || null,
           negotiationStatus: currentData.negotiationStatus || null,
+          ...(inspectionPayload ? { vehicleInspection: inspectionPayload } : {}),
         });
         console.log(`✅ [startRide][LOADTEST] Viaje sincronizado a Firebase`);
 
@@ -2530,7 +2765,7 @@ export const startRide = functions.https.onCall(async (data, context) => {
       return { success: true, ride: { id: rideId, status: 'in_progress' } };
     }
 
-    const ride = await rideService.startRide(rideId);
+    const ride = await rideService.startRide(rideId, context.auth!.uid);
     if (!ride) {
       throw new functions.https.HttpsError('internal', 'Error al iniciar el viaje');
     }
@@ -2538,9 +2773,8 @@ export const startRide = functions.https.onCall(async (data, context) => {
     // Sincronizar a Firebase Realtime DB
     console.log(`🔥 [startRide] Sincronizando a Firebase...`);
     try {
-      // Obtener datos actuales para preservar negociación
-      const currentRide = await db.ref(`activeRides/${rideId}`).once('value');
-      const currentData = currentRide.val() || {};
+      // Reusar el snapshot leído al inicio (mismo RTDB, aún no modificado)
+      const currentData = earlyData || {};
       latestActiveRideSnapshot = currentData;
       
       if (currentData.status === 'in_progress') {
@@ -2554,6 +2788,7 @@ export const startRide = functions.https.onCall(async (data, context) => {
           clientSuggestedPrice: currentData.clientSuggestedPrice || null,
           driverOfferedPrice: currentData.driverOfferedPrice || null,
           negotiationStatus: currentData.negotiationStatus || null,
+          ...(inspectionPayload ? { vehicleInspection: inspectionPayload } : {}),
         });
         console.log(`✅ [startRide] Viaje sincronizado a Firebase`);
 
@@ -2611,18 +2846,62 @@ export const completeRide = functions.https.onCall(async (data, context) => {
   // Enforce single-session
   await ensureActiveSession(context, data);
   try {
-    const { rideId, finalFare, driverId } = validateData<CompleteRide>(CompleteRideSchema, data);
+    const { rideId, finalFare, actualDistance, actualDuration } = validateData<CompleteRide>(CompleteRideSchema, data);
+    const callerUid = context.auth!.uid;
     console.log(`✅ [completeRide] Completando viaje: ${rideId}`);
+
+    // Snapshot temprano: verifica ownership y estado antes de tocar PostgreSQL,
+    // y se reutiliza después para no releer el nodo.
+    const earlySnapshot = await db.ref(`activeRides/${rideId}`).once('value');
+    const earlyData = earlySnapshot.val();
+    if (!earlyData) {
+      throw new functions.https.HttpsError('not-found', 'Viaje no encontrado en Firebase');
+    }
+    if (!earlyData.driverId || earlyData.driverId !== callerUid) {
+      throw new functions.https.HttpsError('permission-denied', 'No eres el conductor asignado a este viaje');
+    }
+
+    // Idempotencia: el viaje ya está esperando pago o completado.
+    if (['pending_payment', 'completed'].includes(earlyData.status)) {
+      console.log(`🔁 [completeRide] Viaje ${rideId} ya estaba en ${earlyData.status}`);
+      return {
+        success: true,
+        ride: { id: rideId, status: earlyData.status, finalFare: earlyData.finalFare ?? null },
+        message: 'Viaje ya estaba completado',
+      };
+    }
+
+    // Solo un viaje en curso puede completarse ('started' es alias legado).
+    if (!['in_progress', 'started'].includes(earlyData.status)) {
+      throw new functions.https.HttpsError(
+        'failed-precondition',
+        `El viaje no puede completarse en estado: ${earlyData.status}`,
+      );
+    }
+
+    // Tarifa autoritativa: se deriva del viaje en servidor (negociada/estimada),
+    // nunca del payload — el cliente solo manda un valor de referencia.
+    const rideRecord = await rideRepo.findById(rideId);
+    const negotiatedFare = getNegotiatedFare(earlyData, rideRecord);
+    const effectiveFare = negotiatedFare > 0 ? negotiatedFare : finalFare;
+    // Si SQL ya lo marcó completed (retry tras un crash post-commit), no
+    // acreditar ganancias otra vez — pero sí continuar al sync de Firebase,
+    // que puede haber quedado divergente (ej. RTDB atascado en 'in_progress').
+    const alreadyCompletedInSql = rideRecord?.status === 'completed';
+    if (negotiatedFare > 0 && Math.abs(finalFare - negotiatedFare) > Math.max(negotiatedFare * 0.3, 75)) {
+      console.warn(
+        `⚠️ [completeRide] finalFare cliente (${finalFare}) difiere de la tarifa autoritativa (${negotiatedFare}) — usando la del servidor. rideId=${rideId} driverId=${callerUid}`,
+      );
+    }
 
     if (IS_LOAD_TEST) {
       try {
-        const currentRide = await db.ref(`activeRides/${rideId}`).once('value');
-        const currentData = currentRide.val() || {};
+        const currentData = earlyData || {};
 
         await db.ref(`activeRides/${rideId}`).update({
           status: 'pending_payment',
           completedAt: admin.database.ServerValue.TIMESTAMP,
-          finalFare,
+          finalFare: effectiveFare,
           updatedAt: admin.database.ServerValue.TIMESTAMP,
           // Preservar campos de negociación
           clientSuggestedPrice: currentData.clientSuggestedPrice || null,
@@ -2632,7 +2911,7 @@ export const completeRide = functions.https.onCall(async (data, context) => {
         console.log(`✅ [completeRide][LOADTEST] Viaje sincronizado a Firebase`);
 
         try {
-          const resolvedDriverId = driverId || currentData.driverId || null;
+          const resolvedDriverId = currentData.driverId || null;
           if (resolvedDriverId) {
             await db.ref(`driverLocations/${resolvedDriverId}`).update({
               status: 'available',
@@ -2646,7 +2925,7 @@ export const completeRide = functions.https.onCall(async (data, context) => {
         try {
           await db.ref(`paymentStatus/${rideId}`).update({
             status: 'pending',
-            amount: finalFare,
+            amount: effectiveFare,
             updatedAt: admin.database.ServerValue.TIMESTAMP,
           });
         } catch (paymentErr: any) {
@@ -2655,7 +2934,7 @@ export const completeRide = functions.https.onCall(async (data, context) => {
 
         await notifyUserSafe(currentData.clientId, 'Viaje finalizado', 'Por favor confirma y realiza el pago.', {
           rideId,
-          finalFare,
+          finalFare: effectiveFare,
         }, {
           type: 'ride_completed',
         });
@@ -2677,43 +2956,57 @@ export const completeRide = functions.https.onCall(async (data, context) => {
         ride: {
           id: rideId,
           status: 'pending_payment',
-          finalFare,
+          finalFare: effectiveFare,
           completedAt: new Date(),
         },
       };
     }
 
-    const ride = await rideService.completeRide(rideId, finalFare);
+    const ride = await rideService.completeRide(rideId, effectiveFare, {
+      expectedDriverId: callerUid,
+      actualDistance,
+      actualDuration,
+    });
     if (!ride) {
       throw new functions.https.HttpsError('internal', 'Error al completar el viaje');
     }
-    if (driverId) {
-      const earnings = finalFare * 0.90;
-      // ✅ Grupo 4: Transacción para incrementos atómicos de driver
-      if (isSequelizeAvailable) {
-        await sequelize.transaction(async (t) => {
-          await driverRepo.incrementTotalRides(driverId, t);
-          await driverRepo.incrementEarnings(driverId, earnings, t);
-        });
-      } else {
-        await driverRepo.incrementTotalRides(driverId);
-        await driverRepo.incrementEarnings(driverId, earnings);
+    // Ganancias al conductor asignado según el registro — jamás al driverId del payload.
+    // Post-commit del viaje: un fallo aquí no debe devolver error al cliente
+    // (el viaje ya quedó completado; las ganancias son reconciliables).
+    const earningsDriverId = ride.driver_id || earlyData.driverId;
+    if (earningsDriverId && !alreadyCompletedInSql) {
+      try {
+        const earnings = effectiveFare * 0.90;
+        // ✅ Grupo 4: Transacción para incrementos atómicos de driver
+        if (isSequelizeAvailable) {
+          await sequelize.transaction(async (t) => {
+            await driverRepo.incrementTotalRides(earningsDriverId, t);
+            await driverRepo.incrementEarnings(earningsDriverId, earnings, t);
+          });
+        } else {
+          await driverRepo.incrementTotalRides(earningsDriverId);
+          await driverRepo.incrementEarnings(earningsDriverId, earnings);
+        }
+      } catch (earningsErr: any) {
+        console.error(
+          `⚠️ [completeRide] No se pudieron acreditar ganancias al conductor ${earningsDriverId} (rideId=${rideId}):`,
+          earningsErr?.message || earningsErr,
+        );
       }
     }
     
     // Sincronizar a Firebase Realtime DB - mover a completedRides
     console.log(`🔥 [completeRide] Sincronizando a Firebase...`);
     try {
-      // Obtener datos actuales para preservar negociación
-      const currentRide = await db.ref(`activeRides/${rideId}`).once('value');
-      const currentData = currentRide.val() || {};
+      // Reusar el snapshot leído al inicio (mismo RTDB, aún no modificado)
+      const currentData = earlyData || {};
       
       // ✅ IMPORTANTE: Cambiar a 'pending_payment' (no directamente a 'completed')
       // El viaje solo pasa a 'completed' después de que se confirme el pago
       await db.ref(`activeRides/${rideId}`).update({
         status: 'pending_payment',
         completedAt: admin.database.ServerValue.TIMESTAMP,
-        finalFare,
+        finalFare: effectiveFare,
         updatedAt: admin.database.ServerValue.TIMESTAMP,
         // ✅ NUEVO: Preservar campos de negociación
         clientSuggestedPrice: currentData.clientSuggestedPrice || null,
@@ -2724,7 +3017,7 @@ export const completeRide = functions.https.onCall(async (data, context) => {
 
       // ✅ NUEVO: Marcar conductor como AVAILABLE
       try {
-        const resolvedDriverId = driverId || currentData.driverId || null;
+        const resolvedDriverId = currentData.driverId || null;
         if (resolvedDriverId) {
           await db.ref(`driverLocations/${resolvedDriverId}`).update({
             status: 'available',
@@ -2737,7 +3030,7 @@ export const completeRide = functions.https.onCall(async (data, context) => {
 
       await notifyUserSafe(currentData.clientId, '✅ Viaje finalizado', 'Por favor confirma y realiza el pago.', {
         rideId,
-        finalFare,
+        finalFare: effectiveFare,
       }, {
         type: 'ride_completed',
       });
@@ -2753,12 +3046,18 @@ export const completeRide = functions.https.onCall(async (data, context) => {
     }
     
     await safeLogRideEvent(AnalyticsEvents.RIDE_COMPLETED, rideId, context.auth!.uid, {
-      finalFare,
-      driverId,
+      finalFare: effectiveFare,
+      driverId: earningsDriverId,
+      clientReportedFare: finalFare,
     });
 
     return { success: true, ride: { id: ride.id, status: ride.status, finalFare: ride.final_fare, completedAt: ride.completed_at } };
   } catch (error: any) {
+    // Re-lanzar HttpsError con su código real (not-found, permission-denied,
+    // failed-precondition) — envolverlos en 'internal' rompe el manejo del cliente.
+    if (error instanceof functions.https.HttpsError) {
+      throw error;
+    }
     console.error('❌ [completeRide] Error:', error);
     throw new functions.https.HttpsError('internal', 'Error interno del servidor');
   }
@@ -2774,20 +3073,47 @@ export const cancelRide = functions.https.onCall(async (data, context) => {
   // Enforce single-session
   await ensureActiveSession(context, data);
   try {
-    const { rideId, reason, canceledBy } = validateData<CancelRide>(CancelRideSchema, data);
-    
-    console.log(`❌ [cancelRide] Cancelando viaje: ${rideId} por: ${canceledBy || 'desconocido'}`);
-    
+    const { rideId, reason } = validateData<CancelRide>(CancelRideSchema, data);
+    const callerUid = context.auth.uid;
+
     // Obtener datos del viaje ANTES de cancelar
     const rideSnapshot = await db.ref(`activeRides/${rideId}`).once('value');
     const firebaseRide = rideSnapshot.val();
-    
+
     if (!firebaseRide) {
       throw new functions.https.HttpsError('not-found', 'Viaje no encontrado en Firebase');
     }
-    
+
+    // ✅ Seguridad: solo el cliente o el conductor asignado pueden cancelar.
+    // El rol del que cancela se deriva del auth.uid — nunca del payload.
+    const isRideClient = firebaseRide.clientId === callerUid;
+    const isRideDriver = !!firebaseRide.driverId && firebaseRide.driverId === callerUid;
+    if (!isRideClient && !isRideDriver) {
+      throw new functions.https.HttpsError('permission-denied', 'No tienes permiso para cancelar este viaje');
+    }
+    const canceledBy = isRideClient ? 'client' : 'driver';
+
     const rideStatus = firebaseRide.status; // 'requested', 'accepted', 'started', etc.
+    console.log(`❌ [cancelRide] Cancelando viaje: ${rideId} por: ${canceledBy} (${callerUid})`);
     console.log(`📊 [cancelRide] Estado actual del viaje: ${rideStatus}`);
+
+    // ✅ Solo estados vivos son cancelables — jamás completados/ya cobrados.
+    const cancelableStatuses = [
+      'requested',
+      'pending_confirm',
+      'driver_offered',
+      'accepted',
+      'driver_on_route',
+      'driver_arrived',
+      'in_progress',
+      'started',
+    ];
+    if (!cancelableStatuses.includes(rideStatus)) {
+      throw new functions.https.HttpsError(
+        'failed-precondition',
+        `El viaje no puede cancelarse en estado: ${rideStatus}`
+      );
+    }
     
     // Cancelar en Supabase
     const ride = await rideService.cancelRide(rideId, reason || '');
@@ -2845,14 +3171,17 @@ export const cancelRide = functions.https.onCall(async (data, context) => {
     let driverPayout = 0;
     const cancelerDriverId = canceledBy === 'driver' ? (firebaseRide?.driverId || rideRecord?.driver_id || null) : null;
     
-    // Si el viaje NO ha iniciado (requested o accepted)
-    if (rideStatus === 'requested' || rideStatus === 'pending_confirm' || rideStatus === 'accepted' || rideStatus === 'driver_on_route') {
+    // Si el viaje NO ha iniciado (incluye driver_offered / driver_arrived que antes
+    // caían fuera de todas las ramas y dejaban paymentStatusUpdate.status undefined)
+    if (['requested', 'pending_confirm', 'driver_offered', 'accepted', 'driver_on_route', 'driver_arrived'].includes(rideStatus)) {
       console.log(`✅ [cancelRide] Viaje sin iniciar (estado ${rideStatus})`);
       paymentStatusUpdate.canceledAt = admin.database.ServerValue.TIMESTAMP;
       paymentStatusUpdate.canceledBy = canceledBy || 'unknown';
       paymentStatusUpdate.cancelReason = reason || 'Sin especificar';
 
-      if (canceledBy === 'client' && rideStatus !== 'requested') {
+      // Cargo al cliente solo si ya había asignación efectiva (conductor confirmado/en camino)
+      const chargeableStatuses = ['accepted', 'driver_on_route', 'driver_arrived'];
+      if (canceledBy === 'client' && chargeableStatuses.includes(rideStatus)) {
         console.log(`💸 [cancelRide] Cliente canceló después de asignar conductor - generando cargo`);
         paymentStatusUpdate.status = 'pending';
         paymentStatusUpdate.chargeType = 'client_cancellation_before_start';
@@ -3261,7 +3590,7 @@ export const getRideDetails = functions.https.onCall(async (data, context) => {
     }
 
     // Fallback: Obtener de Realtime DB
-    const db = require('firebase-admin').database();
+    const db = admin.database();
     const snapshot = await db.ref(`activeRides/${rideId}`).once('value');
     const rideData = snapshot.val();
 
@@ -3639,40 +3968,107 @@ export const getIntelligentETA = functions.https.onCall(async (data, context) =>
  * ⚠️ Permite llamadas sin autenticación usando token especial
  */
 export const updateRideStatus = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
+  }
+
   try {
-    const { rideId, status, driverLocation } = data;
-    
-    if (!rideId) {
+    const { rideId, status, driverLocation, vehicleInspection } = data || {};
+
+    if (!rideId || typeof rideId !== 'string') {
       throw new functions.https.HttpsError('invalid-argument', 'rideId es requerido');
     }
-    
-    console.log(`🚗 [updateRideStatus] Actualizando viaje: ${rideId}, status: ${status}`);
-    
-    // Actualizar en Firebase Realtime DB
+
+    const uid = context.auth.uid;
+    const snapshot = await db.ref(`activeRides/${rideId}`).once('value');
+    const ride = snapshot.val();
+
+    if (!ride) {
+      throw new functions.https.HttpsError('not-found', 'Viaje no encontrado');
+    }
+
+    const isDriver = ride.driverId === uid;
+    const isClient = ride.clientId === uid;
+    if (!isDriver && !isClient) {
+      throw new functions.https.HttpsError('permission-denied', 'No eres participante de este viaje');
+    }
+
+    console.log(`🚗 [updateRideStatus] Actualizando viaje: ${rideId}, status: ${status}, uid: ${uid}`);
+
     const updateData: any = {
       updatedAt: admin.database.ServerValue.TIMESTAMP,
     };
-    
-    if (status) {
-      updateData.status = status;
+
+    // Las transiciones de estado las gobiernan los callables dedicados
+    // (startRide/completeRide/cancelRide). Aquí solo se permite el arranque
+    // por el conductor (flujo de inspección de conductor designado) desde un
+    // estado válido — nunca estados terminales ni retrocesos.
+    if (status !== undefined && status !== null) {
+      const canStartRide =
+        status === 'in_progress' &&
+        isDriver &&
+        ['accepted', 'driver_on_route', 'driver_arrived'].includes(ride.status);
+      if (!canStartRide) {
+        throw new functions.https.HttpsError(
+          'permission-denied',
+          `Transición de estado no permitida: ${ride.status} -> ${status}`,
+        );
+      }
+      updateData.status = 'in_progress';
+      updateData.startedAt = ride.startedAt || admin.database.ServerValue.TIMESTAMP;
     }
-    
-    if (driverLocation) {
+
+    if (driverLocation !== undefined && driverLocation !== null) {
+      if (!isDriver) {
+        throw new functions.https.HttpsError('permission-denied', 'Solo el conductor puede actualizar driverLocation');
+      }
+      const lat = Number(driverLocation.latitude);
+      const lng = Number(driverLocation.longitude);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+        throw new functions.https.HttpsError('invalid-argument', 'driverLocation inválido');
+      }
       updateData.driverLocation = {
-        latitude: driverLocation.latitude,
-        longitude: driverLocation.longitude,
-        speed: driverLocation.speed || null,
-        heading: driverLocation.heading || null,
-        accuracy: driverLocation.accuracy || null,
+        latitude: lat,
+        longitude: lng,
+        speed: Number.isFinite(Number(driverLocation.speed)) ? Number(driverLocation.speed) : null,
+        heading: Number.isFinite(Number(driverLocation.heading)) ? Number(driverLocation.heading) : null,
+        accuracy: Number.isFinite(Number(driverLocation.accuracy)) ? Number(driverLocation.accuracy) : null,
         timestamp: admin.database.ServerValue.TIMESTAMP,
       };
     }
-    
+
+    if (vehicleInspection !== undefined && vehicleInspection !== null) {
+      if (!isDriver) {
+        throw new functions.https.HttpsError('permission-denied', 'Solo el conductor puede registrar la inspección');
+      }
+      if (typeof vehicleInspection !== 'object') {
+        throw new functions.https.HttpsError('invalid-argument', 'vehicleInspection inválido');
+      }
+      const photos = vehicleInspection.photos && typeof vehicleInspection.photos === 'object'
+        ? Object.fromEntries(
+            Object.entries(vehicleInspection.photos)
+              .filter(([, v]) => typeof v === 'string' && v.length <= 2000)
+              .slice(0, 20),
+          )
+        : null;
+      updateData.vehicleInspection = {
+        inspected: vehicleInspection.inspected === true,
+        timestamp: typeof vehicleInspection.timestamp === 'number' ? vehicleInspection.timestamp : Date.now(),
+        driver_id: uid,
+        inspection_id: typeof vehicleInspection.inspection_id === 'string' ? vehicleInspection.inspection_id : null,
+        photos,
+        storage_provider: 'supabase',
+      };
+    }
+
     await db.ref(`activeRides/${rideId}`).update(updateData);
-    console.log(`✅ [updateRideStatus] Viaje actualizado: ${rideId}`);
-    
+    console.log(`✅ [updateRideStatus] Viaje actualizado: ${rideId} por ${uid}`);
+
     return { success: true, message: 'Viaje actualizado correctamente' };
   } catch (error: any) {
+    if (error instanceof functions.https.HttpsError) {
+      throw error;
+    }
     console.error('❌ [updateRideStatus] Error:', error);
     throw new functions.https.HttpsError('internal', 'Error interno del servidor');
   }

@@ -7,7 +7,8 @@
  */
 
 import { CloudTasksClient } from "@google-cloud/tasks";
-import * as functions from "firebase-functions";
+import * as functions from "firebase-functions/v1";
+import admin from "firebase-admin";
 
 const PROJECT_ID = process.env.GCLOUD_PROJECT || "";
 const LOCATION = process.env.FUNCTIONS_LOCATION || "us-central1";
@@ -131,7 +132,6 @@ export const handleDelayedRideStatus = functions.https.onRequest(
         return;
       }
 
-      const admin = require("firebase-admin");
       const db = admin.database();
 
       if (action === "mark_completed") {

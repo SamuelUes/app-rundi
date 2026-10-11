@@ -4,7 +4,7 @@
  * Mantiene solo las últimas 20 notificaciones por usuario
  */
 
-import * as functions from 'firebase-functions';
+import * as functions from 'firebase-functions/v1';
 import admin from 'firebase-admin';
 
 export const cleanupNotifications = functions

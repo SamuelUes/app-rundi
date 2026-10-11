@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, Pressable, Animated } from 'react-native';
+import { View, Text, Pressable, Animated, Image } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import type { TFunction } from 'i18next';
 
@@ -9,6 +9,7 @@ interface DriverHomeSideMenuProps {
   menuTranslate: Animated.Value;
   panelWidth: number;
   userName: string | undefined;
+  userPhotoUri?: string | null;
   userRole: string | undefined;
   colors: any;
   onClose: () => void;
@@ -47,6 +48,7 @@ export function DriverHomeSideMenu({
   menuTranslate,
   panelWidth,
   userName,
+  userPhotoUri,
   userRole,
   colors,
   onClose,
@@ -75,7 +77,14 @@ export function DriverHomeSideMenu({
       >
         <View style={styles.menuHeaderRow}>
           <View style={styles.menuAvatar}>
-            <Text style={styles.menuAvatarText}>{initial}</Text>
+            {userPhotoUri ? (
+              <Image
+                source={{ uri: userPhotoUri }}
+                style={styles.menuAvatarImage}
+              />
+            ) : (
+              <Text style={styles.menuAvatarText}>{initial}</Text>
+            )}
           </View>
           <View style={styles.menuHeaderTextCol}>
             <Text style={styles.menuHeaderName} numberOfLines={1}>

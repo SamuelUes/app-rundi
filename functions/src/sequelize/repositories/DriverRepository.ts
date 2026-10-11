@@ -78,14 +78,22 @@ export class DriverRepository {
     });
   }
 
-  async incrementTotalRides(driverId: string, transaction?: Transaction) {
-    const driver = await Driver.findByPk(driverId, transaction ? { transaction } : undefined);
+  // Los callers identifican al conductor por su Firebase Auth UID (user_id),
+  // igual que rides.driver_id — drivers.id es un UUID interno distinto.
+  async incrementTotalRides(userId: string, transaction?: Transaction) {
+    const driver = await Driver.findOne({
+      where: { user_id: userId },
+      ...(transaction ? { transaction } : {}),
+    });
     if (!driver) throw new Error('Conductor no encontrado');
     return await driver.increment('total_rides', transaction ? { transaction } : undefined);
   }
 
-  async incrementEarnings(driverId: string, amount: number, transaction?: Transaction) {
-    const driver = await Driver.findByPk(driverId, transaction ? { transaction } : undefined);
+  async incrementEarnings(userId: string, amount: number, transaction?: Transaction) {
+    const driver = await Driver.findOne({
+      where: { user_id: userId },
+      ...(transaction ? { transaction } : {}),
+    });
     if (!driver) throw new Error('Conductor no encontrado');
     return await driver.increment('total_earnings', { by: amount, ...(transaction ? { transaction } : {}) });
   }

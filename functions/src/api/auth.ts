@@ -1,6 +1,6 @@
 import admin from "firebase-admin";
 import { FieldValue } from "firebase-admin/firestore";
-import * as functions from 'firebase-functions';
+import * as functions from 'firebase-functions/v1';
 import crypto from 'crypto';
 import { supabasePost, supabaseGet, supabaseUpdate } from '../supabase/client';
 import jwt from 'jsonwebtoken';
@@ -99,18 +99,6 @@ function readSupabaseSecretFromRuntimeFile(): string | undefined {
 function resolveSupabaseJwtSecret(): string | null {
   if (cachedSupabaseJwtSecret) {
     return cachedSupabaseJwtSecret;
-  }
-
-  try {
-    const config = (functions as any).config ? (functions as any).config() : undefined;
-    const secret = config?.supabase?.jwt_secret;
-    if (typeof secret === 'string' && secret.trim().length > 0) {
-      cachedSupabaseJwtSecret = secret.trim();
-      console.log('✅ [getSupabaseJwt] jwt_secret obtenido de functions.config().supabase');
-      return cachedSupabaseJwtSecret;
-    }
-  } catch (error: any) {
-    console.log('⚠️ [getSupabaseJwt] No se pudo leer functions.config():', error.message);
   }
 
   const envSecret = process.env.SUPABASE_JWT_SECRET;

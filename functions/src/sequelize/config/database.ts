@@ -2,17 +2,15 @@
  * Configuración de Sequelize
  * Conexión a PostgreSQL (Supabase)
  * 
- * ✅ Usa DATABASE_URL desde Firebase config o .env
+ * ✅ Usa DATABASE_URL desde .env
  * ✅ Compatible con Firebase Cloud Functions
  * ✅ SSL habilitado para Supabase
  */
 
 import { Sequelize } from 'sequelize';
-import * as functions from 'firebase-functions';
 import dotenv from 'dotenv';
 
 // Asegurar que las variables de entorno estén disponibles en emulador/desarrollo
-// En producción (Firebase) se usan functions.config()/process.env
 const nodeEnv = process.env.NODE_ENV === 'production' ? 'production' : 'development';
 const envFilePath = nodeEnv === 'production' ? '.env.production' : '.env.development';
 
@@ -37,35 +35,19 @@ if (useLocalSupabase) {
   }
   console.log('✅ [Sequelize Config] DATABASE_URL local seleccionada por USE_LOCAL_SUPABASE');
 } else {
-  // 1. Intentar obtener de Firebase config (functions:config:set)
-  try {
-    const config = functions.config();
-    if (config.supabase && config.supabase.database_url) {
-      databaseUrl = config.supabase.database_url;
-      if (process.env.FUNCTIONS_EMULATOR || process.env.NODE_ENV === 'development') {
-        console.log(`✅ [Sequelize Config] DATABASE_URL obtenida de Firebase config`);
-      }
+  // DATABASE_URL desde process.env (.env.production desplegado o env de la función)
+  if (process.env.DATABASE_URL) {
+    databaseUrl = process.env.DATABASE_URL;
+    if (process.env.FUNCTIONS_EMULATOR || process.env.NODE_ENV === 'development') {
+      console.log(`✅ [Sequelize Config] DATABASE_URL obtenida de process.env`);
     }
-  } catch (error: any) {
-    console.log(`⚠️ [Sequelize Config] No se pudo obtener de Firebase config:`, error.message);
-  }
-
-  // 2. Fallback: obtener de process.env (para desarrollo local)
-  if (!databaseUrl) {
-    // Primero intentar DATABASE_URL clásica
-    if (process.env.DATABASE_URL) {
-      databaseUrl = process.env.DATABASE_URL;
-      if (process.env.FUNCTIONS_EMULATOR || process.env.NODE_ENV === 'development') {
-        console.log(`✅ [Sequelize Config] DATABASE_URL obtenida de process.env`);
-      }
-    } else if (process.env.DATABASE_TRANS_POOLER) {
-      // Luego intentar DATABASE_TRANS_POOLER (transaction pooler de Supabase)
-      databaseUrl = process.env.DATABASE_TRANS_POOLER;
-      if (process.env.FUNCTIONS_EMULATOR || process.env.NODE_ENV === 'development') {
-        console.log(
-          `✅ [Sequelize Config] DATABASE_URL obtenida de process.env.DATABASE_TRANS_POOLER (transaction pooler)`,
-        );
-      }
+  } else if (process.env.DATABASE_TRANS_POOLER) {
+    // Luego intentar DATABASE_TRANS_POOLER (transaction pooler de Supabase)
+    databaseUrl = process.env.DATABASE_TRANS_POOLER;
+    if (process.env.FUNCTIONS_EMULATOR || process.env.NODE_ENV === 'development') {
+      console.log(
+        `✅ [Sequelize Config] DATABASE_URL obtenida de process.env.DATABASE_TRANS_POOLER (transaction pooler)`,
+      );
     }
   }
 }
@@ -74,8 +56,7 @@ let sequelize: Sequelize | null = null;
 
 if (!databaseUrl) {
   console.warn(`⚠️ [Sequelize Config] DATABASE_URL no está configurada. Saltando inicialización de Sequelize.`);
-  console.warn(`⚠️ [Sequelize Config] Configura en Firebase Cloud Functions: firebase functions:config:set supabase.database_url="postgresql://..."`);
-  console.warn(`⚠️ [Sequelize Config] O define DATABASE_URL en el archivo functions/.env`);
+  console.warn(`⚠️ [Sequelize Config] Define DATABASE_URL en functions/.env.production o como env var de la función`);
 } else {
   if (process.env.FUNCTIONS_EMULATOR || process.env.NODE_ENV === 'development') {
     console.log(`✅ [Sequelize Config] DATABASE_URL encontrada`);

@@ -27,8 +27,10 @@ export function useOverlayVisibilityOnBackground(enabled: boolean) {
   const backgroundConfirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingHideReasonRef = useRef<string | null>(null);
 
+  const isOverlaySupported = Platform.OS === 'android' || Platform.OS === 'ios';
+
   useEffect(() => {
-    if (Platform.OS !== 'android' || !enabled) {
+    if (!isOverlaySupported || !enabled) {
       return;
     }
 
@@ -56,7 +58,11 @@ export function useOverlayVisibilityOnBackground(enabled: boolean) {
     const ACTIVE_STABILIZE_MS = 2000;
     const BACKGROUND_CONFIRM_MS = 100;
 
-    const isBackgroundLike = (state: AppStateStatus) => state === 'background' || state === 'inactive';
+    // En iOS 'inactive' se dispara por transitorios (control center, app
+    // switcher, llamada entrante): iniciar una Live Activity ahí crea un
+    // flap start/end. Solo 'background' real cuenta en iOS.
+    const isBackgroundLike = (state: AppStateStatus) =>
+      Platform.OS === 'ios' ? state === 'background' : state === 'background' || state === 'inactive';
 
     const clearActiveStabilizationTimer = () => {
       if (activeStabilizeTimeoutRef.current) {

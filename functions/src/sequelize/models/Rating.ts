@@ -90,7 +90,7 @@ Rating.init(
     tableName: 'ratings',
     timestamps: true,
     createdAt: 'created_at',
-    updatedAt: 'updated_at',
+    updatedAt: false,
     paranoid: true,
     deletedAt: 'deleted_at',
   }

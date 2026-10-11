@@ -12,12 +12,10 @@ import {
   Linking,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
-  Modal,
 } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -35,6 +33,7 @@ import { useRideNegotiation } from '../../hooks/driver/RidePreviewScreen/useRide
 import { useRideActions } from '../../hooks/shared/ride/useRideActions';
 import { useClientProfile } from '../../hooks/driver/RidePreviewScreen/useClientProfile';
 import { useTranslation } from 'react-i18next';
+import proximityService from '../../services/proximityService';
 import { calculateTotalDistanceKm } from '../../utils/ridePreviewHelpers';
 import { RidePreviewNegotiation } from '../../components/driver/RidePreview/RidePreviewNegotiation';
 import { RidePreviewClientInfo } from '../../components/driver/RidePreview/RidePreviewClientInfo';
@@ -43,12 +42,14 @@ import { RidePreviewPhotoModal } from '../../components/driver/RidePreview/RideP
 import { RidePreviewNearbyCard } from '../../components/driver/RidePreview/RidePreviewNearbyCard';
 
 const BACK_ICON = require('../../assets/icons/back_button/back_button2x.png');
-
-const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
+const PROXIMITY_AUTO_DISMISS_MS = 6000; // auto-cierre si no hay cambios ni interacción
+const PROXIMITY_DISMISS_POLL_MS = 500;
 
 interface RidePreviewParams {
   ride: RidePreviewData;
   nearbyRides?: Array<Partial<RidePreviewData> & { distanceMeters?: number }>;
+  proximity?: boolean;
+  autoPresented?: boolean;
 }
 
 type RidePreviewRouteProp = RouteProp<DriverStackParamList, 'RidePreview'>;
@@ -62,21 +63,19 @@ export default function RidePreviewScreen() {
   const { settings: voiceSettings, speak: speakVoice, stopCategory: stopVoiceCategory } = useVoiceAssistant();
   const { t } = useTranslation();
 
+  const insets = useSafeAreaInsets();
   const { ride } = route.params as RidePreviewParams;
   const initialNearby = (route.params as RidePreviewParams)?.nearbyRides || [];
+  const isAutoPresented = Boolean((route.params as RidePreviewParams)?.autoPresented);
   const {
     rideData,
     setRideData,
     activeRideGuard,
-    counterOfferTouched,
     setCounterOfferTouched,
     cancellationHandledRef,
     markDismissed,
   } = useRidePreviewData(ride, user?.id, t, navigation);
   const [nearbyQueue, setNearbyQueue] = useState<Array<Partial<RidePreviewData> & { distanceMeters?: number }>>(initialNearby);
-  const proximityParam = (route.params as Record<string, unknown>)?.proximity === true;
-  const proximityMode = proximityParam || initialNearby.length > 0;
-  const autoDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [photoModalUrl, setPhotoModalUrl] = useState<string | null>(ride.clientVehiclePhoto || null);
   const currentRide = rideData;
@@ -105,20 +104,15 @@ export default function RidePreviewScreen() {
 
   const {
     counterOffer,
-    setCounterOffer,
     lastSuggestedPrice,
     sendingOffer,
     customOfferVisible,
-    setCustomOfferVisible,
     customOfferInputRef,
-    manualOfferLock,
     setManualOfferLock,
-    hasPendingOffer,
     navigationLocked,
     quickSuggestions,
     finalPricePreview,
     cacheCurrentOffer,
-    submitCounterOffer,
     handleApplySuggestion,
     handleCustomOfferPress,
     handleCustomOfferChange,
@@ -146,6 +140,59 @@ export default function RidePreviewScreen() {
     navigation,
     t,
   );
+
+  // Auto-cierre para aperturas automáticas por proximidad:
+  // si no hay cambios en el viaje ni interacción del conductor en 6s, se cierra
+  // y el viaje se suprime por 1 minuto para no volver a mostrarse por aproximación.
+  const lastActivityAtRef = useRef(Date.now());
+  const autoDismissHandledRef = useRef(false);
+  const noteUserActivity = useCallback(() => {
+    lastActivityAtRef.current = Date.now();
+  }, []);
+
+  const rideChangeFingerprint = [
+    currentRide.id,
+    currentRide.clientSuggestedPrice ?? '',
+    currentRide.driverOfferedPrice ?? '',
+    currentRide.driverOfferStatus ?? '',
+    currentRide.negotiationStatus ?? '',
+    currentRide.estimatedPrice,
+  ].join('|');
+
+  useEffect(() => {
+    lastActivityAtRef.current = Date.now();
+  }, [rideChangeFingerprint]);
+
+  useEffect(() => {
+    if (!isAutoPresented) return;
+    const timer = setInterval(() => {
+      if (autoDismissHandledRef.current || cancellationHandledRef.current) return;
+      if (sendingOffer || acceptingRide || isRejectingRide || customOfferVisible || photoModalUrl) {
+        return;
+      }
+      if (Date.now() - lastActivityAtRef.current < PROXIMITY_AUTO_DISMISS_MS) return;
+      autoDismissHandledRef.current = true;
+      proximityService
+        .markRideAutoDismissed(currentRide.id)
+        .catch((err) => console.warn('[RidePreview] Error marcando auto-dismiss:', err))
+        .finally(() => {
+          if (navigation.canGoBack()) {
+            navigation.goBack();
+          }
+        });
+    }, PROXIMITY_DISMISS_POLL_MS);
+    return () => clearInterval(timer);
+  }, [
+    isAutoPresented,
+    currentRide.id,
+    sendingOffer,
+    acceptingRide,
+    isRejectingRide,
+    customOfferVisible,
+    photoModalUrl,
+    navigation,
+    cancellationHandledRef,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -261,64 +308,15 @@ export default function RidePreviewScreen() {
     });
   };
 
-  const renderNegotiationBanner = () => {
-    const status = (currentRide.negotiationStatus || '').toLowerCase();
-    const driverSuggested =
-      typeof currentRide.driverOfferedPrice === 'number' && !Number.isNaN(currentRide.driverOfferedPrice);
-    const clientSuggested =
-      typeof currentRide.clientSuggestedPrice === 'number' && !Number.isNaN(currentRide.clientSuggestedPrice);
-
-    const statusText = t(`driver.ridePreview.negotiation.status.${status}`, {
-      defaultValue:
-        status === 'driver_offered'
-          ? t('driver.ridePreview.negotiation.status.defaultDriver')
-          : t('driver.ridePreview.negotiation.status.defaultClient'),
-    });
-
-    if (status === 'driver_offered' && driverSuggested) {
-      return (
-        <View
-          style={[
-            styles.clientOfferBanner,
-            {
-              backgroundColor: isDark ? 'rgba(33, 150, 243, 0.18)' : 'rgba(33, 150, 243, 0.12)',
-              borderColor: isDark ? 'rgba(144, 202, 249, 0.6)' : 'rgba(33, 150, 243, 0.35)',
-            },
-          ]}
-        >
-          <Text style={[styles.clientOfferTitle, { color: isDark ? '#90CAF9' : '#1565C0' }]}>
-            {t('driver.ridePreview.negotiation.driverOfferTitle', {
-              amount: formatCurrency(currentRide.driverOfferedPrice),
-            })}
-          </Text>
-          <Text style={[styles.clientOfferSubtitle, { color: colors.textSecondary }]}>{statusText}</Text>
-        </View>
-      );
-    }
-
-    if (clientSuggested) {
-      return (
-        <View
-          style={[
-            styles.clientOfferBanner,
-            {
-              backgroundColor: isDark ? 'rgba(76, 175, 80, 0.18)' : 'rgba(76, 175, 80, 0.12)',
-              borderColor: isDark ? 'rgba(129, 199, 132, 0.6)' : 'rgba(76, 175, 80, 0.35)',
-            },
-          ]}
-        >
-          <Text style={[styles.clientOfferTitle, { color: isDark ? '#A5D6A7' : '#2E7D32' }]}>
-            {t('driver.ridePreview.negotiation.clientOfferTitle', {
-              amount: formatCurrency(currentRide.clientSuggestedPrice),
-            })}
-          </Text>
-          <Text style={[styles.clientOfferSubtitle, { color: colors.textSecondary }]}>{statusText}</Text>
-        </View>
-      );
-    }
-
-    return null;
-  };
+  const durationMin = useMemo(
+    () =>
+      typeof currentRide.estimatedDuration === 'number' &&
+      Number.isFinite(currentRide.estimatedDuration) &&
+      currentRide.estimatedDuration > 0
+        ? Math.max(1, Math.round(currentRide.estimatedDuration / 60))
+        : null,
+    [currentRide.estimatedDuration],
+  );
 
   const renderNearbyCard = () => {
     return (
@@ -348,6 +346,7 @@ export default function RidePreviewScreen() {
         quickSuggestions={quickSuggestions}
         finalPricePreview={finalPricePreview}
         isDesignatedRide={isDesignatedRide}
+        isProgrammedRide={Boolean(currentRide.isProgrammed)}
         clientVehiclePhoto={currentRide.clientVehiclePhoto}
         colors={colors}
         isDark={isDark}
@@ -365,17 +364,27 @@ export default function RidePreviewScreen() {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
+    <View
+      style={[styles.container, { backgroundColor: colors.background }]}
+      onTouchStart={isAutoPresented ? noteUserActivity : undefined}
+    >
       <View style={styles.mapContainer}>
         <DynamicMap
           latitude={currentRide.origin.lat}
           longitude={currentRide.origin.lng}
           originMarker={{ latitude: currentRide.origin.lat, longitude: currentRide.origin.lng }}
           destinationMarker={{ latitude: currentRide.destination.lat, longitude: currentRide.destination.lng }}
+          originTitle={t('common.mapPins.origin')}
+          originLabel={currentRide.origin?.address}
+          destinationTitle={t('common.mapPins.destination')}
+          destinationLabel={currentRide.destination?.address}
+          destinationMeta={finalPricePreview || undefined}
           extraStopMarkers={(currentRide.extraDestinations || []).map((stop, index) => ({
             latitude: stop.lat,
             longitude: stop.lng,
             index: index + 1,
+            title: t('common.mapPins.extraStop', { index: index + 1 }),
+            label: stop.address,
           }))}
           routeCoordinates={routeCoordinates}
           showMarker={false}
@@ -399,6 +408,7 @@ export default function RidePreviewScreen() {
           style={[
             styles.fabBackButton,
             {
+              top: insets.top + 12,
               backgroundColor: isDark ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.92)',
               borderWidth: 1,
               borderColor: isDark ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.08)',
@@ -408,6 +418,8 @@ export default function RidePreviewScreen() {
             markDismissed(currentRide.id).finally(() => navigation.goBack());
           }}
           activeOpacity={0.9}
+          accessibilityRole="button"
+          accessibilityLabel={t('common.actions.back')}
         >
           <Image
             source={BACK_ICON}
@@ -417,30 +429,50 @@ export default function RidePreviewScreen() {
         </TouchableOpacity>
       )}
 
-      <View style={[styles.bottomSheet, { backgroundColor: colors.card }]}>
-        <TouchableOpacity style={styles.handleArea} onPress={toggleSheet} activeOpacity={0.8}>
-          <View style={styles.handleBar} />
+      <View
+        style={[
+          styles.bottomSheet,
+          {
+            backgroundColor: colors.card,
+            paddingBottom: Math.max(insets.bottom, 12) + 8,
+          },
+        ]}
+      >
+        <TouchableOpacity
+          style={styles.handleArea}
+          onPress={toggleSheet}
+          activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel={t('driver.ridePreview.accessibility.toggleDetails')}
+        >
+          <View
+            style={[
+              styles.handleBar,
+              { backgroundColor: isDark ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.16)' },
+            ]}
+          />
         </TouchableOpacity>
 
         <View style={styles.measurementContainer} onLayout={handleMeasuredContentLayout}>
           {renderNegotiationContent()}
         </View>
 
-        <View style={styles.clientRow}>
-          <RidePreviewClientInfo
-            resolvedClientName={resolvedClientName}
-            estimatedPrice={currentRide.estimatedPrice}
-            clientComment={currentRide.clientComment}
-            clientProfile={clientProfile}
-            colors={colors}
-            isDark={isDark}
-            formatCurrency={formatCurrency}
-            onMessageClient={handleMessageClient}
-            onCallClient={handleCallClient}
-            styles={styles}
-            t={t}
-          />
-        </View>
+        <RidePreviewClientInfo
+          resolvedClientName={resolvedClientName}
+          estimatedPrice={currentRide.estimatedPrice}
+          clientComment={currentRide.clientComment}
+          clientProfile={clientProfile}
+          distanceKm={totalDistanceKm}
+          durationMin={durationMin}
+          paymentMethod={currentRide.paymentMethod}
+          colors={colors}
+          isDark={isDark}
+          formatCurrency={formatCurrency}
+          onMessageClient={handleMessageClient}
+          onCallClient={handleCallClient}
+          styles={styles}
+          t={t}
+        />
 
         <Animated.View
           style={[
@@ -522,10 +554,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
+  nearbyIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   nearbyButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 10,
+    paddingHorizontal: 16,
+    minHeight: 40,
+    justifyContent: 'center',
+    borderRadius: 12,
   },
   nearbyButtonText: {
     color: '#fff',
@@ -570,8 +610,8 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   handleBar: {
-    width: 56,
-    height: 6,
+    width: 48,
+    height: 5,
     borderRadius: 999,
     backgroundColor: 'rgba(0,0,0,0.2)',
   },
@@ -583,7 +623,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 16,
-    flex: 1,
   },
   fabBackButton: {
     position: 'absolute',
@@ -605,52 +644,53 @@ const styles = StyleSheet.create({
   avatarPlaceholder: {
     width: 52,
     height: 52,
-    borderRadius: 14,
+    borderRadius: 16,
     backgroundColor: 'rgba(255,255,255,0.12)',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 14,
+    marginRight: 12,
   },
   avatarImage: {
     width: '100%',
     height: '100%',
-    borderRadius: 14,
+    borderRadius: 16,
   },
   avatarInitials: {
     fontSize: 18,
-    fontWeight: '700',
-    color: '#FFFFFF',
+    fontWeight: '800',
   },
   clientInfo: {
     flex: 1,
+    gap: 2,
   },
   clientNameText: {
     fontSize: 17,
     fontWeight: '700',
-    marginBottom: 4,
   },
   clientMetaText: {
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: '600',
+  },
+  clientTripMeta: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  clientNoteText: {
+    fontSize: 12,
+    fontWeight: '500',
+    marginTop: 2,
   },
   contactActions: {
     flexDirection: 'row',
     gap: 10,
-  },
-  iconButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
     marginLeft: 12,
   },
-  vehiclePhotoButton: {
-    width: 48,
-    height: 40,
-  },
-  iconText: {
-    fontSize: 18,
+  iconButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   collapsibleContainer: {
     overflow: 'hidden',
@@ -662,7 +702,7 @@ const styles = StyleSheet.create({
     pointerEvents: 'none',
   },
   negotiationWrapper: {
-    gap: 16,
+    gap: 14,
   },
   priceCard: {
     borderWidth: 1,
@@ -671,129 +711,153 @@ const styles = StyleSheet.create({
     paddingVertical: 18,
     gap: 16,
   },
+  priceHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  priceHeaderText: {
+    flex: 1,
+    gap: 4,
+  },
   priceLabel: {
-    fontSize: 13,
-    fontWeight: '600',
+    fontSize: 11,
+    fontWeight: '700',
     textTransform: 'uppercase',
-    letterSpacing: 0.6,
+    letterSpacing: 0.8,
   },
   priceValue: {
-    fontSize: 22,
+    fontSize: 30,
     fontWeight: '800',
+    letterSpacing: -0.5,
   },
-  manualInputRow: {
-    marginTop: 12,
-  },
-  offerInput: {
-    width: '100%',
+  offerToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
     borderWidth: 1,
     borderRadius: 14,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
+    paddingHorizontal: 16,
+    minHeight: 50,
+  },
+  offerToggleLabel: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  offerToggleValue: {
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  offerInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    height: 52,
+  },
+  offerInputPrefix: {
     fontSize: 16,
+    fontWeight: '800',
+  },
+  offerInput: {
+    flex: 1,
+    fontSize: 17,
+    fontWeight: '700',
+    paddingVertical: 0,
   },
   customOfferCard: {
-    marginTop: 18,
-    borderRadius: 18,
+    borderRadius: 16,
     borderWidth: 1,
     paddingHorizontal: 16,
     paddingVertical: 16,
     gap: 12,
   },
   customOfferLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    letterSpacing: 0.3,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.8,
     textTransform: 'uppercase',
   },
   customOfferSendButton: {
-    borderRadius: 18,
-    paddingVertical: 20,
+    borderRadius: 14,
+    minHeight: 50,
     justifyContent: 'center',
     alignItems: 'center',
   },
   customOfferSendButtonText: {
     color: '#FFFFFF',
-    fontSize: 20,
+    fontSize: 17,
     fontWeight: '800',
-    letterSpacing: 0.4,
-  },
-  suggestButton: {
-    borderRadius: 16,
-    paddingHorizontal: 32,
-    paddingVertical: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  inlineSuggestButton: {
-    paddingVertical: 18,
-    paddingHorizontal: 10,
-  },
-  suggestButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '800',
-    fontSize: 20,
-    letterSpacing: 0.4,
+    letterSpacing: 0.3,
   },
   suggestionsSection: {
-    gap: 8,
-    marginTop: 4,
-  },
-  suggestionsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
+    gap: 10,
   },
   suggestionsLabel: {
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 11,
+    fontWeight: '700',
     textTransform: 'uppercase',
-    letterSpacing: 0.6,
+    letterSpacing: 0.8,
   },
   chipsRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     gap: 10,
-    marginTop: 12,
   },
   chip: {
-    borderRadius: 999,
-    paddingHorizontal: 18,
-    paddingVertical: 8,
+    flex: 1,
+    borderRadius: 14,
+    minHeight: 46,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   chipLabel: {
     fontWeight: '700',
-    fontSize: 13,
+    fontSize: 14,
   },
   finalRow: {
-    paddingTop: 16,
+    paddingTop: 14,
     borderTopWidth: 1,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
   finalLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    letterSpacing: 0.4,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.8,
     textTransform: 'uppercase',
   },
   finalValue: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '800',
   },
   clientOfferBanner: {
     borderWidth: 1,
-    borderRadius: 16,
+    borderRadius: 14,
     paddingVertical: 12,
-    paddingHorizontal: 16,
-    marginBottom: 18,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  bannerIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  bannerTextWrap: {
+    flex: 1,
+    gap: 2,
   },
   clientOfferTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
-    marginBottom: 4,
   },
   clientOfferSubtitle: {
     fontSize: 13,
@@ -802,29 +866,31 @@ const styles = StyleSheet.create({
   actionsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    gap: 14,
-    marginTop: 24,
+    gap: 12,
+    marginTop: 18,
   },
   acceptButton: {
     flex: 1,
-    borderRadius: 26,
-    paddingVertical: 14,
+    borderRadius: 999,
+    minHeight: 54,
     justifyContent: 'center',
     alignItems: 'center',
   },
   rejectButton: {
     flex: 1,
-    borderRadius: 26,
-    paddingVertical: 14,
+    borderRadius: 999,
+    minHeight: 54,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#FFFFFF',
+  },
+  actionButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   actionButtonText: {
     fontSize: 16,
-    fontWeight: '700',
-    color: '#0D0D0D',
+    fontWeight: '800',
   },
   modalOverlay: {
     flex: 1,

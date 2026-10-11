@@ -1,4 +1,4 @@
-import * as functions from "firebase-functions";
+import * as functions from "firebase-functions/v1";
 import { sendToSegment } from "../services/notificationCenter";
 
 type NotificationSegment = "all" | "clients" | "drivers" | "users";

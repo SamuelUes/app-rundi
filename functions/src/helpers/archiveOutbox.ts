@@ -11,6 +11,8 @@
 import admin from "firebase-admin";
 
 const OUTBOX_PATH = "pendingArchive";
+const CLAIMS_PATH = "archiveClaims";
+const CLAIM_STALE_MS = 2 * 60_000;
 const MAX_RETRIES = 5;
 
 export type OutboxEntry = {
@@ -24,6 +26,73 @@ export type OutboxEntry = {
   updatedAt: number;
   nextRetryAt: number;
 };
+
+/**
+ * Claim single-flight del archivado de un ride.
+ *
+ * RTDB entrega los triggers at-least-once y el cron puede procesar la misma
+ * entrada del outbox en paralelo: sin un claim, dos invocaciones podrían
+ * archivar (y potencialmente insertar) el mismo ride dos veces.
+ *
+ * Devuelve true si el llamador obtuvo el claim y debe archivar.
+ * El claim expira solo (CLAIM_STALE_MS) para que un crash no bloquee retries.
+ */
+export async function claimArchive(
+  rideId: string,
+  archiveType: "completed" | "canceled",
+): Promise<boolean> {
+  try {
+    const ref = admin.database().ref(`${CLAIMS_PATH}/${rideId}`);
+    const result = await ref.transaction((current: any) => {
+      if (current?.done === true) {
+        return; // Ya archivado — no reprocesar
+      }
+      if (
+        current &&
+        typeof current.at === "number" &&
+        Date.now() - current.at < CLAIM_STALE_MS
+      ) {
+        return; // Otro proceso archivando en este momento
+      }
+      return { at: Date.now(), type: archiveType, done: false };
+    });
+    return result.committed === true;
+  } catch (error: any) {
+    // Fail-open: mejor un posible archivado duplicado (los writers son
+    // idempotentes por firebase_ride_id) que perder el archivado.
+    console.warn(`⚠️ [ArchiveOutbox] claimArchive falló para ${rideId}:`, error.message);
+    return true;
+  }
+}
+
+/**
+ * Marca el archivado como terminado. Llamadores que fallaron NO deben llamarlo:
+ * el claim queda y expira para permitir reintentos.
+ */
+export async function markArchiveDone(rideId: string, pgRideId: string): Promise<void> {
+  try {
+    await admin.database().ref(`${CLAIMS_PATH}/${rideId}`).update({
+      done: true,
+      at: Date.now(),
+      pgRideId,
+    });
+  } catch (error: any) {
+    console.warn(`⚠️ [ArchiveOutbox] markArchiveDone falló para ${rideId}:`, error.message);
+  }
+}
+
+/**
+ * true si el ride ya está archivado (claim.done) — usado por el cron para
+ * limpiar entradas del outbox que el trigger terminó mientras tanto.
+ */
+export async function isArchiveDone(rideId: string): Promise<boolean> {
+  try {
+    const snap = await admin.database().ref(`${CLAIMS_PATH}/${rideId}/done`).once("value");
+    return snap.val() === true;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Encola un ride en el outbox para reintento posterior.
@@ -128,4 +197,4 @@ export async function incrementRetryAndScheduleNext(
   }
 }
 
-export { MAX_RETRIES, OUTBOX_PATH };
+export { MAX_RETRIES, OUTBOX_PATH, CLAIMS_PATH, CLAIM_STALE_MS };

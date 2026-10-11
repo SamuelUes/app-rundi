@@ -48,8 +48,8 @@ export interface RequestRideData {
 
 export interface AcceptRideData {
   driverId: string;
-  vehicleId: string;
-  currentLocation: {
+  vehicleId?: string; // el backend resuelve el vehículo actual del conductor si se omite
+  currentLocation?: {
     lat: number;
     lng: number;
   };
@@ -186,6 +186,7 @@ export type ProgrammedRideSummary = {
   id: string;
   status: string;
   scheduledAt: number;
+  claimCode?: string | null;
 };
 
 const toISOString = (value: any): string | undefined => {
@@ -597,6 +598,7 @@ class RidesService {
       id: result.ride.id,
       status: result.ride.status,
       scheduledAt: result.ride.scheduledAt,
+      claimCode: result.ride.claimCode ?? null,
     };
   }
 
@@ -605,6 +607,14 @@ class RidesService {
     const assignFn = httpsCallable(functions, 'assignDriverToProgrammedRide');
     const deviceId = await sessionService.getDeviceId();
     const response = await assignFn({ rideId, deviceId });
+    return response.data as { success: boolean; ride?: Record<string, unknown>; message?: string };
+  }
+
+  async claimProgrammedRideByCode(code: string): Promise<{ success: boolean; ride?: any; message?: string }> {
+    const functions = await this.getFunctions();
+    const claimFn = httpsCallable(functions, 'claimProgrammedRideByCode');
+    const deviceId = await sessionService.getDeviceId();
+    const response = await claimFn({ code: code.trim().toUpperCase(), deviceId });
     return response.data as { success: boolean; ride?: Record<string, unknown>; message?: string };
   }
 
@@ -883,13 +893,33 @@ class RidesService {
     await rejectDriverFunction({ rideId, reason });
   }
 
+  /**
+   * Genera un código corto de compartición para el tracking público del viaje.
+   * El código resuelve el rideId en el servidor — el identificador real no se
+   * expone en el enlace compartido y el código expira solo.
+   */
+  async createRideShareToken(rideId: string): Promise<{ code: string }> {
+    const functions = await this.getFunctions();
+    const createToken = httpsCallable(functions, 'createRideShareToken');
+    const response = await createToken({ rideId });
+    const data = response.data as { code?: string };
+    if (!data?.code) {
+      throw new Error('No se pudo generar el código de compartición');
+    }
+    return { code: data.code };
+  }
+
   async updateRideStatus(rideId: string, status: Ride['status'], additionalData?: any): Promise<any> {
     const functions = await this.getFunctions();
     
     if (status === 'in_progress') {
       const startRideFunction = httpsCallable(functions, 'startRide');
       const deviceId = await sessionService.getDeviceId();
-      const response = await startRideFunction({ rideId, deviceId });
+      const response = await startRideFunction({
+        rideId,
+        deviceId,
+        ...(additionalData?.vehicleInspection ? { vehicleInspection: additionalData.vehicleInspection } : {}),
+      });
       const startResult = response.data as { success?: boolean; ride?: any };
       const ride = this.normalizeRidePreservingRaw(startResult?.ride || { id: rideId, status: 'in_progress' });
       await analyticsService.logRideEvent(AnalyticsEvents.RIDE_STARTED, rideId);

@@ -1,16 +1,17 @@
 import React from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
-import { LoadingIcon } from '../../ui/LoadingIcon';
+import { MaterialIcons } from '@expo/vector-icons';
 type TrFunction = (path: string, options?: Record<string, any>) => string;
 
 type VehicleType = 'moto' | 'auto' | 'designated_driver';
 type DesignatedDriverMode = 'auto' | 'moto';
+type IconName = React.ComponentProps<typeof MaterialIcons>['name'];
 
 interface VehicleOption {
   type: VehicleType;
   label: string;
   subtitle: string;
-  emoji: string;
+  icon: string;
 }
 
 interface VehicleEstimate {
@@ -50,6 +51,7 @@ interface SearchRideVehicleOptionsProps {
   onSetDesignatedDriverMode: (mode: DesignatedDriverMode) => void;
   onUpdatePassengers: (type: VehicleType, delta: number) => void;
   onTakeVehiclePhoto: () => void;
+  colors: any;
   styles: any;
   tr: TrFunction;
 }
@@ -77,9 +79,13 @@ export function SearchRideVehicleOptions({
   onSetDesignatedDriverMode,
   onUpdatePassengers,
   onTakeVehiclePhoto,
+  colors,
   styles,
   tr,
 }: SearchRideVehicleOptionsProps) {
+  const iconColor = colors?.primary || '#b38737';
+  const metaColor = colors?.textSecondary || '#666666';
+  const textColor = colors?.text || '#111111';
   return (
     <View style={[styles.section, styles.vehicleSection]}>
       <View style={styles.vehicleOptionsList}>
@@ -107,18 +113,26 @@ export function SearchRideVehicleOptions({
               style={[styles.vehicleOptionCard, isSelected && styles.vehicleOptionCardSelected]}
               onPress={() => onSelectVehicle(option.type)}
               accessibilityLabel={tr('vehicle.selectOption', { label: option.label })}
+              accessibilityRole="button"
             >
               <View style={styles.vehicleOptionTopRow}>
                 <View style={styles.vehicleOptionTitleBlock}>
                   <View style={styles.vehicleOptionTitleRow}>
-                    <View style={styles.vehicleOptionIconBubble}>
-                      <Text style={styles.vehicleEmoji}>{option.emoji}</Text>
+                    <View style={[styles.vehicleOptionIconBubble, isSelected && styles.vehicleOptionIconBubbleSelected]}>
+                      <MaterialIcons
+                        name={option.icon as IconName}
+                        size={22}
+                        color={isSelected ? iconColor : metaColor}
+                      />
                     </View>
-                    <Text style={[styles.vehicleOptionTitle, isSelected && styles.vehicleOptionTitleSelected]} numberOfLines={1}>
+                    <Text style={styles.vehicleOptionTitle} numberOfLines={1}>
                       {option.label}
                     </Text>
+                    {isSelected ? (
+                      <MaterialIcons name="check-circle" size={16} color={iconColor} />
+                    ) : null}
                   </View>
-                  <Text style={[styles.vehicleOptionSubtitle, isSelected && styles.vehicleOptionSubtitleSelected]} numberOfLines={2}>
+                  <Text style={styles.vehicleOptionSubtitle} numberOfLines={2}>
                     {option.subtitle}
                   </Text>
                 </View>
@@ -131,34 +145,41 @@ export function SearchRideVehicleOptions({
               </View>
 
               <View style={styles.vehicleOptionInfoRow}>
-                <Text style={[styles.vehicleOptionMeta, isSelected && styles.vehicleOptionMetaSelected]} numberOfLines={1}>
-                  {etaLabel}
-                </Text>
+                <View style={styles.vehicleOptionMetaWrap}>
+                  <MaterialIcons name="schedule" size={13} color={metaColor} />
+                  <Text style={styles.vehicleOptionMeta} numberOfLines={1}>
+                    {etaLabel}
+                  </Text>
+                </View>
                 {isSelected ? (
                   <View style={styles.vehicleOptionPassengerControls}>
                     <TouchableOpacity
                       style={[styles.vehicleOptionCounterBtn, !canDecreasePassengers(option.type) && styles.vehicleOptionCounterBtnDisabled]}
                       disabled={!canDecreasePassengers(option.type)}
                       onPress={() => onUpdatePassengers(option.type, -1)}
+                      hitSlop={8}
+                      accessibilityRole="button"
                     >
                       <Text style={styles.vehicleOptionCounterText}>−</Text>
                     </TouchableOpacity>
                     <View style={styles.vehicleOptionPassengerCount}>
-                      <Text style={[styles.vehicleOptionPassengerValue, styles.vehicleOptionPassengerValueSelected]}>{getPassengersForVehicle(option.type)}</Text>
-                      <Text style={styles.vehicleOptionPassengerIcon}>👤</Text>
+                      <Text style={styles.vehicleOptionPassengerValue}>{getPassengersForVehicle(option.type)}</Text>
+                      <MaterialIcons name="person" size={15} color={textColor} />
                     </View>
                     <TouchableOpacity
                       style={[styles.vehicleOptionCounterBtn, !canIncreasePassengers(option.type) && styles.vehicleOptionCounterBtnDisabled]}
                       disabled={!canIncreasePassengers(option.type)}
                       onPress={() => onUpdatePassengers(option.type, 1)}
+                      hitSlop={8}
+                      accessibilityRole="button"
                     >
                       <Text style={styles.vehicleOptionCounterText}>+</Text>
                     </TouchableOpacity>
                   </View>
                 ) : (
                   <View style={styles.vehicleOptionPassengerDisplay}>
-                    <Text style={[styles.vehicleOptionPassengerValue, isSelected && styles.vehicleOptionPassengerValueSelected]}>{getPassengersForVehicle(option.type)}</Text>
-                    <Text style={styles.vehicleOptionPassengerIcon}>👤</Text>
+                    <Text style={styles.vehicleOptionPassengerValue}>{getPassengersForVehicle(option.type)}</Text>
+                    <MaterialIcons name="person" size={15} color={metaColor} />
                   </View>
                 )}
               </View>
@@ -173,18 +194,29 @@ export function SearchRideVehicleOptions({
                           key={mode}
                           style={[styles.designatedDriverModeChip, selected && styles.designatedDriverModeChipSelected]}
                           onPress={() => onSetDesignatedDriverMode(mode)}
+                          accessibilityRole="button"
                         >
-                          <Text style={[styles.designatedDriverModeChipText, selected && styles.designatedDriverModeChipTextSelected]}>
-                            {mode === 'auto' ? tr('vehicle.modeAuto') : tr('vehicle.modeMoto')}
-                          </Text>
+                          <View style={styles.designatedDriverModeChipContent}>
+                            <MaterialIcons
+                              name={mode === 'auto' ? 'directions-car' : 'two-wheeler'}
+                              size={16}
+                              color={selected ? iconColor : metaColor}
+                            />
+                            <Text style={[styles.designatedDriverModeChipText, selected && styles.designatedDriverModeChipTextSelected]}>
+                              {mode === 'auto' ? tr('vehicle.modeAuto') : tr('vehicle.modeMoto')}
+                            </Text>
+                          </View>
                         </TouchableOpacity>
                       );
                     })}
                   </View>
                   {showDesignatedMotoShortDistanceNotice ? (
-                    <Text style={styles.designatedDriverModeInfoText}>
-                      La distancia es muy corta para solicitar este servicio en motocicleta.
-                    </Text>
+                    <View style={styles.designatedDriverModeInfoRow}>
+                      <MaterialIcons name="info-outline" size={14} color={colors?.warning || '#ffa726'} />
+                      <Text style={styles.designatedDriverModeInfoText}>
+                        {tr('vehicle.designatedMotoShortNotice')}
+                      </Text>
+                    </View>
                   ) : null}
                 </View>
               ) : null}
@@ -193,16 +225,15 @@ export function SearchRideVehicleOptions({
         })}
       </View>
 
-      {recommendedVehicle && vehicleEstimates[recommendedVehicle]?.price ? (
-        <View>
-          {formatPriceValue(vehicleEstimates[recommendedVehicle]?.price ?? null)}
-        </View>
-      ) : null}
-
       {requiresVehiclePhoto && (
         <View style={styles.photoRow}>
           <Text style={styles.photoHint}>{tr('photo.hint')}</Text>
-          <TouchableOpacity style={styles.photoButton} onPress={onTakeVehiclePhoto} disabled={uploadingPhoto}>
+          <TouchableOpacity style={styles.photoButton} onPress={onTakeVehiclePhoto} disabled={uploadingPhoto} accessibilityRole="button">
+            <MaterialIcons
+              name={hasVehiclePhotoSelection ? 'photo-library' : 'photo-camera'}
+              size={16}
+              color={iconColor}
+            />
             <Text style={styles.photoButtonText}>
               {uploadingPhoto
                 ? tr('photo.buttonProcessing')

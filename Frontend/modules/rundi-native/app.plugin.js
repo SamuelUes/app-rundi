@@ -122,23 +122,34 @@ function withRundiNative(config) {
 
   // 4. iOS Podfile: re-inject custom post_install modifications
   config = withPodfile(config, (config) => {
+    // El plugin vendored de Expo (withMapsCocoaPods) emite `pod 'react-native-google-maps'`,
+    // podspec que no existe en react-native-maps >= 1.21. La versión instalada (1.29.x)
+    // usa el subspec `react-native-maps/Google` del podspec raíz del paquete.
+    config.modResults.contents = config.modResults.contents.replace(
+      /pod 'react-native-google-maps', path: File\.dirname\(`node --print "require\.resolve\('react-native-maps\/package\.json'\)"`\)/,
+      'rn_maps_path = File.dirname(`node --print "require.resolve(\'react-native-maps/package.json\')"`)\n  pod \'react-native-maps/Google\', :path => rn_maps_path'
+    );
+
     const podfile = config.modResults.contents;
 
-    if (!podfile.includes('$RNFirebaseAsStaticFramework = true')) {
+    // RNFB v26 resuelve Firebase via SPM por defecto, incompatible con
+    // use_frameworks! :linkage => :static → opt-out para usar los pods de CocoaPods.
+    const rnfbGlobals = [
+      '$RNFirebaseAsStaticFramework = true',
+      '$RNFirebaseDisableSPM = true',
+    ]
+      .filter((line) => !podfile.includes(line))
+      .join('\n');
+    if (rnfbGlobals) {
       config.modResults.contents = podfile.replace(
         /prepare_react_native_project!/,
-        "$RNFirebaseAsStaticFramework = true\n\nprepare_react_native_project!"
+        `${rnfbGlobals}\n\nprepare_react_native_project!`
       );
     }
 
-    if (!config.modResults.contents.includes("react-native-google-maps")) {
-      config.modResults.contents = config.modResults.contents.replace(
-        /config = use_native_modules!\(config_command\)/,
-        `pod 'react-native-google-maps', path: File.dirname(\`node --print "require.resolve('react-native-maps/package.json')"\`)\n  config = use_native_modules!(config_command)`
-      );
-    }
-
-    if (!config.modResults.contents.includes("use_frameworks! :linkage => :static")) {
+    // `ios.useFrameworks: 'static'` (expo-build-properties) hace que el Podfile generado
+    // ya incluya use_frameworks! vía Podfile.properties.json — solo inyectar si faltara.
+    if (!config.modResults.contents.includes("use_frameworks!")) {
       config.modResults.contents = config.modResults.contents.replace(
         /use_expo_modules!/,
         "use_expo_modules!\n  use_frameworks! :linkage => :static"
@@ -165,9 +176,9 @@ function withRundiNative(config) {
         end
 
         # Normalizar deployment target al del proyecto (evita warnings de mismatch)
-        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = podfile_properties['ios.deploymentTarget'] || '15.1'
+        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = podfile_properties['ios.deploymentTarget'] || '16.4'
 
-        if t.name.start_with?('RNFB') || t.name.include?('react_native_maps') || t.name.include?('react-native-maps') || t.name.include?('AIRMap')
+        if t.name.include?('react_native_maps') || t.name.include?('react-native-maps') || t.name.include?('AIRMap')
           config.build_settings['DEFINES_MODULE'] = 'NO'
           # Limpiar MODULEMAP_FILE para evitar el warning "MODULEMAP_FILE has no effect if DEFINES_MODULE is not set"
           config.build_settings.delete('MODULEMAP_FILE') if config.build_settings['MODULEMAP_FILE']
@@ -324,10 +335,19 @@ function withRundiNative(config) {
       }
 
       // Add FirebaseApp.configure() if not present
+      // Anchor: `reactNativeFactory = factory` existe tanto en el AppDelegate estándar
+      // del template SDK 57 como en la variante con ios.enableSceneSupport.
       if (!appDelegateContent.includes('FirebaseApp.configure()')) {
+        const factoryAnchor = 'reactNativeFactory = factory';
+        if (!appDelegateContent.includes(factoryAnchor)) {
+          throw new Error(
+            '[rundi-native] AppDelegate.swift no contiene el anchor esperado ' +
+            `"${factoryAnchor}". El template de Expo pudo cambiar; revisar app.plugin.js.`
+          );
+        }
         appDelegateContent = appDelegateContent.replace(
-          /bindReactNativeFactory\(factory\)/,
-          'bindReactNativeFactory(factory)\n\n    FirebaseApp.configure()'
+          factoryAnchor,
+          `${factoryAnchor}\n\n    FirebaseApp.configure()`
         );
       }
 

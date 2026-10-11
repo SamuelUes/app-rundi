@@ -65,12 +65,24 @@ export const AcceptRideSchema = z.object({
 
 export const StartRideSchema = z.object({
   rideId: z.string().min(1, 'ID de viaje requerido'),
+  deviceId: z.string().optional(),
+  vehicleInspection: z.object({
+    inspected: z.boolean().optional(),
+    inspection_id: z.string().optional(),
+    timestamp: z.number().optional(),
+    photos: z.record(z.string()).optional(),
+  }).passthrough().optional(),
 });
 
 export const CompleteRideSchema = z.object({
   rideId: z.string().min(1, 'ID de viaje requerido'),
-  finalFare: z.number().positive('Tarifa final debe ser positiva'),
+  // La tarifa enviada por el cliente es solo de referencia: el callable usa la
+  // tarifa autoritativa del viaje (getNegotiatedFare) cuando existe.
+  finalFare: z.number().positive('Tarifa final debe ser positiva').max(500000, 'Tarifa fuera de rango'),
   driverId: z.string().optional(),
+  // Métricas reales del viaje reportadas por la app (advisory, validadas y capadas)
+  actualDistance: z.number().nonnegative().max(500000).optional(), // metros, cap 500 km
+  actualDuration: z.number().nonnegative().max(86400000).optional(), // ms, cap 24 h
 });
 
 export const CancelRideSchema = z.object({

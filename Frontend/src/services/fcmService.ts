@@ -116,17 +116,15 @@ const initializeMessagingModule = async (): Promise<boolean> => {
     }
 
     const rnMessaging = await loadNativeFirebaseMessaging();
-    if (!rnMessaging || !rnMessaging.default) {
+    if (!rnMessaging || !rnMessaging.getMessaging) {
       console.warn('⚠️ No se pudo cargar el módulo nativo de Firebase Messaging.');
       logAvailability('unavailable');
       return false;
     }
 
     // React Native Firebase se inicializa automáticamente con google-services.json
-    // Usar la API modular (v22+) para evitar warnings de deprecación de la API namespaced
-    const instance = rnMessaging.getMessaging
-      ? rnMessaging.getMessaging()
-      : rnMessaging.default();
+    // RNFB v26: solo API modular (la API namespaced fue eliminada)
+    const instance = rnMessaging.getMessaging();
 
     if (!instance) {
       console.warn('⚠️ No se pudo obtener una instancia de Firebase Messaging.');
@@ -142,6 +140,10 @@ const initializeMessagingModule = async (): Promise<boolean> => {
         rnMessaging.hasPermission(currentInstance),
       getToken: async (currentInstance: any) =>
         rnMessaging.getToken(currentInstance),
+      isDeviceRegisteredForRemoteMessages: async (currentInstance: any) =>
+        rnMessaging.isDeviceRegisteredForRemoteMessages(currentInstance),
+      registerDeviceForRemoteMessages: async (currentInstance: any) =>
+        rnMessaging.registerDeviceForRemoteMessages(currentInstance),
       onMessage: (currentInstance: any, handler: any) =>
         rnMessaging.onMessage(currentInstance, handler),
       onNotificationOpenedApp: (currentInstance: any, handler: any) =>
@@ -177,6 +179,34 @@ class FCMService {
   private onMessageUnsubscribe: (() => void) | null = null;
   private onNotificationOpenedUnsubscribe: (() => void) | null = null;
   private messagingInitPromise: Promise<boolean> | null = null;
+  private apnsRegistrationPromise: Promise<boolean> | null = null;
+
+  /**
+   * Registro único en APNs (iOS). La promesa se cachea para que llamadas
+   * concurrentes a getToken no superscedan el registro entre sí
+   * ([messaging/registration-superseded]). Un timeout se tolera — es frecuente
+   * en simulador ARM64 y el token puede resolverse igualmente vía getToken.
+   */
+  private ensureApnsRegistered(): Promise<boolean> {
+    if (Platform.OS !== 'ios') {
+      return Promise.resolve(true);
+    }
+    if (!this.apnsRegistrationPromise) {
+      this.apnsRegistrationPromise = (async () => {
+        try {
+          if (await messagingModule.isDeviceRegisteredForRemoteMessages(messagingInstance)) {
+            return true;
+          }
+          await messagingModule.registerDeviceForRemoteMessages(messagingInstance);
+          return true;
+        } catch (regError) {
+          console.warn('⚠️ Registro APNs sin confirmar (frecuente en simulador); se intenta getToken igualmente:', regError);
+          return false;
+        }
+      })();
+    }
+    return this.apnsRegistrationPromise;
+  }
 
   private async getFunctions() {
     if (!this.functions) {
@@ -191,9 +221,7 @@ class FCMService {
     }
 
     const nativeAuthModule = await loadNativeFirebaseAuth();
-    const rnAuth = nativeAuthModule?.getAuth
-      ? nativeAuthModule.getAuth()
-      : nativeAuthModule?.default?.();
+    const rnAuth = nativeAuthModule?.getAuth?.();
     if (!rnAuth) {
       console.warn('⚠️ No se pudo cargar el módulo nativo de Firebase Auth.');
       return { currentUser: null } as any;
@@ -236,6 +264,12 @@ class FCMService {
       if (!ready) {
         console.log('⚠️ FCM no disponible, no se puede obtener token');
         return null;
+      }
+
+      // RNFB v26: iOS requiere registro explícito en APNs antes de getToken
+      // (la API namespaced lo hacía implícitamente).
+      if (Platform.OS === 'ios') {
+        await this.ensureApnsRegistered();
       }
 
       const fcmToken = await messagingModule.getToken(messagingInstance);

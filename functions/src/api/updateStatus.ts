@@ -3,7 +3,7 @@
  * Actualizar estado de disponibilidad del conductor
  */
 
-import * as functions from 'firebase-functions';
+import * as functions from 'firebase-functions/v1';
 import admin from 'firebase-admin';
 import { requireDriver } from '../utils/sessionUtils';
 

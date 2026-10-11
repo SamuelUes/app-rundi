@@ -67,7 +67,7 @@ export async function loadNativeFirebaseAuth() {
     if (typeof module.getAuth === 'function' && typeof module.connectAuthEmulator === 'function') {
       module.connectAuthEmulator(module.getAuth(), emulatorUrl);
     } else {
-      module.default().useEmulator(emulatorUrl);
+      console.warn('⚠️ [nativeFirebase] API modular de auth no disponible; no se configuró el emulador.');
     }
     nativeAuthEmulatorConfigured = true;
   }

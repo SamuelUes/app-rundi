@@ -9,7 +9,7 @@
  * - status → 'rating_completed': espera 15s → 'completed', luego 20s → elimina
  */
 
-import * as functions from "firebase-functions";
+import * as functions from "firebase-functions/v1";
 import admin from "firebase-admin";
 import {
   saveCanceledRideToSupabase,
@@ -18,7 +18,7 @@ import {
   updateRideLocationIds,
 } from "../helpers/supabaseArchive";
 import { scheduleDelayedTask } from "../helpers/cloudTasks";
-import { enqueueArchiveRetry } from "../helpers/archiveOutbox";
+import { claimArchive, enqueueArchiveRetry, markArchiveDone } from "../helpers/archiveOutbox";
 
 export const onActiveRidesWrite = functions.database
   .ref("activeRides/{rideId}")
@@ -63,6 +63,13 @@ async function handleRideCanceled(
   console.log(`   rideId: ${rideId}`);
   console.log(`   cancelReason: ${newRide.cancelReason || "Sin razón"}`);
   console.log(`   canceledBy: ${newRide.canceledBy || "unknown"}`);
+
+  // Single-flight compartido con onPaymentCanceled / outbox cron.
+  const claimed = await claimArchive(rideId, "canceled");
+  if (!claimed) {
+    console.log(`⏭️ [onActiveRidesWrite] ${rideId} ya reclamado/archivado por otro proceso`);
+    return;
+  }
 
   try {
     // Obtener paymentStatus si existe
@@ -116,6 +123,7 @@ async function handleRideCanceled(
     }
 
     // Actualizar Firebase con pgRideId
+    await markArchiveDone(rideId, pgRideId);
     await admin.database().ref(`activeRides/${rideId}`).update({
       pgRideId,
       archivedAt: Date.now(),

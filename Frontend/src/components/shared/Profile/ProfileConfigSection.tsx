@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, Image, Switch } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 import type { TFunction } from 'i18next';
 
 interface ProfileConfigSectionProps {
@@ -15,6 +16,7 @@ interface ProfileConfigSectionProps {
   onToggleSounds: (value: boolean) => void;
   onNavigateSettings: () => void;
   onNavigateRideHistory: () => void;
+  onNavigatePayments: () => void;
   onNavigateHelp: () => void;
   onNavigateSupport: () => void;
   styles: any;
@@ -34,116 +36,158 @@ export function ProfileConfigSection({
   onToggleSounds,
   onNavigateSettings,
   onNavigateRideHistory,
+  onNavigatePayments,
   onNavigateHelp,
   onNavigateSupport,
   styles,
   t,
 }: ProfileConfigSectionProps) {
-  return (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>{t('shared.profile.config.title')}</Text>
+  const switchColors = {
+    thumbColor: '#ffffff',
+    trackColor: { false: '#bdbdbd', true: colors.primary },
+  };
 
-      {/* Tema rápido */}
-      <View style={styles.optionCard}>
-        <Text style={styles.optionText}>{t('shared.profile.config.theme')}</Text>
-        <View style={styles.themeChipsRow}>
-          <TouchableOpacity
-            style={[styles.themeChip, theme === 'light' && styles.themeChipActive]}
-            onPress={() => onThemeChange('light')}
-          >
-            <Text style={[styles.themeChipText, theme === 'light' && styles.themeChipTextActive]}>
-              {t('shared.profile.config.themeOptions.light')}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.themeChip, theme === 'dark' && styles.themeChipActive]}
-            onPress={() => onThemeChange('dark')}
-          >
-            <Text style={[styles.themeChipText, theme === 'dark' && styles.themeChipTextActive]}>
-              {t('shared.profile.config.themeOptions.dark')}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.themeChip, theme === 'auto' && styles.themeChipActive]}
-            onPress={() => onThemeChange('auto')}
-          >
-            <Text style={[styles.themeChipText, theme === 'auto' && styles.themeChipTextActive]}>
-              {t('shared.profile.config.themeOptions.auto')}
-            </Text>
-          </TouchableOpacity>
+  return (
+    <>
+      {/* Preferencias */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>{t('shared.profile.config.title')}</Text>
+        <View style={styles.preferenceCard}>
+          {/* Tema */}
+          <View style={styles.prefThemeBlock}>
+            <View style={styles.prefRowHeader}>
+              <View style={styles.prefRowIcon}>
+                <MaterialIcons name="brightness-6" size={20} color={colors.primary} />
+              </View>
+              <Text style={styles.prefRowTitle}>{t('shared.profile.config.theme')}</Text>
+            </View>
+            <View style={styles.themeChipsRow}>
+              <TouchableOpacity
+                style={[styles.themeChip, theme === 'light' && styles.themeChipActive]}
+                onPress={() => onThemeChange('light')}
+                accessibilityRole="button"
+                accessibilityState={{ selected: theme === 'light' }}
+              >
+                <Text style={[styles.themeChipText, theme === 'light' && styles.themeChipTextActive]}>
+                  {t('shared.profile.config.themeOptions.light')}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.themeChip, theme === 'dark' && styles.themeChipActive]}
+                onPress={() => onThemeChange('dark')}
+                accessibilityRole="button"
+                accessibilityState={{ selected: theme === 'dark' }}
+              >
+                <Text style={[styles.themeChipText, theme === 'dark' && styles.themeChipTextActive]}>
+                  {t('shared.profile.config.themeOptions.dark')}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.themeChip, theme === 'auto' && styles.themeChipActive]}
+                onPress={() => onThemeChange('auto')}
+                accessibilityRole="button"
+                accessibilityState={{ selected: theme === 'auto' }}
+              >
+                <Text style={[styles.themeChipText, theme === 'auto' && styles.themeChipTextActive]}>
+                  {t('shared.profile.config.themeOptions.auto')}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Notificaciones Push */}
+          <View style={styles.prefRow}>
+            <View style={styles.prefRowIcon}>
+              <MaterialIcons name="notifications-none" size={20} color={colors.primary} />
+            </View>
+            <Text style={styles.prefRowTitle}>{t('shared.profile.config.notifications')}</Text>
+            <Switch
+              value={notificationsEnabled}
+              onValueChange={onToggleNotifications}
+              {...switchColors}
+            />
+          </View>
+
+          {/* Tráfico en el mapa */}
+          <View style={styles.prefRow}>
+            <View style={styles.prefRowIcon}>
+              <MaterialIcons name="map" size={20} color={colors.primary} />
+            </View>
+            <Text style={styles.prefRowTitle}>{t('shared.profile.config.traffic')}</Text>
+            <Switch
+              value={mapTrafficEnabled}
+              onValueChange={onToggleTraffic}
+              {...switchColors}
+            />
+          </View>
+
+          {/* Sonidos de la app */}
+          <View style={[styles.prefRow, styles.prefRowLast, !notificationsEnabled && styles.prefRowDisabled]}>
+            <View style={styles.prefRowIcon}>
+              <MaterialIcons name="volume-up" size={20} color={colors.primary} />
+            </View>
+            <Text style={styles.prefRowTitle}>{t('shared.profile.config.sounds')}</Text>
+            <Switch
+              value={soundEnabled && vibrationEnabled}
+              onValueChange={onToggleSounds}
+              disabled={!notificationsEnabled}
+              {...switchColors}
+            />
+          </View>
         </View>
       </View>
 
-      {/* Notificaciones Push */}
-      <View style={styles.optionCard}>
-        <Text style={styles.optionText}>{t('shared.profile.config.notifications')}</Text>
-        <Switch
-          value={notificationsEnabled}
-          onValueChange={onToggleNotifications}
-          trackColor={{ false: colors.border, true: colors.primary }}
-          thumbColor="#fff"
-        />
+      {/* Navegación — patrón DriverProfileOptions */}
+      <View style={styles.section}>
+        <TouchableOpacity style={styles.optionCard} onPress={onNavigatePayments} accessibilityRole="button">
+          <Image
+            source={require('../../../assets/icons/payment-icon/paymenticon.png')}
+            style={styles.optionIconImage}
+          />
+          <Text style={styles.optionText}>{t('shared.profile.config.payments')}</Text>
+          <Text style={styles.optionArrow}>›</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.optionCard} onPress={onNavigateRideHistory} accessibilityRole="button">
+          <Image
+            source={require('../../../assets/icons/historial-icon/historialicon2.png')}
+            style={styles.optionIconImage}
+          />
+          <Text style={styles.optionText}>{t('shared.profile.config.rideHistory')}</Text>
+          <Text style={styles.optionArrow}>›</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.optionCard} onPress={onNavigateSettings} accessibilityRole="button">
+          <Image
+            source={require('../../../assets/icons/settings-icon/settingsicon.png')}
+            style={styles.optionIconImage}
+          />
+          <Text style={styles.optionText}>{t('shared.profile.config.advanced')}</Text>
+          <Text style={styles.optionArrow}>›</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.optionCard} onPress={onNavigateHelp} accessibilityRole="button">
+          <Image
+            source={require('../../../assets/icons/help-icon/helpicon.png')}
+            style={styles.optionIconImage}
+          />
+          <Text style={styles.optionText}>{t('shared.profile.config.help')}</Text>
+          <Text style={styles.optionArrow}>›</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.optionCard, styles.optionCardLast]}
+          onPress={onNavigateSupport}
+          accessibilityRole="button"
+        >
+          <Image
+            source={require('../../../assets/icons/report-icon/reporticon.png')}
+            style={styles.optionIconImage}
+          />
+          <Text style={styles.optionText}>{t('shared.profile.support.title')}</Text>
+          <Text style={styles.optionArrow}>›</Text>
+        </TouchableOpacity>
       </View>
-
-      {/* Tráfico en el mapa */}
-      <View style={styles.optionCard}>
-        <Text style={styles.optionText}>{t('shared.profile.config.traffic')}</Text>
-        <Switch
-          value={mapTrafficEnabled}
-          onValueChange={onToggleTraffic}
-          trackColor={{ false: colors.border, true: colors.primary }}
-          thumbColor="#fff"
-        />
-      </View>
-
-      {/* Sonidos de la app */}
-      <View style={styles.optionCard}>
-        <Text style={styles.optionText}>{t('shared.profile.config.sounds')}</Text>
-        <Switch
-          value={soundEnabled && vibrationEnabled}
-          onValueChange={onToggleSounds}
-          trackColor={{ false: colors.border, true: colors.primary }}
-          thumbColor="#fff"
-          disabled={!notificationsEnabled}
-        />
-      </View>
-
-      {/* Navegación a pantallas relacionadas */}
-      <TouchableOpacity style={styles.optionCard} onPress={onNavigateSettings}>
-        <Image
-          source={require('../../../assets/icons/settings-icon/settingsicon.png')}
-          style={styles.optionIconImage}
-        />
-        <Text style={styles.optionText}>{t('shared.profile.config.advanced')}</Text>
-        <Text style={styles.optionArrow}>›</Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity style={styles.optionCard} onPress={onNavigateRideHistory}>
-        <Image
-          source={require('../../../assets/icons/historial-icon/historialicon2.png')}
-          style={styles.optionIconImage}
-        />
-        <Text style={styles.optionText}>{t('shared.profile.config.rideHistory')}</Text>
-        <Text style={styles.optionArrow}>›</Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity style={styles.optionCard} onPress={onNavigateHelp}>
-        <Image
-          source={require('../../../assets/icons/help-icon/helpicon.png')}
-          style={styles.optionIconImage}
-        />
-        <Text style={styles.optionText}>{t('shared.profile.config.help')}</Text>
-        <Text style={styles.optionArrow}>›</Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity style={styles.optionCard} onPress={onNavigateSupport}>
-        <Image
-          source={require('../../../assets/icons/report-icon/reporticon.png')}
-          style={styles.optionIconImage}
-        />
-        <Text style={styles.optionText}>{t('shared.profile.support.title')}</Text>
-        <Text style={styles.optionArrow}>›</Text>
-      </TouchableOpacity>
-    </View>
+    </>
   );
 }

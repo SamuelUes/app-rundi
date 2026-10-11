@@ -186,11 +186,6 @@ export default function RideRequestsScreen({ navigation }: any) {
       
       await ridesService.acceptRide(ride.id, {
         driverId: user.id,
-        vehicleId: 'temp-vehicle-id', // TODO: Obtener del perfil
-        currentLocation: {
-          lat: coords.latitude,
-          lng: coords.longitude,
-        },
         offeredPrice: offeredPrice !== ride.estimatedPrice ? offeredPrice : undefined,
       });
 

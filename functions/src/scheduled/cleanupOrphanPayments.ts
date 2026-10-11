@@ -7,7 +7,7 @@
  *    cargar todos los paymentStatus en memoria de una sola vez.
  */
 
-import * as functions from 'firebase-functions';
+import * as functions from 'firebase-functions/v1';
 import admin from 'firebase-admin';
 
 const BATCH_SIZE = 200;

@@ -1,10 +1,13 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { subscribePreflightResult, getPreflightResult, type PreflightAction } from '../../../stores/preflightStore';
+import ridesService from '../../../services/ridesService';
+import type { UpcomingProgrammedRide } from './useUpcomingProgrammedRide';
 import type { TFunction } from 'i18next';
 
 export type PendingAction = {
-  type: 'pending_payment' | 'active_ride';
+  type: 'pending_payment' | 'active_ride' | 'scheduled_ride';
   title: string;
+  icon?: string;
   onPress: () => void;
 };
 
@@ -23,6 +26,7 @@ interface ActiveRide {
 export function usePendingActions(
   userId: string | undefined,
   activeRide: ActiveRide | null,
+  upcomingRide: UpcomingProgrammedRide | null,
   navigation: any,
   t: TFunction,
 ) {
@@ -121,6 +125,40 @@ export function usePendingActions(
     navigation.replace('PendingPayments');
   }, [navigation]);
 
+  // Viaje programado inminente (≤30min): confirmar la asistencia del cliente y
+  // llevarlo a HomeOffers. El rideId se conserva cuando el cron lo promueve a
+  // activeRides, así que la pantalla lo detecta sola al activarse.
+  const handleViewScheduledRide = useCallback(async () => {
+    if (!upcomingRide) return;
+    try {
+      if (!upcomingRide.clientConfirmed) {
+        await ridesService.confirmProgrammedRideClient(upcomingRide.rideId);
+      }
+    } catch (error: any) {
+      // 'not-found'/'failed-precondition' → ya promovido o cancelado; igual
+      // navegamos porque HomeOffers resuelve el estado real del ride.
+      console.warn('[usePendingActions] confirmProgrammedRideClient:', error?.code || error?.message || error);
+    }
+
+    try {
+      const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+      await AsyncStorage.setItem('ACTIVE_RIDE_ID', upcomingRide.rideId);
+    } catch {
+      // noop
+    }
+
+    navigation.navigate('HomeOffers', {
+      rideId: upcomingRide.rideId,
+      programmedRide: {
+        driverId: upcomingRide.driverId ?? undefined,
+        driver: upcomingRide.driver ?? undefined,
+        scheduledAt: upcomingRide.scheduledAt,
+        origin: upcomingRide.origin ?? undefined,
+        destination: upcomingRide.destination ?? undefined,
+      },
+    });
+  }, [upcomingRide, navigation]);
+
   // Suscribirse al preflight store
   useEffect(() => {
     const unsubscribePreflight = subscribePreflightResult((summary) => {
@@ -136,13 +174,46 @@ export function usePendingActions(
     };
   }, []);
 
-  // Prioridad: active_ride > pending_payment > preflight
+  // Auto-navegación: el viaje programado inminente del cliente fue promovido
+  // con conductor (mismo rideId conservado) → va directo a tracking, igual
+  // que si hubiera tocado el botón. Solo aplica al viaje programado; el flujo
+  // normal de activeRide sigue manual.
+  // El nodo programmedRides se borra al promoverse, así que el rideId se
+  // memoriza — upcomingRide ya es null cuando activeRide aparece.
+  const lastScheduledRideIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (upcomingRide?.rideId) {
+      lastScheduledRideIdRef.current = upcomingRide.rideId;
+    }
+  }, [upcomingRide?.rideId]);
+
+  useEffect(() => {
+    if (!activeRide) return;
+    if (activeRide.id !== lastScheduledRideIdRef.current) return;
+    if (!['accepted', 'driver_on_route', 'in_progress'].includes(activeRide.status)) return;
+    if (!activeRide.driverId && !activeRide.driver) return;
+    handleViewActiveRide();
+  }, [activeRide, handleViewActiveRide]);
+
+  // Prioridad: active_ride > scheduled_ride inminente > pending_payment > preflight
   useEffect(() => {
     if (activeRide) {
       setPendingAction({
         type: 'active_ride',
         title: getActiveRideLabel(activeRide.status),
         onPress: handleViewActiveRide,
+      });
+      return;
+    }
+
+    if (upcomingRide?.isImminent) {
+      setPendingAction({
+        type: 'scheduled_ride',
+        title: upcomingRide.driverId
+          ? t('client.home.scheduledRide.imminentTitleDriver')
+          : t('client.home.scheduledRide.imminentTitle'),
+        icon: 'schedule',
+        onPress: handleViewScheduledRide,
       });
       return;
     }
@@ -181,7 +252,7 @@ export function usePendingActions(
     }
 
     setPendingAction(null);
-  }, [hasPendingPayments, pendingPayments, activeRide, preflightActions, getActiveRideLabel, handleViewActiveRide, handleViewPendingPayments, navigation, t]);
+  }, [hasPendingPayments, pendingPayments, activeRide, upcomingRide, preflightActions, getActiveRideLabel, handleViewActiveRide, handleViewScheduledRide, handleViewPendingPayments, navigation, t]);
 
   return {
     pendingPayments,

@@ -1,116 +1,144 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
-  <dict>
-    <key>CADisableMinimumFrameDurationOnPhone</key>
-    <true/>
-    <key>CFBundleAllowMixedLocalizations</key>
-    <true/>
-    <key>CFBundleDevelopmentRegion</key>
-    <string>$(DEVELOPMENT_LANGUAGE)</string>
-    <key>CFBundleDisplayName</key>
-    <string>Rundi</string>
-    <key>CFBundleExecutable</key>
-    <string>$(EXECUTABLE_NAME)</string>
-    <key>CFBundleIdentifier</key>
-    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
-    <key>CFBundleInfoDictionaryVersion</key>
-    <string>6.0</string>
-    <key>CFBundleName</key>
-    <string>$(PRODUCT_NAME)</string>
-    <key>CFBundlePackageType</key>
-    <string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
-    <key>CFBundleShortVersionString</key>
-    <string>Beta - 1.8</string>
-    <key>CFBundleSignature</key>
-    <string>????</string>
-    <key>CFBundleURLTypes</key>
-    <array>
-      <dict>
-        <key>CFBundleURLSchemes</key>
-        <array>
-          <string>com.driveangel.rundidev</string>
-          <string>com.driveangel.rundidev</string>
-        </array>
-      </dict>
-      <dict>
-        <key>CFBundleURLSchemes</key>
-        <array>
-          <string>com.googleusercontent.apps.608732245640-eot8hsajjljf6bd32i82ssn8vusad9hq</string>
-        </array>
-      </dict>
-      <dict>
-        <key>CFBundleURLSchemes</key>
-        <array>
-          <string>exp+rundi</string>
-        </array>
-      </dict>
-    </array>
-    <key>CFBundleVersion</key>
-    <string>1</string>
-    <key>GMSApiKey</key>
-    <string>AIzaSyBPMDre2HDxDrjEM5QuTgXZYEhnwyFTRcQ</string>
-    <key>ITSAppUsesNonExemptEncryption</key>
-    <false/>
-    <key>LSMinimumSystemVersion</key>
-    <string>12.0</string>
-    <key>LSRequiresIPhoneOS</key>
-    <true/>
-    <key>NSAppTransportSecurity</key>
-    <dict>
-      <key>NSAllowsArbitraryLoads</key>
-      <false/>
-      <key>NSAllowsLocalNetworking</key>
-      <true/>
-    </dict>
-    <key>NSCameraUsageDescription</key>
-    <string>La aplicación necesita acceder a tu cámara para tomar fotos de perfil.</string>
-    <key>NSFaceIDUsageDescription</key>
-    <string>Permitir uso de FaceID</string>
-    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-    <string>Permitir a Rundi acceder a tu ubicación.</string>
-    <key>NSLocationAlwaysUsageDescription</key>
-    <string>Allow $(PRODUCT_NAME) to access your location</string>
-    <key>NSLocationWhenInUseUsageDescription</key>
-    <string>La aplicación necesita acceder a tu ubicación para mostrarte conductores cercanos.</string>
-    <key>NSMicrophoneUsageDescription</key>
-    <string>Allow $(PRODUCT_NAME) to access your microphone</string>
-    <key>NSMotionUsageDescription</key>
-    <string>Rundi utiliza tu actividad física para detectar cuándo estás manejando y mejorar la asignación de viajes.</string>
-    <key>NSPhotoLibraryUsageDescription</key>
-    <string>La aplicación necesita acceder a tu galería de fotos para subir imágenes.</string>
-    <key>RCTNewArchEnabled</key>
-    <true/>
-    <key>UIBackgroundModes</key>
-    <array>
-      <string>location</string>
-      <string>fetch</string>
-    </array>
-    <key>UILaunchStoryboardName</key>
-    <string>SplashScreen</string>
-    <key>UIRequiredDeviceCapabilities</key>
-    <array>
-      <string>arm64</string>
-    </array>
-    <key>UIRequiresFullScreen</key>
-    <false/>
-    <key>UIStatusBarStyle</key>
-    <string>UIStatusBarStyleDefault</string>
-    <key>UISupportedInterfaceOrientations</key>
-    <array>
-      <string>UIInterfaceOrientationPortrait</string>
-      <string>UIInterfaceOrientationPortraitUpsideDown</string>
-    </array>
-    <key>UISupportedInterfaceOrientations~ipad</key>
-    <array>
-      <string>UIInterfaceOrientationPortrait</string>
-      <string>UIInterfaceOrientationPortraitUpsideDown</string>
-      <string>UIInterfaceOrientationLandscapeLeft</string>
-      <string>UIInterfaceOrientationLandscapeRight</string>
-    </array>
-    <key>UIUserInterfaceStyle</key>
-    <string>Automatic</string>
-    <key>UIViewControllerBasedStatusBarAppearance</key>
-    <false/>
-  </dict>
+<dict>
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
+	<key>CFBundleAllowMixedLocalizations</key>
+	<true/>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>Rundi</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
+	<key>CFBundleShortVersionString</key>
+	<string>Beta - 1.8</string>
+	<key>CFBundleSignature</key>
+	<string>????</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.driveangel.rundidev</string>
+				<string>com.driveangel.rundidev</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.608732245640-eot8hsajjljf6bd32i82ssn8vusad9hq</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>exp+rundi</string>
+			</array>
+		</dict>
+	</array>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>GMSApiKey</key>
+	<string>AIzaSyBPMDre2HDxDrjEM5QuTgXZYEhnwyFTRcQ</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>LSMinimumSystemVersion</key>
+	<string>12.0</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<false/>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_expo._tcp</string>
+	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>La aplicación necesita acceder a tu cámara para tomar fotos de perfil.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Permitir uso de FaceID</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Expo Dev Launcher uses the local network to discover and connect to development servers running on your computer.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Permitir a Rundi acceder a tu ubicación.</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>Allow $(PRODUCT_NAME) to access your location</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>La aplicación necesita acceder a tu ubicación para mostrarte conductores cercanos.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Allow $(PRODUCT_NAME) to access your microphone</string>
+	<key>NSMotionUsageDescription</key>
+	<string>Rundi utiliza tu actividad física para detectar cuándo estás manejando y mejorar la asignación de viajes.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>La aplicación necesita acceder a tu galería de fotos para subir imágenes.</string>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
+	<key>RCTMetroPort</key>
+	<string>$(RCT_METRO_PORT)</string>
+	<key>RCTNewArchEnabled</key>
+	<true/>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>UIWindowSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneConfigurationName</key>
+					<string>Default Configuration</string>
+					<key>UISceneDelegateClassName</key>
+					<string>EXExpoAppSceneDelegate</string>
+				</dict>
+			</array>
+		</dict>
+	</dict>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+		<string>fetch</string>
+		<string>remote-notification</string>
+	</array>
+	<key>UILaunchStoryboardName</key>
+	<string>SplashScreen</string>
+	<key>UIRequiredDeviceCapabilities</key>
+	<array>
+		<string>arm64</string>
+	</array>
+	<key>UIRequiresFullScreen</key>
+	<false/>
+	<key>UIStatusBarStyle</key>
+	<string>UIStatusBarStyleDefault</string>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UIUserInterfaceStyle</key>
+	<string>Automatic</string>
+	<key>UIViewControllerBasedStatusBarAppearance</key>
+	<false/>
+</dict>
 </plist>

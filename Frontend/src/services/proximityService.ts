@@ -1,7 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { httpsCallable } from 'firebase/functions';
+import * as ExpoLocation from 'expo-location';
 import notificationService from './notificationService';
 import ridesService from './ridesService';
+import driverAvailabilityService from './driverAvailabilityService';
 import { navigate, navigationRef } from '../navigation/NavigationService';
 import { getFirebaseAuth, getFirebaseDatabase, getFirebaseFunctions } from '../config/firebase';
 import { AppState, AppStateStatus, Platform } from 'react-native';
@@ -39,6 +41,7 @@ const STORAGE_KEYS = {
   suppressionUntil: 'proximity:suppressionUntil',
   lastShownAt: 'proximity:lastShownAt',
   dismissedRides: 'proximity:dismissedRides',
+  autoDismissedRides: 'proximity:autoDismissedRides',
   overlayEnabled: 'proximity:overlayEnabled',
   overlayPayload: 'proximity:lastOverlayPayload',
   registrationUploadsInProgress: 'proximity:registrationUploadsInProgress',
@@ -48,6 +51,9 @@ const STORAGE_KEYS = {
 const THROTTLE_MS = 15000; // no más de 1 chequeo cada 15s
 const SUPPRESSION_MS = 60000; // suprime notificación 60s después de disparar una
 const DISMISS_TTL_MS = 5 * 60 * 1000; // mantener rides rechazados fuera por 5 minutos
+const AUTO_DISMISS_TTL_MS = 60 * 1000; // tras auto-cierre, no re-mostrar por aproximación durante 1 minuto
+// Rutas que no deben ser interrumpidas por una auto-apertura de RidePreview
+const SUPPRESS_AUTO_OPEN_ROUTES = new Set(['RidePreview', 'ActiveRide', 'WaitingClientConfirmation']);
 const REGISTRATION_UPLOADS_TTL_MS = 10 * 60 * 1000; // caducar flag tras 10 minutos
 const PROXIMITY_PUSH_RETRY_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -180,9 +186,9 @@ async function loadOverlayPayload(): Promise<OverlayPayload | null> {
   }
 }
 
-async function loadDismissedRides(): Promise<Record<string, number>> {
+async function loadTimestampMap(storageKey: string, ttlMs: number): Promise<Record<string, number>> {
   try {
-    const stored = await AsyncStorage.getItem(STORAGE_KEYS.dismissedRides);
+    const stored = await AsyncStorage.getItem(storageKey);
     if (!stored) return {};
 
     const parsed = JSON.parse(stored) as Record<string, number>;
@@ -192,23 +198,31 @@ async function loadDismissedRides(): Promise<Record<string, number>> {
     for (const [rideId, rawTs] of Object.entries(parsed)) {
       const ts = typeof rawTs === 'number' ? rawTs : Number(rawTs);
       if (!Number.isFinite(ts)) continue;
-      if (now - ts <= DISMISS_TTL_MS) {
+      if (now - ts <= ttlMs) {
         cleaned[rideId] = ts;
       }
     }
 
     const cleanedKeys = Object.keys(cleaned);
     if (cleanedKeys.length === 0) {
-      await AsyncStorage.removeItem(STORAGE_KEYS.dismissedRides);
+      await AsyncStorage.removeItem(storageKey);
     } else if (cleanedKeys.length !== Object.keys(parsed).length) {
-      await AsyncStorage.setItem(STORAGE_KEYS.dismissedRides, JSON.stringify(cleaned));
+      await AsyncStorage.setItem(storageKey, JSON.stringify(cleaned));
     }
 
     return cleaned;
   } catch (err) {
-    console.warn('[proximity] No se pudo cargar dismissed rides:', err);
+    console.warn('[proximity] No se pudo cargar mapa de rides:', err);
     return {};
   }
+}
+
+async function loadDismissedRides(): Promise<Record<string, number>> {
+  return loadTimestampMap(STORAGE_KEYS.dismissedRides, DISMISS_TTL_MS);
+}
+
+async function loadAutoDismissedRides(): Promise<Record<string, number>> {
+  return loadTimestampMap(STORAGE_KEYS.autoDismissedRides, AUTO_DISMISS_TTL_MS);
 }
 
 async function saveDismissedRides(map: Record<string, number>) {
@@ -230,8 +244,20 @@ async function markRideDismissed(rideId: string) {
   }
 }
 
+async function markRideAutoDismissed(rideId: string) {
+  try {
+    const current = await loadAutoDismissedRides();
+    current[rideId] = Date.now();
+    await AsyncStorage.setItem(STORAGE_KEYS.autoDismissedRides, JSON.stringify(current));
+  } catch (err) {
+    console.warn('[proximity] No se pudo marcar ride como auto-descartado:', err);
+  }
+}
+
+const isOverlaySupportedPlatform = Platform.OS === 'android' || Platform.OS === 'ios';
+
 async function getOverlayEnabled(): Promise<boolean> {
-  if (Platform.OS !== 'android') {
+  if (!isOverlaySupportedPlatform) {
     overlayEnabledCache = false;
     return false;
   }
@@ -322,7 +348,7 @@ function subscribeRegistrationUploadsInProgress(listener: RegistrationUploadsLis
 }
 
 async function setOverlayEnabled(enabled: boolean): Promise<void> {
-  if (Platform.OS !== 'android') {
+  if (!isOverlaySupportedPlatform) {
     overlayEnabledCache = false;
     return;
   }
@@ -483,6 +509,70 @@ async function markCheck(successTriggered: boolean) {
   }
 }
 
+const COORDINATE_TEXT_RE = /^\s*-?\d{1,3}(?:\.\d+)?\s*[,;]\s*-?\d{1,3}(?:\.\d+)?\s*$/;
+
+/**
+ * Resuelve una etiqueta textual del origen del viaje.
+ * Si la dirección guardada es texto real se usa tal cual; si falta o es un
+ * par de coordenadas, se intenta reverse geocoding. Las coordenadas crudas
+ * solo quedan como último recurso.
+ */
+async function resolveRideOriginLabel(ride: ProximityRidePreview): Promise<string> {
+  const rawAddress = typeof ride.origin?.address === 'string' ? ride.origin.address.trim() : '';
+  if (rawAddress && !COORDINATE_TEXT_RE.test(rawAddress)) {
+    return rawAddress;
+  }
+
+  const lat = ride.origin?.lat;
+  const lng = ride.origin?.lng;
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    try {
+      const results = await Promise.race([
+        ExpoLocation.reverseGeocodeAsync({ latitude: lat, longitude: lng }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('reverseGeocode timeout')), 4000),
+        ),
+      ]);
+      const best = results?.[0];
+      if (best) {
+        const street = [best.name, best.street].find(
+          (v) => typeof v === 'string' && v.trim() && !COORDINATE_TEXT_RE.test(v),
+        );
+        const place = [best.district, best.subregion, best.city, best.region].find(
+          (v) => typeof v === 'string' && v.trim(),
+        );
+        const label = [street, place].filter(Boolean).join(', ').trim();
+        if (label) return label;
+      }
+    } catch (geoErr) {
+      console.warn('[proximity] Reverse geocode falló:', (geoErr as any)?.message || geoErr);
+    }
+  }
+
+  return rawAddress || 'Cerca de ti';
+}
+
+function navigateToRidePreview(ride: ProximityRidePreview, nearbyRides: ProximityRidePreview[]) {
+  const params = { ride, nearbyRides, proximity: true, autoPresented: true } as const;
+  const attempt = () => {
+    const currentRoute = navigationRef.getCurrentRoute();
+    if (currentRoute && SUPPRESS_AUTO_OPEN_ROUTES.has(currentRoute.name)) {
+      console.log(
+        `[proximity] ${currentRoute.name} ya está visible, se omite auto-apertura de RidePreview`,
+      );
+      return;
+    }
+    console.log('🚀 [proximity] Navegando a RidePreview', { rideId: ride.id });
+    navigate('RidePreview', params);
+  };
+  if (navigationRef.isReady()) {
+    attempt();
+  } else {
+    console.log('⚠️ [proximity] Navigation not ready, retrying in 500ms');
+    setTimeout(attempt, 500);
+  }
+}
+
 type HandleProximityOptions = {
   appStateOverride?: AppStateStatus;
 };
@@ -509,6 +599,36 @@ async function handleLocationForProximity(
     const overlayEnabled = await getOverlayEnabled();
     console.log('🔍 [proximity] overlayEnabled:', overlayEnabled);
 
+    // Conductor offline: no buscar ni notificar viajes cercanos (misma
+    // regla que en foreground, donde DriverHomeScreen gatea en isAvailable).
+    // Se mantiene el payload fallback para que el overlay, si está
+    // habilitado, funcione solo como acceso rápido a la app.
+    const availability = await driverAvailabilityService.getAvailabilityState();
+    const isManuallyAvailable = Boolean(availability?.isAvailable);
+    console.log('🔍 [proximity] driver isAvailable:', isManuallyAvailable);
+
+    if (!isManuallyAvailable) {
+      const fallbackPayload = createFallbackOverlayPayload();
+      await saveOverlayPayload(fallbackPayload);
+
+      if (overlayEnabled) {
+        if (effectiveAppState === 'active') {
+          await hideOverlayBubble('driverOffline');
+        } else if (await overlayManager.hasPermission()) {
+          await overlayManager.showRideOverlay({
+            rideId: fallbackPayload.rideId,
+            price: fallbackPayload.price,
+            distanceKm: fallbackPayload.distanceKm,
+            clientName: fallbackPayload.clientName,
+            variant: 'app',
+          });
+        }
+      }
+
+      await markCheck(false);
+      return;
+    }
+
     const maxNearbyDistanceMeters = NEARBY_RIDES_RADIUS_KM * 1000;
     const nearby = await getNearbyRides(lat, lng, maxNearbyDistanceMeters, 3, userId);
     console.log('🔍 [proximity] nearby rides found:', nearby?.length || 0);
@@ -517,30 +637,59 @@ async function handleLocationForProximity(
       console.log('⚠️ [proximity] No hay viajes cercanos');
 
       // Siempre guardar fallback para que se muestre cuando la app se minimice
-      await saveOverlayPayload(createFallbackOverlayPayload());
+      const fallbackPayload = createFallbackOverlayPayload();
+      await saveOverlayPayload(fallbackPayload);
 
-      // Si la app está en foreground, ocultar la burbuja
-      if (overlayEnabled && effectiveAppState === 'active') {
-        await hideOverlayBubble('noNearbyRides');
+      if (overlayEnabled) {
+        if (effectiveAppState === 'active') {
+          await hideOverlayBubble('noNearbyRides');
+        } else if (await overlayManager.hasPermission()) {
+          // En background el overlay ya está visible: refrescar a fallback
+          // para no dejar un viaje obsoleto en la burbuja/Live Activity
+          await overlayManager.showRideOverlay({
+            rideId: fallbackPayload.rideId,
+            price: fallbackPayload.price,
+            distanceKm: fallbackPayload.distanceKm,
+            clientName: fallbackPayload.clientName,
+            variant: 'app',
+          });
+        }
       }
 
       await markCheck(false);
       return;
     }
 
-    const dismissedMap = await loadDismissedRides();
-    const availableRides = nearby.filter((ride) => !dismissedMap[ride.id]);
+    const [dismissedMap, autoDismissedMap] = await Promise.all([
+      loadDismissedRides(),
+      loadAutoDismissedRides(),
+    ]);
+    const availableRides = nearby.filter(
+      (ride) => !dismissedMap[ride.id] && !autoDismissedMap[ride.id],
+    );
     console.log('🔍 [proximity] availableRides after filter:', availableRides.length);
 
     if (availableRides.length === 0) {
       console.log('⚠️ [proximity] Todas las solicitudes disponibles fueron rechazadas recientemente.');
 
       // Siempre guardar fallback para que se muestre cuando la app se minimice
-      await saveOverlayPayload(createFallbackOverlayPayload());
+      const fallbackPayload = createFallbackOverlayPayload();
+      await saveOverlayPayload(fallbackPayload);
 
-      // Si la app está en foreground, ocultar la burbuja
-      if (overlayEnabled && effectiveAppState === 'active') {
-        await hideOverlayBubble('allRidesDismissed');
+      if (overlayEnabled) {
+        if (effectiveAppState === 'active') {
+          await hideOverlayBubble('allRidesDismissed');
+        } else if (await overlayManager.hasPermission()) {
+          // En background el overlay ya está visible: refrescar a fallback
+          // para no dejar un viaje obsoleto en la burbuja/Live Activity
+          await overlayManager.showRideOverlay({
+            rideId: fallbackPayload.rideId,
+            price: fallbackPayload.price,
+            distanceKm: fallbackPayload.distanceKm,
+            clientName: fallbackPayload.clientName,
+            variant: 'app',
+          });
+        }
       }
 
       await markCheck(false);
@@ -570,19 +719,8 @@ async function handleLocationForProximity(
       } catch {
         // noop
       }
-      // Navegar directamente a RidePreview
-      const ready = navigationRef.isReady();
-      const params = { ride: closest, nearbyRides: rest, proximity: true } as const;
-      console.log('🚀 [proximity] Navegando a RidePreview', { ready, rideId: closest.id });
-      if (ready) {
-        navigate('RidePreview', params);
-      } else {
-        console.log('⚠️ [proximity] Navigation not ready, retrying in 500ms');
-        setTimeout(() => {
-          console.log('🔄 [proximity] Retry navegando a RidePreview');
-          navigate('RidePreview', params);
-        }, 500);
-      }
+      // Navegar directamente a RidePreview (auto-apertura: se auto-cierra a los 6s sin cambios)
+      navigateToRidePreview(closest, rest);
       await AsyncStorage.setItem(STORAGE_KEYS.lastRideId, closest.id);
       await AsyncStorage.setItem(STORAGE_KEYS.lastShownAt, String(Date.now()));
 
@@ -614,12 +752,16 @@ async function handleLocationForProximity(
       const price = Math.round(closest.estimatedPrice || 0);
       let localNotificationSent = false;
 
+      // Resolver etiqueta textual del origen (coords solo como último recurso)
+      const originLabel = await resolveRideOriginLabel(closest);
+      closest.origin.address = originLabel;
+
       // 1. Notificación local (administrada con auto-dismiss)
       try {
         console.log('🔔 [proximity] ANTES de showManagedNotification...');
         await notificationService.showManagedNotification(
           'Solicitud cercana',
-          `${distance}m • C$${price} • ${closest.origin.address || 'Cerca de ti'}`,
+          `${distance}m • C$${price} • ${originLabel}`,
           { type: 'proximity_ride', ride: closest, nearbyRides: rest },
           `proximity-ride-${closest.id}`,
           120_000 // 120 segundos
@@ -677,6 +819,21 @@ async function handleLocationForProximity(
             console.error('❌ [proximity] Error mostrando overlay:', error);
             console.error('❌ [proximity] Error stack:', error instanceof Error ? error.stack : 'No stack');
           }
+
+          // 3. Android: traer la app al frente con el preview del viaje
+          // (SYSTEM_ALERT_WINDOW exime la restricción de background-activity-start).
+          // En iOS no existe API equivalente: Live Activity + notificación es lo máximo.
+          if (Platform.OS === 'android') {
+            try {
+              const brought = await overlayManager.bringAppToFront(closest.id);
+              if (brought) {
+                console.log('🚀 [proximity] App traída al frente, abriendo RidePreview');
+                navigateToRidePreview(closest, rest);
+              }
+            } catch (frontErr) {
+              console.warn('[proximity] No se pudo traer la app al frente:', frontErr);
+            }
+          }
         } else {
           console.warn('⚠️ [proximity] No hay permiso de overlay - solo notificación');
         }
@@ -697,8 +854,8 @@ async function handleLocationForProximity(
 async function ensureOverlayBubbleForBackground() {
   console.log('🫧 [overlay] ensureOverlayBubbleForBackground() INICIANDO');
   
-  if (Platform.OS !== 'android') {
-    console.log('🫧 [overlay] Platform NO es Android, saltando');
+  if (!isOverlaySupportedPlatform) {
+    console.log('🫧 [overlay] Plataforma sin soporte de overlay, saltando');
     return;
   }
 
@@ -809,6 +966,7 @@ async function dismissProximityNotification(rideId: string) {
 export {
   handleLocationForProximity,
   markRideDismissed,
+  markRideAutoDismissed,
   getOverlayEnabled,
   setOverlayEnabled,
   invalidateOverlayCache,
@@ -827,6 +985,7 @@ export {
 const proximityService = {
   handleLocationForProximity,
   markRideDismissed,
+  markRideAutoDismissed,
   getOverlayEnabled,
   setOverlayEnabled,
   invalidateOverlayCache,

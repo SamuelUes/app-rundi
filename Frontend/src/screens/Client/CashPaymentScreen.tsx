@@ -19,9 +19,9 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
-import { AnimatedButton } from '../../components/ui/AnimatedButton';
+import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { getAuth } from 'firebase/auth';
-import { getDatabase, ref, onValue, off, update } from 'firebase/database';
+import { getDatabase, ref, onValue, off } from 'firebase/database';
 import { formatNicaraguaTime } from '../../utils/dateUtils';
 import { formatCurrency } from '../../utils/safeFormatters';
 import { useTranslation } from 'react-i18next';
@@ -45,7 +45,7 @@ const resolveDriverName = (driverInfo: any): string | null => {
 };
 
 // Crear estilos fuera del componente para mejor rendimiento
-const createStyles = (colors: any) => StyleSheet.create({
+const createStyles = (colors: any, accentAlt: string) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
@@ -56,136 +56,205 @@ const createStyles = (colors: any) => StyleSheet.create({
   },
   content: {
     flex: 1,
-    padding: 16,
+  },
+  contentContainer: {
+    padding: 20,
+    paddingBottom: 24,
   },
   header: {
     alignItems: 'center',
-    marginVertical: 24,
+    marginTop: 48,
+    marginBottom: 22,
+  },
+  headerIconWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: accentAlt + '1A',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
   },
   title: {
-    fontSize: 24,
-    fontWeight: 'bold',
+    fontSize: 25,
+    fontWeight: '800',
     color: colors.text,
-    marginBottom: 8,
+    marginBottom: 6,
+    letterSpacing: -0.4,
   },
   subtitle: {
-    fontSize: 16,
+    fontSize: 14,
     color: colors.textSecondary,
     textAlign: 'center',
+    lineHeight: 20,
+    paddingHorizontal: 12,
   },
-  card: {
+  receiptCard: {
     backgroundColor: colors.card,
-    borderRadius: 12,
-    padding: 16,
+    borderRadius: 20,
+    padding: 20,
     marginBottom: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 2,
   },
   driverSection: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
-    gap: 12,
+    gap: 14,
   },
   driverAvatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     justifyContent: 'center',
     alignItems: 'center',
     overflow: 'hidden',
   },
   driverAvatarText: {
-    fontSize: 24,
+    fontSize: 21,
     fontWeight: '700',
   },
   driverInfo: {
     flex: 1,
   },
   driverName: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '700',
     color: colors.text,
-    marginBottom: 4,
+    marginBottom: 3,
   },
   driverRating: {
-    fontSize: 14,
+    fontSize: 13,
     color: colors.textSecondary,
   },
-  divider: {
-    height: 1,
-    backgroundColor: colors.border,
-    marginBottom: 16,
+  amountBlock: {
+    alignItems: 'center',
+    paddingVertical: 22,
+  },
+  amountLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: 6,
+  },
+  amountValue: {
+    fontSize: 38,
+    fontWeight: '800',
+    color: colors.primary,
+    fontVariant: ['tabular-nums'],
+    letterSpacing: -0.5,
+  },
+  dashedDivider: {
+    height: 0,
+    borderTopWidth: 1,
+    borderColor: colors.border,
+    borderStyle: 'dashed',
+    marginBottom: 6,
   },
   detailRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    paddingVertical: 11,
+  },
+  detailLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
   detailLabel: {
-    fontSize: 16,
+    fontSize: 14,
     color: colors.textSecondary,
     fontWeight: '500',
   },
   detailValue: {
-    fontSize: 16,
+    fontSize: 15,
     color: colors.text,
     fontWeight: '600',
   },
-  detailValueAmount: {
-    fontSize: 18,
-    color: colors.primary,
-    fontWeight: 'bold',
+  codeValue: {
+    fontSize: 17,
+    color: accentAlt,
+    fontWeight: '800',
+    letterSpacing: 3,
+    fontVariant: ['tabular-nums'],
   },
-  waitingCard: {
+  statusCard: {
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 24,
+    gap: 12,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 4,
+    backgroundColor: colors.warning + '14',
+    borderWidth: 1,
+    borderColor: colors.warning + '40',
+  },
+  statusIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.warning + '26',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statusBody: {
+    flex: 1,
   },
   waitingTitle: {
-    fontSize: 18,
+    fontSize: 15,
     fontWeight: '700',
     color: colors.text,
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  waitingText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.text,
-    marginTop: 16,
-    textAlign: 'center',
+    marginBottom: 3,
   },
   waitingDescription: {
-    fontSize: 14,
+    fontSize: 13,
     color: colors.textSecondary,
-    marginTop: 8,
-    textAlign: 'center',
+    lineHeight: 18,
   },
   footer: {
-    padding: 16,
+    paddingHorizontal: 20,
+    paddingTop: 14,
+    paddingBottom: 20,
     borderTopWidth: 1,
     borderTopColor: colors.border,
+    backgroundColor: colors.background,
   },
   confirmButton: {
-    height: 50,
-    borderRadius: 25,
+    height: 56,
+    borderRadius: 16,
+    flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
+    gap: 8,
+    backgroundColor: colors.primary,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 5,
+  },
+  confirmButtonDisabled: {
+    opacity: 0.7,
+    shadowOpacity: 0,
+    elevation: 0,
   },
   confirmButtonText: {
     color: '#fff',
     fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
   secondaryButton: {
-    height: 50,
-    borderRadius: 25,
+    height: 52,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
@@ -202,10 +271,11 @@ const createStyles = (colors: any) => StyleSheet.create({
 });
 
 export default function CashPaymentScreen({ route, navigation }: any) {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const { t } = useTranslation();
   const { rideId, amount: paramAmount, driverName: paramDriverName, driverPhoto } = route.params;
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const accentAlt = isDark ? colors.SecondBorder : colors.primary;
+  const styles = useMemo(() => createStyles(colors, accentAlt), [colors, accentAlt]);
   
   const [ride, setRide] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -218,6 +288,8 @@ export default function CashPaymentScreen({ route, navigation }: any) {
   const currentPaymentMethodRef = useRef<string>('cash');
   const fetchedDriverInfoForRef = useRef<string | null>(null);
   const isNavigatingRef = useRef(false);
+  const sawPaymentDataRef = useRef(false);
+  const lastPaymentStatusRef = useRef<string | null>(null);
   const [cashCode, setCashCode] = useState<string | null>(null);
   
   // Cargar detalles del viaje
@@ -293,6 +365,8 @@ export default function CashPaymentScreen({ route, navigation }: any) {
       console.log('💰 Estado de pago actualizado:', paymentData);
       
       if (paymentData) {
+        sawPaymentDataRef.current = true;
+        lastPaymentStatusRef.current = paymentData.status ?? null;
         setPaymentStatus(paymentData.status);
 
         if (paymentData.code && typeof paymentData.code === 'string') {
@@ -339,18 +413,40 @@ export default function CashPaymentScreen({ route, navigation }: any) {
             );
           }
         }
-      } else {
-        // Si no hay paymentStatus, reiniciar flag de navegación para futuros cambios
-        isNavigatingRef.current = false;
+      } else if (sawPaymentDataRef.current && !isNavigatingRef.current) {
+        // El nodo paymentStatus se eliminó tras el archivado: el pago ya
+        // llegó a su estado terminal (completado o cancelado).
+        isNavigatingRef.current = true;
+        if (lastPaymentStatusRef.current === 'canceled') {
+          alertService.showInfoAlert(
+            t('client.cashPayment.alerts.paymentCancelledTitle'),
+            t('client.cashPayment.alerts.paymentCancelledMessage'),
+            () => navigation.replace('Rating', { rideId })
+          );
+        } else {
+          console.log('✅ Pago archivado, navegando a calificación');
+          navigation.replace('Rating', { rideId });
+        }
       }
 
       if (paymentData) {
-        // Si el pago fue confirmado por el conductor, ir a calificación
-        if (paymentData.status === 'confirmed' || paymentData.status === 'completed') {
+        // Pago completado (terminal canónico o legacy) → calificación
+        if (
+          ['confirmed', 'completed', 'payment_completed'].includes(paymentData.status) &&
+          !isNavigatingRef.current
+        ) {
           console.log('✅ Pago confirmado, navegando a calificación');
+          isNavigatingRef.current = true;
           navigation.replace('Rating', { 
             rideId
           });
+        } else if (paymentData.status === 'canceled' && !isNavigatingRef.current) {
+          isNavigatingRef.current = true;
+          alertService.showInfoAlert(
+            t('client.cashPayment.alerts.paymentCancelledTitle'),
+            t('client.cashPayment.alerts.paymentCancelledMessage'),
+            () => navigation.replace('Rating', { rideId })
+          );
         }
       }
     });
@@ -501,14 +597,21 @@ export default function CashPaymentScreen({ route, navigation }: any) {
   
   return (
     <View style={styles.container}>
-      <ScrollView style={styles.content}>
+      <ScrollView
+        style={styles.content}
+        contentContainerStyle={styles.contentContainer}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.header}>
+          <View style={styles.headerIconWrap}>
+            <MaterialIcons name="payments" size={26} color={accentAlt} />
+          </View>
           <Text style={styles.title}>{t('client.cashPayment.header.title')}</Text>
           <Text style={styles.subtitle}>{t('client.cashPayment.header.subtitle')}</Text>
         </View>
-        
-        {/* Detalles del pago */}
-        <View style={styles.card}>
+
+        {/* Recibo del pago */}
+        <View style={styles.receiptCard}>
           {/* Foto y nombre del conductor */}
           <View style={styles.driverSection}>
             {(driverPhotoURL || ride?.driver?.photoURL) ? (
@@ -518,7 +621,7 @@ export default function CashPaymentScreen({ route, navigation }: any) {
                 resizeMode="cover"
               />
             ) : (
-              <View style={[styles.driverAvatar, { backgroundColor: colors.primary + '30' }]}>
+              <View style={[styles.driverAvatar, { backgroundColor: colors.primary + '1F' }]}>
                 <Text style={[styles.driverAvatarText, { color: colors.primary }]}>
                   {driverInitial}
                 </Text>
@@ -529,51 +632,67 @@ export default function CashPaymentScreen({ route, navigation }: any) {
                 {driverName}
               </Text>
               {driverRating > 0 && !isNaN(driverRating) && (
-                <Text style={styles.driverRating}>
-                  <MaterialIcons name="star" size={14} color="#FFD700" /> {driverRating.toFixed(1)}
-                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <MaterialIcons name="star" size={14} color="#E8A93C" />
+                  <Text style={styles.driverRating}>{driverRating.toFixed(1)}</Text>
+                </View>
               )}
             </View>
           </View>
-          
-          <View style={styles.divider} />
-          
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>{t('client.cashPayment.detail.amount')}</Text>
-            <Text style={styles.detailValueAmount}>
+
+          {/* Monto destacado */}
+          <View style={styles.amountBlock}>
+            <Text style={styles.amountLabel}>{t('client.cashPayment.detail.amount')}</Text>
+            <Text style={styles.amountValue}>
               {formatCurrency(numericAmount)}
             </Text>
           </View>
-          
+
+          <View style={styles.dashedDivider} />
+
           <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>{t('client.cashPayment.detail.time')}</Text>
+            <View style={styles.detailLeft}>
+              <MaterialIcons name="schedule" size={16} color={colors.textTertiary} />
+              <Text style={styles.detailLabel}>{t('client.cashPayment.detail.time')}</Text>
+            </View>
             <Text style={styles.detailValue}>
               {formatNicaraguaTime(new Date())}
             </Text>
           </View>
-          
+
           <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>{t('client.cashPayment.detail.method')}</Text>
+            <View style={styles.detailLeft}>
+              <MaterialIcons name="payments" size={16} color={colors.textTertiary} />
+              <Text style={styles.detailLabel}>{t('client.cashPayment.detail.method')}</Text>
+            </View>
             <Text style={styles.detailValue}>{t('client.cashPayment.detail.methodValueCash')}</Text>
           </View>
 
           {cashCode && (
             <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>
-                {t('client.cashPayment.detail.codeLabel')}
-              </Text>
-              <Text style={styles.detailValue}>{cashCode}</Text>
+              <View style={styles.detailLeft}>
+                <MaterialIcons name="vpn-key" size={16} color={colors.textTertiary} />
+                <Text style={styles.detailLabel}>
+                  {t('client.cashPayment.detail.codeLabel')}
+                </Text>
+              </View>
+              <Text style={styles.codeValue}>{cashCode}</Text>
             </View>
           )}
         </View>
-        
+
         {/* Estado del pago */}
         {paymentStatus === 'pending_confirmation' && (
-          <View style={[styles.card, styles.waitingCard]}>
-            <Text style={styles.waitingTitle}>{t('client.cashPayment.waiting.title')}</Text>
-            <Text style={styles.waitingDescription}>
-              {t('client.cashPayment.waiting.description')}
-            </Text>
+          <View style={styles.statusCard}>
+            <View style={styles.statusIconWrap}>
+              <MaterialIcons name="hourglass-top" size={20} color={colors.warning} />
+            </View>
+            <View style={styles.statusBody}>
+              <Text style={styles.waitingTitle}>{t('client.cashPayment.waiting.title')}</Text>
+              <Text style={styles.waitingDescription}>
+                {t('client.cashPayment.waiting.description')}
+              </Text>
+            </View>
           </View>
         )}
 
@@ -585,20 +704,26 @@ export default function CashPaymentScreen({ route, navigation }: any) {
           description={t('client.cashPayment.support.description')}
         />
       </ScrollView>
-      
+
       <View style={styles.footer}>
         {paymentStatus === 'pending' || paymentStatus === 'pending_capture' || paymentStatus === 'pending_confirmation' ? (
-          <TouchableOpacity 
-            onPress={handleConfirmPayment} 
-            style={[styles.confirmButton, { backgroundColor: 'rgba(189, 158, 74, 0.87)' }]}
+          <TouchableOpacity
+            onPress={handleConfirmPayment}
+            style={[styles.confirmButton, confirming && styles.confirmButtonDisabled]}
             disabled={confirming}
+            activeOpacity={0.85}
           >
+            {confirming ? (
+              <LoadingIcon size={20} color="#fff" />
+            ) : (
+              <MaterialIcons name="check-circle" size={20} color="#fff" />
+            )}
             <Text style={styles.confirmButtonText}>
               {confirming ? t('client.cashPayment.buttons.processing') : t('client.cashPayment.buttons.confirm')}
             </Text>
           </TouchableOpacity>
         ) : (
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[styles.secondaryButton, {borderColor: colors.border}]}
             onPress={() => navigation.goBack()}
           >

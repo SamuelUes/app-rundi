@@ -69,6 +69,14 @@ class DriverAvailabilityService {
 
       await this.saveAvailabilityState(updatedState);
 
+      // driverLocations es la fuente de verdad que el UI escucha en vivo;
+      // si quedara 'available' el estado volvería a encenderse solo (flap)
+      try {
+        await driversService.updateStatus('offline', state?.coords);
+      } catch (statusErr) {
+        console.warn('⚠️ No se pudo marcar offline en backend tras restricción:', statusErr);
+      }
+
       if (context) {
         console.warn(`🚫 Disponibilidad establecida en offline debido a restricción (${context})`);
       } else {

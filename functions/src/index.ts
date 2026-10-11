@@ -3,7 +3,8 @@
  * Backend completo en Firebase Functions + Supabase PostgreSQL
  */
 
-import * as functions from "firebase-functions";
+import "./config/env";
+import * as functions from "firebase-functions/v1";
 import "./config/firebase";
 import { checkRateLimit } from "./utils/rateLimiter";
 
@@ -32,6 +33,7 @@ import * as pendingPaymentsAPI from "./api/pendingPayments_sequelize";
 import * as regionAvailabilityAPI from "./api/region_availability";
 import * as preflightAPI from "./api/getPreflightData";
 import * as publicRideTrackingAPI from "./api/WebPage_publicRideTracking";
+import * as rideShareCodesAPI from "./api/rideShareCodes";
 
 import * as updateStatusAPI from "./api/updateStatus";
 import * as driversCompatibilityAPI from "./api/drivers-compatibility";
@@ -71,6 +73,7 @@ import * as userRolesAPI from "./api/userRoles";
 import * as presenceAPI from "./api/presence";
 import * as sessionsAPI from "./api/sessions";
 import * as geoShardingTriggers from "./triggers/geoSharding";
+import * as driverOfflineTriggers from "./triggers/driverOffline";
 import { calculateRidePrice as calculateRidePriceHelper, type VehicleType as BackendVehicleType, type RideType as BackendRideType } from "./helpers/priceCalculator";
 import { corsConfig } from "./config/functions-config";
 
@@ -84,6 +87,7 @@ export const createRide = ridesSequelizeAPI.createRide;
 export const requestRide = ridesSequelizeAPI.createRide; // Alias para compatibilidad
 export const createProgrammedRide = ridesSequelizeAPI.createProgrammedRide;
 export const assignDriverToProgrammedRide = ridesSequelizeAPI.assignDriverToProgrammedRide;
+export const claimProgrammedRideByCode = ridesSequelizeAPI.claimProgrammedRideByCode;
 export const confirmProgrammedRideClient = ridesSequelizeAPI.confirmProgrammedRideClient;
 export const confirmProgrammedRideDriver = ridesSequelizeAPI.confirmProgrammedRideDriver;
 export const cancelProgrammedRide = ridesSequelizeAPI.cancelProgrammedRide;
@@ -144,6 +148,8 @@ export const acceptClientPrice = priceNegotiationSequelizeAPI.acceptClientPrice;
 export const makeCounterOffer = priceNegotiationSequelizeAPI.makeCounterOffer;
 export const acceptCounterOffer = priceNegotiationSequelizeAPI.acceptCounterOffer;
 export const rejectCounterOffer = priceNegotiationSequelizeAPI.rejectCounterOffer;
+// Alias de compatibilidad para clientes antiguos
+export const sendDriverOffer = priceNegotiationSequelizeAPI.sendDriverOffer;
 
 // Client profiles
 export const getClientProfile = clientProfilesAPI.getClientProfile;
@@ -168,6 +174,7 @@ export const puntoExpressRechargeWebhookHttp = rechargeFundsAPI.puntoExpressRech
 
 // Public ride tracking (Landing page)
 export const getPublicRideTracking = publicRideTrackingAPI.getPublicRideTracking;
+export const createRideShareToken = rideShareCodesAPI.createRideShareToken;
 
 export const calculateRidePriceHttp = functions.https.onRequest((req, res) => {
   const corsHandler = require('cors')(corsConfig);
@@ -227,6 +234,83 @@ export const calculateRidePriceHttp = functions.https.onRequest((req, res) => {
   } catch (error) {
     console.error("❌ calculateRidePriceHttp error:", error);
     res.status(500).json({ error: "Failed to calculate ride price" });
+  }
+  });
+});
+
+export const calculateRidePricesHttp = functions.https.onRequest((req, res) => {
+  const corsHandler = require('cors')(corsConfig);
+  corsHandler(req, res, async () => {
+  if (req.method === "OPTIONS") {
+    res.status(204).send("");
+    return;
+  }
+
+  if (req.method !== "POST") {
+    res.status(405).json({ error: "Method not allowed" });
+    return;
+  }
+
+  const clientIp = (req.headers['x-forwarded-for'] as string || req.socket.remoteAddress || 'unknown').split(',')[0].trim();
+  const rateLimit = checkRateLimit(`price:${clientIp}`, 20);
+  if (!rateLimit.allowed) {
+    res.status(429).json({ error: "Too many requests", retryAfter: Math.ceil((rateLimit.resetAt - Date.now()) / 1000) });
+    return;
+  }
+
+  try {
+    const {
+      distanceInMeters,
+      durationInSeconds,
+      originLat,
+      originLng,
+      extraStops,
+      variants,
+    } = req.body ?? {};
+
+    if (typeof distanceInMeters !== "number" || typeof durationInSeconds !== "number") {
+      res.status(400).json({ error: "distanceInMeters and durationInSeconds are required numbers" });
+      return;
+    }
+
+    if (!Array.isArray(variants) || variants.length === 0 || variants.length > 8) {
+      res.status(400).json({ error: "variants must be an array with 1-8 entries" });
+      return;
+    }
+
+    const entries = await Promise.all(
+      variants.map(async (variant: any, index: number) => {
+        const key = typeof variant?.key === "string" && variant.key.trim().length > 0
+          ? variant.key
+          : `variant_${index}`;
+        try {
+          const result = await calculateRidePriceHelper(
+            distanceInMeters,
+            durationInSeconds,
+            (variant?.vehicleType ?? "car") as BackendVehicleType,
+            (variant?.rideType ?? "normal") as BackendRideType,
+            originLat,
+            originLng,
+            {
+              driverId: variant?.driverId,
+              serviceCodeOverride: variant?.serviceCodeOverride,
+              extraStops,
+              originLat,
+              originLng,
+            },
+          );
+          return [key, result] as const;
+        } catch (error) {
+          console.error(`❌ calculateRidePricesHttp variant ${key} error:`, error);
+          return [key, null] as const;
+        }
+      }),
+    );
+
+    res.json({ results: Object.fromEntries(entries) });
+  } catch (error) {
+    console.error("❌ calculateRidePricesHttp error:", error);
+    res.status(500).json({ error: "Failed to calculate ride prices" });
   }
   });
 });
@@ -417,6 +501,9 @@ export const syncProgrammedRidesByArea = geoShardingTriggers.syncProgrammedRides
 export const syncDriverLocationsByArea = geoShardingTriggers.syncDriverLocationsByArea;
 export const syncClientsLocationsByArea = geoShardingTriggers.syncClientsLocationsByArea;
 export const onSupportChatMessage = supportChatNotifications.onSupportChatMessage;
+
+// Rechaza ofertas pendientes cuando un conductor pasa a offline
+export const rejectDriverOffersOnOffline = driverOfflineTriggers.rejectDriverOffersOnOffline;
 
 // ============================================
 // WEBHOOKS

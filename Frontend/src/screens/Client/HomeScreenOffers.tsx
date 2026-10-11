@@ -1,7 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, Image, Animated } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
-import { LoadingIcon } from '../../components/ui/LoadingIcon';
+import { View, StyleSheet, Animated } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../hooks/shared/auth/useAuth';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
@@ -29,24 +27,31 @@ import {
   resolveNegotiationBasePrice,
 } from '../../utils/pricing';
 import { haversineKm } from '../../utils/distance';
+import alertService from '../../services/alertService';
 import { HomeScreenOffersOfferCard } from '../../components/client/HomeScreenOffers/HomeScreenOffersOfferCard';
 import { HomeScreenOffersBottomSheet } from '../../components/client/HomeScreenOffers/HomeScreenOffersBottomSheet';
 
 const { USER_LOCATION_LIGHT, USER_LOCATION_DARK } = MAP_ICONS;
 const MAX_DRIVER_RADIUS_KM = typeof RIDES_RADIUS_KM === 'number' ? RIDES_RADIUS_KM : 6;
 
-interface Props {
-  navigation: any;
-  route?: { params?: { rideId?: string } };
+interface ProgrammedRideParams {
+  driverId?: string;
+  driver?: any;
+  scheduledAt?: number;
+  origin?: { lat?: number; lng?: number; address?: string };
+  destination?: { lat?: number; lng?: number; address?: string };
 }
 
-const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
+interface Props {
+  navigation: any;
+  route?: { params?: { rideId?: string; programmedRide?: ProgrammedRideParams } };
+}
 
 export default function HomeScreenOffers({ navigation, route }: Props) {
   const { t } = useTranslation();
   const driverFallbackName = t('common.roles.driver');
   const { user } = useAuth();
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { coords } = useLocation();
   const preflightSummary = getPreflightResult();
@@ -70,6 +75,46 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
     reset: resetRideOffers,
   } = useRideOffers(route?.params?.rideId || null, user?.id, serviceAreaId, driverFallbackName);
 
+  const programmedRide = route?.params?.programmedRide;
+
+  // Listener en vivo del viaje programado: los params de navegación son
+  // estáticos, así que driverConfirmed/status/driver solo se actualizan si
+  // escuchamos programmedRides/{rideId} directamente. Al promoverse (o al
+  // cancelarse) el nodo desaparece y rideSnapshot (activeRides) toma el control.
+  const [programmedRideLive, setProgrammedRideLive] = useState<any | null>(null);
+  useEffect(() => {
+    if (!rideId || !programmedRide) {
+      setProgrammedRideLive(null);
+      return;
+    }
+    let mounted = true;
+    let unsubscribe: (() => void) | undefined;
+    (async () => {
+      const { getDatabase, ref, onValue } = await import('firebase/database');
+      const db = getDatabase();
+      const programmedRef = ref(db, `programmedRides/${rideId}`);
+      unsubscribe = onValue(
+        programmedRef,
+        (snap) => {
+          if (!mounted) return;
+          setProgrammedRideLive(snap.exists() ? snap.val() : null);
+        },
+        (error) => {
+          console.warn('[HomeScreenOffers] Error escuchando programmedRide:', error);
+        },
+      );
+    })();
+    return () => {
+      mounted = false;
+      unsubscribe?.();
+    };
+  }, [rideId, programmedRide]);
+
+  const effectiveProgrammedRide = useMemo(() => {
+    if (!programmedRide && !programmedRideLive) return null;
+    return { ...(programmedRide || {}), ...(programmedRideLive || {}) };
+  }, [programmedRide, programmedRideLive]);
+
   const handleSelectFromList = (driverId: string) => {
     setSelectedDriverId((current) => (current === driverId ? null : driverId));
   };
@@ -92,9 +137,27 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
     [driversInfo, driversRaw, navigation, rideId],
   );
 
+  // Si el conductor se puso offline, su oferta deja de ser válida al instante
+  // (el trigger backend la marca 'rejected'; esto la oculta sin esperarlo).
+  // Solo se descarta cuando el status es explícitamente 'offline' — si el
+  // driver no está en el shard o el dato no cargó, la oferta se conserva.
+  const visibleOffers = useMemo(() => {
+    if (!driverLocations || typeof driverLocations !== 'object') return offers;
+    return offers.filter((offer) => {
+      const status = driverLocations?.[offer.driverId]?.status;
+      return typeof status !== 'string' || status.toLowerCase() !== 'offline';
+    });
+  }, [offers, driverLocations]);
+
+  useEffect(() => {
+    if (selectedDriverId && !visibleOffers.some((o) => o.driverId === selectedDriverId)) {
+      setSelectedDriverId(null);
+    }
+  }, [visibleOffers, selectedDriverId, setSelectedDriverId]);
+
   const selectedOffer: OfferItem | undefined = useMemo(
-    () => offers.find(o => o.driverId === selectedDriverId),
-    [offers, selectedDriverId],
+    () => visibleOffers.find(o => o.driverId === selectedDriverId),
+    [visibleOffers, selectedDriverId],
   );
 
   const { insights: driverPublicInsights, reviewsData: selectedDriverReviewsData } =
@@ -105,6 +168,22 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
       null,
       t,
     );
+
+  const selectedDriverPhotoUri = useMemo(() => {
+    if (!selectedOffer) return null;
+    const info = driversInfo?.[selectedOffer.driverId] || {};
+    const raw = driversRaw?.[selectedOffer.driverId] || {};
+    return (
+      info?.profilePhoto ||
+      info?.photoURL ||
+      info?.photoUrl ||
+      raw?.profilePhoto ||
+      raw?.photoURL ||
+      raw?.photoUrl ||
+      selectedOffer.driver?.photoURL ||
+      null
+    );
+  }, [selectedOffer, driversInfo, driversRaw]);
 
   const negotiationBasePrice = useMemo(
     () => resolveNegotiationBasePrice(rideSnapshot, selectedOffer),
@@ -227,33 +306,46 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
     }
   }, [confirmBtnAnim, isConfirming, rideId, selectedDriverId, confirmSelectedDriverBase]);
 
-  const cancelSearch = useCallback(async () => {
+  const cancelSearch = useCallback(() => {
     if (!rideId || isCancelling) return;
-    setIsCancelling(true);
-    Animated.timing(cancelBtnAnim, {
-      toValue: 0.95,
-      duration: 120,
-      useNativeDriver: true,
-    }).start();
-    try {
-      await cancelSearchBase();
-    } finally {
-      Animated.timing(cancelBtnAnim, {
-        toValue: 1,
-        duration: 160,
-        useNativeDriver: true,
-      }).start();
-      setIsCancelling(false);
-    }
-  }, [rideId, isCancelling, cancelBtnAnim, cancelSearchBase]);
+    alertService.showConfirmAlert(
+      t('client.homeOffers.cancelConfirmTitle'),
+      visibleOffers.length > 0
+        ? t('client.homeOffers.cancelConfirmBody')
+        : t('client.homeOffers.cancelConfirmBodyEmpty'),
+      async () => {
+        setIsCancelling(true);
+        Animated.timing(cancelBtnAnim, {
+          toValue: 0.95,
+          duration: 120,
+          useNativeDriver: true,
+        }).start();
+        try {
+          await cancelSearchBase();
+        } finally {
+          Animated.timing(cancelBtnAnim, {
+            toValue: 1,
+            duration: 160,
+            useNativeDriver: true,
+          }).start();
+          setIsCancelling(false);
+        }
+      },
+      undefined,
+      t('client.homeOffers.cancelConfirmYes'),
+      t('client.homeOffers.cancelConfirmNo'),
+      true,
+    );
+  }, [rideId, isCancelling, cancelBtnAnim, cancelSearchBase, visibleOffers.length, t]);
 
   // Location to center map
-  const centerLat = coords?.latitude ?? rideSnapshot?.origin?.lat ?? 12.1364;
-  const centerLng = coords?.longitude ?? rideSnapshot?.origin?.lng ?? -86.2514;
+  const centerLat = coords?.latitude ?? rideSnapshot?.origin?.lat ?? programmedRide?.origin?.lat ?? 12.1364;
+  const centerLng = coords?.longitude ?? rideSnapshot?.origin?.lng ?? programmedRide?.origin?.lng ?? -86.2514;
 
-  // Coordinates for map pins
+  // Coordinates for map pins (caen en programmedRide mientras el viaje no se
+  // haya promovido a activeRides y rideSnapshot siga vacío)
   const originCoords = useMemo(() => {
-    const origin = rideSnapshot?.origin || rideSnapshot?.originLocation;
+    const origin = rideSnapshot?.origin || rideSnapshot?.originLocation || programmedRide?.origin;
     if (!origin) return null;
     const latitude = origin.lat ?? origin.latitude;
     const longitude = origin.lng ?? origin.longitude;
@@ -261,10 +353,10 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
       return { latitude, longitude };
     }
     return null;
-  }, [rideSnapshot?.origin, rideSnapshot?.originLocation]);
+  }, [rideSnapshot?.origin, rideSnapshot?.originLocation, programmedRide?.origin]);
 
   const destinationCoords = useMemo(() => {
-    const destination = rideSnapshot?.destination || rideSnapshot?.destinationLocation;
+    const destination = rideSnapshot?.destination || rideSnapshot?.destinationLocation || programmedRide?.destination;
     if (!destination) return null;
     const latitude = destination.lat ?? destination.latitude;
     const longitude = destination.lng ?? destination.longitude;
@@ -272,7 +364,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
       return { latitude, longitude };
     }
     return null;
-  }, [rideSnapshot?.destination, rideSnapshot?.destinationLocation]);
+  }, [rideSnapshot?.destination, rideSnapshot?.destinationLocation, programmedRide?.destination]);
 
   const extraStopMarkers = useMemo(() => {
     if (!Array.isArray(rideSnapshot?.extraDestinations)) return [];
@@ -288,10 +380,11 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
           latitude,
           longitude,
           index: index + 1,
-          label: stop?.address || t('client.homeOffers.extraStopLabel', { index: index + 1 }),
+          title: t('common.mapPins.extraStop', { index: index + 1 }),
+          label: stop?.address || undefined,
         };
       })
-      .filter(Boolean) as Array<{ latitude: number; longitude: number; index: number; label?: string }>;
+      .filter(Boolean) as Array<{ latitude: number; longitude: number; index: number; title?: string; label?: string }>;
   }, [rideSnapshot?.extraDestinations, t]);
 
   const mapCenterPoint = useMemo<LatLngPoint | null>(() => {
@@ -309,11 +402,16 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
       return driverLocations;
     }
 
-    const allowedOfferIds = new Set(offers?.map((offer) => offer.driverId) ?? []);
+    const allowedOfferIds = new Set(visibleOffers?.map((offer) => offer.driverId) ?? []);
     const center = mapCenterPoint;
     const includeByRadius = !!center;
 
     const trimmed = Object.entries(driverLocations).reduce<Record<string, any>>((acc, [driverId, location]) => {
+      // Un conductor offline no es una opción real: ni en el mapa ni en ofertas.
+      const status = typeof location?.status === 'string' ? location.status.toLowerCase() : null;
+      if (status === 'offline') {
+        return acc;
+      }
       if (allowedOfferIds.has(driverId)) {
         acc[driverId] = location;
         return acc;
@@ -334,7 +432,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
     }, {});
 
     return Object.keys(trimmed).length > 0 ? trimmed : null;
-  }, [driverLocations, mapCenterPoint, offers]);
+  }, [driverLocations, mapCenterPoint, visibleOffers]);
 
   const getDriverCoordinate = useCallback(
     (driverId: string, axis: 'lat' | 'lng'): number | null => {
@@ -355,9 +453,9 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
   );
 
   const nearbyDrivers = useMemo(() => {
-    if (!offers || offers.length === 0) return [];
+    if (!visibleOffers || visibleOffers.length === 0) return [];
 
-    return offers
+    return visibleOffers
       .map((offer) => {
         const latitude = getDriverCoordinate(offer.driverId, 'lat');
         const longitude = getDriverCoordinate(offer.driverId, 'lng');
@@ -380,7 +478,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
             typeof locationSource?.heading === 'number' && Number.isFinite(locationSource.heading)
               ? locationSource.heading
               : undefined,
-          vehicleIconSource: isSelected ? ensureVehicleIconSource(type) : undefined,
+          vehicleIconSource: ensureVehicleIconSource(type),
           isSelected,
           rating: (ratingParsed !== null && Number.isFinite(ratingParsed) ? ratingParsed : null) as number | null,
           photoURL:
@@ -396,7 +494,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
       })
       .filter((driver): driver is NonNullable<typeof driver> => !!driver);
   }, [
-    offers,
+    visibleOffers,
     getDriverCoordinate,
     filteredDriverLocations,
     driverLocations,
@@ -405,7 +503,67 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
     selectedDriverId,
   ]);
 
-  const etasByDriver = useOfferETAs(offers, getDriverCoordinate, originCoords);
+  const etasByDriver = useOfferETAs(visibleOffers, getDriverCoordinate, originCoords);
+
+  // Conductor ya asignado al viaje programado (aún no promovido a activeRides
+  // o sin oferta registrada): se muestra como card fija sobre la lista.
+  const assignedDriver = useMemo(() => {
+    const driverId = effectiveProgrammedRide?.driverId;
+    if (!driverId) return null;
+    if (visibleOffers.some((offer) => offer.driverId === driverId)) return null;
+    const info = driversInfo?.[driverId] || {};
+    const raw = driversRaw?.[driverId] || {};
+    const driverData = effectiveProgrammedRide?.driver;
+    const name = mergeName(driverFallbackName, info, raw, driverData);
+    const rating = mergeRating(info, raw, driverData);
+    const photoUri =
+      info?.profilePhoto || info?.photoURL || info?.photoUrl ||
+      raw?.profilePhoto || raw?.photoURL || raw?.photoUrl ||
+      driverData?.profilePhoto || driverData?.photoURL || driverData?.photoUrl || null;
+    const plate =
+      info?.vehicle?.plate || info?.activeVehicle?.plate || info?.currentVehicle?.plate ||
+      raw?.vehicle?.plate || driverData?.vehicle?.plate || null;
+    const driverConfirmed = Boolean(
+      effectiveProgrammedRide?.driverConfirmed ||
+        effectiveProgrammedRide?.driverConfirmedAt ||
+        effectiveProgrammedRide?.status === 'driver_confirmed',
+    );
+    return {
+      driverId,
+      name,
+      rating: rating !== null && Number.isFinite(rating) ? rating : null,
+      photoUri,
+      plate,
+      driverConfirmed,
+      scheduledAt: effectiveProgrammedRide?.scheduledAt ?? null,
+    };
+  }, [effectiveProgrammedRide, visibleOffers, driversInfo, driversRaw, driverFallbackName]);
+
+  // Cuando el viaje programado se promueve a activeRides como accepted (driver
+  // confirmado), el cliente debe pasar a la pantalla de tracking — igual que
+  // handleViewActiveRide en Home. Solo aplica cuando esta pantalla se abrió
+  // para un viaje programado.
+  useEffect(() => {
+    if (!programmedRide) return;
+    const status = String(rideSnapshot?.status || '').toLowerCase();
+    if (!['accepted', 'driver_on_route', 'in_progress'].includes(status)) return;
+    if (!rideSnapshot?.driverId && !rideSnapshot?.driver?.id) return;
+
+    navigation.replace('RideTracking', {
+      rideId,
+      driverId: rideSnapshot.driverId ?? rideSnapshot.driver?.id,
+      driverName: rideSnapshot.driver?.name || assignedDriver?.name || 'Conductor',
+      vehiclePlate:
+        rideSnapshot.vehicle?.plate ||
+        rideSnapshot.driver?.vehicle?.plate ||
+        assignedDriver?.plate ||
+        'N/A',
+      vehicleBrand: rideSnapshot.vehicle?.make || rideSnapshot.vehicle?.brand || 'N/A',
+      vehicleModel: rideSnapshot.vehicle?.model || 'N/A',
+      vehicleColor: rideSnapshot.vehicle?.color || 'N/A',
+      estimatedFare: rideSnapshot.finalFare || rideSnapshot.estimatedPrice || 0,
+    });
+  }, [programmedRide, rideSnapshot, rideId, navigation, assignedDriver]);
 
   const negotiationStatusLabel = useCallback(
     (status?: string) => {
@@ -451,9 +609,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
     const vehicleType = extractVehicleTypeFromInfo(info) || extractVehicleTypeFromInfo(raw);
     const ratingNumber = mergeRating(info, raw, item.driver);
     const ratingLabel = ratingNumber !== null && Number.isFinite(ratingNumber) ? ratingNumber.toFixed(1) : null;
-    const ratingPrefix = ratingLabel ? t('client.homeOffers.list.ratingPrefix', { rating: ratingLabel }) : '';
     const displayName = mergeName(driverFallbackName, info, raw, item.driver);
-    const vehicleIconSource = ensureVehicleIconSource(vehicleType);
     const photoUri = info?.profilePhoto || info?.photoURL || info?.photoUrl || raw?.profilePhoto || raw?.photoURL || raw?.photoUrl || item.driver?.photoURL || null;
     const clientPriceLabel =
       clientPrice != null ? `C$${clientPrice.toFixed(2)}` : t('client.homeOffers.list.clientPriceMissing');
@@ -466,18 +622,19 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
       <HomeScreenOffersOfferCard
         item={item}
         selected={selected}
-        eta={eta}
+        isDark={isDark}
+        colors={colors}
         etaValueText={etaValueText}
         arrivalLabel={arrivalLabel}
         plate={plate}
         clientPriceLabel={clientPriceLabel}
         driverPriceLabel={driverPriceLabel}
+        hasDriverPrice={driverPrice != null}
         negotiationLabel={negotiationLabel}
         displayName={displayName}
-        vehicleIconSource={vehicleIconSource}
-        ratingPrefix={ratingPrefix}
+        vehicleType={vehicleType}
+        ratingLabel={ratingLabel}
         photoUri={photoUri}
-        colors={colors}
         acceptedAnim={acceptedAnim}
         onSelect={() => handleSelectFromList(item.driverId)}
         onMessageDriver={() => handleMessageDriver(item)}
@@ -496,14 +653,15 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
           longitude={centerLng}
           nearbyDrivers={nearbyDrivers}
           onDriverPress={handleDriverPressOnMap}
-          showUserLocation
-          userLocation={{ latitude: centerLat, longitude: centerLng }}
+          showUserLocation={false}
           userLocationLightIcon={USER_LOCATION_LIGHT}
           userLocationDarkIcon={USER_LOCATION_DARK}
           originMarker={originCoords || undefined}
           destinationMarker={destinationCoords || undefined}
-          originLabel={rideSnapshot?.origin?.address || rideSnapshot?.originAddress || undefined}
-          destinationLabel={rideSnapshot?.destination?.address || rideSnapshot?.destinationAddress || undefined}
+          originTitle={t('common.mapPins.origin')}
+          destinationTitle={t('common.mapPins.destination')}
+          originLabel={rideSnapshot?.origin?.address || rideSnapshot?.originAddress || programmedRide?.origin?.address || undefined}
+          destinationLabel={rideSnapshot?.destination?.address || rideSnapshot?.destinationAddress || programmedRide?.destination?.address || undefined}
           extraStopMarkers={extraStopMarkers}
           showPinBubbles
           autoFitEnabled
@@ -512,7 +670,8 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
 
       <HomeScreenOffersBottomSheet
         loading={loading}
-        offers={offers}
+        offers={visibleOffers}
+        assignedDriver={assignedDriver}
         selectedDriverId={selectedDriverId}
         selectedOffer={selectedOffer}
         isConfirming={isConfirming}
@@ -521,6 +680,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
         cancelBtnAnim={cancelBtnAnim}
         primaryActionLabel={primaryActionLabel}
         colors={colors}
+        isDark={isDark}
         renderOffer={renderOffer}
         onShowDriverReviews={() => setShowDriverReviews(true)}
         onConfirmSelectedDriver={confirmSelectedDriver}
@@ -574,7 +734,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
         visible={showDriverReviews}
         onClose={() => setShowDriverReviews(false)}
         driverName={selectedOffer?.driver?.name || driverFallbackName}
-        driverPhoto={selectedOffer?.driver?.photoURL || null}
+        driverPhoto={selectedDriverPhotoUri}
         rating={
           typeof driverPublicInsights?.stats?.averageRating === 'number'
             ? driverPublicInsights.stats.averageRating
@@ -597,255 +757,304 @@ const createStyles = (colors: any) => StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
-    paddingTop: 8,
-    paddingHorizontal: 14,
-    paddingBottom: 16,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderTopWidth: 1,
+    paddingTop: 6,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -8 },
+    shadowOpacity: 0.18,
+    shadowRadius: 20,
+    elevation: 16,
   },
   sheetHandle: {
     alignSelf: 'center',
-    width: 60,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: 'rgba(0,0,0,0.1)',
+    width: 40,
+    height: 5,
+    borderRadius: 2.5,
+    marginTop: 4,
+    marginBottom: 12,
+  },
+  sheetHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
     marginBottom: 10,
   },
   sheetTitle: {
     fontSize: 20,
     fontWeight: '800',
+    letterSpacing: -0.3,
     color: colors.text,
-    marginBottom: 15,
-    paddingBottom: 6,
   },
-  loadingBox: { paddingVertical: 20, alignItems: 'center', borderRadius: 22 },
-  emptyBox: { paddingVertical: 20, alignItems: 'center' },
-  emptyText: { color: colors.textSecondary, borderRadius: 42 },
-  offerRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    paddingVertical: 12,
-    paddingHorizontal: 10,
-    borderRadius: 14,
-    borderWidth: 1,
-    marginBottom: 8,
-  },
-  offerRowDefault: {
-    backgroundColor: colors.surface,
-    borderColor: 'rgba(239, 188, 6, 0.85)',
-  },
-  offerRowSelected: {
-    backgroundColor: '#D39838',
-    borderColor: '#F7CD76',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.24,
-    shadowRadius: 10,
-    elevation: 7,
-  },
-  offerAvatarWrap: {
-    width: 70,
-    height: 70,
-    marginRight: 10,
-    position: 'relative',
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-  },
-  offerAvatarFrame: {
-    width: 64,
-    height: 64,
-    borderRadius: 18,
-    borderWidth: 3,
-    borderColor: '#FFFFFF',
-    backgroundColor: '#D1D5DB',
-    overflow: 'hidden',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.18,
-    shadowRadius: 6,
-    elevation: 4,
-  },
-  offerAvatarPhoto: { width: '100%', height: '100%', resizeMode: 'cover' },
-  offerAvatarFallback: { width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center', backgroundColor: '#E5E7EB' },
-  offerAvatarFallbackText: { color: '#64748B', fontWeight: '700', fontSize: 18 },
-  offerVehicleOverlay: {
-    position: 'absolute',
-    bottom: -25,
-    left: '50%',
-    transform: [{ translateX: -25 }, { rotate: '90deg' }],
-    width: 52,
-    height: 52,
-    resizeMode: 'contain',
-  },
-  offerInfo: { flex: 1, paddingRight: 4 },
-  offerTitle: { fontSize: 18, fontWeight: '800', lineHeight: 22 },
-  offerTitleDefault: { color: colors.text },
-  offerTitleSelected: { color: '#FFFFFF' },
-  offerSubtitle: { fontSize: 13, fontWeight: '700', marginTop: 1 },
-  offerSubtitleDefault: { color: colors.textSecondary },
-  offerSubtitleSelected: { color: '#F8FAFC' },
-  offerEtaBadge: {
-    marginTop: 8,
-    marginLeft: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(239, 188, 6, 0.65)',
-    backgroundColor: 'rgba(239, 188, 6, 0.12)',
-  },
-  offerEtaText: { fontSize: 11, fontWeight: '700', color: colors.text },
-  priceRow: {
-    marginTop: 6,
-    borderRadius: 12,
-    paddingHorizontal: 4,
-    paddingVertical: 7,
-    backgroundColor: 'rgba(255,255,255,0.16)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.34)',
-  },
-  priceHeaderRow: {
+  statusPill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginBottom: 5,
-  },
-  priceHeaderDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: 'rgba(255,255,255,0.92)',
-  },
-  priceLabel: { fontSize: 14, fontWeight: '800', letterSpacing: 0.15 },
-  priceItems: {
-    width: '100%',
-    borderRadius: 10,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  statusDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+  },
+  statusPillText: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+  },
+  loadingBox: { paddingVertical: 22, alignItems: 'center' },
+  loadingText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  emptyBox: { paddingVertical: 14, alignItems: 'center' },
+  radarWrap: {
+    width: 92,
+    height: 92,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  radarRing: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    borderWidth: 1.5,
+  },
+  radarCoreOuter: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  radarCoreInner: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.text,
+    textAlign: 'center',
+  },
+  emptyHint: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: colors.textSecondary,
+    textAlign: 'center',
+    marginTop: 4,
+    lineHeight: 17,
+    maxWidth: 270,
+  },
+  offerListContent: { paddingBottom: 4 },
+
+  assignedDriverCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    paddingHorizontal: 11,
+    paddingVertical: 10,
+    marginBottom: 10,
+  },
+  assignedDriverTime: {
+    fontSize: 11,
+    fontWeight: '700',
+    textAlign: 'right',
+    maxWidth: 78,
+  },
+
+  offerCard: {
+    borderRadius: 18,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+  },
+  offerCardSelected: {
+    borderWidth: 1.5,
+    shadowColor: '#b38737',
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
+  },
+  offerTopRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  offerAvatar: {
+    width: 46,
+    height: 46,
+    borderRadius: 13,
+    justifyContent: 'center',
+    alignItems: 'center',
     overflow: 'hidden',
+    marginTop: 1,
+  },
+  offerAvatarPhoto: { width: '100%', height: '100%' },
+  offerAvatarInitials: { fontSize: 16, fontWeight: '800' },
+  offerInfo: { flex: 1, paddingTop: 1 },
+  offerName: { fontSize: 16, fontWeight: '800', letterSpacing: -0.2 },
+  offerChipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 5,
+    marginTop: 7,
+  },
+  offerChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: 7,
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+  },
+  offerChipText: { fontSize: 11, fontWeight: '700', letterSpacing: -0.1 },
+  offerPriceColumn: { alignItems: 'flex-end', paddingTop: 2, paddingLeft: 4 },
+  offerPriceValue: {
+    fontSize: 17,
+    fontWeight: '800',
+    letterSpacing: -0.2,
+    fontVariant: ['tabular-nums'],
+  },
+  offerPriceCaption: { fontSize: 10, fontWeight: '600', marginTop: 2 },
+  offerPricePending: { fontSize: 12, fontWeight: '700' },
+  pricePanel: {
+    marginTop: 11,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 11,
+    paddingTop: 8,
+    paddingBottom: 9,
+  },
+  pricePanelTitle: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    marginBottom: 3,
   },
   priceItemRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     columnGap: 8,
-    paddingHorizontal: 8,
     paddingVertical: 5,
   },
-  priceItemDivider: {
-    height: 1,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    marginHorizontal: 8,
-  },
-  priceItemLabel: {
-    flex: 1,
-    flexShrink: 1,
-    fontSize: 12,
-    fontWeight: '700',
-    paddingRight: 6,
-  },
+  priceItemDivider: { height: 1 },
+  priceItemLabel: { flex: 1, fontSize: 13, fontWeight: '600' },
   priceItemValue: {
-    minWidth: 88,
-    textAlign: 'right',
     fontSize: 14,
     fontWeight: '800',
+    fontVariant: ['tabular-nums'],
   },
-  negotiatePill: {
-    minHeight: 40,
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: '#5B2AB0',
-    borderWidth: 1.2,
-    borderColor: 'rgba(255,255,255,0.42)',
-    justifyContent: 'center',
+  cardActionsRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    shadowColor: '#2E1065',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 4,
-    marginTop: 22,
+    gap: 8,
+    marginTop: 10,
   },
-  negotiateText: { color: '#FFFFFF', fontWeight: '800', fontSize: 12, letterSpacing: 0.2 },
-  selectedActions: {
-    flexDirection: 'column',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    marginTop: 0,
-    minHeight: 66,
-  },
-  messageButton: {
+  iconActionBtn: {
     width: 38,
     height: 38,
-    borderRadius: 19,
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    borderWidth: 1.2,
-    borderColor: 'rgba(120, 53, 15, 0.35)',
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 6,
+  },
+  iconActionBtnChat: {
+    backgroundColor: colors.secondary,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.16,
-    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18,
+    shadowRadius: 5,
     elevation: 3,
   },
-  acceptedStatusChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 14,
-    backgroundColor: 'rgba(22, 101, 52, 0.22)',
+  negotiatePill: {
+    flex: 1,
+    height: 38,
+    borderRadius: 999,
+    backgroundColor: '#5B2AB0',
+    flexDirection: 'row',
+    gap: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  negotiateText: { color: '#FFFFFF', fontWeight: '800', fontSize: 13, letterSpacing: 0.2 },
+  acceptedPill: {
+    flex: 1,
+    height: 38,
+    borderRadius: 999,
     borderWidth: 1,
-    borderColor: 'rgba(187, 247, 208, 0.55)',
+    flexDirection: 'row',
+    gap: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  acceptedStatusText: { color: '#F0FDF4', fontWeight: '800', fontSize: 11 },
-  acceptedStatusChipSecondary: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 16,
-    backgroundColor: 'rgba(22, 101, 52, 0.14)',
-    borderWidth: 1,
-    borderColor: 'rgba(22, 101, 52, 0.34)',
-    marginVertical: 18,
-  },
-  acceptedStatusTextSecondary: { 
-    color: '#166534',
-    fontWeight: '700',
-    fontSize: 11
-  },
+  acceptedPillText: { fontSize: 12, fontWeight: '800' },
 
+  reviewsRow: {
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  reviewsRowText: { flex: 1, fontSize: 13, fontWeight: '700' },
   primaryBtn: {
-    marginTop: 8,
-    marginBottom: 10,
-    paddingVertical: 16,
+    marginTop: 10,
+    borderRadius: 999,
+    paddingVertical: 15,
     alignItems: 'center',
-    borderRadius: 28,
+    justifyContent: 'center',
   },
-  primaryBtnText: { color: '#fff', fontWeight: '700', fontSize: 18 },
+  primaryBtnEnabled: {
+    shadowColor: '#b38737',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.32,
+    shadowRadius: 12,
+    elevation: 5,
+  },
+  primaryBtnText: {
+    fontSize: 15,
+    fontWeight: '800',
+    letterSpacing: -0.2,
+    textAlign: 'center',
+    paddingHorizontal: 12,
+  },
   cancelBtn: {
-    marginTop: 4,
-    paddingVertical: 16,
-    alignItems: 'center',
-    borderRadius: 28,
-  },
-  cancelBtnText: { color: '#fff', fontWeight: '700', fontSize: 18 },
-  reviewsBtn: {
-    marginTop: 4,
-    marginBottom: 8,
+    marginTop: 8,
+    borderRadius: 999,
+    borderWidth: 1.5,
     paddingVertical: 13,
     alignItems: 'center',
-    borderRadius: 16,
-    borderWidth: 1,
-    backgroundColor: 'rgba(211, 152, 56, 0.14)',
-    borderColor: 'rgba(211, 152, 56, 0.7)',
+    justifyContent: 'center',
   },
-  reviewsBtnText: {
-    color: colors.text,
-    fontWeight: '800',
-    fontSize: 15,
+  cancelBtnInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
+  cancelBtnText: { fontSize: 14, fontWeight: '800' },
 });

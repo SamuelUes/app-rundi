@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,8 @@ import {
   TouchableOpacity,
   Alert,
   ScrollView,
+  Animated,
+  Easing,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
@@ -14,6 +16,7 @@ import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useAuth } from '../../hooks/shared/auth/useAuth';
 import { getDatabase, ref, onValue, off } from 'firebase/database';
 import ridesService from '../../services/ridesService';
+import { formatCurrency } from '../../utils/safeFormatters';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 interface WaitingClientConfirmationScreenProps {
@@ -28,6 +31,213 @@ interface WaitingClientConfirmationScreenProps {
     };
   };
   navigation: any;
+}
+
+const OFFER_WAIT_TIMEOUT_S = 120; // TTL de la oferta pendiente: se retira sola si el cliente no responde
+const LOW_TIME_THRESHOLD_S = 30;
+const SONAR_DURATION_MS = 2200;
+
+const formatTime = (seconds: number) => {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+};
+
+interface PendingViewProps {
+  colors: any;
+  styles: any;
+  t: (key: string, opts?: any) => string;
+  ns: string;
+  remaining: number;
+  origin: { lat: number; lng: number; address: string };
+  destination: { lat: number; lng: number; address: string };
+  extraDestinations: Array<{ lat: number; lng: number; address?: string }>;
+  estimatedFare: number;
+}
+
+function PendingView({
+  colors,
+  styles,
+  t,
+  ns,
+  remaining,
+  origin,
+  destination,
+  extraDestinations,
+  estimatedFare,
+}: PendingViewProps) {
+  const ring1 = useRef(new Animated.Value(0)).current;
+  const ring2 = useRef(new Animated.Value(0)).current;
+  const progress = useRef(new Animated.Value(remaining / OFFER_WAIT_TIMEOUT_S)).current;
+
+  const isLowTime = remaining <= LOW_TIME_THRESHOLD_S;
+  const accent = isLowTime ? colors.warning : colors.primary;
+
+  // Sonar: dos anillos que se expanden y desvanecen, desfasados medio ciclo
+  useEffect(() => {
+    const pulse = (value: Animated.Value) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(value, {
+            toValue: 1,
+            duration: SONAR_DURATION_MS,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }),
+          Animated.timing(value, { toValue: 0, duration: 0, useNativeDriver: true }),
+        ])
+      );
+    const loop1 = pulse(ring1);
+    const loop2 = Animated.sequence([Animated.delay(SONAR_DURATION_MS / 2), pulse(ring2)]);
+    loop1.start();
+    loop2.start();
+    return () => {
+      loop1.stop();
+      loop2.stop();
+    };
+  }, [ring1, ring2]);
+
+  useEffect(() => {
+    Animated.timing(progress, {
+      toValue: remaining / OFFER_WAIT_TIMEOUT_S,
+      duration: 400,
+      easing: Easing.linear,
+      useNativeDriver: false,
+    }).start();
+  }, [remaining, progress]);
+
+  const ringStyle = (value: Animated.Value) => ({
+    backgroundColor: accent,
+    opacity: value.interpolate({ inputRange: [0, 0.15, 1], outputRange: [0, 0.28, 0] }),
+    transform: [{ scale: value.interpolate({ inputRange: [0, 1], outputRange: [1, 1.6] }) }],
+  });
+
+  const badgeDotStyle = {
+    opacity: ring1.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0.5, 1, 0.5] }),
+  };
+
+  const routePoints = [
+    { kind: 'dot' as const, color: colors.secondary, label: t(`${ns}.pending.originLabel`), address: origin.address },
+    ...extraDestinations.map((stop, index) => ({
+      kind: 'dot' as const,
+      color: colors.warning,
+      label: t(`${ns}.pending.stopLabel`, { index: index + 1 }),
+      address: stop.address || t(`${ns}.pending.stopFallback`),
+    })),
+    { kind: 'pin' as const, color: colors.error, label: t(`${ns}.pending.destinationLabel`), address: destination.address },
+  ];
+
+  const tips = [
+    { icon: 'directions-car' as const, text: t(`${ns}.tips.tipVehicle`) },
+    { icon: 'my-location' as const, text: t(`${ns}.tips.tipGps`) },
+    { icon: 'people-outline' as const, text: t(`${ns}.tips.tipAlternateDriver`) },
+  ];
+
+  return (
+    <>
+      {/* Estado de la oferta */}
+      <View style={styles.statusChip}>
+        <Animated.View style={[styles.statusDot, badgeDotStyle]} />
+        <Text style={styles.statusChipText}>{t(`${ns}.pending.statusBadge`)}</Text>
+      </View>
+
+      <Text style={styles.title}>{t(`${ns}.pending.title`)}</Text>
+      <Text style={styles.subtitle}>{t(`${ns}.pending.subtitle`)}</Text>
+
+      {/* Countdown con anillos sonar */}
+      <View style={styles.heroWrap}>
+        <Animated.View style={[styles.sonarRing, ringStyle(ring1)]} />
+        <Animated.View style={[styles.sonarRing, ringStyle(ring2)]} />
+        <View style={[styles.heroCircle, { borderColor: accent }]}>
+          <Text style={[styles.countdown, { color: accent }]}>{formatTime(remaining)}</Text>
+        </View>
+      </View>
+
+      <Text style={styles.expiresText}>{t(`${ns}.pending.expiresLabel`)}</Text>
+      <View style={styles.progressTrack}>
+        <Animated.View
+          style={[
+            styles.progressFill,
+            {
+              backgroundColor: accent,
+              width: progress.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }),
+            },
+          ]}
+        />
+      </View>
+
+      {/* Detalles del viaje */}
+      <View style={styles.detailsCard}>
+        <Text style={styles.detailsTitle}>{t(`${ns}.pending.tripDetails`)}</Text>
+
+        {routePoints.map((point, index) => (
+          <View key={`route-point-${index}`} style={styles.routeRow}>
+            <View style={styles.routeIconCol}>
+              <View style={[styles.routeLine, index === 0 && styles.routeLineHidden]} />
+              {point.kind === 'pin' ? (
+                <MaterialIcons name="place" size={22} color={point.color} />
+              ) : (
+                <View style={[styles.routeDot, { backgroundColor: point.color }]} />
+              )}
+              <View style={[styles.routeLine, index === routePoints.length - 1 && styles.routeLineHidden]} />
+            </View>
+            <View style={styles.routeTextCol}>
+              <Text style={styles.locationLabel}>{point.label}</Text>
+              <Text style={styles.locationAddress}>{point.address}</Text>
+            </View>
+          </View>
+        ))}
+
+        <View style={styles.fareContainer}>
+          <Text style={styles.fareLabel}>{t(`${ns}.pending.fareLabel`)}</Text>
+          <Text style={styles.fareValue}>{formatCurrency(estimatedFare)}</Text>
+        </View>
+      </View>
+
+      {/* Consejos */}
+      <View style={styles.tipsCard}>
+        <View style={styles.tipsHeader}>
+          <MaterialIcons name="lightbulb-outline" size={18} color={colors.warning} />
+          <Text style={styles.tipsTitle}>{t(`${ns}.tips.title`)}</Text>
+        </View>
+        {tips.map((tip, index) => (
+          <View key={`tip-${index}`} style={styles.tipRow}>
+            <MaterialIcons name={tip.icon} size={18} color={colors.textTertiary} />
+            <Text style={styles.tipText}>{tip.text}</Text>
+          </View>
+        ))}
+      </View>
+    </>
+  );
+}
+
+function AcceptedView({ colors, styles, t, ns }: { colors: any; styles: any; t: any; ns: string }) {
+  const scale = useRef(new Animated.Value(0.6)).current;
+  const opacity = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.spring(scale, { toValue: 1, speed: 14, bounciness: 9, useNativeDriver: true }),
+      Animated.timing(opacity, { toValue: 1, duration: 220, useNativeDriver: true }),
+    ]).start();
+  }, [scale, opacity]);
+
+  return (
+    <View style={styles.successContainer}>
+      <Animated.View
+        style={[
+          styles.successCircle,
+          { backgroundColor: `${colors.success}1A` },
+          { transform: [{ scale }], opacity },
+        ]}
+      >
+        <MaterialIcons name="check-circle" size={72} color={colors.success} />
+      </Animated.View>
+      <Text style={styles.successTitle}>{t(`${ns}.accepted.title`)}</Text>
+      <Text style={styles.successSubtitle}>{t(`${ns}.accepted.subtitle`)}</Text>
+      <LoadingIcon size={32} color={colors.primary} style={{ marginTop: 20 }} />
+    </View>
+  );
 }
 
 export default function WaitingClientConfirmationScreen({ route, navigation }: WaitingClientConfirmationScreenProps) {
@@ -45,18 +255,30 @@ export default function WaitingClientConfirmationScreen({ route, navigation }: W
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [timeWaiting, setTimeWaiting] = useState(0);
   const [offerStatus, setOfferStatus] = useState<'pending' | 'accepted' | 'rejected'>('pending');
+  const withdrawHandledRef = useRef(false);
   const ns = 'driver.WaitingClientConfirmation';
+
+  const remaining = Math.max(OFFER_WAIT_TIMEOUT_S - timeWaiting, 0);
+
+  const withdrawOffer = async (reason: string) => {
+    try {
+      await ridesService.rejectRide(rideId, reason);
+    } catch (error: any) {
+      console.warn('[WaitingClientConfirmation] No se pudo retirar la oferta:', error?.message || error);
+      throw error;
+    }
+  };
 
   // Listener para el estado de la oferta
   useEffect(() => {
     const db = getDatabase();
     const rideRef = ref(db, `activeRides/${rideId}`);
-    
+
     console.log('🕐 Esperando confirmación del cliente para viaje:', rideId);
-    
+
     const unsubscribe = onValue(rideRef, (snapshot) => {
       const data = snapshot.val();
-      
+
       if (!data) {
         console.log('⚠️ Viaje no encontrado, regresando...');
         Alert.alert(
@@ -76,7 +298,7 @@ export default function WaitingClientConfirmationScreen({ route, navigation }: W
       ) {
         console.log('✅ ¡Cliente aceptó tu oferta!');
         setOfferStatus('accepted');
-        
+
         // Navegar a ActiveRideScreen
         setTimeout(() => {
           navigation.replace('ActiveRide', {
@@ -94,7 +316,7 @@ export default function WaitingClientConfirmationScreen({ route, navigation }: W
       if (data.status === 'accepted' && data.driverId !== user?.id) {
         console.log('❌ Cliente eligió otro conductor');
         setOfferStatus('rejected');
-        
+
         Alert.alert(
           t(`${ns}.alerts.offerRejectedTitle`),
           t(`${ns}.alerts.offerRejectedMessage`),
@@ -109,7 +331,7 @@ export default function WaitingClientConfirmationScreen({ route, navigation }: W
         if (myOffer && myOffer.status === 'rejected') {
           console.log('❌ Cliente rechazó tu oferta específicamente');
           setOfferStatus('rejected');
-          
+
           Alert.alert(
             t(`${ns}.alerts.offerRejectedMeTitle`),
             t(`${ns}.alerts.offerRejectedMeMessage`),
@@ -142,6 +364,23 @@ export default function WaitingClientConfirmationScreen({ route, navigation }: W
     };
   }, [rideId]);
 
+  // TTL de la oferta: si el cliente no responde en OFFER_WAIT_TIMEOUT_S, se retira sola
+  useEffect(() => {
+    if (offerStatus !== 'pending' || withdrawHandledRef.current) return;
+    if (timeWaiting < OFFER_WAIT_TIMEOUT_S) return;
+    withdrawHandledRef.current = true;
+
+    withdrawOffer('driver_offer_expired')
+      .catch(() => {})
+      .finally(() => {
+        Alert.alert(
+          t(`${ns}.alerts.offerExpiredTitle`),
+          t(`${ns}.alerts.offerExpiredMessage`),
+          [{ text: 'OK', onPress: () => navigation.replace('AvailableRides') }]
+        );
+      });
+  }, [timeWaiting, offerStatus, rideId, navigation, t]);
+
   const handleCancelOffer = async () => {
     Alert.alert(
       t(`${ns}.alerts.cancelOfferTitle`),
@@ -152,9 +391,16 @@ export default function WaitingClientConfirmationScreen({ route, navigation }: W
           text: t(`${ns}.alerts.cancelOfferYes`),
           style: 'destructive',
           onPress: async () => {
+            if (withdrawHandledRef.current) {
+              navigation.replace('AvailableRides');
+              return;
+            }
+            withdrawHandledRef.current = true;
             try {
+              await withdrawOffer('driver_withdrew_offer');
               navigation.replace('AvailableRides');
             } catch (error: any) {
+              withdrawHandledRef.current = false;
               Alert.alert(
                 t(`${ns}.alerts.cancelErrorTitle`),
                 error?.message || t(`${ns}.alerts.cancelErrorMessage`)
@@ -166,107 +412,42 @@ export default function WaitingClientConfirmationScreen({ route, navigation }: W
     );
   };
 
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
-
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {offerStatus === 'pending' && (
-          <>
-            {/* Animación de espera */}
-            <View style={styles.animationContainer}>
-              <LoadingIcon size={48} color={colors.primary} />
-              <MaterialIcons name="hourglass-empty" size={48} color={colors.primary} />
-            </View>
-
-            {/* Título */}
-            <Text style={styles.title}>{t(`${ns}.pending.title`)}</Text>
-            <Text style={styles.subtitle}>{t(`${ns}.pending.subtitle`)}</Text>
-
-            {/* Tiempo de espera */}
-            <View style={styles.timerContainer}>
-              <Text style={styles.timerLabel}>{t(`${ns}.pending.timerLabel`)}</Text>
-              <Text style={styles.timerValue}>{formatTime(timeWaiting)}</Text>
-            </View>
-
-            {/* Detalles del viaje */}
-            <View style={styles.detailsCard}>
-              <Text style={styles.detailsTitle}>{t(`${ns}.pending.tripDetails`)}</Text>
-              
-              <View style={styles.locationRow}>
-                <MaterialIcons name="circle" size={20} color="#2196F3" />
-                <View style={styles.locationInfo}>
-                  <Text style={styles.locationLabel}>{t(`${ns}.pending.originLabel`)}</Text>
-                  <Text style={styles.locationAddress}>{origin.address}</Text>
-                </View>
-              </View>
-
-              <View style={styles.divider} />
-
-              {extraDestinations.map((stop: { lat: number; lng: number; address?: string }, index: number) => (
-                <View key={`extra-stop-${index}`} style={styles.locationRow}>
-                  <MaterialIcons name="adjust" size={20} color="#FF9800" />
-                  <View style={styles.locationInfo}>
-                    <Text style={styles.locationLabel}>
-                      {t(`${ns}.pending.stopLabel`, { index: index + 1 })}
-                    </Text>
-                    <Text style={styles.locationAddress}>
-                      {stop.address || t(`${ns}.pending.stopFallback`)}
-                    </Text>
-                  </View>
-                </View>
-              ))}
-
-              {extraDestinations.length > 0 && <View style={styles.divider} />}
-
-              <View style={styles.locationRow}>
-                <MaterialIcons name="place" size={20} color="#F44336" />
-                <View style={styles.locationInfo}>
-                  <Text style={styles.locationLabel}>{t(`${ns}.pending.destinationLabel`)}</Text>
-                  <Text style={styles.locationAddress}>{destination.address}</Text>
-                </View>
-              </View>
-
-              <View style={styles.fareContainer}>
-                <Text style={styles.fareLabel}>{t(`${ns}.pending.fareLabel`)}</Text>
-                <Text style={styles.fareValue}>C${estimatedFare}</Text>
-              </View>
-            </View>
-
-            {/* Consejos */}
-            <View style={styles.tipsContainer}>
-              <Text style={styles.tipsTitle}>{t(`${ns}.tips.title`)}</Text>
-              <Text style={styles.tipText}>{t(`${ns}.tips.tipVehicle`)}</Text>
-              <Text style={styles.tipText}>{t(`${ns}.tips.tipGps`)}</Text>
-              <Text style={styles.tipText}>{t(`${ns}.tips.tipAlternateDriver`)}</Text>
-            </View>
-
-            {/* Botón cancelar */}
+      {offerStatus === 'accepted' ? (
+        <AcceptedView colors={colors} styles={styles} t={t} ns={ns} />
+      ) : (
+        <>
+          <ScrollView
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+            <PendingView
+              colors={colors}
+              styles={styles}
+              t={t}
+              ns={ns}
+              remaining={remaining}
+              origin={origin}
+              destination={destination}
+              extraDestinations={extraDestinations}
+              estimatedFare={estimatedFare}
+            />
+          </ScrollView>
+          <View style={styles.footer}>
             <TouchableOpacity
               style={styles.cancelButton}
               onPress={handleCancelOffer}
+              activeOpacity={0.75}
+              accessibilityRole="button"
+              accessibilityLabel={t(`${ns}.buttons.cancelOffer`)}
             >
+              <MaterialIcons name="close" size={18} color={colors.error} />
               <Text style={styles.cancelButtonText}>{t(`${ns}.buttons.cancelOffer`)}</Text>
             </TouchableOpacity>
-          </>
-        )}
-
-        {offerStatus === 'accepted' && (
-          <View style={styles.successContainer}>
-            <MaterialIcons name="check-circle" size={64} color="#4CAF50" />
-            <Text style={styles.successTitle}>{t(`${ns}.accepted.title`)}</Text>
-            <Text style={styles.successSubtitle}>{t(`${ns}.accepted.subtitle`)}</Text>
-            <LoadingIcon size={32} color={colors.primary} style={{ marginTop: 20 }} />
           </View>
-        )}
-      </ScrollView>
+        </>
+      )}
     </SafeAreaView>
   );
 }
@@ -277,91 +458,154 @@ const createStyles = (colors: any) => StyleSheet.create({
     backgroundColor: colors.background,
   },
   scrollContent: {
+    flexGrow: 1,
     paddingHorizontal: 20,
-    paddingVertical: 24,
-    paddingBottom: 40,
+    paddingTop: 8,
+    paddingBottom: 28,
   },
-  animationContainer: {
+  statusChip: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 30,
+    alignSelf: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
-  waitingIcon: {
-    fontSize: 80,
-    marginTop: 20,
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.success,
+  },
+  statusChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textSecondary,
   },
   title: {
     fontSize: 24,
     fontWeight: '700',
     color: colors.text,
     textAlign: 'center',
-    marginBottom: 8,
+    marginTop: 20,
   },
   subtitle: {
-    fontSize: 16,
+    fontSize: 15,
+    lineHeight: 22,
     color: colors.textSecondary,
     textAlign: 'center',
-    marginBottom: 30,
-  },
-  timerContainer: {
-    backgroundColor: colors.card,
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  timerLabel: {
-    fontSize: 14,
-    color: colors.textSecondary,
+    marginTop: 6,
     marginBottom: 8,
   },
-  timerValue: {
+  heroWrap: {
+    height: 190,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sonarRing: {
+    position: 'absolute',
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+  },
+  heroCircle: {
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    backgroundColor: colors.card,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  countdown: {
     fontSize: 32,
     fontWeight: '700',
-    color: colors.primary,
+    letterSpacing: -0.5,
+    fontVariant: ['tabular-nums'],
+  },
+  expiresText: {
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    color: colors.textTertiary,
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  progressTrack: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.border,
+    overflow: 'hidden',
+    marginTop: 12,
+    marginBottom: 24,
+  },
+  progressFill: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    borderRadius: 3,
   },
   detailsCard: {
     backgroundColor: colors.card,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 20,
+    borderRadius: 16,
+    padding: 18,
+    marginBottom: 16,
     borderWidth: 1,
     borderColor: colors.border,
   },
   detailsTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '700',
     color: colors.text,
-    marginBottom: 16,
+    marginBottom: 14,
   },
-  locationRow: {
+  routeRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'stretch',
+    minHeight: 44,
   },
-  locationIcon: {
-    fontSize: 20,
-    marginRight: 12,
+  routeIconCol: {
+    width: 24,
+    alignItems: 'center',
   },
-  locationInfo: {
+  routeLine: {
+    width: 2,
     flex: 1,
+    minHeight: 6,
+    backgroundColor: colors.border,
+  },
+  routeLineHidden: {
+    backgroundColor: 'transparent',
+  },
+  routeDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+  },
+  routeTextCol: {
+    flex: 1,
+    paddingLeft: 14,
+    justifyContent: 'center',
   },
   locationLabel: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    marginBottom: 4,
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    color: colors.textTertiary,
+    marginBottom: 2,
   },
   locationAddress: {
-    fontSize: 14,
+    fontSize: 15,
+    lineHeight: 21,
     color: colors.text,
     fontWeight: '500',
-  },
-  divider: {
-    height: 20,
-    width: 2,
-    backgroundColor: colors.border,
-    marginLeft: 10,
-    marginVertical: 8,
   },
   fareContainer: {
     flexDirection: 'row',
@@ -369,63 +613,96 @@ const createStyles = (colors: any) => StyleSheet.create({
     alignItems: 'center',
     marginTop: 16,
     paddingTop: 16,
-    borderTopWidth: 1,
+    borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border,
   },
   fareLabel: {
-    fontSize: 16,
+    fontSize: 14,
+    fontWeight: '500',
     color: colors.textSecondary,
   },
   fareValue: {
     fontSize: 24,
     fontWeight: '700',
     color: colors.primary,
+    fontVariant: ['tabular-nums'],
   },
-  tipsContainer: {
-    backgroundColor: '#E3F2FD',
-    borderRadius: 12,
-    padding: 20,
-    marginBottom: 40,
+  tipsCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: 10,
+  },
+  tipsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 2,
   },
   tipsTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1565C0',
-    marginBottom: 12,
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  tipRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
   },
   tipText: {
+    flex: 1,
     fontSize: 14,
-    color: '#1565C0',
-    marginBottom: 6,
+    lineHeight: 20,
+    color: colors.textSecondary,
+  },
+  footer: {
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
   },
   cancelButton: {
-    backgroundColor: colors.card,
-    borderRadius: 12,
-    padding: 16,
+    height: 52,
+    borderRadius: 14,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
     borderWidth: 1,
-    borderColor: '#ff4444',
+    borderColor: colors.error,
   },
   cancelButtonText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#ff4444',
+    color: colors.error,
   },
   successContainer: {
+    flex: 1,
     alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
   },
-  successIcon: {
-    fontSize: 100,
-    marginBottom: 20,
+  successCircle: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
   },
   successTitle: {
-    fontSize: 28,
+    fontSize: 24,
     fontWeight: '700',
     color: colors.text,
     marginBottom: 8,
+    textAlign: 'center',
   },
   successSubtitle: {
-    fontSize: 16,
+    fontSize: 15,
     color: colors.textSecondary,
+    textAlign: 'center',
   },
 });

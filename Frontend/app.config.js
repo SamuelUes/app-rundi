@@ -6,15 +6,9 @@ export default {
   userInterfaceStyle: 'automatic',
   icon: './src/assets/images/icon.png',
   scheme: 'com.driveangel.rundidev',
-  updates: {
-    enabled: true,
-    fallbackToCacheTimeout: 0,
-    checkAutomatically: 'ON_LOAD',
-    url: 'https://u.expo.dev/98fe5b45-4177-4d65-8ce3-6b783abfe196'
-  },
-  assetBundlePatterns: ['**/*'],
   ios: {
     supportsTablet: true,
+    deploymentTarget: '16.4',
     bundleIdentifier: 'com.driveangel.rundidev',
     icon: './src/assets/images/icon.png',
     urlSchemes: ['driveangel', 'tel', 'mailto', 'whatsapp', 'waze', 'googlemaps'],
@@ -30,6 +24,12 @@ export default {
       NSPhotoLibraryUsageDescription: 'La aplicación necesita acceder a tu galería de fotos para subir imágenes.',
       NSMotionUsageDescription: 'Rundi utiliza tu actividad física para detectar cuándo estás manejando y mejorar la asignación de viajes.',
       UIBackgroundModes: ['location', 'fetch'],
+      NSSupportsLiveActivities: true,
+    },
+    // Requerido por expo-secure-store/notifications en iOS Simulator (sin perfil de
+    // aprovisionamiento real, Keychain rechaza el acceso con errSecMissingEntitlement).
+    entitlements: {
+      'keychain-access-groups': ['$(AppIdentifierPrefix)com.driveangel.rundidev'],
     },
     usesAppleSignIn: true,
     googleServicesFile: "./GoogleService-Info.plist"
@@ -104,6 +104,7 @@ export default {
   },
   plugins: [
     './modules/rundi-native/app.plugin.js',
+    '@bacons/apple-targets',
     [
       'expo-location',
       {
@@ -142,6 +143,7 @@ export default {
         color: '#FF9800',
         sounds: ['./src/assets/sounds/notification.wav'],
         mode: 'production',
+        enableBackgroundRemoteNotifications: true,
       },
     ],
     // [
@@ -158,11 +160,14 @@ export default {
     //     messaging_android_notification_priority: 'priority_high',
     //   },
     // ],
+    'expo-localization',
+    'expo-status-bar',
     [
       'expo-build-properties',
       {
         ios: {
           useFrameworks: 'static',
+          enableSceneSupport: true,
         },
       },
     ],
@@ -192,6 +197,5 @@ export default {
       process.env.SUPABASE_ANON_KEY ||
       process.env.EXPO_PUBLIC_SUPABASE_KEY,
   },
-  runtimeVersion: 'Beta- 1.8',
   owner: 'samuelues',
 };

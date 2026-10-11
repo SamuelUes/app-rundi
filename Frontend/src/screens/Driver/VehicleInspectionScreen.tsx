@@ -16,6 +16,7 @@ import { useAuth } from '../../hooks/shared/auth/useAuth';
 import * as ImagePicker from 'expo-image-picker';
 import supabaseStorage from '../../services/supabaseStorage';
 import inspectionsService from '../../services/inspectionsService';
+import ridesService from '../../services/ridesService';
 
 interface VehicleInspectionProps {
   route: any;
@@ -141,18 +142,11 @@ export default function VehicleInspectionScreen({ route, navigation }: VehicleIn
 
       console.log('✅ Inspección guardada en Supabase con ID:', inspectionId);
 
-      // ✅ NUEVO: Usar Cloud Function en lugar de actualizar directamente
-      // Esto evita problemas de permisos en Firebase Realtime DB
+      // ✅ Iniciar el viaje vía startRide (canal validado: driver, sesión y
+      // estado permitido) y adjuntar la inspección — antes se usaba
+      // updateRideStatus, un endpoint genérico sin control de transiciones.
       try {
-        const { getFirebaseFunctions } = await import('../../config/firebase');
-        const { httpsCallable } = await import('firebase/functions');
-        
-        const functions = await getFirebaseFunctions();
-        const updateTrackingFn = httpsCallable(functions, 'updateRideStatus');
-        
-        await updateTrackingFn({
-          rideId,
-          status: 'in_progress',
+        await ridesService.updateRideStatus(rideId, 'in_progress', {
           vehicleInspection: {
             timestamp: Date.now(),
             driver_id: user.id,
@@ -162,7 +156,7 @@ export default function VehicleInspectionScreen({ route, navigation }: VehicleIn
             inspection_id: inspectionId
           }
         });
-        
+
         console.log('✅ Firebase Realtime actualizado con inspection_id:', inspectionId);
       } catch (error) {
         console.warn('⚠️ Error actualizando inspection en Cloud Function:', error);

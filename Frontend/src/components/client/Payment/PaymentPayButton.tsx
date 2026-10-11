@@ -33,11 +33,14 @@ export function PaymentPayButton({
         disabled={processing}
       >
         {processing ? (
-          <LoadingIcon size={24} color="#fff" />
+          <LoadingIcon size={22} color="#fff" />
         ) : (
-          <Text style={styles.payButtonText}>
-            {t('shared.payment.buttons.payCash')}
-          </Text>
+          <>
+            <MaterialIcons name="payments" size={20} color="#fff" />
+            <Text style={styles.payButtonText}>
+              {t('shared.payment.buttons.payCash')}
+            </Text>
+          </>
         )}
       </TouchableOpacity>
 

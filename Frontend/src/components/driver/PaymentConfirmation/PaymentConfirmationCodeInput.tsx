@@ -6,6 +6,7 @@ import {
 } from 'react-native';
 import { AnimatedButton } from '../../ui/AnimatedButton';
 import alertService from '../../../services/alertService';
+import { useIsDark } from '../../../stores/themeStore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { initializeFirebase } from '../../../config/firebase';
 import sessionService from '../../../services/sessionService';
@@ -50,12 +51,17 @@ export function PaymentConfirmationCodeInput({
   styles,
 }: PaymentConfirmationCodeInputProps) {
   const codeInputsRef = useRef<Array<TextInput | null>>([]);
+  const isDark = useIsDark();
+  const accent = isDark ? colors.SecondBorder : colors.primary;
 
   return (
     <>
       {!code && (
         <AnimatedButton
           title={buttonTexts.generateCode}
+          iconName="vpn-key"
+          variant="outline"
+          color={accent}
           onPress={async () => {
             try {
               onSetConfirming(true);
@@ -89,29 +95,21 @@ export function PaymentConfirmationCodeInput({
       )}
 
       {code && (
-        <View style={{ alignItems: 'center', marginBottom: 16 }}>
-          <Text style={{ marginBottom: 8, color: colors.text }}>
+        <View style={styles.codeContainer}>
+          <Text style={styles.codeLabel}>
             {t('driver.paymentConfirmation.codeLabel', { code })}
           </Text>
-          <View style={{ flexDirection: 'row', justifyContent: 'center' }}>
+          <View style={styles.codeBoxRow}>
             {[0, 1, 2, 3].map((index) => (
               <TextInput
                 key={index}
                 ref={(el) => {
                   codeInputsRef.current[index] = el;
                 }}
-                style={{
-                  width: 50,
-                  height: 50,
-                  marginHorizontal: 6,
-                  borderRadius: 8,
-                  borderWidth: 1,
-                  borderColor: isCodeValidated ? '#4CAF50' : colors.border,
-                  textAlign: 'center',
-                  fontSize: 20,
-                  color: colors.text,
-                  backgroundColor: colors.card,
-                }}
+                style={[
+                  styles.codeBox,
+                  isCodeValidated && styles.codeBoxValidated,
+                ]}
                 keyboardType="number-pad"
                 maxLength={1}
                 value={codeDigits[index]}

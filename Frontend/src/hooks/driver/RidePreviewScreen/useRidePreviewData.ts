@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { getDatabase, onValue, ref } from 'firebase/database';
 import alertService from '../../../services/alertService';
 import proximityService from '../../../services/proximityService';
+import { getActiveRidesByAreaPath } from '../../../utils/serviceArea';
 
 export interface RideLocation {
   lat: number;
@@ -28,6 +29,8 @@ export interface RidePreviewData {
   rideType?: string | null;
   clientVehiclePhoto?: string | null;
   clientComment?: string | null;
+  isProgrammed?: boolean;
+  scheduledAt?: number | null;
 }
 
 export const toNumberOrNull = (value: any): number | null => {
@@ -60,32 +63,31 @@ export function useRidePreviewData(
   };
 
   // Listener: active ride guard
+  // Lee la proyección por área: la raíz de activeRides tiene .read=false en las rules.
   useEffect(() => {
     if (!userId) return;
 
     const db = getDatabase();
-    const activeRef = ref(db, 'activeRides');
-    const unsubscribe = onValue(activeRef, (snapshot) => {
+    const areaRef = ref(db, getActiveRidesByAreaPath());
+    const unsubscribe = onValue(areaRef, (snapshot) => {
       const data = snapshot.val();
-      if (!data) {
-        setActiveRideGuard(null);
-        return;
-      }
 
       let found: string | null = null;
-      const normalizedUserId = String(userId ?? '').trim();
-      Object.entries<any>(data).some(([id, r]) => {
-        const status = String(r?.status || '').toLowerCase();
-        const rideDriverId = String(r?.driverId ?? r?.driver_id ?? '').trim();
-        if (
-          rideDriverId === normalizedUserId &&
-          ['driver_assigned', 'accepted', 'driver_on_route', 'driver_arrived', 'in_progress'].includes(status)
-        ) {
-          found = id;
-          return true;
-        }
-        return false;
-      });
+      if (data) {
+        const normalizedUserId = String(userId ?? '').trim();
+        Object.entries<any>(data).some(([id, r]) => {
+          const status = String(r?.status || '').toLowerCase();
+          const rideDriverId = String(r?.driverId ?? r?.driver_id ?? '').trim();
+          if (
+            rideDriverId === normalizedUserId &&
+            ['driver_assigned', 'accepted', 'driver_on_route', 'driver_arrived', 'in_progress'].includes(status)
+          ) {
+            found = id;
+            return true;
+          }
+          return false;
+        });
+      }
 
       if (found) {
         setActiveRideGuard(found);
@@ -98,38 +100,66 @@ export function useRidePreviewData(
     return () => unsubscribe();
   }, [userId, navigation]);
 
-  // Listener: ride cancellation (rides/{id})
+  // Listener: proyección pública por área (legible para cualquier conductor autenticado).
+  // Mantiene el preview vivo aunque el conductor aún no tenga acceso a activeRides/{id}
+  // (ese acceso llega cuando crea una oferta — ver RTDB rules).
   useEffect(() => {
     const db = getDatabase();
-    const rideRef = ref(db, `rides/${ride.id}`);
+    const areaRef = ref(db, `${getActiveRidesByAreaPath()}/${ride.id}`);
 
-    const unsubscribe = onValue(rideRef, (snapshot) => {
+    const unsubscribe = onValue(areaRef, (snapshot) => {
       const data = snapshot.val();
+      // Nodo ausente: no inferir cancelación (puede ser lag del geo-shard)
+      if (!data) return;
 
-      if (!data) {
-        if (!cancellationHandledRef.current) {
-          cancellationHandledRef.current = true;
-          alertService.showInfoAlert(
-            t('driver.ridePreview.alerts.canceledTitle'),
-            t('driver.ridePreview.alerts.canceledBody'),
-          );
-          markDismissed(ride.id)
-            .catch((error) => console.warn('[useRidePreviewData] Error al descartar:', error))
-            .finally(() => navigation.goBack());
-        }
-        return;
-      }
-
-      const status = String(data.status || '').toLowerCase();
-      if (status === 'assigned' && data.driverId !== userId) {
+      const normalizedStatus = String(data.status || '').toLowerCase();
+      if (normalizedStatus === 'canceled' && !cancellationHandledRef.current) {
+        cancellationHandledRef.current = true;
         alertService.showInfoAlert(
-          t('driver.ridePreview.alerts.assignedTitle'),
-          t('driver.ridePreview.alerts.assignedBody'),
+          t('driver.ridePreview.alerts.canceledTitle'),
+          t('driver.ridePreview.alerts.canceledBody'),
         );
         markDismissed(ride.id)
           .catch((error) => console.warn('[useRidePreviewData] Error al descartar:', error))
           .finally(() => navigation.goBack());
+        return;
       }
+
+      const assignedDriverId = data.driverId;
+      if (
+        assignedDriverId &&
+        userId &&
+        assignedDriverId !== userId &&
+        !cancellationHandledRef.current
+      ) {
+        cancellationHandledRef.current = true;
+        alertService.showInfoAlert(
+          t('driver.ridePreview.alerts.unavailableTitle'),
+          t('driver.ridePreview.alerts.unavailableBody'),
+        );
+        markDismissed(ride.id)
+          .catch((error) => console.warn('[useRidePreviewData] Error al descartar:', error))
+          .finally(() => navigation.goBack());
+        return;
+      }
+
+      // Merge de campos visibles del preview (precio, negociación, distancia, nota)
+      setRideData((prev) => ({
+        ...prev,
+        estimatedPrice:
+          typeof data.estimatedPrice === 'number' ? data.estimatedPrice : prev.estimatedPrice,
+        estimatedDistance:
+          typeof data.estimatedDistance === 'number' ? data.estimatedDistance : prev.estimatedDistance,
+        estimatedDuration:
+          typeof data.estimatedDuration === 'number' ? data.estimatedDuration : prev.estimatedDuration,
+        clientSuggestedPrice:
+          typeof data.clientSuggestedPrice === 'number'
+            ? data.clientSuggestedPrice
+            : prev.clientSuggestedPrice,
+        negotiationStatus: data.negotiationStatus || prev.negotiationStatus || null,
+        clientComment:
+          data.clientComment ?? data.comment ?? data.notes ?? prev.clientComment ?? null,
+      }));
     });
 
     return () => unsubscribe();

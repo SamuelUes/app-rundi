@@ -4,6 +4,7 @@ import StorageImage from '../../shared/StorageImage';
 import { Marker } from 'react-native-maps';
 import { MarkerBubble, markerStyles } from './MarkerContent';
 import { toLatLng, isValidCoord } from '../../../hooks/shared/map/useMapCamera';
+import { useTracksViewChanges } from '../../../hooks/shared/map/useTracksViewChanges';
 import { VEHICLE_ICON_BASE_SIZE } from '../../../constants/mapIcons';
 import type { DriverMarker } from '../../../hooks/shared/map/useMarkerHeading';
 import { MAP_ICONS } from '../../../constants/mapIcons';
@@ -66,6 +67,80 @@ function clusterDrivers(drivers: DriverMarker[], zoom: number): Array<{ type: 's
   return results;
 }
 
+const DriverPinMarker = React.memo(function DriverPinMarker({
+  driver,
+  heading,
+  iconSize,
+  onPress,
+}: {
+  driver: DriverMarker;
+  heading: number;
+  iconSize: number;
+  onPress?: () => void;
+}) {
+  const tracking = useTracksViewChanges([
+    driver.isSelected,
+    driver.vehicleIconSource,
+    driver.photoURL,
+    driver.rating,
+    iconSize,
+  ]);
+
+  return (
+    <Marker
+      coordinate={toLatLng(driver)}
+      rotation={heading}
+      tracksViewChanges={tracking.tracksViewChanges}
+      anchor={{ x: 0.5, y: 0.5 }}
+      zIndex={driver.isSelected ? 8 : 6}
+      onPress={onPress}
+      flat
+    >
+      <View style={markerStyles.driverBubbleWrapper} collapsable={false}>
+        {driver.vehicleIconSource ? (
+          <View style={{ width: iconSize, height: iconSize, justifyContent: 'center', alignItems: 'center' }}>
+            <Image
+              source={driver.vehicleIconSource}
+              style={{ width: iconSize, height: iconSize, resizeMode: 'contain' }}
+              onLoad={tracking.notifyContentRendered}
+            />
+          </View>
+        ) : (
+          <MarkerBubble backgroundColor="#1565C0" size="medium">
+            <Text style={markerStyles.driverIcon}>🚗</Text>
+          </MarkerBubble>
+        )}
+
+        {driver.isSelected && (
+          <View style={markerStyles.driverSelectedOverlay}>
+            {typeof driver.rating === 'number' && Number.isFinite(driver.rating) && (
+              <View style={markerStyles.driverRatingBadge}>
+                <Text style={markerStyles.driverRatingText}>{`⭐ ${driver.rating.toFixed(1)}`}</Text>
+              </View>
+            )}
+            <Image
+              source={MAP_ICONS.DRIVER_PROFILE_BUBBLE}
+              style={markerStyles.driverBubbleImage}
+              onLoad={tracking.notifyContentRendered}
+            />
+            <View style={markerStyles.driverBubbleAvatar}>
+              {driver.photoURL ? (
+                <StorageImage uri={driver.photoURL} style={markerStyles.driverBubbleAvatarImage} />
+              ) : (
+                <View style={markerStyles.driverBubbleAvatarFallback}>
+                  <Text style={markerStyles.driverBubbleAvatarFallbackText}>
+                    {driver.id?.charAt(0)?.toUpperCase() ?? 'C'}
+                  </Text>
+                </View>
+              )}
+            </View>
+          </View>
+        )}
+      </View>
+    </Marker>
+  );
+});
+
 export default React.memo(function NearbyDriversLayer({
   nearbyDrivers,
   onDriverPress,
@@ -88,13 +163,14 @@ export default React.memo(function NearbyDriversLayer({
               coordinate={toLatLng(cluster)}
               tracksViewChanges={false}
               anchor={{ x: 0.5, y: 0.5 }}
+              zIndex={7}
               onPress={() => {
                 if (cluster.drivers.length > 0 && onDriverPress) {
                   onDriverPress(cluster.drivers[0].id);
                 }
               }}
             >
-              <View style={markerStyles.clusterBubble}>
+              <View style={markerStyles.clusterBubble} collapsable={false}>
                 <Text style={markerStyles.clusterText}>{cluster.count}</Text>
               </View>
             </Marker>
@@ -103,56 +179,19 @@ export default React.memo(function NearbyDriversLayer({
 
         const driver = item.driver;
         const heading = resolveDriverHeading(driver);
-        const iconSize = VEHICLE_ICON_BASE_SIZE;
 
         return (
-          <Marker
+          <DriverPinMarker
             key={`driver-${driver.id}`}
-            coordinate={toLatLng(driver)}
-            rotation={heading}
-            tracksViewChanges={driver.isSelected}
-            anchor={{ x: 0.5, y: 0.5 }}
+            driver={driver}
+            heading={heading}
+            iconSize={VEHICLE_ICON_BASE_SIZE}
             onPress={() => {
               if (typeof onDriverPress === 'function') {
                 onDriverPress(driver.id);
               }
             }}
-            flat
-          >
-            <View style={markerStyles.driverBubbleWrapper}>
-              {driver.vehicleIconSource ? (
-                <View style={{ width: iconSize, height: iconSize, justifyContent: 'center', alignItems: 'center' }}>
-                  <Image source={driver.vehicleIconSource} style={{ width: iconSize, height: iconSize, resizeMode: 'contain' }} />
-                </View>
-              ) : (
-                <MarkerBubble backgroundColor="#1565C0" size="medium">
-                  <Text style={markerStyles.driverIcon}>🚗</Text>
-                </MarkerBubble>
-              )}
-
-              {driver.isSelected && (
-                <View style={markerStyles.driverSelectedOverlay}>
-                  {typeof driver.rating === 'number' && Number.isFinite(driver.rating) && (
-                    <View style={markerStyles.driverRatingBadge}>
-                      <Text style={markerStyles.driverRatingText}>{`⭐ ${driver.rating.toFixed(1)}`}</Text>
-                    </View>
-                  )}
-                  <Image source={MAP_ICONS.DRIVER_PROFILE_BUBBLE} style={markerStyles.driverBubbleImage} />
-                  <View style={markerStyles.driverBubbleAvatar}>
-                    {driver.photoURL ? (
-                      <StorageImage uri={driver.photoURL} style={markerStyles.driverBubbleAvatarImage} />
-                    ) : (
-                      <View style={markerStyles.driverBubbleAvatarFallback}>
-                        <Text style={markerStyles.driverBubbleAvatarFallbackText}>
-                          {driver.id?.charAt(0)?.toUpperCase() ?? 'C'}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                </View>
-              )}
-            </View>
-          </Marker>
+          />
         );
       })}
     </>

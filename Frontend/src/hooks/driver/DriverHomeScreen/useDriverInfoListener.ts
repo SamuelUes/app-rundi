@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ImageSourcePropType } from 'react-native';
 import { extractVehicleTypeFromInfo, ensureVehicleIconSource } from '../../../utils/vehicleIcons';
+import { resolveDocumentPhotoUrl } from '../../../services/supabaseStorage';
 
 export function useDriverInfoListener(
   userId: string | undefined,
@@ -8,6 +9,7 @@ export function useDriverInfoListener(
 ) {
   const [currentVehicleType, setCurrentVehicleType] = useState<string | null>(null);
   const [currentVehicleIconSource, setCurrentVehicleIconSource] = useState<ImageSourcePropType | undefined>(undefined);
+  const [profilePhotoUri, setProfilePhotoUri] = useState<string | null>(null);
   const driverInfoCacheRef = useRef<Record<string, any>>({});
 
   useEffect(() => {
@@ -35,6 +37,18 @@ export function useDriverInfoListener(
             const vehicleType = extractVehicleTypeFromInfo(myInfo);
             setCurrentVehicleType(vehicleType);
             setCurrentVehicleIconSource(vehicleType ? ensureVehicleIconSource(vehicleType) : undefined);
+
+            const rawPhoto =
+              typeof myInfo?.profilePhoto === 'string' && myInfo.profilePhoto.trim()
+                ? myInfo.profilePhoto
+                : typeof myInfo?.photoURL === 'string' && myInfo.photoURL.trim()
+                  ? myInfo.photoURL
+                  : null;
+            resolveDocumentPhotoUrl(rawPhoto)
+              .then((resolved) => {
+                if (isMounted) setProfilePhotoUri(resolved);
+              })
+              .catch(() => {});
           }
 
           markTaskCompleted('driverInfo');
@@ -62,5 +76,6 @@ export function useDriverInfoListener(
     currentVehicleType,
     currentVehicleIconSource,
     driverInfoCacheRef,
+    profilePhotoUri,
   };
 }

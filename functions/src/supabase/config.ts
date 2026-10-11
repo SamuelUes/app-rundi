@@ -6,7 +6,6 @@
 import dotenv from 'dotenv';
 import { existsSync, readFileSync } from 'fs';
 import path from 'path';
-import * as functions from 'firebase-functions';
 
 const nodeEnv = process.env.NODE_ENV === 'production' ? 'production' : 'development';
 const envFilePath = nodeEnv === 'production' ? '.env.production' : '.env.development';
@@ -25,16 +24,6 @@ type SupabaseRuntimeConfig = {
 };
 
 function loadRuntimeConfig(): SupabaseRuntimeConfig {
-  try {
-    const cfg = (functions as any).config ? (functions as any).config() : undefined;
-    if (cfg?.supabase) {
-      console.log('✅ [Supabase Client] Credenciales obtenidas de functions.config().supabase');
-      return cfg.supabase as SupabaseRuntimeConfig;
-    }
-  } catch (error: any) {
-    console.log('⚠️ [Supabase Client] No se pudo leer functions.config():', error.message);
-  }
-
   const candidatePaths = [
     path.resolve(process.cwd(), '.runtimeconfig.json'),
     path.resolve(__dirname, '..', '..', '.runtimeconfig.json'),
@@ -79,7 +68,7 @@ if (!supabaseUrl || (!supabaseAnonKey && !supabaseServiceRoleKey)) {
   console.error(`   SUPABASE_URL: ${supabaseUrl ? '✅' : '❌'}`);
   console.error(`   SUPABASE_ANON_KEY: ${supabaseAnonKey ? '✅' : '❌'}`);
   console.error(`   SUPABASE_SERVICE_ROLE_KEY: ${supabaseServiceRoleKey ? '✅' : '❌'}`);
-  console.error(`   Configura en Firebase: firebase functions:config:set supabase.url="..." supabase.key="..."`);
+  console.error(`   Configura SUPABASE_URL y SUPABASE_ANON_KEY/SUPABASE_SERVICE_ROLE_KEY en functions/.env.<environment>`);
   console.error(`   y opcionalmente supabase.service_role_key="..." para operaciones privilegiadas`);
 }
 

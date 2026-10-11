@@ -7,7 +7,7 @@
  * - completeCashPayment: Completar pago en efectivo
  * - cancelCashPayment: Cancelar pago en efectivo
  */
-import * as functions from 'firebase-functions';
+import * as functions from 'firebase-functions/v1';
 import { PaymentService } from '../sequelize/services/PaymentService';
 import { BiometricAuthenticationRepository } from '../sequelize/repositories/BiometricAuthenticationRepository';
 import admin from 'firebase-admin';
@@ -17,6 +17,129 @@ import { ensureActiveSession } from '../utils/sessionUtils';
 
 const paymentService = new PaymentService();
 const biometricAuthRepo = new BiometricAuthenticationRepository();
+
+// Estados terminales del pago — un solo nombre canónico ('completed');
+// 'payment_completed' se acepta por compatibilidad con nodos legacy.
+const TERMINAL_PAYMENT_STATUSES = new Set(['completed', 'payment_completed']);
+const NON_CONFIRMABLE_STATUSES = new Set(['completed', 'payment_completed', 'canceled', 'failed']);
+const FINALIZE_CLAIM_STALE_MS = 2 * 60_000;
+const MAX_TIP_AMOUNT = 10_000;
+const MAX_CANCEL_REASON_LEN = 200;
+
+type RideParticipantRole = 'client' | 'driver';
+
+interface PaymentContext {
+  paymentData: any | null;
+  rideData: any | null;
+  clientId: string | null;
+  driverId: string | null;
+}
+
+const pickId = (...values: any[]): string | null => {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  }
+  return null;
+};
+
+/**
+ * Lee paymentStatus + activeRides en paralelo y resuelve los participantes
+ * reales del viaje. El rol del llamador siempre se deriva de estos ids —
+ * nunca de un campo del payload (bypasseable).
+ */
+const resolvePaymentContext = async (rideId: string): Promise<PaymentContext> => {
+  const db = admin.database();
+  const [paymentSnap, rideSnap] = await Promise.all([
+    db.ref(`paymentStatus/${rideId}`).once('value'),
+    db.ref(`activeRides/${rideId}`).once('value'),
+  ]);
+  const paymentData = paymentSnap.val();
+  const rideData = rideSnap.val();
+
+  return {
+    paymentData,
+    rideData,
+    clientId: pickId(
+      rideData?.clientId, rideData?.client_id, rideData?.userId, rideData?.user_id,
+      rideData?.client?.id, rideData?.client?.uid,
+      paymentData?.clientId, paymentData?.client_id,
+    ),
+    driverId: pickId(
+      rideData?.driverId, rideData?.driver_id,
+      rideData?.driver?.id, rideData?.driver?.uid,
+      paymentData?.driverId, paymentData?.driver_id,
+    ),
+  };
+};
+
+const roleOf = (uid: string, ctx: PaymentContext): RideParticipantRole | null =>
+  ctx.clientId === uid ? 'client' : ctx.driverId === uid ? 'driver' : null;
+
+const pickNumber = (...values: any[]): number | null => {
+  for (const value of values) {
+    const num = typeof value === 'number' ? value : Number(value);
+    if (Number.isFinite(num)) return num;
+  }
+  return null;
+};
+
+const rethrowOrInternal = (error: any, logPrefix: string): never => {
+  if (error instanceof functions.https.HttpsError) throw error;
+  console.error(`${logPrefix}`, error);
+  throw new functions.https.HttpsError('internal', 'Error interno del servidor');
+};
+
+/**
+ * Finalización única del pago en efectivo cuando AMBAS partes confirmaron.
+ * Idempotente: SQL early-returns si ya completó y la comisión se deduplica
+ * por paymentId (externalTransactionId).
+ * Escribe el único estado terminal canónico 'completed' → dispara
+ * onPaymentCompleted (archivado) igual en ambos órdenes de confirmación.
+ */
+const finalizeCashPayment = async (
+  rideId: string,
+  paymentData: any,
+  rideData: any,
+): Promise<void> => {
+  let completedPayment: any = null;
+  try {
+    completedPayment = await paymentService.completeCashPayment(rideId);
+    await applyCommissionDeductionForCompletedPayment(
+      rideId,
+      completedPayment,
+      paymentData?.driverId || paymentData?.driver_id || rideData?.driverId || null,
+    );
+  } catch (err: any) {
+    // El trigger de archivado re-sincroniza el pago en Supabase — un fallo
+    // aquí no debe impedir marcar el estado terminal en RTDB.
+    console.warn(`⚠️ [payments] Error completando pago en Supabase:`, err?.message || err);
+  }
+
+  const finalAmount = pickNumber(completedPayment?.amount, paymentData?.amount, rideData?.finalFare) ?? 0;
+  const db = admin.database();
+
+  await db.ref(`paymentStatus/${rideId}`).update({
+    status: 'completed',
+    finalAmount,
+    amount: finalAmount || paymentData?.amount || 0,
+    confirmedAt: admin.database.ServerValue.TIMESTAMP,
+    lastUpdatedAt: admin.database.ServerValue.TIMESTAMP,
+    lastUpdatedBy: 'backend',
+  });
+
+  // El viaje queda a la espera del rating; el trigger de archivado lo
+  // consolidará a 'completed' y limpiará el nodo. Si el nodo ya no
+  // existe no lo recreamos parcialmente.
+  if (rideData) {
+    await db.ref(`activeRides/${rideId}`).update({
+      status: 'pending_rating',
+      finalFare: pickNumber(rideData?.finalFare, finalAmount, rideData?.estimatedPrice) ?? 0,
+      paymentCompletedAt: admin.database.ServerValue.TIMESTAMP,
+      updatedAt: admin.database.ServerValue.TIMESTAMP,
+    });
+  }
+};
 
 const normalizeString = (value: unknown): string => {
   if (typeof value !== 'string') {
@@ -71,34 +194,38 @@ export const registerCashPayment = functions.https.onCall(async (data, context) 
   // Enforce single-session (deny)
   await ensureActiveSession(context, data);
   try {
-    const { rideId, tip = 0 } = data;
+    const rideId = normalizeString(data?.rideId);
+    const tip = Number(data?.tip ?? 0);
 
     if (!rideId) {
       throw new functions.https.HttpsError("invalid-argument", "rideId es requerido");
     }
+    if (!Number.isFinite(tip) || tip < 0 || tip > MAX_TIP_AMOUNT) {
+      throw new functions.https.HttpsError(
+        "invalid-argument",
+        `tip debe ser un número entre 0 y ${MAX_TIP_AMOUNT}`,
+      );
+    }
+
+    // Solo un participante real del viaje puede registrar su pago.
+    const ctx = await resolvePaymentContext(rideId);
+    if (!roleOf(context.auth.uid, ctx)) {
+      throw new functions.https.HttpsError(
+        "permission-denied",
+        "No eres parte de este viaje",
+      );
+    }
+    const status = String(ctx.paymentData?.status || '');
+    if (TERMINAL_PAYMENT_STATUSES.has(status) || status === 'canceled') {
+      throw new functions.https.HttpsError(
+        "failed-precondition",
+        `El pago ya está en estado ${status}`,
+      );
+    }
+
     const payment = await paymentService.registerCashPayment(rideId, tip);
 
-    const admin = require('firebase-admin');
     const db = admin.database();
-
-    const rideSnapshot = await db.ref(`activeRides/${rideId}`).once('value');
-    const rideData = rideSnapshot.val() || {};
-
-    const rawDriverId =
-      rideData.driverId ||
-      rideData.driver_id ||
-      (rideData.driver && (rideData.driver.id || rideData.driver.uid)) ||
-      null;
-    const rawClientId =
-      rideData.clientId ||
-      rideData.client_id ||
-      rideData.userId ||
-      rideData.user_id ||
-      (rideData.client && (rideData.client.id || rideData.client.uid)) ||
-      null;
-
-    const driverId = rawDriverId != null ? String(rawDriverId).trim() : null;
-    const clientId = rawClientId != null ? String(rawClientId).trim() : null;
 
     await db.ref(`paymentStatus/${rideId}`).update({
       rideId,
@@ -106,10 +233,10 @@ export const registerCashPayment = functions.https.onCall(async (data, context) 
       method: 'cash',
       provider: 'cash',
       amount: Number(payment.amount || 0),
-      tip: tip,
-      total: Number(payment.amount || 0) + Number(tip || 0),
-      driverId,
-      clientId,
+      tip,
+      total: Number(payment.amount || 0) + tip,
+      driverId: ctx.driverId,
+      clientId: ctx.clientId,
       requiresClientPayment: true,
       chargeTarget: 'client',
       lastUpdatedBy: 'backend',
@@ -127,13 +254,13 @@ export const registerCashPayment = functions.https.onCall(async (data, context) 
       },
     };
   } catch (error: any) {
-    console.error("❌ Error registrando pago en efectivo:", error);
-    throw new functions.https.HttpsError("internal", error.message);
+    return rethrowOrInternal(error, "❌ Error registrando pago en efectivo:");
   }
 });
 
 /**
  * Generar código de confirmación para pago en efectivo (flujo "code")
+ * Solo el conductor asignado al viaje puede generar el código.
  */
 export const generateCashCode = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
@@ -142,13 +269,32 @@ export const generateCashCode = functions.https.onCall(async (data, context) => 
 
   await ensureActiveSession(context, data);
 
-  const { rideId } = data;
-
-  if (!rideId) {
-    throw new functions.https.HttpsError('invalid-argument', 'rideId es requerido');
-  }
-
   try {
+    const rideId = normalizeString(data?.rideId);
+
+    if (!rideId) {
+      throw new functions.https.HttpsError('invalid-argument', 'rideId es requerido');
+    }
+
+    const ctx = await resolvePaymentContext(rideId);
+    if (!ctx.paymentData) {
+      throw new functions.https.HttpsError('not-found', 'Estado de pago no encontrado');
+    }
+    // Solo el conductor asignado genera códigos para este viaje.
+    if (roleOf(context.auth.uid, ctx) !== 'driver') {
+      throw new functions.https.HttpsError(
+        'permission-denied',
+        'Solo el conductor asignado puede generar el código',
+      );
+    }
+    const status = String(ctx.paymentData.status || '');
+    if (NON_CONFIRMABLE_STATUSES.has(status)) {
+      throw new functions.https.HttpsError(
+        'failed-precondition',
+        `El pago ya está en estado ${status}`,
+      );
+    }
+
     const db = admin.database();
 
     // Generar código de 4 dígitos (0000–9999) siempre como string de 4 caracteres
@@ -161,8 +307,9 @@ export const generateCashCode = functions.https.onCall(async (data, context) => 
       code,
       codeGeneratedAt: now,
       codeGeneratedBy: 'driver',
+      codeGeneratedById: context.auth.uid,
       // Registrar que este pago se está autenticando por código
-      method: 'code',
+      // (NO se pisa `method`: el método de pago sigue siendo 'cash').
       authentication_method: 'code',
       biometric_type: 'NOT_SUPPORTED',
       biometric_authenticated: false,
@@ -175,14 +322,22 @@ export const generateCashCode = functions.https.onCall(async (data, context) => 
       code,
     };
   } catch (error: any) {
-    console.error('❌ [generateCashCode] Error generando código:', error);
-    throw new functions.https.HttpsError('internal', error.message || 'Error generando código');
+    return rethrowOrInternal(error, '❌ [generateCashCode] Error generando código:');
   }
 });
 
 /**
- * Confirmar pago en efectivo (cliente confirma que pagó)
- * ✅ NUEVO: Permite al cliente confirmar su parte del pago
+ * Confirmar pago en efectivo — protocolo de doble confirmación.
+ *
+ * Seguridad:
+ * - El rol (client/driver) se deriva de los ids reales del viaje, no del
+ *   payload — un usuario no puede confirmar por la otra parte ni por ambas.
+ * - La escritura del flag es una transacción RTDB: elimina la raza
+ *   check-then-act donde ambos confirmaban simultáneamente y nadie finalizaba.
+ * - La finalización la ejecuta solo quien reclama `finalizationClaim`
+ *   (con expiración de 2 min para recuperar un claim huérfano).
+ * - Estado terminal único 'completed' → el trigger archiva siempre, en
+ *   cualquier orden de confirmación.
  */
 export const confirmCashPayment = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
@@ -193,193 +348,172 @@ export const confirmCashPayment = functions.https.onCall(async (data, context) =
 
   try {
     const {
-      rideId,
+      rideId: rawRideId,
       confirmedBy,
       authenticationMethod,
       biometricType,
       biometricAuthenticated,
     } = data;
 
+    const rideId = normalizeString(rawRideId);
     if (!rideId) {
       throw new functions.https.HttpsError("invalid-argument", "rideId es requerido");
     }
 
-    const admin = require('firebase-admin');
+    const uid = context.auth.uid;
     const db = admin.database();
 
     const authMethod = typeof authenticationMethod === 'string' ? String(authenticationMethod) : undefined;
     const bioType = typeof biometricType === 'string' ? String(biometricType) : undefined;
-    
-    // Obtener estado actual del pago
-    const paymentSnapshot = await db.ref(`paymentStatus/${rideId}`).once('value');
-    const paymentData = paymentSnapshot.val();
 
-    if (!paymentData) {
+    const ctx = await resolvePaymentContext(rideId);
+    if (!ctx.paymentData) {
       throw new functions.https.HttpsError("not-found", "Estado de pago no encontrado");
     }
 
-    // ✅ NUEVO: Detectar quién confirma (cliente o conductor)
-    if (confirmedBy === 'driver') {
-      console.log(`💳 [confirmCashPayment] Conductor confirmando pago para rideId: ${rideId}`);
-      
-      // Marcar que el conductor confirmó
-      const driverUpdatePayload: any = {
-        confirmedByDriver: true,
-        driverConfirmedAt: admin.database.ServerValue.TIMESTAMP,
-        lastUpdatedAt: admin.database.ServerValue.TIMESTAMP,
-      };
+    const role = roleOf(uid, ctx);
+    if (!role) {
+      throw new functions.https.HttpsError(
+        "permission-denied",
+        "No eres parte de este viaje",
+      );
+    }
+    if (confirmedBy && confirmedBy !== role) {
+      console.warn(
+        `⚠️ [confirmCashPayment] confirmedBy='${confirmedBy}' no coincide con el rol real '${role}' (uid=${uid}, rideId=${rideId}) — se usa el rol real`,
+      );
+    }
 
-      if (authMethod) {
-        driverUpdatePayload.authentication_method = authMethod;
-      }
-      if (typeof biometricAuthenticated === 'boolean') {
-        driverUpdatePayload.biometric_authenticated = biometricAuthenticated;
-      }
-      if (bioType) {
-        driverUpdatePayload.biometric_type = bioType;
-      }
-
-      await db.ref(`paymentStatus/${rideId}`).update(driverUpdatePayload);
-
-      console.log(`✅ [confirmCashPayment] Pago confirmado por conductor`);
-      
-      // ✅ NUEVO: Si el cliente ya confirmó, completar el pago automáticamente
-      const clientAlreadyConfirmed = paymentData.confirmedByClient === true;
-      if (clientAlreadyConfirmed) {
-        console.log(`✅ [confirmCashPayment] Cliente ya había confirmado, completando pago automáticamente...`);
-        
-        // Completar pago en Supabase
-        let completedPayment: any = null;
-        try {
-          completedPayment = await paymentService.completeCashPayment(rideId);
-          await applyCommissionDeductionForCompletedPayment(
-            rideId,
-            completedPayment,
-            paymentData?.driverId || paymentData?.driver_id || null,
-          );
-        } catch (err: any) {
-          console.warn(`⚠️ [confirmCashPayment] Error completando pago en Supabase:`, err.message);
-        }
-        
-        // Actualizar paymentStatus a 'completed'
-        await db.ref(`paymentStatus/${rideId}`).update({
-          status: 'completed',
-          confirmedAt: admin.database.ServerValue.TIMESTAMP,
-          lastUpdatedAt: admin.database.ServerValue.TIMESTAMP,
-        });
-        
-        console.log(`✅ [confirmCashPayment] Pago completado automáticamente`);
-      }
-      
+    const currentStatus = String(ctx.paymentData.status || '');
+    if (TERMINAL_PAYMENT_STATUSES.has(currentStatus)) {
+      // Idempotente: re-confirmar sobre un pago terminal no es error.
       return {
         success: true,
-        message: "Pago confirmado por conductor",
-        bothConfirmed: clientAlreadyConfirmed,
-        paymentCompleted: clientAlreadyConfirmed,
-      };
-    } else {
-      console.log(`💳 [confirmCashPayment] Cliente confirmando pago para rideId: ${rideId}`);
-
-      // Marcar que el cliente confirmó
-      const clientUpdatePayload: any = {
-        confirmedByClient: true,
-        clientConfirmedAt: admin.database.ServerValue.TIMESTAMP,
-        lastUpdatedAt: admin.database.ServerValue.TIMESTAMP,
-      };
-
-      if (authMethod) {
-        clientUpdatePayload.authentication_method = authMethod;
-      }
-      if (typeof biometricAuthenticated === 'boolean') {
-        clientUpdatePayload.biometric_authenticated = biometricAuthenticated;
-      }
-      if (bioType) {
-        clientUpdatePayload.biometric_type = bioType;
-      }
-
-      await db.ref(`paymentStatus/${rideId}`).update(clientUpdatePayload);
-
-      if (authMethod === 'biometric') {
-        try {
-          const userId = context.auth?.uid;
-          if (userId) {
-            await biometricAuthRepo.create({
-              ride_id: rideId,
-              user_id: userId,
-              user_type: 'client',
-              biometric_type: bioType || 'biometric',
-              context: 'cash_payment_confirmation',
-              success: true,
-              attempt_number: 1,
-            });
-          }
-        } catch (bioErr) {
-          console.warn('⚠️ [confirmCashPayment] Error registrando autenticación biométrica:', bioErr);
-        }
-      }
-
-      // Actualizar estado del viaje a 'completed' en activeRides
-      console.log(`🔄 [confirmCashPayment] Actualizando estado del viaje a 'completed'`);
-      const currentRide = await db.ref(`activeRides/${rideId}`).once('value');
-      const rideData = currentRide.val() || {};
-
-      await db.ref(`activeRides/${rideId}`).update({
-        status: 'completed',
-        finalFare: rideData.finalFare ?? paymentData.amount ?? rideData.estimatedPrice ?? 0,
-        updatedAt: admin.database.ServerValue.TIMESTAMP,
-      });
-
-      console.log(`✅ [confirmCashPayment] Pago confirmado por cliente`);
-      
-      // ✅ ACTUALIZADO: Si el conductor ya confirmó, completar el pago automáticamente
-      const driverAlreadyConfirmed = paymentData.confirmedByDriver === true;
-      if (driverAlreadyConfirmed) {
-        console.log(`✅ [confirmCashPayment] Conductor ya había confirmado, completando pago automáticamente...`);
-        
-        // Completar pago en Supabase
-        let completedPayment: any = null;
-        try {
-          completedPayment = await paymentService.completeCashPayment(rideId);
-          await applyCommissionDeductionForCompletedPayment(
-            rideId,
-            completedPayment,
-            paymentData?.driverId || paymentData?.driver_id || rideData?.driverId || null,
-          );
-        } catch (err: any) {
-          console.warn(`⚠️ [confirmCashPayment] Error completando pago en Supabase:`, err.message);
-        }
-        
-        // ✅ ACTUALIZADO: Cambiar a 'payment_completed' (no 'completed')
-        // El viaje solo pasa a 'completed' después del rating
-        await db.ref(`paymentStatus/${rideId}`).update({
-          status: 'payment_completed',
-          confirmedAt: admin.database.ServerValue.TIMESTAMP,
-          lastUpdatedAt: admin.database.ServerValue.TIMESTAMP,
-        });
-        
-        // ✅ ACTUALIZADO: Cambiar estado del viaje a 'pending_rating'
-        // NO eliminar de activeRides aún
-        await db.ref(`activeRides/${rideId}`).update({
-          status: 'pending_rating',
-          finalFare: rideData.finalFare ?? paymentData.amount ?? rideData.estimatedPrice ?? 0,
-          paymentCompletedAt: admin.database.ServerValue.TIMESTAMP,
-          updatedAt: admin.database.ServerValue.TIMESTAMP,
-        });
-        
-        console.log(`✅ [confirmCashPayment] Pago completado, viaje en estado pending_rating`);
-      }
-
-      return {
-        success: true,
-        message: "Pago confirmado por cliente",
+        message: "Pago ya completado",
         status: "pending_rating",
-        bothConfirmed: driverAlreadyConfirmed,
-        paymentCompleted: driverAlreadyConfirmed,
+        bothConfirmed: true,
+        paymentCompleted: true,
       };
     }
+    if (NON_CONFIRMABLE_STATUSES.has(currentStatus)) {
+      throw new functions.https.HttpsError(
+        "failed-precondition",
+        `El pago no es confirmable (estado: ${currentStatus})`,
+      );
+    }
+
+    const myFlag = role === 'client' ? 'confirmedByClient' : 'confirmedByDriver';
+    const bothAlready = ctx.paymentData.confirmedByClient === true && ctx.paymentData.confirmedByDriver === true;
+
+    // Shortcut idempotente: ya confirmé y la otra parte aún no — no hay
+    // nada que escribir ni que reclamar.
+    if (ctx.paymentData[myFlag] === true && !bothAlready) {
+      return {
+        success: true,
+        message: role === 'client' ? "Pago confirmado por cliente" : "Pago confirmado por conductor",
+        status: "pending_confirmation",
+        bothConfirmed: false,
+        paymentCompleted: false,
+      };
+    }
+
+    const paymentRef = db.ref(`paymentStatus/${rideId}`);
+    const txResult = await paymentRef.transaction((current: any) => {
+      if (!current) {
+        return; // abort — se rechequea fuera
+      }
+      const s = String(current.status || '');
+      if (NON_CONFIRMABLE_STATUSES.has(s)) {
+        return; // abort — se rechequea fuera
+      }
+
+      current[myFlag] = true;
+      current[role === 'client' ? 'clientConfirmedAt' : 'driverConfirmedAt'] =
+        admin.database.ServerValue.TIMESTAMP;
+      current.lastUpdatedAt = admin.database.ServerValue.TIMESTAMP;
+      current.lastUpdatedBy = role;
+      if (authMethod) {
+        current.authentication_method = authMethod;
+      }
+      if (typeof biometricAuthenticated === 'boolean') {
+        current.biometric_authenticated = biometricAuthenticated;
+      }
+      if (bioType) {
+        current.biometric_type = bioType;
+      }
+
+      // Claim de finalización: solo quien observe ambas flags primero
+      // finaliza. La marca expira para recuperar claims huérfanos.
+      if (current.confirmedByClient === true && current.confirmedByDriver === true) {
+        const claim = current.finalizationClaim;
+        if (!claim || typeof claim.at !== 'number' || Date.now() - claim.at > FINALIZE_CLAIM_STALE_MS) {
+          current.finalizationClaim = { by: role, at: Date.now() };
+        }
+      }
+      return current;
+    });
+
+    if (!txResult.committed) {
+      // La transacción abortó: el nodo desapareció o cambió a un estado
+      // no confirmable mientras tanto — reclasificar con una lectura fresca.
+      const fresh = (await paymentRef.once('value')).val();
+      if (!fresh) {
+        throw new functions.https.HttpsError("not-found", "Estado de pago no encontrado");
+      }
+      const freshStatus = String(fresh.status || '');
+      if (TERMINAL_PAYMENT_STATUSES.has(freshStatus)) {
+        return {
+          success: true,
+          message: "Pago ya completado",
+          status: "pending_rating",
+          bothConfirmed: true,
+          paymentCompleted: true,
+        };
+      }
+      throw new functions.https.HttpsError(
+        "failed-precondition",
+        `El pago no es confirmable (estado: ${freshStatus || 'desconocido'})`,
+      );
+    }
+
+    const after = txResult.snapshot.val();
+    const bothConfirmed = after?.confirmedByClient === true && after?.confirmedByDriver === true;
+    const shouldFinalize = bothConfirmed && after?.finalizationClaim?.by === role;
+
+    console.log(
+      `✅ [confirmCashPayment] ${role} confirmó (rideId=${rideId}, bothConfirmed=${bothConfirmed}, finalize=${shouldFinalize})`,
+    );
+
+    if (role === 'client' && authMethod === 'biometric') {
+      try {
+        await biometricAuthRepo.create({
+          ride_id: rideId,
+          user_id: uid,
+          user_type: 'client',
+          biometric_type: bioType || 'biometric',
+          context: 'cash_payment_confirmation',
+          success: true,
+          attempt_number: 1,
+        });
+      } catch (bioErr) {
+        console.warn('⚠️ [confirmCashPayment] Error registrando autenticación biométrica:', bioErr);
+      }
+    }
+
+    if (shouldFinalize) {
+      await finalizeCashPayment(rideId, after, ctx.rideData);
+      console.log(`✅ [confirmCashPayment] Pago completado, viaje en estado pending_rating`);
+    }
+
+    return {
+      success: true,
+      message: role === 'client' ? "Pago confirmado por cliente" : "Pago confirmado por conductor",
+      status: bothConfirmed ? "pending_rating" : "pending_confirmation",
+      bothConfirmed,
+      paymentCompleted: shouldFinalize,
+    };
   } catch (error: any) {
-    console.error("❌ [confirmCashPayment] Error confirmando pago:", error);
-    throw new functions.https.HttpsError("internal", error.message);
+    return rethrowOrInternal(error, "❌ [confirmCashPayment] Error confirmando pago:");
   }
 });
 
@@ -394,7 +528,7 @@ export const completeCashPayment = functions.https.onCall(async (data, context) 
   await ensureActiveSession(context, data);
 
   try {
-    const { rideId } = data;
+    const rideId = normalizeString(data?.rideId);
 
     if (!rideId) {
       throw new functions.https.HttpsError("invalid-argument", "rideId es requerido");
@@ -402,12 +536,38 @@ export const completeCashPayment = functions.https.onCall(async (data, context) 
 
     console.log(`💵 [completeCashPayment] Procesando pago para rideId: ${rideId}`);
 
-    const admin = require('firebase-admin');
-    const paymentSnapshot = await admin.database().ref(`paymentStatus/${rideId}`).once('value');
-    const paymentData = paymentSnapshot.val();
+    const ctx = await resolvePaymentContext(rideId);
+    const paymentData = ctx.paymentData;
 
     if (!paymentData) {
       throw new functions.https.HttpsError("not-found", "Estado de pago no encontrado");
+    }
+    if (!roleOf(context.auth.uid, ctx)) {
+      throw new functions.https.HttpsError(
+        "permission-denied",
+        "No eres parte de este viaje",
+      );
+    }
+
+    const currentStatus = String(paymentData.status || '');
+    if (TERMINAL_PAYMENT_STATUSES.has(currentStatus)) {
+      // Idempotente: ya completado (por la doble confirmación u otro caller).
+      const existing = await paymentService.getPaymentByRide(rideId);
+      return {
+        success: true,
+        bothConfirmed: true,
+        message: "El pago ya estaba completado",
+        status: "pending_rating",
+        payment: existing
+          ? { id: existing.id, amount: existing.amount, status: existing.status }
+          : null,
+      };
+    }
+    if (currentStatus === 'canceled' || currentStatus === 'failed') {
+      throw new functions.https.HttpsError(
+        "failed-precondition",
+        `El pago no es completable (estado: ${currentStatus})`,
+      );
     }
 
     // VALIDACIÓN: Verificar que AMBOS (cliente Y conductor) hayan confirmado
@@ -425,32 +585,8 @@ export const completeCashPayment = functions.https.onCall(async (data, context) 
 
     console.log(`✅ [completeCashPayment] Ambos confirmaron el pago`);
 
-    // Completar pago en Sequelize
-    const payment = await paymentService.completeCashPayment(rideId);
-    await applyCommissionDeductionForCompletedPayment(
-      rideId,
-      payment,
-      paymentData?.driverId || paymentData?.driver_id || null,
-    );
-
-    // Actualizar paymentStatus a 'completed' en Firebase
-    console.log(`🔄 [completeCashPayment] Actualizando paymentStatus.status a 'completed'...`);
-    await admin.database().ref(`paymentStatus/${rideId}`).update({
-      status: 'completed',
-      finalAmount: Number(payment.amount || 0),
-      amount: Number(payment.amount || 0),
-      confirmedAt: admin.database.ServerValue.TIMESTAMP,
-      lastUpdatedAt: admin.database.ServerValue.TIMESTAMP,
-    });
-
-    // Actualizar activeRides con finalFare consolidado
-    const rideSnapshot = await admin.database().ref(`activeRides/${rideId}`).once('value');
-    const rideData = rideSnapshot.val() || {};
-
-    await admin.database().ref(`activeRides/${rideId}`).update({
-      finalFare: payment.amount ?? rideData.finalFare ?? rideData.estimatedPrice ?? 0,
-      updatedAt: admin.database.ServerValue.TIMESTAMP,
-    });
+    await finalizeCashPayment(rideId, paymentData, ctx.rideData);
+    const payment = await paymentService.getPaymentByRide(rideId);
 
     console.log(`✅ [completeCashPayment] paymentStatus actualizado a 'completed'`);
 
@@ -459,19 +595,17 @@ export const completeCashPayment = functions.https.onCall(async (data, context) 
       bothConfirmed: true,
       message: "Pago completado exitosamente.",
       status: "pending_rating",
-      payment: {
-        id: payment.id,
-        amount: payment.amount,
-        status: payment.status,
-      },
+      payment: payment
+        ? { id: payment.id, amount: payment.amount, status: payment.status }
+        : null,
     };
   } catch (error: any) {
-    console.error("❌ [completeCashPayment] Error completando pago:", error);
-    throw new functions.https.HttpsError("internal", error.message);
+    return rethrowOrInternal(error, "❌ [completeCashPayment] Error completando pago:");
   }
 });
 /**
- * Cancelar pago en efectivo (conductor reporta problema)
+ * Cancelar pago en efectivo — solo un participante del viaje puede
+ * reportar el problema. canceledBy refleja el rol real del llamador.
  */
 export const cancelCashPayment = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
@@ -481,7 +615,8 @@ export const cancelCashPayment = functions.https.onCall(async (data, context) =>
   await ensureActiveSession(context, data);
 
   try {
-    const { rideId, reason } = data;
+    const rideId = normalizeString(data?.rideId);
+    const reason = normalizeString(data?.reason).substring(0, MAX_CANCEL_REASON_LEN) || 'Sin razón especificada';
 
     if (!rideId) {
       throw new functions.https.HttpsError("invalid-argument", "rideId es requerido");
@@ -489,21 +624,52 @@ export const cancelCashPayment = functions.https.onCall(async (data, context) =>
 
     console.log(`❌ [cancelCashPayment] Cancelando pago para viaje ${rideId}: ${reason}`);
 
-    // Obtener datos del viaje
-    const admin = require('firebase-admin');
-    const rideSnapshot = await admin.database().ref(`activeRides/${rideId}`).once('value');
-    let ride = rideSnapshot.val();
+    const ctx = await resolvePaymentContext(rideId);
+    let rideData = ctx.rideData;
+    let clientId = ctx.clientId;
+    let driverId = ctx.driverId;
 
-    if (!ride) {
+    // Fallback: el viaje pudo moverse de activeRides
+    if (!rideData) {
       console.warn(`⚠️ [cancelCashPayment] Viaje ${rideId} no encontrado en activeRides`);
       const completedSnapshot = await admin.database().ref(`completedRides/${rideId}`).once('value');
       const completedRide = completedSnapshot.val();
 
-      if (!completedRide) {
+      if (!completedRide && !ctx.paymentData) {
         throw new functions.https.HttpsError("not-found", "Viaje no encontrado");
       }
 
-      ride = completedRide;
+      rideData = completedRide;
+      clientId = clientId || pickId(rideData?.clientId, rideData?.client_id);
+      driverId = driverId || pickId(rideData?.driverId, rideData?.driver_id);
+    }
+
+    const role =
+      clientId === context.auth.uid ? 'client'
+      : driverId === context.auth.uid ? 'driver'
+      : null;
+    if (!role) {
+      throw new functions.https.HttpsError(
+        "permission-denied",
+        "No eres parte de este viaje",
+      );
+    }
+
+    const currentStatus = String(ctx.paymentData?.status || '');
+    if (currentStatus === 'canceled') {
+      // Idempotente: cancelar un pago ya cancelado no es error.
+      return {
+        success: true,
+        message: 'El pago ya estaba cancelado',
+        rideId,
+        reason: ctx.paymentData?.cancelReason || reason,
+      };
+    }
+    if (TERMINAL_PAYMENT_STATUSES.has(currentStatus)) {
+      throw new functions.https.HttpsError(
+        "failed-precondition",
+        "El pago ya fue completado y no puede cancelarse",
+      );
     }
 
     // Cancelar pago en Sequelize
@@ -515,7 +681,8 @@ export const cancelCashPayment = functions.https.onCall(async (data, context) =>
       status: 'canceled',
       cancelReason: reason,
       canceledAt: admin.database.ServerValue.TIMESTAMP,
-      canceledBy: 'driver',
+      canceledBy: role,
+      canceledById: context.auth.uid,
       lastUpdatedBy: 'backend',
       lastUpdatedAt: admin.database.ServerValue.TIMESTAMP,
     });
@@ -529,7 +696,6 @@ export const cancelCashPayment = functions.https.onCall(async (data, context) =>
       reason,
     };
   } catch (error: any) {
-    console.error("❌ [cancelCashPayment] Error cancelando pago:", error);
-    throw new functions.https.HttpsError("internal", error.message);
+    return rethrowOrInternal(error, "❌ [cancelCashPayment] Error cancelando pago:");
   }
 });

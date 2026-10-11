@@ -12,18 +12,24 @@ interface StorageImageProps extends Omit<ImageProps, 'source'> {
  * a Storage se muestran tal cual.
  */
 export default function StorageImage({ uri, ...props }: StorageImageProps) {
-  const [resolvedUri, setResolvedUri] = useState(uri);
+  const [resolvedUri, setResolvedUri] = useState<string | null | undefined>(undefined);
 
   useEffect(() => {
     let cancelled = false;
-    setResolvedUri(uri);
 
     if (uri && /^https?:\/\//.test(uri)) {
+      setResolvedUri(null);
       supabaseStorage.resolveDocumentPhotoUrl(uri).then((resolved) => {
-        if (!cancelled && resolved) {
-          setResolvedUri(resolved);
+        if (!cancelled) {
+          setResolvedUri(resolved || uri);
+        }
+      }).catch(() => {
+        if (!cancelled) {
+          setResolvedUri(uri);
         }
       });
+    } else {
+      setResolvedUri(uri);
     }
 
     return () => {

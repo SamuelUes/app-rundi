@@ -3,7 +3,7 @@
  * Gestión de tarjetas guardadas
  */
 
-import * as functions from 'firebase-functions';
+import * as functions from 'firebase-functions/v1';
 import { CardRepository } from '../sequelize/repositories/CardRepository';
 
 const cardRepo = new CardRepository();

@@ -1,27 +1,33 @@
 import { useEffect } from 'react';
-import { Platform } from 'react-native';
+import { Linking, Platform } from 'react-native';
 import { EventEmitter } from 'expo';
 import { navigate, navigationRef } from '../../../navigation/NavigationService';
 import { FALLBACK_OVERLAY_RIDE_ID } from '../../../services/proximityService';
 import { fetchRidePreview } from '../../../services/ridePreviewService';
 import { OverlayPermissionModule } from '../../../../modules/rundi-native/src';
 
+const OVERLAY_URL_HOST = 'overlay';
+
+const parseRideIdFromUrl = (url: string | null | undefined): string | null => {
+  if (!url || !url.includes(`://${OVERLAY_URL_HOST}`)) {
+    return null;
+  }
+  const match = url.match(/[?&]rideId=([^&]+)/);
+  return match ? decodeURIComponent(match[1]) : null;
+};
+
 /**
  * Hook para detectar cuando la app se abre desde el overlay
  * y navegar a RidePreviewScreen con los datos del viaje
+ *
+ * - Android: el módulo nativo emite 'onOverlayOpened'
+ * - iOS: la Live Activity abre com.driveangel.rundidev://overlay?rideId=X (Linking)
  */
 export function useOverlayDeepLink() {
   useEffect(() => {
-    if (Platform.OS !== 'android' || !OverlayPermissionModule) {
-      return;
-    }
+    const openRideFromOverlay = async (rideId: string) => {
+      console.log('🫧 [useOverlayDeepLink] App opened from overlay:', rideId);
 
-    // Escuchar evento de apertura desde overlay via EventEmitter
-    const emitter = new EventEmitter(OverlayPermissionModule);
-    const subscription = (emitter.addListener as (event: string, cb: (data: { rideId: string }) => void) => { remove: () => void })('onOverlayOpened', async (data) => {
-      console.log('🫧 [useOverlayDeepLink] App opened from overlay:', data);
-
-      const { rideId } = data;
       if (!rideId) {
         console.warn('⚠️ [useOverlayDeepLink] No rideId provided');
         return;
@@ -68,10 +74,40 @@ export function useOverlayDeepLink() {
       } catch (error) {
         console.error('❌ [useOverlayDeepLink] Error loading ride data:', error);
       }
-    });
-
-    return () => {
-      subscription.remove();
     };
+
+    if (Platform.OS === 'android') {
+      if (!OverlayPermissionModule) {
+        return;
+      }
+
+      // Escuchar evento de apertura desde overlay via EventEmitter
+      const emitter = new EventEmitter(OverlayPermissionModule);
+      const subscription = (emitter.addListener as (event: string, cb: (data: { rideId: string }) => void) => { remove: () => void })('onOverlayOpened', async (data) => {
+        console.log('🫧 [useOverlayDeepLink] App opened from overlay:', data);
+        await openRideFromOverlay(data.rideId);
+      });
+
+      return () => {
+        subscription.remove();
+      };
+    }
+
+    if (Platform.OS === 'ios') {
+      const handleUrl = (url: string | null | undefined) => {
+        const rideId = parseRideIdFromUrl(url);
+        if (rideId) {
+          void openRideFromOverlay(rideId);
+        }
+      };
+
+      const subscription = Linking.addEventListener('url', ({ url }) => handleUrl(url));
+      // Cold start: la app pudo abrirse directamente desde la Live Activity
+      void Linking.getInitialURL().then(handleUrl);
+
+      return () => {
+        subscription.remove();
+      };
+    }
   }, []);
 }

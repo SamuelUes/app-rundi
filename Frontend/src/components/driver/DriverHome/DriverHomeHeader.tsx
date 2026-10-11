@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, Pressable } from 'react-native';
+import { View, Text, Pressable, Image } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import EmergencyButton from '../../shared/EmergencyButton';
 import { useTheme } from '../../../hooks/shared/theme/useTheme';
@@ -7,6 +7,7 @@ import type { TFunction } from 'i18next';
 
 interface DriverHomeHeaderProps {
   userName: string | undefined;
+  userPhotoUri?: string | null;
   isAvailable: boolean;
   activeRideId: string | undefined;
   onToggleMenu: () => void;
@@ -18,6 +19,7 @@ interface DriverHomeHeaderProps {
 
 export function DriverHomeHeader({
   userName,
+  userPhotoUri,
   isAvailable,
   activeRideId,
   onToggleMenu,
@@ -62,8 +64,17 @@ export function DriverHomeHeader({
         onPress={onNavigateProfile}
         accessibilityRole="button"
       >
-        <View style={styles.profileAvatar}>
-          <Text style={styles.profileAvatarText}>{initial}</Text>
+        <View style={styles.profileAvatarWrap}>
+          <View style={styles.profileAvatar}>
+            {userPhotoUri ? (
+              <Image
+                source={{ uri: userPhotoUri }}
+                style={styles.profileAvatarImage}
+              />
+            ) : (
+              <Text style={styles.profileAvatarText}>{initial}</Text>
+            )}
+          </View>
           <View
             style={[
               styles.profileStatusDot,

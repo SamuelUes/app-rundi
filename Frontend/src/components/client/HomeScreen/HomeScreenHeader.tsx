@@ -1,10 +1,12 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Image } from 'react-native';
+import { View, Text, Pressable, Image } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { useTheme } from '../../../hooks/shared/theme/useTheme';
 import type { TFunction } from 'i18next';
 
 interface HomeScreenHeaderProps {
   userName: string | undefined;
-  profileIconImage: any;
+  userPhotoUri?: string | null;
   onNavigateProfile: () => void;
   onCenterMap: () => void;
   styles: any;
@@ -13,30 +15,48 @@ interface HomeScreenHeaderProps {
 
 export function HomeScreenHeader({
   userName,
-  profileIconImage,
+  userPhotoUri,
   onNavigateProfile,
   onCenterMap,
   styles,
   t,
 }: HomeScreenHeaderProps) {
+  const { isDark } = useTheme();
+  const initial = (userName ?? '').trim().charAt(0).toUpperCase() || 'U';
+  const iconColor = isDark ? '#F5F1EA' : '#1C1917';
+
   return (
     <>
-      <TouchableOpacity
-        style={styles.profileContainer}
-        activeOpacity={0.85}
+      <Pressable
+        style={({ pressed }) => [
+          styles.profileChip,
+          pressed && { opacity: 0.9, transform: [{ scale: 0.98 }] },
+        ]}
         onPress={onNavigateProfile}
+        accessibilityRole="button"
       >
-        <Text style={styles.profileName}>{userName || t('client.home.profile.fallbackName')}</Text>
-        <Image source={profileIconImage} style={styles.profileAvatar} />
-      </TouchableOpacity>
+        <View style={styles.profileAvatarWrap}>
+          <View style={styles.profileAvatar}>
+            {userPhotoUri ? (
+              <Image source={{ uri: userPhotoUri }} style={styles.profileAvatarImage} />
+            ) : (
+              <Text style={styles.profileAvatarText}>{initial}</Text>
+            )}
+          </View>
+        </View>
+        <Text style={styles.profileName} numberOfLines={1}>
+          {userName || t('client.home.profile.fallbackName')}
+        </Text>
+      </Pressable>
 
-      <TouchableOpacity
-        style={styles.centerMapButton}
+      <Pressable
+        style={({ pressed }) => [styles.mapFab, pressed && styles.mapFabPressed]}
         onPress={onCenterMap}
-        activeOpacity={0.85}
+        accessibilityRole="button"
+        accessibilityLabel={t('client.home.map.recenter')}
       >
-        <Text style={styles.centerMapIcon}>↻</Text>
-      </TouchableOpacity>
+        <MaterialIcons name="my-location" size={21} color={iconColor} />
+      </Pressable>
     </>
   );
 }

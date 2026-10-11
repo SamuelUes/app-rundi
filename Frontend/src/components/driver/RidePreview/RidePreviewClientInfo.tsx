@@ -9,6 +9,9 @@ interface RidePreviewClientInfoProps {
   estimatedPrice: number;
   clientComment: string | null | undefined;
   clientProfile: ClientProfile | null;
+  distanceKm?: number | null;
+  durationMin?: number | null;
+  paymentMethod?: 'cash' | 'card' | null;
   colors: any;
   isDark: boolean;
   formatCurrency: (value?: number | null) => string;
@@ -23,6 +26,9 @@ export function RidePreviewClientInfo({
   estimatedPrice,
   clientComment,
   clientProfile,
+  distanceKm,
+  durationMin,
+  paymentMethod,
   colors,
   isDark,
   formatCurrency,
@@ -31,13 +37,29 @@ export function RidePreviewClientInfo({
   styles,
   t,
 }: RidePreviewClientInfoProps) {
+  const tripMetaParts: string[] = [];
+  if (typeof distanceKm === 'number' && Number.isFinite(distanceKm) && distanceKm > 0) {
+    tripMetaParts.push(
+      t('driver.ridePreview.labels.tripDistance', { value: distanceKm.toFixed(1) }),
+    );
+  }
+  if (typeof durationMin === 'number' && Number.isFinite(durationMin) && durationMin > 0) {
+    tripMetaParts.push(t('driver.ridePreview.labels.tripDuration', { value: durationMin }));
+  }
+  if (paymentMethod === 'cash') {
+    tripMetaParts.push(t('driver.ridePreview.labels.paymentCash'));
+  } else if (paymentMethod === 'card') {
+    tripMetaParts.push(t('driver.ridePreview.labels.paymentCard'));
+  }
+  const tripMeta = tripMetaParts.join(' • ');
+
   return (
     <View style={styles.clientRow}>
       <View
         style={[
           styles.avatarPlaceholder,
           {
-            backgroundColor: isDark ? 'rgba(255,255,255,0.12)' : '#ECECEC',
+            backgroundColor: isDark ? 'rgba(179,135,55,0.30)' : '#F1E4C8',
           },
         ]}
       >
@@ -48,7 +70,7 @@ export function RidePreviewClientInfo({
             resizeMode="cover"
           />
         ) : (
-          <Text style={styles.avatarInitials}>
+          <Text style={[styles.avatarInitials, { color: colors.primary }]}>
             {resolvedClientName
               .split(' ')
               .map((part) => part.charAt(0).toUpperCase())
@@ -66,9 +88,14 @@ export function RidePreviewClientInfo({
             amount: formatCurrency(estimatedPrice),
           })}
         </Text>
+        {tripMeta.length > 0 ? (
+          <Text style={[styles.clientTripMeta, { color: colors.textSecondary }]} numberOfLines={1}>
+            {tripMeta}
+          </Text>
+        ) : null}
         {typeof clientComment === 'string' && clientComment.trim().length > 0 ? (
-          <Text style={[styles.clientMetaText, { color: colors.textSecondary }]} numberOfLines={2}>
-            {`Nota: ${clientComment.trim()}`}
+          <Text style={[styles.clientNoteText, { color: colors.textSecondary }]} numberOfLines={2}>
+            {t('driver.ridePreview.labels.clientNote', { note: clientComment.trim() })}
           </Text>
         ) : null}
       </View>
@@ -81,8 +108,10 @@ export function RidePreviewClientInfo({
             },
           ]}
           onPress={onMessageClient}
+          accessibilityRole="button"
+          accessibilityLabel={t('driver.ridePreview.accessibility.messageClient')}
         >
-          <MaterialIcons name="chat" size={24} color={colors.textSecondary || '#666'} />
+          <MaterialIcons name="chat" size={22} color={colors.textSecondary || '#666'} />
         </TouchableOpacity>
         <TouchableOpacity
           style={[
@@ -92,8 +121,10 @@ export function RidePreviewClientInfo({
             },
           ]}
           onPress={onCallClient}
+          accessibilityRole="button"
+          accessibilityLabel={t('driver.ridePreview.accessibility.callClient')}
         >
-          <MaterialIcons name="call" size={24} color={colors.textSecondary || '#666'} />
+          <MaterialIcons name="call" size={22} color={colors.textSecondary || '#666'} />
         </TouchableOpacity>
       </View>
     </View>

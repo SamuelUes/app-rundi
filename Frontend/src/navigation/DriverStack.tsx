@@ -77,6 +77,7 @@ export type DriverStackParamList = {
     };
     nearbyRides?: any[]; // Opcional: siguientes solicitudes cercanas para rotar entre ellas
     proximity?: boolean; // Si viene desde viaje por aproximación
+    autoPresented?: boolean; // Abierto automáticamente por proximidad (se auto-cierra tras 6s sin cambios)
   };
   Earnings: undefined;
   VehicleVerification: {

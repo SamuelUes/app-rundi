@@ -3,7 +3,7 @@
  * Gestión del historial de comisiones
  */
 
-import * as functions from 'firebase-functions';
+import * as functions from 'firebase-functions/v1';
 import { ServiceCommissionHistoryRepository } from '../sequelize/repositories/ServiceCommissionHistoryRepository';
 
 const historyRepo = new ServiceCommissionHistoryRepository();

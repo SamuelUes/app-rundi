@@ -334,12 +334,15 @@ class PriceNegotiationService {
       }
       
       const functions = await getFirebaseFunctions();
-      const sendDriverOfferFunction = httpsCallable(functions, 'sendDriverOffer');
-      
+      // La oferta del conductor se registra vía negotiatePrice con role=driver
+      // (el backend deriva driverId del auth.uid, no del payload).
+      // `sendDriverOffer` existe en backend solo como alias para clientes antiguos.
+      const sendDriverOfferFunction = httpsCallable(functions, 'negotiatePrice');
+
       const response = await sendDriverOfferFunction({
         rideId,
-        driverId,
-        offerPrice,
+        suggestedPrice: offerPrice,
+        role: 'driver',
       });
 
       const result = response.data as any;

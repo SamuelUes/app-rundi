@@ -4,7 +4,7 @@
  */
 
 import { z } from 'zod';
-import * as functions from 'firebase-functions';
+import * as functions from 'firebase-functions/v1';
 
 /**
  * Validar datos con un schema de Zod

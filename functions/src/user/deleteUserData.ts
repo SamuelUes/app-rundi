@@ -4,7 +4,7 @@
  * Complementa la extensión "Delete User Data" de Firebase
  */
 
-import * as functions from 'firebase-functions';
+import * as functions from 'firebase-functions/v1';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 // Lazy initialization de Supabase client
@@ -12,8 +12,8 @@ let supabaseClient: SupabaseClient | null = null;
 
 function getSupabaseClient(): SupabaseClient {
   if (!supabaseClient) {
-    const supabaseUrl = functions.config().supabase?.url || process.env.SUPABASE_URL;
-    const supabaseKey = functions.config().supabase?.service_role_key || process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     
     if (!supabaseUrl || !supabaseKey) {
       throw new Error('Supabase URL y Service Role Key son requeridos');

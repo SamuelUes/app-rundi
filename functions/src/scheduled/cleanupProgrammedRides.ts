@@ -6,7 +6,7 @@
  * Esta función existía en GCP como Cloud Scheduler job pero no tenía código backend.
  */
 
-import * as functions from 'firebase-functions';
+import * as functions from 'firebase-functions/v1';
 import admin from 'firebase-admin';
 
 export const cleanupProgrammedRides = functions
@@ -64,6 +64,7 @@ export const cleanupProgrammedRides = functions
 
           if (shouldDelete) {
             updates[`programmedRides/${rideId}`] = null;
+            updates[`programmedRideCodes/${rideId}`] = null;
             deletedCount++;
           }
         }

@@ -1,4 +1,4 @@
-import * as functions from 'firebase-functions';
+import * as functions from 'firebase-functions/v1';
 import { firestore } from '../config/firebase';
 import { notifySupportChatMessage } from '../api/support_complaints';
 import { supabaseGet } from '../supabase/client';

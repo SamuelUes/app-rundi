@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { getDatabase, ref, onValue } from 'firebase/database';
 import driversService from '../../../services/driversService';
 import driverAvailabilityService from '../../../services/driverAvailabilityService';
 import alertService from '../../../services/alertService';
@@ -81,6 +82,44 @@ export function useDriverAvailability({
       isActive = false;
     };
   }, [coords, markTaskCompleted]);
+
+  // Realtime: driverLocations/{uid}/status es la fuente de verdad del backend.
+  // Mantiene el botón sincronizado si el estado cambió desde otra pantalla
+  // (p.ej. AvailableRides) o por restricciones del backend.
+  useEffect(() => {
+    if (!userId) return;
+
+    const db = getDatabase();
+    const statusRef = ref(db, `driverLocations/${userId}/status`);
+
+    const unsubscribe = onValue(statusRef, (snapshot) => {
+      const raw = snapshot.val();
+      const status = typeof raw === 'string' ? raw.trim().toLowerCase() : 'offline';
+      const online = status === 'available' || status === 'busy';
+
+      setIsAvailable(online);
+      if (!online) {
+        setIsDesignatedDriverMode(false);
+      }
+
+      void (async () => {
+        try {
+          const saved = await driverAvailabilityService.getAvailabilityState();
+          if (Boolean(saved?.isAvailable) === online) return;
+          await driverAvailabilityService.saveAvailabilityState({
+            isAvailable: online,
+            isDesignatedDriverMode: online ? Boolean(saved?.isDesignatedDriverMode) : false,
+            lastUpdate: new Date().toISOString(),
+            coords: saved?.coords,
+          });
+        } catch (err) {
+          console.warn('⚠️ Error sincronizando disponibilidad desde RTDB:', err);
+        }
+      })();
+    });
+
+    return () => unsubscribe();
+  }, [userId]);
 
   // Init app state listener + heartbeat
   useEffect(() => {

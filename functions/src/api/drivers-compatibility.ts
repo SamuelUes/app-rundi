@@ -3,7 +3,7 @@
  * Funciones para compatibilidad con el Frontend
  */
 
-import * as functions from 'firebase-functions';
+import * as functions from 'firebase-functions/v1';
 import admin from 'firebase-admin';
 import { MIGRATION_FLAGS } from '../config/migration-flags';
 import { DriverServiceRepository } from '../sequelize/repositories/DriverServiceRepository';
@@ -17,6 +17,30 @@ const db = admin.database();
 const driverServiceRepo = new DriverServiceRepository();
 const serviceRepo = new ServiceRepository();
 const driverRepo = new DriverRepository();
+
+const MOTO_KEYWORDS = ['moto', 'motorcycle', 'motorbike', 'bike', 'mototaxi', 'moto taxi'];
+const AUTO_KEYWORDS = ['auto', 'car', 'sedan', 'suv', 'pickup', 'truck', 'van', 'crossover', 'jeep', 'convertible', 'camioneta', 'coche', 'carro', 'automovil', 'automóvil', 'normal'];
+
+const normalizeDriverVehicleType = (rawType: unknown): 'moto' | 'auto' | null => {
+  const value = String(rawType ?? '').trim().toLowerCase();
+  if (!value) return null;
+  if (MOTO_KEYWORDS.some((k) => value === k || value.includes(k))) return 'moto';
+  if (AUTO_KEYWORDS.some((k) => value === k || value.includes(k))) return 'auto';
+  return null;
+};
+
+const matchesRequestedVehicleType = (
+  normalizedDriverType: 'moto' | 'auto' | null,
+  requested: string,
+): boolean => {
+  if (requested === 'moto') {
+    return normalizedDriverType === 'moto';
+  }
+  if (requested === 'auto') {
+    return normalizedDriverType !== 'moto';
+  }
+  return normalizedDriverType == null || normalizedDriverType === requested;
+};
 
 async function upsertDriverViaSupabaseRest(userId: string, data: Record<string, any>) {
   if (!data || Object.keys(data).length === 0) {
@@ -228,6 +252,7 @@ export const getAvailableDrivers = functions.https.onCall(async (data, context) 
       }
 
       const driverVehicleType = String(info?.vehicle?.type || '').toLowerCase();
+      const normalizedDriverType = normalizeDriverVehicleType(driverVehicleType);
       const isDesignatedDriverMode = Boolean(info?.isDesignatedDriverMode);
 
       if (vehicleType) {
@@ -237,26 +262,17 @@ export const getAvailableDrivers = functions.https.onCall(async (data, context) 
             continue;
           }
 
-          if (designatedDriverVehicle) {
-            if (!driverVehicleType) {
-              console.log('  ⏭️ Saltando: conductor sin tipo de vehículo definido para designado');
-              continue;
-            }
-
-            if (driverVehicleType !== designatedDriverVehicle) {
-              console.log(
-                `  ⏭️ Saltando: conductor designado no coincide. Cliente: ${designatedDriverVehicle}, conductor: ${driverVehicleType}`,
-              );
-              continue;
-            }
-          }
-        } else if (vehicleType !== 'auto') {
-          if (driverVehicleType !== vehicleType) {
+          if (designatedDriverVehicle && !matchesRequestedVehicleType(normalizedDriverType, designatedDriverVehicle)) {
             console.log(
-              `  ⏭️ Saltando: tipo de vehículo no coincide (buscando: ${vehicleType}, tiene: ${driverVehicleType || 'desconocido'})`,
+              `  ⏭️ Saltando: conductor designado no coincide. Cliente: ${designatedDriverVehicle}, conductor: ${driverVehicleType || 'desconocido'}`,
             );
             continue;
           }
+        } else if (!matchesRequestedVehicleType(normalizedDriverType, vehicleType)) {
+          console.log(
+            `  ⏭️ Saltando: tipo de vehículo no coincide (buscando: ${vehicleType}, tiene: ${driverVehicleType || 'desconocido'})`,
+          );
+          continue;
         }
       }
 
@@ -270,6 +286,7 @@ export const getAvailableDrivers = functions.https.onCall(async (data, context) 
         longitude: lng,
         distance,
         vehicle: info.vehicle || {},
+        isDesignatedDriverMode,
         isAvailable: true,
         lastUpdate: loc?.updatedAt || info?.lastUpdate || null,
       });

@@ -542,6 +542,48 @@ ALTER VIEW public.rides_with_complete_route SET (security_invoker = true);
 ALTER VIEW public.driver_active_services SET (security_invoker = true, security_barrier = true);
 ALTER VIEW public.services_stats SET (security_invoker = true, security_barrier = true);
 
+-- Recrear la función de auditoría con casts explícitos a los enum types
+-- (actor_role/action/entity_type/source ya no son VARCHAR: los literales
+--  text sin cast fallan con 42804 al insertar en audit_log)
+CREATE OR REPLACE FUNCTION public.audit_ride_status_change()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $function$
+BEGIN
+  IF TG_OP = 'UPDATE' AND OLD.status IS DISTINCT FROM NEW.status THEN
+    INSERT INTO public.audit_log (actor_uid, actor_role, action, entity_type, entity_id, changes, source)
+    VALUES (
+      -- En cancelaciones, canceled_by ('client'/'driver') indica quién disparó
+      -- la transición: atribuir el uid real de esa parte.
+      COALESCE(
+        CASE WHEN NEW.status = 'canceled' AND NEW.canceled_by = 'client' THEN NEW.client_id::text END,
+        CASE WHEN NEW.status = 'canceled' AND NEW.canceled_by = 'driver' THEN NEW.driver_id::text END,
+        NEW.driver_id::text,
+        NEW.client_id::text,
+        'system'
+      ),
+      COALESCE(
+        CASE WHEN NEW.status = 'canceled' AND NEW.canceled_by IS NOT NULL
+             THEN NEW.canceled_by::text END,
+        CASE WHEN NEW.driver_id IS NOT NULL THEN 'driver' END,
+        CASE WHEN NEW.client_id IS NOT NULL THEN 'client' END,
+        'system'
+      )::public.app_role,
+      (CASE WHEN NEW.status = 'canceled' THEN 'cancel' ELSE 'update' END)::public.audit_action,
+      'ride'::public.audit_entity_type,
+      NEW.id::text,
+      jsonb_build_object(
+        'before', jsonb_build_object('status', OLD.status),
+        'after', jsonb_build_object('status', NEW.status)
+      ),
+      'trigger'::public.audit_source
+    );
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
 -- Recrear el trigger de auditoría de rides.status
 CREATE TRIGGER trigger_audit_ride_status
 AFTER UPDATE OF status ON public.rides

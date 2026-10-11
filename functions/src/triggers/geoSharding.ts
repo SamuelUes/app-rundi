@@ -1,4 +1,4 @@
-import * as functions from 'firebase-functions';
+import * as functions from 'firebase-functions/v1';
 import admin from 'firebase-admin';
 
 import { DEFAULT_SERVICE_AREA_ID } from '../config/constants';
@@ -221,8 +221,40 @@ export const syncActiveRidesByArea = functions.database
       return null;
     }
 
+    // El shard es legible por cualquier usuario autenticado (drivers haciendo
+    // discovery): solo exponer lo que la card de disponibles necesita.
+    // NO copiar clientPhone, offers, driver/driverLocation, negotiation ni
+    // payment — el conductor los obtiene de activeRides/{id} tras aceptar.
+    // driverId sí se incluye: el conductor asignado lo necesita para detectar
+    // que un viaje promovido/aceptado es suyo (activeRideGuard).
     const payload = {
-      ...after,
+      id: after.id ?? rideId,
+      clientId: after.clientId ?? null,
+      driverId: after.driverId ?? null,
+      status: after.status ?? null,
+      origin: after.origin ?? null,
+      destination: after.destination ?? null,
+      extraDestinations: after.extraDestinations ?? null,
+      estimatedPrice: after.estimatedPrice ?? null,
+      estimatedDistance: after.estimatedDistance ?? null,
+      estimatedDuration: after.estimatedDuration ?? null,
+      clientSuggestedPrice: after.clientSuggestedPrice ?? null,
+      clientName: after.clientName ?? null,
+      clientRating: after.clientRating ?? null,
+      clientTotalRatings: after.clientTotalRatings ?? null,
+      clientComment: after.clientComment ?? null,
+      clientVehiclePhoto: after.clientVehiclePhoto ?? null,
+      designatedDriverVehicle: after.designatedDriverVehicle ?? null,
+      rideType: after.rideType ?? null,
+      vehicleType: after.vehicleType ?? null,
+      passengers: after.passengers ?? null,
+      paymentMethod: after.paymentMethod ?? null,
+      serviceId: after.serviceId ?? null,
+      hasMultipleDestinations: after.hasMultipleDestinations ?? null,
+      waypointsCount: after.waypointsCount ?? null,
+      requestedAt: after.requestedAt ?? null,
+      createdAt: after.createdAt ?? null,
+      updatedAt: after.updatedAt ?? null,
       serviceAreaId,
     };
 
@@ -259,8 +291,34 @@ export const syncProgrammedRidesByArea = functions.database
       return null;
     }
 
+    // Mismo criterio que activeRidesByArea: sin clientPhone ni datos del
+    // conductor — legible por cualquier usuario autenticado.
     const payload = {
-      ...after,
+      id: after.id ?? rideId,
+      clientId: after.clientId ?? null,
+      status: after.status ?? null,
+      isProgrammed: true,
+      scheduledAt: after.scheduledAt ?? null,
+      origin: after.origin ?? null,
+      destination: after.destination ?? null,
+      extraDestinations: after.extraDestinations ?? null,
+      estimatedPrice: after.estimatedPrice ?? null,
+      estimatedDistance: after.estimatedDistance ?? null,
+      estimatedDuration: after.estimatedDuration ?? null,
+      clientSuggestedPrice: after.clientSuggestedPrice ?? null,
+      clientName: after.clientName ?? null,
+      clientRating: after.clientRating ?? null,
+      clientTotalRatings: after.clientTotalRatings ?? null,
+      clientComment: after.clientComment ?? null,
+      clientVehiclePhoto: after.clientVehiclePhoto ?? null,
+      designatedDriverVehicle: after.designatedDriverVehicle ?? null,
+      rideType: after.rideType ?? null,
+      vehicleType: after.vehicleType ?? null,
+      passengers: after.passengers ?? null,
+      paymentMethod: after.paymentMethod ?? null,
+      serviceId: after.serviceId ?? null,
+      createdAt: after.createdAt ?? null,
+      updatedAt: after.updatedAt ?? null,
       serviceAreaId,
     };
 
@@ -273,11 +331,22 @@ export const syncDriverLocationsByArea = functions.database
   .onWrite(async (change, context) => {
     const driverId = context.params.driverId as string;
     const after = change.after.val();
+    const before = change.before.val();
+
+    // Área previa: preferir serviceAreaId ya persistido; si no, derivarlo de
+    // las coords anteriores. Necesario para limpiar el shard viejo al moverse
+    // de área o al eliminar el nodo (antes solo se limpiaba el área DEFAULT).
+    const previousAreaId =
+      (typeof before?.serviceAreaId === 'string' && before.serviceAreaId) ||
+      (await deriveServiceAreaIdFromCoords(
+        before?.lat ?? before?.latitude ?? before?.coords?.latitude,
+        before?.lng ?? before?.longitude ?? before?.coords?.longitude,
+      ));
 
     if (!after) {
-      // Limpiar todas las shards conocidas (actualmente solo Managua)
-      const shardRef = db.ref(`driverLocationsByArea/${DEFAULT_SERVICE_AREA_ID}/${driverId}`);
-      await shardRef.remove();
+      if (previousAreaId) {
+        await db.ref(`driverLocationsByArea/${previousAreaId}/${driverId}`).remove();
+      }
       return null;
     }
 
@@ -286,14 +355,29 @@ export const syncDriverLocationsByArea = functions.database
 
     const serviceAreaId = await deriveServiceAreaIdFromCoords(lat, lng);
 
+    // Si cambió de área (o salió de todas), limpiar el shard anterior para no
+    // dejar conductores fantasma en áreas donde ya no están.
+    if (previousAreaId && previousAreaId !== serviceAreaId) {
+      await db.ref(`driverLocationsByArea/${previousAreaId}/${driverId}`).remove();
+    }
+
     if (!serviceAreaId) {
-      // Si no se puede determinar área, no shardear
       return null;
     }
 
     const shardRef = db.ref(`driverLocationsByArea/${serviceAreaId}/${driverId}`);
+    // Whitelist explícita: el shard es legible por cualquier usuario
+    // autenticado — no copiar currentRideId ni campos futuros del nodo fuente.
     const payload = {
-      ...after,
+      lat: after.lat ?? null,
+      lng: after.lng ?? null,
+      heading: after.heading ?? null,
+      speed: after.speed ?? null,
+      accuracy: after.accuracy ?? null,
+      status: after.status ?? null,
+      timestamp: after.timestamp ?? null,
+      lastUpdate: after.lastUpdate ?? null,
+      updatedAt: after.updatedAt ?? null,
       serviceAreaId,
     };
 
@@ -316,10 +400,19 @@ export const syncClientsLocationsByArea = functions.database
   .onWrite(async (change, context) => {
     const userId = context.params.userId as string;
     const after = change.after.val();
+    const before = change.before.val();
+
+    const previousAreaId =
+      (typeof before?.serviceAreaId === 'string' && before.serviceAreaId) ||
+      (await deriveServiceAreaIdFromCoords(
+        before?.latitude ?? before?.lat ?? before?.coords?.latitude,
+        before?.longitude ?? before?.lng ?? before?.coords?.longitude,
+      ));
 
     if (!after) {
-      const shardRef = db.ref(`clientsLocationsByArea/${DEFAULT_SERVICE_AREA_ID}/${userId}`);
-      await shardRef.remove();
+      if (previousAreaId) {
+        await db.ref(`clientsLocationsByArea/${previousAreaId}/${userId}`).remove();
+      }
       return null;
     }
 
@@ -327,6 +420,10 @@ export const syncClientsLocationsByArea = functions.database
     const lng = after.longitude ?? after.lng ?? after.coords?.longitude;
 
     const serviceAreaId = await deriveServiceAreaIdFromCoords(lat, lng);
+
+    if (previousAreaId && previousAreaId !== serviceAreaId) {
+      await db.ref(`clientsLocationsByArea/${previousAreaId}/${userId}`).remove();
+    }
 
     if (!serviceAreaId) {
       // Fuera de cualquier área conocida: limpiar shard por defecto (actualmente Managua)
@@ -336,8 +433,15 @@ export const syncClientsLocationsByArea = functions.database
     }
 
     const shardRef = db.ref(`clientsLocationsByArea/${serviceAreaId}/${userId}`);
+    // Whitelist: solo lo necesario para ubicar al cliente — sin address ni
+    // manualOverride (PII/estado interno) en un shard legible por conductores.
     const payload = {
-      ...after,
+      latitude: after.latitude ?? after.lat ?? after.coords?.latitude ?? null,
+      longitude: after.longitude ?? after.lng ?? after.coords?.longitude ?? null,
+      coords: after.coords ?? null,
+      isManual: after.isManual ?? null,
+      timestamp: after.timestamp ?? null,
+      source: after.source ?? null,
       serviceAreaId,
     };
 

@@ -1,9 +1,9 @@
-import type { FirebaseAuthTypes } from '@react-native-firebase/auth';
+import type { ConfirmationResult, UserCredential } from '@react-native-firebase/auth';
 import { isNativeFirebaseSupported, loadNativeFirebaseAuth } from '../../utils/nativeFirebase';
 import i18n from '../../i18n';
 
 class PhoneAuthService {
-  private confirmations: Map<string, FirebaseAuthTypes.ConfirmationResult> = new Map();
+  private confirmations: Map<string, ConfirmationResult> = new Map();
   private tr(path: string, options?: Record<string, any>) {
     const key = `common.services.auth.phoneAuthService.${path}`;
     const value = i18n.t(key, options) as string;
@@ -27,7 +27,7 @@ class PhoneAuthService {
   }
 
   async sendVerificationCode(phone: string): Promise<void> {
-    const nativeAuth = await this.getNativeAuthInstance();
+    const nativeAuthModule = await this.getNativeAuthModule();
     const normalized = this.normalizePhone(phone);
 
     if (!this.validatePhoneNumber(normalized)) {
@@ -37,7 +37,10 @@ class PhoneAuthService {
     try {
       console.log('📱 [phoneAuthService] Enviando código de verificación. Input:', phone);
       console.log('📱 [phoneAuthService] Número normalizado (E.164):', normalized);
-      const confirmation = await nativeAuth.signInWithPhoneNumber(normalized);
+      const confirmation = await nativeAuthModule.signInWithPhoneNumber(
+        nativeAuthModule.getAuth(),
+        normalized
+      );
       this.confirmations.set(normalized, confirmation);
     } catch (error: any) {
       console.error('❌ Error enviando código de verificación:', error);
@@ -66,7 +69,7 @@ class PhoneAuthService {
     phone: string,
     code: string,
     options?: { signOutAfterConfirm?: boolean }
-  ): Promise<FirebaseAuthTypes.UserCredential> {
+  ): Promise<UserCredential> {
     const normalized = this.normalizePhone(phone);
     const confirmation = this.confirmations.get(normalized);
 
@@ -93,8 +96,8 @@ class PhoneAuthService {
       console.error('❌ Error confirmando código de verificación:', error);
       const codeName = error?.code || '';
 
-      const nativeAuth = await this.getNativeAuthInstance();
-      const autoVerifiedUser = nativeAuth.currentUser;
+      const nativeAuthModule = await this.getNativeAuthModule();
+      const autoVerifiedUser = nativeAuthModule.getAuth().currentUser;
       if (
         (codeName === 'auth/session-expired' || codeName === 'auth/code-expired') &&
         autoVerifiedUser?.phoneNumber === normalized
@@ -107,7 +110,7 @@ class PhoneAuthService {
 
         const fakeCredential = {
           user: autoVerifiedUser,
-        } as FirebaseAuthTypes.UserCredential;
+        } as UserCredential;
 
         return fakeCredential;
       }
@@ -136,17 +139,17 @@ class PhoneAuthService {
     this.confirmations.delete(normalized);
   }
 
-  private async getNativeAuthInstance() {
+  private async getNativeAuthModule() {
     if (!isNativeFirebaseSupported()) {
       throw new Error(this.tr('errors.smsRequiresBuild'));
     }
 
     const nativeAuthModule = await loadNativeFirebaseAuth();
-    if (!nativeAuthModule?.default) {
+    if (!nativeAuthModule?.getAuth || !nativeAuthModule?.signInWithPhoneNumber) {
       throw new Error(this.tr('errors.nativeFirebaseUnavailable'));
     }
 
-    return (nativeAuthModule.getAuth ? nativeAuthModule.getAuth() : nativeAuthModule.default());
+    return nativeAuthModule;
   }
 }
 

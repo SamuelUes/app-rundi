@@ -5,9 +5,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  TextInput,
 } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import SupportChatShortcut from '../../components/shared/SupportChatShortcut';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
@@ -47,9 +45,10 @@ interface PaymentScreenProps {
 export default function PaymentScreen({ route, navigation }: PaymentScreenProps) {
   const { rideId, amount, driverId, driverName, isPendingPayment = false } = route.params;
   const { user } = useAuth();
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const { t } = useTranslation();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const accentAlt = isDark ? colors.SecondBorder : colors.primary;
+  const styles = useMemo(() => createStyles(colors, accentAlt), [colors, accentAlt]);
   const [tip, setTip] = useState(0);
   const [selectedTipPercent, setSelectedTipPercent] = useState<number | null>(null);
   const [customTip, setCustomTip] = useState('');
@@ -408,7 +407,7 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
         </View>
 
         {/* Resumen del viaje */}
-        <PaymentSummaryCard rideDetails={rideDetails} styles={styles} t={t} />
+        <PaymentSummaryCard rideDetails={rideDetails} colors={colors} styles={styles} t={t} />
 
         {/* Desglose de costos */}
         <PaymentCostCard
@@ -438,6 +437,7 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
           paymentMethod={paymentMethod}
           changingPaymentMethod={changingPaymentMethod}
           onSelectMethod={handleSelectPaymentMethod}
+          colors={colors}
           styles={styles}
           t={t}
         />
@@ -567,10 +567,25 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
   );
 }
 
-const createStyles = (colors: any) => StyleSheet.create({
+const createStyles = (colors: any, accentAlt: string) => {
+  const card = {
+    backgroundColor: colors.card,
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: colors.border,
+  };
+
+  return StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.surface,
+    backgroundColor: colors.background,
   },
   loadingContainer: {
     flex: 1,
@@ -583,204 +598,201 @@ const createStyles = (colors: any) => StyleSheet.create({
     color: colors.textSecondary,
   },
   content: {
-    padding: 16,
+    padding: 20,
+    paddingBottom: 28,
   },
   header: {
-    marginBottom: 24,
+    marginBottom: 22,
+    marginTop: 4,
   },
   title: {
     fontSize: 28,
-    fontWeight: '700',
+    fontWeight: '800',
     color: colors.text,
-    marginBottom: 8,
+    marginBottom: 6,
+    letterSpacing: -0.4,
   },
   subtitle: {
     fontSize: 14,
     color: colors.textSecondary,
+    lineHeight: 20,
   },
   summaryCard: {
-    backgroundColor: colors.card,
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-    borderWidth: 1,
-    borderColor: colors.border,
+    ...card,
   },
   summaryTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
     color: colors.text,
-    marginBottom: 12,
+    marginBottom: 14,
   },
   summaryRow: {
     flexDirection: 'row',
-    marginBottom: 8,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  summaryIconWrap: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: accentAlt + '1A',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
   },
   summaryLabel: {
-    fontSize: 14,
+    fontSize: 13,
     color: colors.textSecondary,
-    width: 80,
+    width: 76,
+    fontWeight: '500',
   },
   summaryValue: {
     fontSize: 14,
     color: colors.text,
     flex: 1,
+    fontWeight: '600',
   },
   costCard: {
-    backgroundColor: colors.card,
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-    borderWidth: 1,
-    borderColor: colors.border,
+    ...card,
   },
   costTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
     color: colors.text,
-    marginBottom: 12,
+    marginBottom: 14,
   },
   costRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 8,
+    alignItems: 'center',
+    marginBottom: 10,
   },
   costLabel: {
     fontSize: 14,
     color: colors.textSecondary,
+    fontWeight: '500',
   },
   costValue: {
     fontSize: 14,
     color: colors.text,
     fontWeight: '600',
+    fontVariant: ['tabular-nums'],
   },
   divider: {
-    height: 1,
-    backgroundColor: '#e0e0e0',
-    marginVertical: 12,
+    height: 0,
+    borderTopWidth: 1,
+    borderColor: colors.border,
+    borderStyle: 'dashed',
+    marginVertical: 14,
   },
   totalRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
   },
   totalLabel: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '700',
     color: colors.text,
   },
   totalValue: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#4CAF50',
+    fontSize: 24,
+    fontWeight: '800',
+    color: colors.primary,
+    fontVariant: ['tabular-nums'],
+    letterSpacing: -0.3,
   },
   tipCard: {
-    backgroundColor: colors.card,
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-    borderWidth: 1,
-    borderColor: colors.border,
+    ...card,
   },
   tipTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
     color: colors.text,
-    marginBottom: 12,
+    marginBottom: 14,
   },
   tipOptions: {
     flexDirection: 'row',
-    gap: 12,
+    gap: 10,
     marginBottom: 16,
   },
   tipButton: {
     flex: 1,
     backgroundColor: colors.surface,
-    borderRadius: 12,
-    padding: 12,
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
     alignItems: 'center',
-    borderWidth: 2,
-    borderColor: 'transparent',
+    borderWidth: 1.5,
+    borderColor: colors.border,
   },
   tipButtonActive: {
-    backgroundColor: '#E8F5E9',
-    borderColor: '#4CAF50',
+    backgroundColor: colors.primary + '14',
+    borderColor: colors.primary,
   },
   tipButtonText: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
     color: colors.textSecondary,
-    marginBottom: 4,
+    marginBottom: 3,
   },
   tipButtonTextActive: {
-    color: '#4CAF50',
+    color: colors.primary,
   },
   tipButtonAmount: {
     fontSize: 12,
-    color: '#999',
+    color: colors.textTertiary,
+    fontVariant: ['tabular-nums'],
   },
   tipButtonAmountActive: {
-    color: '#4CAF50',
+    color: colors.primary,
   },
   customTipLabel: {
-    fontSize: 14,
+    fontSize: 13,
     color: colors.textSecondary,
+    fontWeight: '500',
     marginBottom: 8,
   },
   customTipInput: {
     backgroundColor: colors.surface,
-    borderRadius: 12,
-    padding: 16,
-    fontSize: 16,
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 15,
     borderWidth: 1,
     borderColor: colors.border,
+    color: colors.text,
   },
   paymentMethodCard: {
-    backgroundColor: colors.card,
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-    borderWidth: 1,
-    borderColor: colors.border,
+    ...card,
   },
   paymentMethodTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
     color: colors.text,
-    marginBottom: 12,
+    marginBottom: 14,
   },
   methodButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
-    borderRadius: 12,
+    padding: 14,
+    borderRadius: 16,
     backgroundColor: colors.surface,
-    marginBottom: 12,
-    borderWidth: 2,
-    borderColor: 'transparent',
+    borderWidth: 1.5,
+    borderColor: colors.border,
   },
   methodButtonActive: {
-    backgroundColor: '#E3F2FD',
-    borderColor: '#2196F3',
+    backgroundColor: colors.primary + '0F',
+    borderColor: colors.primary,
+  },
+  methodIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: accentAlt + '1A',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
   },
   methodIcon: {
     fontSize: 32,
@@ -790,60 +802,51 @@ const createStyles = (colors: any) => StyleSheet.create({
     flex: 1,
   },
   methodName: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 15,
+    fontWeight: '700',
     color: colors.text,
-    marginBottom: 4,
+    marginBottom: 3,
   },
   methodDescription: {
-    fontSize: 12,
+    fontSize: 12.5,
     color: colors.textSecondary,
+    lineHeight: 17,
   },
   methodButtonDisabled: {
     opacity: 0.5,
     backgroundColor: colors.surface,
   },
   methodDescriptionDisabled: {
-    color: '#FF6B6B',
+    color: colors.error,
     fontWeight: '500',
   },
   methodCheck: {
     fontSize: 24,
-    color: '#2196F3',
+    color: colors.primary,
     fontWeight: '700',
   },
   providerCard: {
-    backgroundColor: colors.card,
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-    borderWidth: 1,
-    borderColor: colors.border,
+    ...card,
   },
   providerTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
     color: colors.text,
-    marginBottom: 12,
+    marginBottom: 14,
   },
   providerButton: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: colors.surface,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    borderWidth: 2,
-    borderColor: 'transparent',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 10,
+    borderWidth: 1.5,
+    borderColor: colors.border,
   },
   providerButtonActive: {
-    backgroundColor: '#E3F2FD',
-    borderColor: '#2196F3',
+    backgroundColor: colors.primary + '0F',
+    borderColor: colors.primary,
   },
   providerIcon: {
     fontSize: 32,
@@ -853,32 +856,22 @@ const createStyles = (colors: any) => StyleSheet.create({
     flex: 1,
   },
   providerName: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 15,
+    fontWeight: '700',
     color: colors.text,
-    marginBottom: 4,
+    marginBottom: 3,
   },
   providerDescription: {
-    fontSize: 12,
+    fontSize: 12.5,
     color: colors.textSecondary,
   },
   providerCheck: {
     fontSize: 24,
-    color: '#2196F3',
+    color: colors.primary,
     fontWeight: '700',
   },
   savedCardsCard: {
-    backgroundColor: colors.card,
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-    borderWidth: 1,
-    borderColor: colors.border,
+    ...card,
   },
   savedCardsHeader: {
     flexDirection: 'row',
@@ -887,28 +880,28 @@ const createStyles = (colors: any) => StyleSheet.create({
     marginBottom: 12,
   },
   savedCardsTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
     color: colors.text,
   },
   manageCardsLink: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#2196F3',
+    color: colors.primary,
   },
   savedCardItem: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: colors.surface,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    borderWidth: 2,
-    borderColor: 'transparent',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 10,
+    borderWidth: 1.5,
+    borderColor: colors.border,
   },
   savedCardItemActive: {
-    backgroundColor: '#E3F2FD',
-    borderColor: '#2196F3',
+    backgroundColor: colors.primary + '0F',
+    borderColor: colors.primary,
   },
   savedCardIcon: {
     fontSize: 32,
@@ -924,45 +917,61 @@ const createStyles = (colors: any) => StyleSheet.create({
     marginBottom: 4,
   },
   savedCardNumber: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
     color: colors.text,
     marginBottom: 4,
+    fontVariant: ['tabular-nums'],
   },
   savedCardDefault: {
     fontSize: 12,
-    color: '#4CAF50',
+    color: colors.primary,
     fontWeight: '600',
   },
   savedCardCheck: {
     fontSize: 24,
-    color: '#2196F3',
+    color: colors.primary,
     fontWeight: '700',
   },
   payButton: {
-    backgroundColor: '#000',
-    padding: 18,
-    borderRadius: 12,
+    backgroundColor: colors.primary,
+    height: 56,
+    borderRadius: 16,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 8,
     marginBottom: 16,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 5,
   },
   payButtonPending: {
-    backgroundColor: '#9C27B0',
+    backgroundColor: colors.warning,
+    shadowColor: colors.warning,
   },
   payButtonDisabled: {
-    opacity: 0.5,
+    opacity: 0.7,
+    shadowOpacity: 0,
+    elevation: 0,
   },
   payButtonText: {
     fontSize: 16,
     fontWeight: '700',
     color: '#fff',
+    letterSpacing: 0.2,
   },
   securityInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#E8F5E9',
-    padding: 16,
-    borderRadius: 12,
+    backgroundColor: colors.surface,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   securityIcon: {
     fontSize: 24,
@@ -971,8 +980,8 @@ const createStyles = (colors: any) => StyleSheet.create({
   securityText: {
     flex: 1,
     fontSize: 12,
-    color: '#2E7D32',
-    lineHeight: 18,
+    color: colors.textSecondary,
+    lineHeight: 17,
   },
   bankSelectionContainer: {
     marginTop: 16,
@@ -992,8 +1001,8 @@ const createStyles = (colors: any) => StyleSheet.create({
     minWidth: '30%',
     paddingVertical: 12,
     paddingHorizontal: 8,
-    borderRadius: 8,
-    borderWidth: 2,
+    borderRadius: 12,
+    borderWidth: 1.5,
     borderColor: colors.border,
     alignItems: 'center',
   },
@@ -1005,27 +1014,17 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontWeight: '600',
   },
   cardFormContainer: {
-    backgroundColor: colors.card,
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-    borderWidth: 1,
-    borderColor: colors.border,
+    ...card,
   },
   cardFormTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
     color: colors.text,
-    marginBottom: 12,
+    marginBottom: 14,
   },
   cardFormInput: {
     backgroundColor: colors.surface,
-    borderRadius: 8,
+    borderRadius: 12,
     padding: 12,
     marginBottom: 12,
     fontSize: 14,
@@ -1049,7 +1048,7 @@ const createStyles = (colors: any) => StyleSheet.create({
   checkboxBox: {
     width: 20,
     height: 20,
-    borderRadius: 4,
+    borderRadius: 6,
     borderWidth: 2,
     borderColor: colors.border,
     marginRight: 12,
@@ -1064,4 +1063,5 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontSize: 14,
     color: colors.text,
   },
-});
+  });
+};

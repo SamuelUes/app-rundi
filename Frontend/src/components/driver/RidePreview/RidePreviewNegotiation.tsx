@@ -16,6 +16,7 @@ interface RidePreviewNegotiationProps {
   quickSuggestions: number[];
   finalPricePreview: string;
   isDesignatedRide: boolean;
+  isProgrammedRide: boolean;
   clientVehiclePhoto: string | null | undefined;
   colors: any;
   isDark: boolean;
@@ -42,6 +43,7 @@ export function RidePreviewNegotiation({
   quickSuggestions,
   finalPricePreview,
   isDesignatedRide,
+  isProgrammedRide,
   clientVehiclePhoto,
   colors,
   isDark,
@@ -55,11 +57,13 @@ export function RidePreviewNegotiation({
   styles,
   t,
 }: RidePreviewNegotiationProps) {
-  const renderNegotiationBanner = () => {
-    const status = (negotiationStatus || '').toLowerCase();
-    const driverSuggested = typeof driverOfferedPrice === 'number' && !Number.isNaN(driverOfferedPrice);
-    const clientSuggested = typeof clientSuggestedPrice === 'number' && !Number.isNaN(clientSuggestedPrice);
+  const status = (negotiationStatus || '').toLowerCase();
+  const driverSuggested =
+    typeof driverOfferedPrice === 'number' && !Number.isNaN(driverOfferedPrice);
+  const clientSuggested =
+    typeof clientSuggestedPrice === 'number' && !Number.isNaN(clientSuggestedPrice);
 
+  const renderNegotiationBanner = () => {
     const statusText = t(`driver.ridePreview.negotiation.status.${status}`, {
       defaultValue:
         status === 'driver_offered'
@@ -68,43 +72,69 @@ export function RidePreviewNegotiation({
     });
 
     if (status === 'driver_offered' && driverSuggested) {
+      const accent = isDark ? '#90CAF9' : '#1565C0';
       return (
         <View
           style={[
             styles.clientOfferBanner,
             {
-              backgroundColor: isDark ? 'rgba(33, 150, 243, 0.18)' : 'rgba(33, 150, 243, 0.12)',
-              borderColor: isDark ? 'rgba(144, 202, 249, 0.6)' : 'rgba(33, 150, 243, 0.35)',
+              backgroundColor: isDark ? 'rgba(33, 150, 243, 0.18)' : 'rgba(33, 150, 243, 0.10)',
+              borderColor: isDark ? 'rgba(144, 202, 249, 0.5)' : 'rgba(33, 150, 243, 0.28)',
             },
           ]}
         >
-          <Text style={[styles.clientOfferTitle, { color: isDark ? '#90CAF9' : '#1565C0' }]}>
-            {t('driver.ridePreview.negotiation.driverOfferTitle', {
-              amount: formatCurrency(driverOfferedPrice),
-            })}
-          </Text>
-          <Text style={[styles.clientOfferSubtitle, { color: colors.textSecondary }]}>{statusText}</Text>
+          <View
+            style={[
+              styles.bannerIconWrap,
+              { backgroundColor: isDark ? 'rgba(144, 202, 249, 0.22)' : 'rgba(33, 150, 243, 0.16)' },
+            ]}
+          >
+            <MaterialIcons name="hourglass-empty" size={18} color={accent} />
+          </View>
+          <View style={styles.bannerTextWrap}>
+            <Text style={[styles.clientOfferTitle, { color: accent }]}>
+              {t('driver.ridePreview.negotiation.driverOfferTitle', {
+                amount: formatCurrency(driverOfferedPrice),
+              })}
+            </Text>
+            <Text style={[styles.clientOfferSubtitle, { color: colors.textSecondary }]}>
+              {statusText}
+            </Text>
+          </View>
         </View>
       );
     }
 
     if (clientSuggested) {
+      const accent = isDark ? '#A5D6A7' : '#2E7D32';
       return (
         <View
           style={[
             styles.clientOfferBanner,
             {
-              backgroundColor: isDark ? 'rgba(76, 175, 80, 0.18)' : 'rgba(76, 175, 80, 0.12)',
-              borderColor: isDark ? 'rgba(129, 199, 132, 0.6)' : 'rgba(76, 175, 80, 0.35)',
+              backgroundColor: isDark ? 'rgba(76, 175, 80, 0.18)' : 'rgba(76, 175, 80, 0.10)',
+              borderColor: isDark ? 'rgba(129, 199, 132, 0.5)' : 'rgba(76, 175, 80, 0.28)',
             },
           ]}
         >
-          <Text style={[styles.clientOfferTitle, { color: isDark ? '#A5D6A7' : '#2E7D32' }]}>
-            {t('driver.ridePreview.negotiation.clientOfferTitle', {
-              amount: formatCurrency(clientSuggestedPrice),
-            })}
-          </Text>
-          <Text style={[styles.clientOfferSubtitle, { color: colors.textSecondary }]}>{statusText}</Text>
+          <View
+            style={[
+              styles.bannerIconWrap,
+              { backgroundColor: isDark ? 'rgba(129, 199, 132, 0.22)' : 'rgba(76, 175, 80, 0.16)' },
+            ]}
+          >
+            <MaterialIcons name="local-offer" size={18} color={accent} />
+          </View>
+          <View style={styles.bannerTextWrap}>
+            <Text style={[styles.clientOfferTitle, { color: accent }]}>
+              {t('driver.ridePreview.negotiation.clientOfferTitle', {
+                amount: formatCurrency(clientSuggestedPrice),
+              })}
+            </Text>
+            <Text style={[styles.clientOfferSubtitle, { color: colors.textSecondary }]}>
+              {statusText}
+            </Text>
+          </View>
         </View>
       );
     }
@@ -112,8 +142,8 @@ export function RidePreviewNegotiation({
     return null;
   };
 
-  const customOfferButtonLabel = lastSuggestedPrice
-    ? formatCurrency(lastSuggestedPrice)
+  const offerToggleLabel = lastSuggestedPrice
+    ? t('driver.ridePreview.negotiation.yourOffer')
     : t('driver.ridePreview.negotiation.customOfferButton');
 
   return (
@@ -129,92 +159,156 @@ export function RidePreviewNegotiation({
           },
         ]}
       >
-        <Text style={[styles.priceLabel, { color: colors.textSecondary }]}>
-          {t('driver.ridePreview.negotiation.estimatedLabel')}
-        </Text>
-        <Text style={[styles.priceValue, { color: colors.text }]}>
-          {formatCurrency(clientSuggestedPrice || estimatedPrice)}
-        </Text>
+        <View style={styles.priceHeaderRow}>
+          <View style={styles.priceHeaderText}>
+            <Text style={[styles.priceLabel, { color: colors.textSecondary }]}>
+              {clientSuggested
+                ? t('driver.ridePreview.negotiation.clientOfferLabel')
+                : t('driver.ridePreview.negotiation.estimatedLabel')}
+            </Text>
+            <Text style={[styles.priceValue, { color: colors.text }]}>
+              {formatCurrency(clientSuggestedPrice || estimatedPrice)}
+            </Text>
+          </View>
+          {isDesignatedRide && clientVehiclePhoto ? (
+            <TouchableOpacity
+              style={[
+                styles.iconButton,
+                { backgroundColor: isDark ? 'rgba(255,255,255,0.10)' : 'rgba(179,135,55,0.12)' },
+              ]}
+              onPress={() => onOpenPhotoModal(clientVehiclePhoto || '')}
+              accessibilityRole="button"
+              accessibilityLabel={t('driver.ridePreview.accessibility.vehiclePhoto')}
+            >
+              <MaterialIcons name="directions-car" size={22} color={colors.primary} />
+            </TouchableOpacity>
+          ) : null}
+        </View>
 
+        {isProgrammedRide && (
+          <View
+            style={[
+              styles.offerToggle,
+              {
+                backgroundColor: isDark ? 'rgba(179,135,55,0.16)' : 'rgba(179,135,55,0.10)',
+                borderColor: isDark ? 'rgba(179,135,55,0.45)' : 'rgba(179,135,55,0.30)',
+              },
+            ]}
+          >
+            <MaterialIcons name="schedule" size={18} color={colors.primary} />
+            <Text style={[styles.offerToggleLabel, { color: colors.primary }]}>
+              {t('driver.available.rideCard.scheduledWaiting')}
+            </Text>
+          </View>
+        )}
+
+        {!isProgrammedRide && quickSuggestions.length > 0 && (
+          <View style={styles.suggestionsSection}>
+            <Text style={[styles.suggestionsLabel, { color: colors.textSecondary }]}>
+              {t('driver.ridePreview.negotiation.suggestionsLabel')}
+            </Text>
+            <View style={styles.chipsRow}>
+              {quickSuggestions.map((value) => {
+                const selected = lastSuggestedPrice === value;
+                return (
+                  <TouchableOpacity
+                    key={value}
+                    style={[
+                      styles.chip,
+                      selected
+                        ? { backgroundColor: colors.primary }
+                        : {
+                            backgroundColor: isDark
+                              ? 'rgba(125,230,173,0.16)'
+                              : 'rgba(125,230,173,0.25)',
+                            borderWidth: 1,
+                            borderColor: isDark
+                              ? 'rgba(125,230,173,0.32)'
+                              : 'rgba(38,140,92,0.25)',
+                          },
+                      sendingOffer && { opacity: 0.6 },
+                    ]}
+                    onPress={() => onApplySuggestion(value)}
+                    disabled={sendingOffer}
+                    activeOpacity={0.8}
+                    accessibilityRole="button"
+                    accessibilityLabel={formatCurrency(value)}
+                  >
+                    <Text
+                      style={[
+                        styles.chipLabel,
+                        { color: selected ? '#FFFFFF' : isDark ? '#7DE6AD' : '#268C5C' },
+                      ]}
+                    >
+                      {formatCurrency(value)}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+        )}
+
+        {!isProgrammedRide && (
         <TouchableOpacity
           style={[
-            styles.suggestButton,
-            styles.inlineSuggestButton,
-            { backgroundColor: colors.primary, opacity: sendingOffer ? 0.7 : 1 },
+            styles.offerToggle,
+            {
+              backgroundColor: isDark ? 'rgba(179,135,55,0.16)' : 'rgba(179,135,55,0.10)',
+              borderColor: isDark ? 'rgba(179,135,55,0.45)' : 'rgba(179,135,55,0.30)',
+            },
+            sendingOffer && { opacity: 0.6 },
           ]}
           onPress={onCustomOfferPress}
           disabled={sendingOffer}
-          activeOpacity={0.9}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: customOfferVisible }}
+          accessibilityLabel={offerToggleLabel}
         >
-          <Text style={styles.suggestButtonText}>{customOfferButtonLabel}</Text>
+          <MaterialIcons name="edit" size={18} color={colors.primary} />
+          <Text style={[styles.offerToggleLabel, { color: colors.primary }]}>
+            {offerToggleLabel}
+          </Text>
+          {lastSuggestedPrice ? (
+            <Text style={[styles.offerToggleValue, { color: colors.primary }]}>
+              {formatCurrency(lastSuggestedPrice)}
+            </Text>
+          ) : null}
+          <MaterialIcons
+            name={customOfferVisible ? 'expand-less' : 'expand-more'}
+            size={20}
+            color={colors.primary}
+          />
         </TouchableOpacity>
+        )}
 
-        <View style={styles.suggestionsSection}>
-          {quickSuggestions.length > 0 && (
-            <>
-              <Text style={[styles.suggestionsLabel, { color: colors.textSecondary }]}>
-                {t('driver.ridePreview.negotiation.suggestionsLabel')}
-              </Text>
-              <View style={styles.suggestionsRow}>
-                <View style={styles.chipsRow}>
-                  {quickSuggestions.map((value) => (
-                    <TouchableOpacity
-                      key={value}
-                      style={[styles.chip, { backgroundColor: isDark ? 'rgba(125,230,173,0.18)' : 'rgba(125,230,173,0.25)' }]}
-                      onPress={() => onApplySuggestion(value)}
-                    >
-                      <Text style={[styles.chipLabel, { color: isDark ? '#7DE6AD' : '#268C5C' }]}>
-                        {formatCurrency(value)}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-                {isDesignatedRide && clientVehiclePhoto ? (
-                  <TouchableOpacity
-                    style={[styles.iconButton, styles.vehiclePhotoButton, { backgroundColor: 'rgba(115,230,173,0.25)' }]}
-                    onPress={() => onOpenPhotoModal(clientVehiclePhoto || '')}
-                  >
-                    <MaterialIcons name="directions-car" size={20} color="#FFFFFF" />
-                  </TouchableOpacity>
-                ) : null}
-              </View>
-            </>
-          )}
-
-          {quickSuggestions.length === 0 && (
-            <TouchableOpacity
-              style={[styles.suggestButton, { backgroundColor: colors.primary, opacity: sendingOffer ? 0.7 : 1 }]}
-              onPress={onCustomOfferPress}
-              disabled={sendingOffer}
-              activeOpacity={0.9}
-            >
-              <Text style={styles.suggestButtonText}>{customOfferButtonLabel}</Text>
-            </TouchableOpacity>
-          )}
-
-          {customOfferVisible && (
+        {!isProgrammedRide && customOfferVisible && (
+          <View
+            style={[
+              styles.customOfferCard,
+              {
+                backgroundColor: isDark ? 'rgba(23,30,38,0.92)' : '#FFFFFF',
+                borderColor: isDark ? 'rgba(255,255,255,0.16)' : 'rgba(21, 37, 58, 0.12)',
+              },
+            ]}
+          >
+            <Text style={[styles.customOfferLabel, { color: colors.textSecondary }]}>
+              {t('driver.ridePreview.negotiation.customLabel')}
+            </Text>
             <View
               style={[
-                styles.customOfferCard,
+                styles.offerInputRow,
                 {
-                  backgroundColor: isDark ? 'rgba(23,30,38,0.92)' : '#FFFFFF',
-                  borderColor: isDark ? 'rgba(255,255,255,0.16)' : 'rgba(21, 37, 58, 0.12)',
+                  borderColor: isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.1)',
+                  backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F7F7F7',
                 },
               ]}
             >
-              <Text style={[styles.customOfferLabel, { color: colors.textSecondary }]}>
-                {t('driver.ridePreview.negotiation.customLabel')}
-              </Text>
+              <Text style={[styles.offerInputPrefix, { color: colors.textSecondary }]}>C$</Text>
               <TextInput
                 ref={customOfferInputRef}
-                style={[
-                  styles.offerInput,
-                  {
-                    borderColor: isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.1)',
-                    backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F7F7F7',
-                    color: colors.text,
-                  },
-                ]}
+                style={[styles.offerInput, { color: colors.text }]}
                 value={counterOffer}
                 onChangeText={onCustomOfferChange}
                 keyboardType="numeric"
@@ -224,24 +318,30 @@ export function RidePreviewNegotiation({
                 returnKeyType="done"
                 onSubmitEditing={onSendCustomOffer}
                 editable={!sendingOffer}
+                accessibilityLabel={t('driver.ridePreview.negotiation.customLabel')}
               />
-              <TouchableOpacity
-                style={[styles.customOfferSendButton, { backgroundColor: colors.primary, opacity: sendingOffer ? 0.7 : 1 }]}
-                onPress={onSendCustomOffer}
-                activeOpacity={0.9}
-                disabled={sendingOffer}
-              >
-                {sendingOffer ? (
-                  <LoadingIcon size={20} color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.customOfferSendButtonText}>
-                    {t('driver.ridePreview.negotiation.send')}
-                  </Text>
-                )}
-              </TouchableOpacity>
             </View>
-          )}
-        </View>
+            <TouchableOpacity
+              style={[
+                styles.customOfferSendButton,
+                { backgroundColor: colors.primary, opacity: sendingOffer ? 0.7 : 1 },
+              ]}
+              onPress={onSendCustomOffer}
+              activeOpacity={0.9}
+              disabled={sendingOffer}
+              accessibilityRole="button"
+              accessibilityLabel={t('driver.ridePreview.negotiation.send')}
+            >
+              {sendingOffer ? (
+                <LoadingIcon size={20} color="#FFFFFF" />
+              ) : (
+                <Text style={styles.customOfferSendButtonText}>
+                  {t('driver.ridePreview.negotiation.send')}
+                </Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        )}
 
         <View
           style={[
@@ -254,7 +354,7 @@ export function RidePreviewNegotiation({
           <Text style={[styles.finalLabel, { color: colors.textSecondary }]}>
             {t('driver.ridePreview.negotiation.finalLabel')}
           </Text>
-          <Text style={[styles.finalValue, { color: colors.text }]}>{finalPricePreview}</Text>
+          <Text style={[styles.finalValue, { color: colors.primary }]}>{finalPricePreview}</Text>
         </View>
       </View>
     </View>

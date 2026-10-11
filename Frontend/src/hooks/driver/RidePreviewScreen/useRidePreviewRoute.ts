@@ -10,6 +10,14 @@ export function useRidePreviewRoute(
   const [routeCoordinates, setRouteCoordinates] = useState<Array<{ latitude: number; longitude: number }>>([]);
   const [loadingRoute, setLoadingRoute] = useState(false);
 
+  // Clave de coordenadas: solo recalcula la ruta cuando cambian los puntos,
+  // no en cada merge de RTDB que recrea los objetos origin/destination.
+  const routeCoordsKey = [
+    `${currentRide.origin?.lat},${currentRide.origin?.lng}`,
+    ...(currentRide.extraDestinations ?? []).map((s) => `${s.lat},${s.lng}`),
+    `${currentRide.destination?.lat},${currentRide.destination?.lng}`,
+  ].join('|');
+
   useEffect(() => {
     const loadRoute = async () => {
       setLoadingRoute(true);
@@ -49,6 +57,7 @@ export function useRidePreviewRoute(
           t('driver.ridePreview.alerts.routeErrorBody'),
         );
         setRouteCoordinates([
+          { latitude: currentRide.origin.lat, longitude: currentRide.origin.lng },
           { latitude: currentRide.destination.lat, longitude: currentRide.destination.lng },
         ]);
       } finally {
@@ -57,7 +66,8 @@ export function useRidePreviewRoute(
     };
 
     loadRoute();
-  }, [currentRide.destination, currentRide.extraDestinations, currentRide.origin, t]);
+    // routeCoordsKey captura todas las coordenadas usadas por loadRoute
+  }, [routeCoordsKey, t]);
 
   return { routeCoordinates, loadingRoute };
 }

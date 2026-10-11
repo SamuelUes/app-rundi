@@ -3,7 +3,7 @@
  * Gestión de llamadas de emergencia
  */
 
-import * as functions from 'firebase-functions';
+import * as functions from 'firebase-functions/v1';
 import { EmergencyCallRepository } from '../sequelize/repositories/EmergencyCallRepository';
 
 const emergencyRepo = new EmergencyCallRepository();

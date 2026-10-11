@@ -3,7 +3,7 @@
  * Gestión de códigos de verificación SMS
  */
 
-import * as functions from 'firebase-functions';
+import * as functions from 'firebase-functions/v1';
 import { SmsVerificationCodeRepository } from '../sequelize/repositories/SmsVerificationCodeRepository';
 
 const smsCodeRepo = new SmsVerificationCodeRepository();

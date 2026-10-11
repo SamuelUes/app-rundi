@@ -43,9 +43,18 @@ interface DynamicMapProps {
   destinationMarker?: { latitude: number; longitude: number };
   clientMarker?: { latitude: number; longitude: number };
   // ✅ NUEVO: Marcadores de paradas extras con colores
-  extraStopMarkers?: Array<{ latitude: number; longitude: number; index: number; color?: string; label?: string }>;
+  extraStopMarkers?: Array<{
+    latitude: number;
+    longitude: number;
+    index: number;
+    color?: string;
+    label?: string;
+    title?: string;
+    meta?: string;
+  }>;
   routeCoordinates?: Array<{ latitude: number; longitude: number }>;
   secondaryRouteCoordinates?: Array<{ latitude: number; longitude: number }>;
+  tertiaryRouteCoordinates?: Array<{ latitude: number; longitude: number }>;
   autoFitEnabled?: boolean;
   nearbyDrivers?: NearbyDriver[]; // Conductores cercanos
   draggableMarker?: boolean; // Permitir arrastrar el marcador
@@ -70,16 +79,23 @@ interface DynamicMapProps {
   manualOriginBounceValue?: Animated.AnimatedInterpolation<number> | Animated.Value;
   manualOriginScale?: number;
   userLocationScale?: number;
+  requestPinScale?: number;
   onMarkerDragStart?: (location: { latitude: number; longitude: number }) => void;
   // ✅ NUEVO: Burbujas de dirección sobre pines
   originLabel?: string;
   destinationLabel?: string;
+  originTitle?: string;
+  destinationTitle?: string;
+  originMeta?: string;
+  destinationMeta?: string;
   showPinBubbles?: boolean;
   disableMarkerPress?: boolean;
   onMarkerPress?: (coords: { latitude: number; longitude: number }) => void;
   routeColor?: string;
   secondaryRouteColor?: string;
+  tertiaryRouteColor?: string;
   googleRenderer?: 'LATEST' | 'LEGACY';
+  fitEdgePadding?: { top?: number; right?: number; bottom?: number; left?: number };
 }
 
 function DynamicMapComponent({
@@ -134,6 +150,8 @@ function DynamicMapComponent({
       routeColor={restProps.routeColor}
       secondaryRouteCoordinates={restProps.secondaryRouteCoordinates}
       secondaryRouteColor={restProps.secondaryRouteColor}
+      tertiaryRouteCoordinates={restProps.tertiaryRouteCoordinates}
+      tertiaryRouteColor={restProps.tertiaryRouteColor}
       googleRenderer={googleRenderer ?? defaultGoogleRenderer}
     />
   );

@@ -1,30 +1,26 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, Image, Animated } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, Pressable, TouchableOpacity, Animated } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import StorageImage from '../../shared/StorageImage';
 import type { OfferItem } from '../../../hooks/client/HomeScreenOffers/useRideOffers';
 import type { TFunction } from 'i18next';
 
-interface OfferEta {
-  etaMins: number;
-  arrivalLabel: string;
-}
-
 interface HomeScreenOffersOfferCardProps {
   item: OfferItem;
   selected: boolean;
-  eta: OfferEta | undefined;
+  isDark: boolean;
+  colors: any;
   etaValueText: string;
   arrivalLabel: string;
   plate: string;
   clientPriceLabel: string;
   driverPriceLabel: string;
+  hasDriverPrice: boolean;
   negotiationLabel: string | null;
   displayName: string;
-  vehicleIconSource: any;
-  ratingPrefix: string;
+  vehicleType: string | null;
+  ratingLabel: string | null;
   photoUri: string | null;
-  colors: any;
   acceptedAnim: Animated.Value;
   onSelect: () => void;
   onMessageDriver: () => void;
@@ -33,21 +29,29 @@ interface HomeScreenOffersOfferCardProps {
   t: TFunction;
 }
 
+const getInitials = (name?: string, fallback: string = 'C') => {
+  if (!name) return fallback;
+  const parts = name.trim().split(' ');
+  if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+  return `${parts[0].charAt(0)}${parts[parts.length - 1].charAt(0)}`.toUpperCase();
+};
+
 export function HomeScreenOffersOfferCard({
   item,
   selected,
-  eta,
+  isDark,
+  colors,
   etaValueText,
   arrivalLabel,
   plate,
   clientPriceLabel,
   driverPriceLabel,
+  hasDriverPrice,
   negotiationLabel,
   displayName,
-  vehicleIconSource,
-  ratingPrefix,
+  vehicleType,
+  ratingLabel,
   photoUri,
-  colors,
   acceptedAnim,
   onSelect,
   onMessageDriver,
@@ -55,107 +59,228 @@ export function HomeScreenOffersOfferCard({
   styles,
   t,
 }: HomeScreenOffersOfferCardProps) {
-  const priceTextColor = selected ? '#F8FAFC' : colors.text;
-  const priceLabelColor = selected ? 'rgba(248, 250, 252, 0.88)' : colors.textSecondary;
+  const [photoFailed, setPhotoFailed] = useState(false);
+  useEffect(() => {
+    setPhotoFailed(false);
+  }, [photoUri]);
+
+  const chipTone = (tone: 'gold' | 'neutral' | 'green') => {
+    if (tone === 'gold') {
+      return {
+        backgroundColor: isDark ? 'rgba(212,175,55,0.22)' : '#F6ECD4',
+        color: isDark ? '#FFDD66' : '#5D4B00',
+      };
+    }
+    if (tone === 'green') {
+      return {
+        backgroundColor: isDark ? 'rgba(76,175,80,0.16)' : 'rgba(46,125,50,0.10)',
+        color: isDark ? '#A5D6A7' : '#2E7D32',
+      };
+    }
+    return {
+      backgroundColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.045)',
+      color: isDark ? colors.textSecondary : '#4A4A4A',
+    };
+  };
+
+  const renderChip = (
+    icon: keyof typeof MaterialIcons.glyphMap,
+    label: string,
+    tone: 'gold' | 'neutral' | 'green' = 'neutral',
+  ) => {
+    const { backgroundColor, color } = chipTone(tone);
+    return (
+      <View style={[styles.offerChip, { backgroundColor }]} key={label}>
+        <MaterialIcons name={icon} size={11} color={color} />
+        <Text style={[styles.offerChipText, { color }]} numberOfLines={1}>
+          {label}
+        </Text>
+      </View>
+    );
+  };
+
+  const isAccepted = item.status === 'accepted';
 
   return (
-    <TouchableOpacity
+    <Pressable
       onPress={onSelect}
-      style={[styles.offerRow, selected ? styles.offerRowSelected : styles.offerRowDefault]}
-      activeOpacity={0.8}
+      style={({ pressed }) => [
+        styles.offerCard,
+        {
+          backgroundColor: selected
+            ? isDark
+              ? '#2B2416'
+              : '#FBF5E9'
+            : isDark
+              ? '#1F1F1F'
+              : '#FFFFFF',
+          borderColor: selected ? '#b38737' : isDark ? '#303030' : '#E9E9E9',
+        },
+        selected && styles.offerCardSelected,
+        pressed && { opacity: 0.96, transform: [{ scale: 0.99 }] },
+      ]}
+      accessibilityRole="button"
+      accessibilityLabel={`${displayName}, ${arrivalLabel}, ${driverPriceLabel}`}
     >
-      <View style={styles.offerAvatarWrap}>
-        <View style={styles.offerAvatarFrame}>
-          {photoUri ? (
-            <StorageImage uri={photoUri} style={styles.offerAvatarPhoto} />
+      <View style={styles.offerTopRow}>
+        <View
+          style={[
+            styles.offerAvatar,
+            { backgroundColor: isDark ? 'rgba(255,255,255,0.09)' : '#F2F2F2' },
+          ]}
+        >
+          {photoUri && !photoFailed ? (
+            <StorageImage
+              uri={photoUri}
+              style={styles.offerAvatarPhoto}
+              onError={() => setPhotoFailed(true)}
+            />
           ) : (
-            <View style={styles.offerAvatarFallback}>
-              <Text style={styles.offerAvatarFallbackText}>{(displayName || 'C').charAt(0).toUpperCase()}</Text>
-            </View>
+            <Text style={[styles.offerAvatarInitials, { color: colors.text }]}>
+              {getInitials(displayName, t('client.homeOffers.list.initialFallback', 'D'))}
+            </Text>
           )}
         </View>
-        <Image source={vehicleIconSource} style={styles.offerVehicleOverlay} />
+
+        <View style={styles.offerInfo}>
+          <Text style={[styles.offerName, { color: colors.text }]} numberOfLines={1}>
+            {displayName}
+          </Text>
+          <View style={styles.offerChipsRow}>
+            {isAccepted
+              ? renderChip('check-circle', t('client.homeOffers.list.acceptedSecondary'), 'green')
+              : null}
+            {negotiationLabel ? renderChip('forum', negotiationLabel, 'gold') : null}
+            {ratingLabel ? renderChip('star', ratingLabel, 'gold') : null}
+            {renderChip('schedule', etaValueText)}
+            {renderChip(vehicleType === 'moto' ? 'two-wheeler' : 'directions-car', plate)}
+          </View>
+        </View>
+
+        <View style={styles.offerPriceColumn}>
+          {hasDriverPrice ? (
+            <>
+              <Text style={[styles.offerPriceValue, { color: colors.text }]}>
+                {driverPriceLabel}
+              </Text>
+              <Text style={[styles.offerPriceCaption, { color: colors.textTertiary }]}>
+                {t('client.homeOffers.list.offerCaption')}
+              </Text>
+            </>
+          ) : (
+            <Text style={[styles.offerPricePending, { color: colors.textSecondary }]}>
+              {driverPriceLabel}
+            </Text>
+          )}
+        </View>
       </View>
-      <View style={styles.offerInfo}>
-        <Text
-          style={[styles.offerTitle, selected ? styles.offerTitleSelected : styles.offerTitleDefault]}
-          numberOfLines={selected ? 2 : 1}
-        >
-          {displayName} - {plate}
-        </Text>
-        <Text
-          style={[styles.offerSubtitle, selected ? styles.offerSubtitleSelected : styles.offerSubtitleDefault]}
-          numberOfLines={2}
-        >
-          {ratingPrefix ? `${ratingPrefix} • ` : ''}
-          {arrivalLabel}
-        </Text>
-        {selected && (
-          <View style={styles.priceRow}>
-            <View style={styles.priceHeaderRow}>
-              <View style={styles.priceHeaderDot} />
-              <Text style={[styles.priceLabel, { color: priceLabelColor }]}>{t('client.homeOffers.list.priceLabel')}</Text>
+
+      {selected ? (
+        <>
+          <View
+            style={[
+              styles.pricePanel,
+              {
+                backgroundColor: isDark ? 'rgba(0,0,0,0.18)' : 'rgba(179,135,55,0.08)',
+                borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(179,135,55,0.18)',
+              },
+            ]}
+          >
+            <Text style={[styles.pricePanelTitle, { color: colors.textTertiary }]}>
+              {t('client.homeOffers.list.priceLabel')}
+            </Text>
+            <View style={styles.priceItemRow}>
+              <Text style={[styles.priceItemLabel, { color: colors.textSecondary }]}>
+                {t('client.homeOffers.list.clientPriceLabel')}
+              </Text>
+              <Text style={[styles.priceItemValue, { color: colors.text }]}>
+                {clientPriceLabel}
+              </Text>
             </View>
-            <View style={styles.priceItems}>
-              <View style={styles.priceItemRow}>
-                <Text style={[styles.priceItemLabel, { color: priceLabelColor }]}>
-                  {t('client.homeOffers.list.clientPriceLabel')}
-                </Text>
-                <Text style={[styles.priceItemValue, { color: priceTextColor }]}>{clientPriceLabel}</Text>
-              </View>
-              <View style={styles.priceItemDivider} />
-              <View style={styles.priceItemRow}>
-                <Text style={[styles.priceItemLabel, { color: priceLabelColor }]}>
-                  {t('client.homeOffers.list.driverPriceLabel')}
-                </Text>
-                <Text style={[styles.priceItemValue, { color: priceTextColor }]}>{driverPriceLabel}</Text>
-              </View>
+            <View
+              style={[
+                styles.priceItemDivider,
+                { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.07)' },
+              ]}
+            />
+            <View style={styles.priceItemRow}>
+              <Text style={[styles.priceItemLabel, { color: colors.textSecondary }]}>
+                {t('client.homeOffers.list.driverPriceLabel')}
+              </Text>
+              <Text
+                style={[
+                  styles.priceItemValue,
+                  { color: hasDriverPrice ? colors.primary : colors.text },
+                ]}
+              >
+                {driverPriceLabel}
+              </Text>
             </View>
           </View>
-        )}
-      </View>
-      {selected ? (
-        <View style={styles.selectedActions}>
-          <TouchableOpacity onPress={onMessageDriver} style={styles.messageButton} activeOpacity={0.9}>
-            <MaterialIcons name="chat" size={24} color="#FFFFFF" />
-          </TouchableOpacity>
-          {item.status === 'accepted' ? (
-            <Animated.View
-              style={[
-                styles.acceptedStatusChip,
-                {
-                  transform: [
-                    {
-                      scale: acceptedAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [0.6, 1],
-                      }),
-                    },
-                  ],
-                  opacity: acceptedAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [0, 1],
-                  }),
-                },
-              ]}
+
+          <View style={styles.cardActionsRow}>
+            <TouchableOpacity
+              onPress={onMessageDriver}
+              style={[styles.iconActionBtn, styles.iconActionBtnChat]}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel={t('client.homeOffers.a11y.messageDriver')}
             >
-              <Text style={styles.acceptedStatusText}>{t('client.homeOffers.list.acceptedPrimary')}</Text>
-            </Animated.View>
-          ) : (
-            <TouchableOpacity onPress={onOpenNegotiation} style={styles.negotiatePill} activeOpacity={0.9}>
-              <Text style={styles.negotiateText}>{t('client.homeOffers.negotiation.pill')}</Text>
+              <MaterialIcons name="chat" size={17} color="#FFFFFF" />
             </TouchableOpacity>
-          )}
-        </View>
-      ) : item.status === 'accepted' ? (
-        <View style={styles.acceptedStatusChipSecondary}>
-          <Text style={styles.acceptedStatusTextSecondary}>{t('client.homeOffers.list.acceptedSecondary')}</Text>
-        </View>
-      ) : (
-        <View style={styles.offerEtaBadge}>
-          <Text style={styles.offerEtaText}>{negotiationLabel ?? etaValueText}</Text>
-        </View>
-      )}
-    </TouchableOpacity>
+
+            {isAccepted ? (
+              <Animated.View
+                style={[
+                  styles.acceptedPill,
+                  {
+                    backgroundColor: isDark ? 'rgba(76,175,80,0.18)' : 'rgba(46,125,50,0.12)',
+                    borderColor: isDark ? 'rgba(165,214,167,0.45)' : 'rgba(46,125,50,0.35)',
+                    transform: [
+                      {
+                        scale: acceptedAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [0.85, 1],
+                        }),
+                      },
+                    ],
+                    opacity: acceptedAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0, 1],
+                    }),
+                  },
+                ]}
+              >
+                <MaterialIcons
+                  name="check-circle"
+                  size={14}
+                  color={isDark ? '#A5D6A7' : '#2E7D32'}
+                />
+                <Text
+                  style={[
+                    styles.acceptedPillText,
+                    { color: isDark ? '#A5D6A7' : '#2E7D32' },
+                  ]}
+                >
+                  {t('client.homeOffers.list.acceptedPrimary')}
+                </Text>
+              </Animated.View>
+            ) : (
+              <TouchableOpacity
+                onPress={onOpenNegotiation}
+                style={styles.negotiatePill}
+                activeOpacity={0.85}
+                accessibilityRole="button"
+              >
+                <MaterialIcons name="swap-horiz" size={14} color="#FFFFFF" />
+                <Text style={styles.negotiateText}>
+                  {t('client.homeOffers.negotiation.pill')}
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </>
+      ) : null}
+    </Pressable>
   );
 }
