@@ -664,9 +664,34 @@ async function handleLocationForProximity(
       loadDismissedRides(),
       loadAutoDismissedRides(),
     ]);
-    const availableRides = nearby.filter(
-      (ride) => !dismissedMap[ride.id] && !autoDismissedMap[ride.id],
-    );
+    const filterNow = Date.now();
+    const availableRides = nearby.filter((ride) => {
+      const dismissedAt = dismissedMap[ride.id];
+      const autoDismissedAt = autoDismissedMap[ride.id];
+      if (!dismissedAt && !autoDismissedAt) return true;
+
+      // Re-oferta del cliente: si hay rechazo previo y el precio cambió,
+      // el dismiss local no debe ocultar la nueva oferta.
+      const hasRejection = Boolean(ride.rejections?.[userId]);
+      const priceChanged = hasRejection && hasPriceChangedForDriver(ride, userId);
+      if (priceChanged) {
+        console.log(`💰 [proximity] Ride ${ride.id} estaba descartado pero el precio cambió - se re-muestra`);
+        return true;
+      }
+
+      const remainingDismissed = dismissedAt
+        ? Math.max(0, Math.round((DISMISS_TTL_MS - (filterNow - dismissedAt)) / 1000))
+        : null;
+      const remainingAuto = autoDismissedAt
+        ? Math.max(0, Math.round((AUTO_DISMISS_TTL_MS - (filterNow - autoDismissedAt)) / 1000))
+        : null;
+      console.log(
+        `⏳ [proximity] Ride ${ride.id} filtrado:` +
+          (dismissedAt ? ` dismissed (quedan ~${remainingDismissed}s)` : '') +
+          (autoDismissedAt ? ` autoDismissed (quedan ~${remainingAuto}s)` : ''),
+      );
+      return false;
+    });
     console.log('🔍 [proximity] availableRides after filter:', availableRides.length);
 
     if (availableRides.length === 0) {

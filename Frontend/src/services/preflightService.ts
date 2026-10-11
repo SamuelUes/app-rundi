@@ -1,5 +1,6 @@
-import { getFirebaseFunctions } from '../config/firebase';
+import { getFirebaseAuth, getFirebaseFunctions } from '../config/firebase';
 import { httpsCallable } from 'firebase/functions';
+import type { User as FirebaseUser } from 'firebase/auth';
 import type { GetPreflightDataRequest, GetPreflightDataResponse, TermsDocumentType } from '../types/preflight';
 import { waitForFirebaseAuthUser } from '../utils/firebaseAuthReady';
 import client from '../api/client';
@@ -38,6 +39,32 @@ function isHttpNotFound(error: any): boolean {
 
 async function delay(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+const FATAL_TOKEN_ERROR_CODES = new Set([
+  'auth/user-token-expired',
+  'auth/invalid-user-token',
+  'auth/user-disabled',
+  'auth/user-not-found',
+]);
+
+/**
+ * Fuerza el refresh del ID token. Si el refresh falla con un error fatal de
+ * sesión (p. ej. sesión persistida desde emuladores u otro proyecto, o usuario
+ * deshabilitado), ningún callable podrá autenticarse: se cierra sesión para
+ * que la app vuelva al login en lugar de fallar en cada request.
+ */
+async function forceRefreshIdTokenOrSignOut(authUser: FirebaseUser): Promise<void> {
+  try {
+    await authUser.getIdToken(true);
+  } catch (error: any) {
+    if (FATAL_TOKEN_ERROR_CODES.has(String(error?.code || ''))) {
+      console.warn('⚠️ [preflightService] Sesión Firebase inválida; cerrando sesión para re-autenticar');
+      const auth = await getFirebaseAuth();
+      await auth.signOut();
+    }
+    throw error;
+  }
 }
 
 const PREFLIGHT_CACHE_TTL_MS = 30_000;
@@ -107,7 +134,7 @@ const preflightService = {
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
         if (forceTokenRefresh) {
-          await authUser.getIdToken(true);
+          await forceRefreshIdTokenOrSignOut(authUser);
           forceTokenRefresh = false;
         }
 
@@ -174,11 +201,30 @@ const preflightService = {
       { expectedUid: string; version: string; acceptedDocuments: Record<TermsDocumentType, boolean> },
       { success?: boolean }
     >(functions, 'acceptPreflightTerms', { timeout: 30_000 });
-    const result = await callable({ expectedUid, version, acceptedDocuments });
 
-    if (result.data?.success !== true) {
-      throw new Error('No se pudo guardar la aceptación de términos');
+    const maxAttempts = 2;
+    let lastError: any = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        if (attempt > 1) {
+          await forceRefreshIdTokenOrSignOut(authUser);
+        }
+        const result = await callable({ expectedUid, version, acceptedDocuments });
+        if (result.data?.success !== true) {
+          throw new Error('No se pudo guardar la aceptación de términos');
+        }
+        return;
+      } catch (error: any) {
+        lastError = error;
+        if (!isUnauthenticatedError(error) || attempt === maxAttempts) {
+          throw error;
+        }
+        await delay(450 * attempt);
+      }
     }
+
+    throw lastError || new Error('No se pudo guardar la aceptación de términos');
   },
 };
 

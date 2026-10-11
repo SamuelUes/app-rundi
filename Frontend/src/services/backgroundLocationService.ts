@@ -28,7 +28,10 @@ const getBackgroundLocationOptions = (): any => {
   return {
     accuracy: 4, // Location.Accuracy.Balanced = 4
     timeInterval: 15000, // 15 segundos (más ahorro de batería)
-    distanceInterval: 25, // 25 metros
+    // Android-only: minDisplacement. Debe ser 0 — con >0 el provider solo
+    // entrega updates al moverse y un conductor estacionado en background
+    // nunca recibiría ticks para detectar viajes cercanos.
+    distanceInterval: 0,
     deferredUpdatesInterval: 30000, // 30 segundos
     deferredUpdatesDistance: 50, // 50 metros
     showsBackgroundLocationIndicator: true, // Indicador en iOS
@@ -48,6 +51,7 @@ interface TrackingState {
   rideId: string | null;
   role: 'driver' | 'client' | null;
   startTime: number | null;
+  optionsHash: string | null;
 }
 
 // Estado inicial
@@ -57,6 +61,17 @@ const initialTrackingState: TrackingState = {
   rideId: null,
   role: null,
   startTime: null,
+  optionsHash: null,
+};
+
+// Hash de las opciones de ubicación para detectar cuando cambian y
+// re-registrar el task (el registro nativo persiste entre reloads/sesiones)
+const getTrackingOptionsHash = (): string => {
+  try {
+    return JSON.stringify(getBackgroundLocationOptions());
+  } catch {
+    return '';
+  }
 };
 
 // Estado actual en memoria
@@ -106,6 +121,7 @@ const performBackgroundStart = async ({ userId, role, rideId }: PendingStartPara
       role,
       rideId,
       startTime: Date.now(),
+      optionsHash: getTrackingOptionsHash(),
     });
 
     await ExpoLocation.startLocationUpdatesAsync(
@@ -551,6 +567,23 @@ export async function isTrackingActive(): Promise<boolean> {
   return state.isTracking && isTaskRunning;
 }
 
+/**
+ * Detecta si el tracking activo fue registrado con opciones de ubicación
+ * distintas a las actuales (el registro nativo persiste entre reloads y
+ * sesiones — sin esto, cambiar timeInterval/distanceInterval nunca toma
+ * efecto hasta reinstalar la app).
+ */
+export async function isTrackingOptionsStale(): Promise<boolean> {
+  try {
+    const state = await loadTrackingState();
+    if (!state.isTracking) return false;
+    return state.optionsHash !== getTrackingOptionsHash();
+  } catch (error) {
+    console.warn('⚠️ Error verificando opciones de tracking:', error);
+    return false;
+  }
+}
+
 export default {
   checkBackgroundLocationPermission,
   startBackgroundLocationTracking,
@@ -558,5 +591,6 @@ export default {
   updateTrackingRideId,
   getTrackingState,
   isTrackingActive,
+  isTrackingOptionsStale,
   ensureBackgroundTrackingIntegrity,
 };

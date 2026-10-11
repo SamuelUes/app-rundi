@@ -58,6 +58,17 @@ export default function useDriverProximityTracking() {
         
         if (cancelled) return;
         if (active) {
+          // El registro nativo del task persiste entre sesiones — si las
+          // opciones de ubicación cambiaron (p.ej. distanceInterval), hay que
+          // re-registrar para que tomen efecto.
+          const optionsStale = await backgroundLocationService.isTrackingOptionsStale();
+          if (optionsStale) {
+            console.log('♻️ [useDriverProximityTracking] Opciones de ubicación cambiaron - reiniciando tracking');
+            await backgroundLocationService.stopBackgroundLocationTracking();
+            await backgroundLocationService.startBackgroundLocationTracking(user.id, 'driver');
+            console.log('✅ [useDriverProximityTracking] Tracking reiniciado con opciones actuales');
+            return;
+          }
           console.log('ℹ️ [useDriverProximityTracking] Tracking ya activo, saltando');
           return;
         }

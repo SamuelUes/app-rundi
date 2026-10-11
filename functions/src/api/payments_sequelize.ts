@@ -90,6 +90,27 @@ const rethrowOrInternal = (error: any, logPrefix: string): never => {
   throw new functions.https.HttpsError('internal', 'Error interno del servidor');
 };
 
+// transaction() recibe null como guess inicial cuando el path no está en el
+// sync tree (`.once()` no lo puebla) y un abort ahí impide el reintento con
+// el valor real del servidor. Mantener un listener 'value' durante la
+// transacción puebla el cache: el primer guess ya trae el dato real.
+const transactionOnPath = async (path: string, update: (current: any) => any) => {
+  const dbRef = admin.database().ref(path);
+  await new Promise<void>((resolve, reject) => {
+    const onValue = () => resolve();
+    const onError = (err: Error) => {
+      dbRef.off('value', onValue);
+      reject(err);
+    };
+    dbRef.on('value', onValue, onError);
+  });
+  try {
+    return await dbRef.transaction(update);
+  } finally {
+    dbRef.off();
+  }
+};
+
 /**
  * Finalización única del pago en efectivo cuando AMBAS partes confirmaron.
  * Idempotente: SQL early-returns si ya completó y la comisión se deduplica
@@ -418,7 +439,7 @@ export const confirmCashPayment = functions.https.onCall(async (data, context) =
     }
 
     const paymentRef = db.ref(`paymentStatus/${rideId}`);
-    const txResult = await paymentRef.transaction((current: any) => {
+    const txResult = await transactionOnPath(`paymentStatus/${rideId}`, (current: any) => {
       if (!current) {
         return; // abort — se rechequea fuera
       }

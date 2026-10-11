@@ -12,12 +12,14 @@
 # Permitir .env del Frontend (para configuración del cliente)
 
 !Frontend/.env.local
-!Frontend/.env.production
+Frontend/.env.production
 !Frontend/android
 
 # Mantener ignorados los .env de Backend y Functions (contienen secrets)
 functions/.env
 functions/.env.*
+functions/.env.local
+functions/.env.production
 Backend/.env
 Backend/.env.*
 

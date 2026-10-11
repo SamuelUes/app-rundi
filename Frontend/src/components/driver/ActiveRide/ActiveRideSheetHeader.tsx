@@ -123,17 +123,19 @@ export function ActiveRideSheetHeader({
             {statusLabel}
           </Text>
         </View>
-        <Text numberOfLines={1} style={[styles.fareText, { color: colors.text }]}>
-          {fareLabel}
-        </Text>
-        {paymentLabel && paymentIcon && (
-          <View style={styles.paymentChip}>
-            <MaterialIcons name={paymentIcon} size={12} color={colors.textSecondary} />
-            <Text numberOfLines={1} style={[styles.paymentChipText, { color: colors.textSecondary }]}>
-              {paymentLabel}
-            </Text>
-          </View>
-        )}
+        <View style={styles.metaRight}>
+          <Text numberOfLines={1} style={[styles.fareText, { color: colors.text }]}>
+            {fareLabel}
+          </Text>
+          {paymentLabel && paymentIcon && (
+            <View style={styles.paymentChip}>
+              <MaterialIcons name={paymentIcon} size={12} color={colors.textSecondary} />
+              <Text numberOfLines={1} style={[styles.paymentChipText, { color: colors.textSecondary }]}>
+                {paymentLabel}
+              </Text>
+            </View>
+          )}
+        </View>
       </View>
     </View>
   );

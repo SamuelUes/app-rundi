@@ -1,3 +1,4 @@
+-- Active: 1791696124043@@aws-1-us-east-2.pooler.supabase.com@6543@postgres
 -- ============================================
 -- SUPABASE POSTGRESQL - ESQUEMA DE REFERENCIA
 -- Rundi / proyecto remoto rundiapp-dev

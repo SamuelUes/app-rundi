@@ -69,7 +69,7 @@ export function ActiveRideCTAButtons({
           <LoadingIcon size={18} color={colors.error} />
         ) : (
           <>
-            <MaterialIcons name="close" size={17} color={colors.error} />
+            <MaterialIcons name="close" size={17} color="#ffff" />
             <Text style={styles.cancelGhostText}>
               {t('driver.activeRide.buttons.cancelRide')}
             </Text>

@@ -3296,8 +3296,8 @@ const resources = {
             tip: 'Tip',
             total: 'Total to receive',
             methodLabel: 'Method:',
-            methodCash: 'Cash 💵',
-            methodCard: 'Card 💳',
+            methodCash: 'Cash',
+            methodCard: 'Card',
           },
           cashStatus: {
             confirmedTitle: 'Client confirmed the payment',
@@ -3306,7 +3306,7 @@ const resources = {
             waitingSubtitle: 'The client must confirm the cash payment first.',
           },
           instructions: {
-            title: '📋 Instructions',
+            title: 'Instructions',
             text:
               '1. Wait for the client to confirm the payment\n2. Verify they hand you the exact amount\n3. Count the cash carefully\n4. Confirm only if you received the total amount',
           },
@@ -3318,16 +3318,16 @@ const resources = {
             infoMessage: 'Do not close this screen. We will notify you once the payment is confirmed.',
           },
           buttons: {
-            confirmCash: '✓ Confirm – I received the payment',
-            switchToCard: '💳 Switch to card',
-            switchToCash: '💵 Switch to cash',
-            reportIssue: '⚠️ Report an issue',
+            confirmCash: 'Confirm – I received the payment',
+            switchToCard: 'Switch to card',
+            switchToCash: 'Switch to cash',
+            reportIssue: 'Report an issue',
             generateCode: 'Generate confirmation code',
           },
           methodBadge: {
             label: 'Method: {{value}}',
-            cash: 'Cash 💵',
-            card: 'Card 💳',
+            cash: 'Cash',
+            card: 'Card',
           },
           switchDisabled: {
             title: 'Cannot change payment method',
@@ -3400,7 +3400,7 @@ const resources = {
             waitingSubtitle: 'The client must confirm the cash payment first.',
           },
           instructions: {
-            title: '📋 Instructions',
+            title: 'Instructions',
             text:
               '1. Wait for the client to confirm the payment\n2. Verify they hand you the exact amount\n3. Count the cash carefully\n4. Confirm only if you received the full amount',
           },
@@ -3408,9 +3408,9 @@ const resources = {
             text: 'If the client does not pay or there is an issue, tap “Report an issue” before confirming.',
           },
           buttons: {
-            confirm: '✓ Confirm – I received the payment',
-            switchToCard: '💳 Switch to card payment',
-            report: '⚠️ Report an issue',
+            confirm: 'Confirm – I received the payment',
+            switchToCard: 'Switch to card payment',
+            report: 'Report an issue',
             useSms: 'Use SMS verification',
             verifySms: 'Verify code',
           },
@@ -8516,8 +8516,8 @@ const resources = {
             tip: 'Propina',
             total: 'Total a recibir',
             methodLabel: 'Método:',
-            methodCash: 'Efectivo 💵',
-            methodCard: 'Tarjeta 💳',
+            methodCash: 'Efectivo',
+            methodCard: 'Tarjeta',
           },
           cashStatus: {
             confirmedTitle: 'El cliente confirmó el pago',
@@ -8526,7 +8526,7 @@ const resources = {
             waitingSubtitle: 'El cliente debe confirmar el pago en efectivo primero.',
           },
           instructions: {
-            title: '📋 Instrucciones',
+            title: 'Instrucciones',
             text:
               '1. Espera a que el cliente confirme el pago\n2. Verifica que te entregue el monto exacto\n3. Cuenta el efectivo con cuidado\n4. Confirma solo si recibiste el monto total',
           },
@@ -8538,16 +8538,16 @@ const resources = {
             infoMessage: 'No cierres esta pantalla. Te avisaremos cuando el pago se confirme.',
           },
           buttons: {
-            confirmCash: '✓ Confirmar – Recibí el pago',
-            switchToCard: '💳 Cambiar a tarjeta',
-            switchToCash: '💵 Cambiar a efectivo',
-            reportIssue: '⚠️ Reportar un problema',
+            confirmCash: 'Confirmar – Recibí el pago',
+            switchToCard: 'Cambiar a tarjeta',
+            switchToCash: 'Cambiar a efectivo',
+            reportIssue: 'Reportar un problema',
             generateCode: 'Generar código de confirmación',
           },
           methodBadge: {
             label: 'Método: {{value}}',
-            cash: 'Efectivo 💵',
-            card: 'Tarjeta 💳',
+            cash: 'Efectivo',
+            card: 'Tarjeta',
           },
           switchDisabled: {
             title: 'No se puede cambiar el método de pago',

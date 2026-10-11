@@ -31,7 +31,10 @@ export default {
     entitlements: {
       'keychain-access-groups': ['$(AppIdentifierPrefix)com.driveangel.rundidev'],
     },
-    usesAppleSignIn: true,
+    // EXPO_UNSIGNED=1 omite capabilities que exigen firma real (Apple Sign In),
+    // permitiendo builds de simulador sin appleTeamId ni certificados.
+    // usesAppleSignIn: true,
+    usesAppleSignIn: process.env.EXPO_UNSIGNED !== '1',
     googleServicesFile: "./GoogleService-Info.plist"
   },
   android: {
@@ -123,10 +126,10 @@ export default {
         image: './src/assets/images/splash-icon.png',
         imageWidth: 200,
         resizeMode: 'contain',
-        backgroundColor: '#0F2628',
+        backgroundColor: '#f1d180',
         dark: {
           image: './src/assets/images/splash-icon.png',
-          backgroundColor: '#0F2628',
+          backgroundColor: '#373587',
         },
       },
     ],
@@ -140,7 +143,7 @@ export default {
       'expo-notifications',
       {
         icon: './src/assets/images/icon.png',
-        color: '#FF9800',
+        color: '#f1c27c',
         sounds: ['./src/assets/sounds/notification.wav'],
         mode: 'production',
         enableBackgroundRemoteNotifications: true,
@@ -171,6 +174,7 @@ export default {
         },
       },
     ],
+    './scripts/with-unsigned-build.cjs',
   ],
   extra: {
     eas: {

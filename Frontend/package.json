@@ -29,7 +29,8 @@
     "env:prod": "node scripts/switch-env.js production",
     "prebuild:clean": "npx expo prebuild --clean",
     "prebuild:clean:android": "npx expo prebuild --clean --platform android",
-    "prebuild:clean:ios": "npx expo prebuild --clean --platform ios"
+    "prebuild:clean:ios": "npx expo prebuild --clean --platform ios",
+    "ios:unsigned": "EXPO_UNSIGNED=1 expo run:ios"
   },
   "dependencies": {
     "@bacons/apple-targets": "5.0.0",

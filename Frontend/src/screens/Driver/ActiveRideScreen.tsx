@@ -822,12 +822,11 @@ export default function ActiveRideScreen({ route, navigation }: any) {
     return null;
   }, [paymentMethod, t]);
 
+  // Solo el monto: la tarifa es lo único que nunca debe truncarse en el meta row
+  // (el estado lo refuerza el CTA, el método lo dice el chip de pago).
   const fareDisplay = useMemo(
-    () =>
-      t('driver.activeRide.labels.fare', {
-        amount: formatCurrency(ride?.finalFare || ride?.estimatedPrice || 0),
-      }),
-    [ride?.finalFare, ride?.estimatedPrice, formatCurrency, t],
+    () => formatCurrency(ride?.finalFare || ride?.estimatedPrice || 0),
+    [ride?.finalFare, ride?.estimatedPrice, formatCurrency],
   );
 
   const ctaMeta = useMemo(() => {
@@ -1168,6 +1167,7 @@ const createStyles = (colors: any) => StyleSheet.create({
   headerMetaRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 8,
     marginTop: 10,
     paddingLeft: 56,
@@ -1181,6 +1181,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
     flexShrink: 1,
+    minWidth: 0,
   },
   statusDot: {
     width: 6,
@@ -1190,12 +1191,19 @@ const createStyles = (colors: any) => StyleSheet.create({
   statusChipText: {
     fontSize: 12,
     fontWeight: '600',
+    flexShrink: 1,
+  },
+  metaRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexShrink: 0,
   },
   fareText: {
-    fontSize: 14,
-    fontWeight: '700',
+    fontSize: 15,
+    fontWeight: '800',
     fontVariant: ['tabular-nums'],
-    flexShrink: 1,
+    flexShrink: 0,
   },
   paymentChip: {
     flexDirection: 'row',
@@ -1206,7 +1214,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
     borderColor: colors.border,
-    flexShrink: 1,
+    flexShrink: 0,
   },
   paymentChipText: {
     fontSize: 11,
@@ -1336,6 +1344,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: colors.error,
     gap: 6,
     height: 46,
     borderRadius: 12,
@@ -1344,7 +1353,7 @@ const createStyles = (colors: any) => StyleSheet.create({
   cancelGhostText: {
     fontSize: 15,
     fontWeight: '600',
-    color: colors.error,
+    color: '#FFFFFF',
   },
   collapsedActions: {
     paddingTop: 12,

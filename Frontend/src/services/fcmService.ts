@@ -185,7 +185,7 @@ class FCMService {
    * Registro único en APNs (iOS). La promesa se cachea para que llamadas
    * concurrentes a getToken no superscedan el registro entre sí
    * ([messaging/registration-superseded]). Un timeout se tolera — es frecuente
-   * en simulador ARM64 y el token puede resolverse igualmente vía getToken.
+   * en simulador ARM64; getToken re-verifica el registro antes de llamar a APNs.
    */
   private ensureApnsRegistered(): Promise<boolean> {
     if (Platform.OS !== 'ios') {
@@ -269,7 +269,19 @@ class FCMService {
       // RNFB v26: iOS requiere registro explícito en APNs antes de getToken
       // (la API namespaced lo hacía implícitamente).
       if (Platform.OS === 'ios') {
-        await this.ensureApnsRegistered();
+        const apnsRegistered = await this.ensureApnsRegistered();
+        if (!apnsRegistered) {
+          // Registro APNs no confirmado (típico en simulador ARM64): llamar a
+          // getToken lanzaría [messaging/unregistered]. Solo se intenta si APNs
+          // completó el registro en segundo plano mientras tanto.
+          const isRegistered = await messagingModule
+            .isDeviceRegisteredForRemoteMessages(messagingInstance)
+            .catch(() => false);
+          if (!isRegistered) {
+            console.log('⚠️ APNs no registró el dispositivo (¿simulador?); se omite token FCM');
+            return null;
+          }
+        }
       }
 
       const fcmToken = await messagingModule.getToken(messagingInstance);
