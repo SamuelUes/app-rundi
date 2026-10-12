@@ -1019,6 +1019,7 @@ const resources = {
             priceApproximation: '~C${{value}}',
             etaValue: '~{{minutes}} min',
             etaUnavailable: 'No ETA',
+            viewOptions: 'View options',
           },
           vehicle: {
             motoLabel: 'Motorcycle',
@@ -2162,6 +2163,10 @@ const resources = {
           count_other: '{{count}} offers',
           emptyHint: 'Keep this screen open, drivers near you will appear here.',
           searchingLong: 'Taking longer than usual — you can keep waiting or cancel and try again later.',
+          hint: {
+            selectNearest: 'Tap the nearest vehicle on the map or pick one of your offers.',
+            selected: 'Driver selected — confirm your ride below.',
+          },
           cancelConfirmTitle: 'Cancel search?',
           cancelConfirmBody: 'If drivers already sent offers, you will lose them.',
           cancelConfirmBodyEmpty: 'Your request will be removed and nearby drivers will stop seeing it.',
@@ -2417,7 +2422,7 @@ const resources = {
             availabilityOff: 'Availability disabled.',
             nearbyRideDistance: '{{distance}} kilometers',
             nearbyRideDistanceFallback: 'a nearby distance',
-            nearbyRide: 'Nearby ride at {{distance}}. Net price C${{price}}.',
+            nearbyRide: 'Nearby ride at {{distance}}. Net price {{price}} córdobas.',
             activeRide: 'You have an active ride with {{client}}. Destination {{destination}}.',
             clientFallback: 'the client',
             destinationFallback: 'the assigned destination',
@@ -2914,9 +2919,9 @@ const resources = {
         },
           ridePreview: {
             voice: {
-              summary: 'Net fare C${{price}}.',
-              summaryWithDistance: 'Net fare C${{price}}. Total distance {{distance}} km.',
-              clientOffer: 'Client offered C${{amount}} córdobas.',
+              summary: 'Net fare {{price}} córdobas.',
+              summaryWithDistance: 'Net fare {{price}} córdobas. Total distance {{distance}} km.',
+              clientOffer: 'Client offered {{amount}} córdobas.',
             },
             alerts: {
               canceledTitle: 'Ride canceled',
@@ -3096,7 +3101,7 @@ const resources = {
           voice: {
             origin: 'Pickup {{origin}}',
             destination: 'Destination {{destination}}',
-            netFare: 'Net fare C${{amount}}',
+            netFare: 'Net fare {{amount}} córdobas',
             totalDistance: 'Total distance {{distance}} km',
             originFallback: 'the assigned pickup',
             destinationFallback: 'the final destination',
@@ -3870,7 +3875,7 @@ const resources = {
             routeDestinationFallback: 'Destination',
             shareTitle: 'Share trip',
             shareMessage:
-              'I am on a trip with {{driver}} ({{vehicleBrand}} {{vehicleModel}} - {{vehicleColor}}) - Plate: {{plate}}\\nPickup: {{pickup}}\\nTrack my trip live: {{url}}',
+              'I am on a trip with {{driver}} ({{vehicleBrand}} {{vehicleModel}} - {{vehicleColor}}) - Plate: {{plate}}\nPickup: {{pickup}}\nTrack my trip live: {{url}}',
             shareError: 'Could not share the trip location.',
             paymentCash: 'Cash',
             paymentCard: 'Card',
@@ -4119,6 +4124,7 @@ const resources = {
             priceApproximation: '~C${{value}}',
             etaValue: '~{{minutes}} min',
             etaUnavailable: 'No ETA',
+            viewOptions: 'View options',
           },
           vehicle: {
             motoLabel: 'Motorcycle',
@@ -7378,6 +7384,10 @@ const resources = {
             count_other: '{{count}} ofertas',
             emptyHint: 'Mantén la pantalla abierta, los conductores cercanos aparecerán aquí.',
             searchingLong: 'Está tardando más de lo normal — puedes seguir esperando o cancelar e intentarlo después.',
+            hint: {
+              selectNearest: 'Toca el vehículo más cercano en el mapa o elige una de tus ofertas.',
+              selected: 'Conductor seleccionado — confirma tu viaje abajo.',
+            },
             cancelConfirmTitle: '¿Cancelar la búsqueda?',
             cancelConfirmBody: 'Si ya hay conductores interesados, perderás sus ofertas.',
             cancelConfirmBodyEmpty: 'Tu solicitud se eliminará y los conductores cercanos dejarán de verla.',
@@ -7635,7 +7645,7 @@ const resources = {
               availabilityOff: 'Disponibilidad desactivada.',
               nearbyRideDistance: '{{distance}} kilómetros',
               nearbyRideDistanceFallback: 'una distancia cercana',
-              nearbyRide: 'Viaje cercano a {{distance}}. Tarifa neta C${{price}}.',
+              nearbyRide: 'Viaje cercano a {{distance}}. Tarifa neta {{price}} córdobas.',
               activeRide: 'Tienes un viaje activo con {{client}}. Destino {{destination}}.',
               clientFallback: 'el cliente',
               destinationFallback: 'el destino asignado',
@@ -8134,9 +8144,9 @@ const resources = {
         },
         ridePreview: {
           voice: {
-            summary: 'Tarifa neta C${{price}}.',
-            summaryWithDistance: 'Tarifa neta C${{price}}. Distancia total {{distance}} km.',
-            clientOffer: 'El cliente ofreció C${{amount}} córdobas.',
+            summary: 'Tarifa neta {{price}} córdobas.',
+            summaryWithDistance: 'Tarifa neta {{price}} córdobas. Distancia total {{distance}} km.',
+            clientOffer: 'El cliente ofreció {{amount}} córdobas.',
           },
           alerts: {
             canceledTitle: 'Viaje cancelado',
@@ -8316,7 +8326,7 @@ const resources = {
   voice: {
     origin: 'Recogida {{origin}}',
     destination: 'Destino {{destination}}',
-    netFare: 'Tarifa neta C${{amount}}',
+    netFare: 'Tarifa neta {{amount}} córdobas',
     totalDistance: 'Distancia total {{distance}} km',
     originFallback: 'el punto de recogida asignado',
     destinationFallback: 'el destino final',
@@ -9085,7 +9095,7 @@ const resources = {
               routeDestinationFallback: 'Destino',
               shareTitle: 'Compartir viaje',
               shareMessage:
-                'Voy en un viaje con {{driver}} ({{vehicleBrand}} {{vehicleModel}} - {{vehicleColor}}) - Placa: {{plate}}\\nRecogida: {{pickup}}\\nSigue mi viaje en vivo: {{url}}',
+                'Voy en un viaje con {{driver}} ({{vehicleBrand}} {{vehicleModel}} - {{vehicleColor}}) - Placa: {{plate}}\nRecogida: {{pickup}}\nSigue mi viaje en vivo: {{url}}',
               shareError: 'No se pudo compartir la ubicación del viaje.',
               paymentCash: 'Efectivo',
               paymentCard: 'Tarjeta',
@@ -9340,6 +9350,7 @@ const resources = {
             priceApproximation: '~C${{value}}',
             etaValue: '~{{minutes}} min',
             etaUnavailable: 'Sin ETA',
+            viewOptions: 'Ver opciones',
           },
           vehicle: {
             motoLabel: 'Motocicleta',

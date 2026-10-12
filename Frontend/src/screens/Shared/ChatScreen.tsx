@@ -17,7 +17,7 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useHeaderHeight } from '@react-navigation/elements';
-import { useNavigation } from '@react-navigation/native';
+import { useIsFocused, useNavigation } from '@react-navigation/native';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useAuth } from '../../hooks/shared/auth/useAuth';
@@ -82,13 +82,14 @@ function TypingDots({ dotColor }: { dotColor: string }) {
 }
 
 export default function ChatScreen({ route }: any) {
-  const { rideId, otherUserName, otherUserPhone } = route.params;
+  const { rideId, otherUserId, otherUserName, otherUserPhone } = route.params;
   const { colors, isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const navigation = useNavigation();
   const styles = useMemo(() => createStyles(colors, isDark, insets), [colors, isDark, insets]);
   const { user } = useAuth();
+  const isFocused = useIsFocused();
   const {
     connected,
     otherUserOnline,
@@ -98,7 +99,7 @@ export default function ChatScreen({ route }: any) {
     sendMessage,
     sendTypingIndicator,
     stopTypingIndicator,
-  } = useChat(rideId, user!.id, user!.name);
+  } = useChat(rideId, user!.id, user!.name, isFocused);
   const { t, i18n } = useTranslation();
 
   const [inputText, setInputText] = useState('');
@@ -253,14 +254,14 @@ export default function ChatScreen({ route }: any) {
     const text = inputText.trim();
     if (!text) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    sendMessage(text);
+    sendMessage(text, otherUserId);
     setInputText('');
     isNearBottomRef.current = true;
   };
 
   const handleQuickMessage = (message: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    sendMessage(message);
+    sendMessage(message, otherUserId);
     isNearBottomRef.current = true;
   };
 

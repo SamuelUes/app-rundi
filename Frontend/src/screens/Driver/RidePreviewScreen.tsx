@@ -304,6 +304,7 @@ export default function RidePreviewScreen() {
   const handleMessageClient = () => {
     navigation.navigate('Chat', {
       rideId: ride.id,
+      otherUserId: ride.clientId,
       otherUserName: resolvedClientName,
     });
   };

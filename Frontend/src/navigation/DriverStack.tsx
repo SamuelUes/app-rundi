@@ -105,6 +105,7 @@ export type DriverStackParamList = {
   Help: undefined;
   Chat: {
     rideId: string;
+    otherUserId?: string;
     otherUserName: string;
   };
   SupportChat: {

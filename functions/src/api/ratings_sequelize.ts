@@ -248,7 +248,7 @@ export const getDriverPublicInsights = functions.https.onCall(async (data, conte
       for (const category of CATEGORY_KEYS) {
         const value = Math.round(toNumberOrNull((item as any)?.[category]) ?? 0);
         if (value > 0) {
-          categoryTotals[category] += value;
+          categoryTotals[category] += 1;
         }
       }
     }

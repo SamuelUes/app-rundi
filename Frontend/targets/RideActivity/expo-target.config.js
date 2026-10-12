@@ -15,6 +15,6 @@ module.exports = {
     rideSubtext: { light: '#B0BEC5', dark: '#90A4AE' },
   },
   images: {
-    appIcon: '../../src/assets/images/icon.png',
+    appIcon: '../../src/assets/images/rundi_logo.png',
   },
 };

@@ -35,10 +35,10 @@ export const FCMProvider: React.FC<FCMProviderProps> = ({ children }) => {
   const { user, loading } = useAuth();
 
   useEffect(() => {
-    initializeNotificationSetup().then((granted) => {
+    initializeNotificationSetup().then(async (granted) => {
       setHasPermission(granted);
+      await initializeFCM();
     });
-    initializeFCM();
   }, []);
 
   const initializeFCM = async () => {
@@ -70,13 +70,16 @@ export const FCMProvider: React.FC<FCMProviderProps> = ({ children }) => {
         fcmService.setupNotificationListeners();
         listenersConfigured.current = true;
       }
+      let tokenRegistered = false;
       if (user?.id) {
-        await fcmService.registerToken();
+        tokenRegistered = await fcmService.registerToken();
       } else {
         console.log('ℹ️ [FCM] Sesión de usuario aún no lista; se difiere registro de token.');
       }
-      setIsConfigured(true);
-      console.log('✅ FCM configurado correctamente');
+      setIsConfigured(tokenRegistered);
+      if (tokenRegistered) {
+        console.log('✅ FCM configurado correctamente');
+      }
     } catch (error) {
       console.error('❌ Error inicializando FCM:', error);
     }
@@ -101,13 +104,16 @@ export const FCMProvider: React.FC<FCMProviderProps> = ({ children }) => {
         fcmService.setupNotificationListeners();
         listenersConfigured.current = true;
       }
+      let tokenRegistered = false;
       if (user?.id) {
-        await fcmService.registerToken();
+        tokenRegistered = await fcmService.registerToken();
       } else {
         console.log('ℹ️ [FCM] Sesión de usuario aún no lista; se difiere registro de token.');
       }
-      setIsConfigured(true);
-      console.log('✅ FCM configurado exitosamente');
+      setIsConfigured(tokenRegistered);
+      if (tokenRegistered) {
+        console.log('✅ FCM configurado exitosamente');
+      }
     } catch (error) {
       console.error('❌ Error configurando FCM:', error);
     }
@@ -133,8 +139,8 @@ export const FCMProvider: React.FC<FCMProviderProps> = ({ children }) => {
           listenersConfigured.current = true;
         }
 
-        await fcmService.registerToken();
-        setIsConfigured(true);
+        const tokenRegistered = await fcmService.registerToken();
+        setIsConfigured(tokenRegistered);
       } catch (error) {
         console.error('❌ Error sincronizando token FCM:', error);
       }

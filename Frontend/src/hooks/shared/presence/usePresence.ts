@@ -106,13 +106,12 @@ export function usePresence() {
     const setupPresence = async () => {
       try {
         const auth = await getFirebaseAuth();
-        const functions = await getFirebaseFunctions();
-
         const firebaseUser = auth.currentUser;
-        if (!firebaseUser) {
+        if (!firebaseUser || firebaseUser.uid !== user.id) {
           console.log('⚠️ Usuario no autenticado en Firebase Auth, esperando...');
           return;
         }
+        const functions = await getFirebaseFunctions();
 
         const markActive = httpsCallable(functions, 'markAppActive');
         const markClosed = httpsCallable(functions, 'markAppClosed');
@@ -141,7 +140,7 @@ export function usePresence() {
       try {
         const auth = await getFirebaseAuth();
         const firebaseUser = auth.currentUser;
-        if (!firebaseUser) return;
+        if (!firebaseUser || firebaseUser.uid !== user.id) return;
 
         const actions = actionsRef.current;
         if (!actions) return;
@@ -195,7 +194,7 @@ export function usePresence() {
       if (actions && isDriverCapable) {
         getFirebaseAuth()
           .then((auth) => {
-            if (!auth.currentUser) return;
+            if (!auth.currentUser || auth.currentUser.uid !== user.id) return;
             sessionService
               .getDeviceId()
               .then((deviceId) => {

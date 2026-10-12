@@ -1,5 +1,6 @@
-import { getFirebaseFunctions } from '../config/firebase';
+import { getFirebaseAuth, getFirebaseFunctions } from '../config/firebase';
 import { httpsCallable } from 'firebase/functions';
+import { requireFirebaseAuthUser } from '../utils/firebaseAuthReady';
 import sessionService from './sessionService';
 import analyticsService, { AnalyticsEvents } from './analyticsService';
 import ratingService from './ratingService';
@@ -899,7 +900,29 @@ class RidesService {
    * expone en el enlace compartido y el código expira solo.
    */
   async createRideShareToken(rideId: string): Promise<{ code: string }> {
+    const user = await requireFirebaseAuthUser();
+    const auth = await getFirebaseAuth();
     const functions = await this.getFunctions();
+    const tokenResult = await user.getIdTokenResult(true).catch((error: any) => {
+      if (__DEV__) {
+        console.warn('[createRideShareToken] ID token refresh failed', {
+          errorCode: String(error?.code || 'unknown'),
+        });
+      }
+      throw error;
+    });
+
+    if (__DEV__) {
+      console.info('[createRideShareToken] Auth diagnostics', {
+        authUserPresent: auth.currentUser?.uid === user.uid,
+        authProjectId: auth.app.options.projectId || null,
+        functionsProjectId: functions.app.options.projectId || null,
+        sameFirebaseApp: auth.app === functions.app,
+        tokenAvailable: Boolean(tokenResult.token),
+        tokenAudienceMatchesProject: tokenResult.claims.aud === functions.app.options.projectId,
+      });
+    }
+
     const createToken = httpsCallable(functions, 'createRideShareToken');
     const response = await createToken({ rideId });
     const data = response.data as { code?: string };

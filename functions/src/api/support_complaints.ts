@@ -39,18 +39,24 @@ const toTimestamp = (value: any): number | null => {
  */
 export const notifySupportChatMessage = async (params: {
   complaintId: string;
+  messageId: string;
   toUserId: string | null | undefined;
   fromUserId: string | null | undefined;
   fromRole?: string | null;
   messagePreview?: string | null;
 }) => {
-  const { complaintId, toUserId, fromUserId, fromRole, messagePreview } = params;
+  const { complaintId, messageId, toUserId, fromUserId, fromRole, messagePreview } = params;
 
-  if (!complaintId || !toUserId) {
+  if (!complaintId || !messageId || !toUserId) {
     return;
   }
 
   try {
+    const presenceSnapshot = await database.ref(`chats/${complaintId}/presence/${toUserId}`).once("value");
+    if (presenceSnapshot.val() === true) {
+      return;
+    }
+
     // Cargar ticket para obtener título, categoría y rideId
     const rows = await supabaseGet(
       "cms_complaints",
@@ -104,7 +110,7 @@ export const notifySupportChatMessage = async (params: {
         title,
         fromUserId: fromUserId || undefined,
       },
-      notificationKey: `support-${complaintId}`,
+      notificationKey: `s-${complaintId}-${messageId}`,
       expiresInMs: 60 * 60 * 1000,
     });
   } catch (error: any) {

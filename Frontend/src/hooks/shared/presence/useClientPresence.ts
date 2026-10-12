@@ -65,9 +65,10 @@ export function useClientPresence() {
     const start = async () => {
       try {
         const auth = await getFirebaseAuth();
+        const firebaseUser = auth.currentUser;
+        if (!firebaseUser || firebaseUser.uid !== user.id) return;
         const functions = await getFirebaseFunctions();
-        const uid = auth.currentUser?.uid || user.id;
-        if (!uid) return;
+        const uid = firebaseUser.uid;
 
         const markActive = httpsCallable(functions, 'markAppActive');
         const markClosed = httpsCallable(functions, 'markAppClosed');
@@ -116,7 +117,7 @@ export function useClientPresence() {
       if (actions) {
         getFirebaseAuth()
           .then((auth) => {
-            if (!auth.currentUser) return;
+            if (!auth.currentUser || auth.currentUser.uid !== user?.id) return;
             sessionService.getDeviceId().then((deviceId) => {
               actions.markClosed({ role: 'client', deviceId }).catch(() => {
                 // Silenciar: onDisconnect limpiará automáticamente

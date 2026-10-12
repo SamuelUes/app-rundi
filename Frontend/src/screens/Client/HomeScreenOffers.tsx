@@ -30,6 +30,7 @@ import { haversineKm } from '../../utils/distance';
 import alertService from '../../services/alertService';
 import { HomeScreenOffersOfferCard } from '../../components/client/HomeScreenOffers/HomeScreenOffersOfferCard';
 import { HomeScreenOffersBottomSheet } from '../../components/client/HomeScreenOffers/HomeScreenOffersBottomSheet';
+import { HomeScreenOffersHint } from '../../components/client/HomeScreenOffers/HomeScreenOffersHint';
 
 const { USER_LOCATION_LIGHT, USER_LOCATION_DARK } = MAP_ICONS;
 const MAX_DRIVER_RADIUS_KM = typeof RIDES_RADIUS_KM === 'number' ? RIDES_RADIUS_KM : 6;
@@ -668,6 +669,14 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
         />
       </View>
 
+      <HomeScreenOffersHint
+        hasOffers={visibleOffers.length > 0}
+        hasSelection={!!selectedOffer}
+        isDark={isDark}
+        styles={styles}
+        t={t}
+      />
+
       <HomeScreenOffersBottomSheet
         loading={loading}
         offers={visibleOffers}
@@ -863,6 +872,38 @@ const createStyles = (colors: any) => StyleSheet.create({
     maxWidth: 270,
   },
   offerListContent: { paddingBottom: 4 },
+
+  hintCard: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    borderWidth: StyleSheet.hairlineWidth,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 8,
+    zIndex: 20,
+  },
+  hintIconDisc: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  hintText: {
+    flex: 1,
+    fontSize: 13.5,
+    fontWeight: '600',
+    lineHeight: 18,
+  },
 
   assignedDriverCard: {
     flexDirection: 'row',

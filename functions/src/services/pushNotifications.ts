@@ -125,6 +125,8 @@ const sendToTokens = async (tokens: TokenEntry[], message: PushMessage) => {
     apns: {
       headers: {
         'apns-expiration': String(Math.floor(Date.now() / 1000) + expiresInSeconds),
+        'apns-priority': '10',
+        'apns-push-type': 'alert',
         ...(message.notificationKey ? { 'apns-collapse-id': message.notificationKey } : {}),
       },
       payload: {
@@ -272,6 +274,8 @@ export const sendToTopic = async (topic: string, message: PushMessage) => {
     apns: {
       headers: {
         'apns-expiration': String(Math.floor(Date.now() / 1000) + expiresInSeconds),
+        'apns-priority': '10',
+        'apns-push-type': 'alert',
         ...(message.notificationKey ? { 'apns-collapse-id': message.notificationKey } : {}),
       },
       payload: {

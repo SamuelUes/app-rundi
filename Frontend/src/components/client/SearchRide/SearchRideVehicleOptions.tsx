@@ -121,7 +121,7 @@ export function SearchRideVehicleOptions({
                     <View style={[styles.vehicleOptionIconBubble, isSelected && styles.vehicleOptionIconBubbleSelected]}>
                       <MaterialIcons
                         name={option.icon as IconName}
-                        size={22}
+                        size={19}
                         color={isSelected ? iconColor : metaColor}
                       />
                     </View>
@@ -132,7 +132,7 @@ export function SearchRideVehicleOptions({
                       <MaterialIcons name="check-circle" size={16} color={iconColor} />
                     ) : null}
                   </View>
-                  <Text style={styles.vehicleOptionSubtitle} numberOfLines={2}>
+                  <Text style={styles.vehicleOptionSubtitle} numberOfLines={1}>
                     {option.subtitle}
                   </Text>
                 </View>
@@ -146,7 +146,7 @@ export function SearchRideVehicleOptions({
 
               <View style={styles.vehicleOptionInfoRow}>
                 <View style={styles.vehicleOptionMetaWrap}>
-                  <MaterialIcons name="schedule" size={13} color={metaColor} />
+                  <MaterialIcons name="schedule" size={12} color={metaColor} />
                   <Text style={styles.vehicleOptionMeta} numberOfLines={1}>
                     {etaLabel}
                   </Text>
@@ -164,7 +164,7 @@ export function SearchRideVehicleOptions({
                     </TouchableOpacity>
                     <View style={styles.vehicleOptionPassengerCount}>
                       <Text style={styles.vehicleOptionPassengerValue}>{getPassengersForVehicle(option.type)}</Text>
-                      <MaterialIcons name="person" size={15} color={textColor} />
+                      <MaterialIcons name="person" size={14} color={textColor} />
                     </View>
                     <TouchableOpacity
                       style={[styles.vehicleOptionCounterBtn, !canIncreasePassengers(option.type) && styles.vehicleOptionCounterBtnDisabled]}
@@ -179,7 +179,7 @@ export function SearchRideVehicleOptions({
                 ) : (
                   <View style={styles.vehicleOptionPassengerDisplay}>
                     <Text style={styles.vehicleOptionPassengerValue}>{getPassengersForVehicle(option.type)}</Text>
-                    <MaterialIcons name="person" size={15} color={metaColor} />
+                    <MaterialIcons name="person" size={14} color={metaColor} />
                   </View>
                 )}
               </View>

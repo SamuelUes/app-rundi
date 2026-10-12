@@ -85,6 +85,27 @@ export const routeNotification = async (data: any, options: RouteOptions = {}): 
       return;
     }
 
+    case 'chat_message': {
+      if (typeof rideId !== 'string' || !rideId) return;
+      const senderId = typeof data?.senderId === 'string' ? data.senderId : undefined;
+      const senderName = typeof data?.senderName === 'string' && data.senderName.trim()
+        ? data.senderName.trim()
+        : 'Chat';
+      const ready = await waitForNavigation();
+      if (!ready) return;
+      const doNavigate = () => navigate('Chat', {
+        rideId,
+        otherUserId: senderId,
+        otherUserName: senderName,
+      } as any);
+      if (delay > 0) {
+        setTimeout(doNavigate, delay);
+      } else {
+        doNavigate();
+      }
+      return;
+    }
+
     case 'support_chat':
     case 'support_ticket_message': {
       if (typeof data?.complaintId !== 'string' || !data.complaintId) return;

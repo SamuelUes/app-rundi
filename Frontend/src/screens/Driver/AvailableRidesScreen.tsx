@@ -529,7 +529,13 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
             },
             pressed && { opacity: 0.75, transform: [{ scale: 0.95 }] },
           ]}
-          onPress={() => navigation.goBack?.()}
+          onPress={() => {
+            if (navigation.canGoBack?.()) {
+              navigation.goBack();
+            } else {
+              navigation.navigate('DriverHome');
+            }
+          }}
           accessibilityRole="button"
           accessibilityLabel={t('common.actions.back')}
         >

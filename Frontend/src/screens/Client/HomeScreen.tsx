@@ -595,6 +595,8 @@ const createStyles = (
   statusTextCol: {
     flex: 1,
     gap: 2,
+    alignItems: 'flex-start',
+    position: 'relative',
   },
   statusText: {
     fontSize: 13.5,
@@ -696,9 +698,11 @@ const createStyles = (
     alignSelf: 'center',
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    alignContent: 'center',
     gap: 6,
     paddingVertical: 7,
-    paddingHorizontal: 13,
+    paddingHorizontal: 18,
     borderRadius: 999,
     backgroundColor: isDark ? 'rgba(24,20,17,0.9)' : 'rgba(255,255,255,0.92)',
     borderWidth: StyleSheet.hairlineWidth,

@@ -10,14 +10,17 @@
 import * as functions from 'firebase-functions/v1';
 import * as crypto from 'crypto';
 import admin from 'firebase-admin';
+import {
+  getOrCreateRideShareCode,
+  isActiveRideShareCode,
+  type RideShareCodeStore,
+} from './rideShareCodeStore';
 
 const db = admin.database();
 
 // Alfabeto sin caracteres ambiguos (0/O, 1/I/L) para dictarlo por teléfono.
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const CODE_LENGTH = 8;
-const SHARE_CODE_TTL_MS = 4 * 60 * 60 * 1000; // 4 h
-const MAX_CODE_ATTEMPTS = 5;
 
 function generateCode(length: number = CODE_LENGTH): string {
   const bytes = crypto.randomBytes(length);
@@ -30,6 +33,10 @@ function generateCode(length: number = CODE_LENGTH): string {
 
 export const createRideShareToken = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
+    console.warn('[createRideShareToken] Auth context missing', {
+      authorizationHeaderPresent: Boolean(context.rawRequest?.headers?.authorization),
+      appCheckContextPresent: Boolean(context.app),
+    });
     throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
   }
 
@@ -52,30 +59,55 @@ export const createRideShareToken = functions.https.onCall(async (data, context)
     }
 
     // Generar código único con reintentos en caso de colisión
-    let code = '';
-    for (let attempt = 0; attempt < MAX_CODE_ATTEMPTS; attempt++) {
-      const candidate = generateCode();
-      const existing = await db.ref(`rideTrackingCodes/${candidate}`).once('value');
-      if (!existing.exists()) {
-        code = candidate;
-        break;
-      }
-    }
-
-    if (!code) {
-      throw new functions.https.HttpsError('internal', 'No se pudo generar un código único');
-    }
-
-    await db.ref(`rideTrackingCodes/${code}`).set({
+    const store: RideShareCodeStore = {
+      getIndex: async (targetRideId) => {
+        const snapshot = await db.ref(`rideTrackingCodes/_byRide/${targetRideId}`).once('value');
+        return snapshot.val() || null;
+      },
+      findLegacyEntries: async (targetRideId) => {
+        const snapshot = await db.ref('rideTrackingCodes')
+          .orderByChild('rideId')
+          .equalTo(targetRideId)
+          .once('value');
+        return snapshot.val() || null;
+      },
+      transactIndex: async (targetRideId, candidate, now) => {
+        const result = await db.ref(`rideTrackingCodes/_byRide/${targetRideId}`).transaction((current: any) =>
+          isActiveRideShareCode(current, now) ? undefined : candidate,
+        );
+        return result.snapshot.val() || null;
+      },
+      transactCode: async (candidateCode, candidate, now) => {
+        const result = await db.ref(`rideTrackingCodes/${candidateCode}`).transaction((current: any) => {
+          if (!current) return candidate;
+          if (current.rideId === candidate.rideId && isActiveRideShareCode(current, now)) return current;
+          return;
+        });
+        const entry = result.snapshot.val();
+        return isActiveRideShareCode(entry, now) && entry.rideId === rideId ? entry : null;
+      },
+      replaceIndex: async (targetRideId, expectedCode, replacement) => {
+        const result = await db.ref(`rideTrackingCodes/_byRide/${targetRideId}`).transaction((current: any) =>
+          current?.code === expectedCode ? replacement : undefined,
+        );
+        return result.snapshot.val() || null;
+      },
+    };
+    const entry = await getOrCreateRideShareCode(store, {
       rideId,
       createdBy: uid,
-      createdAt: admin.database.ServerValue.TIMESTAMP,
-      expiresAt: Date.now() + SHARE_CODE_TTL_MS,
+      now: Date.now(),
+      generateCode,
+      isValidCode: (candidate) =>
+        candidate.length === CODE_LENGTH && [...candidate].every((character) => CODE_ALPHABET.includes(character)),
     });
 
-    console.log(`🔗 [createRideShareToken] Código ${code} creado para viaje ${rideId} por ${uid}`);
+    console.log(`🔗 [createRideShareToken] Código de tracking disponible para viaje ${rideId}`);
 
-    return { code, expiresInHours: SHARE_CODE_TTL_MS / (60 * 60 * 1000) };
+    return {
+      code: entry.code,
+      expiresInHours: Math.max(0, (entry.expiresAt - Date.now()) / (60 * 60 * 1000)),
+    };
   } catch (error: any) {
     if (error instanceof functions.https.HttpsError) {
       throw error;

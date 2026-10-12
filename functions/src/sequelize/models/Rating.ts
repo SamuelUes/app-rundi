@@ -30,7 +30,7 @@ Rating.init(
     },
     ride_id: {
       type: DataTypes.UUID,
-      allowNull: false,
+      allowNull: true,
       references: {
         model: 'rides',
         key: 'id',

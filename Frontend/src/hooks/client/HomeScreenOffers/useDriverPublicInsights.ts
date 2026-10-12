@@ -82,6 +82,8 @@ export function useDriverPublicInsights(
   }, [selectedDriverId]);
 
   const reviewsData: DriverReviewsData = useMemo(() => {
+    const effectiveInsights = insights ?? driverPublicInsights;
+
     const defaultCompliments: DriverComplimentItem[] = COMPLIMENT_CATALOG.map((item) => ({
       id: item.id,
       label: t(`client.homeOffers.reviews.compliments.${item.id}`, item.id),
@@ -103,7 +105,7 @@ export function useDriverPublicInsights(
     const rideStats = info?.stats || raw?.stats || {};
 
     const ridesCount =
-      parseInteger(driverPublicInsights?.stats?.totalRides) ??
+      parseInteger(effectiveInsights?.stats?.totalRides) ??
       parseInteger(rideStats?.completedRides) ??
       parseInteger(rideStats?.totalRides) ??
       parseInteger(info?.completedRides) ??
@@ -111,7 +113,7 @@ export function useDriverPublicInsights(
       0;
 
     const yearsWithApp =
-      parseInteger(driverPublicInsights?.stats?.yearsOnPlatform) ??
+      parseInteger(effectiveInsights?.stats?.yearsOnPlatform) ??
       parseInteger(info?.yearsOnPlatform) ??
       parseInteger(raw?.yearsOnPlatform) ??
       parseInteger(info?.experienceYears) ??
@@ -120,8 +122,8 @@ export function useDriverPublicInsights(
 
     const rawCompliments = info?.compliments || raw?.compliments;
     const insightsCountById = new Map(
-      Array.isArray(driverPublicInsights?.compliments)
-        ? driverPublicInsights.compliments.map((item) => [
+      Array.isArray(effectiveInsights?.compliments)
+        ? effectiveInsights.compliments.map((item) => [
             item.id,
             Math.max(0, Math.round(Number(item.count) || 0)),
           ])
@@ -147,7 +149,7 @@ export function useDriverPublicInsights(
     });
 
     const rawReviews =
-      (Array.isArray(driverPublicInsights?.reviews) ? driverPublicInsights.reviews : null) ||
+      (Array.isArray(effectiveInsights?.reviews) ? effectiveInsights.reviews : null) ||
       (Array.isArray(info?.topReviews) ? info.topReviews : null) ||
       (Array.isArray(raw?.topReviews) ? raw.topReviews : null) ||
       (Array.isArray(info?.reviews) ? info.reviews : null) ||
@@ -193,7 +195,7 @@ export function useDriverPublicInsights(
       compliments,
       reviews,
     };
-  }, [driverPublicInsights, driversInfo, driversRaw, selectedDriverId, t]);
+  }, [insights, driverPublicInsights, driversInfo, driversRaw, selectedDriverId, t]);
 
   return { insights, reviewsData };
 }

@@ -532,16 +532,6 @@ export default function ActiveRideScreen({ route, navigation }: any) {
       return;
     }
 
-    void notificationService.showLocalNotification(
-      t('driver.activeRide.notifications.newMessageTitle'),
-      trimmedMessage,
-      {
-        type: 'chat_message',
-        rideId,
-        senderId: latestMessage.senderId,
-      },
-    );
-
     if (!voiceSettings.enabled || voicePaused) {
       return;
     }
@@ -697,6 +687,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
   const handleOpenChat = () => {
     navigation.navigate('Chat', {
       rideId,
+      otherUserId: ride?.clientId,
       otherUserName: resolvedClientName,
     });
   };

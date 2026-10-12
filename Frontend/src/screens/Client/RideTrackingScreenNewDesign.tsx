@@ -343,6 +343,7 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
   const handleOpenChat = useCallback(() => {
     navigation.navigate('Chat', {
       rideId,
+      otherUserId: driverId,
       otherUserName: driverData.name,
       otherUserPhone: driverData.phone || undefined,
     });
@@ -524,14 +525,8 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
     try {
       const pickupAddress = rideData?.origin?.address || tr('labels.pickupFallback');
       // Código de compartición (expira solo, no expone el rideId real)
-      let trackingUrl: string;
-      try {
-        const { code } = await ridesService.createRideShareToken(rideId);
-        trackingUrl = `https://rundiapp.com/tracking?code=${code}`;
-      } catch (tokenError) {
-        console.warn('No se pudo generar código de compartición, usando rideId:', tokenError);
-        trackingUrl = `https://rundiapp.com/tracking?rideId=${rideId}`;
-      }
+      const { code } = await ridesService.createRideShareToken(rideId);
+      const trackingUrl = `https://rundiapp.com/tracking?code=${code}`;
       const message = tr('labels.shareMessage', {
         driver: driverData.name || tr('labels.driverUnknown'),
         vehicleBrand: vehicleData.brand,

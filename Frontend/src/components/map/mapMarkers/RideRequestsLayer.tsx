@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity } from 'react-native';
-import { Marker, Callout } from 'react-native-maps';
+import { Platform, View, Text, TouchableOpacity } from 'react-native';
+import { Marker, Callout, CalloutSubview } from 'react-native-maps';
 import { markerStyles } from './MarkerContent';
 import PinMarkerWithBubble from './PinMarkerWithBubble';
 import { toLatLng, isValidCoord } from '../../../hooks/shared/map/useMapCamera';
@@ -70,6 +70,10 @@ export default React.memo(function RideRequestsLayer({
         if (!isValidCoord(request)) return null;
         const requestId = String(request.id);
         const isSelected = selectedRideRequestId === requestId;
+        const handleRequestOpen = () => {
+          setSelectedRideRequestId(null);
+          onRideRequestPress?.(request);
+        };
         const handleRequestPinPress = () => {
           if (selectedRideRequestId === requestId) {
             setSelectedRideRequestId(null);
@@ -80,6 +84,36 @@ export default React.memo(function RideRequestsLayer({
             });
           }
         };
+        const requestBubbleContent = (
+          <View style={markerStyles.requestWrapper}>
+            <View style={markerStyles.requestBubble}>
+              <Text style={markerStyles.requestTitle} numberOfLines={1}>
+                {request.clientName}
+              </Text>
+              <Text style={markerStyles.requestLine} numberOfLines={1}>
+                {request.originAddress}
+              </Text>
+              <Text style={markerStyles.requestLine} numberOfLines={1}>
+                {request.primaryDestination || request.finalDestination}
+              </Text>
+              <View style={markerStyles.requestMetaRow}>
+                <Text style={markerStyles.requestPrice}>
+                  {request.priceLabel}{request.hasClientSuggestedPrice ? ' • Cliente' : ''}
+                </Text>
+                <Text style={markerStyles.requestPassengers}>
+                  {request.passengers}
+                </Text>
+              </View>
+              {request.extraStopsCount > 0 && (
+                <Text style={markerStyles.requestStops}>
+                  {request.extraStopsCount} parada{request.extraStopsCount > 1 ? 's' : ''} extra
+                </Text>
+              )}
+              <Text style={markerStyles.requestHint}>Toca para negociar</Text>
+            </View>
+            <View style={markerStyles.requestBubbleTail} />
+          </View>
+        );
         return (
           <PinMarkerWithBubble
             key={`ride-request-${requestId}`}
@@ -98,55 +132,24 @@ export default React.memo(function RideRequestsLayer({
             showBubble={showPinBubbles !== false && !isSelected}
             zIndex={isSelected ? 20 : 10}
             onPress={handleRequestPinPress}
-            onCalloutPress={() => {
-              setSelectedRideRequestId(null);
-              if (typeof onRideRequestPress === 'function') {
-                onRideRequestPress(request);
-              }
-            }}
+            onCalloutPress={handleRequestOpen}
           >
             <Callout tooltip>
               <View style={markerStyles.requestCalloutContainer}>
-                <TouchableOpacity
-                  activeOpacity={0.92}
-                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                  style={markerStyles.requestBubbleTouchable}
-                  onPress={() => {
-                    setSelectedRideRequestId(null);
-                    if (typeof onRideRequestPress === 'function') {
-                      onRideRequestPress(request);
-                    }
-                  }}
-                >
-                  <View style={markerStyles.requestWrapper}>
-                    <View style={markerStyles.requestBubble}>
-                      <Text style={markerStyles.requestTitle} numberOfLines={1}>
-                        {request.clientName}
-                      </Text>
-                      <Text style={markerStyles.requestLine} numberOfLines={1}>
-                        {request.originAddress}
-                      </Text>
-                      <Text style={markerStyles.requestLine} numberOfLines={1}>
-                        {request.primaryDestination || request.finalDestination}
-                      </Text>
-                      <View style={markerStyles.requestMetaRow}>
-                        <Text style={markerStyles.requestPrice}>
-                          {request.priceLabel}{request.hasClientSuggestedPrice ? ' • Cliente' : ''}
-                        </Text>
-                        <Text style={markerStyles.requestPassengers}>
-                          {request.passengers}
-                        </Text>
-                      </View>
-                      {request.extraStopsCount > 0 && (
-                        <Text style={markerStyles.requestStops}>
-                          {request.extraStopsCount} parada{request.extraStopsCount > 1 ? 's' : ''} extra
-                        </Text>
-                      )}
-                      <Text style={markerStyles.requestHint}>Toca para negociar</Text>
-                    </View>
-                    <View style={markerStyles.requestBubbleTail} />
-                  </View>
-                </TouchableOpacity>
+                {Platform.OS === 'ios' ? (
+                  <CalloutSubview style={markerStyles.requestBubbleTouchable} onPress={handleRequestOpen}>
+                    {requestBubbleContent}
+                  </CalloutSubview>
+                ) : (
+                  <TouchableOpacity
+                    activeOpacity={0.92}
+                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                    style={markerStyles.requestBubbleTouchable}
+                    onPress={handleRequestOpen}
+                  >
+                    {requestBubbleContent}
+                  </TouchableOpacity>
+                )}
               </View>
             </Callout>
           </PinMarkerWithBubble>

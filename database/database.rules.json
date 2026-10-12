@@ -985,6 +985,9 @@
       "senderName": {
        ".validate": "newData.isString() && newData.val().length <= 120"
       },
+      "recipientId": {
+       ".validate": "!newData.exists() || (newData.isString() && newData.val() !== auth.uid && ((root.child('activeRides/' + $rideId + '/clientId').val() === auth.uid && (root.child('activeRides/' + $rideId + '/driverId').val() === newData.val() || root.child('activeRides/' + $rideId + '/offers/' + newData.val()).exists() || root.child('programmedRides/' + $rideId + '/driverId').val() === newData.val())) || ((root.child('activeRides/' + $rideId + '/driverId').val() === auth.uid || root.child('activeRides/' + $rideId + '/offers/' + auth.uid).exists() || (root.child('activeRides/' + $rideId + '/status').val() === 'requested' && root.child('driversInfo/' + auth.uid).exists())) && root.child('activeRides/' + $rideId + '/clientId').val() === newData.val()) || (root.child('programmedRides/' + $rideId + '/clientId').val() === auth.uid && root.child('programmedRides/' + $rideId + '/driverId').val() === newData.val()) || (root.child('programmedRides/' + $rideId + '/driverId').val() === auth.uid && root.child('programmedRides/' + $rideId + '/clientId').val() === newData.val())))"
+      },
       "timestamp": {
        ".validate": "newData.isNumber() || (newData.isString() && newData.val().length <= 40)"
       }
@@ -999,7 +1002,8 @@
     "presence": {
      "$userId": {
       ".read": "auth != null && (root.child('activeRides/' + $rideId + '/clientId').val() === auth.uid || root.child('activeRides/' + $rideId + '/driverId').val() === auth.uid || root.child('programmedRides/' + $rideId + '/clientId').val() === auth.uid || root.child('programmedRides/' + $rideId + '/driverId').val() === auth.uid || root.child('supportChatParticipants/' + $rideId + '/' + auth.uid).exists() || (root.child('activeRides/' + $rideId + '/status').val() === 'requested' && root.child('driversInfo/' + auth.uid).exists()))",
-      ".write": "auth != null && auth.uid === $userId && (!newData.exists() || root.child('activeRides/' + $rideId + '/clientId').val() === auth.uid || root.child('activeRides/' + $rideId + '/driverId').val() === auth.uid || root.child('programmedRides/' + $rideId + '/clientId').val() === auth.uid || root.child('programmedRides/' + $rideId + '/driverId').val() === auth.uid || root.child('supportChatParticipants/' + $rideId + '/' + auth.uid).exists() || (root.child('activeRides/' + $rideId + '/status').val() === 'requested' && root.child('driversInfo/' + auth.uid).exists()))"
+      ".write": "auth != null && auth.uid === $userId && (!newData.exists() || root.child('activeRides/' + $rideId + '/clientId').val() === auth.uid || root.child('activeRides/' + $rideId + '/driverId').val() === auth.uid || root.child('programmedRides/' + $rideId + '/clientId').val() === auth.uid || root.child('programmedRides/' + $rideId + '/driverId').val() === auth.uid || root.child('supportChatParticipants/' + $rideId + '/' + auth.uid).exists() || (root.child('activeRides/' + $rideId + '/status').val() === 'requested' && root.child('driversInfo/' + auth.uid).exists()))",
+      ".validate": "!newData.exists() || newData.isBoolean()"
      }
     },
     "metadata": {
@@ -1276,6 +1280,7 @@
   "rideTrackingCodes": {
    ".read": false,
    ".write": false,
+   ".indexOn": ["rideId"],
    "$code": {
     ".read": false,
     ".write": false,

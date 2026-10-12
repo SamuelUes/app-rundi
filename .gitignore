@@ -11,7 +11,7 @@
 
 # Permitir .env del Frontend (para configuración del cliente)
 
-!Frontend/.env.local
+Frontend/.env.local
 Frontend/.env.production
 !Frontend/android
 
@@ -82,10 +82,10 @@ temp/
 
 # Carpetas ignoradas (legacy)
 Backend/
-#docs/
+docs/
 #database/
 tools/
-#.env
+.env
 storage.rules
 !Frontend/.env
 tests/
@@ -108,3 +108,7 @@ supabase/
 # Frontend - PERMITIR .env para APIs públicas (Google Maps, etc.)
 # El .env del Frontend se permite porque contiene solo APIs del cliente
 
+Frontend/.env
+Frontend/.env.development
+Frontend/.env
+functions/test/rideShareCodeStore.test.mjs

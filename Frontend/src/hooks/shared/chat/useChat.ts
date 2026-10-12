@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 import { getFirebaseDatabase } from '../../../config/firebase';
 import {
   ref,
@@ -38,9 +39,10 @@ interface ChatRefs {
   presenceAll: any;
   presenceSelf: any;
   connected: any;
+  appStateSubscription?: { remove: () => void };
 }
 
-export function useChat(rideId: string, userId: string, userName: string) {
+export function useChat(rideId: string, userId: string, userName: string, isVisible = false) {
   const [connected, setConnected] = useState(false);
   const [otherUserOnline, setOtherUserOnline] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -51,6 +53,29 @@ export function useChat(rideId: string, userId: string, userName: string) {
   const lastTypingSentRef = useRef(0);
   const typingExpireRef = useRef<NodeJS.Timeout | null>(null);
   const typingSelfClearRef = useRef<NodeJS.Timeout | null>(null);
+  const isVisibleRef = useRef(isVisible);
+  const appIsActiveRef = useRef(AppState.currentState === 'active');
+  const connectedStateRef = useRef(false);
+  const presenceTrackedRef = useRef(false);
+
+  const syncPresence = useCallback(() => {
+    const presenceSelfRef = refsRef.current?.presenceSelf;
+    if (!presenceSelfRef) return;
+
+    const shouldBeVisible = isVisibleRef.current && appIsActiveRef.current && connectedStateRef.current;
+    if (shouldBeVisible) {
+      presenceTrackedRef.current = true;
+      set(presenceSelfRef, true).catch(() => {});
+    } else if (presenceTrackedRef.current) {
+      presenceTrackedRef.current = false;
+      set(presenceSelfRef, false).catch(() => {});
+    }
+  }, []);
+
+  useEffect(() => {
+    isVisibleRef.current = isVisible;
+    syncPresence();
+  }, [isVisible, syncPresence]);
 
   useEffect(() => {
     if (!rideId || !userId) return;
@@ -73,7 +98,7 @@ export function useChat(rideId: string, userId: string, userName: string) {
       const presenceSelfRef = ref(database, `${CHAT_REF}/${rideId}/presence/${userId}`);
       const connectedRef = ref(database, '.info/connected');
 
-      refsRef.current = {
+      const chatRefs: ChatRefs = {
         messages: chatRef,
         typingAll: typingAllRef,
         typingSelf: typingSelfRef,
@@ -81,13 +106,19 @@ export function useChat(rideId: string, userId: string, userName: string) {
         presenceSelf: presenceSelfRef,
         connected: connectedRef,
       };
+      refsRef.current = chatRefs;
 
-      // Estado de conexión real + presencia propia con limpieza onDisconnect
+      chatRefs.appStateSubscription = AppState.addEventListener('change', (nextState) => {
+        appIsActiveRef.current = nextState === 'active';
+        syncPresence();
+      });
+
       onValue(connectedRef, (snapshot) => {
         const isConnected = snapshot.val() === true;
+        connectedStateRef.current = isConnected;
         setConnected(isConnected);
+        syncPresence();
         if (isConnected) {
-          set(presenceSelfRef, true).catch(() => {});
           onDisconnect(presenceSelfRef).set(false).catch(() => {});
           onDisconnect(typingSelfRef).remove().catch(() => {});
         }
@@ -199,12 +230,15 @@ export function useChat(rideId: string, userId: string, userName: string) {
       off(refs.typingAll);
       off(refs.presenceAll);
       off(refs.connected);
+      refs.appStateSubscription?.remove();
       if (refs.typingSelf) {
         remove(refs.typingSelf).catch(() => {});
       }
-      if (refs.presenceSelf) {
+      if (refs.presenceSelf && presenceTrackedRef.current) {
+        presenceTrackedRef.current = false;
         remove(refs.presenceSelf).catch(() => {});
       }
+      connectedStateRef.current = false;
       refsRef.current = null;
       console.log('🧹 Chat desconectado');
     }
@@ -218,18 +252,20 @@ export function useChat(rideId: string, userId: string, userName: string) {
     }
   };
 
-  const sendMessage = async (message: string) => {
+  const sendMessage = async (message: string, recipientId?: string) => {
     if (!message.trim()) return;
 
     try {
       const database = await getFirebaseDatabase();
       const chatRef = ref(database, `${CHAT_REF}/${rideId}/messages`);
+      const normalizedRecipientId = recipientId?.trim();
 
       const messageData = {
         rideId,
         senderId: userId,
         senderName: userName,
         message: message.trim(),
+        ...(normalizedRecipientId ? { recipientId: normalizedRecipientId } : {}),
         // epoch ms: el índice orderByChild('timestamp') ordena mal si se
         // mezclan strings ISO y números en el mismo nodo
         timestamp: Date.now(),

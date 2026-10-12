@@ -1,16 +1,16 @@
 export default {
   name: 'Rundi',
   slug: 'rundi',
-  version: 'Beta - 1.8',
+  version: '2',
   orientation: 'portrait',
   userInterfaceStyle: 'automatic',
-  icon: './src/assets/images/icon.png',
+  icon: './src/assets/images/rundi_logo.png',
   scheme: 'com.driveangel.rundidev',
   ios: {
     supportsTablet: true,
     deploymentTarget: '16.4',
     bundleIdentifier: 'com.driveangel.rundidev',
-    icon: './src/assets/images/icon.png',
+    icon: './src/assets/images/rundi_logo.png',
     urlSchemes: ['driveangel', 'tel', 'mailto', 'whatsapp', 'waze', 'googlemaps'],
     userInterfaceStyle: 'automatic',
     config: {
@@ -44,8 +44,8 @@ export default {
     allowBackup: false,
     googleServicesFile: "./google-services.json",
     adaptiveIcon: {
-      foregroundImage: './src/assets/images/icon.png',
-      backgroundColor: '#0F2628',
+      foregroundImage: './src/assets/images/rundi_logo2.png',
+      backgroundColor: '#FFFFFF',
     },
     permissions: [
       'ACCESS_COARSE_LOCATION',
@@ -126,7 +126,7 @@ export default {
         image: './src/assets/images/splash-icon.png',
         imageWidth: 200,
         resizeMode: 'contain',
-        backgroundColor: '#f1d180',
+        backgroundColor: '#FFF5DB',
         dark: {
           image: './src/assets/images/splash-icon.png',
           backgroundColor: '#373587',
@@ -142,8 +142,8 @@ export default {
     [
       'expo-notifications',
       {
-        icon: './src/assets/images/icon.png',
-        color: '#f1c27c',
+        icon: './src/assets/images/rundi_logo.png',
+        color: '#FFF5DB',
         sounds: ['./src/assets/sounds/notification.wav'],
         mode: 'production',
         enableBackgroundRemoteNotifications: true,

@@ -112,8 +112,8 @@ const AuthLandingScreen: React.FC<Props> = ({ navigation }) => {
 
           <Animated.View style={[styles.heroContent, logoStyle]}>
             <Image
-              source={require('../../assets/images/logo.png')}
-              style={[styles.logo, { width: Math.min(300, windowWidth * 0.72) }]}
+              source={require('../../assets/images/splash-icon.png')}
+              style={[styles.logo, { width: Math.min(300, windowWidth * 0.72), height: Math.min(300, windowWidth * 0.72) * (955 / 1120) }]}
               resizeMode="contain"
               accessibilityLabel="Rundi"
             />
@@ -227,7 +227,7 @@ const createStyles = (colors: any, isDark: boolean) => {
     logo: {
       width: '72%',
       maxWidth: 300,
-      aspectRatio: 864 / 290,
+      aspectRatio: 1120 / 955,
     },
     heroAccent: {
       width: 56,

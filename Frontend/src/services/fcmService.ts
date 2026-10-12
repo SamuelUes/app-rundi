@@ -140,10 +140,8 @@ const initializeMessagingModule = async (): Promise<boolean> => {
         rnMessaging.hasPermission(currentInstance),
       getToken: async (currentInstance: any) =>
         rnMessaging.getToken(currentInstance),
-      isDeviceRegisteredForRemoteMessages: async (currentInstance: any) =>
-        rnMessaging.isDeviceRegisteredForRemoteMessages(currentInstance),
-      registerDeviceForRemoteMessages: async (currentInstance: any) =>
-        rnMessaging.registerDeviceForRemoteMessages(currentInstance),
+      getAPNSToken: async (currentInstance: any) =>
+        rnMessaging.getAPNSToken(currentInstance),
       onMessage: (currentInstance: any, handler: any) =>
         rnMessaging.onMessage(currentInstance, handler),
       onNotificationOpenedApp: (currentInstance: any, handler: any) =>
@@ -179,33 +177,26 @@ class FCMService {
   private onMessageUnsubscribe: (() => void) | null = null;
   private onNotificationOpenedUnsubscribe: (() => void) | null = null;
   private messagingInitPromise: Promise<boolean> | null = null;
-  private apnsRegistrationPromise: Promise<boolean> | null = null;
+  private apnsTokenCheckPromise: Promise<string | null> | null = null;
 
-  /**
-   * Registro único en APNs (iOS). La promesa se cachea para que llamadas
-   * concurrentes a getToken no superscedan el registro entre sí
-   * ([messaging/registration-superseded]). Un timeout se tolera — es frecuente
-   * en simulador ARM64; getToken re-verifica el registro antes de llamar a APNs.
-   */
-  private ensureApnsRegistered(): Promise<boolean> {
-    if (Platform.OS !== 'ios') {
-      return Promise.resolve(true);
-    }
-    if (!this.apnsRegistrationPromise) {
-      this.apnsRegistrationPromise = (async () => {
-        try {
-          if (await messagingModule.isDeviceRegisteredForRemoteMessages(messagingInstance)) {
-            return true;
+  private waitForApnsToken(): Promise<string | null> {
+    if (!this.apnsTokenCheckPromise) {
+      this.apnsTokenCheckPromise = (async () => {
+        for (let attempt = 0; attempt < 6; attempt += 1) {
+          const apnsToken = await messagingModule.getAPNSToken(messagingInstance).catch(() => null);
+          if (typeof apnsToken === 'string' && apnsToken.length > 0) {
+            return apnsToken;
           }
-          await messagingModule.registerDeviceForRemoteMessages(messagingInstance);
-          return true;
-        } catch (regError) {
-          console.warn('⚠️ Registro APNs sin confirmar (frecuente en simulador); se intenta getToken igualmente:', regError);
-          return false;
+          if (attempt < 5) {
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+          }
         }
-      })();
+        return null;
+      })().finally(() => {
+        this.apnsTokenCheckPromise = null;
+      });
     }
-    return this.apnsRegistrationPromise;
+    return this.apnsTokenCheckPromise;
   }
 
   private async getFunctions() {
@@ -266,21 +257,12 @@ class FCMService {
         return null;
       }
 
-      // RNFB v26: iOS requiere registro explícito en APNs antes de getToken
-      // (la API namespaced lo hacía implícitamente).
+      // RNFB v26 requiere tener el token APNs antes de solicitar el token FCM.
       if (Platform.OS === 'ios') {
-        const apnsRegistered = await this.ensureApnsRegistered();
-        if (!apnsRegistered) {
-          // Registro APNs no confirmado (típico en simulador ARM64): llamar a
-          // getToken lanzaría [messaging/unregistered]. Solo se intenta si APNs
-          // completó el registro en segundo plano mientras tanto.
-          const isRegistered = await messagingModule
-            .isDeviceRegisteredForRemoteMessages(messagingInstance)
-            .catch(() => false);
-          if (!isRegistered) {
-            console.log('⚠️ APNs no registró el dispositivo (¿simulador?); se omite token FCM');
-            return null;
-          }
+        const apnsToken = await this.waitForApnsToken();
+        if (!apnsToken) {
+          console.warn('⚠️ No hay token APNs disponible; en simulador iOS ARM64 se requiere un iPhone físico para obtener token FCM.');
+          return null;
         }
       }
 
@@ -306,19 +288,19 @@ class FCMService {
   /**
    * Registrar token FCM en el backend
    */
-  async registerToken(): Promise<void> {
+  async registerToken(): Promise<boolean> {
     try {
       const webUser = await this.getWebAuthUser();
 
       if (!webUser) {
         console.log('⚠️ Usuario no autenticado en Firebase (web), saltando registro de token');
-        return;
+        return false;
       }
 
       const token = await this.getToken();
       if (!token) {
         console.log('⚠️ No hay token FCM disponible');
-        return;
+        return false;
       }
 
       const functions = await this.getFunctions();
@@ -329,8 +311,10 @@ class FCMService {
       });
 
       console.log('✅ Token FCM registrado en backend');
+      return true;
     } catch (error) {
       console.error('❌ Error registrando token FCM:', error);
+      return false;
     }
   }
 

@@ -21,6 +21,7 @@ export type NotificationType =
   | 'ride_live_update'
   | 'proximity_ride'
   | 'support_chat'
+  | 'chat_message'
   | 'support_ticket_message'
   | 'support_call'
   | 'quick_return_active_ride'
@@ -174,6 +175,12 @@ export const notificationCatalog: Record<NotificationType, NotificationCatalogEn
     ttlMs: 120_000,
     route: 'SupportChat',
     notificationKeyPrefix: 'support',
+  },
+  chat_message: {
+    androidChannelId: 'default',
+    ttlMs: 120_000,
+    route: 'Chat',
+    notificationKeyPrefix: 'chat',
   },
   support_ticket_message: {
     androidChannelId: 'default',

@@ -55,7 +55,7 @@ const BACK_BUTTON_ICON = require('../../assets/icons/back_button/back_button2x.p
 const DEFAULT_FALLBACK_COORDS = { latitude: 12.1364, longitude: -86.2514 };
 const MAX_EXTRA_STOPS = 3;
 const SHEET_HANDLE_HEIGHT = 29;
-const SHEET_EXPANDED_RATIO = 0.72;
+const SHEET_EXPANDED_RATIO = 0.68;
 const SHEET_SPRING = { damping: 26, stiffness: 300 };
 type VehicleType = 'moto' | 'auto' | 'designated_driver';
 type DesignatedDriverMode = 'auto' | 'moto';
@@ -866,7 +866,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
                           <View style={styles.collapsedSummaryIcon}>
                             <MaterialIcons
                               name={(selectedVehicleOption?.icon ?? 'directions-car') as never}
-                              size={22}
+                              size={20}
                               color={colors.primary || '#b38737'}
                             />
                           </View>
@@ -884,6 +884,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
                         </View>
                         <View style={styles.collapsedSummaryMetaRow}>
                           <View style={styles.collapsedSummaryMetaPill}>
+                            <MaterialIcons name="schedule" size={13} color={colors.textSecondary || '#666666'} />
                             <Text style={styles.collapsedSummaryMetaPillText}>
                               {calculatingRoute
                                 ? tr('labels.calculating')
@@ -893,9 +894,14 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
                             </Text>
                           </View>
                           <View style={styles.collapsedSummaryMetaPill}>
+                            <MaterialIcons name="person" size={13} color={colors.textSecondary || '#666666'} />
                             <Text style={styles.collapsedSummaryMetaPillText}>
                               {tr('labels.passengersCount', { count: getPassengersForVehicle(vehicleType) })}
                             </Text>
+                          </View>
+                          <View style={styles.collapsedSummaryExpandHint}>
+                            <Text style={styles.collapsedSummaryExpandHintText}>{tr('labels.viewOptions')}</Text>
+                            <MaterialIcons name="keyboard-arrow-up" size={16} color={colors.primary || '#b38737'} />
                           </View>
                         </View>
                       </View>
@@ -1113,44 +1119,51 @@ function createStyles(colors: any, isDark: boolean = false) {
       backgroundColor: borderColor,
     },
     collapsedSummary: {
-      paddingHorizontal: 14,
-      paddingVertical: 12,
-      borderRadius: 16,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      borderRadius: 18,
       backgroundColor: surfaceBg,
       borderWidth: 1,
       borderColor: borderColor,
-      gap: 10,
+      gap: 9,
     },
     collapsedSummaryRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
     collapsedSummaryIcon: {
-      width: 44,
-      height: 44,
-      borderRadius: 22,
+      width: 40,
+      height: 40,
+      borderRadius: 13,
       backgroundColor: accentSoft,
       justifyContent: 'center',
       alignItems: 'center',
     },
-    collapsedSummaryText: { flex: 1 },
-    collapsedSummaryTitle: { fontSize: 16, fontWeight: '800', color: textPrimary },
+    collapsedSummaryText: { flex: 1, minWidth: 0 },
+    collapsedSummaryTitle: { fontSize: 15, fontWeight: '800', color: textPrimary },
     collapsedSummaryMeta: { fontSize: 12, color: textSecondary, marginTop: 2 },
-    collapsedSummaryPrice: { fontSize: 22, fontWeight: '800', color: accentStrong, fontVariant: ['tabular-nums'] },
-    collapsedSummaryMetaRow: { flexDirection: 'row', gap: 8 },
+    collapsedSummaryPrice: { fontSize: 19, fontWeight: '800', color: accentStrong, fontVariant: ['tabular-nums'] },
+    collapsedSummaryMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     collapsedSummaryMetaPill: {
-      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
       borderRadius: 999,
       paddingHorizontal: 10,
-      paddingVertical: 6,
+      paddingVertical: 5,
       backgroundColor: cardBg,
       borderWidth: 1,
       borderColor: borderColor,
-      alignItems: 'center',
-      justifyContent: 'center',
     },
-    collapsedSummaryMetaPillText: { fontSize: 13, fontWeight: '700', color: textPrimary, fontVariant: ['tabular-nums'] },
+    collapsedSummaryMetaPillText: { fontSize: 12, fontWeight: '700', color: textPrimary, fontVariant: ['tabular-nums'] },
+    collapsedSummaryExpandHint: {
+      marginLeft: 'auto',
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 3,
+    },
+    collapsedSummaryExpandHintText: { fontSize: 12, fontWeight: '700', color: textSecondary },
 
     section: { marginBottom: 16 },
     vehicleSection: {
-      padding: 10,
+      padding: 8,
       borderRadius: 18,
       borderWidth: 1,
       borderColor: borderColor,
@@ -1166,56 +1179,56 @@ function createStyles(colors: any, isDark: boolean = false) {
     sectionCompact: { marginBottom: 14 },
     sectionTitle: { fontSize: 16, fontWeight: '800', color: textPrimary, marginBottom: 8 },
 
-    vehicleOptionsList: { gap: 10 },
+    vehicleOptionsList: { gap: 8 },
     vehicleOptionCard: {
-      paddingVertical: 12,
-      paddingHorizontal: 14,
-      borderRadius: 16,
+      paddingVertical: 9,
+      paddingHorizontal: 12,
+      borderRadius: 14,
       backgroundColor: cardBg,
       borderWidth: 1,
       borderColor: borderColor,
-      gap: 8,
+      gap: 5,
     },
     vehicleOptionCardSelected: {
       borderColor: accentBorder,
       backgroundColor: accentSoft,
     },
-    vehicleOptionTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 },
-    vehicleOptionTitleBlock: { flex: 1, gap: 2, minWidth: 0 },
-    vehicleOptionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, minWidth: 0 },
+    vehicleOptionTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
+    vehicleOptionTitleBlock: { flex: 1, gap: 1, minWidth: 0 },
+    vehicleOptionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 7, minWidth: 0 },
     vehicleOptionIconBubble: {
-      width: 44,
-      height: 44,
-      borderRadius: 22,
+      width: 34,
+      height: 34,
+      borderRadius: 17,
       backgroundColor: surfaceBg,
       alignItems: 'center',
       justifyContent: 'center',
     },
     vehicleOptionIconBubbleSelected: { backgroundColor: cardBg },
-    vehicleOptionTitle: { fontSize: 17, fontWeight: '700', color: textPrimary, flexShrink: 1 },
-    vehicleOptionSubtitle: { fontSize: 13, color: textSecondary, marginTop: 2 },
-    vehicleOptionPriceBlock: { alignItems: 'flex-end', gap: 6, flexShrink: 0, marginLeft: 8 },
+    vehicleOptionTitle: { fontSize: 15, fontWeight: '700', color: textPrimary, flexShrink: 1 },
+    vehicleOptionSubtitle: { fontSize: 12, color: textSecondary, marginTop: 1 },
+    vehicleOptionPriceBlock: { alignItems: 'flex-end', gap: 4, flexShrink: 0, marginLeft: 8 },
     vehicleOptionBadge: {
-      paddingHorizontal: 8,
-      paddingVertical: 3,
+      paddingHorizontal: 7,
+      paddingVertical: 2,
       borderRadius: 999,
       backgroundColor: accent,
-      fontSize: 10,
+      fontSize: 9,
       fontWeight: '800',
       color: '#fff',
       textTransform: 'uppercase',
-      letterSpacing: 0.6,
+      letterSpacing: 0.5,
       overflow: 'hidden',
     },
-    vehicleOptionPrice: { fontSize: 22, fontWeight: '800', color: accentStrong, fontVariant: ['tabular-nums'] },
-    vehicleOptionInfoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 2, gap: 8 },
+    vehicleOptionPrice: { fontSize: 19, fontWeight: '800', color: accentStrong, fontVariant: ['tabular-nums'] },
+    vehicleOptionInfoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 0, gap: 8 },
     vehicleOptionMetaWrap: { flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 },
-    vehicleOptionMeta: { fontSize: 12, color: textSecondary, flexShrink: 1 },
+    vehicleOptionMeta: { fontSize: 11.5, color: textSecondary, flexShrink: 1 },
     vehicleOptionPassengerControls: { flexDirection: 'row', alignItems: 'center', gap: 6 },
     vehicleOptionCounterBtn: {
-      width: 30,
-      height: 30,
-      borderRadius: 9,
+      width: 28,
+      height: 28,
+      borderRadius: 8,
       backgroundColor: cardBg,
       borderWidth: 1,
       borderColor: borderColor,
@@ -1223,10 +1236,10 @@ function createStyles(colors: any, isDark: boolean = false) {
       justifyContent: 'center',
     },
     vehicleOptionCounterBtnDisabled: { opacity: 0.4 },
-    vehicleOptionCounterText: { color: textPrimary, fontSize: 17, fontWeight: '700' },
-    vehicleOptionPassengerCount: { flexDirection: 'row', alignItems: 'center', gap: 4, minWidth: 38, justifyContent: 'center' },
-    vehicleOptionPassengerDisplay: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-    vehicleOptionPassengerValue: { fontSize: 15, fontWeight: '700', color: textPrimary },
+    vehicleOptionCounterText: { color: textPrimary, fontSize: 15, fontWeight: '700' },
+    vehicleOptionPassengerCount: { flexDirection: 'row', alignItems: 'center', gap: 3, minWidth: 34, justifyContent: 'center' },
+    vehicleOptionPassengerDisplay: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+    vehicleOptionPassengerValue: { fontSize: 14, fontWeight: '700', color: textPrimary },
 
     designatedDriverModeContainer: {
       marginTop: 12,
