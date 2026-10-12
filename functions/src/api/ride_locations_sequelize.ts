@@ -3,7 +3,7 @@
  * Gestión de ubicaciones de viajes
  */
 
-import * as functions from 'firebase-functions';
+import * as functions from 'firebase-functions/v1';
 import { RideLocationRepository } from '../sequelize/repositories/RideLocationRepository';
 
 const locationRepo = new RideLocationRepository();

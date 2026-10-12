@@ -4,7 +4,7 @@
  * Mantiene solo las últimas 100 ubicaciones por conductor
  */
 
-import * as functions from 'firebase-functions';
+import * as functions from 'firebase-functions/v1';
 import admin from 'firebase-admin';
 
 export const cleanupDriverLocations = functions

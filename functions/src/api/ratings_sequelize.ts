@@ -4,7 +4,7 @@
  * Cliente puede calificar a conductor y viceversa
  */
 
-import * as functions from 'firebase-functions';
+import * as functions from 'firebase-functions/v1';
 import admin from 'firebase-admin';
 import { RatingService } from '../sequelize/services/RatingService';
 import { RideRepository } from '../sequelize/repositories/RideRepository';
@@ -248,7 +248,7 @@ export const getDriverPublicInsights = functions.https.onCall(async (data, conte
       for (const category of CATEGORY_KEYS) {
         const value = Math.round(toNumberOrNull((item as any)?.[category]) ?? 0);
         if (value > 0) {
-          categoryTotals[category] += value;
+          categoryTotals[category] += 1;
         }
       }
     }

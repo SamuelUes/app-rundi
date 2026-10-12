@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, Pressable } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LoadingIcon } from '../../ui/LoadingIcon';
+import { useTheme } from '../../../hooks/shared/theme/useTheme';
 import type { TFunction } from 'i18next';
 
 interface DriverHomeBottomBarProps {
@@ -39,7 +40,9 @@ export function DriverHomeBottomBar({
   styles,
   t,
 }: DriverHomeBottomBarProps) {
+  const { isDark } = useTheme();
   const compact = hasPendingAction || hasInsufficientFunds;
+  const iconMuted = isDark ? 'rgba(28,25,23,0.55)' : 'rgba(255,255,255,0.72)';
 
   return (
     <View style={styles.bottomBar} pointerEvents="box-none">
@@ -59,7 +62,7 @@ export function DriverHomeBottomBar({
           <MaterialIcons
             name="drive-eta"
             size={16}
-            color={isDesignatedDriverMode ? '#241A09' : 'rgba(255,255,255,0.7)'}
+            color={isDesignatedDriverMode ? '#241A09' : iconMuted}
           />
           <Text
             style={[
@@ -89,7 +92,7 @@ export function DriverHomeBottomBar({
           <MaterialIcons
             name={isAvailable ? 'check' : 'power-settings-new'}
             size={26}
-            color={isAvailable ? '#241A09' : 'rgba(255,255,255,0.72)'}
+            color={isAvailable ? '#241A09' : iconMuted}
           />
           {updatingStatus && (
             <View style={styles.availabilityLoadingOverlay}>

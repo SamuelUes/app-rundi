@@ -1,4 +1,4 @@
-import * as functions from "firebase-functions";
+import * as functions from "firebase-functions/v1";
 import admin from "firebase-admin";
 import { cleanupPresenceNodes } from "../helpers/cleanupHelpers";
 import { DEFAULT_SERVICE_AREA_ID } from '../config/constants';
@@ -89,6 +89,7 @@ export const markAppActive = functions.runWith(presenceRuntimeOpts).https.onCall
   const uid = context.auth.uid;
   const now = admin.database.ServerValue.TIMESTAMP;
   const deviceId = typeof data?.deviceId === 'string' ? data.deviceId : undefined;
+  const keepAvailability = data?.keepAvailability === true;
 
   try {
     // Validar sesión activa si se envía deviceId
@@ -131,10 +132,15 @@ export const markAppActive = functions.runWith(presenceRuntimeOpts).https.onCall
       };
 
       const driverLocationUpdate: Record<string, any> = {
-        status: "offline",
         updatedAt: now,
         lastSeen: now,
       };
+
+      // Conductor con disponibilidad activada manualmente: no resetear a
+      // 'offline' al volver a foreground (el cliente reafirma 'available')
+      if (!keepAvailability) {
+        driverLocationUpdate.status = "offline";
+      }
 
       if (typeof location?.latitude === "number") {
         driverLocationUpdate.lat = location.latitude;

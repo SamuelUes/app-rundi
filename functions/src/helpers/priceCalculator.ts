@@ -85,7 +85,7 @@ async function fetchServiceConfig(serviceCode: string): Promise<ServicePricingCo
       'services',
       { code: serviceCode },
       'id,code,commission_rate,base_price,price_per_km,price_per_minute,minimum_fare,is_active',
-      1,
+      { limit: 1, requireServiceRole: true },
     );
 
     if (!Array.isArray(rows) || !rows.length) {

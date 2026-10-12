@@ -3,7 +3,7 @@
  * Gestión de autenticación biométrica
  */
 
-import * as functions from 'firebase-functions';
+import * as functions from 'firebase-functions/v1';
 import { BiometricAuthenticationRepository } from '../sequelize/repositories/BiometricAuthenticationRepository';
 
 const bioAuthRepo = new BiometricAuthenticationRepository();

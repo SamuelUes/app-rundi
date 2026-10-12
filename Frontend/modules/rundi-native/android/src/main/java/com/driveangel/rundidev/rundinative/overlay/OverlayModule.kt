@@ -196,6 +196,33 @@ class OverlayModule : Module() {
       success
     }
 
+    AsyncFunction("bringAppToFront") { rideId: String ->
+      val context = appContext.reactContext
+        ?: throw Exception("Context is null")
+
+      // SYSTEM_ALERT_WINDOW exime a la app de la restricción de
+      // background-activity-start; sin el permiso no se intenta
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) {
+        throw Exception("El permiso de superposición no está concedido.")
+      }
+
+      val launchIntent = context.packageManager
+        .getLaunchIntentForPackage(context.packageName)?.apply {
+          addFlags(
+            Intent.FLAG_ACTIVITY_NEW_TASK or
+                Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+          )
+          if (rideId.isNotEmpty()) {
+            putExtra("overlayRideId", rideId)
+            putExtra("fromOverlay", true)
+          }
+        } ?: return@AsyncFunction false
+
+      context.startActivity(launchIntent)
+      true
+    }
+
     AsyncFunction("hideRideOverlay") {
       try {
         overlayManager?.hideOverlay { }

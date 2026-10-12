@@ -3,7 +3,7 @@
  * Diseñado para soportar 3000 usuarios simultáneos
  */
 
-import { RuntimeOptions } from 'firebase-functions';
+import { RuntimeOptions } from 'firebase-functions/v1';
 
 // Región por defecto para todas las funciones HTTP/callables
 export const DEFAULT_REGION = 'us-central1';

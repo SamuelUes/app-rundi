@@ -14,8 +14,8 @@ import {
 } from 'react-native';
 
 const SPLASH_IMAGE = require('../../assets/images/splash-icon.png');
-const SPLASH_BACKGROUND = '#0F2628';
-const GOLD = '#E2B866';
+const SPLASH_BACKGROUND = '#fff5dbce';
+const GOLD = '#fff5dbce';
 // Debe coincidir con imageWidth del plugin expo-splash-screen en app.config.js
 const LOGO_WIDTH = 200;
 
@@ -101,7 +101,11 @@ const AppSplashOverlay = ({ ready, onFinished }: AppSplashOverlayProps) => {
 
 const styles = StyleSheet.create({
   overlay: {
-    ...StyleSheet.absoluteFillObject,
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
     backgroundColor: SPLASH_BACKGROUND,
     alignItems: 'center',
     justifyContent: 'center',

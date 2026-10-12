@@ -34,8 +34,15 @@ export function DriverProfileVehicles({
             const isApproved = Boolean(vehicle.is_active ?? vehicle.isActive);
 
             return (
-              <View key={vehicle.id} style={[styles.profileVehicleCard, isSelectedVehicle && styles.profileVehicleCardActive]}>
-                <View style={styles.vehicleMainInfo}>
+              <View
+                key={vehicle.id}
+                style={[
+                  styles.profileVehicleCard,
+                  isSelectedVehicle && styles.profileVehicleCardActive,
+                  { flexDirection: 'column', alignItems: 'stretch' },
+                ]}
+              >
+                <View style={[styles.vehicleMainInfo, { width: '100%', flex: 0, marginRight: 0 }]}>
                   <View style={styles.vehicleIcon}>
                     <Image source={ensureVehicleIconSource(vehicle.type)} style={styles.vehicleIconImage} />
                   </View>
@@ -54,12 +61,12 @@ export function DriverProfileVehicles({
                     )}
                   </View>
                 </View>
-                <View style={styles.vehicleButtonsContainer}>
+                <View style={[styles.vehicleButtonsContainer, { width: '100%', marginTop: 14, alignSelf: 'stretch' }]}>
                   <TouchableOpacity
-                    style={[styles.verifyButton]}
+                    style={[styles.verifyButton, { flex: 1, minHeight: 44, justifyContent: 'center' }]}
                     onPress={() => onVerifyVehicle(vehicle.id)}
                   >
-                    <Text style={styles.verifyButtonText}>
+                    <Text style={styles.verifyButtonText} numberOfLines={1}>
                       {isVehicleComplete(vehicle)
                         ? t('driver.profile.vehicles.view')
                         : t('driver.profile.vehicles.verify')}
@@ -67,11 +74,14 @@ export function DriverProfileVehicles({
                   </TouchableOpacity>
                   {vehicles.length > 1 && (
                     <TouchableOpacity
-                      style={[styles.changeButton, isSelectedVehicle && styles.changeButtonActive]}
+                      style={[styles.changeButton, isSelectedVehicle && styles.changeButtonActive, { flex: 1, minHeight: 44, justifyContent: 'center', alignItems: 'center' }]}
                       onPress={() => onSwitchVehicle(vehicle.id)}
                       disabled={isSelectedVehicle || !isApproved}
                     >
-                      <Text style={[styles.changeButtonText, isSelectedVehicle && styles.changeButtonTextActive, (!isApproved && !isSelectedVehicle) && styles.changeButtonTextDisabled]}>
+                      <Text
+                        style={[styles.changeButtonText, isSelectedVehicle && styles.changeButtonTextActive, (!isApproved && !isSelectedVehicle) && styles.changeButtonTextDisabled]}
+                        numberOfLines={1}
+                      >
                         {isSelectedVehicle
                           ? t('driver.profile.vehicles.selected')
                           : isApproved

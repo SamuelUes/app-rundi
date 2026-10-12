@@ -60,9 +60,9 @@ export function SearchRideSummary({
               <Text style={styles.estimateLabel}>{tr('summary.duration')}</Text>
               <Text style={styles.estimateValue}>{estimatedDuration} min</Text>
             </View>
-            <View style={styles.estimateRow}>
-              <Text style={styles.estimateLabel}>{tr('summary.estimate')}</Text>
-              <Text style={styles.estimateValue}>C${estimatedPrice.toFixed(2)}</Text>
+            <View style={styles.estimateHeroRow}>
+              <Text style={styles.estimateHeroLabel}>{tr('summary.estimate')}</Text>
+              <Text style={styles.estimateHeroValue}>C${estimatedPrice.toFixed(2)}</Text>
             </View>
           </>
         )}

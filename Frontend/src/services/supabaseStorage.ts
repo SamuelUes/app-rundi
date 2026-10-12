@@ -76,7 +76,13 @@ export async function resolveDocumentPhotoUrl(photoUrl: string | null | undefine
   try {
     const parsedUrl = new URL(photoUrl);
     if (parsedUrl.protocol !== 'http:') return photoUrl;
-    if (parsedUrl.origin !== new URL(SUPABASE_URL).origin) return photoUrl;
+    const configuredUrl = new URL(SUPABASE_URL);
+    const loopbackHosts = new Set(['localhost', '127.0.0.1', '10.0.2.2']);
+    const sameLocalOrigin =
+      parsedUrl.port === configuredUrl.port &&
+      loopbackHosts.has(parsedUrl.hostname) &&
+      loopbackHosts.has(configuredUrl.hostname);
+    if (parsedUrl.origin !== configuredUrl.origin && !sameLocalOrigin) return photoUrl;
 
     const pathname = parsedUrl.pathname;
     const routePrefix = '/storage/v1/object/';
@@ -101,28 +107,29 @@ export async function resolveDocumentPhotoUrl(photoUrl: string | null | undefine
     return cached.url;
   }
 
-  try {
-    const { data, error } = await getDocumentSigningClient()
-      .storage
-      .from(storageObject.bucket)
-      .createSignedUrl(storageObject.path, documentSignedUrlTtlSeconds);
+  const signingClients = [getDocumentSigningClient(), supabase];
+  for (const client of signingClients) {
+    try {
+      const { data, error } = await client.storage
+        .from(storageObject.bucket)
+        .createSignedUrl(storageObject.path, documentSignedUrlTtlSeconds);
 
-    if (error || !data?.signedUrl) {
-      throw error || new Error('SIGNED_DOCUMENT_URL_NOT_AVAILABLE');
+      if (error || !data?.signedUrl) {
+        continue;
+      }
+
+      documentSignedUrls.set(cacheKey, {
+        url: data.signedUrl,
+        expiresAtMs: Date.now() + documentSignedUrlTtlSeconds * 1000,
+      });
+      return data.signedUrl;
+    } catch {
+      // Intentar con el siguiente cliente (fallback sin JWT de usuario)
     }
-
-    documentSignedUrls.set(cacheKey, {
-      url: data.signedUrl,
-      expiresAtMs: Date.now() + documentSignedUrlTtlSeconds * 1000,
-    });
-    return data.signedUrl;
-  } catch (error) {
-    console.warn(
-      'No se pudo generar la URL temporal del documento:',
-      error instanceof Error ? error.message : 'Error desconocido',
-    );
-    return null;
   }
+
+  console.warn('No se pudo generar la URL temporal del documento');
+  return null;
 }
 
 export const resolveProfilePhotoUrl = resolveDocumentPhotoUrl;

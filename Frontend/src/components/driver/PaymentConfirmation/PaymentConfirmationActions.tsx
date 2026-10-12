@@ -15,6 +15,7 @@ interface PaymentConfirmationActionsProps {
   switching: boolean;
   onConfirmCash: () => void;
   onReportIssue: () => void;
+  colors: any;
   t: any;
   styles: any;
 }
@@ -26,6 +27,7 @@ export function PaymentConfirmationActions({
   switching,
   onConfirmCash,
   onReportIssue,
+  colors,
   t,
   styles,
 }: PaymentConfirmationActionsProps) {
@@ -36,6 +38,8 @@ export function PaymentConfirmationActions({
         onPress={onConfirmCash}
         loading={confirming}
         disabled={confirming || switching}
+        iconName="check-circle"
+        size="large"
         style={styles.confirmButton}
       />
 
@@ -43,7 +47,9 @@ export function PaymentConfirmationActions({
         title={buttonTexts.reportIssue}
         onPress={onReportIssue}
         variant="outline"
+        color={colors.warning}
         disabled={confirming || switching}
+        iconName="report-problem"
         style={styles.reportButton}
       />
 

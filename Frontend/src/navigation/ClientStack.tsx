@@ -82,6 +82,7 @@ export type ClientStackParamList = {
   Help: undefined;
   Chat: {
     rideId: string;
+    otherUserId?: string;
     otherUserName: string;
     otherUserPhone?: string;
   };

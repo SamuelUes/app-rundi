@@ -176,7 +176,7 @@ export function SearchRideSearchOverlay({
           <View style={styles.searchResultsSection}>
             {searchLoading && (
               <View style={styles.searchLoadingRow}>
-                <LoadingIcon size={20} color={colors.primary || '#2196F3'} />
+                <LoadingIcon size={20} color={colors.primary || '#b38737'} />
                 <Text style={styles.searchLoadingText}>{tr('search.loading')}</Text>
               </View>
             )}

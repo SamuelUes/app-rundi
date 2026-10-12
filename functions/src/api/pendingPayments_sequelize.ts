@@ -2,7 +2,7 @@
  * Pending Payments API (Client side)
  * Scans Realtime DB paymentStatus and correlates with active/completed rides
  */
-import * as functions from 'firebase-functions';
+import * as functions from 'firebase-functions/v1';
 import admin from 'firebase-admin';
 
 export const getPendingPayments = functions.https.onCall(async (data, context) => {

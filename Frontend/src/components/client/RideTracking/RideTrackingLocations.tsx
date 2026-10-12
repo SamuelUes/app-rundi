@@ -26,56 +26,63 @@ export function RideTrackingLocations({
   tr,
   styles,
 }: RideTrackingLocationsProps) {
+  const waypoints = Array.isArray(waypointCoords) ? waypointCoords : [];
+  const routePoints = [
+    originCoords
+      ? {
+          kind: 'dot' as const,
+          color: colors.secondary,
+          label: tr('labels.pickupLabel'),
+          address: originAddress || tr('labels.pickupFallback'),
+        }
+      : null,
+    ...waypoints.map((waypoint, index) => {
+      const stopLabel = tr('labels.stopLabel', { index: index + 1 });
+      return {
+        kind: 'dot' as const,
+        color: colors.warning,
+        label: stopLabel,
+        address: extraDestinations?.[index]?.address || stopLabel,
+      };
+    }),
+    destinationCoords
+      ? {
+          kind: 'pin' as const,
+          color: colors.error,
+          label: tr('labels.destinationLabel'),
+          address: destinationAddress || tr('labels.destinationFallback'),
+        }
+      : null,
+  ].filter((point): point is NonNullable<typeof point> => point !== null);
+
+  if (routePoints.length === 0) return null;
+
   return (
-    <View style={styles.locationsContainer}>
-      {originCoords && (
-        <View style={styles.locationItem}>
-          <MaterialIcons name="place" size={20} color={colors.primary} />
-          <View style={styles.locationContent}>
-            <Text style={[styles.locationLabel, { color: colors.textSecondary }]}>
-              {tr('labels.pickupLabel')}
-            </Text>
-            <Text style={[styles.locationAddress, { color: colors.text }]}>
-              {originAddress || tr('labels.pickupFallback')}
+    <View style={styles.routeCard}>
+      {routePoints.map((point, index) => (
+        <View key={`route-point-${index}`} style={styles.routeRow}>
+          <View style={styles.routeIconCol}>
+            <View style={[styles.routeLine, index === 0 && styles.routeLineHidden]} />
+            {point.kind === 'pin' ? (
+              <MaterialIcons name="place" size={22} color={point.color} />
+            ) : (
+              <View style={[styles.routeDot, { backgroundColor: point.color }]} />
+            )}
+            <View
+              style={[
+                styles.routeLine,
+                index === routePoints.length - 1 && styles.routeLineHidden,
+              ]}
+            />
+          </View>
+          <View style={styles.routeTextCol}>
+            <Text style={styles.locationLabel}>{point.label}</Text>
+            <Text numberOfLines={2} style={styles.locationAddress}>
+              {point.address}
             </Text>
           </View>
         </View>
-      )}
-
-      {waypointCoords && waypointCoords.length > 0 && (
-        <>
-          {waypointCoords.map((waypoint, index) => {
-            const extraDest = extraDestinations?.[index];
-            return (
-              <View key={`waypoint-${index}`} style={styles.locationItem}>
-                <Text style={styles.locationIcon}>🟠</Text>
-                <View style={styles.locationContent}>
-                  <Text style={[styles.locationLabel, { color: colors.textSecondary }]}>
-                    {tr('labels.stopLabel', { index: index + 1 })}
-                  </Text>
-                  <Text style={[styles.locationAddress, { color: colors.text }]}>
-                    {extraDest?.address || tr('labels.stopLabel', { index: index + 1 })}
-                  </Text>
-                </View>
-              </View>
-            );
-          })}
-        </>
-      )}
-
-      {destinationCoords && (
-        <View style={styles.locationItem}>
-          <Text style={styles.locationIcon}>🎯</Text>
-          <View style={styles.locationContent}>
-            <Text style={[styles.locationLabel, { color: colors.textSecondary }]}>
-              {tr('labels.destinationLabel')}
-            </Text>
-            <Text style={[styles.locationAddress, { color: colors.text }]}>
-              {destinationAddress || tr('labels.destinationFallback')}
-            </Text>
-          </View>
-        </View>
-      )}
+      ))}
     </View>
   );
 }

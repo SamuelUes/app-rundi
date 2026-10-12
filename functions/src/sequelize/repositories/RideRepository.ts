@@ -103,7 +103,18 @@ export class RideRepository {
       where: {
         client_id: clientId,
         status: {
-          [Op.in]: ['requested', 'accepted', 'in_progress'],
+          // Solo valores válidos del enum ride_status de PG — 'pending_confirm',
+          // 'pending_rating' y 'searching' son estados RTDB y no existen en la
+          // columna enum (un literal inválido rompe la query con 22P02).
+          [Op.in]: [
+            'requested',
+            'driver_offered',
+            'accepted',
+            'driver_on_route',
+            'driver_arrived',
+            'in_progress',
+            'pending_payment',
+          ],
         },
       },
     });
@@ -112,7 +123,19 @@ export class RideRepository {
   }
 
   async update(id: string, data: any, transaction?: Transaction) {
-    const ride = await Ride.findByPk(id, transaction ? { transaction } : undefined);
+    let ride: Ride | null = null;
+    try {
+      ride = await Ride.findByPk(id, transaction ? { transaction } : undefined);
+    } catch {
+      ride = null; // id no es un UUID válido — probablemente sea firebase_ride_id
+    }
+    // Muchos callables reciben el firebase_ride_id (key de RTDB), no el UUID de PG
+    if (!ride) {
+      ride = await Ride.findOne({
+        where: { firebase_ride_id: id },
+        ...(transaction ? { transaction } : {}),
+      });
+    }
     if (!ride) throw new Error('Viaje no encontrado');
     return await ride.update(data, transaction ? { transaction } : undefined);
   }

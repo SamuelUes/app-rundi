@@ -8,7 +8,7 @@
  * Esto es un sistema de respaldo por si falla el archivado automático
  */
 
-import * as functions from "firebase-functions";
+import * as functions from "firebase-functions/v1";
 import admin from "firebase-admin";
 import { cleanupRideFromRealtime } from "../helpers/cleanupHelpers";
 

@@ -13,6 +13,7 @@ import { getFunctions, connectFunctionsEmulator, type Functions } from 'firebase
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import { resolveLocalEmulatorHost } from './localEmulatorHost';
+import { waitForFirebaseAuthInitialization } from '../utils/firebaseAuthState';
 
 // Configuración de Firebase (valores obtenidos únicamente desde variables de entorno)
 const firebaseConfig = {
@@ -32,6 +33,7 @@ let auth: Auth | null = null;
 let firestore: any = null;
 let database: any = null;
 let functions: Functions | null = null;
+let authStateInitialization: Promise<void> | null = null;
 let isInitialized = false;
 
 let regionPublicApp: FirebaseApp | null = null;
@@ -42,6 +44,10 @@ let regionPublicFunctions: Functions | null = null;
  */
 export async function initializeFirebase() {
   if (isInitialized) {
+    return { app, auth, firestore, database, functions };
+  }
+  if (authStateInitialization) {
+    await authStateInitialization;
     return { app, auth, firestore, database, functions };
   }
 
@@ -85,6 +91,9 @@ export async function initializeFirebase() {
       if (__DEV__) console.log('✅ Firebase Emulators conectados');
     }
 
+    authStateInitialization = waitForFirebaseAuthInitialization(auth);
+    await authStateInitialization;
+
     isInitialized = true;
     if (__DEV__) console.log('✅ Firebase inicializado correctamente');
 
@@ -109,7 +118,7 @@ export async function getFirebaseServices() {
  * Obtener Auth (inicializa si es necesario)
  */
 export async function getFirebaseAuth(): Promise<Auth> {
-  if (!auth) {
+  if (!isInitialized) {
     await initializeFirebase();
   }
   return auth!;
@@ -119,7 +128,7 @@ export async function getFirebaseAuth(): Promise<Auth> {
  * Obtener Firestore (inicializa si es necesario)
  */
 export async function getFirebaseFirestore() {
-  if (!firestore) {
+  if (!isInitialized) {
     await initializeFirebase();
   }
   return firestore;
@@ -129,7 +138,7 @@ export async function getFirebaseFirestore() {
  * Obtener Database (inicializa si es necesario)
  */
 export async function getFirebaseDatabase() {
-  if (!database) {
+  if (!isInitialized) {
     await initializeFirebase();
   }
   return database;
@@ -139,7 +148,7 @@ export async function getFirebaseDatabase() {
  * Obtener Functions (inicializa si es necesario)
  */
 export async function getFirebaseFunctions(): Promise<Functions> {
-  if (!functions) {
+  if (!isInitialized) {
     await initializeFirebase();
   }
 

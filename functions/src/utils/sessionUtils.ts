@@ -1,4 +1,4 @@
-import * as functions from 'firebase-functions';
+import * as functions from 'firebase-functions/v1';
 import admin from 'firebase-admin';
 
 const SESSION_ACTIVE_THRESHOLD_MS = 2 * 60 * 1000;

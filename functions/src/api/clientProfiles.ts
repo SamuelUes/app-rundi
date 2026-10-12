@@ -1,4 +1,4 @@
-import * as functions from "firebase-functions";
+import * as functions from "firebase-functions/v1";
 import admin, { database } from "../config/firebase";
 import { supabaseGet } from "../supabase/client";
 

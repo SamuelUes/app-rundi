@@ -16,11 +16,12 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  Image,
-  ImageBackground,
   Animated,
   Easing,
+  Platform,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useAuth } from '../../hooks/shared/auth/useAuth';
 import { getActiveRidesByAreaPath } from '../../utils/serviceArea';
@@ -36,6 +37,7 @@ import { useActiveRideDetection } from '../../hooks/client/HomeScreen/useActiveR
 import { useClientLocation } from '../../hooks/client/HomeScreen/useClientLocation';
 import { useRegionAvailability } from '../../hooks/client/HomeScreen/useRegionAvailability';
 import { usePendingActions } from '../../hooks/client/HomeScreen/usePendingActions';
+import { useUpcomingProgrammedRide } from '../../hooks/client/HomeScreen/useUpcomingProgrammedRide';
 import { useMapPinInteraction } from '../../hooks/client/HomeScreen/useMapPinInteraction';
 import DynamicMap from '../../components/map/DynamicMap';
 import { MAP_ICONS } from '../../constants/mapIcons';
@@ -45,8 +47,6 @@ import { HomeScreenBottomActions } from '../../components/client/HomeScreen/Home
 
 // Importaciones para Firebase
 
-const PROFILE_ICON_IMAGE = require('../../assets/icons/profile/profile-icon2.png');
-const PENDING_ACTION_IMAGE = require('../../assets/icons/pending_acction/pending_acction2x.png');
 const { USER_LOCATION_LIGHT, USER_LOCATION_DARK, USER_LOCATION_HOLDING_LIGHT, USER_LOCATION_HOLDING_DARK } = MAP_ICONS;
 
 export default function HomeScreen({ navigation }: any) {
@@ -73,7 +73,8 @@ export default function HomeScreen({ navigation }: any) {
     refreshLocation,
     loading: locationLoading,
   } = useLocation(initialCoords ? { initialCoords } : {});
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const insets = useSafeAreaInsets();
+  const styles = useMemo(() => createStyles(colors, isDark, insets), [colors, isDark, insets]);
 
   const [loadingMessage, setLoadingMessage] = useState(t('client.home.loading.preparing'));
   const [initializing, setInitializing] = useState(true);
@@ -236,6 +237,7 @@ export default function HomeScreen({ navigation }: any) {
   }, [loadingRides, markTaskCompleted]);
 
   const activeRide = useActiveRideDetection(user?.id, activeRidesData, navigation);
+  const upcomingProgrammedRide = useUpcomingProgrammedRide(user?.id);
 
   const availableDrivers = useNearbyDrivers(
     coords,
@@ -251,7 +253,28 @@ export default function HomeScreen({ navigation }: any) {
     hasPendingPayments,
     handleViewActiveRide,
     handleViewPendingPayments,
-  } = usePendingActions(user?.id, activeRide, navigation, t);
+  } = usePendingActions(user?.id, activeRide, upcomingProgrammedRide, navigation, t);
+
+  // Recordatorio in-app: viaje programado a >30min pero el mismo día.
+  const scheduledRideNotice = useMemo(() => {
+    if (!upcomingProgrammedRide || upcomingProgrammedRide.isImminent || !upcomingProgrammedRide.isToday) {
+      return null;
+    }
+    const time = new Date(upcomingProgrammedRide.scheduledAt).toLocaleTimeString(undefined, {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    const totalMinutes = Math.max(1, Math.round(upcomingProgrammedRide.msUntil / 60000));
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    const remaining =
+      hours > 0 && minutes > 0
+        ? t('client.home.scheduledRide.inHoursMinutes', { hours, minutes })
+        : hours > 0
+          ? t('client.home.scheduledRide.inHours', { hours })
+          : t('client.home.scheduledRide.inMinutes', { minutes: totalMinutes });
+    return t('client.home.scheduledRide.notice', { time, remaining });
+  }, [upcomingProgrammedRide, t]);
 
   const {
     mapCenter,
@@ -407,15 +430,20 @@ export default function HomeScreen({ navigation }: any) {
   if (locationError && !coords && !storedCoords) {
     return (
       <View style={styles.errorContainer}>
+        <View style={styles.errorIconDisc}>
+          <MaterialIcons name="location-off" size={28} color="#C62828" />
+        </View>
         <Text style={styles.errorText}>{t('client.home.errors.locationAccessTitle')}</Text>
         <Text style={styles.errorDescription}>{t('client.home.errors.locationAccessDescription')}</Text>
         <TouchableOpacity
           style={styles.retryButton}
+          activeOpacity={0.85}
           onPress={() => {
             setLoadingMessage(t('client.home.loading.obtainingLocation'));
             refreshLocation();
           }}
         >
+          <MaterialIcons name="refresh" size={18} color="#241A09" />
           <Text style={styles.retryText}>{t('client.home.errors.retry')}</Text>
         </TouchableOpacity>
       </View>
@@ -452,8 +480,7 @@ export default function HomeScreen({ navigation }: any) {
         onMarkerPress={handleMarkerPress}
         onRegionChangeCenter={handleRegionChangeCenter}
         onRegionChangeCompleteCenter={handleRegionChangeCompleteCenter}
-        showPinBubbles
-        originLabel={isResolvingAddress ? t('client.home.map.searchingAddress') : pendingAddress}
+        showPinBubbles={false}
         userLocationLightIcon={USER_LOCATION_LIGHT}
         userLocationDarkIcon={USER_LOCATION_DARK}
         userLocationHoldingLightIcon={USER_LOCATION_HOLDING_LIGHT}
@@ -461,6 +488,8 @@ export default function HomeScreen({ navigation }: any) {
         manualOriginIcon={isPinLocked ? markerIcon : markerHoldIcon}
         manualOriginHoldIcon={markerHoldIcon}
         manualOriginBounceValue={isPinLocked && !isHoldingPin ? markerBounceTranslateY : undefined}
+        manualOriginScale={1.2}
+        userLocationScale={1.2}
         autoFitEnabled={false}
       />
 
@@ -478,13 +507,14 @@ export default function HomeScreen({ navigation }: any) {
         locationStatusHint={locationStatusHint}
         isSavingLocation={isSavingLocation}
         hasPendingManualSelection={hasPendingManualSelection}
+        isPinLocked={isPinLocked}
         styles={styles}
         t={t}
       />
 
       <HomeScreenHeader
         userName={user?.name}
-        profileIconImage={PROFILE_ICON_IMAGE}
+        userPhotoUri={user?.profilePhoto}
         onNavigateProfile={() => navigation.navigate('Profile')}
         onCenterMap={handleCenterMap}
         styles={styles}
@@ -495,7 +525,7 @@ export default function HomeScreen({ navigation }: any) {
         pendingAction={pendingAction}
         isOutsideSupportedArea={isOutsideSupportedArea}
         regionStatus={regionStatus}
-        pendingActionImage={PENDING_ACTION_IMAGE}
+        scheduledRideNotice={scheduledRideNotice}
         onRequestRide={handleRequestRide}
         styles={styles}
         t={t}
@@ -505,7 +535,11 @@ export default function HomeScreen({ navigation }: any) {
 }
 
 // Estilos
-const createStyles = (colors: any) => StyleSheet.create({
+const createStyles = (
+  colors: any,
+  isDark: boolean,
+  insets: { top: number; bottom: number },
+) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
@@ -527,213 +561,267 @@ const createStyles = (colors: any) => StyleSheet.create({
     width: 64,
     height: 64,
   },
-  locationStatusContainer: {
+
+  // Location status card (pin hint)
+  statusCard: {
     position: 'absolute',
-    top: 96,
-    left: 45,
-    right: 45,
-    padding: 14,
-    borderRadius: 16,
-    borderWidth: 1,
-    backgroundColor: 'rgba(219, 193, 160, 0.9)',
-    shadowColor: '#949393ff',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.18,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  locationStatusPending: {
-    borderColor: colors.primary,
-  },
-  locationStatusIdle: {
-    borderColor: colors.border,
-  },
-  locationStatusTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: colors.text,
-    marginBottom: 4,
-  },
-  locationStatusAddress: {
-    fontSize: 13,
-    color: colors.text,
-    fontWeight: '500',
-    marginBottom: 6,
-  },
-  locationStatusHint: {
-    fontSize: 16,
-    color: 'rgba(131, 98, 66, 1)',
-  },
-  locationStatusSaving: {
-    marginTop: 4,
-    fontSize: 16,
-    color: colors.textSecondary,
-    fontStyle: 'italic',
-  },
-  profileContainer: {
-    position: 'absolute',
-    top: 32,
-    right: 20,
+    top: insets.top + 68,
+    left: 16,
+    right: 16,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.background + 'CC',
+    gap: 12,
+    paddingVertical: 12,
     paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 24,
-    shadowColor: '#00000055',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    elevation: 6,
+    borderRadius: 20,
+    backgroundColor: isDark ? 'rgba(24,20,17,0.92)' : 'rgba(255,255,255,0.94)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(28,25,23,0.08)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: isDark ? 0.35 : 0.12,
+    shadowRadius: 12,
+    elevation: 8,
+    zIndex: 20,
   },
-  profileName: {
-    color: colors.text,
+  statusIconDisc: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(179,135,55,0.16)',
+  },
+  statusTextCol: {
+    flex: 1,
+    gap: 2,
+    alignItems: 'flex-start',
+    position: 'relative',
+  },
+  statusText: {
+    fontSize: 13.5,
     fontWeight: '600',
-    fontSize: 16,
-    marginRight: 10,
+    lineHeight: 18,
+    color: isDark ? '#F5F1EA' : '#1C1917',
+  },
+  statusSavingText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: colors.textSecondary,
+  },
+  // Profile chip (top right)
+  profileChip: {
+    position: 'absolute',
+    top: insets.top + 8,
+    right: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    height: 48,
+    paddingLeft: 6,
+    paddingRight: 14,
+    borderRadius: 24,
+    backgroundColor: isDark ? 'rgba(24,20,17,0.92)' : 'rgba(255,255,255,0.94)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: isDark ? 'rgba(255,255,255,0.14)' : 'rgba(28,25,23,0.1)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: isDark ? 0.4 : 0.14,
+    shadowRadius: 12,
+    elevation: 8,
+    zIndex: 20,
+  },
+  profileAvatarWrap: {
+    width: 36,
+    height: 36,
   },
   profileAvatar: {
     width: 36,
     height: 36,
     borderRadius: 18,
-  },
-  centerMapButton: {
-    position: 'absolute',
-    bottom: 130,
-    right: 20,
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: colors.card + 'F2',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#00000055',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
-    elevation: 6,
-  },
-  centerMapIcon: {
-    fontSize: 20,
-    color: colors.text,
-  },
-  requestButtonWrapper: {
-    position: 'absolute',
-    left: 20,
-    right: 20,
-    bottom: 32,
-    height: 64,
-    borderRadius: 24,
+    backgroundColor: '#B38737',
     overflow: 'hidden',
-    shadowColor: '#00000055',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 10,
   },
-  requestButtonDisabled: {
-    opacity: 0.5,
-  },
-  requestButtonBackground: {
+  profileAvatarImage: {
     width: '100%',
     height: '100%',
   },
-  requestButtonBackgroundInner: {
-    borderRadius: 24,
+  profileAvatarText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#241A09',
   },
-  requestButtonContent: {
-    flex: 1,
+  profileName: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: isDark ? '#F5F1EA' : '#1C1917',
+    maxWidth: 128,
+  },
+
+  // Map recenter FAB
+  mapFab: {
+    position: 'absolute',
+    right: 16,
+    bottom: insets.bottom + 142,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: isDark ? 'rgba(24,20,17,0.92)' : 'rgba(255,255,255,0.94)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: isDark ? 'rgba(255,255,255,0.14)' : 'rgba(28,25,23,0.1)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: isDark ? 0.4 : 0.14,
+    shadowRadius: 12,
+    elevation: 8,
+    zIndex: 20,
+  },
+  mapFabPressed: {
+    transform: [{ scale: 0.94 }],
+    opacity: 0.9,
+  },
+
+  // Bottom stack (region hint + CTA)
+  bottomStack: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: insets.bottom + 10,
+    gap: 12,
+    zIndex: 25,
+  },
+  regionHintChip: {
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignContent: 'center',
+    gap: 6,
+    paddingVertical: 7,
+    paddingHorizontal: 18,
+    borderRadius: 999,
+    backgroundColor: isDark ? 'rgba(24,20,17,0.9)' : 'rgba(255,255,255,0.92)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(28,25,23,0.08)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: isDark ? 0.35 : 0.1,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  regionHintText: {
+    fontSize: 12.5,
+    fontWeight: '600',
+    color: isDark ? 'rgba(245,241,234,0.85)' : 'rgba(28,25,23,0.75)',
+    textAlign: 'center',
+  },
+  scheduledRideChip: {
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 7,
+    paddingHorizontal: 13,
+    borderRadius: 999,
+    backgroundColor: isDark ? 'rgba(43,32,7,0.92)' : 'rgba(255,247,230,0.95)',
+    borderWidth: 1,
+    borderColor: isDark ? 'rgba(212,175,55,0.4)' : 'rgba(179,135,55,0.35)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: isDark ? 0.35 : 0.1,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  scheduledRideChipText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: isDark ? '#FFD666' : '#8A5800',
+    textAlign: 'center',
+  },
+  requestButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 24,
+    height: 60,
+    borderRadius: 999,
+    paddingLeft: 24,
+    paddingRight: 13,
+    backgroundColor: '#B38737',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.28,
+    shadowRadius: 16,
+    elevation: 14,
+  },
+  requestButtonDisabled: {
+    opacity: 0.45,
+  },
+  requestButtonPressed: {
+    transform: [{ scale: 0.98 }],
+    opacity: 0.95,
   },
   requestButtonLabel: {
-    color: '#FFFFFF',
     fontSize: 16,
-    fontWeight: '700',
-    alignItems: 'center'
+    fontWeight: '800',
+    color: '#241A09',
   },
-  requestButtonArrow: {
-    color: '#FFFFFF',
-    fontSize: 20,
-    fontWeight: '700',
-  },
-  regionHintContainer: {
-    position: 'absolute',
-    left: 24,
-    right: 24,
-    bottom: 104,
+  requestArrowDisc: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     alignItems: 'center',
-  },
-  regionHintText: {
-    fontSize: 13,
-    color: colors.textSecondary,
-    textAlign: 'center',
-  },
-  pendingActionButton: {
-    position: 'absolute',
-    left: 20,
-    right: 20,
-    bottom: 32,
-    borderRadius: 24,
-    overflow: 'hidden',
-    shadowColor: '#00000055',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 10,
-  },
-  pendingActionBackground: {
-    width: '100%',
-    minHeight: 64,
     justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: 'rgba(36,26,9,0.14)',
   },
-  pendingActionBackgroundInner: {
-    borderRadius: 24,
-  },
-  pendingActionLabel: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
-  },
+
+  // Error fallback
   errorContainer: {
     flex: 1,
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
+    padding: 28,
     backgroundColor: colors.background,
   },
+  errorIconDisc: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(198,40,40,0.1)',
+    marginBottom: 18,
+  },
   errorText: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '700',
     color: colors.text,
-    marginBottom: 10,
+    marginBottom: 6,
     textAlign: 'center',
   },
   errorDescription: {
     fontSize: 13,
-    color: colors.textSecondary,
-    marginBottom: 20,
-    textAlign: 'center',
     fontWeight: '500',
+    color: colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 19,
   },
   retryButton: {
-    backgroundColor: '#D4AF37',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 12,
-    marginTop: 16,
-    shadowColor: '#D4AF37',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 18,
+    paddingHorizontal: 22,
+    paddingVertical: 13,
+    borderRadius: 999,
+    backgroundColor: '#B38737',
   },
   retryText: {
-    color: colors.background,
+    color: '#241A09',
     fontSize: 15,
-    fontWeight: '800',
-    letterSpacing: 0.3,
+    fontWeight: '700',
   },
 });

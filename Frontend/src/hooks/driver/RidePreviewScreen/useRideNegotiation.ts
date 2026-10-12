@@ -83,6 +83,15 @@ export function useRideNegotiation(
         alertService.showErrorAlert(t('driver.ridePreview.alerts.missingUser'));
         return false;
       }
+      // Viajes programados viven en programmedRides (no en activeRides):
+      // negotiatePrice no los soporta — solo confirmación de asignación.
+      if (currentRide.isProgrammed) {
+        alertService.showInfoAlert(
+          t('driver.ridePreview.alerts.infoTitle'),
+          t('driver.available.rideCard.scheduledWaiting'),
+        );
+        return false;
+      }
       let success = false;
       try {
         setSendingOffer(true);

@@ -1,6 +1,15 @@
 import type { User as FirebaseUser } from 'firebase/auth';
 import { getFirebaseAuth } from '../config/firebase';
 
+export async function requireFirebaseAuthUser(expectedUid?: string): Promise<FirebaseUser> {
+  const auth = await getFirebaseAuth();
+  const user = auth.currentUser;
+  if (!user || (expectedUid && user.uid !== expectedUid)) {
+    throw new Error('Se requiere una sesión de Firebase válida');
+  }
+  return user;
+}
+
 export async function waitForFirebaseAuthUser(
   expectedUid?: string,
   timeoutMs = 6000,

@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Animated } from 'react-native';
+import { Text, TouchableOpacity, Animated } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 import { LoadingIcon } from '../../ui/LoadingIcon';
 import type { TFunction } from 'i18next';
 
@@ -8,9 +9,11 @@ const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpaci
 interface ActiveRideCTAButtonsProps {
   show: boolean;
   ctaLabel: string;
+  ctaIcon: keyof typeof MaterialIcons.glyphMap;
   updating: boolean;
   isCancellingRide: boolean;
   cancelButtonScale: Animated.Value;
+  colors: any;
   onCTAPress: () => void;
   onCancelRide: () => void;
   styles: any;
@@ -20,9 +23,11 @@ interface ActiveRideCTAButtonsProps {
 export function ActiveRideCTAButtons({
   show,
   ctaLabel,
+  ctaIcon,
   updating,
   isCancellingRide,
   cancelButtonScale,
+  colors,
   onCTAPress,
   onCancelRide,
   styles,
@@ -32,33 +37,43 @@ export function ActiveRideCTAButtons({
     <>
       {show && (
         <TouchableOpacity
-          style={[styles.primaryButton, { backgroundColor: '#D4AF37' }, updating && styles.buttonDisabled]}
+          style={[styles.primaryButton, updating && styles.buttonDisabled]}
           onPress={onCTAPress}
           disabled={updating}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: updating }}
         >
+          {updating ? (
+            <LoadingIcon size={20} color="#1C1917" />
+          ) : (
+            <MaterialIcons name={ctaIcon} size={20} color="#1C1917" />
+          )}
           <Text style={styles.primaryButtonText}>{ctaLabel}</Text>
         </TouchableOpacity>
       )}
 
       <AnimatedTouchableOpacity
         style={[
-          styles.cancelButton,
-          updating && styles.buttonDisabled,
-          {
-            transform: [{ scale: cancelButtonScale }],
-            opacity: isCancellingRide ? 0.7 : 1,
-          },
+          styles.cancelGhost,
+          (updating || isCancellingRide) && styles.buttonDisabled,
+          { transform: [{ scale: cancelButtonScale }] },
         ]}
         onPress={onCancelRide}
         disabled={updating || isCancellingRide}
-        activeOpacity={0.85}
+        activeOpacity={0.7}
+        accessibilityRole="button"
+        accessibilityState={{ disabled: updating || isCancellingRide }}
       >
         {isCancellingRide ? (
-          <LoadingIcon size={20} color="#f44336" />
+          <LoadingIcon size={18} color={colors.error} />
         ) : (
-          <Text style={[styles.cancelButtonText, { color: '#f44336' }]}>
-            {t('driver.activeRide.buttons.cancelRide')}
-          </Text>
+          <>
+            <MaterialIcons name="close" size={17} color="#ffff" />
+            <Text style={styles.cancelGhostText}>
+              {t('driver.activeRide.buttons.cancelRide')}
+            </Text>
+          </>
         )}
       </AnimatedTouchableOpacity>
     </>

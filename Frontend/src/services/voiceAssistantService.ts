@@ -18,6 +18,11 @@ type QueueItem = {
 
 const createUniqueId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
+// C$ es el córdoba nicaragüense; los motores TTS lo expanden como
+// "dólares canadienses", así que se reescribe a "córdobas" antes de hablar.
+const sanitizeForSpeech = (text: string) =>
+  text.replace(/C\$\s*(\d[\d.,]*)/g, '$1 córdobas').replace(/C\$/g, 'córdobas');
+
 class VoiceAssistantService {
   private enabled = true;
   private locale: string | null = null;
@@ -74,7 +79,7 @@ class VoiceAssistantService {
       return null;
     }
 
-    const trimmed = text.trim();
+    const trimmed = sanitizeForSpeech(text.trim());
     if (!trimmed || (!this.enabled && !force)) {
       return null;
     }

@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AppState } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import { initializeFirebase } from '../../../config/firebase';
+import i18n from '../../../i18n';
+import { waitForI18nReady } from '../../../utils/i18nReady';
+import { requestNotificationsPermissionIfNeeded } from '../../../utils/notificationPermission';
 import type { PreflightRole } from '../../../types/preflight';
 import type { PreflightAction } from '../../../stores/preflightStore';
 
@@ -27,6 +30,60 @@ type UseProgrammedRidePromptResult = {
   prompt: ProgrammedRidePrompt | null;
   snoozePrompt: (prompt: ProgrammedRidePrompt | null) => void;
   markHandled: (prompt: ProgrammedRidePrompt | null) => void;
+};
+
+const PROMPT_NOTIF_PREFIX = 'PROGRAMMED_PROMPT_NOTIF';
+
+// En el emulador (y cuando el token FCM falla) los push no llegan: disparamos
+// una notificación LOCAL inmediata cuando aparece un prompt con la app en
+// background. En foreground el modal del overlay lo cubre.
+const firePromptLocalNotification = async (prompt: ProgrammedRidePrompt) => {
+  try {
+    if (AppState.currentState === 'active') {
+      return;
+    }
+    const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+    const storageKey = `${PROMPT_NOTIF_PREFIX}:${prompt.type}-${prompt.rideId}`;
+    const seen = Number(await AsyncStorage.getItem(storageKey)) || 0;
+    if (seen >= prompt.requestTimestamp) {
+      return;
+    }
+    const granted = await requestNotificationsPermissionIfNeeded();
+    if (!granted) {
+      return;
+    }
+    await waitForI18nReady();
+    const isDriver = prompt.type === 'driver';
+    const Notifications = await import('expo-notifications');
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: i18n.t(
+          isDriver
+            ? 'shared.preflight.programmedRide.notifDriverTitle'
+            : 'shared.preflight.programmedRide.notifClientTitle',
+          { defaultValue: 'Confirma tu viaje programado' },
+        ),
+        body: i18n.t(
+          isDriver
+            ? 'shared.preflight.programmedRide.notifDriverBody'
+            : 'shared.preflight.programmedRide.notifClientBody',
+          {
+            defaultValue: isDriver
+              ? 'El cliente confirmó. Toca para reservar el viaje.'
+              : 'Tu viaje está por comenzar. Toca para confirmar.',
+          },
+        ),
+        data: { type: 'programmed_ride_prompt', rideId: prompt.rideId, role: prompt.type },
+        sound: 'default',
+        priority: Notifications.AndroidNotificationPriority.HIGH,
+        ...(Platform.OS === 'android' ? { channelId: 'default' } : {}),
+      },
+      trigger: null,
+    });
+    await AsyncStorage.setItem(storageKey, String(prompt.requestTimestamp));
+  } catch (error) {
+    console.warn('[useProgrammedRidePrompt] Error notificación local:', error);
+  }
 };
 
 export const useProgrammedRidePrompt = ({
@@ -335,6 +392,16 @@ export const useProgrammedRidePrompt = ({
     return null;
   }, [clientCandidate, driverCandidate]);
 
+  // Backup local del push FCM: en emulador no hay service account y en prod
+  // el token puede estar viejo. Solo en background — en foreground el modal
+  // del overlay es la superficie de confirmación.
+  useEffect(() => {
+    if (!prompt) {
+      return;
+    }
+    void firePromptLocalNotification(prompt);
+  }, [prompt]);
+
   const snoozePrompt = useCallback(
     (candidate: ProgrammedRidePrompt | null) => {
       if (!candidate) {
@@ -378,11 +445,13 @@ export const buildActiveRideAction = (
 ): PreflightAction => {
   const { rideId, hasDriverAssigned, driverName, driverId, vehiclePlate, scheduledAt } = options;
   if (role === 'driver') {
+    // El viaje aún vive en programmedRides hasta scheduledAt — ActiveRide se
+    // alcanza vía activeRideGuard cuando el scheduler lo promueve.
     return {
       type: 'active_ride',
       title: t('shared.preflight.programmedRide.driverFollowUpTitle'),
       subtitle: scheduledAt ? new Date(scheduledAt).toLocaleString() : undefined,
-      routeName: 'ActiveRide',
+      routeName: 'AvailableRides',
       routeParams: {
         rideId,
       },
@@ -399,7 +468,8 @@ export const buildActiveRideAction = (
       ? t('shared.preflight.programmedRide.followUpTitleDriverAssigned')
       : t('shared.preflight.programmedRide.followUpTitleAwaitingDriver'),
     subtitle: scheduledAt ? new Date(scheduledAt).toLocaleString() : undefined,
-    routeName: hasDriverAssigned ? 'RideTracking' : 'HomeOffers',
+    // HomeOffers escucha la promoción y navega a RideTracking solo.
+    routeName: 'HomeOffers',
     routeParams: {
       rideId,
       driverId: driverId ?? undefined,

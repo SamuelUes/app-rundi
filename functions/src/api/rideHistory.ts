@@ -3,7 +3,7 @@
  * Historial de viajes y ganancias
  */
 
-import * as functions from 'firebase-functions';
+import * as functions from 'firebase-functions/v1';
 import { supabaseGetRidesWithLocationsAndPayments, supabaseGet, supabaseGetDriverWithVehicles, supabaseGetDriversWithVehiclesBatch } from '../supabase/client';
 import { firestore } from '../config/firebase';
 import { ensureActiveSession } from '../utils/sessionUtils';

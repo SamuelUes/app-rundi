@@ -8,7 +8,7 @@ import {
   Platform,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useAuth } from '../../hooks/shared/auth/useAuth';
 import { useVoiceAssistant } from '../../context/VoiceAssistantContext';
@@ -71,7 +71,8 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   const { coords, loading: locationLoading, error, refreshLocation } = useLocation(
     initialCoords ? { ...DRIVER_LOCATION_OPTIONS, initialCoords } : DRIVER_LOCATION_OPTIONS,
   );
-  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
+  const insets = useSafeAreaInsets();
+  const styles = useMemo(() => createStyles(colors, isDark, insets), [colors, isDark, insets]);
 
   const [loadingMessage, setLoadingMessage] = useState(t('driver.home.loading.initializing'));
   const [initializing, setInitializing] = useState(true);
@@ -120,7 +121,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
     availableRideRequests, activeRide, pendingNegotiationRide,
   } = useDriverActiveRides({ userId: user?.id, coords, isAvailable, serviceAreaId, formatCurrency });
 
-  const { currentVehicleType, currentVehicleIconSource, driverInfoCacheRef } = useDriverInfoListener(user?.id, markTaskCompleted);
+  const { currentVehicleType, currentVehicleIconSource, driverInfoCacheRef, profilePhotoUri } = useDriverInfoListener(user?.id, markTaskCompleted);
   const nearbyDriversMarkers = useNearbyDriversMarkers(coords, isAvailable, user?.id, serviceAreaId, driverInfoCacheRef);
   const { offerCacheEntries } = useDriverOfferCache(user?.id);
   const { todayStats } = useDriverTodayStats(navigation, markTaskCompleted);
@@ -225,7 +226,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <View style={styles.mapContainer}>
         <DynamicMap
           latitude={coords.latitude}
@@ -233,6 +234,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
           markerType="car"
           markerPosition={{ latitude: coords.latitude, longitude: coords.longitude }}
           rideRequests={availableRideRequests}
+          requestPinScale={1.2}
           markerVehicleType={currentVehicleType ?? undefined}
           markerVehicleIconSource={currentVehicleIconSource}
           markerVehicleHeading={typeof coords.heading === 'number' && Number.isFinite(coords.heading) ? coords.heading : undefined}
@@ -280,6 +282,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
 
         <DriverHomeHeader
           userName={user?.name}
+          userPhotoUri={profilePhotoUri}
           isAvailable={isAvailable}
           activeRideId={activeRide?.id}
           onToggleMenu={toggleMenu}
@@ -326,6 +329,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
         menuTranslate={menuTranslate}
         panelWidth={panelWidth}
         userName={user?.name}
+        userPhotoUri={profilePhotoUri}
         userRole={user?.role}
         colors={colors}
         onClose={closeMenu}
@@ -352,11 +356,15 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
         styles={styles}
         t={t}
       />
-    </SafeAreaView>
+    </View>
   );
 }
 
-const createStyles = (colors: any, isDark: boolean) =>
+const createStyles = (
+  colors: any,
+  isDark: boolean,
+  insets: { top: number; bottom: number },
+) =>
   StyleSheet.create({
     container: {
       flex: 1,
@@ -369,7 +377,7 @@ const createStyles = (colors: any, isDark: boolean) =>
     // Map overlay chips (header controls)
     overlayHeader: {
       position: 'absolute',
-      top: Platform.select({ ios: 12, android: 16 }),
+      top: insets.top + 8,
       left: 16,
       right: 16,
       flexDirection: 'row',
@@ -416,6 +424,10 @@ const createStyles = (colors: any, isDark: boolean) =>
       shadowRadius: 12,
       elevation: 8,
     },
+    profileAvatarWrap: {
+      width: 36,
+      height: 36,
+    },
     profileAvatar: {
       width: 36,
       height: 36,
@@ -423,6 +435,11 @@ const createStyles = (colors: any, isDark: boolean) =>
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: '#B38737',
+      overflow: 'hidden',
+    },
+    profileAvatarImage: {
+      width: '100%',
+      height: '100%',
     },
     profileAvatarText: {
       fontFamily: '',
@@ -501,7 +518,7 @@ const createStyles = (colors: any, isDark: boolean) =>
       position: 'absolute',
       left: 16,
       right: 16,
-      bottom: Platform.select({ ios: 112, android: 104 }),
+      bottom: insets.bottom + 96,
       gap: 10,
       zIndex: 25,
     },
@@ -592,16 +609,24 @@ const createStyles = (colors: any, isDark: boolean) =>
     },
     // Side menu (floating panel)
     menuOverlay: {
-      ...StyleSheet.absoluteFillObject,
+      position: 'absolute',
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
       zIndex: 50,
       alignItems: 'flex-end',
     },
     menuBackdrop: {
-      ...StyleSheet.absoluteFillObject,
+      position: 'absolute',
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
       backgroundColor: 'rgba(12,9,6,0.42)',
     },
     menuContainer: {
-      marginTop: Platform.select({ ios: 64, android: 72 }),
+      marginTop: insets.top + 56,
       marginBottom: Platform.select({ ios: 24, android: 20 }),
       marginRight: 12,
       backgroundColor: isDark ? '#1C1814' : 'rgba(255,255,255,0.98)',
@@ -632,6 +657,11 @@ const createStyles = (colors: any, isDark: boolean) =>
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: '#B38737',
+      overflow: 'hidden',
+    },
+    menuAvatarImage: {
+      width: '100%',
+      height: '100%',
     },
     menuAvatarText: {
       fontFamily: '',
@@ -713,7 +743,7 @@ const createStyles = (colors: any, isDark: boolean) =>
       position: 'absolute',
       left: 16,
       right: 16,
-      bottom: Platform.select({ ios: 24, android: 20 }),
+      bottom: insets.bottom + 10,
       gap: 10,
       zIndex: 30,
     },
@@ -725,9 +755,9 @@ const createStyles = (colors: any, isDark: boolean) =>
       paddingVertical: 9,
       paddingHorizontal: 14,
       borderRadius: 999,
-      backgroundColor: isDark ? '#241F1B' : '#1C1917',
+      backgroundColor: isDark ? '#F8F5F1' : '#1C1917',
       borderWidth: StyleSheet.hairlineWidth,
-      borderColor: 'rgba(255,255,255,0.1)',
+      borderColor: isDark ? 'rgba(28,25,23,0.08)' : 'rgba(255,255,255,0.1)',
       shadowColor: '#000',
       shadowOffset: { width: 0, height: 6 },
       shadowOpacity: 0.22,
@@ -745,7 +775,7 @@ const createStyles = (colors: any, isDark: boolean) =>
       fontFamily: '',
       fontSize: 13,
       fontWeight: '700',
-      color: 'rgba(255,255,255,0.75)',
+      color: isDark ? 'rgba(28,25,23,0.7)' : 'rgba(255,255,255,0.75)',
     },
     designatedChipLabelActive: {
       color: '#241A09',
@@ -756,9 +786,9 @@ const createStyles = (colors: any, isDark: boolean) =>
       gap: 10,
       padding: 9,
       borderRadius: 30,
-      backgroundColor: isDark ? '#241F1B' : '#1C1917',
+      backgroundColor: isDark ? '#F8F5F1' : '#1C1917',
       borderWidth: StyleSheet.hairlineWidth,
-      borderColor: 'rgba(255,255,255,0.08)',
+      borderColor: isDark ? 'rgba(28,25,23,0.08)' : 'rgba(255,255,255,0.08)',
       shadowColor: '#000',
       shadowOffset: { width: 0, height: 12 },
       shadowOpacity: 0.35,
@@ -776,9 +806,9 @@ const createStyles = (colors: any, isDark: boolean) =>
       justifyContent: 'center',
     },
     availabilityButtonOff: {
-      backgroundColor: 'rgba(255,255,255,0.07)',
+      backgroundColor: isDark ? 'rgba(28,25,23,0.05)' : 'rgba(255,255,255,0.07)',
       borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.14)',
+      borderColor: isDark ? 'rgba(28,25,23,0.12)' : 'rgba(255,255,255,0.14)',
     },
     availabilityButtonOn: {
       backgroundColor: '#B38737',
@@ -787,7 +817,11 @@ const createStyles = (colors: any, isDark: boolean) =>
       transform: [{ scale: 0.92 }],
     },
     availabilityLoadingOverlay: {
-      ...StyleSheet.absoluteFillObject,
+      position: 'absolute',
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
       borderRadius: 28,
       backgroundColor: 'rgba(0,0,0,0.32)',
       alignItems: 'center',
@@ -802,7 +836,7 @@ const createStyles = (colors: any, isDark: boolean) =>
       borderRadius: 20,
     },
     earningsAreaPressed: {
-      backgroundColor: 'rgba(255,255,255,0.06)',
+      backgroundColor: isDark ? 'rgba(28,25,23,0.05)' : 'rgba(255,255,255,0.06)',
     },
     earningsLabel: {
       fontFamily: '',
@@ -810,13 +844,13 @@ const createStyles = (colors: any, isDark: boolean) =>
       fontWeight: '700',
       letterSpacing: 1.1,
       textTransform: 'uppercase',
-      color: 'rgba(255,255,255,0.5)',
+      color: isDark ? 'rgba(28,25,23,0.5)' : 'rgba(255,255,255,0.5)',
     },
     earningsValue: {
       fontFamily: '',
       fontSize: 19,
       fontWeight: '800',
-      color: '#FFFFFF',
+      color: isDark ? '#1C1917' : '#FFFFFF',
       fontVariant: ['tabular-nums'],
     },
     requestsButton: {

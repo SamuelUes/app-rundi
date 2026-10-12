@@ -354,6 +354,37 @@ Verificar que `google-services.json` (Android) y `GoogleService-Info.plist` (iOS
 
 > Estos archivos no se borran con `prebuild --clean` si están commiteados. Si no, colocarlos manualmente después de prebuild.
 
+### FCM en iOS: `messaging/third-party-auth-error` / `Invalid APNs credential`
+
+Este error significa que FCM encontró un token, pero APNs rechazó el envío porque la credencial APNs falta, es inválida o ya fue revocada. No se corrige desplegando Functions ni cambiando las reglas de Realtime Database.
+
+#### Crear u obtener una clave APNs
+
+1. Iniciar sesión en [Apple Developer — Keys](https://developer.apple.com/account/resources/authkeys/list) con el equipo propietario del Bundle ID de iOS.
+2. Si ya existe una clave APNs válida y se conserva su archivo `.p8`, reutilizarla. Apple permite descargar una clave privada una sola vez; si el archivo se perdió, crear otra y no revocar la anterior hasta verificar la nueva.
+3. Para crearla, seleccionar **+**, asignar un nombre, habilitar **Apple Push Notifications service (APNs)**, continuar, registrar y descargar el archivo `.p8`.
+4. Guardar de forma segura el **Key ID** mostrado por Apple y el **Team ID** del equipo (Membership details). La clave Team Scoped puede usarse para varias apps del mismo equipo y para sandbox y producción.
+
+Referencias oficiales: [crear una clave privada](https://developer.apple.com/help/account/keys/create-a-private-key) y [comunicarse con APNs usando tokens de autenticación](https://developer.apple.com/help/account/capabilities/communicate-with-apns-using-authentication-tokens/).
+
+#### Cargarla en Firebase
+
+1. Abrir **Firebase Console → Project settings → Cloud Messaging**.
+2. Seleccionar la app iOS cuyo Bundle ID coincide exactamente con el build instalado.
+3. En **APNs authentication key**, subir el `.p8` e ingresar el **Key ID** y **Team ID**; guardar.
+4. Verificar que el App ID de Apple tenga la capacidad **Push Notifications** y que el provisioning profile usado para firmar la app incluya el entitlement APNs correspondiente.
+
+Para el entorno de desarrollo de Rundi, comprobar que Firebase sea `rundi-dev` y el Bundle ID sea `com.driveangel.rundidev`. Si se cambia de entorno, usar el proyecto Firebase, Bundle ID, equipo y provisioning profile que correspondan a ese build.
+
+**Seguridad:** el `.p8` es una clave privada. No incluirlo en Git, en el README ni en mensajes; subirlo directamente a Firebase Console y conservar una copia en un almacén seguro. No revocar una clave compartida por otras apps sin coordinar la rotación.
+
+#### Validar la entrega
+
+- Probar en un iPhone físico. Con React Native Firebase v26, el simulador iOS ARM64 no proporciona un token APNs real para una prueba FCM de extremo a extremo.
+- En la app deben aparecer `Token FCM obtenido` y `Token FCM registrado en backend`.
+- Después de enviar un mensaje, revisar `firebase functions:log --only onSupportChatMessage`. La notificación debe encontrar tokens y no reportar `Invalid APNs credential`.
+- Cambiar la clave APNs en Firebase Console no requiere volver a desplegar Functions; reinstalar o reconstruir la app solo es necesario si también cambian Bundle ID, capabilities, entitlements o firma.
+
 ### Error: Manifest merger failed (tools:replace)
 
 Si aparece un conflicto de `meta-data#com.google.firebase.messaging.default_notification_color`, el config plugin de `rundi-native` ya inyecta `tools:replace="android:resource"` automáticamente. Si persiste, verificar que `./modules/rundi-native/app.plugin.js` esté **primero** en el array `plugins` de `app.config.js`.

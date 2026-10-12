@@ -66,13 +66,13 @@ export function AvailableRidesAssignModal({
               },
             ]}
           >
-            <Text style={[styles.assignInputLabel, { color: colors.text + 'AA' }]}>Ride ID</Text>
+            <Text style={[styles.assignInputLabel, { color: colors.text + 'AA' }]}>Código</Text>
             <TextInput
               value={assignRideIdInput}
               onChangeText={onInputChange}
               placeholder={t('driver.available.assignModal.placeholder')}
               placeholderTextColor={colors.text + '66'}
-              autoCapitalize="none"
+              autoCapitalize="characters"
               autoCorrect={false}
               editable={!assigningProgrammedRide}
               style={[

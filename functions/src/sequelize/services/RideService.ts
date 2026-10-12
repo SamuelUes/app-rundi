@@ -207,9 +207,15 @@ export class RideService {
     return updated;
   }
 
-  async startRide(rideId: string) {
+  async startRide(rideId: string, expectedDriverId?: string) {
     const ride = await this.rideRepo.findById(rideId);
     if (!ride) throw new Error('Viaje no encontrado');
+
+    // Solo el conductor asignado puede iniciar el viaje — nunca confiar en el
+    // rol del caller: cualquier driver autenticado podría arrancar viajes ajenos.
+    if (expectedDriverId && ride.driver_id !== expectedDriverId) {
+      throw new Error('Conductor no asignado a este viaje');
+    }
 
     if (ride.status === 'in_progress') {
       console.log(`🔁 Viaje ${rideId} ya estaba en progreso`);
@@ -245,29 +251,57 @@ export class RideService {
     return updated;
   }
 
-  async completeRide(rideId: string, finalFare: number) {
+  async completeRide(
+    rideId: string,
+    finalFare: number,
+    opts: { expectedDriverId?: string; actualDistance?: number; actualDuration?: number } = {},
+  ) {
     const ride = await this.rideRepo.findById(rideId);
     if (!ride) throw new Error('Viaje no encontrado');
+
+    // Ownership: solo el conductor asignado puede completar el viaje.
+    if (opts.expectedDriverId && ride.driver_id !== opts.expectedDriverId) {
+      throw new Error('Conductor no asignado a este viaje');
+    }
 
     if (ride.status === 'completed') {
       console.log(`🔁 Viaje ${rideId} ya estaba completado`);
       return ride;
     }
 
+    // Solo un viaje en curso puede completarse — evita crear pagos sobre viajes
+    // 'requested'/'accepted' que nunca arrancaron.
+    if (ride.status !== 'in_progress') {
+      throw new Error(`No se puede completar el viaje ${rideId} porque está en estado ${ride.status}`);
+    }
+
+    const completionUpdate: Record<string, any> = {
+      status: 'completed',
+      final_fare: finalFare,
+      completed_at: new Date(),
+      client_suggested_price: ride.client_suggested_price || null,
+      driver_offered_price: ride.driver_offered_price || null,
+      accepted_at: ride.accepted_at || null,
+      started_at: ride.started_at || null,
+    };
+    if (typeof opts.actualDistance === 'number') {
+      completionUpdate.actual_distance = opts.actualDistance;
+    }
+    if (typeof opts.actualDuration === 'number') {
+      completionUpdate.actual_duration = opts.actualDuration;
+    }
+
     // ✅ Grupo 4 (C9): Transacción Sequelize para ride + payment atómicos.
     // Si cualquiera falla, ambos se revierten.
     if (isSequelizeAvailable) {
       const result = await sequelize.transaction(async (t) => {
-        // Actualizar ride dentro de la transacción
-        await this.rideRepo.update(rideId, {
-          status: 'completed',
-          final_fare: finalFare,
-          completed_at: new Date(),
-          client_suggested_price: ride.client_suggested_price || null,
-          driver_offered_price: ride.driver_offered_price || null,
-          accepted_at: ride.accepted_at || null,
-          started_at: ride.started_at || null,
-        }, t);
+        // Actualización condicional dentro de la transacción: si otro proceso
+        // cambió el estado (ej. cancelación concurrente), el update no aplica
+        // y la transacción revierte sin crear el pago.
+        const updatedCount = await this.rideRepo.updateIfStatus(rideId, ride.status, completionUpdate, t);
+        if (updatedCount === 0) {
+          throw new Error(`No se pudo completar el viaje ${rideId} porque el estado cambió (operación concurrente)`);
+        }
 
         const commission = finalFare * 0.11;
         // Crear pago dentro de la misma transacción
@@ -280,24 +314,20 @@ export class RideService {
           paid_at: null,
         }, t);
 
-        return ride;
+        // Devolver el viaje con los cambios aplicados (ride es la instancia
+        // previa al update — sin merge reportaría status/final_fare viejos).
+        return { ...(ride.get ? ride.get({ plain: true }) : ride), ...completionUpdate };
       });
 
       console.log(`✅ Viaje completado (transacción atómica): ${rideId}`);
       return result;
     }
 
-    // Fallback sin transacción
-    await this.rideRepo.update(rideId, {
-      status: 'completed',
-      final_fare: finalFare,
-      completed_at: new Date(),
-      // ✅ NUEVO: Preservar campos de negociación si existen
-      client_suggested_price: ride.client_suggested_price || null,
-      driver_offered_price: ride.driver_offered_price || null,
-      accepted_at: ride.accepted_at || null,
-      started_at: ride.started_at || null,
-    });
+    // Fallback sin transacción: update condicional para no pisar cambios de estado
+    const updatedCount = await this.rideRepo.updateIfStatus(rideId, ride.status, completionUpdate);
+    if (updatedCount === 0) {
+      throw new Error(`No se pudo completar el viaje ${rideId} porque el estado cambió (operación concurrente)`);
+    }
 
     const commission = finalFare * 0.11;
     // ✅ ACTUALIZADO: Crear pago con status 'pending' hasta que se confirme
@@ -311,7 +341,7 @@ export class RideService {
     });
 
     console.log(`✅ Viaje completado: ${rideId}`);
-    return ride;
+    return { ...(ride.get ? ride.get({ plain: true }) : ride), ...completionUpdate };
   }
 
   async markDriverOnRoute(rideId: string, driverId: string, extra: Record<string, any> = {}) {

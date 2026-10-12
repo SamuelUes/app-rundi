@@ -32,9 +32,7 @@ export async function checkAuth(user: any): Promise<boolean> {
     try {
       if (isNativeFirebaseSupported()) {
         const nativeAuthModule = await loadNativeFirebaseAuth();
-        const rnAuth = nativeAuthModule?.getAuth
-          ? nativeAuthModule.getAuth()
-          : nativeAuthModule?.default?.();
+        const rnAuth = nativeAuthModule?.getAuth?.();
 
         if (rnAuth) {
           const rnUser = rnAuth.currentUser;

@@ -15,6 +15,7 @@ import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { FormattedInput } from './FormattedInput';
 
 type DateValueFormat = 'iso' | 'dmy';
+type DatePickerMode = 'month' | 'weeks';
 
 interface DatePickerFieldProps extends Omit<TextInputProps, 'value' | 'onChangeText' | 'style'> {
   value: string;
@@ -22,6 +23,11 @@ interface DatePickerFieldProps extends Omit<TextInputProps, 'value' | 'onChangeT
   style?: StyleProp<ViewStyle>;
   /** Formato del texto del campo: 'iso' = YYYY-MM-DD (default), 'dmy' = DD-MM-YYYY */
   valueFormat?: DateValueFormat;
+  /** 'month' = calendario mensual (default), 'weeks' = tira de una semana navegable */
+  mode?: DatePickerMode;
+  /** Límites de selección: los días fuera del rango se ven deshabilitados */
+  minDate?: Date;
+  maxDate?: Date;
 }
 
 const MONTH_NAMES: Record<'es' | 'en', string[]> = {
@@ -67,6 +73,24 @@ const formatDateValue = (date: Date, format: DateValueFormat): string => {
   return format === 'dmy' ? `${day}-${month}-${year}` : `${year}-${month}-${day}`;
 };
 
+const startOfDay = (date: Date): Date => {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
+};
+
+const startOfWeek = (date: Date): Date => {
+  const d = startOfDay(date);
+  d.setDate(d.getDate() - d.getDay());
+  return d;
+};
+
+const addDays = (date: Date, days: number): Date => {
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
+  return d;
+};
+
 /**
  * Campo de fecha: permite escribir la fecha manualmente (con máscara
  * automática YYYY-MM-DD o DD-MM-YYYY según `valueFormat`) o elegirla
@@ -79,6 +103,9 @@ export const DatePickerField = ({
   placeholder,
   placeholderTextColor,
   valueFormat = 'iso',
+  mode = 'month',
+  minDate,
+  maxDate,
   ...inputProps
 }: DatePickerFieldProps) => {
   const { colors } = useTheme();
@@ -88,6 +115,10 @@ export const DatePickerField = ({
   const [visible, setVisible] = useState(false);
   const [viewYear, setViewYear] = useState(() => new Date().getFullYear());
   const [viewMonth, setViewMonth] = useState(() => new Date().getMonth());
+  const [viewWeekStart, setViewWeekStart] = useState(() => startOfWeek(new Date()));
+
+  const minDay = useMemo(() => (minDate ? startOfDay(minDate) : null), [minDate]);
+  const maxDay = useMemo(() => (maxDate ? startOfDay(maxDate) : null), [maxDate]);
 
   const selectedDate = parseDate(value ?? '', valueFormat);
   const today = new Date();
@@ -95,9 +126,12 @@ export const DatePickerField = ({
   const editable = inputProps.editable !== false;
 
   const openCalendar = () => {
-    const base = selectedDate ?? new Date();
+    let base = selectedDate ?? new Date();
+    if (minDay && startOfDay(base).getTime() < minDay.getTime()) base = minDay;
+    if (maxDay && startOfDay(base).getTime() > maxDay.getTime()) base = maxDay;
     setViewYear(base.getFullYear());
     setViewMonth(base.getMonth());
+    setViewWeekStart(startOfWeek(base));
     setVisible(true);
   };
 
@@ -107,7 +141,41 @@ export const DatePickerField = ({
     setViewMonth(next.getMonth());
   };
 
+  const isDayDisabled = (date: Date) => {
+    const day = startOfDay(date).getTime();
+    if (minDay && day < minDay.getTime()) return true;
+    if (maxDay && day > maxDay.getTime()) return true;
+    return false;
+  };
+
+  const weekDays = useMemo(
+    () => Array.from({ length: 7 }, (_, i) => addDays(viewWeekStart, i)),
+    [viewWeekStart],
+  );
+  const weekEnd = weekDays[6];
+  const weekTitle =
+    weekEnd.getMonth() === viewWeekStart.getMonth()
+      ? `${MONTH_NAMES[lang][viewWeekStart.getMonth()]} ${viewWeekStart.getFullYear()}`
+      : `${MONTH_NAMES[lang][viewWeekStart.getMonth()]} – ${MONTH_NAMES[lang][weekEnd.getMonth()]} ${weekEnd.getFullYear()}`;
+  const canShiftWeek = (delta: number) => {
+    const next = addDays(viewWeekStart, delta * 7);
+    const nextEnd = addDays(next, 6);
+    if (minDay && nextEnd.getTime() < minDay.getTime()) return false;
+    if (maxDay && next.getTime() > maxDay.getTime()) return false;
+    return true;
+  };
+  const shiftWeek = (delta: number) => {
+    if (canShiftWeek(delta)) setViewWeekStart(addDays(viewWeekStart, delta * 7));
+  };
+
+  const selectWeekDay = (day: Date) => {
+    if (isDayDisabled(day)) return;
+    onChangeText(formatDateValue(day, valueFormat));
+    setVisible(false);
+  };
+
   const selectDay = (day: number) => {
+    if (isDayDisabled(new Date(viewYear, viewMonth, day))) return;
     onChangeText(formatDateValue(new Date(viewYear, viewMonth, day), valueFormat));
     setVisible(false);
   };
@@ -163,61 +231,132 @@ export const DatePickerField = ({
           <TouchableOpacity activeOpacity={1} style={styles.card} onPress={() => {}}>
             <View style={styles.headerRow}>
               <TouchableOpacity
-                style={styles.navButton}
-                onPress={() => shiftMonth(-1)}
+                style={[
+                  styles.navButton,
+                  mode === 'weeks' && !canShiftWeek(-1) && styles.navButtonDisabled,
+                ]}
+                onPress={() => (mode === 'weeks' ? shiftWeek(-1) : shiftMonth(-1))}
+                disabled={mode === 'weeks' && !canShiftWeek(-1)}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
-                <MaterialIcons name="chevron-left" size={24} color={colors.text} />
+                <MaterialIcons
+                  name="chevron-left"
+                  size={24}
+                  color={mode === 'weeks' && !canShiftWeek(-1) ? colors.disabled : colors.text}
+                />
               </TouchableOpacity>
               <Text style={styles.monthTitle}>
-                {MONTH_NAMES[lang][viewMonth]} {viewYear}
+                {mode === 'weeks' ? weekTitle : `${MONTH_NAMES[lang][viewMonth]} ${viewYear}`}
               </Text>
               <TouchableOpacity
-                style={styles.navButton}
-                onPress={() => shiftMonth(1)}
+                style={[
+                  styles.navButton,
+                  mode === 'weeks' && !canShiftWeek(1) && styles.navButtonDisabled,
+                ]}
+                onPress={() => (mode === 'weeks' ? shiftWeek(1) : shiftMonth(1))}
+                disabled={mode === 'weeks' && !canShiftWeek(1)}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
-                <MaterialIcons name="chevron-right" size={24} color={colors.text} />
+                <MaterialIcons
+                  name="chevron-right"
+                  size={24}
+                  color={mode === 'weeks' && !canShiftWeek(1) ? colors.disabled : colors.text}
+                />
               </TouchableOpacity>
             </View>
 
-            <View style={styles.weekRow}>
-              {WEEKDAY_NAMES[lang].map((dayName, index) => (
-                <Text key={`${dayName}-${index}`} style={styles.weekLabel}>
-                  {dayName}
-                </Text>
-              ))}
-            </View>
-
-            <View style={styles.daysGrid}>
-              {cells.map((day, index) => {
-                if (day === null) {
-                  return <View key={`empty-${index}`} style={styles.dayCell} />;
-                }
-                const isSelected =
-                  !!selectedDate && isSameDay(selectedDate, viewYear, viewMonth, day);
-                const isToday = isSameDay(today, viewYear, viewMonth, day);
-                return (
-                  <TouchableOpacity
-                    key={`day-${day}`}
-                    style={styles.dayCell}
-                    onPress={() => selectDay(day)}
-                  >
-                    <View
-                      style={[
-                        styles.dayCellInner,
-                        isToday && !isSelected && styles.dayToday,
-                        isSelected && styles.daySelected,
-                      ]}
+            {mode === 'weeks' ? (
+              <View style={styles.weekStrip}>
+                {weekDays.map((day, index) => {
+                  const isSelected = !!selectedDate && startOfDay(selectedDate).getTime() === day.getTime();
+                  const isToday = startOfDay(today).getTime() === day.getTime();
+                  const disabled = isDayDisabled(day);
+                  return (
+                    <TouchableOpacity
+                      key={`week-day-${index}`}
+                      style={styles.weekDayCell}
+                      onPress={() => selectWeekDay(day)}
+                      disabled={disabled}
                     >
-                      <Text style={[styles.dayText, isSelected && styles.daySelectedText]}>
-                        {day}
+                      <Text
+                        style={[
+                          styles.weekDayLabel,
+                          disabled && styles.dayTextDisabled,
+                          isSelected && styles.daySelectedText,
+                        ]}
+                      >
+                        {WEEKDAY_NAMES[lang][day.getDay()]}
                       </Text>
-                    </View>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
+                      <View
+                        style={[
+                          styles.dayCellInner,
+                          isToday && !isSelected && styles.dayToday,
+                          isSelected && styles.daySelected,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.dayText,
+                            disabled && styles.dayTextDisabled,
+                            isSelected && styles.daySelectedText,
+                          ]}
+                        >
+                          {day.getDate()}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            ) : (
+              <>
+                <View style={styles.weekRow}>
+                  {WEEKDAY_NAMES[lang].map((dayName, index) => (
+                    <Text key={`${dayName}-${index}`} style={styles.weekLabel}>
+                      {dayName}
+                    </Text>
+                  ))}
+                </View>
+
+                <View style={styles.daysGrid}>
+                  {cells.map((day, index) => {
+                    if (day === null) {
+                      return <View key={`empty-${index}`} style={styles.dayCell} />;
+                    }
+                    const isSelected =
+                      !!selectedDate && isSameDay(selectedDate, viewYear, viewMonth, day);
+                    const isToday = isSameDay(today, viewYear, viewMonth, day);
+                    const disabled = isDayDisabled(new Date(viewYear, viewMonth, day));
+                    return (
+                      <TouchableOpacity
+                        key={`day-${day}`}
+                        style={styles.dayCell}
+                        onPress={() => selectDay(day)}
+                        disabled={disabled}
+                      >
+                        <View
+                          style={[
+                            styles.dayCellInner,
+                            isToday && !isSelected && styles.dayToday,
+                            isSelected && styles.daySelected,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.dayText,
+                              disabled && styles.dayTextDisabled,
+                              isSelected && styles.daySelectedText,
+                            ]}
+                          >
+                            {day}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </>
+            )}
 
             <View style={styles.footerRow}>
               <TouchableOpacity
@@ -279,6 +418,9 @@ const createStyles = (colors: any) =>
       justifyContent: 'center',
       backgroundColor: colors.surface,
     },
+    navButtonDisabled: {
+      opacity: 0.45,
+    },
     monthTitle: {
       fontSize: 16,
       fontWeight: '700',
@@ -314,6 +456,24 @@ const createStyles = (colors: any) =>
     dayText: {
       fontSize: 14,
       color: colors.text,
+    },
+    dayTextDisabled: {
+      color: colors.disabled,
+    },
+    weekStrip: {
+      flexDirection: 'row',
+      marginTop: 2,
+    },
+    weekDayCell: {
+      flex: 1,
+      alignItems: 'center',
+      gap: 4,
+    },
+    weekDayLabel: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: colors.textSecondary,
+      letterSpacing: 0.4,
     },
     dayToday: {
       borderWidth: 1,

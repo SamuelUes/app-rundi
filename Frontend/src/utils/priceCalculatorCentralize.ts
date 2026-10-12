@@ -231,6 +231,21 @@ export async function fetchServiceConfig(serviceCode: string): Promise<ServicePr
   return fallback;
 }
 
+/**
+ * Tarifa mínima real por variante de conductor designado, desde la misma
+ * config de servicios que usa pricing (Supabase/callable con cache + defaults).
+ */
+export async function getDesignatedDriverMinimumFares(): Promise<{ auto: number; moto: number }> {
+  const [autoConfig, motoConfig] = await Promise.all([
+    fetchServiceConfig('designated_driver_auto'),
+    fetchServiceConfig('designated_driver_moto'),
+  ]);
+  return {
+    auto: autoConfig.minimumFare ?? DEFAULT_SERVICE_CONFIGS.designated_driver_auto.minimumFare,
+    moto: motoConfig.minimumFare ?? DEFAULT_SERVICE_CONFIGS.designated_driver_moto.minimumFare,
+  };
+}
+
 function getMultiplier(distanceKm: number, vehicleType: VehicleType, rideType: RideType): { multiplier: number; tramo: string } {
   let multiplier: number;
   let tramo: string;
@@ -618,6 +633,129 @@ export async function calculateRidePrice(
   }
 
   return calculateRidePriceFallback(distanceInMeters, durationInSeconds, vehicleType, rideType, originLat, originLng, options);
+}
+
+export interface PriceBatchVariant {
+  key: string;
+  vehicleType: VehicleType;
+  rideType: RideType;
+  serviceCodeOverride?: string;
+}
+
+const PRICE_BATCH_ENDPOINT = '/calculateRidePricesHttp';
+
+async function calculateRidePricesViaBatchEndpoint(
+  payload: BackendPricePayload,
+  variants: PriceBatchVariant[],
+): Promise<Record<string, PriceCalculationResult | null> | null> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REMOTE_TIMEOUT_MS);
+
+  try {
+    const response = await client.post(
+      PRICE_BATCH_ENDPOINT,
+      {
+        distanceInMeters: payload.distanceInMeters,
+        durationInSeconds: payload.durationInSeconds,
+        originLat: payload.originLat,
+        originLng: payload.originLng,
+        extraStops: payload.extraStops,
+        variants: variants.map((variant) => ({
+          key: variant.key,
+          vehicleType: variant.vehicleType,
+          rideType: variant.rideType,
+          serviceCodeOverride: variant.serviceCodeOverride,
+        })),
+      },
+      { signal: controller.signal },
+    );
+
+    const results = response.data?.results;
+    if (!results || typeof results !== 'object') {
+      return null;
+    }
+
+    const normalized: Record<string, PriceCalculationResult | null> = {};
+    for (const variant of variants) {
+      normalized[variant.key] = normalizeBackendResponse(results[variant.key]);
+    }
+
+    if (variants.every((variant) => normalized[variant.key] == null)) {
+      return null;
+    }
+
+    return normalized;
+  } catch (error) {
+    if (axios.isCancel(error) || (error as any)?.name === 'CanceledError' || (error as any)?.name === 'AbortError') {
+      console.warn('[priceCalculator] Solicitud batch de precios cancelada por timeout');
+    } else {
+      console.warn('[priceCalculator] Error consultando endpoint batch de precios:', (error as any)?.message ?? error);
+    }
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+/**
+ * Calcula varias variantes de precio en UNA sola llamada HTTP. Si el endpoint
+ * batch no está disponible (o devuelve variantes faltantes), cada variante
+ * faltante se resuelve con `calculateRidePrice` individual (que a su vez tiene
+ * fallback local), garantizando compatibilidad con backends sin desplegar.
+ */
+export async function calculateRidePricesBatch(
+  distanceInMeters: number,
+  durationInSeconds: number,
+  originLat: number | undefined,
+  originLng: number | undefined,
+  variants: PriceBatchVariant[],
+  options: RidePriceOptions = {},
+): Promise<Record<string, PriceCalculationResult | null>> {
+  const payload: BackendPricePayload = {
+    distanceInMeters,
+    durationInSeconds,
+    vehicleType: 'car',
+    rideType: 'normal',
+    originLat,
+    originLng,
+    driverId: options.driverId,
+    serviceCodeOverride: options.serviceCodeOverride,
+    extraStops: Math.max(options.extraStops ?? 0, 0),
+  };
+
+  const remote = await calculateRidePricesViaBatchEndpoint(payload, variants);
+  if (remote && variants.every((variant) => remote[variant.key] != null)) {
+    return remote;
+  }
+
+  const resolved = await Promise.all(
+    variants.map(async (variant) => {
+      const existing = remote?.[variant.key];
+      if (existing) {
+        return [variant.key, existing] as const;
+      }
+      try {
+        const result = await calculateRidePrice(
+          distanceInMeters,
+          durationInSeconds,
+          variant.vehicleType,
+          variant.rideType,
+          originLat,
+          originLng,
+          {
+            driverId: options.driverId,
+            serviceCodeOverride: variant.serviceCodeOverride ?? options.serviceCodeOverride,
+            extraStops: payload.extraStops,
+          },
+        );
+        return [variant.key, result] as const;
+      } catch {
+        return [variant.key, null] as const;
+      }
+    }),
+  );
+
+  return Object.fromEntries(resolved);
 }
 
 async function calculateRidePriceFallback(

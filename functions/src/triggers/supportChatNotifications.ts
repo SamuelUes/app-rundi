@@ -1,8 +1,67 @@
-import * as functions from 'firebase-functions';
-import { firestore } from '../config/firebase';
+import * as functions from 'firebase-functions/v1';
+import { database, firestore } from '../config/firebase';
 import { notifySupportChatMessage } from '../api/support_complaints';
+import { sendToUser } from '../services/notificationCenter';
 import { supabaseGet } from '../supabase/client';
 import { PUSH_NOTIFICATIONS_ENABLED } from '../config/constants';
+
+const sendRideChatMessageNotification = async (
+  rideId: string,
+  messageId: string,
+  value: Record<string, any>,
+): Promise<boolean> => {
+  const [activeRideSnapshot, programmedRideSnapshot] = await Promise.all([
+    database.ref(`activeRides/${rideId}`).once('value'),
+    database.ref(`programmedRides/${rideId}`).once('value'),
+  ]);
+  const ride = activeRideSnapshot.val() || programmedRideSnapshot.val();
+  if (!ride) return false;
+
+  const fromUserId = typeof value.senderId === 'string' ? value.senderId.trim() : '';
+  const messageText = typeof value.message === 'string' ? value.message.trim() : '';
+  if (!fromUserId || !messageText) return true;
+
+  const clientId = typeof ride.clientId === 'string' ? ride.clientId : '';
+  const driverId = typeof ride.driverId === 'string' ? ride.driverId : '';
+  const offers = ride.offers && typeof ride.offers === 'object' ? ride.offers : {};
+  const senderIsDriver = fromUserId === driverId || Object.prototype.hasOwnProperty.call(offers, fromUserId) || (
+    fromUserId !== clientId && ride.status === 'requested' &&
+    (await database.ref(`driversInfo/${fromUserId}`).once('value')).exists()
+  );
+  let toUserId = '';
+
+  if (fromUserId === clientId) {
+    const requestedRecipientId = typeof value.recipientId === 'string' ? value.recipientId.trim() : '';
+    if (requestedRecipientId && (requestedRecipientId === driverId || Object.prototype.hasOwnProperty.call(offers, requestedRecipientId))) {
+      toUserId = requestedRecipientId;
+    } else if (driverId) {
+      toUserId = driverId;
+    }
+  } else if (senderIsDriver) {
+    toUserId = clientId;
+  }
+
+  if (!toUserId || toUserId === fromUserId) return true;
+
+  const presenceSnapshot = await database.ref(`chats/${rideId}/presence/${toUserId}`).once('value');
+  if (presenceSnapshot.val() === true) return true;
+
+  const senderName = typeof value.senderName === 'string' ? value.senderName.trim() : '';
+  const messagePreview = messageText.length > 120 ? `${messageText.slice(0, 117)}...` : messageText;
+
+  await sendToUser(toUserId, 'chat_message', {
+    fallbackTitle: senderName ? `Nuevo mensaje de ${senderName}` : 'Nuevo mensaje',
+    fallbackBody: messagePreview,
+    data: {
+      rideId,
+      senderId: fromUserId,
+      senderName,
+    },
+    notificationKey: `c-${rideId}-${messageId}`,
+  });
+
+  return true;
+};
 
 /**
  * Trigger de Realtime Database:
@@ -25,6 +84,10 @@ export const onSupportChatMessage = functions.database
       }
 
       const value = snapshot.val() || {};
+      if (await sendRideChatMessageNotification(complaintId, context.params.messageId, value)) {
+        return null;
+      }
+
       const rawSenderId = typeof value.senderId === 'string' ? value.senderId.trim() : '';
       const fromUserId = rawSenderId || null;
       const rawMessage = typeof value.message === 'string' ? value.message : '';
@@ -86,6 +149,7 @@ export const onSupportChatMessage = functions.database
 
       await notifySupportChatMessage({
         complaintId,
+        messageId: context.params.messageId,
         toUserId,
         fromUserId,
         fromRole,

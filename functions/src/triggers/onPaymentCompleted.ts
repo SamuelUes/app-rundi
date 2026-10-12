@@ -5,7 +5,7 @@
  * cuando cambia el estado en `paymentStatus/{rideId}`.
  */
 
-import * as functions from "firebase-functions";
+import * as functions from "firebase-functions/v1";
 import admin from "firebase-admin";
 import {
   saveCompletedRideToSupabase,
@@ -15,7 +15,11 @@ import {
   saveCanceledRideToSupabase,
 } from "../helpers/supabaseArchive";
 import { cleanupRideFromRealtime } from "../helpers/cleanupHelpers";
-import { enqueueArchiveRetry } from "../helpers/archiveOutbox";
+import { claimArchive, enqueueArchiveRetry, markArchiveDone } from "../helpers/archiveOutbox";
+
+// Estados terminales del pago que disparan el archivado.
+// 'payment_completed' es legacy — el writer canónico ahora usa 'completed'.
+const TERMINAL_ARCHIVABLE_STATUSES = new Set(["completed", "payment_completed"]);
 
 /**
  * TRIGGER: paymentStatus/{rideId}.status → completed
@@ -31,10 +35,10 @@ export const onPaymentCompleted = functions.database
       console.log("⏭️ [onPaymentCompleted] Payment eliminado, no procesar");
       return;
     }
-    if (newPaymentStatus.status !== "completed") {
+    if (!TERMINAL_ARCHIVABLE_STATUSES.has(newPaymentStatus.status)) {
       return;
     }
-    if (previousPaymentStatus?.status === "completed") {
+    if (TERMINAL_ARCHIVABLE_STATUSES.has(previousPaymentStatus?.status)) {
       console.log("⏭️ [onPaymentCompleted] Ya estaba completado, no procesar");
       return;
     }
@@ -46,15 +50,26 @@ export const onPaymentCompleted = functions.database
     console.log(`   amount: ${newPaymentStatus.finalAmount}`);
     console.log(`   status: ${newPaymentStatus.status}`);
 
+    // Single-flight: RTDB entrega triggers at-least-once y el cron puede
+    // procesar el mismo ride en paralelo — solo quien reclama archiva.
+    const claimed = await claimArchive(rideId, "completed");
+    if (!claimed) {
+      console.log(`⏭️ [onPaymentCompleted] ${rideId} ya reclamado/archivado por otro proceso`);
+      return;
+    }
+
+    let ride: any = null;
     try {
       const rideSnapshot = await admin
         .database()
         .ref(`activeRides/${rideId}`)
         .once("value");
-      const ride = rideSnapshot.val();
+      ride = rideSnapshot.val();
 
       if (!ride) {
-        console.error(`❌ [onPaymentCompleted] Viaje no encontrado en Firebase: ${rideId}`);
+        // El viaje ya fue limpiado — nada que archivar.
+        await markArchiveDone(rideId, "");
+        console.error(`⏭️ [onPaymentCompleted] Viaje ${rideId} ya no existe en Firebase — nada que archivar`);
         return;
       }
 
@@ -82,6 +97,8 @@ export const onPaymentCompleted = functions.database
         console.warn("⚠️ [onPaymentCompleted] No se guardaron ubicaciones");
       }
 
+      await markArchiveDone(rideId, pgRideId);
+
       await admin
         .database()
         .ref(`activeRides/${rideId}`)
@@ -107,8 +124,9 @@ export const onPaymentCompleted = functions.database
       console.log(`${"=".repeat(60)}\n`);
     } catch (error: any) {
       console.error(`\n❌❌❌ [onPaymentCompleted] ERROR CRÍTICO: ${error?.message || error}`);
-      // Encolar para reintento en lugar de perder el dato
-      await enqueueArchiveRetry(rideId, change.after.val(), newPaymentStatus, "completed", error.message);
+      // Encolar para reintento en lugar de perder el dato.
+      // Pasar el RIDE real (o null): el cron re-lee activeRides si falta.
+      await enqueueArchiveRetry(rideId, ride, newPaymentStatus, "completed", error.message);
       // Rethrow para que Firebase marque la función como fallida y permita alertas
       throw error;
     }
@@ -142,15 +160,23 @@ export const onPaymentCanceled = functions.database
     console.log(`   rideId: ${rideId}`);
     console.log(`   cancelReason: ${newPaymentStatus.cancelReason || "Sin razón"}`);
 
+    const claimed = await claimArchive(rideId, "canceled");
+    if (!claimed) {
+      console.log(`⏭️ [onPaymentCanceled] ${rideId} ya reclamado/archivado por otro proceso`);
+      return;
+    }
+
+    let ride: any = null;
     try {
       const rideSnapshot = await admin
         .database()
         .ref(`activeRides/${rideId}`)
         .once("value");
-      const ride = rideSnapshot.val();
+      ride = rideSnapshot.val();
 
       if (!ride) {
-        console.error(`❌ [onPaymentCanceled] Viaje no encontrado en Firebase: ${rideId}`);
+        await markArchiveDone(rideId, "");
+        console.error(`⏭️ [onPaymentCanceled] Viaje ${rideId} ya no existe en Firebase — nada que archivar`);
         return;
       }
 
@@ -207,6 +233,8 @@ export const onPaymentCanceled = functions.database
         return;
       }
 
+      await markArchiveDone(rideId, pgRideId);
+
       await admin
         .database()
         .ref(`activeRides/${rideId}`)
@@ -228,7 +256,17 @@ export const onPaymentCanceled = functions.database
       console.log(`${"=".repeat(60)}\n`);
     } catch (error: any) {
       console.error(`\n❌❌❌ [onPaymentCanceled] ERROR CRÍTICO: ${error?.message || error}`);
-      await enqueueArchiveRetry(rideId, change.after.val(), newPaymentStatus, "canceled", error.message);
+      // Pasar el RIDE enriquecido (con datos de cancelación), no el paymentStatus.
+      const rideForRetry = ride
+        ? {
+            ...ride,
+            status: "canceled",
+            cancelReason: newPaymentStatus.cancelReason || "Sin razón especificada",
+            canceledBy: newPaymentStatus.canceledBy || "backend",
+            canceledAt: newPaymentStatus.canceledAt || Date.now(),
+          }
+        : null;
+      await enqueueArchiveRetry(rideId, rideForRetry, newPaymentStatus, "canceled", error.message);
       throw error;
     }
   });

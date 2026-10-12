@@ -1,4 +1,4 @@
-import * as functions from 'firebase-functions';
+import * as functions from 'firebase-functions/v1';
 import admin from '../config/firebase';
 import { regionConfig, DEFAULT_REGION } from '../config/functions-config';
 import { calculateRideProgress } from '../utils/rideProgressUtils';
@@ -11,7 +11,7 @@ interface PublicRideLocation {
 }
 
 interface PublicRideTrackingRide {
-  rideId: string;
+  rideId: string | null;
   source: 'active' | 'completed';
   status: string | null;
   serviceType: string | null;
@@ -120,18 +120,53 @@ export const getPublicRideTracking = functions
     try {
       const rideIdRaw =
         (req.method === 'GET' ? (req.query.rideId as string | undefined) : req.body?.rideId) ?? null;
-      const rideId = (rideIdRaw || '').trim();
+      const codeRaw =
+        (req.method === 'GET' ? (req.query.code as string | undefined) : req.body?.code) ?? null;
+      const code = (codeRaw || '').toString().trim().toUpperCase();
+
+      let rideId = (rideIdRaw || '').trim();
+      let resolvedViaCode = false;
+
+      const db = admin.database();
+
+      // Acceso por código de compartición (preferido): el código es una
+      // capability expirable que resuelve internamente el rideId — el
+      // identificador real no se expone ni se devuelve en la respuesta.
+      if (!rideId && code) {
+        const codeSnapshot = await db.ref(`rideTrackingCodes/${code}`).once('value');
+        const entry = codeSnapshot.val();
+
+        if (!entry || typeof entry.rideId !== 'string') {
+          res.status(404).json({
+            success: false,
+            error: 'Código de seguimiento inválido',
+            code: 'invalid-code',
+          } as PublicRideTrackingResponse);
+          return;
+        }
+
+        if (typeof entry.expiresAt === 'number' && entry.expiresAt < Date.now()) {
+          res.status(410).json({
+            success: false,
+            error: 'El código de seguimiento expiró',
+            code: 'code-expired',
+          } as PublicRideTrackingResponse);
+          return;
+        }
+
+        rideId = entry.rideId;
+        resolvedViaCode = true;
+      }
 
       if (!rideId) {
         res.status(400).json({
           success: false,
-          error: 'rideId es requerido',
+          error: 'rideId o code es requerido',
           code: 'invalid-argument',
         } as PublicRideTrackingResponse);
         return;
       }
 
-      const db = admin.database();
 
       let source: 'active' | 'completed' = 'active';
       let rideSnapshot = await db.ref(`activeRides/${rideId}`).once('value');
@@ -257,7 +292,9 @@ export const getPublicRideTracking = functions
           : null;
 
       const ride: PublicRideTrackingRide = {
-        rideId,
+        // Con acceso por código no devolvemos identificadores internos: así un
+        // código compartido no puede convertirse en acceso permanente por rideId.
+        rideId: resolvedViaCode ? null : rideId,
         source,
         status,
         serviceType,
@@ -266,7 +303,7 @@ export const getPublicRideTracking = functions
         extraDestination: extraDestination ?? null,
         finalDestination: finalDestination ?? null,
         vehicleLocation,
-        driverId,
+        driverId: resolvedViaCode ? null : driverId,
         driverInfo,
         vehicleHeading,
         estimatedDistance,

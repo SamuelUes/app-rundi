@@ -1,4 +1,4 @@
-import * as functions from "firebase-functions";
+import * as functions from "firebase-functions/v1";
 import { firestore } from "../config/firebase";
 import { regionConfig } from "../config/functions-config";
 import { checkRateLimit } from "../utils/rateLimiter";

@@ -38,7 +38,7 @@ export function useRideActions(
     alertService.showConfirmAlert(
       t('driver.ridePreview.alerts.cardRequiredTitle'),
       t('driver.ridePreview.alerts.cardRequiredBody'),
-      () => {},
+      () => navigation.navigate('PaymentMethods'),
       undefined,
       t('driver.ridePreview.alerts.cardRequiredConfirm'),
       t('driver.ridePreview.alerts.cardRequiredCancel'),
@@ -69,6 +69,20 @@ export function useRideActions(
         duration: 130,
         useNativeDriver: true,
       }).start();
+
+      // Viaje programado: no existe en activeRides — "Aceptar" equivale a
+      // confirmar la asignación. El scheduler lo promueve en scheduledAt.
+      if (currentRide.isProgrammed) {
+        await ridesService.confirmProgrammedRideDriver(currentRide.id);
+        alertService.showSuccessAlert(
+          t('driver.available.alerts.scheduledConfirmedTitle'),
+          t('driver.available.alerts.scheduledConfirmedBody'),
+        );
+        setManualOfferLock(true);
+        allowNavigationRef.current = true;
+        navigation.goBack();
+        return;
+      }
 
       const hasClientSuggested =
         typeof currentRide.clientSuggestedPrice === 'number' &&
@@ -102,8 +116,6 @@ export function useRideActions(
       } else {
         const acceptData = {
           driverId: userId || '',
-          vehicleId: 'temp-vehicle-id',
-          currentLocation: { lat: 0, lng: 0 },
         };
         await ridesService.acceptRide(currentRide.id, acceptData);
         alertService.showSuccessAlert(

@@ -3,13 +3,16 @@ import { Alert, Platform } from 'react-native';
 import proximityService from '../../../services/proximityService';
 import { overlayManager } from '../../../native/overlay';
 
+const isSupported = Platform.OS === 'android' || Platform.OS === 'ios';
+const isIOS = Platform.OS === 'ios';
+
 export function useOverlayPreference(t: (path: string) => string) {
   const [overlayToggleEnabled, setOverlayToggleEnabled] = useState<boolean>(false);
-  const [overlayPermissionGranted, setOverlayPermissionGranted] = useState<boolean>(Platform.OS !== 'android');
+  const [overlayPermissionGranted, setOverlayPermissionGranted] = useState<boolean>(isSupported);
   const [overlayCheckingPermission, setOverlayCheckingPermission] = useState<boolean>(false);
 
   const loadOverlayPreference = useCallback(async () => {
-    if (Platform.OS !== 'android') {
+    if (!isSupported) {
       setOverlayToggleEnabled(false);
       setOverlayPermissionGranted(true);
       return;
@@ -33,7 +36,7 @@ export function useOverlayPreference(t: (path: string) => string) {
   }, []);
 
   const handleOverlayToggle = useCallback(async (nextValue: boolean) => {
-    if (Platform.OS !== 'android') {
+    if (!isSupported) {
       Alert.alert(
         t('driver.profile.overlay.alerts.notAvailableTitle'),
         t('driver.profile.overlay.alerts.notAvailableBody'),
@@ -43,6 +46,41 @@ export function useOverlayPreference(t: (path: string) => string) {
 
     setOverlayCheckingPermission(true);
     try {
+      if (Platform.OS === 'ios') {
+        if (nextValue) {
+          await proximityService.setOverlayEnabled(true);
+          setOverlayToggleEnabled(true);
+
+          // El primer Activity.request dispara el prompt del sistema si nunca se pidió.
+          await proximityService.debugTriggerFallbackOverlay('activation-ios');
+
+          const hasPermission = await overlayManager.hasPermission();
+          setOverlayPermissionGranted(hasPermission);
+          if (!hasPermission) {
+            Alert.alert(
+              t('driver.profile.overlay.alerts.enableTitleIos'),
+              t('driver.profile.overlay.alerts.enableBodyIos'),
+            );
+            await overlayManager.openSystemSettings();
+            const recheck = await overlayManager.hasPermission();
+            setOverlayPermissionGranted(recheck);
+            if (!recheck) {
+              await proximityService.setOverlayEnabled(false);
+              setOverlayToggleEnabled(false);
+              Alert.alert(
+                t('driver.profile.overlay.alerts.permissionMissingTitle'),
+                t('driver.profile.overlay.alerts.permissionMissingBodyIos'),
+              );
+            }
+          }
+        } else {
+          // setOverlayEnabled(false) ya termina la Live Activity vía hideOverlayBubble.
+          await proximityService.setOverlayEnabled(false);
+          setOverlayToggleEnabled(false);
+        }
+        return;
+      }
+
       if (nextValue) {
         await proximityService.setOverlayEnabled(true);
         setOverlayToggleEnabled(true);

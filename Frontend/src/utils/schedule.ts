@@ -1,5 +1,5 @@
 export const SCHEDULE_MIN_LEAD_MS = 10 * 60 * 1000;
-export const SCHEDULE_MAX_AHEAD_MS = 20 * 24 * 60 * 60 * 1000;
+export const SCHEDULE_MAX_AHEAD_MS = 10 * 24 * 60 * 60 * 1000;
 export const SCHEDULE_MINUTE_STEP = 5;
 
 export function isSameDay(a: Date, b: Date): boolean {

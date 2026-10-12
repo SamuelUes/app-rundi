@@ -93,7 +93,7 @@ const OnboardingScreen: React.FC<Props> = ({ navigation }) => {
         <View style={styles.imageContainer}>
           {item.id === '1' && (
             <Image
-              source={require('../../assets/images/logo_2_2x.png')}
+              source={require('../../assets/images/rundi_logo_bg.png')}
               style={[styles.logoImage]}
               resizeMode="contain"
             />
@@ -181,8 +181,8 @@ const createStyles = (colors: any) => {
       paddingVertical: 60,
     },
     logoImage: {
-      width: '50%',
-      height: '50%',
+      width: '25%',
+      height: '25%',
       borderRadius: 12,
     },
     image: {

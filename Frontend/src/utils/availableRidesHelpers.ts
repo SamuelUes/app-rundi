@@ -1,4 +1,7 @@
-import { normalizeVehicleTypeForMatching } from '../services/ridesService';
+import {
+  normalizeVehicleTypeForMatching,
+  extractRideVehicleTypeForMatching,
+} from '../services/ridesService';
 export { haversineKm } from './distance';
 
 export type RawLocation =
@@ -90,6 +93,99 @@ export const normalizeStops = (stops: any[] | undefined | null): Array<{ lat: nu
       normalizeLocation(stop as RawLocation, [stop?.lat, stop?.latitude], [stop?.lng, stop?.longitude], stop?.address),
     )
     .filter((stop) => Number.isFinite(stop.lat) && Number.isFinite(stop.lng));
+};
+
+const DESIGNATED_RIDE_SYNONYMS = new Set([
+  'designated_driver',
+  'designated-driver',
+  'designateddriver',
+  'conductor_designado',
+  'conductor-designado',
+]);
+
+export const isDesignatedRideRequest = (rideLike: any): boolean => {
+  const rideType = String(rideLike?.rideType ?? rideLike?.ride_type ?? '')
+    .trim()
+    .toLowerCase();
+  if (DESIGNATED_RIDE_SYNONYMS.has(rideType)) {
+    return true;
+  }
+  const vehicleType = String(rideLike?.vehicleType ?? rideLike?.vehicle_type ?? '')
+    .trim()
+    .toLowerCase();
+  return DESIGNATED_RIDE_SYNONYMS.has(vehicleType);
+};
+
+/**
+ * Réplica de `checkVehicleCompatibility` del backend (rides_sequelize.ts) para
+ * que el filtrado client-side de viajes disponibles muestre solo viajes que el
+ * conductor realmente puede aceptar.
+ */
+export const checkRideDriverCompatibility = (
+  rideLike: any,
+  driverVehicleType: 'moto' | 'auto' | null,
+  driverIsDesignatedMode: boolean,
+): { ok: boolean; reason?: string } => {
+  const driverType = driverVehicleType === 'moto' ? 'moto' : 'auto';
+  const rideVehicleType = extractRideVehicleTypeForMatching(rideLike);
+
+  if (isDesignatedRideRequest(rideLike)) {
+    if (!driverIsDesignatedMode) {
+      return { ok: false, reason: 'designated_mode_required' };
+    }
+    if (rideVehicleType && driverType !== rideVehicleType) {
+      return { ok: false, reason: 'designated_vehicle_mismatch' };
+    }
+    return { ok: true };
+  }
+
+  if (rideVehicleType === 'moto') {
+    return driverType === 'moto'
+      ? { ok: true }
+      : { ok: false, reason: 'moto_vehicle_required' };
+  }
+
+  if (driverType === 'moto') {
+    return { ok: false, reason: 'auto_vehicle_required' };
+  }
+
+  return { ok: true };
+};
+
+interface RideRejectionSnapshot {
+  clientSuggestedPriceAtRejection?: number | null;
+  estimatedPriceAtRejection?: number | null;
+}
+
+/**
+ * Un viaje rechazado vuelve a ser visible solo si el precio relevante cambió
+ * desde el rechazo (misma semántica que proximityService.hasPriceChangedForDriver).
+ */
+export const shouldShowRejectedRide = (
+  rejections: Record<string, RideRejectionSnapshot> | undefined | null,
+  driverId: string | undefined,
+  currentClientSuggestedPrice: number | null,
+  currentEstimatedPrice: number | null,
+): boolean => {
+  if (!driverId) {
+    return true;
+  }
+  const rejection = rejections?.[driverId];
+  if (!rejection) {
+    return true;
+  }
+
+  const savedSuggested = rejection.clientSuggestedPriceAtRejection ?? null;
+  const savedEstimated = rejection.estimatedPriceAtRejection ?? null;
+
+  const sameSuggested =
+    (currentClientSuggestedPrice === null && savedSuggested === null) ||
+    Number(currentClientSuggestedPrice) === Number(savedSuggested);
+  const sameEstimated =
+    (currentEstimatedPrice === null && savedEstimated === null) ||
+    Number(currentEstimatedPrice) === Number(savedEstimated);
+
+  return !(sameSuggested && sameEstimated);
 };
 
 export const extractProgrammedRideId = (input: string): string | null => {
@@ -197,4 +293,10 @@ export interface Ride {
   hasMultipleDestinations?: boolean;
   clientVehiclePhoto?: string | null;
   clientComment?: string;
+  distanceToOriginKm?: number;
+  isProgrammed?: boolean;
+  scheduledAt?: number | null;
+  clientConfirmed?: boolean;
+  driverConfirmed?: boolean;
+  driverConfirmationRequestedAt?: number | null;
 }

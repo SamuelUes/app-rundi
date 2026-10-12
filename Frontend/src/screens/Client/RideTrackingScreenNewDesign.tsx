@@ -35,6 +35,7 @@ import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useLocation } from '../../hooks/shared/location/useLocation';
 import { useFirebaseItem } from '../../hooks/shared/firebase/useFirebaseData';
 import firebaseTrackingService from '../../services/firebaseTrackingService';
+import ridesService from '../../services/ridesService';
 import { useTranslation } from 'react-i18next';
 
 // Navegación
@@ -60,10 +61,8 @@ import { RideTrackingActionButtons } from '../../components/client/RideTracking/
 // Iconos
 const BACK_BUTTON = require('../../assets/icons/back_button/back_button2x.png');
 
-const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
-
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
-const PANEL_MIN_HEIGHT = 240;
+const PANEL_MIN_HEIGHT = 252;
 const PANEL_MAX_HEIGHT = SCREEN_HEIGHT * 0.65;
 
 interface DriverLocation {
@@ -123,11 +122,21 @@ const useDriverLocation = (driverId: string) => {
   return { driverLocation, isConnected };
 };
 
+const TERMINAL_RIDE_STATUSES = ['completed', 'canceled'];
+
 // Hook para estado del viaje
 const useRideStatus = (rideId: string) => {
-  const { data: rideData, loading: rideLoading } = useFirebaseItem<any>(`activeRides`, rideId);
-
   const [rideStatus, setRideStatus] = useState('in_progress');
+
+  // En estados terminales el backend archiva el viaje y elimina el nodo de
+  // activeRides (onPaymentCanceled → cleanupRideFromRealtime). Si seguimos
+  // escuchando, el servidor revoca el listener → permission_denied.
+  const isTerminal = TERMINAL_RIDE_STATUSES.includes(rideStatus);
+  const {
+    data: rideData,
+    loading: rideLoading,
+    error: rideError,
+  } = useFirebaseItem<any>(`activeRides`, rideId, { enabled: !isTerminal });
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card'>('cash');
   const [finalFare, setFinalFare] = useState<number>(0);
 
@@ -145,7 +154,7 @@ const useRideStatus = (rideId: string) => {
     }
   }, [rideData]);
 
-  return { rideStatus, paymentMethod, finalFare, rideData, loading: rideLoading };
+  return { rideStatus, paymentMethod, finalFare, rideData, rideError, loading: rideLoading };
 };
 
 // Hook para datos del conductor y vehículo
@@ -263,18 +272,27 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
   const [loadingMessage, setLoadingMessage] = useState(tr('loading.connectingDriver'));
   
   const { driverLocation, isConnected } = useDriverLocation(driverId);
-  const { rideStatus, paymentMethod, finalFare, rideData, loading: rideLoading } = useRideStatus(rideId);
+  const {
+    rideStatus,
+    paymentMethod,
+    finalFare,
+    rideData,
+    rideError,
+    loading: rideLoading,
+  } = useRideStatus(rideId);
   const { driverData, vehicleData } = useDriverAndVehicleData(driverId, { driverName, vehiclePlate, vehicleBrand, vehicleModel, vehicleColor, rideData });
   const vehicleIconSource = useMemo(() => ensureVehicleIconSource(vehicleData.type), [vehicleData.type]);
   const { destinationCoords, originCoords, waypointCoords, routeCoordinates, routeDistanceMeters, routeDurationSeconds } = useRideRoute(rideData);
 
   // Panel retráctil (tap para expandir/contraer)
-  const { isPanelExpanded, togglePanel } = useCollapsiblePanel({
+  const { isPanelExpanded, panelHeight, togglePanel } = useCollapsiblePanel({
     initialExpanded: true,
     minHeight: PANEL_MIN_HEIGHT,
     maxHeight: PANEL_MAX_HEIGHT,
+    useAnimatedHeight: true,
   });
   const hasNavigatedToPaymentRef = useRef(false);
+  const handledRideEndRef = useRef(false);
 
   const handleGoBack = useCallback(() => {
     navigation.reset({
@@ -325,6 +343,7 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
   const handleOpenChat = useCallback(() => {
     navigation.navigate('Chat', {
       rideId,
+      otherUserId: driverId,
       otherUserName: driverData.name,
       otherUserPhone: driverData.phone || undefined,
     });
@@ -342,6 +361,7 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
     continueLabel: tr('buttons.continue'),
     cancelErrorLabel: tr('alerts.cancelRideError'),
     onSuccess: async () => {
+      handledRideEndRef.current = true;
       await clearClientActiveRideState();
       alertService.showSuccessAlert(tr('alerts.cancelRideSuccessTitle'), tr('alerts.cancelRideSuccessMessage'), () => {
         navigation.reset({
@@ -352,21 +372,46 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
     },
   });
 
+  // Viaje finalizado por el sistema: el conductor canceló o el nodo fue
+  // eliminado (permission_denied). Avisar al usuario y sacarlo de la pantalla.
+  useEffect(() => {
+    if (handledRideEndRef.current || isCancellingRide) return;
+
+    const rideGone =
+      !!rideError &&
+      ((rideError as any)?.code === 'PERMISSION_DENIED' ||
+        String((rideError as any)?.message || '').includes('permission_denied'));
+    if (rideStatus !== 'canceled' && !rideGone) return;
+
+    handledRideEndRef.current = true;
+    clearClientActiveRideState().catch(() => {});
+    alertService.showInfoAlert(
+      tr('alerts.rideCanceledTitle'),
+      tr(rideStatus === 'canceled' ? 'alerts.rideCanceledByDriver' : 'alerts.rideUnavailable'),
+      () => {
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'ClientHome' }],
+        });
+      },
+    );
+  }, [rideStatus, rideError, isCancellingRide, navigation, tr]);
+
   const getStatusColor = () => {
     switch (rideStatus) {
       case 'accepted':
       case 'driver_on_route':
-        return '#FF9800';
+        return colors.warning;
       case 'in_progress':
-        return '#2196F3';
+        return colors.secondary;
       case 'pending_payment':
-        return '#9C27B0';
+        return colors.primary;
       case 'completed':
-        return '#4CAF50';
+        return colors.success;
       case 'canceled':
-        return '#F44336';
+        return colors.error;
       default:
-        return '#999';
+        return colors.textTertiary;
     }
   };
 
@@ -479,7 +524,9 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
   const handleShareTrip = useCallback(async () => {
     try {
       const pickupAddress = rideData?.origin?.address || tr('labels.pickupFallback');
-      const trackingUrl = `https://rundiapp.com/tracking?rideId=${rideId}`;
+      // Código de compartición (expira solo, no expone el rideId real)
+      const { code } = await ridesService.createRideShareToken(rideId);
+      const trackingUrl = `https://rundiapp.com/tracking?code=${code}`;
       const message = tr('labels.shareMessage', {
         driver: driverData.name || tr('labels.driverUnknown'),
         vehicleBrand: vehicleData.brand,
@@ -529,7 +576,8 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
                     longitude: waypoint.longitude,
                     index: index + 1,
                     color: '#ffa600b2',
-                    label: extraDest?.address || tr('labels.stopLabel', { index: index + 1 }),
+                    title: t('common.mapPins.extraStop', { index: index + 1 }),
+                    label: extraDest?.address || undefined,
                   };
                 })
               : undefined
@@ -537,8 +585,10 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
           routeCoordinates={activeRouteCoordinates && activeRouteCoordinates.length > 0 ? activeRouteCoordinates : undefined}
           secondaryRouteCoordinates={secondaryRouteCoordinates && secondaryRouteCoordinates.length > 0 ? secondaryRouteCoordinates : undefined}
           secondaryRouteColor="#d3850fc0"
-          originLabel={rideData?.origin?.address || tr('labels.routeOriginFallback')}
-          destinationLabel={rideData?.destination?.address || tr('labels.routeDestinationFallback')}
+          originTitle={t('common.mapPins.origin')}
+          destinationTitle={t('common.mapPins.destination')}
+          originLabel={rideData?.origin?.address || undefined}
+          destinationLabel={rideData?.destination?.address || undefined}
           showPinBubbles
         />
       </View>
@@ -549,35 +599,73 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
     </TouchableOpacity>
 
     {/* Panel inferior retráctil */}
-    <Animated.View 
+    <Animated.View
       style={[
         styles.bottomPanel,
-        {
-          height: isPanelExpanded ? PANEL_MAX_HEIGHT : PANEL_MIN_HEIGHT,
-        },
+        { height: panelHeight },
       ]}
     >
       {/* Handle para expandir/contraer */}
-      <TouchableOpacity onPress={togglePanel} activeOpacity={0.8} style={styles.handleContainer}>
-        <View style={styles.handle} />
+      <TouchableOpacity
+        onPress={togglePanel}
+        activeOpacity={0.8}
+        style={styles.grabber}
+        accessibilityRole="button"
+        accessibilityLabel={tr(isPanelExpanded ? 'accessibility.collapsePanel' : 'accessibility.expandPanel')}
+      >
+        <View style={styles.grabberBar} />
       </TouchableOpacity>
 
       {/* ETA siempre visible */}
       <View style={styles.etaSection}>
         <View style={styles.etaHeader}>
-          <Text style={[isPanelExpanded ? styles.etaText : styles.etaTextLarge, { color: colors.text }]}>
+          <Text
+            numberOfLines={1}
+            style={[isPanelExpanded ? styles.etaText : styles.etaTextLarge, { color: colors.text }]}
+          >
             {etaLabel}
           </Text>
           <TouchableOpacity
-            style={[styles.statusPill, { backgroundColor: getStatusColor() }]}
+            style={[
+              styles.statusChip,
+              {
+                backgroundColor: `${getStatusColor()}1F`,
+                borderColor: `${getStatusColor()}40`,
+              },
+            ]}
             onPress={togglePanel}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel={tr(isPanelExpanded ? 'accessibility.collapsePanel' : 'accessibility.expandPanel')}
           >
-            <Text style={styles.statusButtonText}>{getStatusText()}</Text>
+            <View style={[styles.statusDot, { backgroundColor: getStatusColor() }]} />
+            <Text numberOfLines={1} style={[styles.statusChipText, { color: getStatusColor() }]}>
+              {getStatusText()}
+            </Text>
+            <MaterialIcons
+              name={isPanelExpanded ? 'expand-less' : 'expand-more'}
+              size={16}
+              color={getStatusColor()}
+            />
           </TouchableOpacity>
         </View>
-        <Text style={[styles.tripData, { color: colors.textSecondary }]}>
-          {tr('eta.tripData', { summary: tripSummaryLabel })}
-        </Text>
+        <View style={styles.tripMetaRow}>
+          <Text numberOfLines={1} style={[styles.tripData, { color: colors.textSecondary }]}>
+            {tr('eta.tripData', { summary: tripSummaryLabel })}
+          </Text>
+          {!!rideData && !!paymentMethod && (
+            <View style={styles.paymentChip}>
+              <MaterialIcons
+                name={paymentMethod === 'card' ? 'credit-card' : 'payments'}
+                size={12}
+                color={colors.textSecondary}
+              />
+              <Text numberOfLines={1} style={[styles.paymentChipText, { color: colors.textSecondary }]}>
+                {tr(paymentMethod === 'card' ? 'labels.paymentCard' : 'labels.paymentCash')}
+              </Text>
+            </View>
+          )}
+        </View>
       </View>
 
       {/* Contenido expandido */}
@@ -597,6 +685,7 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
             vehicleColor={vehicleData.color}
             colors={colors}
             onOpenChat={handleOpenChat}
+            tr={tr}
             styles={styles}
           />
 
@@ -628,8 +717,10 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
 
       <RideTrackingActionButtons
         rideStatus={rideStatus}
+        paymentMethod={paymentMethod}
         isCancellingRide={isCancellingRide}
         cancelButtonScale={cancelButtonScale}
+        colors={colors}
         onGoToPayment={handleGoToPayment}
         onShareTrip={handleShareTrip}
         onCancelRide={handleCancelRide}
@@ -658,256 +749,287 @@ const createStyles = (colors: any) => StyleSheet.create({
     position: 'absolute',
     top: Platform.OS === 'ios' ? 64 : 58,
     left: 16,
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     backgroundColor: colors.button,
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 0,
-    elevation: 60,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    elevation: 8,
     zIndex: 10,
   },
   backButtonImage: {
-    width: 34,
-    height: 34,
+    width: 30,
+    height: 30,
     resizeMode: 'contain',
   },
-  
-  // Botón Status flotante
-  statusButton: {
-    position: 'absolute',
-    top: Platform.OS === 'ios' ? 50 : 20,
-    right: 16,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 24,
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    zIndex: 10,
-  },
-  statusButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  
+
   // Panel inferior retráctil
   bottomPanel: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    height: PANEL_MAX_HEIGHT,
     backgroundColor: colors.card,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingHorizontal: 20,
     paddingBottom: Platform.OS === 'ios' ? 34 : 20,
-    elevation: 10,
+    elevation: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
     overflow: 'hidden',
   },
-  
-  // Handle para arrastrar
-  handleContainer: {
-    paddingVertical: 12,
+
+  // Handle para expandir/contraer
+  grabber: {
+    paddingVertical: 10,
     alignItems: 'center',
   },
-  handle: {
-    width: 40,
+  grabberBar: {
+    width: 36,
     height: 5,
-    backgroundColor: colors.textSecondary || '#999',
     borderRadius: 3,
-    opacity: 0.5,
+    backgroundColor: colors.border,
   },
-  
-  etaTextLarge: {
-    fontSize: 24,
-    fontWeight: '700',
-    marginBottom: 4,
-  },
-  
-  // Contenido expandido
-  expandedContent: {
-    flex: 1,
-    maxHeight: PANEL_MAX_HEIGHT - 160,
-  },
-  
+
   // ETA
   etaSection: {
-    marginBottom: 16,
+    marginBottom: 12,
   },
   etaHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 4,
   },
   etaText: {
     fontSize: 20,
     fontWeight: '700',
-    marginBottom: 4,
+    flexShrink: 1,
+  },
+  etaTextLarge: {
+    fontSize: 24,
+    fontWeight: '700',
+    flexShrink: 1,
+  },
+  statusChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: 1,
+    flexShrink: 1,
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  statusChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  tripMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
   },
   tripData: {
     fontSize: 13,
+    flexShrink: 1,
   },
-  statusPill: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
+  paymentChip: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    minWidth: 96,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.2,
-    shadowRadius: 5,
-    elevation: 3,
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.border,
+    flexShrink: 1,
   },
-  
+  paymentChipText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+
+  // Contenido expandido
+  expandedContent: {
+    flex: 1,
+  },
+
   // Conductor
   driverSection: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border + '40',
+    marginBottom: 14,
+    paddingBottom: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
   },
   driverAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     marginRight: 12,
+    overflow: 'hidden',
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: `${colors.primary}33`,
   },
   driverInitial: {
-    color: '#fff',
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '700',
   },
   driverInfo: {
     flex: 1,
+    marginRight: 10,
   },
   driverName: {
-    fontSize: 15,
-    fontWeight: '600',
-    marginBottom: 2,
-  },
-  vehicleInfo: {
-    fontSize: 13,
-  },
-  messageButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border + '60',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  messageIcon: {
-    fontSize: 22,
-  },
-  
-  // Ubicaciones
-  locationsContainer: {
-    marginBottom: 16,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border + '40',
-  },
-  locationItem: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: 12,
-  },
-  locationIcon: {
-    fontSize: 20,
-    marginRight: 12,
-    marginTop: 2,
-  },
-  locationContent: {
-    flex: 1,
-  },
-  locationLabel: {
-    fontSize: 12,
+    fontSize: 16,
     fontWeight: '600',
     marginBottom: 4,
   },
-  locationAddress: {
-    fontSize: 14,
-    fontWeight: '500',
-    lineHeight: 20,
-  },
-  
-  // Botones de acción
-  actionButtons: {
-    gap: 12,
-    marginTop: 8,
-  },
-  paymentButton: {
-    paddingVertical: 14,
-    borderRadius: 12,
+  driverMetaRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#9C27B0',
+    gap: 8,
   },
-  paymentButtonText: {
-    color: '#fff',
-    fontSize: 15,
+  plateChip: {
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 7,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  plateChipText: {
+    fontSize: 11,
     fontWeight: '700',
+    letterSpacing: 0.6,
+    fontVariant: ['tabular-nums'],
   },
-  shareButton: {
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: 'center',
+  vehicleInfo: {
+    fontSize: 13,
+    flexShrink: 1,
   },
-  shareButtonText: {
-    color: '#fff',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  cancelButton: {
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  cancelButtonText: {
-    color: '#fff',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  
-  // Error
-  errorContainer: {
-    flex: 1,
+  messageButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
-    backgroundColor: colors.background,
   },
-  errorText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: colors.text,
+
+  // Ruta (timeline)
+  routeCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    padding: 16,
     marginBottom: 12,
-    textAlign: 'center',
   },
-  errorDescription: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    textAlign: 'center',
+  routeRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    minHeight: 44,
+  },
+  routeIconCol: {
+    width: 24,
+    alignItems: 'center',
+  },
+  routeLine: {
+    width: 2,
+    flex: 1,
+    minHeight: 6,
+    backgroundColor: colors.border,
+  },
+  routeLineHidden: {
+    backgroundColor: 'transparent',
+  },
+  routeDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+  },
+  routeTextCol: {
+    flex: 1,
+    paddingLeft: 14,
+    justifyContent: 'center',
+    paddingVertical: 2,
+  },
+  locationLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    color: colors.textTertiary,
+    marginBottom: 2,
+  },
+  locationAddress: {
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: '500',
+    color: colors.text,
+  },
+
+  // Botones de acción
+  actionButtons: {
+    gap: 8,
+    marginTop: 10,
+  },
+  primaryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    height: 50,
+    borderRadius: 14,
+    backgroundColor: colors.SecondBorder,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+  },
+  primaryButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  cancelGhost: {
+    backgroundColor: colors.error,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    height: 44,
+    borderRadius: 12,
+  },
+  cancelGhostText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#ffffff',
+  },
+  buttonDisabled: {
+    opacity: 0.6,
   },
 });
   

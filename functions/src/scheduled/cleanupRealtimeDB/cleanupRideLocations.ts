@@ -4,7 +4,7 @@
  * Mantiene solo las últimas 500 ubicaciones por viaje
  */
 
-import * as functions from 'firebase-functions';
+import * as functions from 'firebase-functions/v1';
 import admin from 'firebase-admin';
 
 export const cleanupRideLocations = functions

@@ -116,17 +116,15 @@ const initializeMessagingModule = async (): Promise<boolean> => {
     }
 
     const rnMessaging = await loadNativeFirebaseMessaging();
-    if (!rnMessaging || !rnMessaging.default) {
+    if (!rnMessaging || !rnMessaging.getMessaging) {
       console.warn('⚠️ No se pudo cargar el módulo nativo de Firebase Messaging.');
       logAvailability('unavailable');
       return false;
     }
 
     // React Native Firebase se inicializa automáticamente con google-services.json
-    // Usar la API modular (v22+) para evitar warnings de deprecación de la API namespaced
-    const instance = rnMessaging.getMessaging
-      ? rnMessaging.getMessaging()
-      : rnMessaging.default();
+    // RNFB v26: solo API modular (la API namespaced fue eliminada)
+    const instance = rnMessaging.getMessaging();
 
     if (!instance) {
       console.warn('⚠️ No se pudo obtener una instancia de Firebase Messaging.');
@@ -142,6 +140,8 @@ const initializeMessagingModule = async (): Promise<boolean> => {
         rnMessaging.hasPermission(currentInstance),
       getToken: async (currentInstance: any) =>
         rnMessaging.getToken(currentInstance),
+      getAPNSToken: async (currentInstance: any) =>
+        rnMessaging.getAPNSToken(currentInstance),
       onMessage: (currentInstance: any, handler: any) =>
         rnMessaging.onMessage(currentInstance, handler),
       onNotificationOpenedApp: (currentInstance: any, handler: any) =>
@@ -177,6 +177,27 @@ class FCMService {
   private onMessageUnsubscribe: (() => void) | null = null;
   private onNotificationOpenedUnsubscribe: (() => void) | null = null;
   private messagingInitPromise: Promise<boolean> | null = null;
+  private apnsTokenCheckPromise: Promise<string | null> | null = null;
+
+  private waitForApnsToken(): Promise<string | null> {
+    if (!this.apnsTokenCheckPromise) {
+      this.apnsTokenCheckPromise = (async () => {
+        for (let attempt = 0; attempt < 6; attempt += 1) {
+          const apnsToken = await messagingModule.getAPNSToken(messagingInstance).catch(() => null);
+          if (typeof apnsToken === 'string' && apnsToken.length > 0) {
+            return apnsToken;
+          }
+          if (attempt < 5) {
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+          }
+        }
+        return null;
+      })().finally(() => {
+        this.apnsTokenCheckPromise = null;
+      });
+    }
+    return this.apnsTokenCheckPromise;
+  }
 
   private async getFunctions() {
     if (!this.functions) {
@@ -191,9 +212,7 @@ class FCMService {
     }
 
     const nativeAuthModule = await loadNativeFirebaseAuth();
-    const rnAuth = nativeAuthModule?.getAuth
-      ? nativeAuthModule.getAuth()
-      : nativeAuthModule?.default?.();
+    const rnAuth = nativeAuthModule?.getAuth?.();
     if (!rnAuth) {
       console.warn('⚠️ No se pudo cargar el módulo nativo de Firebase Auth.');
       return { currentUser: null } as any;
@@ -238,6 +257,15 @@ class FCMService {
         return null;
       }
 
+      // RNFB v26 requiere tener el token APNs antes de solicitar el token FCM.
+      if (Platform.OS === 'ios') {
+        const apnsToken = await this.waitForApnsToken();
+        if (!apnsToken) {
+          console.warn('⚠️ No hay token APNs disponible; en simulador iOS ARM64 se requiere un iPhone físico para obtener token FCM.');
+          return null;
+        }
+      }
+
       const fcmToken = await messagingModule.getToken(messagingInstance);
 
       if (fcmToken) {
@@ -260,19 +288,19 @@ class FCMService {
   /**
    * Registrar token FCM en el backend
    */
-  async registerToken(): Promise<void> {
+  async registerToken(): Promise<boolean> {
     try {
       const webUser = await this.getWebAuthUser();
 
       if (!webUser) {
         console.log('⚠️ Usuario no autenticado en Firebase (web), saltando registro de token');
-        return;
+        return false;
       }
 
       const token = await this.getToken();
       if (!token) {
         console.log('⚠️ No hay token FCM disponible');
-        return;
+        return false;
       }
 
       const functions = await this.getFunctions();
@@ -283,8 +311,10 @@ class FCMService {
       });
 
       console.log('✅ Token FCM registrado en backend');
+      return true;
     } catch (error) {
       console.error('❌ Error registrando token FCM:', error);
+      return false;
     }
   }
 

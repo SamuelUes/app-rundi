@@ -12,8 +12,20 @@ import {
   Platform,
   Animated,
   Easing,
-  useColorScheme,
+  useWindowDimensions,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
+import Reanimated, {
+  Extrapolation,
+  interpolate,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DynamicMap from '../../components/map/DynamicMap';
 import { MAP_ICONS } from '../../constants/mapIcons';
 import { useLocation } from '../../hooks/shared/location/useLocation';
@@ -22,10 +34,7 @@ import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useAddressSearch } from '../../hooks/client/SearchRideScreen/useAddressSearch';
 import servicesService, { ServiceItem } from '../../services/servicesService';
 import alertService from '../../services/alertService';
-import {
-  formatCoords,
-  type Coords,
-} from '../../utils/rideCoords';
+import { metersBetween, type Coords } from '../../utils/rideCoords';
 import { normalizeSuggestion, type NormalizedSuggestion } from '../../utils/suggestions';
 import { useRideRouteCalculation } from '../../hooks/client/SearchRideScreen/useRideRouteCalculation';
 import { useScheduleRide } from '../../hooks/client/SearchRideScreen/useScheduleRide';
@@ -45,6 +54,9 @@ const { MANUAL_ORIGIN, MANUAL_ORIGIN_HOLD, ORIGIN_PIN, DESTINATION_PIN, MULTI_ST
 const BACK_BUTTON_ICON = require('../../assets/icons/back_button/back_button2x.png');
 const DEFAULT_FALLBACK_COORDS = { latitude: 12.1364, longitude: -86.2514 };
 const MAX_EXTRA_STOPS = 3;
+const SHEET_HANDLE_HEIGHT = 29;
+const SHEET_EXPANDED_RATIO = 0.68;
+const SHEET_SPRING = { damping: 26, stiffness: 300 };
 type VehicleType = 'moto' | 'auto' | 'designated_driver';
 type DesignatedDriverMode = 'auto' | 'moto';
 type PaymentMethod = 'cash' | 'card';
@@ -64,10 +76,9 @@ type MapSelectionState =
 export default function SearchRideScreenNewDesign({ navigation }: any) {
   const { t, i18n } = useTranslation();
   const { user } = useAuth();
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const { coords } = useLocation();
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === 'dark';
+  const insets = useSafeAreaInsets();
   const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
   const tr = useCallback((path: string, options?: Record<string, any>) => t(`shared.searchRide.${path}`, options), [t]);
   const defaultLabels = useMemo(
@@ -114,35 +125,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     bottomPanelExpanded, setBottomPanelExpanded,
   } = state;
 
-  const {
-    calculatingRoute,
-    routeCoordinates,
-    estimatedDistance,
-    estimatedDuration,
-    estimatedPrice,
-    vehicleEstimates,
-    designatedDriverEstimates,
-    recommendedVehicle,
-    designatedDriverEligibility,
-    recomputeRoute,
-    recalcPriceOnly,
-  } = useRideRouteCalculation({ vehicleType, designatedDriverMode, tr });
-
-  const {
-    searchResults,
-    searchLoading,
-    setSearchLoading,
-    searchError,
-    setSearchError,
-    reset: resetSearch,
-  } = useAddressSearch(
-    showSearchOverlay,
-    searchQuery,
-    coords,
-    defaultLabels.locationFallback,
-    tr('labels.noResults'),
-    tr('search.error'),
-  );
+  const { driversAvailable, checkingDrivers, availabilityByType } = useDriversAvailability(coords, vehicleType, designatedDriverMode);
 
   const {
     scheduleModalVisible,
@@ -162,6 +145,49 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     openScheduleModal,
     applyScheduleSelection,
   } = useScheduleRide({ tr });
+
+  const {
+    calculatingRoute,
+    routeCoordinates,
+    estimatedDistance,
+    estimatedDuration,
+    estimatedPrice,
+    vehicleEstimates,
+    designatedDriverEstimates,
+    recommendedVehicle,
+    designatedDriverEligibility,
+    recomputeRoute,
+    recalcPriceOnly,
+  } = useRideRouteCalculation({
+    vehicleType,
+    designatedDriverMode,
+    tr,
+    // Tamaño del grupo: invariante al vehículo seleccionado para que la
+    // auto-selección por recomendación no realimente el cálculo.
+    partySize: Math.max(
+      passengersByVehicle.moto || 1,
+      passengersByVehicle.auto || 1,
+      passengersByVehicle.designated_driver || 1,
+    ),
+    availabilityByType,
+    scheduledAt,
+  });
+
+  const {
+    searchResults,
+    searchLoading,
+    setSearchLoading,
+    searchError,
+    setSearchError,
+    reset: resetSearch,
+  } = useAddressSearch(
+    showSearchOverlay,
+    searchQuery,
+    coords,
+    defaultLabels.locationFallback,
+    tr('labels.noResults'),
+    tr('search.error'),
+  );
 
   const bottomPanelAnim = useRef(new Animated.Value(0)).current;
   const markerBounce = useRef(new Animated.Value(0)).current;
@@ -208,8 +234,6 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     handleTakeVehiclePhoto,
     uploadPhotoIfNeeded,
   } = useVehiclePhoto(user?.id, t);
-
-  const { driversAvailable, checkingDrivers } = useDriversAvailability(coords, vehicleType, designatedDriverMode);
 
   const { onConfirmRequest } = useSearchRideSubmission({
     user,
@@ -292,17 +316,39 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     }
   }, [vehicleType, designatedDriverEligibility, setVehicleType]);
 
+  const lastPricedOriginRef = useRef<Coords | null>(null);
   useEffect(() => {
-    if (estimatedDistance > 0 && (originCoords || coords)) {
-      const stopsCount = extraDestinations.filter((d) => d.coords).length;
-      recalcPriceOnly(originCoords, coords ?? null, destinationCoords, stopsCount);
-    }
+    // Con origen fijado el precio ya se recalcula vía recomputeRoute; aquí solo
+    // re-pricamos cuando el origen sigue al GPS y se movió lo suficiente.
+    if (originCoords) return;
+    if (!coords || !destinationCoords || estimatedDistance <= 0) return;
+    const last = lastPricedOriginRef.current;
+    if (last && metersBetween(last, coords) < 300) return;
+    lastPricedOriginRef.current = coords;
+    const stopsCount = extraDestinations.filter((d) => d.coords).length;
+    recalcPriceOnly(originCoords, coords, destinationCoords, stopsCount);
   }, [coords, estimatedDistance, originCoords, destinationCoords, extraDestinations, recalcPriceOnly]);
 
   const capacityByVehicle: Record<VehicleType, number> = useMemo(
     () => ({ moto: 1, auto: 4, designated_driver: designatedDriverMode === 'moto' ? 1 : 4 }),
     [designatedDriverMode],
   );
+
+  // Aplica la recomendación solo si el usuario no ha elegido manualmente.
+  const userPickedVehicleRef = useRef(false);
+  const handleSelectVehicle = useCallback(
+    (type: VehicleType) => {
+      userPickedVehicleRef.current = true;
+      setVehicleType(type);
+    },
+    [setVehicleType],
+  );
+
+  useEffect(() => {
+    if (!userPickedVehicleRef.current && recommendedVehicle && recommendedVehicle !== vehicleType) {
+      setVehicleType(recommendedVehicle);
+    }
+  }, [recommendedVehicle, vehicleType, setVehicleType]);
 
   const preferServiceCatalogCopy = useMemo(() => {
     const lang = i18n.language || 'en';
@@ -312,10 +358,10 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
   const VEHICLE_TYPES: VehicleType[] = ['moto', 'auto', 'designated_driver'];
 
   const vehicleOptions = useMemo(() => {
-    const defaults: Record<VehicleType, { label: string; subtitle: string; emoji: string }> = {
-      moto: { label: tr('vehicle.motoLabel'), subtitle: tr('vehicle.motoSubtitle'), emoji: '🏍️' },
-      auto: { label: tr('vehicle.autoLabel'), subtitle: tr('vehicle.autoSubtitle'), emoji: '🚘' },
-      designated_driver: { label: tr('vehicle.designatedLabel'), subtitle: tr('vehicle.designatedSubtitle'), emoji: '🧑‍✈️' },
+    const defaults: Record<VehicleType, { label: string; subtitle: string; icon: string }> = {
+      moto: { label: tr('vehicle.motoLabel'), subtitle: tr('vehicle.motoSubtitle'), icon: 'two-wheeler' },
+      auto: { label: tr('vehicle.autoLabel'), subtitle: tr('vehicle.autoSubtitle'), icon: 'directions-car' },
+      designated_driver: { label: tr('vehicle.designatedLabel'), subtitle: tr('vehicle.designatedSubtitle'), icon: 'person-pin' },
     };
     const normalizeServiceText = (value: string | undefined | null) =>
       (value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[\s-]+/g, '_');
@@ -349,7 +395,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         type,
         label: shouldUseCatalogCopy && match?.name ? match.name : defaults[type].label,
         subtitle: shouldUseCatalogCopy && match?.description ? match.description : defaults[type].subtitle,
-        emoji: defaults[type].emoji,
+        icon: defaults[type].icon,
       };
     });
   }, [servicesCatalog, tr, preferServiceCatalogCopy, designatedDriverEligibility.anyEligible]);
@@ -484,7 +530,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
   const requiresVehiclePhoto = vehicleType === 'designated_driver';
   const hasVehiclePhotoSelection = !!clientVehiclePhoto || !!clientVehiclePhotoLocalUri;
   const isRequestReady =
-    !!destinationCoords && estimatedPrice > 0 &&
+    !!destinationCoords && estimatedPrice > 0 && !calculatingRoute &&
     (!requiresVehiclePhoto || (hasVehiclePhotoSelection && !uploadingPhoto));
 
   const maxPassengersByType: Record<VehicleType, number> = useMemo(
@@ -517,15 +563,93 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     .map((stop, index) => {
       if (index === editingExtraStopIndex) return null;
       if (!stop.coords) return null;
-      return { latitude: stop.coords.latitude, longitude: stop.coords.longitude, index };
+      return {
+        latitude: stop.coords.latitude,
+        longitude: stop.coords.longitude,
+        index,
+        title: t('common.mapPins.extraStop', { index: index + 1 }),
+        label: stop.address || undefined,
+      };
     })
-    .filter(Boolean) as Array<{ latitude: number; longitude: number; index: number }>;
+    .filter(Boolean) as Array<{ latitude: number; longitude: number; index: number; title?: string; label?: string }>;
   const autoFitEnabled = !centerPinActive && !manualOriginDragging && !manualOriginLoading && !manualDestinationDragging && !manualDestinationLoading;
   const showManualOriginMarker = (!centerPinActive && (hasPinnedOrigin || !!originCoords || !!manualOriginDraft)) || mapSelectionMode === 'destination';
   const bottomPanelReady = hasRouteMetrics && !calculatingRoute && !centerPinActive && !manualOriginDragging && !manualDestinationDragging && !manualOriginLoading && !manualDestinationLoading;
+  const { height: windowHeight } = useWindowDimensions();
+  const sheetMaxHeight = Math.round(windowHeight * SHEET_EXPANDED_RATIO);
+  const [peekContentHeight, setPeekContentHeight] = useState(140);
+  const [ctaBlockHeight, setCtaBlockHeight] = useState(150);
+  const [formContentHeight, setFormContentHeight] = useState(0);
+  const collapsedSheetHeight = SHEET_HANDLE_HEIGHT + peekContentHeight + ctaBlockHeight;
+  const expandedSheetHeight = Math.max(
+    collapsedSheetHeight + 60,
+    Math.min(sheetMaxHeight, SHEET_HANDLE_HEIGHT + formContentHeight + ctaBlockHeight + 8),
+  );
+  const sheetHeight = useSharedValue(windowHeight * SHEET_EXPANDED_RATIO);
+  const dragStartHeight = useSharedValue(0);
+
+  const expandSheet = useCallback(() => {
+    sheetHeight.value = withSpring(expandedSheetHeight, SHEET_SPRING);
+    setBottomPanelExpanded(true);
+  }, [expandedSheetHeight, sheetHeight, setBottomPanelExpanded]);
+
+  const collapseSheet = useCallback(() => {
+    sheetHeight.value = withSpring(collapsedSheetHeight, SHEET_SPRING);
+    setBottomPanelExpanded(false);
+  }, [collapsedSheetHeight, sheetHeight, setBottomPanelExpanded]);
+
+  const toggleSheet = useCallback(() => {
+    if (bottomPanelExpanded) collapseSheet();
+    else expandSheet();
+  }, [bottomPanelExpanded, collapseSheet, expandSheet]);
+
+  const makeSheetPan = useCallback(
+    () =>
+      Gesture.Pan()
+        .activeOffsetY([-10, 10])
+        .onStart(() => {
+          'worklet';
+          dragStartHeight.value = sheetHeight.value;
+        })
+        .onUpdate((e) => {
+          'worklet';
+          const next = dragStartHeight.value - e.translationY;
+          sheetHeight.value = Math.min(Math.max(next, collapsedSheetHeight), expandedSheetHeight);
+        })
+        .onEnd((e) => {
+          'worklet';
+          const projected = sheetHeight.value - e.velocityY * 0.18;
+          const mid = (collapsedSheetHeight + expandedSheetHeight) / 2;
+          const target = projected >= mid ? expandedSheetHeight : collapsedSheetHeight;
+          sheetHeight.value = withSpring(target, SHEET_SPRING);
+          runOnJS(setBottomPanelExpanded)(target === expandedSheetHeight);
+        }),
+    [collapsedSheetHeight, expandedSheetHeight, dragStartHeight, sheetHeight, setBottomPanelExpanded],
+  );
+  const handlePan = useMemo(() => {
+    const tap = Gesture.Tap().onEnd(() => {
+      'worklet';
+      runOnJS(toggleSheet)();
+    });
+    return Gesture.Exclusive(tap, makeSheetPan());
+  }, [makeSheetPan, toggleSheet]);
+  const collapsedPan = useMemo(() => makeSheetPan(), [makeSheetPan]);
+
+  const sheetHeightStyle = useAnimatedStyle(() => ({ height: sheetHeight.value }));
+  const formRegionStyle = useAnimatedStyle(() => {
+    const progress =
+      (sheetHeight.value - collapsedSheetHeight) / Math.max(expandedSheetHeight - collapsedSheetHeight, 1);
+    return { opacity: interpolate(progress, [0.3, 0.85], [0, 1], Extrapolation.CLAMP) };
+  });
+  const collapsedRegionStyle = useAnimatedStyle(() => {
+    const progress =
+      (sheetHeight.value - collapsedSheetHeight) / Math.max(expandedSheetHeight - collapsedSheetHeight, 1);
+    return { opacity: interpolate(progress, [0, 0.3], [1, 0], Extrapolation.CLAMP) };
+  });
+
   const bottomPanelTranslate = useMemo(
-    () => bottomPanelAnim.interpolate({ inputRange: [0, 1], outputRange: [320, 0] }),
-    [bottomPanelAnim],
+    () => bottomPanelAnim.interpolate({ inputRange: [0, 1], outputRange: [sheetMaxHeight + 60, 0] }),
+    [bottomPanelAnim, sheetMaxHeight],
   );
   const isLocationLoading = manualOriginLoading || manualDestinationLoading || extraStopSelectionLoading;
 
@@ -550,9 +674,18 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
 
   useEffect(() => {
     if (!bottomPanelReady) {
-      setBottomPanelExpanded((prev) => (prev ? prev : true));
+      sheetHeight.value = expandedSheetHeight;
+      setBottomPanelExpanded(true);
     }
-  }, [bottomPanelReady]);
+  }, [bottomPanelReady, expandedSheetHeight, sheetHeight, setBottomPanelExpanded]);
+
+  // Keep the open sheet glued to the measured content height (e.g. when the
+  // vehicle photo row appears or the form finishes measuring on first render).
+  useEffect(() => {
+    if (bottomPanelReady && bottomPanelExpanded && Math.abs(sheetHeight.value - expandedSheetHeight) > 1) {
+      sheetHeight.value = withTiming(expandedSheetHeight, { duration: 200 });
+    }
+  }, [expandedSheetHeight, bottomPanelReady, bottomPanelExpanded, sheetHeight]);
 
   return (
     <View style={styles.container}>
@@ -567,9 +700,13 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
           autoFitEnabled={autoFitEnabled}
           destinationMarker={visibleDestinationMarker}
           extraStopMarkers={visibleExtraStopMarkers}
+          showPinBubbles
+          originTitle={t('common.mapPins.origin')}
+          originLabel={manualOriginAddress || origin || undefined}
+          destinationTitle={t('common.mapPins.destination')}
+          destinationLabel={destination || undefined}
           routeCoordinates={routeCoordinates}
-          showUserLocation
-          userLocation={coords || undefined}
+          showUserLocation={false}
           showTraffic
           showMarker={showManualOriginMarker}
           markerPosition={manualOriginMarkerPosition}
@@ -603,7 +740,17 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         )}
       </View>
 
+      <TouchableOpacity
+        style={[styles.backButton, { top: insets.top + 12 }]}
+        onPress={() => navigation?.goBack?.()}
+        accessibilityLabel={tr('accessibility.back')}
+        accessibilityRole="button"
+      >
+        <Image source={BACK_BUTTON_ICON} style={styles.backButtonIcon} resizeMode="contain" />
+      </TouchableOpacity>
+
       <SearchRideRouteBubble
+        top={insets.top + 64}
         orderedRouteRows={orderedRouteRows}
         canAddExtraStop={canAddExtraStop}
         manualOriginLoading={manualOriginLoading}
@@ -626,122 +773,161 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         pointerEvents={bottomPanelReady ? 'auto' : 'none'}
         style={[styles.bottomPanel, { transform: [{ translateY: bottomPanelTranslate }], opacity: bottomPanelAnim }]}
       >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
-          style={styles.bottomAvoiding}
-        >
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => navigation?.goBack?.()}
-            accessibilityLabel={tr('accessibility.back')}
-          >
-        <Image source={BACK_BUTTON_ICON} style={styles.backButtonIcon} resizeMode="contain" />
-          </TouchableOpacity>
-
-            <TouchableOpacity style={styles.panelToggle} onPress={() => setBottomPanelExpanded((prev) => !prev)}>
-              <View style={styles.panelHandle} />
-              <Text style={styles.panelToggleText}>{bottomPanelExpanded ? '' : ''}</Text>
-            </TouchableOpacity>
-
-          {bottomPanelExpanded ? (
-            <ScrollView
-              style={styles.formScroll}
-              contentContainerStyle={styles.formContent}
-              showsVerticalScrollIndicator
-              keyboardShouldPersistTaps="handled"
-              nestedScrollEnabled
+        <GestureHandlerRootView style={styles.sheetRoot}>
+          <Reanimated.View style={[styles.sheetContent, sheetHeightStyle]}>
+            <KeyboardAvoidingView
+              behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+              keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
+              style={styles.bottomAvoiding}
             >
-              
-            <SearchRideVehicleOptions
-              vehicleOptions={vehicleOptions}
-              vehicleType={vehicleType}
-              vehicleEstimates={vehicleEstimates}
-              designatedDriverEstimates={designatedDriverEstimates}
-              designatedDriverMode={designatedDriverMode}
-              designatedDriverEligibility={designatedDriverEligibility}
-              recommendedVehicle={recommendedVehicle}
-              calculatingRoute={calculatingRoute}
-              estimatedDuration={estimatedDuration}
-              capacityByVehicle={capacityByVehicle}
-              passengersByVehicle={passengersByVehicle}
-              requiresVehiclePhoto={requiresVehiclePhoto}
-              hasVehiclePhotoSelection={hasVehiclePhotoSelection}
-              uploadingPhoto={uploadingPhoto}
-              formatPriceValue={formatPriceValue}
-              getPassengersForVehicle={getPassengersForVehicle}
-              canDecreasePassengers={canDecreasePassengers}
-              canIncreasePassengers={canIncreasePassengers}
-              onSelectVehicle={setVehicleType}
-              onSetDesignatedDriverMode={setDesignatedDriverMode}
-              onUpdatePassengers={updatePassengers}
-              onTakeVehiclePhoto={handleTakeVehiclePhoto}
-              styles={styles}
-              tr={tr}
-            />
+              <GestureDetector gesture={handlePan}>
+                <View
+                  style={styles.panelToggle}
+                  accessibilityRole="button"
+                  accessibilityLabel={tr('accessibility.togglePanel')}
+                >
+                  <View style={styles.panelHandle} />
+                </View>
+              </GestureDetector>
 
-            <SearchRideSummary
-              calculatingRoute={calculatingRoute}
-              estimatedDistance={estimatedDistance}
-              estimatedDuration={estimatedDuration}
-              estimatedPrice={estimatedPrice}
-              paymentMethod={paymentMethod}
-              priceSuggestion={priceSuggestion}
-              rideComment={rideComment}
-              checkingDrivers={checkingDrivers}
-              driversAvailable={driversAvailable}
-              colors={colors}
-              onSetPaymentMethod={setPaymentMethod}
-              onSetPriceSuggestion={setPriceSuggestion}
-              onSetRideComment={setRideComment}
-              styles={styles}
-              tr={tr}
-            />
-          </ScrollView>
-          ) : (
-            <View style={styles.collapsedSummary}>
-              <View style={styles.collapsedSummaryRow}>
-                <View style={styles.collapsedSummaryIcon}>
-                  <Text style={styles.vehicleEmoji}>{selectedVehicleOption?.emoji ?? '🚘'}</Text>
-                </View>
-                <View style={styles.collapsedSummaryText}>
-                  <Text style={styles.collapsedSummaryTitle}>
-                    {selectedVehicleOption?.label ?? defaultLabels.service}
-                  </Text>
-                  <Text style={styles.collapsedSummaryMeta}>
-                    {selectedVehicleOption?.subtitle ?? ''}
-                  </Text>
-                </View>
-                <Text style={styles.collapsedSummaryPrice}>{formatPriceValue(vehicleEstimates[vehicleType]?.price ?? null)}</Text>
-              </View>
-              <View style={styles.collapsedSummaryMetaRow}>
-                <View style={styles.collapsedSummaryMetaPill}>
-                  <Text style={styles.collapsedSummaryMetaPillText}>
-                    {calculatingRoute
-                      ? tr('labels.calculating')
-                      : estimatedDuration > 0
-                      ? tr('labels.etaValue', { minutes: estimatedDuration })
-                      : tr('labels.etaUnavailable')}
-                  </Text>
-                </View>
-                <View style={styles.collapsedSummaryMetaPill}>
-                  <Text style={styles.collapsedSummaryMetaPillText}>{`${getPassengersForVehicle(vehicleType)} 👤`}</Text>
-                </View>
-              </View>
-            </View>
-          )}
+              <View style={styles.sheetBody}>
+                <Reanimated.View
+                  style={[styles.sheetFormRegion, formRegionStyle]}
+                  pointerEvents={bottomPanelExpanded ? 'auto' : 'none'}
+                >
+                  <ScrollView
+                    style={styles.formScroll}
+                    contentContainerStyle={styles.formContent}
+                    showsVerticalScrollIndicator
+                    keyboardShouldPersistTaps="handled"
+                    nestedScrollEnabled
+                    scrollEnabled={bottomPanelExpanded}
+                    onContentSizeChange={(_, h) => setFormContentHeight(h)}
+                  >
+                    <SearchRideVehicleOptions
+                      vehicleOptions={vehicleOptions}
+                      vehicleType={vehicleType}
+                      vehicleEstimates={vehicleEstimates}
+                      designatedDriverEstimates={designatedDriverEstimates}
+                      designatedDriverMode={designatedDriverMode}
+                      designatedDriverEligibility={designatedDriverEligibility}
+                      recommendedVehicle={recommendedVehicle}
+                      calculatingRoute={calculatingRoute}
+                      estimatedDuration={estimatedDuration}
+                      capacityByVehicle={capacityByVehicle}
+                      passengersByVehicle={passengersByVehicle}
+                      requiresVehiclePhoto={requiresVehiclePhoto}
+                      hasVehiclePhotoSelection={hasVehiclePhotoSelection}
+                      uploadingPhoto={uploadingPhoto}
+                      formatPriceValue={formatPriceValue}
+                      getPassengersForVehicle={getPassengersForVehicle}
+                      canDecreasePassengers={canDecreasePassengers}
+                      canIncreasePassengers={canIncreasePassengers}
+                      onSelectVehicle={handleSelectVehicle}
+                      onSetDesignatedDriverMode={setDesignatedDriverMode}
+                      onUpdatePassengers={updatePassengers}
+                      onTakeVehiclePhoto={handleTakeVehiclePhoto}
+                      colors={colors}
+                      styles={styles}
+                      tr={tr}
+                    />
 
-          <SearchRideCTA
-            scheduledAt={scheduledAt}
-            submittingRequest={submittingRequest}
-            isRequestReady={isRequestReady}
-            onOpenScheduleModal={openScheduleModal}
-            onClearSchedule={() => setScheduledAt(null)}
-            onConfirmRequest={onConfirmRequest}
-            styles={styles}
-            tr={tr}
-          />
-        </KeyboardAvoidingView>
+                    <SearchRideSummary
+                      calculatingRoute={calculatingRoute}
+                      estimatedDistance={estimatedDistance}
+                      estimatedDuration={estimatedDuration}
+                      estimatedPrice={estimatedPrice}
+                      paymentMethod={paymentMethod}
+                      priceSuggestion={priceSuggestion}
+                      rideComment={rideComment}
+                      checkingDrivers={checkingDrivers}
+                      driversAvailable={driversAvailable}
+                      colors={colors}
+                      onSetPaymentMethod={setPaymentMethod}
+                      onSetPriceSuggestion={setPriceSuggestion}
+                      onSetRideComment={setRideComment}
+                      styles={styles}
+                      tr={tr}
+                    />
+                  </ScrollView>
+                </Reanimated.View>
+
+                <Reanimated.View
+                  style={[styles.collapsedOverlay, collapsedRegionStyle]}
+                  pointerEvents={bottomPanelExpanded ? 'none' : 'auto'}
+                >
+                  <GestureDetector gesture={collapsedPan}>
+                    <TouchableOpacity activeOpacity={1} onPress={expandSheet} accessibilityRole="button">
+                      <View
+                        style={styles.collapsedSummary}
+                        onLayout={(e) => setPeekContentHeight(Math.round(e.nativeEvent.layout.height))}
+                      >
+                        <View style={styles.collapsedSummaryRow}>
+                          <View style={styles.collapsedSummaryIcon}>
+                            <MaterialIcons
+                              name={(selectedVehicleOption?.icon ?? 'directions-car') as never}
+                              size={20}
+                              color={colors.primary || '#b38737'}
+                            />
+                          </View>
+                          <View style={styles.collapsedSummaryText}>
+                            <Text style={styles.collapsedSummaryTitle} numberOfLines={1}>
+                              {selectedVehicleOption?.label ?? defaultLabels.service}
+                            </Text>
+                            <Text style={styles.collapsedSummaryMeta} numberOfLines={1}>
+                              {selectedVehicleOption?.subtitle ?? ''}
+                            </Text>
+                          </View>
+                          <Text style={styles.collapsedSummaryPrice}>
+                            {formatPriceValue(vehicleEstimates[vehicleType]?.price ?? null)}
+                          </Text>
+                        </View>
+                        <View style={styles.collapsedSummaryMetaRow}>
+                          <View style={styles.collapsedSummaryMetaPill}>
+                            <MaterialIcons name="schedule" size={13} color={colors.textSecondary || '#666666'} />
+                            <Text style={styles.collapsedSummaryMetaPillText}>
+                              {calculatingRoute
+                                ? tr('labels.calculating')
+                                : estimatedDuration > 0
+                                ? tr('labels.etaValue', { minutes: estimatedDuration })
+                                : tr('labels.etaUnavailable')}
+                            </Text>
+                          </View>
+                          <View style={styles.collapsedSummaryMetaPill}>
+                            <MaterialIcons name="person" size={13} color={colors.textSecondary || '#666666'} />
+                            <Text style={styles.collapsedSummaryMetaPillText}>
+                              {tr('labels.passengersCount', { count: getPassengersForVehicle(vehicleType) })}
+                            </Text>
+                          </View>
+                          <View style={styles.collapsedSummaryExpandHint}>
+                            <Text style={styles.collapsedSummaryExpandHintText}>{tr('labels.viewOptions')}</Text>
+                            <MaterialIcons name="keyboard-arrow-up" size={16} color={colors.primary || '#b38737'} />
+                          </View>
+                        </View>
+                      </View>
+                    </TouchableOpacity>
+                  </GestureDetector>
+                </Reanimated.View>
+              </View>
+
+              <View
+                onLayout={(e) => setCtaBlockHeight(Math.round(e.nativeEvent.layout.height))}
+                style={{ paddingBottom: Math.max(insets.bottom, 12) }}
+              >
+                <SearchRideCTA
+                  scheduledAt={scheduledAt}
+                  submittingRequest={submittingRequest}
+                  isRequestReady={isRequestReady}
+                  onOpenScheduleModal={openScheduleModal}
+                  onClearSchedule={() => setScheduledAt(null)}
+                  onConfirmRequest={onConfirmRequest}
+                  styles={styles}
+                  tr={tr}
+                />
+              </View>
+            </KeyboardAvoidingView>
+          </Reanimated.View>
+        </GestureHandlerRootView>
       </Animated.View>
 
       {showSearchOverlay && (
@@ -774,7 +960,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
       {submittingRequest && (
         <View style={styles.submittingOverlay} pointerEvents="none">
           <View style={styles.submittingCard}>
-            <LoadingIcon size={32} color={colors.primary || '#2196F3'} />
+            <LoadingIcon size={32} color={colors.primary || '#b38737'} />
             <Text style={[styles.submittingText, { color: colors.text }]}>{tr('cta.loading')}</Text>
           </View>
         </View>
@@ -803,24 +989,39 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
 }
 
 function createStyles(colors: any, isDark: boolean = false) {
+  const accent = colors.primary || '#b38737';
+  const accentStrong = isDark ? '#e8c47f' : '#7a5714';
+  const accentSoft = isDark ? 'rgba(179, 135, 55, 0.26)' : 'rgba(179, 135, 55, 0.1)';
+  const accentBorder = isDark ? 'rgba(232, 196, 127, 0.45)' : 'rgba(179, 135, 55, 0.45)';
+  const cardBg = colors.card || '#ffffff';
+  const surfaceBg = colors.surface || '#f5f5f5';
+  const textPrimary = colors.text || '#111111';
+  const textSecondary = colors.textSecondary || '#666666';
+  const borderColor = colors.border || '#e0e0e0';
+  const inputBg = isDark ? 'rgba(255, 255, 255, 0.06)' : surfaceBg;
+  const successSoft = isDark ? 'rgba(129, 199, 132, 0.15)' : 'rgba(76, 175, 80, 0.1)';
+  const successBorder = isDark ? 'rgba(129, 199, 132, 0.4)' : 'rgba(76, 175, 80, 0.35)';
+
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background || '#fff' },
 
     backButton: {
       position: 'absolute',
-      top: -70,
-      left: 0,
-      width: 48,
-      height: 48,
-      borderRadius: 24,
-      backgroundColor: isDark ? 'rgba(95, 93, 93, 0.34)' : colors.card || '#fff',
+      left: 16,
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: cardBg,
       alignItems: 'center',
       justifyContent: 'center',
       shadowColor: '#000',
-      shadowOpacity: 0.12,
-      shadowRadius: 6,
+      shadowOpacity: 0.14,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 3 },
       elevation: 5,
-      zIndex: 20,
+      zIndex: 30,
+      borderWidth: isDark ? StyleSheet.hairlineWidth : 0,
+      borderColor: borderColor,
     },
     backButtonIcon: { width: 18, height: 18 },
 
@@ -839,284 +1040,218 @@ function createStyles(colors: any, isDark: boolean = false) {
 
     routeBubble: {
       position: 'absolute',
-      top: 45,
       left: 14,
       right: 14,
-      padding: 12,
-      borderRadius: 12,
-      backgroundColor: colors.card || 'rgba(255,255,255,0.96)',
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      borderRadius: 16,
+      backgroundColor: cardBg,
       shadowColor: '#000',
       shadowOpacity: 0.12,
       shadowRadius: 10,
+      shadowOffset: { width: 0, height: 4 },
       elevation: 6,
-    },
-    routeBubbleHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
-    routeBubbleTitle: { fontSize: 16, fontWeight: '700', color: colors.text || '#111' },
-    routeBubbleTitleCompact: {
-      fontSize: 13,
-      fontWeight: '700',
-      color: colors.textSecondary || '#555',
-      textAlign: 'center',
-      letterSpacing: 0.6,
-      marginBottom: 6,
+      borderWidth: isDark ? StyleSheet.hairlineWidth : 0,
+      borderColor: borderColor,
     },
 
     routeTimeline: { marginTop: 4 },
     timelineRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
     timelineLeft: { width: 30, alignItems: 'center' },
     timelineIcon: { width: 20, height: 20 },
-    timelineConnector: { flex: 1, width: 2, backgroundColor: colors.border || '#ddd', marginTop: 4 },
+    timelineConnector: { flex: 1, width: 2, backgroundColor: borderColor, marginTop: 4 },
     timelineCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 },
     timelineContent: {
       flex: 1,
       marginHorizontal: 12,
       paddingVertical: 8,
       borderBottomWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.border || '#ddd',
+      borderColor: borderColor,
     },
     timelineContentCompact: { marginRight: 4 },
     inlineAddStop: {
       paddingVertical: 4,
       paddingHorizontal: 9,
       borderRadius: 99,
-      backgroundColor: '#d4a651',
+      backgroundColor: accent,
     },
     inlineAddStopIcon: { fontSize: 16, fontWeight: '800', color: '#fff' },
-    timelineLabel: { fontSize: 14, fontWeight: '600', color: colors.text || '#111' },
-    timelineSubtitle: { fontSize: 11, color: colors.textSecondary || '#666', marginTop: 2 },
+    timelineLabel: { fontSize: 14, fontWeight: '600', color: textPrimary },
+    timelineSubtitle: { fontSize: 11, color: textSecondary, marginTop: 2 },
     timelineRemove: { padding: 8 },
-    timelineRemoveText: { fontSize: 14, color: '#E53935', fontWeight: '700' },
-
-    addStopButton: {
-      marginTop: 8,
-      alignSelf: 'flex-start',
-      paddingVertical: 6,
-      paddingHorizontal: 14,
-      borderRadius: 16,
-      backgroundColor: colors.surface || '#b38737',
-    },
-    addStopButtonText: { fontSize: 13, fontWeight: '700', color: colors.textSecondary || '#fff' },
-    addStopLimitText: { marginTop: 8, fontSize: 12, color: colors.textSecondary || '#666' },
+    timelineRemoveText: { fontSize: 14, color: colors.error || '#e53935', fontWeight: '700' },
 
     bottomPanel: {
       position: 'absolute',
       left: 0,
       right: 0,
       bottom: 0,
-      paddingTop: 10,
       paddingHorizontal: 16,
-      paddingBottom: Platform.select({ ios: 14, android: 20, default: 18 }),
       borderTopLeftRadius: 24,
       borderTopRightRadius: 24,
-      backgroundColor: colors.card || '#fff',
+      backgroundColor: cardBg,
       shadowColor: '#000',
       shadowOpacity: 0.15,
       shadowRadius: 12,
       elevation: 12,
-      maxHeight: '45%',
-      minHeight: 260,
+      overflow: 'hidden',
     },
-    bottomAvoiding: { flex: 1, maxHeight: '100%' },
+    sheetRoot: { width: '100%' },
+    sheetContent: { width: '100%', overflow: 'hidden' },
+    bottomAvoiding: { flex: 1 },
+    sheetBody: { flex: 1 },
+    sheetFormRegion: { flex: 1 },
+    collapsedOverlay: {
+      position: 'absolute',
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
+      backgroundColor: cardBg,
+    },
     formScroll: { flexGrow: 0, flexShrink: 1 },
-    formContent: { paddingBottom: 24, paddingHorizontal: 4, gap: 12 },
-    panelToggle: { alignItems: 'center', marginBottom: 8, paddingTop: 4 },
+    formContent: { paddingBottom: 16, paddingHorizontal: 4, gap: 12 },
+    panelToggle: { alignItems: 'center', justifyContent: 'center', height: SHEET_HANDLE_HEIGHT },
     panelHandle: {
-      width: 52,
+      width: 44,
       height: 5,
       borderRadius: 20,
-      backgroundColor: colors.border || '#d0d0d0',
-      marginBottom: 6,
+      backgroundColor: borderColor,
     },
-    panelToggleText: { fontSize: 12, color: colors.textSecondary || '#666', fontWeight: '600' },
     collapsedSummary: {
-      paddingHorizontal: 14,
-      paddingVertical: 12,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
       borderRadius: 18,
-      backgroundColor: colors.card || (isDark ? '#232323' : '#fcfcfd'),
+      backgroundColor: surfaceBg,
       borderWidth: 1,
-      borderColor: isDark ? '#3f3f3f' : '#ece9f5',
-      marginBottom: 12,
-      shadowColor: '#000',
-      shadowOpacity: Platform.OS === 'ios' ? 0.08 : 0,
-      shadowRadius: 8,
-      shadowOffset: { width: 0, height: 3 },
-      elevation: Platform.OS === 'android' ? 3 : 0,
-      gap: 10,
+      borderColor: borderColor,
+      gap: 9,
     },
     collapsedSummaryRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
     collapsedSummaryIcon: {
-      width: 44,
-      height: 44,
-      borderRadius: 22,
-      backgroundColor: isDark ? '#2e2e2e' : '#fff',
+      width: 40,
+      height: 40,
+      borderRadius: 13,
+      backgroundColor: accentSoft,
       justifyContent: 'center',
       alignItems: 'center',
-      shadowColor: '#000',
-      shadowOpacity: Platform.OS === 'ios' ? 0.08 : 0,
-      shadowRadius: 6,
-      shadowOffset: { width: 0, height: 3 },
-      elevation: 3,
     },
-    collapsedSummaryText: { flex: 1 },
-    collapsedSummaryTitle: { fontSize: 16, fontWeight: '800', color: colors.text || '#111' },
-    collapsedSummaryMeta: { fontSize: 12, color: colors.textSecondary || '#666', marginTop: 2 },
-    collapsedSummaryPrice: { fontSize: 22, fontWeight: '800', color: '#c87a1a' },
-    collapsedSummaryMetaRow: { flexDirection: 'row', gap: 8 },
+    collapsedSummaryText: { flex: 1, minWidth: 0 },
+    collapsedSummaryTitle: { fontSize: 15, fontWeight: '800', color: textPrimary },
+    collapsedSummaryMeta: { fontSize: 12, color: textSecondary, marginTop: 2 },
+    collapsedSummaryPrice: { fontSize: 19, fontWeight: '800', color: accentStrong, fontVariant: ['tabular-nums'] },
+    collapsedSummaryMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     collapsedSummaryMetaPill: {
-      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
       borderRadius: 999,
       paddingHorizontal: 10,
-      paddingVertical: 6,
-      backgroundColor: isDark ? '#2f2a35' : '#5a5a66b0',
+      paddingVertical: 5,
+      backgroundColor: cardBg,
       borderWidth: 1,
-      borderColor: isDark ? '#453c4f' : '#5500ff',
+      borderColor: borderColor,
+    },
+    collapsedSummaryMetaPillText: { fontSize: 12, fontWeight: '700', color: textPrimary, fontVariant: ['tabular-nums'] },
+    collapsedSummaryExpandHint: {
+      marginLeft: 'auto',
+      flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'center',
+      gap: 3,
     },
-    collapsedSummaryMetaPillText: { fontSize: 14, fontWeight: '900', color: '#cbbcff' },
-    formOverline: {
-      fontSize: 12,
-      fontWeight: '700',
-      color: colors.textSecondary || '#666',
-      letterSpacing: 0.8,
-      textTransform: 'uppercase',
-      marginBottom: 8,
-      textAlign: 'center',
-    },
-
-    counterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginVertical: 8, gap: 12 },
-    counterButton: { width: 44, height: 44, borderRadius: 12, backgroundColor: '#2b2b2b', alignItems: 'center', justifyContent: 'center' },
-    counterButtonDisabled: { opacity: 0.35 },
-    counterButtonText: { color: '#fff', fontSize: 22, fontWeight: '700' },
-    counterValueBox: {
-      minWidth: 76,
-      paddingHorizontal: 16,
-      paddingVertical: 6,
-      borderRadius: 12,
-      backgroundColor: colors.background || '#f2f2f2',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: 2,
-    },
-    counterValue: { fontSize: 20, fontWeight: '700', color: colors.text || '#111' },
-    counterCaption: { fontSize: 11, color: colors.textSecondary || '#666' },
+    collapsedSummaryExpandHintText: { fontSize: 12, fontWeight: '700', color: textSecondary },
 
     section: { marginBottom: 16 },
     vehicleSection: {
-      padding: 10,
+      padding: 8,
       borderRadius: 18,
       borderWidth: 1,
-      borderColor: isDark ? '#32343a' : '#efe6d5',
-      backgroundColor: isDark ? '#1d1f24' : '#a5a5a5ad',
+      borderColor: borderColor,
+      backgroundColor: surfaceBg,
     },
     summarySection: {
       padding: 10,
       borderRadius: 18,
       borderWidth: 1,
-      borderColor: isDark ? '#3e3e3e' : '#e7e7eb',
-      backgroundColor: colors.card || (isDark ? '#252525' : '#fcfcfd'),
+      borderColor: borderColor,
+      backgroundColor: surfaceBg,
     },
     sectionCompact: { marginBottom: 14 },
-    sectionTitle: { fontSize: 16, fontWeight: '800', color: colors.text || '#111', marginBottom: 8 },
-    sectionHint: { fontSize: 12, color: colors.textSecondary || '#666' },
-    sectionDivider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border || '#ddd', marginVertical: 12 },
+    sectionTitle: { fontSize: 16, fontWeight: '800', color: textPrimary, marginBottom: 8 },
 
-    vehicleOptionsList: { gap: 10 },
+    vehicleOptionsList: { gap: 8 },
     vehicleOptionCard: {
-      paddingVertical: 12,
-      paddingHorizontal: 14,
-      borderRadius: 18,
-     backgroundColor: colors.card || (isDark ? '#2a2a2a' : '#FFFAF5'),
+      paddingVertical: 9,
+      paddingHorizontal: 12,
+      borderRadius: 14,
+      backgroundColor: cardBg,
       borderWidth: 1,
-      borderColor: colors.border || (isDark ? '#444' : '#e1e1e1'),
-      gap: 8,
+      borderColor: borderColor,
+      gap: 5,
     },
     vehicleOptionCardSelected: {
-      borderColor: isDark ? '#7e6746' : '#d3a24c',
-      backgroundColor: isDark ? '#2f2a24' : '#fff8e8',
-      shadowColor: '#cfa146',
-      shadowOpacity: Platform.OS === 'ios' ? 0.12 : 0,
-      shadowRadius: 8,
-      shadowOffset: { width: 0, height: 4 },
-      elevation: 5,
+      borderColor: accentBorder,
+      backgroundColor: accentSoft,
     },
-    vehicleOptionTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 },
-    vehicleOptionTitleBlock: { flex: 1, gap: 2, minWidth: 0 },
-    vehicleOptionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, minWidth: 0 },
+    vehicleOptionTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
+    vehicleOptionTitleBlock: { flex: 1, gap: 1, minWidth: 0 },
+    vehicleOptionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 7, minWidth: 0 },
     vehicleOptionIconBubble: {
-      width: 46,
-      height: 46,
-      borderRadius: 28,
-    //  backgroundColor: '#fff',
+      width: 34,
+      height: 34,
+      borderRadius: 17,
+      backgroundColor: surfaceBg,
       alignItems: 'center',
       justifyContent: 'center',
-      shadowColor: 'rgba(107, 78, 35, 0.12)',
-      shadowOpacity: Platform.OS === 'ios' ? 0.05 : 0,
-      shadowRadius: 4,
-      shadowOffset: { width: 0, height: 2 },
-      elevation: 2,
     },
-    vehicleEmoji: { fontSize: 20 },
-    vehicleOptionTitle: { fontSize: 18, fontWeight: '800', color: colors.text || '#111', flexShrink: 1 },
-    vehicleOptionTitleSelected: { color: '#111' },
-    vehicleOptionSubtitle: { fontSize: 14, color: colors.textSecondary || '#666', marginTop: 2 },
-    vehicleOptionSubtitleSelected: { color: '#222' },
-    vehicleOptionPriceBlock: { alignItems: 'flex-end', gap: 6, flexShrink: 0, marginLeft: 8 },
+    vehicleOptionIconBubbleSelected: { backgroundColor: cardBg },
+    vehicleOptionTitle: { fontSize: 15, fontWeight: '700', color: textPrimary, flexShrink: 1 },
+    vehicleOptionSubtitle: { fontSize: 12, color: textSecondary, marginTop: 1 },
+    vehicleOptionPriceBlock: { alignItems: 'flex-end', gap: 4, flexShrink: 0, marginLeft: 8 },
     vehicleOptionBadge: {
-      paddingHorizontal: 10,
+      paddingHorizontal: 7,
       paddingVertical: 2,
       borderRadius: 999,
-      backgroundColor: '#f3c168',
-      fontSize: 15,
-      fontWeight: '700',
-      color: '#3b2b0f',
+      backgroundColor: accent,
+      fontSize: 9,
+      fontWeight: '800',
+      color: '#fff',
       textTransform: 'uppercase',
       letterSpacing: 0.5,
+      overflow: 'hidden',
     },
-    vehicleOptionPrice: { fontSize: 24, fontWeight: '800', color: '#c87a1a' },
-    vehicleOptionInfoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 },
-    vehicleOptionMeta: { fontSize: 12, color: colors.textSecondary || '#666', flex: 1 },
-    vehicleOptionMetaSelected: { color: '#222' },
+    vehicleOptionPrice: { fontSize: 19, fontWeight: '800', color: accentStrong, fontVariant: ['tabular-nums'] },
+    vehicleOptionInfoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 0, gap: 8 },
+    vehicleOptionMetaWrap: { flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 },
+    vehicleOptionMeta: { fontSize: 11.5, color: textSecondary, flexShrink: 1 },
     vehicleOptionPassengerControls: { flexDirection: 'row', alignItems: 'center', gap: 6 },
     vehicleOptionCounterBtn: {
-      width: 26,
-      height: 26,
-      borderRadius: 7,
-      backgroundColor: '#2b2b2b',
+      width: 28,
+      height: 28,
+      borderRadius: 8,
+      backgroundColor: cardBg,
+      borderWidth: 1,
+      borderColor: borderColor,
       alignItems: 'center',
       justifyContent: 'center',
     },
-    vehicleOptionCounterBtnDisabled: { opacity: 0.3 },
-    vehicleOptionCounterText: { color: '#fff', fontSize: 22, fontWeight: '700' },
-    vehicleOptionPassengerCount: { flexDirection: 'row', alignItems: 'center', gap: 3, minWidth: 38, justifyContent: 'center' },
+    vehicleOptionCounterBtnDisabled: { opacity: 0.4 },
+    vehicleOptionCounterText: { color: textPrimary, fontSize: 15, fontWeight: '700' },
+    vehicleOptionPassengerCount: { flexDirection: 'row', alignItems: 'center', gap: 3, minWidth: 34, justifyContent: 'center' },
     vehicleOptionPassengerDisplay: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-    vehicleOptionPassengerValue: { fontSize: 15, fontWeight: '700', color: colors.text || '#111' },
-    vehicleOptionPassengerValueSelected: { color: '#111' },
-    vehicleOptionPassengerIcon: { fontSize: 15 },
-    vehicleRecommendationStrip: {
-      marginTop: 10,
-      paddingVertical: 7,
-      paddingHorizontal: 14,
-      borderRadius: 10,
-      backgroundColor: '#fff2cf',
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-    },
-    vehicleRecommendationLabel: { fontSize: 14, fontWeight: '600', color: '#6b5223' },
-    vehicleRecommendationValue: { fontSize: 16, fontWeight: '800', color: '#b86d17' },
+    vehicleOptionPassengerValue: { fontSize: 14, fontWeight: '700', color: textPrimary },
 
     designatedDriverModeContainer: {
       marginTop: 12,
       paddingTop: 10,
       borderTopWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.border || '#ddd',
+      borderColor: borderColor,
       gap: 10,
     },
     designatedDriverModeLabel: {
       fontSize: 13,
       fontWeight: '600',
-      color:  colors.border || colors.text,
+      color: textSecondary,
     },
     designatedDriverModeChips: {
       flexDirection: 'row',
@@ -1127,92 +1262,95 @@ function createStyles(colors: any, isDark: boolean = false) {
       paddingVertical: 10,
       borderRadius: 12,
       borderWidth: 1,
-      borderColor: colors.border || '#d8d8d8',
+      borderColor: borderColor,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: colors.card || (isDark ? '#2a2a2a' : '#fafafa'),
+      backgroundColor: cardBg,
     },
     designatedDriverModeChipSelected: {
-      borderColor: '#cfa146',
-      backgroundColor: '#fff3d6',
-      shadowColor: '#cfa146',
-      shadowOpacity: Platform.OS === 'ios' ? 0.12 : 0,
-      shadowRadius: 6,
-      shadowOffset: { width: 0, height: 3 },
-      elevation: Platform.OS === 'android' ? 4 : 0,
+      borderColor: accentBorder,
+      backgroundColor: accentSoft,
     },
     designatedDriverModeChipText: {
       fontSize: 14,
       fontWeight: '600',
-      color: colors.textSecondary || '#555',
+      color: textSecondary,
     },
     designatedDriverModeChipTextSelected: {
-      color: '#9a5c0c',
+      color: accentStrong,
+    },
+    designatedDriverModeChipContent: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    designatedDriverModeInfoRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      marginTop: 8,
     },
     designatedDriverModeInfoText: {
-      marginTop: 8,
       fontSize: 12,
       fontWeight: '500',
-      color: isDark ? '#f2c98a' : '#8a4f00',
-      textAlign: 'center',
+      color: colors.warning || '#ffa726',
+      flexShrink: 1,
     },
 
     photoRow: { marginTop: 8 },
-    photoHint: { fontSize: 12, color: isDark ? '#a8acb8' : (colors.textSecondary || '#666'), marginBottom: 8, textAlign: 'center' },
+    photoHint: { fontSize: 12, color: textSecondary, marginBottom: 8, textAlign: 'center' },
     photoButton: {
       alignSelf: 'center',
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
       paddingVertical: 10,
-      paddingHorizontal: 14,
-      borderRadius: 10,
-      backgroundColor: isDark ? '#2d3038' : (colors.surface || '#f1f1f1'),
-      borderWidth: isDark ? 1 : 0,
-      borderColor: isDark ? '#414550' : 'transparent',
+      paddingHorizontal: 16,
+      borderRadius: 12,
+      backgroundColor: accentSoft,
+      borderWidth: 1,
+      borderColor: accentBorder,
     },
-    photoButtonText: { color: colors.text || '#111', fontWeight: '600' },
+    photoButtonText: { color: accentStrong, fontWeight: '700' },
 
     cta: {
-      flex: 1,
-      backgroundColor: '#c9782d',
-      paddingVertical: 16,
-      borderRadius: 28,
+      backgroundColor: accent,
+      paddingVertical: 15,
+      borderRadius: 16,
       alignItems: 'center',
       justifyContent: 'center',
     },
-    ctaSecondary: { backgroundColor: '#6e44ff' },
     ctaDisabled: { opacity: 0.5 },
     ctaLoadingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
-    ctaText: { color: '#fff', fontSize: 15, fontWeight: '800', textAlign: 'center' },
+    ctaText: { color: '#fff', fontSize: 16, fontWeight: '800', textAlign: 'center' },
 
     ctaContainer: { paddingTop: 12, gap: 10 },
 
     scheduleCta: {
-      paddingVertical: 14,
+      paddingVertical: 12,
       borderRadius: 14,
-      borderWidth: 2,
-      borderColor: '#6e44ff',
+      borderWidth: 1,
+      borderColor: accentBorder,
       marginBottom: 0,
-      backgroundColor: isDark ? '#241d3b' : '#f4f1ff',
+      backgroundColor: accentSoft,
     },
     scheduleCtaDisabled: { opacity: 0.65 },
-    scheduleCtaText: { textAlign: 'center', fontWeight: '800', color: isDark ? '#e6ddff' : '#2f215c' },
+    scheduleCtaText: { textAlign: 'center', fontWeight: '700', color: accentStrong },
     scheduleClearCta: {
       paddingVertical: 10,
       borderRadius: 12,
       borderWidth: 1,
-      borderColor: colors.border || (isDark ? '#444' : '#ddd'),
+      borderColor: borderColor,
       marginBottom: 0,
       backgroundColor: 'transparent',
     },
-    scheduleClearText: { textAlign: 'center', fontWeight: '700', color: colors.text },
+    scheduleClearText: { textAlign: 'center', fontWeight: '700', color: textSecondary },
 
     scheduleOverlay: {
       flex: 1,
-      backgroundColor: 'rgba(0,0,0,0.7)',
+      backgroundColor: colors.overlay || 'rgba(0,0,0,0.6)',
       padding: 16,
       justifyContent: 'center',
     },
     scheduleCard: {
-      borderRadius: 16,
+      borderRadius: 18,
       padding: 16,
     },
     scheduleTitle: { fontSize: 18, fontWeight: '800', marginBottom: 12, textAlign: 'center' },
@@ -1227,7 +1365,7 @@ function createStyles(colors: any, isDark: boolean = false) {
     scheduleButtonText: { fontWeight: '800' },
     scheduleButtonTextPrimary: { fontWeight: '800', color: '#fff' },
 
-    estimateCard: { borderRadius: 14, padding: 12, backgroundColor: colors.card || (isDark ? '#2a2a2a' : '#f7f7f8'), borderWidth: 1, borderColor: colors.border || (isDark ? '#444' : '#e8e8ec'), marginBottom: 10 },
+    estimateCard: { borderRadius: 14, padding: 12, backgroundColor: cardBg, borderWidth: 1, borderColor: borderColor, marginBottom: 10 },
     estimateCardElevated: {
       shadowColor: '#000',
       shadowOpacity: Platform.OS === 'ios' ? 0.06 : 0,
@@ -1236,43 +1374,58 @@ function createStyles(colors: any, isDark: boolean = false) {
       elevation: Platform.OS === 'android' ? 2 : 0,
     },
     centeredRow: { flexDirection: 'row', alignItems: 'center' },
-    estimateText: { marginLeft: 8, color: colors.textSecondary || '#666' },
-    estimateRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 },
-    estimateLabel: { color: colors.textSecondary || '#666' },
-    estimateValue: { color: colors.text || '#111', fontWeight: '800', fontSize: 22 },
+    estimateText: { marginLeft: 8, color: textSecondary },
+    estimateRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 3 },
+    estimateLabel: { color: textSecondary, fontSize: 13 },
+    estimateValue: { color: textPrimary, fontWeight: '700', fontSize: 15, fontVariant: ['tabular-nums'] },
+    estimateHeroRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginTop: 6,
+      paddingTop: 10,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderColor: borderColor,
+    },
+    estimateHeroLabel: { color: textSecondary, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6 },
+    estimateHeroValue: { color: accentStrong, fontWeight: '800', fontSize: 26, fontVariant: ['tabular-nums'] },
 
     paymentRow: { flexDirection: 'row', justifyContent: 'center', gap: 10, marginVertical: 8 },
- paymentChip: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 16, backgroundColor: colors.surface || '#eee' },
-    paymentChipSelected: { backgroundColor: '#b88939', borderColor: '#b88939' },
-    paymentChipText: { color: colors.text || '#111', fontWeight: '600' },
+    paymentChip: {
+      paddingVertical: 9,
+      paddingHorizontal: 18,
+      borderRadius: 999,
+      backgroundColor: cardBg,
+      borderWidth: 1,
+      borderColor: borderColor,
+    },
+    paymentChipSelected: { backgroundColor: accent, borderColor: accent },
+    paymentChipText: { color: textPrimary, fontWeight: '600', fontSize: 14 },
     paymentChipTextSelected: { color: '#fff' },
 
     priceCommentRow: { flexDirection: 'row', gap: 10, marginTop: 10, marginBottom: 4 },
     priceCommentColumn: { flex: 1 },
-    priceCommentLabel: { 
-      fontSize: 12, 
-      fontWeight: '600', 
-      color: colors.text || '#333', 
-      marginBottom: 6 
+    priceCommentLabel: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: textSecondary,
+      marginBottom: 6,
     },
     priceCommentInput: {
       height: 42,
       borderRadius: 12,
       paddingHorizontal: 12,
-      backgroundColor: colors.card || (isDark ? '#2b2b2b' : '#f6f6f7'),
-      borderWidth: 1.25,
-      borderColor: isDark ? '#494949' : '#e0e0e4',
-      color: colors.text || '#111',
+      backgroundColor: inputBg,
+      borderWidth: 1,
+      borderColor: borderColor,
+      color: textPrimary,
       fontSize: 14,
     },
 
-    breakdownBox: { marginTop: 8, padding: 10, borderRadius: 10, backgroundColor: colors.card || (isDark ? '#2a2a2a' : '#f1f1f1'), borderWidth: 1, borderColor: colors.border || (isDark ? '#444' : 'transparent') },
-    breakdownText: { color: colors.textSecondary || '#666', fontSize: 12 },
-
     availabilityRow: { marginTop: 10, alignItems: 'center' },
-    availabilityText: { color: colors.textSecondary || '#666' },
-    availabilityWarn: { color: colors.warning || '#FFA726', fontWeight: '700' },
-    availabilityOk: { color: colors.success || '#4CAF50', fontWeight: '700' },
+    availabilityText: { color: textSecondary, fontSize: 13 },
+    availabilityWarn: { color: colors.warning || '#ffa726', fontWeight: '700', fontSize: 13 },
+    availabilityOk: { color: colors.success || '#4caf50', fontWeight: '700', fontSize: 13 },
 
     submittingOverlay: {
       position: 'absolute',
@@ -1280,7 +1433,7 @@ function createStyles(colors: any, isDark: boolean = false) {
       left: 0,
       right: 0,
       bottom: 0,
-      backgroundColor: 'rgba(0,0,0,0.25)',
+      backgroundColor: 'rgba(0,0,0,0.35)',
       alignItems: 'center',
       justifyContent: 'center',
       zIndex: 50,
@@ -1289,7 +1442,7 @@ function createStyles(colors: any, isDark: boolean = false) {
       paddingVertical: 20,
       paddingHorizontal: 28,
       borderRadius: 18,
-      backgroundColor: colors.card || '#fff',
+      backgroundColor: cardBg,
       alignItems: 'center',
       justifyContent: 'center',
       shadowColor: '#000',
@@ -1299,7 +1452,6 @@ function createStyles(colors: any, isDark: boolean = false) {
       elevation: 8,
       gap: 12,
     },
-    submittingLabel: { fontSize: 14, fontWeight: '600', color: colors.text || '#111' },
     submittingText: {
       marginTop: 12,
       fontSize: 14,
@@ -1308,7 +1460,11 @@ function createStyles(colors: any, isDark: boolean = false) {
     },
 
     searchOverlay: {
-      ...StyleSheet.absoluteFillObject,
+      position: 'absolute',
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
       backgroundColor: 'rgba(0,0,0,0.45)',
       alignItems: 'center',
       justifyContent: 'center',
@@ -1317,33 +1473,33 @@ function createStyles(colors: any, isDark: boolean = false) {
     searchCard: {
       width: '100%',
       maxHeight: '85%',
-      borderRadius: 18,
+      borderRadius: 20,
       padding: 16,
-      backgroundColor: colors.card || '#fff',
+      backgroundColor: cardBg,
     },
     searchHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 },
     searchHeaderTextBlock: { flex: 1, paddingRight: 12 },
-    searchTitle: { fontSize: 18, fontWeight: '700', color: colors.text || '#111' },
-    searchDescription: { fontSize: 13, color: colors.textSecondary || '#666', marginTop: 2 },
+    searchTitle: { fontSize: 18, fontWeight: '700', color: textPrimary },
+    searchDescription: { fontSize: 13, color: textSecondary, marginTop: 2 },
     searchCloseButton: { paddingVertical: 4, paddingHorizontal: 6 },
-    searchCloseText: { fontSize: 14, color: colors.primary || '#2196F3', fontWeight: '600' },
+    searchCloseText: { fontSize: 14, color: accentStrong, fontWeight: '700' },
     destinationGuidanceCard: {
       borderRadius: 14,
       borderWidth: 1,
-      borderColor: isDark ? '#43444c' : '#e8ddc5',
-      backgroundColor: isDark ? '#262730' : '#fff8ea',
+      borderColor: accentBorder,
+      backgroundColor: accentSoft,
       padding: 12,
       marginBottom: 12,
     },
     destinationGuidanceTitle: {
       fontSize: 13,
       fontWeight: '800',
-      color: isDark ? '#f2e4c4' : '#7d5a21',
+      color: accentStrong,
       marginBottom: 4,
     },
     destinationGuidanceText: {
       fontSize: 12,
-      color: isDark ? '#c8cbd5' : '#5f5f66',
+      color: textSecondary,
       lineHeight: 17,
     },
     destinationGuidanceSteps: { flexDirection: 'row', gap: 8, marginTop: 10 },
@@ -1353,14 +1509,14 @@ function createStyles(colors: any, isDark: boolean = false) {
       paddingVertical: 7,
       paddingHorizontal: 10,
       borderWidth: 1,
-      borderColor: isDark ? '#4f515b' : '#dfd4bc',
-      backgroundColor: isDark ? '#2f313b' : '#fff3d8',
+      borderColor: borderColor,
+      backgroundColor: cardBg,
       alignItems: 'center',
     },
     destinationGuidanceStepText: {
       fontSize: 11,
       fontWeight: '700',
-      color: isDark ? '#e4e7f2' : '#6d5631',
+      color: textSecondary,
       textAlign: 'center',
     },
     destinationConfirmedPill: {
@@ -1369,67 +1525,67 @@ function createStyles(colors: any, isDark: boolean = false) {
       borderRadius: 999,
       paddingHorizontal: 10,
       paddingVertical: 5,
-      backgroundColor: isDark ? '#244230' : '#e8f8ee',
+      backgroundColor: successSoft,
       borderWidth: 1,
-      borderColor: isDark ? '#3f6f53' : '#b8e1c4',
+      borderColor: successBorder,
     },
     destinationConfirmedText: {
       fontSize: 11,
       fontWeight: '700',
-      color: isDark ? '#9fe1b7' : '#2f8f57',
+      color: colors.success || '#4caf50',
     },
 
     searchInputWrapper: { marginBottom: 16 },
-    searchInputLabel: { fontSize: 12, fontWeight: '600', color: colors.textSecondary || '#777', marginBottom: 6, textTransform: 'uppercase' },
-    searchInputHelper: { fontSize: 12, color: isDark ? '#e7cda0' : '#7b5e2d', marginBottom: 6 },
+    searchInputLabel: { fontSize: 12, fontWeight: '600', color: textSecondary, marginBottom: 6, textTransform: 'uppercase' },
+    searchInputHelper: { fontSize: 12, color: accentStrong, marginBottom: 6 },
     searchInputContainer: {
       borderRadius: 12,
-      backgroundColor: colors.surface || '#f4f4f5',
+      backgroundColor: inputBg,
       paddingHorizontal: 14,
       paddingVertical: Platform.select({ ios: 12, android: 6, default: 8 }),
       borderWidth: 1,
-      borderColor: (colors.border || '#dedede'),
+      borderColor: borderColor,
     },
-    searchInput: { color: colors.text || '#111', fontSize: 15, paddingVertical: Platform.select({ ios: 2, android: 0, default: 6 }) },
+    searchInput: { color: textPrimary, fontSize: 15, paddingVertical: Platform.select({ ios: 2, android: 0, default: 6 }) },
 
     searchActionsRow: { flexDirection: 'row', gap: 10, marginBottom: 18 },
     searchActionChip: {
       flex: 1,
       paddingVertical: 12,
-      borderRadius: 14,
-      backgroundColor: colors.surface || '#ededed',
+      borderRadius: 12,
+      backgroundColor: surfaceBg,
       alignItems: 'center',
       justifyContent: 'center',
       borderWidth: 1,
-      borderColor: colors.border || '#e3e3e3',
+      borderColor: borderColor,
     },
-    searchActionPrimary: { backgroundColor: colors.primary || '#2196F3', borderColor: colors.primary || '#2196F3' },
-    searchActionText: { fontSize: 13, fontWeight: '700', color: colors.text || '#111' },
+    searchActionPrimary: { backgroundColor: accent, borderColor: accent },
+    searchActionText: { fontSize: 13, fontWeight: '700', color: textPrimary },
     searchActionTextPrimary: { color: '#fff' },
 
     searchScroll: { maxHeight: 360 },
     savedSection: { marginBottom: 16 },
-    savedSectionTitle: { fontSize: 13, fontWeight: '700', color: colors.textSecondary || '#555', marginBottom: 6, textTransform: 'uppercase' },
+    savedSectionTitle: { fontSize: 12, fontWeight: '700', color: textSecondary, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
     savedItem: {
       paddingVertical: 10,
       borderBottomWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.border || '#ddd',
+      borderColor: borderColor,
     },
-    savedItemLabel: { fontSize: 14, color: colors.text || '#111', fontWeight: '600' },
-    savedItemCoords: { fontSize: 12, color: colors.textSecondary || '#666', marginTop: 2 },
+    savedItemLabel: { fontSize: 14, color: textPrimary, fontWeight: '600' },
+    savedItemCoords: { fontSize: 12, color: textSecondary, marginTop: 2 },
 
     searchResultsSection: { paddingBottom: 12 },
     searchLoadingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 12 },
-    searchLoadingText: { color: colors.textSecondary || '#666' },
-    searchErrorText: { color: '#E53935', paddingVertical: 8 },
-    searchHintText: { color: colors.textSecondary || '#666', paddingVertical: 8 },
+    searchLoadingText: { color: textSecondary },
+    searchErrorText: { color: colors.error || '#e53935', paddingVertical: 8 },
+    searchHintText: { color: textSecondary, paddingVertical: 8 },
 
     searchResultItem: {
       paddingVertical: 12,
       borderBottomWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.border || '#ddd',
+      borderColor: borderColor,
     },
-    searchResultMain: { fontSize: 15, color: colors.text || '#111', fontWeight: '600' },
-    searchResultSecondary: { fontSize: 12, color: colors.textSecondary || '#666', marginTop: 2 },
+    searchResultMain: { fontSize: 15, color: textPrimary, fontWeight: '600' },
+    searchResultSecondary: { fontSize: 12, color: textSecondary, marginTop: 2 },
   });
 }

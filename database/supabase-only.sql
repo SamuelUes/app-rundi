@@ -1,3 +1,4 @@
+-- Active: 1791696124043@@aws-1-us-east-2.pooler.supabase.com@6543@postgres
 -- ============================================
 -- SUPABASE POSTGRESQL - ESQUEMA DE REFERENCIA
 -- Rundi / proyecto remoto rundiapp-dev
@@ -589,6 +590,24 @@ CREATE INDEX IF NOT EXISTS idx_rides_client_id_status ON public.rides USING btre
 CREATE INDEX IF NOT EXISTS idx_rides_driver_id_status ON public.rides USING btree (driver_id, status);
 CREATE INDEX IF NOT EXISTS idx_rides_client_id_created_at ON public.rides USING btree (client_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_rides_driver_id_created_at ON public.rides USING btree (driver_id, created_at DESC);
+
+-- Idempotencia a nivel DB: un cliente no puede tener dos viajes activos.
+-- El partial unique index cierra la carrera entre dos createRide simultáneos
+-- (el check en código solo protege lecturas secuenciales).
+-- Estados activos = valores del enum ride_status; 'completed'/'canceled'/
+-- 'rating_completed'/'rating_skipped' quedan fuera y liberan al cliente.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_rides_one_active_per_client
+  ON public.rides USING btree (client_id)
+  WHERE deleted_at IS NULL
+    AND status IN (
+      'requested',
+      'driver_offered',
+      'accepted',
+      'driver_on_route',
+      'driver_arrived',
+      'in_progress',
+      'pending_payment'
+    );
 
 DROP TRIGGER IF EXISTS update_rides_updated_at ON public.rides;
 CREATE TRIGGER update_rides_updated_at BEFORE UPDATE ON public.rides

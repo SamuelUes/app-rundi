@@ -1,22 +1,16 @@
 export default {
   name: 'Rundi',
   slug: 'rundi',
-  version: 'Beta - 1.8',
+  version: '2',
   orientation: 'portrait',
   userInterfaceStyle: 'automatic',
-  icon: './src/assets/images/icon.png',
+  icon: './src/assets/images/rundi_logo.png',
   scheme: 'com.driveangel.rundidev',
-  updates: {
-    enabled: true,
-    fallbackToCacheTimeout: 0,
-    checkAutomatically: 'ON_LOAD',
-    url: 'https://u.expo.dev/98fe5b45-4177-4d65-8ce3-6b783abfe196'
-  },
-  assetBundlePatterns: ['**/*'],
   ios: {
     supportsTablet: true,
+    deploymentTarget: '16.4',
     bundleIdentifier: 'com.driveangel.rundidev',
-    icon: './src/assets/images/icon.png',
+    icon: './src/assets/images/rundi_logo.png',
     urlSchemes: ['driveangel', 'tel', 'mailto', 'whatsapp', 'waze', 'googlemaps'],
     userInterfaceStyle: 'automatic',
     config: {
@@ -30,8 +24,17 @@ export default {
       NSPhotoLibraryUsageDescription: 'La aplicación necesita acceder a tu galería de fotos para subir imágenes.',
       NSMotionUsageDescription: 'Rundi utiliza tu actividad física para detectar cuándo estás manejando y mejorar la asignación de viajes.',
       UIBackgroundModes: ['location', 'fetch'],
+      NSSupportsLiveActivities: true,
     },
-    usesAppleSignIn: true,
+    // Requerido por expo-secure-store/notifications en iOS Simulator (sin perfil de
+    // aprovisionamiento real, Keychain rechaza el acceso con errSecMissingEntitlement).
+    entitlements: {
+      'keychain-access-groups': ['$(AppIdentifierPrefix)com.driveangel.rundidev'],
+    },
+    // EXPO_UNSIGNED=1 omite capabilities que exigen firma real (Apple Sign In),
+    // permitiendo builds de simulador sin appleTeamId ni certificados.
+    // usesAppleSignIn: true,
+    usesAppleSignIn: process.env.EXPO_UNSIGNED !== '1',
     googleServicesFile: "./GoogleService-Info.plist"
   },
   android: {
@@ -41,8 +44,8 @@ export default {
     allowBackup: false,
     googleServicesFile: "./google-services.json",
     adaptiveIcon: {
-      foregroundImage: './src/assets/images/icon.png',
-      backgroundColor: '#0F2628',
+      foregroundImage: './src/assets/images/rundi_logo2.png',
+      backgroundColor: '#FFFFFF',
     },
     permissions: [
       'ACCESS_COARSE_LOCATION',
@@ -104,6 +107,7 @@ export default {
   },
   plugins: [
     './modules/rundi-native/app.plugin.js',
+    '@bacons/apple-targets',
     [
       'expo-location',
       {
@@ -122,10 +126,10 @@ export default {
         image: './src/assets/images/splash-icon.png',
         imageWidth: 200,
         resizeMode: 'contain',
-        backgroundColor: '#0F2628',
+        backgroundColor: '#FFF5DB',
         dark: {
           image: './src/assets/images/splash-icon.png',
-          backgroundColor: '#0F2628',
+          backgroundColor: '#373587',
         },
       },
     ],
@@ -138,10 +142,11 @@ export default {
     [
       'expo-notifications',
       {
-        icon: './src/assets/images/icon.png',
-        color: '#FF9800',
+        icon: './src/assets/images/rundi_logo.png',
+        color: '#FFF5DB',
         sounds: ['./src/assets/sounds/notification.wav'],
         mode: 'production',
+        enableBackgroundRemoteNotifications: true,
       },
     ],
     // [
@@ -158,14 +163,18 @@ export default {
     //     messaging_android_notification_priority: 'priority_high',
     //   },
     // ],
+    'expo-localization',
+    'expo-status-bar',
     [
       'expo-build-properties',
       {
         ios: {
           useFrameworks: 'static',
+          enableSceneSupport: true,
         },
       },
     ],
+    './scripts/with-unsigned-build.cjs',
   ],
   extra: {
     eas: {
@@ -192,6 +201,5 @@ export default {
       process.env.SUPABASE_ANON_KEY ||
       process.env.EXPO_PUBLIC_SUPABASE_KEY,
   },
-  runtimeVersion: 'Beta- 1.8',
   owner: 'samuelues',
 };

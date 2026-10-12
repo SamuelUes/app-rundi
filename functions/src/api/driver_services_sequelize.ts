@@ -3,7 +3,7 @@
  * Gestión de servicios de conductores
  */
 
-import * as functions from 'firebase-functions';
+import * as functions from 'firebase-functions/v1';
 import { DriverServiceRepository } from '../sequelize/repositories/DriverServiceRepository';
 
 const driverServiceRepo = new DriverServiceRepository();

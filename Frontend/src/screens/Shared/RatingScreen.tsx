@@ -1,19 +1,32 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
+  Pressable,
   TextInput,
   ScrollView,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import * as Haptics from 'expo-haptics';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSequence,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import ratingService, { type RatingCategoryKey } from '../../services/ratingService';
 import { useAuth } from '../../hooks/shared/auth/useAuth';
 import alertService from '../../services/alertService';
 import { useTranslation } from 'react-i18next';
+
+const STAR_GOLD = '#FFC531';
 
 const CATEGORY_KEYS: RatingCategoryKey[] = [
   'punctuality',
@@ -23,6 +36,49 @@ const CATEGORY_KEYS: RatingCategoryKey[] = [
   'safety',
   'friendliness',
 ];
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
+function RatingStar({
+  filled,
+  size,
+  mutedColor,
+  onPress,
+}: {
+  filled: boolean;
+  size: number;
+  mutedColor: string;
+  onPress: () => void;
+}) {
+  const scale = useSharedValue(1);
+
+  useEffect(() => {
+    if (filled) {
+      scale.value = withSequence(
+        withTiming(1.28, { duration: 110 }),
+        withSpring(1, { damping: 11, stiffness: 320 }),
+      );
+    }
+  }, [filled, scale]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  return (
+    <AnimatedPressable
+      onPress={onPress}
+      hitSlop={6}
+      style={[animatedStyle, { padding: size >= 40 ? 7 : 4 }]}
+    >
+      <MaterialIcons
+        name={filled ? 'star' : 'star-border'}
+        size={size}
+        color={filled ? STAR_GOLD : mutedColor}
+      />
+    </AnimatedPressable>
+  );
+}
 
 export default function RatingScreen({ route, navigation }: any) {
   const { rideId } = route.params;
@@ -68,6 +124,19 @@ export default function RatingScreen({ route, navigation }: any) {
     [isDriver, t],
   );
 
+  const ratingText =
+    rating === 5 ? t('shared.rating.ratingText.five')
+    : rating === 4 ? t('shared.rating.ratingText.four')
+    : rating === 3 ? t('shared.rating.ratingText.three')
+    : rating === 2 ? t('shared.rating.ratingText.two')
+    : rating === 1 ? t('shared.rating.ratingText.one')
+    : '';
+
+  const handleSelectRating = (value: number) => {
+    setRating(value);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
+
   const handleSubmitRating = async () => {
     if (rating === 0) {
       alertService.showErrorAlert(t('shared.rating.alerts.missingRating'));
@@ -97,7 +166,7 @@ export default function RatingScreen({ route, navigation }: any) {
         safety: resolvedCategories.safety,
         friendliness: resolvedCategories.friendliness,
       });
-      
+
       alertService.showSuccessAlert(
         t('shared.rating.alerts.successTitle'),
         t('shared.rating.alerts.successMessage'),
@@ -125,211 +194,239 @@ export default function RatingScreen({ route, navigation }: any) {
     : [];
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.content}>
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={styles.title}>
-            {isDriver ? t('shared.rating.header.titleDriver') : t('shared.rating.header.titleClient')}
-          </Text>
-          <Text style={styles.subtitle}>
-            {t('shared.rating.header.subtitle')}
-          </Text>
-        </View>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+      <KeyboardAvoidingView
+        style={styles.keyboard}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Header */}
+          <View style={styles.hero}>
+            <View style={styles.heroBadge}>
+              <MaterialIcons name="star" size={34} color={STAR_GOLD} />
+            </View>
+            <Text style={styles.title}>
+              {isDriver ? t('shared.rating.header.titleDriver') : t('shared.rating.header.titleClient')}
+            </Text>
+            <Text style={styles.subtitle}>
+              {t('shared.rating.header.subtitle')}
+            </Text>
 
-        {/* Estrellas */}
-        <View style={styles.starsContainer}>
-          {[1, 2, 3, 4, 5].map((star) => (
-            <TouchableOpacity
-              key={star}
-              onPress={() => setRating(star)}
-              style={styles.starButton}
-            >
-              <MaterialIcons name={star <= rating ? 'star' : 'star-border'} size={32} color="#FFD700" />
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {rating > 0 && (
-          <Text style={styles.ratingText}>
-            {rating === 5 && t('shared.rating.ratingText.five')}
-            {rating === 4 && t('shared.rating.ratingText.four')}
-            {rating === 3 && t('shared.rating.ratingText.three')}
-            {rating === 2 && t('shared.rating.ratingText.two')}
-            {rating === 1 && t('shared.rating.ratingText.one')}
-          </Text>
-        )}
-
-        {/* Comentarios rápidos */}
-        {rating > 0 && (
-          <View style={styles.quickCommentsContainer}>
-            <Text style={styles.quickCommentsTitle}>{t('shared.rating.sections.quickComments')}</Text>
-            <View style={styles.quickComments}>
-              {quickComments.map((quickComment, index) => (
-                <TouchableOpacity
-                  key={index}
-                  style={[
-                    styles.quickCommentChip,
-                    comment === quickComment && styles.quickCommentChipActive,
-                  ]}
-                  onPress={() => setComment(quickComment)}
-                >
-                  <Text
-                    style={[
-                      styles.quickCommentText,
-                      comment === quickComment && styles.quickCommentTextActive,
-                    ]}
-                  >
-                    {quickComment}
-                  </Text>
-                </TouchableOpacity>
+            {/* Estrellas */}
+            <View style={styles.starsContainer}>
+              {[1, 2, 3, 4, 5].map((star) => (
+                <RatingStar
+                  key={star}
+                  filled={star <= rating}
+                  size={44}
+                  mutedColor={colors.textTertiary}
+                  onPress={() => handleSelectRating(star)}
+                />
               ))}
             </View>
+
+            <Text style={styles.ratingText}>{ratingText}</Text>
           </View>
-        )}
 
-        {rating > 0 && (
-          <View style={styles.categoriesContainer}>
-            <Text style={styles.quickCommentsTitle}>{t('shared.rating.sections.categories')}</Text>
-
-            {CATEGORY_KEYS.map((categoryKey) => (
-              <View key={categoryKey} style={styles.categoryRow}>
-                <Text style={styles.categoryLabel}>{categoryLabels[categoryKey]}</Text>
-                <View style={styles.categoryStarsRow}>
-                  {[1, 2, 3, 4, 5].map((star) => (
-                    <TouchableOpacity
-                      key={`${categoryKey}-${star}`}
-                      onPress={() => {
-                        setCategoryRatings((prev) => ({
-                          ...prev,
-                          [categoryKey]: star,
-                        }));
-                      }}
-                      style={styles.categoryStarButton}
+          {/* Comentarios rápidos */}
+          {rating > 0 && (
+            <View style={styles.quickCommentsContainer}>
+              <Text style={styles.sectionTitle}>{t('shared.rating.sections.quickComments')}</Text>
+              <View style={styles.quickComments}>
+                {quickComments.map((quickComment, index) => (
+                  <Pressable
+                    key={index}
+                    style={[
+                      styles.quickCommentChip,
+                      comment === quickComment && styles.quickCommentChipActive,
+                    ]}
+                    onPress={() => setComment(quickComment)}
+                  >
+                    <Text
+                      style={[
+                        styles.quickCommentText,
+                        comment === quickComment && styles.quickCommentTextActive,
+                      ]}
                     >
-                      <MaterialIcons name={star <= (categoryRatings[categoryKey] || 0) ? 'star' : 'star-border'} size={24} color="#FFD700" />
-                    </TouchableOpacity>
-                  ))}
-                </View>
+                      {quickComment}
+                    </Text>
+                  </Pressable>
+                ))}
               </View>
-            ))}
-          </View>
-        )}
+            </View>
+          )}
 
-        {/* Comentario personalizado */}
-        {rating > 0 && (
-          <View style={styles.commentContainer}>
-            <Text style={styles.commentLabel}>{t('shared.rating.sections.additionalComment')}</Text>
-            <TextInput
-              style={styles.commentInput}
-              placeholder={t('shared.rating.input.commentPlaceholder')}
-              placeholderTextColor="#999"
-              multiline
-              numberOfLines={4}
-              value={comment}
-              onChangeText={setComment}
-              textAlignVertical="top"
-            />
-          </View>
-        )}
+          {rating > 0 && (
+            <View style={styles.categoriesContainer}>
+              <Text style={styles.sectionTitle}>{t('shared.rating.sections.categories')}</Text>
 
-        {/* Botón enviar */}
-        {rating > 0 && (
-          <TouchableOpacity
-            style={[styles.submitButton, submitting && styles.submitButtonDisabled]}
-            onPress={handleSubmitRating}
-            disabled={submitting}
+              {CATEGORY_KEYS.map((categoryKey) => (
+                <View key={categoryKey} style={styles.categoryRow}>
+                  <Text style={styles.categoryLabel}>{categoryLabels[categoryKey]}</Text>
+                  <View style={styles.categoryStarsRow}>
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <RatingStar
+                        key={`${categoryKey}-${star}`}
+                        filled={star <= (categoryRatings[categoryKey] || 0)}
+                        size={22}
+                        mutedColor={colors.textTertiary}
+                        onPress={() => {
+                          setCategoryRatings((prev) => ({
+                            ...prev,
+                            [categoryKey]: star,
+                          }));
+                        }}
+                      />
+                    ))}
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
+
+          {/* Comentario personalizado */}
+          {rating > 0 && (
+            <View style={styles.commentContainer}>
+              <Text style={styles.sectionTitle}>{t('shared.rating.sections.additionalComment')}</Text>
+              <TextInput
+                style={styles.commentInput}
+                placeholder={t('shared.rating.input.commentPlaceholder')}
+                placeholderTextColor={colors.textTertiary}
+                multiline
+                numberOfLines={4}
+                value={comment}
+                onChangeText={setComment}
+                textAlignVertical="top"
+              />
+            </View>
+          )}
+
+          <View style={styles.spacer} />
+
+          {/* Botón enviar */}
+          {rating > 0 && (
+            <Pressable
+              style={[styles.submitButton, submitting && styles.submitButtonDisabled]}
+              onPress={handleSubmitRating}
+              disabled={submitting}
+            >
+              {submitting ? (
+                <LoadingIcon size={20} color="#1C1508" />
+              ) : (
+                <Text style={styles.submitButtonText}>{t('shared.rating.buttons.submit')}</Text>
+              )}
+            </Pressable>
+          )}
+
+          {/* Botón omitir */}
+          <Pressable
+            style={styles.skipButton}
+            onPress={async () => {
+              try {
+                // Llamar a skipRating para marcar que omitió
+                await ratingService.skipRideRating(rideId);
+
+                // Navegar según el rol del usuario
+                if (isDriver) {
+                  navigation.replace('DriverHome');
+                } else {
+                  navigation.replace('ClientHome');
+                }
+              } catch (error) {
+                console.error('Error omitiendo calificación:', error);
+                // Navegar de todas formas
+                if (isDriver) {
+                  navigation.replace('DriverHome');
+                } else {
+                  navigation.replace('ClientHome');
+                }
+              }
+            }}
           >
-            {submitting ? (
-              <LoadingIcon size={20} color="#fff" />
-            ) : (
-              <Text style={styles.submitButtonText}>{t('shared.rating.buttons.submit')}</Text>
-            )}
-          </TouchableOpacity>
-        )}
-
-        {/* Botón omitir */}
-        <TouchableOpacity
-          style={styles.skipButton}
-          onPress={async () => {
-            try {
-              // Llamar a skipRating para marcar que omitió
-              await ratingService.skipRideRating(rideId);
-              
-              // Navegar según el rol del usuario
-              if (isDriver) {
-                navigation.replace('DriverHome');
-              } else {
-                navigation.replace('ClientHome');
-              }
-            } catch (error) {
-              console.error('Error omitiendo calificación:', error);
-              // Navegar de todas formas
-              if (isDriver) {
-                navigation.replace('DriverHome');
-              } else {
-                navigation.replace('ClientHome');
-              }
-            }
-          }}
-        >
-          <Text style={styles.skipButtonText}>{t('shared.rating.buttons.skip')}</Text>
-        </TouchableOpacity>
-      </View>
-    </ScrollView>
+            <Text style={styles.skipButtonText}>{t('shared.rating.buttons.skip')}</Text>
+          </Pressable>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
 const createStyles = (colors: any) => StyleSheet.create({
-  container: {
+  safeArea: {
     flex: 1,
     backgroundColor: colors.surface,
   },
-  content: {
-    padding: 24,
+  keyboard: {
+    flex: 1,
   },
-  header: {
+  scroll: {
+    flex: 1,
+  },
+  content: {
+    flexGrow: 1,
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    paddingBottom: 8,
+  },
+  hero: {
     alignItems: 'center',
-    marginBottom: 32,
+    paddingTop: 12,
+    paddingBottom: 8,
+  },
+  heroBadge: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: 'rgba(255, 197, 49, 0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 197, 49, 0.32)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
   },
   title: {
-    fontSize: 24,
+    fontSize: 26,
     fontWeight: '700',
     color: colors.text,
     textAlign: 'center',
     marginBottom: 8,
+    letterSpacing: -0.3,
   },
   subtitle: {
-    fontSize: 14,
+    fontSize: 15,
     color: colors.textSecondary,
     textAlign: 'center',
   },
   starsContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
-    marginBottom: 16,
-  },
-  starButton: {
-    padding: 8,
-  },
-  starIcon: {
-    fontSize: 48,
+    marginTop: 20,
   },
   ratingText: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '600',
     color: colors.text,
     textAlign: 'center',
-    marginBottom: 24,
+    minHeight: 28,
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  sectionTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textTertiary,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    marginBottom: 12,
   },
   quickCommentsContainer: {
+    marginTop: 16,
     marginBottom: 24,
-  },
-  quickCommentsTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.text,
-    marginBottom: 12,
   },
   quickComments: {
     flexDirection: 'row',
@@ -338,113 +435,89 @@ const createStyles = (colors: any) => StyleSheet.create({
   },
   quickCommentChip: {
     backgroundColor: colors.card,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: colors.border,
   },
   quickCommentChipActive: {
-    backgroundColor: '#000',
-    borderColor: '#000',
+    borderColor: colors.primary,
+    backgroundColor: 'rgba(179, 135, 55, 0.14)',
   },
   quickCommentText: {
     fontSize: 14,
     color: colors.textSecondary,
   },
   quickCommentTextActive: {
-    color: '#fff',
+    color: colors.primary,
     fontWeight: '600',
   },
   categoriesContainer: {
     marginBottom: 24,
   },
   categoryRow: {
-    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 10,
   },
   categoryLabel: {
     fontSize: 14,
-    color: colors.text,
     fontWeight: '600',
-    marginBottom: 6,
+    color: colors.text,
+    flex: 1,
+    marginRight: 12,
   },
   categoryStarsRow: {
     flexDirection: 'row',
   },
-  categoryStarButton: {
-    paddingRight: 6,
-  },
-  categoryStarText: {
-    fontSize: 22,
-  },
   commentContainer: {
-    marginBottom: 24,
-  },
-  commentLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.text,
-    marginBottom: 8,
+    marginBottom: 20,
   },
   commentInput: {
     backgroundColor: colors.card,
-    borderRadius: 12,
-    padding: 16,
+    borderRadius: 14,
+    padding: 14,
     fontSize: 14,
     color: colors.text,
-    minHeight: 100,
+    minHeight: 96,
     borderWidth: 1,
     borderColor: colors.border,
   },
+  spacer: {
+    flex: 1,
+    minHeight: 16,
+  },
   submitButton: {
-    backgroundColor: '#000',
-    padding: 16,
-    borderRadius: 12,
+    backgroundColor: colors.primary,
+    height: 54,
+    borderRadius: 14,
     alignItems: 'center',
-    marginBottom: 12,
+    justifyContent: 'center',
+    marginBottom: 4,
   },
   submitButtonDisabled: {
-    opacity: 0.5,
+    opacity: 0.55,
   },
   submitButtonText: {
-    color: '#fff',
+    color: '#1C1508',
     fontSize: 16,
     fontWeight: '700',
   },
   skipButton: {
-    padding: 16,
+    paddingVertical: 14,
     alignItems: 'center',
   },
   skipButtonText: {
     fontSize: 14,
+    fontWeight: '500',
     color: colors.textSecondary,
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 32,
-  },
-  emptyIcon: {
-    fontSize: 64,
-    marginBottom: 16,
-  },
-  emptyTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: colors.text,
-    marginBottom: 8,
-  },
-  emptyText: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    lineHeight: 20,
   },
 });

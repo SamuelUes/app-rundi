@@ -22,7 +22,7 @@ import { useChat } from '../../hooks/shared/chat/useChat';
 import { useCalls } from '../../hooks/shared/calls/useCalls';
 import { getFirebaseFunctions } from '../../config/firebase';
 import { useTranslation } from 'react-i18next';
-import { useNavigation } from '@react-navigation/native';
+import { useIsFocused, useNavigation } from '@react-navigation/native';
 import { SupportChatHeader } from '../../components/shared/SupportChat/SupportChatHeader';
 import { SupportChatMessages } from '../../components/shared/SupportChat/SupportChatMessages';
 import { SupportChatInput } from '../../components/shared/SupportChat/SupportChatInput';
@@ -57,6 +57,7 @@ export default function SupportChatScreen({ route }: SupportChatScreenProps) {
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => createStyles(colors, isDark, insets), [colors, isDark, insets]);
   const navigation = useNavigation<any>();
+  const isFocused = useIsFocused();
   const { user } = useAuth();
   const { t } = useTranslation();
   const ns = 'shared.supportChat';
@@ -79,8 +80,8 @@ export default function SupportChatScreen({ route }: SupportChatScreenProps) {
     user?.email ??
     t(`${ns}.fallbackUserName`, 'User');
 
-  const chat = useChat(threadId ?? '', safeUserId, safeUserName);
   const hasActiveChat = Boolean(threadId && safeUserId);
+  const chat = useChat(threadId ?? '', safeUserId, safeUserName, isFocused && hasActiveChat);
   const { activeCall } = useCalls(complaintId);
 
   const [inputText, setInputText] = useState('');

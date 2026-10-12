@@ -18,6 +18,7 @@ interface ExtraDestination {
 }
 
 interface SearchRideRouteBubbleProps {
+  top?: number;
   orderedRouteRows: RouteRow[];
   canAddExtraStop: boolean;
   manualOriginLoading: boolean;
@@ -37,6 +38,7 @@ interface SearchRideRouteBubbleProps {
 }
 
 export function SearchRideRouteBubble({
+  top = 0,
   orderedRouteRows,
   canAddExtraStop,
   manualOriginLoading,
@@ -55,7 +57,7 @@ export function SearchRideRouteBubble({
   tr,
 }: SearchRideRouteBubbleProps) {
   return (
-    <View style={styles.routeBubble}>
+    <View style={[styles.routeBubble, { top }]}>
       <View style={styles.routeTimeline}>
         {orderedRouteRows.map((row, idx) => {
           const isLast = idx === orderedRouteRows.length - 1;
@@ -76,6 +78,8 @@ export function SearchRideRouteBubble({
             label = stop?.address || tr('labels.stopLabel', { index: row.index + 1 });
             if (stop?.coords) subtitle = formatCoords(stop.coords);
           }
+
+          if (subtitle && subtitle === label) subtitle = '';
 
           const iconSource =
             row.kind === 'origin'

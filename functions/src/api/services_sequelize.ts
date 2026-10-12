@@ -3,7 +3,7 @@
  * Gestión de servicios disponibles
  */
 
-import * as functions from 'firebase-functions';
+import * as functions from 'firebase-functions/v1';
 import { ServiceRepository } from '../sequelize/repositories/ServiceRepository';
 import { requireAdmin } from '../utils/sessionUtils';
 

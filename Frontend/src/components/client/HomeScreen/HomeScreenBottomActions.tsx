@@ -1,9 +1,11 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Image, ImageBackground, Animated } from 'react-native';
+import { View, Text, Pressable } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 import type { TFunction } from 'i18next';
 
 interface PendingAction {
   title: string;
+  icon?: string;
   onPress: () => void;
 }
 
@@ -18,7 +20,7 @@ interface HomeScreenBottomActionsProps {
   pendingAction: PendingAction | null;
   isOutsideSupportedArea: boolean;
   regionStatus: RegionStatus;
-  pendingActionImage: any;
+  scheduledRideNotice?: string | null;
   onRequestRide: () => void;
   styles: any;
   t: TFunction;
@@ -28,65 +30,76 @@ export function HomeScreenBottomActions({
   pendingAction,
   isOutsideSupportedArea,
   regionStatus,
-  pendingActionImage,
+  scheduledRideNotice,
   onRequestRide,
   styles,
   t,
 }: HomeScreenBottomActionsProps) {
   if (pendingAction) {
     return (
-      <TouchableOpacity
-        style={styles.pendingActionButton}
-        activeOpacity={0.9}
-        onPress={pendingAction.onPress}
-      >
-        <ImageBackground
-          source={pendingActionImage}
-          style={styles.pendingActionBackground}
-          imageStyle={styles.pendingActionBackgroundInner}
-          resizeMode="stretch"
+      <View style={styles.bottomStack} pointerEvents="box-none">
+        <Pressable
+          style={({ pressed }) => [
+            styles.requestButton,
+            pressed && styles.requestButtonPressed,
+          ]}
+          onPress={pendingAction.onPress}
+          accessibilityRole="button"
         >
-          <View style={styles.requestButtonContent}>
-            <Text style={styles.requestButtonLabel}>{pendingAction.title}</Text>
+          <Text style={styles.requestButtonLabel} numberOfLines={1}>
+            {pendingAction.title}
+          </Text>
+          <View style={styles.requestArrowDisc}>
+            <MaterialIcons
+              name={(pendingAction.icon as any) || 'priority-high'}
+              size={18}
+              color="#241A09"
+            />
           </View>
-        </ImageBackground>
-      </TouchableOpacity>
+        </Pressable>
+      </View>
     );
   }
 
   return (
-    <>
-      <TouchableOpacity
-        style={[
-          styles.requestButtonWrapper,
-          isOutsideSupportedArea && styles.requestButtonDisabled,
-        ]}
-        activeOpacity={0.9}
-        onPress={onRequestRide}
-        disabled={isOutsideSupportedArea}
-      >
-        <ImageBackground
-          source={pendingActionImage}
-          style={styles.requestButtonBackground}
-          imageStyle={styles.requestButtonBackgroundInner}
-          resizeMode="stretch"
-        >
-          <View style={styles.requestButtonContent}>
-            <Text style={styles.requestButtonLabel}>{t('client.home.requestRide')}</Text>
-          </View>
-        </ImageBackground>
-      </TouchableOpacity>
-      <View style={styles.regionHintContainer}>
+    <View style={styles.bottomStack} pointerEvents="box-none">
+      {scheduledRideNotice ? (
+        <View style={styles.scheduledRideChip}>
+          <MaterialIcons name="event" size={14} color="#B38737" />
+          <Text style={styles.scheduledRideChipText} numberOfLines={2}>
+            {scheduledRideNotice}
+          </Text>
+        </View>
+      ) : null}
+
+      <View style={styles.regionHintChip}>
+        <MaterialIcons name="place" size={14} color="#B38737" />
         <Text style={styles.regionHintText} numberOfLines={2}>
           {!regionStatus.checked
             ? t('client.home.region.checking')
             : regionStatus.allowed
-            ? regionStatus.areaName
-              ? t('client.home.region.availableNamed', { area: regionStatus.areaName })
-              : t('client.home.region.availableGeneric')
-            : regionStatus.message || t('client.home.region.unavailableFallback')}
+              ? regionStatus.areaName
+                ? t('client.home.region.availableNamed', { area: regionStatus.areaName })
+                : t('client.home.region.availableGeneric')
+              : regionStatus.message || t('client.home.region.unavailableFallback')}
         </Text>
       </View>
-    </>
+
+      <Pressable
+        style={({ pressed }) => [
+          styles.requestButton,
+          isOutsideSupportedArea && styles.requestButtonDisabled,
+          pressed && styles.requestButtonPressed,
+        ]}
+        onPress={onRequestRide}
+        disabled={isOutsideSupportedArea}
+        accessibilityRole="button"
+      >
+        <Text style={styles.requestButtonLabel}>{t('client.home.requestRide')}</Text>
+        <View style={styles.requestArrowDisc}>
+          <MaterialIcons name="arrow-forward" size={18} color="#241A09" />
+        </View>
+      </Pressable>
+    </View>
   );
 }

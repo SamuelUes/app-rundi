@@ -1,13 +1,16 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Animated } from 'react-native';
+import { View, Text, TouchableOpacity, Animated, Platform } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 import { LoadingIcon } from '../../ui/LoadingIcon';
 
 const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
 
 interface RideTrackingActionButtonsProps {
   rideStatus: string;
+  paymentMethod?: 'cash' | 'card';
   isCancellingRide: boolean;
   cancelButtonScale: Animated.Value;
+  colors: any;
   onGoToPayment: () => void;
   onShareTrip: () => void;
   onCancelRide: () => void;
@@ -17,50 +20,66 @@ interface RideTrackingActionButtonsProps {
 
 export function RideTrackingActionButtons({
   rideStatus,
+  paymentMethod,
   isCancellingRide,
   cancelButtonScale,
+  colors,
   onGoToPayment,
   onShareTrip,
   onCancelRide,
   tr,
   styles,
 }: RideTrackingActionButtonsProps) {
+  const isPendingPayment = rideStatus === 'pending_payment';
+  const shareIcon = Platform.OS === 'ios' ? 'ios-share' : 'share';
+
   return (
     <View style={styles.actionButtons}>
-      {rideStatus === 'pending_payment' && (
+      {isPendingPayment ? (
         <TouchableOpacity
-          style={styles.paymentButton}
+          style={styles.primaryButton}
           onPress={onGoToPayment}
-          activeOpacity={0.9}
+          activeOpacity={0.85}
+          accessibilityRole="button"
         >
-          <Text style={styles.paymentButtonText}>{tr('buttons.goToPayment')}</Text>
+          <MaterialIcons
+            name={paymentMethod === 'card' ? 'credit-card' : 'payments'}
+            size={20}
+            color="#1C1917"
+          />
+          <Text style={styles.primaryButtonText}>{tr('buttons.goToPayment')}</Text>
+        </TouchableOpacity>
+      ) : (
+        <TouchableOpacity
+          style={styles.primaryButton}
+          onPress={onShareTrip}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+        >
+          <MaterialIcons name={shareIcon} size={19} color="#ffffff" />
+          <Text style={styles.primaryButtonText}>{tr('buttons.shareLocation')}</Text>
         </TouchableOpacity>
       )}
-      <TouchableOpacity
-        style={[styles.shareButton, { backgroundColor: '#609931ff' }]}
-        onPress={onShareTrip}
-        activeOpacity={0.9}
-      >
-        <Text style={styles.shareButtonText}>{tr('buttons.shareLocation')}</Text>
-      </TouchableOpacity>
 
       <AnimatedTouchableOpacity
         style={[
-          styles.cancelButton,
-          {
-            backgroundColor: '#FF4444',
-            transform: [{ scale: cancelButtonScale }],
-            opacity: isCancellingRide ? 0.7 : 1,
-          },
+          styles.cancelGhost,
+          isCancellingRide && styles.buttonDisabled,
+          { transform: [{ scale: cancelButtonScale }] },
         ]}
         onPress={onCancelRide}
         disabled={isCancellingRide}
-        activeOpacity={0.85}
+        activeOpacity={0.7}
+        accessibilityRole="button"
+        accessibilityState={{ disabled: isCancellingRide }}
       >
         {isCancellingRide ? (
-          <LoadingIcon icon="refresh" size={24} color="#FFFFFF" animation="spin" />
+          <LoadingIcon size={18} color={colors.error} animation="spin" />
         ) : (
-          <Text style={styles.cancelButtonText}>{tr('buttons.cancel')}</Text>
+          <>
+            <MaterialIcons name="close" size={17} color="#ffffff" />
+            <Text style={styles.cancelGhostText}>{tr('buttons.cancel')}</Text>
+          </>
         )}
       </AnimatedTouchableOpacity>
     </View>

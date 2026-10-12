@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import { useIsDark } from '../../../stores/themeStore';
 
 interface PaymentConfirmationHeaderProps {
   paymentMethod: 'cash' | 'card';
@@ -24,9 +25,14 @@ export function PaymentConfirmationHeader({
   t,
   styles,
 }: PaymentConfirmationHeaderProps) {
+  const isDark = useIsDark();
+  const accent = isDark ? colors.SecondBorder : colors.primary;
+
   return (
     <View style={styles.header}>
-      <MaterialIcons name={paymentMethod === 'cash' ? 'payments' : 'credit-card'} size={48} color={colors.primary} />
+      <View style={styles.headerIconWrap}>
+        <MaterialIcons name={paymentMethod === 'cash' ? 'payments' : 'credit-card'} size={26} color={accent} />
+      </View>
       <Text style={styles.title}>
         {paymentMethod === 'cash' ? headerTexts.cashTitle : headerTexts.cardTitle}
       </Text>

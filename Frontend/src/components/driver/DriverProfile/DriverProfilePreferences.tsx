@@ -96,14 +96,16 @@ export function DriverProfileOverlay({
               </Text>
             ) : (
               <Text style={styles.preferenceHint}>
-                {t('driver.profile.overlay.hintIos')}
+                {overlayPermissionGranted
+                  ? t('driver.profile.overlay.hintIosGranted')
+                  : t('driver.profile.overlay.hintIosMissing')}
               </Text>
             )}
           </View>
           <Switch
             value={overlayToggleEnabled}
             onValueChange={onOverlayToggle}
-            disabled={Platform.OS !== 'android' || overlayCheckingPermission}
+            disabled={(Platform.OS !== 'android' && Platform.OS !== 'ios') || overlayCheckingPermission}
             thumbColor={overlayToggleEnabled ? '#ffffff' : '#f4f4f4'}
             trackColor={{ false: '#bdbdbd', true: colors.primary }}
           />

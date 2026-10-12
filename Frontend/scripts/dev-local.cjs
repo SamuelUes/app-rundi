@@ -377,7 +377,7 @@ function signalChild(child, signal) {
 }
 
 function buildFirebaseEmulatorArgs(dataPath, hasExistingExport) {
-  const args = ['emulators:start', '--only', 'auth,firestore,database,functions', '--project', projectId];
+  const args = ['emulators:start', '--only', 'auth,firestore,database,functions,pubsub', '--project', projectId];
   if (hasExistingExport) args.push('--import', dataPath);
   args.push('--export-on-exit', dataPath);
   return args;

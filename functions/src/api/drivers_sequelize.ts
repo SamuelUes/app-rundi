@@ -11,7 +11,7 @@
  * - Verificar conductor
  */
 
-import * as functions from 'firebase-functions';
+import * as functions from 'firebase-functions/v1';
 import { DriverRepository } from '../sequelize/repositories/DriverRepository';
 import { logAuditEvent } from '../helpers/auditLog';
 import { 

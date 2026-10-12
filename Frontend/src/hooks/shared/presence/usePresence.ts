@@ -5,6 +5,7 @@ import { ref, onValue, DataSnapshot, onDisconnect, serverTimestamp, get } from '
 import { useAuth } from '../auth/useAuth';
 import { AppState, AppStateStatus } from 'react-native';
 import sessionService from '../../../services/sessionService';
+import driverAvailabilityService from '../../../services/driverAvailabilityService';
 
 const DEFAULT_SERVICE_AREA_ID = 'ni-managua';
 
@@ -105,20 +106,20 @@ export function usePresence() {
     const setupPresence = async () => {
       try {
         const auth = await getFirebaseAuth();
-        const functions = await getFirebaseFunctions();
-
         const firebaseUser = auth.currentUser;
-        if (!firebaseUser) {
+        if (!firebaseUser || firebaseUser.uid !== user.id) {
           console.log('⚠️ Usuario no autenticado en Firebase Auth, esperando...');
           return;
         }
+        const functions = await getFirebaseFunctions();
 
         const markActive = httpsCallable(functions, 'markAppActive');
         const markClosed = httpsCallable(functions, 'markAppClosed');
         actionsRef.current = { markActive, markClosed };
 
         const deviceId = await sessionService.getDeviceId();
-        await markActive({ role: 'driver', deviceId });
+        const availability = await driverAvailabilityService.getAvailabilityState();
+        await markActive({ role: 'driver', deviceId, keepAvailability: Boolean(availability?.isAvailable) });
 
         // Configurar onDisconnect después de markAppActive exitoso
         await setupOnDisconnect(user.id);
@@ -139,7 +140,7 @@ export function usePresence() {
       try {
         const auth = await getFirebaseAuth();
         const firebaseUser = auth.currentUser;
-        if (!firebaseUser) return;
+        if (!firebaseUser || firebaseUser.uid !== user.id) return;
 
         const actions = actionsRef.current;
         if (!actions) return;
@@ -150,10 +151,18 @@ export function usePresence() {
           appState.current.match(/active/) &&
           nextAppState.match(/inactive|background/)
         ) {
-          console.log('📱 App en background, marcando como offline...');
-          actions.markClosed({ role: 'driver', deviceId }).catch((err: any) => {
-            console.warn('⚠️ [presence] markAppClosed falló en background (onDisconnect respalda):', err?.message || err);
-          });
+          const availability = await driverAvailabilityService.getAvailabilityState();
+          if (availability?.isAvailable) {
+            // Disponibilidad activada manualmente: mantener el status en
+            // background (iOS y Android). El heartbeat sigue reafirmando
+            // 'available' y onDisconnect cubre kill/crash real.
+            console.log('📱 App en background con disponibilidad activa - manteniendo status');
+          } else {
+            console.log('📱 App en background, marcando como offline...');
+            actions.markClosed({ role: 'driver', deviceId }).catch((err: any) => {
+              console.warn('⚠️ [presence] markAppClosed falló en background (onDisconnect respalda):', err?.message || err);
+            });
+          }
         }
 
         // Si la app vuelve a foreground, re-configurar presencia y onDisconnect
@@ -163,7 +172,8 @@ export function usePresence() {
         ) {
           console.log('📱 App en foreground');
           await cancelOnDisconnect();
-          await actions.markActive({ role: 'driver', deviceId });
+          const availability = await driverAvailabilityService.getAvailabilityState();
+          await actions.markActive({ role: 'driver', deviceId, keepAvailability: Boolean(availability?.isAvailable) });
           await setupOnDisconnect(user.id);
         }
 
@@ -184,7 +194,7 @@ export function usePresence() {
       if (actions && isDriverCapable) {
         getFirebaseAuth()
           .then((auth) => {
-            if (!auth.currentUser) return;
+            if (!auth.currentUser || auth.currentUser.uid !== user.id) return;
             sessionService
               .getDeviceId()
               .then((deviceId) => {

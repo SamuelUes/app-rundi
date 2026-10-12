@@ -1,14 +1,22 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Image } from 'react-native';
+import { View, Text, TouchableOpacity } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 import type { TFunction } from 'i18next';
 
+interface RoutePoint {
+  address?: string;
+  lat?: number;
+  lng?: number;
+  latitude?: number;
+  longitude?: number;
+}
+
 interface ActiveRideAddressesCardProps {
-  originAddress: string | undefined;
-  destinationAddress: string | undefined;
-  extraDestinations: any[] | undefined;
-  originPin: any;
-  multiStopPin: any;
-  destinationPin: any;
+  pickupLabel: string;
+  destinationLabel: string;
+  origin: RoutePoint | undefined;
+  destination: RoutePoint | undefined;
+  extraDestinations: RoutePoint[] | undefined;
   etaMinutesLabel: string;
   etaDistanceLabel: string;
   colors: any;
@@ -17,13 +25,24 @@ interface ActiveRideAddressesCardProps {
   t: TFunction;
 }
 
+const coordsText = (point?: RoutePoint | null): string | null => {
+  const lat = point?.lat ?? point?.latitude;
+  const lng = point?.lng ?? point?.longitude;
+  if (typeof lat === 'number' && typeof lng === 'number') {
+    return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+  }
+  return null;
+};
+
+const resolveAddress = (point: RoutePoint | undefined, fallback: string): string =>
+  point?.address || coordsText(point) || fallback;
+
 export function ActiveRideAddressesCard({
-  originAddress,
-  destinationAddress,
+  pickupLabel,
+  destinationLabel,
+  origin,
+  destination,
   extraDestinations,
-  originPin,
-  multiStopPin,
-  destinationPin,
   etaMinutesLabel,
   etaDistanceLabel,
   colors,
@@ -31,47 +50,82 @@ export function ActiveRideAddressesCard({
   styles,
   t,
 }: ActiveRideAddressesCardProps) {
+  const stops = Array.isArray(extraDestinations) ? extraDestinations : [];
+  const routePoints = [
+    {
+      kind: 'dot' as const,
+      color: colors.secondary,
+      label: pickupLabel,
+      address: resolveAddress(origin, pickupLabel),
+    },
+    ...stops.map((stop: RoutePoint, index: number) => ({
+      kind: 'dot' as const,
+      color: colors.warning,
+      label: t('driver.activeRide.labels.stopLabel', { index: index + 1 }),
+      address: resolveAddress(
+        stop,
+        t('driver.activeRide.labels.stopLabel', { index: index + 1 }),
+      ),
+    })),
+    {
+      kind: 'pin' as const,
+      color: colors.error,
+      label: destinationLabel,
+      address: resolveAddress(destination, destinationLabel),
+    },
+  ];
+
   return (
-    <View style={[styles.addressesCard, { backgroundColor: colors.card }]}>
-      <View style={styles.addressesLeftCol}>
-        <Image source={originPin} style={styles.listPinImage} />
-        {extraDestinations?.map?.((_: any, idx: number) => (
-          <Image key={`pin-${idx}`} source={multiStopPin} style={styles.listPinImage} />
-        ))}
-        <Image source={destinationPin} style={styles.listPinImage} />
-      </View>
-      <View style={styles.addressesRightCol}>
-        <View style={styles.addressRow}>
-          <Text numberOfLines={2} style={[styles.addressRowText, { color: colors.text }]}>
-            {originAddress || t('driver.activeRide.labels.originFallback')}
-          </Text>
-        </View>
-        {extraDestinations?.map?.((w: any, i: number) => (
-          <View key={`addr-${i}`} style={styles.addressRow}>
-            <Text numberOfLines={2} style={[styles.addressRowText, { color: colors.text }]}>
-              {w?.address || t('driver.activeRide.labels.stopLabel', { index: i + 1 })}
+    <View style={styles.routeCard}>
+      {routePoints.map((point, index) => (
+        <View key={`route-point-${index}`} style={styles.routeRow}>
+          <View style={styles.routeIconCol}>
+            <View style={[styles.routeLine, index === 0 && styles.routeLineHidden]} />
+            {point.kind === 'pin' ? (
+              <MaterialIcons name="place" size={22} color={point.color} />
+            ) : (
+              <View style={[styles.routeDot, { backgroundColor: point.color }]} />
+            )}
+            <View
+              style={[
+                styles.routeLine,
+                index === routePoints.length - 1 && styles.routeLineHidden,
+              ]}
+            />
+          </View>
+          <View style={styles.routeTextCol}>
+            <Text style={styles.locationLabel}>{point.label}</Text>
+            <Text numberOfLines={2} style={styles.locationAddress}>
+              {point.address}
             </Text>
           </View>
-        ))}
-        <View style={styles.addressRow}>
-          <Text numberOfLines={2} style={[styles.addressRowText, { color: colors.text }]}>
-            {destinationAddress || t('driver.activeRide.labels.destinationFallback')}
-          </Text>
         </View>
-      </View>
-      <View style={styles.addressesSideActions}>
-        <TouchableOpacity style={[styles.navButtonGreen, { backgroundColor: '#4CAF50' }]} onPress={onNavigate}>
-          <Text style={styles.navButtonText}>
+      ))}
+
+      <View style={styles.routeFooter}>
+        <View style={styles.etaGroup}>
+          <MaterialIcons name="schedule" size={18} color={colors.textSecondary} />
+          <View>
+            <Text style={styles.etaCaption}>
+              {t('driver.activeRide.labels.estimatedTitle')}
+            </Text>
+            <Text style={styles.etaValue}>
+              {etaMinutesLabel} · {etaDistanceLabel}
+            </Text>
+          </View>
+        </View>
+        <TouchableOpacity
+          style={styles.navigateButton}
+          onPress={onNavigate}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel={t('driver.activeRide.accessibility.navigate')}
+        >
+          <MaterialIcons name="navigation" size={16} color="#FFFFFF" />
+          <Text style={styles.navigateButtonText}>
             {t('driver.activeRide.navigation.button')}
           </Text>
         </TouchableOpacity>
-        <View style={[styles.etaMiniCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[styles.etaTitle, { color: colors.textSecondary }]}>
-            {t('driver.activeRide.labels.estimatedTitle')}
-          </Text>
-          <Text style={[styles.etaValue, { color: colors.text }]}>{etaMinutesLabel}</Text>
-          <Text style={[styles.etaMeta, { color: colors.textSecondary }]}>{etaDistanceLabel}</Text>
-        </View>
       </View>
     </View>
   );

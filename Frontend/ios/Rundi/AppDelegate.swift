@@ -1,4 +1,4 @@
-import Expo
+internal import Expo
 import React
 import ReactAppDependencyProvider
 import FirebaseCore
@@ -8,8 +8,8 @@ import FirebaseCore
 import GoogleMaps
 #endif
 // @generated end react-native-maps-import
-@UIApplicationMain
-public class AppDelegate: ExpoAppDelegate {
+@main
+class AppDelegate: ExpoAppDelegate, ExpoReactNativeFactoryProvider {
   var window: UIWindow?
 
   var reactNativeDelegate: ExpoReactNativeFactoryDelegate?
@@ -25,17 +25,9 @@ public class AppDelegate: ExpoAppDelegate {
 
     reactNativeDelegate = delegate
     reactNativeFactory = factory
-    bindReactNativeFactory(factory)
 
     FirebaseApp.configure()
 
-#if os(iOS) || os(tvOS)
-    window = UIWindow(frame: UIScreen.main.bounds)
-    factory.startReactNative(
-      withModuleName: "main",
-      in: window,
-      launchOptions: launchOptions)
-#endif
 
 // @generated begin react-native-maps-init - expo prebuild (DO NOT MODIFY) sync-a7aa953c92d4ad0cde7af8b19cf591fc473b2119
 #if canImport(GoogleMaps)

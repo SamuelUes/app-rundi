@@ -3,7 +3,7 @@
  * Gestión de inspecciones de conductor designado
  */
 
-import * as functions from 'firebase-functions';
+import * as functions from 'firebase-functions/v1';
 import { DesignatedDriverInspectionRepository } from '../sequelize/repositories/DesignatedDriverInspectionRepository';
 
 const inspectionRepo = new DesignatedDriverInspectionRepository();

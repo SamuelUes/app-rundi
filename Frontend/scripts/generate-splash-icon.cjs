@@ -14,11 +14,11 @@ const path = require('path');
 const { PNG } = require('pngjs');
 
 const ROOT = path.join(__dirname, '..');
-const SRC = path.join(ROOT, 'src/assets/images/icon.png');
+const SRC = path.join(ROOT, 'src/assets/images/rundi_logo2.png');
 const OUT = path.join(ROOT, 'src/assets/images/splash-icon.png');
 
-// Fondo teal del icono (muestreado) y umbrales del matte
-const BG = [44, 60, 67];
+// Fondo blanco del logo (muestreado) y umbrales del matte
+const BG = [255, 255, 255];
 const T0 = 18; // distancia <= T0 -> fondo puro (transparente)
 const T1 = 110; // distancia >= T1 -> glifo puro (opaco)
 const ALPHA_CUT = 0.08; // alpha menor -> 0 (elimina speckles del fondo)

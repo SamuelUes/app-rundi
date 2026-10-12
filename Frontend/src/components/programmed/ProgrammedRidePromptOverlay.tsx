@@ -1,12 +1,23 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { Modal, View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { LoadingIcon } from '../ui/LoadingIcon';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import {
+  Modal,
+  View,
+  Text,
+  Pressable,
+  StyleSheet,
+  Animated,
+  Easing,
+  ActivityIndicator,
+} from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import alertService from '../../services/alertService';
 import ridesService from '../../services/ridesService';
 import { useProgrammedRidePrompt, ProgrammedRidePrompt, buildActiveRideAction } from '../../hooks/shared/programmed/useProgrammedRidePrompt';
 import { useAuth } from '../../hooks/shared/auth/useAuth';
+import { initializeFirebase } from '../../config/firebase';
+import { isSameDay } from '../../utils/schedule';
 import { subscribePreflightResult, getPreflightResult, setPreflightResult, PreflightAction } from '../../stores/preflightStore';
 import { useNavigation } from '@react-navigation/native';
 
@@ -16,11 +27,12 @@ type Props = {
 
 const ProgrammedRidePromptOverlay: React.FC<Props> = ({ role }) => {
   const { user } = useAuth();
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const { t } = useTranslation();
   const navigation = useNavigation<any>();
   const [processing, setProcessing] = useState(false);
   const [currentPrompt, setCurrentPrompt] = useState<ProgrammedRidePrompt | null>(null);
+  const [claimCode, setClaimCode] = useState<string | null>(null);
   const [preflightActions, setPreflightActions] = useState<PreflightAction[]>(() => getPreflightResult()?.actions ?? []);
 
   const { prompt, snoozePrompt, markHandled } = useProgrammedRidePrompt({
@@ -32,6 +44,33 @@ const ProgrammedRidePromptOverlay: React.FC<Props> = ({ role }) => {
   useEffect(() => {
     setCurrentPrompt(prompt);
   }, [prompt]);
+
+  // Mientras el viaje programado siga sin conductor, mostrar el código que el
+  // cliente puede compartir para que un conductor se auto-asigne.
+  useEffect(() => {
+    if (!currentPrompt || currentPrompt.type !== 'client' || currentPrompt.driverId) {
+      setClaimCode(null);
+      return;
+    }
+    let mounted = true;
+    (async () => {
+      try {
+        const { getDatabase, ref, get } = await import('firebase/database');
+        const { app } = await initializeFirebase();
+        if (!app) return;
+        const database = getDatabase(app);
+        const snap = await get(ref(database, `programmedRideCodes/${currentPrompt.rideId}`));
+        if (mounted) {
+          setClaimCode(snap.val()?.code ?? null);
+        }
+      } catch {
+        if (mounted) setClaimCode(null);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [currentPrompt]);
 
   useEffect(() => {
     const unsubscribe = subscribePreflightResult((summary) => {
@@ -139,11 +178,34 @@ const ProgrammedRidePromptOverlay: React.FC<Props> = ({ role }) => {
   );
 
   const handleDismiss = useCallback(() => {
-    if (currentPrompt) {
-      snoozePrompt(currentPrompt);
+    if (!currentPrompt) {
+      return;
     }
+    const dismissed = currentPrompt;
+    snoozePrompt(dismissed);
     setCurrentPrompt(null);
-  }, [currentPrompt, snoozePrompt]);
+
+    // Fallback persistente: el viaje sigue esperando confirmación y el toast
+    // queda como vía para confirmarlo sin reabrir el modal (no se solapa con
+    // el overlay — solo aparece al descartarlo).
+    const isClient = dismissed.type === 'client';
+    alertService.showConfirmAlert(
+      isClient
+        ? t('shared.preflight.programmedRide.promptTitle')
+        : t('shared.preflight.programmedRide.driverPromptTitle'),
+      t('shared.preflight.programmedRide.toastFallbackBody'),
+      () => {
+        if (dismissed.type === 'client') {
+          handleConfirmClient(dismissed);
+        } else {
+          handleConfirmDriver(dismissed);
+        }
+      },
+      undefined,
+      t('shared.preflight.programmedRide.confirmButton'),
+      t('shared.preflight.programmedRide.notNowButton'),
+    );
+  }, [currentPrompt, snoozePrompt, t, handleConfirmClient, handleConfirmDriver]);
 
   const handleContinue = useCallback(() => {
     if (!currentPrompt) {
@@ -157,57 +219,140 @@ const ProgrammedRidePromptOverlay: React.FC<Props> = ({ role }) => {
   }, [currentPrompt, handleConfirmClient, handleConfirmDriver]);
 
   const visible = Boolean(currentPrompt);
+  const isClientPrompt = currentPrompt?.type === 'client';
+  const entrance = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (!visible) {
+      return;
+    }
+    entrance.setValue(0);
+    Animated.timing(entrance, {
+      toValue: 1,
+      duration: 260,
+      easing: Easing.bezier(0.23, 1, 0.32, 1),
+      useNativeDriver: true,
+    }).start();
+  }, [visible, entrance, currentPrompt?.rideId]);
+
+  const scheduledLabel = useMemo(() => {
+    if (!currentPrompt?.scheduledAt) {
+      return null;
+    }
+    const date = new Date(currentPrompt.scheduledAt);
+    const now = new Date();
+    const time = date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    if (isSameDay(date, now)) {
+      return t('shared.preflight.programmedRide.timeLabelToday', { time });
+    }
+    const tomorrow = new Date(now);
+    tomorrow.setDate(now.getDate() + 1);
+    if (isSameDay(date, tomorrow)) {
+      return t('shared.preflight.programmedRide.timeLabelTomorrow', { time });
+    }
+    const shortDate = date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+    return t('shared.preflight.programmedRide.timeLabelDate', { date: shortDate, time });
+  }, [currentPrompt?.scheduledAt, t]);
 
   if (!visible || !currentPrompt) {
     return null;
   }
 
-  const scheduledText = currentPrompt.scheduledAt
-    ? new Date(currentPrompt.scheduledAt).toLocaleString()
-    : null;
-
-  const isClientPrompt = currentPrompt.type === 'client';
-
   const title = isClientPrompt
     ? t('shared.preflight.programmedRide.promptTitle')
     : t('shared.preflight.programmedRide.driverPromptTitle');
 
-  const body = scheduledText
-    ? t(
-        isClientPrompt
-          ? 'shared.preflight.programmedRide.promptBody'
-          : 'shared.preflight.programmedRide.driverPromptBody',
-        { date: scheduledText },
-      )
-    : t(
-        isClientPrompt
-          ? 'shared.preflight.programmedRide.promptBodyNoDate'
-          : 'shared.preflight.programmedRide.driverPromptBodyNoDate',
-      );
+  const body = t(
+    isClientPrompt
+      ? 'shared.preflight.programmedRide.promptBodyNoDate'
+      : 'shared.preflight.programmedRide.driverPromptBodyNoDate',
+  );
 
   const confirmLabel = t('shared.preflight.programmedRide.confirmButton');
-  const cancelLabel = t('shared.preflight.programmedRide.notNowButton');
+  const dismissLabel = t('shared.preflight.programmedRide.notNowButton');
+  const iconTintBg = isDark ? 'rgba(179,135,55,0.2)' : 'rgba(179,135,55,0.1)';
 
   return (
-    <Modal transparent visible animationType="fade">
-      <View style={styles.backdrop}>
-        <View style={[styles.card, { backgroundColor: colors.card }]}>
+    <Modal transparent visible animationType="none">
+      <Animated.View
+        style={[
+          styles.backdrop,
+          {
+            opacity: entrance.interpolate({ inputRange: [0, 1], outputRange: [0, 1] }),
+          },
+        ]}
+      >
+        <Animated.View
+          style={[
+            styles.card,
+            { backgroundColor: colors.card, borderColor: colors.border },
+            {
+              opacity: entrance,
+              transform: [
+                { scale: entrance.interpolate({ inputRange: [0, 1], outputRange: [0.94, 1] }) },
+                { translateY: entrance.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) },
+              ],
+            },
+          ]}
+        >
+          <View style={[styles.iconDisc, { backgroundColor: iconTintBg }]}>
+            <MaterialIcons
+              name={isClientPrompt ? 'schedule' : 'directions-car'}
+              size={32}
+              color={colors.primary}
+            />
+          </View>
+
           <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
-          <Text style={[styles.body, { color: colors.textSecondary }]}>{body}</Text>
-          {processing ? (
-            <LoadingIcon size={24} color={colors.primary} style={styles.spinner} />
-          ) : (
-            <View style={styles.actions}>
-              <TouchableOpacity style={[styles.button, styles.secondaryButton]} onPress={handleDismiss}>
-                <Text style={[styles.buttonText, styles.secondaryText]}>{cancelLabel}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.button, styles.primaryButton]} onPress={handleContinue}>
-                <Text style={[styles.buttonText, styles.primaryText]}>{confirmLabel}</Text>
-              </TouchableOpacity>
+
+          {scheduledLabel ? (
+            <View style={[styles.timePill, { backgroundColor: iconTintBg }]}>
+              <MaterialIcons name="access-time" size={16} color={colors.primary} />
+              <Text style={[styles.timePillText, { color: colors.primary }]}>{scheduledLabel}</Text>
             </View>
-          )}
-        </View>
-      </View>
+          ) : null}
+
+          <Text style={[styles.body, { color: colors.textSecondary }]}>{body}</Text>
+
+          {isClientPrompt && claimCode ? (
+            <View style={[styles.codeChip, { borderColor: colors.primary }]}>
+              <Text style={[styles.codeChipLabel, { color: colors.textSecondary }]}>
+                {t('shared.preflight.programmedRide.claimCodeLabel')}
+              </Text>
+              <Text style={[styles.codeChipValue, { color: colors.primary }]} selectable>
+                {claimCode}
+              </Text>
+            </View>
+          ) : null}
+
+          <Pressable
+            accessibilityRole="button"
+            disabled={processing}
+            onPress={handleContinue}
+            style={({ pressed }) => [
+              styles.primaryButton,
+              { backgroundColor: colors.primary, opacity: processing ? 0.7 : 1 },
+              pressed && !processing && styles.pressed,
+            ]}
+          >
+            {processing ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Text style={styles.primaryText}>{confirmLabel}</Text>
+            )}
+          </Pressable>
+
+          <Pressable
+            accessibilityRole="button"
+            disabled={processing}
+            onPress={handleDismiss}
+            hitSlop={8}
+            style={({ pressed }) => [styles.ghostButton, pressed && { opacity: 0.5 }]}
+          >
+            <Text style={[styles.ghostText, { color: colors.textSecondary }]}>{dismissLabel}</Text>
+          </Pressable>
+        </Animated.View>
+      </Animated.View>
     </Modal>
   );
 };
@@ -215,61 +360,108 @@ const ProgrammedRidePromptOverlay: React.FC<Props> = ({ role }) => {
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(15,23,42,0.55)',
+    backgroundColor: 'rgba(0,0,0,0.55)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 24,
+    padding: 28,
   },
   card: {
     width: '100%',
-    borderRadius: 20,
-    padding: 24,
-    elevation: 6,
+    maxWidth: 340,
+    borderRadius: 24,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingTop: 28,
+    paddingHorizontal: 24,
+    paddingBottom: 16,
+    alignItems: 'center',
+    elevation: 8,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.15,
-    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.18,
+    shadowRadius: 24,
+  },
+  iconDisc: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
   },
   title: {
     fontSize: 20,
-    fontWeight: '600',
-    marginBottom: 12,
+    fontWeight: '700',
+    marginBottom: 10,
     textAlign: 'center',
+    letterSpacing: -0.2,
+  },
+  timePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: 999,
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    marginBottom: 12,
+  },
+  timePillText: {
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: 0.1,
   },
   body: {
     fontSize: 15,
-    lineHeight: 22,
+    lineHeight: 21,
     textAlign: 'center',
-    marginBottom: 20,
+    marginBottom: 18,
   },
-  spinner: {
-    marginTop: 12,
-  },
-  actions: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  button: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 12,
+  codeChip: {
     alignItems: 'center',
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    marginBottom: 16,
+    gap: 2,
+    alignSelf: 'stretch',
+  },
+  codeChipLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  codeChipValue: {
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: 4,
   },
   primaryButton: {
-    backgroundColor: '#22C55E',
+    alignSelf: 'stretch',
+    height: 52,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 4,
   },
-  secondaryButton: {
-    backgroundColor: 'rgba(148,163,184,0.2)',
-  },
-  buttonText: {
-    fontSize: 15,
-    fontWeight: '600',
+  pressed: {
+    transform: [{ scale: 0.97 }],
   },
   primaryText: {
-    color: '#0F172A',
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
-  secondaryText: {
-    color: '#0F172A',
+  ghostButton: {
+    alignSelf: 'stretch',
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+  },
+  ghostText: {
+    fontSize: 15,
+    fontWeight: '600',
   },
 });
 

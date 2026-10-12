@@ -141,6 +141,9 @@ export const markerStyles = StyleSheet.create({
   manualOriginImage: { width: 34, height: 34, resizeMode: 'contain' },
   pinIconImage: { width: 50, height: 50, resizeMode: 'contain' },
   pinIconImageLarge: { width: 50, height: 50, resizeMode: 'contain' },
+  originPinImage: { width: 28, height: 28, resizeMode: 'contain' },
+  destinationPinImage: { width: 22, height: 39, resizeMode: 'contain' },
+  extraStopPinImage: { width: 22, height: 39, resizeMode: 'contain' },
   pinWithBubble: { alignItems: 'center' },
   smallBubble: {
     backgroundColor: '#FFFFFF',
@@ -158,6 +161,73 @@ export const markerStyles = StyleSheet.create({
     maxWidth: 220,
   },
   smallBubbleText: { fontSize: 12, color: '#111827' },
+  pinInfoBubble: {
+    backgroundColor: '#FFFFFF',
+    minWidth: 120,
+    maxWidth: 200,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(15,23,42,0.08)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.18,
+    shadowRadius: 6,
+    elevation: 5,
+  },
+  pinInfoBubbleCompact: {
+    minWidth: 0,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  pinInfoTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  pinInfoTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+  },
+  pinInfoText: {
+    fontSize: 12.5,
+    fontWeight: '500',
+    color: '#1E293B',
+    marginTop: 3,
+    lineHeight: 16,
+  },
+  pinInfoMeta: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    color: '#0F172A',
+    marginLeft: 'auto',
+    paddingLeft: 10,
+  },
+  pinInfoMetaLine: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    color: '#0F172A',
+    marginTop: 4,
+  },
+  pinInfoCompactText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  pinInfoTail: {
+    alignSelf: 'center',
+    width: 12,
+    height: 12,
+    backgroundColor: '#FFFFFF',
+    borderRightWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: 'rgba(15,23,42,0.08)',
+    transform: [{ rotate: '45deg' }],
+    marginTop: -6.5,
+    marginBottom: 5.5,
+  },
   markerBounceContainer: { paddingBottom: 8 },
   clusterBubble: {
     width: 44,
@@ -279,4 +349,68 @@ export const MainMarkerContent = React.memo(function MainMarkerContent({
         </MarkerBubble>
       );
   }
+});
+
+export interface PinInfoBubbleProps {
+  title?: string | null;
+  text?: string | null;
+  meta?: string | null;
+  accentColor?: string;
+  compact?: boolean;
+}
+
+export const PinInfoBubble = React.memo(function PinInfoBubble({
+  title,
+  text,
+  meta,
+  accentColor = '#0F172A',
+  compact = false,
+}: PinInfoBubbleProps) {
+  const safeTitle = typeof title === 'string' && title.trim().length > 0 ? title : null;
+  const safeText = typeof text === 'string' && text.trim().length > 0 ? text : null;
+  const safeMeta = typeof meta === 'string' && meta.trim().length > 0 ? meta : null;
+
+  if (compact) {
+    const compactText = safeMeta || safeText || safeTitle;
+    if (!compactText) return null;
+    return (
+      <View style={markerStyles.pinWithBubble} collapsable={false}>
+        <View collapsable={false} style={[markerStyles.pinInfoBubble, markerStyles.pinInfoBubbleCompact]}>
+          <Text numberOfLines={1} style={[markerStyles.pinInfoCompactText, { color: accentColor }]}>
+            {compactText}
+          </Text>
+        </View>
+        <View collapsable={false} style={markerStyles.pinInfoTail} />
+      </View>
+    );
+  }
+
+  if (!safeTitle && !safeText && !safeMeta) return null;
+
+  return (
+    <View style={markerStyles.pinWithBubble} collapsable={false}>
+      <View collapsable={false} style={markerStyles.pinInfoBubble}>
+        {(safeTitle || safeMeta) && (
+          <View collapsable={false} style={markerStyles.pinInfoTitleRow}>
+            {!!safeTitle && (
+              <Text numberOfLines={1} style={[markerStyles.pinInfoTitle, { color: accentColor }]}>
+                {safeTitle.toUpperCase()}
+              </Text>
+            )}
+            {!!safeMeta && (
+              <Text numberOfLines={1} style={[markerStyles.pinInfoMeta, { color: accentColor }]}>
+                {safeMeta}
+              </Text>
+            )}
+          </View>
+        )}
+        {!!safeText && (
+          <Text numberOfLines={2} style={markerStyles.pinInfoText}>
+            {safeText}
+          </Text>
+        )}
+      </View>
+      <View collapsable={false} style={markerStyles.pinInfoTail} />
+    </View>
+  );
 });

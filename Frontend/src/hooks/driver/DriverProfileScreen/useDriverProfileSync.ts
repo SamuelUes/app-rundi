@@ -41,7 +41,7 @@ export function useDriverProfileSync() {
           return;
         }
 
-        const { getDatabase, ref, set } = await import('firebase/database');
+        const { getDatabase, ref, update } = await import('firebase/database');
         const db = getDatabase();
 
         const combinedFullName = [profile.firstName, profile.lastName]
@@ -91,27 +91,10 @@ export function useDriverProfileSync() {
             }
           : null;
 
-        const rawAccountStatus = String(
-          (profile as any)?.account_status || (profile as any)?.status || ''
-        ).toLowerCase();
-
-        const accountStatus = rawAccountStatus === 'active' || rawAccountStatus === 'verified' || rawAccountStatus === 'approved'
-          ? 'active'
-          : rawAccountStatus === 'suspended'
-            ? 'suspended'
-            : rawAccountStatus === 'rejected'
-              ? 'rejected'
-              : 'pending';
-
-        const rawDocumentsStatus = String((profile as any)?.documents_status || '').toLowerCase();
-        const documentsStatus = rawDocumentsStatus === 'verified' || rawDocumentsStatus === 'active' || rawDocumentsStatus === 'approved'
-          ? 'verified'
-          : rawDocumentsStatus === 'suspended'
-            ? 'suspended'
-            : rawDocumentsStatus === 'rejected'
-              ? 'rejected'
-              : 'pending';
-
+        // rating/totalRides/earnings/account_status/documents_status son
+        // propiedad del backend (ratings API, verificación). Las RTDB rules los
+        // congelan para writes de cliente — el conductor no puede autoeditar
+        // su reputación ni autoaprobar su cuenta.
         const driversInfoPayload: Record<string, any> = {
           firstName: normalizedFirstName,
           lastName: normalizedLastName,
@@ -122,11 +105,6 @@ export function useDriverProfileSync() {
           photoURL: profile.profilePhoto ?? null,
           email: profile.email ?? null,
           phone: profile.phone ?? null,
-          account_status: accountStatus,
-          documents_status: documentsStatus,
-          rating: typeof profile.rating === 'number' ? profile.rating : null,
-          totalRides: typeof profile.totalRides === 'number' ? profile.totalRides : 0,
-          earnings: typeof profile.earnings === 'number' ? profile.earnings : 0,
           licenseNumber: profile.licenseNumber ?? null,
           department: profile.department ?? null,
           municipality: profile.municipality ?? null,
@@ -139,8 +117,9 @@ export function useDriverProfileSync() {
           driversInfoPayload.vehicle = vehiclePayload;
         }
 
-        // Escribir directamente en el path específico, no en la raíz
-        await set(ref(db, `driversInfo/${user.id}`), driversInfoPayload);
+        // update() (no set) para preservar campos backend-owned que el payload
+        // ya no incluye (rating, earnings, account_status, ...).
+        await update(ref(db, `driversInfo/${user.id}`), driversInfoPayload);
         console.log('[useDriverProfileSync] ✅ Perfil de conductor sincronizado en driversInfo');
       } catch (error) {
         console.warn(

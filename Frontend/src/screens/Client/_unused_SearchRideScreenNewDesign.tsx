@@ -2704,7 +2704,11 @@ function createStyles(colors: any, isDark: boolean = false) {
     submittingLabel: { fontSize: 14, fontWeight: '600', color: colors.text || '#111' },
 
     searchOverlay: {
-      ...StyleSheet.absoluteFillObject,
+      position: 'absolute',
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
       backgroundColor: 'rgba(0,0,0,0.45)',
       alignItems: 'center',
       justifyContent: 'center',

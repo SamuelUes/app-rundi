@@ -3,7 +3,7 @@
  * Obtener y actualizar perfil del conductor
  */
 
-import * as functions from 'firebase-functions';
+import * as functions from 'firebase-functions/v1';
 import admin from 'firebase-admin';
 import { supabaseGet, supabaseGetDriverWithVehicles, supabaseUpdate } from '../supabase/client';
 import { MIGRATION_FLAGS } from '../config/migration-flags';

@@ -1,4 +1,4 @@
-import * as functions from "firebase-functions";
+import * as functions from "firebase-functions/v1";
 import { auth, database } from "../config/firebase";
 import { supabaseGet } from "../supabase/client";
 import { sendToUser } from "../services/notificationCenter";

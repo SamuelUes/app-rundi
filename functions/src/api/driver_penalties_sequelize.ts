@@ -5,7 +5,7 @@
  * Mantener solo para rollback/manual troubleshooting, no usar en nuevos flujos.
  */
 
-import * as functions from 'firebase-functions';
+import * as functions from 'firebase-functions/v1';
 import admin from 'firebase-admin';
 import { DriverPenaltyRepository } from '../sequelize/repositories/DriverPenaltyRepository';
 import { PaymentService } from '../sequelize/services/PaymentService';

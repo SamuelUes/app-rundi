@@ -3,7 +3,7 @@
  * Gestión de eventos de analytics
  */
 
-import * as functions from 'firebase-functions';
+import * as functions from 'firebase-functions/v1';
 import { AnalyticsEventRepository } from '../sequelize/repositories/AnalyticsEventRepository';
 
 const analyticsRepo = new AnalyticsEventRepository();

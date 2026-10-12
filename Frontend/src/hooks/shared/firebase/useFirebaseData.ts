@@ -12,6 +12,7 @@ interface FirebaseOptions {
   limit?: number;         // Límite de elementos a obtener
   orderBy?: string;       // Campo por el cual ordenar
   maxCacheAge?: number;   // Tiempo máximo de caché en ms
+  enabled?: boolean;      // Si false, no inicia la consulta y desuscribe el listener activo
 }
 
 interface CachedData {
@@ -37,6 +38,11 @@ export const useFirebaseData = <T>(path: string, options: FirebaseOptions = {}) 
   
   // Función para obtener datos
   const fetchData = useCallback(async () => {
+    if (options.enabled === false) {
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setError(null);
     
@@ -141,7 +147,7 @@ export const useFirebaseData = <T>(path: string, options: FirebaseOptions = {}) 
       setError(err as Error);
       setLoading(false);
     }
-  }, [path, options.once, options.limit, options.orderBy, options.maxCacheAge]);
+  }, [path, options.once, options.limit, options.orderBy, options.maxCacheAge, options.enabled]);
   
   // Función para actualizar datos manualmente
   const refresh = useCallback(() => {

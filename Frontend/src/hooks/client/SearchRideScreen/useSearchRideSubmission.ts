@@ -1,8 +1,9 @@
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import { Platform, Share } from 'react-native';
 import ridesService from '../../../services/ridesService';
 import alertService from '../../../services/alertService';
 import BiometricService from '../../../services/biometricService';
+import { getScheduleBounds } from '../../../utils/schedule';
 import type { TFunction } from 'i18next';
 import type { Coords } from '../../../utils/rideCoords';
 import type { ServiceItem } from '../../../services/servicesService';
@@ -144,8 +145,10 @@ export function useSearchRideSubmission({
     }
   }, [tr]);
 
+  const submittingRef = useRef(false);
+
   const onConfirmRequest = useCallback(async () => {
-    if (submittingRequest) return;
+    if (submittingRef.current) return;
     if (!user) {
       alertService.showErrorAlert(tr('alerts.loginRequired'));
       return;
@@ -156,17 +159,39 @@ export function useSearchRideSubmission({
       return;
     }
 
+    if (scheduledAt) {
+      const scheduledMs = typeof scheduledAt === 'number' ? scheduledAt : new Date(scheduledAt).getTime();
+      const { minDate, maxDate } = getScheduleBounds();
+      if (!Number.isFinite(scheduledMs) || scheduledMs < minDate.getTime() || scheduledMs > maxDate.getTime()) {
+        alertService.showErrorAlert(tr('scheduling.invalidRange'));
+        return;
+      }
+    }
+
+    submittingRef.current = true;
+    setSubmittingRequest(true);
+
     const validatedOrigin = await validateLocationForContext(startPoint, 'origin');
-    if (!validatedOrigin) return;
+    if (!validatedOrigin) {
+      submittingRef.current = false;
+      setSubmittingRequest(false);
+      return;
+    }
 
     const validatedDestination = await validateLocationForContext(destinationCoords, 'destination');
-    if (!validatedDestination) return;
+    if (!validatedDestination) {
+      submittingRef.current = false;
+      setSubmittingRequest(false);
+      return;
+    }
 
     let clientSuggestedPrice: number | undefined;
     if (priceSuggestion.trim().length > 0) {
       const value = Number(priceSuggestion);
       if (!Number.isFinite(value) || value <= 0) {
         alertService.showErrorAlert(tr('alerts.invalidAmount'));
+        submittingRef.current = false;
+        setSubmittingRequest(false);
         return;
       }
       clientSuggestedPrice = value;
@@ -177,26 +202,70 @@ export function useSearchRideSubmission({
     if (vehicleType === 'designated_driver') {
       if (!vehiclePhotoUrl && !clientVehiclePhotoLocalUri) {
         alertService.showErrorAlert(tr('alerts.vehiclePhotoRequired'));
+        submittingRef.current = false;
+        setSubmittingRequest(false);
         return;
       }
       biometricAcceptancePayload = await runDesignatedDriverBiometricVerification();
-      if (!biometricAcceptancePayload) return;
+      if (!biometricAcceptancePayload) {
+        submittingRef.current = false;
+        setSubmittingRequest(false);
+        return;
+      }
 
       if (!vehiclePhotoUrl && clientVehiclePhotoLocalUri) {
         vehiclePhotoUrl = await uploadPhotoIfNeeded();
-        if (!vehiclePhotoUrl) return;
+        if (!vehiclePhotoUrl) {
+          submittingRef.current = false;
+          setSubmittingRequest(false);
+          return;
+        }
       }
 
       if (!vehiclePhotoUrl) {
         alertService.showErrorAlert(tr('alerts.photoUploadFailed'));
+        submittingRef.current = false;
+        setSubmittingRequest(false);
         return;
       }
     }
 
+    const finishProgrammedRequest = async (data: any) => {
+      const programmed = await ridesService.createProgrammedRide({ ...data, scheduledAt });
+      const scheduledText = new Date(programmed.scheduledAt).toLocaleString();
+      const rideId = programmed.id;
+      const claimCode = programmed.claimCode;
+      alertService.showSuccessAlert(
+        tr('scheduling.successTitle'),
+        claimCode
+          ? tr('scheduling.successMessageWithCode', { date: scheduledText, code: claimCode })
+          : tr('scheduling.successMessageWithId', { date: scheduledText, id: rideId }),
+        { duration: 3500 },
+      );
+      try {
+        await Share.share({
+          message: claimCode
+            ? tr('scheduling.shareMessageWithCode', { date: scheduledText, code: claimCode })
+            : tr('scheduling.shareMessage', { date: scheduledText, id: rideId }),
+        });
+      } catch (shareError) {
+        console.warn('Error sharing scheduled ride code', shareError);
+      }
+      navigation?.navigate?.('ClientHome');
+    };
+
+    const finishImmediateRequest = async (data: any) => {
+      const ride = await ridesService.requestRide(data);
+      if (!ride?.id) {
+        alertService.showErrorAlert(tr('alerts.requestError'));
+        return;
+      }
+      navigation?.navigate?.('HomeOffers', { rideId: ride.id });
+    };
+
     let requestData: any;
 
     try {
-      setSubmittingRequest(true);
       requestData = {
         clientId: user.id,
         origin: {
@@ -255,25 +324,11 @@ export function useSearchRideSubmission({
       if (matched?.id) requestData.serviceId = matched.id;
 
       if (scheduledAt) {
-        const programmed = await ridesService.createProgrammedRide({ ...requestData, scheduledAt });
-        const scheduledText = new Date(programmed.scheduledAt).toLocaleString();
-        const rideId = programmed.id;
-        alertService.showSuccessAlert(
-          tr('scheduling.successTitle'),
-          tr('scheduling.successMessageWithId', { date: scheduledText, id: rideId }),
-          { duration: 3500 },
-        );
-        try {
-          await Share.share({ message: tr('scheduling.shareMessage', { date: scheduledText, id: rideId }) });
-        } catch (shareError) {
-          console.warn('Error sharing scheduled ride ID', shareError);
-        }
-        navigation?.navigate?.('ClientHome');
+        await finishProgrammedRequest(requestData);
         return;
       }
 
-      const ride = await ridesService.requestRide(requestData);
-      navigation?.navigate?.('HomeOffers', { rideId: ride.id });
+      await finishImmediateRequest(requestData);
     } catch (error: any) {
       const details: any = (error && (error.details || (error as any).data)) || null;
       const errorCode: string | null = (error && (error.code || (error as any).errorInfo?.code)) || null;
@@ -298,32 +353,57 @@ export function useSearchRideSubmission({
 
         if (!shouldReplace) return;
 
-        setSubmittingRequest(true);
-
         try {
           await ridesService.cancelProgrammedRide(
             details.existingRideId,
             scheduledAt ? 'replaced_by_new_programmed_ride' : 'replaced_by_new_immediate_ride',
           );
 
+
           if (scheduledAt) {
-            const programmed = await ridesService.createProgrammedRide({ ...requestData, scheduledAt });
-            const scheduledText = new Date(programmed.scheduledAt).toLocaleString();
-            const rideId = programmed.id;
-            alertService.showSuccessAlert(
-              tr('scheduling.successTitle'),
-              tr('scheduling.successMessageWithId', { date: scheduledText, id: rideId }),
-              { duration: 3500 },
-            );
-            try {
-              await Share.share({ message: tr('scheduling.shareMessage', { date: scheduledText, id: rideId }) });
-            } catch (shareError) {
-              console.warn('Error sharing scheduled ride ID', shareError);
-            }
-            navigation?.navigate?.('ClientHome');
+            await finishProgrammedRequest(requestData);
           } else {
-            const ride = await ridesService.requestRide(requestData);
-            navigation?.navigate?.('HomeOffers', { rideId: ride.id });
+            await finishImmediateRequest(requestData);
+          }
+        } catch (retryError: any) {
+          alertService.showErrorAlert(retryError?.message || tr('alerts.requestError'));
+        }
+
+        return;
+      }
+
+      const isActiveRideConflict =
+        isFailedPrecondition && details && details.code === 'CLIENT_HAS_ACTIVE_RIDE';
+
+      if (isActiveRideConflict && details?.existingRideId) {
+        setSubmittingRequest(false);
+
+        const shouldCancelPrevious = await new Promise<boolean>((resolve) => {
+          alertService.showConfirmAlert(
+            tr('scheduling.activeRideTitle'),
+            tr('scheduling.activeRideBody'),
+            () => resolve(true),
+            () => resolve(false),
+            tr('scheduling.activeRideCancelButton'),
+            tr('scheduling.activeRideKeepButton'),
+          );
+        });
+
+        if (!shouldCancelPrevious) {
+          const waitingStatuses = ['requested', 'searching', 'driver_offered', 'pending_confirm'];
+          const target = waitingStatuses.includes(details.existingStatus)
+            ? 'HomeOffers'
+            : 'RideTracking';
+          navigation?.navigate?.(target, { rideId: details.existingRideId });
+          return;
+        }
+
+        try {
+          await ridesService.cancelRide(details.existingRideId, 'replaced_by_new_request');
+          if (scheduledAt) {
+            await finishProgrammedRequest(requestData);
+          } else {
+            await finishImmediateRequest(requestData);
           }
         } catch (retryError: any) {
           alertService.showErrorAlert(retryError?.message || tr('alerts.requestError'));
@@ -334,10 +414,11 @@ export function useSearchRideSubmission({
 
       alertService.showErrorAlert(error?.message || tr('alerts.requestError'));
     } finally {
+      submittingRef.current = false;
       setSubmittingRequest(false);
     }
   }, [
-    submittingRequest, user, originCoords, coords, destinationCoords,
+    user, originCoords, coords, destinationCoords,
     origin, destination, routeCalc.estimatedDistance, routeCalc.estimatedDuration, routeCalc.estimatedPrice,
     vehicleType, paymentMethod, passengersByVehicle, priceSuggestion, rideComment,
     extraDestinations, clientVehiclePhoto, clientVehiclePhotoLocalUri,

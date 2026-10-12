@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 import type { TFunction } from 'i18next';
 
 interface NearbyRideItem {
@@ -46,19 +47,31 @@ export function RidePreviewNearbyCard({
       ? formatCurrency(next.estimatedPrice)
       : t('driver.ridePreview.nearby.priceFallback');
   const originText = next?.origin?.address || t('driver.ridePreview.nearby.originFallback');
+  const title =
+    nearbyQueue.length > 1
+      ? `${t('driver.ridePreview.nearby.title')} (${nearbyQueue.length})`
+      : t('driver.ridePreview.nearby.title');
 
   return (
     <View
       style={[
         styles.nearbyCard,
         {
-          backgroundColor: isDark ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.95)',
+          backgroundColor: isDark ? 'rgba(0,0,0,0.72)' : 'rgba(255,255,255,0.96)',
           borderColor: colors.border,
         },
       ]}
     >
+      <View
+        style={[
+          styles.nearbyIconWrap,
+          { backgroundColor: isDark ? 'rgba(179,135,55,0.25)' : 'rgba(179,135,55,0.14)' },
+        ]}
+      >
+        <MaterialIcons name="near-me" size={18} color={colors.primary} />
+      </View>
       <View style={{ flex: 1 }}>
-        <Text style={[styles.nearbyTitle, { color: colors.text }]}>{t('driver.ridePreview.nearby.title')}</Text>
+        <Text style={[styles.nearbyTitle, { color: colors.text }]}>{title}</Text>
         <Text style={[styles.nearbySubtitle, { color: colors.textSecondary }]} numberOfLines={1}>
           {labelDistance} • {priceText} • {originText}
         </Text>
@@ -66,6 +79,8 @@ export function RidePreviewNearbyCard({
       <TouchableOpacity
         style={[styles.nearbyButton, { backgroundColor: colors.primary }]}
         onPress={onSwitchToNearby}
+        accessibilityRole="button"
+        accessibilityLabel={t('driver.ridePreview.nearby.view')}
       >
         <Text style={styles.nearbyButtonText}>{t('driver.ridePreview.nearby.view')}</Text>
       </TouchableOpacity>

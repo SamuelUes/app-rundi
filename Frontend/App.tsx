@@ -23,6 +23,7 @@ import { navigationRef } from './src/navigation/NavigationService';
 import { useNotifications } from './src/hooks/shared/notifications/useNotifications';
 import LocationPermissionGate from './src/components/permissions/LocationPermissionGate';
 import AppSplashOverlay from './src/components/ui/AppSplashOverlay';
+import ProgrammedRidePromptOverlay from './src/components/programmed/ProgrammedRidePromptOverlay';
 // import { initializeReactNativeFirebase } from './src/config/firebase-rn-native';
 // import { getApp } from '@react-native-firebase/app';
 
@@ -87,6 +88,11 @@ function AppContent() {
             <LocationPermissionGate requireBackground={requireBackgroundLocation}>
               <NavigationContainer ref={navigationRef}>
                 <AppNavigator />
+                {user?.role && (
+                  <ProgrammedRidePromptOverlay
+                    role={user.role === 'driver' || user.role === 'designated_driver' ? 'driver' : 'client'}
+                  />
+                )}
               </NavigationContainer>
             </LocationPermissionGate>
           </TopToastProvider>

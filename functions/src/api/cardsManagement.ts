@@ -3,7 +3,7 @@
  * Gestión de tarjetas guardadas del usuario
  */
 
-import * as functions from 'firebase-functions';
+import * as functions from 'firebase-functions/v1';
 import { v4 as uuidv4 } from 'uuid';
 import { CardRepository } from '../sequelize/repositories/CardRepository';
 

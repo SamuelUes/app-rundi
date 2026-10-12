@@ -1,15 +1,13 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   FlatList,
-  TouchableOpacity,
   Pressable,
   RefreshControl,
   Image,
-  Modal,
-  TextInput,
+  ActivityIndicator,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
@@ -17,9 +15,7 @@ import { useAuth } from '../../hooks/shared/auth/useAuth';
 import { useVoiceAssistant } from '../../context/VoiceAssistantContext';
 import { getDatabase, ref, onValue } from 'firebase/database';
 import priceNegotiationService from '../../services/priceNegotiationService';
-import ridesService, {
-  rideMatchesVehicleType,
-} from '../../services/ridesService';
+import ridesService from '../../services/ridesService';
 import { RideListSkeleton } from '../../components/ui/SkeletonLoader';
 import alertService from '../../services/alertService';
 import { hasSavedCard } from '../../utils/cardUtils';
@@ -32,11 +28,16 @@ import { useTranslation } from 'react-i18next';
 import {
   type Ride,
   extractProgrammedRideId,
-  haversineKm,
+  checkRideDriverCompatibility,
+  isDesignatedRideRequest,
 } from '../../utils/availableRidesHelpers';
 import { AvailableRidesItem } from '../../components/driver/AvailableRides/AvailableRidesItem';
 import { AvailableRidesPhotoModal } from '../../components/driver/AvailableRides/AvailableRidesPhotoModal';
 import { AvailableRidesAssignModal } from '../../components/driver/AvailableRides/AvailableRidesAssignModal';
+import { AvailableRidesEmpty } from '../../components/driver/AvailableRides/AvailableRidesEmpty';
+import { AvailableRidesOffline } from '../../components/driver/AvailableRides/AvailableRidesOffline';
+import driversService from '../../services/driversService';
+import driverAvailabilityService from '../../services/driverAvailabilityService';
 
 const BACK_ICON = require('../../assets/icons/back_button/back_button2x.png');
 
@@ -57,12 +58,16 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
 
   const {
     rides,
+    scheduledRides,
     loading,
     refreshing,
     selectedRideId,
     setSelectedRideId,
     activeRideGuard,
     selectedDriverVehicleType,
+    driverIsDesignatedMode,
+    isDriverOnline,
+    driverStatusLoaded,
     handleRefresh,
   } = useAvailableRidesData(user?.id, coords, serviceAreaId);
   const [rechargeFundsSummary, setRechargeFundsSummary] = useState<{ availableBalance: number; blocked: boolean } | null>(
@@ -82,6 +87,7 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
   const [assignModalVisible, setAssignModalVisible] = useState(false);
   const [assignRideIdInput, setAssignRideIdInput] = useState('');
   const [assigningProgrammedRide, setAssigningProgrammedRide] = useState(false);
+  const [activatingAvailability, setActivatingAvailability] = useState(false);
   const normalizedAssignRideId = useMemo(
     () => extractProgrammedRideId(assignRideIdInput),
     [assignRideIdInput],
@@ -120,10 +126,11 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
     if (!voiceSettings.enabled) return;
     if (!isScreenFocusedRef.current) return;
     if (loading) return;
+    if (!isDriverOnline) return;
 
     const count = rides.length;
     speakVoice(t('driver.available.voice.ridesAvailable', { count }), 'status', undefined, true);
-  }, [rides.length, loading, voiceSettings.enabled, speakVoice]);
+  }, [rides.length, loading, voiceSettings.enabled, speakVoice, isDriverOnline]);
 
   useEffect(() => {
     return () => {
@@ -212,7 +219,7 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
 
   const handleAcceptRide = async (ride: Ride) => {
     try {
-      if (!rideMatchesVehicleType(ride, selectedDriverVehicleType)) {
+      if (!checkRideDriverCompatibility(ride, selectedDriverVehicleType, driverIsDesignatedMode).ok) {
         alertService.showErrorAlert(t('driver.available.alerts.errorAcceptRide'));
         return;
       }
@@ -285,8 +292,6 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
         try {
           const acceptData = {
             driverId: user?.id || '',
-            vehicleId: 'temp-vehicle-id',
-            currentLocation: { lat: 0, lng: 0 },
           };
 
           await ridesService.acceptRide(ride.id, acceptData);
@@ -317,12 +322,45 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
     }
   };
 
+  const handleGoOnline = useCallback(async () => {
+    if (!user?.id || activatingAvailability) return;
+
+    setActivatingAvailability(true);
+    try {
+      const location = coords
+        ? { latitude: coords.latitude, longitude: coords.longitude }
+        : undefined;
+      const result = await driversService.updateStatus('available', location);
+      const status = String(result?.status || '').toLowerCase();
+
+      if (status === 'available' || status === 'busy') {
+        await driverAvailabilityService.saveAvailabilityState({
+          isAvailable: true,
+          isDesignatedDriverMode: driverIsDesignatedMode,
+          lastUpdate: new Date().toISOString(),
+          coords: location,
+        });
+        if (location) {
+          driverAvailabilityService.startHeartbeat(location);
+        }
+      } else {
+        alertService.showErrorAlert(t('driver.home.alerts.availabilityUpdateFailed'));
+      }
+    } catch (error: any) {
+      alertService.showErrorAlert(
+        error?.message || t('driver.home.alerts.availabilityUpdateFailed'),
+      );
+    } finally {
+      setActivatingAvailability(false);
+    }
+  }, [user?.id, activatingAvailability, coords, driverIsDesignatedMode, t]);
+
   const groupedRides = useMemo(() => {
     const designated: Ride[] = [];
     const standard: Ride[] = [];
 
     rides.forEach((ride) => {
-      if ((ride.rideType || '').toLowerCase() === 'designated_driver') {
+      if (isDesignatedRideRequest(ride)) {
         designated.push(ride);
       } else {
         standard.push(ride);
@@ -332,20 +370,47 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
     return { designated, standard };
   }, [rides]);
 
-  type SectionItem = { id: string; type: 'section' };
+  type SectionItem = { id: string; type: 'section'; kind: 'designated' | 'scheduled' };
   type RideListItem = Ride | SectionItem;
 
   const listData = useMemo<RideListItem[]>(() => {
-    const items: RideListItem[] = [...groupedRides.standard];
+    const items: RideListItem[] = [];
+    if (scheduledRides.length > 0) {
+      items.push({ id: 'section-scheduled', type: 'section', kind: 'scheduled' });
+      items.push(...scheduledRides);
+    }
+    items.push(...groupedRides.standard);
     if (groupedRides.designated.length > 0) {
-      items.push({ id: 'section-designated', type: 'section' });
+      items.push({ id: 'section-designated', type: 'section', kind: 'designated' });
       items.push(...groupedRides.designated);
     }
     return items;
-  }, [groupedRides]);
+  }, [groupedRides, scheduledRides]);
 
   const handleSelectRide = (rideId: string) => {
     setSelectedRideId((current) => (current === rideId ? null : rideId));
+  };
+
+  const [confirmingScheduledRideId, setConfirmingScheduledRideId] = useState<string | null>(null);
+
+  const handleConfirmScheduledRide = async (ride: Ride) => {
+    if (confirmingScheduledRideId) {
+      return;
+    }
+    setConfirmingScheduledRideId(ride.id);
+    try {
+      await ridesService.confirmProgrammedRideDriver(ride.id);
+      alertService.showSuccessAlert(
+        t('driver.available.alerts.scheduledConfirmedTitle'),
+        t('driver.available.alerts.scheduledConfirmedBody'),
+      );
+    } catch (error: any) {
+      alertService.showErrorAlert(
+        error?.message || t('driver.available.alerts.scheduledConfirmError'),
+      );
+    } finally {
+      setConfirmingScheduledRideId(null);
+    }
   };
 
   const handleViewRideDetails = (ride: Ride) => {
@@ -387,22 +452,17 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
       rideType: ride.rideType,
       clientVehiclePhoto: ride.clientVehiclePhoto || null,
       clientComment: ride.clientComment,
+      isProgrammed: Boolean(ride.isProgrammed),
+      scheduledAt: ride.scheduledAt ?? null,
     };
 
     navigation.navigate('RidePreview', { ride: payload });
   };
 
-  const getInitials = (name?: string, fallback: string = 'CL') => {
-    if (!name) return fallback;
-    const parts = name.trim().split(' ');
-    if (parts.length === 1) {
-      return parts[0].charAt(0).toUpperCase();
-    }
-    return `${parts[0].charAt(0)}${parts[parts.length - 1].charAt(0)}`.toUpperCase();
-  };
-
   const renderRideItem = ({ item }: { item: RideListItem }) => {
     if ((item as any).type === 'section') {
+      const section = item as SectionItem;
+      const isScheduledSection = section.kind === 'scheduled';
       return (
         <View
           style={[
@@ -410,9 +470,22 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
             isDark ? styles.designatedSectionDark : styles.designatedSectionLight,
           ]}
         >
-          <Text style={styles.sectionLabel}>{t('driver.available.sections.designatedTitle')}</Text>
+          <View style={styles.sectionTitleRow}>
+            <MaterialIcons
+              name={isScheduledSection ? 'event' : 'verified-user'}
+              size={15}
+              color={isDark ? '#FFD666' : '#D18A1B'}
+            />
+            <Text style={styles.sectionLabel}>
+              {isScheduledSection
+                ? t('driver.available.sections.scheduledTitle')
+                : t('driver.available.sections.designatedTitle')}
+            </Text>
+          </View>
           <Text style={[styles.sectionSubLabel, { color: colors.text + '99' }]}>
-            {t('driver.available.sections.designatedSubtitle')}
+            {isScheduledSection
+              ? t('driver.available.sections.scheduledSubtitle')
+              : t('driver.available.sections.designatedSubtitle')}
           </Text>
         </View>
       );
@@ -430,57 +503,166 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
         onSelect={() => handleSelectRide(ride.id)}
         onViewDetails={() => handleViewRideDetails(ride)}
         onViewVehiclePhoto={(url) => setPhotoModalUrl(url)}
+        onConfirmScheduled={
+          ride.isProgrammed ? () => handleConfirmScheduledRide(ride) : undefined
+        }
+        confirmingScheduled={confirmingScheduledRideId === ride.id}
         styles={styles}
         t={t}
       />
     );
   };
 
+  const fundsLow =
+    rechargeFundsSummary != null &&
+    (rechargeFundsSummary.blocked || Number(rechargeFundsSummary.availableBalance) <= 0);
+
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}> 
-      <View style={[styles.header, { borderBottomColor: colors.border }]}> 
-        <TouchableOpacity
-          style={[
-            styles.backButton,
-            isDark ? styles.backButtonDark : styles.backButtonLight,
-            { borderColor: isDark ? '#343434' : '#E8E8E8' },
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={styles.header}>
+        <Pressable
+          style={({ pressed }) => [
+            styles.headerIconButton,
+            {
+              backgroundColor: isDark ? '#242424' : '#F6F6F6',
+              borderColor: isDark ? '#343434' : '#E8E8E8',
+            },
+            pressed && { opacity: 0.75, transform: [{ scale: 0.95 }] },
           ]}
-          onPress={() => navigation.goBack?.()}
-          activeOpacity={0.8}
-        > 
-          <View style={[styles.backButtonInner, { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#FFFFFF' }]}>
-            <Image source={BACK_ICON} style={[styles.backIconImage, { tintColor: isDark ? '#FFFFFF' : colors.text }]} resizeMode="contain" />
-          </View>
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>{t('driver.available.header.title')}</Text>
+          onPress={() => {
+            if (navigation.canGoBack?.()) {
+              navigation.goBack();
+            } else {
+              navigation.navigate('DriverHome');
+            }
+          }}
+          accessibilityRole="button"
+          accessibilityLabel={t('common.actions.back')}
+        >
+          <Image
+            source={BACK_ICON}
+            style={[styles.backIconImage, { tintColor: isDark ? '#FFFFFF' : colors.text }]}
+            resizeMode="contain"
+          />
+        </Pressable>
+
+        <View style={styles.headerTextWrap}>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>
+            {t('driver.available.header.title')}
+          </Text>
+          {rides.length > 0 ? (
+            <Text style={[styles.headerSubtitle, { color: colors.textSecondary }]}>
+              {t('driver.available.header.count', { count: rides.length })}
+            </Text>
+          ) : null}
+        </View>
+
+        <Pressable
+          style={({ pressed }) => [
+            styles.headerIconButton,
+            {
+              backgroundColor: isDark ? '#242424' : '#F6F6F6',
+              borderColor: isDark ? '#343434' : '#E8E8E8',
+            },
+            pressed && { opacity: 0.75, transform: [{ scale: 0.95 }] },
+          ]}
+          onPress={handleRefresh}
+          disabled={refreshing}
+          accessibilityRole="button"
+          accessibilityLabel={t('common.components.emptyState.noRides.action')}
+        >
+          {refreshing ? (
+            <ActivityIndicator size="small" color={colors.primary} />
+          ) : (
+            <MaterialIcons name="refresh" size={20} color={isDark ? '#FFFFFF' : colors.text} />
+          )}
+        </Pressable>
       </View>
 
+      {driverStatusLoaded && !isDriverOnline ? (
+        <View style={styles.offlineGateWrap}>
+          <AvailableRidesOffline
+            isDark={isDark}
+            colors={colors}
+            activating={activatingAvailability}
+            onActivate={handleGoOnline}
+            styles={styles}
+            t={t}
+          />
+        </View>
+      ) : (
+        <>
+      {fundsLow ? (
+        <Pressable
+          style={({ pressed }) => [
+            styles.fundsBanner,
+            {
+              backgroundColor: isDark ? 'rgba(255,183,77,0.10)' : 'rgba(255,167,38,0.10)',
+              borderColor: isDark ? 'rgba(255,183,77,0.4)' : '#F0C878',
+            },
+            pressed && { opacity: 0.85 },
+          ]}
+          onPress={() => navigation.navigate('RechargeFunds')}
+          accessibilityRole="button"
+        >
+          <View
+            style={[
+              styles.fundsBannerIcon,
+              { backgroundColor: isDark ? 'rgba(255,183,77,0.18)' : 'rgba(255,167,38,0.2)' },
+            ]}
+          >
+            <MaterialIcons
+              name="account-balance-wallet"
+              size={16}
+              color={isDark ? '#FFB74D' : '#8A5800'}
+            />
+          </View>
+          <View style={styles.fundsBannerTextWrap}>
+            <Text style={[styles.fundsBannerTitle, { color: isDark ? '#FFB74D' : '#8A5800' }]}>
+              {t('driver.available.fundsBanner.title')}
+            </Text>
+            <Text style={[styles.fundsBannerBody, { color: colors.text + '99' }]} numberOfLines={2}>
+              {t('driver.available.fundsBanner.body', {
+                amount: Number(rechargeFundsSummary?.availableBalance ?? 0).toFixed(2),
+              })}
+            </Text>
+          </View>
+          <MaterialIcons name="chevron-right" size={20} color={colors.text + '66'} />
+        </Pressable>
+      ) : null}
+
       <View style={styles.assignBar}>
-        <TouchableOpacity
-          style={[
+        <Pressable
+          style={({ pressed }) => [
             styles.assignButton,
             {
               borderColor: colors.border,
               backgroundColor: isDark ? '#212121' : '#FFFFFF',
               shadowColor: isDark ? '#000000' : '#B87F1E',
             },
+            pressed && { opacity: 0.92, transform: [{ scale: 0.99 }] },
           ]}
           onPress={() => {
             setAssignRideIdInput('');
             setAssignModalVisible(true);
           }}
-          activeOpacity={0.85}
+          accessibilityRole="button"
         >
-          <View style={styles.assignButtonContent}>
-            <View style={[styles.assignButtonAccent, { backgroundColor: colors.primary }]} />
-            <Text style={[styles.assignButtonText, { color: colors.text }]}>
-              {t('driver.available.assignModal.assignProgrammedButton')}
-            </Text>
-            <View style={[styles.assignButtonPlus, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F4EFE4' }]}>
-              <Text style={[styles.assignButtonPlusText, { color: colors.primary }]}>+</Text>
-            </View>
+          <View
+            style={[
+              styles.assignIconWrap,
+              { backgroundColor: isDark ? 'rgba(212,175,55,0.18)' : 'rgba(179,135,55,0.12)' },
+            ]}
+          >
+            <MaterialIcons name="event-note" size={17} color={colors.primary} />
           </View>
-        </TouchableOpacity>
+          <Text style={[styles.assignButtonText, { color: colors.text }]}>
+            {t('driver.available.assignModal.assignProgrammedButton')}
+          </Text>
+          <View style={[styles.assignButtonPlus, { backgroundColor: colors.primary }]}>
+            <MaterialIcons name="add" size={16} color="#FFFFFF" />
+          </View>
+        </Pressable>
       </View>
 
       <FlatList
@@ -498,33 +680,18 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
         ListEmptyComponent={loading ? (
           <RideListSkeleton />
         ) : (
-          <View
-            style={[
-              styles.emptyStateCard,
-              {
-                backgroundColor: isDark ? '#1D1D1D' : '#FFFFFF',
-                borderColor: isDark ? '#333333' : '#E9E9E9',
-              },
-            ]}
-          >
-            <View style={[styles.emptyStateGlow, { backgroundColor: isDark ? 'rgba(212,175,55,0.18)' : '#F9EDCC' }]} />
-            <MaterialIcons name="directions-car" size={64} color={colors.textSecondary} />
-            <Text style={[styles.emptyStateTitle, { color: colors.text }]}>
-              {t('common.components.emptyState.noRides.title')}
-            </Text>
-            <Text style={[styles.emptyStateMessage, { color: colors.text + '99' }]}>
-              {t('common.components.emptyState.noRides.message')}
-            </Text>
-            <TouchableOpacity
-              onPress={handleRefresh}
-              style={[styles.emptyStateButton, { backgroundColor: colors.primary }]}
-              activeOpacity={0.86}
-            >
-              <Text style={styles.emptyStateButtonText}>{t('common.components.emptyState.noRides.action')}</Text>
-            </TouchableOpacity>
-          </View>
+          <AvailableRidesEmpty
+            isDark={isDark}
+            colors={colors}
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            styles={styles}
+            t={t}
+          />
         )}
       />
+        </>
+      )}
 
       <AvailableRidesPhotoModal
         visible={!!photoModalUrl}
@@ -546,15 +713,20 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
         onInputChange={setAssignRideIdInput}
         onCancel={() => setAssignModalVisible(false)}
         onConfirm={async () => {
+          const codeCandidate = assignRideIdInput.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+          const isClaimCode = /^[A-Z0-9]{6}$/.test(codeCandidate);
           const rideId = normalizedAssignRideId;
-          if (!rideId) {
+
+          if (!isClaimCode && !rideId) {
             alertService.showErrorAlert(t('driver.available.alerts.assignInvalidId'));
             return;
           }
 
           setAssigningProgrammedRide(true);
           try {
-            const result = await ridesService.assignDriverToProgrammedRide(rideId);
+            const result = isClaimCode
+              ? await ridesService.claimProgrammedRideByCode(codeCandidate)
+              : await ridesService.assignDriverToProgrammedRide(rideId as string);
             if (!result?.success) {
               throw new Error(result?.message || 'No se pudo asignar el viaje programado.');
             }
@@ -586,49 +758,109 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  header: {
+    paddingHorizontal: 16,
+    paddingTop: 18,
+    paddingBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 40,
+  },
+  headerIconButton: {
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  backIconImage: {
+    width: 17,
+    height: 17,
+  },
+  headerTextWrap: {
+    flex: 1,
+  },
+  headerTitle: {
+    fontSize: 21,
+    fontWeight: '800',
+    letterSpacing: -0.3,
+  },
+  headerSubtitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  fundsBanner: {
+    marginHorizontal: 16,
+    marginBottom: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  fundsBannerIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  fundsBannerTextWrap: {
+    flex: 1,
+  },
+  fundsBannerTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: -0.1,
+  },
+  fundsBannerBody: {
+    fontSize: 12,
+    fontWeight: '500',
+    marginTop: 1,
+    lineHeight: 16,
+  },
   assignBar: {
     paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 10,
+    paddingTop: 6,
+    paddingBottom: 12,
   },
   assignButton: {
     borderWidth: 1,
-    borderRadius: 17,
+    borderRadius: 18,
     paddingVertical: 10,
     paddingHorizontal: 12,
-    shadowOpacity: 0.15,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    shadowOpacity: 0.12,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 5 },
     elevation: 3,
   },
-  assignButtonContent: {
-    flexDirection: 'row',
+  assignIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 11,
+    justifyContent: 'center',
     alignItems: 'center',
-    gap: 10,
-  },
-  assignButtonAccent: {
-    width: 5,
-    height: 24,
-    borderRadius: 99,
   },
   assignButtonText: {
     flex: 1,
     fontWeight: '800',
     fontSize: 15,
-    textAlign: 'left',
     letterSpacing: -0.1,
   },
   assignButtonPlus: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  assignButtonPlusText: {
-    fontSize: 20,
-    fontWeight: '800',
-    lineHeight: 21,
   },
   listContent: {
     paddingHorizontal: 16,
@@ -638,47 +870,11 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     justifyContent: 'center',
   },
-  header: {
-    paddingHorizontal: 16,
-    paddingTop: 18,
-    paddingBottom: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    marginTop: 20,
-  },
-  backButton: {
-    width: 42,
-    height: 42,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 14,
-    borderWidth: 1,
-  },
-  backButtonLight: {
-    backgroundColor: '#F6F6F6',
-  },
-  backButtonDark: {
-    backgroundColor: '#242424',
-  },
-  backButtonInner: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  backIconImage: {
-    width: 16,
-    height: 16,
-  },
-  headerTitle: {
+  offlineGateWrap: {
     flex: 1,
-    textAlign: 'center',
-    fontSize: 22,
-    fontWeight: '800',
-    marginRight: 40,
-    letterSpacing: -0.3,
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingBottom: 24,
   },
   designatedSection: {
     padding: 14,
@@ -694,6 +890,11 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(209,138,27,0.15)',
     borderColor: '#D18A1B',
   },
+  sectionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   sectionLabel: {
     fontSize: 15,
     fontWeight: '700',
@@ -704,20 +905,19 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   rideCard: {
-    borderRadius: 18,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginBottom: 10,
+    borderRadius: 20,
+    padding: 14,
+    marginBottom: 12,
     borderWidth: 1,
     shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
+    shadowOpacity: 0.07,
+    shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 },
     elevation: 2,
   },
   rideCardLight: {
     backgroundColor: '#FFFFFF',
-    borderColor: '#E5E5E5',
+    borderColor: '#E7E7E7',
   },
   rideCardDark: {
     backgroundColor: '#1F1F1F',
@@ -732,24 +932,63 @@ const styles = StyleSheet.create({
     borderColor: '#D4AF37',
     backgroundColor: '#2B2007',
   },
+  scheduledCardLight: {
+    borderStyle: 'dashed',
+    opacity: 0.82,
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  scheduledCardDark: {
+    borderStyle: 'dashed',
+    opacity: 0.82,
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  scheduledBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    borderRadius: 11,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginBottom: 12,
+  },
+  scheduledBannerTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: -0.1,
+    flexShrink: 1,
+  },
+  scheduledBannerDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 2,
+  },
+  scheduledBannerStatus: {
+    fontSize: 11.5,
+    fontWeight: '600',
+    flexShrink: 1,
+  },
   selectedCardHighlight: {
-    borderColor: '#D4AF37',
+    borderColor: '#b38737',
     borderWidth: 1.5,
-    shadowColor: '#D4AF37',
+    backgroundColor: 'rgba(179,135,55,0.05)',
+    shadowColor: '#b38737',
     shadowOpacity: 0.2,
     elevation: 3,
   },
-  cardRow: {
+  cardTopRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
+    gap: 10,
   },
   avatarPlaceholder: {
-    width: 48,
-    height: 48,
+    width: 46,
+    height: 46,
     borderRadius: 13,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 10,
     marginTop: 1,
   },
   avatarImage: {
@@ -764,131 +1003,217 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.1)',
   },
   avatarInitials: {
-    fontSize: 17,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '800',
   },
-  detailsColumn: {
+  cardHeaderColumn: {
     flex: 1,
-    gap: 2,
+    paddingTop: 1,
   },
   clientName: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '800',
-    marginBottom: 1,
-    marginTop: 1,
     letterSpacing: -0.2,
   },
-  detailLine: {
-    fontSize: 14,
-    lineHeight: 17,
-  },
-  priceLine: {
-    marginTop: 1,
-  },
-  cardBottomRow: {
+  metaChipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 5,
     marginTop: 6,
+  },
+  metaChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
-  },
-  metaActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    flexShrink: 1,
-    gap: 8,
-  },
-  distancePill: {
-    borderRadius: 999,
-    paddingHorizontal: 10,
+    gap: 4,
+    borderRadius: 7,
+    paddingHorizontal: 7,
     paddingVertical: 4,
-    alignSelf: 'flex-start',
-    marginBottom: 2,
   },
-  distancePillLight: {
-    backgroundColor: '#FFF1CC',
-  },
-  distancePillDark: {
-    backgroundColor: 'rgba(212,175,55,0.25)',
-  },
-  distancePillText: {
+  metaChipText: {
     fontSize: 11,
     fontWeight: '700',
+    letterSpacing: -0.1,
   },
-  distanceSubLabel: {
-    fontSize: 11,
+  priceColumn: {
+    alignItems: 'flex-end',
+    paddingTop: 2,
+    paddingLeft: 4,
+  },
+  priceValue: {
+    fontSize: 19,
+    fontWeight: '800',
+    letterSpacing: -0.3,
+    fontVariant: ['tabular-nums'],
+  },
+  routeBlock: {
+    flexDirection: 'row',
+    marginTop: 12,
+    gap: 10,
+  },
+  routeRail: {
+    width: 12,
+    alignItems: 'center',
+    paddingVertical: 5,
+  },
+  routeDotOrigin: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  routeConnector: {
+    width: 2,
     flex: 1,
-    fontWeight: '600',
+    minHeight: 12,
+    marginVertical: 3,
+    borderRadius: 1,
   },
-  viewButton: {
-    borderRadius: 999,
-    paddingVertical: 8,
-    paddingHorizontal: 20,
-    borderWidth: 1,
+  routeDotDestination: {
+    width: 9,
+    height: 9,
+    borderRadius: 2.5,
+    borderWidth: 2,
+    backgroundColor: 'transparent',
+  },
+  routeTexts: {
+    flex: 1,
+    gap: 8,
+  },
+  routeText: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '500',
+  },
+  commentBubble: {
+    flexDirection: 'row',
+    gap: 6,
+    borderRadius: 10,
+    padding: 9,
+    marginTop: 12,
+  },
+  commentIcon: {
+    marginTop: 1,
+  },
+  commentText: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  cardActionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 8,
+    marginTop: 12,
   },
   vehicleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
     borderRadius: 999,
     borderWidth: 1,
     paddingHorizontal: 13,
-    paddingVertical: 5,
+    paddingVertical: 7,
     backgroundColor: 'transparent',
   },
   vehicleButtonText: {
     fontWeight: '700',
     fontSize: 12,
   },
+  viewButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    borderRadius: 999,
+    paddingVertical: 8,
+    paddingHorizontal: 18,
+  },
   viewButtonText: {
     color: '#FFFFFF',
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '800',
   },
   emptyStateCard: {
-    marginTop: 10,
+    marginTop: 16,
     borderWidth: 1,
-    borderRadius: 22,
-    paddingHorizontal: 18,
-    paddingVertical: 22,
+    borderRadius: 24,
+    paddingHorizontal: 20,
+    paddingVertical: 28,
     alignItems: 'center',
     overflow: 'hidden',
   },
   emptyStateGlow: {
     position: 'absolute',
-    width: 140,
-    height: 140,
-    borderRadius: 70,
-    top: -55,
-    right: -35,
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+    top: -70,
+    right: -45,
   },
-  emptyStateIcon: {
-    fontSize: 52,
-    marginBottom: 8,
+  radarWrap: {
+    width: 130,
+    height: 130,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 18,
+  },
+  radarRing: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    borderWidth: 1.5,
+  },
+  radarCoreOuter: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  radarCoreInner: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   emptyStateTitle: {
-    fontSize: 31,
+    fontSize: 22,
     fontWeight: '800',
     textAlign: 'center',
-    marginBottom: 8,
-    letterSpacing: -0.4,
+    marginBottom: 6,
+    letterSpacing: -0.3,
   },
   emptyStateMessage: {
     fontSize: 14,
     lineHeight: 20,
     textAlign: 'center',
     marginBottom: 18,
-    maxWidth: 300,
+    maxWidth: 280,
   },
   emptyStateButton: {
-    borderRadius: 14,
-    paddingHorizontal: 26,
-    paddingVertical: 11,
-    minWidth: 130,
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 7,
+    borderRadius: 999,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
   },
   emptyStateButtonText: {
     color: '#FFFFFF',
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '800',
+  },
+  emptyHintRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 14,
+  },
+  emptyHintText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   modalOverlay: {
     flex: 1,
