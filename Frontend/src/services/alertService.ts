@@ -26,6 +26,7 @@ export interface ToastPayload {
 type ToastHandler = (payload: ToastPayload) => void;
 
 let handler: ToastHandler | undefined;
+let lastSessionConflictToastAt = 0;
 
 export const setToastHandler = (toastHandler?: ToastHandler) => {
   handler = toastHandler;
@@ -54,6 +55,13 @@ export const showErrorAlert = (message: string, callback?: () => void) => {
     duration: 4500,
     onClose: callback,
   });
+};
+
+export const showSessionActiveAlert = (message: string) => {
+  const now = Date.now();
+  if (now - lastSessionConflictToastAt < 4000) return;
+  lastSessionConflictToastAt = now;
+  showErrorAlert(message);
 };
 
 type SuccessAlertOptions = {
@@ -229,6 +237,7 @@ export const checkLocationPermissionWithAlert = async (callback: () => void) => 
 
 export default {
   showErrorAlert,
+  showSessionActiveAlert,
   showSuccessAlert,
   showConfirmAlert,
   showInfoAlert,

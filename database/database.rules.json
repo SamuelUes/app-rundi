@@ -551,8 +551,12 @@
   },
   "driverLocations": {
    ".read": "auth != null",
+   ".indexOn": ["status"],
    "$driverId": {
-    ".write": "auth != null && auth.uid === $driverId",
+    ".write": "auth != null && auth.uid === $driverId && root.child('sessions/' + $driverId + '/isActive').val() === true && (newData.exists() ? newData.child('deviceId').val() : data.child('deviceId').val()) === root.child('sessions/' + $driverId + '/deviceId').val()",
+    "deviceId": {
+     ".validate": "newData.isString() && newData.val() === root.child('sessions/' + $driverId + '/deviceId').val()"
+    },
     "status": {
      ".validate": "!newData.exists() || (newData.isString() && newData.val().matches(/^(available|busy|offline)$/))"
     },
@@ -583,6 +587,9 @@
     "updatedAt": {
      ".validate": "!newData.exists() || (newData.isNumber() && newData.val() > 0)"
     },
+    "lastSeen": {
+     ".validate": "!newData.exists() || (newData.isNumber() && newData.val() > 0)"
+    },
     "$other": {
      ".validate": "false"
     }
@@ -592,7 +599,10 @@
    ".read": "auth != null",
    "$serviceAreaId": {
     "$driverId": {
-     ".write": "auth != null && auth.uid === $driverId",
+     ".write": "auth != null && auth.uid === $driverId && root.child('sessions/' + $driverId + '/isActive').val() === true && (newData.exists() ? newData.child('deviceId').val() : data.child('deviceId').val()) === root.child('sessions/' + $driverId + '/deviceId').val()",
+     "deviceId": {
+      ".validate": "newData.isString() && newData.val() === root.child('sessions/' + $driverId + '/deviceId').val()"
+     },
      "status": {
       ".validate": "!newData.exists() || (newData.isString() && newData.val().matches(/^(available|busy|offline)$/))"
      },
@@ -621,6 +631,9 @@
       ".validate": "!newData.exists() || (newData.isNumber() && newData.val() > 0)"
      },
      "updatedAt": {
+      ".validate": "!newData.exists() || (newData.isNumber() && newData.val() > 0)"
+     },
+     "lastSeen": {
       ".validate": "!newData.exists() || (newData.isNumber() && newData.val() > 0)"
      },
      "$other": {
@@ -1102,7 +1115,19 @@
   "presence": {
    "$userId": {
     ".read": "auth != null && auth.uid === $userId",
-    ".write": "auth != null && auth.uid === $userId",
+    ".write": "auth != null && auth.uid === $userId && root.child('sessions/' + $userId + '/isActive').val() === true && (newData.exists() ? newData.child('deviceId').val() : data.child('deviceId').val()) === root.child('sessions/' + $userId + '/deviceId').val()",
+    "deviceId": {
+     ".validate": "newData.isString() && newData.val() === root.child('sessions/' + $userId + '/deviceId').val()"
+    },
+    "lastHeartbeat": {
+     ".validate": "!newData.exists() || (newData.isNumber() && newData.val() > 0)"
+    },
+    "lastSeen": {
+     ".validate": "!newData.exists() || (newData.isNumber() && newData.val() > 0)"
+    },
+    "role": {
+     ".validate": "!newData.exists() || (newData.isString() && newData.val().matches(/^(client|driver)$/))"
+    },
     "$other": {
      ".validate": "false"
     }

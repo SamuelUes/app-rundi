@@ -1,11 +1,11 @@
 <resources>
   <string name="app_name">Rundi</string>
-  <string name="expo_splash_screen_resize_mode" translatable="false">contain</string>
   <string name="tracking_foreground_channel_name">Seguimiento en segundo plano</string>
   <string name="tracking_foreground_channel_description">Muestra una notificación persistente cuando el seguimiento de ubicación está activo.</string>
   <string name="tracking_foreground_title">Rundi está rastreando tu viaje</string>
   <string name="tracking_foreground_message">Tu ubicación se comparte para ofrecer el mejor servicio.</string>
-  <string name="default_notification_channel_id">rundi_default_channel</string>
+  <string name="default_notification_channel_id">rundi-default-v2</string>
   <string name="default_notification_channel_name">Notificaciones de Rundi</string>
   <string name="default_notification_channel_description">Alertas y notificaciones generales de la app.</string>
+  <string name="expo_splash_screen_resize_mode" translatable="false">contain</string>
 </resources>

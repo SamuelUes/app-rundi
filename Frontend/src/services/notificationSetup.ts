@@ -13,11 +13,11 @@ export const setupAndroidChannels = async (): Promise<void> => {
   }
 
   try {
-    await Notifications.setNotificationChannelAsync('default', {
+    await Notifications.setNotificationChannelAsync('rundi-default-v2', {
       name: tr('channels.default'),
       importance: Notifications.AndroidImportance.MAX,
       bypassDnd: true,
-      sound: 'default',
+      sound: 'notification.wav',
       vibrationPattern: [0, 250, 250, 250],
       lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
       enableVibrate: true,
@@ -26,9 +26,10 @@ export const setupAndroidChannels = async (): Promise<void> => {
       showBadge: true,
     });
 
-    await Notifications.setNotificationChannelAsync('active-ride', {
+    await Notifications.setNotificationChannelAsync('rundi-active-ride-v2', {
       name: tr('channels.activeRide'),
       importance: Notifications.AndroidImportance.HIGH,
+      sound: 'notification.wav',
       vibrationPattern: [0, 250, 250, 250],
       lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
       enableVibrate: true,

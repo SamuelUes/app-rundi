@@ -251,7 +251,7 @@ export const sendToSegment = async (options: SendToSegmentOptions): Promise<numb
             type: 'admin_notice',
             category: category ?? 'notice',
           },
-          androidChannelId: 'default',
+          androidChannelId: 'rundi-default-v2',
           notificationKey: `admin-${uid}-${Date.now()}`,
           expiresInMs: 24 * 60 * 60 * 1000,
         });
@@ -284,7 +284,7 @@ export const sendToSegment = async (options: SendToSegmentOptions): Promise<numb
         type: 'admin_notice',
         category: category ?? 'notice',
       },
-      androidChannelId: 'default',
+      androidChannelId: 'rundi-default-v2',
       notificationKey: `admin-${topic}-${Date.now()}`,
       expiresInMs: 24 * 60 * 60 * 1000,
     });

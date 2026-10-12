@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, Platform } from 'react-native';
 import { initializeFirebase } from '../../../config/firebase';
+import { waitForFirebaseAuthUser } from '../../../utils/firebaseAuthReady';
 import i18n from '../../../i18n';
 import { waitForI18nReady } from '../../../utils/i18nReady';
 import { requestNotificationsPermissionIfNeeded } from '../../../utils/notificationPermission';
@@ -33,6 +34,13 @@ type UseProgrammedRidePromptResult = {
 };
 
 const PROMPT_NOTIF_PREFIX = 'PROGRAMMED_PROMPT_NOTIF';
+
+const isPermissionDenied = (error: any) => {
+  const message = String(error?.message || error).toLowerCase();
+  return error?.code === 'PERMISSION_DENIED' ||
+    message.includes('permission_denied') ||
+    message.includes('permission denied');
+};
 
 // En el emulador (y cuando el token FCM falla) los push no llegan: disparamos
 // una notificación LOCAL inmediata cuando aparece un prompt con la app en
@@ -74,9 +82,9 @@ const firePromptLocalNotification = async (prompt: ProgrammedRidePrompt) => {
           },
         ),
         data: { type: 'programmed_ride_prompt', rideId: prompt.rideId, role: prompt.type },
-        sound: 'default',
+        sound: 'notification.wav',
         priority: Notifications.AndroidNotificationPriority.HIGH,
-        ...(Platform.OS === 'android' ? { channelId: 'default' } : {}),
+        ...(Platform.OS === 'android' ? { channelId: 'rundi-default-v2' } : {}),
       },
       trigger: null,
     });
@@ -127,26 +135,49 @@ export const useProgrammedRidePrompt = ({
     let unsubscribe: (() => void) | null = null;
     let fallbackSyncTimer: ReturnType<typeof setInterval> | null = null;
     let appStateSubscription: { remove: () => void } | null = null;
+    let readDenied = false;
 
     (async () => {
       try {
         const { getDatabase, ref, query, orderByChild, equalTo, onValue, get } = await import('firebase/database');
-        const { app } = await initializeFirebase();
-        if (!app) {
+        const { app, auth } = await initializeFirebase();
+        if (!app || !auth) {
           return;
         }
+        const authUser = await waitForFirebaseAuthUser(userId);
+        if (!isMounted || !authUser || authUser.uid !== userId || auth.currentUser?.uid !== userId) {
+          return;
+        }
+        const isAuthCurrent = () => auth.currentUser?.uid === userId;
         const database = getDatabase(app);
         const ridesQuery = query(ref(database, 'programmedRides'), orderByChild('clientId'), equalTo(userId));
 
         const syncSnapshot = async () => {
+          if (!isMounted || readDenied) return;
+          if (!isAuthCurrent()) {
+            setClientRides(null);
+            return;
+          }
           try {
             const snapshot = await get(ridesQuery);
-            if (!isMounted) {
+            if (!isMounted) return;
+            if (!isAuthCurrent()) {
+              setClientRides(null);
               return;
             }
             const value = snapshot.exists() ? snapshot.val() : null;
             setClientRides(value);
           } catch (error) {
+            if (!isMounted || readDenied) return;
+            if (!isAuthCurrent()) {
+              setClientRides(null);
+              return;
+            }
+            if (isPermissionDenied(error)) {
+              readDenied = true;
+              if (fallbackSyncTimer) clearInterval(fallbackSyncTimer);
+              appStateSubscription?.remove();
+            }
             console.error('[useProgrammedRidePrompt] Error sync programmedRides (client)', error);
           }
         };
@@ -161,11 +192,23 @@ export const useProgrammedRidePrompt = ({
             setClientRides(value);
           },
           (error) => {
+            if (!isMounted || readDenied) return;
+            if (!isAuthCurrent()) {
+              setClientRides(null);
+              return;
+            }
+            if (isPermissionDenied(error)) {
+              readDenied = true;
+              if (fallbackSyncTimer) clearInterval(fallbackSyncTimer);
+              appStateSubscription?.remove();
+              setClientRides(null);
+            }
             console.error('[useProgrammedRidePrompt] Error leyendo programmedRides (client)', error);
           },
         );
 
         await syncSnapshot();
+        if (!isMounted || readDenied || !isAuthCurrent()) return;
         fallbackSyncTimer = setInterval(() => {
           void syncSnapshot();
         }, 45_000);
@@ -200,26 +243,49 @@ export const useProgrammedRidePrompt = ({
     let unsubscribe: (() => void) | null = null;
     let fallbackSyncTimer: ReturnType<typeof setInterval> | null = null;
     let appStateSubscription: { remove: () => void } | null = null;
+    let readDenied = false;
 
     (async () => {
       try {
         const { getDatabase, ref, query, orderByChild, equalTo, onValue, get } = await import('firebase/database');
-        const { app } = await initializeFirebase();
-        if (!app) {
+        const { app, auth } = await initializeFirebase();
+        if (!app || !auth) {
           return;
         }
+        const authUser = await waitForFirebaseAuthUser(userId);
+        if (!isMounted || !authUser || authUser.uid !== userId || auth.currentUser?.uid !== userId) {
+          return;
+        }
+        const isAuthCurrent = () => auth.currentUser?.uid === userId;
         const database = getDatabase(app);
         const ridesQuery = query(ref(database, 'programmedRides'), orderByChild('driverId'), equalTo(userId));
 
         const syncSnapshot = async () => {
+          if (!isMounted || readDenied) return;
+          if (!isAuthCurrent()) {
+            setDriverRides(null);
+            return;
+          }
           try {
             const snapshot = await get(ridesQuery);
-            if (!isMounted) {
+            if (!isMounted) return;
+            if (!isAuthCurrent()) {
+              setDriverRides(null);
               return;
             }
             const value = snapshot.exists() ? snapshot.val() : null;
             setDriverRides(value);
           } catch (error) {
+            if (!isMounted || readDenied) return;
+            if (!isAuthCurrent()) {
+              setDriverRides(null);
+              return;
+            }
+            if (isPermissionDenied(error)) {
+              readDenied = true;
+              if (fallbackSyncTimer) clearInterval(fallbackSyncTimer);
+              appStateSubscription?.remove();
+            }
             console.error('[useProgrammedRidePrompt] Error sync programmedRides (driver)', error);
           }
         };
@@ -234,11 +300,23 @@ export const useProgrammedRidePrompt = ({
             setDriverRides(value);
           },
           (error) => {
+            if (!isMounted || readDenied) return;
+            if (!isAuthCurrent()) {
+              setDriverRides(null);
+              return;
+            }
+            if (isPermissionDenied(error)) {
+              readDenied = true;
+              if (fallbackSyncTimer) clearInterval(fallbackSyncTimer);
+              appStateSubscription?.remove();
+              setDriverRides(null);
+            }
             console.error('[useProgrammedRidePrompt] Error leyendo programmedRides (driver)', error);
           },
         );
 
         await syncSnapshot();
+        if (!isMounted || readDenied || !isAuthCurrent()) return;
         fallbackSyncTimer = setInterval(() => {
           void syncSnapshot();
         }, 45_000);

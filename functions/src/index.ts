@@ -552,6 +552,7 @@ export const cleanupNotifications = cleanupRealtimeDB.cleanupNotifications;
 export const cleanupPresenceHistory = cleanupRealtimeDB.cleanupPresenceHistory;
 
 export const cleanupInactiveUsers = cleanupRealtimeDB.cleanupInactiveUsers;
+export const expireStaleDriverAvailability = cleanupRealtimeDB.expireStaleDriverAvailability;
 
 // ============================================
 // PENDING PAYMENTS

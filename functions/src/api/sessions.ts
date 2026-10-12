@@ -8,7 +8,7 @@ interface StartSessionPayload {
   platform?: string;
   model?: string;
   fcmToken?: string;
-  policy?: 'deny' | 'takeover';
+  policy?: 'deny';
 }
 
 const ACTIVE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutos
@@ -17,17 +17,11 @@ function nowServer() {
   return admin.database.ServerValue.TIMESTAMP as unknown as number;
 }
 
-async function getSession(uid: string): Promise<any | null> {
-  const snap = await db.ref(`sessions/${uid}`).once('value');
-  return snap.val() || null;
-}
-
 function isSessionRecent(lastSeen: unknown): boolean {
   if (typeof lastSeen === 'number') {
     const diff = Date.now() - lastSeen;
     return diff >= 0 && diff <= ACTIVE_THRESHOLD_MS;
   }
-  // Si es un server timestamp pendiente u otro tipo, considerarlo reciente por seguridad
   return true;
 }
 
@@ -41,37 +35,40 @@ export const startSession = functions.https.onCall(async (data: StartSessionPayl
   const platform = typeof data?.platform === 'string' ? data.platform : undefined;
   const model = typeof data?.model === 'string' ? data.model : undefined;
   const fcmToken = typeof data?.fcmToken === 'string' ? data.fcmToken : undefined;
-  const policy = (data?.policy === 'takeover' ? 'takeover' : 'deny') as 'deny' | 'takeover';
+  const policy = 'deny' as const;
 
   if (!deviceId || deviceId.length < 6) {
     throw new functions.https.HttpsError('invalid-argument', 'deviceId inválido');
   }
 
-  const existing = await getSession(uid);
-
-  if (existing && existing.deviceId && existing.deviceId !== deviceId) {
-    const recent = isSessionRecent(existing.lastSeen);
-
-    if (policy === 'deny' && recent) {
-      // Denegar estrictamente si la sesión existente está activa recientemente
-      throw new functions.https.HttpsError(
-        'failed-precondition',
-        'SESSION_ACTIVE_ELSEWHERE',
-      );
+  const sessionRef = db.ref(`sessions/${uid}`);
+  const result = await sessionRef.transaction((existing) => {
+    if (
+      policy === 'deny' &&
+      existing?.deviceId &&
+      existing.deviceId !== deviceId &&
+      existing.isActive !== false &&
+      isSessionRecent(existing.lastSeen)
+    ) {
+      return;
     }
+
+    return {
+      deviceId,
+      platform: platform || existing?.platform || null,
+      model: model || existing?.model || null,
+      fcmToken: fcmToken || existing?.fcmToken || null,
+      createdAt: existing?.createdAt || nowServer(),
+      lastSeen: nowServer(),
+      isActive: true,
+      policy,
+      ...(typeof existing?.serviceAreaId === 'string' ? { serviceAreaId: existing.serviceAreaId } : {}),
+    };
+  }, undefined, false);
+
+  if (!result.committed) {
+    throw new functions.https.HttpsError('failed-precondition', 'SESSION_ACTIVE_ELSEWHERE');
   }
-
-  const sessionPayload: Record<string, any> = {
-    deviceId,
-    platform: platform || null,
-    model: model || null,
-    fcmToken: fcmToken || null,
-    createdAt: existing?.createdAt || nowServer(),
-    lastSeen: nowServer(),
-    policy,
-  };
-
-  await db.ref(`sessions/${uid}`).set(sessionPayload);
 
   return { success: true };
 });
@@ -81,13 +78,15 @@ export const endSession = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
   }
 
-  const uid = context.auth.uid;
-  try {
-    await db.ref(`sessions/${uid}`).remove();
-  } catch (err) {
-    // No bloquear logout por error de limpieza
-    functions.logger.warn('[endSession] Error removing session', { uid, error: (err as any)?.message || err });
+  const deviceId = typeof data?.deviceId === 'string' ? data.deviceId.trim() : '';
+  if (!deviceId) {
+    throw new functions.https.HttpsError('invalid-argument', 'deviceId requerido');
   }
 
-  return { success: true };
+  const result = await db.ref(`sessions/${context.auth.uid}`).transaction((session) => {
+    if (session?.deviceId !== deviceId) return;
+    return null;
+  }, undefined, false);
+
+  return { success: result.committed };
 });

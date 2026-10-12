@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { getDatabase, ref, onValue } from 'firebase/database';
+import { get, getDatabase, ref, onValue } from 'firebase/database';
 import driversService from '../../../services/driversService';
 import driverAvailabilityService from '../../../services/driverAvailabilityService';
 import alertService from '../../../services/alertService';
@@ -42,35 +42,32 @@ export function useDriverAvailability({
       }
     };
 
-    if (!coords) {
+    if (!coords || !userId) {
       finalize();
       return;
     }
 
     const restoreAvailabilityState = async () => {
       try {
-        const savedState = await driverAvailabilityService.getAvailabilityState();
-        if (!savedState) return;
+        const [savedState, statusSnapshot] = await Promise.all([
+          driverAvailabilityService.getAvailabilityState(),
+          get(ref(getDatabase(), `driverLocations/${userId}/status`)),
+        ]);
+        const status = String(statusSnapshot.val() || 'offline').trim().toLowerCase();
+        const isOnline = status === 'available' || status === 'busy';
 
-        let normalizedState = savedState;
+        setIsAvailable(isOnline);
+        setIsDesignatedDriverMode(isOnline && Boolean(savedState?.isDesignatedDriverMode));
 
-        if (savedState.isAvailable) {
-          try {
-            const statusResult = await driversService.updateStatus('available', coords);
-            normalizedState = driverAvailabilityService.normalizeAvailabilityState(
-              savedState,
-              statusResult?.status,
-              { latitude: coords.latitude, longitude: coords.longitude },
-            );
-
-            await driverAvailabilityService.saveAvailabilityState(normalizedState);
-          } catch (err) {
-            console.error('❌ Error restaurando estado de disponibilidad:', err);
-          }
+        if (savedState) {
+          await driverAvailabilityService.saveAvailabilityState({
+            ...savedState,
+            isAvailable: isOnline,
+            isDesignatedDriverMode: isOnline && savedState.isDesignatedDriverMode,
+            lastUpdate: new Date().toISOString(),
+            coords: { latitude: coords.latitude, longitude: coords.longitude },
+          });
         }
-
-        setIsAvailable(normalizedState.isAvailable);
-        setIsDesignatedDriverMode(normalizedState.isDesignatedDriverMode);
       } catch (err) {
         console.error('❌ Error restaurando estado de disponibilidad:', err);
       }
@@ -81,7 +78,7 @@ export function useDriverAvailability({
     return () => {
       isActive = false;
     };
-  }, [coords, markTaskCompleted]);
+  }, [coords, markTaskCompleted, userId]);
 
   // Realtime: driverLocations/{uid}/status es la fuente de verdad del backend.
   // Mantiene el botón sincronizado si el estado cambió desde otra pantalla

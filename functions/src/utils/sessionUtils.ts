@@ -1,16 +1,6 @@
 import * as functions from 'firebase-functions/v1';
 import admin from 'firebase-admin';
 
-const SESSION_ACTIVE_THRESHOLD_MS = 2 * 60 * 1000;
-
-const isRecent = (lastSeen: any): boolean => {
-  if (typeof lastSeen === 'number') {
-    const diff = Date.now() - lastSeen;
-    return diff >= 0 && diff <= SESSION_ACTIVE_THRESHOLD_MS;
-  }
-  return false;
-};
-
 export const ensureActiveSession = async (
   context: functions.https.CallableContext,
   data: any,
@@ -27,7 +17,7 @@ export const ensureActiveSession = async (
 
   const sessionSnap = await admin.database().ref(`sessions/${uid}`).once('value');
   const session = sessionSnap.val();
-  if (session && session.deviceId && session.deviceId !== deviceId && isRecent(session.lastSeen)) {
+  if (!session || session.deviceId !== deviceId || session.isActive === false) {
     throw new functions.https.HttpsError('failed-precondition', 'SESSION_ACTIVE_ELSEWHERE');
   }
 };

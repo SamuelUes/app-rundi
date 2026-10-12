@@ -93,6 +93,7 @@ export default function LoginScreen({ navigation }: any) {
       await login(normalizedEmail, password);
     } catch (error: any) {
       if (error?.code === 'SESSION_ACTIVE_ELSEWHERE') {
+        alertService.showSessionActiveAlert(t('authScreens.phoneVerificationLogin.alerts.sessionActiveMessage'));
         return;
       }
       let message = t('authScreens.login.alerts.genericError');
@@ -229,6 +230,7 @@ export default function LoginScreen({ navigation }: any) {
     } catch (error: any) {
       console.error('❌ Error en Google Login:', error);
       if (error?.code === 'SESSION_ACTIVE_ELSEWHERE') {
+        alertService.showSessionActiveAlert(t('authScreens.phoneVerificationLogin.alerts.sessionActiveMessage'));
         return;
       }
       alertService.showErrorAlert(error?.message || 'Error al iniciar sesión con Google. Intenta de nuevo.');

@@ -104,9 +104,10 @@ class NotificationService {
             notificationKey,
             expiresInMs: normalizedExpires,
           },
-          sound: 'default',
+          sound: 'notification.wav',
           priority: Notifications.AndroidNotificationPriority.MAX,
           vibrate: [0, 250, 250, 250],
+          ...(Platform.OS === 'android' ? { channelId: 'rundi-default-v2' } : {}),
         },
         trigger: null, // Mostrar inmediatamente
       });
@@ -139,11 +140,11 @@ class NotificationService {
   private async ensureAndroidChannel() {
     try {
       if (Platform.OS !== 'android') return;
-      await Notifications.setNotificationChannelAsync('default', {
+      await Notifications.setNotificationChannelAsync('rundi-default-v2', {
         name: this.tr('channels.default'),
         importance: Notifications.AndroidImportance.MAX,
         bypassDnd: true,
-        sound: 'default',
+        sound: 'notification.wav',
         vibrationPattern: [0, 250, 250, 250],
         lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
         enableVibrate: true,
@@ -162,9 +163,10 @@ class NotificationService {
   private async ensureActiveRideChannel() {
     try {
       if (Platform.OS !== 'android') return;
-      await Notifications.setNotificationChannelAsync('active-ride', {
+      await Notifications.setNotificationChannelAsync('rundi-active-ride-v2', {
         name: this.tr('channels.activeRide'),
         importance: Notifications.AndroidImportance.HIGH,
+        sound: 'notification.wav',
         vibrationPattern: [0, 250, 250, 250],
         lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
         enableVibrate: true,
@@ -193,8 +195,9 @@ class NotificationService {
           title,
           body,
           data,
-          sound: true,
+          sound: 'notification.wav',
           priority: Notifications.AndroidNotificationPriority.HIGH,
+          ...(Platform.OS === 'android' ? { channelId: 'rundi-default-v2' } : {}),
         },
         trigger: null, // Mostrar inmediatamente
       });
@@ -227,9 +230,10 @@ class NotificationService {
             type: 'quick_return_active_ride',
             rideId,
           },
-          sound: 'default',
+          sound: 'notification.wav',
           priority: Notifications.AndroidNotificationPriority.MAX,
           sticky: true,
+          ...(Platform.OS === 'android' ? { channelId: 'rundi-active-ride-v2' } : {}),
         },
         trigger: null,
       });

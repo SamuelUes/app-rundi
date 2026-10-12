@@ -17,10 +17,10 @@ const isAndroidTiramisuOrHigher = (): boolean => {
 const ensureAndroidChannel = async () => {
   if (Platform.OS !== 'android') return;
   try {
-    await Notifications.setNotificationChannelAsync('default', {
+    await Notifications.setNotificationChannelAsync('rundi-default-v2', {
       name: 'Notificaciones',
       importance: Notifications.AndroidImportance.HIGH,
-      sound: 'default',
+      sound: 'notification.wav',
       vibrationPattern: [0, 250, 250, 250],
       lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
     });

@@ -199,7 +199,7 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
         rawCode === 'SESSION_ACTIVE_ELSEWHERE' ||
         (typeof rawMessage === 'string' && rawMessage.includes('SESSION_ACTIVE_ELSEWHERE'))
       ) {
-        alertService.showErrorAlert(
+        alertService.showSessionActiveAlert(
           t('authScreens.phoneVerificationLogin.alerts.sessionActiveMessage'),
         );
         setCode('');

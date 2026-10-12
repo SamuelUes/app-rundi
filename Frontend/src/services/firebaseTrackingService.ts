@@ -7,6 +7,7 @@
 import { getFirebaseDatabase } from '../config/firebase';
 import { ref, onValue, off, update } from 'firebase/database';
 import { getPreflightResult } from '../stores/preflightStore';
+import sessionService from './sessionService';
 
 interface Location {
   latitude: number;
@@ -140,6 +141,7 @@ class FirebaseTrackingService {
       const database = await getFirebaseDatabase();
       const locationRef = ref(database, `driverLocations/${driverId}`);
 
+      const deviceId = await sessionService.getDeviceId();
       const resolvedHeading = computeHeading();
       const timestamp = Date.now();
 
@@ -171,6 +173,7 @@ class FirebaseTrackingService {
       // maneja el toggle de disponibilidad) y currentRideId — antes un set()
       // por cada punto GPS reseteaba el estado del conductor a 'available'.
       await update(locationRef, {
+        deviceId,
         lat: location.latitude,
         lng: location.longitude,
         speed: location.speed || 0,

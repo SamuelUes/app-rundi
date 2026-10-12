@@ -39,7 +39,7 @@ const sanitizeData = (data: PushData = {}) => {
 };
 
 const getAndroidChannelId = (message: PushMessage) => {
-  return message.androidChannelId ?? 'default';
+  return message.androidChannelId ?? 'rundi-default-v2';
 };
 
 const chunkTokens = (tokens: TokenEntry[]) => {

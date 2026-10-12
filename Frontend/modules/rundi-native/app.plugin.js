@@ -21,6 +21,12 @@ function withRundiNative(config) {
     const metaData = mainApplication['meta-data'] || [];
     let modified = false;
     for (const meta of metaData) {
+      if (meta.$ && meta.$['android:name'] === 'com.google.firebase.messaging.default_notification_channel_id') {
+        meta.$['tools:replace'] = 'android:value';
+        modified = true;
+      }
+    }
+    for (const meta of metaData) {
       if (meta.$ && meta.$['android:name'] === 'com.google.firebase.messaging.default_notification_color') {
         meta.$['tools:replace'] = 'android:resource';
         modified = true;
@@ -88,7 +94,7 @@ function withRundiNative(config) {
       { name: 'tracking_foreground_channel_description', value: 'Muestra una notificación persistente cuando el seguimiento de ubicación está activo.' },
       { name: 'tracking_foreground_title', value: 'Rundi está rastreando tu viaje' },
       { name: 'tracking_foreground_message', value: 'Tu ubicación se comparte para ofrecer el mejor servicio.' },
-      { name: 'default_notification_channel_id', value: 'rundi_default_channel' },
+      { name: 'default_notification_channel_id', value: 'rundi-default-v2' },
       { name: 'default_notification_channel_name', value: 'Notificaciones de Rundi' },
       { name: 'default_notification_channel_description', value: 'Alertas y notificaciones generales de la app.' },
     ];
@@ -241,6 +247,11 @@ function withRundiNative(config) {
           '<manifest xmlns:tools="http://schemas.android.com/tools" '
         );
       }
+
+      manifestContent = manifestContent.replace(
+        /(<meta-data android:name="com\.google\.firebase\.messaging\.default_notification_channel_id"\s+android:value="[^"]*")\/>/,
+        '$1 tools:replace="android:value"/>'
+      );
 
       // Add tools:replace to the Firebase default_notification_color meta-data
       manifestContent = manifestContent.replace(

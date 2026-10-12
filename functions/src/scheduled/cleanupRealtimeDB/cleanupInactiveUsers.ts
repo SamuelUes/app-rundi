@@ -78,3 +78,148 @@ export const cleanupInactiveUsers = functions
       return { success: false, error: error.message };
     }
   });
+
+const STALE_DRIVER_HEARTBEAT_MS = 2 * 60 * 1000;
+
+export const expireStaleDriverAvailability = functions
+  .runWith({ memory: '256MB', timeoutSeconds: 60, maxInstances: 1 })
+  .pubsub
+  .schedule('every 1 minutes')
+  .timeZone('America/Managua')
+  .onRun(async () => {
+    try {
+      const db = admin.database();
+      const cutoff = Date.now() - STALE_DRIVER_HEARTBEAT_MS;
+      const snapshot = await db
+        .ref('/driverLocations')
+        .orderByChild('status')
+        .equalTo('available')
+        .once('value');
+
+      if (!snapshot.exists()) {
+        return { success: true, offlineDrivers: 0 };
+      }
+
+      const drivers = snapshot.val() || {};
+      const results = await Promise.all(
+        Object.entries(drivers).map(async ([driverId, location]: [string, any]) => {
+          try {
+            const expectedDeviceId = typeof location?.deviceId === 'string' ? location.deviceId : null;
+            if (!expectedDeviceId) return false;
+
+            const sessionRef = db.ref(`sessions/${driverId}`);
+            const sessionSnapshot = await sessionRef.once('value');
+            const session = sessionSnapshot.val();
+            if (session?.deviceId && session.deviceId !== expectedDeviceId) return false;
+            const lastSeen = typeof session?.lastSeen === 'number' ? session.lastSeen : null;
+            const locationLastSeen = [location?.lastSeen, location?.updatedAt, location?.lastUpdate]
+              .find((value) => typeof value === 'number') as number | undefined;
+
+            if (
+              session?.deviceId === expectedDeviceId &&
+              session?.isActive !== false &&
+              lastSeen !== null &&
+              lastSeen > cutoff
+            ) {
+              return false;
+            }
+
+            if (
+              (!session || lastSeen === null) &&
+              typeof locationLastSeen === 'number' &&
+              locationLastSeen > cutoff
+            ) {
+              return false;
+            }
+
+            if (session?.deviceId === expectedDeviceId && session.isActive !== false) {
+              const sessionResult = await sessionRef.transaction((current) => {
+                const currentLastSeen = typeof current?.lastSeen === 'number' ? current.lastSeen : null;
+                if (
+                  !current ||
+                  current.deviceId !== expectedDeviceId ||
+                  current.isActive === false ||
+                  (currentLastSeen !== null && currentLastSeen > cutoff)
+                ) {
+                  return;
+                }
+                return {
+                  ...current,
+                  isActive: false,
+                  lastSeen: admin.database.ServerValue.TIMESTAMP,
+                };
+              }, undefined, false);
+
+              if (!sessionResult.committed) {
+                const latestSession = (await sessionRef.once('value')).val();
+                if (
+                  latestSession?.deviceId === expectedDeviceId &&
+                  latestSession?.isActive !== false &&
+                  typeof latestSession?.lastSeen === 'number' &&
+                  latestSession.lastSeen > cutoff
+                ) {
+                  return false;
+                }
+              }
+            }
+
+            const latestSession = (await sessionRef.once('value')).val();
+            if (
+              latestSession?.deviceId === expectedDeviceId &&
+              latestSession?.isActive !== false &&
+              typeof latestSession?.lastSeen === 'number' &&
+              latestSession.lastSeen > cutoff
+            ) {
+              return false;
+            }
+
+            const locationRef = db.ref(`driverLocations/${driverId}`);
+            const offlineResult = await locationRef.transaction((current) => {
+              if (
+                !current ||
+                current.deviceId !== expectedDeviceId ||
+                current.status !== 'available'
+              ) {
+                return;
+              }
+              return {
+                ...current,
+                status: 'offline',
+                lat: null,
+                lng: null,
+                updatedAt: admin.database.ServerValue.TIMESTAMP,
+                lastSeen: admin.database.ServerValue.TIMESTAMP,
+              };
+            }, undefined, false);
+
+            if (!offlineResult.committed) return false;
+
+            const serviceAreaId =
+              typeof session?.serviceAreaId === 'string' && session.serviceAreaId.trim()
+                ? session.serviceAreaId.trim()
+                : DEFAULT_SERVICE_AREA_ID;
+            const updates: Record<string, null> = {
+              [`driverLocationsByArea/${serviceAreaId}/${driverId}`]: null,
+              [`driverLocationsByArea/${DEFAULT_SERVICE_AREA_ID}/${driverId}`]: null,
+              [`presence/${driverId}`]: null,
+            };
+            await db.ref().update(updates);
+            return true;
+          } catch (error: any) {
+            functions.logger.warn('[expireStaleDriverAvailability] No se pudo expirar conductor', {
+              driverId,
+              error: error?.message || error,
+            });
+            return false;
+          }
+        }),
+      );
+
+      return { success: true, offlineDrivers: results.filter(Boolean).length };
+    } catch (error: any) {
+      functions.logger.error('[expireStaleDriverAvailability] Error limpiando conductores obsoletos', {
+        error: error?.message || error,
+      });
+      return { success: false, error: error?.message || String(error) };
+    }
+  });

@@ -4,6 +4,8 @@ import { getFirebaseAuth, getFirebaseFunctions, getFirebaseDatabase } from '../.
 import { ref, onDisconnect, get } from 'firebase/database';
 import { useAuth } from '../auth/useAuth';
 import sessionService from '../../../services/sessionService';
+import alertService from '../../../services/alertService';
+import backgroundLocationService from '../../../services/backgroundLocationService';
 
 const DEFAULT_SERVICE_AREA_ID = 'ni-managua';
 
@@ -14,7 +16,7 @@ const DEFAULT_SERVICE_AREA_ID = 'ni-managua';
  * - presence/{uid}: { lastHeartbeat, role }
  */
 export function useClientPresence() {
-  const { user, userMode, loading } = useAuth();
+  const { user, userMode, loading, logout } = useAuth();
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const actionsRef = useRef<null | {
     markActive: ReturnType<typeof httpsCallable>;
@@ -30,6 +32,17 @@ export function useClientPresence() {
     }
 
     let cancelled = false;
+    let sessionConflictHandled = false;
+
+    const handleSessionConflict = async () => {
+      if (sessionConflictHandled) return;
+      sessionConflictHandled = true;
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      intervalRef.current = null;
+      await backgroundLocationService.stopBackgroundLocationTracking();
+      alertService.showSessionActiveAlert('No puedes seguir usando la cuenta: está activa en otro dispositivo.');
+      await logout();
+    };
 
     const setupOnDisconnect = async (uid: string) => {
       try {
@@ -95,10 +108,18 @@ export function useClientPresence() {
               deviceId: devId,
             });
           } catch (err) {
+            if (sessionService.isSessionActiveElsewhereError(err)) {
+              await handleSessionConflict();
+              return;
+            }
             console.warn('[useClientPresence] Heartbeat error:', (err as any)?.message || err);
           }
         }, 55 * 1000);
       } catch (error) {
+        if (sessionService.isSessionActiveElsewhereError(error)) {
+          await handleSessionConflict();
+          return;
+        }
         console.warn('[useClientPresence] setup error:', (error as any)?.message || error);
       }
     };
@@ -127,7 +148,7 @@ export function useClientPresence() {
           .catch(() => {});
       }
     };
-  }, [loading, user?.id, userMode]);
+  }, [loading, logout, user?.id, userMode]);
 
   return null;
 }

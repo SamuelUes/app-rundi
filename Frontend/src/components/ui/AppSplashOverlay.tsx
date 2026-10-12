@@ -14,8 +14,8 @@ import {
 } from 'react-native';
 
 const SPLASH_IMAGE = require('../../assets/images/splash-icon.png');
-const SPLASH_BACKGROUND = '#fff5dbce';
-const GOLD = '#fff5dbce';
+const SPLASH_BACKGROUND = '#dfd4b8ce';
+const GOLD = '#dfd4b8ce';
 // Debe coincidir con imageWidth del plugin expo-splash-screen en app.config.js
 const LOGO_WIDTH = 200;
 

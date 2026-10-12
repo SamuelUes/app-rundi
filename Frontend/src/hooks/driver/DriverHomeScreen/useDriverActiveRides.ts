@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { getFirebaseAuth, getFirebaseDatabase } from '../../../config/firebase';
 import { getActiveRidesByAreaPath } from '../../../utils/serviceArea';
 import { haversineKm } from '../../../utils/distance';
 import {
@@ -46,10 +47,14 @@ export function useDriverActiveRides({
 
     (async () => {
       try {
-        const { getDatabase, ref, onValue } = await import('firebase/database');
-        const db = getDatabase();
+        const auth = await getFirebaseAuth();
+        if (!auth.currentUser || auth.currentUser.uid !== userId) return;
+
+        const { ref, onValue } = await import('firebase/database');
+        const db = await getFirebaseDatabase();
         const { RIDES_RADIUS_KM } = await import('../../../constants/rideRadius');
         const SEARCH_RADIUS_KM = RIDES_RADIUS_KM;
+        if (!isMounted || !auth.currentUser || auth.currentUser.uid !== userId) return;
 
         const ridesPath = getActiveRidesByAreaPath(serviceAreaId || undefined);
         const pathConfigs = [
@@ -259,6 +264,12 @@ export function useDriverActiveRides({
               processSnapshot(selectSnapshotData());
             },
             (err) => {
+              if (!isMounted) return;
+              if (!auth.currentUser || auth.currentUser.uid !== userId) {
+                activeRideSnapshotsRef.current[key] = null;
+                processSnapshot(selectSnapshotData());
+                return;
+              }
               console.error(`❌ [DriverHomeScreen] Error escuchando ${path}:`, err);
               activeRideSnapshotsRef.current[key] = null;
               processSnapshot(selectSnapshotData());

@@ -15,7 +15,6 @@ import mainAuthService from '../../../services/auth/authService';
 import backgroundLocationService from '../../../services/backgroundLocationService';
 import sessionService from '../../../services/sessionService';
 import preflightService from '../../../services/preflightService';
-import alertService from '../../../services/alertService';
 import { clearPreflightResult } from '../../../stores/preflightStore';
 import { useAuthStore, User } from '../../../stores/authStore';
 import { resolveUserModeFromRole, useUserMode } from './useUserMode';
@@ -54,15 +53,24 @@ async function ensureTrackingIfNeeded(role?: User['role']) {
   }
 }
 
-async function startSessionWithPolicy() {
+async function startSessionWithPolicy(authService: any, setUser: (user: User | null) => void) {
+  if (!backendConfig.isFirebase()) return;
+
   try {
     await sessionService.startSession({ policy: 'deny' });
   } catch (err: any) {
+    try { await authService.logout(); } catch {}
+    await AsyncStorage.removeItem('user');
+    setUser(null);
+
     if (err?.code === 'SESSION_ACTIVE_ELSEWHERE') {
-      return false;
+      const error = new Error('SESSION_ACTIVE_ELSEWHERE');
+      (error as any).code = 'SESSION_ACTIVE_ELSEWHERE';
+      throw error;
     }
+
+    throw err;
   }
-  return true;
 }
 
 export function useAuthActions() {
@@ -78,19 +86,11 @@ export function useAuthActions() {
       try {
         const userData = await authService.login(email, password);
         const normalizedUser = normalizeUserData(userData);
+        await startSessionWithPolicy(authService, setUser);
         await AsyncStorage.setItem('user', JSON.stringify(normalizedUser));
         setUser(normalizedUser);
         await updateUserMode(resolveUserModeFromRole(normalizedUser.role));
         await ensureTrackingIfNeeded(normalizedUser.role);
-
-        const sessionOk = await startSessionWithPolicy();
-        if (!sessionOk) {
-          try { await authService.logout(); } catch {}
-          await AsyncStorage.removeItem('user');
-          setUser(null);
-          alertService.showErrorAlert('No puedes iniciar sesión: la cuenta ya está activa en otro dispositivo.');
-          throw new Error('SESSION_ACTIVE_ELSEWHERE');
-        }
       } catch (error: any) {
         if (error?.code === 'ACCOUNT_DISABLED' || error?.message === 'ACCOUNT_DISABLED') {
           throw new Error('Tu cuenta está desactivada. Contacta soporte para reactivarla.');
@@ -115,19 +115,11 @@ export function useAuthActions() {
         }
 
         const normalizedUser = normalizeUserData(userData);
+        await startSessionWithPolicy(authService, setUser);
         await AsyncStorage.setItem('user', JSON.stringify(normalizedUser));
         setUser(normalizedUser);
         await updateUserMode(resolveUserModeFromRole(normalizedUser.role));
         await ensureTrackingIfNeeded(normalizedUser.role);
-
-        const sessionOk = await startSessionWithPolicy();
-        if (!sessionOk) {
-          try { await authService.logout(); } catch {}
-          await AsyncStorage.removeItem('user');
-          setUser(null);
-          alertService.showErrorAlert('No puedes completar el registro: la cuenta ya está activa en otro dispositivo.');
-          throw new Error('SESSION_ACTIVE_ELSEWHERE');
-        }
       } catch (error) {
         console.error('Register error:', error);
         throw error;
@@ -148,8 +140,6 @@ export function useAuthActions() {
         console.log('⚠️ No se pudo detener tracking:', bgError);
       }
 
-      try { await sessionService.endSession(); } catch {}
-
       const isDriverRole = user?.role === 'driver' || user?.role === 'designated_driver';
       if (isDriverRole && backendConfig.isFirebase()) {
         try {
@@ -158,6 +148,7 @@ export function useAuthActions() {
           const firebaseUser = auth.currentUser;
           if (firebaseUser) {
             await set(ref(database, `driverLocations/${firebaseUser.uid}`), {
+              deviceId: await sessionService.getDeviceId(),
               status: 'offline',
               updatedAt: serverTimestamp(),
               lastSeen: serverTimestamp(),
@@ -172,6 +163,7 @@ export function useAuthActions() {
         }
       }
 
+      try { await sessionService.endSession(); } catch {}
       await authService.logout();
       await AsyncStorage.removeItem('user');
       await AsyncStorage.removeItem('userMode');
@@ -189,21 +181,13 @@ export function useAuthActions() {
   const loginWithGoogle = useCallback(
     async (userData: any) => {
       try {
-        await AsyncStorage.setItem('user', JSON.stringify(userData));
         const normalizedRole = (normalizeRoleValue(userData.role) || 'client') as User['role'];
+        await startSessionWithPolicy(authService, setUser);
+        await AsyncStorage.setItem('user', JSON.stringify(userData));
         const currentUser = useAuthStore.getState().user;
         setUser(currentUser ? { ...currentUser, role: normalizedRole } : userData);
         await updateUserMode(resolveUserModeFromRole(normalizedRole));
         await ensureTrackingIfNeeded(normalizedRole);
-
-        const sessionOk = await startSessionWithPolicy();
-        if (!sessionOk) {
-          try { await authService.logout(); } catch {}
-          await AsyncStorage.removeItem('user');
-          setUser(null);
-          alertService.showErrorAlert('No puedes iniciar sesión: la cuenta ya está activa en otro dispositivo.');
-          throw new Error('SESSION_ACTIVE_ELSEWHERE');
-        }
       } catch (error) {
         console.error('Google login error:', error);
         throw error;
@@ -225,20 +209,12 @@ export function useAuthActions() {
           role: (normalizeRoleValue(payload.role) || 'client') as User['role'],
         };
 
+        await startSessionWithPolicy(authService, setUser);
         await AsyncStorage.setItem('user', JSON.stringify(normalizedUser));
         if (token) await AsyncStorage.setItem('authToken', token);
         setUser(normalizedUser);
         await updateUserMode(resolveUserModeFromRole(normalizedUser.role));
         await ensureTrackingIfNeeded(normalizedUser.role);
-
-        const sessionOk = await startSessionWithPolicy();
-        if (!sessionOk) {
-          try { await authService.logout(); } catch {}
-          await AsyncStorage.removeItem('user');
-          setUser(null);
-          alertService.showErrorAlert('No puedes completar el registro: la cuenta ya está activa en otro dispositivo.');
-          throw new Error('SESSION_ACTIVE_ELSEWHERE');
-        }
       } catch (error) {
         console.error('Google register error:', error);
         throw error;
@@ -295,26 +271,18 @@ export function useAuthActions() {
           role: finalRole as User['role'],
         };
 
+        await startSessionWithPolicy(authService, setUser);
         await AsyncStorage.setItem('user', JSON.stringify(normalizedUser));
         if (token) await AsyncStorage.setItem('authToken', token);
         setUser(normalizedUser);
         await updateUserMode(resolveUserModeFromRole(normalizedUser.role));
         await ensureTrackingIfNeeded(normalizedUser.role);
-
-        const sessionOk = await startSessionWithPolicy();
-        if (!sessionOk) {
-          try { await authService.logout(); } catch {}
-          await AsyncStorage.removeItem('user');
-          setUser(null);
-          alertService.showErrorAlert('No puedes iniciar sesión: la cuenta ya está activa en otro dispositivo.');
-          throw new Error('SESSION_ACTIVE_ELSEWHERE');
-        }
       } catch (error) {
         console.error('Phone SMS login error:', error);
         throw error;
       }
     },
-    [setUser, updateUserMode],
+    [authService, setUser, updateUserMode],
   );
 
   const getToken = useCallback(async (): Promise<string | null> => {

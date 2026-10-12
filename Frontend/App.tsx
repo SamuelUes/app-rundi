@@ -80,7 +80,7 @@ function AppContent() {
   return (
     <SafeAreaProvider>
       <View
-        style={{ flex: 1, backgroundColor: '#0F2628' }}
+        style={{ flex: 1, backgroundColor: '#dfd4b8ce' }}
         onLayout={hideNativeSplash}
       >
         {appReady && (

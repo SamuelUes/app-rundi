@@ -38,6 +38,25 @@ function assertRole(role: unknown): asserts role is "driver" | "client" {
   }
 }
 
+async function updateSessionActivity(uid: string, deviceId: string | undefined, isActive: boolean) {
+  if (!deviceId) {
+    throw new functions.https.HttpsError('invalid-argument', 'deviceId requerido');
+  }
+
+  const result = await db.ref(`sessions/${uid}`).transaction((session) => {
+    if (!session || session.deviceId !== deviceId) return;
+    return {
+      ...session,
+      isActive,
+      lastSeen: admin.database.ServerValue.TIMESTAMP,
+    };
+  }, undefined, false);
+
+  if (!result.committed) {
+    throw new functions.https.HttpsError('failed-precondition', 'SESSION_ACTIVE_ELSEWHERE');
+  }
+}
+
 type DriverLocationPayload = {
   latitude?: number;
   longitude?: number;
@@ -60,19 +79,12 @@ export const markAppClosed = functions.runWith(presenceRuntimeOpts).https.onCall
   const uid = context.auth.uid;
   const deviceId = typeof data?.deviceId === 'string' ? data.deviceId : undefined;
 
+  await updateSessionActivity(uid, deviceId, false);
+
   if (role === "driver") {
     await cleanupPresenceNodes({ driverIds: [uid] });
   } else {
     await cleanupPresenceNodes({ clientIds: [uid] });
-  }
-
-  // Actualizar sesión (lastSeen) si existe
-  try {
-    if (deviceId) {
-      await db.ref(`sessions/${uid}`).update({ lastSeen: admin.database.ServerValue.TIMESTAMP });
-    }
-  } catch (e) {
-    functions.logger.warn('[markAppClosed] No se pudo actualizar lastSeen de sesión', { uid, error: (e as any)?.message || e });
   }
 
   return { success: true };
@@ -92,20 +104,7 @@ export const markAppActive = functions.runWith(presenceRuntimeOpts).https.onCall
   const keepAvailability = data?.keepAvailability === true;
 
   try {
-    // Validar sesión activa si se envía deviceId
-    if (deviceId) {
-      const sessionSnap = await db.ref(`sessions/${uid}`).once('value');
-      const session = sessionSnap.val();
-      if (session && session.deviceId && session.deviceId !== deviceId) {
-        // Considerar activa si lastSeen es reciente (<= 2 min)
-        const lastSeen = typeof session.lastSeen === 'number' ? session.lastSeen : Date.now();
-        if (Date.now() - lastSeen <= 2 * 60 * 1000) {
-          throw new functions.https.HttpsError('failed-precondition', 'SESSION_ACTIVE_ELSEWHERE');
-        }
-      }
-      // Mantener lastSeen actualizado
-      await db.ref(`sessions/${uid}`).update({ lastSeen: now, deviceId });
-    }
+    await updateSessionActivity(uid, deviceId, true);
 
     if (role === "driver") {
       try {
@@ -132,6 +131,7 @@ export const markAppActive = functions.runWith(presenceRuntimeOpts).https.onCall
       };
 
       const driverLocationUpdate: Record<string, any> = {
+        deviceId,
         updatedAt: now,
         lastSeen: now,
       };
@@ -222,6 +222,7 @@ export const markAppActive = functions.runWith(presenceRuntimeOpts).https.onCall
 
       const updates: Promise<unknown>[] = [
         db.ref(`presence/${uid}`).update({
+          deviceId,
           lastHeartbeat: now,
           role: "client",
           lastSeen: now,
@@ -230,6 +231,7 @@ export const markAppActive = functions.runWith(presenceRuntimeOpts).https.onCall
 
       if (hasLocation && !isZeroCoordinates) {
         const clientLocationPayload: Record<string, any> = {
+          deviceId,
           latitude: location!.latitude as number,
           longitude: location!.longitude as number,
           isManual: typeof location?.isManual === "boolean" ? location.isManual : false,
@@ -306,6 +308,7 @@ export const markAppActive = functions.runWith(presenceRuntimeOpts).https.onCall
       role,
       error: error?.message || error,
     });
+    if (error instanceof functions.https.HttpsError) throw error;
     throw new functions.https.HttpsError(
       "internal",
       error?.message || "Error actualizando presencia"

@@ -6,6 +6,8 @@ import { useAuth } from '../auth/useAuth';
 import { AppState, AppStateStatus } from 'react-native';
 import sessionService from '../../../services/sessionService';
 import driverAvailabilityService from '../../../services/driverAvailabilityService';
+import alertService from '../../../services/alertService';
+import backgroundLocationService from '../../../services/backgroundLocationService';
 
 const DEFAULT_SERVICE_AREA_ID = 'ni-managua';
 
@@ -18,7 +20,7 @@ const DEFAULT_SERVICE_AREA_ID = 'ni-managua';
  * - Pierde conexión a internet
  */
 export function usePresence() {
-  const { user, userMode } = useAuth();
+  const { user, userMode, logout } = useAuth();
   const appState = useRef(AppState.currentState);
   const actionsRef = useRef<null | {
     markActive: ReturnType<typeof httpsCallable>;
@@ -26,13 +28,27 @@ export function usePresence() {
   }>(null);
   const disconnectSetupRef = useRef(false);
   const disconnectUidRef = useRef<string | null>(null);
+  const sessionHeartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const sessionConflictUidRef = useRef<string | null>(null);
+  const initializedPresenceUidRef = useRef<string | null>(null);
 
   useEffect(() => {
     const isDriverCapable = user?.role === 'driver' || user?.role === 'designated_driver';
     // Solo configurar presencia para conductores autenticados en modo conductor
     if (!user?.id || !isDriverCapable || userMode !== 'driver') {
+      initializedPresenceUidRef.current = null;
       return;
     }
+
+    const handleSessionConflict = async () => {
+      if (sessionConflictUidRef.current === user.id) return;
+      sessionConflictUidRef.current = user.id;
+      if (sessionHeartbeatRef.current) clearInterval(sessionHeartbeatRef.current);
+      sessionHeartbeatRef.current = null;
+      await backgroundLocationService.stopBackgroundLocationTracking();
+      alertService.showSessionActiveAlert('No puedes seguir usando la cuenta: está activa en otro dispositivo.');
+      await logout();
+    };
 
     // Configurar handlers onDisconnect para limpieza automática cuando la conexión se pierde
     const setupOnDisconnect = async (uid: string) => {
@@ -119,14 +135,34 @@ export function usePresence() {
 
         const deviceId = await sessionService.getDeviceId();
         const availability = await driverAvailabilityService.getAvailabilityState();
-        await markActive({ role: 'driver', deviceId, keepAvailability: Boolean(availability?.isAvailable) });
+        const preserveAvailability =
+          initializedPresenceUidRef.current === user.id && Boolean(availability?.isAvailable);
+        await markActive({ role: 'driver', deviceId, keepAvailability: preserveAvailability });
+        initializedPresenceUidRef.current = user.id;
+        sessionConflictUidRef.current = null;
 
         // Configurar onDisconnect después de markAppActive exitoso
         await setupOnDisconnect(user.id);
 
+        if (sessionHeartbeatRef.current) clearInterval(sessionHeartbeatRef.current);
+        sessionHeartbeatRef.current = setInterval(async () => {
+          try {
+            await sessionService.startSession({ policy: 'deny' });
+          } catch (error: any) {
+            if (sessionService.isSessionActiveElsewhereError(error)) {
+              await handleSessionConflict();
+              return;
+            }
+            console.warn('⚠️ [presence] No se pudo renovar la sesión:', error?.message || error);
+          }
+        }, 55_000);
+
         console.log('✅ Sistema de presencia configurado vía backend - Status inicial: offline');
       } catch (error: any) {
-        // Solo log el error, no bloquear la app
+        if (sessionService.isSessionActiveElsewhereError(error)) {
+          await handleSessionConflict();
+          return;
+        }
         console.error('❌ Error configurando presencia:', error?.message || error);
       }
     };
@@ -159,7 +195,11 @@ export function usePresence() {
             console.log('📱 App en background con disponibilidad activa - manteniendo status');
           } else {
             console.log('📱 App en background, marcando como offline...');
-            actions.markClosed({ role: 'driver', deviceId }).catch((err: any) => {
+            actions.markClosed({ role: 'driver', deviceId }).catch(async (err: any) => {
+              if (sessionService.isSessionActiveElsewhereError(err)) {
+                await handleSessionConflict();
+                return;
+              }
               console.warn('⚠️ [presence] markAppClosed falló en background (onDisconnect respalda):', err?.message || err);
             });
           }
@@ -178,7 +218,11 @@ export function usePresence() {
         }
 
         appState.current = nextAppState;
-      } catch (error) {
+      } catch (error: any) {
+        if (sessionService.isSessionActiveElsewhereError(error)) {
+          await handleSessionConflict();
+          return;
+        }
         console.error('❌ Error en handleAppStateChange:', error);
       }
     };
@@ -189,6 +233,8 @@ export function usePresence() {
     // Cleanup: best-effort markAppClosed, onDisconnect es el respaldo confiable
     return () => {
       subscription.remove();
+      if (sessionHeartbeatRef.current) clearInterval(sessionHeartbeatRef.current);
+      sessionHeartbeatRef.current = null;
 
       const actions = actionsRef.current;
       if (actions && isDriverCapable) {
@@ -209,7 +255,7 @@ export function usePresence() {
           .catch(() => {});
       }
     };
-  }, [user?.id, user?.role, userMode]);
+  }, [logout, user?.id, user?.role, userMode]);
 
   return null;
 }

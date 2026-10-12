@@ -142,7 +142,7 @@ export const notifyProximityRide = functions.https.onCall(async (data: NotifyPro
       ride: JSON.stringify(ride),
       nearbyRides: JSON.stringify(Array.isArray(data?.nearbyRides) ? data?.nearbyRides : []),
     },
-    androidChannelId: "default",
+    androidChannelId: "rundi-default-v2",
     notificationKey: `proximity-ride-${ride.id}`,
     expiresInMs: 10 * 1000,
   });
@@ -188,7 +188,7 @@ export const sendTestNotification = functions.https.onCall(async (_data, context
     data: {
       type: "general",
     },
-    androidChannelId: "default",
+    androidChannelId: "rundi-default-v2",
     notificationKey: `test-${Date.now()}`,
     expiresInMs: 120_000,
   });

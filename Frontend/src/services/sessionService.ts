@@ -4,6 +4,12 @@ import { httpsCallable } from 'firebase/functions';
 import { getFirebaseFunctions, getFirebaseAuth } from '../config/firebase';
 
 const DEVICE_ID_KEY = 'deviceId';
+let deviceIdPromise: Promise<string> | null = null;
+
+export function isSessionActiveElsewhereError(error: any): boolean {
+  return error?.code === 'SESSION_ACTIVE_ELSEWHERE' ||
+    (typeof error?.message === 'string' && error.message.includes('SESSION_ACTIVE_ELSEWHERE'));
+}
 
 async function tryGetNativeDeviceId(): Promise<string | null> {
   try {
@@ -30,16 +36,24 @@ function generateLocalId(): string {
 }
 
 export async function getDeviceId(): Promise<string> {
-  const cached = await AsyncStorage.getItem(DEVICE_ID_KEY);
-  if (cached) return cached;
+  if (!deviceIdPromise) {
+    deviceIdPromise = (async () => {
+      const cached = await AsyncStorage.getItem(DEVICE_ID_KEY);
+      if (cached) return cached;
 
-  const nativeId = await tryGetNativeDeviceId();
-  const id = nativeId || generateLocalId();
-  await AsyncStorage.setItem(DEVICE_ID_KEY, id);
-  return id;
+      const nativeId = await tryGetNativeDeviceId();
+      const id = nativeId || generateLocalId();
+      await AsyncStorage.setItem(DEVICE_ID_KEY, id);
+      return id;
+    })().catch((error) => {
+      deviceIdPromise = null;
+      throw error;
+    });
+  }
+  return deviceIdPromise;
 }
 
-export async function startSession(options?: { policy?: 'deny' | 'takeover'; model?: string; fcmToken?: string }) {
+export async function startSession(options?: { policy?: 'deny'; model?: string; fcmToken?: string }) {
   const auth = await getFirebaseAuth();
   const current = auth.currentUser;
   if (!current) {
@@ -61,10 +75,8 @@ export async function startSession(options?: { policy?: 'deny' | 'takeover'; mod
     });
     return { success: true };
   } catch (err: any) {
-    const code = err?.code || err?.error?.code;
-    const message = err?.message || '';
-    // Mapear HttpsError 'failed-precondition' con detalle de sesión activa
-    if (code === 'functions/failed-precondition' || message.includes('SESSION_ACTIVE_ELSEWHERE')) {
+    const message = `${err?.message || ''} ${err?.details || ''}`;
+    if (message.includes('SESSION_ACTIVE_ELSEWHERE')) {
       const error = new Error('SESSION_ACTIVE_ELSEWHERE');
       (error as any).code = 'SESSION_ACTIVE_ELSEWHERE';
       throw error;
@@ -79,7 +91,7 @@ export async function endSession() {
     if (!auth.currentUser) return;
     const functions = await getFirebaseFunctions();
     const callable = httpsCallable(functions, 'endSession');
-    await callable({});
+    await callable({ deviceId: await getDeviceId() });
   } catch (e) {
     // No bloquear logout por error de endSession
   }
@@ -89,4 +101,5 @@ export default {
   getDeviceId,
   startSession,
   endSession,
+  isSessionActiveElsewhereError,
 };

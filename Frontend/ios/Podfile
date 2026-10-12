@@ -70,20 +70,6 @@ target 'Rundi' do
       :mac_catalyst_enabled => false,
       :ccache_enabled => ccache_enabled?(podfile_properties),
     )
-  end
-end
-
-
-# apple-targets-extension-loader -- Dynamic loading of target configurations
-Dir.glob(File.join(__dir__, '..', 'targets', '**', 'pods.rb')).each do |target_file|
-  target_name = File.basename(File.dirname(target_file))
-  target target_name do
-    # Create a new binding with access to necessary methods and variables
-    target_binding = binding
-    target_binding.local_variable_set(:podfile_properties, podfile_properties)
-
-    # Evaluate the target file content in the new binding
-    eval(File.read(target_file), target_binding, target_file)
 
     # RundiNative: custom post_install
     installer.pods_project.targets.each do |t|
@@ -129,5 +115,19 @@ Dir.glob(File.join(__dir__, '..', 'targets', '**', 'pods.rb')).each do |target_f
       end
       agg.user_project.save
     end rescue nil
+  end
+end
+
+
+# apple-targets-extension-loader -- Dynamic loading of target configurations
+Dir.glob(File.join(__dir__, '..', 'targets', '**', 'pods.rb')).each do |target_file|
+  target_name = File.basename(File.dirname(target_file))
+  target target_name do
+    # Create a new binding with access to necessary methods and variables
+    target_binding = binding
+    target_binding.local_variable_set(:podfile_properties, podfile_properties)
+
+    # Evaluate the target file content in the new binding
+    eval(File.read(target_file), target_binding, target_file)
   end
 end

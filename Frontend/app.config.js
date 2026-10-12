@@ -44,7 +44,7 @@ export default {
     allowBackup: false,
     googleServicesFile: "./google-services.json",
     adaptiveIcon: {
-      foregroundImage: './src/assets/images/rundi_logo2.png',
+      foregroundImage: './src/assets/images/rundi_logo.png',
       backgroundColor: '#FFFFFF',
     },
     permissions: [
@@ -106,7 +106,6 @@ export default {
     }
   },
   plugins: [
-    './modules/rundi-native/app.plugin.js',
     '@bacons/apple-targets',
     [
       'expo-location',
@@ -126,7 +125,7 @@ export default {
         image: './src/assets/images/splash-icon.png',
         imageWidth: 200,
         resizeMode: 'contain',
-        backgroundColor: '#FFF5DB',
+        backgroundColor: '#dfd4b8',
         dark: {
           image: './src/assets/images/splash-icon.png',
           backgroundColor: '#373587',
@@ -145,6 +144,7 @@ export default {
         icon: './src/assets/images/rundi_logo.png',
         color: '#FFF5DB',
         sounds: ['./src/assets/sounds/notification.wav'],
+        defaultChannel: 'rundi-default-v2',
         mode: 'production',
         enableBackgroundRemoteNotifications: true,
       },
@@ -175,6 +175,7 @@ export default {
       },
     ],
     './scripts/with-unsigned-build.cjs',
+    './modules/rundi-native/app.plugin.js',
   ],
   extra: {
     eas: {

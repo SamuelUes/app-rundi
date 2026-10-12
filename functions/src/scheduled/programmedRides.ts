@@ -30,7 +30,7 @@ const programmedNotify = (
   return notifyUserSafe(userId, title, body, restData, {
     type: (type as any) ?? 'programmed_ride_reminder',
     notificationKeyPrefix: 'programmed-ride',
-    androidChannelId: 'default',
+    androidChannelId: 'rundi-default-v2',
     expiresInMs: 15 * 60 * 1000,
   });
 };

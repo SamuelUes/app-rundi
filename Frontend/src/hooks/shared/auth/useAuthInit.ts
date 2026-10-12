@@ -18,6 +18,8 @@ import { clearPreflightResult } from '../../../stores/preflightStore';
 import { useAuthStore, User } from '../../../stores/authStore';
 import { resolveUserModeFromRole } from './useUserMode';
 
+let authStartupSessionConflict = false;
+
 function normalizeRoleValue(role: any): User['role'] | null {
   const normalized = typeof role === 'string' ? role.trim().toLowerCase() : '';
   if (
@@ -74,6 +76,27 @@ export function useAuthInit() {
                   preflightService.clearCache();
                   clearPreflightResult();
                   observedRole = role;
+                }
+                try {
+                  await sessionService.startSession({ policy: 'deny' });
+                  authStartupSessionConflict = false;
+                } catch (sessionError: any) {
+                  if (observedUid !== firebaseUser.uid) return;
+                  authStartupSessionConflict = sessionError?.code === 'SESSION_ACTIVE_ELSEWHERE';
+                  try {
+                    const backgroundLocationService = (await import('../../../services/backgroundLocationService')).default;
+                    await backgroundLocationService.stopBackgroundLocationTracking();
+                  } catch {}
+                  try { await firebaseAuthService.logout(); } catch {}
+                  await AsyncStorage.removeItem('user');
+                  setUser(null);
+                  setUserMode('client');
+                  if (authStartupSessionConflict) {
+                    alertService.showSessionActiveAlert('No puedes iniciar sesión porque tu cuenta ya está activa en otro dispositivo.');
+                  } else {
+                    alertService.showErrorAlert('No pudimos verificar tu sesión. Comprueba tu conexión e inténtalo de nuevo.');
+                  }
+                  return;
                 }
                 setUser({
                   id: firebaseUser.uid,
@@ -189,12 +212,15 @@ export function useAuthInit() {
         if (!firebaseUser || firebaseUser.uid !== parsedUser.id) {
           await AsyncStorage.removeItem('user');
           setUser(null);
-          alertService.showErrorAlert('Tu sesión caducó. Por favor inicia sesión nuevamente.');
+          if (authStartupSessionConflict) {
+            authStartupSessionConflict = false;
+          } else {
+            alertService.showErrorAlert('Tu sesión caducó. Por favor inicia sesión nuevamente.');
+          }
           setLoading(false);
           return;
         }
 
-        setUser(parsedUser);
         try {
           const storedMode = await AsyncStorage.getItem('userMode');
           if (storedMode === 'client' || storedMode === 'driver') {
@@ -207,20 +233,27 @@ export function useAuthInit() {
           const mode = resolveUserModeFromRole(parsedUser.role);
           setUserMode(mode);
         }
-        await ensureTrackingIfNeeded(parsedUser.role);
-
         try {
           await sessionService.startSession({ policy: 'deny' });
         } catch (err: any) {
+          try {
+            const backgroundLocationService = (await import('../../../services/backgroundLocationService')).default;
+            await backgroundLocationService.stopBackgroundLocationTracking();
+          } catch {}
+          try { await firebaseAuthService.logout(); } catch {}
+          await AsyncStorage.removeItem('user');
+          setUser(null);
           if (err?.code === 'SESSION_ACTIVE_ELSEWHERE') {
-            try { await firebaseAuthService.logout(); } catch {}
-            await AsyncStorage.removeItem('user');
-            setUser(null);
-            alertService.showErrorAlert('No puedes acceder: tu cuenta ya está activa en otro dispositivo.');
-            setLoading(false);
-            return;
+            alertService.showSessionActiveAlert('No puedes iniciar sesión porque tu cuenta ya está activa en otro dispositivo.');
+          } else {
+            alertService.showErrorAlert('No pudimos verificar tu sesión. Comprueba tu conexión e inténtalo de nuevo.');
           }
+          setLoading(false);
+          return;
         }
+
+        setUser(parsedUser);
+        await ensureTrackingIfNeeded(parsedUser.role);
       }
     } catch (error) {
       console.error('Error loading user:', error);

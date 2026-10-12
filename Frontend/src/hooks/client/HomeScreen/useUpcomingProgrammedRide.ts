@@ -102,9 +102,9 @@ const scheduleReminder = async (rideId: string, scheduledAt: number) => {
         defaultValue: 'Tu viaje es en 30 minutos. Ábrelo para confirmarlo.',
       }),
       data: { type: 'programmed_ride_reminder', rideId },
-      sound: 'default',
+      sound: 'notification.wav',
       priority: Notifications.AndroidNotificationPriority.HIGH,
-      ...(Platform.OS === 'android' ? { channelId: 'default' } : {}),
+      ...(Platform.OS === 'android' ? { channelId: 'rundi-default-v2' } : {}),
     },
     trigger: {
       type: Notifications.SchedulableTriggerInputTypes.DATE,

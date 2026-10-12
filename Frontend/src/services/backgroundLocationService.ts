@@ -9,6 +9,7 @@ import * as TaskManager from 'expo-task-manager';
 import * as ExpoLocation from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import firebaseTrackingService from './firebaseTrackingService';
+import sessionService from './sessionService';
 import { AppState, AppStateStatus, Platform } from 'react-native';
 import { handleLocationForProximity, isRegistrationUploadsInProgress } from './proximityService';
 import { ensureActivityRecognitionPermission } from '../utils/activityPermission';
@@ -20,6 +21,7 @@ import i18n from '../i18n';
 // Constantes para las tareas en segundo plano
 const BACKGROUND_LOCATION_TASK = 'background-location-task';
 const LOCATION_TRACKING_STORAGE_KEY = 'location-tracking-state';
+const SESSION_HEARTBEAT_STORAGE_PREFIX = 'location-session-heartbeat:';
 const WORK_MANAGER_INTERVAL_MINUTES = 30;
 
 // Función para obtener configuración de ubicación en segundo plano
@@ -76,6 +78,7 @@ const getTrackingOptionsHash = (): string => {
 
 // Estado actual en memoria
 let currentTrackingState: TrackingState = { ...initialTrackingState };
+let lastSessionRefreshAt = 0;
 
 // Variable para controlar si la tarea ya fue definida
 let isTaskDefined = false;
@@ -231,6 +234,23 @@ const defineBackgroundTask = () => {
 
       // Actualizar ubicación según el rol
       try {
+        const heartbeatKey = `${SESSION_HEARTBEAT_STORAGE_PREFIX}${trackingState.userId}`;
+        const storedHeartbeatAt = Number(await AsyncStorage.getItem(heartbeatKey)) || 0;
+        const lastHeartbeatAt = Math.max(lastSessionRefreshAt, storedHeartbeatAt);
+        if (Date.now() - lastHeartbeatAt >= 45_000) {
+          lastSessionRefreshAt = Date.now();
+          await AsyncStorage.setItem(heartbeatKey, String(lastSessionRefreshAt)).catch(() => undefined);
+          try {
+            await sessionService.startSession({ policy: 'deny' });
+          } catch (sessionError: any) {
+            if (sessionService.isSessionActiveElsewhereError(sessionError)) {
+              await stopBackgroundLocationTracking();
+              return;
+            }
+            throw sessionError;
+          }
+        }
+
         if (trackingState.role === 'driver' && trackingState.userId) {
           // Actualizar ubicación del conductor
           await firebaseTrackingService.updateDriverLocation(trackingState.userId, {

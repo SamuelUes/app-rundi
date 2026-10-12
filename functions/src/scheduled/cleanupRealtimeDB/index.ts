@@ -11,4 +11,4 @@ export { cleanupRideLocations } from './cleanupRideLocations';
 export { cleanupChatMessages } from './cleanupChatMessages';
 export { cleanupNotifications } from './cleanupNotifications';
 export { cleanupPresenceHistory } from './cleanupPresenceHistory';
-export { cleanupInactiveUsers } from './cleanupInactiveUsers';
+export { cleanupInactiveUsers, expireStaleDriverAvailability } from './cleanupInactiveUsers';
