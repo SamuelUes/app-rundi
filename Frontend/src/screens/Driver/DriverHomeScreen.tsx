@@ -5,7 +5,6 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  Platform,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -31,10 +30,8 @@ import { useDriverPendingAction } from '../../hooks/driver/DriverHomeScreen/useD
 import { useDriverVoiceAnnouncements } from '../../hooks/driver/DriverHomeScreen/useDriverVoiceAnnouncements';
 import { useDriverTodayStats } from '../../hooks/driver/DriverHomeScreen/useDriverTodayStats';
 import { useDriverOfferCache } from '../../hooks/driver/DriverHomeScreen/useDriverOfferCache';
-import { useDriverMenu } from '../../hooks/driver/DriverHomeScreen/useDriverMenu';
 import { DriverHomeHeader } from '../../components/driver/DriverHome/DriverHomeHeader';
 import { DriverHomeBanners } from '../../components/driver/DriverHome/DriverHomeBanners';
-import { DriverHomeSideMenu } from '../../components/driver/DriverHome/DriverHomeSideMenu';
 import { DriverHomeBottomBar } from '../../components/driver/DriverHome/DriverHomeBottomBar';
 import type { ImageSourcePropType } from 'react-native';
 
@@ -125,7 +122,6 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   const nearbyDriversMarkers = useNearbyDriversMarkers(coords, isAvailable, user?.id, serviceAreaId, driverInfoCacheRef);
   const { offerCacheEntries } = useDriverOfferCache(user?.id);
   const { todayStats } = useDriverTodayStats(navigation, markTaskCompleted);
-  const { menuVisible, menuOpacity, menuTranslate, panelWidth, openMenu, closeMenu, toggleMenu } = useDriverMenu();
 
   const { pendingAction } = useDriverPendingAction({
     hasInsufficientFunds, pendingPayments, pendingOfferTarget, pendingNegotiationRide,
@@ -138,7 +134,6 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   });
 
   const handleNavigate = (route: keyof DriverStackParamList) => {
-    closeMenu();
     navigation.navigate(route);
   };
 
@@ -146,7 +141,6 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
     if (logoutInProgress) return;
     try {
       await logout();
-      closeMenu();
     } catch (error) {
       console.error('❌ Error cerrando sesión:', error);
     }
@@ -285,8 +279,6 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
           userPhotoUri={profilePhotoUri}
           isAvailable={isAvailable}
           activeRideId={activeRide?.id}
-          onToggleMenu={toggleMenu}
-          onCloseMenu={closeMenu}
           onNavigateProfile={() => navigation.navigate('DriverProfile')}
           styles={styles}
           t={t}
@@ -323,22 +315,6 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
         t={t}
       />
 
-      <DriverHomeSideMenu
-        visible={menuVisible}
-        menuOpacity={menuOpacity}
-        menuTranslate={menuTranslate}
-        panelWidth={panelWidth}
-        userName={user?.name}
-        userPhotoUri={profilePhotoUri}
-        userRole={user?.role}
-        colors={colors}
-        onClose={closeMenu}
-        onNavigate={handleNavigate}
-        onLogout={handleLogout}
-        styles={styles}
-        t={t}
-      />
-
       <DriverHomeBottomBar
         userRole={user?.role}
         isAvailable={isAvailable}
@@ -353,6 +329,8 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
         onToggleDesignated={handleDesignatedToggle}
         onNavigateAvailableRides={() => navigation.navigate('AvailableRides')}
         onNavigateEarnings={() => navigation.navigate('Earnings')}
+        onNavigate={handleNavigate}
+        onLogout={handleLogout}
         styles={styles}
         t={t}
       />
@@ -518,7 +496,7 @@ const createStyles = (
       position: 'absolute',
       left: 16,
       right: 16,
-      bottom: insets.bottom + 96,
+      bottom: insets.bottom + 148,
       gap: 10,
       zIndex: 25,
     },
@@ -607,137 +585,6 @@ const createStyles = (
     bannerChevronDark: {
       backgroundColor: 'rgba(36,26,9,0.14)',
     },
-    // Side menu (floating panel)
-    menuOverlay: {
-      position: 'absolute',
-      top: 0,
-      right: 0,
-      bottom: 0,
-      left: 0,
-      zIndex: 50,
-      alignItems: 'flex-end',
-    },
-    menuBackdrop: {
-      position: 'absolute',
-      top: 0,
-      right: 0,
-      bottom: 0,
-      left: 0,
-      backgroundColor: 'rgba(12,9,6,0.42)',
-    },
-    menuContainer: {
-      marginTop: insets.top + 56,
-      marginBottom: Platform.select({ ios: 24, android: 20 }),
-      marginRight: 12,
-      backgroundColor: isDark ? '#1C1814' : 'rgba(255,255,255,0.98)',
-      borderRadius: 24,
-      padding: 14,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(28,25,23,0.08)',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 16 },
-      shadowOpacity: isDark ? 0.5 : 0.22,
-      shadowRadius: 24,
-      elevation: 24,
-    },
-    menuHeaderRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 12,
-      paddingHorizontal: 4,
-      paddingBottom: 14,
-      marginBottom: 8,
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(28,25,23,0.08)',
-    },
-    menuAvatar: {
-      width: 44,
-      height: 44,
-      borderRadius: 22,
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: '#B38737',
-      overflow: 'hidden',
-    },
-    menuAvatarImage: {
-      width: '100%',
-      height: '100%',
-    },
-    menuAvatarText: {
-      fontFamily: '',
-      fontSize: 17,
-      fontWeight: '800',
-      color: '#241A09',
-    },
-    menuHeaderTextCol: {
-      flex: 1,
-      gap: 1,
-    },
-    menuHeaderName: {
-      fontFamily: '',
-      fontSize: 16,
-      fontWeight: '700',
-      color: colors.text,
-    },
-    menuHeaderRole: {
-      fontFamily: '',
-      fontSize: 12,
-      fontWeight: '500',
-      color: colors.textSecondary,
-    },
-    menuCloseBtn: {
-      width: 32,
-      height: 32,
-      borderRadius: 16,
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(28,25,23,0.06)',
-    },
-    menuSection: {
-      gap: 4,
-    },
-    menuItem: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 12,
-      paddingVertical: 9,
-      paddingHorizontal: 10,
-      borderRadius: 16,
-    },
-    menuItemIcon: {
-      width: 34,
-      height: 34,
-      borderRadius: 11,
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: 'rgba(179,135,55,0.14)',
-    },
-    menuLabel: {
-      flex: 1,
-      fontFamily: '',
-      color: colors.text,
-      fontSize: 15,
-      fontWeight: '600',
-    },
-    menuDivider: {
-      height: StyleSheet.hairlineWidth,
-      backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(28,25,23,0.08)',
-      marginVertical: 10,
-      marginHorizontal: 4,
-    },
-    logoutItem: {
-      backgroundColor: 'rgba(198,40,40,0.08)',
-    },
-    logoutIconBadge: {
-      backgroundColor: 'rgba(198,40,40,0.14)',
-    },
-    logoutLabel: {
-      flex: 1,
-      fontFamily: '',
-      color: '#D32F2F',
-      fontSize: 15,
-      fontWeight: '700',
-    },
     // Bottom dock
     bottomBar: {
       position: 'absolute',
@@ -765,7 +612,7 @@ const createStyles = (
       elevation: 10,
     },
     designatedChipActive: {
-      backgroundColor: '#B38737',
+      backgroundColor: colors.SecondBorder,
       borderColor: 'transparent',
     },
     designatedChipDisabled: {
@@ -778,7 +625,29 @@ const createStyles = (
       color: isDark ? 'rgba(28,25,23,0.7)' : 'rgba(255,255,255,0.75)',
     },
     designatedChipLabelActive: {
-      color: '#241A09',
+      color: '#ffe4b2',
+    },
+    designatedSwitchTrack: {
+      width: 30,
+      height: 17,
+      borderRadius: 9,
+      padding: 2,
+      justifyContent: 'center',
+      backgroundColor: isDark ? 'rgba(28,25,23,0.14)' : 'rgba(255,255,255,0.2)',
+    },
+    designatedSwitchTrackOn: {
+      backgroundColor: 'rgba(36,26,9,0.3)',
+    },
+    designatedSwitchThumb: {
+      width: 13,
+      height: 13,
+      borderRadius: 7,
+      alignSelf: 'flex-start',
+      backgroundColor: isDark ? 'rgba(28,25,23,0.45)' : 'rgba(255,255,255,0.6)',
+    },
+    designatedSwitchThumbOn: {
+      alignSelf: 'flex-end',
+      backgroundColor: '#F8F5F1',
     },
     dock: {
       flexDirection: 'row',
@@ -797,6 +666,40 @@ const createStyles = (
     },
     dockCompact: {
       alignSelf: 'flex-start',
+    },
+    navChipsRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingHorizontal: 2,
+    },
+    navChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      height: 40,
+      paddingHorizontal: 14,
+      borderRadius: 20,
+      backgroundColor: isDark ? 'rgba(24,20,17,0.92)' : 'rgba(255,255,255,0.94)',
+      borderWidth: 0.5,
+      borderColor: isDark ? colors.SecondBorder : colors.primary,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: isDark ? 0.35 : 0.12,
+      shadowRadius: 10,
+      elevation: 6,
+    },
+    navChipPressed: {
+      transform: [{ scale: 0.95 }],
+      opacity: 0.9,
+    },
+    navChipDanger: {
+      borderColor: isDark ? 'rgba(239,138,128,0.3)' : 'rgba(198,40,40,0.25)',
+    },
+    navChipLabel: {
+      fontFamily: '',
+      fontSize: 13,
+      fontWeight: '700',
     },
     availabilityButton: {
       width: 56,

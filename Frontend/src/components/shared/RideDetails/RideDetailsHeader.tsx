@@ -1,5 +1,7 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Image } from 'react-native';
+import { View, Text, TouchableOpacity } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useTheme } from '../../../hooks/shared/theme/useTheme';
 import type { TFunction } from 'i18next';
 
 interface RideDetailsHeaderProps {
@@ -23,30 +25,32 @@ export function RideDetailsHeader({
   t,
   styles,
 }: RideDetailsHeaderProps) {
+  const { colors } = useTheme();
+  const statusColor = getStatusColor(safeString(status));
+
   return (
     <View style={styles.header}>
       <View style={styles.headerRow}>
-        <TouchableOpacity style={styles.backButton} onPress={onBack}>
-          <Image
-            source={require('../../../assets/icons/back_button/back_button2x.png')}
-            style={styles.backIcon}
-            resizeMode="contain"
-          />
+        <TouchableOpacity style={styles.backButton} onPress={onBack} activeOpacity={0.8}>
+          <Ionicons name="chevron-back" size={22} color={colors.text} />
         </TouchableOpacity>
 
         <View style={styles.titleContainer}>
           <Text style={styles.title}>{t('shared.rideDetail.header.title')}</Text>
+          <Text style={styles.rideId}>
+            {t('shared.rideDetail.header.rideId', {
+              id: typeof rideId === 'string' ? rideId.slice(-8) : safeString(rideId),
+            })}
+          </Text>
         </View>
 
-        <View style={[styles.statusBadge, { backgroundColor: getStatusColor(safeString(status)) }]}>
-          <Text style={styles.statusText}>{getStatusText(safeString(status))}</Text>
+        <View style={[styles.statusPill, { backgroundColor: statusColor + '26' }]}>
+          <View style={[styles.statusPillDot, { backgroundColor: statusColor }]} />
+          <Text style={[styles.statusPillText, { color: statusColor }]}>
+            {getStatusText(safeString(status))}
+          </Text>
         </View>
       </View>
-      <Text style={styles.rideId}>
-        {t('shared.rideDetail.header.rideId', {
-          id: typeof rideId === 'string' ? rideId.slice(-8) : safeString(rideId),
-        })}
-      </Text>
     </View>
   );
 }

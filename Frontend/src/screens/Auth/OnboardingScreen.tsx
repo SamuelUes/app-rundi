@@ -10,6 +10,7 @@ import {
   ViewToken,
 } from 'react-native';
 import type { ImageSourcePropType } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
@@ -121,11 +122,7 @@ const OnboardingScreen: React.FC<Props> = ({ navigation }) => {
           </View>
 
           <TouchableOpacity style={styles.nextButton} onPress={handleNext} activeOpacity={0.9}>
-            <Image
-              source={require('../../assets/icons/continue_button/continue_button.png')}
-              style={styles.nextButtonIcon}
-              resizeMode="contain"
-            />
+            <Ionicons name="arrow-forward" size={24} color={colors.primary} />
           </TouchableOpacity>
         </View>
       </View>
@@ -235,10 +232,6 @@ const createStyles = (colors: any) => {
       backgroundColor: 'transparent',
       justifyContent: 'center',
       alignItems: 'center',
-    },
-    nextButtonIcon: {
-      width: 56,
-      height: 56,
     },
   });
 };

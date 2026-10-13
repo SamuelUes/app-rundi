@@ -17,13 +17,12 @@ import {
   StyleSheet,
   TouchableOpacity,
   Platform,
-  Image,
   Share,
   Animated,
   Dimensions,
   ScrollView,
 } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 
 // Servicios y componentes
 import LoadingIcon from '../../components/ui/LoadingIcon';
@@ -57,9 +56,6 @@ import { useRideCancellation } from '../../hooks/shared/ride/useRideCancellation
 import { RideTrackingDriverInfo } from '../../components/client/RideTracking/RideTrackingDriverInfo';
 import { RideTrackingLocations } from '../../components/client/RideTracking/RideTrackingLocations';
 import { RideTrackingActionButtons } from '../../components/client/RideTracking/RideTrackingActionButtons';
-
-// Iconos
-const BACK_BUTTON = require('../../assets/icons/back_button/back_button2x.png');
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const PANEL_MIN_HEIGHT = 252;
@@ -595,7 +591,7 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
 
     {/* Botón de regresar */}
     <TouchableOpacity style={styles.backButton} onPress={handleGoBack}>
-      <Image source={BACK_BUTTON} style={styles.backButtonImage} />
+      <Ionicons name="chevron-back" size={24} color={colors.text} />
     </TouchableOpacity>
 
     {/* Panel inferior retráctil */}
@@ -762,12 +758,6 @@ const createStyles = (colors: any) => StyleSheet.create({
     elevation: 8,
     zIndex: 10,
   },
-  backButtonImage: {
-    width: 30,
-    height: 30,
-    resizeMode: 'contain',
-  },
-
   // Panel inferior retráctil
   bottomPanel: {
     position: 'absolute',

@@ -9,9 +9,8 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
-  Image,
 } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { httpsCallable } from 'firebase/functions';
@@ -47,8 +46,6 @@ const CATEGORY_IDS: SupportChatScreenRouteParams['initialCategory'][] = [
 ];
 
 const PRIORITY_IDS: Array<'low' | 'normal' | 'high' | 'urgent'> = ['low', 'normal', 'high', 'urgent'];
-
-const backIcon = require('../../assets/icons/back_button/back_button2x.png');
 
 export default function SupportChatScreen({ route }: SupportChatScreenProps) {
   const params = route?.params || {};
@@ -199,7 +196,7 @@ export default function SupportChatScreen({ route }: SupportChatScreenProps) {
             accessibilityRole="button"
             accessibilityLabel={t('shared.paymentMethods.header.goBack')}
           >
-            <Image source={backIcon} style={styles.headerCircleIcon} resizeMode="contain" />
+            <Ionicons name="chevron-back" size={22} color={colors.text} />
           </TouchableOpacity>
           <View style={styles.headerTextCol}>
             <Text style={styles.headerTitle}>{t(`${ns}.title`)}</Text>
@@ -313,10 +310,6 @@ const createStyles = (colors: any, isDark: boolean, insets: { top: number; botto
       backgroundColor: 'rgba(255, 255, 255, 0.26)',
       alignItems: 'center',
       justifyContent: 'center',
-    },
-    headerCircleIcon: {
-      width: 22,
-      height: 22,
     },
     headerTextCol: {
       flex: 1,

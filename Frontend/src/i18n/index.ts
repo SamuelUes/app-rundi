@@ -4607,16 +4607,16 @@ const resources = {
             priceFinal: 'Final price',
             priceEstimated: 'Est. price',
             type: 'Type',
-            typeDesignated: '🚗 DD',
-            typeMoto: '🏍️ Moto',
-            typeAuto: '🚕 Auto',
+            typeDesignated: 'DD',
+            typeMoto: 'Moto',
+            typeAuto: 'Auto',
             passengers: 'Passengers',
             client: 'Client:',
             driver: 'Driver:',
             yourRating: 'Your rating:',
           },
           actions: {
-            rateRide: '⭐ Rate ride',
+            rateRide: 'Rate ride',
           },
           empty: {
             title: 'No rides',
@@ -5683,23 +5683,23 @@ const resources = {
             },
           },
           emergencyButton: {
-            modalTitle: '🚨 Emergencia',
+            modalTitle: 'Emergencia',
             modalSubtitle: 'Elige el servicio de emergencia que necesitas',
             options: {
               police: {
-                title: '👮 Policía',
+                title: 'Policía',
                 description: 'Emergencias policiales, robos, accidentes',
                 number: '118',
               },
               ambulance: {
-                title: '🚑 Ambulancia',
+                title: 'Ambulancia',
                 description: 'Emergencias médicas, accidentes, lesiones',
                 number: '102',
               },
             },
             cancelLabel: 'Cancelar',
             alerts: {
-              callingTitle: '🚨 Emergencia',
+              callingTitle: 'Emergencia',
               callingMessage: 'Llamando a {{name}} ({{number}})\n\nLa llamada ha sido registrada.',
               cannotCall: 'No pudimos iniciar la llamada telefónica.',
               errorTitle: 'Error',
@@ -9943,7 +9943,7 @@ const resources = {
               cancelReason: 'Motivo: {{reason}}',
             },
             payment: {
-              title: '💰 Información de pago',
+              title: 'Información de pago',
               calculated: 'Precio calculado',
               clientSuggested: 'Oferta del cliente',
               driverOffered: 'Contraoferta del conductor',
@@ -9952,7 +9952,7 @@ const resources = {
               noPayment: 'Sin datos de pago',
               commission: 'Comisión ({{rate}}%)',
               tip: 'Propina',
-              driverPayout: '💵 Pago al conductor',
+              driverPayout: 'Pago al conductor',
             },
           },
           actions: {
@@ -9962,7 +9962,7 @@ const resources = {
             notFound: 'Viaje no encontrado',
           },
         },
-                help: {
+        help: {
           header: {
             title: 'Centro de ayuda',
             subtitle: 'Encuentra respuestas y contacta soporte',

@@ -1,7 +1,8 @@
 import React from 'react';
 import { View, Text, Pressable } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { LoadingIcon } from '../../ui/LoadingIcon';
+import { DriverHomeNavChips } from './DriverHomeNavChips';
 import { useTheme } from '../../../hooks/shared/theme/useTheme';
 import type { TFunction } from 'i18next';
 
@@ -19,6 +20,8 @@ interface DriverHomeBottomBarProps {
   onToggleDesignated: () => void;
   onNavigateAvailableRides: () => void;
   onNavigateEarnings: () => void;
+  onNavigate: (route: any) => void;
+  onLogout: () => void;
   styles: any;
   t: TFunction;
 }
@@ -37,6 +40,8 @@ export function DriverHomeBottomBar({
   onToggleDesignated,
   onNavigateAvailableRides,
   onNavigateEarnings,
+  onNavigate,
+  onLogout,
   styles,
   t,
 }: DriverHomeBottomBarProps) {
@@ -58,11 +63,12 @@ export function DriverHomeBottomBar({
           onPress={onToggleDesignated}
           accessibilityRole="button"
           accessibilityLabel={t('driver.home.designated.activeLabel')}
+          accessibilityState={{ checked: isDesignatedDriverMode, disabled: !isAvailable }}
         >
-          <MaterialIcons
-            name="drive-eta"
+          <Ionicons
+            name="car-sport"
             size={16}
-            color={isDesignatedDriverMode ? '#241A09' : iconMuted}
+            color={isDesignatedDriverMode ? '#efc069' : iconMuted}
           />
           <Text
             style={[
@@ -72,8 +78,29 @@ export function DriverHomeBottomBar({
           >
             {t('driver.home.designated.activeLabel')}
           </Text>
+          <View
+            style={[
+              styles.designatedSwitchTrack,
+              isDesignatedDriverMode && styles.designatedSwitchTrackOn,
+            ]}
+          >
+            <View
+              style={[
+                styles.designatedSwitchThumb,
+                isDesignatedDriverMode && styles.designatedSwitchThumbOn,
+              ]}
+            />
+          </View>
         </Pressable>
       )}
+
+      <DriverHomeNavChips
+        userRole={userRole}
+        onNavigate={onNavigate}
+        onLogout={onLogout}
+        styles={styles}
+        t={t}
+      />
 
       <View style={[styles.dock, compact && styles.dockCompact]}>
         <Pressable

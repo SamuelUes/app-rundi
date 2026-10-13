@@ -66,11 +66,22 @@ class TrackingForegroundService : Service() {
     return NotificationCompat.Builder(this, channelId)
       .setContentTitle(title)
       .setContentText(body)
-      .setSmallIcon(applicationInfo.icon)
+      .setSmallIcon(notificationSmallIcon())
+      .setCategory(NotificationCompat.CATEGORY_SERVICE)
       .setContentIntent(pendingIntent)
       .setOngoing(true)
       .setPriority(NotificationCompat.PRIORITY_LOW)
       .build()
+  }
+
+  /**
+   * El ícono de launcher es a color y Android lo enmascara a alfa, dejando un
+   * cuadrado blanco. `notification_icon` (generado por el plugin de
+   * expo-notifications) es la silueta monocroma correcta.
+   */
+  private fun notificationSmallIcon(): Int {
+    val id = resources.getIdentifier(NOTIFICATION_ICON_NAME, "drawable", packageName)
+    return if (id != 0) id else applicationInfo.icon
   }
 
   private fun ensureNotificationChannel() {
@@ -108,6 +119,7 @@ class TrackingForegroundService : Service() {
     const val ACTION_START = "com.driveangel.action.FOREGROUND_START"
     const val ACTION_STOP = "com.driveangel.action.FOREGROUND_STOP"
     const val CHANNEL_ID = "tracking_foreground_channel"
+    private const val NOTIFICATION_ICON_NAME = "notification_icon"
 
     private const val DEFAULT_TITLE = "Rundi está rastreando tu viaje"
     private const val DEFAULT_BODY = "Tu ubicación se comparte para ofrecer el mejor servicio."

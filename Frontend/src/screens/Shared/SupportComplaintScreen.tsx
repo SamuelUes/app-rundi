@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   ScrollView,
   RefreshControl,
-  Image,
 } from 'react-native';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
@@ -33,8 +32,6 @@ const ALLOWED_CATEGORIES: Array<'service' | 'driver' | 'payment' | 'app' | 'othe
   'app',
   'other',
 ];
-
-const backIcon = require('../../assets/icons/back_button/back_button2x.png');
 
 export default function SupportComplaintScreen({ route }: SupportComplaintScreenProps) {
   const { colors, isDark } = useTheme();
@@ -313,7 +310,7 @@ export default function SupportComplaintScreen({ route }: SupportComplaintScreen
           style={styles.headerCircleButton}
           accessibilityRole="button"
         >
-          <Image source={backIcon} style={styles.headerCircleIcon} resizeMode="contain" />
+          <Ionicons name="chevron-back" size={22} color={colors.text} />
         </TouchableOpacity>
         <View style={styles.headerTextCol}>
           <Text style={styles.headerTitle}>{t('shared.supportcomplaint.tickets.title')}</Text>
@@ -376,10 +373,6 @@ const createStyles = (colors: any, isDark: boolean, insets: { top: number; botto
       backgroundColor: 'rgba(255, 255, 255, 0.26)',
       alignItems: 'center',
       justifyContent: 'center',
-    },
-    headerCircleIcon: {
-      width: 22,
-      height: 22,
     },
     headerTextCol: {
       flex: 1,

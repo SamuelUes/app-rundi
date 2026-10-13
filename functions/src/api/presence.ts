@@ -2,6 +2,7 @@ import * as functions from "firebase-functions/v1";
 import admin from "firebase-admin";
 import { cleanupPresenceNodes } from "../helpers/cleanupHelpers";
 import { DEFAULT_SERVICE_AREA_ID } from '../config/constants';
+import { runSessionTransaction } from '../utils/sessionUtils';
 
 const db = admin.database();
 
@@ -43,16 +44,34 @@ async function updateSessionActivity(uid: string, deviceId: string | undefined, 
     throw new functions.https.HttpsError('invalid-argument', 'deviceId requerido');
   }
 
-  const result = await db.ref(`sessions/${uid}`).transaction((session) => {
+  const result = await runSessionTransaction(db.ref(`sessions/${uid}`), (session) => {
     if (!session || session.deviceId !== deviceId) return;
     return {
       ...session,
       isActive,
       lastSeen: admin.database.ServerValue.TIMESTAMP,
     };
-  }, undefined, false);
+  });
 
   if (!result.committed) {
+    try {
+      const latest = (await db.ref(`sessions/${uid}`).once('value')).val();
+      const idType = (value: unknown): string | null =>
+        typeof value === 'string' && value.includes('-') ? value.split('-')[0] : null;
+      functions.logger.warn('[presence] updateSessionActivity rechazado', {
+        uid,
+        isActive,
+        sessionExists: Boolean(latest),
+        sameDevice: latest?.deviceId === deviceId,
+        incomingIdType: idType(deviceId),
+        ownerIdType: idType(latest?.deviceId),
+        sessionActive: latest?.isActive ?? null,
+        sessionPlatform: latest?.platform ?? null,
+        sessionModel: latest?.model ?? null,
+      });
+    } catch {
+      // diagnóstico best-effort
+    }
     throw new functions.https.HttpsError('failed-precondition', 'SESSION_ACTIVE_ELSEWHERE');
   }
 }
@@ -306,6 +325,7 @@ export const markAppActive = functions.runWith(presenceRuntimeOpts).https.onCall
     functions.logger.error("[markAppActive] Error actualizando presencia", {
       uid,
       role,
+      source: typeof data?.source === 'string' ? data.source : undefined,
       error: error?.message || error,
     });
     if (error instanceof functions.https.HttpsError) throw error;

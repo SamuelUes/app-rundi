@@ -37,7 +37,7 @@ export function RideDetailsPayment({
         {ride.clientSuggestedPrice ? (
           <View style={styles.priceRow}>
             <Text style={styles.priceLabel}>{t('shared.rideDetail.sections.payment.clientSuggested')}</Text>
-            <Text style={[styles.priceValue, { color: '#FF9800' }]}>
+            <Text style={[styles.priceValue, { color: colors.warning }]}>
               {formatCurrency(parseFloat(String(ride.clientSuggestedPrice)))}
             </Text>
           </View>
@@ -47,7 +47,7 @@ export function RideDetailsPayment({
         {ride.driverOfferedPrice ? (
           <View style={styles.priceRow}>
             <Text style={styles.priceLabel}>{t('shared.rideDetail.sections.payment.driverOffered')}</Text>
-            <Text style={[styles.priceValue, { color: '#2196F3' }]}>
+            <Text style={[styles.priceValue, { color: colors.secondary }]}>
               {formatCurrency(parseFloat(String(ride.driverOfferedPrice)))}
             </Text>
           </View>
@@ -57,7 +57,7 @@ export function RideDetailsPayment({
         {ride.finalFare ? (
           <View style={styles.priceRow}>
             <Text style={styles.priceLabel}>{t('shared.rideDetail.sections.payment.finalAgreed')}</Text>
-            <Text style={[styles.priceValue, { color: '#4CAF50', fontWeight: '700' }]}>
+            <Text style={[styles.priceValue, { color: colors.success, fontWeight: '700' }]}>
               {formatCurrency(parseFloat(String(ride.finalFare)))}
             </Text>
           </View>
@@ -68,11 +68,33 @@ export function RideDetailsPayment({
         {/* Estado del Pago */}
         <View style={styles.priceRow}>
           <Text style={styles.priceLabel}>{t('shared.rideDetail.sections.payment.status')}</Text>
-          <Text style={[styles.priceValue, { color: ride.payment ? getPaymentStatusColor(ride.payment.status) : colors.textSecondary }]}>
-            {ride.payment
-              ? getPaymentStatusText(ride.payment.status)
-              : t('shared.rideDetail.sections.payment.noPayment')}
-          </Text>
+          {ride.payment ? (
+            <View
+              style={[
+                styles.paymentStatusPill,
+                { backgroundColor: getPaymentStatusColor(ride.payment.status) + '26' },
+              ]}
+            >
+              <View
+                style={[
+                  styles.paymentStatusDot,
+                  { backgroundColor: getPaymentStatusColor(ride.payment.status) },
+                ]}
+              />
+              <Text
+                style={[
+                  styles.paymentStatusText,
+                  { color: getPaymentStatusColor(ride.payment.status) },
+                ]}
+              >
+                {getPaymentStatusText(ride.payment.status)}
+              </Text>
+            </View>
+          ) : (
+            <Text style={[styles.priceValue, { color: colors.textSecondary }]}>
+              {t('shared.rideDetail.sections.payment.noPayment')}
+            </Text>
+          )}
         </View>
 
         {/* Comisión - Calcular si no existe */}
@@ -126,7 +148,7 @@ export function RideDetailsPayment({
                     rate: Math.round(commissionRate * 100),
                   })}
                 </Text>
-                <Text style={[styles.priceValue, { color: '#F44336' }]}>
+                <Text style={[styles.priceValue, { color: colors.error }]}>
                   -{formatCurrency(commission)}
                 </Text>
               </View>
@@ -134,15 +156,15 @@ export function RideDetailsPayment({
               {tip > 0 ? (
                 <View style={styles.priceRow}>
                   <Text style={styles.priceLabel}>{t('shared.rideDetail.sections.payment.tip')}</Text>
-                  <Text style={[styles.priceValue, { color: '#4CAF50' }]}>
-                    {formatCurrency(tip)}
+                  <Text style={[styles.priceValue, { color: colors.success }]}>
+                    +{formatCurrency(tip)}
                   </Text>
                 </View>
               ) : null}
 
-              <View style={[styles.priceRow, styles.finalPriceRow]}>
-                <Text style={styles.finalPriceLabel}>{t('shared.rideDetail.sections.payment.driverPayout')}</Text>
-                <Text style={styles.finalPriceValue}>
+              <View style={styles.payoutBand}>
+                <Text style={styles.payoutLabel}>{t('shared.rideDetail.sections.payment.driverPayout')}</Text>
+                <Text style={styles.payoutValue}>
                   {formatCurrency(netAmount)}
                 </Text>
               </View>

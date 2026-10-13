@@ -41,7 +41,8 @@ const getBackgroundLocationOptions = (): any => {
     foregroundService: {
       notificationTitle: i18n.t('common.services.backgroundLocationService.foregroundService.title'),
       notificationBody: i18n.t('common.services.backgroundLocationService.foregroundService.body'),
-      notificationColor: '#b6915aff',
+      // Sin notificationColor: la notificación usa el estilo estándar de
+      // Material You y se adapta al tema claro/oscuro del sistema.
     },
   };
 };
@@ -80,6 +81,15 @@ const getTrackingOptionsHash = (): string => {
 let currentTrackingState: TrackingState = { ...initialTrackingState };
 let lastSessionRefreshAt = 0;
 
+const isUnauthenticatedError = (error: any) =>
+  error?.code === 'UNAUTHENTICATED' ||
+  error?.code === 'functions/unauthenticated' ||
+  String(error?.message || error).includes('UNAUTHENTICATED');
+
+const isPermissionDeniedError = (error: any) =>
+  error?.code === 'PERMISSION_DENIED' ||
+  /permission[_ ]denied/i.test(String(error?.message || error));
+
 // Variable para controlar si la tarea ya fue definida
 let isTaskDefined = false;
 
@@ -116,6 +126,28 @@ const scheduleStartWhenForeground = (params: PendingStartParams) => {
   });
 };
 
+const getForegroundServiceCopy = (role: 'driver' | 'client') => ({
+  title:
+    role === 'driver'
+      ? i18n.t('services.backgroundLocationService.driverStatus.title')
+      : i18n.t('services.backgroundLocationService.clientStatus.title'),
+  body:
+    role === 'driver'
+      ? i18n.t('services.backgroundLocationService.driverStatus.body')
+      : i18n.t('services.backgroundLocationService.clientStatus.body'),
+});
+
+const startCompanionForegroundSupport = async (role: 'driver' | 'client'): Promise<void> => {
+  if (Platform.OS !== 'android') return;
+  try {
+    const { title, body } = getForegroundServiceCopy(role);
+    await foregroundService.start({ title, body });
+    await workManager.schedule(WORK_MANAGER_INTERVAL_MINUTES);
+  } catch (serviceError) {
+    console.warn('⚠️ No se pudo iniciar el servicio en primer plano:', serviceError);
+  }
+};
+
 const performBackgroundStart = async ({ userId, role, rideId }: PendingStartParams): Promise<boolean> => {
   try {
     await saveTrackingState({
@@ -132,22 +164,7 @@ const performBackgroundStart = async ({ userId, role, rideId }: PendingStartPara
       getBackgroundLocationOptions()
     );
 
-    if (Platform.OS === 'android') {
-      try {
-        const title =
-          role === 'driver'
-            ? i18n.t('services.backgroundLocationService.driverStatus.title')
-            : i18n.t('services.backgroundLocationService.clientStatus.title');
-        const body =
-          role === 'driver'
-            ? i18n.t('services.backgroundLocationService.driverStatus.body')
-            : i18n.t('services.backgroundLocationService.clientStatus.body');
-        await foregroundService.start({ title, body });
-        await workManager.schedule(WORK_MANAGER_INTERVAL_MINUTES);
-      } catch (serviceError) {
-        console.warn('⚠️ No se pudo iniciar el servicio en primer plano:', serviceError);
-      }
-    }
+    await startCompanionForegroundSupport(role);
 
     console.log('Tracking en segundo plano iniciado:', {
       userId,
@@ -241,9 +258,12 @@ const defineBackgroundTask = () => {
           lastSessionRefreshAt = Date.now();
           await AsyncStorage.setItem(heartbeatKey, String(lastSessionRefreshAt)).catch(() => undefined);
           try {
-            await sessionService.startSession({ policy: 'deny' });
+            await sessionService.heartbeatSession({ source: 'backgroundTask' });
           } catch (sessionError: any) {
-            if (sessionService.isSessionActiveElsewhereError(sessionError)) {
+            if (
+              sessionService.isSessionActiveElsewhereError(sessionError) ||
+              isUnauthenticatedError(sessionError)
+            ) {
               await stopBackgroundLocationTracking();
               return;
             }
@@ -310,6 +330,14 @@ const defineBackgroundTask = () => {
         
         return;
       } catch (error) {
+        if (
+          isPermissionDeniedError(error) ||
+          isUnauthenticatedError(error) ||
+          sessionService.isSessionActiveElsewhereError(error)
+        ) {
+          await stopBackgroundLocationTracking();
+          return;
+        }
         console.error('Error actualizando ubicación en segundo plano:', error);
         return;
       }
@@ -510,6 +538,10 @@ export async function ensureBackgroundTrackingIntegrity(): Promise<boolean> {
 
     const isTaskRunning = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
     if (isTaskRunning) {
+      // El task nativo sobrevive al proceso, pero los foreground services
+      // mueren con él: sin este reinicio el tracking sigue entregando
+      // ubicaciones sin mostrar la notificación persistente.
+      await startCompanionForegroundSupport(trackingState.role);
       return true;
     }
 

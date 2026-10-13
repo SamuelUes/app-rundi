@@ -9,9 +9,8 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
-  Image,
 } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import cardsService from '../../services/cardsService';
@@ -228,10 +227,7 @@ export default function AddCardScreen({ navigation }: AddCardScreenProps) {
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Image
-              source={require('../../assets/icons/back_button/back_button.png')}
-              style={styles.backButtonIcon}
-            />
+            <Ionicons name="chevron-back" size={22} color={colors.text} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>{t('shared.addCards.header.title')}</Text>
           <View style={{ width: 40 }} />
@@ -402,12 +398,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  backButtonIcon: {
-    width: 30,
-    height: 30,
-    resizeMode: 'contain',
-    tintColor: colors.text,
-  },
+
   headerTitle: {
     fontSize: 20,
     fontWeight: '700',

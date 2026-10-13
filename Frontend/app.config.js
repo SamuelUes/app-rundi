@@ -44,7 +44,7 @@ export default {
     allowBackup: false,
     googleServicesFile: "./google-services.json",
     adaptiveIcon: {
-      foregroundImage: './src/assets/images/rundi_logo.png',
+      foregroundImage: './src/assets/images/rundi_icon-android3.png',
       backgroundColor: '#FFFFFF',
     },
     permissions: [
@@ -128,7 +128,7 @@ export default {
         backgroundColor: '#dfd4b8',
         dark: {
           image: './src/assets/images/splash-icon.png',
-          backgroundColor: '#373587',
+          backgroundColor: '#343286',
         },
       },
     ],
@@ -138,11 +138,12 @@ export default {
         faceIDPermission: 'Permitir uso de FaceID',
       },
     ],
+    './modules/rundi-native/app.plugin.js',
     [
       'expo-notifications',
       {
-        icon: './src/assets/images/rundi_logo.png',
-        color: '#FFF5DB',
+        icon: './src/assets/images/notification_icon.png',
+        color: '#b6915a',
         sounds: ['./src/assets/sounds/notification.wav'],
         defaultChannel: 'rundi-default-v2',
         mode: 'production',

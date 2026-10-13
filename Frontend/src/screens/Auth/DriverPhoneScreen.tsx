@@ -9,8 +9,8 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Image,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { Picker } from '@react-native-picker/picker';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -283,10 +283,7 @@ const DriverPhoneScreen: React.FC<Props> = ({ navigation, route }) => {
               onPress={() => navigation.goBack()}
               disabled={loading}
             >
-              <Image
-                source={require('../../assets/icons/back_button/back_button.png')}
-                style={styles.backIcon}
-              />
+              <Ionicons name="chevron-back" size={22} color={colors.text} />
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -297,10 +294,7 @@ const DriverPhoneScreen: React.FC<Props> = ({ navigation, route }) => {
               {loading ? (
                 <LoadingIcon size={24} color="#FFFFFF" />
               ) : (
-                <Image
-                  source={require('../../assets/icons/continue_button/continue_button.png')}
-                  style={styles.continueIcon}
-                />
+                <Ionicons name="arrow-forward" size={22} color="#000000" />
               )}
             </TouchableOpacity>
           </View>
@@ -425,11 +419,6 @@ const createStyles = (colors: any) =>
       paddingVertical: 7.5,
       paddingHorizontal: 10,
     },
-    backIcon: {
-      width: 35,
-      height: 35,
-      tintColor: 'rgba(0, 0, 0, 1)',
-    },
     backButtonText: {
       fontSize: 14,
       color: colors.textSecondary,
@@ -442,16 +431,6 @@ const createStyles = (colors: any) =>
       backgroundColor: 'rgba(231, 168, 86, 1)',
       justifyContent: 'center',
       alignItems: 'center',
-    },
-    continueIcon: {
-      width: 35,
-      height: 35,
-      tintColor: '#000000ff',
-    },
-    nextButtonIcon: {
-      fontSize: 24,
-      color: '#FFFFFF',
-      fontWeight: '700',
     },
   });
 

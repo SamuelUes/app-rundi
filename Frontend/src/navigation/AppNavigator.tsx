@@ -1,7 +1,8 @@
 import React, { useEffect, useRef } from 'react';
 import { View, StyleSheet } from 'react-native';
-import { LoadingIcon } from '../components/ui/LoadingIcon';
+import { BrandLoadingIndicator } from '../components/ui/BrandLoadingIndicator';
 import { useAuth } from '../hooks/shared/auth/useAuth';
+import { useTheme } from '../hooks/shared/theme/useTheme';
 import AuthStack from './AuthStack';
 import ClientStack from './ClientStack';
 import DriverStack from './DriverStack';
@@ -9,6 +10,7 @@ import { replace } from './NavigationService';
 
 export default function AppNavigator() {
   const { user, loading, userMode } = useAuth();
+  const { colors } = useTheme();
 
   const prevUserModeRef = useRef<'client' | 'driver' | null>(null);
 
@@ -38,8 +40,8 @@ export default function AppNavigator() {
 
   if (loading) {
     return (
-      <View style={styles.loading}>
-        <LoadingIcon size={32} color="#007AFF" />
+      <View style={[styles.loading, { backgroundColor: colors.background }]}>
+        <BrandLoadingIndicator />
       </View>
     );
   }
@@ -65,6 +67,5 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#fff',
   },
 });

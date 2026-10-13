@@ -9,7 +9,7 @@ import {
   Image,
   Alert,
 } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ExpoImagePicker from 'expo-image-picker';
@@ -50,8 +50,6 @@ const formatBirthDateInput = (value: string): string => {
 
   return segments.join('-');
 };
-
-const BACK_BUTTON_ICON = require('../../assets/icons/back_button/back_button.png');
 
 type ProvidersState = {
   values: string[];
@@ -224,12 +222,6 @@ export default function AccountScreen({ navigation }: any) {
     headerSpacer: {
       width: 44,
       height: 44,
-    },
-    backIcon: {
-      width: 28,
-      height: 28,
-      tintColor: colors.text,
-      resizeMode: 'contain',
     },
     headerTitle: {
       flex: 1,
@@ -886,7 +878,7 @@ export default function AccountScreen({ navigation }: any) {
             style={styles.backButton}
             onPress={handleBackPress}
           >
-            <Image source={BACK_BUTTON_ICON} style={styles.backIcon} />
+            <Ionicons name="chevron-back" size={22} color={colors.text} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>{t('shared.account.header.title')}</Text>
           <View style={styles.headerSpacer} />

@@ -9,11 +9,11 @@ import {
   Animated,
   Platform,
   KeyboardAvoidingView,
-  Image,
   TextInput,
   Alert,
 } from 'react-native';
 
+import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -266,11 +266,7 @@ const PhoneNumberModal: React.FC<Props> = ({
                   accessibilityRole="button"
                   accessibilityLabel={t('common.actions.close')}
                 >
-                  <Image
-                    source={require('../../assets/icons/back_button/back_button.png')}
-                    style={styles.backIcon}
-                    resizeMode="contain"
-                  />
+                  <Ionicons name="chevron-back" size={22} color={colors.text} />
                 </TouchableOpacity>
 
                 <View style={styles.headerTextContainer}>
@@ -411,11 +407,7 @@ const createStyles = (colors: any) => {
       fontSize: 20,
       color: colors.text,
     },
-    backIcon: {
-      width: 30,
-      height: 30,
-      tintColor: colors.text,
-    },
+
     headerTextContainer: {
       flex: 1,
     },

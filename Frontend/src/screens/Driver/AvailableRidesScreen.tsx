@@ -6,10 +6,9 @@ import {
   FlatList,
   Pressable,
   RefreshControl,
-  Image,
   ActivityIndicator,
 } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useAuth } from '../../hooks/shared/auth/useAuth';
 import { useVoiceAssistant } from '../../context/VoiceAssistantContext';
@@ -38,8 +37,6 @@ import { AvailableRidesEmpty } from '../../components/driver/AvailableRides/Avai
 import { AvailableRidesOffline } from '../../components/driver/AvailableRides/AvailableRidesOffline';
 import driversService from '../../services/driversService';
 import driverAvailabilityService from '../../services/driverAvailabilityService';
-
-const BACK_ICON = require('../../assets/icons/back_button/back_button2x.png');
 
 const SCREEN_ENTRY_WINDOW_MS = 3000;
 let screenEntryCountInWindow = 0;
@@ -539,11 +536,7 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
           accessibilityRole="button"
           accessibilityLabel={t('common.actions.back')}
         >
-          <Image
-            source={BACK_ICON}
-            style={[styles.backIconImage, { tintColor: isDark ? '#FFFFFF' : colors.text }]}
-            resizeMode="contain"
-          />
+          <Ionicons name="chevron-back" size={22} color={colors.text} />
         </Pressable>
 
         <View style={styles.headerTextWrap}>
@@ -774,10 +767,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: 14,
     borderWidth: 1,
-  },
-  backIconImage: {
-    width: 17,
-    height: 17,
   },
   headerTextWrap: {
     flex: 1,

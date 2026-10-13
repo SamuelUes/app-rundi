@@ -181,7 +181,7 @@ const createStyles = (colors: any, isDark: boolean) => {
       justifyContent: 'center',
       paddingHorizontal: 28,
       paddingBottom: 48,
-      backgroundColor: isDark ? '#1C3438' : 'transparent',
+      backgroundColor: isDark ? '#241c38' : 'transparent',
     },
     glow: {
       position: 'absolute',

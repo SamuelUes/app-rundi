@@ -7,8 +7,10 @@ import {
   StyleSheet,
   Linking,
   Alert,
-  Image,
+  Pressable,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LoadingIcon } from '../ui/LoadingIcon';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useLocation } from '../../hooks/shared/location/useLocation';
@@ -28,6 +30,7 @@ export default function EmergencyButton({ rideId, style, onOpen, onReady }: Emer
   const { colors } = useTheme();
   const { user } = useAuth();
   const { t } = useTranslation();
+  const insets = useSafeAreaInsets();
   const [modalVisible, setModalVisible] = useState(false);
   const [calling, setCalling] = useState(false);
 
@@ -118,10 +121,13 @@ export default function EmergencyButton({ rideId, style, onOpen, onReady }: Emer
       justifyContent: 'center',
       ...style,
     },
-    icon: {
-      width: 40,
-      height: 40,
-      resizeMode: 'contain',
+    iconDisc: {
+      width: 38,
+      height: 38,
+      borderRadius: 19,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.error,
     },
     buttonText: {
       color: colors.text,
@@ -131,65 +137,120 @@ export default function EmergencyButton({ rideId, style, onOpen, onReady }: Emer
     },
     modalOverlay: {
       flex: 1,
-      backgroundColor: 'rgba(0, 0, 0, 0.7)',
-      justifyContent: 'center',
-      alignItems: 'center',
-      padding: 20,
+      backgroundColor: 'rgba(0, 0, 0, 0.55)',
+      justifyContent: 'flex-end',
     },
-    modalContent: {
+    sheet: {
       backgroundColor: colors.card,
-      borderRadius: 20,
-      padding: 24,
-      width: '100%',
-      maxWidth: 400,
-    },
-    modalTitle: {
-      fontSize: 24,
-      fontWeight: '700',
-      color: colors.text,
-      textAlign: 'center',
-      marginBottom: 8,
-    },
-    modalSubtitle: {
-      fontSize: 14,
-      color: colors.textSecondary,
-      textAlign: 'center',
-      marginBottom: 24,
-    },
-    emergencyOption: {
-      backgroundColor: colors.surface,
-      padding: 20,
-      borderRadius: 12,
-      marginBottom: 12,
-      borderWidth: 2,
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
+      paddingHorizontal: 20,
+      paddingTop: 10,
+      paddingBottom: insets.bottom + 14,
+      borderTopWidth: 1,
+      borderLeftWidth: 1,
+      borderRightWidth: 1,
       borderColor: colors.border,
     },
-    emergencyOptionTitle: {
+    sheetHandle: {
+      alignSelf: 'center',
+      width: 36,
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: colors.border,
+      marginBottom: 14,
+    },
+    sheetHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      marginBottom: 16,
+    },
+    sheetIconDisc: {
+      width: 42,
+      height: 42,
+      borderRadius: 21,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.error + '1F',
+    },
+    sheetHeaderText: {
+      flex: 1,
+      gap: 1,
+    },
+    modalTitle: {
       fontSize: 18,
+      fontWeight: '800',
+      color: colors.text,
+      letterSpacing: -0.3,
+    },
+    modalSubtitle: {
+      fontSize: 13,
+      color: colors.textSecondary,
+      lineHeight: 18,
+    },
+    emergencyOption: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      backgroundColor: colors.surface,
+      padding: 14,
+      borderRadius: 16,
+      marginBottom: 10,
+      borderWidth: 1,
+      borderColor: colors.border,
+      minHeight: 64,
+    },
+    optionIconDiscPolice: {
+      width: 40,
+      height: 40,
+      borderRadius: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.primaryDark + '1F',
+    },
+    optionIconDiscAmbulence: {
+      width: 40,
+      height: 40,
+      borderRadius: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.error + '1F',
+    },
+    emergencyOptionTextCol: {
+      flex: 1,
+      gap: 2,
+    },
+    emergencyOptionTitle: {
+      fontSize: 15,
       fontWeight: '700',
       color: colors.text,
-      marginBottom: 4,
-    },
-    emergencyOptionNumber: {
-      fontSize: 24,
-      fontWeight: '700',
-      color: '#FF3B30',
-      marginBottom: 8,
     },
     emergencyOptionDescription: {
-      fontSize: 14,
+      fontSize: 12,
       color: colors.textSecondary,
+      lineHeight: 16,
+    },
+    emergencyOptionNumber: {
+      fontSize: 20,
+      fontWeight: '800',
+      color: colors.error,
+      fontVariant: ['tabular-nums'],
     },
     cancelButton: {
       backgroundColor: colors.surface,
-      padding: 16,
-      borderRadius: 12,
+      paddingVertical: 15,
+      borderRadius: 16,
       alignItems: 'center',
-      marginTop: 8,
+      marginTop: 6,
+      borderWidth: 1,
+      borderColor: colors.border,
+      minHeight: 52,
+      justifyContent: 'center',
     },
     cancelButtonText: {
-      fontSize: 16,
-      fontWeight: '600',
+      fontSize: 15,
+      fontWeight: '700',
       color: colors.text,
     },
   });
@@ -204,61 +265,83 @@ export default function EmergencyButton({ rideId, style, onOpen, onReady }: Emer
         {calling ? (
           <LoadingIcon size={24} color={colors.primary} />
         ) : (
-          <Image
-            source={require('../../assets/icons/emergency/red-call-icon.png')}
-            style={styles.icon}
-          />
+          <View style={styles.iconDisc}>
+            <MaterialIcons name="phone-in-talk" size={18} color="#FFFFFF" />
+          </View>
         )}
       </TouchableOpacity>
 
       <Modal
         visible={modalVisible}
         transparent
-        animationType="fade"
+        animationType="slide"
         onRequestClose={() => setModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>
-              {t('common.components.emergencyButton.modalTitle')}
-            </Text>
-            <Text style={styles.modalSubtitle}>
-              {t('common.components.emergencyButton.modalSubtitle')}
-            </Text>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setModalVisible(false)} />
+          <View style={styles.sheet}>
+            <View style={styles.sheetHandle} />
+
+            <View style={styles.sheetHeader}>
+              <View style={styles.sheetIconDisc}>
+                <MaterialIcons name="emergency" size={22} color={colors.error} />
+              </View>
+              <View style={styles.sheetHeaderText}>
+                <Text style={styles.modalTitle}>
+                  {t('common.components.emergencyButton.modalTitle')}
+                </Text>
+                <Text style={styles.modalSubtitle}>
+                  {t('common.components.emergencyButton.modalSubtitle')}
+                </Text>
+              </View>
+            </View>
 
             <TouchableOpacity
               style={styles.emergencyOption}
               onPress={() => callEmergency('police')}
+              activeOpacity={0.75}
             >
-              <Text style={styles.emergencyOptionTitle}>
-                {t('common.components.emergencyButton.options.police.title')}
-              </Text>
+              <View style={styles.optionIconDiscPolice}>
+                <MaterialIcons name="local-police" size={20} color={colors.primaryDark} />
+              </View>
+              <View style={styles.emergencyOptionTextCol}>
+                <Text style={styles.emergencyOptionTitle}>
+                  {t('common.components.emergencyButton.options.police.title')}
+                </Text>
+                <Text style={styles.emergencyOptionDescription} numberOfLines={2}>
+                  {t('common.components.emergencyButton.options.police.description')}
+                </Text>
+              </View>
               <Text style={styles.emergencyOptionNumber}>
                 {t('common.components.emergencyButton.options.police.number')}
-              </Text>
-              <Text style={styles.emergencyOptionDescription}>
-                {t('common.components.emergencyButton.options.police.description')}
               </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               style={styles.emergencyOption}
               onPress={() => callEmergency('ambulance')}
+              activeOpacity={0.75}
             >
-              <Text style={styles.emergencyOptionTitle}>
-                {t('common.components.emergencyButton.options.ambulance.title')}
-              </Text>
+              <View style={styles.optionIconDiscAmbulence}>
+                <MaterialIcons name="medical-services" size={20} color={colors.error} />
+              </View>
+              <View style={styles.emergencyOptionTextCol}>
+                <Text style={styles.emergencyOptionTitle}>
+                  {t('common.components.emergencyButton.options.ambulance.title')}
+                </Text>
+                <Text style={styles.emergencyOptionDescription} numberOfLines={2}>
+                  {t('common.components.emergencyButton.options.ambulance.description')}
+                </Text>
+              </View>
               <Text style={styles.emergencyOptionNumber}>
                 {t('common.components.emergencyButton.options.ambulance.number')}
-              </Text>
-              <Text style={styles.emergencyOptionDescription}>
-                {t('common.components.emergencyButton.options.ambulance.description')}
               </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               style={styles.cancelButton}
               onPress={() => setModalVisible(false)}
+              activeOpacity={0.8}
             >
               <Text style={styles.cancelButtonText}>
                 {t('common.components.emergencyButton.cancelLabel')}

@@ -1,10 +1,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import { httpsCallable } from 'firebase/functions';
-import { getFirebaseFunctions, getFirebaseAuth } from '../config/firebase';
+import { getFirebaseFunctions, getFirebaseAuth, getFirebaseDatabase } from '../config/firebase';
 
 const DEVICE_ID_KEY = 'deviceId';
 let deviceIdPromise: Promise<string> | null = null;
+const sessionStartPromises = new Map<string, Promise<{ success: boolean }>>();
 
 export function isSessionActiveElsewhereError(error: any): boolean {
   return error?.code === 'SESSION_ACTIVE_ELSEWHERE' ||
@@ -53,26 +54,51 @@ export async function getDeviceId(): Promise<string> {
   return deviceIdPromise;
 }
 
-export async function startSession(options?: { policy?: 'deny'; model?: string; fcmToken?: string }) {
+export interface SessionOwnershipDiagnostic {
+  authReady: boolean;
+  sameDevice: boolean | null;
+  sessionExists: boolean | null;
+  sessionPlatform: string | null;
+  sessionActive: boolean | null;
+  lastSeenAgeSeconds: number | null;
+}
+
+export async function getSessionOwnershipDiagnostic(): Promise<SessionOwnershipDiagnostic> {
   const auth = await getFirebaseAuth();
-  const current = auth.currentUser;
-  if (!current) {
-    // Si no hay usuario autenticado, no se puede abrir sesión remota
-    throw new Error('UNAUTHENTICATED');
+  const currentUser = auth.currentUser;
+  if (!currentUser) {
+    return {
+      authReady: false,
+      sameDevice: null,
+      sessionExists: null,
+      sessionPlatform: null,
+      sessionActive: null,
+      lastSeenAgeSeconds: null,
+    };
   }
 
+  const deviceId = await getDeviceId();
+  const database = await getFirebaseDatabase();
+  const { get, ref } = await import('firebase/database');
+  const snapshot = await get(ref(database, `sessions/${currentUser.uid}`));
+  const session = snapshot.val();
+  const lastSeen = typeof session?.lastSeen === 'number' ? session.lastSeen : null;
+
+  return {
+    authReady: true,
+    sameDevice: session?.deviceId === deviceId,
+    sessionExists: Boolean(session),
+    sessionPlatform: session?.platform ?? null,
+    sessionActive: session?.isActive ?? null,
+    lastSeenAgeSeconds: lastSeen === null ? null : Math.max(0, Math.round((Date.now() - lastSeen) / 1000)),
+  };
+}
+
+async function callStartSession(payload: Record<string, unknown>) {
   const functions = await getFirebaseFunctions();
   const callable = httpsCallable(functions, 'startSession');
-  const deviceId = await getDeviceId();
-
   try {
-    await callable({
-      deviceId,
-      platform: Platform.OS,
-      model: options?.model,
-      fcmToken: options?.fcmToken,
-      policy: options?.policy || 'deny',
-    });
+    await callable(payload);
     return { success: true };
   } catch (err: any) {
     const message = `${err?.message || ''} ${err?.details || ''}`;
@@ -83,6 +109,49 @@ export async function startSession(options?: { policy?: 'deny'; model?: string; 
     }
     throw err;
   }
+}
+
+export async function startSession(options?: { policy?: 'deny'; model?: string; fcmToken?: string; source?: string }) {
+  const auth = await getFirebaseAuth();
+  const uid = auth.currentUser?.uid;
+  if (!uid) {
+    throw new Error('UNAUTHENTICATED');
+  }
+
+  const pending = sessionStartPromises.get(uid);
+  if (pending) return pending;
+
+  const deviceId = await getDeviceId();
+  const concurrent = sessionStartPromises.get(uid);
+  if (concurrent) return concurrent;
+
+  const request = callStartSession({
+    deviceId,
+    platform: Platform.OS,
+    model: options?.model,
+    fcmToken: options?.fcmToken,
+    policy: options?.policy || 'deny',
+    source: options?.source,
+  });
+  sessionStartPromises.set(uid, request);
+  try {
+    return await request;
+  } finally {
+    if (sessionStartPromises.get(uid) === request) sessionStartPromises.delete(uid);
+  }
+}
+
+export async function heartbeatSession(options?: { source?: string }) {
+  const auth = await getFirebaseAuth();
+  if (!auth.currentUser) {
+    throw new Error('UNAUTHENTICATED');
+  }
+
+  return callStartSession({
+    deviceId: await getDeviceId(),
+    heartbeatOnly: true,
+    source: options?.source,
+  });
 }
 
 export async function endSession() {
@@ -99,7 +168,9 @@ export async function endSession() {
 
 export default {
   getDeviceId,
+  getSessionOwnershipDiagnostic,
   startSession,
+  heartbeatSession,
   endSession,
   isSessionActiveElsewhereError,
 };

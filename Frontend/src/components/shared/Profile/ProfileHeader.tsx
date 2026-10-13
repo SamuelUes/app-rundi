@@ -1,6 +1,8 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Image } from 'react-native';
+import { View, Text, TouchableOpacity } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTheme } from '../../../hooks/shared/theme/useTheme';
 
 interface ProfileHeaderProps {
   headerTitle: string;
@@ -26,16 +28,14 @@ export function ProfileHeader({
   styles,
 }: ProfileHeaderProps) {
   const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
   const initial = (userName || '').trim().charAt(0).toUpperCase();
 
   return (
     <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
       <View style={styles.headerTopRow}>
         <TouchableOpacity style={styles.backButton} onPress={onBack} accessibilityRole="button">
-          <Image
-            source={require('../../../assets/icons/back_button/back_button.png')}
-            style={styles.backIcon}
-          />
+          <Ionicons name="chevron-back" size={22} color={colors.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{headerTitle}</Text>
         <View style={styles.headerTopSpacer} />

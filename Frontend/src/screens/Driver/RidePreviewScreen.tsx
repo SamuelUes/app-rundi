@@ -8,13 +8,13 @@ import React, {
 import {
   Animated,
   Easing,
-  Image,
   Linking,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
@@ -41,7 +41,6 @@ import { RidePreviewActions } from '../../components/driver/RidePreview/RidePrev
 import { RidePreviewPhotoModal } from '../../components/driver/RidePreview/RidePreviewPhotoModal';
 import { RidePreviewNearbyCard } from '../../components/driver/RidePreview/RidePreviewNearbyCard';
 
-const BACK_ICON = require('../../assets/icons/back_button/back_button2x.png');
 const PROXIMITY_AUTO_DISMISS_MS = 6000; // auto-cierre si no hay cambios ni interacción
 const PROXIMITY_DISMISS_POLL_MS = 500;
 
@@ -422,11 +421,7 @@ export default function RidePreviewScreen() {
           accessibilityRole="button"
           accessibilityLabel={t('common.actions.back')}
         >
-          <Image
-            source={BACK_ICON}
-            style={[styles.backIconImage, { tintColor: isDark ? '#FFFFFF' : '#1F1F1F' }]}
-            resizeMode="contain"
-          />
+          <Ionicons name="chevron-back" size={22} color={colors.text} />
         </TouchableOpacity>
       )}
 
@@ -615,10 +610,6 @@ const styles = StyleSheet.create({
     height: 5,
     borderRadius: 999,
     backgroundColor: 'rgba(0,0,0,0.2)',
-  },
-  backIconImage: {
-    width: 18,
-    height: 18,
   },
   clientRow: {
     flexDirection: 'row',

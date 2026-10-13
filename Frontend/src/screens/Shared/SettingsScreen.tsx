@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Image } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
@@ -16,7 +16,6 @@ import { SettingsLanguageSection } from '../../components/shared/Settings/Settin
 import { SettingsPrivacySection } from '../../components/shared/Settings/SettingsPrivacySection';
 import { SettingsAboutSection } from '../../components/shared/Settings/SettingsAboutSection';
 
-const BACK_BUTTON_ICON = require('../../assets/icons/back_button/back_button2x.png');
 const SETTINGS_FONT = '';
 
 export default function SettingsScreen({ navigation }: any) {
@@ -175,10 +174,6 @@ export default function SettingsScreen({ navigation }: any) {
       backgroundColor: 'rgba(255, 255, 255, 0.26)',
       justifyContent: 'center',
       alignItems: 'center',
-    },
-    backButtonIcon: {
-      width: 24,
-      height: 24,
     },
     header: {
       backgroundColor: 'rgba(211, 153, 46, 0.94)',
@@ -391,7 +386,7 @@ export default function SettingsScreen({ navigation }: any) {
           accessibilityRole="button"
           accessibilityLabel={t('shared.paymentMethods.header.goBack')}
         >
-          <Image source={BACK_BUTTON_ICON} style={styles.backButtonIcon} resizeMode="contain" />
+          <Ionicons name="chevron-back" size={22} color={colors.text} />
         </TouchableOpacity>
         <View style={styles.headerText}>
           <Text style={styles.headerTitle}>{t('settings.title')}</Text>

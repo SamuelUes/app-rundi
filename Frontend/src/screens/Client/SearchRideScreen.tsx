@@ -6,7 +6,6 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  Image,
   ScrollView,
   KeyboardAvoidingView,
   Platform,
@@ -14,7 +13,7 @@ import {
   Easing,
   useWindowDimensions,
 } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Reanimated, {
   Extrapolation,
@@ -51,7 +50,6 @@ import { SearchRideSearchOverlay } from '../../components/client/SearchRide/Sear
 import { SearchRideScheduleModal } from '../../components/client/SearchRide/SearchRideScheduleModal';
 
 const { MANUAL_ORIGIN, MANUAL_ORIGIN_HOLD, ORIGIN_PIN, DESTINATION_PIN, MULTI_STOP_PIN } = MAP_ICONS;
-const BACK_BUTTON_ICON = require('../../assets/icons/back_button/back_button2x.png');
 const DEFAULT_FALLBACK_COORDS = { latitude: 12.1364, longitude: -86.2514 };
 const MAX_EXTRA_STOPS = 3;
 const SHEET_HANDLE_HEIGHT = 29;
@@ -746,7 +744,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
         accessibilityLabel={tr('accessibility.back')}
         accessibilityRole="button"
       >
-        <Image source={BACK_BUTTON_ICON} style={styles.backButtonIcon} resizeMode="contain" />
+        <Ionicons name="chevron-back" size={20} color={colors.text} />
       </TouchableOpacity>
 
       <SearchRideRouteBubble
@@ -1023,8 +1021,6 @@ function createStyles(colors: any, isDark: boolean = false) {
       borderWidth: isDark ? StyleSheet.hairlineWidth : 0,
       borderColor: borderColor,
     },
-    backButtonIcon: { width: 18, height: 18 },
-
     // Center pin overlay for origin selection
     centerPinContainer: {
       position: 'absolute',

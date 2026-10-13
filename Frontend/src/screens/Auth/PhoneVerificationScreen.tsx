@@ -15,8 +15,8 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Image,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -386,11 +386,7 @@ export default function PhoneVerificationScreen({ navigation, route }: Props) {
               accessibilityRole="button"
               accessibilityLabel={t('common.actions.back')}
             >
-              <Image
-                source={require('../../assets/icons/back_button/back_button.png')}
-                style={styles.backIcon}
-                resizeMode="contain"
-              />
+              <Ionicons name="chevron-back" size={22} color={colors.text} />
               <Text style={styles.backButtonTextLabel}>{t('common.actions.back')}</Text>
             </TouchableOpacity>
 
@@ -557,11 +553,6 @@ const createStyles = (colors: any) =>
       top: -30,
       gap: 8,
       marginBottom: 20,
-    },
-    backIcon: {
-      width: 20,
-      height: 20,
-      tintColor: colors.textSecondary,
     },
     backButtonTextLabel: {
       fontSize: 14,

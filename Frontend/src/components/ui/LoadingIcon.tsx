@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, StyleSheet, ViewStyle } from 'react-native';
-import { AnimatedIcon } from './AnimatedIcon';
+import BrandLoadingIndicator from './BrandLoadingIndicator';
 
 type IconFamily = 'ionicons' | 'material' | 'material-community';
 
@@ -13,17 +13,18 @@ interface LoadingIconProps {
   style?: ViewStyle;
 }
 
+/**
+ * PRUEBA: ahora renderiza el indicador de marca (R + arco dorado) en lugar del
+ * icono animado genérico. `size` se interpreta como el alto del dibujo total,
+ * por eso la marca R se pasa al ~62% (el anillo es ~1.6x la marca).
+ */
 export const LoadingIcon: React.FC<LoadingIconProps> = ({
-  icon = 'refresh',
-  family = 'material',
   size = 32,
-  color = '#007AFF',
-  animation = 'spin',
   style,
 }) => {
   return (
     <View style={[styles.container, style]}>
-      <AnimatedIcon name={icon} family={family} size={size} color={color} animation={animation} />
+      <BrandLoadingIndicator size={Math.max(12, Math.round(size * 0.625))} />
     </View>
   );
 };

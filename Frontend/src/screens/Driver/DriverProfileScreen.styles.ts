@@ -235,11 +235,6 @@ export const createStyles = (colors: any) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  backIcon: {
-    width: 24,
-    height: 24,
-    resizeMode: 'contain',
-  },
   memberId: {
     fontSize: 11,
     lineHeight: 15,
@@ -825,13 +820,6 @@ export const createStyles = (colors: any) => StyleSheet.create({
   optionIcon: {
     fontSize: 20,
     marginRight: 14,
-  },
-  optionIconImage: {
-    width: 25,
-    height: 25,
-    marginRight: 14,
-    resizeMode: 'contain',
-    tintColor: colors.text,
   },
   optionText: {
     flex: 1,

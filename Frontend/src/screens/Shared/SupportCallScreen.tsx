@@ -5,7 +5,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   Alert,
-  Image,
 } from 'react-native';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
@@ -26,8 +25,6 @@ interface SupportCallScreenRouteParams {
 interface SupportCallScreenProps {
   route?: { params?: SupportCallScreenRouteParams };
 }
-
-const backIcon = require('../../assets/icons/back_button/back_button2x.png');
 
 export default function SupportCallScreen({ route }: SupportCallScreenProps) {
   const params = route?.params || {};
@@ -186,7 +183,7 @@ export default function SupportCallScreen({ route }: SupportCallScreenProps) {
       <View style={styles.contentWrap}>
         <View style={styles.header}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Image source={backIcon} style={styles.backIcon} resizeMode="contain" />
+            <Ionicons name="chevron-back" size={22} color={colors.text} />
           </TouchableOpacity>
           <View style={styles.headerTexts}>
             <Text style={styles.title}>{t(`${ns}.title`, 'Llamada de soporte')}</Text>
@@ -373,10 +370,6 @@ const createStyles = (colors: any, insets: { top: number; bottom: number }) =>
       justifyContent: 'center',
       backgroundColor: '#F5EFE3',
       marginRight: 10,
-    },
-    backIcon: {
-      width: 30,
-      height: 30,
     },
     headerTexts: {
       flex: 1,

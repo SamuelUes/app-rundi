@@ -76,7 +76,7 @@ const areCoordsEqual = (
 };
 
 const PROFILE_ICON_IMAGE = require('../../assets/icons/profile/profile-icon2.png');
-//const REQUEST_BUTTON_IMAGE = require('../../assets/icons/make_request_button/make_request_button3x.png');
+//const REQUEST_BUTTON_IMAGE = require('../../assets/icons_unused/make_request_button/make_request_button3x.png');
 const PENDING_ACTION_IMAGE = require('../../assets/icons/pending_acction/pending_acction2x.png');
 const { USER_LOCATION_LIGHT, USER_LOCATION_DARK, USER_LOCATION_HOLDING_LIGHT, USER_LOCATION_HOLDING_DARK } = MAP_ICONS;
 

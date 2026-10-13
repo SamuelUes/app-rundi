@@ -49,17 +49,20 @@ export function useAuthInit() {
   const setUserMode = useAuthStore((s) => s.setUserMode);
 
   useEffect(() => {
-    storageCleanupService
+    const storageReady = storageCleanupService
       .ensureFreshInstallCleanup()
-      .catch((err) => console.warn('⚠️ [AuthInit] cleanup error:', err))
-      .finally(() => loadUser());
+      .catch((err) => console.warn('⚠️ [AuthInit] cleanup error:', err));
 
-    if (backendConfig.isFirebase()) {
-      const setupAuthListener = async () => {
+    if (!backendConfig.isFirebase()) {
+      void storageReady.finally(() => loadUser());
+      return;
+    }
+
+    const setupAuthListener = async () => {
         let observedUid: string | null | undefined;
         let observedRole: User['role'] | null | undefined;
         try {
-          const unsubscribe = await firebaseAuthService.onAuthStateChange(async (firebaseUser) => {
+          const handleAuthStateChange = async (firebaseUser: FirebaseAuthUser | null) => {
             const nextUid = firebaseUser?.uid ?? null;
             if (observedUid !== nextUid) {
               preflightService.clearCache();
@@ -78,7 +81,7 @@ export function useAuthInit() {
                   observedRole = role;
                 }
                 try {
-                  await sessionService.startSession({ policy: 'deny' });
+                  await sessionService.startSession({ policy: 'deny', source: 'authListener' });
                   authStartupSessionConflict = false;
                 } catch (sessionError: any) {
                   if (observedUid !== firebaseUser.uid) return;
@@ -97,6 +100,9 @@ export function useAuthInit() {
                     alertService.showErrorAlert('No pudimos verificar tu sesión. Comprueba tu conexión e inténtalo de nuevo.');
                   }
                   return;
+                }
+                if (role === 'driver' || role === 'designated_driver') {
+                  setUserMode('driver');
                 }
                 setUser({
                   id: firebaseUser.uid,
@@ -127,10 +133,14 @@ export function useAuthInit() {
               setUser(null);
               setUserMode('client');
             }
-          });
+          };
+          const unsubscribe = await firebaseAuthService.onAuthStateChange((firebaseUser) =>
+            handleAuthStateChange(firebaseUser).finally(() => setLoading(false)),
+          );
           return unsubscribe;
         } catch (error) {
           console.error('Error configurando auth listener:', error);
+          setLoading(false);
           return () => {};
         }
       };
@@ -139,7 +149,6 @@ export function useAuthInit() {
       return () => {
         cleanupPromise.then((unsubscribe) => unsubscribe());
       };
-    }
   }, []);
 
   const waitForFirebaseUser = async (
@@ -221,20 +230,19 @@ export function useAuthInit() {
           return;
         }
 
+        const roleMode = resolveUserModeFromRole(parsedUser.role);
         try {
           const storedMode = await AsyncStorage.getItem('userMode');
-          if (storedMode === 'client' || storedMode === 'driver') {
-            setUserMode(storedMode);
+          if (roleMode === 'driver' || (storedMode !== 'client' && storedMode !== 'driver')) {
+            setUserMode(roleMode);
           } else {
-            const mode = resolveUserModeFromRole(parsedUser.role);
-            setUserMode(mode);
+            setUserMode(storedMode);
           }
         } catch {
-          const mode = resolveUserModeFromRole(parsedUser.role);
-          setUserMode(mode);
+          setUserMode(roleMode);
         }
         try {
-          await sessionService.startSession({ policy: 'deny' });
+          await sessionService.startSession({ policy: 'deny', source: 'loadUser' });
         } catch (err: any) {
           try {
             const backgroundLocationService = (await import('../../../services/backgroundLocationService')).default;

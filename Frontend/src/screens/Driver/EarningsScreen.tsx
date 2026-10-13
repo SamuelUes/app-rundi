@@ -7,9 +7,8 @@ import {
   ScrollView,
   TouchableOpacity,
   RefreshControl,
-  Image,
 } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useTranslation } from 'react-i18next';
@@ -32,10 +31,6 @@ import { EarningsSummaryCard } from '../../components/driver/Earnings/EarningsSu
 import { EarningsCommissionBreakdown } from '../../components/driver/Earnings/EarningsCommissionBreakdown';
 import { EarningsStatsSection } from '../../components/driver/Earnings/EarningsStatsSection';
 import { EarningsRideList } from '../../components/driver/Earnings/EarningsRideList';
-
-const backButtonIcon = require('../../assets/icons/back_button/back_button.png');
-const arrowWhiteUpIcon = require('../../assets/icons/arrow/arrowwhiteup2x.png');
-const arrowBlackDownIcon = require('../../assets/icons/arrow/arrrowblackup2x.png');
 
 type Period = 'today' | 'week' | 'month';
 
@@ -98,8 +93,8 @@ export default function EarningsScreen() {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
     >
       <View style={styles.header}>
-        <TouchableOpacity style={styles.headerBackButton} onPress={() => navigation.goBack()}>
-          <Image source={backButtonIcon} style={[styles.backIcon, { tintColor: colors.text }]} resizeMode="contain" />
+        <TouchableOpacity style={styles.headerBackButton} onPress={() => navigation.goBack()} activeOpacity={0.8}>
+          <Ionicons name="chevron-back" size={22} color={colors.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{t('driver.earnings.header.title')}</Text>
         <View style={styles.headerSpacer} />
@@ -107,28 +102,31 @@ export default function EarningsScreen() {
 
       <View style={styles.balanceSection}>
         <Text style={styles.sectionTitle}>{t('driver.earnings.section.balance')}</Text>
-        <View style={styles.periodSelector}>
+        <View style={styles.segRail}>
           <TouchableOpacity
-            style={[styles.periodButton, selectedPeriod === 'today' && styles.periodButtonActive]}
+            style={[styles.segItem, selectedPeriod === 'today' && styles.segItemActive]}
+            activeOpacity={0.85}
             onPress={() => setSelectedPeriod('today')}
           >
-            <Text style={[styles.periodButtonText, selectedPeriod === 'today' && styles.periodButtonTextActive]}>
+            <Text style={[styles.segText, selectedPeriod === 'today' && styles.segTextActive]}>
               {t('driver.earnings.period.today')}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.periodButton, selectedPeriod === 'week' && styles.periodButtonActive]}
+            style={[styles.segItem, selectedPeriod === 'week' && styles.segItemActive]}
+            activeOpacity={0.85}
             onPress={() => setSelectedPeriod('week')}
           >
-            <Text style={[styles.periodButtonText, selectedPeriod === 'week' && styles.periodButtonTextActive]}>
+            <Text style={[styles.segText, selectedPeriod === 'week' && styles.segTextActive]}>
               {t('driver.earnings.period.week')}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.periodButton, selectedPeriod === 'month' && styles.periodButtonActive]}
+            style={[styles.segItem, selectedPeriod === 'month' && styles.segItemActive]}
+            activeOpacity={0.85}
             onPress={() => setSelectedPeriod('month')}
           >
-            <Text style={[styles.periodButtonText, selectedPeriod === 'month' && styles.periodButtonTextActive]}>
+            <Text style={[styles.segText, selectedPeriod === 'month' && styles.segTextActive]}>
               {t('driver.earnings.period.month')}
             </Text>
           </TouchableOpacity>
@@ -151,7 +149,7 @@ export default function EarningsScreen() {
           activeOpacity={0.9}
           onPress={() => navigation.navigate('RechargeFunds')}
         >
-          <Image source={arrowWhiteUpIcon} style={[styles.navIcon, styles.navIconWhite]} resizeMode="contain" />
+          <MaterialIcons name="arrow-upward" size={16} color="#1A1206" />
           <Text style={styles.primaryNavText}>{t('driver.earnings.nav.commissions')}</Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -159,7 +157,7 @@ export default function EarningsScreen() {
           activeOpacity={0.9}
           onPress={() => navigation.navigate('RideHistory')}
         >
-          <Image source={arrowBlackDownIcon} style={[styles.navIcon, styles.navIconDark]} resizeMode="contain" />
+          <MaterialIcons name="receipt-long" size={16} color={colors.text} />
           <Text style={styles.secondaryNavText}>{t('driver.earnings.nav.history')}</Text>
         </TouchableOpacity>
       </View>
@@ -185,6 +183,7 @@ export default function EarningsScreen() {
           formatStatCurrency={formatStatCurrency}
           formatStatDuration={formatStatDuration}
           formatStatDistance={formatStatDistance}
+          colors={colors}
           styles={styles}
           t={t}
         />
@@ -195,6 +194,7 @@ export default function EarningsScreen() {
         rides={rides}
         formatDate={formatDate}
         formatCurrency={formatCurrency}
+        colors={colors}
         styles={styles}
         t={t}
       />
@@ -220,25 +220,26 @@ const createStyles = (colors: any, accentColor: string) => StyleSheet.create({
     paddingBottom: 8,
   },
   headerBackButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface || colors.background,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  backIcon: {
-    width: 28,
-    height: 28,
-  },
+
   headerTitle: {
     flex: 1,
     textAlign: 'center',
-    fontSize: 20,
-    fontWeight: '700',
+    fontSize: 19,
+    fontWeight: '800',
     color: colors.text,
+    letterSpacing: -0.2,
   },
   headerSpacer: {
-    width: 40,
+    width: 42,
   },
   balanceSection: {
     paddingHorizontal: 20,
@@ -246,51 +247,56 @@ const createStyles = (colors: any, accentColor: string) => StyleSheet.create({
     paddingBottom: 12,
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.textSecondary,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    marginBottom: 10,
+  },
+  segRail: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    padding: 3,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface || colors.background,
+  },
+  segItem: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 6,
+    borderRadius: 11,
+  },
+  segItemActive: {
+    backgroundColor: accentColor,
+  },
+  segText: {
+    fontSize: 13,
     fontWeight: '700',
     color: colors.text,
-    marginBottom: 12,
   },
-  periodSelector: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  periodButton: {
-    flex: 1,
-    paddingVertical: 11,
-    paddingHorizontal: 20,
-    borderRadius: 999,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: accentColor,
-    alignItems: 'center',
-  },
-  periodButtonActive: {
-    backgroundColor: accentColor,
-    borderColor: accentColor,
-  },
-  periodButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: accentColor,
-  },
-  periodButtonTextActive: {
-    color: colors.background,
+  segTextActive: {
+    color: '#1A1206',
   },
   summaryCard: {
     marginHorizontal: 20,
     marginTop: 4,
-    borderRadius: 24,
+    borderRadius: 18,
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,
     overflow: 'hidden',
   },
   summaryValues: {
-    paddingHorizontal: 20,
-    paddingTop: 20,
+    paddingHorizontal: 18,
+    paddingTop: 16,
     paddingBottom: 16,
-    gap: 12,
+    gap: 10,
   },
   summaryValueRow: {
     flexDirection: 'row',
@@ -298,35 +304,37 @@ const createStyles = (colors: any, accentColor: string) => StyleSheet.create({
     alignItems: 'center',
   },
   summaryValueLabel: {
-    fontSize: 15,
-    color: colors.text,
+    fontSize: 13,
+    color: colors.textSecondary,
     fontWeight: '500',
   },
   summaryValueText: {
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 15,
+    fontWeight: '600',
     color: colors.text,
+    fontVariant: ['tabular-nums'],
   },
   summaryCommissionText: {
-    color: '#E53935',
+    color: colors.error,
   },
   summaryNetRow: {
     backgroundColor: accentColor,
-    paddingHorizontal: 24,
-    paddingVertical: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 15,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
   summaryNetLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.background,
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1A1206',
   },
   summaryNetValue: {
     fontSize: 20,
     fontWeight: '800',
-    color: colors.background,
+    color: '#1A1206',
+    fontVariant: ['tabular-nums'],
   },
   statsSection: {
     paddingHorizontal: 20,
@@ -336,48 +344,60 @@ const createStyles = (colors: any, accentColor: string) => StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
-    marginTop: 16,
+    marginTop: 4,
   },
   statChip: {
-    width: '48%',
-    backgroundColor: colors.surface,
-    borderRadius: 20,
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-    marginBottom: 12,
+    width: '48.5%',
+    backgroundColor: colors.card,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingVertical: 13,
+    paddingHorizontal: 14,
+    marginBottom: 10,
+  },
+  statChipTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 8,
   },
   statChipLabel: {
-    fontSize: 13,
+    flex: 1,
+    fontSize: 10,
+    fontWeight: '600',
     color: colors.textSecondary,
-    marginBottom: 8,
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
   },
   statChipValue: {
     fontSize: 18,
     fontWeight: '700',
     color: colors.text,
+    fontVariant: ['tabular-nums'],
   },
   navigationButtons: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingHorizontal: 30,
-    paddingVertical: 20,
-    marginTop: 5,
-    marginBottom: 8,
-    gap: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    marginTop: 2,
+    marginBottom: 4,
+    gap: 10,
   },
   primaryNavButton: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.text,
-    borderRadius: 999,
-    paddingVertical: 14,
-    gap: 8,
+    backgroundColor: accentColor,
+    borderRadius: 14,
+    paddingVertical: 12,
+    gap: 7,
   },
   primaryNavText: {
-    color: colors.background,
-    fontSize: 14,
+    color: '#1A1206',
+    fontSize: 13,
     fontWeight: '700',
   },
   secondaryNavButton: {
@@ -385,50 +405,38 @@ const createStyles = (colors: any, accentColor: string) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 999,
-    paddingVertical: 14,
-    gap: 8,
+    borderRadius: 14,
+    paddingVertical: 12,
+    gap: 7,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: colors.card,
+    backgroundColor: colors.surface || colors.background,
   },
   secondaryNavText: {
     color: colors.text,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
   },
-  navIcon: {
-    width: 14,
-    height: 14,
-  },
-  navIconWhite: {
-    tintColor: colors.background,
-  },
-  navIconDark: {
-    tintColor: colors.text,
-    transform: [{ rotate: '90deg' }],
-  },
+
   commissionCard: {
-    margin: 16,
+    marginHorizontal: 20,
     marginTop: 0,
-    padding: 20,
+    marginBottom: 12,
+    padding: 18,
     backgroundColor: colors.card,
-    borderRadius: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   commissionTitle: {
-    fontSize: 18,
+    fontSize: 15,
     fontWeight: '700',
     color: colors.text,
-    marginBottom: 16,
+    marginBottom: 14,
   },
   commissionSection: {
-    marginBottom: 16,
-    paddingBottom: 16,
+    marginBottom: 14,
+    paddingBottom: 14,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
@@ -440,14 +448,11 @@ const createStyles = (colors: any, accentColor: string) => StyleSheet.create({
   commissionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 8,
     marginBottom: 12,
   },
-  commissionIcon: {
-    fontSize: 20,
-    marginRight: 8,
-  },
   commissionLabel: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
     color: colors.text,
   },
@@ -458,19 +463,20 @@ const createStyles = (colors: any, accentColor: string) => StyleSheet.create({
     paddingLeft: 28,
   },
   commissionDetail: {
-    fontSize: 14,
+    fontSize: 13,
     color: colors.textSecondary,
     flex: 1,
   },
   commissionAmount: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
-    color: '#FF5252',
+    color: colors.error,
+    fontVariant: ['tabular-nums'],
   },
   commissionAmountHighlight: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#E53935',
+    color: colors.error,
   },
   commissionRowTotal: {
     marginTop: 8,
@@ -530,32 +536,35 @@ const createStyles = (colors: any, accentColor: string) => StyleSheet.create({
     textAlign: 'right',
   },
   commissionTotalLabel: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '600',
     color: colors.text,
   },
   commissionTotalAmount: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
-    color: '#FF5252',
+    color: colors.error,
+    fontVariant: ['tabular-nums'],
   },
   commissionGrandTotal: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
     marginTop: 8,
-    paddingTop: 16,
-    borderTopWidth: 2,
+    paddingTop: 14,
+    borderTopWidth: 1,
     borderTopColor: colors.border,
   },
   commissionGrandTotalLabel: {
-    fontSize: 18,
+    fontSize: 15,
     fontWeight: '700',
     color: colors.text,
   },
   commissionGrandTotalAmount: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '800',
-    color: '#FF5252',
+    color: colors.error,
+    fontVariant: ['tabular-nums'],
   },
   statsCard: {
     margin: 16,
@@ -599,33 +608,47 @@ const createStyles = (colors: any, accentColor: string) => StyleSheet.create({
     textAlign: 'center',
   },
   ridesSection: {
-    padding: 16,
-    paddingTop: 0,
+    paddingHorizontal: 20,
+    paddingTop: 4,
   },
   ridesTitle: {
-    fontSize: 18,
+    fontSize: 12,
     fontWeight: '700',
-    color: colors.text,
-    marginBottom: 16,
+    color: colors.textSecondary,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    marginBottom: 10,
   },
   emptyState: {
-    padding: 40,
+    paddingVertical: 40,
+    paddingHorizontal: 20,
     alignItems: 'center',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+  },
+  emptyIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface || colors.background,
+    marginBottom: 12,
   },
   emptyStateText: {
-    fontSize: 14,
+    fontSize: 13,
     color: colors.textSecondary,
+    textAlign: 'center',
   },
   rideCard: {
     padding: 16,
     backgroundColor: colors.card,
-    borderRadius: 12,
+    borderRadius: 18,
     marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   rideHeader: {
     flexDirection: 'row',
@@ -635,34 +658,78 @@ const createStyles = (colors: any, accentColor: string) => StyleSheet.create({
   },
   rideDate: {
     fontSize: 12,
+    fontWeight: '500',
     color: colors.textSecondary,
+    letterSpacing: 0.3,
   },
   paymentBadge: {
-    paddingHorizontal: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 9,
     paddingVertical: 4,
-    borderRadius: 6,
+    borderRadius: 999,
+  },
+  paymentBadgeDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   paymentBadgeText: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#fff',
+    fontSize: 11,
+    fontWeight: '700',
   },
   rideLocations: {
     marginBottom: 12,
   },
+  routeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    minHeight: 20,
+  },
+  routeMarkerCol: {
+    width: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  routeRing: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 2.5,
+    borderColor: colors.secondary,
+  },
+  routeConnector: {
+    width: 2,
+    height: 14,
+    borderRadius: 1,
+    backgroundColor: colors.border,
+    marginLeft: 8,
+    marginVertical: 3,
+  },
   rideLocation: {
+    flex: 1,
     fontSize: 13,
+    fontWeight: '500',
     color: colors.text,
-    marginBottom: 4,
   },
   rideDetails: {
     flexDirection: 'row',
-    gap: 16,
+    alignItems: 'center',
+    gap: 14,
     marginBottom: 12,
+  },
+  rideDetailItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
   },
   rideDetail: {
     fontSize: 12,
+    fontWeight: '500',
     color: colors.textSecondary,
+    fontVariant: ['tabular-nums'],
   },
   rideEarnings: {
     paddingTop: 12,
@@ -672,20 +739,22 @@ const createStyles = (colors: any, accentColor: string) => StyleSheet.create({
   rideEarningRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 6,
+    alignItems: 'center',
+    paddingVertical: 3,
   },
   rideEarningLabel: {
     fontSize: 12,
     color: colors.textSecondary,
   },
   rideEarningValue: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
     color: colors.text,
+    fontVariant: ['tabular-nums'],
   },
   rideEarningRowTotal: {
     marginTop: 6,
-    paddingTop: 8,
+    paddingTop: 10,
     borderTopWidth: 1,
     borderTopColor: colors.border,
   },
@@ -696,8 +765,9 @@ const createStyles = (colors: any, accentColor: string) => StyleSheet.create({
   },
   rideEarningValueTotal: {
     fontSize: 16,
-    fontWeight: '700',
-    color: '#4CAF50',
+    fontWeight: '800',
+    color: colors.success,
+    fontVariant: ['tabular-nums'],
   },
   // Estilos para sistema de recargas
   cashSystemCard: {

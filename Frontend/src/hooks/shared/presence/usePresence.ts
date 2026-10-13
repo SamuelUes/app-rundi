@@ -40,8 +40,47 @@ export function usePresence() {
       return;
     }
 
+    // Confirma contra RTDB que la sesión realmente pasó a otro dispositivo
+    // antes de cerrar sesión. Fallas transitorias (sesión ausente en medio de
+    // una re-creación, ventanas de isActive=false, latencia) no son conflictos.
+    const verifyRealConflict = async (): Promise<boolean> => {
+      try {
+        const diag = await sessionService.getSessionOwnershipDiagnostic();
+        if (!diag.authReady) return false;
+        if (diag.sessionExists === false) {
+          // Sesión ausente: re-reclamarla con el mismo deviceId es seguro
+          // (startSession mantiene la política deny en el servidor).
+          try {
+            await sessionService.startSession({ policy: 'deny', source: 'driverPresence:reclaim' });
+            return false;
+          } catch (err: any) {
+            return sessionService.isSessionActiveElsewhereError(err);
+          }
+        }
+        return diag.sameDevice === false;
+      } catch {
+        return false;
+      }
+    };
+
+    // Ejecuta una operación de sesión con una reintentada después de
+    // recuperar la propiedad (si el rechazo no era un conflicto real).
+    const runWithSessionRecovery = async (operation: () => Promise<unknown>) => {
+      try {
+        await operation();
+      } catch (error: any) {
+        if (!sessionService.isSessionActiveElsewhereError(error)) throw error;
+        if (await verifyRealConflict()) throw error;
+        await operation();
+      }
+    };
+
     const handleSessionConflict = async () => {
       if (sessionConflictUidRef.current === user.id) return;
+      if (!(await verifyRealConflict())) {
+        console.log('ℹ️ [presence] Rechazo de sesión descartado: RTDB confirma este dispositivo');
+        return;
+      }
       sessionConflictUidRef.current = user.id;
       if (sessionHeartbeatRef.current) clearInterval(sessionHeartbeatRef.current);
       sessionHeartbeatRef.current = null;
@@ -134,10 +173,16 @@ export function usePresence() {
         actionsRef.current = { markActive, markClosed };
 
         const deviceId = await sessionService.getDeviceId();
+        if (__DEV__) {
+          const ownership = await sessionService.getSessionOwnershipDiagnostic().catch(() => null);
+          if (ownership) console.log('[usePresence] Session ownership:', ownership);
+        }
         const availability = await driverAvailabilityService.getAvailabilityState();
         const preserveAvailability =
           initializedPresenceUidRef.current === user.id && Boolean(availability?.isAvailable);
-        await markActive({ role: 'driver', deviceId, keepAvailability: preserveAvailability });
+        await runWithSessionRecovery(() =>
+          markActive({ role: 'driver', deviceId, keepAvailability: preserveAvailability, source: 'driverPresence:init' }),
+        );
         initializedPresenceUidRef.current = user.id;
         sessionConflictUidRef.current = null;
 
@@ -147,7 +192,7 @@ export function usePresence() {
         if (sessionHeartbeatRef.current) clearInterval(sessionHeartbeatRef.current);
         sessionHeartbeatRef.current = setInterval(async () => {
           try {
-            await sessionService.startSession({ policy: 'deny' });
+            await sessionService.heartbeatSession({ source: 'driverPresence:heartbeat' });
           } catch (error: any) {
             if (sessionService.isSessionActiveElsewhereError(error)) {
               await handleSessionConflict();
@@ -195,7 +240,7 @@ export function usePresence() {
             console.log('📱 App en background con disponibilidad activa - manteniendo status');
           } else {
             console.log('📱 App en background, marcando como offline...');
-            actions.markClosed({ role: 'driver', deviceId }).catch(async (err: any) => {
+            actions.markClosed({ role: 'driver', deviceId, source: 'driverPresence:background' }).catch(async (err: any) => {
               if (sessionService.isSessionActiveElsewhereError(err)) {
                 await handleSessionConflict();
                 return;
@@ -213,7 +258,14 @@ export function usePresence() {
           console.log('📱 App en foreground');
           await cancelOnDisconnect();
           const availability = await driverAvailabilityService.getAvailabilityState();
-          await actions.markActive({ role: 'driver', deviceId, keepAvailability: Boolean(availability?.isAvailable) });
+          await runWithSessionRecovery(() =>
+            actions.markActive({
+              role: 'driver',
+              deviceId,
+              keepAvailability: Boolean(availability?.isAvailable),
+              source: 'driverPresence:foreground',
+            }),
+          );
           await setupOnDisconnect(user.id);
         }
 
@@ -245,7 +297,7 @@ export function usePresence() {
               .getDeviceId()
               .then((deviceId) => {
                 actions
-                  .markClosed({ role: 'driver', deviceId })
+                  .markClosed({ role: 'driver', deviceId, source: 'driverPresence:cleanup' })
                   .catch(() => {
                     // Silenciar: onDisconnect limpiará automáticamente
                   });

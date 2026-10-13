@@ -57,7 +57,7 @@ async function startSessionWithPolicy(authService: any, setUser: (user: User | n
   if (!backendConfig.isFirebase()) return;
 
   try {
-    await sessionService.startSession({ policy: 'deny' });
+    await sessionService.startSession({ policy: 'deny', source: 'authActions' });
   } catch (err: any) {
     try { await authService.logout(); } catch {}
     await AsyncStorage.removeItem('user');

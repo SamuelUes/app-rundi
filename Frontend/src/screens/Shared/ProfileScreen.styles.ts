@@ -53,11 +53,6 @@ export const createStyles = (colors: any, isDark: boolean) => StyleSheet.create(
     alignItems: 'center',
     justifyContent: 'center',
   },
-  backIcon: {
-    width: 24,
-    height: 24,
-    resizeMode: 'contain',
-  },
   avatarContainer: {
     marginRight: 14,
   },
@@ -303,13 +298,6 @@ export const createStyles = (colors: any, isDark: boolean) => StyleSheet.create(
   },
   optionCardLast: {
     borderBottomWidth: 0,
-  },
-  optionIconImage: {
-    width: 25,
-    height: 25,
-    marginRight: 14,
-    resizeMode: 'contain',
-    tintColor: colors.text,
   },
   optionText: {
     flex: 1,

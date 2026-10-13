@@ -7,17 +7,14 @@ import {
   TouchableOpacity,
   TextInput,
   ScrollView,
-  Image,
 } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { initializeFirebase } from '../../config/firebase';
 import alertService from '../../services/alertService';
 import { useTranslation } from 'react-i18next';
-
-const BACK_BUTTON_ICON = require('../../assets/icons/back_button/back_button2x.png');
 
 interface Card {
   id: string;
@@ -178,7 +175,7 @@ export default function PaymentMethodsScreen({ navigation }: any) {
             accessibilityRole="button"
             accessibilityLabel={t('shared.paymentMethods.header.goBack')}
           >
-            <Image source={BACK_BUTTON_ICON} style={styles.backButtonIcon} resizeMode="contain" />
+            <Ionicons name="chevron-back" size={22} color={colors.text} />
           </TouchableOpacity>
           <View style={styles.headerText}>
             <Text style={styles.title}>{t('shared.paymentMethods.header.title')}</Text>
@@ -270,10 +267,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
-  backButtonIcon: {
-    width: 35,
-    height: 35,
-  },
+
   headerText: {
     flex: 1,
   },

@@ -7,8 +7,8 @@ import {
   TouchableOpacity,
   Alert,
   ScrollView,
-  Image,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import rechargeFundsService, {
@@ -226,11 +226,7 @@ export default function RechargeFundsScreen({ navigation }: any) {
     <View style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-          <Image
-            source={require('../../assets/icons/back_button/back_button.png')}
-            style={[styles.backIcon, { tintColor: colors.text }]}
-            resizeMode="contain"
-          />
+          <Ionicons name="chevron-back" size={22} color={colors.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{headerTitle}</Text>
         <View style={styles.headerSpacer} />
@@ -310,7 +306,7 @@ const createStyles = (colors: any, accentColor: string) =>
       alignItems: 'center',
       justifyContent: 'center',
     },
-    backIcon: { width: 28, height: 28 },
+
     headerTitle: {
       flex: 1,
       textAlign: 'center',

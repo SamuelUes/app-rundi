@@ -112,3 +112,5 @@ Frontend/.env
 Frontend/.env.development
 Frontend/.env
 functions/test/rideShareCodeStore.test.mjs
+
+icons_unused/

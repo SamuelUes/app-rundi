@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Image, Switch } from 'react-native';
+import { View, Text, TouchableOpacity, Switch } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import type { TFunction } from 'i18next';
 
@@ -140,37 +140,25 @@ export function ProfileConfigSection({
       {/* Navegación — patrón DriverProfileOptions */}
       <View style={styles.section}>
         <TouchableOpacity style={styles.optionCard} onPress={onNavigatePayments} accessibilityRole="button">
-          <Image
-            source={require('../../../assets/icons/payment-icon/paymenticon.png')}
-            style={styles.optionIconImage}
-          />
+          <MaterialIcons name="payments" size={22} color={colors.primary} style={{ marginRight: 14 }} />
           <Text style={styles.optionText}>{t('shared.profile.config.payments')}</Text>
           <Text style={styles.optionArrow}>›</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.optionCard} onPress={onNavigateRideHistory} accessibilityRole="button">
-          <Image
-            source={require('../../../assets/icons/historial-icon/historialicon2.png')}
-            style={styles.optionIconImage}
-          />
+          <MaterialIcons name="receipt-long" size={22} color={colors.primary} style={{ marginRight: 14 }} />
           <Text style={styles.optionText}>{t('shared.profile.config.rideHistory')}</Text>
           <Text style={styles.optionArrow}>›</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.optionCard} onPress={onNavigateSettings} accessibilityRole="button">
-          <Image
-            source={require('../../../assets/icons/settings-icon/settingsicon.png')}
-            style={styles.optionIconImage}
-          />
+          <MaterialIcons name="settings" size={22} color={colors.primary} style={{ marginRight: 14 }} />
           <Text style={styles.optionText}>{t('shared.profile.config.advanced')}</Text>
           <Text style={styles.optionArrow}>›</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.optionCard} onPress={onNavigateHelp} accessibilityRole="button">
-          <Image
-            source={require('../../../assets/icons/help-icon/helpicon.png')}
-            style={styles.optionIconImage}
-          />
+          <MaterialIcons name="help-outline" size={22} color={colors.primary} style={{ marginRight: 14 }} />
           <Text style={styles.optionText}>{t('shared.profile.config.help')}</Text>
           <Text style={styles.optionArrow}>›</Text>
         </TouchableOpacity>
@@ -180,10 +168,7 @@ export function ProfileConfigSection({
           onPress={onNavigateSupport}
           accessibilityRole="button"
         >
-          <Image
-            source={require('../../../assets/icons/report-icon/reporticon.png')}
-            style={styles.optionIconImage}
-          />
+          <MaterialIcons name="support-agent" size={22} color={colors.primary} style={{ marginRight: 14 }} />
           <Text style={styles.optionText}>{t('shared.profile.support.title')}</Text>
           <Text style={styles.optionArrow}>›</Text>
         </TouchableOpacity>

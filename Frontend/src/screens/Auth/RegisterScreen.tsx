@@ -15,10 +15,9 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Image,
 } from 'react-native';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
-import { MaterialIcons } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -429,11 +428,7 @@ export default function RegisterScreen() {
             disabled={loading}
             activeOpacity={0.8}
           >
-            <Image
-              source={require('../../assets/icons/back_button/back_button2x.png')}
-              style={styles.backIcon}
-              resizeMode="contain"
-            />
+            <Ionicons name="chevron-back" size={22} color={colors.text} />
           </TouchableOpacity>
 
           <Text style={styles.title}>{t('authScreens.register.header.title')}</Text>
@@ -607,10 +602,7 @@ const createStyles = (colors: any) =>
       shadowRadius: 4,
       elevation: 2,
     },
-    backIcon: {
-      width: 34,
-      height: 34,
-    },
+
     countryPickerContainer: {
       marginBottom: 8,
     },

@@ -27,15 +27,54 @@ export function useClientPresence() {
 
   useEffect(() => {
     // Solo para usuarios autenticados en modo cliente
-    if (loading || !user?.id || userMode !== 'client') {
+    if (
+      loading ||
+      !user?.id ||
+      (user.role !== 'client' && user.role !== 'admin') ||
+      userMode !== 'client'
+    ) {
       return;
     }
 
     let cancelled = false;
     let sessionConflictHandled = false;
 
+    // Confirma contra RTDB que la sesión realmente pasó a otro dispositivo
+    // antes de cerrar sesión; los rechazos transitorios no son conflictos.
+    const verifyRealConflict = async (): Promise<boolean> => {
+      try {
+        const diag = await sessionService.getSessionOwnershipDiagnostic();
+        if (!diag.authReady) return false;
+        if (diag.sessionExists === false) {
+          try {
+            await sessionService.startSession({ policy: 'deny', source: 'clientPresence:reclaim' });
+            return false;
+          } catch (err: any) {
+            return sessionService.isSessionActiveElsewhereError(err);
+          }
+        }
+        return diag.sameDevice === false;
+      } catch {
+        return false;
+      }
+    };
+
+    const runWithSessionRecovery = async (operation: () => Promise<unknown>) => {
+      try {
+        await operation();
+      } catch (error: any) {
+        if (!sessionService.isSessionActiveElsewhereError(error)) throw error;
+        if (await verifyRealConflict()) throw error;
+        await operation();
+      }
+    };
+
     const handleSessionConflict = async () => {
       if (sessionConflictHandled) return;
+      if (!(await verifyRealConflict())) {
+        console.log('ℹ️ [clientPresence] Rechazo de sesión descartado: RTDB confirma este dispositivo');
+        return;
+      }
       sessionConflictHandled = true;
       if (intervalRef.current) clearInterval(intervalRef.current);
       intervalRef.current = null;
@@ -89,10 +128,13 @@ export function useClientPresence() {
         actionsRef.current = { markActive, markClosed };
 
         const deviceId = await sessionService.getDeviceId();
-        await markActive({
-          role: 'client',
-          deviceId,
-        });
+        await runWithSessionRecovery(() =>
+          markActive({
+            role: 'client',
+            deviceId,
+            source: 'clientPresence:init',
+          }),
+        );
 
         // Configurar onDisconnect después de markAppActive exitoso
         await setupOnDisconnect(uid);
@@ -103,10 +145,13 @@ export function useClientPresence() {
         intervalRef.current = setInterval(async () => {
           try {
             const devId = await sessionService.getDeviceId();
-            await markActive({
-              role: 'client',
-              deviceId: devId,
-            });
+            await runWithSessionRecovery(() =>
+              markActive({
+                role: 'client',
+                deviceId: devId,
+                source: 'clientPresence:heartbeat',
+              }),
+            );
           } catch (err) {
             if (sessionService.isSessionActiveElsewhereError(err)) {
               await handleSessionConflict();

@@ -1,8 +1,6 @@
 import React from 'react';
 import { View, Text, Pressable, Image } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
 import EmergencyButton from '../../shared/EmergencyButton';
-import { useTheme } from '../../../hooks/shared/theme/useTheme';
 import type { TFunction } from 'i18next';
 
 interface DriverHomeHeaderProps {
@@ -10,8 +8,6 @@ interface DriverHomeHeaderProps {
   userPhotoUri?: string | null;
   isAvailable: boolean;
   activeRideId: string | undefined;
-  onToggleMenu: () => void;
-  onCloseMenu: () => void;
   onNavigateProfile: () => void;
   styles: any;
   t: TFunction;
@@ -22,36 +18,19 @@ export function DriverHomeHeader({
   userPhotoUri,
   isAvailable,
   activeRideId,
-  onToggleMenu,
-  onCloseMenu,
   onNavigateProfile,
   styles,
   t,
 }: DriverHomeHeaderProps) {
-  const { isDark } = useTheme();
   const initial = (userName ?? '').trim().charAt(0).toUpperCase() || 'C';
-  const iconColor = isDark ? '#F5F1EA' : '#1C1917';
 
   return (
     <View style={styles.overlayHeader} pointerEvents="box-none">
       <View style={styles.leftHeaderGroup}>
-        <Pressable
-          style={({ pressed }) => [
-            styles.chipButton,
-            pressed && { transform: [{ scale: 0.94 }] },
-          ]}
-          onPress={onToggleMenu}
-          accessibilityRole="button"
-          accessibilityLabel={t('driver.home.menu.title')}
-        >
-          <MaterialIcons name="menu" size={22} color={iconColor} />
-        </Pressable>
-
         <View style={styles.chipButton}>
           <EmergencyButton
             rideId={activeRideId}
             style={styles.emergencyChipButton}
-            onOpen={onCloseMenu}
           />
         </View>
       </View>

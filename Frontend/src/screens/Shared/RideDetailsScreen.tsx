@@ -232,7 +232,7 @@ export default function RideDetailsScreen({ navigation, route }: any) {
         styles={styles}
       />
 
-      <RideDetailsRoute ride={ride} safeString={safeString} t={t} styles={styles} />
+      <RideDetailsRoute ride={ride} safeString={safeString} colors={colors} t={t} styles={styles} />
 
       <RideDetailsInfo
         ride={ride}
@@ -249,12 +249,13 @@ export default function RideDetailsScreen({ navigation, route }: any) {
         isDriver={isDriver}
         ride={ride}
         safeString={safeString}
+        colors={colors}
         t={t}
         styles={styles}
       />
 
       {!isDriver && (
-        <RideDetailsVehicle ride={ride} safeString={safeString} t={t} styles={styles} />
+        <RideDetailsVehicle ride={ride} safeString={safeString} colors={colors} t={t} styles={styles} />
       )}
 
       <RideDetailsTimeline ride={ride} formatDateTime={formatDateTime} t={t} styles={styles} />
@@ -302,10 +303,6 @@ const createStyles = (colors: any) => StyleSheet.create({
     backgroundColor: colors.background,
     padding: 20,
   },
-  errorEmoji: {
-    fontSize: 64,
-    marginBottom: 16,
-  },
   errorTitle: {
     fontSize: 18,
     fontWeight: '700',
@@ -316,124 +313,133 @@ const createStyles = (colors: any) => StyleSheet.create({
     backgroundColor: colors.primary,
     paddingVertical: 12,
     paddingHorizontal: 24,
-    borderRadius: 8,
+    borderRadius: 12,
   },
   retryButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
+    color: '#1A1206',
+    fontSize: 15,
+    fontWeight: '700',
   },
   header: {
-    backgroundColor: colors.card,
-    marginTop: 12,
+    marginTop: 50,
     marginHorizontal: 16,
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 2,
   },
   headerRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    gap: 10,
   },
   backButton: {
     width: 42,
     height: 42,
     borderRadius: 21,
     backgroundColor: colors.surface || colors.background,
-    borderWidth: 0.5,
+    borderWidth: 1,
     borderColor: colors.border,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 10,
-  },
-  backIcon: {
-    width: 26,
-    height: 26,
   },
   titleContainer: {
     flex: 1,
-    marginRight: 10,
+    marginRight: 4,
   },
   title: {
-    fontSize: 20,
+    fontSize: 19,
     fontWeight: '800',
     color: colors.text,
+    letterSpacing: -0.2,
   },
-  statusBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+  statusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
     borderRadius: 999,
   },
-  statusText: {
+  statusPillDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  statusPillText: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#fff',
   },
   rideId: {
-    fontSize: 12,
-    letterSpacing: 0.4,
-    color: colors.textSecondary,
+    fontSize: 11,
+    letterSpacing: 0.5,
+    color: colors.textTertiary || colors.textSecondary,
+    marginTop: 3,
   },
   section: {
-    marginTop: 12,
+    marginTop: 16,
     marginHorizontal: 16,
   },
   sectionTitle: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 0.6,
     color: colors.textSecondary,
-    marginBottom: 10,
+    marginBottom: 8,
   },
   card: {
     backgroundColor: colors.card,
-    borderRadius: 16,
+    borderRadius: 18,
     padding: 16,
     borderWidth: 1,
     borderColor: colors.border,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.03,
-    shadowRadius: 3,
-    elevation: 1,
   },
-  locationRow: {
+  routeRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 9,
+    alignItems: 'flex-start',
+    gap: 10,
+    paddingVertical: 4,
   },
-  locationIcon: {
-    fontSize: 20,
-    marginRight: 12,
+  routeMarkerCol: {
+    width: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 15,
+  },
+  routeRing: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 2.5,
+    borderColor: colors.secondary,
+  },
+  routeStopDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 2.5,
+    borderColor: colors.warning,
+  },
+  routeConnector: {
+    width: 2,
+    height: 16,
+    borderRadius: 1,
+    backgroundColor: colors.border,
+    marginLeft: 8,
   },
   locationInfo: {
     flex: 1,
   },
   locationLabel: {
-    fontSize: 12,
+    fontSize: 10,
+    fontWeight: '600',
     color: colors.textSecondary,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
     marginBottom: 2,
   },
   locationText: {
     fontSize: 14,
+    fontWeight: '500',
     color: colors.text,
-  },
-  routeLine: {
-    width: 2,
-    height: 26,
-    backgroundColor: colors.border,
-    marginLeft: 10,
-    marginVertical: 4,
+    lineHeight: 20,
   },
   infoGrid: {
     flexDirection: 'row',
@@ -441,36 +447,62 @@ const createStyles = (colors: any) => StyleSheet.create({
   },
   infoItem: {
     width: '50%',
-    paddingVertical: 9,
-    paddingRight: 8,
+    paddingVertical: 8,
+    paddingRight: 10,
   },
   infoLabel: {
-    fontSize: 11,
+    fontSize: 10,
+    fontWeight: '600',
     color: colors.textSecondary,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
     marginBottom: 4,
   },
   infoValue: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 17,
+    fontWeight: '700',
     color: colors.text,
+    fontVariant: ['tabular-nums'],
   },
   notesBox: {
-    marginTop: 12,
+    marginTop: 10,
     padding: 12,
     backgroundColor: colors.surface || colors.background,
     borderRadius: 12,
-    borderWidth: 0.5,
-    borderColor: colors.border,
   },
   notesLabel: {
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: '600',
     color: colors.textSecondary,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
     marginBottom: 4,
   },
   notesText: {
     fontSize: 14,
     color: colors.text,
+    lineHeight: 20,
+  },
+  personRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  personAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primary + '26',
+  },
+  personAvatarText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: colors.primary,
+  },
+  personBody: {
+    flex: 1,
   },
   personName: {
     fontSize: 16,
@@ -478,56 +510,100 @@ const createStyles = (colors: any) => StyleSheet.create({
     color: colors.text,
     marginBottom: 4,
   },
+  personMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    marginTop: 4,
+  },
   personDetail: {
-    fontSize: 14,
+    flex: 1,
+    fontSize: 13,
     color: colors.textSecondary,
-    marginBottom: 2,
   },
   ratingRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 5,
     marginTop: 8,
   },
-  ratingStars: {
-    fontSize: 16,
-    marginRight: 4,
-  },
   ratingValue: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.primary,
-  },
-  vehicleName: {
-    fontSize: 18,
+    fontSize: 13,
     fontWeight: '700',
     color: colors.text,
-    marginBottom: 8,
+    fontVariant: ['tabular-nums'],
+  },
+  vehicleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  vehicleTile: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface || colors.background,
+  },
+  vehicleBody: {
+    flex: 1,
+  },
+  vehicleName: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 3,
   },
   vehicleDetail: {
-    fontSize: 14,
+    fontSize: 13,
     color: colors.textSecondary,
     marginBottom: 2,
   },
-  dateRow: {
+  timelineRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 10,
+    paddingVertical: 5,
+  },
+  timelineMarkerCol: {
+    width: 18,
     alignItems: 'center',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    justifyContent: 'center',
+    paddingTop: 6,
+  },
+  timelineDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.primary,
+  },
+  timelineDotCanceled: {
+    backgroundColor: colors.error,
+  },
+  timelineConnector: {
+    width: 2,
+    height: 12,
+    borderRadius: 1,
+    backgroundColor: colors.border,
+    marginLeft: 8,
   },
   dateLabel: {
+    flex: 1,
     fontSize: 13,
     fontWeight: '600',
     color: colors.text,
+    paddingTop: 2,
   },
   dateValue: {
-    fontSize: 13,
+    fontSize: 12,
     color: colors.textSecondary,
+    paddingTop: 4,
+    fontVariant: ['tabular-nums'],
   },
   cancelReason: {
     fontSize: 12,
-    color: '#F44336',
+    color: colors.error,
     fontStyle: 'italic',
     marginTop: 4,
   },
@@ -535,39 +611,59 @@ const createStyles = (colors: any) => StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 10,
+    paddingVertical: 9,
   },
   priceLabel: {
     fontSize: 13,
-    color: colors.text,
+    color: colors.textSecondary,
   },
   priceValue: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '600',
     color: colors.text,
+    fontVariant: ['tabular-nums'],
   },
   priceDivider: {
     height: 1,
     backgroundColor: colors.border,
-    marginVertical: 12,
+    marginVertical: 10,
   },
-  finalPriceRow: {
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    marginTop: 8,
-    paddingTop: 12,
-    backgroundColor: colors.surface || colors.background,
-    paddingHorizontal: 10,
-    borderRadius: 10,
+  paymentStatusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 999,
   },
-  finalPriceLabel: {
-    fontSize: 15,
+  paymentStatusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  paymentStatusText: {
+    fontSize: 11,
     fontWeight: '700',
-    color: colors.text,
   },
-  finalPriceValue: {
-    fontSize: 18,
+  payoutBand: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    borderRadius: 12,
+    backgroundColor: colors.primary,
+  },
+  payoutLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1A1206',
+  },
+  payoutValue: {
+    fontSize: 19,
     fontWeight: '800',
-    color: colors.primary,
+    color: '#1A1206',
+    fontVariant: ['tabular-nums'],
   },
 });
