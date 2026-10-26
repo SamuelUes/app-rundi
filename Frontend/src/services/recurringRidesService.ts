@@ -29,7 +29,10 @@ export function sanitizeRecurringRides(data: any): RecurringRide[] {
       origin,
       destination,
       extraStops: Array.isArray(raw?.extraStops)
-        ? raw.extraStops.map(sanitizePoint).filter((p): p is RecurringRidePoint => !!p).slice(0, 3)
+        ? raw.extraStops
+            .map(sanitizePoint)
+            .filter((p: RecurringRidePoint | null): p is RecurringRidePoint => !!p)
+            .slice(0, 3)
         : [],
       vehicleType,
       designatedDriverMode:

@@ -53,7 +53,7 @@ export default function RecurringRidesScreen({ navigation }: any) {
           if (!user?.id) return;
           try {
             await deleteRecurringRide(user.id, ride.id);
-            alertService.showSuccessAlert(t('client.recurringRides.deleted'));
+            alertService.showSuccessAlert(t('client.recurringRides.deleted'), '');
           } catch {
             alertService.showErrorAlert(t('client.recurringRides.deleteError'));
           }

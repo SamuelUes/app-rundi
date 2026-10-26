@@ -175,7 +175,7 @@ export default function RecurringRideFormScreen({ navigation, route }: any) {
     setSaving(true);
     try {
       await saveRecurringRide(user.id, input);
-      alertService.showSuccessAlert(rr('saved'));
+      alertService.showSuccessAlert(rr('saved'), '');
       navigation.goBack();
     } catch (error: any) {
       if (String(error?.message || '').startsWith('MAX_RECURRING_RIDES')) {
@@ -717,7 +717,11 @@ const createStyles = (colors: any, isDark: boolean) =>
     saveButtonDisabled: { opacity: 0.45 },
     saveButtonText: { fontSize: 16, fontWeight: '800', color: '#241A09' },
     searchOverlay: {
-      ...StyleSheet.absoluteFillObject,
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
       backgroundColor: 'rgba(0,0,0,0.35)',
       zIndex: 40,
     },
