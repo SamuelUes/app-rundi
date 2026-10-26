@@ -66,6 +66,17 @@ service cloud.firestore {
       // El dueño puede eliminar su perfil (para eliminar cuenta)
       allow delete: if isOwner(userId);
 
+      // Viajes recurrentes guardados por el cliente
+      match /recurringRides/{rideId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId) &&
+                                request.resource.data.id == rideId &&
+                                request.resource.data.title is string &&
+                                request.resource.data.origin is map &&
+                                request.resource.data.destination is map;
+        allow delete: if isOwner(userId);
+      }
+
       // Subcolección de tokens FCM (path real usado por Cloud Functions)
       match /fcmTokens/{tokenId} {
         allow read: if isOwner(userId);

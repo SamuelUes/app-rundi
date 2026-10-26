@@ -1,18 +1,21 @@
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { getDoc, updateDoc } from 'firebase/firestore';
+import { deleteDoc, getDoc, getDocs, setDoc } from 'firebase/firestore';
 import {
   deleteRecurringRide,
   listRecurringRides,
   MAX_RECURRING_RIDES,
-  sanitizeRecurringRides,
+  sanitizeRecurringRide,
   saveRecurringRide,
 } from '../recurringRidesService';
 import type { RecurringRideInput } from '../../types/recurringRide';
 
 jest.mock('firebase/firestore', () => ({
-  doc: jest.fn((_db: any, col: string, id: string) => ({ col, id })),
+  collection: jest.fn((_db: any, ...segments: string[]) => ({ segments })),
+  doc: jest.fn((parent: any, ...segments: string[]) => ({ parent, segments })),
   getDoc: jest.fn(),
-  updateDoc: jest.fn(async () => undefined),
+  getDocs: jest.fn(),
+  setDoc: jest.fn(async () => undefined),
+  deleteDoc: jest.fn(async () => undefined),
   onSnapshot: jest.fn(() => () => undefined),
 }));
 jest.mock('../../config/firebase', () => ({
@@ -20,7 +23,9 @@ jest.mock('../../config/firebase', () => ({
 }));
 
 const mockedGetDoc = getDoc as jest.MockedFunction<typeof getDoc>;
-const mockedUpdateDoc = updateDoc as jest.MockedFunction<typeof updateDoc>;
+const mockedGetDocs = getDocs as jest.MockedFunction<typeof getDocs>;
+const mockedSetDoc = setDoc as jest.MockedFunction<typeof setDoc>;
+const mockedDeleteDoc = deleteDoc as jest.MockedFunction<typeof deleteDoc>;
 
 const sampleInput: RecurringRideInput = {
   title: 'Casa → Trabajo',
@@ -33,7 +38,6 @@ const sampleInput: RecurringRideInput = {
 };
 
 const stored = {
-  id: 'rr_existing',
   title: 'Guardado',
   origin: { lat: 12.1, lng: -86.25, address: 'A' },
   destination: { lat: 12.2, lng: -86.3, address: 'B' },
@@ -45,83 +49,100 @@ const stored = {
   updatedAt: 1000,
 };
 
-const docWith = (recurringRides: any) =>
-  ({ data: () => ({ recurringRides }) }) as any;
+const docsSnap = (items: Array<{ id: string; data: any }>) =>
+  ({
+    size: items.length,
+    forEach: (cb: (d: any) => void) =>
+      items.forEach((item) => cb({ id: item.id, data: () => item.data })),
+  }) as any;
 
-describe('sanitizeRecurringRides', () => {
-  it('returns [] for non-arrays and drops invalid entries', () => {
-    expect(sanitizeRecurringRides(undefined)).toEqual([]);
-    expect(sanitizeRecurringRides('nope')).toEqual([]);
-    expect(sanitizeRecurringRides([{ title: 'x' }])).toEqual([]);
-    const [ride] = sanitizeRecurringRides([{ origin: { lat: 1, lng: 2 }, destination: { lat: 3, lng: 4 } }]);
+const emptyUserDoc = { data: () => undefined } as any;
+
+describe('sanitizeRecurringRide', () => {
+  it('returns null for invalid entries and fills defaults', () => {
+    expect(sanitizeRecurringRide({ title: 'x' }, 'id1')).toBeNull();
+    const ride = sanitizeRecurringRide(
+      { origin: { lat: 1, lng: 2 }, destination: { lat: 3, lng: 4 } },
+      'id1',
+    )!;
+    expect(ride.id).toBe('id1');
     expect(ride.vehicleType).toBe('auto');
     expect(ride.paymentMethod).toBe('cash');
     expect(ride.passengers).toBe(1);
   });
 });
 
-describe('recurringRidesService', () => {
+describe('recurringRidesService (subcollection)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // Default: user doc without legacy array, existing ride doc absent.
+    mockedGetDoc.mockResolvedValue(emptyUserDoc);
+    mockedGetDocs.mockResolvedValue(docsSnap([]));
   });
 
-  it('lists sanitized rides from the user doc', async () => {
-    mockedGetDoc.mockResolvedValue(docWith([stored]));
+  it('lists sanitized rides from the subcollection', async () => {
+    mockedGetDocs.mockResolvedValue(docsSnap([{ id: 'rr_existing', data: stored }]));
     const rides = await listRecurringRides('u1');
     expect(rides).toHaveLength(1);
     expect(rides[0].id).toBe('rr_existing');
   });
 
-  it('appends a new ride with generated id', async () => {
-    mockedGetDoc.mockResolvedValue(docWith([stored]));
+  it('migrates legacy array field into the subcollection once', async () => {
+    mockedGetDocs
+      .mockResolvedValueOnce(docsSnap([]))
+      .mockResolvedValueOnce(docsSnap([{ id: 'rr_existing', data: stored }]));
+    mockedGetDoc.mockResolvedValue({ data: () => ({ recurringRides: [stored] }) } as any);
+
+    const rides = await listRecurringRides('u1');
+    expect(mockedSetDoc).toHaveBeenCalled();
+    expect(rides).toHaveLength(1);
+    expect(rides[0].id).toBe('rr_existing');
+  });
+
+  it('creates a new ride doc with generated id', async () => {
     const ride = await saveRecurringRide('u1', sampleInput);
     expect(ride.id).toMatch(/^rr_/);
     expect(ride.createdAt).toBeGreaterThan(0);
-    const [, payload] = mockedUpdateDoc.mock.calls[0] as any;
-    expect(payload.recurringRides).toHaveLength(2);
-    expect(payload.recurringRides[1].title).toBe('Casa → Trabajo');
+    const [ref, data, opts] = mockedSetDoc.mock.calls[0] as any;
+    expect((ref as any).segments).toEqual([ride.id]);
+    expect(data.title).toBe('Casa → Trabajo');
+    expect(opts).toEqual({ merge: true });
   });
 
   it('updates an existing ride preserving createdAt', async () => {
-    mockedGetDoc.mockResolvedValue(docWith([stored]));
+    mockedGetDoc.mockResolvedValue({ data: () => stored } as any);
     await saveRecurringRide('u1', { ...sampleInput, id: 'rr_existing' });
-    const [, payload] = mockedUpdateDoc.mock.calls[0] as any;
-    expect(payload.recurringRides).toHaveLength(1);
-    expect(payload.recurringRides[0].createdAt).toBe(1000);
-    expect(payload.recurringRides[0].title).toBe('Casa → Trabajo');
+    const [, data] = mockedSetDoc.mock.calls[0] as any;
+    expect(data.id).toBe('rr_existing');
+    expect(data.createdAt).toBe(1000);
+    expect(data.title).toBe('Casa → Trabajo');
+    // Existing doc => no size check needed for max
   });
 
-  it('strips undefined fields before writing to Firestore', async () => {
-    mockedGetDoc.mockResolvedValue(docWith([]));
+  it('rejects creating beyond the max', async () => {
+    mockedGetDocs.mockResolvedValue(
+      docsSnap(Array.from({ length: MAX_RECURRING_RIDES }, (_, i) => ({ id: `rr_${i}`, data: stored }))),
+    );
+    await expect(saveRecurringRide('u1', sampleInput)).rejects.toThrow('MAX_RECURRING_RIDES');
+  });
+
+  it('strips undefined fields before writing', async () => {
     await saveRecurringRide('u1', {
       ...sampleInput,
       designatedDriverMode: undefined,
       comment: undefined,
       priceSuggestion: undefined,
     } as any);
-    const [, payload] = mockedUpdateDoc.mock.calls[0] as any;
-    const saved = payload.recurringRides[0];
-    expect('designatedDriverMode' in saved).toBe(false);
-    expect('comment' in saved).toBe(false);
-    expect('priceSuggestion' in saved).toBe(false);
-    expect(saved.origin.address).toBe('Casa');
+    const [, data] = mockedSetDoc.mock.calls[0] as any;
+    expect('designatedDriverMode' in data).toBe(false);
+    expect('comment' in data).toBe(false);
+    expect('priceSuggestion' in data).toBe(false);
   });
 
-  it('rejects saving beyond the max', async () => {
-    const full = Array.from({ length: MAX_RECURRING_RIDES }, (_, i) => ({ ...stored, id: `rr_${i}` }));
-    mockedGetDoc.mockResolvedValue(docWith(full));
-    await expect(saveRecurringRide('u1', sampleInput)).rejects.toThrow('MAX_RECURRING_RIDES');
-  });
-
-  it('deletes by id and no-ops when missing', async () => {
-    mockedGetDoc.mockResolvedValue(docWith([stored]));
+  it('deletes the doc by id', async () => {
     await deleteRecurringRide('u1', 'rr_existing');
-    const [, payload] = mockedUpdateDoc.mock.calls[0] as any;
-    expect(payload.recurringRides).toHaveLength(0);
-
-    jest.clearAllMocks();
-    mockedGetDoc.mockResolvedValue(docWith([stored]));
-    await deleteRecurringRide('u1', 'rr_other');
-    expect(mockedUpdateDoc).not.toHaveBeenCalled();
+    expect(mockedDeleteDoc).toHaveBeenCalledTimes(1);
+    const [ref] = mockedDeleteDoc.mock.calls[0] as any;
+    expect((ref as any).segments).toEqual(['rr_existing']);
   });
 });
