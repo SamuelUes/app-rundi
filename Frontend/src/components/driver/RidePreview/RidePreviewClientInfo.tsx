@@ -52,6 +52,11 @@ export function RidePreviewClientInfo({
     tripMetaParts.push(t('driver.ridePreview.labels.paymentCard'));
   }
   const tripMeta = tripMetaParts.join(' • ');
+  const designatedNoteKey = 'shared.searchRide.notes.designatedDriver';
+  const normalizedClientComment =
+    typeof clientComment === 'string'
+      ? clientComment.split(designatedNoteKey).join(t(designatedNoteKey))
+      : '';
 
   return (
     <View style={styles.clientRow}>
@@ -93,9 +98,9 @@ export function RidePreviewClientInfo({
             {tripMeta}
           </Text>
         ) : null}
-        {typeof clientComment === 'string' && clientComment.trim().length > 0 ? (
+        {normalizedClientComment.trim().length > 0 ? (
           <Text style={[styles.clientNoteText, { color: colors.textSecondary }]} numberOfLines={2}>
-            {t('driver.ridePreview.labels.clientNote', { note: clientComment.trim() })}
+            {t('driver.ridePreview.labels.clientNote', { note: normalizedClientComment.trim() })}
           </Text>
         ) : null}
       </View>

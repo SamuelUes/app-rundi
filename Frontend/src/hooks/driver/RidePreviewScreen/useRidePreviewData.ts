@@ -19,6 +19,7 @@ export interface RidePreviewData {
   destination: RideLocation;
   extraDestinations?: RideLocation[];
   estimatedPrice: number;
+  pricingSnapshot?: { dynamicMinimumFare?: number } | null;
   estimatedDistance?: number;
   estimatedDuration?: number;
   clientSuggestedPrice?: number;
@@ -148,6 +149,7 @@ export function useRidePreviewData(
         ...prev,
         estimatedPrice:
           typeof data.estimatedPrice === 'number' ? data.estimatedPrice : prev.estimatedPrice,
+        pricingSnapshot: data.pricingSnapshot ?? data.pricing_snapshot ?? prev.pricingSnapshot ?? null,
         estimatedDistance:
           typeof data.estimatedDistance === 'number' ? data.estimatedDistance : prev.estimatedDistance,
         estimatedDuration:

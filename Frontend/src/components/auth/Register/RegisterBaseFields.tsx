@@ -1,9 +1,8 @@
 import React from 'react';
-import { View, Text, TextInput, TouchableOpacity } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
+import { View, Text, TextInput } from 'react-native';
 import type { TFunction } from 'i18next';
 import type { CountryDialOption } from '../../../utils/phoneUtils';
-import PhoneNumberModal from '../../shared/PhoneNumberModal';
+import PhoneField from '../../ui/PhoneField';
 
 interface RegisterBaseFieldsProps {
   name: string;
@@ -13,21 +12,12 @@ interface RegisterBaseFieldsProps {
   loading: boolean;
   colors: any;
   selectedCountry: CountryDialOption;
-  normalizedPhone: string;
-  phone: string;
   phoneDigits: string;
-  phoneModalVisible: boolean;
   countryOptions: CountryDialOption[];
   onSetName: (v: string) => void;
   onSetEmail: (v: string) => void;
-  onOpenPhoneModal: () => void;
-  onPhoneModalClose: () => void;
-  onPhoneModalConfirm: (data: {
-    country: CountryDialOption;
-    digits: string;
-    normalizedPhone: string;
-    formattedPhone: string;
-  }) => void;
+  onCountryChange: (countryCode: string) => void;
+  onChangeDigits: (digits: string) => void;
   t: TFunction;
   styles: any;
 }
@@ -40,16 +30,12 @@ export function RegisterBaseFields({
   loading,
   colors,
   selectedCountry,
-  normalizedPhone,
-  phone,
   phoneDigits,
-  phoneModalVisible,
   countryOptions,
   onSetName,
   onSetEmail,
-  onOpenPhoneModal,
-  onPhoneModalClose,
-  onPhoneModalConfirm,
+  onCountryChange,
+  onChangeDigits,
   t,
   styles,
 }: RegisterBaseFieldsProps) {
@@ -97,30 +83,15 @@ export function RegisterBaseFields({
           {`${t('authScreens.register.fields.phoneLabel')}${isPhoneMethod ? ' *' : ''}`}
         </Text>
 
-        <TouchableOpacity
-          style={styles.phoneSummary}
-          onPress={onOpenPhoneModal}
+        <PhoneField
+          countryOptions={countryOptions}
+          selectedCountry={selectedCountry}
+          onCountryChange={onCountryChange}
+          digits={phoneDigits}
+          onChangeDigits={onChangeDigits}
           disabled={loading}
-          activeOpacity={0.8}
-          accessibilityRole="button"
-        >
-          <View style={styles.phoneSummaryFlagDial}>
-            <Text style={styles.phoneSummaryDial}>{selectedCountry.dialCode}</Text>
-          </View>
-          <View style={styles.phoneSummaryValueContainer}>
-            <Text
-              style={
-                normalizedPhone
-                  ? styles.phoneSummaryValue
-                  : styles.phoneSummaryPlaceholder
-              }
-              numberOfLines={1}
-            >
-              {normalizedPhone ? phone : t('authScreens.register.fields.phonePlaceholder')}
-            </Text>
-          </View>
-          <MaterialIcons name="keyboard-arrow-down" size={24} color={colors.textSecondary} />
-        </TouchableOpacity>
+          accessibilityLabel={t('authScreens.register.fields.phoneLabel')}
+        />
 
         <Text style={styles.helperText}>
           {isPhoneMethod
@@ -128,16 +99,6 @@ export function RegisterBaseFields({
             : t('authScreens.register.fields.phoneHelperOptional')}
         </Text>
       </View>
-
-      <PhoneNumberModal
-        visible={phoneModalVisible}
-        onClose={onPhoneModalClose}
-        onConfirm={onPhoneModalConfirm}
-        countryOptions={countryOptions}
-        initialCountry={selectedCountry}
-        initialDigits={phoneDigits}
-        loading={loading}
-      />
     </>
   );
 }

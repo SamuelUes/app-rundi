@@ -8,16 +8,15 @@ import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
   Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Image,
 } from 'react-native';
-import { LoadingIcon } from '../../components/ui/LoadingIcon';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
+import { AnimatedCard } from '../../components/ui/AnimatedCard';
 
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useAuth } from '../../hooks/shared/auth/useAuth';
@@ -43,8 +42,9 @@ interface Props {
 }
 
 export default function RegisterConfirmScreen({ navigation, route }: Props) {
-  const { colors } = useTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
+  const readableGold = isDark ? '#E8C46A' : '#76520F';
   const { user, login, registerWithGoogle, loginWithPhoneAndSMS } = useAuth();
   const { t } = useTranslation();
 
@@ -469,215 +469,293 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
     }
   };
 
+  /**
+   * Regresa siempre al paso anterior. Si RegisterConfirm quedó como raíz
+   * del stack (checkpoint reanudado usa `replace`), `goBack` no tiene a
+   * dónde ir: se navega al paso lógico previo con `replace`.
+   */
+  const handleBack = () => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
+
+    if (role === 'driver') {
+      navigation.replace('DriverData', {
+        name,
+        email,
+        phone: phone || '',
+        password,
+        role: 'driver',
+        method,
+        authProvider,
+        googleIdToken,
+        phoneVerified: Boolean(phoneVerified),
+        emailVerified,
+        driverData,
+        vehicleData,
+        context,
+      });
+      return;
+    }
+
+    navigation.replace('RoleSelection', {
+      name,
+      email,
+      phone,
+      password,
+      method,
+      authProvider,
+      googleIdToken,
+      phoneVerified,
+      emailVerified,
+    });
+  };
+
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={styles.content}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
           {/* Header */}
           <View style={styles.header}>
             <Text style={styles.title}>{t('authScreens.registerConfirm.header.title')}</Text>
             <Text style={styles.subtitle}>
               {t('authScreens.registerConfirm.header.subtitle')}
             </Text>
+            <View style={styles.progressRow}>
+              <View style={styles.progressTrack}>
+                <View style={[styles.progressBar, { width: '100%' }]} />
+              </View>
+              <Text style={styles.progressText}>
+                {t('authScreens.registerConfirm.progress', { current: 4, total: 4 })}
+              </Text>
+            </View>
           </View>
 
-          <RegisterConfirmSummary
-            name={name}
-            email={email}
-            phone={phone}
-            role={role}
-            authProvider={authProvider}
-            phoneVerified={phoneVerified}
-            driverData={driverData}
-            vehicleData={vehicleData}
-            driverPhotoPreviews={driverPhotoPreviews}
-            vehiclePhotoPreviews={vehiclePhotoPreviews}
-            colors={colors}
-            t={t}
-            styles={styles}
-          />
+          <AnimatedCard delay={0} style={styles.card}>
+            <RegisterConfirmSummary
+              name={name}
+              email={email}
+              phone={phone}
+              role={role}
+              authProvider={authProvider}
+              phoneVerified={phoneVerified}
+              driverData={driverData}
+              vehicleData={vehicleData}
+              driverPhotoPreviews={driverPhotoPreviews}
+              vehiclePhotoPreviews={vehiclePhotoPreviews}
+              colors={colors}
+              accentColor={readableGold}
+              t={t}
+              styles={styles}
+            />
 
-          <RegisterConfirmActions
-            loading={loading}
-            onBack={() => navigation.goBack()}
-            onConfirm={handleConfirmAndRegister}
-            t={t}
-            styles={styles}
-          />
-        </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+            <RegisterConfirmActions
+              loading={loading}
+              onBack={handleBack}
+              onConfirm={handleConfirmAndRegister}
+              t={t}
+              styles={styles}
+              accentColor={readableGold}
+            />
+          </AnimatedCard>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
-const createStyles = (colors: any) => StyleSheet.create({
+const createStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
   },
+  flex: {
+    flex: 1,
+  },
   scrollContent: {
     flexGrow: 1,
-  },
-  content: {
-    flex: 1,
-    padding: 24,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 24,
   },
   header: {
-    marginBottom: 24,
+    marginBottom: 20,
+    marginTop: 8,
+    paddingHorizontal: 4,
   },
   title: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: colors.text,
-    marginBottom: 8,
+    fontSize: 26,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+    color: isDark ? '#E8C46A' : '#76520F',
+    marginBottom: 6,
   },
   subtitle: {
     fontSize: 14,
+    lineHeight: 20,
     color: colors.textSecondary,
   },
-  summaryContainer: {
-    marginBottom: 24,
+  progressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 16,
   },
-  section: {
+  progressTrack: {
+    flex: 1,
+    height: 6,
+    backgroundColor: colors.border,
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  progressBar: {
+    height: '100%',
+    backgroundColor: colors.primary,
+    borderRadius: 3,
+  },
+  progressText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  card: {
     backgroundColor: colors.card,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
+    borderRadius: 28,
+    paddingHorizontal: 20,
+    paddingVertical: 26,
     borderWidth: 1,
     borderColor: colors.border,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    elevation: 2,
+  },
+  summaryContainer: {},
+  section: {
+    marginBottom: 24,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 8,
+  },
+  sectionIconWrap: {
+    width: 30,
+    height: 30,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(212, 175, 55, 0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(212, 175, 55, 0.35)',
   },
   sectionTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
+    letterSpacing: 0.2,
     color: colors.text,
-    marginBottom: 12,
   },
   dataRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 8,
-    borderBottomWidth: 1,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.border,
   },
   dataLabel: {
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: '500',
     color: colors.textSecondary,
-    flex: 1,
+    marginRight: 16,
   },
   dataValue: {
-    fontSize: 13,
-    fontWeight: '500',
+    fontSize: 14,
+    fontWeight: '600',
     color: colors.text,
-    flex: 1,
+    flexShrink: 1,
     textAlign: 'right',
   },
+  statusChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  statusChipText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
   infoBox: {
-    backgroundColor: colors.primary + '20',
-    borderColor: colors.primary,
+    backgroundColor: 'rgba(212, 175, 55, 0.08)',
+    borderColor: 'rgba(212, 175, 55, 0.3)',
     borderWidth: 1,
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 16,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
   infoTitle: {
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
     color: colors.text,
-    marginBottom: 8,
+    marginBottom: 6,
   },
   infoText: {
-    fontSize: 12,
+    fontSize: 13,
     color: colors.textSecondary,
-    marginBottom: 4,
-    lineHeight: 16,
+    marginBottom: 2,
+    lineHeight: 19,
   },
-  buttonContainer: {
-    flexDirection: 'row',
+  actions: {
     gap: 12,
-    marginBottom: 24,
+    marginTop: 24,
   },
-  backButton: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-  },
-  backButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: 'rgba(10, 28, 129, 1))',
-  },
-  confirmButton: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 8,
-    backgroundColor: 'rgba(231, 168, 86, 1)',
-    alignItems: 'center',
-  },
-  confirmButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  buttonDisabled: {
-    opacity: 0.5,
-  },
-  progressContainer: {
-    height: 4,
-    backgroundColor: colors.border,
-    borderRadius: 2,
-    overflow: 'hidden',
-    marginBottom: 8,
-  },
-  progressBar: {
-    height: '100%',
-    backgroundColor: 'rgba(231, 168, 86, 1)',
-  },
-  progressText: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    textAlign: 'center',
+  actionButton: {
+    borderRadius: 22,
   },
   photoPreviewGroup: {
-    marginTop: 12,
-    gap: 8,
+    marginTop: 16,
   },
   photoPreviewTitle: {
     fontSize: 13,
     fontWeight: '600',
-    color: colors.text,
-    marginBottom: 4,
+    color: colors.textSecondary,
+    marginBottom: 10,
   },
   photoPreviewCard: {
-    width: 120,
+    width: 108,
     marginRight: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.background,
-    overflow: 'hidden',
   },
   photoPreviewImage: {
-    width: '100%',
-    height: 90,
-    backgroundColor: '#eee',
+    width: 108,
+    height: 76,
+    borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   photoPreviewLabel: {
     fontSize: 11,
     fontWeight: '600',
-    color: colors.text,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
+    color: colors.textSecondary,
+    marginTop: 6,
+    lineHeight: 15,
   },
   photoHint: {
-    fontSize: 11,
-    color: colors.textSecondary,
+    fontSize: 12,
+    color: colors.textTertiary,
+    marginTop: 10,
+    lineHeight: 16,
   },
 });

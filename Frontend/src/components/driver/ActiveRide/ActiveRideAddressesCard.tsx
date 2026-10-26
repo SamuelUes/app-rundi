@@ -68,7 +68,7 @@ export function ActiveRideAddressesCard({
       ),
     })),
     {
-      kind: 'pin' as const,
+      kind: 'dot' as const,
       color: colors.error,
       label: destinationLabel,
       address: resolveAddress(destination, destinationLabel),
@@ -81,10 +81,10 @@ export function ActiveRideAddressesCard({
         <View key={`route-point-${index}`} style={styles.routeRow}>
           <View style={styles.routeIconCol}>
             <View style={[styles.routeLine, index === 0 && styles.routeLineHidden]} />
-            {point.kind === 'pin' ? (
-              <MaterialIcons name="place" size={22} color={point.color} />
-            ) : (
+            {point.kind === 'dot' ? (
               <View style={[styles.routeDot, { backgroundColor: point.color }]} />
+            ) : (
+              <MaterialIcons name="place" size={22} color={point.color} />
             )}
             <View
               style={[

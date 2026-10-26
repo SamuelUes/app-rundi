@@ -6,6 +6,7 @@
 import * as functions from 'firebase-functions/v1';
 import { ServiceRepository } from '../sequelize/repositories/ServiceRepository';
 import { requireAdmin } from '../utils/sessionUtils';
+import sequelize, { isSequelizeAvailable } from '../sequelize/config/database';
 
 const serviceRepo = new ServiceRepository();
 
@@ -141,7 +142,7 @@ export const getServiceById = functions.https.onCall(async (data, context) => {
  * Actualizar servicio
  */
 export const updateService = functions.https.onCall(async (data, context) => {
-  await requireAdmin(context);
+  const adminUid = await requireAdmin(context);
 
   try {
     const { serviceId, name, description, commissionRate, status, basePrice, code, isActive, isFeatured } = data;
@@ -162,7 +163,20 @@ export const updateService = functions.https.onCall(async (data, context) => {
     if (isActive !== undefined) updateData.is_active = Boolean(isActive);
     if (isFeatured !== undefined) updateData.is_featured = Boolean(isFeatured);
 
-    const service = await serviceRepo.update(serviceId, updateData);
+    // Al cambiar commission_rate, propagar el admin real a
+    // service_commission_history (el trigger lee app.current_user_id).
+    let service;
+    if (isSequelizeAvailable && updateData.commission_rate !== undefined) {
+      service = await sequelize.transaction(async (t) => {
+        await sequelize.query('SET LOCAL app.current_user_id = :uid', {
+          replacements: { uid: String(adminUid) },
+          transaction: t,
+        });
+        return await serviceRepo.update(serviceId, updateData, t);
+      });
+    } else {
+      service = await serviceRepo.update(serviceId, updateData);
+    }
 
     return {
       success: true,

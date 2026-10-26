@@ -3,14 +3,12 @@
  * Pantalla para validar número telefónico via SMS
  */
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  TextInput,
   TouchableOpacity,
-  TouchableWithoutFeedback,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -31,6 +29,7 @@ import accountLinkingService from '../../services/auth/accountLinkingService';
 import { AuthStackParamList } from '../../navigation/types';
 import { formatPhoneNumber, getCountryDialOptions } from '../../utils/phoneUtils';
 import alertService from '../../services/alertService';
+import OtpCodeInput from '../../components/ui/OtpCodeInput';
 import { useTranslation } from 'react-i18next';
 
 type PhoneVerificationNavigationProp = NativeStackNavigationProp<
@@ -83,13 +82,11 @@ export default function PhoneVerificationScreen({ navigation, route }: Props) {
     context ?? 'register_phone';
 
   const [code, setCode] = useState('');
-  const [codeFocused, setCodeFocused] = useState(false);
   const [loading, setLoading] = useState(false);
   const [resendLoading, setResendLoading] = useState(false);
   const [timeLeft, setTimeLeft] = useState(60);
   const [attempts, setAttempts] = useState(0);
   const [displayPhone, setDisplayPhone] = useState<string>(phone);
-  const hiddenInputRef = useRef<TextInput>(null);
 
   useEffect(() => {
     if (timeLeft > 0) {
@@ -405,43 +402,12 @@ export default function PhoneVerificationScreen({ navigation, route }: Props) {
                 {t('authScreens.phoneVerification.codeLabel')}
               </Text>
 
-              <View style={styles.codeInputWrap}>
-                <TextInput
-                  ref={hiddenInputRef}
-                  style={styles.hiddenInput}
-                  value={code}
-                  onChangeText={(text) => {
-                    const numeric = text.replace(/[^0-9]/g, '').slice(0, 6);
-                    setCode(numeric);
-                  }}
-                  keyboardType="number-pad"
-                  maxLength={6}
-                  textContentType="oneTimeCode"
-                  accessibilityLabel={t('authScreens.phoneVerification.codeLabel')}
-                  editable={!loading}
-                  onFocus={() => setCodeFocused(true)}
-                  onBlur={() => setCodeFocused(false)}
-                />
-
-                <TouchableWithoutFeedback
-                  onPress={() => !loading && hiddenInputRef.current?.focus()}
-                >
-                  <View style={styles.codeBoxesContainer}>
-                    {[0, 1, 2, 3, 4, 5].map((index) => (
-                      <View
-                        key={index}
-                        style={[
-                          styles.codeBox,
-                          codeFocused && code.length === index && styles.codeBoxActive,
-                          code.length > index && styles.codeBoxFilled,
-                        ]}
-                      >
-                        <Text style={styles.codeBoxText}>{code[index] || ''}</Text>
-                      </View>
-                    ))}
-                  </View>
-                </TouchableWithoutFeedback>
-              </View>
+              <OtpCodeInput
+                value={code}
+                onChange={setCode}
+                disabled={loading}
+                accessibilityLabel={t('authScreens.phoneVerification.codeLabel')}
+              />
             </View>
 
             {attempts > 0 && (
@@ -599,51 +565,6 @@ const createStyles = (colors: any) =>
       fontWeight: '600',
       color: colors.text,
       textAlign: 'center',
-    },
-    codeInputWrap: {
-      width: '100%',
-      position: 'relative',
-    },
-    hiddenInput: {
-      position: 'absolute',
-      top: 0,
-      left: 0,
-      width: '100%',
-      height: 56,
-      opacity: 0,
-    },
-    codeBoxesContainer: {
-      width: '100%',
-      flexDirection: 'row',
-      justifyContent: 'center',
-      alignItems: 'center',
-      gap: 8,
-    },
-    codeBox: {
-      flex: 1,
-      maxWidth: 56,
-      height: 56,
-      borderRadius: 14,
-      borderWidth: 1.5,
-      borderColor: colors.border,
-      backgroundColor: colors.card,
-      justifyContent: 'center',
-      alignItems: 'center',
-    },
-    codeBoxActive: {
-      borderWidth: 2,
-      borderColor: colors.primary,
-      backgroundColor: colors.primary + '12',
-    },
-    codeBoxFilled: {
-      borderColor: colors.primary,
-      backgroundColor: colors.primary + '25',
-    },
-    codeBoxText: {
-      fontSize: 22,
-      fontWeight: '700',
-      color: colors.text,
-      fontVariant: ['tabular-nums'],
     },
     attemptsWarning: {
       borderRadius: 14,

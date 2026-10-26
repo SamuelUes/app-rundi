@@ -10,6 +10,8 @@ interface SearchRideSummaryProps {
   estimatedDistance: number;
   estimatedDuration: number;
   estimatedPrice: number;
+  featureCodes?: string[];
+  surgeMultiplier?: number;
   paymentMethod: PaymentMethod;
   priceSuggestion: string;
   rideComment: string;
@@ -28,6 +30,8 @@ export function SearchRideSummary({
   estimatedDistance,
   estimatedDuration,
   estimatedPrice,
+  featureCodes = [],
+  surgeMultiplier = 1,
   paymentMethod,
   priceSuggestion,
   rideComment,
@@ -64,6 +68,24 @@ export function SearchRideSummary({
               <Text style={styles.estimateHeroLabel}>{tr('summary.estimate')}</Text>
               <Text style={styles.estimateHeroValue}>C${estimatedPrice.toFixed(2)}</Text>
             </View>
+            {featureCodes.length > 0 && (
+              <Text style={styles.estimateLabel}>
+                {tr('summary.featuresLabel')}: {featureCodes
+                  .map((code) => {
+                    if (code === 'night') return tr('summary.features.night');
+                    if (code === 'designated_driver_moto_discount') {
+                      return tr('summary.features.designatedDriverMotoDiscount');
+                    }
+                    return code.replace(/_/g, ' ');
+                  })
+                  .join(' / ')}
+              </Text>
+            )}
+            {surgeMultiplier > 1 && (
+              <Text style={styles.estimateLabel}>
+                {tr('summary.surgeLabel')}: {tr('summary.highDemand')}
+              </Text>
+            )}
           </>
         )}
       </View>
@@ -78,7 +100,7 @@ export function SearchRideSummary({
             {tr('payment.cash')}
           </Text>
         </TouchableOpacity>
-        <TouchableOpacity
+        {/* <TouchableOpacity
           style={[styles.paymentChip, paymentMethod === 'card' && styles.paymentChipSelected]}
           onPress={() => onSetPaymentMethod('card')}
           accessibilityLabel={tr('accessibility.payCard')}
@@ -86,7 +108,7 @@ export function SearchRideSummary({
           <Text style={[styles.paymentChipText, paymentMethod === 'card' && styles.paymentChipTextSelected]}>
             {tr('payment.card')}
           </Text>
-        </TouchableOpacity>
+        </TouchableOpacity> */}
       </View>
 
       <View style={styles.priceCommentRow}>

@@ -9,9 +9,13 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
+  Pressable,
   Alert,
 } from 'react-native';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
+import { AnimatedCard } from '../../components/ui/AnimatedCard';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -35,8 +39,8 @@ interface RoleSelectionScreenProps {
 }
 
 const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ navigation, route }) => {
-  const { colors } = useTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
   const { login, registerWithGoogle, loginWithPhoneAndSMS } = useAuth();
   const { t } = useTranslation();
 
@@ -334,149 +338,277 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ navigation, r
     return t('authScreens.roleSelection.methodLabels.google');
   })();
 
+  const identityCaption = [methodLabel, normalizeEmail() || normalizePhone()]
+    .filter(Boolean)
+    .join(' · ');
+  const nameInitial = (name || '?').trim().charAt(0).toUpperCase();
+
+  const clientAccent = isDark ? '#E8C46A' : '#76520F';
+  const clientTint = isDark ? 'rgba(212, 175, 55, 0.12)' : 'rgba(179, 135, 55, 0.10)';
+  const driverAccent = isDark ? '#A78BFA' : '#6E44FF';
+  const driverTint = isDark ? 'rgba(167, 139, 250, 0.14)' : 'rgba(110, 68, 255, 0.08)';
+
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>{t('authScreens.roleSelection.header.title')}</Text>
-        <Text style={styles.subtitle}>
-          {t('authScreens.roleSelection.header.subtitle')}
-        </Text>
-      </View>
-
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>
-          {t('authScreens.roleSelection.section.title')}
-        </Text>
-        <View style={styles.infoRow}>
-          <Text style={styles.label}>
-            {`${t('authScreens.roleSelection.section.nameLabel')}:`}
-          </Text>
-          <Text style={styles.value}>{name}</Text>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+      {navigation.canGoBack() ? (
+        <View style={styles.topBar}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => navigation.goBack()}
+            disabled={loadingRole !== null}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel={t('common.actions.back')}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons name="chevron-back" size={22} color={colors.text} />
+          </TouchableOpacity>
         </View>
-        {normalizeEmail() ? (
-          <View style={styles.infoRow}>
-            <Text style={styles.label}>
-              {`${t('authScreens.roleSelection.section.emailLabel')}:`}
-            </Text>
-            <Text style={styles.value}>{normalizeEmail()}</Text>
-          </View>
-        ) : null}
-        {normalizePhone() ? (
-          <View style={styles.infoRow}>
-            <Text style={styles.label}>
-              {`${t('authScreens.roleSelection.section.phoneLabel')}:`}
-            </Text>
-            <Text style={styles.value}>{normalizePhone()}</Text>
-          </View>
-        ) : null}
-        <View style={styles.infoRow}>
-          <Text style={styles.label}>
-            {`${t('authScreens.roleSelection.section.methodLabel')}:`}
+      ) : null}
+
+      <View style={styles.content}>
+        <AnimatedCard style={styles.header} delay={0}>
+          <Text style={styles.title}>{t('authScreens.roleSelection.header.title')}</Text>
+          <Text style={styles.subtitle}>
+            {t('authScreens.roleSelection.header.subtitle')}
           </Text>
-          <Text style={styles.value}>{methodLabel}</Text>
+        </AnimatedCard>
+
+        <View style={styles.options}>
+          <AnimatedCard delay={120}>
+            <RoleOptionCard
+              icon={{ family: 'material', name: 'hail' }}
+              accent={clientAccent}
+              tint={clientTint}
+              title={t('authScreens.roleSelection.options.client.title')}
+              description={t('authScreens.roleSelection.options.client.description')}
+              loading={loadingRole === 'client'}
+              muted={loadingRole !== null && loadingRole !== 'client'}
+              onPress={handleClientSelection}
+              colors={colors}
+              styles={styles}
+            />
+          </AnimatedCard>
+
+          <AnimatedCard delay={200}>
+            <RoleOptionCard
+              icon={{ family: 'ionicons', name: 'car-sport' }}
+              accent={driverAccent}
+              tint={driverTint}
+              title={t('authScreens.roleSelection.options.driver.title')}
+              description={t('authScreens.roleSelection.options.driver.description')}
+              loading={loadingRole === 'driver'}
+              muted={loadingRole !== null && loadingRole !== 'driver'}
+              onPress={handleDriverSelection}
+              colors={colors}
+              styles={styles}
+            />
+          </AnimatedCard>
         </View>
-      </View>
 
-      <View style={styles.actions}>
-        <TouchableOpacity
-          style={[styles.optionButton, styles.clientButton]}
-          onPress={handleClientSelection}
-          disabled={loadingRole !== null}
-        >
-          {loadingRole === 'client' ? (
-            <LoadingIcon size={24} color="#FFFFFF" />
-          ) : (
-            <Text style={styles.optionText}>
-              {t('authScreens.roleSelection.buttons.client')}
-            </Text>
-          )}
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.optionButton, styles.driverButton]}
-          onPress={handleDriverSelection}
-          disabled={loadingRole !== null}
-        >
-          {loadingRole === 'driver' ? (
-            <LoadingIcon size={24} color="#FFFFFF" />
-          ) : (
-            <Text style={styles.optionText}>
-              {t('authScreens.roleSelection.buttons.driver')}
-            </Text>
-          )}
-        </TouchableOpacity>
+        <AnimatedCard delay={300} style={styles.identityWrap}>
+          <View style={styles.identityCard}>
+            <View style={styles.identityAvatar}>
+              <Text style={styles.identityInitial}>{nameInitial}</Text>
+            </View>
+            <View style={styles.identityTextWrap}>
+              <Text style={styles.identityName} numberOfLines={1}>
+                {name}
+              </Text>
+              <Text style={styles.identityCaption} numberOfLines={1}>
+                {identityCaption}
+              </Text>
+            </View>
+          </View>
+        </AnimatedCard>
       </View>
-    </View>
+    </SafeAreaView>
   );
 };
 
-const createStyles = (colors: any) =>
-  StyleSheet.create({
+type RoleIconSpec =
+  | { family: 'ionicons'; name: React.ComponentProps<typeof Ionicons>['name'] }
+  | { family: 'material'; name: React.ComponentProps<typeof MaterialIcons>['name'] };
+
+type RoleOptionCardProps = {
+  icon: RoleIconSpec;
+  accent: string;
+  tint: string;
+  title: string;
+  description: string;
+  loading: boolean;
+  muted: boolean;
+  onPress: () => void;
+  colors: any;
+  styles: any;
+};
+
+const RoleOptionCard: React.FC<RoleOptionCardProps> = ({
+  icon,
+  accent,
+  tint,
+  title,
+  description,
+  loading,
+  muted,
+  onPress,
+  colors,
+  styles,
+}) => (
+  <Pressable
+    onPress={onPress}
+    disabled={muted || loading}
+    accessibilityRole="button"
+    accessibilityLabel={title}
+    style={({ pressed }) => [
+      styles.roleCard,
+      pressed && { backgroundColor: tint, borderColor: accent },
+      muted && styles.roleCardMuted,
+    ]}
+  >
+    <View style={[styles.roleIconWrap, { backgroundColor: tint }]}>
+      {loading ? (
+        <LoadingIcon size={22} color={accent} />
+      ) : icon.family === 'material' ? (
+        <MaterialIcons name={icon.name} size={26} color={accent} />
+      ) : (
+        <Ionicons name={icon.name} size={26} color={accent} />
+      )}
+    </View>
+    <View style={styles.roleTextWrap}>
+      <Text style={styles.roleTitle} numberOfLines={1}>{title}</Text>
+      <Text style={styles.roleDescription} numberOfLines={2}>{description}</Text>
+    </View>
+    <Ionicons name="chevron-forward" size={22} color={colors.textTertiary} />
+  </Pressable>
+);
+
+const createStyles = (colors: any, isDark: boolean) => {
+  const readableGold = isDark ? '#E8C46A' : '#76520F';
+
+  return StyleSheet.create({
     container: {
       flex: 1,
       backgroundColor: colors.background,
-      padding: 24,
-      gap: 24,
+    },
+    topBar: {
+      paddingHorizontal: 24,
+      paddingTop: 4,
+    },
+    content: {
+      flex: 1,
+      justifyContent: 'center',
+      paddingHorizontal: 24,
+      paddingBottom: 12,
+    },
+    backButton: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 4,
     },
     header: {
-      gap: 8,
+      gap: 6,
+      marginTop: 4,
+      alignItems: 'center',
+      top: -80,
     },
     title: {
       fontSize: 28,
-      fontWeight: '700',
-      color: colors.text,
-      marginTop: 40,
+      fontWeight: '800',
+      color: readableGold,
+      letterSpacing: 0.2,
     },
     subtitle: {
-      fontSize: 14,
+      fontSize: 15,
+      lineHeight: 22,
       color: colors.textSecondary,
+      marginTop: 2,
+      textAlign: 'center',
     },
-    card: {
+    options: {
+      gap: 14,
+      marginTop: 26,
+      top: -50,
+    },
+    roleCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 16,
+      borderRadius: 20,
+      paddingVertical: 16,
+      paddingHorizontal: 16,
       backgroundColor: colors.card,
-      borderRadius: 16,
-      padding: 20,
-      gap: 12,
       borderWidth: 1,
       borderColor: colors.border,
     },
-    sectionTitle: {
-      fontSize: 16,
-      fontWeight: '600',
+    roleCardMuted: {
+      opacity: 0.45,
+    },
+    roleIconWrap: {
+      width: 52,
+      height: 52,
+      borderRadius: 16,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    roleTextWrap: {
+      flex: 1,
+      gap: 3,
+    },
+    roleTitle: {
+      fontSize: 17,
+      fontWeight: '700',
       color: colors.text,
     },
-    infoRow: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-    },
-    label: {
-      fontSize: 14,
+    roleDescription: {
+      fontSize: 13,
+      lineHeight: 18,
       color: colors.textSecondary,
     },
-    value: {
+    identityWrap: {
+      marginTop: 24,
+    },
+    identityCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      borderRadius: 16,
+      paddingVertical: 12,
+      paddingHorizontal: 14,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    identityAvatar: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: isDark ? 'rgba(212, 175, 55, 0.16)' : 'rgba(212, 175, 55, 0.14)',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    identityInitial: {
       fontSize: 16,
+      fontWeight: '700',
+      color: readableGold,
+    },
+    identityTextWrap: {
+      flex: 1,
+      gap: 2,
+    },
+    identityName: {
+      fontSize: 15,
       fontWeight: '600',
       color: colors.text,
     },
-    actions: {
-      gap: 16,
-    },
-    optionButton: {
-      paddingVertical: 18,
-      borderRadius: 14,
-      alignItems: 'center',
-    },
-    clientButton: {
-      backgroundColor: colors.primary,
-    },
-    driverButton: {
-      backgroundColor: '#6e44ff',
-    },
-    optionText: {
-      color: '#FFFFFF',
-      fontSize: 16,
-      fontWeight: '600',
+    identityCaption: {
+      fontSize: 13,
+      color: colors.textSecondary,
     },
   });
+};
 
 export default RoleSelectionScreen;

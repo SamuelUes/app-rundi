@@ -31,6 +31,10 @@ class Ride extends Model {
   public origin_location_id?: string;
   public destination_location_id?: string;
   public service_id?: string;
+  public pricing_snapshot?: Record<string, unknown> | null;
+  public feature_codes?: string[];
+  public surge_multiplier?: number;
+  public commission_rate_applied?: number | null;
   public payment_type?: string;
   public biometric_acceptance_required?: boolean;
   public biometric_acceptance_type?: string;
@@ -157,7 +161,27 @@ Ride.init(
     service_id: {
       type: DataTypes.UUID,
       allowNull: true,
-      comment: "Referencia al servicio ofrecido (normal, designated_driver, night, motorcycle, etc)",
+      comment: "Service aplicado; night solo se conserva para viajes legacy",
+    },
+    pricing_snapshot: {
+      type: DataTypes.JSONB,
+      allowNull: true,
+      comment: 'Snapshot inmutable de la configuración de pricing usada al crear el viaje',
+    },
+    feature_codes: {
+      type: DataTypes.ARRAY(DataTypes.STRING(50)),
+      allowNull: false,
+      defaultValue: [],
+    },
+    surge_multiplier: {
+      type: DataTypes.DECIMAL(4, 2),
+      allowNull: false,
+      defaultValue: 1,
+    },
+    commission_rate_applied: {
+      type: DataTypes.DECIMAL(5, 4),
+      allowNull: true,
+      comment: 'Tasa de comisión capturada al solicitar el viaje',
     },
     payment_type: {
       type: DataTypes.STRING(20),

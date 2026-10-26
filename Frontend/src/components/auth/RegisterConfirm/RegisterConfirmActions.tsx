@@ -1,6 +1,6 @@
 import React from 'react';
-import { View, Text, TouchableOpacity } from 'react-native';
-import { LoadingIcon } from '../../ui/LoadingIcon';
+import { View } from 'react-native';
+import { AnimatedButton } from '../../ui/AnimatedButton';
 import type { TFunction } from 'i18next';
 
 interface RegisterConfirmActionsProps {
@@ -9,6 +9,7 @@ interface RegisterConfirmActionsProps {
   onConfirm: () => void;
   t: TFunction;
   styles: any;
+  accentColor: string;
 }
 
 export function RegisterConfirmActions({
@@ -17,41 +18,28 @@ export function RegisterConfirmActions({
   onConfirm,
   t,
   styles,
+  accentColor,
 }: RegisterConfirmActionsProps) {
   return (
-    <>
-      <View style={styles.buttonContainer}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={onBack}
-          disabled={loading}
-        >
-          <Text style={styles.backButtonText}>
-            {t('authScreens.registerConfirm.buttons.back')}
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.confirmButton, loading && styles.buttonDisabled]}
-          onPress={onConfirm}
-          disabled={loading}
-        >
-          {loading ? (
-            <LoadingIcon size={24} color="#FFFFFF" />
-          ) : (
-            <Text style={styles.confirmButtonText}>
-              {t('authScreens.registerConfirm.buttons.confirm')}
-            </Text>
-          )}
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.progressContainer}>
-        <View style={[styles.progressBar, { width: '100%' }]} />
-      </View>
-      <Text style={styles.progressText}>
-        {t('authScreens.registerConfirm.progress', { current: 4, total: 4 })}
-      </Text>
-    </>
+    <View style={styles.actions}>
+      <AnimatedButton
+        title={t('authScreens.registerConfirm.buttons.confirm')}
+        onPress={onConfirm}
+        size="large"
+        iconName="check-circle"
+        loading={loading}
+        style={styles.actionButton}
+      />
+      <AnimatedButton
+        title={t('authScreens.registerConfirm.buttons.back')}
+        onPress={onBack}
+        size="large"
+        variant="outline"
+        iconName="arrow-back"
+        color={accentColor}
+        disabled={loading}
+        style={styles.actionButton}
+      />
+    </View>
   );
 }

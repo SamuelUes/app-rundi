@@ -18,16 +18,16 @@ const CACHE_TTL_MS = 5 * 60 * 1000;
 /** Diccionario de traducciones por clave de notificación */
 const translations: Record<string, Record<NotificationLanguage, { title: string; body: string }>> = {
   ride_scheduled: {
-    es: { title: '✅ Viaje programado', body: 'Tu viaje fue programado correctamente.' },
-    en: { title: '✅ Ride scheduled', body: 'Your ride was scheduled successfully.' },
+    es: { title: 'Viaje programado', body: 'Tu viaje fue programado correctamente.' },
+    en: { title: 'Ride scheduled', body: 'Your ride was scheduled successfully.' },
   },
   driver_assigned: {
-    es: { title: '🚗 Conductor asignado', body: 'Un conductor se asignó a tu viaje programado.' },
-    en: { title: '🚗 Driver assigned', body: 'A driver was assigned to your scheduled ride.' },
+    es: { title: 'Conductor asignado', body: 'Un conductor se asignó a tu viaje programado.' },
+    en: { title: 'Driver assigned', body: 'A driver was assigned to your scheduled ride.' },
   },
   driver_confirmed: {
-    es: { title: '✅ Conductor confirmó', body: 'El conductor confirmó tu viaje programado.' },
-    en: { title: '✅ Driver confirmed', body: 'The driver confirmed your scheduled ride.' },
+    es: { title: 'Conductor confirmó', body: 'El conductor confirmó tu viaje programado.' },
+    en: { title: 'Driver confirmed', body: 'The driver confirmed your scheduled ride.' },
   },
   scheduled_canceled_by_client: {
     es: { title: 'Viaje programado cancelado', body: 'El cliente canceló el viaje programado.' },
@@ -38,28 +38,28 @@ const translations: Record<string, Record<NotificationLanguage, { title: string;
     en: { title: 'Scheduled ride canceled', body: 'The driver canceled the scheduled ride.' },
   },
   driver_on_way: {
-    es: { title: '🚗 Conductor en camino', body: 'Tu conductor se dirige al punto de recogida.' },
-    en: { title: '🚗 Driver on the way', body: 'Your driver is heading to the pickup point.' },
+    es: { title: 'Conductor en camino', body: 'Tu conductor se dirige al punto de recogida.' },
+    en: { title: 'Driver on the way', body: 'Your driver is heading to the pickup point.' },
   },
   ride_request_sent: {
-    es: { title: '🚗 Solicitud enviada', body: 'Estamos buscando un conductor para tu viaje' },
-    en: { title: '🚗 Request sent', body: 'We are looking for a driver for your ride' },
+    es: { title: 'Solicitud enviada', body: 'Estamos buscando un conductor para tu viaje' },
+    en: { title: 'Request sent', body: 'We are looking for a driver for your ride' },
   },
   driver_available: {
-    es: { title: '🚗 Conductor disponible', body: 'Un conductor está listo para tu viaje. Revísalo ahora.' },
-    en: { title: '🚗 Driver available', body: 'A driver is ready for your ride. Check it now.' },
+    es: { title: 'Conductor disponible', body: 'Un conductor está listo para tu viaje. Revísalo ahora.' },
+    en: { title: 'Driver available', body: 'A driver is ready for your ride. Check it now.' },
   },
   ride_assigned: {
-    es: { title: '✅ Viaje asignado', body: 'El cliente confirmó el viaje. Dirígete al punto de encuentro.' },
-    en: { title: '✅ Ride assigned', body: 'The client confirmed the ride. Head to the pickup point.' },
+    es: { title: 'Viaje asignado', body: 'El cliente confirmó el viaje. Dirígete al punto de encuentro.' },
+    en: { title: 'Ride assigned', body: 'The client confirmed the ride. Head to the pickup point.' },
   },
   ride_completed: {
     es: { title: 'Viaje finalizado', body: 'Por favor confirma y realiza el pago.' },
     en: { title: 'Ride completed', body: 'Please confirm and make the payment.' },
   },
   ride_completed_rating: {
-    es: { title: '✅ Viaje finalizado', body: 'Por favor confirma y realiza el pago.' },
-    en: { title: '✅ Ride completed', body: 'Please confirm and make the payment.' },
+    es: { title: 'Viaje finalizado', body: 'Por favor confirma y realiza el pago.' },
+    en: { title: 'Ride completed', body: 'Please confirm and make the payment.' },
   },
   ride_canceled_client: {
     es: { title: 'Viaje cancelado', body: 'Tu solicitud de viaje fue cancelada.' },
@@ -70,12 +70,12 @@ const translations: Record<string, Record<NotificationLanguage, { title: string;
     en: { title: 'Ride canceled', body: 'The client canceled the request before starting the ride.' },
   },
   programmed_ride_reminder: {
-    es: { title: '⏰ Recordatorio de viaje', body: 'Tu viaje programado comienza pronto.' },
-    en: { title: '⏰ Ride reminder', body: 'Your scheduled ride starts soon.' },
+    es: { title: 'Recordatorio de viaje', body: 'Tu viaje programado comienza pronto.' },
+    en: { title: 'Ride reminder', body: 'Your scheduled ride starts soon.' },
   },
   programmed_ride_confirmation: {
-    es: { title: '🔔 Confirmación pendiente', body: 'Tu viaje programado necesita confirmación.' },
-    en: { title: '🔔 Confirmation needed', body: 'Your scheduled ride needs confirmation.' },
+    es: { title: 'Confirmación pendiente', body: 'Tu viaje programado necesita confirmación.' },
+    en: { title: 'Confirmation needed', body: 'Your scheduled ride needs confirmation.' },
   },
   live_ride_driver_assigned: {
     es: { title: 'Conductor confirmado', body: 'Tu viaje fue asignado. Te avisaremos del progreso.' },

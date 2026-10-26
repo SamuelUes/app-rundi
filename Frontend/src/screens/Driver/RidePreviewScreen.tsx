@@ -678,11 +678,17 @@ const styles = StyleSheet.create({
     marginLeft: 12,
   },
   iconButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
+    minHeight: 44,
+    flexDirection: 'row',
+    gap: 7,
+    paddingHorizontal: 12,
+    borderRadius: 13,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  vehiclePhotoButtonText: {
+    fontSize: 12,
+    fontWeight: '700',
   },
   collapsibleContainer: {
     overflow: 'hidden',

@@ -11,15 +11,49 @@
 import { RideRepository } from '../repositories/RideRepository';
 import { PaymentRepository } from '../repositories/PaymentRepository';
 import { DriverRepository } from '../repositories/DriverRepository';
+import { ServiceRepository } from '../repositories/ServiceRepository';
 import admin from 'firebase-admin';
 import sequelize from '../config/database';
 import { isSequelizeAvailable } from '../config/database';
+import {
+  getCommissionFromDatabase,
+  getFallbackCommissionRate,
+  serviceCodeFromRideFields,
+} from '../../helpers/priceCalculator';
+import { calculateCommissionAmount } from '../../helpers/pricingRules';
 
 export class RideService {
   private rideRepo = new RideRepository();
   private paymentRepo = new PaymentRepository();
   private driverRepo = new DriverRepository();
+  private serviceRepo = new ServiceRepository();
   private realtimeDb = admin.database();
+
+  // Comisión del pago: tasa del servicio del viaje (o fallback por código derivado)
+  private async resolveCommissionRate(ride: any): Promise<number> {
+    const snapshotRate = Number(ride?.commission_rate_applied ?? ride?.pricing_snapshot?.commissionRate);
+    if (Number.isFinite(snapshotRate) && snapshotRate >= 0 && snapshotRate <= 1) {
+      return snapshotRate;
+    }
+
+    try {
+      if (ride?.service_id) {
+        const rate = await this.serviceRepo.getCommissionRate(ride.service_id);
+        if (rate !== null && rate !== undefined) {
+          return rate;
+        }
+      }
+    } catch (error) {
+      console.warn('[RideService] No se pudo resolver commission_rate del servicio:', error);
+    }
+    return getFallbackCommissionRate(
+      serviceCodeFromRideFields(
+        ride?.ride_type ?? ride?.rideType,
+        ride?.vehicle_type ?? ride?.vehicleType,
+        ride?.designated_driver_vehicle ?? ride?.designatedDriverVehicle,
+      ),
+    );
+  }
 
   private async hydrateClientProfile(clientId: string): Promise<{
     fullName?: string | null;
@@ -171,6 +205,25 @@ export class RideService {
       accepted_at: new Date(),
     };
 
+    const service = ride.service_id ? await this.serviceRepo.findById(ride.service_id) : null;
+    const serviceCode = service?.code ?? serviceCodeFromRideFields(
+      ride.ride_type,
+      ride.vehicle_type,
+      ride.designated_driver_vehicle,
+    );
+    try {
+      const commissionRate = await getCommissionFromDatabase(driverId, serviceCode);
+      const pricingSnapshot = {
+        ...(ride.pricing_snapshot ?? {}),
+        commissionRate,
+        commissionAmount: calculateCommissionAmount(Number(ride.estimated_price ?? 0), commissionRate),
+      };
+      updateData.commission_rate_applied = commissionRate;
+      updateData.pricing_snapshot = pricingSnapshot;
+    } catch (error) {
+      console.warn('[acceptRide] No se pudo congelar la comisión del conductor:', error);
+    }
+
     // ✅ NUEVO: Agregar service_id si se proporciona
     if (serviceId) {
       updateData.service_id = serviceId;
@@ -222,7 +275,7 @@ export class RideService {
       return ride;
     }
 
-    const allowedStatuses = ['accepted', 'driver_on_route'];
+    const allowedStatuses = ['accepted', 'driver_on_route', 'driver_arrived'];
     if (!allowedStatuses.includes(ride.status)) {
       throw new Error(`No se puede iniciar el viaje ${rideId} porque está en estado ${ride.status}`);
     }
@@ -275,9 +328,24 @@ export class RideService {
       throw new Error(`No se puede completar el viaje ${rideId} porque está en estado ${ride.status}`);
     }
 
+    const commissionRate = await this.resolveCommissionRate(ride);
+    const commission = calculateCommissionAmount(finalFare, commissionRate);
+    const currentPricingSnapshot = ride.pricing_snapshot;
+    const pricingSnapshot = currentPricingSnapshot
+      ? {
+          ...currentPricingSnapshot,
+          quotedFare: currentPricingSnapshot.quotedFare ?? currentPricingSnapshot.finalFare ?? ride.estimated_price,
+          finalFare,
+          negotiatedFare: finalFare,
+          commissionRate,
+          commissionAmount: commission,
+        }
+      : null;
     const completionUpdate: Record<string, any> = {
       status: 'completed',
       final_fare: finalFare,
+      commission_rate_applied: commissionRate,
+      ...(pricingSnapshot ? { pricing_snapshot: pricingSnapshot } : {}),
       completed_at: new Date(),
       client_suggested_price: ride.client_suggested_price || null,
       driver_offered_price: ride.driver_offered_price || null,
@@ -303,12 +371,12 @@ export class RideService {
           throw new Error(`No se pudo completar el viaje ${rideId} porque el estado cambió (operación concurrente)`);
         }
 
-        const commission = finalFare * 0.11;
         // Crear pago dentro de la misma transacción
         await this.paymentRepo.create({
           ride_id: rideId,
           amount: finalFare,
           commission: commission,
+          commission_rate_applied: commissionRate,
           payment_method: ride.payment_type || 'cash',
           status: 'pending',
           paid_at: null,
@@ -329,12 +397,12 @@ export class RideService {
       throw new Error(`No se pudo completar el viaje ${rideId} porque el estado cambió (operación concurrente)`);
     }
 
-    const commission = finalFare * 0.11;
     // ✅ ACTUALIZADO: Crear pago con status 'pending' hasta que se confirme
     await this.paymentRepo.create({
       ride_id: rideId,
       amount: finalFare,
       commission: commission,
+      commission_rate_applied: commissionRate,
       payment_method: ride.payment_type || 'cash',
       status: 'pending', // ✅ CAMBIO: Ahora es 'pending' hasta que se confirme el pago
       paid_at: null, // ✅ NUEVO: No se marca como pagado hasta que se confirme
@@ -383,6 +451,31 @@ export class RideService {
 
     console.log(`🚕 Conductor en camino para viaje ${rideId}`);
     return updated;
+  }
+
+  async markDriverArrived(rideId: string, driverId: string) {
+    const ride = await this.rideRepo.findById(rideId);
+    if (!ride) throw new Error('Viaje no encontrado');
+
+    if (ride.driver_id !== driverId) {
+      throw new Error('Conductor no asignado a este viaje');
+    }
+    if (ride.status === 'driver_arrived') return ride;
+    if (ride.status !== 'driver_on_route') {
+      throw new Error(`No se puede marcar driver_arrived porque el viaje está en estado ${ride.status}`);
+    }
+
+    if (isSequelizeAvailable) {
+      const updatedCount = await this.rideRepo.updateIfStatus(rideId, 'driver_on_route', {
+        status: 'driver_arrived',
+      });
+      if (updatedCount === 0) {
+        throw new Error('El estado del viaje cambió antes de confirmar la llegada');
+      }
+      return await this.rideRepo.findById(rideId);
+    }
+
+    return await this.rideRepo.update(rideId, { status: 'driver_arrived' });
   }
 
   async cancelRide(rideId: string, reason: string) {

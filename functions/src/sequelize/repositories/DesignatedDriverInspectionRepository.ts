@@ -17,6 +17,17 @@ export class DesignatedDriverInspectionRepository {
     return await DesignatedDriverInspection.findOne({ where: { ride_id: rideId } });
   }
 
+  async upsertByRideId(data: any): Promise<DesignatedDriverInspection> {
+    const existing = await this.findByRideId(data.ride_id);
+    if (!existing) {
+      return await this.create(data);
+    }
+    if (existing.driver_id !== data.driver_id) {
+      throw new Error('La inspección pertenece a otro conductor');
+    }
+    return await existing.update(data);
+  }
+
   async findByDriverId(driverId: string): Promise<DesignatedDriverInspection[]> {
     return await DesignatedDriverInspection.findAll({ where: { driver_id: driverId } });
   }

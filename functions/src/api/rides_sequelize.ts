@@ -12,11 +12,18 @@ import { RideRepository } from '../sequelize/repositories/RideRepository';
 import { ServiceRepository } from '../sequelize/repositories/ServiceRepository';
 import { PaymentRepository } from '../sequelize/repositories/PaymentRepository';
 import { VehicleRepository } from '../sequelize/repositories/VehicleRepository';
-import { calculateRideProgress } from '../utils/rideProgressUtils';
+import { DesignatedDriverInspectionRepository } from '../sequelize/repositories/DesignatedDriverInspectionRepository';
+import { calculateRideProgress, shouldChargeForCancellation } from '../utils/rideProgressUtils';
+import {
+  calculateRidePrice,
+  getFallbackCommissionRate,
+  serviceCodeFromRideFields,
+} from '../helpers/priceCalculator';
 import { logRideEvent, AnalyticsEvents } from '../utils/analyticsUtils';
 import { v4 as uuidv4 } from 'uuid';
 import { DEFAULT_SERVICE_AREA_ID, PUSH_NOTIFICATIONS_ENABLED } from '../config/constants';
 import { ensureActiveSession, requireDriver, requireClient } from '../utils/sessionUtils';
+import { complianceService } from '../sequelize/services/compliance';
 import sequelize, { isSequelizeAvailable } from '../sequelize/config/database';
 import {
   AcceptRideSchema,
@@ -48,6 +55,7 @@ const db = admin.database();
 const serviceRepo = new ServiceRepository();
 const paymentRepo = new PaymentRepository();
 const vehicleRepo = new VehicleRepository();
+const inspectionRepo = new DesignatedDriverInspectionRepository();
 
 const safeLogRideEvent = async (
   eventType: string,
@@ -425,11 +433,76 @@ export const createProgrammedRide = functions.https.onCall(async (data, context)
 
   const origin = data?.origin;
   const destination = data?.destination;
-  const estimatedPrice = parseToNumber(data?.estimatedPrice);
+  const estimatedDistance = parseToNumber(data?.estimatedDistance);
+  const estimatedDuration = parseToNumber(data?.estimatedDuration);
+  const originLat = Number(origin?.lat);
+  const originLng = Number(origin?.lng);
+  const destinationLat = Number(destination?.lat);
+  const destinationLng = Number(destination?.lng);
 
-  if (!origin || !destination || estimatedPrice === null) {
-    throw new functions.https.HttpsError('invalid-argument', 'origin, destination y estimatedPrice son requeridos');
+  if (
+    !origin ||
+    !destination ||
+    !Number.isFinite(originLat) ||
+    originLat < -90 ||
+    originLat > 90 ||
+    !Number.isFinite(originLng) ||
+    originLng < -180 ||
+    originLng > 180 ||
+    !Number.isFinite(destinationLat) ||
+    destinationLat < -90 ||
+    destinationLat > 90 ||
+    !Number.isFinite(destinationLng) ||
+    destinationLng < -180 ||
+    destinationLng > 180 ||
+    estimatedDistance === null ||
+    estimatedDistance < 0 ||
+    estimatedDuration === null ||
+    estimatedDuration < 0
+  ) {
+    throw new functions.https.HttpsError(
+      'invalid-argument',
+      'origin, destination, estimatedDistance y estimatedDuration válidos son requeridos',
+    );
   }
+
+  const vehicleType = String(data?.vehicleType ?? 'auto');
+  const rideType = String(data?.rideType ?? 'normal');
+  if (!['auto', 'moto', 'designated_driver'].includes(vehicleType) ||
+    !['normal', 'designated_driver'].includes(rideType) ||
+    (vehicleType === 'designated_driver') !== (rideType === 'designated_driver')) {
+    throw new functions.https.HttpsError('invalid-argument', 'vehicleType o rideType inválido');
+  }
+  const designatedVehicle = String(data?.designatedDriverVehicle ?? '').toLowerCase();
+  if (vehicleType === 'designated_driver' && !['auto', 'moto', 'motorcycle'].includes(designatedVehicle)) {
+    throw new functions.https.HttpsError(
+      'invalid-argument',
+      'designatedDriverVehicle debe ser auto o moto para conductor designado',
+    );
+  }
+
+  const pricing = await calculateRidePrice(
+    estimatedDistance,
+    estimatedDuration,
+    vehicleType === 'moto' || (vehicleType === 'designated_driver' && designatedVehicle !== 'auto')
+      ? 'motorcycle'
+      : 'car',
+    rideType === 'designated_driver' ? 'designated_driver' : 'normal',
+    originLat,
+    originLng,
+    {
+      extraStops: Array.isArray(data?.extraDestinations) ? data.extraDestinations.length : 0,
+      calculationAt: new Date(scheduledAt),
+      skipSurge: true,
+    },
+  );
+  if (pricing.breakdown.startsWith('⚠️ Fallback legacy activo')) {
+    throw new functions.https.HttpsError(
+      'failed-precondition',
+      'No se pudo cargar la configuración autoritativa de tarifas',
+    );
+  }
+  const estimatedPrice = pricing.finalPrice;
 
   // Verificar si el cliente ya tiene un viaje programado que entre en conflicto
   const programmedConflict = await findConflictingProgrammedRideForClient(clientId, scheduledAt);
@@ -468,14 +541,17 @@ export const createProgrammedRide = functions.https.onCall(async (data, context)
     destination,
     extraDestinations: data?.extraDestinations ?? null,
     estimatedPrice,
-    estimatedDistance: data?.estimatedDistance ?? null,
-    estimatedDuration: data?.estimatedDuration ?? null,
-    rideType: data?.rideType ?? 'normal',
-    vehicleType: data?.vehicleType ?? null,
-    designatedDriverVehicle: data?.designatedDriverVehicle ?? null,
+    estimatedDistance,
+    estimatedDuration,
+    pricingSnapshot: pricing.pricingSnapshot,
+    featureCodes: pricing.featureCodes,
+    surgeMultiplier: pricing.surgeMultiplier,
+    rideType,
+    vehicleType,
+    designatedDriverVehicle: vehicleType === 'designated_driver' ? designatedVehicle : null,
     passengers: data?.passengers ?? 1,
     paymentMethod: data?.paymentMethod ?? 'cash',
-    serviceId: data?.serviceId ?? null,
+    serviceId: pricing.serviceId ?? null,
     clientVehiclePhoto: data?.clientVehiclePhoto ?? null,
     clientSuggestedPrice: data?.clientSuggestedPrice ?? null,
     clientComment: normalizedClientComment,
@@ -902,12 +978,29 @@ const getNegotiatedFare = (firebaseRide: any, rideRecord: any): number => {
   return 0;
 };
 
+// Deriva el código de servicio desde los campos del viaje cuando service_id falta
+// (viajes legacy creados antes de mapear service_id en createRide).
+const resolveServiceCodeForRide = (rideRecord: any): string | null => {
+  if (!rideRecord) return null;
+  return serviceCodeFromRideFields(
+    rideRecord.ride_type ?? rideRecord.rideType,
+    rideRecord.vehicle_type ?? rideRecord.vehicleType,
+    rideRecord.designated_driver_vehicle ?? rideRecord.designatedDriverVehicle,
+  );
+};
+
 const getCommissionRateForRide = async (rideRecord: any): Promise<number> => {
-  let commissionRate = parseToNumber((rideRecord as Record<string, any>)?.commission_rate);
+  let commissionRate =
+    parseToNumber(rideRecord?.commission_rate_applied) ??
+    parseToNumber(rideRecord?.pricing_snapshot?.commissionRate) ??
+    parseToNumber(rideRecord?.commission_rate);
+  const hasCapturedRate = commissionRate !== null;
+  let serviceCode: string | null = null;
 
   if (commissionRate === null && rideRecord?.service_id) {
     try {
       const service = await serviceRepo.findById(rideRecord.service_id);
+      serviceCode = service?.code ?? null;
       const serviceRate = parseToNumber(service?.commission_rate);
       if (serviceRate !== null) {
         commissionRate = serviceRate;
@@ -917,8 +1010,29 @@ const getCommissionRateForRide = async (rideRecord: any): Promise<number> => {
     }
   }
 
+  if (!serviceCode) {
+    serviceCode = resolveServiceCodeForRide(rideRecord);
+  }
+
+  // Si hay conductor asignado, la tasa efectiva puede tener override en driver_services
+  if (!hasCapturedRate && rideRecord?.driver_id) {
+    try {
+      const { supabaseRpc } = await import('../supabase/rest');
+      const rpcRate = await supabaseRpc('get_driver_commission_rate', {
+        p_driver_uid: rideRecord.driver_id,
+        p_service_code: serviceCode,
+      });
+      const parsed = parseToNumber(rpcRate);
+      if (parsed !== null && parsed > 0) {
+        commissionRate = parsed;
+      }
+    } catch (rpcError) {
+      console.warn('⚠️ [rides] RPC get_driver_commission_rate falló, usando tasa del servicio:', rpcError);
+    }
+  }
+
   if (commissionRate === null) {
-    commissionRate = 0.11;
+    commissionRate = getFallbackCommissionRate(serviceCode);
   }
 
   return Number(commissionRate.toFixed(4));
@@ -1565,6 +1679,48 @@ export const markDriverOnRoute = functions.https.onCall(async (data, context) =>
   }
 });
 
+export const markDriverArrived = functions.https.onCall(async (data, context) => {
+  await requireDriver(context);
+  await ensureActiveSession(context, data);
+
+  try {
+    const rideId = typeof data?.rideId === 'string' ? data.rideId.trim() : '';
+    const driverId = context.auth!.uid;
+    if (!rideId) {
+      throw new functions.https.HttpsError('invalid-argument', 'rideId es requerido');
+    }
+
+    const activeRideRef = db.ref(`activeRides/${rideId}`);
+    const snapshot = await activeRideRef.once('value');
+    const rideData = snapshot.val();
+    if (!rideData) {
+      throw new functions.https.HttpsError('not-found', 'Viaje no encontrado');
+    }
+    if (rideData.driverId !== driverId) {
+      throw new functions.https.HttpsError('permission-denied', 'No eres el conductor asignado a este viaje');
+    }
+    if (rideData.status === 'driver_arrived') {
+      return { success: true, ride: { id: rideId, status: 'driver_arrived', driverId } };
+    }
+    if (rideData.status !== 'driver_on_route') {
+      throw new functions.https.HttpsError('failed-precondition', `No puedes marcar llegada en estado ${rideData.status}`);
+    }
+
+    await rideService.markDriverArrived(rideId, driverId);
+    await activeRideRef.update({
+      status: 'driver_arrived',
+      driverArrivedAt: admin.database.ServerValue.TIMESTAMP,
+      updatedAt: admin.database.ServerValue.TIMESTAMP,
+    });
+
+    return { success: true, ride: { id: rideId, status: 'driver_arrived', driverId } };
+  } catch (error: any) {
+    if (error instanceof functions.https.HttpsError) throw error;
+    console.error('[markDriverArrived] Error:', error);
+    throw new functions.https.HttpsError('internal', 'No se pudo registrar la llegada');
+  }
+});
+
 /**
  * Crear viaje - Versión mejorada que acepta datos del Frontend
  */
@@ -1592,7 +1748,7 @@ export const createRide = functions.https.onCall(async (data, context) => {
       destination,
       estimatedDistance,
       estimatedDuration,
-      estimatedPrice,
+      estimatedPrice: clientEstimatedPrice,
       rideType = 'normal',
       vehicleType = 'auto',
       designatedDriverVehicle,
@@ -1610,8 +1766,8 @@ export const createRide = functions.https.onCall(async (data, context) => {
     const biometricAcceptanceAt = data.biometric_acceptance_at ?? data.biometricAcceptanceAt ?? null;
 
     // Validar datos requeridos
-    if (!origin || !destination || !estimatedPrice) {
-      throw new functions.https.HttpsError('invalid-argument', 'origin, destination y estimatedPrice son requeridos');
+    if (!origin || !destination) {
+      throw new functions.https.HttpsError('invalid-argument', 'origin y destination son requeridos');
     }
 
     // ✅ Idempotencia: el cliente solo puede tener un viaje activo.
@@ -1649,6 +1805,81 @@ export const createRide = functions.https.onCall(async (data, context) => {
     const extraDestinations = data.extraDestinations || [];
     console.log(`📍 [createRide] Paradas extras recibidas: ${extraDestinations.length}`);
 
+    let authoritativePricing: Awaited<ReturnType<typeof calculateRidePrice>> | null = null;
+    if (!IS_LOAD_TEST) {
+      if (
+        typeof estimatedDistance !== 'number' ||
+        !Number.isFinite(estimatedDistance) ||
+        estimatedDistance < 0 ||
+        typeof estimatedDuration !== 'number' ||
+        !Number.isFinite(estimatedDuration) ||
+        estimatedDuration < 0
+      ) {
+        throw new functions.https.HttpsError(
+          'invalid-argument',
+          'estimatedDistance y estimatedDuration válidos son requeridos para calcular la tarifa',
+        );
+      }
+
+  if (
+    !['auto', 'moto', 'designated_driver'].includes(vehicleType) ||
+    !['normal', 'designated_driver'].includes(rideType) ||
+    (vehicleType === 'designated_driver') !== (rideType === 'designated_driver')
+  ) {
+    throw new functions.https.HttpsError('invalid-argument', 'vehicleType o rideType inválido');
+      }
+      const designatedVehicle = String(designatedDriverVehicle ?? '').toLowerCase();
+      if (vehicleType === 'designated_driver' && !['auto', 'moto', 'motorcycle'].includes(designatedVehicle)) {
+        throw new functions.https.HttpsError(
+          'invalid-argument',
+          'designatedDriverVehicle debe ser auto o moto para conductor designado',
+        );
+      }
+      const pricingVehicleType =
+        vehicleType === 'moto' || (vehicleType === 'designated_driver' && designatedVehicle !== 'auto')
+          ? 'motorcycle'
+          : 'car';
+      const pricingRideType = rideType === 'designated_driver' ? 'designated_driver' : 'normal';
+      authoritativePricing = await calculateRidePrice(
+        estimatedDistance,
+        estimatedDuration,
+        pricingVehicleType,
+        pricingRideType,
+        origin.lat,
+        origin.lng,
+        { extraStops: extraDestinations.length },
+      );
+      if (authoritativePricing.breakdown.startsWith('⚠️ Fallback legacy activo')) {
+        throw new functions.https.HttpsError(
+          'failed-precondition',
+          'No se pudo cargar la configuración autoritativa de tarifas',
+        );
+      }
+    }
+    const estimatedPrice = authoritativePricing?.finalPrice ?? Number(clientEstimatedPrice ?? 0);
+    const pricingSnapshot = authoritativePricing?.pricingSnapshot ?? null;
+    if (!Number.isFinite(estimatedPrice) || estimatedPrice <= 0) {
+      throw new functions.https.HttpsError('invalid-argument', 'No se pudo calcular una tarifa válida');
+    }
+    if (data.clientSuggestedPrice !== undefined && data.clientSuggestedPrice !== null) {
+      const suggestedPrice = Number(data.clientSuggestedPrice);
+      if (!Number.isFinite(suggestedPrice) || suggestedPrice <= 0 || suggestedPrice > 100000) {
+        throw new functions.https.HttpsError('invalid-argument', 'Precio sugerido inválido');
+      }
+
+      const minimum = Math.max(
+        50,
+        Number(pricingSnapshot?.dynamicMinimumFare ?? estimatedPrice * 0.6667),
+      );
+      const maximum = Math.max(minimum, estimatedPrice * 1.3333);
+      if (suggestedPrice < minimum || suggestedPrice > maximum) {
+        throw new functions.https.HttpsError(
+          'invalid-argument',
+          `El precio sugerido debe estar entre C$${minimum.toFixed(2)} y C$${maximum.toFixed(2)}`,
+        );
+      }
+    }
+
     if (IS_LOAD_TEST) {
       const rideRef = db.ref('activeRides').push();
       const rideId = rideRef.key as string;
@@ -1668,6 +1899,9 @@ export const createRide = functions.https.onCall(async (data, context) => {
           address: destination.address || 'Ubicación de destino',
         },
         estimatedPrice,
+        pricingSnapshot,
+        featureCodes: pricingSnapshot?.featureCodes ?? [],
+        surgeMultiplier: pricingSnapshot?.surgeMultiplier ?? 1,
         estimatedDistance,
         estimatedDuration,
         rideType,
@@ -1709,7 +1943,7 @@ export const createRide = functions.https.onCall(async (data, context) => {
         console.error(`⚠️ [createRide][LOADTEST] Error creando paymentStatus (no es crítico):`, firebaseError.message);
       }
 
-      await notifyUserSafe(clientId, '🚗 Solicitud enviada', 'Estamos buscando un conductor para tu viaje', {
+      await notifyUserSafe(clientId, 'Solicitud enviada', 'Estamos buscando un conductor para tu viaje', {
         rideId,
       }, {
         type: 'ride_requested',
@@ -1734,26 +1968,56 @@ export const createRide = functions.https.onCall(async (data, context) => {
     }
 
     // ✅ NUEVO: Mapear vehicleType a service_id
-    let serviceId = data.serviceId || null;
-    if (!serviceId && vehicleType) {
-      // Mapear vehicleType a código de servicio
+    let serviceId: string | null = null;
+    let serviceRow: any = null;
+    {
       const serviceCodeMap: {[key: string]: string} = {
         'auto': 'normal',
         'moto': 'motorcycle',
-        'designated_driver': 'designated_driver',
       };
-      const serviceCode = serviceCodeMap[vehicleType];
-      
-      if (serviceCode) {
-        try {
-          const Service = require('../sequelize/models/Service').default;
-          const service = await Service.findOne({ where: { code: serviceCode } });
-          if (service) {
-            serviceId = service.id;
-            console.log(`✅ [createRide] Service encontrado: ${serviceCode} -> ${serviceId}`);
-          }
-        } catch (err: any) {
-          console.warn(`⚠️ [createRide] Error buscando servicio: ${err.message}`);
+      // 'designated_driver' no es un código válido en services: se resuelve a
+      // designated_driver_auto / designated_driver_moto según el vehículo del cliente
+      const serviceCode = authoritativePricing?.serviceCode ?? (
+        vehicleType === 'designated_driver'
+          ? (designatedDriverVehicle === 'moto' ? 'designated_driver_moto' : 'designated_driver_auto')
+          : serviceCodeMap[vehicleType]
+      );
+
+      try {
+        const Service = require('../sequelize/models/Service').default;
+        if (serviceCode) {
+          serviceRow = await Service.findOne({ where: { code: serviceCode } });
+        }
+        if (serviceRow) {
+          serviceId = serviceRow.id;
+          console.log(`✅ [createRide] Service encontrado: ${serviceRow.code} -> ${serviceId}`);
+        }
+      } catch (err: any) {
+        console.warn(`⚠️ [createRide] Error buscando servicio: ${err.message}`);
+      }
+    }
+
+    // Servicios con ventana horaria (available_hours, ej. 'night' 22:00-04:00)
+    // solo pueden solicitarse dentro de su horario (hora America/Managua).
+    if (serviceRow?.available_hours) {
+      const hours = serviceRow.available_hours;
+      const startStr = hours?.start ?? hours?.from;
+      const endStr = hours?.end ?? hours?.to;
+      if (startStr && endStr) {
+        const managuaNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Managua' }));
+        const nowMinutes = managuaNow.getHours() * 60 + managuaNow.getMinutes();
+        const [sh, sm] = String(startStr).split(':').map(Number);
+        const [eh, em] = String(endStr).split(':').map(Number);
+        const startMinutes = sh * 60 + (sm || 0);
+        const endMinutes = eh * 60 + (em || 0);
+        const within = startMinutes <= endMinutes
+          ? nowMinutes >= startMinutes && nowMinutes < endMinutes
+          : nowMinutes >= startMinutes || nowMinutes < endMinutes; // ventana que cruza medianoche
+        if (!within) {
+          throw new functions.https.HttpsError(
+            'failed-precondition',
+            `El servicio ${serviceRow.code} solo está disponible de ${startStr} a ${endStr}`,
+          );
         }
       }
     }
@@ -1778,6 +2042,10 @@ export const createRide = functions.https.onCall(async (data, context) => {
       estimated_distance: estimatedDistance,  // ✅ Correcto: estimated_distance
       estimated_duration: estimatedDuration,  // ✅ Correcto: estimated_duration
       estimated_price: estimatedPrice,
+      pricing_snapshot: pricingSnapshot,
+      feature_codes: pricingSnapshot?.featureCodes ?? [],
+      surge_multiplier: pricingSnapshot?.surgeMultiplier ?? 1,
+      commission_rate_applied: pricingSnapshot?.commissionRate ?? null,
       passengers: passengers,
       notes: normalizedNotes,
       ride_type: rideType,
@@ -1881,6 +2149,9 @@ export const createRide = functions.https.onCall(async (data, context) => {
         address: destination.address || 'Ubicación de destino',
       },
       estimatedPrice,
+      pricingSnapshot,
+      featureCodes: pricingSnapshot?.featureCodes ?? [],
+      surgeMultiplier: pricingSnapshot?.surgeMultiplier ?? 1,
       estimatedDistance,
       estimatedDuration,
       rideType,
@@ -1940,7 +2211,7 @@ export const createRide = functions.https.onCall(async (data, context) => {
     console.log(`✅ [createRide] Client: ${clientId}`);
     console.log(`${'='.repeat(60)}\n`);
 
-    await notifyUserSafe(clientId, '🚗 Solicitud enviada', 'Estamos buscando un conductor para tu viaje', {
+    await notifyUserSafe(clientId, 'Solicitud enviada', 'Estamos buscando un conductor para tu viaje', {
       rideId: ride.id,
     }, {
       type: 'ride_requested',
@@ -1957,6 +2228,9 @@ export const createRide = functions.https.onCall(async (data, context) => {
         origin,
         destination,
         estimatedPrice,
+        pricingSnapshot,
+        featureCodes: pricingSnapshot?.featureCodes ?? [],
+        surgeMultiplier: pricingSnapshot?.surgeMultiplier ?? 1,
         rideType,
         vehicleType,
         passengers,
@@ -2127,6 +2401,41 @@ export const acceptRide = functions.https.onCall(async (data, context) => {
     } catch (locErr: any) {
       if (locErr instanceof functions.https.HttpsError) throw locErr;
       console.warn('⚠️ [acceptRide] Error verificando driverLocations:', locErr?.message || locErr);
+    }
+
+    // ✅ Compliance documental: el conductor+vehículo deben estar habilitados
+    try {
+      const effectiveVehicleId =
+        vehicleId ??
+        driverRealtimeInfo?.vehicle?.id ??
+        driverRealtimeInfo?.currentVehicle?.id ??
+        null;
+
+      const evaluation = effectiveVehicleId
+        ? await complianceService.canDriverOperateVehicle(
+            driverId,
+            effectiveVehicleId,
+            firebaseRideData?.serviceId ?? null,
+            { evaluatedBy: driverId },
+          )
+        : await complianceService.canDriverOperate(driverId, { evaluatedBy: driverId });
+
+      if (!evaluation.allowed) {
+        const blockingReasons = evaluation.reasons
+          .filter((r: any) => r.blocking)
+          .map((r: any) => r.message)
+          .join(' | ');
+        console.warn(`🚫 [acceptRide] Compliance bloqueado para ${driverId}: ${blockingReasons}`);
+        throw new functions.https.HttpsError(
+          'failed-precondition',
+          `Documentación no habilitada para operar: ${blockingReasons}`,
+          { reasons: evaluation.reasons.filter((r: any) => r.blocking) },
+        );
+      }
+    } catch (complianceError: any) {
+      if (complianceError instanceof functions.https.HttpsError) throw complianceError;
+      console.error('❌ [acceptRide] Error evaluando compliance:', complianceError?.message || complianceError);
+      throw new functions.https.HttpsError('internal', 'No se pudo verificar la documentación del conductor');
     }
 
     const ride = await rideService.acceptRide(rideId, driverId, firebaseRideData?.serviceId);
@@ -2726,6 +3035,39 @@ export const startRide = functions.https.onCall(async (data, context) => {
       throw new functions.https.HttpsError('permission-denied', 'No eres el conductor asignado a este viaje');
     }
 
+    const isDesignatedRide = String(earlyData.rideType ?? earlyData.ride_type ?? '').toLowerCase() === 'designated_driver';
+    if (isDesignatedRide && !IS_LOAD_TEST) {
+      if (!['driver_arrived', 'in_progress'].includes(String(earlyData.status || '').toLowerCase())) {
+        throw new functions.https.HttpsError(
+          'failed-precondition',
+          'Marca tu llegada y completa las fotos y confirmación antes de iniciar el viaje',
+        );
+      }
+
+      const inspection = await inspectionRepo.findByRideId(rideId);
+      const requiredPhotos = [
+        inspection?.insurance_document_photo,
+        inspection?.registration_document_photo,
+        inspection?.front_driver_seat_photo,
+        inspection?.front_passenger_seat_photo,
+        inspection?.rear_left_seat_photo,
+        inspection?.rear_right_seat_photo,
+      ];
+      if (
+        !inspection ||
+        inspection.driver_id !== context.auth!.uid ||
+        inspection.status !== 'completed' ||
+        inspection.documents_confirmed !== true ||
+        !inspection.documents_confirmed_at ||
+        requiredPhotos.some((url) => typeof url !== 'string' || url.trim().length === 0)
+      ) {
+        throw new functions.https.HttpsError(
+          'failed-precondition',
+          'Completa y confirma las seis fotos de inspección antes de iniciar el viaje',
+        );
+      }
+    }
+
     let latestActiveRideSnapshot: any = earlyData;
 
     if (IS_LOAD_TEST) {
@@ -2833,6 +3175,7 @@ export const startRide = functions.https.onCall(async (data, context) => {
 
     return { success: true, ride: { id: ride.id, status: ride.status } };
   } catch (error: any) {
+    if (error instanceof functions.https.HttpsError) throw error;
     console.error('❌ [startRide] Error:', error);
     throw new functions.https.HttpsError('internal', 'Error interno del servidor');
   }
@@ -2976,7 +3319,9 @@ export const completeRide = functions.https.onCall(async (data, context) => {
     const earningsDriverId = ride.driver_id || earlyData.driverId;
     if (earningsDriverId && !alreadyCompletedInSql) {
       try {
-        const earnings = effectiveFare * 0.90;
+        // Neto del conductor = tarifa − comisión (misma tasa que se deduce del monedero)
+        const earningsRate = await getCommissionRateForRide(ride);
+        const earnings = Number((effectiveFare * (1 - earningsRate)).toFixed(2));
         // ✅ Grupo 4: Transacción para incrementos atómicos de driver
         if (isSequelizeAvailable) {
           await sequelize.transaction(async (t) => {
@@ -3259,20 +3604,28 @@ export const cancelRide = functions.https.onCall(async (data, context) => {
       }
       // Si lo cancela el CLIENTE
       else if (canceledBy === 'client') {
-        console.log(`👤 [cancelRide] Cancelado por cliente en progreso - Cliente debe pagar pendientes`);
-        paymentStatusUpdate.status = 'pending';
-        paymentStatusUpdate.chargeType = 'client_cancellation';
-        paymentStatusUpdate.shouldCharge = true;
-        paymentStatusUpdate.requiresClientPayment = true;
-        paymentStatusUpdate.chargeTarget = 'client';
-        chargeTarget = 'client';
+        if (shouldChargeForCancellation(progressPercentage)) {
+          console.log(`👤 [cancelRide] Cancelado por cliente en progreso (progress=${progressPercentage}%) - Cliente debe pagar pendientes`);
+          paymentStatusUpdate.status = 'pending';
+          paymentStatusUpdate.chargeType = 'client_cancellation';
+          paymentStatusUpdate.shouldCharge = true;
+          paymentStatusUpdate.requiresClientPayment = true;
+          paymentStatusUpdate.chargeTarget = 'client';
+          chargeTarget = 'client';
 
-        const progressFactor = Math.min(Math.max(progressPercentage, 0), 100) / 100;
-        chargeAmount = Number((negotiatedFare * progressFactor).toFixed(2));
-        commissionDue = Number((chargeAmount * commissionRate).toFixed(2));
-        driverPayout = Number((chargeAmount - commissionDue).toFixed(2));
+          const progressFactor = Math.min(Math.max(progressPercentage, 0), 100) / 100;
+          chargeAmount = Number((negotiatedFare * progressFactor).toFixed(2));
+          commissionDue = Number((chargeAmount * commissionRate).toFixed(2));
+          driverPayout = Number((chargeAmount - commissionDue).toFixed(2));
+        } else {
+          // Umbral del 60%: si el viaje avanzó menos, la cancelación no genera cargo
+          console.log(`👤 [cancelRide] Cancelado por cliente con progress=${progressPercentage}% (<60%) - sin cargo`);
+          paymentStatusUpdate.status = 'canceled';
+          paymentStatusUpdate.chargeType = 'client_cancellation_below_threshold';
+          paymentStatusUpdate.shouldCharge = false;
+        }
       }
-      
+
       paymentStatusUpdate.canceledAt = admin.database.ServerValue.TIMESTAMP;
       paymentStatusUpdate.canceledBy = canceledBy || 'unknown';
       paymentStatusUpdate.cancelReason = reason || 'Sin especificar';
@@ -3296,16 +3649,23 @@ export const cancelRide = functions.https.onCall(async (data, context) => {
       }
       // Si lo cancela el CLIENTE
       else if (canceledBy === 'client') {
-        console.log(`👤 [cancelRide] Cancelado por cliente - Cliente debe pagar pendientes`);
-        paymentStatusUpdate.status = 'pending';
-        paymentStatusUpdate.chargeType = 'client_cancellation'; // Cargo por cancelación de cliente
-        paymentStatusUpdate.shouldCharge = true;
-        paymentStatusUpdate.requiresClientPayment = true;
-        paymentStatusUpdate.chargeTarget = 'client';
-        chargeTarget = 'client';
-        chargeAmount = Number((negotiatedFare * progressFactor).toFixed(2));
-        commissionDue = Number((chargeAmount * commissionRate).toFixed(2));
-        driverPayout = Number((chargeAmount - commissionDue).toFixed(2));
+        if (shouldChargeForCancellation(progressPercentage)) {
+          console.log(`👤 [cancelRide] Cancelado por cliente (progress=${progressPercentage}%) - Cliente debe pagar pendientes`);
+          paymentStatusUpdate.status = 'pending';
+          paymentStatusUpdate.chargeType = 'client_cancellation'; // Cargo por cancelación de cliente
+          paymentStatusUpdate.shouldCharge = true;
+          paymentStatusUpdate.requiresClientPayment = true;
+          paymentStatusUpdate.chargeTarget = 'client';
+          chargeTarget = 'client';
+          chargeAmount = Number((negotiatedFare * progressFactor).toFixed(2));
+          commissionDue = Number((chargeAmount * commissionRate).toFixed(2));
+          driverPayout = Number((chargeAmount - commissionDue).toFixed(2));
+        } else {
+          console.log(`👤 [cancelRide] Cancelado por cliente con progress=${progressPercentage}% (<60%) - sin cargo`);
+          paymentStatusUpdate.status = 'canceled';
+          paymentStatusUpdate.chargeType = 'client_cancellation_below_threshold';
+          paymentStatusUpdate.shouldCharge = false;
+        }
       }
       
       paymentStatusUpdate.canceledAt = admin.database.ServerValue.TIMESTAMP;

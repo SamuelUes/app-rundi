@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
+import { launchCameraSafely } from '../../../utils/cameraUtils';
 import alertService from '../../../services/alertService';
 import { uploadClientVehiclePhoto } from '../../../services/supabaseStorage';
 import type { TFunction } from 'i18next';
@@ -30,18 +31,17 @@ export function useVehiclePhoto(userId: string | undefined, t: TFunction) {
       const pickFrom = async (fromCamera: boolean) => {
         try {
           const result = fromCamera
-            ? await ImagePicker.launchCameraAsync({
-                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            ? await launchCameraSafely({
                 allowsEditing: true,
                 quality: 0.8,
               })
             : await ImagePicker.launchImageLibraryAsync({
-                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                mediaTypes: ['images'],
                 allowsEditing: true,
                 quality: 0.8,
               });
 
-          if (!result.canceled && result.assets?.[0]) {
+          if (result && !result.canceled && result.assets?.[0]) {
             setClientVehiclePhotoLocalUri(result.assets[0].uri);
             setClientVehiclePhoto(null);
             alertService.showSuccessAlert(tr('alerts.photoSelectedTitle'), tr('alerts.photoSelectedMessage'), { duration: 2000 });

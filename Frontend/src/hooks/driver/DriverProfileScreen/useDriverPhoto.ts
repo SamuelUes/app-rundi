@@ -25,7 +25,7 @@ export function useDriverPhoto(
       }
 
       const result = await ExpoImagePicker.launchImageLibraryAsync({
-        mediaTypes: ExpoImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: true,
         aspect: type === 'profile' ? [1, 1] : [4, 3],
         quality: 0.8,

@@ -12,6 +12,7 @@ import { httpsCallable } from 'firebase/functions';
 import { getFirebaseFunctions } from '../config/firebase';
 import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from '../config/supabase';
 import i18n from '../i18n';
+import type { DesignatedDriverPhotoType } from '../utils/designatedDriverEvidence';
 
 let cachedSupabaseJwt: { token: string; expiresAtMs: number } | null = null;
 
@@ -415,6 +416,17 @@ export const uploadVehicleInspectionPhoto = async (
   return uploadImage(uri, 'rides-documents', path);
 };
 
+export const uploadDesignatedDriverEvidencePhoto = async (
+  rideId: string,
+  userId: string,
+  uri: string,
+  type: DesignatedDriverPhotoType,
+): Promise<string> => {
+  const timestamp = Date.now();
+  const path = `rides-inspection/${rideId}/${type}_${userId}_${timestamp}.jpg`;
+  return uploadImage(uri, 'rides-documents', path);
+};
+
 export default {
   uploadImage,
   uploadProfilePhoto,
@@ -423,6 +435,7 @@ export default {
   uploadInsurancePhoto,
   uploadClientVehiclePhoto,
   uploadVehicleInspectionPhoto,
+  uploadDesignatedDriverEvidencePhoto,
   resolveDocumentPhotoUrl,
   resolveProfilePhotoUrl,
   deleteImage,

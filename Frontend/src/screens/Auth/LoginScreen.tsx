@@ -16,7 +16,7 @@ import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useAuth } from '../../hooks/shared/auth/useAuth';
 import { useGoogleAuth } from '../../hooks/shared/auth/useGoogleAuth';
 import GoogleSignInButton from '../../components/shared/GoogleSignInButton';
-import PhoneDigitInput from '../../components/ui/PhoneDigitInput';
+import PhoneField from '../../components/ui/PhoneField';
 import phoneAuthService from '../../services/auth/phoneAuthService';
 import registrationService from '../../services/auth/registrationService';
 import alertService from '../../services/alertService';
@@ -343,14 +343,15 @@ export default function LoginScreen({ navigation }: any) {
                   <Text style={styles.label}>
                     {t('authScreens.login.fields.phoneLabel')}
                   </Text>
-                  <View style={styles.countryPickerContainer}>
-                    <PhoneDigitInput
+                  <View style={styles.phoneFieldContainer}>
+                    <PhoneField
                       countryOptions={countryOptions}
                       selectedCountry={selectedCountry}
                       onCountryChange={handleCountryChange}
                       digits={phoneDigits}
                       onChangeDigits={handlePhoneChange}
                       disabled={loading || googleLoading}
+                      accessibilityLabel={t('authScreens.login.fields.phoneLabel')}
                     />
                   </View>
                   <Text style={styles.helperText}>
@@ -458,32 +459,13 @@ const createStyles = (colors: any) => StyleSheet.create({
     padding: 18,
     justifyContent: 'center',
   },
-  countryPickerContainer: {
+  phoneFieldContainer: {
     marginBottom: 10,
-  },
-  countryPicker: {
-    backgroundColor: colors.card,
-    borderRadius: 12,
-    padding: 13,
-    fontSize: 15,
-    color: colors.text,
-    marginBottom: 14,
-    borderWidth: 1.5,
-    borderColor: '#D4AF37' + '30',
-    shadowColor: '#D4AF37',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  countryPickerItem: {
-    fontSize: 15,
-    color: colors.text,
   },
   title: {
     fontSize: 28,
     fontWeight: '800',
-    color: '#D4AF37',
+    color: colors.primary,
     marginBottom: 6,
     letterSpacing: 0.3,
   },
@@ -511,16 +493,11 @@ const createStyles = (colors: any) => StyleSheet.create({
     color: colors.text,
     marginBottom: 14,
     borderWidth: 1.5,
-    borderColor: '#D4AF37' + '30',
-    shadowColor: '#D4AF37',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 3,
-    elevation: 2,
+    borderColor: colors.border,
   },
   inputWithIcon: {
     position: 'relative',
-    marginBottom: 44,
+    marginBottom: 20,
   },
   inputFlex: {
     backgroundColor: colors.card,
@@ -530,7 +507,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontSize: 15,
     color: colors.text,
     borderWidth: 1.5,
-    borderColor: '#D4AF37' + '30',
+    borderColor: colors.border,
   },
   eyeButton: {
     position: 'absolute',
@@ -540,31 +517,13 @@ const createStyles = (colors: any) => StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  phoneInput: {
-    backgroundColor: colors.card,
-    borderRadius: 12,
-    padding: 16,
-    fontSize: 18,
-    fontWeight: '600',
-    color: colors.text,
-    marginBottom: 14,
-    borderWidth: 2,
-    borderColor: '#D4AF37' + '50',
-    textAlign: 'center',
-    letterSpacing: 2,
-    shadowColor: '#D4AF37',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 3,
-  },
   loginButton: {
     backgroundColor: colors.primary,
     padding: 14,
     borderRadius: 12,
     alignItems: 'center',
     marginTop: 6,
-    shadowColor: '#D4AF37',
+    shadowColor: colors.primary,
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.25,
     shadowRadius: 6,
@@ -582,7 +541,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     marginTop: 12,
   },
   registerButtonText: {
-    color: '#D4AF37',
+    color: colors.primary,
     fontSize: 13,
     fontWeight: '700',
   },
@@ -594,7 +553,7 @@ const createStyles = (colors: any) => StyleSheet.create({
   divider: {
     flex: 1,
     height: 1,
-    backgroundColor: '#D4AF37' + '30',
+    backgroundColor: colors.border,
   },
   dividerText: {
     marginHorizontal: 10,
@@ -612,9 +571,6 @@ const createStyles = (colors: any) => StyleSheet.create({
     alignItems: 'flex-start',
     justifyContent: 'flex-start',
   },
-  tabActive: {
-    // Mantener por compatibilidad, ya no se usa fondo para el tab activo
-  },
   tabText: {
     fontSize: 15,
     fontWeight: '600',
@@ -622,13 +578,13 @@ const createStyles = (colors: any) => StyleSheet.create({
     letterSpacing: 0.2,
   },
   tabTextActive: {
-    color: '#D4AF37',
+    color: colors.primary,
   },
   tabUnderline: {
     marginTop: 2,
     height: 2,
     borderRadius: 999,
-    backgroundColor: '#D4AF37',
+    backgroundColor: colors.primary,
     alignSelf: 'stretch',
   },
   helperText: {

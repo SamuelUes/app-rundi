@@ -101,6 +101,7 @@ export function useRideNegotiation(
           'driver',
           currentRide.estimatedPrice,
           userId,
+          currentRide.pricingSnapshot?.dynamicMinimumFare,
         );
         setCounterOffer(value.toString());
         setLastSuggestedPrice(value);

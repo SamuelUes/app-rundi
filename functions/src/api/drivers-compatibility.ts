@@ -10,6 +10,7 @@ import { DriverServiceRepository } from '../sequelize/repositories/DriverService
 import { ServiceRepository } from '../sequelize/repositories/ServiceRepository';
 import { DriverRepository } from '../sequelize/repositories/DriverRepository';
 import { supabaseGet, supabasePost, supabaseUpdate } from '../supabase/client';
+import { syncLegacyDriverLicense } from '../sequelize/services/compliance/legacyBridge';
 
 import { DEFAULT_SERVICE_AREA_ID } from '../config/constants';
 
@@ -473,6 +474,23 @@ export const updateDriver = functions.https.onCall(async (data, context) => {
 
       if (!updatedViaSequelize) {
         await upsertDriverViaSupabaseRest(driverId, supabaseUpdateData);
+      }
+
+      // Bridge: reflejar la licencia en driver_licenses (compliance normalizado)
+      if (license_number || license_expiry || license_photo_front || license_photo_back) {
+        try {
+          const driverRecord = await driverRepo.findByUserId(driverId);
+          if (driverRecord?.id) {
+            await syncLegacyDriverLicense(driverRecord.id, {
+              licenseNumber: license_number ?? null,
+              licenseExpiry: license_expiry ?? null,
+              photoFront: license_photo_front ?? null,
+              photoBack: license_photo_back ?? null,
+            }, driverId);
+          }
+        } catch (bridgeError: any) {
+          console.warn('⚠️ [updateDriver] Error en bridge de compliance:', bridgeError?.message || bridgeError);
+        }
       }
     }
 

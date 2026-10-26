@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity } from 'react-native';
+import { Pressable, View, Text } from 'react-native';
 import type { TFunction } from 'i18next';
 
 interface PreflightFooterProps {
@@ -24,13 +24,18 @@ export function PreflightFooter({
   return (
     <View style={styles.footer}>
       {canRetry && (
-        <TouchableOpacity style={styles.retryButton} onPress={onRetry}>
+        <Pressable
+          accessibilityRole="button"
+          style={({ pressed }) => [styles.retryButton, pressed && styles.buttonPressed]}
+          onPress={onRetry}
+        >
           <Text style={styles.retryButtonText}>{t('shared.preflight.buttons.retry')}</Text>
-        </TouchableOpacity>
+        </Pressable>
       )}
       {role === 'driver' && (
-        <TouchableOpacity
-          style={styles.secondaryButton}
+        <Pressable
+          accessibilityRole="button"
+          style={({ pressed }) => [styles.secondaryButton, pressed && styles.buttonPressed]}
           onPress={onSwitchMode}
         >
           <Text style={styles.secondaryButtonText}>
@@ -38,7 +43,7 @@ export function PreflightFooter({
               ? t('shared.preflight.buttons.continueAsClient')
               : t('shared.preflight.buttons.useAsClient')}
           </Text>
-        </TouchableOpacity>
+        </Pressable>
       )}
     </View>
   );

@@ -29,7 +29,7 @@ import {
   extractLocalNumber,
   getCountryLocalNumberLength,
 } from '../../utils/phoneUtils';
-import PhoneDigitInput from '../../components/ui/PhoneDigitInput';
+import PhoneField from '../../components/ui/PhoneField';
 import { useTranslation } from 'react-i18next';
 
 const driverPhoneFallbackTexts = {
@@ -264,13 +264,14 @@ const DriverPhoneScreen: React.FC<Props> = ({ navigation, route }) => {
             <Text style={styles.label}>
               {driverPhoneTexts.field.label}
             </Text>
-            <PhoneDigitInput
+            <PhoneField
               countryOptions={countryOptions}
               selectedCountry={selectedCountry}
               onCountryChange={handleCountryChange}
               digits={phoneDigits}
               onChangeDigits={handlePhoneChange}
               disabled={loading}
+              accessibilityLabel={driverPhoneTexts.field.label}
             />
             <Text style={styles.helperText}>
               {driverPhoneTexts.field.helper}

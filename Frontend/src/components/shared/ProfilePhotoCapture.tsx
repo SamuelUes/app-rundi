@@ -10,6 +10,7 @@ import {
 import { LoadingIcon } from '../ui/LoadingIcon';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as ExpoImagePicker from 'expo-image-picker';
+import { launchCameraSafely } from '../../utils/cameraUtils';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useTranslation } from 'react-i18next';
 
@@ -45,14 +46,14 @@ export default function ProfilePhotoCapture({
     if (!hasPermissions) return;
 
     try {
-      const result = await ExpoImagePicker.launchCameraAsync({
+      const result = await launchCameraSafely({
         allowsEditing: true,
         aspect: [1, 1], // Foto cuadrada para perfil
         quality: 0.9, // Alta calidad para reconocimiento facial
         cameraType: ExpoImagePicker.CameraType.front, // Cámara frontal
       });
 
-      if (!result.canceled && result.assets && result.assets.length > 0) {
+      if (result && !result.canceled && result.assets && result.assets.length > 0) {
         onPhotoSelected(result.assets[0].uri);
       }
     } catch (error) {

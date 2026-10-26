@@ -52,6 +52,7 @@ export type ClientStackParamList = {
     vehicleModel?: string;
     vehicleColor?: string;
     estimatedFare?: number;
+    showDesignatedDriverEvidenceNotice?: boolean;
   };
   Payment: {
     rideId: string;

@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import {
   Modal,
+  ScrollView,
   StyleProp,
   StyleSheet,
   Text,
@@ -116,9 +117,25 @@ export const DatePickerField = ({
   const [viewYear, setViewYear] = useState(() => new Date().getFullYear());
   const [viewMonth, setViewMonth] = useState(() => new Date().getMonth());
   const [viewWeekStart, setViewWeekStart] = useState(() => startOfWeek(new Date()));
+  const [pickerStage, setPickerStage] = useState<'calendar' | 'year' | 'month'>('calendar');
 
   const minDay = useMemo(() => (minDate ? startOfDay(minDate) : null), [minDate]);
   const maxDay = useMemo(() => (maxDate ? startOfDay(maxDate) : null), [maxDate]);
+
+  const todayYear = new Date().getFullYear();
+  const years = useMemo(() => {
+    const start = minDay ? minDay.getFullYear() : todayYear - 100;
+    const end = maxDay ? maxDay.getFullYear() : todayYear + 30;
+    return Array.from({ length: end - start + 1 }, (_, i) => start + i);
+  }, [minDay, maxDay, todayYear]);
+
+  // Altura aproximada de fila en el grid de años (3 columnas), para
+  // posicionar el scroll cerca del año seleccionado al abrir el selector.
+  const yearScrollOffset = useMemo(() => {
+    const index = years.indexOf(viewYear);
+    if (index < 0) return 0;
+    return Math.max(0, (Math.floor(index / 3) - 2) * 52);
+  }, [years, viewYear]);
 
   const selectedDate = parseDate(value ?? '', valueFormat);
   const today = new Date();
@@ -132,6 +149,7 @@ export const DatePickerField = ({
     setViewYear(base.getFullYear());
     setViewMonth(base.getMonth());
     setViewWeekStart(startOfWeek(base));
+    setPickerStage('calendar');
     setVisible(true);
   };
 
@@ -178,6 +196,27 @@ export const DatePickerField = ({
     if (isDayDisabled(new Date(viewYear, viewMonth, day))) return;
     onChangeText(formatDateValue(new Date(viewYear, viewMonth, day), valueFormat));
     setVisible(false);
+  };
+
+  const isMonthDisabled = (month: number) => {
+    if (minDay && startOfDay(new Date(viewYear, month + 1, 0)).getTime() < minDay.getTime()) {
+      return true;
+    }
+    if (maxDay && startOfDay(new Date(viewYear, month, 1)).getTime() > maxDay.getTime()) {
+      return true;
+    }
+    return false;
+  };
+
+  const selectYear = (year: number) => {
+    setViewYear(year);
+    setPickerStage('month');
+  };
+
+  const selectMonth = (month: number) => {
+    if (isMonthDisabled(month)) return;
+    setViewMonth(month);
+    setPickerStage('calendar');
   };
 
   const firstWeekday = new Date(viewYear, viewMonth, 1).getDay();
@@ -230,42 +269,146 @@ export const DatePickerField = ({
         >
           <TouchableOpacity activeOpacity={1} style={styles.card} onPress={() => {}}>
             <View style={styles.headerRow}>
-              <TouchableOpacity
-                style={[
-                  styles.navButton,
-                  mode === 'weeks' && !canShiftWeek(-1) && styles.navButtonDisabled,
-                ]}
-                onPress={() => (mode === 'weeks' ? shiftWeek(-1) : shiftMonth(-1))}
-                disabled={mode === 'weeks' && !canShiftWeek(-1)}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <MaterialIcons
-                  name="chevron-left"
-                  size={24}
-                  color={mode === 'weeks' && !canShiftWeek(-1) ? colors.disabled : colors.text}
-                />
-              </TouchableOpacity>
-              <Text style={styles.monthTitle}>
-                {mode === 'weeks' ? weekTitle : `${MONTH_NAMES[lang][viewMonth]} ${viewYear}`}
-              </Text>
-              <TouchableOpacity
-                style={[
-                  styles.navButton,
-                  mode === 'weeks' && !canShiftWeek(1) && styles.navButtonDisabled,
-                ]}
-                onPress={() => (mode === 'weeks' ? shiftWeek(1) : shiftMonth(1))}
-                disabled={mode === 'weeks' && !canShiftWeek(1)}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <MaterialIcons
-                  name="chevron-right"
-                  size={24}
-                  color={mode === 'weeks' && !canShiftWeek(1) ? colors.disabled : colors.text}
-                />
-              </TouchableOpacity>
+              {pickerStage === 'calendar' ? (
+                <>
+                  <TouchableOpacity
+                    style={[
+                      styles.navButton,
+                      mode === 'weeks' && !canShiftWeek(-1) && styles.navButtonDisabled,
+                    ]}
+                    onPress={() => (mode === 'weeks' ? shiftWeek(-1) : shiftMonth(-1))}
+                    disabled={mode === 'weeks' && !canShiftWeek(-1)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <MaterialIcons
+                      name="chevron-left"
+                      size={24}
+                      color={mode === 'weeks' && !canShiftWeek(-1) ? colors.disabled : colors.text}
+                    />
+                  </TouchableOpacity>
+                  {mode === 'weeks' ? (
+                    <Text style={styles.monthTitle}>{weekTitle}</Text>
+                  ) : (
+                    <TouchableOpacity
+                      style={styles.monthTitleButton}
+                      onPress={() => setPickerStage('year')}
+                      accessibilityRole="button"
+                      activeOpacity={0.7}
+                    >
+                      <Text style={styles.monthTitle}>
+                        {`${MONTH_NAMES[lang][viewMonth]} ${viewYear}`}
+                      </Text>
+                      <MaterialIcons
+                        name="arrow-drop-down"
+                        size={20}
+                        color={colors.textSecondary}
+                      />
+                    </TouchableOpacity>
+                  )}
+                  <TouchableOpacity
+                    style={[
+                      styles.navButton,
+                      mode === 'weeks' && !canShiftWeek(1) && styles.navButtonDisabled,
+                    ]}
+                    onPress={() => (mode === 'weeks' ? shiftWeek(1) : shiftMonth(1))}
+                    disabled={mode === 'weeks' && !canShiftWeek(1)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <MaterialIcons
+                      name="chevron-right"
+                      size={24}
+                      color={mode === 'weeks' && !canShiftWeek(1) ? colors.disabled : colors.text}
+                    />
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <>
+                  <TouchableOpacity
+                    style={styles.navButton}
+                    onPress={() =>
+                      setPickerStage(pickerStage === 'month' ? 'year' : 'calendar')
+                    }
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    accessibilityRole="button"
+                  >
+                    <MaterialIcons name="chevron-left" size={24} color={colors.text} />
+                  </TouchableOpacity>
+                  <Text style={styles.monthTitle}>
+                    {pickerStage === 'year'
+                      ? t('common.datePicker.selectYear')
+                      : `${viewYear}`}
+                  </Text>
+                  <View style={styles.navSpacer} />
+                </>
+              )}
             </View>
 
-            {mode === 'weeks' ? (
+            {pickerStage === 'year' ? (
+              <ScrollView
+                style={styles.yearScroll}
+                contentOffset={{ x: 0, y: yearScrollOffset }}
+                showsVerticalScrollIndicator={false}
+              >
+                <View style={styles.chipGrid}>
+                  {years.map((year) => {
+                    const isSelected = year === viewYear;
+                    const isCurrent = year === todayYear;
+                    return (
+                      <TouchableOpacity
+                        key={year}
+                        style={[
+                          styles.pickerChip,
+                          isCurrent && !isSelected && styles.pickerChipToday,
+                          isSelected && styles.pickerChipSelected,
+                        ]}
+                        onPress={() => selectYear(year)}
+                        accessibilityRole="button"
+                        activeOpacity={0.7}
+                      >
+                        <Text
+                          style={[
+                            styles.pickerChipText,
+                            isSelected && styles.daySelectedText,
+                          ]}
+                        >
+                          {year}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </ScrollView>
+            ) : pickerStage === 'month' ? (
+              <View style={styles.chipGrid}>
+                {MONTH_NAMES[lang].map((monthName, monthIndex) => {
+                  const disabled = isMonthDisabled(monthIndex);
+                  const isSelected = monthIndex === viewMonth;
+                  return (
+                    <TouchableOpacity
+                      key={monthName}
+                      style={[
+                        styles.pickerChip,
+                        isSelected && styles.pickerChipSelected,
+                      ]}
+                      onPress={() => selectMonth(monthIndex)}
+                      disabled={disabled}
+                      accessibilityRole="button"
+                      activeOpacity={0.7}
+                    >
+                      <Text
+                        style={[
+                          styles.pickerChipText,
+                          disabled && styles.dayTextDisabled,
+                          isSelected && styles.daySelectedText,
+                        ]}
+                      >
+                        {monthName}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            ) : mode === 'weeks' ? (
               <View style={styles.weekStrip}>
                 {weekDays.map((day, index) => {
                   const isSelected = !!selectedDate && startOfDay(selectedDate).getTime() === day.getTime();
@@ -424,6 +567,46 @@ const createStyles = (colors: any) =>
     monthTitle: {
       fontSize: 16,
       fontWeight: '700',
+      color: colors.text,
+    },
+    monthTitleButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: 10,
+      backgroundColor: colors.surface,
+    },
+    navSpacer: {
+      width: 36,
+    },
+    yearScroll: {
+      maxHeight: 320,
+    },
+    chipGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+    },
+    pickerChip: {
+      width: '31%',
+      paddingVertical: 11,
+      borderRadius: 12,
+      alignItems: 'center',
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: 'transparent',
+    },
+    pickerChipSelected: {
+      backgroundColor: colors.primary,
+    },
+    pickerChipToday: {
+      borderColor: colors.primary,
+    },
+    pickerChipText: {
+      fontSize: 14,
+      fontWeight: '600',
       color: colors.text,
     },
     weekRow: {

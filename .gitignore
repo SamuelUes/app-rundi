@@ -82,14 +82,14 @@ temp/
 
 # Carpetas ignoradas (legacy)
 Backend/
-docs/
+
 #database/
 tools/
 .env
 storage.rules
 !Frontend/.env
 tests/
-#web/
+web/
 web/page
 web/plataform
 web/functions
@@ -114,3 +114,7 @@ Frontend/.env
 functions/test/rideShareCodeStore.test.mjs
 
 icons_unused/
+
+
+*.test.mjs
+.cjs

@@ -150,6 +150,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
     estimatedDistance,
     estimatedDuration,
     estimatedPrice,
+    priceBreakdown,
     vehicleEstimates,
     designatedDriverEstimates,
     recommendedVehicle,
@@ -748,7 +749,7 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
       </TouchableOpacity>
 
       <SearchRideRouteBubble
-        top={insets.top + 64}
+        top={insets.top + 12}
         orderedRouteRows={orderedRouteRows}
         canAddExtraStop={canAddExtraStop}
         manualOriginLoading={manualOriginLoading}
@@ -835,6 +836,8 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
                       estimatedDistance={estimatedDistance}
                       estimatedDuration={estimatedDuration}
                       estimatedPrice={estimatedPrice}
+                      featureCodes={priceBreakdown?.featureCodes ?? []}
+                      surgeMultiplier={priceBreakdown?.surgeMultiplier ?? 1}
                       paymentMethod={paymentMethod}
                       priceSuggestion={priceSuggestion}
                       rideComment={rideComment}
@@ -1036,7 +1039,8 @@ function createStyles(colors: any, isDark: boolean = false) {
 
     routeBubble: {
       position: 'absolute',
-      left: 14,
+      // A la derecha del back button (16 + 44 + 12 de separación)
+      left: 72,
       right: 14,
       paddingVertical: 8,
       paddingHorizontal: 12,

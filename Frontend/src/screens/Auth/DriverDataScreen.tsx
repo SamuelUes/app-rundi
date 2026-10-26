@@ -8,22 +8,29 @@ import {
   View,
   Text,
   StyleSheet,
-  TextInput,
   TouchableOpacity,
-  Image,
   Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
 } from 'react-native';
-import { LoadingIcon } from '../../components/ui/LoadingIcon';
-import { Picker } from '@react-native-picker/picker';
+import { Ionicons, FontAwesome } from '@expo/vector-icons';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
+import { launchCameraSafely } from '../../utils/cameraUtils';
+import { AnimatedCard } from '../../components/ui/AnimatedCard';
+import { AnimatedButton } from '../../components/ui/AnimatedButton';
 
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import registrationService from '../../services/auth/registrationService';
+import {
+  extractFieldsFromDocument,
+  isOcrAvailable,
+  type DocumentOcrType,
+  type ExtractedDocumentFields,
+} from '../../services/ocr/documentOcrService';
 import { getDepartments, getMunicipalitiesByDepartment } from '../../constants/nicaraguaLocations';
 import { AuthStackParamList } from '../../navigation/types';
 import { useTranslation } from 'react-i18next';
@@ -39,8 +46,9 @@ interface Props {
 }
 
 export default function DriverDataScreen({ navigation, route }: Props) {
-  const { colors } = useTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
+  const readableGold = isDark ? '#E8C46A' : '#76520F';
   const { t } = useTranslation();
 
   const {
@@ -84,12 +92,32 @@ export default function DriverDataScreen({ navigation, route }: Props) {
   const [insuranceCompany, setInsuranceCompany] = useState('');
   const [insuranceExpiry, setInsuranceExpiry] = useState('');
 
+  // Documentos periódicos del vehículo (opcionales en registro; el motor de
+  // compliance los exige para operar, así se capturan desde el inicio)
+  const [inspectionDate, setInspectionDate] = useState('');
+  const [inspectionValidUntil, setInspectionValidUntil] = useState('');
+  const [emissionsTestedAt, setEmissionsTestedAt] = useState('');
+  const [emissionsValidUntil, setEmissionsValidUntil] = useState('');
+  const [roadTaxPaidAt, setRoadTaxPaidAt] = useState('');
+  const [revisadoValidUntil, setRevisadoValidUntil] = useState('');
+
   const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
   const [licensePhotoFront, setLicensePhotoFront] = useState<string | null>(null);
   const [licensePhotoBack, setLicensePhotoBack] = useState<string | null>(null);
   const [insurancePhoto, setInsurancePhoto] = useState<string | null>(null);
   const [registrationPhotoFront, setRegistrationPhotoFront] = useState<string | null>(null);
   const [registrationPhotoBack, setRegistrationPhotoBack] = useState<string | null>(null);
+
+  // OCR on-device: estado de lectura y resumen de campos autocompletados
+  const [ocrReading, setOcrReading] = useState(false);
+  const [ocrMessage, setOcrMessage] = useState<string | null>(null);
+  // Los campos manuales quedan colapsados por defecto: la foto es la vía
+  // principal. Se expanden solos si el OCR no logró leer nada.
+  const [licenseFieldsExpanded, setLicenseFieldsExpanded] = useState(false);
+  const [vehicleFieldsExpanded, setVehicleFieldsExpanded] = useState(false);
+  // Campos que fueron llenados por OCR: al retomar la foto se actualizan,
+  // pero una edición manual del usuario nunca se sobreescribe.
+  const ocrFilledRef = useRef<Set<keyof ExtractedDocumentFields>>(new Set());
 
   // Listas
   const departments_list = getDepartments();
@@ -115,6 +143,9 @@ export default function DriverDataScreen({ navigation, route }: Props) {
     registrationPhotoFront &&
     registrationPhotoBack;
   const isComplete = isLicenseComplete && isVehicleComplete;
+
+  const progressCurrent = 3;
+  const progressTotal = 4;
 
   useEffect(() => {
     (async () => {
@@ -177,6 +208,12 @@ export default function DriverDataScreen({ navigation, route }: Props) {
           setInsurancePhoto(draftVehicle.insurancePhoto || null);
           setRegistrationPhotoFront(draftVehicle.registrationPhotoFront || null);
           setRegistrationPhotoBack(draftVehicle.registrationPhotoBack || null);
+          setInspectionDate(draftVehicle.inspectionDate || '');
+          setInspectionValidUntil(draftVehicle.inspectionValidUntil || '');
+          setEmissionsTestedAt(draftVehicle.emissionsTestedAt || '');
+          setEmissionsValidUntil(draftVehicle.emissionsValidUntil || '');
+          setRoadTaxPaidAt(draftVehicle.roadTaxPaidAt || '');
+          setRevisadoValidUntil(draftVehicle.revisadoValidUntil || '');
         }
       } finally {
         if (mounted) {
@@ -223,6 +260,12 @@ export default function DriverDataScreen({ navigation, route }: Props) {
       ...(insurancePhoto ? { insurancePhoto } : {}),
       ...(registrationPhotoFront ? { registrationPhotoFront } : {}),
       ...(registrationPhotoBack ? { registrationPhotoBack } : {}),
+      ...(inspectionDate ? { inspectionDate } : {}),
+      ...(inspectionValidUntil ? { inspectionValidUntil } : {}),
+      ...(emissionsTestedAt ? { emissionsTestedAt } : {}),
+      ...(emissionsValidUntil ? { emissionsValidUntil } : {}),
+      ...(roadTaxPaidAt ? { roadTaxPaidAt } : {}),
+      ...(revisadoValidUntil ? { revisadoValidUntil } : {}),
     };
 
     registrationService
@@ -276,24 +319,191 @@ export default function DriverDataScreen({ navigation, route }: Props) {
     insurancePhoto,
     registrationPhotoFront,
     registrationPhotoBack,
+    inspectionDate,
+    inspectionValidUntil,
+    emissionsTestedAt,
+    emissionsValidUntil,
+    roadTaxPaidAt,
+    revisadoValidUntil,
   ]);
 
-  const takePhoto = async (setPhotoFunction: React.Dispatch<React.SetStateAction<string | null>>) => {
+  /**
+   * Corre OCR sobre la foto recién tomada y llena campos vacíos o campos
+   * que el propio OCR llenó antes (al retomar la foto se actualizan).
+   * Nunca pisa un valor que el usuario escribió o corrigió a mano.
+   */
+  const runDocumentOcr = async (imageUri: string, docType: DocumentOcrType) => {
+    if (!isOcrAvailable()) {
+      return;
+    }
+    setOcrReading(true);
+    setOcrMessage(null);
     try {
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [4, 3],
-        quality: 0.7,
-      });
+      const { fields } = await extractFieldsFromDocument(imageUri, docType);
+      const applied: string[] = [];
+      const filledByOcr = ocrFilledRef.current;
 
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        setPhotoFunction(result.assets[0].uri);
+      const fill = (
+        current: string,
+        detected: string | undefined,
+        setter: (v: string) => void,
+        fieldKey: keyof ExtractedDocumentFields,
+      ) => {
+        if (!detected) return;
+        if (current && !filledByOcr.has(fieldKey)) return; // valor manual
+        setter(detected);
+        filledByOcr.add(fieldKey);
+        applied.push(t(`authScreens.driverData.ocr.fields.${fieldKey}`));
+      };
+
+      if (docType === 'license') {
+        fill(licenseNumber, fields.licenseNumber, setLicenseNumber, 'licenseNumber');
+        fill(licenseExpiry, fields.licenseExpiry, setLicenseExpiry, 'licenseExpiry');
+      } else if (docType === 'registration') {
+        fill(plate, fields.plate, setPlate, 'plate');
+        fill(brand, fields.brand, setBrand, 'brand');
+        fill(model, fields.model, setModel, 'model');
+        fill(year, fields.year, setYear, 'year');
+        fill(color, fields.color, setColor, 'color');
+        fill(type, fields.type, setType, 'type');
+        fill(passengers, fields.passengers, setPassengers, 'passengers');
+        fill(registrationNumber, fields.registrationNumber, setRegistrationNumber, 'registrationNumber');
+        fill(registrationExpiry, fields.registrationExpiry, setRegistrationExpiry, 'registrationExpiry');
+      } else {
+        fill(insuranceNumber, fields.insuranceNumber, setInsuranceNumber, 'insuranceNumber');
+        fill(insuranceCompany, fields.insuranceCompany, setInsuranceCompany, 'insuranceCompany');
+        fill(insuranceExpiry, fields.insuranceExpiry, setInsuranceExpiry, 'insuranceExpiry');
+        // La póliza repite datos del vehículo (placa, marca, tipo)
+        fill(plate, fields.plate, setPlate, 'plate');
+        fill(brand, fields.brand, setBrand, 'brand');
+        fill(type, fields.type, setType, 'type');
+      }
+
+      setOcrMessage(
+        applied.length > 0
+          ? t('authScreens.driverData.ocr.detected', { fields: applied.join(', ') })
+          : t('authScreens.driverData.ocr.notDetected'),
+      );
+      if (applied.length === 0) {
+        // OCR no leyó nada útil: abrir los campos para llenado manual
+        if (docType === 'license') {
+          setLicenseFieldsExpanded(true);
+        } else {
+          setVehicleFieldsExpanded(true);
+        }
+      }
+    } catch (err) {
+      console.warn('⚠️ OCR de documento falló:', err);
+      setOcrMessage(t('authScreens.driverData.ocr.notDetected'));
+      if (docType === 'license') {
+        setLicenseFieldsExpanded(true);
+      } else {
+        setVehicleFieldsExpanded(true);
+      }
+    } finally {
+      setOcrReading(false);
+    }
+  };
+
+  /**
+   * Edición manual de un campo: lo saca del set de "llenado por OCR" para
+   * que retomar la foto no sobreescriba la corrección del usuario.
+   */
+  const manualEdit =
+    (key: keyof ExtractedDocumentFields, setter: (v: string) => void) =>
+    (v: string) => {
+      ocrFilledRef.current.delete(key);
+      setter(v);
+    };
+
+  const capturePhoto = async (
+    source: 'camera' | 'gallery',
+    setPhotoFunction: React.Dispatch<React.SetStateAction<string | null>>,
+    ocrDocType?: DocumentOcrType,
+  ) => {
+    try {
+      const options = { allowsEditing: true, aspect: [4, 3] as [number, number], quality: 0.9 };
+      let result: ImagePicker.ImagePickerResult | null;
+
+      if (source === 'gallery') {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert(
+            t('common.components.photoUploadField.alerts.permissionDeniedTitle'),
+            t('common.components.photoUploadField.alerts.galleryPermission'),
+          );
+          return;
+        }
+        result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ['images'],
+          ...options,
+        });
+      } else {
+        result = await launchCameraSafely(options);
+      }
+
+      if (result && !result.canceled && result.assets && result.assets.length > 0) {
+        const uri = result.assets[0].uri;
+        setPhotoFunction(uri);
+        if (ocrDocType) {
+          void runDocumentOcr(uri, ocrDocType);
+        }
       }
     } catch (error) {
       Alert.alert(t('authScreens.driverData.alerts.errorTitle'), t('authScreens.driverData.alerts.saveFailed'));
-      console.error('Error al tomar foto:', error);
+      console.error('Error al obtener foto:', error);
     }
+  };
+
+  const takePhoto = (
+    setPhotoFunction: React.Dispatch<React.SetStateAction<string | null>>,
+    ocrDocType?: DocumentOcrType,
+  ) => {
+    Alert.alert(
+      t('common.components.photoUploadField.options.title'),
+      t('common.components.photoUploadField.options.message'),
+      [
+        { text: t('common.components.photoUploadField.options.cancel'), style: 'cancel' },
+        {
+          text: t('common.components.photoUploadField.options.gallery'),
+          onPress: () => void capturePhoto('gallery', setPhotoFunction, ocrDocType),
+        },
+        {
+          text: t('common.components.photoUploadField.options.camera'),
+          onPress: () => void capturePhoto('camera', setPhotoFunction, ocrDocType),
+        },
+      ],
+    );
+  };
+
+  /**
+   * Regresa siempre al paso anterior. Si DriverData quedó como raíz del
+   * stack (checkpoint reanudado usa `replace`), `goBack` no tiene a dónde
+   * ir: se navega al paso lógico previo con `replace`.
+   */
+  const handleBack = () => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
+
+    if (driverContext === 'register_upgrade_driver') {
+      // El upgrade vive en ClientStack: el paso previo es la pantalla de ajustes.
+      (navigation as any).replace('Settings');
+      return;
+    }
+
+    navigation.replace('RoleSelection', {
+      name,
+      email,
+      phone,
+      password,
+      method,
+      authProvider,
+      googleIdToken,
+      phoneVerified,
+      emailVerified,
+    });
   };
 
   const isValidDateString = (value: string) => {
@@ -382,6 +592,12 @@ export default function DriverDataScreen({ navigation, route }: Props) {
             insurancePhoto: insurancePhoto || undefined,
             registrationPhotoFront: registrationPhotoFront || undefined,
             registrationPhotoBack: registrationPhotoBack || undefined,
+            inspectionDate: inspectionDate || undefined,
+            inspectionValidUntil: inspectionValidUntil || undefined,
+            emissionsTestedAt: emissionsTestedAt || undefined,
+            emissionsValidUntil: emissionsValidUntil || undefined,
+            roadTaxPaidAt: roadTaxPaidAt || undefined,
+            revisadoValidUntil: revisadoValidUntil || undefined,
           },
           googleIdToken,
           emailVerified,
@@ -429,6 +645,12 @@ export default function DriverDataScreen({ navigation, route }: Props) {
           insurancePhoto: insurancePhoto || undefined,
           registrationPhotoFront: registrationPhotoFront || undefined,
           registrationPhotoBack: registrationPhotoBack || undefined,
+          inspectionDate: inspectionDate || undefined,
+          inspectionValidUntil: inspectionValidUntil || undefined,
+          emissionsTestedAt: emissionsTestedAt || undefined,
+          emissionsValidUntil: emissionsValidUntil || undefined,
+          roadTaxPaidAt: roadTaxPaidAt || undefined,
+          revisadoValidUntil: revisadoValidUntil || undefined,
         },
         context: driverContext,
       });
@@ -444,51 +666,106 @@ export default function DriverDataScreen({ navigation, route }: Props) {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={styles.content}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
           {/* Header */}
           <View style={styles.header}>
-            <Text style={[styles.title, { color: colors.text }]}>
+            <Text style={styles.title}>
               {t('authScreens.driverData.headerTitle')}
             </Text>
             <Text style={styles.subtitle}>
               {t('authScreens.driverData.headerSubtitle')}
             </Text>
+            <View style={styles.progressRow}>
+              <View style={styles.progressTrack}>
+                <View
+                  style={[
+                    styles.progressBar,
+                    {
+                      width: `${(progressCurrent / progressTotal) * 100}%`,
+                    },
+                  ]}
+                />
+              </View>
+              <Text style={styles.progressText}>
+                {t('authScreens.driverData.progress', {
+                  current: progressCurrent,
+                  total: progressTotal,
+                })}
+              </Text>
+            </View>
           </View>
 
-          {/* Tabs */}
-          <View style={styles.tabContainer}>
-            <TouchableOpacity
-              style={[styles.tab, activeTab === 'license' && styles.tabActive]}
-              onPress={() => setActiveTab('license')}
-            >
-              <Text
-                style={[
-                  styles.tabText,
-                  activeTab === 'license' && styles.tabTextActive,
-                ]}
+          <AnimatedCard delay={0} style={styles.card}>
+            {/* Tabs */}
+            <View style={styles.tabContainer}>
+              <TouchableOpacity
+                style={[styles.tab, activeTab === 'license' && styles.tabActive]}
+                onPress={() => setActiveTab('license')}
+                accessibilityRole="button"
+                activeOpacity={0.8}
               >
-                {t('authScreens.driverData.tabs.license')}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.tab, activeTab === 'vehicle' && styles.tabActive]}
-              onPress={() => setActiveTab('vehicle')}
-            >
-              <Text
-                style={[
-                  styles.tabText,
-                  activeTab === 'vehicle' && styles.tabTextActive,
-                ]}
+                <FontAwesome
+                  name="drivers-license-o"
+                  size={16}
+                  color={
+                    activeTab === 'license' ? readableGold : colors.textSecondary
+                  }
+                />
+                <Text
+                  style={[
+                    styles.tabText,
+                    activeTab === 'license' && styles.tabTextActive,
+                  ]}
+                >
+                  {t('authScreens.driverData.tabs.license')}
+                </Text>
+                {isLicenseComplete ? (
+                  <Ionicons
+                    name="checkmark-circle"
+                    size={15}
+                    color={colors.success}
+                  />
+                ) : null}
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.tab, activeTab === 'vehicle' && styles.tabActive]}
+                onPress={() => setActiveTab('vehicle')}
+                accessibilityRole="button"
+                activeOpacity={0.8}
               >
-                {t('authScreens.driverData.tabs.vehicle')}
-              </Text>
-            </TouchableOpacity>
-          </View>
+                <Ionicons
+                  name="car-sport-outline"
+                  size={16}
+                  color={
+                    activeTab === 'vehicle' ? readableGold : colors.textSecondary
+                  }
+                />
+                <Text
+                  style={[
+                    styles.tabText,
+                    activeTab === 'vehicle' && styles.tabTextActive,
+                  ]}
+                >
+                  {t('authScreens.driverData.tabs.vehicle')}
+                </Text>
+                {isVehicleComplete ? (
+                  <Ionicons
+                    name="checkmark-circle"
+                    size={15}
+                    color={colors.success}
+                  />
+                ) : null}
+              </TouchableOpacity>
+            </View>
 
           {/* Contenido por Tab */}
           {activeTab === 'license' ? (
@@ -504,13 +781,17 @@ export default function DriverDataScreen({ navigation, route }: Props) {
               departmentsList={departments_list}
               municipalities={municipalities}
               colors={colors}
-              onSetLicenseNumber={setLicenseNumber}
-              onSetLicenseExpiry={setLicenseExpiry}
+              onSetLicenseNumber={manualEdit('licenseNumber', setLicenseNumber)}
+              onSetLicenseExpiry={manualEdit('licenseExpiry', setLicenseExpiry)}
               onSetDepartment={setDepartment}
               onSetMunicipality={setMunicipality}
               onTakeProfilePhoto={() => takePhoto(setProfilePhoto)}
-              onTakeLicensePhotoFront={() => takePhoto(setLicensePhotoFront)}
-              onTakeLicensePhotoBack={() => takePhoto(setLicensePhotoBack)}
+              onTakeLicensePhotoFront={() => takePhoto(setLicensePhotoFront, 'license')}
+              onTakeLicensePhotoBack={() => takePhoto(setLicensePhotoBack, 'license')}
+              ocrReading={ocrReading}
+              ocrMessage={ocrMessage}
+              fieldsExpanded={licenseFieldsExpanded}
+              onToggleFieldsExpanded={() => setLicenseFieldsExpanded((v) => !v)}
               styles={styles}
               t={t}
             />
@@ -533,124 +814,176 @@ export default function DriverDataScreen({ navigation, route }: Props) {
               registrationPhotoBack={registrationPhotoBack}
               loading={loading}
               colors={colors}
-              onSetPlate={setPlate}
-              onSetBrand={setBrand}
-              onSetModel={setModel}
-              onSetYear={setYear}
-              onSetColor={setColor}
-              onSetType={setType}
-              onSetPassengers={setPassengers}
-              onSetRegistrationNumber={setRegistrationNumber}
-              onSetRegistrationExpiry={setRegistrationExpiry}
-              onSetInsuranceNumber={setInsuranceNumber}
-              onSetInsuranceCompany={setInsuranceCompany}
-              onSetInsuranceExpiry={setInsuranceExpiry}
-              onTakeInsurancePhoto={() => takePhoto(setInsurancePhoto)}
-              onTakeRegistrationPhotoFront={() => takePhoto(setRegistrationPhotoFront)}
-              onTakeRegistrationPhotoBack={() => takePhoto(setRegistrationPhotoBack)}
+              onSetPlate={manualEdit('plate', setPlate)}
+              onSetBrand={manualEdit('brand', setBrand)}
+              onSetModel={manualEdit('model', setModel)}
+              onSetYear={manualEdit('year', setYear)}
+              onSetColor={manualEdit('color', setColor)}
+              onSetType={manualEdit('type', setType)}
+              onSetPassengers={manualEdit('passengers', setPassengers)}
+              onSetRegistrationNumber={manualEdit('registrationNumber', setRegistrationNumber)}
+              onSetRegistrationExpiry={manualEdit('registrationExpiry', setRegistrationExpiry)}
+              onSetInsuranceNumber={manualEdit('insuranceNumber', setInsuranceNumber)}
+              onSetInsuranceCompany={manualEdit('insuranceCompany', setInsuranceCompany)}
+              onSetInsuranceExpiry={manualEdit('insuranceExpiry', setInsuranceExpiry)}
+              inspectionDate={inspectionDate}
+              inspectionValidUntil={inspectionValidUntil}
+              emissionsTestedAt={emissionsTestedAt}
+              emissionsValidUntil={emissionsValidUntil}
+              roadTaxPaidAt={roadTaxPaidAt}
+              revisadoValidUntil={revisadoValidUntil}
+              onSetInspectionDate={setInspectionDate}
+              onSetInspectionValidUntil={setInspectionValidUntil}
+              onSetEmissionsTestedAt={setEmissionsTestedAt}
+              onSetEmissionsValidUntil={setEmissionsValidUntil}
+              onSetRoadTaxPaidAt={setRoadTaxPaidAt}
+              onSetRevisadoValidUntil={setRevisadoValidUntil}
+              onTakeInsurancePhoto={() => takePhoto(setInsurancePhoto, 'insurance')}
+              onTakeRegistrationPhotoFront={() => takePhoto(setRegistrationPhotoFront, 'registration')}
+              onTakeRegistrationPhotoBack={() => takePhoto(setRegistrationPhotoBack, 'registration')}
+              ocrReading={ocrReading}
+              ocrMessage={ocrMessage}
+              fieldsExpanded={vehicleFieldsExpanded}
+              onToggleFieldsExpanded={() => setVehicleFieldsExpanded((v) => !v)}
               styles={styles}
               t={t}
             />
           )}
 
-          {/* Botones */}
-          <View style={styles.buttonContainer}>
-            <TouchableOpacity
-              style={styles.backButton}
-              onPress={() => navigation.goBack()}
-              disabled={loading}
-            >
-              <Text style={styles.backButtonText}>
-                {t('authScreens.driverData.buttons.back')}
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.continueButton, !isComplete && styles.buttonDisabled]}
-              onPress={handleContinue}
-              disabled={loading || !isComplete}
-            >
-              {loading ? (
-                <LoadingIcon size={24} color="#FFFFFF" />
-              ) : (
-                <Text style={styles.label}>
-                  {t('authScreens.driverData.buttons.continue')}
-                </Text>
-              )}
-            </TouchableOpacity>
-          </View>
-
-          {/* Progreso */}
-          <View style={styles.progressContainer}>
-            <View style={[styles.progressBar, { width: '50%' }]} />
-          </View>
-          <Text style={styles.progressText}>
-            {t('authScreens.driverData.progress', { current: 3, total: 4 })}
-          </Text>
-        </View>
+            {/* Acciones */}
+            <View style={styles.actions}>
+              <AnimatedButton
+                title={t('authScreens.driverData.buttons.continue')}
+                onPress={handleContinue}
+                size="large"
+                iconName="arrow-forward"
+                loading={loading}
+                disabled={!isComplete}
+                style={styles.actionButton}
+              />
+              <AnimatedButton
+                title={t('authScreens.driverData.buttons.back')}
+                onPress={handleBack}
+                size="large"
+                variant="outline"
+                iconName="arrow-back"
+                color={readableGold}
+                disabled={loading}
+                style={styles.actionButton}
+              />
+            </View>
+          </AnimatedCard>
       </ScrollView>
     </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
-const createStyles = (colors: any) => StyleSheet.create({
+const createStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
   },
+  flex: {
+    flex: 1,
+  },
   scrollContent: {
     flexGrow: 1,
-  },
-  content: {
-    flex: 1,
-    padding: 24,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 24,
   },
   header: {
-    marginBottom: 24,
-    marginTop: 40,
+    marginBottom: 20,
+    marginTop: 8,
+    paddingHorizontal: 4,
   },
   title: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: colors.text,
-    marginBottom: 8,
+    fontSize: 26,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+    color: isDark ? '#E8C46A' : '#76520F',
+    marginBottom: 6,
   },
   subtitle: {
     fontSize: 14,
+    lineHeight: 20,
     color: colors.textSecondary,
+  },
+  progressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 16,
+  },
+  progressTrack: {
+    flex: 1,
+    height: 6,
+    backgroundColor: colors.border,
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  progressBar: {
+    height: '100%',
+    backgroundColor: colors.primary,
+    borderRadius: 3,
+  },
+  progressText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  card: {
+    backgroundColor: colors.card,
+    borderRadius: 28,
+    paddingHorizontal: 20,
+    paddingVertical: 26,
+    borderWidth: 1,
+    borderColor: colors.border,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    elevation: 2,
   },
   tabContainer: {
     flexDirection: 'row',
-    marginBottom: 24,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    backgroundColor: colors.background,
+    borderRadius: 999,
+    padding: 4,
+    gap: 4,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginBottom: 20,
   },
   tab: {
     flex: 1,
-    paddingVertical: 12,
+    flexDirection: 'row',
     alignItems: 'center',
-    borderBottomWidth: 3,
-    borderBottomColor: 'transparent',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 6,
+    borderRadius: 999,
+    gap: 6,
   },
   tabActive: {
-    borderBottomColor: 'rgba(212, 156, 35, 1)',
+    backgroundColor: 'rgba(241, 200, 123, 0.2)',
   },
   tabText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
     color: colors.textSecondary,
   },
   tabTextActive: {
-    color: 'rgba(212, 156, 35, 1)',
+    color: isDark ? '#E8C46A' : '#76520F',
   },
-  section: {
-    marginBottom: 24,
-  },
+  section: {},
   sectionTitle: {
     fontSize: 16,
     fontWeight: '700',
+    letterSpacing: 0.2,
     color: colors.text,
-    marginBottom: 16,
+    marginBottom: 14,
   },
   fieldGroup: {
     marginBottom: 16,
@@ -662,18 +995,19 @@ const createStyles = (colors: any) => StyleSheet.create({
     marginBottom: 8,
   },
   input: {
-    backgroundColor: colors.card,
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 14,
+    backgroundColor: colors.background,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
     color: colors.text,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: colors.border,
   },
   pickerContainer: {
-    backgroundColor: colors.card,
-    borderRadius: 8,
-    borderWidth: 1,
+    backgroundColor: colors.background,
+    borderRadius: 12,
+    borderWidth: 1.5,
     borderColor: colors.border,
     overflow: 'hidden',
   },
@@ -681,110 +1015,113 @@ const createStyles = (colors: any) => StyleSheet.create({
     color: colors.text,
   },
   infoBox: {
-    backgroundColor: colors.primary + '20',
-    borderColor: colors.primary,
+    backgroundColor: 'rgba(212, 175, 55, 0.08)',
+    borderColor: 'rgba(212, 175, 55, 0.3)',
     borderWidth: 1,
-    borderRadius: 8,
-    padding: 12,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     marginTop: 16,
   },
   infoText: {
     fontSize: 13,
-    color: colors.text,
+    color: colors.textSecondary,
     lineHeight: 18,
   },
-  buttonContainer: {
-    flexDirection: 'row',
+  actions: {
     gap: 12,
-    marginBottom: 24,
+    marginTop: 14,
   },
-  backButton: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
+  actionButton: {
+    borderRadius: 22,
+  },
+  photoSection: {
+    marginTop: 8,
+  },
+  ocrStatusRow: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+    paddingHorizontal: 4,
   },
-  backButtonText: {
+  expandFieldsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: 'rgba(212, 175, 55, 0.5)',
+    backgroundColor: 'rgba(212, 175, 55, 0.05)',
+    marginBottom: 16,
+  },
+  expandFieldsLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  expandFieldsText: {
     fontSize: 14,
     fontWeight: '600',
     color: colors.primary,
   },
-  continueButton: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 8,
-    backgroundColor: 'rgba(201, 149, 36, 1)',
-    alignItems: 'center',
-  },
-  continueButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  buttonDisabled: {
-    opacity: 0.5,
-  },
-  progressContainer: {
-    height: 4,
-    backgroundColor: colors.border,
-    borderRadius: 2,
-    overflow: 'hidden',
-    marginBottom: 8,
-  },
-  progressBar: {
-    height: '100%',
-    backgroundColor: colors.primary,
-  },
-  progressText: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    textAlign: 'center',
-  },
-  photoSection: {
-    marginTop: 16,
-  },
   photoContainer: {
-    marginBottom: 16,
-    backgroundColor: colors.card,
-    borderRadius: 12,
-    padding: 16,
+    marginBottom: 14,
+    backgroundColor: colors.background,
+    borderRadius: 16,
+    padding: 14,
     borderWidth: 1,
     borderColor: colors.border,
   },
-  photoTitle: {
-    fontSize: 16,
-    fontWeight: '600',
+  photoHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
     marginBottom: 12,
+  },
+  photoTitle: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: '600',
     color: colors.text,
   },
   photoButton: {
-    backgroundColor: colors.primary,
-    borderRadius: 8,
-    paddingVertical: 16,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 18,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: 'rgba(212, 175, 55, 0.5)',
+    backgroundColor: 'rgba(212, 175, 55, 0.05)',
   },
   photoButtonText: {
-    color: '#fff',
-    fontSize: 16,
+    color: colors.primary,
+    fontSize: 15,
     fontWeight: '600',
   },
-  previewContainer: {
-    alignItems: 'center',
-  },
+  previewContainer: {},
   photoPreview: {
     width: '100%',
-    height: 200,
-    borderRadius: 8,
-    marginBottom: 12,
+    height: 190,
+    borderRadius: 12,
   },
   retakeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'center',
+    gap: 6,
+    marginTop: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 999,
     backgroundColor: colors.card,
-    borderRadius: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
     borderWidth: 1,
     borderColor: colors.border,
   },

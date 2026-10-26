@@ -41,6 +41,7 @@ interface PriceNegotiationModalProps {
   onClose: () => void;
   driver?: Driver | null;
   estimatedPrice?: number;
+  dynamicMinimumFare?: number;
   clientSuggestedPrice?: number;
   driverOfferedPrice?: number;
   onAcceptDriverOffer: () => void;
@@ -55,6 +56,7 @@ export default function PriceNegotiationModal({
   onClose,
   driver = null,
   estimatedPrice = 0,
+  dynamicMinimumFare = 0,
   clientSuggestedPrice = 0,
   driverOfferedPrice = 0,
   onAcceptDriverOffer,
@@ -83,13 +85,16 @@ export default function PriceNegotiationModal({
 
   const effectiveEstimatedPrice = fallbackBasePrice > 0 ? fallbackBasePrice : 0;
 
-  // Límites de precio dinámicos basados en el precio estimado
-  // Mínimo: 66.67% del precio estimado (con piso de 50 C$)
-  // Máximo: 133.33% del precio estimado (con techo de 500 C$)
+  // Límites relativos a la cotización; solo se conserva el límite técnico de C$100,000.
   const computedMin = Math.round(effectiveEstimatedPrice * 0.6667 * 100) / 100;
   const computedMax = Math.round(effectiveEstimatedPrice * 1.3333 * 100) / 100;
-  const MIN_PRICE = Math.max(50, computedMin);
-  const MAX_PRICE = Math.max(MIN_PRICE, Math.min(500, computedMax));
+  const MAX_NEGOTIATED_PRICE = 100000;
+  const surgeFloor = Number.isFinite(dynamicMinimumFare) ? dynamicMinimumFare : 0;
+  const MIN_PRICE = Math.min(MAX_NEGOTIATED_PRICE, Math.max(50, computedMin, surgeFloor));
+  const MAX_PRICE = Math.max(
+    MIN_PRICE,
+    Math.min(MAX_NEGOTIATED_PRICE, computedMax),
+  );
 
   const handleSendCounterOffer = () => {
     const price = parseFloat(counterOffer);

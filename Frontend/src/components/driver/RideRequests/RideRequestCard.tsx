@@ -25,6 +25,7 @@ interface RideRequest {
   estimatedDuration: number;
   estimatedPrice: number;
   clientSuggestedPrice?: number;
+  dynamicMinimumFare?: number | null;
   passengers?: number;
   rideType: string;
   createdAt: string | number;

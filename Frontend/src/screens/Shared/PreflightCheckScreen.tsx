@@ -1,14 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import {
   Animated,
-  AppState,
   Platform,
+  ScrollView,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import { getFirebaseAuth } from '../../config/firebase';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
@@ -109,6 +108,7 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
   const actionsRef = useRef<PreflightAction[]>([]);
   const driverApprovalRef = useRef<DriverApprovalResult | null>(null);
   const checksRunRef = useRef(false);
+  const modeSwitchRequestedRef = useRef(false);
 
   const styles = useMemo(() => createStyles(colors), [colors]);
 
@@ -121,7 +121,14 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
   }, [progressAnim]);
 
   const navigateAfterChecks = useCallback(async (approvalOverride?: DriverApprovalResult | null) => {
+    if (modeSwitchRequestedRef.current) {
+      return;
+    }
+
     const currentAuth = await getFirebaseAuth().catch(() => null);
+    if (modeSwitchRequestedRef.current) {
+      return;
+    }
     if (!currentAuth) {
       setError(t('shared.preflight.errors.generic'));
       setCanRetry(true);
@@ -167,7 +174,7 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
   }, [user?.id]);
 
   const runChecks = useCallback(async () => {
-    if (checksRunRef.current) return;
+    if (checksRunRef.current || modeSwitchRequestedRef.current) return;
     checksRunRef.current = true;
 
     console.log(`🔍 [Preflight] Iniciando verificaciones para rol=${role}`);
@@ -328,7 +335,15 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
         });
         return response;
       } catch (err) {
-        console.warn('⚠️ [Preflight] No se pudo obtener getPreflightData:', err);
+        const responseData = (err as any)?.response?.data;
+        const errorCode = String((err as any)?.code || responseData?.code || '');
+        console.warn('⚠️ [Preflight] No se pudo obtener getPreflightData:', {
+          status: (err as any)?.response?.status,
+          code: errorCode,
+          reason: errorCode.includes('permission-denied')
+            ? (err as any)?.message || responseData?.error
+            : undefined,
+        });
         return null;
       } finally {
         completedSteps += 1;
@@ -337,7 +352,14 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
     })();
 
     const [, preflightData] = await Promise.all([localChecksPromise, serverPreflightPromise]);
+    if (modeSwitchRequestedRef.current) {
+      return;
+    }
+
     const currentAuth = await getFirebaseAuth();
+    if (modeSwitchRequestedRef.current) {
+      return;
+    }
     if (!user?.id || currentAuth.currentUser?.uid !== user.id) {
       checksRunRef.current = false;
       return;
@@ -381,7 +403,14 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
     driverApprovalRef.current = serverDriverApproval;
 
     const resolvedLocation = await locationPromise;
+    if (modeSwitchRequestedRef.current) {
+      return;
+    }
+
     const authBeforeCommit = await getFirebaseAuth().catch(() => null);
+    if (modeSwitchRequestedRef.current) {
+      return;
+    }
     if (!user?.id || authBeforeCommit?.currentUser?.uid !== user.id) {
       preflightService.clearCache();
       clearPreflightResult();
@@ -592,16 +621,19 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
   }, [runChecks, t]);
 
   const handleSwitchToClientModeFromPreflight = useCallback(async () => {
-    if (role !== 'driver') {
+    if (role !== 'driver' || modeSwitchRequestedRef.current) {
       return;
     }
 
+    modeSwitchRequestedRef.current = true;
+    checksRunRef.current = false;
     try {
       await setUserMode('client');
     } catch (err: any) {
+      modeSwitchRequestedRef.current = false;
       console.error('❌ [Preflight] Error cambiando a modo cliente desde preflight:', err);
     }
-  }, [role]);
+  }, [role, setUserMode]);
 
   const handleAcceptTerms = useCallback(async () => {
     if (!user?.id) {
@@ -645,20 +677,23 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
   });
 
   return (
-    <View style={styles.container}>
-      <View style={styles.content}>
-        <Text style={styles.title}>{t('shared.preflight.title')}</Text>
-        <Text style={styles.subtitle}>
-          {completed
-            ? t('shared.preflight.subtitle.completed')
-            : error
-            ? t('shared.preflight.subtitle.error')
-            : t('shared.preflight.subtitle.default')}
-        </Text>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom', 'left', 'right']}>
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator
+      >
+        <View style={styles.heading}>
+          <Text style={styles.title}>{t('shared.preflight.title')}</Text>
+          <Text style={styles.subtitle}>
+            {completed
+              ? t('shared.preflight.subtitle.completed')
+              : error
+                ? t('shared.preflight.subtitle.error')
+                : t('shared.preflight.subtitle.default')}
+          </Text>
+        </View>
 
-        <PermissionsExplanation role={role} />
-
-        {/* Barra de progreso */}
         <PreflightProgressBar
           progress={progress}
           progressWidth={progressWidth}
@@ -669,12 +704,10 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
           styles={styles}
         />
 
-        {/* Error */}
         {error && (
           <PreflightErrorDisplay error={error} styles={styles} />
         )}
 
-        {/* Acciones detectadas */}
         {completed && (
           <PreflightActionsSummary
             actions={actionsRef.current}
@@ -682,9 +715,10 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
             t={t}
           />
         )}
-      </View>
 
-      {/* Botones */}
+        <PermissionsExplanation role={role} />
+      </ScrollView>
+
       <PreflightFooter
         canRetry={canRetry}
         role={role}
@@ -735,7 +769,7 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
         })}
         phase={biometricPromptPhase}
       />
-    </View>
+    </SafeAreaView>
   );
 };
 
@@ -746,14 +780,22 @@ const createStyles = (colors: any) =>
     container: {
       flex: 1,
       backgroundColor: colors.background,
-      paddingHorizontal: 24,
-      paddingTop: 60,
-      paddingBottom: 32,
+      paddingHorizontal: 20,
+    },
+    scrollView: {
+      flex: 1,
     },
     content: {
-      flex: 1,
-      justifyContent: 'center',
+      flexGrow: 1,
+      width: '100%',
+      maxWidth: 560,
+      alignSelf: 'center',
+      paddingTop: 20,
+      paddingBottom: 24,
+    },
+    heading: {
       alignItems: 'center',
+      marginBottom: 20,
     },
     title: {
       fontSize: 28,
@@ -765,14 +807,14 @@ const createStyles = (colors: any) =>
     subtitle: {
       fontSize: 16,
       color: colors.textSecondary || 'rgba(255,255,255,0.7)',
-      marginBottom: 48,
+      marginTop: 4,
       textAlign: 'center',
       lineHeight: 22,
     },
     progressContainer: {
       width: '100%',
       alignItems: 'center',
-      marginBottom: 24,
+      marginBottom: 16,
     },
     progressBackground: {
       width: '100%',
@@ -794,12 +836,13 @@ const createStyles = (colors: any) =>
     currentCheck: {
       fontSize: 14,
       color: colors.textSecondary || 'rgba(255,255,255,0.65)',
-      marginTop: 16,
+      marginTop: 10,
       textAlign: 'center',
     },
     errorContainer: {
-      marginTop: 24,
-      padding: 20,
+      marginTop: 8,
+      marginBottom: 16,
+      padding: 16,
       backgroundColor: 'rgba(239, 68, 68, 0.1)',
       borderRadius: 12,
       borderWidth: 1,
@@ -817,7 +860,8 @@ const createStyles = (colors: any) =>
       lineHeight: 20,
     },
     actionsContainer: {
-      marginTop: 32,
+      marginTop: 8,
+      marginBottom: 8,
       width: '100%',
       padding: 16,
       backgroundColor: colors.card,
@@ -930,40 +974,59 @@ const createStyles = (colors: any) =>
       color: '#0F172A',
     },
     footer: {
-      paddingHorizontal: 24,
-      paddingVertical: 16,
+      paddingHorizontal: 4,
+      paddingTop: 12,
+      paddingBottom: 12,
       borderTopWidth: StyleSheet.hairlineWidth,
       borderTopColor: 'rgba(148, 163, 184, 0.3)',
       backgroundColor: colors.background,
       flexDirection: 'row',
-      justifyContent: 'flex-end',
-      gap: 12,
+      flexWrap: 'wrap',
+      justifyContent: 'center',
+      gap: 10,
     },
     retryButton: {
-      paddingHorizontal: 16,
-      paddingVertical: 10,
-      borderRadius: 999,
+      minWidth: 128,
+      minHeight: 48,
+      flexGrow: 1,
+      flexBasis: 128,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      borderRadius: 16,
       borderWidth: 1,
       borderColor: '#EF4444',
       backgroundColor: '#FEF2F2',
+      alignItems: 'center',
+      justifyContent: 'center',
     },
     retryButtonText: {
       fontSize: 14,
       fontWeight: '600',
       color: '#B91C1C',
+      textAlign: 'center',
     },
     secondaryButton: {
-      paddingHorizontal: 16,
-      paddingVertical: 10,
-      borderRadius: 999,
+      minWidth: 150,
+      minHeight: 48,
+      flexGrow: 1,
+      flexBasis: 150,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      borderRadius: 16,
       borderWidth: 1,
       borderColor: colors.primary,
       backgroundColor: colors.card,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
     secondaryButtonText: {
       fontSize: 14,
       fontWeight: '600',
       color: colors.primary,
+      textAlign: 'center',
+    },
+    buttonPressed: {
+      opacity: 0.78,
     },
     buttonDisabled: {
       opacity: 0.5,

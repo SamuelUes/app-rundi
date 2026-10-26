@@ -10,6 +10,7 @@
  */
 
 import { supabaseGet, supabasePost, supabaseUpdate, supabaseDelete, supabaseRpc } from "../supabase/rest";
+import { getFallbackCommissionRate, serviceCodeFromRideFields } from "./priceCalculator";
 
 const normalizeCanceledBy = (value: any): "client" | "driver" | null => {
   if (!value) {
@@ -498,24 +499,23 @@ export async function updateRideLocationIds(
  * Obtener tasa de comisión efectiva desde Supabase
  * Consulta el service_id y driver_id del ride guardado,
  * luego llama a la función SQL get_driver_commission_rate.
- * Fallback: 11% (tasa de Viaje Normal) si no se puede determinar.
+ * Fallback: tasa por defecto del servicio (getFallbackCommissionRate).
  */
 async function getEffectiveCommission(
   pgRideId: string,
   fallbackServiceCode?: string,
   fallbackDriverUid?: string
 ): Promise<{ commission: number; rate: number }> {
-  const DEFAULT_RATE = 0.11;
+  let serviceCode = fallbackServiceCode;
 
   try {
-    let serviceCode = fallbackServiceCode;
     let driverUid = fallbackDriverUid;
 
     if (!serviceCode || !driverUid) {
       const rideRows = await supabaseGet(
         "rides",
         { id: pgRideId },
-        "service_id,driver_id",
+        "service_id,driver_id,ride_type,vehicle_type,designated_driver_vehicle",
         { requireServiceRole: true, limit: 1 }
       );
 
@@ -533,6 +533,14 @@ async function getEffectiveCommission(
             serviceCode = serviceRows[0].code;
           }
         }
+
+        if (!serviceCode) {
+          serviceCode = serviceCodeFromRideFields(
+            rideRows[0].ride_type,
+            rideRows[0].vehicle_type,
+            rideRows[0].designated_driver_vehicle,
+          );
+        }
       }
     }
 
@@ -548,10 +556,11 @@ async function getEffectiveCommission(
       }
     }
 
-    console.warn(`⚠️ [getEffectiveCommission] No se pudo obtener tasa, usando fallback ${DEFAULT_RATE * 100}%`);
-    return { rate: DEFAULT_RATE, commission: 0 };
+    const fallbackRate = getFallbackCommissionRate(serviceCode);
+    console.warn(`⚠️ [getEffectiveCommission] No se pudo obtener tasa, usando fallback ${fallbackRate * 100}% (${serviceCode})`);
+    return { rate: fallbackRate, commission: 0 };
   } catch (error: any) {
     console.error(`❌ [getEffectiveCommission] Error:`, error.message, "— usando fallback");
-    return { rate: DEFAULT_RATE, commission: 0 };
+    return { rate: getFallbackCommissionRate(serviceCode), commission: 0 };
   }
 }

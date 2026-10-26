@@ -20,13 +20,27 @@ const assertValidPrice = (raw: any): number => {
   return price;
 };
 
-// Límites de negociación alineados con el frontend: mínimo 66.67% del estimado
-// (piso C$50), máximo 133.33% (techo C$500).
-const assertPriceWithinEstimate = (price: number, estimatedPrice: any) => {
+// Límite relativo de negociación; no hay techo comercial absoluto.
+const dynamicMinimumFare = (rideData: any): number | null => {
+  const snapshot = rideData?.pricingSnapshot ?? rideData?.pricing_snapshot;
+  const configuredMinimum = Number(snapshot?.dynamicMinimumFare ?? snapshot?.dynamic_minimum_fare);
+  if (Number.isFinite(configuredMinimum) && configuredMinimum > 0) {
+    return configuredMinimum;
+  }
+  const fareBeforeSurge = Number(snapshot?.fareBeforeSurge ?? snapshot?.fare_before_surge);
+  const surgeMultiplier = Number(snapshot?.surgeMultiplier ?? snapshot?.surge_multiplier ?? 1);
+  if (!Number.isFinite(fareBeforeSurge) || fareBeforeSurge <= 0 || surgeMultiplier <= 1) {
+    return null;
+  }
+  return Number((fareBeforeSurge * (1 + (Math.min(surgeMultiplier, 1.6) - 1) * 0.5)).toFixed(2));
+};
+
+const assertPriceWithinEstimate = (price: number, estimatedPrice: any, rideData?: any) => {
   const estimated = Number(estimatedPrice);
   if (!Number.isFinite(estimated) || estimated <= 0) return; // sin referencia, solo sanity check
-  const minBound = Math.max(50, Math.round(estimated * 0.6667 * 100) / 100);
-  const maxBound = Math.max(minBound, Math.min(500, Math.round(estimated * 1.3333 * 100) / 100));
+  const surgeFloor = dynamicMinimumFare(rideData) ?? 0;
+  const minBound = Math.max(50, Math.round(estimated * 0.6667 * 100) / 100, surgeFloor);
+  const maxBound = Math.max(minBound, Math.round(estimated * 1.3333 * 100) / 100);
   if (price < minBound || price > maxBound) {
     throw new functions.https.HttpsError(
       'invalid-argument',
@@ -119,7 +133,7 @@ const handleNegotiatePrice = async (data: any, context: functions.https.Callable
     }
 
     // ✅ Límites server-side respecto al precio estimado (el cliente solo valida por UX)
-    assertPriceWithinEstimate(price, rideData.estimatedPrice);
+    assertPriceWithinEstimate(price, rideData.estimatedPrice, rideData);
 
     const now = admin.database.ServerValue.TIMESTAMP;
     let driverPayload: any = null;
@@ -321,6 +335,7 @@ export const acceptClientPrice = functions.https.onCall(async (data, context) =>
     }
 
     const clientPrice = Number(clientPriceRaw);
+    assertPriceWithinEstimate(clientPrice, rideData.estimatedPrice, rideData);
 
     // Obtener datos del conductor para adjuntarlos al viaje
     let driverInfo: any = null;
@@ -477,7 +492,7 @@ export const makeCounterOffer = functions.https.onCall(async (data, context) => 
     }
 
     // ✅ Límites server-side respecto al precio estimado
-    assertPriceWithinEstimate(price, rideData.estimatedPrice);
+    assertPriceWithinEstimate(price, rideData.estimatedPrice, rideData);
 
     // ✅ Bloquear si el conductor está BUSY
     try {
@@ -599,6 +614,8 @@ export const acceptCounterOffer = functions.https.onCall(async (data, context) =
     } else if (driverId) {
       console.warn(`⚠️ [acceptCounterOffer] No se encontró offeredPrice en offers/${driverId}, usando driverOfferedPrice global`);
     }
+    acceptedPrice = assertValidPrice(acceptedPrice);
+    assertPriceWithinEstimate(acceptedPrice, rideData.estimatedPrice, rideData);
 
     // ✅ Transacción atómica: aceptar oferta + asignar conductor + cancelar el resto en una sola escritura.
     // Además fija driverId top-level para que el conductor pueda leer el viaje (RTDB rules).

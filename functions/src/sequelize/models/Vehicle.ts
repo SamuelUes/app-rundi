@@ -38,6 +38,7 @@ class Vehicle extends Model {
   declare is_4x4: boolean;
   declare vehicle_photo: string | null;
   declare is_active: boolean;
+  declare compliance_status: string;
   declare created_at: Date;
   declare updated_at: Date;
 }
@@ -193,6 +194,12 @@ Vehicle.init(
       allowNull: true,
       defaultValue: true,
       comment: "Indica si el vehículo está activo",
+    },
+    compliance_status: {
+      type: DataTypes.STRING(30),
+      allowNull: false,
+      defaultValue: 'pending_verification',
+      comment: "Estado derivado del compliance engine",
     },
     created_at: {
       type: DataTypes.DATE,

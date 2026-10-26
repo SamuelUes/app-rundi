@@ -8,6 +8,8 @@ import admin from 'firebase-admin';
 import { VehicleRepository } from '../sequelize/repositories/VehicleRepository';
 import Driver from '../sequelize/models/Driver';
 import { supabaseGet, supabaseUpdate } from '../supabase/client';
+import { complianceService } from '../sequelize/services/compliance';
+import { syncLegacyVehicleDocuments } from '../sequelize/services/compliance/legacyBridge';
 
 const vehicleRepo = new VehicleRepository();
 const db = admin.database();
@@ -186,7 +188,21 @@ export const createVehicleComplete = functions.https.onCall(async (data, context
     try {
       const vehicle = await vehicleRepo.create(vehicleData);
       console.log(`✅ Vehículo creado exitosamente:`, vehicle.id);
-      
+
+      // Bridge: reflejar circulación/seguro en tablas normalizadas de compliance
+      await syncLegacyVehicleDocuments(vehicle.id, {
+        registrationNumber: vehicleData.registration_number,
+        registrationExpiry: vehicleData.registration_expiry,
+        emissionDate: vehicleData.emission_date,
+        registrationPhotoFront: vehicleData.registration_photo_front,
+        registrationPhotoBack: vehicleData.registration_photo_back,
+        insuranceNumber: vehicleData.insurance_number,
+        insuranceCompany: vehicleData.insurance_company,
+        insuranceStartDate: vehicleData.insurance_start_date,
+        insuranceExpiry: vehicleData.insurance_expiry,
+        insurancePhoto: vehicleData.insurance_photo,
+      }, context.auth!.uid);
+
       return {
         success: true,
         vehicle: {
@@ -413,6 +429,20 @@ export const updateVehicle = functions.https.onCall(async (data, context) => {
       console.log(`✅ Vehículo actualizado vía Supabase REST:`, vehicleId);
     }
 
+    // Bridge: reflejar circulación/seguro en tablas normalizadas de compliance
+    await syncLegacyVehicleDocuments(vehicleId, {
+      registrationNumber,
+      registrationExpiry,
+      emissionDate,
+      registrationPhotoFront: registration_photo_front,
+      registrationPhotoBack: registration_photo_back,
+      insuranceNumber,
+      insuranceCompany,
+      insuranceStartDate,
+      insuranceExpiry,
+      insurancePhoto: insurance_photo,
+    }, context.auth.uid);
+
     const responsePayload = mapVehicleResponse(updatedVehicle);
 
     return {
@@ -502,6 +532,22 @@ export const switchVehicle = functions.https.onCall(async (data, context) => {
       throw new functions.https.HttpsError(
         'failed-precondition',
         'Este vehículo aún no ha sido aprobado por el equipo administrativo'
+      );
+    }
+
+    // ✅ Compliance: el par conductor+vehículo debe estar habilitado
+    const evaluation = await complianceService.canDriverOperateVehicle(driverId, vehicleId, null, {
+      evaluatedBy: firebaseUserId,
+    });
+    if (!evaluation.allowed) {
+      const blockingReasons = evaluation.reasons
+        .filter((r: any) => r.blocking)
+        .map((r: any) => r.message)
+        .join(' | ');
+      throw new functions.https.HttpsError(
+        'failed-precondition',
+        `No puedes operar este vehículo: ${blockingReasons}`,
+        { reasons: evaluation.reasons.filter((r: any) => r.blocking) },
       );
     }
 

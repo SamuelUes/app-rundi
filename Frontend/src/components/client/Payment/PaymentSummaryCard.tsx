@@ -9,6 +9,9 @@ interface PaymentSummaryCardProps {
     originAddress?: string | null;
     destinationAddress?: string | null;
     estimatedDistance: number;
+    serviceCode?: string | null;
+    featureCodes?: string[];
+    surgeMultiplier?: number;
   } | null;
   colors: any;
   styles: any;
@@ -21,7 +24,11 @@ export function PaymentSummaryCard({ rideDetails, colors, styles, t }: PaymentSu
 
   if (!rideDetails) return null;
 
-  const rows = [
+  const rows: Array<{
+    icon: React.ComponentProps<typeof MaterialIcons>['name'];
+    label: string;
+    value: string;
+  }> = [
     {
       icon: 'radio-button-checked' as const,
       label: t('shared.payment.summary.origin'),
@@ -38,6 +45,49 @@ export function PaymentSummaryCard({ rideDetails, colors, styles, t }: PaymentSu
       value: `${(rideDetails.estimatedDistance / 1000).toFixed(1)} km`,
     },
   ];
+  const serviceName = (() => {
+    switch (rideDetails.serviceCode) {
+      case 'motorcycle':
+        return t('shared.searchRide.vehicle.motoLabel');
+      case 'designated_driver_auto':
+        return `${t('shared.searchRide.vehicle.designatedLabel')} · ${t('shared.searchRide.vehicle.autoLabel')}`;
+      case 'designated_driver_moto':
+        return `${t('shared.searchRide.vehicle.designatedLabel')} · ${t('shared.searchRide.vehicle.modeMoto')}`;
+      case 'normal':
+        return t('shared.searchRide.vehicle.autoLabel');
+      case 'night':
+        return t('shared.payment.summary.nightFeature');
+      default:
+        return rideDetails.serviceCode || t('shared.payment.summary.notAvailable');
+    }
+  })();
+  rows.push({
+    icon: 'local-taxi' as const,
+    label: t('shared.payment.summary.service'),
+    value: serviceName,
+  });
+  if (rideDetails.featureCodes?.length) {
+    rows.push({
+      icon: 'nightlight' as const,
+      label: t('shared.payment.summary.features'),
+      value: rideDetails.featureCodes
+        .map((code) => {
+          if (code === 'night') return t('shared.payment.summary.nightFeature');
+          if (code === 'designated_driver_moto_discount') {
+            return t('shared.payment.summary.designatedMotoAdjustment');
+          }
+          return code.replace(/_/g, ' ');
+        })
+        .join(' / '),
+    });
+  }
+  if ((rideDetails.surgeMultiplier ?? 1) > 1) {
+    rows.push({
+      icon: 'trending-up' as const,
+      label: t('shared.payment.summary.surge'),
+      value: t('shared.payment.summary.highDemand'),
+    });
+  }
 
   return (
     <View style={styles.summaryCard}>

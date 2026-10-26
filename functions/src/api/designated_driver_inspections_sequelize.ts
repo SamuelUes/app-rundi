@@ -4,9 +4,19 @@
  */
 
 import * as functions from 'firebase-functions/v1';
+import admin from 'firebase-admin';
 import { DesignatedDriverInspectionRepository } from '../sequelize/repositories/DesignatedDriverInspectionRepository';
+import { ensureActiveSession, requireDriver } from '../utils/sessionUtils';
 
 const inspectionRepo = new DesignatedDriverInspectionRepository();
+const REQUIRED_PHOTO_TYPES = [
+  'insurance_document',
+  'registration_document',
+  'front_driver_seat',
+  'front_passenger_seat',
+  'rear_left_seat',
+  'rear_right_seat',
+] as const;
 
 /**
  * Crear inspección
@@ -52,6 +62,97 @@ export const createInspection = functions.https.onCall(async (data, context) => 
   } catch (error: any) {
     console.error('❌ [createInspection] Error:', error);
     throw new functions.https.HttpsError('internal', error.message);
+  }
+});
+
+export const submitDesignatedDriverRideInspection = functions.https.onCall(async (data, context) => {
+  const driverId = await requireDriver(context);
+  await ensureActiveSession(context, data);
+
+  const rideId = typeof data?.rideId === 'string' ? data.rideId.trim() : '';
+  const photos = data?.photos;
+  if (!rideId || !photos || typeof photos !== 'object' || data?.documentsConfirmed !== true) {
+    throw new functions.https.HttpsError('invalid-argument', 'Faltan fotos o confirmación de documentos');
+  }
+
+  try {
+    const rideSnapshot = await admin.database().ref(`activeRides/${rideId}`).once('value');
+    const ride = rideSnapshot.val();
+    if (!ride) {
+      throw new functions.https.HttpsError('not-found', 'Viaje no encontrado');
+    }
+    if (ride.driverId !== driverId) {
+      throw new functions.https.HttpsError('permission-denied', 'No eres el conductor asignado a este viaje');
+    }
+    if (String(ride.rideType || '').toLowerCase() !== 'designated_driver') {
+      throw new functions.https.HttpsError('failed-precondition', 'La inspección solo aplica a viajes de conductor designado');
+    }
+    if (ride.status !== 'driver_arrived') {
+      throw new functions.https.HttpsError('failed-precondition', 'Marca tu llegada antes de completar la inspección');
+    }
+
+    const inspectionPhotos: Record<string, string> = {};
+    for (const type of REQUIRED_PHOTO_TYPES) {
+      const url = photos[type];
+      if (typeof url !== 'string' || url.length > 2000) {
+        throw new functions.https.HttpsError('invalid-argument', `Falta la foto requerida: ${type}`);
+      }
+      let parsedUrl: URL;
+      let configuredStorageOrigin: string | null = null;
+      try {
+        parsedUrl = new URL(url);
+        configuredStorageOrigin = process.env.SUPABASE_URL ? new URL(process.env.SUPABASE_URL).origin : null;
+      } catch {
+        throw new functions.https.HttpsError('invalid-argument', `La foto no es válida: ${type}`);
+      }
+      const expectedPath = `/storage/v1/object/public/rides-documents/rides-inspection/${rideId}/${type}_${driverId}_`;
+      if (
+        !['http:', 'https:'].includes(parsedUrl.protocol) ||
+        (configuredStorageOrigin && parsedUrl.origin !== configuredStorageOrigin) ||
+        !parsedUrl.pathname.startsWith(expectedPath)
+      ) {
+        throw new functions.https.HttpsError('invalid-argument', `La foto no corresponde a este viaje: ${type}`);
+      }
+      inspectionPhotos[type] = url;
+    }
+
+    const inspectedAt = new Date();
+    const inspection = await inspectionRepo.upsertByRideId({
+      ride_id: rideId,
+      driver_id: driverId,
+      insurance_document_photo: inspectionPhotos.insurance_document,
+      registration_document_photo: inspectionPhotos.registration_document,
+      front_driver_seat_photo: inspectionPhotos.front_driver_seat,
+      front_passenger_seat_photo: inspectionPhotos.front_passenger_seat,
+      rear_left_seat_photo: inspectionPhotos.rear_left_seat,
+      rear_right_seat_photo: inspectionPhotos.rear_right_seat,
+      documents_confirmed: true,
+      documents_confirmed_at: inspectedAt,
+      status: 'completed',
+      inspected_at: inspectedAt,
+    });
+
+    await admin.database().ref(`activeRides/${rideId}/vehicleInspection`).update({
+      completed: true,
+      documentsConfirmed: true,
+      driver_id: driverId,
+      inspection_id: inspection.id,
+      completedAt: admin.database.ServerValue.TIMESTAMP,
+    });
+
+    return {
+      success: true,
+      inspection: {
+        id: inspection.id,
+        completed: true,
+        documentsConfirmed: true,
+        completedAt: inspectedAt.toISOString(),
+      },
+    };
+  } catch (error: any) {
+    if (error instanceof functions.https.HttpsError) throw error;
+    console.error('[submitDesignatedDriverRideInspection] Error:', error);
+    throw new functions.https.HttpsError('internal', 'No se pudo guardar la inspección');
   }
 });
 

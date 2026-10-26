@@ -26,13 +26,13 @@ export const CreateRideSchema = z.object({
  */
 export const CreateRideRequestSchema = z.object({
   origin: z.object({
-    lat: z.number(),
-    lng: z.number(),
+    lat: z.number().min(-90).max(90),
+    lng: z.number().min(-180).max(180),
     address: z.string().optional(),
   }),
   destination: z.object({
-    lat: z.number(),
-    lng: z.number(),
+    lat: z.number().min(-90).max(90),
+    lng: z.number().min(-180).max(180),
     address: z.string().optional(),
   }),
   estimatedDistance: z.number().optional(),
@@ -44,10 +44,10 @@ export const CreateRideRequestSchema = z.object({
   passengers: z.number().optional(),
   clientVehiclePhoto: z.string().optional(),
   extraDestinations: z.array(z.object({
-    lat: z.number(),
-    lng: z.number(),
+    lat: z.number().min(-90).max(90),
+    lng: z.number().min(-180).max(180),
     address: z.string().optional(),
-  })).optional(),
+  })).max(10).optional(),
   clientComment: z.string().optional(),
   comment: z.string().optional(),
   notes: z.string().optional(),

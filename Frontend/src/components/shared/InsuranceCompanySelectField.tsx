@@ -12,18 +12,9 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
+import { INSURANCE_COMPANIES } from '../../constants/insuranceCompanies';
 
-// Aseguradoras que operan en Nicaragua — dominio del enum
-// public.vehicle_insurance_company (database/status-enum-types.sql)
-export const INSURANCE_COMPANIES = [
-  'INISER',
-  'Seguros América',
-  'Lafise Seguros',
-  'Banpro Seguros',
-  'ASSA',
-  'Mapfre',
-  'Seguros Atlántida',
-];
+export { INSURANCE_COMPANIES };
 
 const OTHER_VALUE = 'Otra';
 

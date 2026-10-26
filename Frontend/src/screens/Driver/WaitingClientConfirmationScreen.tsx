@@ -124,7 +124,7 @@ function PendingView({
       label: t(`${ns}.pending.stopLabel`, { index: index + 1 }),
       address: stop.address || t(`${ns}.pending.stopFallback`),
     })),
-    { kind: 'pin' as const, color: colors.error, label: t(`${ns}.pending.destinationLabel`), address: destination.address },
+    { kind: 'dot' as const, color: colors.error, label: t(`${ns}.pending.destinationLabel`), address: destination.address },
   ];
 
   const tips = [
@@ -174,10 +174,10 @@ function PendingView({
           <View key={`route-point-${index}`} style={styles.routeRow}>
             <View style={styles.routeIconCol}>
               <View style={[styles.routeLine, index === 0 && styles.routeLineHidden]} />
-              {point.kind === 'pin' ? (
-                <MaterialIcons name="place" size={22} color={point.color} />
-              ) : (
+              {point.kind === 'dot' ? (
                 <View style={[styles.routeDot, { backgroundColor: point.color }]} />
+              ) : (
+                <MaterialIcons name="place" size={22} color={point.color} />
               )}
               <View style={[styles.routeLine, index === routePoints.length - 1 && styles.routeLineHidden]} />
             </View>

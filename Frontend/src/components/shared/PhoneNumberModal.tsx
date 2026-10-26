@@ -9,7 +9,6 @@ import {
   Animated,
   Platform,
   KeyboardAvoidingView,
-  TextInput,
   Alert,
 } from 'react-native';
 
@@ -22,9 +21,8 @@ import {
   normalizePhoneNumber,
   formatPhoneNumber,
   getCountryLocalNumberLength,
-  getCountryAreaCodeLength,
 } from '../../utils/phoneUtils';
-import PhoneDigitInput from '../ui/PhoneDigitInput';
+import PhoneField from '../ui/PhoneField';
 
 export type PhoneNumberModalResult = {
   country: CountryDialOption;
@@ -60,67 +58,28 @@ const PhoneNumberModal: React.FC<Props> = ({
   const styles = useMemo(() => createStyles(colors), [colors]);
 
   const [selectedCountry, setSelectedCountry] = useState<CountryDialOption>(initialCountry);
-  const [areaDigits, setAreaDigits] = useState('');
   const [digits, setDigits] = useState(initialDigits);
   const [normalizedPhone, setNormalizedPhone] = useState('');
   const [formattedPhone, setFormattedPhone] = useState('');
 
   const sheetAnim = useRef(new Animated.Value(0)).current;
 
-  const computeFromFullLocal = (
+  const computeForDigits = (
     country: CountryDialOption,
     fullLocalDigits: string,
   ) => {
     const maxLocal = getCountryLocalNumberLength(country);
-    const areaLength = getCountryAreaCodeLength(country);
     const numeric = (fullLocalDigits || '').replace(/\D/g, '').slice(0, maxLocal);
 
-    const areaPart = areaLength > 0 ? numeric.slice(0, areaLength) : '';
-    const linePart = areaLength > 0 ? numeric.slice(areaLength) : numeric;
-    const combined = areaPart + linePart;
-
-    const normalized = combined
-      ? normalizePhoneNumber(combined, country.dialCode)
+    const normalized = numeric
+      ? normalizePhoneNumber(numeric, country.dialCode)
       : '';
     const formatted = normalized
       ? formatPhoneNumber(normalized, country.dialCode)
       : `${country.dialCode} `;
 
     return {
-      areaDigits: areaPart,
-      lineDigits: linePart,
-      normalized,
-      formatted,
-    };
-  };
-
-  const computeFromParts = (
-    country: CountryDialOption,
-    rawArea: string,
-    rawLine: string,
-  ) => {
-    const maxLocal = getCountryLocalNumberLength(country);
-    const areaLength = getCountryAreaCodeLength(country);
-
-    const numericArea =
-      areaLength > 0 ? (rawArea || '').replace(/\D/g, '').slice(0, areaLength) : '';
-    const remainingForLine = Math.max(0, maxLocal - numericArea.length);
-    const numericLine = (rawLine || '')
-      .replace(/\D/g, '')
-      .slice(0, remainingForLine);
-
-    const combined = numericArea + numericLine;
-
-    const normalized = combined
-      ? normalizePhoneNumber(combined, country.dialCode)
-      : '';
-    const formatted = normalized
-      ? formatPhoneNumber(normalized, country.dialCode)
-      : `${country.dialCode} `;
-
-    return {
-      areaDigits: numericArea,
-      lineDigits: numericLine,
+      digits: numeric,
       normalized,
       formatted,
     };
@@ -132,11 +91,10 @@ const PhoneNumberModal: React.FC<Props> = ({
       country = countryOptions[0];
     }
 
-    const result = computeFromFullLocal(country, initialDigits || '');
+    const result = computeForDigits(country, initialDigits || '');
 
     setSelectedCountry(country);
-    setAreaDigits(result.areaDigits);
-    setDigits(result.lineDigits);
+    setDigits(result.digits);
     setNormalizedPhone(result.normalized);
     setFormattedPhone(result.formatted);
   }, [initialCountry, initialDigits, countryOptions]);
@@ -161,29 +119,18 @@ const PhoneNumberModal: React.FC<Props> = ({
     const nextCountry =
       countryOptions.find((c) => c.code === code) ?? selectedCountry;
 
-    const result = computeFromFullLocal(nextCountry, areaDigits + digits);
+    const result = computeForDigits(nextCountry, digits);
 
     setSelectedCountry(nextCountry);
-    setAreaDigits(result.areaDigits);
-    setDigits(result.lineDigits);
+    setDigits(result.digits);
     setNormalizedPhone(result.normalized);
     setFormattedPhone(result.formatted);
   };
 
   const handleDigitsChange = (nextDigits: string) => {
-    const result = computeFromParts(selectedCountry, areaDigits, nextDigits);
+    const result = computeForDigits(selectedCountry, nextDigits);
 
-    setAreaDigits(result.areaDigits);
-    setDigits(result.lineDigits);
-    setNormalizedPhone(result.normalized);
-    setFormattedPhone(result.formatted);
-  };
-
-  const handleAreaChange = (nextArea: string) => {
-    const result = computeFromParts(selectedCountry, nextArea, digits);
-
-    setAreaDigits(result.areaDigits);
-    setDigits(result.lineDigits);
+    setDigits(result.digits);
     setNormalizedPhone(result.normalized);
     setFormattedPhone(result.formatted);
   };
@@ -199,7 +146,7 @@ const PhoneNumberModal: React.FC<Props> = ({
 
     onConfirm({
       country: selectedCountry,
-      digits: areaDigits + digits,
+      digits,
       normalizedPhone,
       formattedPhone,
     });
@@ -216,10 +163,6 @@ const PhoneNumberModal: React.FC<Props> = ({
       formattedPhone: '',
     });
   };
-
-  const maxLocalDigits = getCountryLocalNumberLength(selectedCountry);
-  const maxLineDigits = Math.max(0, maxLocalDigits - areaDigits.length);
-  const areaLength = getCountryAreaCodeLength(selectedCountry);
 
   const sheetStyle = {
     transform: [
@@ -287,29 +230,13 @@ const PhoneNumberModal: React.FC<Props> = ({
               </View>
 
               <View style={styles.inputRow}>
-                {areaLength > 0 && (
-                  <View style={styles.areaInputRow}>
-                    <Text style={styles.areaLabel}>
-                      {t('common.components.phoneNumberModal.areaLabel')}
-                    </Text>
-                    <TextInput
-                      style={styles.areaInput}
-                      value={areaDigits}
-                      onChangeText={handleAreaChange}
-                      keyboardType="number-pad"
-                      maxLength={areaLength}
-                      editable={!loading}
-                    />
-                  </View>
-                )}
-                <PhoneDigitInput
+                <PhoneField
                   countryOptions={countryOptions}
                   selectedCountry={selectedCountry}
                   onCountryChange={handleCountryChange}
                   digits={digits}
                   onChangeDigits={handleDigitsChange}
                   disabled={!!loading}
-                  maxDigitsOverride={maxLineDigits}
                 />
               </View>
 
@@ -444,26 +371,6 @@ const createStyles = (colors: any) => {
       borderRadius: 18,
       padding: 12,
       gap: 12,
-    },
-    areaInputRow: {
-      gap: 6,
-    },
-    areaLabel: {
-      fontSize: 12,
-      color: colors.textSecondary,
-      marginBottom: 4,
-    },
-    areaInput: {
-      minHeight: 52,
-      borderWidth: 1.5,
-      borderColor: colors.border,
-      borderRadius: 14,
-      paddingHorizontal: 14,
-      paddingVertical: 10,
-      color: colors.text,
-      backgroundColor: colors.card,
-      fontSize: 17,
-      fontWeight: '600',
     },
     actionsRow: {
       gap: 8,

@@ -701,6 +701,7 @@ const createStyles = (
     justifyContent: 'center',
     alignContent: 'center',
     gap: 6,
+    maxWidth: '100%',
     paddingVertical: 7,
     paddingHorizontal: 18,
     borderRadius: 999,
@@ -714,6 +715,7 @@ const createStyles = (
     elevation: 6,
   },
   regionHintText: {
+    flexShrink: 1,
     fontSize: 12.5,
     fontWeight: '600',
     color: isDark ? 'rgba(245,241,234,0.85)' : 'rgba(28,25,23,0.75)',

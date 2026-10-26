@@ -51,6 +51,27 @@ const COUNTRY_AREA_LENGTH: Record<string, number> = {
   CA: 3,
 };
 
+const COUNTRY_LOCAL_GROUPS: Record<string, number[]> = {
+  NI: [4, 4],
+  US: [3, 3, 4],
+  CA: [3, 3, 4],
+  MX: [3, 3, 4],
+  SV: [4, 4],
+  HN: [4, 4],
+  CR: [4, 4],
+  PA: [4, 4],
+  CO: [3, 3, 4],
+  AR: [3, 3, 4],
+  CL: [3, 3, 3],
+  VE: [3, 3, 4],
+  ES: [3, 3, 3],
+  BR: [3, 4, 4],
+  PE: [3, 3, 3],
+  EC: [3, 3, 3],
+  GT: [4, 4],
+  DO: [3, 3, 4],
+};
+
 export const getCountryDialOptions = (): CountryDialOption[] => COUNTRY_DIAL_OPTIONS;
 
 export const getCountryLocalNumberLength = (country: CountryDialOption | string): number => {
@@ -132,4 +153,49 @@ export const extractLocalNumber = (fullNumber: string, dialCode: string): string
   }
 
   return digits.slice(normalizedDial.length);
+};
+
+export const formatLocalDigits = (digits: string, countryCode: string): string => {
+  const numeric = (digits || '').replace(/\D/g, '');
+  if (!numeric) {
+    return '';
+  }
+
+  const groups = COUNTRY_LOCAL_GROUPS[countryCode];
+  if (!groups) {
+    return numeric.match(/\d{1,4}/g)?.join(' ') ?? numeric;
+  }
+
+  const parts: string[] = [];
+  let cursor = 0;
+  for (const size of groups) {
+    if (cursor >= numeric.length) {
+      break;
+    }
+    parts.push(numeric.slice(cursor, cursor + size));
+    cursor += size;
+  }
+  if (cursor < numeric.length) {
+    parts.push(numeric.slice(cursor));
+  }
+
+  return parts.join(' ');
+};
+
+export const getLocalNumberPlaceholder = (country: CountryDialOption | string): string => {
+  const code = typeof country === 'string' ? country : country.code;
+  return formatLocalDigits('0'.repeat(getCountryLocalNumberLength(country)), code);
+};
+
+export const getCountryFlagEmoji = (countryCode: string): string => {
+  if (!countryCode || countryCode.length !== 2) {
+    return '🏳️';
+  }
+
+  const codePoints = countryCode
+    .toUpperCase()
+    .split('')
+    .map((char) => 127397 + char.charCodeAt(0));
+
+  return String.fromCodePoint(...codePoints);
 };

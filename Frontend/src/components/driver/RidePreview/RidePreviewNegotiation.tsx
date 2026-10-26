@@ -174,13 +174,21 @@ export function RidePreviewNegotiation({
             <TouchableOpacity
               style={[
                 styles.iconButton,
-                { backgroundColor: isDark ? 'rgba(255,255,255,0.10)' : 'rgba(179,135,55,0.12)' },
+                {
+                  backgroundColor: colors.SecondBorder,
+                  borderColor: colors.SecondBorder,
+                  borderWidth: 1,
+                },
               ]}
-              onPress={() => onOpenPhotoModal(clientVehiclePhoto || '')}
+              onPress={() => onOpenPhotoModal(clientVehiclePhoto)}
+              activeOpacity={0.82}
               accessibilityRole="button"
               accessibilityLabel={t('driver.ridePreview.accessibility.vehiclePhoto')}
             >
-              <MaterialIcons name="directions-car" size={22} color={colors.primary} />
+              <MaterialIcons name="photo-camera" size={18} color={isDark ? colors.text : colors.card} />
+              <Text style={[styles.vehiclePhotoButtonText, { color: isDark ? colors.text : colors.card }]}>
+                {t('driver.ridePreview.buttons.viewVehiclePhoto')}
+              </Text>
             </TouchableOpacity>
           ) : null}
         </View>

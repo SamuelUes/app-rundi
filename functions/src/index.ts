@@ -66,6 +66,8 @@ import * as cleanupRealtimeDB from "./scheduled/cleanupRealtimeDB";
 import * as programmedRidesScheduled from "./scheduled/programmedRides";
 import * as cleanupProgrammedRidesAPI from "./scheduled/cleanupProgrammedRides";
 import * as processPendingArchiveAPI from "./scheduled/processPendingArchive";
+import * as complianceDailyAPI from "./scheduled/complianceDaily";
+import * as complianceAPI from "./api/compliance";
 import * as supportChatNotifications from "./triggers/supportChatNotifications";
 import * as userRolesAPI from "./api/userRoles";
 
@@ -94,6 +96,7 @@ export const cancelProgrammedRide = ridesSequelizeAPI.cancelProgrammedRide;
 export const acceptRide = ridesSequelizeAPI.acceptRide;
 export const confirmDriver = ridesSequelizeAPI.confirmDriver; // ✅ NUEVO: Cliente confirma conductor específico
 export const markDriverOnRoute = ridesSequelizeAPI.markDriverOnRoute;
+export const markDriverArrived = ridesSequelizeAPI.markDriverArrived;
 export const startRide = ridesSequelizeAPI.startRide;
 export const completeRide = ridesSequelizeAPI.completeRide;
 export const cancelRide = ridesSequelizeAPI.cancelRide;
@@ -397,6 +400,17 @@ export const updateVehicleSeq = vehiclesSequelizeAPI.updateVehicle;
 export const switchVehicle = vehiclesSequelizeAPI.switchVehicle;
 export const deleteVehicleSeq = vehiclesSequelizeAPI.deleteVehicle;
 
+// Compliance documental (documentos + evaluación + revisión admin)
+export const submitDriverLicense = complianceAPI.submitDriverLicense;
+export const submitVehicleDocument = complianceAPI.submitVehicleDocument;
+export const getMyDocuments = complianceAPI.getMyDocuments;
+export const getComplianceStatus = complianceAPI.getComplianceStatus;
+export const canOperateVehicle = complianceAPI.canOperateVehicle;
+export const acknowledgeDocumentAlert = complianceAPI.acknowledgeDocumentAlert;
+export const listDocumentsForReview = complianceAPI.listDocumentsForReview;
+export const reviewDocument = complianceAPI.reviewDocument;
+export const getDocumentHistory = complianceAPI.getDocumentHistory;
+
 // Ride Locations
 export const createRideLocation = rideLocationsSequelizeAPI.createRideLocation;
 export const getRideLocations = rideLocationsSequelizeAPI.getRideLocations;
@@ -428,6 +442,7 @@ export const setDefaultCardSeq = cardsSequelizeAPI.setDefaultCard;
 export const deleteCardSeq = cardsSequelizeAPI.deleteCard;
 // Designated Driver Inspections (Sequelize)
 export const createInspectionSeq = designatedDriverInspectionsSequelizeAPI.createInspection;
+export const submitDesignatedDriverRideInspection = designatedDriverInspectionsSequelizeAPI.submitDesignatedDriverRideInspection;
 export const getRideInspectionSeq = designatedDriverInspectionsSequelizeAPI.getRideInspection;
 export const updateInspectionSeq = designatedDriverInspectionsSequelizeAPI.updateInspection;
 
@@ -531,6 +546,9 @@ export const cleanupProgrammedRides = cleanupProgrammedRidesAPI.cleanupProgramme
 
 // Procesar cola de reintentos de archivado a Supabase (cada 5 minutos)
 export const processPendingArchiveScheduled = processPendingArchiveAPI.processPendingArchive;
+
+// Evaluación diaria de compliance documental + alertas de vencimiento (03:00 Managua)
+export const complianceDailyEvaluation = complianceDailyAPI.complianceDailyEvaluation;
 
 // ============================================
 // REALTIME DATABASE CLEANUP (Reemplaza extensiones)

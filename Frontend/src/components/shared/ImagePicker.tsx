@@ -10,6 +10,7 @@ import {
 import { LoadingIcon } from '../ui/LoadingIcon';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as ExpoImagePicker from 'expo-image-picker';
+import { launchCameraSafely } from '../../utils/cameraUtils';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useTranslation } from 'react-i18next';
 
@@ -53,19 +54,19 @@ export default function ImagePicker({
 
     try {
       const result = useCamera
-        ? await ExpoImagePicker.launchCameraAsync({
+        ? await launchCameraSafely({
             allowsEditing: true,
             aspect: [4, 3],
             quality: 0.8,
           })
         : await ExpoImagePicker.launchImageLibraryAsync({
-            mediaTypes: ExpoImagePicker.MediaTypeOptions.Images,
+            mediaTypes: ['images'],
             allowsEditing: true,
             aspect: [4, 3],
             quality: 0.8,
           });
 
-      if (!result.canceled && result.assets && result.assets.length > 0) {
+      if (result && !result.canceled && result.assets && result.assets.length > 0) {
         onImageSelected(result.assets[0].uri);
       }
     } catch (error) {

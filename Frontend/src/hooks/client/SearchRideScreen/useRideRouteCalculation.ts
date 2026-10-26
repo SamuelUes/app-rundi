@@ -8,7 +8,6 @@ import {
   type PriceBreakdown,
 } from '../../../utils/priceCalculatorCentralize';
 import {
-  applyDesignatedDriverMotoDiscount,
   MIN_DESIGNATED_DRIVER_PRICE,
   type Coords,
 } from '../../../utils/rideCoords';
@@ -152,9 +151,7 @@ export function useRideRouteCalculation({
           auto: wrapEstimate(results.auto ?? null),
           designated_driver: wrapEstimate(results.dd_auto ?? null),
         };
-        const designatedDriverMotoEstimate = wrapEstimate(
-          applyDesignatedDriverMotoDiscount(results.dd_moto ?? null, true),
-        );
+        const designatedDriverMotoEstimate = wrapEstimate(results.dd_moto ?? null);
 
         setVehicleEstimates(mapped);
         setDesignatedDriverEstimates({

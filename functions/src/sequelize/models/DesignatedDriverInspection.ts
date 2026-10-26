@@ -13,6 +13,14 @@ class DesignatedDriverInspection extends Model {
   declare vehicle_rear_photo: string | null;
   declare interior_front_photo: string | null;
   declare interior_rear_photo: string | null;
+  declare insurance_document_photo: string | null;
+  declare registration_document_photo: string | null;
+  declare front_driver_seat_photo: string | null;
+  declare front_passenger_seat_photo: string | null;
+  declare rear_left_seat_photo: string | null;
+  declare rear_right_seat_photo: string | null;
+  declare documents_confirmed: boolean;
+  declare documents_confirmed_at: Date | null;
   declare status: string;
   declare inspected_at: Date;
   declare created_at: Date;
@@ -48,6 +56,39 @@ DesignatedDriverInspection.init(
     },
     interior_rear_photo: {
       type: DataTypes.STRING(500),
+      allowNull: true,
+    },
+    insurance_document_photo: {
+      type: DataTypes.STRING(500),
+      allowNull: true,
+    },
+    registration_document_photo: {
+      type: DataTypes.STRING(500),
+      allowNull: true,
+    },
+    front_driver_seat_photo: {
+      type: DataTypes.STRING(500),
+      allowNull: true,
+    },
+    front_passenger_seat_photo: {
+      type: DataTypes.STRING(500),
+      allowNull: true,
+    },
+    rear_left_seat_photo: {
+      type: DataTypes.STRING(500),
+      allowNull: true,
+    },
+    rear_right_seat_photo: {
+      type: DataTypes.STRING(500),
+      allowNull: true,
+    },
+    documents_confirmed: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    documents_confirmed_at: {
+      type: DataTypes.DATE,
       allowNull: true,
     },
     status: {

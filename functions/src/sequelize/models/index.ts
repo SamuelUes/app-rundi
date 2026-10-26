@@ -20,6 +20,18 @@ import BiometricAuthentication from './BiometricAuthentication';
 import SmsVerificationCode from './SmsVerificationCode';
 import Card from './Card';
 import ServiceCommissionHistory from './ServiceCommissionHistory';
+import DriverLicense from './DriverLicense';
+import VehicleCirculationCard from './VehicleCirculationCard';
+import VehicleInsurancePolicy from './VehicleInsurancePolicy';
+import VehicleInspection from './VehicleInspection';
+import VehicleEmissionCertificate from './VehicleEmissionCertificate';
+import VehicleRoadTax from './VehicleRoadTax';
+import VehicleRevisadoSticker from './VehicleRevisadoSticker';
+import ComplianceRule from './ComplianceRule';
+import ComplianceEvaluation from './ComplianceEvaluation';
+import DocumentAlert from './DocumentAlert';
+import ComplianceEvent from './ComplianceEvent';
+import LicenseCategoryRule from './LicenseCategoryRule';
 
 // Asociaciones
 // Ride - Payment (1:1)
@@ -37,6 +49,22 @@ Vehicle.belongsTo(Driver, { foreignKey: 'driver_id', as: 'driver' });
 // Driver - DriverRecharge (1:N)
 Driver.hasMany(DriverRecharge, { foreignKey: 'driver_id', as: 'recharges' });
 DriverRecharge.belongsTo(Driver, { foreignKey: 'driver_id', as: 'driver' });
+// Driver - DriverLicense (1:N historial)
+Driver.hasMany(DriverLicense, { foreignKey: 'driver_id', as: 'licenses' });
+DriverLicense.belongsTo(Driver, { foreignKey: 'driver_id', as: 'driver' });
+// Vehicle - documentos de compliance (1:N historial por tipo)
+Vehicle.hasMany(VehicleCirculationCard, { foreignKey: 'vehicle_id', as: 'circulationCards' });
+VehicleCirculationCard.belongsTo(Vehicle, { foreignKey: 'vehicle_id', as: 'vehicle' });
+Vehicle.hasMany(VehicleInsurancePolicy, { foreignKey: 'vehicle_id', as: 'insurancePolicies' });
+VehicleInsurancePolicy.belongsTo(Vehicle, { foreignKey: 'vehicle_id', as: 'vehicle' });
+Vehicle.hasMany(VehicleInspection, { foreignKey: 'vehicle_id', as: 'inspections' });
+VehicleInspection.belongsTo(Vehicle, { foreignKey: 'vehicle_id', as: 'vehicle' });
+Vehicle.hasMany(VehicleEmissionCertificate, { foreignKey: 'vehicle_id', as: 'emissionCertificates' });
+VehicleEmissionCertificate.belongsTo(Vehicle, { foreignKey: 'vehicle_id', as: 'vehicle' });
+Vehicle.hasMany(VehicleRoadTax, { foreignKey: 'vehicle_id', as: 'roadTaxes' });
+VehicleRoadTax.belongsTo(Vehicle, { foreignKey: 'vehicle_id', as: 'vehicle' });
+Vehicle.hasMany(VehicleRevisadoSticker, { foreignKey: 'vehicle_id', as: 'revisadoStickers' });
+VehicleRevisadoSticker.belongsTo(Vehicle, { foreignKey: 'vehicle_id', as: 'vehicle' });
 
 export {
   Ride,
@@ -56,4 +84,16 @@ export {
   SmsVerificationCode,
   Card,
   ServiceCommissionHistory,
+  DriverLicense,
+  VehicleCirculationCard,
+  VehicleInsurancePolicy,
+  VehicleInspection,
+  VehicleEmissionCertificate,
+  VehicleRoadTax,
+  VehicleRevisadoSticker,
+  ComplianceRule,
+  ComplianceEvaluation,
+  DocumentAlert,
+  ComplianceEvent,
+  LicenseCategoryRule,
 };

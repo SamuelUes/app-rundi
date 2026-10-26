@@ -594,6 +594,23 @@ export default function CashPaymentScreen({ route, navigation }: any) {
   const driverRating = ride?.driver?.rating ? parseFloat(ride.driver.rating) : 0;
   const amount = ride?.finalFare || ride?.estimatedPrice || paramAmount || 0;
   const numericAmount = typeof amount === 'string' ? parseFloat(amount) : amount;
+  const serviceCode = ride?.pricingSnapshot?.serviceCode ?? ride?.serviceCode;
+  const featureCodes: string[] = Array.isArray(ride?.featureCodes)
+    ? ride.featureCodes
+    : Array.isArray(ride?.pricingSnapshot?.featureCodes)
+      ? ride.pricingSnapshot.featureCodes
+      : [];
+  const serviceLabel = serviceCode === 'motorcycle'
+    ? t('shared.searchRide.vehicle.motoLabel')
+    : serviceCode === 'designated_driver_auto'
+      ? `${t('shared.searchRide.vehicle.designatedLabel')} · ${t('shared.searchRide.vehicle.autoLabel')}`
+      : serviceCode === 'designated_driver_moto'
+        ? `${t('shared.searchRide.vehicle.designatedLabel')} · ${t('shared.searchRide.vehicle.modeMoto')}`
+      : serviceCode === 'normal'
+          ? t('shared.searchRide.vehicle.autoLabel')
+          : serviceCode === 'night'
+            ? t('shared.payment.summary.nightFeature')
+          : serviceCode || '';
   
   return (
     <View style={styles.container}>
@@ -647,6 +664,33 @@ export default function CashPaymentScreen({ route, navigation }: any) {
               {formatCurrency(numericAmount)}
             </Text>
           </View>
+
+          {!!serviceLabel && (
+            <View style={styles.detailRow}>
+              <View style={styles.detailLeft}>
+                <MaterialIcons name="local-taxi" size={16} color={colors.textTertiary} />
+                <Text style={styles.detailLabel}>{t('shared.payment.summary.service')}</Text>
+              </View>
+              <Text style={styles.detailValue}>{serviceLabel}</Text>
+            </View>
+          )}
+          {featureCodes.length > 0 && (
+            <View style={styles.detailRow}>
+              <View style={styles.detailLeft}>
+                <MaterialIcons name="nightlight" size={16} color={colors.textTertiary} />
+                <Text style={styles.detailLabel}>{t('shared.payment.summary.features')}</Text>
+              </View>
+              <Text style={styles.detailValue}>
+                {featureCodes.map((code) =>
+                  code === 'night'
+                    ? t('shared.payment.summary.nightFeature')
+                    : code === 'designated_driver_moto_discount'
+                      ? t('shared.payment.summary.designatedMotoAdjustment')
+                      : code.replace(/_/g, ' '),
+                ).join(' / ')}
+              </Text>
+            </View>
+          )}
 
           <View style={styles.dashedDivider} />
 

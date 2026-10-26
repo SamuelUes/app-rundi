@@ -39,6 +39,20 @@ declare class BatteryOptimizationModuleType extends NativeModule {
   requestIgnoreOptimizations(): Promise<boolean>;
 }
 
+export type OcrTextBlock = {
+  text: string;
+  frame: { left: number; top: number; right: number; bottom: number };
+};
+
+export type OcrResult = {
+  text: string;
+  blocks: OcrTextBlock[];
+};
+
+declare class DocumentOcrModuleType extends NativeModule {
+  recognizeText(imagePath: string): Promise<OcrResult>;
+}
+
 declare class RundiLiveActivityModuleType extends NativeModule {
   liveActivitiesEnabled(): Promise<boolean>;
   hasRideActivity(): Promise<boolean>;
@@ -72,10 +86,16 @@ export const RundiLiveActivityModule = isIOS
   ? requireNativeModule<RundiLiveActivityModuleType>('RundiNative')
   : null;
 
+// iOS usa Apple Vision; Android usa ML Kit (ver DocumentOcrModule nativo)
+export const DocumentOcrModule = isAndroid || isIOS
+  ? requireNativeModule<DocumentOcrModuleType>('DocumentOcr')
+  : null;
+
 export default {
   OverlayPermissionModule,
   ForegroundServiceModule,
   WorkManagerModule,
   BatteryOptimizationModule,
   RundiLiveActivityModule,
+  DocumentOcrModule,
 };

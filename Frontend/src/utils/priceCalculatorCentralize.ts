@@ -24,6 +24,24 @@ export interface PriceCalculationResult {
   serviceCode: string;
   serviceId?: string;
   extraStopsCharge: number;
+  baseFare: number;
+  featureCodes: string[];
+  featureAdjustments: Array<{ code: string; adjustment: number }>;
+  surgeMultiplier: number;
+  demandSupplyRatio: number | null;
+  pricingSnapshot: {
+    serviceCode: string;
+    featureCodes: string[];
+    featureAdjustments: Array<{ code: string; adjustment: number }>;
+    baseFare: number;
+    fareBeforeSurge: number;
+    surgeMultiplier: number;
+    demandSupplyRatio: number | null;
+    commissionRate: number;
+    commissionAmount: number;
+    finalFare: number;
+    dynamicMinimumFare: number;
+  };
 }
 
 export type PriceBreakdown = PriceCalculationResult;
@@ -79,6 +97,7 @@ const DEFAULT_SERVICE_AREA: ServiceAreaDoc = {
   ],
 };
 
+// Fallbacks locales — deben coincidir con services en producción
 const DEFAULT_SERVICE_CONFIGS: Record<string, ServicePricingConfig> = {
   normal: {
     code: 'normal',
@@ -90,39 +109,58 @@ const DEFAULT_SERVICE_CONFIGS: Record<string, ServicePricingConfig> = {
   },
   motorcycle: {
     code: 'motorcycle',
-    basePrice: 40,
+    basePrice: 50,
     pricePerKm: 8,
     pricePerMinute: 0,
     minimumFare: 50,
-    commissionRate: 0.07,
+    commissionRate: 0.075,
   },
   designated_driver_auto: {
     code: 'designated_driver_auto',
     basePrice: 50,
-    pricePerKm: 23,
+    pricePerKm: 13,
     pricePerMinute: 0,
-    minimumFare: 80,
+    minimumFare: 50,
     commissionRate: 0.25,
   },
   designated_driver_moto: {
     code: 'designated_driver_moto',
     basePrice: 50,
-    pricePerKm: 23,
+    pricePerKm: 13,
     pricePerMinute: 0,
-    minimumFare: 65,
+    minimumFare: 50,
     commissionRate: 0.125,
   },
   designated_driver: {
     code: 'designated_driver',
     basePrice: 50,
-    pricePerKm: 23,
+    pricePerKm: 13,
     pricePerMinute: 0,
-    minimumFare: 80,
+    minimumFare: 50,
     commissionRate: 0.25,
   },
 };
 
-const serviceConfigCache: Map<string, ServicePricingConfig> = new Map();
+// Tasa de comisión de último recurso por código de servicio.
+// Debe coincidir con getFallbackCommissionRate del backend.
+function getFallbackCommissionRate(serviceCode?: string | null): number {
+  switch (serviceCode) {
+    case 'designated_driver_moto':
+      return 0.125;
+    case 'designated_driver_auto':
+    case 'designated_driver':
+      return 0.25;
+    case 'motorcycle':
+      return 0.075;
+    case 'night':
+      return 0.12;
+    default:
+      return 0.15;
+  }
+}
+
+const SERVICE_CONFIG_CACHE_TTL_MS = 5 * 60 * 1000;
+const serviceConfigCache: Map<string, { config: ServicePricingConfig; fetchedAt: number }> = new Map();
 let cachedServiceAreas: ServiceAreaDoc[] | null = null;
 let serviceAreasFetchedAt = 0;
 
@@ -195,7 +233,7 @@ async function fetchServiceConfigViaCallable(serviceCode: string): Promise<Servi
         pricePerKm: matched.pricePerKm ?? DEFAULT_SERVICE_CONFIGS[serviceCode]?.pricePerKm ?? 0,
         pricePerMinute: matched.pricePerMinute ?? DEFAULT_SERVICE_CONFIGS[serviceCode]?.pricePerMinute ?? 0,
         minimumFare: matched.minimumFare ?? DEFAULT_SERVICE_CONFIGS[serviceCode]?.minimumFare ?? 0,
-        commissionRate: matched.commissionRate ?? DEFAULT_SERVICE_CONFIGS[serviceCode]?.commissionRate ?? 0.11,
+        commissionRate: matched.commissionRate ?? getFallbackCommissionRate(matched.code ?? serviceCode),
       };
     }
   } catch (error) {
@@ -206,14 +244,15 @@ async function fetchServiceConfigViaCallable(serviceCode: string): Promise<Servi
 }
 
 export async function fetchServiceConfig(serviceCode: string): Promise<ServicePricingConfig> {
-  if (serviceConfigCache.has(serviceCode)) {
-    return serviceConfigCache.get(serviceCode)!;
+  const cached = serviceConfigCache.get(serviceCode);
+  if (cached && Date.now() - cached.fetchedAt < SERVICE_CONFIG_CACHE_TTL_MS) {
+    return cached.config;
   }
 
   try {
     const restConfig = await fetchServiceConfigViaRest(serviceCode);
     if (restConfig) {
-      serviceConfigCache.set(serviceCode, restConfig);
+      serviceConfigCache.set(serviceCode, { config: restConfig, fetchedAt: Date.now() });
       return restConfig;
     }
   } catch (error) {
@@ -222,12 +261,12 @@ export async function fetchServiceConfig(serviceCode: string): Promise<ServicePr
 
   const callableConfig = await fetchServiceConfigViaCallable(serviceCode);
   if (callableConfig) {
-    serviceConfigCache.set(serviceCode, callableConfig);
+    serviceConfigCache.set(serviceCode, { config: callableConfig, fetchedAt: Date.now() });
     return callableConfig;
   }
 
   const fallback = DEFAULT_SERVICE_CONFIGS[serviceCode] ?? DEFAULT_SERVICE_CONFIGS.normal;
-  serviceConfigCache.set(serviceCode, fallback);
+  serviceConfigCache.set(serviceCode, { config: fallback, fetchedAt: Date.now() });
   return fallback;
 }
 
@@ -351,24 +390,12 @@ export function isPeakHour(date: Date = new Date()): boolean {
   return (hour >= 6 && hour < 8) || (hour >= 17 && hour < 20);
 }
 
-function getPeakHourMultiplier(subtotal: number, peak: boolean, inServiceArea: boolean): number {
-  if (!peak || !inServiceArea) {
-    return 1;
-  }
-
-  if (subtotal < 150) {
-    return 0.4;
-  }
-
-  if (subtotal < 300) {
-    return 0.25;
-  }
-
-  return 0.6;
-}
-
 function roundCurrency(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+function roundFareToNearestFive(value: number): number {
+  return Math.round(value / 5) * 5;
 }
 
 function toFiniteNumber(value: unknown): number | null {
@@ -550,7 +577,8 @@ function normalizeBackendResponse(data: any): PriceCalculationResult | null {
   }
 
   let finalPrice = finalPriceRaw;
-  if (Number.isFinite(commission) && commission > 0) {
+  const hasPricingSnapshot = Boolean(payload.pricingSnapshot);
+  if (!hasPricingSnapshot && Number.isFinite(commission) && commission > 0) {
     if (Number.isFinite(subtotalFromPayload) && subtotalFromPayload > 0) {
       finalPrice = subtotalFromPayload + commission;
     } else if (Number.isFinite(commissionRate) && commissionRate > 0) {
@@ -563,6 +591,7 @@ function normalizeBackendResponse(data: any): PriceCalculationResult | null {
       }
     }
   }
+  finalPrice = roundFareToNearestFive(finalPrice);
 
   return {
     distancePrice,
@@ -582,6 +611,35 @@ function normalizeBackendResponse(data: any): PriceCalculationResult | null {
     serviceCode: String(payload.serviceCode ?? payload.service_code ?? mapRideTypeToServiceCode('car', 'normal')),
     serviceId: payload.serviceId ?? payload.service_id ?? undefined,
     extraStopsCharge: Number(payload.extraStopsCharge ?? payload.extra_stops_charge ?? 0),
+    baseFare: Number(payload.baseFare ?? payload.base_fare ?? finalPrice),
+    featureCodes: Array.isArray(payload.featureCodes ?? payload.feature_codes)
+      ? (payload.featureCodes ?? payload.feature_codes)
+      : [],
+    featureAdjustments: Array.isArray(payload.featureAdjustments ?? payload.feature_adjustments)
+      ? (payload.featureAdjustments ?? payload.feature_adjustments)
+      : [],
+    surgeMultiplier: Number(payload.surgeMultiplier ?? payload.surge_multiplier ?? 1),
+    demandSupplyRatio:
+      payload.demandSupplyRatio == null && payload.demand_supply_ratio == null
+        ? null
+        : Number(payload.demandSupplyRatio ?? payload.demand_supply_ratio),
+    pricingSnapshot: payload.pricingSnapshot ?? payload.pricing_snapshot ?? {
+      serviceCode: String(payload.serviceCode ?? payload.service_code ?? 'normal'),
+      featureCodes: [],
+      featureAdjustments: [],
+      baseFare: Number(payload.baseFare ?? payload.base_fare ?? finalPrice),
+      fareBeforeSurge: Number(payload.baseFare ?? payload.base_fare ?? finalPrice),
+      surgeMultiplier: 1,
+      demandSupplyRatio: null,
+      commissionRate,
+      commissionAmount: commission,
+      finalFare: finalPrice,
+      dynamicMinimumFare: Number(
+        payload.pricingSnapshot?.dynamicMinimumFare ??
+          payload.pricing_snapshot?.dynamic_minimum_fare ??
+          Math.max(50, finalPrice * 0.6667),
+      ),
+    },
   };
 }
 
@@ -773,79 +831,127 @@ async function calculateRidePriceFallback(
   const extraStops = Math.max(options.extraStops ?? 0, 0);
 
   const service = await fetchServiceConfig(serviceCode);
-  const { multiplier } = getMultiplier(distanceKm, vehicleType, rideType);
+  // Fórmula por distancia: base + km × price_per_km; tramos legacy solo si el
+  // servicio no define price_per_km (paridad con priceCalculator del backend).
+  const legacyMultiplier = getMultiplier(distanceKm, vehicleType, rideType).multiplier;
+  const multiplier = service.pricePerKm > 0 ? service.pricePerKm : legacyMultiplier;
   const distanceComponent = Math.max(distanceKm, 0) * multiplier;
   const baseComponent = service.basePrice;
-  const minimumFare = service.minimumFare ?? baseComponent;
+  const timePrice = Math.max(durationMinutes, 0) * Math.max(service.pricePerMinute ?? 0, 0);
+  const extraStopsCharge = extraStops * STOP_FEE;
+  let minimumFare = Math.max(service.minimumFare ?? baseComponent, 0);
+  let baseFare = Math.max(
+    baseComponent + distanceComponent + timePrice + extraStopsCharge,
+    minimumFare,
+  );
 
-  let subtotal = baseComponent + distanceComponent;
-  const minimumApplied = subtotal < minimumFare;
-  if (minimumApplied) {
-    subtotal = minimumFare;
+  if (rideType === 'designated_driver') {
+    const normalService = await fetchServiceConfig('normal');
+    const normalMultiplier = normalService.pricePerKm > 0
+      ? normalService.pricePerKm
+      : getMultiplier(distanceKm, vehicleType, 'normal').multiplier;
+    const normalFare = Math.max(
+      normalService.basePrice +
+        Math.max(distanceKm, 0) * normalMultiplier +
+        Math.max(durationMinutes, 0) * Math.max(normalService.pricePerMinute ?? 0, 0) +
+        extraStopsCharge,
+      normalService.minimumFare ?? normalService.basePrice,
+    );
+    minimumFare = Math.max(minimumFare, normalFare * 2);
+    baseFare = Math.max(baseFare, minimumFare);
   }
 
-  const peak = isPeakHour();
-  const inServiceArea = await isInManagua(originLat, originLng);
-  const peakMultiplier = getPeakHourMultiplier(subtotal, peak, inServiceArea);
-
-  let adjustedSubtotal = subtotal * peakMultiplier;
-  const extraStopsCharge = extraStops * STOP_FEE;
-  adjustedSubtotal += extraStopsCharge;
-
+  const now = new Date();
+  let managuaMinutes = -1;
+  try {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'America/Managua',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(now);
+    managuaMinutes =
+      Number(parts.find((part) => part.type === 'hour')?.value) * 60 +
+      Number(parts.find((part) => part.type === 'minute')?.value);
+  } catch {
+    managuaMinutes = -1;
+  }
+  const nightActive = managuaMinutes >= 22 * 60 || (managuaMinutes >= 0 && managuaMinutes < 4 * 60);
+  let adjustedFare = baseFare;
+  const featureCodes: string[] = [];
+  const featureAdjustments: Array<{ code: string; adjustment: number }> = [];
+  if (nightActive) {
+    const adjustment = roundCurrency(adjustedFare * 0.1);
+    adjustedFare += adjustment;
+    featureCodes.push('night');
+    featureAdjustments.push({ code: 'night', adjustment });
+  }
+  if (serviceCode === 'designated_driver_moto') {
+    const beforeDiscount = adjustedFare;
+    adjustedFare = Math.max(minimumFare, adjustedFare - 70);
+    featureCodes.push('designated_driver_moto_discount');
+    featureAdjustments.push({
+      code: 'designated_driver_moto_discount',
+      adjustment: adjustedFare - beforeDiscount,
+    });
+  }
+  const fareBeforeSurge = Math.max(adjustedFare, minimumFare);
+  const surgeMultiplier = 1;
+  const finalPrice = roundFareToNearestFive(fareBeforeSurge * surgeMultiplier);
+  const commissionRate = service.commissionRate ?? getFallbackCommissionRate(serviceCode);
+  const commission = roundCurrency(finalPrice * commissionRate);
   const breakdownLines: string[] = [];
   breakdownLines.push(buildBreakdownLine(`Base (${service.code})`, baseComponent));
   breakdownLines.push(
     `Distancia (${distanceKm.toFixed(2)} km × C$${multiplier.toFixed(2)}): C$${distanceComponent.toFixed(2)}`,
   );
-
-  if (minimumApplied) {
-    breakdownLines.push(`Tarifa mínima aplicada: C$${minimumFare.toFixed(2)}`);
+  if (timePrice > 0) {
+    breakdownLines.push(
+      `Tiempo (${durationMinutes} min × C$${(service.pricePerMinute ?? 0).toFixed(2)}): C$${timePrice.toFixed(2)}`,
+    );
   }
-
-  if (peakMultiplier > 1) {
-    breakdownLines.push(`Ajuste hora pico (×${peakMultiplier.toFixed(2)})`);
-  }
-
   if (extraStops > 0) {
     breakdownLines.push(`Paradas extra (${extraStops} × C$${STOP_FEE}): C$${extraStopsCharge.toFixed(2)}`);
   }
-
-  if (rideType === 'designated_driver') {
-    const normalService = await fetchServiceConfig('normal');
-    const normalMultiplier = getMultiplier(distanceKm, vehicleType, 'normal').multiplier;
-    const normalDistance = Math.max(distanceKm, 0) * normalMultiplier;
-    const normalBaseSubtotal = normalService.basePrice + normalDistance;
-    const normalFinal = Math.max(normalBaseSubtotal, normalService.minimumFare ?? normalBaseSubtotal);
-    const doubledNormal = normalFinal * 2;
-    const designatedMinimum = service.minimumFare ?? doubledNormal;
-    const newFinal = Math.max(doubledNormal, adjustedSubtotal, designatedMinimum);
-    breakdownLines.push(`Tarifa normal estimada: C$${normalFinal.toFixed(2)}`);
-    breakdownLines.push(`Tarifa conductor designado = tarifa normal × 2: C$${doubledNormal.toFixed(2)}`);
-    if (newFinal > doubledNormal) {
-      breakdownLines.push(`Se aplica tarifa mínima de conductor designado: C$${designatedMinimum.toFixed(2)}`);
-    }
-    adjustedSubtotal = newFinal;
+  for (const feature of featureAdjustments) {
+    const sign = feature.adjustment < 0 ? '-' : '+';
+    breakdownLines.push(`${feature.code}: ${sign}C$${Math.abs(feature.adjustment).toFixed(2)}`);
   }
-
-  const commissionRate = service.commissionRate ?? 0.11;
-  const commission = roundCurrency(adjustedSubtotal * commissionRate);
-  const finalPrice = roundCurrency(adjustedSubtotal + commission);
-
-  breakdownLines.push(`Subtotal tras ajustes (sin comisión): C$${adjustedSubtotal.toFixed(2)}`);
+  breakdownLines.push(`Tarifa final: C$${finalPrice.toFixed(2)}`);
   breakdownLines.push(`Comisión ${(commissionRate * 100).toFixed(2)}%: C$${commission.toFixed(2)}`);
-  breakdownLines.push(`Precio final (subtotal + comisión): C$${finalPrice.toFixed(2)}`);
+  const pricingSnapshot = {
+    serviceCode: service.code,
+    featureCodes,
+    featureAdjustments,
+    baseFare: roundCurrency(baseFare),
+    fareBeforeSurge: roundCurrency(fareBeforeSurge),
+    surgeMultiplier,
+    demandSupplyRatio: null,
+    commissionRate,
+    commissionAmount: commission,
+    finalFare: finalPrice,
+    dynamicMinimumFare: Math.round(
+      Math.max(
+        50,
+        finalPrice * 0.6667,
+        surgeMultiplier > 1
+          ? fareBeforeSurge * (1 + (Math.min(1.6, surgeMultiplier) - 1) * 0.5)
+          : 0,
+      ) * 100,
+    ) / 100,
+  };
 
   return {
     distancePrice: roundCurrency(distanceComponent),
-    timePrice: 0,
+    timePrice: roundCurrency(timePrice),
     basePrice: roundCurrency(baseComponent),
     distanceKm: Number(distanceKm.toFixed(2)),
     durationMinutes,
     multiplier,
     finalPrice,
     breakdown: breakdownLines.join('\n'),
-    isPeakHour: peak && peakMultiplier > 1,
-    peakHourAdjustment: peakMultiplier,
+    isPeakHour: false,
+    peakHourAdjustment: 1,
     vehicleType,
     rideType,
     commissionRate,
@@ -853,6 +959,12 @@ async function calculateRidePriceFallback(
     serviceCode,
     serviceId: service.id,
     extraStopsCharge,
+    baseFare: roundCurrency(baseFare),
+    featureCodes,
+    featureAdjustments,
+    surgeMultiplier,
+    demandSupplyRatio: null,
+    pricingSnapshot,
   };
 }
 

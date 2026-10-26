@@ -77,7 +77,8 @@ export function applyDesignatedDriverMotoDiscount(
     return breakdown;
   }
 
-  if (breakdown.serviceCode === 'designated_driver_moto') {
+  // El descuento aplica únicamente a la variante conductor designado en moto
+  if (breakdown.serviceCode !== 'designated_driver_moto') {
     return breakdown;
   }
 

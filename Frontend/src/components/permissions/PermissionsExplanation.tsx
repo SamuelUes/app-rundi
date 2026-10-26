@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Platform, StyleSheet, Text, View } from 'react-native';
+import React, { useMemo } from 'react';
+import { Platform, StyleSheet, Text, View } from 'react-native';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useTranslation } from 'react-i18next';
 
@@ -80,63 +80,17 @@ const PermissionsExplanation: React.FC<PermissionsExplanationProps> = ({ role })
     [isDriver, styles, t],
   );
 
-  const groups = useMemo(() => {
-    const result: { id: string; renderContent: () => React.ReactNode }[][] = [];
-    const groupSize = 2;
-
-    for (let i = 0; i < permissions.length; i += groupSize) {
-      result.push(permissions.slice(i, i + groupSize));
-    }
-
-    return result;
-  }, [permissions]);
-
-  const [currentGroupIndex, setCurrentGroupIndex] = useState(0);
-  const opacity = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    if (groups.length === 0) {
-      return;
-    }
-
-    opacity.setValue(0);
-
-    const animation = Animated.sequence([
-      Animated.timing(opacity, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.delay(1500),
-      Animated.timing(opacity, {
-        toValue: 0,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-    ]);
-
-    animation.start(() => {
-      setCurrentGroupIndex(prevIndex => (prevIndex + 1) % groups.length);
-    });
-
-    return () => {
-      opacity.stopAnimation();
-    };
-  }, [currentGroupIndex, groups.length, opacity]);
-
-  const currentGroup = groups[currentGroupIndex] ?? [];
-
   return (
     <View style={styles.container}>
       <Text style={styles.sectionTitle}>{t('shared.permissions.explanation.title')}</Text>
       <Text style={styles.sectionSubtitle}>{t('shared.permissions.explanation.subtitle')}</Text>
-      <Animated.View style={[styles.permissionsCarousel, { opacity }]}>
-        {currentGroup.map(permission => (
+      <View style={styles.permissionsList}>
+        {permissions.map(permission => (
           <View key={permission.id} style={styles.permissionBlock}>
             {permission.renderContent()}
           </View>
         ))}
-      </Animated.View>
+      </View>
     </View>
   );
 };
@@ -147,7 +101,7 @@ const createStyles = (colors: any) =>
       marginTop: 24,
       paddingHorizontal: 4,
     },
-    permissionsCarousel: {
+    permissionsList: {
       marginTop: 4,
     },
     sectionTitle: {

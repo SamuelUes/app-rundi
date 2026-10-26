@@ -221,10 +221,13 @@ eas build --profile development --platform android
 
 # Build de preview (APK interno)
 eas build --profile preview --platform android
+eas build --platform ios --profile preview
 
 # Build de producción
 eas build --profile production --platform ios
+eas build --platform ios --profile production --local
 eas build --profile production --platform android
+eas build --platform android --profile production --local
 ```
 
 ### EAS Submit (enviar a stores)
@@ -248,7 +251,7 @@ eas update --branch preview
 Expo Orbit permite instalar y lanzar dev builds directamente en simuladores iOS y emuladores Android desde la barra de menú de macOS.
 
 1. Descargar e instalar desde https://expo.dev/orbit
-2. Iniciar sesión con la cuenta de Expo (`samuelues`)
+2. Iniciar sesión con la cuenta de Expo (`rundi-dev`)
 3. **Lanzar dev build en iOS:** seleccionar el simulador y el build desde la lista de Orbit
 4. **Lanzar dev build en Android:** seleccionar el emulador y el build desde la lista de Orbit
 5. **Seleccionar dispositivo:** Orbit muestra simuladores/emuladores disponibles; elegir el destino antes de lanzar

@@ -17,9 +17,11 @@ import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useAuth } from '../../hooks/shared/auth/useAuth';
 import * as ImagePicker from 'expo-image-picker';
+import { launchCameraSafely } from '../../utils/cameraUtils';
 import StorageImage from '../../components/shared/StorageImage';
 import supabaseStorage from '../../services/supabaseStorage';
 import driversService from '../../services/driversService';
+import complianceService from '../../services/complianceService';
 
 interface DriversDocumentsInspectionProps {
   route: any;
@@ -104,14 +106,13 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
   // Tomar foto con la cámara
   const takePhoto = async (setPhotoFunction: (uri: string) => void) => {
     try {
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      const result = await launchCameraSafely({
         allowsEditing: true,
         aspect: [4, 3],
         quality: 0.7,
       });
 
-      if (!result.canceled && result.assets && result.assets.length > 0) {
+      if (result && !result.canceled && result.assets && result.assets.length > 0) {
         setPhotoFunction(result.assets[0].uri);
       }
     } catch (error) {
@@ -136,7 +137,7 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [4, 3],
         quality: 0.7,
@@ -198,13 +199,14 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
         setUploadProgress(totalProgress);
       }
 
-      // Actualizar en drivers table
-      console.log('💾 Actualizando documentos del conductor...');
-      const updateResult = await driversService.updateDriver({
-        license_number: licenseNumber,
-        license_expiry: licenseExpiry,
-        license_photo_front: uploadedUrls['license_front'],
-        license_photo_back: uploadedUrls['license_back'],
+      // Registrar en el sistema de compliance (crea versión vigente + historial;
+      // el backend mantiene las columnas legacy sincronizadas)
+      console.log('💾 Registrando licencia en compliance...');
+      await complianceService.submitDriverLicense({
+        licenseNumber,
+        expiryDate: licenseExpiry,
+        photoFront: uploadedUrls['license_front'],
+        photoBack: uploadedUrls['license_back'],
       });
 
       setLoading(false);

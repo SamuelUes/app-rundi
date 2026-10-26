@@ -5,11 +5,14 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
+import * as LegacyFileSystem from 'expo-file-system/legacy';
 import client from '../../api/client';
 import { ENDPOINTS } from '../../api/endpoints';
 import { httpsCallable } from 'firebase/functions';
-import { GoogleAuthProvider, signInWithCredential } from 'firebase/auth';
+import { GoogleAuthProvider, signInWithCredential, deleteUser, signOut } from 'firebase/auth';
 import { getFirebaseAuth, getFirebaseFunctions } from '../../config/firebase';
+import phoneAuthService from './phoneAuthService';
+import accountLinkingService from './accountLinkingService';
 import i18n from '../../i18n';
 
 type RegistrationMethod = 'email' | 'phone' | 'google';
@@ -71,6 +74,13 @@ interface RegistrationData {
     insuranceStartDate?: string;
     insuranceExpiry?: string;
     insurancePhoto?: string;
+    inspectionDate?: string;
+    inspectionValidUntil?: string;
+    emissionsTestedAt?: string;
+    emissionsValidUntil?: string;
+    roadTaxPaidAt?: string;
+    roadTaxReceiptNumber?: string;
+    revisadoValidUntil?: string;
   };
 }
 
@@ -124,6 +134,112 @@ class RegistrationService {
       console.log('✅ Datos temporales limpios');
     } catch (error) {
       console.error('❌ Error limpiando datos temporales:', error);
+    }
+  }
+
+  /**
+   * Elimina las fotos capturadas localmente durante el registro
+   * (URIs file:// guardadas en driverData/vehicleData)
+   */
+  private async deleteLocalRegistrationPhotos(data: Partial<RegistrationData>): Promise<void> {
+    const uris = new Set<string>();
+
+    for (const source of [data.driverData, data.vehicleData]) {
+      if (!source) {
+        continue;
+      }
+      for (const value of Object.values(source)) {
+        if (typeof value === 'string' && value.trim().startsWith('file://')) {
+          uris.add(value.trim());
+        }
+      }
+    }
+
+    await Promise.all(
+      [...uris].map(async (uri) => {
+        try {
+          await LegacyFileSystem.deleteAsync(uri, { idempotent: true });
+        } catch {}
+      }),
+    );
+  }
+
+  /**
+   * Descartar un registro en progreso.
+   * Elimina la cuenta creada en Firebase Authentication (SDK web y SDK nativo
+   * de verificación SMS) y limpia todo el estado local generado durante el
+   * flujo. Best-effort: ningún error individual bloquea la limpieza local.
+   */
+  async discardPendingRegistration(): Promise<void> {
+    let tempData: Partial<RegistrationData> = {};
+    try {
+      tempData = await this.getTemporaryData();
+    } catch (error) {
+      console.warn('⚠️ No se pudieron leer los datos temporales del registro:', error);
+    }
+
+    const expectedEmail = (tempData.email || '').trim().toLowerCase();
+    const expectedPhoneDigits = (tempData.phone || '').replace(/\D/g, '');
+
+    try {
+      const auth = await getFirebaseAuth();
+      const currentUser = auth.currentUser;
+      const matchesPendingUser = Boolean(
+        currentUser &&
+          ((expectedEmail && (currentUser.email || '').trim().toLowerCase() === expectedEmail) ||
+            (expectedPhoneDigits &&
+              (currentUser.phoneNumber || '').replace(/\D/g, '') === expectedPhoneDigits)),
+      );
+
+      if (currentUser && matchesPendingUser) {
+        await deleteUser(currentUser);
+        console.log('✅ Usuario de registro eliminado de Firebase Authentication');
+      }
+    } catch (error) {
+      console.warn('⚠️ No se pudo eliminar el usuario de Firebase Auth:', error);
+    }
+
+    try {
+      await phoneAuthService.deleteCurrentUser(tempData.phone);
+    } catch (error) {
+      console.warn('⚠️ No se pudo eliminar el usuario nativo de Firebase Auth:', error);
+    }
+
+    try {
+      const auth = await getFirebaseAuth();
+      if (auth.currentUser) {
+        await signOut(auth);
+      }
+    } catch (error) {
+      console.warn('⚠️ No se pudo cerrar sesión de Firebase Auth:', error);
+    }
+
+    try {
+      await phoneAuthService.signOutCurrentUser();
+    } catch (error) {
+      console.warn('⚠️ No se pudo cerrar la sesión nativa de Firebase:', error);
+    }
+
+    try {
+      if (tempData.phone) {
+        phoneAuthService.clearConfirmation(tempData.phone);
+      }
+      accountLinkingService.clearPhoneLinkSession();
+    } catch (error) {
+      console.warn('⚠️ No se pudieron limpiar las verificaciones en curso:', error);
+    }
+
+    try {
+      await this.deleteLocalRegistrationPhotos(tempData);
+    } catch (error) {
+      console.warn('⚠️ No se pudieron eliminar las fotos locales del registro:', error);
+    }
+
+    try {
+      await this.clearUserData();
+      await AsyncStorage.multiRemove(['authToken', 'user', 'userMode']);
+    } catch (error) {
+      console.warn('⚠️ No se pudo limpiar el almacenamiento local del registro:', error);
     }
   }
 

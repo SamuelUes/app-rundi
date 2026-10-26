@@ -85,11 +85,15 @@ export default function DriverOfferCard({
         })
       : t('common.components.driverOfferCard.savings.match');
 
-  // Calcular límites de negociación dinámicos
-  // Mínimo: 66.67% del precio estimado (con piso de 50 C$)
-  // Máximo: 133.33% del precio estimado (con techo de 500 C$)
-  const minNegotiationPrice = Math.max(50, Math.round(estimatedPrice * 0.6667 * 100) / 100);
-  const maxNegotiationPrice = Math.min(500, Math.round(estimatedPrice * 1.3333 * 100) / 100);
+  // Límites relativos a la cotización; C$100,000 solo es un límite técnico.
+  const minNegotiationPrice = Math.min(
+    100000,
+    Math.max(50, Math.round(estimatedPrice * 0.6667 * 100) / 100),
+  );
+  const maxNegotiationPrice = Math.max(
+    minNegotiationPrice,
+    Math.min(100000, Math.round(estimatedPrice * 1.3333 * 100) / 100),
+  );
 
 
   const [showBiometricModal, setShowBiometricModal] = useState(false);

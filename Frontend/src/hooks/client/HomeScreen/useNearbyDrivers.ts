@@ -73,10 +73,9 @@ export function useNearbyDrivers(
           if (latitude === null || longitude === null) return null;
 
           const statusCandidate =
-            realtimeData?.status ?? realtimeData?.driverStatus ?? realtimeData?.availability ??
-            infoData?.status ?? (infoData?.isAvailable ? 'available' : undefined);
+            realtimeData?.status ?? realtimeData?.driverStatus ?? realtimeData?.availability;
           const normalizedStatus = typeof statusCandidate === 'string' ? statusCandidate.toLowerCase() : '';
-          const isAvailable = normalizedStatus === '' || normalizedStatus.includes('available');
+          const isAvailable = normalizedStatus === 'available';
 
           const heading =
             (typeof realtimeData?.heading === 'number' && Number.isFinite(realtimeData.heading)

@@ -17,6 +17,7 @@ class Driver extends Model {
   public municipality?: string;
   public status!: string; // Mapeado a account_status en la base de datos
   public documents_status?: string; // Mapeado a documents_status en la base de datos
+  public compliance_status?: string; // Estado derivado del compliance engine
   public verified_at?: Date;
   public designated_rol_requested?: string;
   public total_rides!: number;
@@ -78,6 +79,12 @@ Driver.init(
       allowNull: true,
       defaultValue: 'pending',
       field: 'documents_status',
+    },
+    compliance_status: {
+      type: DataTypes.STRING(30),
+      allowNull: false,
+      defaultValue: 'pending_documents',
+      field: 'compliance_status',
     },
     designated_rol_requested: {
       type: DataTypes.STRING(20),

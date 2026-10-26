@@ -280,6 +280,7 @@ export interface Ride {
   estimatedPrice: number;
   status: string;
   clientSuggestedPrice?: number;
+  dynamicMinimumFare?: number | null;
   driverOfferedPrice?: number | null;
   driverOfferStatus?: string | null;
   passengers?: number;

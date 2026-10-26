@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
+import { Platform } from 'react-native';
 import * as Google from 'expo-auth-session/providers/google';
 import * as WebBrowser from 'expo-web-browser';
 import { AuthSessionResult } from 'expo-auth-session';
@@ -64,12 +65,26 @@ export const useGoogleAuth = (clientId: string): UseGoogleAuthReturn => {
     console.error('❌ Google Client ID no configurado. Verifica las variables de entorno de Google OAuth');
   }
 
-  const [request, response, promptAsync] = Google.useIdTokenAuthRequest({
-    androidClientId,
-    iosClientId,
-    webClientId,
-    scopes: ['profile', 'email'],
-  }) as any;
+  // En iOS, Google OAuth solo acepta redirect_uri con el esquema
+  // "reversed client id" (com.googleusercontent.apps.<client-id>:).
+  // El default de expo-auth-session usa el bundle id, que provoca
+  // Error 400: redirect_uri_mismatch con clientes tipo iOS.
+  const nativeRedirectUri =
+    Platform.OS === 'ios' && iosClientId
+      ? `com.googleusercontent.apps.${iosClientId.replace('.apps.googleusercontent.com', '')}:/oauthredirect`
+      : undefined;
+
+  const [request, response, promptAsync] = Google.useIdTokenAuthRequest(
+    {
+      androidClientId,
+      iosClientId,
+      webClientId,
+      scopes: ['profile', 'email'],
+    },
+    nativeRedirectUri ? { native: nativeRedirectUri } : {}
+  ) as any;
+
+  console.log('🔐 Google OAuth redirectUri:', request?.redirectUri, '| iosClientId:', iosClientId);
 
   // Manejar respuesta de Google Auth
   useEffect(() => {

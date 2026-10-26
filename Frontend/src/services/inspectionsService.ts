@@ -3,8 +3,16 @@
  * Servicio para guardar inspecciones de vehículos en Supabase
  */
 
+import { httpsCallable } from 'firebase/functions';
 import { supabase } from '../config/supabase';
+import { getFirebaseFunctions } from '../config/firebase';
 import i18n from '../i18n';
+import sessionService from './sessionService';
+import {
+  isDesignatedDriverEvidenceComplete,
+  type DesignatedDriverPhotoSet,
+  type DesignatedDriverPhotoType,
+} from '../utils/designatedDriverEvidence';
 
 interface DesignatedDriverInspection {
   ride_id: string;
@@ -121,8 +129,30 @@ export const getInspectionsByDriverId = async (driverId: string) => {
   }
 };
 
+export const submitDesignatedDriverRideInspection = async (
+  rideId: string,
+  photos: Record<DesignatedDriverPhotoType, string>,
+  documentsConfirmed: boolean,
+): Promise<{ id: string }> => {
+  const photoSet: DesignatedDriverPhotoSet = photos;
+  if (!isDesignatedDriverEvidenceComplete(photoSet, documentsConfirmed)) {
+    throw new Error(tr('errors.requiredEvidenceMissing'));
+  }
+
+  const functions = await getFirebaseFunctions();
+  const submit = httpsCallable(functions, 'submitDesignatedDriverRideInspection');
+  const deviceId = await sessionService.getDeviceId();
+  const response = await submit({ rideId, photos, documentsConfirmed: true, deviceId });
+  const result = response.data as { success?: boolean; inspection?: { id: string } };
+  if (!result.success || !result.inspection?.id) {
+    throw new Error(tr('errors.saveFailed'));
+  }
+  return result.inspection;
+};
+
 export default {
   saveDesignatedDriverInspection,
+  submitDesignatedDriverRideInspection,
   getInspectionByRideId,
   getInspectionsByDriverId,
 };

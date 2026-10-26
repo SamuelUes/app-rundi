@@ -21,6 +21,7 @@ import { useAcceptedRideListener } from '../../hooks/driver/DriverHomeScreen/use
 import { useNearbyDriversMarkers } from '../../hooks/driver/DriverHomeScreen/useNearbyDriversMarkers';
 import proximityService from '../../services/proximityService';
 import type { DriverOfferCacheEntry } from '../../services/driverOfferCacheService';
+import { isDesignatedRideRequest } from '../../utils/availableRidesHelpers';
 import { useDriverActiveRides } from '../../hooks/driver/DriverHomeScreen/useDriverActiveRides';
 import { usePendingPayments } from '../../hooks/driver/DriverHomeScreen/usePendingPayments';
 import { useDriverAvailability } from '../../hooks/driver/DriverHomeScreen/useDriverAvailability';
@@ -117,6 +118,12 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   const {
     availableRideRequests, activeRide, pendingNegotiationRide,
   } = useDriverActiveRides({ userId: user?.id, coords, isAvailable, serviceAreaId, formatCurrency });
+  const visibleRideRequests = useMemo(
+    () => isDesignatedDriverMode
+      ? availableRideRequests
+      : availableRideRequests.filter((ride) => !isDesignatedRideRequest(ride)),
+    [availableRideRequests, isDesignatedDriverMode],
+  );
 
   const { currentVehicleType, currentVehicleIconSource, driverInfoCacheRef, profilePhotoUri } = useDriverInfoListener(user?.id, markTaskCompleted);
   const nearbyDriversMarkers = useNearbyDriversMarkers(coords, isAvailable, user?.id, serviceAreaId, driverInfoCacheRef);
@@ -129,7 +136,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   });
 
   useDriverVoiceAnnouncements({
-    voiceSettings, isAvailable, activeRide, availableRideRequests,
+    voiceSettings, isAvailable, activeRide, availableRideRequests: visibleRideRequests,
     pendingAction, coords, t, speakVoice, stopVoiceCategory,
   });
 
@@ -227,12 +234,13 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
           longitude={coords.longitude}
           markerType="car"
           markerPosition={{ latitude: coords.latitude, longitude: coords.longitude }}
-          rideRequests={availableRideRequests}
+          rideRequests={visibleRideRequests}
           requestPinScale={1.2}
           markerVehicleType={currentVehicleType ?? undefined}
           markerVehicleIconSource={currentVehicleIconSource}
           markerVehicleHeading={typeof coords.heading === 'number' && Number.isFinite(coords.heading) ? coords.heading : undefined}
           onRideRequestPress={(ride: any) => {
+            if (!isDesignatedDriverMode && isDesignatedRideRequest(ride)) return;
             if (activeRide) {
               navigation.navigate('ActiveRide', { rideId: activeRide.id });
               return;
@@ -324,7 +332,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
         hasInsufficientFunds={hasInsufficientFunds}
         todayEarnings={todayStats.earnings}
         formatCurrency={formatCurrency}
-        availableRequestsCount={availableRideRequests?.length ?? 0}
+        availableRequestsCount={visibleRideRequests.length}
         onToggleAvailability={() => handleAvailabilityToggle(!isAvailable)}
         onToggleDesignated={handleDesignatedToggle}
         onNavigateAvailableRides={() => navigation.navigate('AvailableRides')}

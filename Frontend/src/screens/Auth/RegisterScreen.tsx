@@ -34,7 +34,6 @@ import {
   normalizePhoneNumber,
   getCountryLocalNumberLength,
 } from '../../utils/phoneUtils';
-import PhoneNumberModal from '../../components/shared/PhoneNumberModal';
 import { useTranslation } from 'react-i18next';
 import { RegisterMethodSwitcher } from '../../components/auth/Register/RegisterMethodSwitcher';
 import { RegisterBaseFields } from '../../components/auth/Register/RegisterBaseFields';
@@ -62,7 +61,6 @@ export default function RegisterScreen() {
     formatPhoneNumber('', defaultCountry.dialCode)
   );
   const [normalizedPhone, setNormalizedPhone] = useState('');
-  const [phoneModalVisible, setPhoneModalVisible] = useState(false);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -126,32 +124,6 @@ export default function RegisterScreen() {
         ? formatPhoneNumber(newNormalized, nextCountry.dialCode)
         : formatPhoneNumber('', nextCountry.dialCode)
     );
-  };
-
-  const openPhoneModal = () => {
-    setPhoneModalVisible(true);
-  };
-
-  const handlePhoneModalClose = () => {
-    setPhoneModalVisible(false);
-  };
-
-  const handlePhoneModalConfirm = ({
-    country,
-    digits,
-    normalizedPhone: normalized,
-    formattedPhone: formatted,
-  }: {
-    country: CountryDialOption;
-    digits: string;
-    normalizedPhone: string;
-    formattedPhone: string;
-  }) => {
-    setSelectedCountry(country);
-    setPhoneDigits(digits);
-    setNormalizedPhone(normalized);
-    setPhone(formatted || `${country.dialCode} `);
-    setPhoneModalVisible(false);
   };
 
   const handlePhoneChange = (localDigits: string) => {
@@ -454,16 +426,12 @@ export default function RegisterScreen() {
             loading={loading}
             colors={colors}
             selectedCountry={selectedCountry}
-            normalizedPhone={normalizedPhone}
-            phone={phone}
             phoneDigits={phoneDigits}
-            phoneModalVisible={phoneModalVisible}
             countryOptions={countryOptions}
             onSetName={setName}
             onSetEmail={setEmail}
-            onOpenPhoneModal={openPhoneModal}
-            onPhoneModalClose={handlePhoneModalClose}
-            onPhoneModalConfirm={handlePhoneModalConfirm}
+            onCountryChange={handleCountryChange}
+            onChangeDigits={handlePhoneChange}
             t={t}
             styles={styles}
           />
@@ -663,45 +631,6 @@ const createStyles = (colors: any) =>
     },
     helperText: {
       fontSize: 12,
-      color: colors.textSecondary,
-    },
-    phoneSummary: {
-      minHeight: 60,
-      flexDirection: 'row',
-      alignItems: 'center',
-      paddingVertical: 8,
-      paddingHorizontal: 12,
-      borderRadius: 16,
-      borderWidth: 1.5,
-      borderColor: colors.border,
-      backgroundColor: colors.surface,
-      gap: 10,
-    },
-    phoneSummaryFlagDial: {
-      minHeight: 40,
-      paddingHorizontal: 10,
-      justifyContent: 'center',
-      borderRadius: 12,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.card,
-    },
-    phoneSummaryDial: {
-      fontSize: 14,
-      fontWeight: '700',
-      color: colors.text,
-    },
-    phoneSummaryValueContainer: {
-      flex: 1,
-      justifyContent: 'center',
-    },
-    phoneSummaryValue: {
-      fontSize: 15,
-      fontWeight: '600',
-      color: colors.text,
-    },
-    phoneSummaryPlaceholder: {
-      fontSize: 15,
       color: colors.textSecondary,
     },
     inputError: {

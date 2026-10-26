@@ -3,6 +3,10 @@ import { FieldValue } from "firebase-admin/firestore";
 import * as functions from 'firebase-functions/v1';
 import crypto from 'crypto';
 import { supabasePost, supabaseGet, supabaseUpdate } from '../supabase/client';
+import {
+  syncLegacyDriverLicense,
+  syncLegacyVehicleDocuments,
+} from '../sequelize/services/compliance/legacyBridge';
 import jwt from 'jsonwebtoken';
 import { existsSync, readFileSync } from 'fs';
 import path from 'path';
@@ -242,16 +246,16 @@ async function upsertDriverAndVehicleInSupabase(
   }
 
   const driverIdForVehicle: string | undefined = driverRow?.id;
+  const vehiclePayload: any = vehicleDataInput || {};
+
+  const registrationNumberValue = normalizeString(vehiclePayload.registrationNumber);
+  const registrationExpiryValue = normalizeString(vehiclePayload.registrationExpiry);
+  const insuranceNumberValue = normalizeString(vehiclePayload.insuranceNumber);
+  const insuranceCompanyValue = normalizeString(vehiclePayload.insuranceCompany);
+  const insuranceExpiryValue = normalizeString(vehiclePayload.insuranceExpiry);
+  let vehicleIdForBridge: string | null = null;
 
   if (driverIdForVehicle && vehicleDataInput) {
-    const vehiclePayload: any = vehicleDataInput || {};
-
-    const registrationNumberValue = normalizeString(vehiclePayload.registrationNumber);
-    const registrationExpiryValue = normalizeString(vehiclePayload.registrationExpiry);
-    const insuranceNumberValue = normalizeString(vehiclePayload.insuranceNumber);
-    const insuranceCompanyValue = normalizeString(vehiclePayload.insuranceCompany);
-    const insuranceExpiryValue = normalizeString(vehiclePayload.insuranceExpiry);
-
     const existingVehicles: any[] = await supabaseGet(
       'vehicles',
       { driver_id: driverIdForVehicle },
@@ -263,6 +267,7 @@ async function upsertDriverAndVehicleInSupabase(
     );
 
     const hasVehicles = Array.isArray(existingVehicles) && existingVehicles.length > 0;
+    vehicleIdForBridge = existingVehicles?.[0]?.id ?? null;
 
     const vehicleMetaUpdate: any = {};
     if (registrationNumberValue !== undefined) vehicleMetaUpdate.registration_number = registrationNumberValue;
@@ -307,6 +312,7 @@ async function upsertDriverAndVehicleInSupabase(
         Array.isArray(insertedVehicles) && insertedVehicles.length > 0
           ? insertedVehicles[0]
           : insertedVehicles;
+      vehicleIdForBridge = vehicleRow?.id ?? vehicleIdForBridge;
 
       functions.logger.info(
         `✅ Vehículo inicial creado en Supabase para conductor ${userId}: ${
@@ -316,6 +322,7 @@ async function upsertDriverAndVehicleInSupabase(
     } else if (Object.keys(vehicleMetaUpdate).length > 0) {
       try {
         const existingVehicleId = existingVehicles[0]?.id;
+        vehicleIdForBridge = existingVehicleId ?? vehicleIdForBridge;
         if (existingVehicleId) {
           await supabaseUpdate('vehicles', existingVehicleId, vehicleMetaUpdate);
           functions.logger.info(
@@ -329,6 +336,40 @@ async function upsertDriverAndVehicleInSupabase(
         });
       }
     }
+  }
+
+  // Bridge compliance: normalizar licencia/circulación/seguro del registro.
+  // Nunca lanza: el registro no debe romperse por el sistema de documentos.
+  try {
+    if (driverIdForVehicle) {
+      await syncLegacyDriverLicense(driverIdForVehicle, {
+        licenseNumber: licenseNumberValue ?? null,
+        licenseExpiry: licenseExpiryValue ?? null,
+        photoFront: normalizeString((driverDataPayload as any).licensePhotoFront) ?? null,
+        photoBack: normalizeString((driverDataPayload as any).licensePhotoBack) ?? null,
+      }, userId);
+    }
+    if (vehicleIdForBridge) {
+      await syncLegacyVehicleDocuments(vehicleIdForBridge, {
+        registrationNumber: registrationNumberValue ?? null,
+        registrationExpiry: registrationExpiryValue ?? null,
+        insuranceNumber: insuranceNumberValue ?? null,
+        insuranceCompany: insuranceCompanyValue ?? null,
+        insuranceExpiry: insuranceExpiryValue ?? null,
+        inspectionDate: normalizeString(vehiclePayload.inspectionDate) ?? null,
+        inspectionValidUntil: normalizeString(vehiclePayload.inspectionValidUntil) ?? null,
+        emissionsTestedAt: normalizeString(vehiclePayload.emissionsTestedAt) ?? null,
+        emissionsValidUntil: normalizeString(vehiclePayload.emissionsValidUntil) ?? null,
+        roadTaxPaidAt: normalizeString(vehiclePayload.roadTaxPaidAt) ?? null,
+        roadTaxReceiptNumber: normalizeString(vehiclePayload.roadTaxReceiptNumber) ?? null,
+        revisadoValidUntil: normalizeString(vehiclePayload.revisadoValidUntil) ?? null,
+      }, userId);
+    }
+  } catch (bridgeError: any) {
+    functions.logger.warn('⚠️ Error en bridge de compliance durante registro:', {
+      userId,
+      message: bridgeError?.message || bridgeError,
+    });
   }
 }
 

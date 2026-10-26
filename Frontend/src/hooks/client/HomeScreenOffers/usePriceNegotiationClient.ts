@@ -9,6 +9,8 @@ import type { OfferItem } from './useRideOffers';
 interface RideSnapshot {
   estimatedPrice?: number;
   estimatedFare?: number;
+  rideType?: string;
+  vehicleType?: string;
   clientSuggestedPrice?: number;
   driverOfferedPrice?: number;
   negotiationStatus?: string;
@@ -16,6 +18,9 @@ interface RideSnapshot {
   negotiation?: {
     clientSuggestedPrice?: number;
     driverOfferedPrice?: number;
+  };
+  pricingSnapshot?: {
+    dynamicMinimumFare?: number;
   };
 }
 
@@ -29,23 +34,25 @@ export function usePriceNegotiationClient(
   t: TFunction,
   resetRideOffers: () => void,
 ) {
+  const isDesignatedRide =
+    String(rideSnapshot?.rideType ?? '').toLowerCase() === 'designated_driver' ||
+    String(rideSnapshot?.vehicleType ?? '').toLowerCase() === 'designated_driver';
+
   const navigateToTracking = useCallback(
     (driverId: string, driverName: string) => {
+      const params = {
+        rideId,
+        driverId,
+        driverName: driverName || driverFallbackName,
+        showDesignatedDriverEvidenceNotice: isDesignatedRide,
+      };
       if (navigation?.replace) {
-        navigation.replace('RideTracking', {
-          rideId,
-          driverId,
-          driverName: driverName || driverFallbackName,
-        });
+        navigation.replace('RideTracking', params);
       } else {
-        navigation?.navigate?.('RideTracking', {
-          rideId,
-          driverId,
-          driverName: driverName || driverFallbackName,
-        });
+        navigation?.navigate?.('RideTracking', params);
       }
     },
-    [navigation, rideId, driverFallbackName],
+    [navigation, rideId, driverFallbackName, isDesignatedRide],
   );
 
   const onAcceptDriverOffer = useCallback(async () => {
@@ -72,6 +79,8 @@ export function usePriceNegotiationClient(
           price,
           'client',
           negotiationBasePrice ?? undefined,
+          undefined,
+          rideSnapshot?.pricingSnapshot?.dynamicMinimumFare,
         );
       } catch (e: any) {
         alertService.showErrorAlert(e?.message || t('client.homeOffers.alerts.counterOfferError'));

@@ -49,8 +49,18 @@ export function RideRequestOfferModal({
               )}
 
               {(() => {
-                const minPrice = Math.max(50, Math.round(selectedRide.estimatedPrice * 0.6667 * 100) / 100);
-                const maxPrice = Math.min(500, Math.round(selectedRide.estimatedPrice * 1.3333 * 100) / 100);
+                const minPrice = Math.min(
+                  100000,
+                  Math.max(
+                    50,
+                    Math.round(selectedRide.estimatedPrice * 0.6667 * 100) / 100,
+                    selectedRide.dynamicMinimumFare ?? 0,
+                  ),
+                );
+                const maxPrice = Math.max(
+                  minPrice,
+                  Math.min(100000, Math.round(selectedRide.estimatedPrice * 1.3333 * 100) / 100),
+                );
                 return (
                   <View style={[styles.priceRangeContainer, { backgroundColor: colors.background, borderColor: colors.primary }]}>
                     <Text style={[styles.priceRangeTitle, { color: colors.text }]}>

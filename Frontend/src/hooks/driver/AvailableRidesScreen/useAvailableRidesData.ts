@@ -59,6 +59,7 @@ const buildRide = (
     estimatedPrice: rideData.estimatedPrice || 0,
     status: statusRaw || 'requested',
     clientSuggestedPrice: rideData.clientSuggestedPrice,
+    dynamicMinimumFare: rideData.dynamicMinimumFare ?? rideData.pricingSnapshot?.dynamicMinimumFare ?? null,
     driverOfferedPrice: myOffer?.offeredPrice ?? null,
     driverOfferStatus: myOffer?.status ?? null,
     passengers: rideData.passengers || 1,

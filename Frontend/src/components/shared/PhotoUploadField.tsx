@@ -11,6 +11,7 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { LoadingIcon } from '../ui/LoadingIcon';
 import * as ImagePicker from 'expo-image-picker';
+import { launchCameraSafely } from '../../utils/cameraUtils';
 import { useTranslation } from 'react-i18next';
 
 interface PhotoUploadFieldProps {
@@ -44,7 +45,7 @@ export const PhotoUploadField: React.FC<PhotoUploadFieldProps> = ({
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [4, 3],
         quality: 0.8,
@@ -73,13 +74,13 @@ export const PhotoUploadField: React.FC<PhotoUploadFieldProps> = ({
         return;
       }
 
-      const result = await ImagePicker.launchCameraAsync({
+      const result = await launchCameraSafely({
         allowsEditing: true,
         aspect: [4, 3],
         quality: 0.8,
       });
 
-      if (!result.canceled) {
+      if (result && !result.canceled) {
         onPhotoSelected(result.assets[0].uri);
       }
     } catch (error) {

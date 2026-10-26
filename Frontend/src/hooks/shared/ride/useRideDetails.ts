@@ -8,6 +8,9 @@ export interface RideDetails {
   estimatedDuration: number;
   finalFare: number;
   estimatedPrice: number;
+  serviceCode?: string | null;
+  featureCodes?: string[];
+  surgeMultiplier?: number;
   driverId?: string;
   driver?: any;
 }
@@ -42,6 +45,16 @@ export function useRideDetails(rideId: string, fallbackAmount: number): {
               estimatedDuration: data.estimatedDuration || 0,
               finalFare: data.finalFare || data.estimatedPrice || fallbackAmount,
               estimatedPrice: data.estimatedPrice || 0,
+              serviceCode:
+                data.pricingSnapshot?.serviceCode ??
+                data.serviceCode ??
+                null,
+              featureCodes: Array.isArray(data.featureCodes)
+                ? data.featureCodes
+                : Array.isArray(data.pricingSnapshot?.featureCodes)
+                  ? data.pricingSnapshot.featureCodes
+                  : [],
+              surgeMultiplier: Number(data.surgeMultiplier ?? data.pricingSnapshot?.surgeMultiplier ?? 1),
               driverId: data.driverId,
               driver: data.driver,
             });

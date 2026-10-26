@@ -74,7 +74,7 @@ export function HomeScreenBottomActions({
 
       <View style={styles.regionHintChip}>
         <MaterialIcons name="place" size={14} color="#B38737" />
-        <Text style={styles.regionHintText} numberOfLines={2}>
+        <Text style={styles.regionHintText}>
           {!regionStatus.checked
             ? t('client.home.region.checking')
             : regionStatus.allowed

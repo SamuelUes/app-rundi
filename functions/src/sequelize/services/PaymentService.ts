@@ -5,6 +5,8 @@
 import { PaymentRepository } from '../repositories/PaymentRepository';
 import { RideRepository } from '../repositories/RideRepository';
 import { ServiceRepository } from '../repositories/ServiceRepository';
+import { getFallbackCommissionRate, serviceCodeFromRideFields } from '../../helpers/priceCalculator';
+import { calculateCommissionAmount } from '../../helpers/pricingRules';
 
 export class PaymentService {
   private paymentRepo = new PaymentRepository();
@@ -37,13 +39,18 @@ export class PaymentService {
       ?? this.parseNumber(ride?.client_suggested_price)
       ?? 0;
 
-    let commissionRate = overrideRate ?? null;
+    let commissionRate =
+      overrideRate ??
+      this.parseNumber(ride?.commission_rate_applied) ??
+      this.parseNumber(ride?.pricing_snapshot?.commissionRate);
+    let serviceCode: string | null = null;
 
     if (ride?.service_id) {
       try {
         const service = await this.serviceRepo.findById(ride.service_id);
 
         if (service) {
+          serviceCode = service.code ?? null;
           if (commissionRate === null || commissionRate === undefined) {
             const serviceRate = this.parseNumber(service.commission_rate);
             if (serviceRate !== null) {
@@ -68,10 +75,16 @@ export class PaymentService {
     }
 
     if (commissionRate === null || commissionRate === undefined) {
-      commissionRate = 0.11; // Fallback
+      commissionRate = getFallbackCommissionRate(
+        serviceCode ?? serviceCodeFromRideFields(
+          ride?.ride_type ?? ride?.rideType,
+          ride?.vehicle_type ?? ride?.vehicleType,
+          ride?.designated_driver_vehicle ?? ride?.designatedDriverVehicle,
+        ),
+      );
     }
 
-    const commission = Number((fare * commissionRate).toFixed(2));
+    const commission = calculateCommissionAmount(fare, commissionRate);
 
     return {
       fare: Number(fare.toFixed(2)),

@@ -239,6 +239,9 @@ export const syncActiveRidesByArea = functions.database
       estimatedDistance: after.estimatedDistance ?? null,
       estimatedDuration: after.estimatedDuration ?? null,
       clientSuggestedPrice: after.clientSuggestedPrice ?? null,
+      dynamicMinimumFare: Number.isFinite(after.pricingSnapshot?.dynamicMinimumFare)
+        ? after.pricingSnapshot.dynamicMinimumFare
+        : null,
       clientName: after.clientName ?? null,
       clientRating: after.clientRating ?? null,
       clientTotalRatings: after.clientTotalRatings ?? null,
@@ -317,6 +320,9 @@ export const syncProgrammedRidesByArea = functions.database
       passengers: after.passengers ?? null,
       paymentMethod: after.paymentMethod ?? null,
       serviceId: after.serviceId ?? null,
+      serviceCode: after.pricingSnapshot?.serviceCode ?? after.serviceCode ?? null,
+      featureCodes: Array.isArray(after.featureCodes) ? after.featureCodes : [],
+      surgeMultiplier: Number(after.surgeMultiplier ?? after.pricingSnapshot?.surgeMultiplier ?? 1),
       createdAt: after.createdAt ?? null,
       updatedAt: after.updatedAt ?? null,
       serviceAreaId,

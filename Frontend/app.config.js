@@ -1,6 +1,12 @@
+// EXPO_UNSIGNED=1 (firma con Apple ID gratuito / Personal Team): el bundle id real
+// ya está registrado por otro equipo de Apple y los equipos gratuitos solo pueden
+// registrar IDs que no existan, así que usamos uno propio para esas builds.
+const iosBundleIdentifier =
+  process.env.EXPO_UNSIGNED === '1' ? 'com.samuelues.rundi' : 'com.driveangel.rundidev';
+
 export default {
   name: 'Rundi',
-  slug: 'rundi',
+  slug: 'rundidev',
   version: '2',
   orientation: 'portrait',
   userInterfaceStyle: 'automatic',
@@ -9,7 +15,7 @@ export default {
   ios: {
     supportsTablet: true,
     deploymentTarget: '16.4',
-    bundleIdentifier: 'com.driveangel.rundidev',
+    bundleIdentifier: iosBundleIdentifier,
     icon: './src/assets/images/rundi_logo.png',
     urlSchemes: ['driveangel', 'tel', 'mailto', 'whatsapp', 'waze', 'googlemaps'],
     userInterfaceStyle: 'automatic',
@@ -29,7 +35,7 @@ export default {
     // Requerido por expo-secure-store/notifications en iOS Simulator (sin perfil de
     // aprovisionamiento real, Keychain rechaza el acceso con errSecMissingEntitlement).
     entitlements: {
-      'keychain-access-groups': ['$(AppIdentifierPrefix)com.driveangel.rundidev'],
+      'keychain-access-groups': [`$(AppIdentifierPrefix)${iosBundleIdentifier}`],
     },
     // EXPO_UNSIGNED=1 omite capabilities que exigen firma real (Apple Sign In),
     // permitiendo builds de simulador sin appleTeamId ni certificados.
@@ -172,6 +178,16 @@ export default {
         ios: {
           useFrameworks: 'static',
           enableSceneSupport: true,
+          // Xcode 27 trae Swift 6.4 y los XCFrameworks precompilados de Expo/RN
+          // se generaron con Swift 6.3.1 -> compilar todo desde fuente.
+          buildReactNativeFromSource: true,
+          usePrecompiledModules: false,
+          extraPods: [
+            // Firebase Auth reCAPTCHA Enterprise (SMS fraud defense) requiere el
+            // SDK nativo linkeado; sin él falla con ERROR_RECAPTCHA_SDK_NOT_LINKED.
+            // >=18.9.0 evita crashes en iOS 27 beta según doc oficial.
+            { name: 'RecaptchaEnterprise', version: '~> 18.9' },
+          ],
         },
       },
     ],
@@ -180,12 +196,12 @@ export default {
   ],
   extra: {
     eas: {
-      projectId: '98fe5b45-4177-4d65-8ce3-6b783abfe196'
+      projectId: 'e2fb53cb-9a9b-41a7-add2-9d172115fd77'
     },
     notificationsProjectId:
       process.env.EXPO_PUBLIC_NOTIFICATIONS_PROJECT_ID ||
       process.env.EXPO_NOTIFICATIONS_PROJECT_ID ||
-      '98fe5b45-4177-4d65-8ce3-6b783abfe196',
+      'e2fb53cb-9a9b-41a7-add2-9d172115fd77',
     domain: process.env.EXPO_PUBLIC_DOMAIN || 'rundiapp.com',
     apiUrl: process.env.API_URL || '',
     wsUrl: process.env.WS_URL || '',
@@ -203,5 +219,5 @@ export default {
       process.env.SUPABASE_ANON_KEY ||
       process.env.EXPO_PUBLIC_SUPABASE_KEY,
   },
-  owner: 'samuelues',
+  owner: 'rundi-dev',
 };

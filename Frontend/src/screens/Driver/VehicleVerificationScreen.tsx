@@ -18,9 +18,11 @@ import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useAuth } from '../../hooks/shared/auth/useAuth';
 import * as ImagePicker from 'expo-image-picker';
+import { launchCameraSafely } from '../../utils/cameraUtils';
 import StorageImage from '../../components/shared/StorageImage';
 import supabaseStorage from '../../services/supabaseStorage';
 import vehiclesService from '../../services/vehiclesService';
+import complianceService from '../../services/complianceService';
 
 interface VehicleVerificationProps {
   route: any;
@@ -48,7 +50,20 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
   const [insuranceNumber, setInsuranceNumber] = useState('');
   const [insuranceCompany, setInsuranceCompany] = useState('');
   const [insuranceExpiry, setInsuranceExpiry] = useState('');
-  
+
+  // Documentos periódicos (opcionales aquí; el motor de compliance los exige
+  // para operar vehículos nuevos — los antiguos están exentos por transición)
+  const [inspectionDate, setInspectionDate] = useState('');
+  const [inspectionValidUntil, setInspectionValidUntil] = useState('');
+  const [emissionsTestedAt, setEmissionsTestedAt] = useState('');
+  const [emissionsValidUntil, setEmissionsValidUntil] = useState('');
+  const [roadTaxPaidAt, setRoadTaxPaidAt] = useState('');
+  const [revisadoValidUntil, setRevisadoValidUntil] = useState('');
+  const [inspectionPhoto, setInspectionPhoto] = useState<string | null>(null);
+  const [emissionsPhoto, setEmissionsPhoto] = useState<string | null>(null);
+  const [roadTaxPhoto, setRoadTaxPhoto] = useState<string | null>(null);
+  const [revisadoPhoto, setRevisadoPhoto] = useState<string | null>(null);
+
   const [uploadProgress, setUploadProgress] = useState(0);
 
   // Solicitar permisos para la cámara
@@ -154,14 +169,13 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
   // Tomar foto con la cámara
   const takePhoto = async (setPhotoFunction: React.Dispatch<React.SetStateAction<string | null>>) => {
     try {
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      const result = await launchCameraSafely({
         allowsEditing: true,
         aspect: [4, 3],
         quality: 0.7,
       });
 
-      if (!result.canceled && result.assets && result.assets.length > 0) {
+      if (result && !result.canceled && result.assets && result.assets.length > 0) {
         setPhotoFunction(result.assets[0].uri);
       }
     } catch (error) {
@@ -188,7 +202,7 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [4, 3],
         quality: 0.7,
@@ -216,6 +230,23 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
       return;
     }
 
+    // Cada documento periódico es opcional, pero si se captura una fecha debe
+    // venir el par completo para registrar un documento coherente.
+    const partialDocs: string[] = [];
+    if ((inspectionDate && !inspectionValidUntil) || (!inspectionDate && inspectionValidUntil)) {
+      partialDocs.push(t(`${ns}.periodic.inspectionName`));
+    }
+    if ((emissionsTestedAt && !emissionsValidUntil) || (!emissionsTestedAt && emissionsValidUntil)) {
+      partialDocs.push(t(`${ns}.periodic.emissionsName`));
+    }
+    if (partialDocs.length > 0) {
+      Alert.alert(
+        t(`${ns}.alerts.missingDataTitle`),
+        `${t(`${ns}.alerts.partialDocsMessage`)}\n\n${partialDocs.join('\n')}`
+      );
+      return;
+    }
+
     setLoading(true);
     setUploadProgress(0);
 
@@ -226,6 +257,11 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
         { uri: registrationPhotoBack as string, type: 'registration_back' },
         { uri: insurancePhoto as string, type: 'insurance_photo' },
       ];
+      // Fotos opcionales de documentos periódicos
+      if (inspectionPhoto) photos.push({ uri: inspectionPhoto, type: 'inspection_photo' });
+      if (emissionsPhoto) photos.push({ uri: emissionsPhoto, type: 'emissions_photo' });
+      if (roadTaxPhoto) photos.push({ uri: roadTaxPhoto, type: 'road_tax_photo' });
+      if (revisadoPhoto) photos.push({ uri: revisadoPhoto, type: 'revisado_photo' });
 
       const uploadedUrls: Record<string, string> = {};
       let totalProgress = 0;
@@ -252,9 +288,9 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
         } else if (photo.type === 'insurance_photo') {
           downloadUrl = await supabaseStorage.uploadInsurancePhoto(user.id, photo.uri);
         } else {
-          // vehicle_photo - usar uploadImage genérico
+          // vehicle_photo y documentos periódicos - uploadImage genérico
           const timestamp = Date.now();
-          const path = `vehicles/${user.id}/vehicle_${timestamp}.jpg`;
+          const path = `vehicles/${user.id}/${photo.type}_${timestamp}.jpg`;
           downloadUrl = await supabaseStorage.uploadImage(photo.uri, 'drivers-documents', path);
         }
         
@@ -264,19 +300,76 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
         setUploadProgress(totalProgress);
       }
 
-      // Actualizar vehículo con datos de verificación
-      console.log('💾 Actualizando datos de verificación del vehículo...');
-      const updateResult = await vehiclesService.updateVehicle(vehicleId, {
-        registration_number: registrationNumber,
-        registration_expiry: registrationExpiry,
-        registration_photo_front: uploadedUrls['registration_front'],
-        registration_photo_back: uploadedUrls['registration_back'],
-        insurance_number: insuranceNumber,
-        insurance_company: insuranceCompany,
-        insurance_expiry: insuranceExpiry,
-        insurance_photo: uploadedUrls['insurance_photo'],
-        vehicle_photo: uploadedUrls['vehicle_photo'],
+      // Registrar en el sistema de compliance (versiones vigentes + historial;
+      // el backend mantiene las columnas legacy sincronizadas)
+      console.log('💾 Registrando documentos del vehículo en compliance...');
+      await complianceService.submitVehicleDocument({
+        vehicleId,
+        documentType: 'circulation_card',
+        cardNumber: registrationNumber,
+        declaredValidUntil: registrationExpiry,
+        documentPath: uploadedUrls['registration_front'],
+        documentPathBack: uploadedUrls['registration_back'],
       });
+
+      await complianceService.submitVehicleDocument({
+        vehicleId,
+        documentType: 'insurance',
+        policyNumber: insuranceNumber,
+        insurerName: insuranceCompany,
+        coverageType: 'rc_obligatorio',
+        effectiveUntil: insuranceExpiry,
+        documentPath: uploadedUrls['insurance_photo'],
+      });
+
+      // Documentos periódicos: se registran solo cuando el conductor capturó
+      // las fechas (son opcionales en esta pantalla; el motor decide si son
+      // exigibles según el vehículo y la transición).
+      if (inspectionDate && inspectionValidUntil) {
+        await complianceService.submitVehicleDocument({
+          vehicleId,
+          documentType: 'inspection',
+          inspectedAt: inspectionDate,
+          validUntil: inspectionValidUntil,
+          result: 'approved',
+          documentPath: uploadedUrls['inspection_photo'],
+        });
+      }
+      if (emissionsTestedAt && emissionsValidUntil) {
+        await complianceService.submitVehicleDocument({
+          vehicleId,
+          documentType: 'emissions',
+          testedAt: emissionsTestedAt,
+          validUntil: emissionsValidUntil,
+          result: 'approved',
+          documentPath: uploadedUrls['emissions_photo'],
+        });
+      }
+      if (roadTaxPaidAt) {
+        await complianceService.submitVehicleDocument({
+          vehicleId,
+          documentType: 'road_tax',
+          paidAt: roadTaxPaidAt,
+          taxYear: Number(roadTaxPaidAt.slice(0, 4)) || undefined,
+          documentPath: uploadedUrls['road_tax_photo'],
+        });
+      }
+      if (revisadoValidUntil) {
+        await complianceService.submitVehicleDocument({
+          vehicleId,
+          documentType: 'revisado',
+          validUntil: revisadoValidUntil,
+          stickerYear: Number(revisadoValidUntil.slice(0, 4)) || undefined,
+          documentPath: uploadedUrls['revisado_photo'],
+        });
+      }
+
+      // Foto del vehículo sigue por el endpoint legacy (no es documento de compliance)
+      if (uploadedUrls['vehicle_photo']) {
+        await vehiclesService.updateVehicle(vehicleId, {
+          vehicle_photo: uploadedUrls['vehicle_photo'],
+        });
+      }
 
       setLoading(false);
       Alert.alert(
@@ -404,6 +497,71 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
         />
       </View>
 
+      {/* Documentos periódicos (opcional; requeridos para operar) */}
+      <View style={styles.dataSection}>
+        <Text style={styles.sectionTitle}>{t(`${ns}.periodic.title`)}</Text>
+        <Text style={styles.periodicHint}>{t(`${ns}.periodic.subtitle`)}</Text>
+
+        <Text style={styles.label}>{t(`${ns}.periodic.inspectionDateLabel`)}</Text>
+        <DatePickerField
+          style={styles.input}
+          placeholder={t(`${ns}.periodic.inspectionDatePlaceholder`)}
+          value={inspectionDate}
+          onChangeText={setInspectionDate}
+          placeholderTextColor={colors.textSecondary}
+        />
+
+        <Text style={styles.label}>{t(`${ns}.periodic.inspectionValidUntilLabel`)}</Text>
+        <DatePickerField
+          style={styles.input}
+          placeholder={t(`${ns}.periodic.inspectionValidUntilPlaceholder`)}
+          value={inspectionValidUntil}
+          onChangeText={setInspectionValidUntil}
+          placeholderTextColor={colors.textSecondary}
+        />
+
+        <Text style={styles.label}>{t(`${ns}.periodic.emissionsTestedAtLabel`)}</Text>
+        <DatePickerField
+          style={styles.input}
+          placeholder={t(`${ns}.periodic.emissionsTestedAtPlaceholder`)}
+          value={emissionsTestedAt}
+          onChangeText={setEmissionsTestedAt}
+          placeholderTextColor={colors.textSecondary}
+        />
+
+        <Text style={styles.label}>{t(`${ns}.periodic.emissionsValidUntilLabel`)}</Text>
+        <DatePickerField
+          style={styles.input}
+          placeholder={t(`${ns}.periodic.emissionsValidUntilPlaceholder`)}
+          value={emissionsValidUntil}
+          onChangeText={setEmissionsValidUntil}
+          placeholderTextColor={colors.textSecondary}
+        />
+
+        <Text style={styles.label}>{t(`${ns}.periodic.roadTaxPaidAtLabel`)}</Text>
+        <DatePickerField
+          style={styles.input}
+          placeholder={t(`${ns}.periodic.roadTaxPaidAtPlaceholder`)}
+          value={roadTaxPaidAt}
+          onChangeText={setRoadTaxPaidAt}
+          placeholderTextColor={colors.textSecondary}
+        />
+
+        <Text style={styles.label}>{t(`${ns}.periodic.revisadoValidUntilLabel`)}</Text>
+        <DatePickerField
+          style={styles.input}
+          placeholder={t(`${ns}.periodic.revisadoValidUntilPlaceholder`)}
+          value={revisadoValidUntil}
+          onChangeText={setRevisadoValidUntil}
+          placeholderTextColor={colors.textSecondary}
+        />
+
+        {renderPhotoCard(t(`${ns}.periodic.photoInspection`), inspectionPhoto, setInspectionPhoto)}
+        {renderPhotoCard(t(`${ns}.periodic.photoEmissions`), emissionsPhoto, setEmissionsPhoto)}
+        {renderPhotoCard(t(`${ns}.periodic.photoRoadTax`), roadTaxPhoto, setRoadTaxPhoto)}
+        {renderPhotoCard(t(`${ns}.periodic.photoRevisado`), revisadoPhoto, setRevisadoPhoto)}
+      </View>
+
       {/* Fotos del Vehículo */}
       <View style={styles.photoSection}>
         <View style={styles.photoSectionHeader}>
@@ -525,6 +683,13 @@ const createStyles = (colors: any) => StyleSheet.create({
     color: colors.text,
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  periodicHint: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    lineHeight: 18,
+    marginBottom: 6,
+    marginTop: -8,
   },
 
   photoSection: {

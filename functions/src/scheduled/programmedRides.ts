@@ -3,6 +3,11 @@ import admin from 'firebase-admin';
 import { notifyUserSafe } from '../services/notifyUserSafe';
 import { RideRepository } from '../sequelize/repositories/RideRepository';
 import { RideLocationRepository } from '../sequelize/repositories/RideLocationRepository';
+import {
+  getCommissionFromDatabase,
+  serviceCodeFromRideFields,
+} from '../helpers/priceCalculator';
+import { calculateCommissionAmount } from '../helpers/pricingRules';
 
 const db = admin.database();
 
@@ -40,6 +45,24 @@ const upsertRideInSupabase = async (rideId: string, ride: any, status: string) =
   const createdAt = new Date();
 
   if (!existing) {
+    let pricingSnapshot = ride.pricingSnapshot ?? null;
+    let commissionRate = pricingSnapshot?.commissionRate ?? null;
+    if (ride.driverId && pricingSnapshot) {
+      const serviceCode = pricingSnapshot.serviceCode ?? serviceCodeFromRideFields(
+        ride.rideType,
+        ride.vehicleType,
+        ride.designatedDriverVehicle,
+      );
+      commissionRate = await getCommissionFromDatabase(ride.driverId, serviceCode);
+      pricingSnapshot = {
+        ...pricingSnapshot,
+        commissionRate,
+        commissionAmount: calculateCommissionAmount(
+          Number(pricingSnapshot.finalFare ?? ride.estimatedPrice ?? 0),
+          commissionRate,
+        ),
+      };
+    }
     const record = await rideRepo.create({
       id: rideId,
       firebase_ride_id: rideId,
@@ -48,6 +71,10 @@ const upsertRideInSupabase = async (rideId: string, ride: any, status: string) =
       estimated_distance: ride.estimatedDistance ?? null,
       estimated_duration: ride.estimatedDuration ?? null,
       estimated_price: ride.estimatedPrice ?? null,
+      pricing_snapshot: pricingSnapshot,
+      feature_codes: Array.isArray(ride.featureCodes) ? ride.featureCodes : [],
+      surge_multiplier: ride.surgeMultiplier ?? 1,
+      commission_rate_applied: commissionRate,
       passengers: ride.passengers ?? 1,
       notes: ride.notes || null,
       ride_type: ride.rideType || 'normal',
@@ -150,6 +177,9 @@ const buildActiveRidePayload = (rideId: string, programmedRide: any, options: { 
     origin,
     destination,
     estimatedPrice: programmedRide.estimatedPrice ?? null,
+    pricingSnapshot: programmedRide.pricingSnapshot ?? null,
+    featureCodes: programmedRide.featureCodes ?? [],
+    surgeMultiplier: programmedRide.surgeMultiplier ?? 1,
     estimatedDistance: programmedRide.estimatedDistance ?? null,
     estimatedDuration: programmedRide.estimatedDuration ?? null,
     rideType: programmedRide.rideType ?? 'normal',

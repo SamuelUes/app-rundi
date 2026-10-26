@@ -4,6 +4,9 @@ import { firestore } from '../config/firebase';
 import { regionConfig } from '../config/functions-config';
 import { DriverRepository } from '../sequelize/repositories/DriverRepository';
 import { VehicleRepository } from '../sequelize/repositories/VehicleRepository';
+import Vehicle from '../sequelize/models/Vehicle';
+import { complianceService } from '../sequelize/services/compliance';
+import { canRequestPreflightMode } from '../helpers/preflightRole';
 import { handleCheckRegionAvailability } from './region_availability';
 
 type PreflightRole = 'client' | 'driver';
@@ -161,6 +164,11 @@ type DriverApprovalData = {
     accountStatus: DriverApprovalStatus;
     documentsStatus: DriverDocumentsStatus;
     hasActiveVehicle: boolean;
+    compliance: {
+      allowed: boolean;
+      status: string;
+      reasons: Array<Record<string, unknown>>;
+    } | null;
   };
   driverData: Record<string, unknown> | null;
 };
@@ -174,22 +182,59 @@ async function getDriverApproval(driverId: string): Promise<DriverApprovalData> 
         accountStatus: 'pending',
         documentsStatus: 'pending',
         hasActiveVehicle: false,
+        compliance: null,
       },
       driverData: null,
     };
   }
 
   const driverJson = driver.toJSON() as Record<string, unknown>;
+  const driverUuid = String(driverJson.id || '');
   const accountStatus = normalizeDriverAccountStatus(driverJson.status);
   const documentsStatus = normalizeDriverDocumentsStatus(driverJson.documents_status);
-  const hasActiveVehicle = await vehicleRepo.hasActiveForDriverId(String(driverJson.id || ''));
+  const hasActiveVehicle = await vehicleRepo.hasActiveForDriverId(driverUuid);
+
+  // ✅ Evaluación de compliance documental (read-only: sin persistir en preflight)
+  let compliance: DriverApprovalData['summary']['compliance'] = null;
+  try {
+    const activeVehicle = hasActiveVehicle
+      ? await Vehicle.findOne({
+          where: { driver_id: driverUuid, is_active: true },
+          order: [['updated_at', 'DESC']],
+          attributes: ['id'],
+        })
+      : null;
+
+    const evaluation = activeVehicle
+      ? await complianceService.canDriverOperateVehicle(driverUuid, activeVehicle.id, null, {
+          evaluatedBy: 'preflight',
+          persist: false,
+        })
+      : await complianceService.canDriverOperate(driverUuid, {
+          evaluatedBy: 'preflight',
+          persist: false,
+        });
+
+    compliance = {
+      allowed: evaluation.allowed,
+      status: evaluation.status,
+      reasons: evaluation.reasons as unknown as Array<Record<string, unknown>>,
+    };
+  } catch (complianceError: any) {
+    console.warn('⚠️ [getDriverApproval] Error evaluando compliance:', complianceError?.message || complianceError);
+  }
 
   return {
     summary: {
-      allowed: accountStatus === 'active' && documentsStatus === 'verified' && hasActiveVehicle,
+      allowed:
+        accountStatus === 'active' &&
+        documentsStatus === 'verified' &&
+        hasActiveVehicle &&
+        (compliance === null ? true : compliance.allowed),
       accountStatus,
       documentsStatus,
       hasActiveVehicle,
+      compliance,
     },
     driverData: driverJson,
   };
@@ -524,7 +569,7 @@ async function buildPreflightDataResponse(data: GetPreflightDataRequest, authUse
     if (!authoritativeRole) {
       throw new functions.https.HttpsError('failed-precondition', 'Rol de usuario no disponible para preflight');
     }
-    if (authoritativeRole !== requestedRole) {
+    if (!canRequestPreflightMode(profile.role, requestedRole)) {
       throw new functions.https.HttpsError('permission-denied', 'role no coincide con el perfil autenticado');
     }
 

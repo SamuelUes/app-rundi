@@ -563,8 +563,11 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
       vehicleModel: rideSnapshot.vehicle?.model || 'N/A',
       vehicleColor: rideSnapshot.vehicle?.color || 'N/A',
       estimatedFare: rideSnapshot.finalFare || rideSnapshot.estimatedPrice || 0,
+      showDesignatedDriverEvidenceNotice:
+        String(rideSnapshot.rideType || effectiveProgrammedRide?.rideType || '').toLowerCase() === 'designated_driver' ||
+        String(rideSnapshot.vehicleType || effectiveProgrammedRide?.vehicleType || '').toLowerCase() === 'designated_driver',
     });
-  }, [programmedRide, rideSnapshot, rideId, navigation, assignedDriver]);
+  }, [programmedRide, rideSnapshot, rideId, navigation, assignedDriver, effectiveProgrammedRide]);
 
   const negotiationStatusLabel = useCallback(
     (status?: string) => {
@@ -725,6 +728,11 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
             rideSnapshot?.driverOfferedPrice,
             rideSnapshot?.negotiation?.driverOfferedPrice,
           ) ?? 0
+        }
+        dynamicMinimumFare={
+          typeof rideSnapshot?.pricingSnapshot?.dynamicMinimumFare === 'number'
+            ? rideSnapshot.pricingSnapshot.dynamicMinimumFare
+            : undefined
         }
         negotiationStatus={rideSnapshot?.negotiationStatus}
         acceptedClientPrice={rideSnapshot?.acceptedClientPrice}

@@ -3,6 +3,7 @@
  */
 
 import Service from '../models/Service';
+import { Transaction } from 'sequelize';
 
 export class ServiceRepository {
   async create(data: any): Promise<Service> {
@@ -30,10 +31,10 @@ export class ServiceRepository {
     return await Service.findAll({ where: { is_active: true } });
   }
 
-  async update(id: string, data: any): Promise<Service> {
-    const service = await Service.findByPk(id);
+  async update(id: string, data: any, transaction?: Transaction): Promise<Service> {
+    const service = await Service.findByPk(id, transaction ? { transaction } : undefined);
     if (!service) throw new Error('Servicio no encontrado');
-    return await service.update(data);
+    return await service.update(data, transaction ? { transaction } : undefined);
   }
 
   async delete(id: string): Promise<boolean> {

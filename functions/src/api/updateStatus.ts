@@ -27,13 +27,38 @@ export const updateStatus = functions.https.onCall(async (data, context) => {
 
     console.log(`📍 [updateStatus] Actualizando estado del conductor: ${driverId} -> ${status}`);
 
-    // ✅ Actualizado: Bloqueo basado en MONTO pendiente usando el summary de RTDB (mismo criterio que el frontend)
+    // Bloqueo de disponibilidad con el mismo criterio que el frontend:
+    // (a) wallet bloqueada / sin saldo recargado (drivers/{uid}/wallet), y
+    // (b) deuda de comisiones/penalizaciones pendiente >= C$150 (driverPenalties summary).
     try {
       const requested = String(status || '').toLowerCase();
       if (requested === 'available') {
-        const snapshot = await db.ref(`driverPenalties/${driverId}/summary`).once('value');
-        const summary = snapshot.val() || {};
+        const [walletSnap, summarySnap] = await Promise.all([
+          db.ref(`drivers/${driverId}/wallet`).once('value'),
+          db.ref(`driverPenalties/${driverId}/summary`).once('value'),
+        ]);
 
+        const wallet = walletSnap.val();
+        const walletBalance = Number(
+          wallet?.availableBalance ?? wallet?.currentRechargeBalance ?? wallet?.balance ?? 0,
+        );
+        // Si el nodo wallet aún no existe (nunca se sincronizó) no se bloquea,
+        // igual que el frontend. Con nodo presente: bloqueado o saldo <= 0.
+        const walletBlocked =
+          walletSnap.exists() &&
+          (wallet?.blocked === true || wallet?.blocked === 'true' || walletBalance <= 0);
+
+        if (walletBlocked) {
+          console.warn(
+            `⛔ [updateStatus] Conductor ${driverId} sin saldo de monedero (balance=${walletBalance})`,
+          );
+          throw new functions.https.HttpsError(
+            'failed-precondition',
+            'No puedes activar disponibilidad: no tienes saldo en el monedero. Recarga fondos para continuar.',
+          );
+        }
+
+        const summary = summarySnap.val() || {};
         const pendingAmount = Number(
           summary.pendingAmount ??
             summary.paymentCommissionPendingAmount ??

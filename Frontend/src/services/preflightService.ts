@@ -3,17 +3,11 @@ import { httpsCallable } from 'firebase/functions';
 import type { User as FirebaseUser } from 'firebase/auth';
 import type { GetPreflightDataRequest, GetPreflightDataResponse, TermsDocumentType } from '../types/preflight';
 import { waitForFirebaseAuthUser } from '../utils/firebaseAuthReady';
-import client from '../api/client';
 
 function isUnauthenticatedError(error: any): boolean {
   const code = String(error?.code || '').toLowerCase();
   const message = String(error?.message || '').toLowerCase();
   return code === 'unauthenticated' || code.endsWith('/unauthenticated') || message.includes('unauthenticated');
-}
-
-function isRetryableHttpError(error: any): boolean {
-  const status = Number(error?.response?.status || 0);
-  return status === 429 || status >= 500 || (status === 0 && error?.isAxiosError === true);
 }
 
 function isRetryableCallableError(error: any): boolean {
@@ -24,17 +18,6 @@ function isRetryableCallableError(error: any): boolean {
     code.endsWith('/deadline-exceeded') ||
     code.endsWith('/network-request-failed')
   );
-}
-
-function isHttpUnauthenticated(error: any): boolean {
-  const status = Number(error?.response?.status || 0);
-  const code = String(error?.response?.data?.code || '').toLowerCase();
-  return status === 401 || code.includes('unauthenticated');
-}
-
-function isHttpNotFound(error: any): boolean {
-  const status = Number(error?.response?.status || 0);
-  return status === 404;
 }
 
 async function delay(ms: number): Promise<void> {
@@ -113,6 +96,14 @@ const preflightService = {
       throw new Error('UID de Firebase Auth no coincide con userId del payload');
     }
 
+    // The backend derives identity from the verified token; never send a client-selected UID.
+    const requestPayload: GetPreflightDataRequest = {
+      role: payload.role,
+      platform: payload.platform,
+      appVersion: payload.appVersion,
+      location: payload.location,
+    };
+
     const cacheGeneration = preflightCache.generation;
     const cacheKey = makePayloadKey(payload, authUser.uid);
     const cached = preflightCache.entry;
@@ -127,7 +118,6 @@ const preflightService = {
       { timeout: 30_000 },
     );
     const maxAttempts = 3;
-    let useCallable = false;
     let forceTokenRefresh = false;
     let lastError: any = null;
 
@@ -138,27 +128,7 @@ const preflightService = {
           forceTokenRefresh = false;
         }
 
-        let result: GetPreflightDataResponse;
-        if (useCallable) {
-          result = (await callable(payload)).data;
-        } else {
-          try {
-            const response = await client.post('/getPreflightDataHttp', payload);
-            result = response.data as GetPreflightDataResponse;
-          } catch (httpError: any) {
-            if (isHttpUnauthenticated(httpError)) {
-              throw httpError;
-            }
-            const shouldFallbackToCallable =
-              isHttpNotFound(httpError) || isRetryableHttpError(httpError);
-            if (!shouldFallbackToCallable) {
-              throw httpError;
-            }
-            // Fallback temporal mientras se despliega el endpoint HTTP
-            useCallable = true;
-            result = (await callable(payload)).data;
-          }
-        }
+        const result = (await callable(requestPayload)).data;
 
         if (!isValidPreflightResponse(result, authUser.uid, payload.role)) {
           throw new Error('Respuesta de preflight inválida o de otro usuario');
@@ -171,14 +141,11 @@ const preflightService = {
         return result;
       } catch (error: any) {
         lastError = error;
-        const retryable = isHttpUnauthenticated(error) || isRetryableHttpError(error) || isRetryableCallableError(error);
+        const retryable = isRetryableCallableError(error);
         if (!retryable || attempt === maxAttempts) {
           throw error;
         }
-        forceTokenRefresh = isHttpUnauthenticated(error) || isUnauthenticatedError(error);
-        if (forceTokenRefresh) {
-          useCallable = true;
-        }
+        forceTokenRefresh = isUnauthenticatedError(error);
         await delay(450 * attempt);
       }
     }

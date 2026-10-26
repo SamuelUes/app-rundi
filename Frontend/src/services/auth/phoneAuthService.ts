@@ -139,6 +139,54 @@ class PhoneAuthService {
     this.confirmations.delete(normalized);
   }
 
+  /**
+   * Elimina la cuenta del usuario actualmente autenticado en el SDK nativo
+   * (sesión creada al verificar un SMS con signInWithPhoneNumber).
+   * Si se indica expectedPhone, solo elimina cuando coincide con el teléfono
+   * del usuario, para no borrar una cuenta ajena a un registro pendiente.
+   */
+  async deleteCurrentUser(expectedPhone?: string): Promise<boolean> {
+    if (!isNativeFirebaseSupported()) {
+      return false;
+    }
+
+    const nativeAuthModule = await loadNativeFirebaseAuth();
+    const currentUser = nativeAuthModule?.getAuth?.().currentUser;
+
+    if (!currentUser) {
+      return false;
+    }
+
+    if (expectedPhone) {
+      const expected = this.normalizePhone(expectedPhone).replace(/\D/g, '');
+      const current = (currentUser.phoneNumber || '').replace(/\D/g, '');
+      if (!expected || expected !== current) {
+        return false;
+      }
+    }
+
+    await currentUser.delete();
+    console.log('✅ Usuario nativo eliminado de Firebase Authentication');
+    return true;
+  }
+
+  /**
+   * Cierra la sesión del SDK nativo de Firebase Auth si existe.
+   */
+  async signOutCurrentUser(): Promise<void> {
+    if (!isNativeFirebaseSupported()) {
+      return;
+    }
+
+    const nativeAuthModule = await loadNativeFirebaseAuth();
+    const auth = nativeAuthModule?.getAuth?.();
+
+    if (auth?.currentUser) {
+      await auth.signOut();
+      console.log('✅ Sesión nativa de Firebase cerrada');
+    }
+  }
+
   private async getNativeAuthModule() {
     if (!isNativeFirebaseSupported()) {
       throw new Error(this.tr('errors.smsRequiresBuild'));

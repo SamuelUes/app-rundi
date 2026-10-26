@@ -37,6 +37,7 @@ import firebaseTrackingService from '../../services/firebaseTrackingService';
 import { ActiveRideSheetHeader } from '../../components/driver/ActiveRide/ActiveRideSheetHeader';
 import { ActiveRideAddressesCard } from '../../components/driver/ActiveRide/ActiveRideAddressesCard';
 import { ActiveRideCTAButtons } from '../../components/driver/ActiveRide/ActiveRideCTAButtons';
+import { DesignatedDriverEvidenceModal } from '../../components/driver/ActiveRide/DesignatedDriverEvidenceModal';
 
 interface RouteParams {
   rideId: string;
@@ -74,6 +75,12 @@ export default function ActiveRideScreen({ route, navigation }: any) {
     isPendingPayment,
   } = useRideData(rideId, t('driver.activeRide.alerts.rideNotFound'));
   const [updating, setUpdating] = useState(false);
+  const [showDesignatedEvidenceModal, setShowDesignatedEvidenceModal] = useState(false);
+  const [inspectionCompletedLocally, setInspectionCompletedLocally] = useState(false);
+  const isDesignatedRide = String(ride?.rideType ?? ride?.ride_type ?? '').toLowerCase() === 'designated_driver';
+  const hasDesignatedEvidence = inspectionCompletedLocally || (
+    ride?.vehicleInspection?.completed === true && ride?.vehicleInspection?.documentsConfirmed === true
+  );
   const [routePolyline, setRoutePolyline] = useState<any[]>([]);
   const [pickupLegPolyline, setPickupLegPolyline] = useState<any[]>([]);
   const [stopsLegPolyline, setStopsLegPolyline] = useState<any[]>([]);
@@ -90,6 +97,11 @@ export default function ActiveRideScreen({ route, navigation }: any) {
   useEffect(() => {
     coordsRef.current = coords;
   }, [coords]);
+
+  useEffect(() => {
+    setInspectionCompletedLocally(false);
+    setShowDesignatedEvidenceModal(false);
+  }, [rideId]);
 
   const formatCurrency = useCallback(
     (value?: number | null) =>
@@ -720,12 +732,28 @@ export default function ActiveRideScreen({ route, navigation }: any) {
     );
   };
 
+  const handleMarkDriverArrived = async () => {
+    try {
+      setUpdating(true);
+      await ridesService.markDriverArrived(rideId);
+    } catch (error: any) {
+      alertService.showErrorAlert(error?.message || t('driver.activeRide.alerts.arriveError'));
+    } finally {
+      setUpdating(false);
+    }
+  };
+
   const handleStartRide = async () => {
+    if (isDesignatedRide && !hasDesignatedEvidence) {
+      setShowDesignatedEvidenceModal(true);
+      return;
+    }
+
     try {
       setUpdating(true);
       await ridesService.updateRideStatus(rideId, 'in_progress');
-    } catch (error) {
-      alertService.showErrorAlert(t('driver.activeRide.alerts.startRideError'));
+    } catch (error: any) {
+      alertService.showErrorAlert(error?.message || t('driver.activeRide.alerts.startRideError'));
     } finally {
       setUpdating(false);
     }
@@ -828,11 +856,19 @@ export default function ActiveRideScreen({ route, navigation }: any) {
 
     let key = 'goOnRoute';
     let icon: 'near-me' | 'flag' | 'check-circle' = 'near-me';
-    let onPress = handleGoOnRoute;
+    let onPress: () => void | Promise<void> = handleGoOnRoute;
     if (isInProgress) {
       key = 'completeRide';
       icon = 'check-circle';
       onPress = handleCompleteRide;
+    } else if (isDesignatedRide && isDriverOnRoute) {
+      key = 'markArrived';
+      icon = 'flag';
+      onPress = handleMarkDriverArrived;
+    } else if (isDesignatedRide && isDriverArrived && !hasDesignatedEvidence) {
+      key = 'completeEvidence';
+      icon = 'flag';
+      onPress = () => setShowDesignatedEvidenceModal(true);
     } else if (isDriverOnRoute || isDriverArrived) {
       key = 'startRide';
       icon = 'flag';
@@ -849,6 +885,9 @@ export default function ActiveRideScreen({ route, navigation }: any) {
     isAccepted,
     isDriverOnRoute,
     isDriverArrived,
+    isDesignatedRide,
+    hasDesignatedEvidence,
+    handleMarkDriverArrived,
     isInProgress,
     isCompleted,
     isCanceled,
@@ -1050,6 +1089,15 @@ export default function ActiveRideScreen({ route, navigation }: any) {
           </View>
         )}
       </Animated.View>
+
+      <DesignatedDriverEvidenceModal
+        visible={showDesignatedEvidenceModal}
+        rideId={rideId}
+        driverId={user?.id || ''}
+        onClose={() => setShowDesignatedEvidenceModal(false)}
+        onCompleted={() => setInspectionCompletedLocally(true)}
+        onCancelRide={handleCancelRide}
+      />
     </View>
   );
 }

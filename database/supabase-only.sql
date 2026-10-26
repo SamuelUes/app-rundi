@@ -2,10 +2,11 @@
 -- ============================================
 -- SUPABASE POSTGRESQL - ESQUEMA DE REFERENCIA
 -- Rundi / proyecto remoto rundiapp-dev
--- Estado verificado: 2026-10-06
--- Fuente: esquema remoto contrastado con migrations versionadas hasta 2026-10-06.
--- El MCP reporta vacío el historial remoto de migrations; este archivo no las ejecuta.
--- Los efectos observados de las migrations se distinguen de los cambios locales.
+-- Estado verificado: 2026-10-25
+-- Base contrastada con rundiapp-dev; Pricing 2.0 aplicada como migration
+-- 20261025194353_pricing_v2_services_features_surge_snapshots.
+-- Este archivo es el diseño de referencia consolidado; no registra migrations por sí solo.
+-- Los demás efectos observados de migrations y diferencias locales se distinguen abajo.
 -- El event trigger remoto ensure_rls (public.rls_auto_enable()) se documenta
 -- como infraestructura externa y no se recrea en este esquema de aplicación.
 -- ============================================
@@ -17,6 +18,7 @@
 -- 1. Funciones helper y objetos de public (tablas, vistas, RLS, auditoría)
 -- 2. Storage (buckets privados de base y políticas de storage.objects)
 -- 3. Diferencias exclusivamente locales, documentadas como comentarios al final
+-- 4. Pricing 2.0 (Features, Surge, snapshots y políticas RLS)
 --
 -- STORAGE EN PRODUCCIÓN (observado, no replicado por seguridad aquí):
 -- drivers-documents, rides-documents, support-calls y support_chats son públicos;
@@ -559,7 +561,7 @@ COMMENT ON COLUMN public.rides.driver_offered_price IS 'Precio ofrecido por el c
 COMMENT ON COLUMN public.rides.vehicle_type IS 'Tipo de vehículo solicitado: moto, auto, designated_driver';
 COMMENT ON COLUMN public.rides.designated_driver_vehicle IS "Para conductor designado: 'auto' o 'moto'";
 COMMENT ON COLUMN public.rides.client_vehicle_photo IS 'URL de la foto del vehículo del cliente (solo para conductor designado)';
-COMMENT ON COLUMN public.rides.service_id IS 'Referencia al servicio ofrecido (normal, designated_driver, night, motorcycle, etc)';
+COMMENT ON COLUMN public.rides.service_id IS 'Service aplicado; night se conserva únicamente para viajes legacy';
 COMMENT ON COLUMN public.rides.payment_type IS 'Método de pago: cash (efectivo), card_local (bancos locales), stripe';
 COMMENT ON COLUMN public.rides.biometric_acceptance_required IS 'Indica si se requiere biometría para aceptar el viaje (conductor designado)';
 COMMENT ON COLUMN public.rides.biometric_acceptance_type IS 'Tipo de biometría requerida: fingerprint (huella) o face_id (reconocimiento facial)';
@@ -1243,6 +1245,19 @@ CREATE TABLE IF NOT EXISTS public.designated_driver_inspections (
   CONSTRAINT designated_driver_inspections_ride_id_fkey FOREIGN KEY (ride_id) REFERENCES public.rides(id) ON DELETE RESTRICT
 ) TABLESPACE pg_default;
 
+ALTER TABLE public.designated_driver_inspections
+  ADD COLUMN IF NOT EXISTS insurance_document_photo VARCHAR(500) NULL,
+  ADD COLUMN IF NOT EXISTS registration_document_photo VARCHAR(500) NULL,
+  ADD COLUMN IF NOT EXISTS front_driver_seat_photo VARCHAR(500) NULL,
+  ADD COLUMN IF NOT EXISTS front_passenger_seat_photo VARCHAR(500) NULL,
+  ADD COLUMN IF NOT EXISTS rear_left_seat_photo VARCHAR(500) NULL,
+  ADD COLUMN IF NOT EXISTS rear_right_seat_photo VARCHAR(500) NULL,
+  ADD COLUMN IF NOT EXISTS documents_confirmed BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS documents_confirmed_at TIMESTAMP WITHOUT TIME ZONE NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_designated_driver_inspections_ride_unique
+  ON public.designated_driver_inspections (ride_id);
+
 COMMENT ON TABLE public.designated_driver_inspections IS 'Inspecciones de vehículos del cliente para viajes de conductor designado - Fotos en Supabase Storage';
 COMMENT ON COLUMN public.designated_driver_inspections.ride_id IS 'ID del viaje (FK a rides)';
 COMMENT ON COLUMN public.designated_driver_inspections.driver_id IS 'Firebase Auth UID del conductor que realizó la inspección';
@@ -1300,7 +1315,7 @@ DO $$ BEGIN
 END $$;
 
 COMMENT ON TABLE public.services IS 'Catálogo de servicios disponibles (Viaje Normal, Conductor Designado, etc)';
-COMMENT ON COLUMN public.services.commission_rate IS 'Tasa de comisión (0.1100 = 11%)';
+COMMENT ON COLUMN public.services.commission_rate IS 'Tasa de comisión sobre el total pagado (0.1500 = 15%)';
 COMMENT ON COLUMN public.services.code IS 'Código único del servicio para identificación en código';
 
 CREATE INDEX IF NOT EXISTS idx_services_code ON public.services USING btree (code);
@@ -1314,11 +1329,11 @@ FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 -- Seed inicial de servicios (idempotente)
 INSERT INTO public.services (id, name, description, code, commission_rate, base_price, price_per_km, price_per_minute, minimum_fare, vehicle_types, requires_special_license, max_distance_km, available_hours, icon, color, display_order, is_active, is_featured)
 VALUES
-  ('e1cdd47c-9f57-4ed4-93a0-59cdfdffff8a', 'Viaje Normal', 'Servicio estándar de transporte urbano', 'normal', 0.1100, 50.00, 10.00, 0.00, 50.00, '["auto"]'::jsonb, FALSE, NULL, NULL, 'car', '#0A84FF', 1, TRUE, TRUE),
+  ('e1cdd47c-9f57-4ed4-93a0-59cdfdffff8a', 'Viaje Normal', 'Servicio estándar de transporte urbano', 'normal', 0.1500, 50.00, 10.00, 0.00, 50.00, '["auto"]'::jsonb, FALSE, NULL, NULL, 'car', '#0A84FF', 1, TRUE, TRUE),
   ('5e88177d-38f2-4864-addc-272dda26ef28', 'Viaje en Moto', 'Transporte rápido en motocicleta', 'motorcycle', 0.0750, 50.00, 8.00, 0.00, 50.00, '["motorcycle"]'::jsonb, FALSE, NULL, NULL, 'motorcycle', '#FFAA00', 2, TRUE, FALSE),
   ('b3c69940-2e43-459f-8c2e-459773c56f8e', 'Conductor Designado Auto', 'Servicio de conductor para auto designado para eventos', 'designated_driver_auto', 0.2500, 50.00, 13.00, 0.00, 50.00, '["auto"]'::jsonb, TRUE, NULL, NULL, 'bar', '#8E44AD', 3, TRUE, TRUE),
-  ('f7a4b2c1-3d56-4e89-9f01-2c5b6e7d8a9f', 'Conductor Designado Moto', 'Servicio de conductor designado para moto para eventos', 'designated_driver_moto', 0.2500, 50.00, 13.00, 0.00, 50.00, '["motorcycle"]'::jsonb, TRUE, NULL, NULL, 'bar', '#ad7f44', 4, TRUE, TRUE),
-  ('691f8f01-3faf-4e39-aeb7-1bc4dda3fc19', 'Viaje Nocturno', 'Servicio nocturno con tarifa especial (10pm-4am)', 'night', 0.1200, 40.00, 12.00, 0.00, 40.00, '["auto"]'::jsonb, FALSE, NULL, '{"start": "22:00", "end": "04:00"}'::jsonb, 'moon', '#2C3E50', 5, TRUE, FALSE)
+  ('f7a4b2c1-3d56-4e89-9f01-2c5b6e7d8a9f', 'Conductor Designado Moto', 'Servicio de conductor designado para moto para eventos', 'designated_driver_moto', 0.1250, 50.00, 13.00, 0.00, 50.00, '["motorcycle"]'::jsonb, TRUE, NULL, NULL, 'bar', '#ad7f44', 4, TRUE, TRUE),
+  ('691f8f01-3faf-4e39-aeb7-1bc4dda3fc19', 'Viaje Nocturno (legacy)', 'Legacy reference retained for historical rides; use the night Feature for new rides.', 'night', 0.1200, 40.00, 12.00, 0.00, 40.00, '["auto"]'::jsonb, FALSE, NULL, '{"start": "22:00", "end": "04:00"}'::jsonb, 'moon', '#2C3E50', 5, FALSE, FALSE)
 ON CONFLICT (code) DO UPDATE
 SET
   name = EXCLUDED.name,
@@ -1607,19 +1622,23 @@ BEGIN
   FROM public.drivers
   WHERE user_id = p_driver_uid;
 
+  -- services.code es enum service_code en producción; ::text funciona con ambos tipos
   SELECT id, commission_rate INTO v_service_id, v_commission
   FROM public.services
-  WHERE code = p_service_code;
+  WHERE code::text = p_service_code;
 
   IF v_service_id IS NULL THEN
     -- Servicio no encontrado, usar valores por defecto
-    IF p_service_code = 'designated_driver' THEN
-      RETURN 0.25;
-    ELSIF p_service_code = 'motorcycle' THEN
-      RETURN 0.075;
-    ELSE
-      RETURN 0.11;
-    END IF;
+    RETURN (
+      CASE p_service_code
+        WHEN 'designated_driver_moto' THEN 0.125
+        WHEN 'designated_driver_auto' THEN 0.25
+        WHEN 'designated_driver' THEN 0.25
+        WHEN 'motorcycle' THEN 0.075
+        WHEN 'night' THEN 0.12
+        ELSE 0.15
+      END
+    );
   END IF;
 
   IF v_driver_id IS NOT NULL THEN
@@ -1637,9 +1656,12 @@ BEGIN
   IF v_commission IS NULL THEN
     RETURN (
       CASE p_service_code
+        WHEN 'designated_driver_moto' THEN 0.125
+        WHEN 'designated_driver_auto' THEN 0.25
         WHEN 'designated_driver' THEN 0.25
         WHEN 'motorcycle' THEN 0.075
-        ELSE 0.11
+        WHEN 'night' THEN 0.12
+        ELSE 0.15
       END
     );
   END IF;
@@ -1648,7 +1670,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql STABLE;
 
-COMMENT ON FUNCTION get_driver_commission_rate IS 'Obtiene la tasa de comisión aplicable para un conductor y servicio (driver_services.override → services.commission_rate → defaults)';
+COMMENT ON FUNCTION get_driver_commission_rate(TEXT, TEXT) IS 'Obtiene la tasa de comisión aplicable para un conductor y servicio (driver_services.override → services.commission_rate → defaults)';
 
 -- Vista de servicios activos con información de conductores
 CREATE OR REPLACE VIEW driver_active_services AS
@@ -2341,13 +2363,23 @@ BEGIN
   INTO v_commission_rate
   FROM public.services s
   LEFT JOIN public.driver_services ds ON ds.service_id = s.id AND ds.driver_id = p_driver_id
-  WHERE s.code = p_service_code
+  WHERE s.code::text = p_service_code
     AND s.is_active = true
     AND (ds.is_active IS NULL OR ds.is_active = true)
     AND (ds.is_approved IS NULL OR ds.is_approved = true)
     AND (ds.expires_at IS NULL OR ds.expires_at > NOW());
 
-  RETURN COALESCE(v_commission_rate, 0.10);
+  RETURN COALESCE(
+    v_commission_rate,
+    CASE p_service_code
+      WHEN 'designated_driver_moto' THEN 0.125
+      WHEN 'designated_driver_auto' THEN 0.25
+      WHEN 'designated_driver' THEN 0.25
+      WHEN 'motorcycle' THEN 0.075
+      WHEN 'night' THEN 0.12
+      ELSE 0.15
+    END
+  );
 END;
 $$;
 
@@ -2370,3 +2402,219 @@ $$;
 --   privado:  support-chats
 -- Los INSERT de Storage de arriba son defaults privados para entornos nuevos;
 -- no cambian flags de buckets existentes y no representan esos flags remotos.
+
+-- ============================================
+-- 31. PRICING 2.0: FEATURES, SURGE Y SNAPSHOTS
+-- Mirror del cambio desplegado como migration
+-- pricing_v2_services_features_surge_snapshots.
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS public.features (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  code VARCHAR(50) NOT NULL UNIQUE,
+  name VARCHAR(100) NOT NULL,
+  description TEXT NULL,
+  enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  starts_at TIMESTAMPTZ NULL,
+  ends_at TIMESTAMPTZ NULL,
+  start_time TIME NULL,
+  end_time TIME NULL,
+  timezone VARCHAR(64) NOT NULL DEFAULT 'America/Managua',
+  pricing_type VARCHAR(20) NOT NULL DEFAULT 'none'
+    CHECK (pricing_type IN ('none', 'surcharge', 'discount', 'multiplier')),
+  pricing_value NUMERIC(10, 4) NOT NULL DEFAULT 0 CHECK (pricing_value >= 0),
+  priority INTEGER NOT NULL DEFAULT 100,
+  stackable BOOLEAN NOT NULL DEFAULT TRUE,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CHECK (starts_at IS NULL OR ends_at IS NULL OR starts_at < ends_at)
+);
+
+CREATE TABLE IF NOT EXISTS public.service_feature_assignments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  service_id UUID NOT NULL REFERENCES public.services(id) ON DELETE CASCADE,
+  feature_id UUID NOT NULL REFERENCES public.features(id) ON DELETE CASCADE,
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  configuration JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (service_id, feature_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_feature_assignments_service_enabled
+  ON public.service_feature_assignments(service_id, enabled);
+CREATE INDEX IF NOT EXISTS idx_feature_assignments_feature
+  ON public.service_feature_assignments(feature_id);
+
+CREATE TABLE IF NOT EXISTS public.pricing_surge_rules (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  min_demand_supply_ratio NUMERIC(8, 4) NOT NULL CHECK (min_demand_supply_ratio >= 0),
+  max_demand_supply_ratio NUMERIC(8, 4) NULL,
+  multiplier NUMERIC(4, 2) NOT NULL CHECK (multiplier BETWEEN 1.00 AND 1.60),
+  priority INTEGER NOT NULL DEFAULT 100,
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (min_demand_supply_ratio),
+  CHECK (
+    max_demand_supply_ratio IS NULL
+    OR max_demand_supply_ratio > min_demand_supply_ratio
+  )
+);
+
+CREATE INDEX IF NOT EXISTS idx_pricing_surge_rules_enabled
+  ON public.pricing_surge_rules(enabled, priority);
+
+DROP TRIGGER IF EXISTS update_features_updated_at ON public.features;
+CREATE TRIGGER update_features_updated_at
+  BEFORE UPDATE ON public.features
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+DROP TRIGGER IF EXISTS update_service_feature_assignments_updated_at ON public.service_feature_assignments;
+CREATE TRIGGER update_service_feature_assignments_updated_at
+  BEFORE UPDATE ON public.service_feature_assignments
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+DROP TRIGGER IF EXISTS update_pricing_surge_rules_updated_at ON public.pricing_surge_rules;
+CREATE TRIGGER update_pricing_surge_rules_updated_at
+  BEFORE UPDATE ON public.pricing_surge_rules
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+INSERT INTO public.pricing_surge_rules
+  (min_demand_supply_ratio, max_demand_supply_ratio, multiplier, priority)
+VALUES
+  (0.0000, 0.8000, 1.00, 10),
+  (0.8000, 1.2000, 1.05, 20),
+  (1.2000, 1.5000, 1.15, 30),
+  (1.5000, 2.0000, 1.30, 40),
+  (2.0000, 3.0000, 1.45, 50),
+  (3.0000, NULL,   1.60, 60)
+ON CONFLICT (min_demand_supply_ratio) DO UPDATE SET
+  max_demand_supply_ratio = EXCLUDED.max_demand_supply_ratio,
+  multiplier = EXCLUDED.multiplier,
+  priority = EXCLUDED.priority,
+  enabled = TRUE,
+  updated_at = NOW();
+
+INSERT INTO public.features (
+  code, name, description, enabled, start_time, end_time, timezone,
+  pricing_type, pricing_value, priority, stackable
+)
+VALUES (
+  'night', 'Night', 'Tarifa nocturna aplicable sobre el Service seleccionado',
+  TRUE, '22:00', '04:00', 'America/Managua', 'multiplier', 1.10, 10, TRUE
+)
+ON CONFLICT (code) DO UPDATE SET
+  name = EXCLUDED.name,
+  description = EXCLUDED.description,
+  enabled = EXCLUDED.enabled,
+  start_time = EXCLUDED.start_time,
+  end_time = EXCLUDED.end_time,
+  timezone = EXCLUDED.timezone,
+  pricing_type = EXCLUDED.pricing_type,
+  pricing_value = EXCLUDED.pricing_value,
+  priority = EXCLUDED.priority,
+  stackable = EXCLUDED.stackable,
+  updated_at = NOW();
+
+INSERT INTO public.features (
+  code, name, description, enabled, timezone,
+  pricing_type, pricing_value, priority, stackable
+)
+VALUES (
+  'designated_driver_moto_discount',
+  'Ajuste conductor designado moto',
+  'Descuento comercial fijo para el Service designated_driver_moto',
+  TRUE, 'America/Managua', 'discount', 70, 20, TRUE
+)
+ON CONFLICT (code) DO UPDATE SET
+  name = EXCLUDED.name,
+  description = EXCLUDED.description,
+  enabled = EXCLUDED.enabled,
+  pricing_type = EXCLUDED.pricing_type,
+  pricing_value = EXCLUDED.pricing_value,
+  priority = EXCLUDED.priority,
+  stackable = EXCLUDED.stackable,
+  updated_at = NOW();
+
+INSERT INTO public.service_feature_assignments (service_id, feature_id, enabled)
+SELECT services.id, features.id, TRUE
+FROM public.services AS services
+CROSS JOIN public.features AS features
+WHERE services.code IN (
+  'normal',
+  'motorcycle',
+  'designated_driver_auto',
+  'designated_driver_moto'
+)
+  AND features.code = 'night'
+ON CONFLICT (service_id, feature_id) DO UPDATE SET
+  enabled = EXCLUDED.enabled,
+  updated_at = NOW();
+
+INSERT INTO public.service_feature_assignments (service_id, feature_id, enabled)
+SELECT services.id, features.id, TRUE
+FROM public.services AS services
+CROSS JOIN public.features AS features
+WHERE services.code = 'designated_driver_moto'
+  AND features.code = 'designated_driver_moto_discount'
+ON CONFLICT (service_id, feature_id) DO UPDATE SET
+  enabled = EXCLUDED.enabled,
+  updated_at = NOW();
+
+-- Retain legacy ride references but remove night from new service selection.
+UPDATE public.services
+SET is_active = FALSE,
+    updated_at = NOW()
+WHERE code = 'night';
+
+ALTER TABLE public.rides
+  ADD COLUMN IF NOT EXISTS pricing_snapshot JSONB NULL,
+  ADD COLUMN IF NOT EXISTS feature_codes TEXT[] NOT NULL DEFAULT '{}',
+  ADD COLUMN IF NOT EXISTS surge_multiplier NUMERIC(4, 2) NOT NULL DEFAULT 1.00,
+  ADD COLUMN IF NOT EXISTS commission_rate_applied NUMERIC(5, 4) NULL;
+
+ALTER TABLE public.features ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.service_feature_assignments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.pricing_surge_rules ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS features_enabled_read ON public.features;
+CREATE POLICY features_enabled_read ON public.features
+  FOR SELECT TO authenticated USING (enabled = TRUE);
+
+DROP POLICY IF EXISTS features_admin_manage ON public.features;
+CREATE POLICY features_admin_manage ON public.features
+  FOR ALL TO authenticated
+  USING ((SELECT auth.jwt() -> 'app_metadata' ->> 'role') = 'admin')
+  WITH CHECK ((SELECT auth.jwt() -> 'app_metadata' ->> 'role') = 'admin');
+
+DROP POLICY IF EXISTS service_feature_assignments_enabled_read ON public.service_feature_assignments;
+CREATE POLICY service_feature_assignments_enabled_read ON public.service_feature_assignments
+  FOR SELECT TO authenticated USING (enabled = TRUE);
+
+DROP POLICY IF EXISTS service_feature_assignments_admin_manage ON public.service_feature_assignments;
+CREATE POLICY service_feature_assignments_admin_manage ON public.service_feature_assignments
+  FOR ALL TO authenticated
+  USING ((SELECT auth.jwt() -> 'app_metadata' ->> 'role') = 'admin')
+  WITH CHECK ((SELECT auth.jwt() -> 'app_metadata' ->> 'role') = 'admin');
+
+DROP POLICY IF EXISTS pricing_surge_rules_enabled_read ON public.pricing_surge_rules;
+CREATE POLICY pricing_surge_rules_enabled_read ON public.pricing_surge_rules
+  FOR SELECT TO authenticated USING (enabled = TRUE);
+
+DROP POLICY IF EXISTS pricing_surge_rules_admin_manage ON public.pricing_surge_rules;
+CREATE POLICY pricing_surge_rules_admin_manage ON public.pricing_surge_rules
+  FOR ALL TO authenticated
+  USING ((SELECT auth.jwt() -> 'app_metadata' ->> 'role') = 'admin')
+  WITH CHECK ((SELECT auth.jwt() -> 'app_metadata' ->> 'role') = 'admin');
+
+REVOKE INSERT, UPDATE, DELETE ON public.features FROM anon;
+REVOKE INSERT, UPDATE, DELETE ON public.service_feature_assignments FROM anon;
+REVOKE INSERT, UPDATE, DELETE ON public.pricing_surge_rules FROM anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.features TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.service_feature_assignments TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.pricing_surge_rules TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.features TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.service_feature_assignments TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.pricing_surge_rules TO service_role;

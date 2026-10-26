@@ -14,6 +14,7 @@ import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useAuth } from '../../hooks/shared/auth/useAuth';
 import * as ImagePicker from 'expo-image-picker';
+import { launchCameraSafely } from '../../utils/cameraUtils';
 import supabaseStorage from '../../services/supabaseStorage';
 import inspectionsService from '../../services/inspectionsService';
 import ridesService from '../../services/ridesService';
@@ -61,14 +62,13 @@ export default function VehicleInspectionScreen({ route, navigation }: VehicleIn
   // Tomar foto con la cámara
   const takePhoto = async (setPhotoFunction: React.Dispatch<React.SetStateAction<string | null>>) => {
     try {
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      const result = await launchCameraSafely({
         allowsEditing: true,
         aspect: [4, 3],
         quality: 0.7,
       });
 
-      if (!result.canceled && result.assets && result.assets.length > 0) {
+      if (result && !result.canceled && result.assets && result.assets.length > 0) {
         setPhotoFunction(result.assets[0].uri);
       }
     } catch (error) {

@@ -36,6 +36,7 @@ import { useFirebaseItem } from '../../hooks/shared/firebase/useFirebaseData';
 import firebaseTrackingService from '../../services/firebaseTrackingService';
 import ridesService from '../../services/ridesService';
 import { useTranslation } from 'react-i18next';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Navegación
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -56,6 +57,7 @@ import { useRideCancellation } from '../../hooks/shared/ride/useRideCancellation
 import { RideTrackingDriverInfo } from '../../components/client/RideTracking/RideTrackingDriverInfo';
 import { RideTrackingLocations } from '../../components/client/RideTracking/RideTrackingLocations';
 import { RideTrackingActionButtons } from '../../components/client/RideTracking/RideTrackingActionButtons';
+import { RideTrackingDesignatedDriverNotice } from '../../components/client/RideTracking/RideTrackingDesignatedDriverNotice';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const PANEL_MIN_HEIGHT = 252;
@@ -246,6 +248,7 @@ const useDriverAndVehicleData = (
 export default function RideTrackingScreenNewDesign({ route, navigation }: RideTrackingScreenNewDesignProps) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const insets = useSafeAreaInsets();
   const { coords: clientCoords } = useLocation();
   const { t } = useTranslation();
   const tr = useCallback(
@@ -261,9 +264,13 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
     vehicleBrand = '',
     vehicleModel = '', 
     vehicleColor = '',
-    estimatedFare = 0
+    estimatedFare = 0,
+    showDesignatedDriverEvidenceNotice = false,
   } = route.params;
 
+  const [showDesignatedEvidenceNotice, setShowDesignatedEvidenceNotice] = useState(
+    showDesignatedDriverEvidenceNotice,
+  );
   const [loading, setLoading] = useState(true);
   const [loadingMessage, setLoadingMessage] = useState(tr('loading.connectingDriver'));
   
@@ -276,6 +283,13 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
     rideError,
     loading: rideLoading,
   } = useRideStatus(rideId);
+
+  useEffect(() => {
+    if (!showDesignatedDriverEvidenceNotice) return;
+    setShowDesignatedEvidenceNotice(true);
+    navigation.setParams({ showDesignatedDriverEvidenceNotice: false });
+  }, [navigation, showDesignatedDriverEvidenceNotice]);
+
   const { driverData, vehicleData } = useDriverAndVehicleData(driverId, { driverName, vehiclePlate, vehicleBrand, vehicleModel, vehicleColor, rideData });
   const vehicleIconSource = useMemo(() => ensureVehicleIconSource(vehicleData.type), [vehicleData.type]);
   const { destinationCoords, originCoords, waypointCoords, routeCoordinates, routeDistanceMeters, routeDurationSeconds } = useRideRoute(rideData);
@@ -397,6 +411,7 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
     switch (rideStatus) {
       case 'accepted':
       case 'driver_on_route':
+      case 'driver_arrived':
         return colors.warning;
       case 'in_progress':
         return colors.secondary;
@@ -416,6 +431,8 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
       case 'accepted':
       case 'driver_on_route':
         return tr('status.accepted');
+      case 'driver_arrived':
+        return tr('status.driver_arrived');
       case 'in_progress':
         return tr('status.in_progress');
       case 'pending_payment':
@@ -429,7 +446,7 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
     }
   };
 
-  const isAccepted = rideStatus === 'accepted' || rideStatus === 'driver_on_route';
+  const isAccepted = ['accepted', 'driver_on_route', 'driver_arrived'].includes(rideStatus);
   const isInProgress = rideStatus === 'in_progress';
 
   // Navegar automáticamente a pantalla de pago cuando el viaje queda en pending_payment
@@ -588,6 +605,12 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
           showPinBubbles
         />
       </View>
+
+      <RideTrackingDesignatedDriverNotice
+        visible={showDesignatedEvidenceNotice}
+        top={Math.max(insets.top + 58, 110)}
+        onDismiss={() => setShowDesignatedEvidenceNotice(false)}
+      />
 
     {/* Botón de regresar */}
     <TouchableOpacity style={styles.backButton} onPress={handleGoBack}>

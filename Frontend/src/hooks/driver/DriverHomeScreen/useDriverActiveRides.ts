@@ -232,6 +232,8 @@ export function useDriverActiveRides({
                 latitude,
                 longitude,
                 clientId: ride.clientId,
+                rideType: ride.rideType ?? ride.ride_type,
+                vehicleType: ride.vehicleType ?? ride.vehicle_type,
                 clientName: ride.client?.name || ride.clientName || 'Cliente',
                 originAddress: ride.originAddress || ride.origin?.address || 'Origen',
                 finalDestination: ride.destinationAddress || ride.destination?.address || 'Destino',

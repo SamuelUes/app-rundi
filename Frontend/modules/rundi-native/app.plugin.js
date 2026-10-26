@@ -1,4 +1,4 @@
-const { withAndroidManifest, withStringsXml, withAndroidColors, AndroidConfig, withPodfile, withDangerousMod } = require('expo/config-plugins');
+const { withAndroidManifest, withStringsXml, withAndroidColors, AndroidConfig, withPodfile, withPodfileProperties, withDangerousMod } = require('expo/config-plugins');
 const fs = require('fs');
 const path = require('path');
 
@@ -126,7 +126,17 @@ function withRundiNative(config) {
     return config;
   });
 
-  // 4. iOS Podfile: re-inject custom post_install modifications
+  // 4. iOS Podfile.properties.json: compilar Expo modules y React Native desde
+  // fuente. Los XCFrameworks precompilados de Expo/RN se generan con una versión
+  // fija de Swift (6.3.x) y fallan al importarse con toolchains más nuevos
+  // (p.ej. Xcode 27 / Swift 6.4: "cannot find type '__ObjC::expo' in scope").
+  config = withPodfileProperties(config, (config) => {
+    config.modResults['EXPO_USE_PRECOMPILED_MODULES'] = 'false';
+    config.modResults['ios.buildReactNativeFromSource'] = 'true';
+    return config;
+  });
+
+  // 5. iOS Podfile: re-inject custom post_install modifications
   config = withPodfile(config, (config) => {
     // El plugin vendored de Expo (withMapsCocoaPods) emite `pod 'react-native-google-maps'`,
     // podspec que no existe en react-native-maps >= 1.21. La versión instalada (1.29.x)
@@ -226,7 +236,7 @@ function withRundiNative(config) {
     return config;
   });
 
-  // 5. Second pass: directly modify AndroidManifest.xml to add tools:replace
+  // 6. Second pass: directly modify AndroidManifest.xml to add tools:replace
   // This runs after all other manifest mods have been applied
   config = withDangerousMod(config, [
     'android',
@@ -270,7 +280,7 @@ function withRundiNative(config) {
     },
   ]);
 
-  // 6. Android: inject Google Services plugin into root and app build.gradle
+  // 7. Android: inject Google Services plugin into root and app build.gradle
   config = withDangerousMod(config, [
     'android',
     (config) => {
@@ -326,7 +336,7 @@ function withRundiNative(config) {
     },
   ]);
 
-  // 7. iOS: inject FirebaseCore import and FirebaseApp.configure() into AppDelegate.swift
+  // 8. iOS: inject FirebaseCore import and FirebaseApp.configure() into AppDelegate.swift
   config = withDangerousMod(config, [
     'ios',
     (config) => {
@@ -367,7 +377,7 @@ function withRundiNative(config) {
     },
   ]);
 
-  // 8. iOS: remove duplicate -lc++ from OTHER_LDFLAGS in project.pbxproj (Pods already link it)
+  // 9. iOS: remove duplicate -lc++ from OTHER_LDFLAGS in project.pbxproj (Pods already link it)
   config = withDangerousMod(config, [
     'ios',
     (config) => {

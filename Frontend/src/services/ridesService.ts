@@ -43,7 +43,7 @@ export interface RequestRideData {
   clientComment?: string;
   notes?: string;
   paymentMethod?: 'cash' | 'card'; // Método de pago: cash (efectivo) o card (bancos nacionales)
-  serviceId?: string; // ✅ NUEVO: ID del servicio (normal, motorcycle, night, designated_driver)
+  serviceId?: string; // ID of the canonical Service; night is legacy-only
   designatedDriverVehicle?: 'auto' | 'moto';
 }
 
@@ -848,6 +848,18 @@ class RidesService {
       throw new Error(this.tr('errors.driverOnRouteFailed'));
     }
     await analyticsService.logRideEvent(AnalyticsEvents.RIDE_DRIVER_ON_ROUTE, rideId);
+    return this.normalizeRidePreservingRaw(result.ride);
+  }
+
+  async markDriverArrived(rideId: string): Promise<Ride> {
+    const functions = await this.getFunctions();
+    const markDriverArrivedFn = httpsCallable(functions, 'markDriverArrived');
+    const deviceId = await sessionService.getDeviceId();
+    const response = await markDriverArrivedFn({ rideId, deviceId });
+    const result = response.data as { success: boolean; ride: any };
+    if (!result.success || !result.ride) {
+      throw new Error(this.tr('errors.driverArrivedFailed'));
+    }
     return this.normalizeRidePreservingRaw(result.ride);
   }
 

@@ -1,4 +1,5 @@
 import * as ImagePicker from 'expo-image-picker';
+import { launchCameraSafely } from '../utils/cameraUtils';
 import i18n from '../i18n';
 
 export interface UploadResult {
@@ -27,7 +28,7 @@ class UploadService {
    */
   async pickImageFromGallery(): Promise<ImagePicker.ImagePickerAsset | null> {
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: true,
       aspect: [4, 3],
       quality: 0.8,
@@ -44,13 +45,13 @@ class UploadService {
    * Tomar foto con la cámara
    */
   async takePhoto(): Promise<ImagePicker.ImagePickerAsset | null> {
-    const result = await ImagePicker.launchCameraAsync({
+    const result = await launchCameraSafely({
       allowsEditing: true,
       aspect: [4, 3],
       quality: 0.8,
     });
 
-    if (!result.canceled && result.assets && result.assets.length > 0) {
+    if (result && !result.canceled && result.assets && result.assets.length > 0) {
       return result.assets[0];
     }
 
