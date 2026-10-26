@@ -5,7 +5,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  Image,
   RefreshControl,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -13,6 +12,7 @@ import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useAuth } from '../../hooks/shared/auth/useAuth';
 import LoadingOverlay from '../../components/ui/LoadingOverlay';
 import SupportChatShortcut from '../../components/shared/SupportChatShortcut';
+import StorageImage from '../../components/shared/StorageImage';
 import { formatCurrency } from '../../utils/safeFormatters';
 import { httpsCallable } from 'firebase/functions';
 import { getFirebaseFunctions } from '../../config/firebase';
@@ -255,8 +255,8 @@ export default function PendingPaymentsScreen({ navigation }: any) {
                   <View style={styles.cardHeader}>
                     <View style={styles.driverSection}>
                       {driverPhoto ? (
-                        <Image
-                          source={{ uri: driverPhoto }}
+                        <StorageImage
+                          uri={driverPhoto}
                           style={styles.driverAvatar}
                           resizeMode="cover"
                         />

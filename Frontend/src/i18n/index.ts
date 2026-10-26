@@ -3366,7 +3366,7 @@ const resources = {
           input: {
             amountLabel: 'Recharge amount',
             amountPlaceholder: 'Ex. 150',
-            referenceLabel: 'Transfer reference (optional)',
+            referenceLabel: 'Deposit / transfer reference',
             placeholder: 'Ex. #FT-12345678',
           },
           button: {
@@ -3375,6 +3375,8 @@ const resources = {
           alerts: {
             invalidAmountTitle: 'Invalid amount',
             invalidAmountMessage: 'Enter a valid amount greater than zero.',
+            referenceRequiredTitle: 'Reference required',
+            referenceRequiredMessage: 'Enter the deposit or transfer reference so we can validate your recharge.',
             selectCardTitle: 'Select a card',
             selectCardMessage: 'Choose a card to recharge with card.',
             biometricPrompt: 'Confirm your identity to recharge {{amount}}',
@@ -3382,6 +3384,8 @@ const resources = {
             biometricErrorMessage: 'We could not confirm your identity. Try again.',
             paymentSuccessTitle: 'Recharge recorded',
             paymentSuccessMessage: 'A recharge of {{amount}} was registered. New balance: {{balance}}.',
+            pendingSuccessTitle: 'Recharge reported',
+            pendingSuccessMessage: 'Your recharge of {{amount}} with reference {{reference}} is pending validation. It will be credited once approved.',
             paymentSuccessButton: 'OK',
             paymentErrorTitle: 'Error',
             paymentErrorMessage: 'We could not register the recharge.',
@@ -3404,6 +3408,11 @@ const resources = {
             sourceLabel: 'Source: {{source}}',
             defaultSource: 'manual',
             defaultStatus: 'confirmed',
+            statusLabels: {
+              pending: 'Pending',
+              confirmed: 'Confirmed',
+              failed: 'Rejected',
+            },
             previous: 'Previous',
             next: 'Next',
             page: 'Page {{current}}/{{total}}',
@@ -8776,7 +8785,7 @@ const resources = {
           input: {
             amountLabel: 'Monto a recargar',
             amountPlaceholder: 'Ej. 150',
-            referenceLabel: 'Referencia de la transferencia (opcional)',
+            referenceLabel: 'Referencia del depósito / transferencia',
             placeholder: 'Ej. #FT-12345678',
           },
           button: {
@@ -8785,6 +8794,8 @@ const resources = {
           alerts: {
             invalidAmountTitle: 'Monto inválido',
             invalidAmountMessage: 'Ingresa un monto válido mayor a cero.',
+            referenceRequiredTitle: 'Referencia requerida',
+            referenceRequiredMessage: 'Ingresa la referencia del depósito o transferencia para poder validar tu recarga.',
             selectCardTitle: 'Selecciona una tarjeta',
             selectCardMessage: 'Elige una tarjeta para recargar con tarjeta.',
             biometricPrompt: 'Confirma tu identidad para recargar {{amount}}',
@@ -8792,6 +8803,8 @@ const resources = {
             biometricErrorMessage: 'No pudimos confirmar tu identidad. Intenta de nuevo.',
             paymentSuccessTitle: 'Recarga registrada',
             paymentSuccessMessage: 'Se registró una recarga de {{amount}}. Nuevo saldo: {{balance}}.',
+            pendingSuccessTitle: 'Recarga reportada',
+            pendingSuccessMessage: 'Tu recarga de {{amount}} con referencia {{reference}} quedó pendiente de validación. Se acreditará cuando sea aprobada.',
             paymentSuccessButton: 'OK',
             paymentErrorTitle: 'Error',
             paymentErrorMessage: 'No pudimos registrar la recarga.',
@@ -8814,6 +8827,11 @@ const resources = {
             sourceLabel: 'Origen: {{source}}',
             defaultSource: 'manual',
             defaultStatus: 'confirmada',
+            statusLabels: {
+              pending: 'Pendiente',
+              confirmed: 'Confirmada',
+              failed: 'Rechazada',
+            },
             previous: 'Anterior',
             next: 'Siguiente',
             page: 'Página {{current}}/{{total}}',

@@ -6,11 +6,18 @@ import type { TFunction } from 'i18next';
 
 interface RechargeFundsInputProps {
   amount: string;
+  reference: string;
   submitting: boolean;
   parsedRechargeAmount: number;
-  inputTexts: { amountLabel: string; amountPlaceholder: string };
+  inputTexts: {
+    amountLabel: string;
+    amountPlaceholder: string;
+    referenceLabel: string;
+    placeholder: string;
+  };
   colors: any;
   onSetAmount: (v: string) => void;
+  onSetReference: (v: string) => void;
   onPay: () => void;
   t: TFunction;
   styles: any;
@@ -18,11 +25,13 @@ interface RechargeFundsInputProps {
 
 export function RechargeFundsInput({
   amount,
+  reference,
   submitting,
   parsedRechargeAmount,
   inputTexts,
   colors,
   onSetAmount,
+  onSetReference,
   onPay,
   t,
   styles,
@@ -39,15 +48,26 @@ export function RechargeFundsInput({
           style={styles.input}
           keyboardType="decimal-pad"
         />
+
+        <Text style={[styles.inputLabel, { marginTop: 14 }]}>{inputTexts.referenceLabel}</Text>
+        <TextInput
+          value={reference}
+          onChangeText={onSetReference}
+          placeholder={inputTexts.placeholder}
+          placeholderTextColor={colors.textSecondary}
+          style={styles.input}
+          autoCapitalize="characters"
+          autoCorrect={false}
+        />
       </View>
 
       <TouchableOpacity
         style={[
           styles.payButton,
-          (submitting || parsedRechargeAmount <= 0) &&
+          (submitting || parsedRechargeAmount <= 0 || !reference.trim()) &&
             styles.payButtonDisabled,
         ]}
-        disabled={submitting || parsedRechargeAmount <= 0}
+        disabled={submitting || parsedRechargeAmount <= 0 || !reference.trim()}
         onPress={onPay}
         activeOpacity={0.85}
       >

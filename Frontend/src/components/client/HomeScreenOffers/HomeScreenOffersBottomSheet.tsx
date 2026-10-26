@@ -4,7 +4,6 @@ import {
   Animated,
   Easing,
   FlatList,
-  Image,
   Pressable,
   Text,
   TouchableOpacity,
@@ -14,6 +13,7 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LoadingIcon } from '../../ui/LoadingIcon';
+import StorageImage from '../../shared/StorageImage';
 import type { OfferItem } from '../../../hooks/client/HomeScreenOffers/useRideOffers';
 import type { TFunction } from 'i18next';
 
@@ -202,7 +202,7 @@ export function HomeScreenOffersBottomSheet({
             ]}
           >
             {assignedDriver.photoUri ? (
-              <Image source={{ uri: assignedDriver.photoUri }} style={styles.offerAvatarPhoto} />
+              <StorageImage uri={assignedDriver.photoUri} style={styles.offerAvatarPhoto} />
             ) : (
               <Text
                 style={[

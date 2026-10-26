@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, Pressable, Image } from 'react-native';
+import { View, Text, Pressable } from 'react-native';
+import StorageImage from '../../shared/StorageImage';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../../../hooks/shared/theme/useTheme';
 import type { TFunction } from 'i18next';
@@ -38,7 +39,7 @@ export function HomeScreenHeader({
         <View style={styles.profileAvatarWrap}>
           <View style={styles.profileAvatar}>
             {userPhotoUri ? (
-              <Image source={{ uri: userPhotoUri }} style={styles.profileAvatarImage} />
+              <StorageImage uri={userPhotoUri} style={styles.profileAvatarImage} />
             ) : (
               <Text style={styles.profileAvatarText}>{initial}</Text>
             )}

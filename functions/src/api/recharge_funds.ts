@@ -172,25 +172,31 @@ export const createDriverRechargeManual = functions
       throw new functions.https.HttpsError('invalid-argument', 'amount debe ser mayor que 0');
     }
 
-    const externalTransactionId = normalizeString(data?.externalTransactionId || data?.transactionId);
+    const externalTransactionId = normalizeString(data?.externalTransactionId || data?.transactionId).slice(0, 255);
+    const externalReference = normalizeString(data?.reference).slice(0, 255);
     if (externalTransactionId) {
       const existing = await rechargeRepo.findByExternalTransactionId(externalTransactionId);
       if (existing) {
+        const existingStatus = normalizeString((existing as any)?.status) || 'confirmed';
         return {
           success: true,
           alreadyProcessed: true,
+          pending: existingStatus === 'pending',
+          status: existingStatus,
           movementId: String((existing as any)?.id || ''),
           driverId,
         };
       }
     }
 
-    const movement = await rechargeRepo.applyFundsDelta({
+    // La recarga queda pendiente de validación en el panel CMS: no se
+    // acredita saldo ni se toca drivers/{uid}/wallet hasta que un
+    // admin/operador la confirme contra el estado de cuenta bancario.
+    const { movement, currentBalance } = await rechargeRepo.createPendingRecharge({
       driverId,
-      deltaAmount: amount,
-      rechargeType: 'recharge',
+      amount,
       source: 'manual',
-      externalReference: normalizeString(data?.reference) || null,
+      externalReference: externalReference || null,
       externalTransactionId: externalTransactionId || null,
       metadata: {
         method: normalizeString(data?.method) || 'manual',
@@ -198,18 +204,13 @@ export const createDriverRechargeManual = functions
       },
     });
 
-    const summary = await rechargeRepo.getDriverFundsSummary(driverId, 20);
-    await syncRealtimeWallet(driverId, summary.availableBalance, {
-      lastMovementType: 'recharge',
-      lastMovementAmount: amount,
-    });
-
     return {
       success: true,
+      pending: true,
+      status: 'pending',
       driverId,
-      movementId: String((movement.movement as any)?.id || ''),
-      availableBalance: summary.availableBalance,
-      summary,
+      movementId: String((movement as any)?.id || ''),
+      availableBalance: currentBalance,
     };
   });
 

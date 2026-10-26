@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, Modal, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Modal, Alert } from 'react-native';
+import StorageImage from './StorageImage';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import BiometricService from '../../services/biometricService';
 import { supabase } from '../../config/supabase';
@@ -135,8 +136,8 @@ export default function DriverOfferCard({
       <View style={styles.header}>
         {/* Foto de perfil del conductor */}
         {driverPhoto ? (
-          <Image
-            source={{ uri: driverPhoto }}
+          <StorageImage
+            uri={driverPhoto}
             style={styles.driverAvatar}
             resizeMode="cover"
           />
@@ -185,8 +186,8 @@ export default function DriverOfferCard({
         <View style={styles.vehicleSection}>
           {/* Foto del vehículo */}
           {vehicle.photos && vehicle.photos.length > 0 && (
-            <Image
-              source={{ uri: vehicle.photos[0] }}
+            <StorageImage
+              uri={vehicle.photos[0]}
               style={styles.vehicleImage}
               resizeMode="cover"
             />

@@ -66,6 +66,8 @@ export default function RechargeFundsScreen({ navigation }: any) {
   const inputTexts = t('driver.rechargeFunds.input', { returnObjects: true }) as {
     amountLabel: string;
     amountPlaceholder: string;
+    referenceLabel: string;
+    placeholder: string;
   };
   const historyTexts = t('driver.rechargeFunds.history', { returnObjects: true }) as {
     title: string;
@@ -75,6 +77,7 @@ export default function RechargeFundsScreen({ navigation }: any) {
     previous: string;
     next: string;
     page: string;
+    statusLabels?: Record<string, string>;
   };
   const alertsTexts = t('driver.rechargeFunds.alerts', {
     returnObjects: true,
@@ -84,6 +87,7 @@ export default function RechargeFundsScreen({ navigation }: any) {
   const [summary, setSummary] = useState<DriverRechargeFundsSummary>(EMPTY_SUMMARY);
   const [submitting, setSubmitting] = useState(false);
   const [amount, setAmount] = useState('');
+  const [reference, setReference] = useState('');
   const [historyPage, setHistoryPage] = useState(1);
   const [selectedMovement, setSelectedMovement] = useState<DriverRechargeHistoryItem | null>(null);
   const [invoiceVisible, setInvoiceVisible] = useState(false);
@@ -108,6 +112,15 @@ export default function RechargeFundsScreen({ navigation }: any) {
     const parsedAmount = Number(String(amount || '').replace(',', '.'));
     if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
       Alert.alert(alertsTexts.invalidAmountTitle || alertsTexts.paymentErrorTitle, alertsTexts.invalidAmountMessage || alertsTexts.paymentErrorMessage);
+      return;
+    }
+
+    const trimmedReference = reference.trim();
+    if (!trimmedReference) {
+      Alert.alert(
+        alertsTexts.referenceRequiredTitle || alertsTexts.paymentErrorTitle,
+        alertsTexts.referenceRequiredMessage || alertsTexts.paymentErrorMessage,
+      );
       return;
     }
 
@@ -153,22 +166,34 @@ export default function RechargeFundsScreen({ navigation }: any) {
       const res = await rechargeFundsService.createRecharge({
         amount: totalToPay,
         method: 'manual',
+        reference: trimmedReference,
       });
       if (res?.success) {
         const refreshedSummary = await rechargeFundsService.getSummary(30);
         setSummary(refreshedSummary?.success ? refreshedSummary : EMPTY_SUMMARY);
         setAmount('');
+        setReference('');
         setHistoryPage(1);
 
-        const successMessage = t('driver.rechargeFunds.alerts.paymentSuccessMessage', {
-          amount: formatCurrency(totalToPay),
-          balance: formatCurrency(Number(res.availableBalance ?? refreshedSummary?.availableBalance ?? 0)),
-        });
-        Alert.alert(alertsTexts.paymentSuccessTitle, successMessage, [
-          {
-            text: alertsTexts.paymentSuccessButton,
-          },
-        ]);
+        const isPending = res.pending || res.status === 'pending';
+        const successMessage = isPending
+          ? t('driver.rechargeFunds.alerts.pendingSuccessMessage', {
+              amount: formatCurrency(totalToPay),
+              reference: trimmedReference,
+            })
+          : t('driver.rechargeFunds.alerts.paymentSuccessMessage', {
+              amount: formatCurrency(totalToPay),
+              balance: formatCurrency(Number(res.availableBalance ?? refreshedSummary?.availableBalance ?? 0)),
+            });
+        Alert.alert(
+          isPending ? alertsTexts.pendingSuccessTitle : alertsTexts.paymentSuccessTitle,
+          successMessage,
+          [
+            {
+              text: alertsTexts.paymentSuccessButton,
+            },
+          ],
+        );
       } else {
         Alert.alert(alertsTexts.paymentErrorTitle, alertsTexts.paymentErrorMessage);
       }
@@ -248,11 +273,13 @@ export default function RechargeFundsScreen({ navigation }: any) {
 
           <RechargeFundsInput
             amount={amount}
+            reference={reference}
             submitting={submitting}
             parsedRechargeAmount={parsedRechargeAmount}
             inputTexts={inputTexts}
             colors={colors}
             onSetAmount={setAmount}
+            onSetReference={setReference}
             onPay={handlePay}
             t={t}
             styles={styles}

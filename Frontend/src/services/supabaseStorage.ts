@@ -55,28 +55,20 @@ function getDocumentSigningClient() {
   return documentSigningClient;
 }
 
-function usesLocalSupabaseUrl() {
-  try {
-    return new URL(SUPABASE_URL).protocol === 'http:';
-  } catch {
-    return false;
-  }
-}
-
 /**
  * Resuelve una URL de Storage para mostrarla en la app.
- * En el entorno local los buckets son privados, así que las URLs `/public`
- * devuelven 400; aquí se genera una URL firmada temporal con el JWT del
- * usuario autenticado. En producción devuelve la URL original.
+ * El bucket drivers-documents es privado, así que las URLs `/public`
+ * devuelven 400; se genera una URL firmada temporal con el JWT del
+ * usuario autenticado. Las URLs que no apuntan al Storage configurado
+ * se devuelven sin cambios.
  */
 export async function resolveDocumentPhotoUrl(photoUrl: string | null | undefined): Promise<string | null> {
   if (!photoUrl) return null;
-  if (!usesLocalSupabaseUrl()) return photoUrl;
 
   let storageObject: { bucket: string; path: string } | null = null;
   try {
     const parsedUrl = new URL(photoUrl);
-    if (parsedUrl.protocol !== 'http:') return photoUrl;
+    if (!['http:', 'https:'].includes(parsedUrl.protocol)) return photoUrl;
     const configuredUrl = new URL(SUPABASE_URL);
     const loopbackHosts = new Set(['localhost', '127.0.0.1', '10.0.2.2']);
     const sameLocalOrigin =

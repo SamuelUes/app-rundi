@@ -19,6 +19,15 @@ type ApplyDriverFundsDeltaInput = {
   status?: 'confirmed' | 'pending' | 'failed';
 };
 
+type CreatePendingRechargeInput = {
+  driverId: string;
+  amount: number;
+  source: 'manual' | 'puntoexpress_webhook' | 'ride_payment_completion' | 'system';
+  externalReference?: string | null;
+  externalTransactionId?: string | null;
+  metadata?: Record<string, any> | null;
+};
+
 const round2 = (value: number) => Number(value.toFixed(2));
 
 const parseNumber = (value: unknown): number => {
@@ -147,6 +156,45 @@ export class DriverRechargeRepository {
     });
   }
 
+  /**
+   * Registra una recarga reportada por el conductor sin acreditar saldo.
+   * Queda en status='pending' hasta que el panel CMS la valide con el RPC
+   * confirm_driver_recharge (que reescribe balance_before/after y acredita).
+   */
+  async createPendingRecharge(input: CreatePendingRechargeInput) {
+    const amount = round2(parseNumber(input.amount));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new Error('amount inválido para registrar recarga pendiente');
+    }
+
+    const driver = await Driver.findOne({ where: { user_id: input.driverId } });
+    if (!driver) {
+      throw new Error('Conductor no encontrado para registrar recarga');
+    }
+
+    const currentBalance = round2(parseNumber((driver as any).current_recharge_balance));
+
+    const movement = await DriverRecharge.create({
+      driver_id: input.driverId,
+      recharge_type: 'recharge',
+      source: input.source,
+      amount,
+      balance_before: currentBalance,
+      balance_after: currentBalance,
+      external_reference: input.externalReference ?? null,
+      external_transaction_id: input.externalTransactionId ?? null,
+      metadata: input.metadata ?? null,
+      status: 'pending',
+      created_at: new Date(),
+      updated_at: new Date(),
+    });
+
+    return {
+      movement,
+      currentBalance,
+    };
+  }
+
   async getDriverFundsSummary(driverId: string, historyLimit: number = 20) {
     const driver = await Driver.findOne({ where: { user_id: driverId } });
     const availableBalance = round2(parseNumber((driver as any)?.current_recharge_balance));
@@ -155,6 +203,11 @@ export class DriverRechargeRepository {
 
     const totals = history.reduce(
       (acc, entry: any) => {
+        // Solo movimientos confirmados impactan el saldo; las recargas
+        // pendientes/rechazadas se listan en el historial pero no suman.
+        if (toSafeString(entry?.status, 'confirmed') !== 'confirmed') {
+          return acc;
+        }
         const amount = parseNumber(entry?.amount);
         if (amount > 0) {
           acc.totalRecharged += amount;

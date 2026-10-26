@@ -15,7 +15,6 @@ import {
   TouchableOpacity,
   StyleSheet,
   ScrollView,
-  Image,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
@@ -30,6 +29,7 @@ import { useTranslation } from 'react-i18next';
 import alertService from '../../services/alertService';
 import LoadingOverlay from '../../components/ui/LoadingOverlay';
 import SupportChatShortcut from '../../components/shared/SupportChatShortcut';
+import StorageImage from '../../components/shared/StorageImage';
 import sessionService from '../../services/sessionService';
 import BiometricService from '../../services/biometricService';
 
@@ -632,8 +632,8 @@ export default function CashPaymentScreen({ route, navigation }: any) {
           {/* Foto y nombre del conductor */}
           <View style={styles.driverSection}>
             {(driverPhotoURL || ride?.driver?.photoURL) ? (
-              <Image
-                source={{ uri: driverPhotoURL || ride.driver.photoURL }}
+              <StorageImage
+                uri={driverPhotoURL || ride.driver.photoURL}
                 style={styles.driverAvatar}
                 resizeMode="cover"
               />

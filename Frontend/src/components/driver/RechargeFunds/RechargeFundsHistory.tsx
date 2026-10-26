@@ -44,7 +44,12 @@ export function RechargeFundsHistory({
         <Text style={styles.historyEmptyText}>{historyTexts.empty}</Text>
       ) : (
         <View style={styles.historyList}>
-          {historyItems.map((item) => (
+          {historyItems.map((item) => {
+            const statusKey = asText(item.status, '').toLowerCase();
+            const statusLabel =
+              (statusKey && historyTexts.statusLabels?.[statusKey]) ||
+              asText(item.status, t('driver.rechargeFunds.history.defaultStatus'));
+            return (
             <TouchableOpacity
               key={item.id}
               style={styles.historyItem}
@@ -53,7 +58,7 @@ export function RechargeFundsHistory({
             >
               <View style={styles.historyItemTop}>
                 <Text style={styles.historyItemAmount}>{formatCurrency(item.amount)}</Text>
-                <Text style={styles.historyItemStatus}>{asText(item.status, t('driver.rechargeFunds.history.defaultStatus'))}</Text>
+                <Text style={styles.historyItemStatus}>{statusLabel}</Text>
               </View>
               <Text style={styles.historyItemMeta}>{formatDateLabel(item.createdAt)}</Text>
               <Text style={styles.historyItemMeta}>
@@ -62,7 +67,8 @@ export function RechargeFundsHistory({
                 })}
               </Text>
             </TouchableOpacity>
-          ))}
+            );
+          })}
         </View>
       )}
 

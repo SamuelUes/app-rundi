@@ -169,6 +169,8 @@ class RechargeFundsService {
       availableBalance: number;
       summary?: DriverRechargeFundsSummary;
       alreadyProcessed?: boolean;
+      pending?: boolean;
+      status?: string;
     };
   }
 }
