@@ -36,6 +36,8 @@ export default function RecurringRidesScreen({ navigation }: any) {
   const { rides, loading } = useRecurringRides(user?.id);
   const dangerColor = isDark ? '#EF8A80' : '#C62828';
   const metaIconColor = isDark ? 'rgba(245,241,234,0.65)' : colors.textSecondary;
+  const accent = isDark ? colors.SecondBorder : '#B38737';
+  const accentInk = isDark ? '#FFFFFF' : '#241A09';
 
   const handleRequest = useCallback(
     (ride: RecurringRide) => navigation.navigate('SearchRide', { recurringRide: ride }),
@@ -78,7 +80,7 @@ export default function RecurringRidesScreen({ navigation }: any) {
       <View style={styles.card}>
         <View style={styles.cardHeader}>
           <View style={styles.vehicleDisc}>
-            <RRIcon id={item.vehicleType} size={18} color="#B38737" />
+            <RRIcon id={item.vehicleType} size={18} color={accent} />
           </View>
           <Text style={styles.cardTitle} numberOfLines={1}>{item.title}</Text>
           <TouchableOpacity
@@ -143,17 +145,17 @@ export default function RecurringRidesScreen({ navigation }: any) {
 
         <View style={styles.cardActions}>
           <Pressable style={styles.actionPrimary} onPress={() => handleRequest(item)} accessibilityRole="button">
-            <RRIcon id="request" size={15} color="#241A09" />
+            <RRIcon id="request" size={15} color={accentInk} />
             <Text style={styles.actionPrimaryText}>{t('client.recurringRides.request')}</Text>
           </Pressable>
           <Pressable style={styles.actionChip} onPress={() => handleEdit(item)} accessibilityRole="button">
-            <RRIcon id="edit" size={15} color="#B38737" />
+            <RRIcon id="edit" size={15} color={accent} />
             <Text style={styles.actionChipText}>{t('client.recurringRides.edit')}</Text>
           </Pressable>
         </View>
       </View>
     ),
-    [styles, colors, t, dangerColor, metaIconColor, handleRequest, handleEdit, handleDelete],
+    [styles, colors, t, dangerColor, metaIconColor, accent, accentInk, handleRequest, handleEdit, handleDelete],
   );
 
   return (
@@ -174,7 +176,7 @@ export default function RecurringRidesScreen({ navigation }: any) {
           accessibilityRole="button"
           accessibilityLabel={t('client.recurringRides.addNew')}
         >
-          <RRIcon id="add" size={22} color={rides.length >= MAX_RECURRING_RIDES ? colors.textSecondary : '#B38737'} />
+          <RRIcon id="add" size={22} color={rides.length >= MAX_RECURRING_RIDES ? colors.textSecondary : accent} />
         </TouchableOpacity>
       </View>
 
@@ -187,12 +189,12 @@ export default function RecurringRidesScreen({ navigation }: any) {
           loading ? null : (
             <View style={styles.emptyWrap}>
               <View style={styles.emptyIconDisc}>
-                <RRIcon id="repeat" size={30} color="#B38737" />
+                <RRIcon id="repeat" size={30} color={accent} />
               </View>
               <Text style={styles.emptyTitle}>{t('client.recurringRides.emptyTitle')}</Text>
               <Text style={styles.emptyBody}>{t('client.recurringRides.emptyBody')}</Text>
               <Pressable style={styles.emptyCta} onPress={handleCreate} accessibilityRole="button">
-                <RRIcon id="add" size={18} color="#241A09" />
+                <RRIcon id="add" size={18} color={accentInk} />
                 <Text style={styles.emptyCtaText}>{t('client.recurringRides.createFirst')}</Text>
               </Pressable>
             </View>
@@ -203,8 +205,11 @@ export default function RecurringRidesScreen({ navigation }: any) {
   );
 }
 
-const createStyles = (colors: any, isDark: boolean) =>
-  StyleSheet.create({
+const createStyles = (colors: any, isDark: boolean) => {
+  const accent = isDark ? colors.SecondBorder : '#B38737';
+  const accentInk = isDark ? '#FFFFFF' : '#241A09';
+  const accentSoftBg = isDark ? 'rgba(110,68,255,0.16)' : 'rgba(179,135,55,0.16)';
+  return StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     header: {
       flexDirection: 'row',
@@ -254,7 +259,7 @@ const createStyles = (colors: any, isDark: boolean) =>
       borderRadius: 17,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: 'rgba(179,135,55,0.16)',
+      backgroundColor: accentSoftBg,
     },
     cardTitle: { flex: 1, fontSize: 16, fontWeight: '800', color: colors.text },
     routeList: { marginTop: 2 },
@@ -266,7 +271,7 @@ const createStyles = (colors: any, isDark: boolean) =>
       width: 0,
       borderLeftWidth: 1.5,
       borderStyle: 'dashed',
-      borderColor: 'rgba(179,135,55,0.45)',
+      borderColor: isDark ? 'rgba(110,68,255,0.5)' : 'rgba(179,135,55,0.45)',
       marginVertical: 2,
     },
     routeAddr: {
@@ -295,9 +300,9 @@ const createStyles = (colors: any, isDark: boolean) =>
       paddingVertical: 9,
       paddingHorizontal: 14,
       borderRadius: 999,
-      backgroundColor: '#B38737',
+      backgroundColor: accent,
     },
-    actionPrimaryText: { fontSize: 13, fontWeight: '800', color: '#241A09' },
+    actionPrimaryText: { fontSize: 13, fontWeight: '800', color: accentInk },
     actionChip: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -309,7 +314,7 @@ const createStyles = (colors: any, isDark: boolean) =>
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(28,25,23,0.1)',
     },
-    actionChipText: { fontSize: 13, fontWeight: '700', color: '#B38737' },
+    actionChipText: { fontSize: 13, fontWeight: '700', color: accent },
     emptyWrap: { alignItems: 'center', paddingTop: 80, paddingHorizontal: 32 },
     emptyIconDisc: {
       width: 64,
@@ -317,7 +322,7 @@ const createStyles = (colors: any, isDark: boolean) =>
       borderRadius: 32,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: 'rgba(179,135,55,0.14)',
+      backgroundColor: accentSoftBg,
       marginBottom: 16,
     },
     emptyTitle: { fontSize: 17, fontWeight: '800', color: colors.text, textAlign: 'center' },
@@ -337,7 +342,8 @@ const createStyles = (colors: any, isDark: boolean) =>
       paddingVertical: 12,
       paddingHorizontal: 22,
       borderRadius: 999,
-      backgroundColor: '#B38737',
+      backgroundColor: accent,
     },
-    emptyCtaText: { fontSize: 14.5, fontWeight: '800', color: '#241A09' },
+    emptyCtaText: { fontSize: 14.5, fontWeight: '800', color: accentInk },
   });
+};

@@ -22,8 +22,9 @@ export function ClientRecurringRidesChips({
   styles,
   t,
 }: ClientRecurringRidesChipsProps) {
-  const { isDark } = useTheme();
+  const { colors, isDark } = useTheme();
   const chipInk = isDark ? '#F5F1EA' : '#1C1917';
+  const accent = isDark ? colors.SecondBorder : '#B38737';
 
   return (
     <ScrollView
@@ -61,7 +62,7 @@ export function ClientRecurringRidesChips({
           accessibilityRole="button"
           accessibilityLabel={ride.title}
         >
-          <RRIcon id={ride.vehicleType} size={16} color="#B38737" />
+          <RRIcon id={ride.vehicleType} size={16} color={accent} />
           <Text
             style={[styles.navChipLabel, { color: chipInk }]}
             numberOfLines={1}
@@ -81,7 +82,7 @@ export function ClientRecurringRidesChips({
           accessibilityRole="button"
           accessibilityLabel={t('client.recurringRides.manage')}
         >
-          <RRIcon id="manage" size={16} color="#B38737" />
+          <RRIcon id="manage" size={16} color={accent} />
           <Text style={[styles.navChipLabel, { color: chipInk }]}>
             {t('client.recurringRides.manage')}
           </Text>

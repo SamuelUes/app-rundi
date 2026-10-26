@@ -219,6 +219,8 @@ export default function RecurringRideFormScreen({ navigation, route }: any) {
         : tr('search.placeholderStop');
 
   const mutedIconColor = isDark ? 'rgba(245,241,234,0.7)' : colors.textSecondary;
+  const accent = isDark ? colors.SecondBorder : '#B38737';
+  const accentInk = isDark ? '#FFFFFF' : '#241A09';
 
   return (
     <View style={styles.container}>
@@ -256,7 +258,7 @@ export default function RecurringRideFormScreen({ navigation, route }: any) {
 
       {mapPickTarget != null && (
         <View style={[styles.mapPickBanner, { top: insets.top + 60 }]}>
-          <RRIcon id="touchApp" size={15} color="#B38737" />
+          <RRIcon id="touchApp" size={15} color={accent} />
           <Text style={styles.mapPickText} numberOfLines={2}>
             {rr('mapPickHint')}
           </Text>
@@ -328,7 +330,7 @@ export default function RecurringRideFormScreen({ navigation, route }: any) {
             onPress={() => openSearch('new-stop')}
             accessibilityRole="button"
           >
-            <RRIcon id="addCircle" size={15} color="#B38737" />
+            <RRIcon id="addCircle" size={15} color={accent} />
             <Text style={styles.addStopText}>{tr('accessibility.addExtraStop')}</Text>
           </Pressable>
         )}
@@ -336,12 +338,12 @@ export default function RecurringRideFormScreen({ navigation, route }: any) {
         <View style={styles.routeMetaRow}>
           {calculatingRoute ? (
             <>
-              <ActivityIndicator size="small" color="#B38737" />
+              <ActivityIndicator size="small" color={accent} />
               <Text style={styles.routeMetaText}>{rr('routeCalculating')}</Text>
             </>
           ) : estimatedDistance > 0 ? (
             <>
-              <RRIcon id="route" size={14} color="#B38737" />
+              <RRIcon id="route" size={14} color={accent} />
               <Text style={styles.routeMetaText}>
                 {rr('routeInfo', { distance: estimatedDistance, duration: estimatedDuration })}
               </Text>
@@ -358,7 +360,7 @@ export default function RecurringRideFormScreen({ navigation, route }: any) {
           accessibilityRole="button"
           accessibilityLabel={rr('expandForm')}
         >
-          <RRIcon id="expandForm" size={20} color="#241A09" />
+          <RRIcon id="expandForm" size={20} color={accentInk} />
         </Pressable>
       ) : (
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.formWrap}>
@@ -389,56 +391,70 @@ export default function RecurringRideFormScreen({ navigation, route }: any) {
 
           <Text style={styles.fieldLabel}>{rr('vehicleSection')}</Text>
           <View style={styles.chipsRow}>
-            {(['moto', 'auto', 'designated_driver'] as RecurringRideVehicleType[]).map((type) => {
+            {(['moto', 'auto'] as RecurringRideVehicleType[]).map((type) => {
               const selected = vehicleType === type;
               return (
                 <Pressable
                   key={type}
-                  style={[styles.optionChip, selected && styles.optionChipSelected]}
+                  style={[styles.optionChip, styles.optionChipFlex, selected && styles.optionChipSelected]}
                   onPress={() => {
                     setVehicleType(type);
                     if (type === 'moto') setPassengers(1);
                   }}
                   accessibilityRole="button"
                 >
-                  <RRIcon
-                    id={type}
-                    size={15}
-                    color={selected ? '#241A09' : mutedIconColor}
-                  />
+                  <RRIcon id={type} size={15} color={selected ? accentInk : mutedIconColor} />
                   <Text style={[styles.optionChipText, selected && styles.optionChipTextSelected]}>
-                    {tr(`vehicle.${type === 'designated_driver' ? 'designatedLabel' : `${type}Label`}`)}
+                    {tr(`vehicle.${type}Label`)}
                   </Text>
                 </Pressable>
               );
             })}
           </View>
+          <Pressable
+            style={[
+              styles.optionChip,
+              styles.optionChipFlex,
+              styles.ddChipRow,
+              vehicleType === 'designated_driver' && styles.optionChipSelected,
+            ]}
+            onPress={() => setVehicleType('designated_driver')}
+            accessibilityRole="button"
+          >
+            <RRIcon
+              id="designated_driver"
+              size={15}
+              color={vehicleType === 'designated_driver' ? accentInk : mutedIconColor}
+            />
+            <Text style={[styles.optionChipText, vehicleType === 'designated_driver' && styles.optionChipTextSelected]}>
+              {tr('vehicle.designatedLabel')}
+            </Text>
+          </Pressable>
 
           {vehicleType === 'designated_driver' && (
-            <View style={styles.chipsRow}>
-              {(['auto', 'moto'] as const).map((mode) => {
-                const selected = designatedDriverMode === mode;
-                return (
-                  <Pressable
-                    key={mode}
-                    style={[styles.optionChip, selected && styles.optionChipSelected]}
-                    onPress={() => {
-                      setDesignatedDriverMode(mode);
-                      if (mode === 'moto') setPassengers(1);
-                    }}
-                    accessibilityRole="button"
-                  >
-                    <RRIcon
-                      id={mode}
-                      size={15}
-                      color={selected ? '#241A09' : mutedIconColor}
-                    />
-                    <Text style={[styles.optionChipText, selected && styles.optionChipTextSelected]}>
-                      {mode === 'auto' ? tr('vehicle.modeAuto') : tr('vehicle.modeMoto')}
-                    </Text>
-                  </Pressable>
-                );
-              })}
+            <View style={styles.ddModeBox}>
+              <Text style={styles.ddModeLabel}>{tr('vehicle.modeLabel')}</Text>
+              <View style={styles.chipsRow}>
+                {(['auto', 'moto'] as const).map((mode) => {
+                  const selected = designatedDriverMode === mode;
+                  return (
+                    <Pressable
+                      key={mode}
+                      style={[styles.optionChip, styles.optionChipFlex, selected && styles.optionChipSelected]}
+                      onPress={() => {
+                        setDesignatedDriverMode(mode);
+                        if (mode === 'moto') setPassengers(1);
+                      }}
+                      accessibilityRole="button"
+                    >
+                      <RRIcon id={mode} size={15} color={selected ? accentInk : mutedIconColor} />
+                      <Text style={[styles.optionChipText, selected && styles.optionChipTextSelected]}>
+                        {mode === 'auto' ? tr('vehicle.modeAuto') : tr('vehicle.modeMoto')}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
             </View>
           )}
 
@@ -456,7 +472,7 @@ export default function RecurringRideFormScreen({ navigation, route }: any) {
                   <RRIcon
                     id={method}
                     size={15}
-                    color={selected ? '#241A09' : mutedIconColor}
+                    color={selected ? accentInk : mutedIconColor}
                   />
                   <Text style={[styles.optionChipText, selected && styles.optionChipTextSelected]}>
                     {rr(method)}
@@ -505,9 +521,9 @@ export default function RecurringRideFormScreen({ navigation, route }: any) {
             accessibilityRole="button"
           >
             {saving ? (
-              <ActivityIndicator size="small" color="#241A09" />
+              <ActivityIndicator size="small" color={accentInk} />
             ) : (
-              <RRIcon id="saved" size={18} color="#241A09" />
+              <RRIcon id="saved" size={18} color={accentInk} />
             )}
             <Text style={styles.saveButtonText}>{rr('save')}</Text>
           </Pressable>
@@ -541,17 +557,17 @@ export default function RecurringRideFormScreen({ navigation, route }: any) {
             </View>
             <View style={styles.searchActionsRow}>
               <Pressable style={styles.searchActionChip} onPress={handleUseCurrentLocation}>
-                <RRIcon id="myLocation" size={15} color="#B38737" />
+                <RRIcon id="myLocation" size={15} color={accent} />
                 <Text style={styles.searchActionText}>{tr('search.useCurrentLocation')}</Text>
               </Pressable>
               <Pressable style={styles.searchActionChip} onPress={handlePickOnMap}>
-                <RRIcon id="pickOnMap" size={15} color="#B38737" />
+                <RRIcon id="pickOnMap" size={15} color={accent} />
                 <Text style={styles.searchActionText}>{tr('search.pickOnMap')}</Text>
               </Pressable>
             </View>
             {searchLoading && (
               <View style={styles.searchStatusRow}>
-                <ActivityIndicator size="small" color="#B38737" />
+                <ActivityIndicator size="small" color={accent} />
                 <Text style={styles.searchStatusText}>{tr('search.loading')}</Text>
               </View>
             )}
@@ -565,7 +581,7 @@ export default function RecurringRideFormScreen({ navigation, route }: any) {
                   style={styles.searchResultItem}
                   onPress={() => void handleSelectSuggestion(item)}
                 >
-                  <RRIcon id="place" size={18} color="#B38737" />
+                  <RRIcon id="place" size={18} color={accent} />
                   <View style={styles.searchResultBody}>
                     <Text style={styles.searchResultMain} numberOfLines={1}>{item.mainText}</Text>
                     {!!item.secondaryText && (
@@ -582,8 +598,13 @@ export default function RecurringRideFormScreen({ navigation, route }: any) {
   );
 }
 
-const createStyles = (colors: any, isDark: boolean) =>
-  StyleSheet.create({
+const createStyles = (colors: any, isDark: boolean) => {
+  const accent = isDark ? colors.SecondBorder : '#B38737';
+  const accentInk = isDark ? '#FFFFFF' : '#241A09';
+  const accentSoft = isDark ? 'rgba(110,68,255,0.18)' : 'rgba(255,247,230,0.95)';
+  const accentBorder = isDark ? 'rgba(110,68,255,0.55)' : 'rgba(179,135,55,0.45)';
+  const accentText = isDark ? '#C4B1FF' : '#8A5800';
+  return StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     backButton: {
       position: 'absolute',
@@ -628,21 +649,21 @@ const createStyles = (colors: any, isDark: boolean) =>
       paddingVertical: 10,
       paddingHorizontal: 14,
       borderRadius: 16,
-      backgroundColor: isDark ? 'rgba(43,32,7,0.95)' : 'rgba(255,247,230,0.97)',
+      backgroundColor: isDark ? 'rgba(30,22,60,0.95)' : 'rgba(255,247,230,0.97)',
       borderWidth: 1,
-      borderColor: 'rgba(179,135,55,0.4)',
+      borderColor: accentBorder,
       zIndex: 30,
     },
-    mapPickText: { flex: 1, fontSize: 12.5, fontWeight: '600', color: isDark ? '#FFD666' : '#8A5800' },
+    mapPickText: { flex: 1, fontSize: 12.5, fontWeight: '600', color: accentText },
     mapPickCancelBtn: {
       paddingVertical: 6,
       paddingHorizontal: 12,
       borderRadius: 999,
       borderWidth: 1,
-      borderColor: 'rgba(179,135,55,0.5)',
+      borderColor: accentBorder,
       backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.7)',
     },
-    mapPickCancel: { fontSize: 12.5, fontWeight: '700', color: '#B38737' },
+    mapPickCancel: { fontSize: 12.5, fontWeight: '700', color: accent },
     routeCard: {
       position: 'absolute',
       left: 16,
@@ -717,10 +738,10 @@ const createStyles = (colors: any, isDark: boolean) =>
       marginTop: 8,
       borderWidth: 1.5,
       borderStyle: 'dashed',
-      borderColor: 'rgba(179,135,55,0.5)',
-      backgroundColor: isDark ? 'rgba(43,32,7,0.35)' : 'rgba(255,247,230,0.6)',
+      borderColor: accentBorder,
+      backgroundColor: isDark ? 'rgba(110,68,255,0.10)' : 'rgba(255,247,230,0.6)',
     },
-    addStopText: { fontSize: 13, fontWeight: '800', color: '#B38737' },
+    addStopText: { fontSize: 13, fontWeight: '800', color: accent },
     routeMetaRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -747,7 +768,7 @@ const createStyles = (colors: any, isDark: boolean) =>
       borderRadius: 26,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: '#B38737',
+      backgroundColor: accent,
       shadowColor: '#000',
       shadowOffset: { width: 0, height: 6 },
       shadowOpacity: 0.28,
@@ -823,11 +844,27 @@ const createStyles = (colors: any, isDark: boolean) =>
       borderColor: isDark ? 'rgba(255,255,255,0.16)' : 'rgba(28,25,23,0.1)',
     },
     optionChipSelected: {
-      backgroundColor: '#B38737',
-      borderColor: '#B38737',
+      backgroundColor: accent,
+      borderColor: accent,
     },
+    optionChipFlex: { flex: 1, justifyContent: 'center' },
     optionChipText: { fontSize: 13, fontWeight: '700', color: colors.text },
-    optionChipTextSelected: { color: '#241A09' },
+    optionChipTextSelected: { color: accentInk },
+    ddChipRow: { marginTop: 8 },
+    ddModeBox: {
+      marginTop: 10,
+      borderRadius: 14,
+      padding: 10,
+      backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(28,25,23,0.03)',
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(28,25,23,0.08)',
+    },
+    ddModeLabel: {
+      fontSize: 11.5,
+      fontWeight: '700',
+      color: colors.textSecondary,
+      marginBottom: 8,
+    },
     stepperRow: { flexDirection: 'row', alignItems: 'center', gap: 16 },
     stepperButton: {
       width: 38,
@@ -848,7 +885,7 @@ const createStyles = (colors: any, isDark: boolean) =>
       gap: 8,
       height: 54,
       borderRadius: 999,
-      backgroundColor: '#B38737',
+      backgroundColor: accent,
       marginTop: 20,
       shadowColor: '#000',
       shadowOffset: { width: 0, height: 6 },
@@ -857,7 +894,7 @@ const createStyles = (colors: any, isDark: boolean) =>
       elevation: 10,
     },
     saveButtonDisabled: { opacity: 0.45 },
-    saveButtonText: { fontSize: 16, fontWeight: '800', color: '#241A09' },
+    saveButtonText: { fontSize: 16, fontWeight: '800', color: accentInk },
     searchOverlay: {
       position: 'absolute',
       top: 0,
@@ -910,11 +947,11 @@ const createStyles = (colors: any, isDark: boolean) =>
       paddingVertical: 11,
       paddingHorizontal: 12,
       borderRadius: 14,
-      backgroundColor: isDark ? 'rgba(43,32,7,0.85)' : 'rgba(255,247,230,0.95)',
+      backgroundColor: accentSoft,
       borderWidth: 1.5,
-      borderColor: 'rgba(179,135,55,0.45)',
+      borderColor: accentBorder,
     },
-    searchActionText: { fontSize: 12.5, fontWeight: '800', color: isDark ? '#FFD666' : '#8A5800' },
+    searchActionText: { fontSize: 12.5, fontWeight: '800', color: accentText },
     searchStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 },
     searchStatusText: { fontSize: 13, fontWeight: '600', color: colors.textSecondary },
     searchErrorText: {
@@ -936,3 +973,4 @@ const createStyles = (colors: any, isDark: boolean) =>
     searchResultMain: { fontSize: 14, fontWeight: '700', color: colors.text },
     searchResultSecondary: { fontSize: 12, fontWeight: '500', color: colors.textSecondary, marginTop: 1 },
   });
+};
