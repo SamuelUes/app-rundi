@@ -48,6 +48,7 @@ import { SearchRideSummary } from '../../components/client/SearchRide/SearchRide
 import { SearchRideCTA } from '../../components/client/SearchRide/SearchRideCTA';
 import { SearchRideSearchOverlay } from '../../components/client/SearchRide/SearchRideSearchOverlay';
 import { SearchRideScheduleModal } from '../../components/client/SearchRide/SearchRideScheduleModal';
+import type { RecurringRide } from '../../types/recurringRide';
 
 const { MANUAL_ORIGIN, MANUAL_ORIGIN_HOLD, ORIGIN_PIN, DESTINATION_PIN, MULTI_STOP_PIN } = MAP_ICONS;
 const DEFAULT_FALLBACK_COORDS = { latitude: 12.1364, longitude: -86.2514 };
@@ -71,7 +72,8 @@ type MapSelectionState =
   | { type: 'extra-edit'; index: number }
   | null;
 
-export default function SearchRideScreenNewDesign({ navigation }: any) {
+export default function SearchRideScreenNewDesign({ navigation, route }: any) {
+  const recurringRide: RecurringRide | undefined = route?.params?.recurringRide;
   const { t, i18n } = useTranslation();
   const { user } = useAuth();
   const { colors, isDark } = useTheme();
@@ -335,6 +337,44 @@ export default function SearchRideScreenNewDesign({ navigation }: any) {
 
   // Aplica la recomendación solo si el usuario no ha elegido manualmente.
   const userPickedVehicleRef = useRef(false);
+
+  // Hidrata el formulario cuando se abre desde un viaje recurrente guardado.
+  const hydratedRecurringRef = useRef(false);
+  useEffect(() => {
+    if (!recurringRide || hydratedRecurringRef.current) return;
+    hydratedRecurringRef.current = true;
+    const originPt: Coords = { latitude: recurringRide.origin.lat, longitude: recurringRide.origin.lng };
+    const destPt: Coords = { latitude: recurringRide.destination.lat, longitude: recurringRide.destination.lng };
+    const stops = recurringRide.extraStops.map((stop) => ({
+      address: stop.address,
+      coords: { latitude: stop.lat, longitude: stop.lng } as Coords,
+    }));
+    state.setOrigin(recurringRide.origin.address);
+    state.setManualOriginAddress(recurringRide.origin.address);
+    state.setOriginCoords(originPt);
+    state.setHasManualOriginOverride(true);
+    state.setHasPinnedOrigin(true);
+    state.setDestination(recurringRide.destination.address);
+    state.setDestinationCoords(destPt);
+    state.setExtraDestinations(stops);
+    userPickedVehicleRef.current = true;
+    state.setVehicleType(recurringRide.vehicleType);
+    if (recurringRide.designatedDriverMode) {
+      state.setDesignatedDriverMode(recurringRide.designatedDriverMode);
+    }
+    state.setPaymentMethod(recurringRide.paymentMethod);
+    state.setPassengersByVehicle((prev) => ({
+      ...prev,
+      [recurringRide.vehicleType]: recurringRide.passengers,
+    }));
+    if (recurringRide.comment) state.setRideComment(recurringRide.comment);
+    if (recurringRide.priceSuggestion != null) {
+      state.setPriceSuggestion(String(recurringRide.priceSuggestion));
+    }
+    state.setCameraTarget(originPt);
+    void recomputeRouteWith(originPt, destPt, stops);
+  }, [recurringRide, recomputeRouteWith]);
+
   const handleSelectVehicle = useCallback(
     (type: VehicleType) => {
       userPickedVehicleRef.current = true;

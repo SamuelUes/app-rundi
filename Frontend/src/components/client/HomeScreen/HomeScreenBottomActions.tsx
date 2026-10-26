@@ -22,6 +22,7 @@ interface HomeScreenBottomActionsProps {
   regionStatus: RegionStatus;
   scheduledRideNotice?: string | null;
   onRequestRide: () => void;
+  recurringChips?: React.ReactNode;
   styles: any;
   t: TFunction;
 }
@@ -32,6 +33,7 @@ export function HomeScreenBottomActions({
   regionStatus,
   scheduledRideNotice,
   onRequestRide,
+  recurringChips,
   styles,
   t,
 }: HomeScreenBottomActionsProps) {
@@ -63,6 +65,8 @@ export function HomeScreenBottomActions({
 
   return (
     <View style={styles.bottomStack} pointerEvents="box-none">
+      {recurringChips}
+
       {scheduledRideNotice ? (
         <View style={styles.scheduledRideChip}>
           <MaterialIcons name="event" size={14} color="#B38737" />

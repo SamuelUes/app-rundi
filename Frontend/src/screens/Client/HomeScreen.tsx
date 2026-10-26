@@ -44,6 +44,9 @@ import { MAP_ICONS } from '../../constants/mapIcons';
 import { HomeScreenHeader } from '../../components/client/HomeScreen/HomeScreenHeader';
 import { HomeScreenLocationStatus } from '../../components/client/HomeScreen/HomeScreenLocationStatus';
 import { HomeScreenBottomActions } from '../../components/client/HomeScreen/HomeScreenBottomActions';
+import { ClientRecurringRidesChips } from '../../components/client/HomeScreen/ClientRecurringRidesChips';
+import { useRecurringRides } from '../../hooks/client/useRecurringRides';
+import type { RecurringRide } from '../../types/recurringRide';
 
 // Importaciones para Firebase
 
@@ -255,6 +258,8 @@ export default function HomeScreen({ navigation }: any) {
     handleViewPendingPayments,
   } = usePendingActions(user?.id, activeRide, upcomingProgrammedRide, navigation, t);
 
+  const { rides: recurringRides } = useRecurringRides(user?.id);
+
   // Recordatorio in-app: viaje programado a >30min pero el mismo día.
   const scheduledRideNotice = useMemo(() => {
     if (!upcomingProgrammedRide || upcomingProgrammedRide.isImminent || !upcomingProgrammedRide.isToday) {
@@ -394,6 +399,21 @@ export default function HomeScreen({ navigation }: any) {
     navigation.navigate('SearchRide');
   }, [handleViewPendingPayments, hasPendingPayments, isOutsideSupportedArea, navigation, regionStatus.message]);
 
+  const handleAddRecurringRide = useCallback(() => {
+    navigation.navigate('RecurringRideForm');
+  }, [navigation]);
+
+  const handlePressRecurringRide = useCallback(
+    (ride: RecurringRide) => {
+      navigation.navigate('SearchRide', { recurringRide: ride });
+    },
+    [navigation],
+  );
+
+  const handleManageRecurringRides = useCallback(() => {
+    navigation.navigate('RecurringRides');
+  }, [navigation]);
+
   const displayCoords = useMemo(() => {
     if (mapCenter) return mapCenter;
     return effectiveCoords;
@@ -527,6 +547,16 @@ export default function HomeScreen({ navigation }: any) {
         regionStatus={regionStatus}
         scheduledRideNotice={scheduledRideNotice}
         onRequestRide={handleRequestRide}
+        recurringChips={
+          <ClientRecurringRidesChips
+            rides={recurringRides}
+            onPressAdd={handleAddRecurringRide}
+            onPressRide={handlePressRecurringRide}
+            onPressManage={handleManageRecurringRides}
+            styles={styles}
+            t={t}
+          />
+        }
         styles={styles}
         t={t}
       />
@@ -683,6 +713,43 @@ const createStyles = (
   mapFabPressed: {
     transform: [{ scale: 0.94 }],
     opacity: 0.9,
+  },
+
+  // Recurring rides nav chips
+  navChipsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingRight: 8,
+  },
+  navChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    maxWidth: 170,
+    paddingVertical: 8,
+    paddingHorizontal: 13,
+    borderRadius: 999,
+    backgroundColor: isDark ? 'rgba(24,20,17,0.92)' : 'rgba(255,255,255,0.94)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(28,25,23,0.08)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: isDark ? 0.35 : 0.1,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  navChipAdd: {
+    borderColor: isDark ? 'rgba(212,175,55,0.4)' : 'rgba(179,135,55,0.35)',
+  },
+  navChipPressed: {
+    transform: [{ scale: 0.96 }],
+    opacity: 0.9,
+  },
+  navChipLabel: {
+    flexShrink: 1,
+    fontSize: 12.5,
+    fontWeight: '700',
   },
 
   // Bottom stack (region hint + CTA)
