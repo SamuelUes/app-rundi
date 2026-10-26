@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   Pressable,
   FlatList,
+  Image,
 } from 'react-native';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -22,6 +23,14 @@ const VEHICLE_ICONS: Record<RecurringRide['vehicleType'], keyof typeof MaterialI
   auto: 'directions-car',
   designated_driver: 'person-pin',
 };
+const VEHICLE_LABEL_KEYS: Record<RecurringRide['vehicleType'], string> = {
+  moto: 'shared.searchRide.vehicle.motoLabel',
+  auto: 'shared.searchRide.vehicle.autoLabel',
+  designated_driver: 'shared.searchRide.vehicle.designatedLabel',
+};
+const ORIGIN_PIN_IMG = require('../../assets/icons/origin_marker/origin_marker.png');
+const DEST_PIN_IMG = require('../../assets/icons/select-final-destination/selectfinaldestination.png');
+const STOP_PIN_IMG = require('../../assets/icons/select-extra-destination/selectextradestination_2x.png');
 
 export default function RecurringRidesScreen({ navigation }: any) {
   const { t } = useTranslation();
@@ -75,20 +84,66 @@ export default function RecurringRidesScreen({ navigation }: any) {
             <MaterialIcons name={VEHICLE_ICONS[item.vehicleType]} size={18} color="#B38737" />
           </View>
           <Text style={styles.cardTitle} numberOfLines={1}>{item.title}</Text>
+          <TouchableOpacity
+            onPress={() => handleDelete(item)}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={t('client.recurringRides.delete')}
+          >
+            <MaterialIcons name="delete-outline" size={18} color="#C62828" />
+          </TouchableOpacity>
         </View>
-        <View style={styles.cardRoute}>
-          <MaterialIcons name="trip-origin" size={13} color="#4CAF50" />
-          <Text style={styles.cardRouteText} numberOfLines={1}>{item.origin.address}</Text>
+
+        <View style={styles.routeList}>
+          <View style={styles.routeRow}>
+            <View style={styles.routeIconCol}>
+              <Image source={ORIGIN_PIN_IMG} style={styles.routePin} resizeMode="contain" />
+              <View style={styles.routeConnector} />
+            </View>
+            <Text style={styles.routeAddr} numberOfLines={1}>{item.origin.address}</Text>
+          </View>
+          {item.extraStops.map((stop, index) => (
+            <View style={styles.routeRow} key={`${item.id}-stop-${index}`}>
+              <View style={styles.routeIconCol}>
+                <Image source={STOP_PIN_IMG} style={styles.routePin} resizeMode="contain" />
+                <View style={styles.routeConnector} />
+              </View>
+              <Text style={styles.routeAddr} numberOfLines={1}>{stop.address}</Text>
+            </View>
+          ))}
+          <View style={styles.routeRow}>
+            <View style={styles.routeIconCol}>
+              <Image source={DEST_PIN_IMG} style={styles.routePin} resizeMode="contain" />
+            </View>
+            <Text style={styles.routeAddr} numberOfLines={1}>{item.destination.address}</Text>
+          </View>
         </View>
-        <View style={styles.cardRoute}>
-          <MaterialIcons name="place" size={13} color="#E53935" />
-          <Text style={styles.cardRouteText} numberOfLines={1}>{item.destination.address}</Text>
+
+        <View style={styles.cardMetaRow}>
+          <View style={styles.metaChip}>
+            <MaterialIcons name={VEHICLE_ICONS[item.vehicleType]} size={13} color={colors.textSecondary} />
+            <Text style={styles.metaChipText}>{t(VEHICLE_LABEL_KEYS[item.vehicleType])}</Text>
+          </View>
+          <View style={styles.metaChip}>
+            <MaterialIcons name="person" size={13} color={colors.textSecondary} />
+            <Text style={styles.metaChipText}>{item.passengers}</Text>
+          </View>
+          <View style={styles.metaChip}>
+            <MaterialIcons name="payments" size={13} color={colors.textSecondary} />
+            <Text style={styles.metaChipText}>
+              {t(`client.recurringRides.${item.paymentMethod}`)}
+            </Text>
+          </View>
+          {item.extraStops.length > 0 && (
+            <View style={styles.metaChip}>
+              <MaterialIcons name="add-location-alt" size={13} color={colors.textSecondary} />
+              <Text style={styles.metaChipText}>
+                {t('client.recurringRides.stopsCount', { count: item.extraStops.length })}
+              </Text>
+            </View>
+          )}
         </View>
-        {item.extraStops.length > 0 && (
-          <Text style={styles.cardMeta}>
-            {t('client.recurringRides.stopsCount', { count: item.extraStops.length })}
-          </Text>
-        )}
+
         <View style={styles.cardActions}>
           <Pressable style={styles.actionPrimary} onPress={() => handleRequest(item)} accessibilityRole="button">
             <MaterialIcons name="near-me" size={15} color="#241A09" />
@@ -98,16 +153,10 @@ export default function RecurringRidesScreen({ navigation }: any) {
             <MaterialIcons name="edit" size={15} color="#B38737" />
             <Text style={styles.actionChipText}>{t('client.recurringRides.edit')}</Text>
           </Pressable>
-          <Pressable style={styles.actionChip} onPress={() => handleDelete(item)} accessibilityRole="button">
-            <MaterialIcons name="delete-outline" size={15} color="#C62828" />
-            <Text style={[styles.actionChipText, { color: '#C62828' }]}>
-              {t('client.recurringRides.delete')}
-            </Text>
-          </Pressable>
         </View>
       </View>
     ),
-    [styles, t, handleRequest, handleEdit, handleDelete],
+    [styles, colors, t, handleRequest, handleEdit, handleDelete],
   );
 
   return (
@@ -211,9 +260,36 @@ const createStyles = (colors: any, isDark: boolean) =>
       backgroundColor: 'rgba(179,135,55,0.16)',
     },
     cardTitle: { flex: 1, fontSize: 16, fontWeight: '800', color: colors.text },
-    cardRoute: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 },
-    cardRouteText: { flex: 1, fontSize: 13.5, fontWeight: '600', color: colors.text },
-    cardMeta: { fontSize: 12, fontWeight: '600', color: colors.textSecondary, marginTop: 6, marginLeft: 21 },
+    routeList: { marginTop: 2 },
+    routeRow: { flexDirection: 'row', alignItems: 'stretch', gap: 10 },
+    routeIconCol: { width: 18, alignItems: 'center' },
+    routePin: { width: 18, height: 18 },
+    routeConnector: {
+      flex: 1,
+      width: 0,
+      borderLeftWidth: 1.5,
+      borderStyle: 'dashed',
+      borderColor: 'rgba(179,135,55,0.45)',
+      marginVertical: 2,
+    },
+    routeAddr: {
+      flex: 1,
+      fontSize: 13.5,
+      fontWeight: '600',
+      color: colors.text,
+      paddingVertical: 4,
+    },
+    cardMetaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 12 },
+    metaChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      paddingVertical: 4,
+      paddingHorizontal: 9,
+      borderRadius: 999,
+      backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(28,25,23,0.05)',
+    },
+    metaChipText: { fontSize: 11.5, fontWeight: '700', color: colors.textSecondary },
     cardActions: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14, flexWrap: 'wrap' },
     actionPrimary: {
       flexDirection: 'row',

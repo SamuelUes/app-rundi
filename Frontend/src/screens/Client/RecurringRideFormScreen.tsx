@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Image,
 } from 'react-native';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -33,6 +34,9 @@ import type { RecurringRide, RecurringRideVehicleType } from '../../types/recurr
 
 const { MANUAL_ORIGIN } = MAP_ICONS;
 const FALLBACK = { latitude: 12.1364, longitude: -86.2514 };
+const ORIGIN_PIN_IMG = require('../../assets/icons/origin_marker/origin_marker.png');
+const DEST_PIN_IMG = require('../../assets/icons/select-final-destination/selectfinaldestination.png');
+const STOP_PIN_IMG = require('../../assets/icons/select-extra-destination/selectextradestination_2x.png');
 
 export default function RecurringRideFormScreen({ navigation, route }: any) {
   const editingRide: RecurringRide | undefined = route?.params?.ride;
@@ -265,7 +269,7 @@ export default function RecurringRideFormScreen({ navigation, route }: any) {
       {/* Route card */}
       <View style={[styles.routeCard, { top: insets.top + 60 }]}>
         <Pressable style={styles.routeRow} onPress={() => openSearch('origin')}>
-          <MaterialIcons name="trip-origin" size={16} color="#4CAF50" />
+          <Image source={ORIGIN_PIN_IMG} style={styles.routePin} resizeMode="contain" />
           <Text style={[styles.routeRowText, !originAddress && styles.routeRowPlaceholder]} numberOfLines={1}>
             {originAddress || tr('labels.originPlaceholder')}
           </Text>
@@ -274,7 +278,7 @@ export default function RecurringRideFormScreen({ navigation, route }: any) {
 
         {extraStops.map((stop, index) => (
           <View key={`stop-${index}`} style={styles.routeRow}>
-            <MaterialIcons name="more-vert" size={16} color="#B38737" />
+            <Image source={STOP_PIN_IMG} style={styles.routePin} resizeMode="contain" />
             <Pressable style={styles.routeRowBody} onPress={() => openSearch(index)}>
               <Text style={[styles.routeRowText, !stop.address && styles.routeRowPlaceholder]} numberOfLines={1}>
                 {stop.address || tr('labels.stopLabel', { index: index + 1 })}
@@ -287,7 +291,7 @@ export default function RecurringRideFormScreen({ navigation, route }: any) {
         ))}
 
         <Pressable style={styles.routeRow} onPress={() => openSearch('destination')}>
-          <MaterialIcons name="place" size={16} color="#E53935" />
+          <Image source={DEST_PIN_IMG} style={styles.routePin} resizeMode="contain" />
           <Text style={[styles.routeRowText, !destinationAddress && styles.routeRowPlaceholder]} numberOfLines={1}>
             {destinationAddress || tr('labels.destinationPlaceholder')}
           </Text>
@@ -392,7 +396,7 @@ export default function RecurringRideFormScreen({ navigation, route }: any) {
 
           <Text style={styles.fieldLabel}>{rr('paymentSection')}</Text>
           <View style={styles.chipsRow}>
-            {(['cash', 'card'] as const).map((method) => {
+            {(['cash', /* 'card' // pago con tarjeta no funcional por ahora */] as const).map((method) => {
               const selected = paymentMethod === method;
               return (
                 <Pressable
@@ -603,6 +607,10 @@ const createStyles = (colors: any, isDark: boolean) =>
       alignItems: 'center',
       gap: 10,
       paddingVertical: 11,
+    },
+    routePin: {
+      width: 18,
+      height: 18,
     },
     routeRowBody: { flex: 1 },
     routeRowText: { flex: 1, fontSize: 14, fontWeight: '600', color: colors.text },

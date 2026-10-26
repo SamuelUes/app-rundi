@@ -2224,7 +2224,8 @@ const resources = {
           },
         },
         recurringRides: {
-          addNew: 'New trip',
+          addNew: 'Save trip',
+          addHint: 'Save a frequent route to request it with one tap',
           manage: 'Manage',
           title: 'Saved trips',
           formTitleNew: 'New recurring trip',
@@ -7626,7 +7627,8 @@ const resources = {
             },
           },
           recurringRides: {
-            addNew: 'Nuevo viaje',
+            addNew: 'Guardar viaje',
+            addHint: 'Guarda una ruta frecuente para pedirla con un toque',
             manage: 'Gestionar',
             title: 'Viajes guardados',
             formTitleNew: 'Nuevo viaje recurrente',

@@ -14,6 +14,12 @@ interface ClientRecurringRidesChipsProps {
   t: TFunction;
 }
 
+const VEHICLE_ICONS: Record<RecurringRide['vehicleType'], keyof typeof MaterialIcons.glyphMap> = {
+  moto: 'two-wheeler',
+  auto: 'directions-car',
+  designated_driver: 'person-pin',
+};
+
 export function ClientRecurringRidesChips({
   rides,
   onPressAdd,
@@ -29,7 +35,9 @@ export function ClientRecurringRidesChips({
     <ScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
+      style={styles.navChipsScroll}
       contentContainerStyle={styles.navChipsRow}
+      fadingEdgeLength={24}
     >
       <Pressable
         style={({ pressed }) => [
@@ -40,9 +48,10 @@ export function ClientRecurringRidesChips({
         onPress={onPressAdd}
         accessibilityRole="button"
         accessibilityLabel={t('client.recurringRides.addNew')}
+        accessibilityHint={t('client.recurringRides.addHint')}
       >
-        <MaterialIcons name="add" size={16} color="#B38737" />
-        <Text style={[styles.navChipLabel, { color: chipInk }]}>
+        <MaterialIcons name="bookmark-add" size={16} color="#241A09" />
+        <Text style={[styles.navChipLabel, styles.navChipAddLabel]}>
           {t('client.recurringRides.addNew')}
         </Text>
       </Pressable>
@@ -58,7 +67,7 @@ export function ClientRecurringRidesChips({
           accessibilityRole="button"
           accessibilityLabel={ride.title}
         >
-          <MaterialIcons name="repeat" size={16} color="#B38737" />
+          <MaterialIcons name={VEHICLE_ICONS[ride.vehicleType]} size={16} color="#B38737" />
           <Text
             style={[styles.navChipLabel, { color: chipInk }]}
             numberOfLines={1}

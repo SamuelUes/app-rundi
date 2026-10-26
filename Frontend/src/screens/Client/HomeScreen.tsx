@@ -716,11 +716,14 @@ const createStyles = (
   },
 
   // Recurring rides nav chips
+  navChipsScroll: {
+    marginHorizontal: -16,
+  },
   navChipsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    paddingRight: 8,
+    paddingHorizontal: 16,
   },
   navChip: {
     flexDirection: 'row',
@@ -740,7 +743,11 @@ const createStyles = (
     elevation: 6,
   },
   navChipAdd: {
-    borderColor: isDark ? 'rgba(212,175,55,0.4)' : 'rgba(179,135,55,0.35)',
+    backgroundColor: '#B38737',
+    borderColor: '#B38737',
+  },
+  navChipAddLabel: {
+    color: '#241A09',
   },
   navChipPressed: {
     transform: [{ scale: 0.96 }],
