@@ -75,6 +75,7 @@ export default function RecurringRideFormScreen({ navigation, route }: any) {
   const [searchVisible, setSearchVisible] = useState(false);
   const [activeField, setActiveField] = useState<RecurringRideFieldTarget | null>(null);
   const [mapPickTarget, setMapPickTarget] = useState<RecurringRideFieldTarget | null>(null);
+  const [formCollapsed, setFormCollapsed] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -153,6 +154,7 @@ export default function RecurringRideFormScreen({ navigation, route }: any) {
   const handlePickOnMap = useCallback(() => {
     if (!activeField) return;
     setMapPickTarget(activeField);
+    setFormCollapsed(true);
     closeSearch();
   }, [activeField, closeSearch]);
 
@@ -165,6 +167,7 @@ export default function RecurringRideFormScreen({ navigation, route }: any) {
         (await mapsService.reverseGeocode({ latitude, longitude })) ||
         `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
       applySelection(target, address, { latitude, longitude });
+      setFormCollapsed(false);
     },
     [mapPickTarget, applySelection],
   );
@@ -256,15 +259,26 @@ export default function RecurringRideFormScreen({ navigation, route }: any) {
           <Text style={styles.mapPickText} numberOfLines={2}>
             {rr('mapPickHint')}
           </Text>
-          <TouchableOpacity onPress={() => setMapPickTarget(null)}>
+          <TouchableOpacity
+            style={styles.mapPickCancelBtn}
+            onPress={() => {
+              setMapPickTarget(null);
+              setFormCollapsed(false);
+            }}
+            accessibilityRole="button"
+          >
             <Text style={styles.mapPickCancel}>{tr('search.close')}</Text>
           </TouchableOpacity>
         </View>
       )}
 
       {/* Route card */}
-      <View style={[styles.routeCard, { top: insets.top + 60 }]}>
-        <Pressable style={styles.routeRow} onPress={() => openSearch('origin')}>
+      <View style={[styles.routeCard, { top: insets.top + (mapPickTarget != null ? 112 : 60) }]}>
+        <Pressable
+          style={({ pressed }) => [styles.routeField, pressed && styles.routeFieldPressed]}
+          onPress={() => openSearch('origin')}
+          accessibilityRole="button"
+        >
           <Image source={ORIGIN_PIN_IMG} style={styles.routePin} resizeMode="contain" />
           <Text style={[styles.routeRowText, !originAddress && styles.routeRowPlaceholder]} numberOfLines={1}>
             {originAddress || tr('labels.originPlaceholder')}
@@ -273,20 +287,33 @@ export default function RecurringRideFormScreen({ navigation, route }: any) {
         </Pressable>
 
         {extraStops.map((stop, index) => (
-          <View key={`stop-${index}`} style={styles.routeRow}>
-            <Image source={STOP_PIN_IMG} style={styles.routePin} resizeMode="contain" />
-            <Pressable style={styles.routeRowBody} onPress={() => openSearch(index)}>
+          <View key={`stop-${index}`} style={styles.routeFieldStatic}>
+            <Pressable
+              style={({ pressed }) => [styles.routeFieldInner, pressed && styles.routeFieldPressed]}
+              onPress={() => openSearch(index)}
+              accessibilityRole="button"
+            >
+              <Image source={STOP_PIN_IMG} style={styles.routePin} resizeMode="contain" />
               <Text style={[styles.routeRowText, !stop.address && styles.routeRowPlaceholder]} numberOfLines={1}>
                 {stop.address || tr('labels.stopLabel', { index: index + 1 })}
               </Text>
             </Pressable>
-            <TouchableOpacity onPress={() => removeStop(index)} hitSlop={8}>
-              <RRIcon id="close" size={16} color={mutedIconColor} />
+            <TouchableOpacity
+              style={styles.stopRemoveBtn}
+              onPress={() => removeStop(index)}
+              hitSlop={8}
+              accessibilityRole="button"
+            >
+              <RRIcon id="close" size={14} color={mutedIconColor} />
             </TouchableOpacity>
           </View>
         ))}
 
-        <Pressable style={styles.routeRow} onPress={() => openSearch('destination')}>
+        <Pressable
+          style={({ pressed }) => [styles.routeField, pressed && styles.routeFieldPressed]}
+          onPress={() => openSearch('destination')}
+          accessibilityRole="button"
+        >
           <Image source={DEST_PIN_IMG} style={styles.routePin} resizeMode="contain" />
           <Text style={[styles.routeRowText, !destinationAddress && styles.routeRowPlaceholder]} numberOfLines={1}>
             {destinationAddress || tr('labels.destinationPlaceholder')}
@@ -295,7 +322,11 @@ export default function RecurringRideFormScreen({ navigation, route }: any) {
         </Pressable>
 
         {extraStops.length < maxExtraStops && (
-          <Pressable style={styles.addStopRow} onPress={() => openSearch('new-stop')}>
+          <Pressable
+            style={({ pressed }) => [styles.addStopButton, pressed && styles.routeFieldPressed]}
+            onPress={() => openSearch('new-stop')}
+            accessibilityRole="button"
+          >
             <RRIcon id="addCircle" size={15} color="#B38737" />
             <Text style={styles.addStopText}>{tr('accessibility.addExtraStop')}</Text>
           </Pressable>
@@ -319,7 +350,26 @@ export default function RecurringRideFormScreen({ navigation, route }: any) {
       </View>
 
       {/* Bottom form */}
+      {formCollapsed ? (
+        <Pressable
+          style={[styles.expandFab, { bottom: insets.bottom + 14 }]}
+          onPress={() => setFormCollapsed(false)}
+          accessibilityRole="button"
+          accessibilityLabel={rr('expandForm')}
+        >
+          <RRIcon id="expandForm" size={20} color="#241A09" />
+        </Pressable>
+      ) : (
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.formWrap}>
+        <Pressable
+          style={styles.sheetCollapseHandle}
+          onPress={() => setFormCollapsed(true)}
+          accessibilityRole="button"
+          accessibilityLabel={rr('collapseForm')}
+        >
+          <View style={styles.sheetHandleBar} />
+          <RRIcon id="collapseForm" size={15} color={mutedIconColor} />
+        </Pressable>
         <ScrollView
           style={styles.formSheet}
           contentContainerStyle={styles.formContent}
@@ -461,6 +511,7 @@ export default function RecurringRideFormScreen({ navigation, route }: any) {
           </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
+      )}
 
       {/* Search overlay */}
       {searchVisible && (
@@ -580,6 +631,14 @@ const createStyles = (colors: any, isDark: boolean) =>
       zIndex: 30,
     },
     mapPickText: { flex: 1, fontSize: 12.5, fontWeight: '600', color: isDark ? '#FFD666' : '#8A5800' },
+    mapPickCancelBtn: {
+      paddingVertical: 6,
+      paddingHorizontal: 12,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: 'rgba(179,135,55,0.5)',
+      backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.7)',
+    },
     mapPickCancel: { fontSize: 12.5, fontWeight: '700', color: '#B38737' },
     routeCard: {
       position: 'absolute',
@@ -598,27 +657,67 @@ const createStyles = (colors: any, isDark: boolean) =>
       elevation: 10,
       zIndex: 20,
     },
-    routeRow: {
+    routeField: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 10,
-      paddingVertical: 11,
+      paddingVertical: 10,
+      paddingHorizontal: 12,
+      borderRadius: 13,
+      backgroundColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(28,25,23,0.05)',
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: isDark ? 'rgba(255,255,255,0.14)' : 'rgba(28,25,23,0.1)',
+      marginTop: 6,
+    },
+    routeFieldStatic: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      marginTop: 6,
+    },
+    routeFieldInner: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      paddingVertical: 10,
+      paddingHorizontal: 12,
+      borderRadius: 13,
+      backgroundColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(28,25,23,0.05)',
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: isDark ? 'rgba(255,255,255,0.14)' : 'rgba(28,25,23,0.1)',
+    },
+    routeFieldPressed: { opacity: 0.75, transform: [{ scale: 0.99 }] },
+    stopRemoveBtn: {
+      width: 30,
+      height: 30,
+      borderRadius: 15,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(28,25,23,0.06)',
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: isDark ? 'rgba(255,255,255,0.14)' : 'rgba(28,25,23,0.1)',
     },
     routePin: {
       width: 18,
       height: 18,
     },
-    routeRowBody: { flex: 1 },
     routeRowText: { flex: 1, fontSize: 14, fontWeight: '600', color: colors.text },
     routeRowPlaceholder: { color: colors.textSecondary, fontWeight: '500' },
-    addStopRow: {
+    addStopButton: {
       flexDirection: 'row',
       alignItems: 'center',
+      justifyContent: 'center',
       gap: 8,
-      paddingVertical: 8,
-      paddingLeft: 2,
+      paddingVertical: 10,
+      borderRadius: 13,
+      marginTop: 8,
+      borderWidth: 1.5,
+      borderStyle: 'dashed',
+      borderColor: 'rgba(179,135,55,0.5)',
+      backgroundColor: isDark ? 'rgba(43,32,7,0.35)' : 'rgba(255,247,230,0.6)',
     },
-    addStopText: { fontSize: 13, fontWeight: '700', color: '#B38737' },
+    addStopText: { fontSize: 13, fontWeight: '800', color: '#B38737' },
     routeMetaRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -636,6 +735,41 @@ const createStyles = (colors: any, isDark: boolean) =>
       right: 0,
       bottom: 0,
       zIndex: 20,
+    },
+    expandFab: {
+      position: 'absolute',
+      right: 16,
+      width: 52,
+      height: 52,
+      borderRadius: 26,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: '#B38737',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: 0.28,
+      shadowRadius: 12,
+      elevation: 12,
+      zIndex: 25,
+    },
+    sheetCollapseHandle: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      paddingTop: 8,
+      paddingBottom: 6,
+      backgroundColor: isDark ? 'rgba(24,20,17,0.97)' : 'rgba(255,255,255,0.98)',
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
+    },
+    sheetHandleBar: {
+      position: 'absolute',
+      top: 8,
+      width: 36,
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(28,25,23,0.16)',
     },
     formSheet: {
       maxHeight: 420,
@@ -764,17 +898,19 @@ const createStyles = (colors: any, isDark: boolean) =>
     searchInput: { flex: 1, fontSize: 15, fontWeight: '600', color: colors.text, padding: 0 },
     searchActionsRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
     searchActionChip: {
+      flex: 1,
       flexDirection: 'row',
       alignItems: 'center',
+      justifyContent: 'center',
       gap: 6,
-      paddingVertical: 8,
+      paddingVertical: 11,
       paddingHorizontal: 12,
-      borderRadius: 999,
-      backgroundColor: isDark ? 'rgba(43,32,7,0.8)' : 'rgba(255,247,230,0.9)',
-      borderWidth: 1,
-      borderColor: 'rgba(179,135,55,0.35)',
+      borderRadius: 14,
+      backgroundColor: isDark ? 'rgba(43,32,7,0.85)' : 'rgba(255,247,230,0.95)',
+      borderWidth: 1.5,
+      borderColor: 'rgba(179,135,55,0.45)',
     },
-    searchActionText: { fontSize: 12.5, fontWeight: '700', color: isDark ? '#FFD666' : '#8A5800' },
+    searchActionText: { fontSize: 12.5, fontWeight: '800', color: isDark ? '#FFD666' : '#8A5800' },
     searchStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 },
     searchStatusText: { fontSize: 13, fontWeight: '600', color: colors.textSecondary },
     searchErrorText: {

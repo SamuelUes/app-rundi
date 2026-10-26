@@ -18,8 +18,8 @@ export const RR_ICONS = {
   saved: { family: 'material', name: 'bookmark-added' },
   manage: { family: 'material', name: 'tune' },
   repeat: { family: 'ionicons', name: 'repeat' },
-  moto: { family: 'material', name: 'two-wheeler' },
-  auto: { family: 'material', name: 'directions-car' },
+  moto: { family: 'material', name: 'motorcycle' },
+  auto: { family: 'ionicons', name: 'car-sport-sharp' },
   designated_driver: { family: 'material', name: 'person-pin' },
   request: { family: 'material', name: 'near-me' },
   edit: { family: 'ionicons', name: 'create-outline' },
@@ -39,6 +39,8 @@ export const RR_ICONS = {
   touchApp: { family: 'material', name: 'touch-app' },
   stops: { family: 'material', name: 'add-location-alt' },
   place: { family: 'ionicons', name: 'location-outline' },
+  expandForm: { family: 'ionicons', name: 'chevron-up' },
+  collapseForm: { family: 'ionicons', name: 'chevron-down' },
 } satisfies Record<string, RRIconDef>;
 
 export type RRIconId = keyof typeof RR_ICONS;
