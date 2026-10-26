@@ -8,21 +8,16 @@ import {
   FlatList,
   Image,
 } from 'react-native';
-import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../hooks/shared/auth/useAuth';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useRecurringRides } from '../../hooks/client/useRecurringRides';
 import { deleteRecurringRide, MAX_RECURRING_RIDES } from '../../services/recurringRidesService';
+import { RRIcon } from '../../components/client/recurringRides/RRIcon';
 import alertService from '../../services/alertService';
 import type { RecurringRide } from '../../types/recurringRide';
 
-const VEHICLE_ICONS: Record<RecurringRide['vehicleType'], keyof typeof MaterialIcons.glyphMap> = {
-  moto: 'two-wheeler',
-  auto: 'directions-car',
-  designated_driver: 'person-pin',
-};
 const VEHICLE_LABEL_KEYS: Record<RecurringRide['vehicleType'], string> = {
   moto: 'shared.searchRide.vehicle.motoLabel',
   auto: 'shared.searchRide.vehicle.autoLabel',
@@ -39,6 +34,8 @@ export default function RecurringRidesScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
   const { rides, loading } = useRecurringRides(user?.id);
+  const dangerColor = isDark ? '#EF8A80' : '#C62828';
+  const metaIconColor = isDark ? 'rgba(245,241,234,0.65)' : colors.textSecondary;
 
   const handleRequest = useCallback(
     (ride: RecurringRide) => navigation.navigate('SearchRide', { recurringRide: ride }),
@@ -81,7 +78,7 @@ export default function RecurringRidesScreen({ navigation }: any) {
       <View style={styles.card}>
         <View style={styles.cardHeader}>
           <View style={styles.vehicleDisc}>
-            <MaterialIcons name={VEHICLE_ICONS[item.vehicleType]} size={18} color="#B38737" />
+            <RRIcon id={item.vehicleType} size={18} color="#B38737" />
           </View>
           <Text style={styles.cardTitle} numberOfLines={1}>{item.title}</Text>
           <TouchableOpacity
@@ -90,7 +87,7 @@ export default function RecurringRidesScreen({ navigation }: any) {
             accessibilityRole="button"
             accessibilityLabel={t('client.recurringRides.delete')}
           >
-            <MaterialIcons name="delete-outline" size={18} color="#C62828" />
+            <RRIcon id="delete" size={18} color={dangerColor} />
           </TouchableOpacity>
         </View>
 
@@ -121,22 +118,22 @@ export default function RecurringRidesScreen({ navigation }: any) {
 
         <View style={styles.cardMetaRow}>
           <View style={styles.metaChip}>
-            <MaterialIcons name={VEHICLE_ICONS[item.vehicleType]} size={13} color={colors.textSecondary} />
+            <RRIcon id={item.vehicleType} size={13} color={metaIconColor} />
             <Text style={styles.metaChipText}>{t(VEHICLE_LABEL_KEYS[item.vehicleType])}</Text>
           </View>
           <View style={styles.metaChip}>
-            <MaterialIcons name="person" size={13} color={colors.textSecondary} />
+            <RRIcon id="person" size={13} color={metaIconColor} />
             <Text style={styles.metaChipText}>{item.passengers}</Text>
           </View>
           <View style={styles.metaChip}>
-            <MaterialIcons name="payments" size={13} color={colors.textSecondary} />
+            <RRIcon id={item.paymentMethod} size={13} color={metaIconColor} />
             <Text style={styles.metaChipText}>
               {t(`client.recurringRides.${item.paymentMethod}`)}
             </Text>
           </View>
           {item.extraStops.length > 0 && (
             <View style={styles.metaChip}>
-              <MaterialIcons name="add-location-alt" size={13} color={colors.textSecondary} />
+              <RRIcon id="stops" size={13} color={metaIconColor} />
               <Text style={styles.metaChipText}>
                 {t('client.recurringRides.stopsCount', { count: item.extraStops.length })}
               </Text>
@@ -146,17 +143,17 @@ export default function RecurringRidesScreen({ navigation }: any) {
 
         <View style={styles.cardActions}>
           <Pressable style={styles.actionPrimary} onPress={() => handleRequest(item)} accessibilityRole="button">
-            <MaterialIcons name="near-me" size={15} color="#241A09" />
+            <RRIcon id="request" size={15} color="#241A09" />
             <Text style={styles.actionPrimaryText}>{t('client.recurringRides.request')}</Text>
           </Pressable>
           <Pressable style={styles.actionChip} onPress={() => handleEdit(item)} accessibilityRole="button">
-            <MaterialIcons name="edit" size={15} color="#B38737" />
+            <RRIcon id="edit" size={15} color="#B38737" />
             <Text style={styles.actionChipText}>{t('client.recurringRides.edit')}</Text>
           </Pressable>
         </View>
       </View>
     ),
-    [styles, colors, t, handleRequest, handleEdit, handleDelete],
+    [styles, colors, t, dangerColor, metaIconColor, handleRequest, handleEdit, handleDelete],
   );
 
   return (
@@ -167,7 +164,7 @@ export default function RecurringRidesScreen({ navigation }: any) {
           onPress={() => navigation?.goBack?.()}
           accessibilityRole="button"
         >
-          <Ionicons name="chevron-back" size={20} color={colors.text} />
+          <RRIcon id="back" size={20} color={colors.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{t('client.recurringRides.title')}</Text>
         <TouchableOpacity
@@ -177,7 +174,7 @@ export default function RecurringRidesScreen({ navigation }: any) {
           accessibilityRole="button"
           accessibilityLabel={t('client.recurringRides.addNew')}
         >
-          <MaterialIcons name="add" size={22} color={rides.length >= MAX_RECURRING_RIDES ? colors.textSecondary : '#B38737'} />
+          <RRIcon id="add" size={22} color={rides.length >= MAX_RECURRING_RIDES ? colors.textSecondary : '#B38737'} />
         </TouchableOpacity>
       </View>
 
@@ -190,12 +187,12 @@ export default function RecurringRidesScreen({ navigation }: any) {
           loading ? null : (
             <View style={styles.emptyWrap}>
               <View style={styles.emptyIconDisc}>
-                <MaterialIcons name="repeat" size={30} color="#B38737" />
+                <RRIcon id="repeat" size={30} color="#B38737" />
               </View>
               <Text style={styles.emptyTitle}>{t('client.recurringRides.emptyTitle')}</Text>
               <Text style={styles.emptyBody}>{t('client.recurringRides.emptyBody')}</Text>
               <Pressable style={styles.emptyCta} onPress={handleCreate} accessibilityRole="button">
-                <MaterialIcons name="add" size={18} color="#241A09" />
+                <RRIcon id="add" size={18} color="#241A09" />
                 <Text style={styles.emptyCtaText}>{t('client.recurringRides.createFirst')}</Text>
               </Pressable>
             </View>

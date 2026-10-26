@@ -743,7 +743,7 @@ const createStyles = (
     elevation: 6,
   },
   navChipAdd: {
-    backgroundColor: '#B38737',
+    backgroundColor: 'rgba(238, 217, 181, 0.9)',
     borderColor: '#B38737',
   },
   navChipAddLabel: {

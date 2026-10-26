@@ -1,7 +1,7 @@
 import React from 'react';
 import { Text, Pressable, ScrollView } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../../../hooks/shared/theme/useTheme';
+import { RRIcon } from '../recurringRides/RRIcon';
 import type { TFunction } from 'i18next';
 import type { RecurringRide } from '../../../types/recurringRide';
 
@@ -13,12 +13,6 @@ interface ClientRecurringRidesChipsProps {
   styles: any;
   t: TFunction;
 }
-
-const VEHICLE_ICONS: Record<RecurringRide['vehicleType'], keyof typeof MaterialIcons.glyphMap> = {
-  moto: 'two-wheeler',
-  auto: 'directions-car',
-  designated_driver: 'person-pin',
-};
 
 export function ClientRecurringRidesChips({
   rides,
@@ -50,7 +44,7 @@ export function ClientRecurringRidesChips({
         accessibilityLabel={t('client.recurringRides.addNew')}
         accessibilityHint={t('client.recurringRides.addHint')}
       >
-        <MaterialIcons name="bookmark-add" size={16} color="#241A09" />
+        <RRIcon id="addTrip" size={16} color="#241A09" />
         <Text style={[styles.navChipLabel, styles.navChipAddLabel]}>
           {t('client.recurringRides.addNew')}
         </Text>
@@ -67,7 +61,7 @@ export function ClientRecurringRidesChips({
           accessibilityRole="button"
           accessibilityLabel={ride.title}
         >
-          <MaterialIcons name={VEHICLE_ICONS[ride.vehicleType]} size={16} color="#B38737" />
+          <RRIcon id={ride.vehicleType} size={16} color="#B38737" />
           <Text
             style={[styles.navChipLabel, { color: chipInk }]}
             numberOfLines={1}
@@ -87,7 +81,7 @@ export function ClientRecurringRidesChips({
           accessibilityRole="button"
           accessibilityLabel={t('client.recurringRides.manage')}
         >
-          <MaterialIcons name="tune" size={16} color="#B38737" />
+          <RRIcon id="manage" size={16} color="#B38737" />
           <Text style={[styles.navChipLabel, { color: chipInk }]}>
             {t('client.recurringRides.manage')}
           </Text>
