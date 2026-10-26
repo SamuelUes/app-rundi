@@ -60,7 +60,7 @@ service cloud.firestore {
                         'authProvider', 'method', 'fcmToken',
                         'notificationsEnabled', 'currentRideId',
                         'driverStatus', 'currentLocation', 'stats',
-                        'updatedAt'
+                        'updatedAt', 'recurringRides'
                       ]);
       
       // El dueño puede eliminar su perfil (para eliminar cuenta)
