@@ -362,20 +362,21 @@ export default function RecurringRideFormScreen({ navigation, route }: any) {
         </Pressable>
       ) : (
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.formWrap}>
-        <Pressable
-          style={styles.sheetCollapseHandle}
-          onPress={() => setFormCollapsed(true)}
-          accessibilityRole="button"
-          accessibilityLabel={rr('collapseForm')}
-        >
-          <View style={styles.sheetHandleBar} />
-          <RRIcon id="collapseForm" size={15} color={mutedIconColor} />
-        </Pressable>
-        <ScrollView
-          style={styles.formSheet}
-          contentContainerStyle={styles.formContent}
-          keyboardShouldPersistTaps="handled"
-        >
+        <View style={styles.formSheet}>
+          <Pressable
+            style={styles.sheetCollapseHandle}
+            onPress={() => setFormCollapsed(true)}
+            accessibilityRole="button"
+            accessibilityLabel={rr('collapseForm')}
+          >
+            <View style={styles.sheetHandleBar} />
+            <RRIcon id="collapseForm" size={15} color={mutedIconColor} />
+          </Pressable>
+          <ScrollView
+            style={styles.formScroll}
+            contentContainerStyle={styles.formContent}
+            keyboardShouldPersistTaps="handled"
+          >
           <Text style={styles.fieldLabel}>{rr('nameLabel')}</Text>
           <TextInput
             style={styles.textInput}
@@ -510,7 +511,8 @@ export default function RecurringRideFormScreen({ navigation, route }: any) {
             )}
             <Text style={styles.saveButtonText}>{rr('save')}</Text>
           </Pressable>
-        </ScrollView>
+          </ScrollView>
+        </View>
       </KeyboardAvoidingView>
       )}
 
@@ -760,9 +762,6 @@ const createStyles = (colors: any, isDark: boolean) =>
       gap: 6,
       paddingTop: 8,
       paddingBottom: 6,
-      backgroundColor: isDark ? 'rgba(24,20,17,0.97)' : 'rgba(255,255,255,0.98)',
-      borderTopLeftRadius: 24,
-      borderTopRightRadius: 24,
     },
     sheetHandleBar: {
       position: 'absolute',
@@ -773,7 +772,6 @@ const createStyles = (colors: any, isDark: boolean) =>
       backgroundColor: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(28,25,23,0.16)',
     },
     formSheet: {
-      maxHeight: 420,
       borderTopLeftRadius: 24,
       borderTopRightRadius: 24,
       backgroundColor: isDark ? 'rgba(24,20,17,0.97)' : 'rgba(255,255,255,0.98)',
@@ -784,6 +782,11 @@ const createStyles = (colors: any, isDark: boolean) =>
       shadowOpacity: isDark ? 0.4 : 0.14,
       shadowRadius: 16,
       elevation: 16,
+      overflow: 'hidden',
+    },
+    formScroll: {
+      maxHeight: 420,
+      flexGrow: 0,
     },
     formContent: { padding: 18, paddingBottom: 28 },
     fieldLabel: {

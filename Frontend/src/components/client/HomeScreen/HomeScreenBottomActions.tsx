@@ -65,8 +65,6 @@ export function HomeScreenBottomActions({
 
   return (
     <View style={styles.bottomStack} pointerEvents="box-none">
-      {recurringChips}
-
       {scheduledRideNotice ? (
         <View style={styles.scheduledRideChip}>
           <MaterialIcons name="event" size={14} color="#B38737" />
@@ -88,6 +86,8 @@ export function HomeScreenBottomActions({
               : regionStatus.message || t('client.home.region.unavailableFallback')}
         </Text>
       </View>
+
+      {recurringChips}
 
       <Pressable
         style={({ pressed }) => [
