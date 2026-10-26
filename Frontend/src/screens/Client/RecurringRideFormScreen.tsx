@@ -185,6 +185,7 @@ export default function RecurringRideFormScreen({ navigation, route }: any) {
       alertService.showSuccessAlert(rr('saved'), '');
       navigation.goBack();
     } catch (error: any) {
+      console.warn('[recurringRides] save failed', error);
       if (String(error?.message || '').startsWith('MAX_RECURRING_RIDES')) {
         alertService.showInfoAlert(rr('limitReached', { max: MAX_RECURRING_RIDES }), '');
       } else {

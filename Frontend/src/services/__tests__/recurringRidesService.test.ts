@@ -91,6 +91,22 @@ describe('recurringRidesService', () => {
     expect(payload.recurringRides[0].title).toBe('Casa → Trabajo');
   });
 
+  it('strips undefined fields before writing to Firestore', async () => {
+    mockedGetDoc.mockResolvedValue(docWith([]));
+    await saveRecurringRide('u1', {
+      ...sampleInput,
+      designatedDriverMode: undefined,
+      comment: undefined,
+      priceSuggestion: undefined,
+    } as any);
+    const [, payload] = mockedUpdateDoc.mock.calls[0] as any;
+    const saved = payload.recurringRides[0];
+    expect('designatedDriverMode' in saved).toBe(false);
+    expect('comment' in saved).toBe(false);
+    expect('priceSuggestion' in saved).toBe(false);
+    expect(saved.origin.address).toBe('Casa');
+  });
+
   it('rejects saving beyond the max', async () => {
     const full = Array.from({ length: MAX_RECURRING_RIDES }, (_, i) => ({ ...stored, id: `rr_${i}` }));
     mockedGetDoc.mockResolvedValue(docWith(full));

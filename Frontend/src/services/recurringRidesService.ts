@@ -50,6 +50,18 @@ export function sanitizeRecurringRides(data: any): RecurringRide[] {
   return rides;
 }
 
+function stripUndefined<T>(value: T): T {
+  if (Array.isArray(value)) return value.map(stripUndefined) as T;
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+      if (entry !== undefined) out[key] = stripUndefined(entry);
+    }
+    return out as T;
+  }
+  return value;
+}
+
 export function generateRecurringRideId(): string {
   return `rr_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -134,7 +146,7 @@ export async function saveRecurringRide(
   }
 
   const firestore = await getFirebaseFirestore();
-  await updateDoc(doc(firestore, 'users', uid), { recurringRides: next });
+  await updateDoc(doc(firestore, 'users', uid), { recurringRides: stripUndefined(next) });
   return ride;
 }
 
@@ -143,5 +155,5 @@ export async function deleteRecurringRide(uid: string, rideId: string): Promise<
   const next = rides.filter((r) => r.id !== rideId);
   if (next.length === rides.length) return;
   const firestore = await getFirebaseFirestore();
-  await updateDoc(doc(firestore, 'users', uid), { recurringRides: next });
+  await updateDoc(doc(firestore, 'users', uid), { recurringRides: stripUndefined(next) });
 }
