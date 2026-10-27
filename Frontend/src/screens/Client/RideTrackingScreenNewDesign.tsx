@@ -58,6 +58,9 @@ import { RideTrackingDriverInfo } from '../../components/client/RideTracking/Rid
 import { RideTrackingLocations } from '../../components/client/RideTracking/RideTrackingLocations';
 import { RideTrackingActionButtons } from '../../components/client/RideTracking/RideTrackingActionButtons';
 import { RideTrackingDesignatedDriverNotice } from '../../components/client/RideTracking/RideTrackingDesignatedDriverNotice';
+import { RideVerificationCodeCard } from '../../components/client/RideTracking/RideVerificationCodeCard';
+import { isDesignatedRideRequest } from '../../utils/availableRidesHelpers';
+import { shouldShowSeparateCrewMarkers } from '../../utils/designatedCrew';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const PANEL_MIN_HEIGHT = 252;
@@ -292,6 +295,18 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
 
   const { driverData, vehicleData } = useDriverAndVehicleData(driverId, { driverName, vehiclePlate, vehicleBrand, vehicleModel, vehicleColor, rideData });
   const vehicleIconSource = useMemo(() => ensureVehicleIconSource(vehicleData.type), [vehicleData.type]);
+
+  const crewFollowerMarkers = useMemo(() => {
+    const followerLocation = rideData?.follower?.location;
+    if (!shouldShowSeparateCrewMarkers(rideData) || !followerLocation) return [];
+    return [{
+      id: 'crew-follower',
+      latitude: followerLocation.latitude,
+      longitude: followerLocation.longitude,
+      heading: followerLocation.heading ?? undefined,
+      vehicleIconSource: ensureVehicleIconSource(rideData?.vehicle?.type || rideData?.vehicleType || 'auto'),
+    }];
+  }, [rideData]);
   const { destinationCoords, originCoords, waypointCoords, routeCoordinates, routeDistanceMeters, routeDurationSeconds } = useRideRoute(rideData);
 
   // Panel retráctil (tap para expandir/contraer)
@@ -449,6 +464,16 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
   const isAccepted = ['accepted', 'driver_on_route', 'driver_arrived'].includes(rideStatus);
   const isInProgress = rideStatus === 'in_progress';
 
+  // Código de verificación de 4 dígitos (viajes normales): el cliente lo ve
+  // pre-recogida y lo dicta al conductor para que pueda iniciar el viaje.
+  const showPickupCode = isAccepted && !isDesignatedRideRequest(rideData);
+  const { data: verificationData } = useFirebaseItem<{ code?: string }>(
+    'rideVerificationCodes',
+    rideId,
+    { enabled: showPickupCode },
+  );
+  const pickupCode = verificationData?.code ?? null;
+
   // Navegar automáticamente a pantalla de pago cuando el viaje queda en pending_payment
   useEffect(() => {
     if (hasNavigatedToPaymentRef.current) return;
@@ -573,6 +598,7 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
           markerType="car"
           markerVehicleType={vehicleData.type || undefined}
           markerVehicleIconSource={vehicleIconSource}
+          nearbyDrivers={crewFollowerMarkers}
           markerVehicleHeading={
             typeof driverLocation?.heading === 'number' && Number.isFinite(driverLocation.heading)
               ? driverLocation.heading
@@ -610,6 +636,12 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
         visible={showDesignatedEvidenceNotice}
         top={Math.max(insets.top + 58, 110)}
         onDismiss={() => setShowDesignatedEvidenceNotice(false)}
+      />
+
+      <RideVerificationCodeCard
+        code={pickupCode}
+        visible={showPickupCode}
+        top={Platform.OS === 'ios' ? 64 : 58}
       />
 
     {/* Botón de regresar */}
@@ -695,6 +727,11 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
           contentContainerStyle={{ paddingBottom: 20 }}
         >
 
+          {rideData?.follower && (
+            <Text style={[styles.vehicleInfo, { color: colors.textSecondary, marginBottom: 8 }]}>
+              {t('client.rideTracking.crew.follower', { name: rideData.follower.name })}
+            </Text>
+          )}
           <RideTrackingDriverInfo
             driverName={driverData.name}
             driverPhoto={driverData.photo}

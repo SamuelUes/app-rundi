@@ -4073,6 +4073,9 @@ const resources = {
           },
         },
         rideTracking: {
+          crew: {
+            follower: 'With {{name}} (follower)',
+          },
           loading: {
             connectingDriver: 'Connecting with the driver...',
             fetchingRoute: 'Updating route...',
@@ -9599,6 +9602,9 @@ const resources = {
             },
           },
           rideTracking: {
+            crew: {
+              follower: 'Con {{name}} (seguidor)',
+            },
             loading: {
               connectingDriver: 'Conectando con el conductor...',
               fetchingRoute: 'Actualizando ruta...',
