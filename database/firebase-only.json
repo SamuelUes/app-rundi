@@ -76,6 +76,62 @@
         }
       },
 
+      "cms-gruporzc": {
+        "description": "Datos de la empresa (Grupo RZC) para el módulo de finanzas del CMS: perfil legal/fiscal y registros de pagos de obligaciones (DGI, alcaldía, INSS, INATEC)",
+        "documents": {
+          "company": {
+            "description": "Perfil único de la empresa",
+            "document_structure": {
+              "profile": {
+                "legalName": "string (razón social)",
+                "tradeName": "string (nombre comercial)",
+                "ruc": "string",
+                "legalRepName": "string",
+                "legalRepId": "string (cédula)",
+                "address": "string",
+                "municipality": "string",
+                "department": "string",
+                "phone": "string",
+                "email": "string",
+                "website": "string",
+                "accountantName": "string",
+                "accountantPhone": "string",
+                "accountantEmail": "string",
+                "fiscalYearEnd": "string (MM-DD, típico 12-31)",
+                "employeesCount": "number | null",
+                "inssRegime": "string (integral | ivm | '')",
+                "isWithholdingAgent": "boolean (agente de retención DGI)",
+                "hasOwnFleet": "boolean (vehículos propios → rodamiento)",
+                "bankName": "string",
+                "bankAccount": "string",
+                "currency": "string (NIO | USD)",
+                "notes": "string"
+              },
+              "updatedAt": "timestamp",
+              "updatedBy": { "uid": "string", "name": "string" }
+            }
+          },
+          "company/obligations/{obligationId}:{period}": {
+            "description": "Pago registrado de una obligación fiscal por período (ej. iva:2026-10, matricula:2026)",
+            "document_structure": {
+              "obligationId": "string (iva | anticipo-ir | retenciones | imi-municipal | inss-patronal | inatec | matricula | dar | rodamiento)",
+              "period": "string (YYYY-MM mensual | YYYY anual)",
+              "paidAt": "string (YYYY-MM-DD)",
+              "amount": "number | null",
+              "reference": "string (Nº boleta/recibo)",
+              "notes": "string",
+              "createdBy": { "uid": "string", "name": "string" },
+              "createdAt": "timestamp",
+              "updatedAt": "timestamp"
+            }
+          }
+        },
+        "security_rules": {
+          "read": "isAdmin()",
+          "write": "isAdmin() (en la práctica solo Admin SDK desde /api/admin/finance)"
+        }
+      },
+
       "service_areas": {
         "description": "Áreas de servicio y cobertura geográfica (Managua, otras ciudades, etc.)",
         "document_structure": {
@@ -407,25 +463,35 @@
       },
 
       "calls": {
-        "description": "Llamadas WebRTC en tiempo real entre operador y cliente. Source of truth en tiempo real.",
+        "description": "Llamadas de voz en tiempo real. Señalización en RTDB; la media (audio) va por LiveKit. Dos tipos: soporte (cliente↔operador CMS) y viaje (cliente↔conductor). Source of truth en tiempo real.",
         "path": "calls/{callId}",
         "structure": {
           "callId": "string",
-          "complaintId": "string",
-          "operatorId": "string (Firebase UID)",
-          "clientId": "string (Firebase UID)",
-          "status": "string (ringing | connected | ended | failed)",
-          "offer": "string (SDP)",
-          "answer": "string | null (SDP)",
-          "iceCandidates": "object",
-          "startedAt": "number",
-          "endedAt": "number | null"
+          "callType": "string (support | ride) — ausente en llamadas de soporte antiguas",
+          "complaintId": "string | null (solo soporte)",
+          "rideId": "string | null",
+          "operatorUid": "string | null (Firebase UID, solo soporte)",
+          "driverUid": "string | null (Firebase UID, solo ride)",
+          "clientUid": "string (Firebase UID)",
+          "direction": "string (operator_to_client | client_to_operator | client_to_driver | driver_to_client)",
+          "status": "string (initiated | ringing_client | ringing_operator | ringing_driver | accepted | connected | ended | rejected | missed)",
+          "acceptDeadline": "number (unix ms, now + 60s al crear)",
+          "recordingUrl": "string | null",
+          "createdAt": "number",
+          "updatedAt": "number",
+          "connectedAt": "number | null (lo fija el webhook con ≥2 participantes)",
+          "endedAt": "number | null",
+          "events": "{ '<pushId>': { type, at, by|source }, 'initiated': { at, by, type, source } }"
+        },
+        "livekit_rooms": {
+          "support": "support-call-{callId}",
+          "ride": "ride-call-{callId}"
         },
         "security_rules": {
-          "read": "auth != null && (data.operatorId == auth.uid || data.clientId == auth.uid)",
-          "write": "auth != null && (data.operatorId == auth.uid || data.clientId == auth.uid)"
+          "read": "auth != null && (data.clientUid == auth.uid || data.operatorUid == auth.uid || data.driverUid == auth.uid); queries por clientUid/operatorUid/driverUid/rideId limitadas al propio uid o a participantes del viaje",
+          "write": "auth != null && auth.uid es uno de los participantes (clientUid | operatorUid | driverUid)"
         },
-        "archive_to": "support_call_sessions (PostgreSQL) via trigger al finalizar"
+        "archive_to": "support_call_sessions (soporte) o ride_call_sessions (ride) en PostgreSQL via trigger onCallEnded al finalizar"
       },
 
       "sessions": {

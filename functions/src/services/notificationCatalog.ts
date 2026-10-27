@@ -24,6 +24,7 @@ export type NotificationType =
   | 'chat_message'
   | 'support_ticket_message'
   | 'support_call'
+  | 'ride_call'
   | 'quick_return_active_ride'
   | 'general'
   | 'test'
@@ -192,6 +193,12 @@ export const notificationCatalog: Record<NotificationType, NotificationCatalogEn
     androidChannelId: 'rundi-default-v2',
     ttlMs: 120_000,
     notificationKeyPrefix: 'support',
+  },
+  ride_call: {
+    androidChannelId: 'rundi-default-v2',
+    ttlMs: 90_000,
+    route: 'RideCall',
+    notificationKeyPrefix: 'ride-call',
   },
   quick_return_active_ride: {
     androidChannelId: 'rundi-default-v2',

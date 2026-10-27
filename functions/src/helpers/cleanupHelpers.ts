@@ -57,6 +57,7 @@ export async function cleanupRideFromRealtime(
       [`paymentStatus/${rideId}`]: null,
       [`chats/${rideId}`]: null,
       [`archiveClaims/${rideId}`]: null,
+      [`rideVerificationCodes/${rideId}`]: null,
     };
 
     const shouldCleanupPresence = !options?.skipPresenceCleanup;

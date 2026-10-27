@@ -14,7 +14,7 @@ import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useAuth } from '../../hooks/shared/auth/useAuth';
 import { useFCM } from '../../context/FCMContext';
 import alertService from '../../services/alertService';
-import { clearPreflightResult, setPreflightResult, PreflightAction, PreflightSummary } from '../../stores/preflightStore';
+import { clearPreflightResult, setPreflightResult, getPreflightResult, PreflightAction, PreflightSummary } from '../../stores/preflightStore';
 import type {
   PreflightRole,
   PreflightRouteConfig,
@@ -121,42 +121,50 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
   }, [progressAnim]);
 
   const navigateAfterChecks = useCallback(async (approvalOverride?: DriverApprovalResult | null) => {
-    if (modeSwitchRequestedRef.current) {
-      return;
-    }
+    try {
+      if (modeSwitchRequestedRef.current) {
+        return;
+      }
 
-    const currentAuth = await getFirebaseAuth().catch(() => null);
-    if (modeSwitchRequestedRef.current) {
-      return;
-    }
-    if (!currentAuth) {
-      setError(t('shared.preflight.errors.generic'));
-      setCanRetry(true);
-      checksRunRef.current = false;
-      return;
-    }
-    if (!user?.id || currentAuth.currentUser?.uid !== user.id) {
-      preflightService.clearCache();
-      clearPreflightResult();
-      return;
-    }
-
-    if (role === 'driver' && user?.id) {
-      const approval = approvalOverride ?? driverApprovalRef.current;
-      if (!approval) {
+      const currentAuth = await getFirebaseAuth().catch(() => null);
+      if (modeSwitchRequestedRef.current) {
+        return;
+      }
+      if (!currentAuth) {
         setError(t('shared.preflight.errors.generic'));
         setCanRetry(true);
         checksRunRef.current = false;
         return;
       }
-      if (!approval.allowed) {
-        const targetRoute = pendingApprovalRoute || 'DriverPendingApproval';
-        nav.replace(targetRoute as keyof typeof nav.replace, { approvalInfo: approval });
+      if (!user?.id || currentAuth.currentUser?.uid !== user.id) {
+        preflightService.clearCache();
+        clearPreflightResult();
         return;
       }
-    }
 
-    nav.replace(successRoute as keyof typeof nav.replace);
+      if (role === 'driver' && user?.id) {
+        const approval = approvalOverride ?? driverApprovalRef.current;
+        if (!approval) {
+          setError(t('shared.preflight.errors.generic'));
+          setCanRetry(true);
+          checksRunRef.current = false;
+          return;
+        }
+        if (!approval.allowed) {
+          const targetRoute = pendingApprovalRoute || 'DriverPendingApproval';
+          nav.replace(targetRoute as keyof typeof nav.replace, { approvalInfo: approval });
+          return;
+        }
+      }
+
+      nav.replace(successRoute as keyof typeof nav.replace);
+    } catch (navError) {
+      // Fail-safe: el preflight nunca debe quedar atascado tras completar checks.
+      console.error('❌ [Preflight] Error en navegación post-checks:', navError);
+      setError(t('shared.preflight.errors.generic'));
+      setCanRetry(true);
+      checksRunRef.current = false;
+    }
   }, [role, user?.id, nav, successRoute, pendingApprovalRoute, t]);
 
   const handleTermsIfNeeded = useCallback(async (termsSummary?: PreflightTermsSummary | null): Promise<boolean> => {
@@ -173,10 +181,155 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
     return false;
   }, [user?.id]);
 
-  const runChecks = useCallback(async () => {
-    if (checksRunRef.current || modeSwitchRequestedRef.current) return;
-    checksRunRef.current = true;
+  // Confirma el viaje programado sin bloquear: actualiza acciones y el store
+  // cuando responde, aunque el usuario ya haya navegado fuera del preflight.
+  const confirmProgrammedRideAction = useCallback(async (programmedAction: PreflightAction) => {
+    const rideId = programmedAction.metadata?.rideId as string | undefined;
+    if (!rideId) {
+      return;
+    }
 
+    try {
+      let confirmedRidePayload: any = null;
+
+      if (programmedAction.type === 'programmed_ride_client_confirm') {
+        const confirmResult = await ridesService.confirmProgrammedRideClient(rideId);
+        confirmedRidePayload = confirmResult?.ride ?? null;
+      } else {
+        await ridesService.confirmProgrammedRideDriver(rideId);
+      }
+
+      if (modeSwitchRequestedRef.current) {
+        return;
+      }
+
+      const currentSummary = getPreflightResult();
+      const baseActions = currentSummary?.actions ?? actionsRef.current;
+      const nextActions = baseActions.filter(
+        (action) =>
+          action !== programmedAction &&
+          !(
+            action.metadata?.rideId === rideId &&
+            (action.type === 'programmed_ride_client_confirm' ||
+              action.type === 'programmed_ride_driver_confirm')
+          ),
+      );
+      let derivedActions = nextActions;
+
+      if (programmedAction.type === 'programmed_ride_client_confirm' && confirmedRidePayload) {
+        const hasDriverAssigned = Boolean(confirmedRidePayload.driverId);
+        const scheduledDateText = confirmedRidePayload.scheduledAt
+          ? new Date(confirmedRidePayload.scheduledAt).toLocaleString()
+          : undefined;
+        // Si el backend pospuso el viaje (usuario en otro viaje), sigue en
+        // programmedRides hasta el nuevo horario → HomeOffers espera la
+        // promoción y navega a tracking solo.
+        const wasPostponed =
+          Boolean(confirmedRidePayload.postponedReason) ||
+          (typeof confirmedRidePayload.scheduledAt === 'number' &&
+            confirmedRidePayload.scheduledAt > Date.now() + 60 * 1000 &&
+            confirmedRidePayload.scheduledAt !== programmedAction.metadata?.scheduledAt);
+
+        const followUpAction: PreflightAction = {
+          type: 'active_ride',
+          title: hasDriverAssigned
+            ? t('client.home.activeRide.driverOnRoute')
+            : t('client.home.activeRide.confirm'),
+          subtitle: scheduledDateText
+            ? t('shared.preflight.programmedRide.actionSubtitle', { date: scheduledDateText })
+            : undefined,
+          routeName: hasDriverAssigned && !wasPostponed ? rideTrackingRoute : waitingRideRoute,
+          routeParams: {
+            rideId: confirmedRidePayload.id || rideId,
+            driverId: confirmedRidePayload.driverId ?? undefined,
+            driverName: confirmedRidePayload.driver?.name ?? undefined,
+            vehiclePlate:
+              confirmedRidePayload.vehicle?.plate ??
+              confirmedRidePayload.driver?.vehicle?.plate ??
+              undefined,
+          },
+          metadata: {
+            rideId: confirmedRidePayload.id || rideId,
+            status: confirmedRidePayload.status ?? 'client_confirmed',
+            driverId: confirmedRidePayload.driverId ?? null,
+            source: 'preflight_programmed_confirm',
+          },
+        };
+
+        derivedActions = [followUpAction, ...nextActions];
+
+        if (wasPostponed) {
+          alertService.showInfoAlert(
+            t('shared.preflight.programmedRide.postponedTitle'),
+            t('shared.preflight.programmedRide.postponedBody'),
+          );
+        }
+      }
+
+      actionsRef.current = derivedActions;
+      setPreflightResult({
+        role: currentSummary?.role ?? role,
+        timestamp: Date.now(),
+        actions: derivedActions,
+        region: currentSummary?.region,
+        preflightData: currentSummary?.preflightData,
+      });
+    } catch (confirmErr: any) {
+      console.error('❌ [Preflight] Error confirmando viaje programado:', confirmErr);
+      alertService.showErrorAlert(
+        confirmErr?.message || t('shared.preflight.programmedRide.confirmError'),
+      );
+    }
+  }, [role, rideTrackingRoute, waitingRideRoute, t]);
+
+  // Muestra el prompt de confirmación del viaje programado SIN bloquear el
+  // preflight: el toast global persiste tras la navegación hasta que el
+  // usuario responda (o lo descarte).
+  const promptProgrammedRideConfirmation = useCallback(
+    (programmedAction: PreflightAction) => {
+      const rideId = programmedAction.metadata?.rideId as string | undefined;
+      if (!rideId) {
+        return;
+      }
+      const scheduledAt = programmedAction.metadata?.scheduledAt as number | undefined;
+      const scheduledText = scheduledAt ? new Date(scheduledAt).toLocaleString() : '';
+      const isDriverPrompt = programmedAction.type === 'programmed_ride_driver_confirm';
+
+      const title = t(
+        isDriverPrompt
+          ? 'shared.preflight.programmedRide.driverPromptTitle'
+          : 'shared.preflight.programmedRide.promptTitle',
+      );
+      const body = scheduledText
+        ? t(
+            isDriverPrompt
+              ? 'shared.preflight.programmedRide.driverPromptBody'
+              : 'shared.preflight.programmedRide.promptBody',
+            { date: scheduledText },
+          )
+        : t(
+            isDriverPrompt
+              ? 'shared.preflight.programmedRide.driverPromptBodyNoDate'
+              : 'shared.preflight.programmedRide.promptBodyNoDate',
+          );
+      const confirmLabel = t('shared.preflight.programmedRide.confirmButton');
+      const cancelLabel = t('shared.preflight.programmedRide.notNowButton');
+
+      alertService.showConfirmAlert(
+        title,
+        body,
+        () => {
+          void confirmProgrammedRideAction(programmedAction);
+        },
+        undefined,
+        confirmLabel,
+        cancelLabel,
+      );
+    },
+    [confirmProgrammedRideAction, t],
+  );
+
+  const executeChecks = useCallback(async () => {
     console.log(`🔍 [Preflight] Iniciando verificaciones para rol=${role}`);
     
     setProgress(0);
@@ -202,7 +355,7 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
       return;
     }
 
-    const shouldRunDriverBiometricCheck = shouldRequireDriverBiometricCheck(user, role);
+    const shouldRunDriverBiometricCheck = await shouldRequireDriverBiometricCheck(user, role);
 
     const localTasks: Array<{
       id: string;
@@ -460,92 +613,10 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
     );
 
     if (programmedAction) {
-      const rideId = programmedAction.metadata?.rideId as string | undefined;
-      const scheduledAt = programmedAction.metadata?.scheduledAt as number | undefined;
-
-      if (rideId) {
-        const scheduledText = scheduledAt ? new Date(scheduledAt).toLocaleString() : '';
-
-        const title = t('shared.preflight.programmedRide.promptTitle');
-        const body = scheduledText
-          ? t('shared.preflight.programmedRide.promptBody', { date: scheduledText })
-          : t('shared.preflight.programmedRide.promptBodyNoDate');
-        const confirmLabel = t('shared.preflight.programmedRide.confirmButton');
-        const cancelLabel = t('shared.preflight.programmedRide.notNowButton');
-
-        const shouldConfirm = await new Promise<boolean>((resolve) => {
-          alertService.showConfirmAlert(
-            title,
-            body,
-            () => resolve(true),
-            () => resolve(false),
-            confirmLabel,
-            cancelLabel,
-          );
-        });
-
-        if (shouldConfirm) {
-          try {
-            let confirmedRidePayload: any = null;
-
-            if (programmedAction.type === 'programmed_ride_client_confirm') {
-              const confirmResult = await ridesService.confirmProgrammedRideClient(rideId);
-              confirmedRidePayload = confirmResult?.ride ?? null;
-            } else {
-              await ridesService.confirmProgrammedRideDriver(rideId);
-            }
-
-            const nextActions = actionsRef.current.filter((action) => action !== programmedAction);
-            let derivedActions = nextActions;
-
-            if (programmedAction.type === 'programmed_ride_client_confirm' && confirmedRidePayload) {
-              const hasDriverAssigned = Boolean(confirmedRidePayload.driverId);
-              const scheduledDateText = confirmedRidePayload.scheduledAt
-                ? new Date(confirmedRidePayload.scheduledAt).toLocaleString()
-                : undefined;
-
-              const followUpAction: PreflightAction = {
-                type: 'active_ride',
-                title: hasDriverAssigned
-                  ? t('client.home.activeRide.driverOnRoute')
-                  : t('client.home.activeRide.confirm'),
-                subtitle: scheduledDateText
-                  ? t('shared.preflight.programmedRide.actionSubtitle', { date: scheduledDateText })
-                  : undefined,
-                routeName: hasDriverAssigned ? rideTrackingRoute : waitingRideRoute,
-                routeParams: {
-                  rideId: confirmedRidePayload.id || rideId,
-                  driverId: confirmedRidePayload.driverId ?? undefined,
-                  driverName: confirmedRidePayload.driver?.name ?? undefined,
-                  vehiclePlate:
-                    confirmedRidePayload.vehicle?.plate ??
-                    confirmedRidePayload.driver?.vehicle?.plate ??
-                    undefined,
-                },
-                metadata: {
-                  rideId: confirmedRidePayload.id || rideId,
-                  status: confirmedRidePayload.status ?? 'client_confirmed',
-                  driverId: confirmedRidePayload.driverId ?? null,
-                  source: 'preflight_programmed_confirm',
-                },
-              };
-
-              derivedActions = [followUpAction, ...nextActions];
-            }
-
-            actionsRef.current = derivedActions;
-            const updatedSummary: PreflightSummary = {
-              ...summary,
-              actions: derivedActions,
-            };
-            setPreflightResult(updatedSummary);
-          } catch (confirmErr: any) {
-            console.error('❌ [Preflight] Error confirmando viaje programado:', confirmErr);
-            alertService.showErrorAlert(
-              confirmErr?.message || t('shared.preflight.programmedRide.confirmError'),
-            );
-          }
-        }
+      try {
+        promptProgrammedRideConfirmation(programmedAction);
+      } catch (promptError) {
+        console.warn('⚠️ [Preflight] No se pudo mostrar el prompt de viaje programado:', promptError);
       }
     }
 
@@ -573,8 +644,24 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
     isFCMAvailable,
     configureFCM,
     logout,
+    promptProgrammedRideConfirmation,
     t,
   ]);
+
+  const runChecks = useCallback(async () => {
+    if (checksRunRef.current || modeSwitchRequestedRef.current) return;
+    checksRunRef.current = true;
+
+    // Fail-safe: ningún error inesperado debe dejar el preflight atascado.
+    try {
+      await executeChecks();
+    } catch (unexpectedErr: any) {
+      console.error('❌ [Preflight] Error inesperado durante verificaciones:', unexpectedErr);
+      setError(t('shared.preflight.errors.generic'));
+      setCanRetry(true);
+      checksRunRef.current = false;
+    }
+  }, [executeChecks, t]);
 
   const handleRetry = useCallback(() => {
     checksRunRef.current = false;

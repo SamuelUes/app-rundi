@@ -169,6 +169,7 @@ export const handleDelayedRideStatus = functions.https.onRequest(
         const finalStatus = ride.status;
         if (finalStatus === "completed" || finalStatus === "rating_completed") {
           await db.ref(`activeRides/${rideId}`).remove();
+          await db.ref(`rideVerificationCodes/${rideId}`).remove();
           console.log(`🧹 [handleDelayedRideStatus] ${rideId} eliminado de activeRides`);
         } else {
           console.log(

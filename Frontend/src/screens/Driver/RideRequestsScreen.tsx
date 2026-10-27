@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -75,6 +75,7 @@ export default function RideRequestsScreen({ navigation }: any) {
   const [customOffer, setCustomOffer] = useState('');
   const [accepting, setAccepting] = useState(false);
   const [activeRideGuard, setActiveRideGuard] = useState<string | null>(null);
+  const lastRedirectedRideIdRef = useRef<string | null>(null);
 
   // 🔒 Guard: Si ya tengo un viaje activo (accepted/driver_on_route/driver_arrived/in_progress), redirigir y bloquear esta pantalla
   useEffect(() => {
@@ -100,7 +101,14 @@ export default function RideRequestsScreen({ navigation }: any) {
 
       if (found) {
         setActiveRideGuard(found);
-        navigation.replace('ActiveRide', { rideId: found });
+        // Solo reemplazar cuando la pantalla está enfocada y una sola vez por
+        // ride: si está enterrada en el stack, replace convertiría su ruta en
+        // una segunda instancia de ActiveRide.
+        const focused = navigation.isFocused ? navigation.isFocused() : true;
+        if (focused && lastRedirectedRideIdRef.current !== found) {
+          lastRedirectedRideIdRef.current = found;
+          navigation.replace('ActiveRide', { rideId: found });
+        }
       } else {
         setActiveRideGuard(null);
       }

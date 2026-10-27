@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import type {
   GetPreflightDataResponse,
   PreflightDriverApprovalSummary,
@@ -32,6 +33,18 @@ export const DRIVER_BIOMETRIC_CONTEXT = 'app_access_preflight';
 export const DRIVER_BIOMETRIC_MAX_ATTEMPTS = 3;
 export const DRIVER_BIOMETRIC_RISK_WINDOW_MS = 15 * 60 * 1000;
 export const recentDriverBiometricAuthByUserId = new Map<string, number>();
+
+const DRIVER_BIOMETRIC_AUTH_STORAGE_PREFIX = '@rundi_driver_biometric_auth:';
+
+const getDriverBiometricStorageKey = (userId: string): string =>
+  `${DRIVER_BIOMETRIC_AUTH_STORAGE_PREFIX}${userId}`;
+
+export function markDriverBiometricSuccess(userId: string, verifiedAt: number = Date.now()): void {
+  recentDriverBiometricAuthByUserId.set(userId, verifiedAt);
+  AsyncStorage.setItem(getDriverBiometricStorageKey(userId), String(verifiedAt)).catch((error) => {
+    console.warn('⚠️ [Preflight] No se pudo persistir verificación biométrica:', error);
+  });
+}
 
 export const DEFAULT_MANAGUA_POLYGON: ServiceAreaPoint[] = [
   { lat: 12.2, lng: -86.35 },
@@ -82,7 +95,7 @@ export function getDriverBiometricUserType(user: any, role: PreflightRole): 'dri
   return 'driver';
 }
 
-export function shouldRequireDriverBiometricCheck(user: any, role: PreflightRole): boolean {
+export async function shouldRequireDriverBiometricCheck(user: any, role: PreflightRole): Promise<boolean> {
   const userType = getDriverBiometricUserType(user, role);
   if (!userType || !user?.id) {
     return false;
@@ -90,11 +103,22 @@ export function shouldRequireDriverBiometricCheck(user: any, role: PreflightRole
 
   const now = Date.now();
   const lastSuccessAt = recentDriverBiometricAuthByUserId.get(user.id);
-  if (!lastSuccessAt) {
-    return true;
+  if (lastSuccessAt && now - lastSuccessAt <= DRIVER_BIOMETRIC_RISK_WINDOW_MS) {
+    return false;
   }
 
-  return now - lastSuccessAt > DRIVER_BIOMETRIC_RISK_WINDOW_MS;
+  try {
+    const persisted = await AsyncStorage.getItem(getDriverBiometricStorageKey(user.id));
+    const persistedAt = Number(persisted);
+    if (persisted && Number.isFinite(persistedAt) && now - persistedAt <= DRIVER_BIOMETRIC_RISK_WINDOW_MS) {
+      recentDriverBiometricAuthByUserId.set(user.id, persistedAt);
+      return false;
+    }
+  } catch (error) {
+    console.warn('⚠️ [Preflight] No se pudo leer cache biométrico:', error);
+  }
+
+  return true;
 }
 
 export function buildInitialTermsCheckedState(): Record<TermsDocumentType, boolean> {

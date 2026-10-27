@@ -293,6 +293,27 @@ export const CALL_STATUSES = [
 export type CallStatus = (typeof CALL_STATUSES)[number];
 
 // ============================================================================
+// ride_call_sessions (LiveKit, cliente <-> conductor)
+// ============================================================================
+
+/** ride_call_sessions.direction — CHECK. Dirección de la llamada del viaje. */
+export const RIDE_CALL_DIRECTIONS = ['client_to_driver', 'driver_to_client'] as const;
+export type RideCallDirection = (typeof RIDE_CALL_DIRECTIONS)[number];
+
+/** ride_call_sessions.status — CHECK. Igual que CALL_STATUSES salvo ringing_driver. */
+export const RIDE_CALL_STATUSES = [
+  'initiated',
+  'ringing_client',
+  'ringing_driver',
+  'accepted',
+  'rejected',
+  'missed',
+  'connected',
+  'ended',
+] as const;
+export type RideCallStatus = (typeof RIDE_CALL_STATUSES)[number];
+
+// ============================================================================
 // cms_complaints (tickets de soporte)
 // ============================================================================
 

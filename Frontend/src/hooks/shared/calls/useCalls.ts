@@ -32,6 +32,25 @@ interface LivekitJoinInfo {
   room: string;
 }
 
+const RINGING_STATUSES = new Set(['initiated', 'ringing_client', 'ringing_operator']);
+const TERMINAL_STATUSES = new Set(['ended', 'rejected', 'missed']);
+const CALL_ACCEPT_WINDOW_MS = 60_000;
+
+// Llamada ringing cuyo acceptDeadline venció: el backend la barre a `missed`
+// (expireStaleCallsScheduled), pero entre barridos la tratamos localmente como
+// missed para que no bloquee la UI ni nuevas llamadas.
+function isExpiredRinging(call: CallSession): boolean {
+  const status = String(call?.status || '').toLowerCase();
+  if (!RINGING_STATUSES.has(status)) return false;
+  const deadline =
+    typeof call?.acceptDeadline === 'number'
+      ? call.acceptDeadline
+      : typeof (call as any)?.createdAt === 'number'
+        ? (call as any).createdAt + CALL_ACCEPT_WINDOW_MS
+        : null;
+  return deadline !== null && deadline <= Date.now();
+}
+
 const USE_FIREBASE_EMULATORS = process.env.USE_FIREBASE_EMULATORS === 'true';
 const FUNCTIONS_EMULATOR_URL = buildFunctionsEmulatorBaseUrl(
   process.env.FIREBASE_PROJECT_ID || 'rundi-dev',
@@ -57,7 +76,7 @@ if (__DEV__) {
   }
 }
 
-async function authenticatedPost(path: string, payload: any, baseUrlOverride?: string) {
+export async function authenticatedPost(path: string, payload: any, baseUrlOverride?: string) {
   const baseUrl = (baseUrlOverride || API_BASE_URL || "").trim();
   if (!baseUrl) throw new Error('API base URL no configurada');
   const auth = await getFirebaseAuth();
@@ -144,15 +163,24 @@ export function useCalls(complaintId: string | null = null) {
           const entries = Object.entries<any>(val);
           const mine = entries
             .map(([callId, data]) => ({ callId, ...(data || {}) }))
-            .filter((call) => (call.complaintId || null) === complaintId);
+            .filter((call) => (call.complaintId || null) === complaintId)
+            .map((call) => ({
+              ...call,
+              status: isExpiredRinging(call) ? 'missed' : call.status,
+            }));
 
           const prioritized = mine.sort((a, b) => {
-            const order = ['ringing_client', 'accepted', 'connected', 'missed', 'rejected', 'ended'];
+            const order = ['ringing_client', 'ringing_operator', 'accepted', 'connected', 'missed', 'rejected', 'ended'];
             const ia = order.indexOf(a.status || '');
             const ib = order.indexOf(b.status || '');
             return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
           });
-          setActiveCall(prioritized[0] || null);
+          const top = prioritized[0] || null;
+          setActiveCall(top);
+          // Si el operador cerró la llamada (o expiró), el token de sala ya no sirve.
+          if (!top || TERMINAL_STATUSES.has(String(top.status || '').toLowerCase())) {
+            setLivekitInfo(null);
+          }
         },
         (err) => {
           if (!mounted) return;
@@ -167,6 +195,29 @@ export function useCalls(complaintId: string | null = null) {
       if (unsubscribeCalls) unsubscribeCalls();
     };
   }, [resolvedUid, complaintId]);
+
+  // Token de sala para el participante cliente. Se usa al aceptar una llamada
+  // entrante y también al unirse como iniciador una vez el operador acepta.
+  const fetchLivekitToken = async (callId: string): Promise<LivekitJoinInfo | null> => {
+    try {
+      console.log('[useCalls] Fetching LiveKit token');
+      const tokenData = (await authenticatedPost('/api/calls/livekit-token', {
+        callId,
+        participantType: 'client',
+      })) as LivekitJoinInfo;
+      setLivekitInfo(tokenData);
+      return tokenData;
+    } catch (tokenError: any) {
+      const tokenStatus = Number(tokenError?.status || 0);
+      if (tokenStatus === 404 || tokenStatus === 405) {
+        console.warn('[useCalls] Endpoint de token LiveKit no disponible. La llamada quedó aceptada sin sala.');
+      } else {
+        console.error('[useCalls] livekit-token error', tokenError);
+      }
+      setLivekitInfo(null);
+      return null;
+    }
+  };
 
   const respond = async (callId: string, status: 'accepted' | 'rejected' | 'ended') => {
     if (!callId) return;
@@ -188,22 +239,7 @@ export function useCalls(complaintId: string | null = null) {
       });
       setActiveCall((prev) => (prev ? { ...prev, status } : prev));
       if (status === 'accepted') {
-        try {
-          console.log('[useCalls] Fetching LiveKit token');
-          const tokenData = (await authenticatedPost('/api/calls/livekit-token', {
-            callId,
-            participantType: 'client',
-          })) as LivekitJoinInfo;
-          setLivekitInfo(tokenData);
-        } catch (tokenError: any) {
-          const tokenStatus = Number(tokenError?.status || 0);
-          if (tokenStatus === 404 || tokenStatus === 405) {
-            console.warn('[useCalls] Endpoint de token LiveKit no disponible. La llamada quedó aceptada sin sala.');
-          } else {
-            console.error('[useCalls] livekit-token error', tokenError);
-          }
-          setLivekitInfo(null);
-        }
+        await fetchLivekitToken(callId);
       } else {
         setLivekitInfo(null);
       }
@@ -301,5 +337,6 @@ export function useCalls(complaintId: string | null = null) {
     endCall,
     cancelCall,
     requestCall,
+    fetchLivekitToken,
   };
 }

@@ -22,6 +22,7 @@ import * as Haptics from 'expo-haptics';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useAuth } from '../../hooks/shared/auth/useAuth';
 import { useChat, ChatMessage } from '../../hooks/shared/chat/useChat';
+import { useRideCalls } from '../../hooks/shared/calls/useRideCalls';
 import ChatBubble, { BubbleGroupPosition } from '../../components/shared/ChatBubble';
 import { toNicaraguaDate, getNicaraguaDate } from '../../utils/dateUtils';
 import { useTranslation } from 'react-i18next';
@@ -100,6 +101,7 @@ export default function ChatScreen({ route }: any) {
     sendTypingIndicator,
     stopTypingIndicator,
   } = useChat(rideId, user!.id, user!.name, isFocused);
+  const { activeCall: rideCall, resolvedUid: callResolvedUid } = useRideCalls(rideId, otherUserId);
   const { t, i18n } = useTranslation();
 
   const [inputText, setInputText] = useState('');
@@ -274,36 +276,56 @@ export default function ChatScreen({ route }: any) {
     }
   };
 
+  const navigateToRideCall = useCallback(
+    (autoStart = false) => {
+      (navigation as any).navigate('RideCall', {
+        rideId,
+        otherUserId,
+        otherUserName,
+        autoStart,
+      });
+    },
+    [navigation, rideId, otherUserId, otherUserName]
+  );
+
   const handleCall = () => {
-    if (!otherUserPhone) {
-      Alert.alert(chatAlerts.noPhoneTitle, chatAlerts.noPhoneMessage);
-      return;
+    const options: any[] = [
+      {
+        text: t('shared.chat.alerts.callInApp'),
+        onPress: () => navigateToRideCall(true),
+      },
+    ];
+
+    if (otherUserPhone) {
+      options.push({
+        text: t('shared.chat.alerts.callByPhone'),
+        onPress: async () => {
+          try {
+            const phoneUrl = `tel:${otherUserPhone}`;
+            const canOpen = await Linking.canOpenURL(phoneUrl);
+
+            if (canOpen) {
+              await Linking.openURL(phoneUrl);
+            } else {
+              Alert.alert(chatAlerts.deviceErrorTitle, chatAlerts.cannotCallDevice);
+            }
+          } catch (error) {
+            console.error('Error al intentar llamar:', error);
+            Alert.alert(chatAlerts.callFailedTitle, chatAlerts.callFailedMessage);
+          }
+        },
+      });
     }
+
+    options.push({ text: chatAlerts.cancel, style: 'cancel' });
 
     Alert.alert(
       chatAlerts.callTitle,
-      t('shared.chat.alerts.callMessage', { name: otherUserName, phone: otherUserPhone }),
-      [
-        { text: chatAlerts.cancel, style: 'cancel' },
-        {
-          text: chatAlerts.callButton,
-          onPress: async () => {
-            try {
-              const phoneUrl = `tel:${otherUserPhone}`;
-              const canOpen = await Linking.canOpenURL(phoneUrl);
-
-              if (canOpen) {
-                await Linking.openURL(phoneUrl);
-              } else {
-                Alert.alert(chatAlerts.deviceErrorTitle, chatAlerts.cannotCallDevice);
-              }
-            } catch (error) {
-              console.error('Error al intentar llamar:', error);
-              Alert.alert(chatAlerts.callFailedTitle, chatAlerts.callFailedMessage);
-            }
-          },
-        },
-      ]
+      t('shared.chat.alerts.callMessage', {
+        name: otherUserName,
+        phone: otherUserPhone || '',
+      }),
+      options
     );
   };
 
@@ -347,6 +369,20 @@ export default function ChatScreen({ route }: any) {
 
   const sendDisabled = !inputText.trim();
 
+  const rideCallStatus = String(rideCall?.status || '').toLowerCase();
+  const rideCallRinging = ['initiated', 'ringing_client', 'ringing_driver'].includes(rideCallStatus);
+  const rideCallInitiatedByMe = Boolean(
+    rideCall?.events?.initiated?.by &&
+      callResolvedUid &&
+      rideCall.events.initiated.by === callResolvedUid
+  );
+  const incomingRideCall = Boolean(rideCall && rideCallRinging && !rideCallInitiatedByMe);
+  const ongoingRideCall = Boolean(
+    rideCall &&
+      !incomingRideCall &&
+      (rideCallRinging || rideCallStatus === 'accepted' || rideCallStatus === 'connected')
+  );
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -369,18 +405,45 @@ export default function ChatScreen({ route }: any) {
             </Text>
           </View>
         </View>
-        {!!otherUserPhone && (
-          <TouchableOpacity
-            style={styles.callButton}
-            onPress={handleCall}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            accessibilityRole="button"
-            accessibilityLabel={chatAlerts.callTitle}
-          >
-            <MaterialIcons name="call" size={20} color={colors.primary} />
-          </TouchableOpacity>
-        )}
+        <TouchableOpacity
+          style={styles.callButton}
+          onPress={handleCall}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          accessibilityRole="button"
+          accessibilityLabel={chatAlerts.callTitle}
+        >
+          <MaterialIcons name="call" size={20} color={colors.primary} />
+        </TouchableOpacity>
       </View>
+
+      {/* Banner de llamada del viaje: entrante o en curso */}
+      {(incomingRideCall || ongoingRideCall) && (
+        <TouchableOpacity
+          style={[
+            styles.callBanner,
+            incomingRideCall ? styles.callBannerIncoming : styles.callBannerActive,
+          ]}
+          onPress={() => navigateToRideCall(false)}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+        >
+          <MaterialIcons
+            name={incomingRideCall ? 'call-received' : 'call'}
+            size={18}
+            color="#FFFFFF"
+          />
+          <Text style={styles.callBannerText} numberOfLines={1}>
+            {incomingRideCall
+              ? t('shared.chat.alerts.incomingCall', { name: otherUserName })
+              : t('shared.chat.alerts.incomingCallView')}
+          </Text>
+          {incomingRideCall && (
+            <Text style={styles.callBannerAction}>
+              {t('shared.chat.alerts.incomingCallAnswer')}
+            </Text>
+          )}
+        </TouchableOpacity>
+      )}
 
       {/* Lista de mensajes */}
       <View style={styles.messagesArea}>
@@ -570,6 +633,30 @@ const createStyles = (
       backgroundColor: isDark ? 'rgba(201, 163, 90, 0.22)' : 'rgba(179, 135, 55, 0.15)',
       justifyContent: 'center',
       alignItems: 'center',
+    },
+    callBanner: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      gap: 10,
+    },
+    callBannerIncoming: {
+      backgroundColor: colors.success,
+    },
+    callBannerActive: {
+      backgroundColor: colors.primary,
+    },
+    callBannerText: {
+      flex: 1,
+      color: '#FFFFFF',
+      fontSize: 13,
+      fontWeight: '600',
+    },
+    callBannerAction: {
+      color: '#FFFFFF',
+      fontSize: 13,
+      fontWeight: '700',
     },
     messagesArea: {
       flex: 1,

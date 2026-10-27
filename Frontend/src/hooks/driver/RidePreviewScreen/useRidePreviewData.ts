@@ -53,6 +53,7 @@ export function useRidePreviewData(
   const [activeRideGuard, setActiveRideGuard] = useState<string | null>(null);
   const [counterOfferTouched, setCounterOfferTouched] = useState(false);
   const cancellationHandledRef = useRef(false);
+  const lastRedirectedRideIdRef = useRef<string | null>(null);
 
   const markDismissed = async (rideId: string) => {
     try {
@@ -92,7 +93,13 @@ export function useRidePreviewData(
 
       if (found) {
         setActiveRideGuard(found);
-        navigation.replace('ActiveRide', { rideId: found });
+        // Solo reemplazar cuando la pantalla está enfocada y una sola vez por
+        // ride: una pantalla enterrada duplicaría ActiveRide dentro del stack.
+        const focused = navigation.isFocused ? navigation.isFocused() : true;
+        if (focused && lastRedirectedRideIdRef.current !== found) {
+          lastRedirectedRideIdRef.current = found;
+          navigation.replace('ActiveRide', { rideId: found });
+        }
       } else {
         setActiveRideGuard(null);
       }

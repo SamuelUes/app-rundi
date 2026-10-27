@@ -1,14 +1,11 @@
-import { getFirebaseAuth, getFirebaseFunctions } from '../config/firebase';
+import { getFirebaseFunctions } from '../config/firebase';
 import { httpsCallable } from 'firebase/functions';
-import type { User as FirebaseUser } from 'firebase/auth';
 import type { GetPreflightDataRequest, GetPreflightDataResponse, TermsDocumentType } from '../types/preflight';
-import { waitForFirebaseAuthUser } from '../utils/firebaseAuthReady';
-
-function isUnauthenticatedError(error: any): boolean {
-  const code = String(error?.code || '').toLowerCase();
-  const message = String(error?.message || '').toLowerCase();
-  return code === 'unauthenticated' || code.endsWith('/unauthenticated') || message.includes('unauthenticated');
-}
+import {
+  forceRefreshIdTokenOrSignOut,
+  isUnauthenticatedError,
+  waitForFirebaseAuthUser,
+} from '../utils/firebaseAuthReady';
 
 function isRetryableCallableError(error: any): boolean {
   const code = String(error?.code || '').toLowerCase();
@@ -22,32 +19,6 @@ function isRetryableCallableError(error: any): boolean {
 
 async function delay(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-const FATAL_TOKEN_ERROR_CODES = new Set([
-  'auth/user-token-expired',
-  'auth/invalid-user-token',
-  'auth/user-disabled',
-  'auth/user-not-found',
-]);
-
-/**
- * Fuerza el refresh del ID token. Si el refresh falla con un error fatal de
- * sesión (p. ej. sesión persistida desde emuladores u otro proyecto, o usuario
- * deshabilitado), ningún callable podrá autenticarse: se cierra sesión para
- * que la app vuelva al login en lugar de fallar en cada request.
- */
-async function forceRefreshIdTokenOrSignOut(authUser: FirebaseUser): Promise<void> {
-  try {
-    await authUser.getIdToken(true);
-  } catch (error: any) {
-    if (FATAL_TOKEN_ERROR_CODES.has(String(error?.code || ''))) {
-      console.warn('⚠️ [preflightService] Sesión Firebase inválida; cerrando sesión para re-autenticar');
-      const auth = await getFirebaseAuth();
-      await auth.signOut();
-    }
-    throw error;
-  }
 }
 
 const PREFLIGHT_CACHE_TTL_MS = 30_000;

@@ -53,7 +53,7 @@ const SUPPRESSION_MS = 60000; // suprime notificación 60s después de disparar 
 const DISMISS_TTL_MS = 5 * 60 * 1000; // mantener rides rechazados fuera por 5 minutos
 const AUTO_DISMISS_TTL_MS = 60 * 1000; // tras auto-cierre, no re-mostrar por aproximación durante 1 minuto
 // Rutas que no deben ser interrumpidas por una auto-apertura de RidePreview
-const SUPPRESS_AUTO_OPEN_ROUTES = new Set(['RidePreview', 'ActiveRide', 'WaitingClientConfirmation']);
+const SUPPRESS_AUTO_OPEN_ROUTES = new Set(['RidePreview', 'ActiveRide', 'WaitingClientConfirmation', 'PaymentConfirmation']);
 const REGISTRATION_UPLOADS_TTL_MS = 10 * 60 * 1000; // caducar flag tras 10 minutos
 const PROXIMITY_PUSH_RETRY_INTERVAL_MS = 5 * 60 * 1000;
 

@@ -62,7 +62,11 @@ export const routeNotification = async (data: any, options: RouteOptions = {}): 
       if (typeof rideId !== 'string') return;
       const isDriver = options?.userRole === 'driver' || options?.userRole === 'designated_driver';
       if (!isDriver) return;
-      const doNavigate = () => navigate('ActiveRide', { rideId });
+      const doNavigate = () => {
+        const current = navigationRef.getCurrentRoute();
+        if (current?.name === 'ActiveRide' && (current.params as any)?.rideId === rideId) return;
+        navigate('ActiveRide', { rideId });
+      };
       if (delay > 0) {
         setTimeout(doNavigate, delay);
       } else {
@@ -118,6 +122,37 @@ export const routeNotification = async (data: any, options: RouteOptions = {}): 
           initialCategory,
           initialTitle,
           complaintId: data.complaintId,
+        } as any);
+      if (delay > 0) {
+        setTimeout(doNavigate, delay);
+      } else {
+        doNavigate();
+      }
+      return;
+    }
+
+    case 'ride_call': {
+      if (typeof rideId !== 'string' || !rideId) return;
+      const callerUid =
+        typeof data?.callerUid === 'string' && data.callerUid
+          ? data.callerUid
+          : typeof data?.otherUserId === 'string'
+            ? data.otherUserId
+            : undefined;
+      if (!callerUid) return;
+      const callerName =
+        typeof data?.callerName === 'string' && data.callerName.trim()
+          ? data.callerName.trim()
+          : typeof data?.otherUserName === 'string' && data.otherUserName.trim()
+            ? data.otherUserName.trim()
+            : 'Llamada';
+      const ready = await waitForNavigation();
+      if (!ready) return;
+      const doNavigate = () =>
+        navigate('RideCall', {
+          rideId,
+          otherUserId: callerUid,
+          otherUserName: callerName,
         } as any);
       if (delay > 0) {
         setTimeout(doNavigate, delay);

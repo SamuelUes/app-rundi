@@ -1,7 +1,8 @@
 import * as functions from "firebase-functions/v1";
-import { database } from "../config/firebase";
+import { auth, database } from "../config/firebase";
 import { supabasePost, supabaseGet, supabaseUpdate, supabaseUploadJsonToStorage } from "../supabase/client";
 import { sendToUser } from "../services/notificationCenter";
+import { findExistingActiveCall } from "../helpers/callLifecycle";
 
 /**
  * Tipo base de ticket de soporte expuesto al frontend / CMS
@@ -25,6 +26,50 @@ export interface SupportTicket {
   updatedAt: number | null;
   resolvedAt: number | null;
 }
+
+/**
+ * Evalúa si el token/claims corresponde a staff (admin/operator/support).
+ */
+const isAdminLikeClaims = (token: any): boolean => {
+  const role = typeof token?.role === "string" ? String(token.role).toLowerCase() : undefined;
+  return token?.admin === true || role === "admin" || role === "operator" || role === "support";
+};
+
+/**
+ * Core de soft-delete compartido por el callable y el endpoint HTTP.
+ * Marca la queja como show='only_platform' (oculta en la app, sigue visible en
+ * la plataforma) solo si el uid es participante del caso o staff.
+ */
+const softDeleteSupportTicketCore = async (
+  ticketId: string,
+  uid: string,
+  isAdminOrOperator: boolean,
+) => {
+  const rows = await supabaseGet(
+    "cms_complaints",
+    { id: ticketId },
+    "id,created_by_user_id,client_id,driver_id",
+    { limit: 1, requireServiceRole: true },
+  );
+
+  if (!Array.isArray(rows) || rows.length === 0) {
+    throw new functions.https.HttpsError("not-found", "El reporte no existe.");
+  }
+
+  const complaint = rows[0] as any;
+  const isParticipant = [complaint.created_by_user_id, complaint.client_id, complaint.driver_id]
+    .map((value) => (typeof value === "string" ? value.trim() : ""))
+    .includes(uid);
+
+  if (!isParticipant && !isAdminOrOperator) {
+    throw new functions.https.HttpsError(
+      "permission-denied",
+      "No tienes permisos para eliminar este reporte.",
+    );
+  }
+
+  await supabaseUpdate("cms_complaints", ticketId, { show: "only_platform" });
+};
 
 const toTimestamp = (value: any): number | null => {
   if (!value) return null;
@@ -60,7 +105,7 @@ export const notifySupportChatMessage = async (params: {
     // Cargar ticket para obtener título, categoría y rideId
     const rows = await supabaseGet(
       "cms_complaints",
-      { id: complaintId, deleted_at: null },
+      { id: complaintId, deleted_at: null, show: "All" },
       "id,ride_id,category,title,created_by_user_id,driver_id,client_id,status,priority",
       { limit: 1, requireServiceRole: true },
     );
@@ -265,6 +310,7 @@ export const createSupportComplaint = functions.https.onCall(async (data, contex
             ride_id: rideId,
             category,
             deleted_at: null,
+            show: "All",
           },
           "id,status,ride_id,category,client_id,driver_id,created_by_user_id,created_by_role,assigned_to_user_id,priority,title,description,resolution_notes,chat_log_url,resolved_at,created_at,updated_at",
           {
@@ -287,7 +333,11 @@ export const createSupportComplaint = functions.https.onCall(async (data, contex
               category,
               userId,
             });
-            await addSupportChatParticipant(ticket.id, userId);
+            await Promise.all(
+              [userId, ticket.clientId, ticket.driverId, ticket.createdByUserId, ticket.assignedToUserId].map((id) =>
+                addSupportChatParticipant(ticket.id, id),
+              ),
+            );
 
             return {
               success: true,
@@ -323,7 +373,11 @@ export const createSupportComplaint = functions.https.onCall(async (data, contex
     }
 
     const ticket = mapComplaintToTicket(row);
-    await addSupportChatParticipant(ticket.id, userId);
+    await Promise.all(
+      [userId, ticket.clientId, ticket.driverId].map((id) =>
+        addSupportChatParticipant(ticket.id, id),
+      ),
+    );
 
     return {
       success: true,
@@ -345,6 +399,135 @@ export const createSupportComplaint = functions.https.onCall(async (data, contex
 });
 
 
+export interface RequestSupportCallResult {
+  complaintId: string;
+  requestId: string | null;
+  status: string;
+  reused?: boolean;
+}
+
+/**
+ * Núcleo compartido de solicitud de llamada: valida participación en la queja
+ * y registra la petición pendiente en RTDB. Usado por el callable
+ * requestSupportCall y por la ruta /api/calls/request del router `api`.
+ */
+export async function requestSupportCallCore(params: {
+  uid: string;
+  complaintId: string;
+}): Promise<RequestSupportCallResult> {
+  const { uid, complaintId } = params;
+
+  if (!complaintId) {
+    throw new functions.https.HttpsError("invalid-argument", "Se requiere complaintId.");
+  }
+
+  const rows = await supabaseGet(
+    "cms_complaints",
+    { id: complaintId, deleted_at: null, show: "All" },
+    "id,title,ride_id,status,created_by_user_id,client_id,driver_id,assigned_to_user_id",
+    { limit: 1, requireServiceRole: true },
+  );
+
+  if (!Array.isArray(rows) || rows.length === 0) {
+    throw new functions.https.HttpsError("not-found", "No se encontro el caso de soporte.");
+  }
+
+  const complaint = rows[0] || {};
+  const participants = [
+    complaint.created_by_user_id,
+    complaint.client_id,
+    complaint.driver_id,
+  ]
+    .filter(Boolean)
+    .map((id: any) => String(id));
+
+  if (!participants.includes(uid)) {
+    throw new functions.https.HttpsError(
+      "permission-denied",
+      "No tienes permisos para solicitar llamada en este caso.",
+    );
+  }
+
+  // Self-heal: registra al participante en el chat del caso por si la queja
+  // se creó antes de que se registraran todos los participantes.
+  await addSupportChatParticipant(complaintId, uid);
+
+  const status = String(complaint.status || "").toLowerCase();
+  if (status === "resolved" || status === "rejected") {
+    throw new functions.https.HttpsError(
+      "failed-precondition",
+      "No se puede solicitar llamada para un caso cerrado.",
+    );
+  }
+
+  // Si el caso ya tiene una llamada viva (ringing/aceptada/conectada), la
+  // solicitud no aplica: el cliente debe usar la llamada existente.
+  const activeCall = await findExistingActiveCall(complaintId);
+  if (activeCall) {
+    throw new functions.https.HttpsError(
+      "failed-precondition",
+      "Ya hay una llamada activa para este caso.",
+    );
+  }
+
+  // Reutilizar la solicitud pendiente más reciente: sin dedup, cada tap en
+  // "Solicitar llamada" creaba una fila duplicada en el panel del operador.
+  const existingRequestsSnap = await database
+    .ref(`support_call_requests/${complaintId}`)
+    .once("value");
+  if (existingRequestsSnap.exists()) {
+    const pendingEntry = Object.entries<any>(existingRequestsSnap.val() || {})
+      .map(([requestId, value]) => ({ requestId, ...(value || {}) }))
+      .sort((a, b) => (typeof b.createdAt === "number" ? b.createdAt : 0) - (typeof a.createdAt === "number" ? a.createdAt : 0))
+      .find((request) => String(request.status || "").toLowerCase() === "pending");
+
+    if (pendingEntry) {
+      return {
+        complaintId,
+        requestId: pendingEntry.requestId,
+        status: "pending",
+        reused: true,
+      };
+    }
+  }
+
+  const requestRef = database.ref(`support_call_requests/${complaintId}`).push();
+  const requestId = requestRef.key;
+  const now = Date.now();
+
+  await requestRef.set({
+    id: requestId,
+    complaintId,
+    rideId: complaint.ride_id ?? null,
+    requestedByUserId: uid,
+    assignedToUserId: complaint.assigned_to_user_id ?? null,
+    status: "pending",
+    source: "support_chat_client",
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  if (complaint.assigned_to_user_id) {
+    await sendToUser(String(complaint.assigned_to_user_id), "support_call", {
+      fallbackTitle: "Solicitud de llamada de soporte",
+      fallbackBody: `El usuario solicito una llamada en el caso ${complaintId}.`,
+      data: {
+        complaintId,
+        requestId: requestId || undefined,
+        requestedByUserId: uid,
+      },
+      notificationKey: `support-call-request-${complaintId}`,
+      expiresInMs: 30 * 60 * 1000,
+    });
+  }
+
+  return {
+    complaintId,
+    requestId: requestId || null,
+    status: "pending",
+  };
+}
+
 /**
  * Cloud Function: requestSupportCall
  * Registra una solicitud de llamada de soporte vinculada a un complaintId.
@@ -357,82 +540,9 @@ export const requestSupportCall = functions.https.onCall(async (data, context) =
   const uid = context.auth.uid;
   const complaintId = typeof data?.complaintId === "string" ? data.complaintId.trim() : "";
 
-  if (!complaintId) {
-    throw new functions.https.HttpsError("invalid-argument", "Se requiere complaintId.");
-  }
-
   try {
-    const rows = await supabaseGet(
-      "cms_complaints",
-      { id: complaintId, deleted_at: null },
-      "id,title,ride_id,status,created_by_user_id,client_id,driver_id,assigned_to_user_id",
-      { limit: 1, requireServiceRole: true },
-    );
-
-    if (!Array.isArray(rows) || rows.length === 0) {
-      throw new functions.https.HttpsError("not-found", "No se encontro el caso de soporte.");
-    }
-
-    const complaint = rows[0] || {};
-    const participants = [
-      complaint.created_by_user_id,
-      complaint.client_id,
-      complaint.driver_id,
-    ]
-      .filter(Boolean)
-      .map((id: any) => String(id));
-
-    if (!participants.includes(uid)) {
-      throw new functions.https.HttpsError(
-        "permission-denied",
-        "No tienes permisos para solicitar llamada en este caso.",
-      );
-    }
-
-    const status = String(complaint.status || "").toLowerCase();
-    if (status === "resolved" || status === "rejected") {
-      throw new functions.https.HttpsError(
-        "failed-precondition",
-        "No se puede solicitar llamada para un caso cerrado.",
-      );
-    }
-
-    const requestRef = database.ref(`support_call_requests/${complaintId}`).push();
-    const requestId = requestRef.key;
-    const now = Date.now();
-
-    await requestRef.set({
-      id: requestId,
-      complaintId,
-      rideId: complaint.ride_id ?? null,
-      requestedByUserId: uid,
-      assignedToUserId: complaint.assigned_to_user_id ?? null,
-      status: "pending",
-      source: "support_chat_client",
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    if (complaint.assigned_to_user_id) {
-      await sendToUser(String(complaint.assigned_to_user_id), "support_call", {
-        fallbackTitle: "Solicitud de llamada de soporte",
-        fallbackBody: `El usuario solicito una llamada en el caso ${complaintId}.`,
-        data: {
-          complaintId,
-          requestId: requestId || undefined,
-          requestedByUserId: uid,
-        },
-        notificationKey: `support-call-request-${complaintId}`,
-        expiresInMs: 30 * 60 * 1000,
-      });
-    }
-
-    return {
-      success: true,
-      complaintId,
-      requestId: requestId || null,
-      status: "pending",
-    };
+    const result = await requestSupportCallCore({ uid, complaintId });
+    return { success: true, ...result };
   } catch (error: any) {
     if (error instanceof functions.https.HttpsError) {
       throw error;
@@ -451,14 +561,64 @@ export const requestSupportCall = functions.https.onCall(async (data, context) =
     );
   }
 });
+
 /**
- * HTTP endpoint (sin auth) para soft-delete de tickets.
- * Actualiza show='only_platform' en Supabase.
+ * Cloud Function: joinSupportChat
+ * Registra al usuario autenticado como participante del chat de la queja
+ * (supportChatParticipants/{complaintId}/{uid}), validando que sea parte del
+ * caso. Necesario para quejas creadas antes de registrar a todos los
+ * participantes: sin este nodo las reglas RTDB niegan chats/{complaintId}.
+ */
+export const joinSupportChat = functions.https.onCall(async (data, context) => {
+  if (!context.auth?.uid) {
+    throw new functions.https.HttpsError("unauthenticated", "Autenticacion requerida");
+  }
+
+  const uid = context.auth.uid;
+  const complaintId = typeof data?.complaintId === "string" ? data.complaintId.trim() : "";
+  if (!complaintId) {
+    throw new functions.https.HttpsError("invalid-argument", "Se requiere complaintId.");
+  }
+
+  const rows = await supabaseGet(
+    "cms_complaints",
+    { id: complaintId, deleted_at: null, show: "All" },
+    "id,created_by_user_id,client_id,driver_id,assigned_to_user_id",
+    { limit: 1, requireServiceRole: true },
+  );
+
+  if (!Array.isArray(rows) || rows.length === 0) {
+    throw new functions.https.HttpsError("not-found", "No se encontró el caso de soporte.");
+  }
+
+  const complaint = rows[0] || {};
+  const participants = [
+    complaint.created_by_user_id,
+    complaint.client_id,
+    complaint.driver_id,
+    complaint.assigned_to_user_id,
+  ]
+    .filter(Boolean)
+    .map((id: unknown) => String(id));
+
+  if (!participants.includes(uid)) {
+    throw new functions.https.HttpsError(
+      "permission-denied",
+      "No eres participante de este caso.",
+    );
+  }
+
+  await addSupportChatParticipant(complaintId, uid);
+  return { success: true };
+});
+/**
+ * HTTP endpoint (Bearer token) para soft-delete de tickets.
+ * Actualiza show='only_platform' en Supabase si el uid es participante o staff.
  */
 export const deleteSupportTicketHttp = functions.https.onRequest(async (req, res) => {
   res.set('Access-Control-Allow-Origin', '*');
   res.set('Access-Control-Allow-Methods', 'POST,OPTIONS');
-  res.set('Access-Control-Allow-Headers', 'Content-Type');
+  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
   if (req.method === 'OPTIONS') {
     res.status(204).send('');
@@ -484,10 +644,29 @@ export const deleteSupportTicketHttp = functions.https.onRequest(async (req, res
     return;
   }
 
+  const rawAuth = typeof req.headers.authorization === 'string' ? req.headers.authorization : '';
+  const idToken = rawAuth.startsWith('Bearer ') ? rawAuth.slice('Bearer '.length).trim() : '';
+  if (!idToken) {
+    res.status(401).json({ error: 'unauthenticated', message: 'Se requiere Authorization: Bearer <idToken>.' });
+    return;
+  }
+
   try {
-    await supabaseUpdate('cms_complaints', ticketId, { show: 'only_platform' });
+    const decoded = await auth.verifyIdToken(idToken);
+    await softDeleteSupportTicketCore(ticketId, decoded.uid, isAdminLikeClaims(decoded));
     res.status(200).json({ success: true, archivedChatUrl: null });
   } catch (error: any) {
+    if (error instanceof functions.https.HttpsError) {
+      const status = error.code === 'not-found' ? 404 : error.code === 'permission-denied' ? 403 : 400;
+      res.status(status).json({ error: error.code, message: error.message });
+      return;
+    }
+
+    if (error?.code === 'auth/id-token-expired' || error?.code === 'auth/argument-error') {
+      res.status(401).json({ error: 'unauthenticated', message: 'Token inválido o expirado.' });
+      return;
+    }
+
     functions.logger.error('❌ Error eliminando ticket de soporte (HTTP)', {
       ticketId,
       error: error?.message,
@@ -742,16 +921,20 @@ export const updateSupportTicket = functions.https.onCall(async (data, context) 
 
 /**
  * Cloud Function: deleteSupportTicket (callable)
- * Soft-delete en Supabase (show='only_platform'). No RTDB, no archivo de chat, sin checks de auth.
+ * Soft-delete en Supabase (show='only_platform'). Solo participantes del caso
+ * (creador, cliente, conductor) o staff (admin/operator/support) pueden borrar.
  */
 export const deleteSupportTicket = functions.https.onCall(async (data, context) => {
+  if (!context.auth?.uid) {
+    throw new functions.https.HttpsError('unauthenticated', 'Autenticacion requerida');
+  }
+
   const ticketIdRaw = typeof data?.ticketId === 'string' ? data.ticketId : undefined;
   const ticketId = typeof ticketIdRaw === 'string' ? ticketIdRaw.trim() : '';
 
   functions.logger.info('[deleteSupportTicket] Incoming callable', {
     ticketIdProvided: Boolean(ticketId),
-    hasAuthContext: Boolean(context.auth),
-    authUid: context.auth?.uid ?? null,
+    authUid: context.auth.uid,
   });
 
   if (!ticketId) {
@@ -759,13 +942,17 @@ export const deleteSupportTicket = functions.https.onCall(async (data, context) 
   }
 
   try {
-    await supabaseUpdate('cms_complaints', ticketId, { show: 'only_platform' });
+    await softDeleteSupportTicketCore(ticketId, context.auth.uid, isAdminLikeClaims(context.auth.token));
 
     return {
       success: true,
       archivedChatUrl: null,
     };
   } catch (error: any) {
+    if (error instanceof functions.https.HttpsError) {
+      throw error;
+    }
+
     functions.logger.error('❌ Error eliminando ticket de soporte (callable)', {
       ticketId,
       error: error?.message,

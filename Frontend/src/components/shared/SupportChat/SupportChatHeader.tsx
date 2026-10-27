@@ -112,7 +112,7 @@ export function SupportChatHeader({
         </View>
       ) : null}
 
-      {activeCall && activeCall.status !== 'ended' ? (
+      {activeCall && !['ended', 'rejected', 'missed'].includes(String(activeCall.status || '')) ? (
         <TouchableOpacity
           style={styles.callBanner}
           onPress={onCallButton}

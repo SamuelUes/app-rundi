@@ -12,8 +12,7 @@ import type { PreflightRegionInfo, PreflightRole } from '../types/preflight';
 import {
   DRIVER_BIOMETRIC_CONTEXT,
   DRIVER_BIOMETRIC_MAX_ATTEMPTS,
-  DRIVER_BIOMETRIC_RISK_WINDOW_MS,
-  recentDriverBiometricAuthByUserId,
+  markDriverBiometricSuccess,
   getDriverBiometricUserType,
   getLocalRegionFallback,
   type DriverApprovalResult,
@@ -404,7 +403,7 @@ export async function checkDriverBiometricAccess(
         attempt,
         maxAttempts: DRIVER_BIOMETRIC_MAX_ATTEMPTS,
       });
-      recentDriverBiometricAuthByUserId.set(user.id, Date.now());
+      markDriverBiometricSuccess(user.id);
       return { success: true };
     }
 
@@ -443,7 +442,7 @@ export async function checkDriverBiometricAccess(
             attempt,
             maxAttempts: DRIVER_BIOMETRIC_MAX_ATTEMPTS,
           });
-          recentDriverBiometricAuthByUserId.set(user.id, Date.now());
+          markDriverBiometricSuccess(user.id);
           return { success: true };
         }
 
@@ -494,7 +493,7 @@ export async function checkDriverBiometricAccess(
         attempt: DRIVER_BIOMETRIC_MAX_ATTEMPTS,
         maxAttempts: DRIVER_BIOMETRIC_MAX_ATTEMPTS,
       });
-      recentDriverBiometricAuthByUserId.set(user.id, Date.now());
+      markDriverBiometricSuccess(user.id);
       return { success: true };
     }
 

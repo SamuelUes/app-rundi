@@ -1,6 +1,6 @@
 {
   "name": "rundi",
-  "version": "1.6.4",
+  "version": "1.9.8",
   "private": true,
   "main": "index.js",
   "engines": {

@@ -26,7 +26,7 @@ export async function logAnalyticsEvent(event: AnalyticsEvent): Promise<boolean>
       ip_address: event.ipAddress || null,
       user_agent: event.userAgent || null,
       platform: event.platform || 'mobile',
-      app_version: event.appVersion || '1.6.4',
+      app_version: event.appVersion || '1.9.8',
     });
     
     console.log(`📊 Analytics event logged: ${event.eventType}`);

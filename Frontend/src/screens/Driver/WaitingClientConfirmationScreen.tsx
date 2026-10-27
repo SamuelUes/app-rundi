@@ -256,6 +256,8 @@ export default function WaitingClientConfirmationScreen({ route, navigation }: W
   const [timeWaiting, setTimeWaiting] = useState(0);
   const [offerStatus, setOfferStatus] = useState<'pending' | 'accepted' | 'rejected'>('pending');
   const withdrawHandledRef = useRef(false);
+  const navigationScheduledRef = useRef(false);
+  const navigationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ns = 'driver.WaitingClientConfirmation';
 
   const remaining = Math.max(OFFER_WAIT_TIMEOUT_S - timeWaiting, 0);
@@ -299,16 +301,23 @@ export default function WaitingClientConfirmationScreen({ route, navigation }: W
         console.log('✅ ¡Cliente aceptó tu oferta!');
         setOfferStatus('accepted');
 
-        // Navegar a ActiveRideScreen
-        setTimeout(() => {
-          navigation.replace('ActiveRide', {
-            rideId: rideId,
-            clientId: clientId,
-            origin: origin,
-            destination: destination,
-            estimatedFare: data.finalFare || estimatedFare,
-          });
-        }, 1500);
+        // Navegar a ActiveRideScreen — una sola vez: el nodo recibe escrituras
+        // de tracking cada pocos segundos y cada snapshot re-agendaba un
+        // replace, duplicando la pantalla.
+        if (!navigationScheduledRef.current) {
+          navigationScheduledRef.current = true;
+          navigationTimeoutRef.current = setTimeout(() => {
+            navigationTimeoutRef.current = null;
+            if (navigation.isFocused?.() === false) return;
+            navigation.replace('ActiveRide', {
+              rideId: rideId,
+              clientId: clientId,
+              origin: origin,
+              destination: destination,
+              estimatedFare: data.finalFare || estimatedFare,
+            });
+          }, 1500);
+        }
         return;
       }
 
@@ -361,6 +370,10 @@ export default function WaitingClientConfirmationScreen({ route, navigation }: W
     return () => {
       off(rideRef);
       clearInterval(timer);
+      if (navigationTimeoutRef.current) {
+        clearTimeout(navigationTimeoutRef.current);
+        navigationTimeoutRef.current = null;
+      }
     };
   }, [rideId]);
 

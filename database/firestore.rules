@@ -93,6 +93,18 @@ service cloud.firestore {
       allow update: if isAdmin();
       allow delete: if isAdmin();
     }
+
+    // ============================================
+    // CMS GRUPO RZC
+    // Datos de la empresa (perfil) y registros de
+    // obligaciones fiscales del módulo de finanzas.
+    // Acceso real: solo via Admin SDK (APIs del CMS);
+    // el cliente solo podría leer/escribir siendo admin.
+    // ============================================
+
+    match /cms-gruporzc/{document=**} {
+      allow read, write: if isAdmin();
+    }
     
     // ============================================
     // SERVICE AREAS

@@ -65,6 +65,20 @@ export function useLivekitConnection(): UseLivekitConnection {
 
     webrtc.registerGlobals();
     globalsRegisteredRef.current = true;
+
+    // livekit-client llama getBrowser() → navigator.userAgent.toLowerCase() al
+    // publicar tracks (isE2EESimulcastSupported corre siempre en publish()). En
+    // RN navigator existe pero userAgent es undefined → TypeError que aborta el
+    // publish del micrófono. Polyfill mínimo: sin match de browser en getBrowser,
+    // los paths específicos de Firefox/Safari quedan desactivados (correcto en RN).
+    try {
+      const nav = (globalThis as any).navigator;
+      if (nav && !nav.userAgent) {
+        nav.userAgent = 'react-native';
+      }
+    } catch {
+      // navigator no escribible — el publish degradará con warn de micrófono
+    }
   }, []);
 
   useEffect(() => {

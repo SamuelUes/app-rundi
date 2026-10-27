@@ -1,6 +1,10 @@
 import { getFirebaseAuth, getFirebaseFunctions } from '../config/firebase';
 import { httpsCallable } from 'firebase/functions';
-import { requireFirebaseAuthUser } from '../utils/firebaseAuthReady';
+import {
+  forceRefreshIdTokenOrSignOut,
+  isUnauthenticatedError,
+  requireFirebaseAuthUser,
+} from '../utils/firebaseAuthReady';
 import sessionService from './sessionService';
 import analyticsService, { AnalyticsEvents } from './analyticsService';
 import ratingService from './ratingService';
@@ -516,6 +520,29 @@ class RidesService {
     return this.functions;
   }
 
+  /**
+   * Invoca un callable protegido garantizando sesión Firebase: exige usuario
+   * autenticado y, ante un `unauthenticated`, fuerza refresh del ID token y
+   * reintenta una vez (mismo patrón que preflightService).
+   */
+  private async callWithSession<T = any>(
+    functionName: string,
+    payload: Record<string, unknown>,
+  ): Promise<T> {
+    const user = await requireFirebaseAuthUser();
+    const functions = await this.getFunctions();
+    const callable = httpsCallable(functions, functionName);
+    try {
+      return (await callable(payload)).data as T;
+    } catch (error: any) {
+      if (!isUnauthenticatedError(error)) {
+        throw error;
+      }
+      await forceRefreshIdTokenOrSignOut(user);
+      return (await callable(payload)).data as T;
+    }
+  }
+
   async requestRide(data: RequestRideData): Promise<Ride> {
     try {
       // Validar datos requeridos
@@ -604,43 +631,31 @@ class RidesService {
   }
 
   async assignDriverToProgrammedRide(rideId: string): Promise<{ success: boolean; ride?: any; message?: string }> {
-    const functions = await this.getFunctions();
-    const assignFn = httpsCallable(functions, 'assignDriverToProgrammedRide');
     const deviceId = await sessionService.getDeviceId();
-    const response = await assignFn({ rideId, deviceId });
-    return response.data as { success: boolean; ride?: Record<string, unknown>; message?: string };
+    return this.callWithSession('assignDriverToProgrammedRide', { rideId, deviceId });
   }
 
   async claimProgrammedRideByCode(code: string): Promise<{ success: boolean; ride?: any; message?: string }> {
-    const functions = await this.getFunctions();
-    const claimFn = httpsCallable(functions, 'claimProgrammedRideByCode');
     const deviceId = await sessionService.getDeviceId();
-    const response = await claimFn({ code: code.trim().toUpperCase(), deviceId });
-    return response.data as { success: boolean; ride?: Record<string, unknown>; message?: string };
+    return this.callWithSession('claimProgrammedRideByCode', {
+      code: code.trim().toUpperCase(),
+      deviceId,
+    });
   }
 
   async confirmProgrammedRideClient(rideId: string): Promise<{ success: boolean; ride?: any; message?: string }> {
-    const functions = await this.getFunctions();
-    const confirmFn = httpsCallable(functions, 'confirmProgrammedRideClient');
     const deviceId = await sessionService.getDeviceId();
-    const response = await confirmFn({ rideId, deviceId });
-    return response.data as { success: boolean; ride?: Record<string, unknown>; message?: string };
+    return this.callWithSession('confirmProgrammedRideClient', { rideId, deviceId });
   }
 
   async confirmProgrammedRideDriver(rideId: string): Promise<{ success: boolean; ride?: any; message?: string }> {
-    const functions = await this.getFunctions();
-    const confirmFn = httpsCallable(functions, 'confirmProgrammedRideDriver');
     const deviceId = await sessionService.getDeviceId();
-    const response = await confirmFn({ rideId, deviceId });
-    return response.data as { success: boolean; ride?: Record<string, unknown>; message?: string };
+    return this.callWithSession('confirmProgrammedRideDriver', { rideId, deviceId });
   }
 
   async cancelProgrammedRide(rideId: string, reason?: string): Promise<{ success: boolean; ride?: any; message?: string }> {
-    const functions = await this.getFunctions();
-    const cancelFn = httpsCallable(functions, 'cancelProgrammedRide');
     const deviceId = await sessionService.getDeviceId();
-    const response = await cancelFn({ rideId, reason, deviceId });
-    return response.data as { success: boolean; ride?: Record<string, unknown>; message?: string };
+    return this.callWithSession('cancelProgrammedRide', { rideId, reason, deviceId });
   }
 
   async getMyRides(
@@ -954,6 +969,7 @@ class RidesService {
         rideId,
         deviceId,
         ...(additionalData?.vehicleInspection ? { vehicleInspection: additionalData.vehicleInspection } : {}),
+        ...(additionalData?.pickupCode ? { pickupCode: additionalData.pickupCode } : {}),
       });
       const startResult = response.data as { success?: boolean; ride?: any };
       const ride = this.normalizeRidePreservingRaw(startResult?.ride || { id: rideId, status: 'in_progress' });

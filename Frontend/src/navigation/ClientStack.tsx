@@ -20,6 +20,7 @@ import HelpScreen from '../screens/Shared/HelpScreen';
 import ChatScreen from '../screens/Shared/ChatScreen';
 import SupportChatScreen from '../screens/Shared/SupportChatScreen';
 import SupportCallScreen from '../screens/Shared/SupportCallScreen';
+import RideCallScreen from '../screens/Shared/RideCallScreen';
 import SupportComplaintScreen from '../screens/Shared/SupportComplaintScreen';
 import RideDetailsScreen from '../screens/Shared/RideDetailsScreen';
 import SavedCardsScreen from '../screens/Shared/SavedCardsScreen';
@@ -101,6 +102,12 @@ export type ClientStackParamList = {
   SupportCall: {
     complaintId?: string | null;
     rideId?: string | null;
+  } | undefined;
+  RideCall: {
+    rideId?: string | null;
+    otherUserId?: string | null;
+    otherUserName?: string | null;
+    autoStart?: boolean;
   } | undefined;
   SupportComplaints: {
     initialTicketId?: string | null;
@@ -226,6 +233,11 @@ export default function ClientStack() {
         name="SupportCall"
         component={SupportCallScreen}
         options={{ headerShown: false, title: 'Llamada de soporte' }}
+      />
+      <Stack.Screen
+        name="RideCall"
+        component={RideCallScreen}
+        options={{ headerShown: false, title: 'Llamada del viaje' }}
       />
       <Stack.Screen
         name="SupportComplaints"

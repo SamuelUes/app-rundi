@@ -77,8 +77,33 @@ export default function SupportChatScreen({ route }: SupportChatScreenProps) {
     user?.email ??
     t(`${ns}.fallbackUserName`, 'User');
 
-  const hasActiveChat = Boolean(threadId && safeUserId);
-  const chat = useChat(threadId ?? '', safeUserId, safeUserName, isFocused && hasActiveChat);
+  // Las reglas RTDB exigen supportChatParticipants/{complaintId}/{uid}; las
+  // quejas antiguas solo registraban al creador. joinSupportChat valida la
+  // participación y registra al usuario antes de conectar los listeners.
+  const [chatAccess, setChatAccess] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    setChatAccess(false);
+    if (!complaintId || !safeUserId) return;
+    (async () => {
+      try {
+        const functions = await getFirebaseFunctions();
+        if (!functions) return;
+        const joinSupportChat = httpsCallable(functions, 'joinSupportChat');
+        await joinSupportChat({ complaintId });
+      } catch (err) {
+        console.warn('[SupportChat] joinSupportChat falló:', err);
+      } finally {
+        if (!cancelled) setChatAccess(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [complaintId, safeUserId]);
+
+  const hasActiveChat = Boolean(threadId && safeUserId && chatAccess);
+  const chat = useChat(chatAccess ? threadId ?? '' : '', safeUserId, safeUserName, isFocused && hasActiveChat);
   const { activeCall } = useCalls(complaintId);
 
   const [inputText, setInputText] = useState('');

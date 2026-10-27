@@ -66,6 +66,7 @@ export const AcceptRideSchema = z.object({
 export const StartRideSchema = z.object({
   rideId: z.string().min(1, 'ID de viaje requerido'),
   deviceId: z.string().optional(),
+  pickupCode: z.string().optional(),
   vehicleInspection: z.object({
     inspected: z.boolean().optional(),
     inspection_id: z.string().optional(),
