@@ -18,7 +18,7 @@
     "driverId"
    ],
    "$rideId": {
-    ".read": "auth != null && (data.child('clientId').val() === auth.uid || data.child('driverId').val() === auth.uid || data.child('offers').child(auth.uid).exists() || data.child('rejections').child(auth.uid).exists())",
+    ".read": "auth != null && (data.child('clientId').val() === auth.uid || data.child('driverId').val() === auth.uid || data.child('followerId').val() === auth.uid || data.child('offers').child(auth.uid).exists() || data.child('rejections').child(auth.uid).exists())",
     ".write": "auth != null && newData.exists() && (data.child('clientId').val() === auth.uid || newData.child('clientId').val() === auth.uid || data.child('driverId').val() === auth.uid || newData.child('driverId').val() === auth.uid)",
     ".validate": "data.exists() ? true : newData.hasChildren(['id', 'clientId', 'status', 'origin', 'destination', 'estimatedPrice', 'requestedAt'])",
     "id": {
@@ -83,6 +83,69 @@
     },
     "designatedDriverVehiclePhoto": {
      ".validate": "newData.val() == data.val()"
+    },
+    "followerId": {
+     ".validate": "newData.val() == data.val()"
+    },
+    "crewAttachCheckedAt": {
+     ".validate": "newData.val() == data.val()"
+    },
+    "follower": {
+     "driverId": {
+      ".validate": "newData.val() == data.val()"
+     },
+     "name": {
+      ".validate": "newData.val() == data.val()"
+     },
+     "rating": {
+      ".validate": "newData.val() == data.val()"
+     },
+     "licenseNumber": {
+      ".validate": "newData.val() == data.val()"
+     },
+     "photoURL": {
+      ".validate": "newData.val() == data.val()"
+     },
+     "status": {
+      ".validate": "newData.val() == data.val()"
+     },
+     "joinedAt": {
+      ".validate": "newData.val() == data.val()"
+     },
+     "leftAt": {
+      ".validate": "newData.val() == data.val()"
+     },
+     "releasedAt": {
+      ".validate": "newData.val() == data.val()"
+     },
+     "location": {
+      ".write": "auth != null && data.parent().parent().child('followerId').val() === auth.uid && data.parent().child('status').val() === 'active'",
+      ".validate": "newData.hasChildren(['latitude', 'longitude']) && newData.child('latitude').isNumber() && newData.child('latitude').val() >= -90 && newData.child('latitude').val() <= 90 && newData.child('longitude').isNumber() && newData.child('longitude').val() >= -180 && newData.child('longitude').val() <= 180",
+      "latitude": {
+       ".validate": "newData.isNumber()"
+      },
+      "longitude": {
+       ".validate": "newData.isNumber()"
+      },
+      "speed": {
+       ".validate": "!newData.exists() || newData.isNumber()"
+      },
+      "heading": {
+       ".validate": "!newData.exists() || newData.isNumber()"
+      },
+      "accuracy": {
+       ".validate": "!newData.exists() || newData.isNumber()"
+      },
+      "timestamp": {
+       ".validate": "!newData.exists() || (newData.isNumber() && newData.val() > 0)"
+      },
+      "$other": {
+       ".validate": "false"
+      }
+     },
+     "$other": {
+      ".validate": "false"
+     }
     },
     "lastUpdate": {
      ".validate": "newData.isNumber() && newData.val() > 0"
@@ -380,6 +443,12 @@
       ".validate": "false"
      }
     }
+   }
+  },
+  "rideVerificationCodes": {
+   "$rideId": {
+    ".read": "auth != null && (!data.exists() || data.child('clientId').val() === auth.uid)",
+    ".write": false
    }
   },
   "programmedRides": {
@@ -977,12 +1046,10 @@
   },
   "chats": {
    "$rideId": {
-    ".read": "auth != null && (root.child('activeRides/' + $rideId + '/clientId').val() === auth.uid || root.child('activeRides/' + $rideId + '/driverId').val() === auth.uid || root.child('programmedRides/' + $rideId + '/clientId').val() === auth.uid || root.child('programmedRides/' + $rideId + '/driverId').val() === auth.uid || root.child('supportChatParticipants/' + $rideId + '/' + auth.uid).exists() || (root.child('activeRides/' + $rideId + '/status').val() === 'requested' && root.child('driversInfo/' + auth.uid).exists()))",
+    ".read": "auth != null && (root.child('activeRides/' + $rideId + '/clientId').val() === auth.uid || root.child('activeRides/' + $rideId + '/driverId').val() === auth.uid || root.child('activeRides/' + $rideId + '/followerId').val() === auth.uid || root.child('programmedRides/' + $rideId + '/clientId').val() === auth.uid || root.child('programmedRides/' + $rideId + '/driverId').val() === auth.uid || root.child('supportChatParticipants/' + $rideId + '/' + auth.uid).exists() || (root.child('activeRides/' + $rideId + '/status').val() === 'requested' && root.child('driversInfo/' + auth.uid).exists()))",
     "messages": {
-     ".read": "auth != null && (root.child('activeRides/' + $rideId + '/clientId').val() === auth.uid || root.child('activeRides/' + $rideId + '/driverId').val() === auth.uid || root.child('programmedRides/' + $rideId + '/clientId').val() === auth.uid || root.child('programmedRides/' + $rideId + '/driverId').val() === auth.uid || root.child('supportChatParticipants/' + $rideId + '/' + auth.uid).exists() || (root.child('activeRides/' + $rideId + '/status').val() === 'requested' && root.child('driversInfo/' + auth.uid).exists()))",
-     ".indexOn": [
-      "timestamp"
-     ],
+     ".read": "auth != null && (root.child('activeRides/' + $rideId + '/clientId').val() === auth.uid || root.child('activeRides/' + $rideId + '/driverId').val() === auth.uid || root.child('activeRides/' + $rideId + '/followerId').val() === auth.uid || root.child('programmedRides/' + $rideId + '/clientId').val() === auth.uid || root.child('programmedRides/' + $rideId + '/driverId').val() === auth.uid || root.child('supportChatParticipants/' + $rideId + '/' + auth.uid).exists() || (root.child('activeRides/' + $rideId + '/status').val() === 'requested' && root.child('driversInfo/' + auth.uid).exists()))",
+     ".indexOn": ["timestamp"],
      "$messageId": {
       ".write": "auth != null && newData.child('senderId').val() === auth.uid && (root.child('activeRides/' + $rideId + '/clientId').val() === auth.uid || root.child('activeRides/' + $rideId + '/driverId').val() === auth.uid || root.child('programmedRides/' + $rideId + '/clientId').val() === auth.uid || root.child('programmedRides/' + $rideId + '/driverId').val() === auth.uid || root.child('supportChatParticipants/' + $rideId + '/' + auth.uid).exists() || (root.child('activeRides/' + $rideId + '/status').val() === 'requested' && root.child('driversInfo/' + auth.uid).exists()))",
       ".validate": "newData.exists() && newData.hasChildren(['senderId', 'senderName', 'message', 'timestamp', 'rideId'])",
@@ -1008,19 +1075,19 @@
     },
     "typing": {
      "$userId": {
-      ".read": "auth != null && (root.child('activeRides/' + $rideId + '/clientId').val() === auth.uid || root.child('activeRides/' + $rideId + '/driverId').val() === auth.uid || root.child('programmedRides/' + $rideId + '/clientId').val() === auth.uid || root.child('programmedRides/' + $rideId + '/driverId').val() === auth.uid || root.child('supportChatParticipants/' + $rideId + '/' + auth.uid).exists() || (root.child('activeRides/' + $rideId + '/status').val() === 'requested' && root.child('driversInfo/' + auth.uid).exists()))",
+      ".read": "auth != null && (root.child('activeRides/' + $rideId + '/clientId').val() === auth.uid || root.child('activeRides/' + $rideId + '/driverId').val() === auth.uid || root.child('activeRides/' + $rideId + '/followerId').val() === auth.uid || root.child('programmedRides/' + $rideId + '/clientId').val() === auth.uid || root.child('programmedRides/' + $rideId + '/driverId').val() === auth.uid || root.child('supportChatParticipants/' + $rideId + '/' + auth.uid).exists() || (root.child('activeRides/' + $rideId + '/status').val() === 'requested' && root.child('driversInfo/' + auth.uid).exists()))",
       ".write": "auth != null && auth.uid === $userId && (!newData.exists() || root.child('activeRides/' + $rideId + '/clientId').val() === auth.uid || root.child('activeRides/' + $rideId + '/driverId').val() === auth.uid || root.child('programmedRides/' + $rideId + '/clientId').val() === auth.uid || root.child('programmedRides/' + $rideId + '/driverId').val() === auth.uid || root.child('supportChatParticipants/' + $rideId + '/' + auth.uid).exists() || (root.child('activeRides/' + $rideId + '/status').val() === 'requested' && root.child('driversInfo/' + auth.uid).exists()))"
      }
     },
     "presence": {
      "$userId": {
-      ".read": "auth != null && (root.child('activeRides/' + $rideId + '/clientId').val() === auth.uid || root.child('activeRides/' + $rideId + '/driverId').val() === auth.uid || root.child('programmedRides/' + $rideId + '/clientId').val() === auth.uid || root.child('programmedRides/' + $rideId + '/driverId').val() === auth.uid || root.child('supportChatParticipants/' + $rideId + '/' + auth.uid).exists() || (root.child('activeRides/' + $rideId + '/status').val() === 'requested' && root.child('driversInfo/' + auth.uid).exists()))",
+      ".read": "auth != null && (root.child('activeRides/' + $rideId + '/clientId').val() === auth.uid || root.child('activeRides/' + $rideId + '/driverId').val() === auth.uid || root.child('activeRides/' + $rideId + '/followerId').val() === auth.uid || root.child('programmedRides/' + $rideId + '/clientId').val() === auth.uid || root.child('programmedRides/' + $rideId + '/driverId').val() === auth.uid || root.child('supportChatParticipants/' + $rideId + '/' + auth.uid).exists() || (root.child('activeRides/' + $rideId + '/status').val() === 'requested' && root.child('driversInfo/' + auth.uid).exists()))",
       ".write": "auth != null && auth.uid === $userId && (!newData.exists() || root.child('activeRides/' + $rideId + '/clientId').val() === auth.uid || root.child('activeRides/' + $rideId + '/driverId').val() === auth.uid || root.child('programmedRides/' + $rideId + '/clientId').val() === auth.uid || root.child('programmedRides/' + $rideId + '/driverId').val() === auth.uid || root.child('supportChatParticipants/' + $rideId + '/' + auth.uid).exists() || (root.child('activeRides/' + $rideId + '/status').val() === 'requested' && root.child('driversInfo/' + auth.uid).exists()))",
       ".validate": "!newData.exists() || newData.isBoolean()"
      }
     },
     "metadata": {
-     ".read": "auth != null && (root.child('activeRides/' + $rideId + '/clientId').val() === auth.uid || root.child('activeRides/' + $rideId + '/driverId').val() === auth.uid || root.child('programmedRides/' + $rideId + '/clientId').val() === auth.uid || root.child('programmedRides/' + $rideId + '/driverId').val() === auth.uid || root.child('supportChatParticipants/' + $rideId + '/' + auth.uid).exists() || (root.child('activeRides/' + $rideId + '/status').val() === 'requested' && root.child('driversInfo/' + auth.uid).exists()))",
+     ".read": "auth != null && (root.child('activeRides/' + $rideId + '/clientId').val() === auth.uid || root.child('activeRides/' + $rideId + '/driverId').val() === auth.uid || root.child('activeRides/' + $rideId + '/followerId').val() === auth.uid || root.child('programmedRides/' + $rideId + '/clientId').val() === auth.uid || root.child('programmedRides/' + $rideId + '/driverId').val() === auth.uid || root.child('supportChatParticipants/' + $rideId + '/' + auth.uid).exists() || (root.child('activeRides/' + $rideId + '/status').val() === 'requested' && root.child('driversInfo/' + auth.uid).exists()))",
      ".write": "auth != null && (root.child('activeRides/' + $rideId + '/clientId').val() === auth.uid || root.child('activeRides/' + $rideId + '/driverId').val() === auth.uid || root.child('programmedRides/' + $rideId + '/clientId').val() === auth.uid || root.child('programmedRides/' + $rideId + '/driverId').val() === auth.uid || root.child('supportChatParticipants/' + $rideId + '/' + auth.uid).exists() || (root.child('activeRides/' + $rideId + '/status').val() === 'requested' && root.child('driversInfo/' + auth.uid).exists()))"
     }
    }
@@ -1030,18 +1097,25 @@
    ".write": false
   },
   "calls": {
-   ".read": "auth != null && ((query.orderByChild == 'clientUid' && query.equalTo == auth.uid) || (query.orderByChild == 'operatorUid' && query.equalTo == auth.uid))",
+   ".read": "auth != null && ((query.orderByChild == 'clientUid' && query.equalTo == auth.uid) || (query.orderByChild == 'operatorUid' && query.equalTo == auth.uid) || (query.orderByChild == 'driverUid' && query.equalTo == auth.uid) || (query.orderByChild == 'rideId' && (root.child('activeRides/' + query.equalTo + '/clientId').val() === auth.uid || root.child('activeRides/' + query.equalTo + '/driverId').val() === auth.uid || root.child('activeRides/' + query.equalTo + '/offers/' + auth.uid).exists() || root.child('programmedRides/' + query.equalTo + '/clientId').val() === auth.uid || root.child('programmedRides/' + query.equalTo + '/driverId').val() === auth.uid)))",
    ".indexOn": [
     "clientUid",
     "operatorUid",
-    "status"
+    "driverUid",
+    "rideId",
+    "status",
+    "complaintId",
+    "updatedAt"
    ],
    "$callId": {
-    ".read": "auth != null && (auth.uid === data.child('clientUid').val() || auth.uid === data.child('operatorUid').val())",
-    ".write": "auth != null && (auth.uid === data.child('clientUid').val() || auth.uid === data.child('operatorUid').val() || auth.uid === newData.child('clientUid').val() || auth.uid === newData.child('operatorUid').val())",
-    ".validate": "newData.hasChildren(['callId','status','direction','clientUid','createdAt','updatedAt']) && newData.child('status').val().matches(/^(initiated|ringing_client|ringing_operator|accepted|rejected|missed|connected|ended)$/) && newData.child('direction').val().matches(/^(operator_to_client|client_to_operator)$/)",
+    ".read": "auth != null && (auth.uid === data.child('clientUid').val() || auth.uid === data.child('operatorUid').val() || auth.uid === data.child('driverUid').val())",
+    ".write": "auth != null && (auth.uid === data.child('clientUid').val() || auth.uid === data.child('operatorUid').val() || auth.uid === data.child('driverUid').val() || auth.uid === newData.child('clientUid').val() || auth.uid === newData.child('operatorUid').val() || auth.uid === newData.child('driverUid').val())",
+    ".validate": "newData.hasChildren(['callId','status','direction','clientUid','createdAt','updatedAt']) && newData.child('status').val().matches(/^(initiated|ringing_client|ringing_operator|ringing_driver|accepted|rejected|missed|connected|ended)$/) && newData.child('direction').val().matches(/^(operator_to_client|client_to_operator|client_to_driver|driver_to_client)$/)",
     "callId": {
      ".validate": "newData.isString()"
+    },
+    "callType": {
+     ".validate": "!newData.exists() || (newData.isString() && newData.val().matches(/^(support|ride)$/))"
     },
     "complaintId": {
      ".validate": "!newData.exists() || newData.isString() || newData.val() == null"
@@ -1050,6 +1124,9 @@
      ".validate": "!newData.exists() || newData.isString() || newData.val() == null"
     },
     "operatorUid": {
+     ".validate": "!newData.exists() || newData.isString() || newData.val() == null"
+    },
+    "driverUid": {
      ".validate": "!newData.exists() || newData.isString() || newData.val() == null"
     },
     "clientUid": {
@@ -1079,36 +1156,54 @@
     "endedAt": {
      ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null"
     },
+    "acceptedByUid": {
+     ".validate": "!newData.exists() || newData.isString() || newData.val() == null"
+    },
+    "acceptedAt": {
+     ".validate": "!newData.exists() || newData.isNumber() || newData.val() == null"
+    },
     "offers": {
      "$userId": {
-      ".read": "auth != null && (auth.uid === data.parent().child('clientUid').val() || auth.uid === data.parent().child('operatorUid').val())",
+      ".read": "auth != null && (auth.uid === data.parent().child('clientUid').val() || auth.uid === data.parent().child('operatorUid').val() || auth.uid === data.parent().child('driverUid').val())",
       ".write": "auth != null && auth.uid === $userId",
       ".validate": "newData.hasChildren(['sdp','type','createdAt'])"
      }
     },
     "answers": {
      "$userId": {
-      ".read": "auth != null && (auth.uid === data.parent().child('clientUid').val() || auth.uid === data.parent().child('operatorUid').val())",
+      ".read": "auth != null && (auth.uid === data.parent().child('clientUid').val() || auth.uid === data.parent().child('operatorUid').val() || auth.uid === data.parent().child('driverUid').val())",
       ".write": "auth != null && auth.uid === $userId",
       ".validate": "newData.hasChildren(['sdp','type','createdAt'])"
      }
     },
     "candidates": {
      "$candidateId": {
-      ".read": "auth != null && (auth.uid === data.parent().child('clientUid').val() || auth.uid === data.parent().child('operatorUid').val())",
-      ".write": "auth != null && (auth.uid === data.parent().child('clientUid').val() || auth.uid === data.parent().child('operatorUid').val())",
+      ".read": "auth != null && (auth.uid === data.parent().child('clientUid').val() || auth.uid === data.parent().child('operatorUid').val() || auth.uid === data.parent().child('driverUid').val())",
+      ".write": "auth != null && (auth.uid === data.parent().child('clientUid').val() || auth.uid === data.parent().child('operatorUid').val() || auth.uid === data.parent().child('driverUid').val())",
       ".validate": "newData.hasChildren(['candidate','sdpMid','sdpMLineIndex','createdAt'])"
      }
     },
     "events": {
      "$eventId": {
-      ".read": "auth != null && (auth.uid === data.parent().child('clientUid').val() || auth.uid === data.parent().child('operatorUid').val())",
-      ".write": "auth != null && (auth.uid === data.parent().child('clientUid').val() || auth.uid === data.parent().child('operatorUid').val())",
+      ".read": "auth != null && (auth.uid === data.parent().child('clientUid').val() || auth.uid === data.parent().child('operatorUid').val() || auth.uid === data.parent().child('driverUid').val())",
+      ".write": "auth != null && (auth.uid === data.parent().child('clientUid').val() || auth.uid === data.parent().child('operatorUid').val() || auth.uid === data.parent().child('driverUid').val())",
       ".validate": "newData.hasChildren(['type','at'])"
      }
     },
     "$other": {
      ".validate": "false"
+    }
+   }
+  },
+  "support_call_requests": {
+   ".read": false,
+   ".write": false,
+   "$complaintId": {
+    "$requestId": {
+     ".read": "auth != null && (auth.uid === data.child('requestedByUserId').val() || auth.uid === data.child('assignedToUserId').val() || (auth.token.role == 'admin' || auth.token.role == 'operator'))",
+     "$other": {
+      ".validate": "false"
+     }
     }
    }
   },
@@ -1328,6 +1423,52 @@
      ".validate": "false"
     }
    }
+  },
+  "publicTracking": {
+   ".read": false,
+   ".write": false,
+   "$code": {
+    ".read": true,
+    ".write": false
+   }
+  },
+  "driverCrews": {
+   "$captainId": {
+    ".read": "auth != null && ($captainId === auth.uid || data.child('followerId').val() === auth.uid)",
+    ".write": false
+   }
+  },
+  "driverCrewMembership": {
+   "$uid": {
+    ".read": "auth != null && $uid === auth.uid",
+    ".write": false
+   }
+  },
+  "driverCrewInvites": {
+   "$followerId": {
+    ".read": "auth != null && $followerId === auth.uid",
+    ".write": false
+   }
+  },
+  "designatedArrivalPhotos": {
+   "$uid": {
+    ".read": "auth != null && $uid === auth.uid",
+    ".write": "auth != null && $uid === auth.uid",
+    ".validate": "newData.hasChildren(['path', 'takenAt'])",
+    "path": {
+     ".validate": "newData.isString() && newData.val().beginsWith('rides-inspection/designated-arrival/' + $uid + '/')"
+    },
+    "takenAt": {
+     ".validate": "newData.isNumber() && newData.val() <= now"
+    },
+    "$other": {
+     ".validate": "false"
+    }
+   }
+  },
+  "crewSearchRateLimit": {
+   ".read": false,
+   ".write": false
   }
  }
 }
