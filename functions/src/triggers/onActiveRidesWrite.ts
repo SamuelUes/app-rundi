@@ -11,6 +11,7 @@
 
 import * as functions from "firebase-functions/v1";
 import admin from "firebase-admin";
+import { randomInt } from "crypto";
 import {
   saveCanceledRideToSupabase,
   savePaymentToSupabase,
@@ -19,6 +20,11 @@ import {
 } from "../helpers/supabaseArchive";
 import { scheduleDelayedTask } from "../helpers/cloudTasks";
 import { claimArchive, enqueueArchiveRetry, markArchiveDone } from "../helpers/archiveOutbox";
+import {
+  mirrorDeletedRideToPublicTracking,
+  mirrorRideToPublicTracking,
+} from "../helpers/publicTrackingMirror";
+import { isDesignatedRide } from "../helpers/designatedCrew";
 
 export const onActiveRidesWrite = functions.database
   .ref("activeRides/{rideId}")
@@ -26,6 +32,19 @@ export const onActiveRidesWrite = functions.database
     const rideId = context.params.rideId as string;
     const after = change.after.val();
     const before = change.before.val();
+
+    // Espejo público de tracking (web /tracking por código): corre en cada
+    // write —incluido el borrado— y es no-op si el viaje no tiene código
+    // activo. No bloquea la lógica de archivo ante errores.
+    try {
+      if (after) {
+        await mirrorRideToPublicTracking(rideId, after);
+      } else {
+        await mirrorDeletedRideToPublicTracking(rideId);
+      }
+    } catch (mirrorError) {
+      console.warn(`⚠️ [onActiveRidesWrite] Error espejando publicTracking ${rideId}:`, mirrorError);
+    }
 
     if (!after) {
       return null;
@@ -46,8 +65,52 @@ export const onActiveRidesWrite = functions.database
       return null;
     }
 
+    // ── CASO 3: Código de verificación para viajes normales ──────
+    const entersPrePickup =
+      ["accepted", "driver_on_route", "driver_arrived"].includes(
+        String(newStatus || ""),
+      ) && newStatus !== oldStatus;
+    if (entersPrePickup) {
+      await ensureRideVerificationCode(rideId, after);
+      return null;
+    }
+
     return null;
   });
+
+
+
+/**
+ * Crea el código de verificación de 4 dígitos para un viaje normal.
+ * Transacción sobre el nodo: si ya existe `code`, aborta sin regenerar.
+ */
+async function ensureRideVerificationCode(
+  rideId: string,
+  ride: any,
+): Promise<void> {
+  if (isDesignatedRide(ride)) return;
+
+  const code = randomInt(0, 10000).toString().padStart(4, "0");
+  const result = await admin
+    .database()
+    .ref(`rideVerificationCodes/${rideId}`)
+    .transaction((current: any) => {
+      if (current && current.code) return undefined; // abort: ya existe
+      return {
+        code,
+        clientId: ride?.clientId || null,
+        driverId: ride?.driverId || null,
+        createdAt: admin.database.ServerValue.TIMESTAMP,
+        attempts: 0,
+      };
+    });
+
+  if (result.committed) {
+    console.log(
+      `🔐 [onActiveRidesWrite] Código de verificación creado para ${rideId}`,
+    );
+  }
+}
 
 /**
  * Maneja la cancelación de un viaje: archiva en Supabase con status 'canceled'.
