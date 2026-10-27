@@ -24,7 +24,8 @@ import {
   mirrorDeletedRideToPublicTracking,
   mirrorRideToPublicTracking,
 } from "../helpers/publicTrackingMirror";
-import { isDesignatedRide } from "../helpers/designatedCrew";
+import { decideCrewRideAction, isDesignatedRide } from "../helpers/designatedCrew";
+import { attachFollowerToRide, releaseFollowerFromRide } from "../helpers/designatedCrewStore";
 
 export const onActiveRidesWrite = functions.database
   .ref("activeRides/{rideId}")
@@ -44,6 +45,20 @@ export const onActiveRidesWrite = functions.database
       }
     } catch (mirrorError) {
       console.warn(`⚠️ [onActiveRidesWrite] Error espejando publicTracking ${rideId}:`, mirrorError);
+    }
+
+    // Sincronización del equipo de conductores designados: adjunta al
+    // seguidor cuando el capitán acepta y lo libera al completar el pago,
+    // cancelar o borrar el nodo. Nunca bloquea la lógica de archivo.
+    try {
+      const crewAction = decideCrewRideAction(before, after);
+      if (crewAction.type === "attach") {
+        await attachFollowerToRide(rideId, after);
+      } else if (crewAction.type === "release") {
+        await releaseFollowerFromRide(rideId, after ?? before, crewAction.reason);
+      }
+    } catch (crewError) {
+      console.error(`❌ [onActiveRidesWrite] Error sincronizando equipo designado ${rideId}:`, crewError);
     }
 
     if (!after) {
