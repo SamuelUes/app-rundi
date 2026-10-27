@@ -52,6 +52,7 @@ interface TrackingState {
   isTracking: boolean;
   userId: string | null;
   rideId: string | null;
+  rideRole: 'captain' | 'follower' | null;
   role: 'driver' | 'client' | null;
   startTime: number | null;
   optionsHash: string | null;
@@ -62,6 +63,7 @@ const initialTrackingState: TrackingState = {
   isTracking: false,
   userId: null,
   rideId: null,
+  rideRole: null,
   role: null,
   startTime: null,
   optionsHash: null,
@@ -282,15 +284,20 @@ const defineBackgroundTask = () => {
 
           // Si hay un viaje activo, actualizar también el tracking del viaje
           if (trackingState.rideId) {
-            await firebaseTrackingService.updateRideTracking(trackingState.rideId, {
-              driverLocation: {
-                latitude: location.coords.latitude,
-                longitude: location.coords.longitude,
-                speed: location.coords.speed || 0,
-                heading: location.coords.heading || 0,
-                timestamp: location.timestamp,
-              },
-            });
+            const rideLocation = {
+              latitude: location.coords.latitude,
+              longitude: location.coords.longitude,
+              speed: location.coords.speed || 0,
+              heading: location.coords.heading || 0,
+              timestamp: location.timestamp,
+            };
+            if (trackingState.rideRole === 'follower') {
+              await firebaseTrackingService.updateFollowerRideLocation(trackingState.rideId, rideLocation);
+            } else {
+              await firebaseTrackingService.updateRideTracking(trackingState.rideId, {
+                driverLocation: rideLocation,
+              });
+            }
           }
 
           // 🚀 Viaje por aproximación: si NO hay viaje activo, revisar solicitudes cercanas
@@ -594,11 +601,14 @@ export async function ensureBackgroundTrackingIntegrity(): Promise<boolean> {
 /**
  * Actualizar ID de viaje para tracking existente
  */
-export async function updateTrackingRideId(rideId: string | null): Promise<void> {
+export async function updateTrackingRideId(
+  rideId: string | null,
+  rideRole: 'captain' | 'follower' | null = null,
+): Promise<void> {
   const trackingState = await loadTrackingState();
-  
+
   if (trackingState.isTracking) {
-    await saveTrackingState({ rideId });
+    await saveTrackingState({ rideId, rideRole: rideId ? rideRole : null });
     console.log(`ID de viaje actualizado para tracking: ${rideId || 'Ninguno'}`);
   }
 }

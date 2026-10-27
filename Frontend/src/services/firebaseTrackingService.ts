@@ -5,7 +5,7 @@
  */
 
 import { getFirebaseDatabase } from '../config/firebase';
-import { ref, onValue, off, update } from 'firebase/database';
+import { ref, onValue, off, update, set } from 'firebase/database';
 import { getPreflightResult } from '../stores/preflightStore';
 import sessionService from './sessionService';
 
@@ -232,6 +232,23 @@ class FirebaseTrackingService {
       console.error('❌ Error actualizando tracking en Realtime DB:', error);
       throw error;
     }
+  }
+
+  /**
+   * Seguidor de equipo designado: escribe solo su nodo
+   * activeRides/{rideId}/follower/location (las rules no le dan escritura
+   * sobre el resto del viaje).
+   */
+  async updateFollowerRideLocation(rideId: string, location: Location): Promise<void> {
+    const database = await getFirebaseDatabase();
+    await set(ref(database, `activeRides/${rideId}/follower/location`), {
+      latitude: location.latitude,
+      longitude: location.longitude,
+      speed: location.speed || null,
+      heading: location.heading || null,
+      accuracy: location.accuracy || null,
+      timestamp: location.timestamp || Date.now(),
+    });
   }
 
   /**
