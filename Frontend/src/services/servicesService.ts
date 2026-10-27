@@ -2,6 +2,24 @@ import { httpsCallable } from 'firebase/functions';
 import { getFirebaseFunctions } from '../config/firebase';
 import i18n from '../i18n';
 
+export type ServiceFeaturePricingType = 'none' | 'surcharge' | 'discount' | 'multiplier';
+
+export interface ServiceFeatureOption {
+  code: string;
+  name: string;
+  description: string | null;
+  pricingType: ServiceFeaturePricingType;
+  pricingValue: number;
+  priority: number;
+  stackable: boolean;
+  startTime: string | null;
+  endTime: string | null;
+  timezone: string;
+  startsAt: string | null;
+  endsAt: string | null;
+  metadata: Record<string, unknown>;
+}
+
 export interface ServiceItem {
   id: string;
   name: string;
@@ -13,6 +31,7 @@ export interface ServiceItem {
   pricePerKm?: number;
   pricePerMinute?: number;
   minimumFare?: number;
+  features: ServiceFeatureOption[];
 }
 
 class ServicesService {
@@ -64,6 +83,24 @@ class ServicesService {
           : service.minimum_fare !== undefined
           ? Number(service.minimum_fare)
           : undefined,
+        features: Array.isArray(service.features)
+          ? service.features.map((feature: any) => ({
+              code: String(feature.code ?? ''),
+              name: String(feature.name ?? feature.code ?? ''),
+              description: feature.description ?? null,
+              pricingType: feature.pricingType ?? feature.pricing_type ?? 'none',
+              pricingValue: Number(feature.pricingValue ?? feature.pricing_value ?? 0),
+              priority: Number(feature.priority ?? 100),
+              stackable: feature.stackable !== false,
+              startTime: feature.startTime ?? feature.start_time ?? null,
+              endTime: feature.endTime ?? feature.end_time ?? null,
+              timezone: String(feature.timezone ?? 'America/Managua'),
+              startsAt: feature.startsAt ?? feature.starts_at ?? null,
+              endsAt: feature.endsAt ?? feature.ends_at ?? null,
+              metadata: feature.metadata && typeof feature.metadata === 'object' ? feature.metadata : {},
+            }))
+              .filter((feature: ServiceFeatureOption) => feature.code.length > 0)
+          : [],
       }));
     } catch (error) {
       console.error('❌ Error obteniendo servicios:', error);

@@ -7,6 +7,7 @@ import * as functions from 'firebase-functions/v1';
 import { ServiceRepository } from '../sequelize/repositories/ServiceRepository';
 import { requireAdmin } from '../utils/sessionUtils';
 import sequelize, { isSequelizeAvailable } from '../sequelize/config/database';
+import { supabaseGet } from '../supabase/rest';
 
 const serviceRepo = new ServiceRepository();
 
@@ -69,6 +70,44 @@ export const getServices = functions.https.onCall(async (data, context) => {
     console.log(`🎯 [getServices] Obteniendo servicios`);
 
     const services = await serviceRepo.findActive();
+    const featuresByService = new Map<string, any[]>();
+
+    try {
+      const assignments = await supabaseGet(
+        'service_feature_assignments',
+        { enabled: true },
+        'service_id,configuration,features!inner(code,name,description,enabled,starts_at,ends_at,start_time,end_time,timezone,pricing_type,pricing_value,priority,stackable,metadata)',
+        { limit: 1000, requireServiceRole: true },
+      ) as Array<Record<string, any>>;
+
+      for (const assignment of assignments) {
+        const feature = assignment.features;
+        if (assignment.enabled !== true || feature?.enabled !== true || !feature.code) continue;
+
+        const configuration = assignment.configuration ?? {};
+        const options = featuresByService.get(String(assignment.service_id)) ?? [];
+        options.push({
+          code: String(feature.code),
+          name: String(feature.name ?? feature.code),
+          description: feature.description ?? null,
+          pricingType: String(configuration.pricing_type ?? feature.pricing_type ?? 'none'),
+          pricingValue: Number(configuration.pricing_value ?? feature.pricing_value ?? 0),
+          priority: Number(configuration.priority ?? feature.priority ?? 100),
+          stackable: configuration.stackable === undefined
+            ? feature.stackable !== false
+            : configuration.stackable === true,
+          startTime: feature.start_time ?? null,
+          endTime: feature.end_time ?? null,
+          timezone: feature.timezone ?? 'America/Managua',
+          startsAt: feature.starts_at ?? null,
+          endsAt: feature.ends_at ?? null,
+          metadata: feature.metadata ?? {},
+        });
+        featuresByService.set(String(assignment.service_id), options);
+      }
+    } catch (featureError) {
+      console.error('❌ [getServices] No se pudo cargar el catálogo de features:', featureError);
+    }
 
     return {
       success: true,
@@ -85,6 +124,7 @@ export const getServices = functions.https.onCall(async (data, context) => {
         isActive: !!s.is_active,
         isFeatured: !!s.is_featured,
         status: s.is_active ? 'active' : 'inactive',
+        features: featuresByService.get(String(s.id)) ?? [],
       })),
     };
   } catch (error: any) {
