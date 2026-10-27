@@ -497,6 +497,15 @@ CREATE TABLE IF NOT EXISTS public.rides (
   vehicle_type VARCHAR(50) NULL DEFAULT 'auto'::VARCHAR,
   designated_driver_vehicle VARCHAR(10) NULL,
   client_vehicle_photo TEXT NULL,
+
+  -- Conductor designado con colega (capitán = driver_id)
+  follower_driver_id VARCHAR(255) NULL,
+  follower_status VARCHAR(20) NULL,
+  follower_joined_at TIMESTAMP WITHOUT TIME ZONE NULL,
+  follower_left_at TIMESTAMP WITHOUT TIME ZONE NULL,
+  follower_last_latitude NUMERIC(10, 8) NULL,
+  follower_last_longitude NUMERIC(11, 8) NULL,
+  arrival_vehicle_photo TEXT NULL,
   
   -- ✅ NUEVO (2025-10-25): Contadores de paradas
   waypoints_count INTEGER NULL DEFAULT 0,
@@ -534,6 +543,8 @@ CREATE TABLE IF NOT EXISTS public.rides (
   updated_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
   
   CONSTRAINT rides_pkey PRIMARY KEY (id),
+  CONSTRAINT rides_follower_status_check CHECK (follower_status IS NULL OR follower_status IN ('active', 'completed', 'abandoned', 'canceled')),
+  CONSTRAINT rides_follower_not_captain_check CHECK (follower_driver_id IS NULL OR follower_driver_id <> driver_id),
   CONSTRAINT rides_canceled_by_check CHECK (canceled_by IN ('client', 'driver')),
   CONSTRAINT rides_status_check CHECK (status IN ('requested', 'driver_offered', 'accepted', 'driver_on_route', 'driver_arrived', 'in_progress', 'pending_payment', 'rating_completed', 'rating_skipped', 'completed', 'canceled'))
 ) TABLESPACE pg_default;
@@ -552,6 +563,21 @@ DO $$ BEGIN
       FOREIGN KEY (driver_id) REFERENCES public.drivers(user_id) ON DELETE SET NULL;
   END IF;
 END $$;
+-- FK: rides.follower_driver_id (Firebase UID) → drivers.user_id
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'rides_follower_driver_id_fkey'
+  ) THEN
+    ALTER TABLE public.rides
+      ADD CONSTRAINT rides_follower_driver_id_fkey
+      FOREIGN KEY (follower_driver_id) REFERENCES public.drivers(user_id) ON DELETE SET NULL;
+  END IF;
+END $$;
+COMMENT ON COLUMN public.rides.follower_driver_id IS 'Firebase UID del conductor designado seguidor (NULL si el viaje fue de un solo conductor). El capitán es driver_id.';
+COMMENT ON COLUMN public.rides.follower_status IS 'Estado final del seguidor: active, completed, abandoned, canceled';
+COMMENT ON COLUMN public.rides.follower_last_latitude IS 'Última latitud conocida del seguidor (no hay tracking vivo en Supabase)';
+COMMENT ON COLUMN public.rides.follower_last_longitude IS 'Última longitud conocida del seguidor';
+COMMENT ON COLUMN public.rides.arrival_vehicle_photo IS 'Path en rides-documents de la foto del vehículo en que llegaron los conductores designados';
 COMMENT ON COLUMN public.rides.passengers IS 'Cantidad de pasajeros (1-6)';
 COMMENT ON COLUMN public.rides.waypoints_count IS 'Cantidad de paradas intermedias (sin contar origen ni destino)';
 COMMENT ON COLUMN public.rides.has_multiple_stops IS 'Indica si hay múltiples paradas (waypoints_count > 0)';
@@ -587,6 +613,7 @@ CREATE INDEX IF NOT EXISTS idx_rides_multiple_stops ON public.rides USING btree 
 -- ✅ NUEVO (2025-10-25): Índices para referencias de ubicaciones
 CREATE INDEX IF NOT EXISTS idx_rides_origin_location_id ON public.rides USING btree (origin_location_id);
 CREATE INDEX IF NOT EXISTS idx_rides_destination_location_id ON public.rides USING btree (destination_location_id);
+CREATE INDEX IF NOT EXISTS idx_rides_follower_driver_id_created_at ON public.rides USING btree (follower_driver_id, created_at DESC) WHERE follower_driver_id IS NOT NULL;
 -- Composite indices for common query patterns
 CREATE INDEX IF NOT EXISTS idx_rides_client_id_status ON public.rides USING btree (client_id, status);
 CREATE INDEX IF NOT EXISTS idx_rides_driver_id_status ON public.rides USING btree (driver_id, status);
@@ -803,11 +830,15 @@ CREATE TABLE IF NOT EXISTS public.ratings (
   driving INTEGER NULL,
   safety INTEGER NULL,
   friendliness INTEGER NULL,
-  
+
+  -- Rol del calificado en viajes de conductor designado con colega
+  rated_role VARCHAR(20) NULL,
+
   created_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
-  
+
   CONSTRAINT ratings_pkey PRIMARY KEY (id),
   CONSTRAINT ratings_ride_id_fkey FOREIGN KEY (ride_id) REFERENCES public.rides(id) ON DELETE RESTRICT,
+  CONSTRAINT ratings_rated_role_check CHECK (rated_role IS NULL OR rated_role IN ('driver', 'captain', 'follower', 'client')),
   CONSTRAINT ratings_rating_check CHECK ((rating >= 1) AND (rating <= 5)),
   CONSTRAINT ratings_punctuality_check CHECK ((punctuality >= 1) AND (punctuality <= 5)),
   CONSTRAINT ratings_cleanliness_check CHECK ((cleanliness >= 1) AND (cleanliness <= 5)),
@@ -825,12 +856,14 @@ COMMENT ON COLUMN public.ratings.communication IS 'Comunicación (1-5) - OPCIONA
 COMMENT ON COLUMN public.ratings.driving IS 'Conducción (1-5) - OPCIONAL - Solo para conductores';
 COMMENT ON COLUMN public.ratings.safety IS 'Seguridad (1-5) - OPCIONAL';
 COMMENT ON COLUMN public.ratings.friendliness IS 'Amabilidad (1-5) - OPCIONAL';
+COMMENT ON COLUMN public.ratings.rated_role IS 'Rol del calificado en el viaje: driver (solo), captain, follower, client';
 
 CREATE INDEX IF NOT EXISTS idx_ratings_ride_id ON public.ratings USING btree (ride_id);
 CREATE INDEX IF NOT EXISTS idx_ratings_to_user_id ON public.ratings USING btree (to_user_id);
 CREATE INDEX IF NOT EXISTS idx_ratings_from_user_id ON public.ratings USING btree (from_user_id);
 CREATE INDEX IF NOT EXISTS idx_ratings_created_at ON public.ratings USING btree (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_ratings_user_rating ON public.ratings USING btree (to_user_id, rating);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ratings_one_per_target_per_ride ON public.ratings (ride_id, from_user_id, to_user_id) WHERE deleted_at IS NULL AND ride_id IS NOT NULL;
 
 -- ============================================
 -- 7. RIDE_LOCATIONS TABLE
@@ -1585,6 +1618,50 @@ COMMENT ON COLUMN public.cms_complaints.call_started_at IS 'Marca de conexión';
 COMMENT ON COLUMN public.cms_complaints.call_ended_at IS 'Marca de término/rechazo';
 
 -- ============================================
+-- RIDE_CALL_SESSIONS TABLE (llamadas de viaje cliente <-> conductor)
+-- Migration: supabase/migrations/20261026120000_ride_call_sessions.sql
+-- ============================================
+CREATE TABLE IF NOT EXISTS public.ride_call_sessions (
+  id UUID NOT NULL DEFAULT gen_random_uuid(),
+  call_id VARCHAR(64) NOT NULL,
+  ride_id VARCHAR(255) NOT NULL,
+  client_uid VARCHAR(255) NOT NULL,
+  driver_uid VARCHAR(255) NOT NULL,
+  direction VARCHAR(32) NOT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'initiated',
+  recording_url TEXT NULL,
+  signaling_notes JSONB NULL,
+  created_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
+  updated_at TIMESTAMP WITHOUT TIME ZONE NULL DEFAULT NOW(),
+  connected_at TIMESTAMP WITHOUT TIME ZONE NULL,
+  ended_at TIMESTAMP WITHOUT TIME ZONE NULL,
+  CONSTRAINT ride_call_sessions_pkey PRIMARY KEY (id),
+  CONSTRAINT ride_call_sessions_call_id_key UNIQUE (call_id),
+  CONSTRAINT ride_call_sessions_direction_check CHECK (direction IN ('client_to_driver','driver_to_client')),
+  CONSTRAINT ride_call_sessions_status_check CHECK (status IN ('initiated','ringing_client','ringing_driver','accepted','rejected','missed','connected','ended'))
+) TABLESPACE pg_default;
+
+COMMENT ON TABLE public.ride_call_sessions IS 'Archivo histórico de llamadas de voz cliente<->conductor durante un viaje (LiveKit). Source of truth en tiempo real: RTDB calls/{callId} con callType = ride. Se actualiza vía trigger de archivado al finalizar la llamada';
+COMMENT ON COLUMN public.ride_call_sessions.call_id IS 'Identificador lógico usado también en Realtime DB (calls/{callId})';
+COMMENT ON COLUMN public.ride_call_sessions.ride_id IS 'ID del viaje en RTDB (activeRides o programmedRides); puede cruzar con rides.firebase_ride_id';
+COMMENT ON COLUMN public.ride_call_sessions.client_uid IS 'Firebase UID del cliente del viaje';
+COMMENT ON COLUMN public.ride_call_sessions.driver_uid IS 'Firebase UID del conductor (asignado u oferente durante la negociación)';
+COMMENT ON COLUMN public.ride_call_sessions.direction IS 'client_to_driver o driver_to_client';
+COMMENT ON COLUMN public.ride_call_sessions.status IS 'Estado actual de la llamada';
+COMMENT ON COLUMN public.ride_call_sessions.recording_url IS 'URL de grabación si se almacenó';
+COMMENT ON COLUMN public.ride_call_sessions.signaling_notes IS 'Metadatos de señalización: livekitRoom, acceptDeadline, acceptedByUid, acceptedAt, events';
+
+CREATE INDEX IF NOT EXISTS idx_ride_call_sessions_call_id ON public.ride_call_sessions USING btree (call_id);
+CREATE INDEX IF NOT EXISTS idx_ride_call_sessions_ride ON public.ride_call_sessions USING btree (ride_id);
+CREATE INDEX IF NOT EXISTS idx_ride_call_sessions_client ON public.ride_call_sessions USING btree (client_uid);
+CREATE INDEX IF NOT EXISTS idx_ride_call_sessions_driver ON public.ride_call_sessions USING btree (driver_uid);
+CREATE INDEX IF NOT EXISTS idx_ride_call_sessions_created ON public.ride_call_sessions USING btree (created_at DESC);
+
+DROP TRIGGER IF EXISTS update_ride_call_sessions_updated_at ON public.ride_call_sessions;
+CREATE TRIGGER update_ride_call_sessions_updated_at BEFORE UPDATE ON public.ride_call_sessions
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================
 -- 16. SERVICE_COMMISSION_HISTORY TABLE
 -- Historial de cambios de comisiones
 -- ============================================
@@ -1843,6 +1920,7 @@ CREATE POLICY rides_read_client_driver ON public.rides
   FOR SELECT USING (
     client_id = public.current_firebase_uid()
     OR driver_id = public.current_firebase_uid()
+    OR follower_driver_id = public.current_firebase_uid()
   );
 
 REVOKE INSERT, UPDATE, DELETE ON public.rides FROM anon;
@@ -1855,7 +1933,8 @@ CREATE POLICY payments_read_client_driver ON public.payments
       SELECT 1 FROM public.rides r
       WHERE r.id = public.payments.ride_id
         AND (r.client_id = public.current_firebase_uid()
-             OR r.driver_id = public.current_firebase_uid())
+             OR r.driver_id = public.current_firebase_uid()
+             OR r.follower_driver_id = public.current_firebase_uid())
     )
   );
 
@@ -1869,7 +1948,8 @@ CREATE POLICY ride_locations_read_client_driver ON public.ride_locations
       SELECT 1 FROM public.rides r
       WHERE r.id = public.ride_locations.ride_id
         AND (r.client_id = public.current_firebase_uid()
-             OR r.driver_id = public.current_firebase_uid())
+             OR r.driver_id = public.current_firebase_uid()
+             OR r.follower_driver_id = public.current_firebase_uid())
     )
   );
 
@@ -2157,6 +2237,39 @@ CREATE POLICY support_call_sessions_admin_all ON public.support_call_sessions
 
 REVOKE INSERT, UPDATE, DELETE ON public.support_call_sessions FROM anon;
 
+-- Ride call sessions: participants can read their own ride calls
+ALTER TABLE public.ride_call_sessions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS ride_call_sessions_read_own ON public.ride_call_sessions;
+CREATE POLICY ride_call_sessions_read_own ON public.ride_call_sessions
+  FOR SELECT USING (
+    client_uid = public.current_firebase_uid()
+    OR driver_uid = public.current_firebase_uid()
+  );
+
+DROP POLICY IF EXISTS ride_call_sessions_admin_all ON public.ride_call_sessions;
+CREATE POLICY ride_call_sessions_admin_all ON public.ride_call_sessions
+  FOR ALL
+  TO public
+  USING (
+    EXISTS (
+      SELECT 1
+      FROM auth.users
+      WHERE auth.uid() = users.id
+        AND users.raw_app_meta_data ->> 'role' = 'admin'
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1
+      FROM auth.users
+      WHERE auth.uid() = users.id
+        AND users.raw_app_meta_data ->> 'role' = 'admin'
+    )
+  );
+
+REVOKE INSERT, UPDATE, DELETE ON public.ride_call_sessions FROM anon;
+
 -- Service commission history: admin only
 DROP POLICY IF EXISTS service_commission_history_admin_all ON public.service_commission_history;
 CREATE POLICY service_commission_history_admin_all ON public.service_commission_history
@@ -2382,6 +2495,44 @@ BEGIN
   );
 END;
 $$;
+
+-- ============================================
+-- CONDUCTOR DESIGNADO CON COLEGA (capitán + seguidor)
+-- Búsqueda exacta por número de licencia (normalizada, solo service_role)
+-- ============================================
+CREATE OR REPLACE FUNCTION public.find_designated_drivers_by_license(p_license_normalized TEXT)
+RETURNS TABLE (
+  user_id VARCHAR,
+  license_number VARCHAR,
+  average_rating NUMERIC,
+  designated_rol_requested VARCHAR,
+  account_status VARCHAR
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT DISTINCT
+    d.user_id,
+    COALESCE(dl.license_number, d.license_number)::VARCHAR,
+    d.average_rating,
+    d.designated_rol_requested,
+    d.account_status
+  FROM public.drivers d
+  LEFT JOIN public.driver_licenses dl
+    ON dl.driver_id = d.id AND dl.is_current = TRUE AND dl.deleted_at IS NULL
+  WHERE d.deleted_at IS NULL
+    AND length(p_license_normalized) >= 4
+    AND (
+      regexp_replace(upper(COALESCE(d.license_number, '')), '[^A-Z0-9]', '', 'g') = p_license_normalized
+      OR regexp_replace(upper(COALESCE(dl.license_number, '')), '[^A-Z0-9]', '', 'g') = p_license_normalized
+    )
+  LIMIT 5;
+$$;
+
+REVOKE ALL ON FUNCTION public.find_designated_drivers_by_license(TEXT) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.find_designated_drivers_by_license(TEXT) TO service_role;
 
 -- ============================================
 -- LOCAL ONLY: DOCKER MIGRATION DIFFERENCE (NOT EXECUTED BY THIS FILE)

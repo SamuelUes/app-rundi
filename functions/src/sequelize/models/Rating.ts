@@ -18,6 +18,7 @@ class Rating extends Model {
   public driving?: number;
   public safety?: number;
   public friendliness?: number;
+  public rated_role?: string | null;
   public created_at!: Date;
 }
 
@@ -73,6 +74,10 @@ Rating.init(
     friendliness: {
       type: DataTypes.INTEGER,
       validate: { min: 1, max: 5 },
+    },
+    rated_role: {
+      type: DataTypes.STRING(20),
+      allowNull: true,
     },
     created_at: {
       type: DataTypes.DATE,

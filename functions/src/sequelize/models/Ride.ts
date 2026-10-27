@@ -26,6 +26,13 @@ class Ride extends Model {
   public vehicle_type?: string;
   public designated_driver_vehicle?: string;
   public client_vehicle_photo?: string;
+  public follower_driver_id?: string | null;
+  public follower_status?: string | null;
+  public follower_joined_at?: Date | null;
+  public follower_left_at?: Date | null;
+  public follower_last_latitude?: number | null;
+  public follower_last_longitude?: number | null;
+  public arrival_vehicle_photo?: string | null;
   public waypoints_count?: number;
   public has_multiple_stops?: boolean;
   public origin_location_id?: string;
@@ -135,6 +142,35 @@ Ride.init(
       type: DataTypes.TEXT,
       allowNull: true,
       comment: "URL de la foto del vehículo del cliente (solo para conductor designado)",
+    },
+    follower_driver_id: {
+      type: DataTypes.STRING(255),
+      allowNull: true,
+      comment: 'Firebase UID del conductor designado seguidor',
+    },
+    follower_status: {
+      type: DataTypes.STRING(20),
+      allowNull: true,
+    },
+    follower_joined_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
+    follower_left_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
+    follower_last_latitude: {
+      type: DataTypes.DECIMAL(10, 8),
+      allowNull: true,
+    },
+    follower_last_longitude: {
+      type: DataTypes.DECIMAL(11, 8),
+      allowNull: true,
+    },
+    arrival_vehicle_photo: {
+      type: DataTypes.TEXT,
+      allowNull: true,
     },
     waypoints_count: {
       type: DataTypes.INTEGER,
