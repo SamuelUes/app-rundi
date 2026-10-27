@@ -3481,20 +3481,31 @@ export const completeRide = functions.https.onCall(async (data, context) => {
     // Post-commit del viaje: un fallo aquí no debe devolver error al cliente
     // (el viaje ya quedó completado; las ganancias son reconciliables).
     const earningsDriverId = ride.driver_id || earlyData.driverId;
+    const crewFollowerId = typeof earlyData?.followerId === 'string' ? earlyData.followerId : null;
     if (earningsDriverId && !alreadyCompletedInSql) {
       try {
         // Neto del conductor = tarifa − comisión (misma tasa que se deduce del monedero)
         const earningsRate = await getCommissionRateForRide(ride);
         const earnings = Number((effectiveFare * (1 - earningsRate)).toFixed(2));
         // ✅ Grupo 4: Transacción para incrementos atómicos de driver
+        // El seguidor recibe el mismo neto "±" aunque haya abandonado (D7);
+        // la comisión real solo se descuenta al capitán en finalizeCashPayment.
         if (isSequelizeAvailable) {
           await sequelize.transaction(async (t) => {
             await driverRepo.incrementTotalRides(earningsDriverId, t);
             await driverRepo.incrementEarnings(earningsDriverId, earnings, t);
+            if (crewFollowerId) {
+              await driverRepo.incrementTotalRides(crewFollowerId, t);
+              await driverRepo.incrementEarnings(crewFollowerId, earnings, t);
+            }
           });
         } else {
           await driverRepo.incrementTotalRides(earningsDriverId);
           await driverRepo.incrementEarnings(earningsDriverId, earnings);
+          if (crewFollowerId) {
+            await driverRepo.incrementTotalRides(crewFollowerId);
+            await driverRepo.incrementEarnings(crewFollowerId, earnings);
+          }
         }
       } catch (earningsErr: any) {
         console.error(
