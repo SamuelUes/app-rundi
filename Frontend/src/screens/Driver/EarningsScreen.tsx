@@ -336,6 +336,38 @@ const createStyles = (colors: any, accentColor: string) => StyleSheet.create({
     color: '#1A1206',
     fontVariant: ['tabular-nums'],
   },
+  splitRow: {
+    paddingHorizontal: 18,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  splitLabel: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    fontWeight: '600',
+  },
+  splitValue: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.text,
+    fontVariant: ['tabular-nums'],
+  },
+  crewRoleChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    backgroundColor: colors.primary + '1F',
+    marginLeft: 6,
+  },
+  crewRoleChipText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.primary,
+  },
   statsSection: {
     paddingHorizontal: 20,
     marginTop: 14,

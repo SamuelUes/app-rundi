@@ -29,6 +29,11 @@ export interface EarningsSummary {
   retentionAmount?: number;
   hasRetention?: boolean;
   netEarningsAfterPenalties?: number;
+  normalEarnings?: { rides: number; gross: number; commission: number; tips: number; net: number };
+  designatedEarnings?: {
+    rides: number; gross: number; commission: number; tips: number; net: number;
+    captainRides: number; followerRides: number; isApproximate: boolean;
+  };
 }
 
 export interface RideEarning {
@@ -43,6 +48,9 @@ export interface RideEarning {
   netEarning: number;
   completedAt: string;
   paymentStatus: string;
+  crewRole?: 'captain' | 'follower' | 'solo';
+  isDesignated?: boolean;
+  followerStatus?: string | null;
 }
 
 export interface DriverStats {
@@ -148,6 +156,8 @@ class EarningsService {
           retentionAmount: 0,
           hasRetention: false,
           netEarningsAfterPenalties: earnings.netEarnings ?? (earnings.totalEarnings || 0),
+          normalEarnings: earnings.normalEarnings,
+          designatedEarnings: earnings.designatedEarnings,
         },
         rides: rides.map((ride: any) => ({
           id: ride.id,
@@ -161,6 +171,9 @@ class EarningsService {
           netEarning: ride.driverEarning || (ride.fare || 0) - (ride.commission || 0),
           completedAt: ride.completedAt || '',
           paymentStatus: ride.paymentStatus || 'pending',
+          crewRole: ride.crewRole,
+          isDesignated: ride.isDesignated,
+          followerStatus: ride.followerStatus ?? null,
         })),
         period: period,
       };

@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import type { RideEarning } from '../../../services/earningsService';
+import { formatApproxAmount } from '../../../utils/designatedCrew';
 import type { TFunction } from 'i18next';
 
 interface EarningsRideListProps {
@@ -40,7 +41,19 @@ export function EarningsRideList({
           return (
             <View key={ride.id} style={styles.rideCard}>
               <View style={styles.rideHeader}>
-                <Text style={styles.rideDate}>{formatDate(ride.completedAt)}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                  <Text style={styles.rideDate}>{formatDate(ride.completedAt)}</Text>
+                  {(ride.crewRole === 'captain' || ride.crewRole === 'follower') && (
+                    <View style={styles.crewRoleChip}>
+                      <Text style={styles.crewRoleChipText}>
+                        {t(`driver.earnings.crewRole.${ride.crewRole}`)}
+                        {ride.followerStatus === 'abandoned' && ride.crewRole === 'follower'
+                          ? ` · ${t('driver.earnings.crewRole.notCompleted')}`
+                          : ''}
+                      </Text>
+                    </View>
+                  )}
+                </View>
                 <View style={[styles.paymentBadge, { backgroundColor: paymentColor + '26' }]}>
                   <View style={[styles.paymentBadgeDot, { backgroundColor: paymentColor }]} />
                   <Text style={[styles.paymentBadgeText, { color: paymentColor }]}>
@@ -103,7 +116,11 @@ export function EarningsRideList({
                 </View>
                 <View style={[styles.rideEarningRow, styles.rideEarningRowTotal]}>
                   <Text style={styles.rideEarningLabelTotal}>{t('driver.earnings.rides.net')}</Text>
-                  <Text style={styles.rideEarningValueTotal}>{formatCurrency(ride.netEarning)}</Text>
+                  <Text style={styles.rideEarningValueTotal}>
+                    {ride.isDesignated
+                      ? formatApproxAmount(ride.netEarning, formatCurrency)
+                      : formatCurrency(ride.netEarning)}
+                  </Text>
                 </View>
               </View>
             </View>

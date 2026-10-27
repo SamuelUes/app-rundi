@@ -3370,6 +3370,15 @@ const resources = {
           commission: 'Commission',
           net: 'Net',
         },
+        split: {
+          normal: 'Regular trips',
+          designated: 'Designated driver (±)',
+        },
+        crewRole: {
+          captain: 'Captain',
+          follower: 'Follower',
+          notCompleted: 'Not completed',
+        },
         nav: {
           commissions: 'Recharge funds',
           history: 'History',
@@ -8930,6 +8939,15 @@ const resources = {
             totalGross: 'Total bruto',
             commission: 'Comisión',
             net: 'Neto',
+          },
+          split: {
+            normal: 'Viajes normales',
+            designated: 'Conductor designado (±)',
+          },
+          crewRole: {
+            captain: 'Capitán',
+            follower: 'Seguidor',
+            notCompleted: 'No completado',
           },
           nav: {
             commissions: 'Recargar fondos',
