@@ -7,6 +7,7 @@ import * as functions from 'firebase-functions/v1';
 import { supabaseGetRidesWithLocationsAndPayments, supabaseGet, supabaseGetDriverWithVehicles, supabaseGetDriversWithVehiclesBatch } from '../supabase/client';
 import { firestore } from '../config/firebase';
 import { ensureActiveSession } from '../utils/sessionUtils';
+import { crewRoleForDriver, splitDriverEarnings } from '../helpers/designatedCrew';
 
 type RideContext = {
   userProfiles: Record<string, any>;
@@ -321,6 +322,8 @@ const mapRide = (ride: any, index: number, context: RideContext) => {
     },
     clientId: ride.client_id,
     driverId: ride.driver_id,
+    followerDriverId: ride.follower_driver_id ?? null,
+    followerStatus: ride.follower_status ?? null,
     paymentType: ride.payment_type,
     rideType: ride.ride_type,
     vehicleType: ride.vehicle_type,
@@ -655,53 +658,67 @@ export const getDriverEarnings = functions.https.onCall(async (data, context) =>
     const completedRides = rides.filter((r: any) => r.status === 'completed');
     const filteredCompletedRides = filterRidesByDateRange(completedRides, dateRange);
 
-    // Calcular ganancias desde tabla payments si existe, sino desde rides
-    const totals = filteredCompletedRides.reduce((acc: { gross: number; commission: number; tips: number }, ride: any) => {
-      const fare = ride.primaryPayment?.amount ?? ride.finalFare ?? ride.estimatedPrice ?? 0;
-      const commission = ride.primaryPayment?.commission ?? ride.commission ?? 0;
-      const tip = ride.primaryPayment?.tip ?? ride.payments?.[0]?.tip ?? 0;
-      return {
-        gross: acc.gross + fare,
-        commission: acc.commission + commission,
-        tips: acc.tips + (tip || 0),
-      };
-    }, { gross: 0, commission: 0, tips: 0 });
-
-    const totalNet = totals.gross - totals.commission;
+    // Ganancias desde tabla payments si existe, sino desde rides.
+    // Se separan en viajes normales y de conductor designado ("±"), donde el
+    // conductor puede ser capitán (driverId) o seguidor (followerDriverId).
+    const earningsInputs = filteredCompletedRides.map((ride: any) => ({
+      driverId: ride.driverId,
+      followerDriverId: ride.followerDriverId,
+      rideType: ride.rideType,
+      vehicleType: ride.vehicleType,
+      fare: ride.primaryPayment?.amount ?? ride.finalFare ?? ride.estimatedPrice ?? 0,
+      commission: ride.primaryPayment?.commission ?? ride.commission ?? 0,
+      tip: ride.primaryPayment?.tip ?? ride.payments?.[0]?.tip ?? 0,
+    }));
+    const split = splitDriverEarnings(earningsInputs, driverId);
+    const gross = split.normal.gross + split.designated.gross;
+    const commission = split.normal.commission + split.designated.commission;
+    const tips = split.normal.tips + split.designated.tips;
+    const totalNet = gross - commission;
 
     const totalRides = filteredCompletedRides.length;
     const averageNetEarning = totalRides > 0 ? totalNet / totalRides : 0;
+    const round2 = (value: number) => Math.round(value * 100) / 100;
 
     return {
       success: true,
       earnings: {
-        totalEarnings: Math.round(totals.gross * 100) / 100,
+        totalEarnings: round2(gross),
         totalRides,
-        averageEarning: Math.round(averageNetEarning * 100) / 100,
-        totalCommission: Math.round(totals.commission * 100) / 100,
-        totalTips: Math.round(totals.tips * 100) / 100,
-        netEarnings: Math.round(totalNet * 100) / 100,
-        completedRides: filteredCompletedRides.map((r: any) => ({
-          id: r.id,
-          fare: r.primaryPayment?.amount ?? r.finalFare ?? 0,
-          commission: r.primaryPayment?.commission ?? r.commission ?? 0,
-          tip: r.primaryPayment?.tip ?? r.payments?.[0]?.tip ?? 0,
-          driverEarning: Math.round(((r.primaryPayment?.amount ?? r.finalFare ?? 0) - (r.primaryPayment?.commission ?? r.commission ?? 0)) * 100) / 100,
-          completedAt: r.completedAt,
-          paymentStatus: r.primaryPayment?.status ?? 'pending',
-          origin: r.originAddress,
-          destination: r.destinationAddress,
-          distance: r.distance,
-          duration: r.duration,
-          paymentMethod: r.primaryPayment?.paymentMethod ?? r.payments?.[0]?.paymentMethod ?? null,
-          paidAt: r.primaryPayment?.paidAt ?? null,
-          paymentCreatedAt: r.primaryPayment?.createdAt ?? null,
-          createdAt: r.createdAt ?? null,
-          requestedAt: r.requestedAt ?? null,
-          acceptedAt: r.acceptedAt ?? null,
-          startedAt: r.startedAt ?? null,
-          canceledAt: r.canceledAt ?? null,
-        })),
+        averageEarning: round2(averageNetEarning),
+        totalCommission: round2(commission),
+        totalTips: round2(tips),
+        netEarnings: round2(totalNet),
+        normalEarnings: split.normal,
+        designatedEarnings: { ...split.designated, isApproximate: true },
+        completedRides: filteredCompletedRides.map((r: any, index: number) => {
+          const input = earningsInputs[index];
+          const crewRole = crewRoleForDriver(input, driverId);
+          return {
+            id: r.id,
+            fare: input.fare,
+            commission: input.commission,
+            tip: crewRole === 'follower' ? 0 : input.tip,
+            driverEarning: round2(input.fare - input.commission),
+            crewRole,
+            isDesignated: crewRole !== 'solo' || String(r.rideType || '').toLowerCase() === 'designated_driver',
+            followerStatus: r.followerStatus ?? null,
+            completedAt: r.completedAt,
+            paymentStatus: r.primaryPayment?.status ?? 'pending',
+            origin: r.originAddress,
+            destination: r.destinationAddress,
+            distance: r.distance,
+            duration: r.duration,
+            paymentMethod: r.primaryPayment?.paymentMethod ?? r.payments?.[0]?.paymentMethod ?? null,
+            paidAt: r.primaryPayment?.paidAt ?? null,
+            paymentCreatedAt: r.primaryPayment?.createdAt ?? null,
+            createdAt: r.createdAt ?? null,
+            requestedAt: r.requestedAt ?? null,
+            acceptedAt: r.acceptedAt ?? null,
+            startedAt: r.startedAt ?? null,
+            canceledAt: r.canceledAt ?? null,
+          };
+        }),
       },
     };
   } catch (error: any) {

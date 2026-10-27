@@ -50,7 +50,7 @@ export async function supabaseGetRidesWithLocationsAndPayments(
     console.log(`   userType: ${userType}, userId: ${userId}`);
     console.log(`${'='.repeat(70)}`);
     
-    const ridesSelect = 'id,status,estimated_price,final_fare,estimated_distance,actual_distance,estimated_duration,actual_duration,created_at,completed_at,requested_at,accepted_at,started_at,canceled_at,client_id,driver_id,payment_type,ride_type,vehicle_type,passengers,notes,waypoints_count,has_multiple_stops';
+    const ridesSelect = 'id,status,estimated_price,final_fare,estimated_distance,actual_distance,estimated_duration,actual_duration,created_at,completed_at,requested_at,accepted_at,started_at,canceled_at,client_id,driver_id,follower_driver_id,follower_status,payment_type,ride_type,vehicle_type,passengers,notes,waypoints_count,has_multiple_stops';
     
     let ridesUrl = `${supabaseUrl}/rest/v1/rides?select=${ridesSelect}`;
     ridesUrl += `&order=created_at.desc`;
@@ -62,7 +62,9 @@ export async function supabaseGetRidesWithLocationsAndPayments(
       ridesUrl += `&id=eq.${encodedRideId}`;
     } else {
       const encodedValue = encodeURIComponent(userId);
-      ridesUrl += `&${filterKey}=eq.${encodedValue}`;
+      ridesUrl += userType === 'driver'
+        ? `&or=(driver_id.eq.${encodedValue},follower_driver_id.eq.${encodedValue})`
+        : `&${filterKey}=eq.${encodedValue}`;
     }
     
     console.log(`🔗 [supabaseGetRidesWithLocationsAndPayments] Consultando rides...`);
