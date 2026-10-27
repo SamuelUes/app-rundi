@@ -21,6 +21,7 @@ const db = () => admin.database();
 const INVITE_TTL_MS = 2 * 60 * 1000;
 const SEARCH_WINDOW_MS = 60 * 1000;
 const SEARCH_MAX_PER_WINDOW = 10;
+const AREA_SEARCH_MAX = 60;
 
 const httpsError = (code: functions.https.FunctionsErrorCode, message: string) =>
   new functions.https.HttpsError(code, message);
@@ -40,6 +41,34 @@ async function enforceSearchRateLimit(uid: string): Promise<void> {
 export const searchDesignatedCrewCandidates = functions.https.onCall(async (data, context) => {
   const uid = await requireDriver(context);
   await ensureActiveSession(context, data);
+
+  const areaId = String(data?.areaId || '').trim();
+  if (areaId) {
+    await enforceSearchRateLimit(uid);
+    const snap = await db().ref(`driverLocationsByArea/${areaId}`).once('value');
+    const areaData = snap.val() || {};
+    const ids = Object.keys(areaData).filter((id) => id && id !== uid).slice(0, AREA_SEARCH_MAX);
+    const candidates = await Promise.all(
+      ids.map(async (candidateId) => {
+        const [membership, locationStatus, eligibility, snapshot] = await Promise.all([
+          getCrewMembership(candidateId),
+          getDriverLocationStatus(candidateId),
+          getDriverEligibility(candidateId),
+          buildMemberSnapshot(candidateId),
+        ]);
+        const status: CrewCandidateStatus = resolveCandidateStatus({
+          candidateId,
+          requesterId: uid,
+          isEligible: eligibility.isEligible,
+          locationStatus,
+          hasMembership: !!membership,
+        });
+        return { ...snapshot, licenseNumber: snapshot.licenseNumber || eligibility.licenseNumber, status };
+      }),
+    );
+    return { success: true, candidates };
+  }
+
   const license = normalizeLicenseNumber(data?.licenseNumber);
   if (license.length < 4) throw httpsError('invalid-argument', 'CREW_LICENSE_TOO_SHORT');
   await enforceSearchRateLimit(uid);

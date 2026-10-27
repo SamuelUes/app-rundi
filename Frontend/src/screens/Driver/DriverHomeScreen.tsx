@@ -385,7 +385,11 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
         t={t}
       />
       {crewInvite && <DesignatedCrewInviteCard invite={crewInvite} />}
-      <DesignatedCrewSearchModal visible={crewSearchVisible} onClose={() => setCrewSearchVisible(false)} />
+      <DesignatedCrewSearchModal
+        visible={crewSearchVisible}
+        serviceAreaId={serviceAreaId}
+        onClose={() => setCrewSearchVisible(false)}
+      />
     </View>
   );
 }

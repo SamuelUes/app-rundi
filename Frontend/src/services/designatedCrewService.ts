@@ -36,8 +36,8 @@ function subscribe<T>(path: string, callback: (value: T | null) => void): () => 
 }
 
 export const designatedCrewService = {
-  searchCandidates: (licenseNumber: string) =>
-    call<{ success: boolean; candidates: CrewCandidate[] }>('searchDesignatedCrewCandidates', { licenseNumber }),
+  searchCandidates: (params: { licenseNumber?: string; areaId?: string }) =>
+    call<{ success: boolean; candidates: CrewCandidate[] }>('searchDesignatedCrewCandidates', params),
   sendInvite: (followerId: string) =>
     call<{ success: boolean; expiresAt: number }>('sendDesignatedCrewInvite', { followerId }),
   respondInvite: (accept: boolean) =>
