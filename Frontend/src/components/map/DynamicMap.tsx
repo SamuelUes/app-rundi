@@ -25,6 +25,7 @@ type NearbyDriver = {
   longitude: number;
   heading?: number;
   vehicleType?: string | null;
+  vehicleIconSource?: ImageSourcePropType;
 };
 
 interface DynamicMapProps {

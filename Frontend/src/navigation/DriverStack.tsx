@@ -5,6 +5,7 @@ import DriverHomeScreen from '../screens/Driver/DriverHomeScreen';
 import RideRequestsScreen from '../screens/Driver/RideRequestsScreen';
 import AvailableRidesScreen from '../screens/Driver/AvailableRidesScreen';
 import ActiveRideScreen from '../screens/Driver/ActiveRideScreen';
+import FollowerActiveRideScreen from '../screens/Driver/FollowerActiveRideScreen';
 import RidePreviewScreen from '../screens/Driver/RidePreviewScreen';
 import EarningsScreen from '../screens/Driver/EarningsScreen';
 import VehicleVerificationScreen from '../screens/Driver/VehicleVerificationScreen';
@@ -25,6 +26,7 @@ import HelpScreen from '../screens/Shared/HelpScreen';
 import ChatScreen from '../screens/Shared/ChatScreen';
 import SupportChatScreen from '../screens/Shared/SupportChatScreen';
 import SupportCallScreen from '../screens/Shared/SupportCallScreen';
+import RideCallScreen from '../screens/Shared/RideCallScreen';
 import SupportComplaintScreen from '../screens/Shared/SupportComplaintScreen';
 import CompleteVehicleInfoScreen from '../screens/Shared/CompleteVehicleInfoScreen';
 import RideDetailsScreen from '../screens/Shared/RideDetailsScreen';
@@ -57,6 +59,9 @@ export type DriverStackParamList = {
   RideRequests: undefined;
   AvailableRides: undefined;
   ActiveRide: {
+    rideId: string;
+  };
+  FollowerActiveRide: {
     rideId: string;
   };
   RidePreview: {
@@ -117,6 +122,12 @@ export type DriverStackParamList = {
   SupportCall: {
     complaintId?: string | null;
     rideId?: string | null;
+  } | undefined;
+  RideCall: {
+    rideId?: string | null;
+    otherUserId?: string | null;
+    otherUserName?: string | null;
+    autoStart?: boolean;
   } | undefined;
   SupportComplaints: {
     initialTicketId?: string | null;
@@ -232,6 +243,7 @@ export default function DriverStack() {
       <Stack.Screen name="DriverHome" component={DriverHomeScreen} options={{ title: 'Conductor' }} />
       <Stack.Screen name="AvailableRides" component={AvailableRidesScreen} options={{ title: 'Viajes Disponibles' }} />
       <Stack.Screen name="ActiveRide" component={ActiveRideScreen} options={{ title: 'Viaje Activo' }} />
+      <Stack.Screen name="FollowerActiveRide" component={FollowerActiveRideScreen} options={{ headerShown: false }} />
       <Stack.Screen name="RidePreview" component={RidePreviewScreen} options={{ headerShown: false }} />
       <Stack.Screen name="RideRequests" component={RideRequestsScreen} options={{ title: 'Solicitudes' }} />
       <Stack.Screen name="VehicleVerification" component={VehicleVerificationScreen} options={{ title: 'Verificación del Vehículo' }} />
@@ -260,6 +272,11 @@ export default function DriverStack() {
         name="SupportCall"
         component={SupportCallScreen}
         options={{ headerShown: false, title: 'Llamada de soporte' }}
+      />
+      <Stack.Screen
+        name="RideCall"
+        component={RideCallScreen}
+        options={{ headerShown: false, title: 'Llamada del viaje' }}
       />
       <Stack.Screen
         name="SupportComplaints"
