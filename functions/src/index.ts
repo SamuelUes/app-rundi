@@ -26,6 +26,8 @@ import * as analyticsSequelizeAPI from "./api/analytics_sequelize";
 import * as clientProfilesAPI from "./api/clientProfiles";
 import * as supportComplaintsAPI from "./api/support_complaints";
 import * as supportCallsAPI from "./api/support_calls";
+import * as livekitCallsAPI from "./api/livekit_calls";
+import * as rideCallsAPI from "./api/ride_calls";
 import * as smsCodesSequelizeAPI from "./api/sms_verification_codes_sequelize";
 import * as commissionHistorySequelizeAPI from "./api/service_commission_history_sequelize";
 import * as authAPI from "./api/auth";
@@ -34,6 +36,7 @@ import * as regionAvailabilityAPI from "./api/region_availability";
 import * as preflightAPI from "./api/getPreflightData";
 import * as publicRideTrackingAPI from "./api/WebPage_publicRideTracking";
 import * as rideShareCodesAPI from "./api/rideShareCodes";
+import * as designatedCrewAPI from "./api/designatedCrew";
 
 import * as updateStatusAPI from "./api/updateStatus";
 import * as driversCompatibilityAPI from "./api/drivers-compatibility";
@@ -49,6 +52,7 @@ import * as userManagement from "./user/deleteUserData";
 // Importar triggers
 import * as onPaymentCompletedTrigger from "./triggers/onPaymentCompleted";
 import * as onActiveRidesWriteTrigger from "./triggers/onActiveRidesWrite";
+import * as onCallEndedTrigger from "./triggers/onCallEnded";
 import { handleDelayedRideStatus } from "./helpers/cloudTasks";
 
 // Importar notificaciones
@@ -67,6 +71,7 @@ import * as programmedRidesScheduled from "./scheduled/programmedRides";
 import * as cleanupProgrammedRidesAPI from "./scheduled/cleanupProgrammedRides";
 import * as processPendingArchiveAPI from "./scheduled/processPendingArchive";
 import * as complianceDailyAPI from "./scheduled/complianceDaily";
+import * as expireStaleCallsAPI from "./scheduled/expireStaleCalls";
 import * as complianceAPI from "./api/compliance";
 import * as supportChatNotifications from "./triggers/supportChatNotifications";
 import * as userRolesAPI from "./api/userRoles";
@@ -162,8 +167,12 @@ export const createSupportComplaint = supportComplaintsAPI.createSupportComplain
 export const getSupportTickets = supportComplaintsAPI.getSupportTickets;
 export const updateSupportTicket = supportComplaintsAPI.updateSupportTicket;
 export const requestSupportCall = supportComplaintsAPI.requestSupportCall;
+export const joinSupportChat = supportComplaintsAPI.joinSupportChat;
 export const deleteSupportTicket = supportComplaintsAPI.deleteSupportTicket;
 export const initiateSupportCallHttp = supportCallsAPI.initiateSupportCallHttp;
+export const initiateRideCallHttp = rideCallsAPI.initiateRideCallHttp;
+// Router HTTP `api`: /calls/livekit-token, /calls/initiate, /calls/request, /calls/ride/initiate, /livekit/webhook
+export const api = livekitCallsAPI.api;
 
 // Region availability
 export const checkRegionAvailability = regionAvailabilityAPI.checkRegionAvailability;
@@ -178,6 +187,12 @@ export const puntoExpressRechargeWebhookHttp = rechargeFundsAPI.puntoExpressRech
 // Public ride tracking (Landing page)
 export const getPublicRideTracking = publicRideTrackingAPI.getPublicRideTracking;
 export const createRideShareToken = rideShareCodesAPI.createRideShareToken;
+
+// Conductor designado con colega (capitán + seguidor)
+export const searchDesignatedCrewCandidates = designatedCrewAPI.searchDesignatedCrewCandidates;
+export const sendDesignatedCrewInvite = designatedCrewAPI.sendDesignatedCrewInvite;
+export const respondDesignatedCrewInvite = designatedCrewAPI.respondDesignatedCrewInvite;
+export const leaveDesignatedCrew = designatedCrewAPI.leaveDesignatedCrew;
 
 export const calculateRidePriceHttp = functions.https.onRequest((req, res) => {
   const corsHandler = require('cors')(corsConfig);
@@ -572,6 +587,9 @@ export const cleanupPresenceHistory = cleanupRealtimeDB.cleanupPresenceHistory;
 export const cleanupInactiveUsers = cleanupRealtimeDB.cleanupInactiveUsers;
 export const expireStaleDriverAvailability = cleanupRealtimeDB.expireStaleDriverAvailability;
 
+// Marcar missed las llamadas de soporte ringing que superaron acceptDeadline (cada minuto)
+export const expireStaleCallsScheduled = expireStaleCallsAPI.expireStaleCalls;
+
 // ============================================
 // PENDING PAYMENTS
 // ============================================
@@ -625,6 +643,8 @@ setImmediate(() => {
 export const onPaymentCompletedAutomatic = onPaymentCompletedTrigger.onPaymentCompleted;
 export const onPaymentCanceledAutomatic = onPaymentCompletedTrigger.onPaymentCanceled;
 export const onActiveRidesWriteAutomatic = onActiveRidesWriteTrigger.onActiveRidesWrite;
+// Archiva calls/{callId} en support_call_sessions al llegar a estado terminal
+export const onCallEnded = onCallEndedTrigger.onCallEnded;
 
 // Cloud Tasks HTTP handler for delayed ride status updates
 export const handleDelayedRideStatusEndpoint = handleDelayedRideStatus;
@@ -647,6 +667,6 @@ export const healthCheck = functions.https.onRequest((req, res) => {
     status: "ok",
     timestamp: new Date().toISOString(),
     service: "Rundi Functions",
-    version: "1.6.4",
+    version: "1.9.8",
   });
 });
