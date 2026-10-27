@@ -4000,6 +4000,10 @@ const resources = {
           },
         },
         rating: {
+          crew: {
+            captainTitle: 'Captain (drove your vehicle)',
+            followerTitle: 'Follower: {{name}}',
+          },
           header: {
             titleDriver: 'How was your passenger?',
             titleClient: 'How was your trip?',
@@ -9529,6 +9533,10 @@ const resources = {
             },
           },
           rating: {
+            crew: {
+              captainTitle: 'Capitán (manejó tu vehículo)',
+              followerTitle: 'Seguidor: {{name}}',
+            },
             header: {
               titleDriver: '¿Cómo fue tu pasajero?',
               titleClient: '¿Cómo fue tu viaje?',

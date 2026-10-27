@@ -25,6 +25,7 @@ import ratingService, { type RatingCategoryKey } from '../../services/ratingServ
 import { useAuth } from '../../hooks/shared/auth/useAuth';
 import alertService from '../../services/alertService';
 import { useTranslation } from 'react-i18next';
+import { getDatabase, ref, get } from 'firebase/database';
 
 const STAR_GOLD = '#FFC531';
 
@@ -97,8 +98,17 @@ export default function RatingScreen({ route, navigation }: any) {
     friendliness: 0,
   });
   const [submitting, setSubmitting] = useState(false);
+  const [follower, setFollower] = useState<{ name?: string; status?: string } | null>(null);
+  const [followerRating, setFollowerRating] = useState(0);
 
   const isDriver = user?.role === 'driver';
+
+  useEffect(() => {
+    if (isDriver) return;
+    get(ref(getDatabase(), `activeRides/${rideId}/follower`))
+      .then((snap) => setFollower(snap.val()))
+      .catch(() => setFollower(null));
+  }, [rideId, isDriver]);
 
   const categoryLabels = useMemo<Record<RatingCategoryKey, string>>(
     () => ({
@@ -138,7 +148,7 @@ export default function RatingScreen({ route, navigation }: any) {
   };
 
   const handleSubmitRating = async () => {
-    if (rating === 0) {
+    if (rating === 0 && followerRating === 0) {
       alertService.showErrorAlert(t('shared.rating.alerts.missingRating'));
       return;
     }
@@ -155,17 +165,29 @@ export default function RatingScreen({ route, navigation }: any) {
         friendliness: categoryRatings.friendliness > 0 ? categoryRatings.friendliness : rating,
       };
 
-      await ratingService.submitRideRating({
-        rideId,
-        rating,
-        comment,
-        punctuality: resolvedCategories.punctuality,
-        cleanliness: resolvedCategories.cleanliness,
-        communication: resolvedCategories.communication,
-        driving: resolvedCategories.driving,
-        safety: resolvedCategories.safety,
-        friendliness: resolvedCategories.friendliness,
-      });
+      if (rating > 0) {
+        await ratingService.submitRideRating({
+          rideId,
+          rating,
+          comment,
+          punctuality: resolvedCategories.punctuality,
+          cleanliness: resolvedCategories.cleanliness,
+          communication: resolvedCategories.communication,
+          driving: resolvedCategories.driving,
+          safety: resolvedCategories.safety,
+          friendliness: resolvedCategories.friendliness,
+          targetRole: follower ? 'captain' : undefined,
+          finalize: !(follower && followerRating > 0),
+        });
+      }
+      if (follower && followerRating > 0) {
+        await ratingService.submitRideRating({
+          rideId,
+          rating: followerRating,
+          targetRole: 'follower',
+          finalize: true,
+        });
+      }
 
       alertService.showSuccessAlert(
         t('shared.rating.alerts.successTitle'),
@@ -217,6 +239,10 @@ export default function RatingScreen({ route, navigation }: any) {
               {t('shared.rating.header.subtitle')}
             </Text>
 
+            {follower && (
+              <Text style={styles.sectionTitle}>{t('shared.rating.crew.captainTitle')}</Text>
+            )}
+
             {/* Estrellas */}
             <View style={styles.starsContainer}>
               {[1, 2, 3, 4, 5].map((star) => (
@@ -232,6 +258,28 @@ export default function RatingScreen({ route, navigation }: any) {
 
             <Text style={styles.ratingText}>{ratingText}</Text>
           </View>
+
+          {follower && (
+            <View style={styles.followerSection}>
+              <Text style={styles.sectionTitle}>
+                {t('shared.rating.crew.followerTitle', { name: follower.name ?? '' })}
+              </Text>
+              <View style={styles.starsRow}>
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <RatingStar
+                    key={star}
+                    filled={star <= followerRating}
+                    size={36}
+                    mutedColor={colors.textTertiary}
+                    onPress={() => {
+                      setFollowerRating(star);
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    }}
+                  />
+                ))}
+              </View>
+            </View>
+          )}
 
           {/* Comentarios rápidos */}
           {rating > 0 && (
@@ -309,7 +357,7 @@ export default function RatingScreen({ route, navigation }: any) {
           <View style={styles.spacer} />
 
           {/* Botón enviar */}
-          {rating > 0 && (
+          {(rating > 0 || followerRating > 0) && (
             <Pressable
               style={[styles.submitButton, submitting && styles.submitButtonDisabled]}
               onPress={handleSubmitRating}
@@ -477,6 +525,15 @@ const createStyles = (colors: any) => StyleSheet.create({
   },
   categoryStarsRow: {
     flexDirection: 'row',
+  },
+  followerSection: {
+    marginTop: 24,
+    marginBottom: 8,
+    gap: 10,
+  },
+  starsRow: {
+    flexDirection: 'row',
+    gap: 4,
   },
   commentContainer: {
     marginBottom: 20,

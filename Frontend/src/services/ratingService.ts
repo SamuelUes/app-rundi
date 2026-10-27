@@ -19,6 +19,8 @@ export interface SubmitRideRatingInput {
   driving?: number;
   safety?: number;
   friendliness?: number;
+  targetRole?: 'captain' | 'follower';
+  finalize?: boolean;
 }
 
 export interface DriverRatingItem {
@@ -61,6 +63,8 @@ class RatingService {
       driving: input.driving,
       safety: input.safety,
       friendliness: input.friendliness,
+      targetRole: input.targetRole,
+      finalize: input.finalize,
     });
   }
 
