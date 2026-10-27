@@ -41,6 +41,7 @@ export const CreateRideRequestSchema = z.object({
   rideType: z.string().optional(),
   vehicleType: z.string().optional(),
   designatedDriverVehicle: z.any().optional(),
+  selectedFeatureCodes: z.array(z.string().min(1).max(100)).max(50).optional(),
   passengers: z.number().optional(),
   clientVehiclePhoto: z.string().optional(),
   extraDestinations: z.array(z.object({

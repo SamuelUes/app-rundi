@@ -71,6 +71,7 @@ export const getServices = functions.https.onCall(async (data, context) => {
 
     const services = await serviceRepo.findActive();
     const featuresByService = new Map<string, any[]>();
+    let featuresCatalogAvailable = true;
 
     try {
       const assignments = await supabaseGet(
@@ -106,12 +107,14 @@ export const getServices = functions.https.onCall(async (data, context) => {
         featuresByService.set(String(assignment.service_id), options);
       }
     } catch (featureError) {
+      featuresCatalogAvailable = false;
       console.error('❌ [getServices] No se pudo cargar el catálogo de features:', featureError);
     }
 
     return {
       success: true,
       count: services.length,
+      featuresCatalogAvailable,
       services: services.map((s: any) => ({
         id: s.id,
         name: s.name,

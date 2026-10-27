@@ -58,6 +58,7 @@ interface UseSearchRideSubmissionParams {
   clientVehiclePhoto: string | null;
   clientVehiclePhotoLocalUri: string | null;
   routeCalc: RouteCalculation;
+  selectedFeatureCodes?: string[];
   servicesCatalog: ServiceItem[];
   scheduledAt: number | string | null;
   defaultLabels: DefaultLabels;
@@ -86,6 +87,7 @@ export function useSearchRideSubmission({
   clientVehiclePhoto,
   clientVehiclePhotoLocalUri,
   routeCalc,
+  selectedFeatureCodes,
   servicesCatalog,
   scheduledAt,
   defaultLabels,
@@ -286,6 +288,7 @@ export function useSearchRideSubmission({
         paymentMethod,
         passengers: passengersByVehicle[vehicleType] || 1,
         serviceAreaId: validatedOrigin.serviceAreaId ?? validatedDestination.serviceAreaId ?? null,
+        ...(selectedFeatureCodes !== undefined ? { selectedFeatureCodes } : {}),
       };
 
       const trimmedComment = rideComment.trim();
@@ -422,7 +425,7 @@ export function useSearchRideSubmission({
     origin, destination, routeCalc.estimatedDistance, routeCalc.estimatedDuration, routeCalc.estimatedPrice,
     vehicleType, paymentMethod, passengersByVehicle, priceSuggestion, rideComment,
     extraDestinations, clientVehiclePhoto, clientVehiclePhotoLocalUri,
-    servicesCatalog, navigation, scheduledAt, designatedDriverMode,
+    servicesCatalog, navigation, scheduledAt, designatedDriverMode, selectedFeatureCodes,
     validateLocationForContext, uploadPhotoIfNeeded,
     runDesignatedDriverBiometricVerification, tr, setSubmittingRequest, defaultLabels,
   ]);

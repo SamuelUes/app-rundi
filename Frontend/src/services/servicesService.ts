@@ -32,6 +32,7 @@ export interface ServiceItem {
   pricePerMinute?: number;
   minimumFare?: number;
   features: ServiceFeatureOption[];
+  featuresCatalogAvailable: boolean;
 }
 
 class ServicesService {
@@ -101,6 +102,7 @@ class ServicesService {
             }))
               .filter((feature: ServiceFeatureOption) => feature.code.length > 0)
           : [],
+        featuresCatalogAvailable: result.data.featuresCatalogAvailable === true,
       }));
     } catch (error) {
       console.error('❌ Error obteniendo servicios:', error);

@@ -52,6 +52,8 @@ export interface RidePriceOptions {
   driverId?: string;
   serviceCodeOverride?: string;
   extraStops?: number;
+  selectedFeatureCodes?: string[];
+  calculationAt?: Date;
 }
 
 interface ServicePricingConfig {
@@ -546,6 +548,8 @@ interface BackendPricePayload {
   driverId?: string;
   serviceCodeOverride?: string;
   extraStops?: number;
+  selectedFeatureCodes?: string[];
+  calculationAt?: string;
 }
 
 function buildBreakdownLine(label: string, value: number): string {
@@ -651,6 +655,9 @@ async function calculateRidePriceViaEndpoint(payload: BackendPricePayload): Prom
     const response = await client.post(PRICE_ENDPOINT, payload, { signal: controller.signal });
     return normalizeBackendResponse(response.data);
   } catch (error) {
+    if (axios.isAxiosError(error) && error.response?.status === 400) {
+      throw new Error(error.response.data?.error ?? 'Invalid ride feature selection');
+    }
     if (axios.isCancel(error) || (error as any)?.name === 'CanceledError') {
       console.warn('[priceCalculator] Solicitud al endpoint de precio cancelada por timeout');
     } else if ((error as any)?.name === 'AbortError') {
@@ -683,6 +690,8 @@ export async function calculateRidePrice(
     driverId: options.driverId,
     serviceCodeOverride: options.serviceCodeOverride,
     extraStops: Math.max(options.extraStops ?? 0, 0),
+    selectedFeatureCodes: options.selectedFeatureCodes,
+    calculationAt: options.calculationAt?.toISOString(),
   };
 
   const remoteResult = await calculateRidePriceViaEndpoint(payload);
@@ -698,6 +707,7 @@ export interface PriceBatchVariant {
   vehicleType: VehicleType;
   rideType: RideType;
   serviceCodeOverride?: string;
+  selectedFeatureCodes?: string[];
 }
 
 const PRICE_BATCH_ENDPOINT = '/calculateRidePricesHttp';
@@ -718,11 +728,13 @@ async function calculateRidePricesViaBatchEndpoint(
         originLat: payload.originLat,
         originLng: payload.originLng,
         extraStops: payload.extraStops,
+        calculationAt: payload.calculationAt,
         variants: variants.map((variant) => ({
           key: variant.key,
           vehicleType: variant.vehicleType,
           rideType: variant.rideType,
           serviceCodeOverride: variant.serviceCodeOverride,
+          selectedFeatureCodes: variant.selectedFeatureCodes ?? payload.selectedFeatureCodes,
         })),
       },
       { signal: controller.signal },
@@ -779,6 +791,8 @@ export async function calculateRidePricesBatch(
     driverId: options.driverId,
     serviceCodeOverride: options.serviceCodeOverride,
     extraStops: Math.max(options.extraStops ?? 0, 0),
+    selectedFeatureCodes: options.selectedFeatureCodes,
+    calculationAt: options.calculationAt?.toISOString(),
   };
 
   const remote = await calculateRidePricesViaBatchEndpoint(payload, variants);
@@ -804,6 +818,8 @@ export async function calculateRidePricesBatch(
             driverId: options.driverId,
             serviceCodeOverride: variant.serviceCodeOverride ?? options.serviceCodeOverride,
             extraStops: payload.extraStops,
+            selectedFeatureCodes: variant.selectedFeatureCodes ?? options.selectedFeatureCodes,
+            calculationAt: options.calculationAt,
           },
         );
         return [variant.key, result] as const;
@@ -861,7 +877,9 @@ async function calculateRidePriceFallback(
     baseFare = Math.max(baseFare, minimumFare);
   }
 
-  const now = new Date();
+  const now = options.calculationAt ?? new Date();
+  const selectedFeatures =
+    options.selectedFeatureCodes === undefined ? null : new Set(options.selectedFeatureCodes);
   let managuaMinutes = -1;
   try {
     const parts = new Intl.DateTimeFormat('en-GB', {
@@ -880,13 +898,16 @@ async function calculateRidePriceFallback(
   let adjustedFare = baseFare;
   const featureCodes: string[] = [];
   const featureAdjustments: Array<{ code: string; adjustment: number }> = [];
-  if (nightActive) {
+  if (nightActive && (selectedFeatures === null || selectedFeatures.has('night'))) {
     const adjustment = roundCurrency(adjustedFare * 0.1);
     adjustedFare += adjustment;
     featureCodes.push('night');
     featureAdjustments.push({ code: 'night', adjustment });
   }
-  if (serviceCode === 'designated_driver_moto') {
+  if (
+    serviceCode === 'designated_driver_moto' &&
+    (selectedFeatures === null || selectedFeatures.has('designated_driver_moto_discount'))
+  ) {
     const beforeDiscount = adjustedFare;
     adjustedFare = Math.max(minimumFare, adjustedFare - 70);
     featureCodes.push('designated_driver_moto_discount');

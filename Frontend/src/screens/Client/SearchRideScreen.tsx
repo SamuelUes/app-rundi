@@ -32,6 +32,11 @@ import { useAuth } from '../../hooks/shared/auth/useAuth';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useAddressSearch } from '../../hooks/client/SearchRideScreen/useAddressSearch';
 import servicesService, { ServiceItem } from '../../services/servicesService';
+import {
+  getFeatureAvailability,
+  getSelectedFeatureCodes,
+  type FeatureOverrides,
+} from '../../utils/rideFeatures';
 import alertService from '../../services/alertService';
 import { metersBetween, type Coords } from '../../utils/rideCoords';
 import { normalizeSuggestion, type NormalizedSuggestion } from '../../utils/suggestions';
@@ -43,7 +48,7 @@ import { useSearchRideSubmission } from '../../hooks/client/SearchRideScreen/use
 import { useVehiclePhoto } from '../../hooks/client/SearchRideScreen/useVehiclePhoto';
 import { useDriversAvailability } from '../../hooks/client/SearchRideScreen/useDriversAvailability';
 import { SearchRideRouteBubble } from '../../components/client/SearchRide/SearchRideRouteBubble';
-import { SearchRideVehicleOptions } from '../../components/client/SearchRide/SearchRideVehicleOptions';
+import { SearchRideVehicleOptions, RideIcon } from '../../components/client/SearchRide/SearchRideVehicleOptions';
 import { SearchRideSummary } from '../../components/client/SearchRide/SearchRideSummary';
 import { SearchRideCTA } from '../../components/client/SearchRide/SearchRideCTA';
 import { SearchRideSearchOverlay } from '../../components/client/SearchRide/SearchRideSearchOverlay';
@@ -98,6 +103,8 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
   }, [navigation]);
 
   const [servicesCatalog, setServicesCatalog] = useState<ServiceItem[]>([]);
+  const [featureOverridesByService, setFeatureOverridesByService] = useState<Record<string, FeatureOverrides>>({});
+  const [currentPricingMinute, setCurrentPricingMinute] = useState(() => Math.floor(Date.now() / 60_000));
   const state = useSearchRideState();
   const {
     origin, destination,
@@ -146,12 +153,74 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
     applyScheduleSelection,
   } = useScheduleRide({ tr });
 
+  useEffect(() => {
+    if (scheduledAt != null) return;
+    const delayToNextMinute = 60_000 - (Date.now() % 60_000) + 50;
+    const timer = setTimeout(() => setCurrentPricingMinute(Math.floor(Date.now() / 60_000)), delayToNextMinute);
+    return () => clearTimeout(timer);
+  }, [scheduledAt, currentPricingMinute]);
+
+  const calculationAt =
+    scheduledAt != null ? new Date(scheduledAt) : new Date(currentPricingMinute * 60_000);
+  const calculationAtMinute = Math.floor(calculationAt.getTime() / 60_000);
+  const selectedFeatureCodesByService = useMemo(
+    () =>
+      Object.fromEntries(
+        servicesCatalog.map((service) => [
+          service.code ?? '',
+          service.featuresCatalogAvailable
+            ? getSelectedFeatureCodes(
+                service.features,
+                featureOverridesByService[service.code ?? ''] ?? {},
+                calculationAt,
+              )
+            : undefined,
+        ]),
+      ) as Record<string, string[] | undefined>,
+    [servicesCatalog, featureOverridesByService, calculationAtMinute],
+  );
+
+  const selectedFeatureServiceCode =
+    vehicleType === 'designated_driver'
+      ? designatedDriverMode === 'moto'
+        ? 'designated_driver_moto'
+        : 'designated_driver_auto'
+      : vehicleType === 'moto'
+      ? 'motorcycle'
+      : 'normal';
+  const selectedFeatureService = servicesCatalog.find((service) => service.code === selectedFeatureServiceCode);
+  const selectedFeatureCodes = selectedFeatureCodesByService[selectedFeatureServiceCode];
+
+  const onToggleFeature = useCallback(
+    (code: string) => {
+      if (!selectedFeatureService?.featuresCatalogAvailable) return;
+      const feature = selectedFeatureService.features.find((item) => item.code === code);
+      if (!feature || getFeatureAvailability(feature, calculationAt) !== 'eligible') return;
+      const isSelected = selectedFeatureCodes?.includes(code) ?? false;
+      setFeatureOverridesByService((current) => ({
+        ...current,
+        [selectedFeatureServiceCode]: {
+          ...current[selectedFeatureServiceCode],
+          [code]: !isSelected,
+        },
+      }));
+    },
+    [
+      selectedFeatureService,
+      selectedFeatureServiceCode,
+      selectedFeatureCodes,
+      calculationAtMinute,
+    ],
+  );
+
   const {
     calculatingRoute,
     routeCoordinates,
     estimatedDistance,
     estimatedDuration,
     estimatedPrice,
+    calculatingPrice,
+    priceCalculationError,
     priceBreakdown,
     vehicleEstimates,
     designatedDriverEstimates,
@@ -172,6 +241,8 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
     ),
     availabilityByType,
     scheduledAt,
+    selectedFeatureCodes,
+    selectedFeatureCodesByService,
   });
 
   const {
@@ -253,6 +324,7 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
     clientVehiclePhoto,
     clientVehiclePhotoLocalUri,
     routeCalc: { estimatedDistance, estimatedDuration, estimatedPrice },
+    selectedFeatureCodes,
     servicesCatalog,
     scheduledAt,
     defaultLabels,
@@ -318,6 +390,7 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
   }, [vehicleType, designatedDriverEligibility, setVehicleType]);
 
   const lastPricedOriginRef = useRef<Coords | null>(null);
+  const lastFeaturePriceKeyRef = useRef<string | null>(null);
   useEffect(() => {
     // Con origen fijado el precio ya se recalcula vía recomputeRoute; aquí solo
     // re-pricamos cuando el origen sigue al GPS y se movió lo suficiente.
@@ -329,6 +402,35 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
     const stopsCount = extraDestinations.filter((d) => d.coords).length;
     recalcPriceOnly(originCoords, coords, destinationCoords, stopsCount);
   }, [coords, estimatedDistance, originCoords, destinationCoords, extraDestinations, recalcPriceOnly]);
+
+  useEffect(() => {
+    const featurePriceKey = [
+      selectedFeatureServiceCode,
+      selectedFeatureCodes?.join(',') ?? 'catalog-unavailable',
+      calculationAtMinute,
+      scheduledAt ?? 'now',
+      vehicleType,
+      designatedDriverMode,
+    ].join(':');
+    if (lastFeaturePriceKeyRef.current === featurePriceKey) return;
+    lastFeaturePriceKeyRef.current = featurePriceKey;
+    if (!destinationCoords || estimatedDistance <= 0) return;
+    const stopsCount = extraDestinations.filter((item) => item.coords).length;
+    recalcPriceOnly(originCoords, coords, destinationCoords, stopsCount);
+  }, [
+    coords,
+    originCoords,
+    destinationCoords,
+    estimatedDistance,
+    extraDestinations,
+    selectedFeatureServiceCode,
+    selectedFeatureCodes,
+    calculationAtMinute,
+    vehicleType,
+    designatedDriverMode,
+    scheduledAt,
+    recalcPriceOnly,
+  ]);
 
   const capacityByVehicle: Record<VehicleType, number> = useMemo(
     () => ({ moto: 1, auto: 4, designated_driver: designatedDriverMode === 'moto' ? 1 : 4 }),
@@ -435,6 +537,9 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
         label: shouldUseCatalogCopy && match?.name ? match.name : defaults[type].label,
         subtitle: shouldUseCatalogCopy && match?.description ? match.description : defaults[type].subtitle,
         icon: defaults[type].icon,
+        serviceCode:
+          match?.code ??
+          (type === 'moto' ? 'motorcycle' : type === 'auto' ? 'normal' : 'designated_driver_auto'),
       };
     });
   }, [servicesCatalog, tr, preferServiceCatalogCopy, designatedDriverEligibility.anyEligible]);
@@ -569,7 +674,7 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
   const requiresVehiclePhoto = vehicleType === 'designated_driver';
   const hasVehiclePhotoSelection = !!clientVehiclePhoto || !!clientVehiclePhotoLocalUri;
   const isRequestReady =
-    !!destinationCoords && estimatedPrice > 0 && !calculatingRoute &&
+    !!destinationCoords && estimatedPrice > 0 && !calculatingRoute && !calculatingPrice && !priceCalculationError &&
     (!requiresVehiclePhoto || (hasVehiclePhotoSelection && !uploadingPhoto));
 
   const maxPassengersByType: Record<VehicleType, number> = useMemo(
@@ -846,15 +951,23 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
                     <SearchRideVehicleOptions
                       vehicleOptions={vehicleOptions}
                       vehicleType={vehicleType}
+                      serviceFeatures={selectedFeatureService?.features ?? []}
+                      featuresCatalogAvailable={selectedFeatureService?.featuresCatalogAvailable === true}
+                      selectedFeatureCodes={selectedFeatureCodes ?? []}
+                      calculationAt={calculationAt}
+                      onToggleFeature={onToggleFeature}
                       vehicleEstimates={vehicleEstimates}
                       designatedDriverEstimates={designatedDriverEstimates}
                       designatedDriverMode={designatedDriverMode}
                       designatedDriverEligibility={designatedDriverEligibility}
                       recommendedVehicle={recommendedVehicle}
                       calculatingRoute={calculatingRoute}
+                      calculatingPrice={calculatingPrice}
+                      priceCalculationError={priceCalculationError}
                       estimatedDuration={estimatedDuration}
                       capacityByVehicle={capacityByVehicle}
                       passengersByVehicle={passengersByVehicle}
+                      surgeMultiplier={priceBreakdown?.surgeMultiplier ?? 1}
                       requiresVehiclePhoto={requiresVehiclePhoto}
                       hasVehiclePhotoSelection={hasVehiclePhotoSelection}
                       uploadingPhoto={uploadingPhoto}
@@ -876,8 +989,8 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
                       estimatedDistance={estimatedDistance}
                       estimatedDuration={estimatedDuration}
                       estimatedPrice={estimatedPrice}
-                      featureCodes={priceBreakdown?.featureCodes ?? []}
-                      surgeMultiplier={priceBreakdown?.surgeMultiplier ?? 1}
+                      calculatingPrice={calculatingPrice}
+                      priceCalculationError={priceCalculationError}
                       paymentMethod={paymentMethod}
                       priceSuggestion={priceSuggestion}
                       rideComment={rideComment}
@@ -905,7 +1018,7 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
                       >
                         <View style={styles.collapsedSummaryRow}>
                           <View style={styles.collapsedSummaryIcon}>
-                            <MaterialIcons
+                            <RideIcon
                               name={(selectedVehicleOption?.icon ?? 'directions-car') as never}
                               size={20}
                               color={colors.primary || '#b38737'}
@@ -1202,131 +1315,205 @@ function createStyles(colors: any, isDark: boolean = false) {
     collapsedSummaryExpandHintText: { fontSize: 12, fontWeight: '700', color: textSecondary },
 
     section: { marginBottom: 16 },
-    vehicleSection: {
-      padding: 8,
-      borderRadius: 18,
-      borderWidth: 1,
-      borderColor: borderColor,
-      backgroundColor: surfaceBg,
-    },
+    vehicleSection: {},
     summarySection: {
-      padding: 10,
-      borderRadius: 18,
-      borderWidth: 1,
+      borderTopWidth: StyleSheet.hairlineWidth,
       borderColor: borderColor,
-      backgroundColor: surfaceBg,
+      paddingTop: 10,
     },
-    sectionCompact: { marginBottom: 14 },
-    sectionTitle: { fontSize: 16, fontWeight: '800', color: textPrimary, marginBottom: 8 },
-
-    vehicleOptionsList: { gap: 8 },
-    vehicleOptionCard: {
-      paddingVertical: 9,
+    summaryRouteMetrics: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 8,
+      paddingHorizontal: 4,
+      gap: 18,
+    },
+    summaryRouteMetric: { flex: 1, minWidth: 0, gap: 2 },
+    summaryRouteLabel: {
+      fontSize: 11,
+      fontWeight: '600',
+      color: textSecondary,
+      textTransform: 'uppercase',
+      letterSpacing: 0.45,
+    },
+    summaryRouteValue: { fontSize: 17, fontWeight: '700', color: textPrimary, fontVariant: ['tabular-nums'] },
+    summaryRouteDivider: { width: StyleSheet.hairlineWidth, height: 32, backgroundColor: borderColor },
+    summaryAvailabilityRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingHorizontal: 4, paddingBottom: 8 },
+    summaryAvailabilityDot: { width: 7, height: 7, borderRadius: 4, marginTop: 4 },
+    summaryAvailabilityText: { flex: 1, fontSize: 12, lineHeight: 16, fontWeight: '600' },
+    summaryFareCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 12,
+      minHeight: 68,
       paddingHorizontal: 12,
+      paddingVertical: 9,
+      marginBottom: 4,
       borderRadius: 14,
       backgroundColor: cardBg,
       borderWidth: 1,
       borderColor: borderColor,
-      gap: 5,
+    },
+    summaryFareDetails: { gap: 4 },
+    summaryFareLabel: {
+      color: textSecondary,
+      fontSize: 10,
+      fontWeight: '700',
+      textTransform: 'uppercase',
+      letterSpacing: 0.55,
+    },
+    summaryPayment: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 28 },
+    summaryPaymentText: { color: textPrimary, fontSize: 14, fontWeight: '700' },
+    summaryPriceValue: { color: accentStrong, fontSize: 22, fontWeight: '800', fontVariant: ['tabular-nums'] },
+    summaryPricePending: { flexDirection: 'row', alignItems: 'center', gap: 7, flexShrink: 1 },
+    summaryPricePendingText: { fontSize: 12, fontWeight: '600', color: textSecondary, flexShrink: 1 },
+    summaryPriceError: { maxWidth: 140, color: colors.warning || '#ffa726', fontSize: 12, fontWeight: '700', textAlign: 'right' },
+    summaryRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 14,
+      minHeight: 54,
+      paddingHorizontal: 6,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderColor: borderColor,
+    },
+    summaryRowLast: { borderBottomWidth: 0 },
+    summaryRowText: { flex: 1, fontSize: 15, fontWeight: '600', color: textPrimary },
+    summaryRowInput: { flex: 1, minHeight: 50, fontSize: 15, color: textPrimary },
+    sectionCompact: { marginBottom: 14 },
+    sectionTitle: { fontSize: 16, fontWeight: '800', color: textPrimary, marginBottom: 8 },
+
+    vehicleOptionsList: { gap: 2 },
+    vehicleOptionCard: {
+      borderRadius: 16,
+      borderWidth: 1.5,
+      borderColor: 'transparent',
+      paddingHorizontal: 10,
     },
     vehicleOptionCardSelected: {
-      borderColor: accentBorder,
-      backgroundColor: accentSoft,
+      borderColor: textPrimary,
+      backgroundColor: cardBg,
     },
-    vehicleOptionTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
-    vehicleOptionTitleBlock: { flex: 1, gap: 1, minWidth: 0 },
-    vehicleOptionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 7, minWidth: 0 },
+    vehicleOptionTopRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, minHeight: 64 },
     vehicleOptionIconBubble: {
-      width: 34,
-      height: 34,
-      borderRadius: 17,
+      width: 52,
+      height: 44,
+      borderRadius: 12,
       backgroundColor: surfaceBg,
       alignItems: 'center',
       justifyContent: 'center',
     },
-    vehicleOptionIconBubbleSelected: { backgroundColor: cardBg },
-    vehicleOptionTitle: { fontSize: 15, fontWeight: '700', color: textPrimary, flexShrink: 1 },
-    vehicleOptionSubtitle: { fontSize: 12, color: textSecondary, marginTop: 1 },
-    vehicleOptionPriceBlock: { alignItems: 'flex-end', gap: 4, flexShrink: 0, marginLeft: 8 },
-    vehicleOptionBadge: {
-      paddingHorizontal: 7,
-      paddingVertical: 2,
-      borderRadius: 999,
-      backgroundColor: accent,
-      fontSize: 9,
-      fontWeight: '800',
-      color: '#fff',
-      textTransform: 'uppercase',
-      letterSpacing: 0.5,
-      overflow: 'hidden',
-    },
-    vehicleOptionPrice: { fontSize: 19, fontWeight: '800', color: accentStrong, fontVariant: ['tabular-nums'] },
-    vehicleOptionInfoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 0, gap: 8 },
-    vehicleOptionMetaWrap: { flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 },
-    vehicleOptionMeta: { fontSize: 11.5, color: textSecondary, flexShrink: 1 },
-    vehicleOptionPassengerControls: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    vehicleOptionCounterBtn: {
-      width: 28,
-      height: 28,
-      borderRadius: 8,
-      backgroundColor: cardBg,
-      borderWidth: 1,
-      borderColor: borderColor,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    vehicleOptionCounterBtnDisabled: { opacity: 0.4 },
-    vehicleOptionCounterText: { color: textPrimary, fontSize: 15, fontWeight: '700' },
-    vehicleOptionPassengerCount: { flexDirection: 'row', alignItems: 'center', gap: 3, minWidth: 34, justifyContent: 'center' },
-    vehicleOptionPassengerDisplay: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-    vehicleOptionPassengerValue: { fontSize: 14, fontWeight: '700', color: textPrimary },
-
-    designatedDriverModeContainer: {
-      marginTop: 12,
+    vehicleOptionIconBubbleSelected: { backgroundColor: accentSoft },
+    vehicleOptionTitleBlock: { flex: 1, minWidth: 0 },
+    vehicleOptionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, minWidth: 0 },
+    vehicleOptionTitle: { fontSize: 16, fontWeight: '700', color: textPrimary, flexShrink: 1 },
+    vehicleOptionPassengerDisplay: { flexDirection: 'row', alignItems: 'center', gap: 1 },
+    vehicleOptionPassengerValue: { fontSize: 12.5, fontWeight: '600', color: textSecondary },
+    vehicleOptionMeta: { fontSize: 12.5, color: textPrimary, marginTop: 1, fontVariant: ['tabular-nums'] },
+    vehicleOptionSubtitle: { fontSize: 12.5, color: textSecondary, marginTop: 1 },
+    vehicleOptionPrice: { fontSize: 16, fontWeight: '700', color: textPrimary, fontVariant: ['tabular-nums'], marginLeft: 4 },
+    vehicleOptionPriceSelected: { fontSize: 17, fontWeight: '800', color: accentStrong },
+    vehicleOptionExpanded: {
+      gap: 10,
       paddingTop: 10,
+      paddingBottom: 12,
       borderTopWidth: StyleSheet.hairlineWidth,
       borderColor: borderColor,
-      gap: 10,
     },
-    designatedDriverModeLabel: {
-      fontSize: 13,
-      fontWeight: '600',
-      color: textSecondary,
-    },
-    designatedDriverModeChips: {
+    vehicleOptionPassengerControls: {
       flexDirection: 'row',
-      gap: 10,
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      borderRadius: 14,
+      backgroundColor: surfaceBg,
+      padding: 4,
     },
-    designatedDriverModeChip: {
-      flex: 1,
-      paddingVertical: 10,
-      borderRadius: 12,
-      borderWidth: 1,
-      borderColor: borderColor,
+    vehicleOptionCounterBtn: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: cardBg,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: cardBg,
     },
-    designatedDriverModeChipSelected: {
+    vehicleOptionCounterBtnDisabled: { opacity: 0.35 },
+    vehicleOptionPassengerCount: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+    vehicleOptionPassengerCountText: { fontSize: 15, fontWeight: '700', color: textPrimary, fontVariant: ['tabular-nums'] },
+
+    vehicleFeaturesSection: { gap: 7 },
+    vehicleFeaturesHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+    vehicleFeaturesLabel: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: textSecondary,
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+    },
+    vehicleFeaturesHint: { fontSize: 11, color: textSecondary },
+    vehicleFeatureRail: { gap: 8, paddingRight: 8 },
+    vehicleFeatureCard: {
+      width: 170,
+      minHeight: 64,
+      justifyContent: 'center',
+      paddingHorizontal: 10,
+      paddingVertical: 8,
+      borderRadius: 13,
+      borderWidth: 1,
+      borderColor: borderColor,
+      backgroundColor: surfaceBg,
+      gap: 4,
+    },
+    vehicleFeatureCardSelected: {
       borderColor: accentBorder,
       backgroundColor: accentSoft,
     },
-    designatedDriverModeChipText: {
-      fontSize: 14,
-      fontWeight: '600',
-      color: textSecondary,
+    vehicleFeatureCardDisabled: { opacity: 0.56 },
+    vehicleFeatureCardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+    vehicleFeatureCardTitle: { flex: 1, fontSize: 12, fontWeight: '700', color: textPrimary },
+    vehicleFeatureToggle: {
+      width: 18,
+      height: 18,
+      borderRadius: 9,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: textSecondary,
     },
-    designatedDriverModeChipTextSelected: {
-      color: accentStrong,
+    vehicleFeatureToggleSelected: { borderColor: accentBorder, backgroundColor: accentBorder },
+    vehicleFeatureImpact: { fontSize: 12, fontWeight: '700', color: textPrimary, fontVariant: ['tabular-nums'] },
+    vehicleFeatureCondition: { fontSize: 10, color: textSecondary },
+    vehicleDemandNotice: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    vehicleDemandNoticeText: { fontSize: 12, fontWeight: '600', color: colors.warning || '#ffa726' },
+
+    designatedDriverModeChips: {
+      flexDirection: 'row',
+      gap: 4,
+      padding: 4,
+      borderRadius: 14,
+      backgroundColor: surfaceBg,
     },
-    designatedDriverModeChipContent: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    designatedDriverModeInfoRow: {
+    designatedDriverModeChip: {
+      flex: 1,
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
       gap: 6,
-      marginTop: 8,
+      minHeight: 44,
+      borderRadius: 11,
     },
+    designatedDriverModeChipSelected: {
+      backgroundColor: cardBg,
+      shadowColor: '#000',
+      shadowOpacity: Platform.OS === 'ios' ? 0.08 : 0,
+      shadowRadius: 4,
+      shadowOffset: { width: 0, height: 1 },
+      elevation: Platform.OS === 'android' ? 1 : 0,
+    },
+    designatedDriverModeChipText: { fontSize: 14, fontWeight: '600', color: textSecondary },
+    designatedDriverModeChipTextSelected: { color: textPrimary },
+    designatedDriverModeChipPrice: { fontSize: 12, color: textSecondary, fontVariant: ['tabular-nums'] },
+    designatedDriverModeInfoRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
     designatedDriverModeInfoText: {
       fontSize: 12,
       fontWeight: '500',
@@ -1334,21 +1521,18 @@ function createStyles(colors: any, isDark: boolean = false) {
       flexShrink: 1,
     },
 
-    photoRow: { marginTop: 8 },
-    photoHint: { fontSize: 12, color: textSecondary, marginBottom: 8, textAlign: 'center' },
+    photoHint: { fontSize: 12, color: textSecondary, marginTop: 1 },
     photoButton: {
-      alignSelf: 'center',
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 8,
-      paddingVertical: 10,
-      paddingHorizontal: 16,
-      borderRadius: 12,
-      backgroundColor: accentSoft,
-      borderWidth: 1,
-      borderColor: accentBorder,
+      gap: 12,
+      minHeight: 52,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderRadius: 14,
+      backgroundColor: surfaceBg,
     },
-    photoButtonText: { color: accentStrong, fontWeight: '700' },
+    photoButtonText: { color: textPrimary, fontWeight: '700', fontSize: 14 },
 
     cta: {
       backgroundColor: accent,

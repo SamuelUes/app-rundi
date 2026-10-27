@@ -485,22 +485,40 @@ export const createProgrammedRide = functions.https.onCall(async (data, context)
       'designatedDriverVehicle debe ser auto o moto para conductor designado',
     );
   }
+  const selectedFeatureCodes = data?.selectedFeatureCodes;
+  if (
+    selectedFeatureCodes !== undefined &&
+    (!Array.isArray(selectedFeatureCodes) ||
+      selectedFeatureCodes.length > 50 ||
+      selectedFeatureCodes.some((code: unknown) => typeof code !== 'string' || code.length === 0 || code.length > 100))
+  ) {
+    throw new functions.https.HttpsError('invalid-argument', 'selectedFeatureCodes debe contener códigos válidos');
+  }
 
-  const pricing = await calculateRidePrice(
-    estimatedDistance,
-    estimatedDuration,
-    vehicleType === 'moto' || (vehicleType === 'designated_driver' && designatedVehicle !== 'auto')
-      ? 'motorcycle'
-      : 'car',
-    rideType === 'designated_driver' ? 'designated_driver' : 'normal',
-    originLat,
-    originLng,
-    {
-      extraStops: Array.isArray(data?.extraDestinations) ? data.extraDestinations.length : 0,
-      calculationAt: new Date(scheduledAt),
-      skipSurge: true,
-    },
-  );
+  let pricing: Awaited<ReturnType<typeof calculateRidePrice>>;
+  try {
+    pricing = await calculateRidePrice(
+      estimatedDistance,
+      estimatedDuration,
+      vehicleType === 'moto' || (vehicleType === 'designated_driver' && designatedVehicle !== 'auto')
+        ? 'motorcycle'
+        : 'car',
+      rideType === 'designated_driver' ? 'designated_driver' : 'normal',
+      originLat,
+      originLng,
+      {
+        extraStops: Array.isArray(data?.extraDestinations) ? data.extraDestinations.length : 0,
+        calculationAt: new Date(scheduledAt),
+        selectedFeatureCodes,
+        skipSurge: true,
+      },
+    );
+  } catch (error) {
+    if (error instanceof RangeError) {
+      throw new functions.https.HttpsError('invalid-argument', error.message);
+    }
+    throw error;
+  }
   if (pricing.breakdown.startsWith('⚠️ Fallback legacy activo')) {
     throw new functions.https.HttpsError(
       'failed-precondition',
@@ -1852,6 +1870,7 @@ export const createRide = functions.https.onCall(async (data, context) => {
       designatedDriverVehicle,
       passengers = 1,
       clientVehiclePhoto: clientVehiclePhotoRaw,
+      selectedFeatureCodes,
     } = validatedData;
 
     const clientVehiclePhoto = typeof clientVehiclePhotoRaw === 'string' && clientVehiclePhotoRaw.trim().length > 0
@@ -1938,15 +1957,25 @@ export const createRide = functions.https.onCall(async (data, context) => {
           ? 'motorcycle'
           : 'car';
       const pricingRideType = rideType === 'designated_driver' ? 'designated_driver' : 'normal';
-      authoritativePricing = await calculateRidePrice(
-        estimatedDistance,
-        estimatedDuration,
-        pricingVehicleType,
-        pricingRideType,
-        origin.lat,
-        origin.lng,
-        { extraStops: extraDestinations.length },
-      );
+      try {
+        authoritativePricing = await calculateRidePrice(
+          estimatedDistance,
+          estimatedDuration,
+          pricingVehicleType,
+          pricingRideType,
+          origin.lat,
+          origin.lng,
+          {
+            extraStops: extraDestinations.length,
+            selectedFeatureCodes,
+          },
+        );
+      } catch (error) {
+        if (error instanceof RangeError) {
+          throw new functions.https.HttpsError('invalid-argument', error.message);
+        }
+        throw error;
+      }
       if (authoritativePricing.breakdown.startsWith('⚠️ Fallback legacy activo')) {
         throw new functions.https.HttpsError(
           'failed-precondition',

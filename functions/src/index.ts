@@ -194,6 +194,18 @@ export const sendDesignatedCrewInvite = designatedCrewAPI.sendDesignatedCrewInvi
 export const respondDesignatedCrewInvite = designatedCrewAPI.respondDesignatedCrewInvite;
 export const leaveDesignatedCrew = designatedCrewAPI.leaveDesignatedCrew;
 
+const isSelectedFeatureCodeList = (value: unknown): value is string[] =>
+  Array.isArray(value) &&
+  value.length <= 50 &&
+  value.every((code) => typeof code === 'string' && code.length > 0 && code.length <= 100);
+
+const parseOptionalCalculationAt = (value: unknown): Date | null | undefined => {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string' && typeof value !== 'number') return null;
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date : null;
+};
+
 export const calculateRidePriceHttp = functions.https.onRequest((req, res) => {
   const corsHandler = require('cors')(corsConfig);
   corsHandler(req, res, async () => {
@@ -225,10 +237,21 @@ export const calculateRidePriceHttp = functions.https.onRequest((req, res) => {
       driverId,
       serviceCodeOverride,
       extraStops,
+      selectedFeatureCodes,
+      calculationAt: calculationAtValue,
     } = req.body ?? {};
 
     if (typeof distanceInMeters !== "number" || typeof durationInSeconds !== "number") {
       res.status(400).json({ error: "distanceInMeters and durationInSeconds are required numbers" });
+      return;
+    }
+    if (selectedFeatureCodes !== undefined && !isSelectedFeatureCodeList(selectedFeatureCodes)) {
+      res.status(400).json({ error: "selectedFeatureCodes must be an array of strings" });
+      return;
+    }
+    const calculationAt = parseOptionalCalculationAt(calculationAtValue);
+    if (calculationAt === null) {
+      res.status(400).json({ error: "calculationAt must be a valid date" });
       return;
     }
 
@@ -243,6 +266,8 @@ export const calculateRidePriceHttp = functions.https.onRequest((req, res) => {
         driverId,
         serviceCodeOverride,
         extraStops,
+        selectedFeatureCodes,
+        calculationAt,
         originLat,
         originLng,
       },
@@ -251,6 +276,10 @@ export const calculateRidePriceHttp = functions.https.onRequest((req, res) => {
     res.json(result);
   } catch (error) {
     console.error("❌ calculateRidePriceHttp error:", error);
+    if (error instanceof RangeError) {
+      res.status(400).json({ error: error.message });
+      return;
+    }
     res.status(500).json({ error: "Failed to calculate ride price" });
   }
   });
@@ -283,6 +312,7 @@ export const calculateRidePricesHttp = functions.https.onRequest((req, res) => {
       originLat,
       originLng,
       extraStops,
+      calculationAt: calculationAtValue,
       variants,
     } = req.body ?? {};
 
@@ -293,6 +323,17 @@ export const calculateRidePricesHttp = functions.https.onRequest((req, res) => {
 
     if (!Array.isArray(variants) || variants.length === 0 || variants.length > 8) {
       res.status(400).json({ error: "variants must be an array with 1-8 entries" });
+      return;
+    }
+    const calculationAt = parseOptionalCalculationAt(calculationAtValue);
+    if (calculationAt === null) {
+      res.status(400).json({ error: "calculationAt must be a valid date" });
+      return;
+    }
+    if (variants.some((variant: any) =>
+      variant?.selectedFeatureCodes !== undefined && !isSelectedFeatureCodeList(variant.selectedFeatureCodes),
+    )) {
+      res.status(400).json({ error: "Each selectedFeatureCodes value must be an array of strings" });
       return;
     }
 
@@ -313,6 +354,8 @@ export const calculateRidePricesHttp = functions.https.onRequest((req, res) => {
               driverId: variant?.driverId,
               serviceCodeOverride: variant?.serviceCodeOverride,
               extraStops,
+              selectedFeatureCodes: variant?.selectedFeatureCodes,
+              calculationAt,
               originLat,
               originLng,
             },

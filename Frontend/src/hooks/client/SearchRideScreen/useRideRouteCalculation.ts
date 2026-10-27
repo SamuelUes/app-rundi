@@ -40,10 +40,20 @@ const getTimeBasedPreference = (date: Date): VehicleType | null => {
 };
 
 const PRICE_VARIANTS: PriceBatchVariant[] = [
-  { key: 'moto', vehicleType: 'motorcycle', rideType: 'normal' },
-  { key: 'auto', vehicleType: 'car', rideType: 'normal' },
-  { key: 'dd_auto', vehicleType: 'car', rideType: 'designated_driver' },
-  { key: 'dd_moto', vehicleType: 'motorcycle', rideType: 'designated_driver' },
+  { key: 'moto', vehicleType: 'motorcycle', rideType: 'normal', serviceCodeOverride: 'motorcycle' },
+  { key: 'auto', vehicleType: 'car', rideType: 'normal', serviceCodeOverride: 'normal' },
+  {
+    key: 'dd_auto',
+    vehicleType: 'car',
+    rideType: 'designated_driver',
+    serviceCodeOverride: 'designated_driver_auto',
+  },
+  {
+    key: 'dd_moto',
+    vehicleType: 'motorcycle',
+    rideType: 'designated_driver',
+    serviceCodeOverride: 'designated_driver_moto',
+  },
 ];
 
 interface VehicleEstimate {
@@ -61,6 +71,8 @@ interface UseRideRouteCalculationOptions {
   availabilityByType?: RideAvailabilityByType | null;
   /** Timestamp del viaje programado para la recomendación horaria; null = ahora */
   scheduledAt?: number | null;
+  selectedFeatureCodes?: string[];
+  selectedFeatureCodesByService?: Record<string, string[] | undefined>;
 }
 
 const wrapEstimate = (breakdown: PriceBreakdown | null): VehicleEstimate => ({
@@ -75,12 +87,16 @@ export function useRideRouteCalculation({
   partySize = 1,
   availabilityByType = null,
   scheduledAt = null,
+  selectedFeatureCodes,
+  selectedFeatureCodesByService = {},
 }: UseRideRouteCalculationOptions) {
   const [calculatingRoute, setCalculatingRoute] = useState(false);
   const [routeCoordinates, setRouteCoordinates] = useState<Coords[]>([]);
   const [estimatedDistance, setEstimatedDistance] = useState(0);
   const [estimatedDuration, setEstimatedDuration] = useState(0);
   const [estimatedPrice, setEstimatedPrice] = useState(0);
+  const [calculatingPrice, setCalculatingPrice] = useState(false);
+  const [priceCalculationError, setPriceCalculationError] = useState(false);
   const [priceBreakdown, setPriceBreakdown] = useState<PriceBreakdown | null>(null);
   const [vehicleEstimates, setVehicleEstimates] = useState<Record<VehicleType, VehicleEstimate>>({
     moto: { price: null, breakdown: null },
@@ -98,6 +114,7 @@ export function useRideRouteCalculation({
   const trRef = useRef(tr);
   trRef.current = tr;
   const routeRequestRef = useRef(0);
+  const priceOnlyRequestRef = useRef(0);
   const isCurrentRequest = (id: number) => id === routeRequestRef.current;
 
   // Umbral de elegibilidad DD desde la config real del servicio (Supabase),
@@ -141,8 +158,15 @@ export function useRideRouteCalculation({
           durationSeconds,
           startPoint.latitude,
           startPoint.longitude,
-          PRICE_VARIANTS,
-          { extraStops: stopsCount },
+          PRICE_VARIANTS.map((variant) => ({
+            ...variant,
+            selectedFeatureCodes:
+              selectedFeatureCodesByService[variant.serviceCodeOverride ?? ''] ?? undefined,
+          })),
+          {
+            extraStops: stopsCount,
+            calculationAt: scheduledAt ? new Date(scheduledAt) : new Date(),
+          },
         );
         if (!isCurrentRequest(requestId)) return;
 
@@ -168,11 +192,12 @@ export function useRideRouteCalculation({
 
         setEstimatedPrice(current?.price ?? 0);
         setPriceBreakdown(current?.breakdown ?? null);
+        setPriceCalculationError(false);
       } catch (error) {
         console.warn('updateVehicleEstimates', error);
       }
     },
-    [vehicleType, designatedDriverMode],
+    [vehicleType, designatedDriverMode, selectedFeatureCodesByService, scheduledAt],
   );
 
   useEffect(() => {
@@ -251,6 +276,9 @@ export function useRideRouteCalculation({
       if (!startPoint || !endPoint) return;
 
       try {
+        priceOnlyRequestRef.current += 1;
+        setCalculatingPrice(false);
+        setPriceCalculationError(false);
         setCalculatingRoute(true);
         const all = [startPoint, ...stops, endPoint];
         let totalDistance = 0;
@@ -290,6 +318,9 @@ export function useRideRouteCalculation({
   const calculateSimpleRoute = useCallback(
     async (start: Coords, end: Coords, stopsCount: number, requestId: number) => {
       try {
+        priceOnlyRequestRef.current += 1;
+        setCalculatingPrice(false);
+        setPriceCalculationError(false);
         setCalculatingRoute(true);
         const route = await mapsService.getDirections(start, end);
         if (!isCurrentRequest(requestId)) return;
@@ -358,6 +389,9 @@ export function useRideRouteCalculation({
 
       const distMeters = Math.max(1, Math.round(estimatedDistance * 1000));
       const durSeconds = Math.max(1, Math.round(estimatedDuration * 60));
+      const requestId = ++priceOnlyRequestRef.current;
+      setCalculatingPrice(true);
+      setPriceCalculationError(false);
 
       try {
         const breakdown = await calculateRidePrice(
@@ -367,15 +401,24 @@ export function useRideRouteCalculation({
           rideTypeForCalc,
           start.latitude,
           start.longitude,
-          { extraStops: stopsCount },
+          {
+            extraStops: stopsCount,
+            selectedFeatureCodes,
+            calculationAt: scheduledAt ? new Date(scheduledAt) : new Date(),
+          },
         );
+        if (requestId !== priceOnlyRequestRef.current) return;
         setEstimatedPrice(breakdown.finalPrice);
         setPriceBreakdown(breakdown);
+        setPriceCalculationError(false);
       } catch (error) {
         console.warn('recalcPriceOnly', error);
+        if (requestId === priceOnlyRequestRef.current) setPriceCalculationError(true);
+      } finally {
+        if (requestId === priceOnlyRequestRef.current) setCalculatingPrice(false);
       }
     },
-    [vehicleType, designatedDriverMode, estimatedDistance, estimatedDuration],
+    [vehicleType, designatedDriverMode, estimatedDistance, estimatedDuration, selectedFeatureCodes, scheduledAt],
   );
 
   return {
@@ -384,6 +427,8 @@ export function useRideRouteCalculation({
     estimatedDistance,
     estimatedDuration,
     estimatedPrice,
+    calculatingPrice,
+    priceCalculationError,
     priceBreakdown,
     vehicleEstimates,
     designatedDriverEstimates,
