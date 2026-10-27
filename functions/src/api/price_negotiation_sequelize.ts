@@ -6,6 +6,7 @@
 import * as functions from 'firebase-functions/v1';
 import admin from 'firebase-admin';
 import { requireDriver } from '../utils/sessionUtils';
+import { assertNotCrewFollower } from '../helpers/designatedCrewStore';
 
 const db = admin.database();
 
@@ -118,6 +119,7 @@ const handleNegotiatePrice = async (data: any, context: functions.https.Callable
       }
       await requireDriver(context);
       driverId = callerUid;
+      await assertNotCrewFollower(driverId);
     } else {
       throw new functions.https.HttpsError('invalid-argument', 'role debe ser client o driver');
     }
@@ -285,6 +287,7 @@ export const acceptClientPrice = functions.https.onCall(async (data, context) =>
     const { rideId } = data;
     // ✅ Rol driver obligatorio + driverId siempre del auth.uid
     const driverId = await requireDriver(context);
+    await assertNotCrewFollower(driverId);
 
     if (!rideId) {
       throw new functions.https.HttpsError('invalid-argument', 'rideId es requerido');
@@ -451,6 +454,7 @@ export const acceptClientPrice = functions.https.onCall(async (data, context) =>
     };
   } catch (error: any) {
     console.error('❌ [acceptClientPrice] Error:', error);
+    if (error instanceof functions.https.HttpsError) throw error;
     throw new functions.https.HttpsError('internal', error.message);
   }
 });
@@ -468,6 +472,7 @@ export const makeCounterOffer = functions.https.onCall(async (data, context) => 
     const { rideId, counterPrice } = data;
     // ✅ driverId siempre del auth.uid — nunca del payload
     const driverId = await requireDriver(context);
+    await assertNotCrewFollower(driverId);
 
     if (!rideId || counterPrice == null) {
       throw new functions.https.HttpsError("invalid-argument", "rideId y counterPrice son requeridos");
@@ -565,6 +570,7 @@ export const makeCounterOffer = functions.https.onCall(async (data, context) => 
     };
   } catch (error: any) {
     console.error("❌ [makeCounterOffer] Error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
     throw new functions.https.HttpsError("internal", error.message);
   }
 });

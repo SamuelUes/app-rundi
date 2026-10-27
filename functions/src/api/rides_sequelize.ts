@@ -1,5 +1,6 @@
 import * as functions from 'firebase-functions/v1';
 import admin from 'firebase-admin';
+import { randomInt } from 'crypto';
 import { DriverRepository } from '../sequelize/repositories/DriverRepository';
 import { RideLocationRepository } from '../sequelize/repositories/RideLocationRepository';
 import { RideService } from '../sequelize/services/RideService';
@@ -23,6 +24,7 @@ import { logRideEvent, AnalyticsEvents } from '../utils/analyticsUtils';
 import { v4 as uuidv4 } from 'uuid';
 import { DEFAULT_SERVICE_AREA_ID, PUSH_NOTIFICATIONS_ENABLED } from '../config/constants';
 import { ensureActiveSession, requireDriver, requireClient } from '../utils/sessionUtils';
+import { assertNotCrewFollower, getCrewMembership } from '../helpers/designatedCrewStore';
 import { complianceService } from '../sequelize/services/compliance';
 import sequelize, { isSequelizeAvailable } from '../sequelize/config/database';
 import {
@@ -45,6 +47,9 @@ const IS_LOAD_TEST =
   (process.env.FUNCTIONS_EMULATOR === 'true' ||
     (process.env.FIREBASE_EMULATOR_RUN_MODE ?? '').toLowerCase() === 'true') &&
   (process.env.SKIP_DB_FOR_LOADTEST ?? '').toLowerCase() === 'true';
+
+// Intentos fallidos de pickupCode antes de regenerar el código del viaje.
+const MAX_PICKUP_CODE_ATTEMPTS = 10;
 
 const rideRepo = new RideRepository();
 const driverRepo = new DriverRepository();
@@ -727,6 +732,61 @@ export const claimProgrammedRideByCode = functions.https.onCall(async (data, con
   }
 });
 
+// Posposición al confirmar: si el usuario confirma su viaje programado mientras
+// está en otro viaje, se mueve scheduledAt 15 min para darle tiempo de terminar.
+const PROGRAMMED_RIDE_POSTPONE_MS = 15 * 60 * 1000;
+
+// Estados en los que el usuario ya está comprometido con un viaje activo.
+// Mismo criterio que buildActiveRideSummary del preflight.
+const CLIENT_ONGOING_RIDE_STATUSES = new Set([
+  'accepted',
+  'driver_on_route',
+  'driver_arrived',
+  'in_progress',
+  'requested',
+  'searching',
+  'pending',
+  'pending_confirmation',
+]);
+const DRIVER_ONGOING_RIDE_STATUSES = new Set([
+  'accepted',
+  'driver_on_route',
+  'driver_arrived',
+  'in_progress',
+]);
+
+// Devuelve el nuevo scheduledAt (epoch ms) si el usuario está en un viaje en
+// curso; null en caso contrario o si la verificación falla (fail-open: no
+// bloquear la confirmación por un error de lectura).
+const resolvePostponedScheduledAt = async (
+  userId: string,
+  role: 'client' | 'driver',
+  rideData: any,
+): Promise<number | null> => {
+  try {
+    const field = role === 'driver' ? 'driverId' : 'clientId';
+    const statuses = role === 'driver' ? DRIVER_ONGOING_RIDE_STATUSES : CLIENT_ONGOING_RIDE_STATUSES;
+    const snapshot = await db.ref('activeRides').orderByChild(field).equalTo(userId).once('value');
+    const rides = (snapshot.val() || {}) as Record<string, any>;
+    const busy = Object.values(rides).some((ride) =>
+      statuses.has(String(ride?.status || '').trim().toLowerCase()));
+    if (!busy) {
+      return null;
+    }
+
+    const rawScheduledAt = Number(rideData?.scheduledAt);
+    const base = Number.isFinite(rawScheduledAt) && rawScheduledAt > 0 ? rawScheduledAt : Date.now();
+    return Math.max(base, Date.now()) + PROGRAMMED_RIDE_POSTPONE_MS;
+  } catch (error) {
+    console.warn('[programmedRides] No se pudo verificar viaje en curso para posponer', {
+      userId,
+      role,
+      error,
+    });
+    return null;
+  }
+};
+
 export const confirmProgrammedRideClient = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'Usuario no autenticado');
@@ -762,9 +822,20 @@ export const confirmProgrammedRideClient = functions.https.onCall(async (data, c
     status: 'client_confirmed',
     updatedAt: now,
   };
+
+  // Si el cliente confirma mientras está en otro viaje, posponer el viaje
+  // programado 15 min; el scheduler reabre la ventana de confirmación del
+  // conductor cerca del nuevo horario (por eso no se solicita aquí).
+  const postponedScheduledAt = await resolvePostponedScheduledAt(clientId, 'client', rideData);
+  if (postponedScheduledAt) {
+    confirmUpdate.scheduledAt = postponedScheduledAt;
+    confirmUpdate.postponedAt = now;
+    confirmUpdate.postponedReason = 'user_in_active_ride';
+  }
+
   // Si ya hay conductor asignado, habilitar su confirmación de inmediato — sin
   // esperar a que el cron abra la ventana de confirmación (scheduledAt - 10min).
-  if (rideData.driverId && !rideData.driverConfirmationRequestedAt) {
+  if (rideData.driverId && !rideData.driverConfirmationRequestedAt && !postponedScheduledAt) {
     confirmUpdate.driverConfirmationRequestedAt = now;
   }
   await rideRef.update(confirmUpdate);
@@ -772,7 +843,7 @@ export const confirmProgrammedRideClient = functions.https.onCall(async (data, c
   const updatedRideSnap = await rideRef.once('value');
   const updatedRideData = updatedRideSnap.val();
 
-  if (updatedRideData?.driverId) {
+  if (updatedRideData?.driverId && !postponedScheduledAt) {
     await notifyUserSafe(
       updatedRideData.driverId,
       '🕒 Confirma tu viaje programado',
@@ -796,6 +867,7 @@ export const confirmProgrammedRideClient = functions.https.onCall(async (data, c
     driverConfirmedAt: updatedRideData?.driverConfirmedAt ?? null,
     clientConfirmedAt: updatedRideData?.clientConfirmedAt ?? null,
     scheduledAt: updatedRideData?.scheduledAt ?? null,
+    postponedReason: updatedRideData?.postponedReason ?? null,
     driver: updatedRideData?.driver ?? null,
     vehicle: updatedRideData?.vehicle ?? null,
     clientConfirmed: true,
@@ -839,14 +911,26 @@ export const confirmProgrammedRideDriver = functions.https.onCall(async (data, c
   }
 
   const now = admin.database.ServerValue.TIMESTAMP;
-  await rideRef.update({
+  const driverConfirmUpdate: Record<string, any> = {
     driverConfirmedAt: now,
     driverConfirmed: true,
     status: 'driver_confirmed',
     updatedAt: now,
-  });
+  };
 
-  await notifyUserSafe(rideData.clientId, '✅ Conductor confirmó', 'El conductor confirmó tu viaje programado.', {
+  // Si el conductor confirma mientras está en otro viaje, posponer 15 min el
+  // viaje programado para darle tiempo de terminar el viaje en curso.
+  const postponedScheduledAt = await resolvePostponedScheduledAt(driverId, 'driver', rideData);
+  if (postponedScheduledAt) {
+    driverConfirmUpdate.scheduledAt = postponedScheduledAt;
+    driverConfirmUpdate.postponedAt = now;
+    driverConfirmUpdate.postponedReason = 'user_in_active_ride';
+  }
+  await rideRef.update(driverConfirmUpdate);
+
+  await notifyUserSafe(rideData.clientId, '✅ Conductor confirmó', postponedScheduledAt
+    ? 'El conductor confirmó tu viaje programado; se pospuso 15 minutos.'
+    : 'El conductor confirmó tu viaje programado.', {
     rideId,
   }, {
     type: 'programmed_ride_driver_confirmed',
@@ -868,6 +952,7 @@ export const confirmProgrammedRideDriver = functions.https.onCall(async (data, c
       clientConfirmedAt: updatedRide?.clientConfirmedAt ?? null,
       driverConfirmedAt: updatedRide?.driverConfirmedAt ?? null,
       scheduledAt: updatedRide?.scheduledAt ?? null,
+      postponedReason: updatedRide?.postponedReason ?? null,
       driverId: updatedRide?.driverId ?? null,
     },
   };
@@ -1275,6 +1360,19 @@ export const getAvailableRides = functions.https.onCall(async (data, context) =>
 
   // Enforce single-session
   await ensureActiveSession(context, data);
+
+  // Un seguidor emparejado no recibe viajes propios (D10).
+  try {
+    const crewMembership = await getCrewMembership(uid);
+    if (crewMembership?.role === 'follower') {
+      return { success: true, rides: [], total: 0, limit: 0 };
+    }
+  } catch (crewErr: any) {
+    console.warn('[getAvailableRides] No se pudo verificar equipo designado', {
+      uid,
+      error: crewErr?.message || crewErr,
+    });
+  }
 
   const latitude = typeof data?.latitude === 'number' && Number.isFinite(data.latitude)
     ? data.latitude
@@ -2271,6 +2369,7 @@ export const acceptRide = functions.https.onCall(async (data, context) => {
   try {
     const { rideId, vehicleId } = validateData<AcceptRide>(AcceptRideSchema, data);
     const driverId = context.auth!.uid;
+    await assertNotCrewFollower(driverId);
     let driverRealtimeInfo: any = null;
     console.log(`✅ [acceptRide] Aceptando viaje: ${rideId} por conductor: ${driverId}`);
     
@@ -2305,6 +2404,24 @@ export const acceptRide = functions.https.onCall(async (data, context) => {
     const rideDesignatedVehicle = normalizeDesignatedDriverVehicle(
       firebaseRideData.designatedDriverVehicle ?? firebaseRideData.designated_driver_vehicle,
     );
+
+    // Conductor designado: exige la foto del vehículo en que llegan (válida 12h).
+    // El cliente la ve como designatedDriverVehiclePhoto del viaje.
+    let arrivalPhotoPath: string | null = null;
+    const isDesignatedRideRequest =
+      !!rideDesignatedVehicle ||
+      String(firebaseRideData?.rideType ?? firebaseRideData?.ride_type ?? '').toLowerCase() === 'designated_driver' ||
+      String(firebaseRideData?.vehicleType ?? firebaseRideData?.vehicle_type ?? '').toLowerCase() === 'designated_driver';
+    if (isDesignatedRideRequest) {
+      const arrivalSnap = await db.ref(`designatedArrivalPhotos/${driverId}`).once('value');
+      const arrival = arrivalSnap.val();
+      const isFresh =
+        arrival?.path && Date.now() - Number(arrival.takenAt || 0) <= 12 * 60 * 60 * 1000;
+      if (!isFresh) {
+        throw new functions.https.HttpsError('failed-precondition', 'ARRIVAL_PHOTO_REQUIRED');
+      }
+      arrivalPhotoPath = String(arrival.path);
+    }
 
     let driverVehicleTypeRaw: string | null = null;
     let driverIsDesignatedDriverMode = false;
@@ -2443,13 +2560,21 @@ export const acceptRide = functions.https.onCall(async (data, context) => {
       throw new functions.https.HttpsError('internal', 'Error al aceptar el viaje');
     }
     const newStatus = ride.status;
+
+    if (arrivalPhotoPath) {
+      try {
+        await rideRepo.update(rideId, { arrival_vehicle_photo: arrivalPhotoPath });
+      } catch (photoErr: any) {
+        console.warn('⚠️ [acceptRide] No se pudo guardar arrival_vehicle_photo:', photoErr?.message || photoErr);
+      }
+    }
     
     // Obtener datos del conductor y vehículo
     console.log(`👤 [acceptRide] Obteniendo datos del conductor...`);
     let driverData: any = null;
     let vehicleData: any = null;
     
-    let designatedVehiclePhoto: string | null = null;
+    let designatedVehiclePhoto: string | null = arrivalPhotoPath;
 
     try {
       const driver = await driverRepo.findByUserId(driverId);
@@ -2566,7 +2691,7 @@ export const acceptRide = functions.https.onCall(async (data, context) => {
         updateData.vehicle = vehicleData;
       }
 
-      if (!updateData.designatedDriverVehiclePhoto && designatedVehiclePhoto) {
+      if (designatedVehiclePhoto) {
         updateData.designatedDriverVehiclePhoto = designatedVehiclePhoto;
       }
       
@@ -2658,6 +2783,7 @@ export const acceptRide = functions.https.onCall(async (data, context) => {
     });
     return { success: true, ride: { id: rideId, status: newStatus, driverId } };
   } catch (error: any) {
+    if (error instanceof functions.https.HttpsError) throw error;
     console.error('❌ [acceptRide] Error:', error);
     throw new functions.https.HttpsError('internal', 'Error interno del servidor');
   }
@@ -3007,7 +3133,7 @@ export const startRide = functions.https.onCall(async (data, context) => {
   // Enforce single-session
   await ensureActiveSession(context, data);
   try {
-    const { rideId, vehicleInspection } = validateData<StartRide>(StartRideSchema, data);
+    const { rideId, vehicleInspection, pickupCode } = validateData<StartRide>(StartRideSchema, data);
     console.log(`🚗 [startRide] Iniciando viaje: ${rideId}`);
 
     // Inspección de vehículo (conductor designado): se persiste junto al
@@ -3065,6 +3191,44 @@ export const startRide = functions.https.onCall(async (data, context) => {
           'failed-precondition',
           'Completa y confirma las seis fotos de inspección antes de iniciar el viaje',
         );
+      }
+    }
+
+    // Código de verificación (viajes normales auto/moto): el cliente ve un PIN
+    // de 4 dígitos en rideVerificationCodes/{rideId} y el conductor debe
+    // ingresarlo para iniciar. Viajes legacy sin nodo (aceptados antes del
+    // feature) pasan con warning — fail-open intencional.
+    if (!isDesignatedRide && !IS_LOAD_TEST) {
+      const codeSnapshot = await db.ref(`rideVerificationCodes/${rideId}`).once('value');
+      const codeData = codeSnapshot.val();
+      if (codeData?.code) {
+        const submitted = typeof pickupCode === 'string' ? pickupCode.trim() : '';
+        if (!/^\d{4}$/.test(submitted)) {
+          throw new functions.https.HttpsError(
+            'failed-precondition',
+            'Se requiere el código de verificación de 4 dígitos que ve el cliente',
+          );
+        }
+        if (submitted !== String(codeData.code)) {
+          const attempts = (typeof codeData.attempts === 'number' ? codeData.attempts : 0) + 1;
+          if (attempts >= MAX_PICKUP_CODE_ATTEMPTS) {
+            // Tras demasiados fallos el código se regenera: el cliente ve el
+            // nuevo en vivo y el flujo se auto-recupera sin soporte.
+            await db.ref(`rideVerificationCodes/${rideId}`).update({
+              code: randomInt(0, 10000).toString().padStart(4, '0'),
+              attempts: 0,
+              regeneratedAt: admin.database.ServerValue.TIMESTAMP,
+            });
+          } else {
+            await db.ref(`rideVerificationCodes/${rideId}`).update({ attempts });
+          }
+          throw new functions.https.HttpsError(
+            'failed-precondition',
+            'Código incorrecto. Pídelo nuevamente al cliente.',
+          );
+        }
+      } else {
+        console.warn(`⚠️ [startRide] Viaje ${rideId} sin código de verificación (legacy) — se permite iniciar`);
       }
     }
 
