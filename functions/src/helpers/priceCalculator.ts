@@ -36,6 +36,7 @@ import {
   DEFAULT_SURGE_RULES,
   resolveSurgeMultiplier,
   roundFareToNearestFive,
+  validateSelectedFeatureCodes,
   type PricingFeature,
   type SurgeRule,
 } from './pricingRules';
@@ -69,6 +70,7 @@ interface RidePriceOptions {
   extraStops?: number;
   calculationAt?: Date;
   skipSurge?: boolean;
+  selectedFeatureCodes?: readonly string[];
 }
 
 interface FeatureAssignmentRow {
@@ -849,7 +851,11 @@ export async function calculateRidePrice(
   }
 
   const activeFeatures = await loadServiceFeatures(service.id);
-  const featureResult = applyPricingFeatures(baseFare, activeFeatures, calculationDate);
+  const selectedFeatureCodes =
+    options.selectedFeatureCodes === undefined
+      ? undefined
+      : validateSelectedFeatureCodes(options.selectedFeatureCodes, activeFeatures, calculationDate);
+  const featureResult = applyPricingFeatures(baseFare, activeFeatures, calculationDate, selectedFeatureCodes);
   const fareBeforeSurge = Math.max(featureResult.fare, minimumFare);
   const demandSupplyRatio = options.skipSurge ? null : await getDemandSupplyRatio(originLat, originLng);
   const surgeMultiplier = options.skipSurge

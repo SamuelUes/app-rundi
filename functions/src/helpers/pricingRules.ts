@@ -85,12 +85,36 @@ export function isFeatureActiveAt(feature: PricingFeature, date: Date): boolean 
   return start < end ? current >= start && current < end : current >= start || current < end;
 }
 
+export function validateSelectedFeatureCodes(
+  selectedCodes: readonly string[],
+  assignedFeatures: readonly PricingFeature[],
+  date: Date,
+): string[] {
+  const assignedByCode = new Map(assignedFeatures.map((feature) => [feature.code, feature]));
+  const uniqueCodes = [...new Set(selectedCodes)];
+
+  for (const code of uniqueCodes) {
+    const feature = assignedByCode.get(code);
+    if (!feature) {
+      throw new RangeError(`Selected feature is not assigned: ${code}`);
+    }
+    if (!isFeatureActiveAt(feature, date)) {
+      throw new RangeError(`Selected feature is not eligible: ${code}`);
+    }
+  }
+
+  return uniqueCodes;
+}
+
 export function applyPricingFeatures(
   baseFare: number,
   features: PricingFeature[],
   date: Date,
+  selectedFeatureCodes?: readonly string[],
 ): { fare: number; features: AppliedFeature[] } {
+  const selected = selectedFeatureCodes === undefined ? null : new Set(selectedFeatureCodes);
   const ordered = [...features]
+    .filter((feature) => selected === null || selected.has(feature.code))
     .filter((feature) => ['none', 'surcharge', 'discount', 'multiplier'].includes(feature.pricingType))
     .filter((feature) => Number.isFinite(feature.pricingValue) && feature.pricingValue >= 0)
     .filter((feature) => Number.isFinite(feature.priority))
