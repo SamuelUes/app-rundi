@@ -20,6 +20,7 @@ import { useChat } from '../../hooks/shared/chat/useChat';
 import { RideProgressIndicator } from '../../components/shared/RideProgressIndicator';
 import ridesService from '../../services/ridesService';
 import { extractVehicleTypeFromInfo, ensureVehicleIconSource } from '../../utils/vehicleIcons';
+import { getCrewRoleForRide, shouldShowSeparateCrewMarkers } from '../../utils/designatedCrew';
 import { fetchClientProfile, ClientProfile } from '../../services/clientProfilesService';
 import notificationService from '../../services/notificationService';
 import { useTranslation } from 'react-i18next';
@@ -38,6 +39,7 @@ import { ActiveRideSheetHeader } from '../../components/driver/ActiveRide/Active
 import { ActiveRideAddressesCard } from '../../components/driver/ActiveRide/ActiveRideAddressesCard';
 import { ActiveRideCTAButtons } from '../../components/driver/ActiveRide/ActiveRideCTAButtons';
 import { DesignatedDriverEvidenceModal } from '../../components/driver/ActiveRide/DesignatedDriverEvidenceModal';
+import { RideVerificationCodeModal } from '../../components/driver/ActiveRide/RideVerificationCodeModal';
 
 interface RouteParams {
   rideId: string;
@@ -76,6 +78,8 @@ export default function ActiveRideScreen({ route, navigation }: any) {
   } = useRideData(rideId, t('driver.activeRide.alerts.rideNotFound'));
   const [updating, setUpdating] = useState(false);
   const [showDesignatedEvidenceModal, setShowDesignatedEvidenceModal] = useState(false);
+  const [showVerificationModal, setShowVerificationModal] = useState(false);
+  const [verificationError, setVerificationError] = useState<string | null>(null);
   const [inspectionCompletedLocally, setInspectionCompletedLocally] = useState(false);
   const isDesignatedRide = String(ride?.rideType ?? ride?.ride_type ?? '').toLowerCase() === 'designated_driver';
   const hasDesignatedEvidence = inspectionCompletedLocally || (
@@ -202,7 +206,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
       try {
         const active = await backgroundLocationService.isTrackingActive();
         if (active) {
-          await backgroundLocationService.updateTrackingRideId(rideId);
+          await backgroundLocationService.updateTrackingRideId(rideId, 'captain');
           return;
         }
         const started = await backgroundLocationService.startBackgroundLocationTracking(
@@ -749,11 +753,39 @@ export default function ActiveRideScreen({ route, navigation }: any) {
       return;
     }
 
+    // Viajes normales (auto/moto): el conductor pide al cliente el código de
+    // 4 dígitos que ve en su app antes de poder iniciar el viaje.
+    if (!isDesignatedRide) {
+      setVerificationError(null);
+      setShowVerificationModal(true);
+      return;
+    }
+
     try {
       setUpdating(true);
       await ridesService.updateRideStatus(rideId, 'in_progress');
     } catch (error: any) {
       alertService.showErrorAlert(error?.message || t('driver.activeRide.alerts.startRideError'));
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const handleSubmitPickupCode = async (code: string) => {
+    try {
+      setUpdating(true);
+      setVerificationError(null);
+      await ridesService.updateRideStatus(rideId, 'in_progress', { pickupCode: code });
+      setShowVerificationModal(false);
+    } catch (error: any) {
+      const message = String(error?.message || '');
+      if (/incorrect|incorrecto/i.test(message)) {
+        setVerificationError(t('driver.activeRide.verification.incorrectCode'));
+      } else if (/requiere|required|código/i.test(message)) {
+        setVerificationError(t('driver.activeRide.verification.requiredCode'));
+      } else {
+        setVerificationError(message || t('driver.activeRide.alerts.startRideError'));
+      }
     } finally {
       setUpdating(false);
     }
@@ -935,6 +967,22 @@ export default function ActiveRideScreen({ route, navigation }: any) {
     );
   }
 
+  const crewRole = getCrewRoleForRide(ride, user?.id);
+  const showCrewMarkers = crewRole === 'captain' && shouldShowSeparateCrewMarkers(ride);
+  const captainVehicleIcon = showCrewMarkers
+    ? ensureVehicleIconSource(ride?.designatedDriverVehicle || 'auto')
+    : ensureVehicleIconSource(extractVehicleTypeFromInfo(user));
+  const followerLocation = ride?.follower?.location;
+  const followerMarkers = showCrewMarkers && followerLocation
+    ? [{
+        id: 'crew-follower',
+        latitude: followerLocation.latitude,
+        longitude: followerLocation.longitude,
+        heading: followerLocation.heading ?? undefined,
+        vehicleIconSource: ensureVehicleIconSource(extractVehicleTypeFromInfo(user) || 'auto'),
+      }]
+    : [];
+
   return (
     <View style={styles.container}>
       {/* Mapa a pantalla completa */}
@@ -946,8 +994,9 @@ export default function ActiveRideScreen({ route, navigation }: any) {
             showMarker={true}
             markerPosition={{ latitude: coords.latitude, longitude: coords.longitude }}
             markerType="car"
-            markerVehicleIconSource={ensureVehicleIconSource(extractVehicleTypeFromInfo(user))}
+            markerVehicleIconSource={captainVehicleIcon}
             markerVehicleHeading={typeof coords.heading === 'number' && Number.isFinite(coords.heading) ? coords.heading : undefined}
+            nearbyDrivers={followerMarkers}
             originMarker={(isAccepted || isDriverOnRoute || isDriverArrived) && ride?.origin ? {
               latitude: ride.origin.lat || ride.origin.latitude,
               longitude: ride.origin.lng || ride.origin.longitude,
@@ -1097,6 +1146,14 @@ export default function ActiveRideScreen({ route, navigation }: any) {
         onClose={() => setShowDesignatedEvidenceModal(false)}
         onCompleted={() => setInspectionCompletedLocally(true)}
         onCancelRide={handleCancelRide}
+      />
+
+      <RideVerificationCodeModal
+        visible={showVerificationModal}
+        loading={updating}
+        error={verificationError}
+        onClose={() => setShowVerificationModal(false)}
+        onSubmit={handleSubmitPickupCode}
       />
     </View>
   );
