@@ -22,6 +22,7 @@ interface DriverHomeBottomBarProps {
   onNavigateEarnings: () => void;
   onNavigate: (route: any) => void;
   onLogout: () => void;
+  crewChip?: React.ReactNode;
   styles: any;
   t: TFunction;
 }
@@ -42,6 +43,7 @@ export function DriverHomeBottomBar({
   onNavigateEarnings,
   onNavigate,
   onLogout,
+  crewChip,
   styles,
   t,
 }: DriverHomeBottomBarProps) {
@@ -52,46 +54,49 @@ export function DriverHomeBottomBar({
   return (
     <View style={styles.bottomBar} pointerEvents="box-none">
       {userRole === 'designated_driver' && (
-        <Pressable
-          style={({ pressed }) => [
-            styles.designatedChip,
-            isDesignatedDriverMode && styles.designatedChipActive,
-            !isAvailable && styles.designatedChipDisabled,
-            pressed && { opacity: 0.85 },
-          ]}
-          disabled={!isAvailable}
-          onPress={onToggleDesignated}
-          accessibilityRole="button"
-          accessibilityLabel={t('driver.home.designated.activeLabel')}
-          accessibilityState={{ checked: isDesignatedDriverMode, disabled: !isAvailable }}
-        >
-          <Ionicons
-            name="car-sport"
-            size={16}
-            color={isDesignatedDriverMode ? '#efc069' : iconMuted}
-          />
-          <Text
-            style={[
-              styles.designatedChipLabel,
-              isDesignatedDriverMode && styles.designatedChipLabelActive,
+        <View style={{ flexDirection: 'row', gap: 8, alignSelf: 'flex-start', flexWrap: 'wrap' }}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.designatedChip,
+              isDesignatedDriverMode && styles.designatedChipActive,
+              !isAvailable && styles.designatedChipDisabled,
+              pressed && { opacity: 0.85 },
             ]}
+            disabled={!isAvailable}
+            onPress={onToggleDesignated}
+            accessibilityRole="button"
+            accessibilityLabel={t('driver.home.designated.activeLabel')}
+            accessibilityState={{ checked: isDesignatedDriverMode, disabled: !isAvailable }}
           >
-            {t('driver.home.designated.activeLabel')}
-          </Text>
-          <View
-            style={[
-              styles.designatedSwitchTrack,
-              isDesignatedDriverMode && styles.designatedSwitchTrackOn,
-            ]}
-          >
+            <Ionicons
+              name="car-sport"
+              size={16}
+              color={isDesignatedDriverMode ? '#efc069' : iconMuted}
+            />
+            <Text
+              style={[
+                styles.designatedChipLabel,
+                isDesignatedDriverMode && styles.designatedChipLabelActive,
+              ]}
+            >
+              {t('driver.home.designated.activeLabel')}
+            </Text>
             <View
               style={[
-                styles.designatedSwitchThumb,
-                isDesignatedDriverMode && styles.designatedSwitchThumbOn,
+                styles.designatedSwitchTrack,
+                isDesignatedDriverMode && styles.designatedSwitchTrackOn,
               ]}
-            />
-          </View>
-        </Pressable>
+            >
+              <View
+                style={[
+                  styles.designatedSwitchThumb,
+                  isDesignatedDriverMode && styles.designatedSwitchThumbOn,
+                ]}
+              />
+            </View>
+          </Pressable>
+          {crewChip}
+        </View>
       )}
 
       <DriverHomeNavChips

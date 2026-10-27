@@ -34,6 +34,12 @@ import { useDriverOfferCache } from '../../hooks/driver/DriverHomeScreen/useDriv
 import { DriverHomeHeader } from '../../components/driver/DriverHome/DriverHomeHeader';
 import { DriverHomeBanners } from '../../components/driver/DriverHome/DriverHomeBanners';
 import { DriverHomeBottomBar } from '../../components/driver/DriverHome/DriverHomeBottomBar';
+import { useDesignatedCrew } from '../../hooks/driver/DriverHomeScreen/useDesignatedCrew';
+import { DesignatedCrewChip } from '../../components/driver/DesignatedCrew/DesignatedCrewChip';
+import { DesignatedCrewSearchModal } from '../../components/driver/DesignatedCrew/DesignatedCrewSearchModal';
+import { DesignatedCrewInviteCard } from '../../components/driver/DesignatedCrew/DesignatedCrewInviteCard';
+import designatedCrewService from '../../services/designatedCrewService';
+import alertService from '../../services/alertService';
 import type { ImageSourcePropType } from 'react-native';
 
 type NearbyDriverMarker = {
@@ -86,6 +92,8 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
 
   useAcceptedRideListener(navigation);
   useDriverProximityTracking();
+  const { membership: crewMembership, partner: crewPartner, invite: crewInvite, isFollower } = useDesignatedCrew(user?.id, navigation);
+  const [crewSearchVisible, setCrewSearchVisible] = useState(false);
 
   const [rechargeFundsSummaryInitial] = useState(() => {
     const summary = preflightSummary?.preflightData?.rechargeFunds;
@@ -118,12 +126,30 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   const {
     availableRideRequests, activeRide, pendingNegotiationRide,
   } = useDriverActiveRides({ userId: user?.id, coords, isAvailable, serviceAreaId, formatCurrency });
-  const visibleRideRequests = useMemo(
-    () => isDesignatedDriverMode
+  const visibleRideRequests = useMemo(() => {
+    if (isFollower) return [];
+    return isDesignatedDriverMode
       ? availableRideRequests
-      : availableRideRequests.filter((ride) => !isDesignatedRideRequest(ride)),
-    [availableRideRequests, isDesignatedDriverMode],
-  );
+      : availableRideRequests.filter((ride) => !isDesignatedRideRequest(ride));
+  }, [availableRideRequests, isDesignatedDriverMode, isFollower]);
+
+  const handleCrewUnpair = useCallback(() => {
+    if (crewMembership?.currentRideId) {
+      alertService.showErrorAlert(t('driver.crew.rideInProgress'));
+      return;
+    }
+    alertService.showConfirmAlert(
+      t('driver.crew.unpairConfirmTitle'),
+      t('driver.crew.unpairConfirmBody'),
+      async () => {
+        try {
+          await designatedCrewService.leaveCrew();
+        } catch {
+          alertService.showErrorAlert(t('driver.crew.errors.generic'));
+        }
+      },
+    );
+  }, [crewMembership?.currentRideId, t]);
 
   const { currentVehicleType, currentVehicleIconSource, driverInfoCacheRef, profilePhotoUri } = useDriverInfoListener(user?.id, markTaskCompleted);
   const nearbyDriversMarkers = useNearbyDriversMarkers(coords, isAvailable, user?.id, serviceAreaId, driverInfoCacheRef);
@@ -240,6 +266,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
           markerVehicleIconSource={currentVehicleIconSource}
           markerVehicleHeading={typeof coords.heading === 'number' && Number.isFinite(coords.heading) ? coords.heading : undefined}
           onRideRequestPress={(ride: any) => {
+            if (isFollower) return;
             if (!isDesignatedDriverMode && isDesignatedRideRequest(ride)) return;
             if (activeRide) {
               navigation.navigate('ActiveRide', { rideId: activeRide.id });
@@ -335,13 +362,30 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
         availableRequestsCount={visibleRideRequests.length}
         onToggleAvailability={() => handleAvailabilityToggle(!isAvailable)}
         onToggleDesignated={handleDesignatedToggle}
-        onNavigateAvailableRides={() => navigation.navigate('AvailableRides')}
+        onNavigateAvailableRides={() =>
+          isFollower
+            ? alertService.showInfoAlert(t('driver.crew.follower.title'), t('driver.crew.followerNoRequests'))
+            : navigation.navigate('AvailableRides')
+        }
         onNavigateEarnings={() => navigation.navigate('Earnings')}
         onNavigate={handleNavigate}
         onLogout={handleLogout}
+        crewChip={
+          <DesignatedCrewChip
+            membership={crewMembership}
+            partner={crewPartner}
+            disabled={!isAvailable || !isDesignatedDriverMode}
+            onAdd={() => setCrewSearchVisible(true)}
+            onUnpair={handleCrewUnpair}
+            styles={styles}
+            t={t}
+          />
+        }
         styles={styles}
         t={t}
       />
+      {crewInvite && <DesignatedCrewInviteCard invite={crewInvite} />}
+      <DesignatedCrewSearchModal visible={crewSearchVisible} onClose={() => setCrewSearchVisible(false)} />
     </View>
   );
 }
