@@ -37,6 +37,9 @@ import { AvailableRidesEmpty } from '../../components/driver/AvailableRides/Avai
 import { AvailableRidesOffline } from '../../components/driver/AvailableRides/AvailableRidesOffline';
 import driversService from '../../services/driversService';
 import driverAvailabilityService from '../../services/driverAvailabilityService';
+import { isUnauthenticatedError } from '../../utils/firebaseAuthReady';
+import { ArrivalVehiclePhotoModal } from '../../components/driver/DesignatedCrew/ArrivalVehiclePhotoModal';
+import { useArrivalPhotoGate } from '../../hooks/driver/shared/useArrivalPhotoGate';
 
 const SCREEN_ENTRY_WINDOW_MS = 3000;
 let screenEntryCountInWindow = 0;
@@ -67,6 +70,8 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
     driverStatusLoaded,
     handleRefresh,
   } = useAvailableRidesData(user?.id, coords, serviceAreaId);
+
+  const { modalProps: arrivalPhotoModalProps, runWithArrivalPhoto } = useArrivalPhotoGate(user?.id);
   const [rechargeFundsSummary, setRechargeFundsSummary] = useState<{ availableBalance: number; blocked: boolean } | null>(
     () => {
       const summary = preflightSummary?.preflightData?.rechargeFunds;
@@ -80,6 +85,7 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
     },
   );
   const isScreenFocusedRef = useRef(false);
+  const activeRideRedirectedRef = useRef<string | null>(null);
   const [photoModalUrl, setPhotoModalUrl] = useState<string | null>(null);
   const [assignModalVisible, setAssignModalVisible] = useState(false);
   const [assignRideIdInput, setAssignRideIdInput] = useState('');
@@ -141,9 +147,12 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
 
   // 🔒 Guard: Si ya tengo un viaje activo, redirigir a ActiveRide
   useEffect(() => {
-    if (activeRideGuard) {
-      navigation.replace('ActiveRide', { rideId: activeRideGuard.id });
-    }
+    if (!activeRideGuard) return;
+    if (activeRideRedirectedRef.current === activeRideGuard.id) return;
+    const focused = navigation.isFocused ? navigation.isFocused() : true;
+    if (!focused) return;
+    activeRideRedirectedRef.current = activeRideGuard.id;
+    navigation.replace('ActiveRide', { rideId: activeRideGuard.id });
   }, [activeRideGuard, navigation]);
 
   // ✅ Realtime DB: resumen de fondos del conductor
@@ -283,7 +292,12 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
           });
         } catch (error: any) {
           console.error('❌ Error completo:', error);
-          alertService.showErrorAlert(error?.message || t('driver.available.alerts.errorSendOffer'));
+          const message = String(error?.message || '');
+          alertService.showErrorAlert(
+            message.includes('CREW_FOLLOWER_CANNOT_ACCEPT')
+              ? t('driver.crew.errors.followerCannotAccept')
+              : error?.message || t('driver.available.alerts.errorSendOffer'),
+          );
         }
       } else {
         try {
@@ -311,7 +325,12 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
             })),
           });
         } catch (error: any) {
-          alertService.showErrorAlert(error?.message || t('driver.available.alerts.errorAcceptRide'));
+          const message = String(error?.message || '');
+          alertService.showErrorAlert(
+            message.includes('CREW_FOLLOWER_CANNOT_ACCEPT')
+              ? t('driver.crew.errors.followerCannotAccept')
+              : error?.message || t('driver.available.alerts.errorAcceptRide'),
+          );
         }
       }
     } catch (error: any) {
@@ -501,7 +520,9 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
         onViewDetails={() => handleViewRideDetails(ride)}
         onViewVehiclePhoto={(url) => setPhotoModalUrl(url)}
         onConfirmScheduled={
-          ride.isProgrammed ? () => handleConfirmScheduledRide(ride) : undefined
+          ride.isProgrammed
+            ? () => runWithArrivalPhoto(isDesignatedRideRequest(ride), () => handleConfirmScheduledRide(ride))
+            : undefined
         }
         confirmingScheduled={confirmingScheduledRideId === ride.id}
         styles={styles}
@@ -734,7 +755,9 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
             setAssignRideIdInput('');
           } catch (err: any) {
             alertService.showErrorAlert(
-              err?.message || t('driver.available.alerts.assignError'),
+              isUnauthenticatedError(err)
+                ? t('driver.available.alerts.sessionExpired')
+                : err?.message || t('driver.available.alerts.assignError'),
             );
           } finally {
             setAssigningProgrammedRide(false);
@@ -743,6 +766,7 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
         styles={styles}
         t={t}
       />
+      <ArrivalVehiclePhotoModal {...arrivalPhotoModalProps} />
     </View>
   );
 }

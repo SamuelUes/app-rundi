@@ -156,7 +156,12 @@ export function useRideActions(
         })),
       });
     } catch (error: any) {
-      alertService.showErrorAlert(error?.message || t('driver.ridePreview.alerts.acceptRideError'));
+      const message = String(error?.message || '');
+      alertService.showErrorAlert(
+        message.includes('CREW_FOLLOWER_CANNOT_ACCEPT')
+          ? t('driver.crew.errors.followerCannotAccept')
+          : error?.message || t('driver.ridePreview.alerts.acceptRideError'),
+      );
     } finally {
       Animated.timing(acceptButtonScale, {
         toValue: 1,

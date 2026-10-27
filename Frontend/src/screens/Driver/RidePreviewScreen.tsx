@@ -40,6 +40,8 @@ import { RidePreviewClientInfo } from '../../components/driver/RidePreview/RideP
 import { RidePreviewActions } from '../../components/driver/RidePreview/RidePreviewActions';
 import { RidePreviewPhotoModal } from '../../components/driver/RidePreview/RidePreviewPhotoModal';
 import { RidePreviewNearbyCard } from '../../components/driver/RidePreview/RidePreviewNearbyCard';
+import { ArrivalVehiclePhotoModal } from '../../components/driver/DesignatedCrew/ArrivalVehiclePhotoModal';
+import { useArrivalPhotoGate } from '../../hooks/driver/shared/useArrivalPhotoGate';
 
 const PROXIMITY_AUTO_DISMISS_MS = 6000; // auto-cierre si no hay cambios ni interacción
 const PROXIMITY_DISMISS_POLL_MS = 500;
@@ -139,6 +141,8 @@ export default function RidePreviewScreen() {
     navigation,
     t,
   );
+
+  const { modalProps: arrivalPhotoModalProps, runWithArrivalPhoto } = useArrivalPhotoGate(user?.id);
 
   // Auto-cierre para aperturas automáticas por proximidad:
   // si no hay cambios en el viaje ni interacción del conductor en 6s, se cierra
@@ -354,8 +358,8 @@ export default function RidePreviewScreen() {
         customOfferInputRef={customOfferInputRef}
         onCustomOfferPress={handleCustomOfferPress}
         onCustomOfferChange={handleCustomOfferChange}
-        onSendCustomOffer={handleSendCustomOffer}
-        onApplySuggestion={handleApplySuggestion}
+        onSendCustomOffer={() => runWithArrivalPhoto(isDesignatedRide, handleSendCustomOffer)}
+        onApplySuggestion={(value: number) => runWithArrivalPhoto(isDesignatedRide, () => handleApplySuggestion(value))}
         onOpenPhotoModal={(url) => setPhotoModalUrl(url)}
         styles={styles}
         t={t}
@@ -493,7 +497,7 @@ export default function RidePreviewScreen() {
           acceptButtonScale={acceptButtonScale}
           rejectButtonScale={rejectButtonScale}
           colors={colors}
-          onAccept={handleAcceptRide}
+          onAccept={() => runWithArrivalPhoto(isDesignatedRide, handleAcceptRide)}
           onReject={handleRejectRide}
           styles={styles}
           t={t}
@@ -509,6 +513,7 @@ export default function RidePreviewScreen() {
         styles={styles}
         t={t}
       />
+      <ArrivalVehiclePhotoModal {...arrivalPhotoModalProps} />
     </View>
   );
 }
