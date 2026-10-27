@@ -1,6 +1,7 @@
 import * as functions from 'firebase-functions/v1';
 import admin from 'firebase-admin';
 import { notifyUserSafe } from '../services/notifyUserSafe';
+import { markFollowerAbandoned } from '../helpers/designatedCrewStore';
 
 const db = admin.database();
 
@@ -92,5 +93,24 @@ export const rejectDriverOffersOnOffline = functions.database
       ).catch(() => undefined);
     }
 
+    return null;
+  });
+
+/**
+ * Si un seguidor de equipo designado pasa a offline (app cerrada, sesión
+ * perdida, presence cleanup) durante un viaje, queda 'abandoned' y el viaje
+ * sigue con el capitán.
+ */
+export const markCrewFollowerAbandonedOnOffline = functions.database
+  .ref('driverLocations/{driverId}/status')
+  .onUpdate(async (change, context) => {
+    const after = String(change.after.val() ?? '').toLowerCase();
+    const before = String(change.before.val() ?? '').toLowerCase();
+    if (after !== 'offline' || before === 'offline') return null;
+    try {
+      await markFollowerAbandoned(context.params.driverId as string);
+    } catch (error: any) {
+      console.error('[driverOffline] Error marcando abandono de seguidor', error?.message || error);
+    }
     return null;
   });

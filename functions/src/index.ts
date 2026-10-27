@@ -534,6 +534,7 @@ export const onSupportChatMessage = supportChatNotifications.onSupportChatMessag
 
 // Rechaza ofertas pendientes cuando un conductor pasa a offline
 export const rejectDriverOffersOnOffline = driverOfflineTriggers.rejectDriverOffersOnOffline;
+export const markCrewFollowerAbandonedOnOffline = driverOfflineTriggers.markCrewFollowerAbandonedOnOffline;
 
 // ============================================
 // WEBHOOKS

@@ -6,6 +6,7 @@
 import * as functions from 'firebase-functions/v1';
 import admin from 'firebase-admin';
 import { requireDriver } from '../utils/sessionUtils';
+import { getCrewMembership } from '../helpers/designatedCrewStore';
 
 const db = admin.database();
 
@@ -102,6 +103,10 @@ export const updateStatus = functions.https.onCall(async (data, context) => {
           hasActiveRide = true;
           break;
         }
+      }
+      if (!hasActiveRide) {
+        const membership = await getCrewMembership(driverId);
+        hasActiveRide = membership?.role === 'follower' && !!membership.currentRideId;
       }
       if (hasActiveRide) {
         finalStatus = 'busy';
