@@ -9,6 +9,7 @@ import admin from 'firebase-admin';
 import { RatingService } from '../sequelize/services/RatingService';
 import { RideRepository } from '../sequelize/repositories/RideRepository';
 import { DriverRepository } from '../sequelize/repositories/DriverRepository';
+import { resolveRatingTarget } from '../helpers/designatedCrew';
 
 const ratingService = new RatingService();
 const rideRepo = new RideRepository();
@@ -57,6 +58,9 @@ export const submitRating = functions.https.onCall(async (data, context) => {
       driving,          // Conducción (solo para conductores)
       safety,           // Seguridad
       friendliness,     // Amabilidad
+      // Conductor designado con colega: a quién califica el cliente
+      targetRole,       // 'captain' | 'follower'
+      finalize,         // false = no cerrar el viaje aún (queda una calificación)
     } = data;
     const fromUserId = context.auth.uid;
 
@@ -83,23 +87,18 @@ export const submitRating = functions.https.onCall(async (data, context) => {
     const firebaseRideSnapshot = await firebaseRideRef.once('value');
     const firebaseRide = firebaseRideSnapshot.val();
 
+    const requestedRole = targetRole === 'follower' ? 'follower' : targetRole === 'captain' ? 'captain' : null;
+
     let ride: any = null;
-    let toUserId: string | null = null;
 
     // 2. Buscar el viaje en Sequelize
     if (firebaseRide) {
-      console.log(`   clientId: ${firebaseRide.clientId}, driverId: ${firebaseRide.driverId}`);
-
-      // Buscar por firebase_ride_id PRIMERO (más específico)
+      console.log(`   clientId: ${firebaseRide.clientId}, driverId: ${firebaseRide.driverId}, followerId: ${firebaseRide.followerId}`);
       ride = await rideRepo.findByFirebaseId(rideId);
-
       if (ride) {
         console.log(`✅ Viaje encontrado en Sequelize: ${ride.id}`);
-        // Determinar a quién se califica (si es cliente califica a conductor, y viceversa)
-        toUserId = fromUserId === firebaseRide.clientId ? firebaseRide.driverId : firebaseRide.clientId;
       } else {
         console.log(`⚠️ Viaje ${rideId} no encontrado en Sequelize, usando datos de Firebase`);
-        toUserId = fromUserId === firebaseRide.clientId ? firebaseRide.driverId : firebaseRide.clientId;
       }
     } else {
       // ✅ NUEVO: Si no está en Firebase, intentar buscar en Sequelize por UUID
@@ -108,17 +107,22 @@ export const submitRating = functions.https.onCall(async (data, context) => {
         ride = await rideRepo.findById(rideId);
         if (ride) {
           console.log(`✅ Viaje encontrado en Sequelize: ${ride.id}`);
-          // Determinar a quién se califica
-          toUserId = fromUserId === ride.client_id ? ride.driver_id : ride.client_id;
         }
       } catch (err) {
         console.log(`⚠️ Error buscando viaje en Sequelize:`, err);
       }
     }
 
-    if (!toUserId) {
+    const participants = firebaseRide
+      ? { clientId: firebaseRide.clientId, driverId: firebaseRide.driverId, followerId: firebaseRide.followerId }
+      : ride
+        ? { clientId: ride.client_id, driverId: ride.driver_id, followerId: ride.follower_driver_id }
+        : null;
+    const target = resolveRatingTarget(participants, fromUserId, requestedRole);
+    if (!target) {
       throw new functions.https.HttpsError('not-found', 'No se encontró el usuario a calificar. Asegúrate de que el viaje existe y tiene un conductor asignado.');
     }
+    const toUserId = target.toUserId;
 
     // 3. Crear calificación usando Sequelize
     const ratingData = {
@@ -133,40 +137,48 @@ export const submitRating = functions.https.onCall(async (data, context) => {
       driving,
       safety,
       friendliness,
+      rated_role: target.ratedRole,
     };
 
     const createdRating = await ratingService.submitRating(ratingData);
 
     console.log(`✅ [submitRating] Calificación creada: ${createdRating.id}`);
     
-    // ✅ NUEVO: Actualizar estado del viaje a 'rating_completed' en Firebase
-    try {
-      const firebaseRideId = firebaseRide?.id || rideId;
-      console.log(`📝 [submitRating] Actualizando estado del viaje a 'rating_completed': ${firebaseRideId}`);
-      
-      await admin.database().ref(`activeRides/${firebaseRideId}`).update({
-        status: 'rating_completed',
-        ratingCompletedAt: admin.database.ServerValue.TIMESTAMP,
-        updatedAt: admin.database.ServerValue.TIMESTAMP,
-      });
-      
-      console.log(`✅ [submitRating] Viaje actualizado a 'rating_completed'`);
-    } catch (firebaseError: any) {
-      console.warn(`⚠️ [submitRating] Error actualizando viaje en Firebase:`, firebaseError.message);
-      // No lanzar error - el rating ya fue guardado
+    // ✅ NUEVO: Actualizar estado del viaje a 'rating_completed' en Firebase.
+    // En viajes de equipo el cliente puede enviar dos calificaciones; solo la
+    // última (finalize !== false) cierra el viaje.
+    const shouldFinalize = finalize !== false;
+    if (shouldFinalize) {
+      try {
+        const firebaseRideId = firebaseRide?.id || rideId;
+        console.log(`📝 [submitRating] Actualizando estado del viaje a 'rating_completed': ${firebaseRideId}`);
+
+        await admin.database().ref(`activeRides/${firebaseRideId}`).update({
+          status: 'rating_completed',
+          ratingCompletedAt: admin.database.ServerValue.TIMESTAMP,
+          updatedAt: admin.database.ServerValue.TIMESTAMP,
+        });
+
+        console.log(`✅ [submitRating] Viaje actualizado a 'rating_completed'`);
+      } catch (firebaseError: any) {
+        console.warn(`⚠️ [submitRating] Error actualizando viaje en Firebase:`, firebaseError.message);
+        // No lanzar error - el rating ya fue guardado
+      }
     }
-    
+
     return {
       success: true,
       rating: {
         id: createdRating.id,
         rating: createdRating.rating,
         toUserId,
+        ratedRole: target.ratedRole,
         createdAt: createdRating.created_at,
       },
     };
   } catch (error: any) {
     console.error('❌ [submitRating] Error:', error);
+    if (error instanceof functions.https.HttpsError) throw error;
     throw new functions.https.HttpsError('internal', error.message);
   }
 });

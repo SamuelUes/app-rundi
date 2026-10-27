@@ -34,9 +34,9 @@ export class RatingRepository {
     return result;
   }
 
-  async checkIfRated(rideId: string, fromUserId: string) {
+  async checkIfRated(rideId: string, fromUserId: string, toUserId: string) {
     return await Rating.findOne({
-      where: { ride_id: rideId, from_user_id: fromUserId },
+      where: { ride_id: rideId, from_user_id: fromUserId, to_user_id: toUserId },
     });
   }
 

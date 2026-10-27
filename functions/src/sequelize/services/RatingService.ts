@@ -12,10 +12,11 @@ export class RatingService {
   async submitRating(data: any) {
     const existing = await this.ratingRepo.checkIfRated(
       data.ride_id,
-      data.from_user_id
+      data.from_user_id,
+      data.to_user_id,
     );
     if (existing) {
-      throw new Error('Ya has calificado este viaje');
+      throw new Error('Ya has calificado a este participante en este viaje');
     }
 
     const rating = await this.ratingRepo.create({
