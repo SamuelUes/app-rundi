@@ -8,6 +8,7 @@ export function useDriverInfoListener(
   markTaskCompleted: (task: string) => void,
 ) {
   const [currentVehicleType, setCurrentVehicleType] = useState<string | null>(null);
+  const [currentVehicleId, setCurrentVehicleId] = useState<string | null>(null);
   const [currentVehicleIconSource, setCurrentVehicleIconSource] = useState<ImageSourcePropType | undefined>(undefined);
   const [profilePhotoUri, setProfilePhotoUri] = useState<string | null>(null);
   const driverInfoCacheRef = useRef<Record<string, any>>({});
@@ -36,6 +37,8 @@ export function useDriverInfoListener(
             const myInfo = data[userId];
             const vehicleType = extractVehicleTypeFromInfo(myInfo);
             setCurrentVehicleType(vehicleType);
+            const vehicleId = myInfo?.vehicle?.id ?? myInfo?.currentVehicle?.id;
+            setCurrentVehicleId(typeof vehicleId === 'string' ? vehicleId : null);
             setCurrentVehicleIconSource(vehicleType ? ensureVehicleIconSource(vehicleType) : undefined);
 
             const rawPhoto =
@@ -74,6 +77,7 @@ export function useDriverInfoListener(
 
   return {
     currentVehicleType,
+    currentVehicleId,
     currentVehicleIconSource,
     driverInfoCacheRef,
     profilePhotoUri,

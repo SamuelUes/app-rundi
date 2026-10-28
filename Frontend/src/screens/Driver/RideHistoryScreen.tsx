@@ -16,6 +16,7 @@ import { NoHistoryEmptyState } from '../../components/ui/EmptyState';
 import { useRideHistory } from '../../hooks/shared/ride/useRideHistory';
 import { safeString, safeFormatDateTime } from '../../utils/safeFormatters';
 import { useTranslation } from 'react-i18next';
+import { getRideServiceTypeLabel } from '../../utils/rideFeatureLabels';
 
 interface HistoricalRide {
   id: string;
@@ -33,6 +34,10 @@ interface HistoricalRide {
   createdAt: string;
   updatedAt: string;
   rideType: string;
+  vehicleType?: string;
+  serviceCode?: string | null;
+  featureCodes?: string[];
+  designatedDriverVehicle?: string | null;
   passengers: number;
   client?: { name: string };
   driver?: { name: string; rating: number };
@@ -85,6 +90,12 @@ export default function RideHistoryScreen({ navigation }: any) {
       finalFare: item.finalFare && (typeof item.finalFare === 'number' || typeof item.finalFare === 'string') ? item.finalFare : null,
       status: typeof item.status === 'string' ? item.status : 'unknown',
       rideType: typeof item.rideType === 'string' ? item.rideType : 'auto',
+      vehicleType: typeof item.vehicleType === 'string' ? item.vehicleType : undefined,
+      serviceCode: typeof item.serviceCode === 'string' ? item.serviceCode : null,
+      featureCodes: Array.isArray(item.featureCodes)
+        ? item.featureCodes.filter((code: unknown): code is string => typeof code === 'string')
+        : [],
+      designatedDriverVehicle: item.designatedDriverVehicle ?? null,
       passengers: typeof item.passengers === 'number' ? item.passengers : 1,
       rating: typeof item.rating === 'number' ? item.rating : null,
       client: item.client && typeof item.client.name === 'string' ? item.client : null,
@@ -113,6 +124,7 @@ export default function RideHistoryScreen({ navigation }: any) {
       const distanceKm = ((Number(item.estimatedDistance) || 0) / 1000).toFixed(1);
       const price = Number(item.estimatedFare) || 0;
       const formattedDate = formatDriverDate(item.updatedAt || item.createdAt);
+      const serviceTypeLabel = getRideServiceTypeLabel(item, t);
 
       const resolveRideTypeLabel = (type: string) => {
         switch (type) {
@@ -217,7 +229,7 @@ export default function RideHistoryScreen({ navigation }: any) {
                 color={colors.textSecondary}
               />
               <Text style={styles.statValue}>
-                {resolveRideTypeLabel(String(item.rideType))}
+                {serviceTypeLabel || resolveRideTypeLabel(String(item.rideType))}
               </Text>
             </View>
           </View>

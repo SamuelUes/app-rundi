@@ -6,6 +6,7 @@ import type { Ride } from '../../../utils/availableRidesHelpers';
 import { haversineKm, isDesignatedRideRequest } from '../../../utils/availableRidesHelpers';
 import { normalizeVehicleTypeForMatching } from '../../../services/ridesService';
 import type { TFunction } from 'i18next';
+import { getRideFeatureLabels } from '../../../utils/rideFeatureLabels';
 
 interface AvailableRidesItemProps {
   ride: Ride;
@@ -69,6 +70,7 @@ export function AvailableRidesItem({
   const clientVehiclePhoto = ride.clientVehiclePhoto;
   const vehicleType = normalizeVehicleTypeForMatching(ride.vehicleType);
   const paymentMethod = (ride.paymentMethod || '').toLowerCase();
+  const featureLabels = getRideFeatureLabels(ride, t);
   const isScheduled = Boolean(ride.isProgrammed) && Boolean(ride.scheduledAt);
   const scheduledLabel = isScheduled && ride.scheduledAt ? formatScheduledLabel(ride.scheduledAt, t) : null;
 
@@ -285,6 +287,22 @@ export function AvailableRidesItem({
             {isDesignatedRide
               ? renderChip('verified-user', t('driver.available.rideCard.designatedTag'), 'gold')
               : null}
+            {featureLabels.map((label) =>
+              renderChip(
+                label === t('shared.searchRide.features.premium')
+                  ? 'stars'
+                  : label === t('shared.searchRide.features.senior')
+                    ? 'accessible'
+                    : label === t('shared.searchRide.features.petFriendly')
+                      ? 'pets'
+                      : 'nightlight',
+                label,
+                ['shared.searchRide.features.premium', 'shared.searchRide.features.senior', 'shared.searchRide.features.petFriendly']
+                  .some((key) => label === t(key))
+                  ? 'gold'
+                  : 'neutral',
+              ),
+            )}
             {isScheduled && scheduledLabel
               ? renderChip('schedule', scheduledLabel, 'gold')
               : renderChip('near-me', proximityLabel, 'gold')}

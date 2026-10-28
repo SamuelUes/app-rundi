@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text } from 'react-native';
 import type { TFunction } from 'i18next';
+import { getRideServiceTypeLabel } from '../../../utils/rideFeatureLabels';
 
 interface RideDetailsInfoProps {
   ride: any;
@@ -45,6 +46,10 @@ export function RideDetailsInfo({
           <View style={styles.infoItem}>
             <Text style={styles.infoLabel}>{t('shared.rideDetail.sections.info.passengers')}</Text>
             <Text style={styles.infoValue}>{safeString(ride.passengers || 1)}</Text>
+          </View>
+          <View style={styles.infoItem}>
+            <Text style={styles.infoLabel}>{t('shared.rideHistory.labels.type')}</Text>
+            <Text style={styles.infoValue}>{getRideServiceTypeLabel(ride, t)}</Text>
           </View>
         </View>
 

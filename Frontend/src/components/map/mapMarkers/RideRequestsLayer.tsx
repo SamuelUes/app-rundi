@@ -5,6 +5,8 @@ import { markerStyles } from './MarkerContent';
 import PinMarkerWithBubble from './PinMarkerWithBubble';
 import { toLatLng, isValidCoord } from '../../../hooks/shared/map/useMapCamera';
 import { MAP_ICONS } from '../../../constants/mapIcons';
+import { useTranslation } from 'react-i18next';
+import { getRideServiceTypeLabel } from '../../../utils/rideFeatureLabels';
 
 export interface RideRequest {
   id: string;
@@ -19,6 +21,11 @@ export interface RideRequest {
   priceValue: number;
   hasClientSuggestedPrice: boolean;
   passengers: number;
+  serviceCode?: string;
+  featureCodes?: string[];
+  rideType?: string;
+  vehicleType?: string;
+  designatedDriverVehicle?: string | null;
 }
 
 interface RideRequestsLayerProps {
@@ -35,6 +42,7 @@ export default React.memo(function RideRequestsLayer({
   showPinBubbles = true,
   requestPinScale = 1,
 }: RideRequestsLayerProps) {
+  const { t } = useTranslation();
   const rideRequestMarkerRefs = useRef<Record<string, React.ComponentRef<typeof Marker> | null>>({});
   const [selectedRideRequestId, setSelectedRideRequestId] = useState<string | null>(null);
 
@@ -70,6 +78,7 @@ export default React.memo(function RideRequestsLayer({
         if (!isValidCoord(request)) return null;
         const requestId = String(request.id);
         const isSelected = selectedRideRequestId === requestId;
+        const requestServiceType = getRideServiceTypeLabel(request, t);
         const handleRequestOpen = () => {
           setSelectedRideRequestId(null);
           onRideRequestPress?.(request);
@@ -89,6 +98,9 @@ export default React.memo(function RideRequestsLayer({
             <View style={markerStyles.requestBubble}>
               <Text style={markerStyles.requestTitle} numberOfLines={1}>
                 {request.clientName}
+              </Text>
+              <Text style={markerStyles.requestServiceType} numberOfLines={1}>
+                {requestServiceType}
               </Text>
               <Text style={markerStyles.requestLine} numberOfLines={1}>
                 {request.originAddress}
@@ -126,7 +138,10 @@ export default React.memo(function RideRequestsLayer({
             pinHeight={39}
             pinAnchor="tip"
             pinScale={requestPinScale}
+            bubbleTitle={request.clientName}
+            bubbleText={requestServiceType}
             bubbleMeta={request.priceLabel}
+            bubbleLabel={requestServiceType}
             bubbleCompact
             bubbleAccentColor="#1B5E20"
             showBubble={showPinBubbles !== false && !isSelected}

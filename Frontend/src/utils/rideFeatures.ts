@@ -52,6 +52,7 @@ export function getFeatureAvailability(feature: ServiceFeatureOption, at: Date):
 export function getDefaultSelectedFeatureCodes(features: ServiceFeatureOption[], at: Date): string[] {
   return features
     .filter((feature) => getFeatureAvailability(feature, at) === 'eligible')
+    .filter((feature) => feature.defaultSelected !== false)
     .sort((left, right) => left.priority - right.priority || left.code.localeCompare(right.code))
     .map((feature) => feature.code);
 }
@@ -63,7 +64,7 @@ export function getSelectedFeatureCodes(
 ): string[] {
   return features
     .filter((feature) => getFeatureAvailability(feature, at) === 'eligible')
-    .filter((feature) => overrides[feature.code] ?? true)
+    .filter((feature) => overrides[feature.code] ?? feature.defaultSelected !== false)
     .sort((left, right) => left.priority - right.priority || left.code.localeCompare(right.code))
     .map((feature) => feature.code);
 }

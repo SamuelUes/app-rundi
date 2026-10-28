@@ -125,7 +125,21 @@ export const checkRideDriverCompatibility = (
   rideLike: any,
   driverVehicleType: 'moto' | 'auto' | null,
   driverIsDesignatedMode: boolean,
+  driverFeatureCodes: readonly string[] = [],
+  vehicleFeatureCodes: readonly string[] = [],
 ): { ok: boolean; reason?: string } => {
+  const featureCodes: string[] = Array.isArray(rideLike?.featureCodes)
+    ? rideLike.featureCodes.filter((code: unknown): code is string => typeof code === 'string')
+    : Array.isArray(rideLike?.feature_codes)
+      ? rideLike.feature_codes.filter((code: unknown): code is string => typeof code === 'string')
+      : [];
+  if (
+    driverVehicleType === null &&
+    featureCodes.some((code) => ['senior', 'premium', 'pet_friendly'].includes(code))
+  ) {
+    return { ok: false, reason: 'driver_vehicle_unavailable' };
+  }
+
   const driverType = driverVehicleType === 'moto' ? 'moto' : 'auto';
   const rideVehicleType = extractRideVehicleTypeForMatching(rideLike);
 
@@ -136,17 +150,31 @@ export const checkRideDriverCompatibility = (
     if (rideVehicleType && driverType !== rideVehicleType) {
       return { ok: false, reason: 'designated_vehicle_mismatch' };
     }
-    return { ok: true };
+  } else {
+    if (rideVehicleType === 'moto' && driverType !== 'moto') {
+      return { ok: false, reason: 'moto_vehicle_required' };
+    }
+    if (rideVehicleType !== 'moto' && driverType === 'moto') {
+      return { ok: false, reason: 'auto_vehicle_required' };
+    }
   }
 
-  if (rideVehicleType === 'moto') {
-    return driverType === 'moto'
-      ? { ok: true }
-      : { ok: false, reason: 'moto_vehicle_required' };
+  const serviceCode = String(rideLike?.serviceCode ?? rideLike?.service_code ?? rideLike?.pricingSnapshot?.serviceCode ?? '').toLowerCase();
+  if (
+    featureCodes.includes('senior') &&
+    !['normal', 'designated_driver_auto'].includes(serviceCode)
+  ) {
+    return { ok: false, reason: 'senior_service_mismatch' };
   }
-
-  if (driverType === 'moto') {
-    return { ok: false, reason: 'auto_vehicle_required' };
+  if (featureCodes.includes('premium')) {
+    if (serviceCode !== 'normal') return { ok: false, reason: 'premium_service_mismatch' };
+    if (!vehicleFeatureCodes.includes('premium')) return { ok: false, reason: 'vehicle_feature_required' };
+  }
+  if (featureCodes.includes('pet_friendly')) {
+    if (!['normal', 'designated_driver_auto'].includes(serviceCode)) {
+      return { ok: false, reason: 'pet_friendly_service_mismatch' };
+    }
+    if (!driverFeatureCodes.includes('pet_friendly')) return { ok: false, reason: 'driver_feature_required' };
   }
 
   return { ok: true };
@@ -286,6 +314,9 @@ export interface Ride {
   passengers?: number;
   rideType?: string;
   vehicleType?: string;
+  designatedDriverVehicle?: 'auto' | 'moto' | null;
+  serviceCode?: string;
+  featureCodes?: string[];
   paymentMethod?: 'cash' | 'card';
   createdAt?: string | number;
   requestedAt: number;

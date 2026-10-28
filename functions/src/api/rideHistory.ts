@@ -8,6 +8,7 @@ import { supabaseGetRidesWithLocationsAndPayments, supabaseGet, supabaseGetDrive
 import { firestore } from '../config/firebase';
 import { ensureActiveSession } from '../utils/sessionUtils';
 import { crewRoleForDriver, splitDriverEarnings } from '../helpers/designatedCrew';
+import { mapRideFeatureHistory } from '../helpers/rideHistoryFeatures';
 
 type RideContext = {
   userProfiles: Record<string, any>;
@@ -327,6 +328,8 @@ const mapRide = (ride: any, index: number, context: RideContext) => {
     paymentType: ride.payment_type,
     rideType: ride.ride_type,
     vehicleType: ride.vehicle_type,
+    designatedDriverVehicle: ride.designated_driver_vehicle ?? null,
+    ...mapRideFeatureHistory(ride),
     passengers: ride.passengers || 1,
     notes: ride.notes,
     driver: ride.driver_id ? {

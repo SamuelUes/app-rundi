@@ -3,6 +3,7 @@ import { View, Text } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useIsDark } from '../../../stores/themeStore';
 import type { TFunction } from 'i18next';
+import { getRideFeatureLabels, getRideServiceTypeLabel } from '../../../utils/rideFeatureLabels';
 
 interface PaymentSummaryCardProps {
   rideDetails: {
@@ -45,22 +46,7 @@ export function PaymentSummaryCard({ rideDetails, colors, styles, t }: PaymentSu
       value: `${(rideDetails.estimatedDistance / 1000).toFixed(1)} km`,
     },
   ];
-  const serviceName = (() => {
-    switch (rideDetails.serviceCode) {
-      case 'motorcycle':
-        return t('shared.searchRide.vehicle.motoLabel');
-      case 'designated_driver_auto':
-        return `${t('shared.searchRide.vehicle.designatedLabel')} · ${t('shared.searchRide.vehicle.autoLabel')}`;
-      case 'designated_driver_moto':
-        return `${t('shared.searchRide.vehicle.designatedLabel')} · ${t('shared.searchRide.vehicle.modeMoto')}`;
-      case 'normal':
-        return t('shared.searchRide.vehicle.autoLabel');
-      case 'night':
-        return t('shared.payment.summary.nightFeature');
-      default:
-        return rideDetails.serviceCode || t('shared.payment.summary.notAvailable');
-    }
-  })();
+  const serviceName = getRideServiceTypeLabel(rideDetails, t);
   rows.push({
     icon: 'local-taxi' as const,
     label: t('shared.payment.summary.service'),
@@ -70,15 +56,7 @@ export function PaymentSummaryCard({ rideDetails, colors, styles, t }: PaymentSu
     rows.push({
       icon: 'nightlight' as const,
       label: t('shared.payment.summary.features'),
-      value: rideDetails.featureCodes
-        .map((code) => {
-          if (code === 'night') return t('shared.payment.summary.nightFeature');
-          if (code === 'designated_driver_moto_discount') {
-            return t('shared.payment.summary.designatedMotoAdjustment');
-          }
-          return code.replace(/_/g, ' ');
-        })
-        .join(' / '),
+      value: getRideFeatureLabels(rideDetails, t).join(' / '),
     });
   }
   if ((rideDetails.surgeMultiplier ?? 1) > 1) {

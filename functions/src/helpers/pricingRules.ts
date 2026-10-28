@@ -7,11 +7,16 @@ export interface PricingFeature {
   pricingValue: number;
   priority: number;
   stackable: boolean;
+  defaultSelected?: boolean;
   startTime?: string | null;
   endTime?: string | null;
   timezone?: string | null;
   startsAt?: string | null;
   endsAt?: string | null;
+  enabled?: boolean;
+  eligibilitySubject?: 'none' | 'driver' | 'vehicle';
+  eligibilityMode?: 'none' | 'manual' | 'automatic' | 'hybrid';
+  eligibilityRules?: Record<string, unknown>;
 }
 
 export interface SurgeRule {
@@ -104,6 +109,15 @@ export function validateSelectedFeatureCodes(
   }
 
   return uniqueCodes;
+}
+
+export function getDefaultSelectedPricingFeatureCodes(
+  features: readonly PricingFeature[],
+  date: Date,
+): string[] {
+  return features
+    .filter((feature) => feature.defaultSelected !== false && isFeatureActiveAt(feature, date))
+    .map((feature) => feature.code);
 }
 
 export function applyPricingFeatures(

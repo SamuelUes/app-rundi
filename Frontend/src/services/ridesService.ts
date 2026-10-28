@@ -48,6 +48,7 @@ export interface RequestRideData {
   notes?: string;
   paymentMethod?: 'cash' | 'card'; // Método de pago: cash (efectivo) o card (bancos nacionales)
   serviceId?: string; // ID of the canonical Service; night is legacy-only
+  selectedFeatureCodes?: string[];
   designatedDriverVehicle?: 'auto' | 'moto';
 }
 
@@ -134,6 +135,10 @@ export interface Ride {
   rideType?: string;
   vehicleType?: string;
   designatedDriverVehicle?: 'auto' | 'moto';
+  serviceId?: string | null;
+  serviceCode?: string | null;
+  featureCodes?: string[];
+  pricingSnapshot?: Record<string, unknown> | null;
   paymentType?: string;
   estimatedPrice?: number;
   estimatedFare?: number;
@@ -438,6 +443,14 @@ const normalizeRide = (raw: any): Ride => {
     rideType: raw?.rideType ?? raw?.ride_type ?? undefined,
     vehicleType: raw?.vehicleType ?? raw?.vehicle_type ?? undefined,
     designatedDriverVehicle: raw?.designatedDriverVehicle ?? raw?.designated_driver_vehicle ?? undefined,
+    serviceId: raw?.serviceId ?? raw?.service_id ?? null,
+    serviceCode: raw?.serviceCode ?? raw?.service_code ?? raw?.pricingSnapshot?.serviceCode ?? null,
+    featureCodes: Array.isArray(raw?.featureCodes ?? raw?.feature_codes)
+      ? (raw?.featureCodes ?? raw?.feature_codes).filter((code: unknown): code is string => typeof code === 'string')
+      : Array.isArray(raw?.pricingSnapshot?.featureCodes)
+        ? raw.pricingSnapshot.featureCodes.filter((code: unknown): code is string => typeof code === 'string')
+        : [],
+    pricingSnapshot: raw?.pricingSnapshot ?? raw?.pricing_snapshot ?? null,
     paymentType: raw?.paymentType ?? raw?.payment_type ?? undefined,
     estimatedPrice: raw?.estimatedPrice !== undefined ? toNumber(raw.estimatedPrice, 0) : (raw?.estimated_price !== undefined ? toNumber(raw.estimated_price, 0) : undefined),
     estimatedFare: raw?.estimatedFare !== undefined ? toNumber(raw.estimatedFare, 0) : undefined,

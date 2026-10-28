@@ -21,12 +21,13 @@ import { useAcceptedRideListener } from '../../hooks/driver/DriverHomeScreen/use
 import { useNearbyDriversMarkers } from '../../hooks/driver/DriverHomeScreen/useNearbyDriversMarkers';
 import proximityService from '../../services/proximityService';
 import type { DriverOfferCacheEntry } from '../../services/driverOfferCacheService';
-import { isDesignatedRideRequest } from '../../utils/availableRidesHelpers';
+import { checkRideDriverCompatibility, isDesignatedRideRequest } from '../../utils/availableRidesHelpers';
 import { useDriverActiveRides } from '../../hooks/driver/DriverHomeScreen/useDriverActiveRides';
 import { usePendingPayments } from '../../hooks/driver/DriverHomeScreen/usePendingPayments';
 import { useDriverAvailability } from '../../hooks/driver/DriverHomeScreen/useDriverAvailability';
 import { useDriverWalletListener } from '../../hooks/driver/DriverHomeScreen/useDriverWalletListener';
 import { useDriverInfoListener } from '../../hooks/driver/DriverHomeScreen/useDriverInfoListener';
+import { useDriverRideFeatureCapabilities } from '../../hooks/driver/useDriverRideFeatureCapabilities';
 import { useDriverPendingAction } from '../../hooks/driver/DriverHomeScreen/useDriverPendingAction';
 import { useDriverVoiceAnnouncements } from '../../hooks/driver/DriverHomeScreen/useDriverVoiceAnnouncements';
 import { useDriverTodayStats } from '../../hooks/driver/DriverHomeScreen/useDriverTodayStats';
@@ -120,6 +121,15 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
     userId: user?.id, userRole: user?.role, coords,
     hasInsufficientFunds, rechargeFundsSummary, tr: t, navigation, markTaskCompleted,
   });
+  const {
+    currentVehicleType,
+    currentVehicleId,
+    currentVehicleIconSource,
+    driverInfoCacheRef,
+    profilePhotoUri,
+  } = useDriverInfoListener(user?.id, markTaskCompleted);
+  const { driverFeatureCodes, vehicleFeatureCodes } =
+    useDriverRideFeatureCapabilities(user?.id, currentVehicleId);
 
   const { pendingPayments } = usePendingPayments({ userId: user?.id, markTaskCompleted });
 
@@ -128,10 +138,23 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   } = useDriverActiveRides({ userId: user?.id, coords, isAvailable, serviceAreaId, formatCurrency });
   const visibleRideRequests = useMemo(() => {
     if (isFollower) return [];
-    return isDesignatedDriverMode
-      ? availableRideRequests
-      : availableRideRequests.filter((ride) => !isDesignatedRideRequest(ride));
-  }, [availableRideRequests, isDesignatedDriverMode, isFollower]);
+    return availableRideRequests.filter((ride) =>
+      checkRideDriverCompatibility(
+        ride,
+        currentVehicleType === 'moto' ? 'moto' : currentVehicleType === 'auto' ? 'auto' : null,
+        isDesignatedDriverMode,
+        driverFeatureCodes,
+        vehicleFeatureCodes,
+      ).ok,
+    );
+  }, [
+    availableRideRequests,
+    currentVehicleType,
+    driverFeatureCodes,
+    isDesignatedDriverMode,
+    isFollower,
+    vehicleFeatureCodes,
+  ]);
 
   const handleCrewUnpair = useCallback(() => {
     if (crewMembership?.currentRideId) {
@@ -151,7 +174,6 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
     );
   }, [crewMembership?.currentRideId, t]);
 
-  const { currentVehicleType, currentVehicleIconSource, driverInfoCacheRef, profilePhotoUri } = useDriverInfoListener(user?.id, markTaskCompleted);
   const nearbyDriversMarkers = useNearbyDriversMarkers(coords, isAvailable, user?.id, serviceAreaId, driverInfoCacheRef);
   const { offerCacheEntries } = useDriverOfferCache(user?.id);
   const { todayStats } = useDriverTodayStats(navigation, markTaskCompleted);
@@ -847,4 +869,3 @@ const createStyles = (
       color: '#E8C88A',
     },
   });
-

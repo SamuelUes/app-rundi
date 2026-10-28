@@ -35,6 +35,7 @@ interface PinMarkerWithBubbleProps {
   bubbleTitle?: string | null;
   bubbleText?: string | null;
   bubbleMeta?: string | null;
+  bubbleLabel?: string | null;
   bubbleAccentColor?: string;
   bubbleCompact?: boolean;
   showBubble?: boolean;
@@ -77,6 +78,7 @@ export default React.memo(function PinMarkerWithBubble({
   bubbleTitle,
   bubbleText,
   bubbleMeta,
+  bubbleLabel,
   bubbleAccentColor,
   bubbleCompact = false,
   showBubble = true,
@@ -91,7 +93,7 @@ export default React.memo(function PinMarkerWithBubble({
   children,
 }: PinMarkerWithBubbleProps) {
   const hasBubble =
-    PIN_BUBBLES_ENABLED && showBubble && !!(bubbleTitle || bubbleText || bubbleMeta);
+    PIN_BUBBLES_ENABLED && showBubble && !!(bubbleTitle || bubbleText || bubbleMeta || bubbleLabel);
 
   const anchor = useMemo(
     () => (pinAnchor === 'center' ? { x: 0.5, y: 0.5 } : { x: 0.5, y: 1 }),
@@ -154,6 +156,7 @@ export default React.memo(function PinMarkerWithBubble({
               title={bubbleTitle}
               text={bubbleText}
               meta={bubbleMeta}
+              label={bubbleLabel}
               accentColor={bubbleAccentColor}
               compact={bubbleCompact}
             />

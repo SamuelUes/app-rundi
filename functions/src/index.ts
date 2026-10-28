@@ -18,6 +18,7 @@ import * as rechargeFundsAPI from "./api/recharge_funds";
 import * as rideLocationsSequelizeAPI from "./api/ride_locations_sequelize";
 import * as emergencyCallsSequelizeAPI from "./api/emergency_calls_sequelize";
 import * as servicesSequelizeAPI from "./api/services_sequelize";
+import * as featuresSequelizeAPI from "./api/features_sequelize";
 import * as cardsSequelizeAPI from "./api/cards_sequelize";
 import * as designatedDriverInspectionsSequelizeAPI from "./api/designated_driver_inspections_sequelize";
 import * as driverServicesSequelizeAPI from "./api/driver_services_sequelize";
@@ -492,6 +493,14 @@ export const createService = servicesSequelizeAPI.createService;
 export const getServices = servicesSequelizeAPI.getServices;
 export const getServiceById = servicesSequelizeAPI.getServiceById;
 export const updateService = servicesSequelizeAPI.updateService;
+export const listRideFeaturesForAdmin = featuresSequelizeAPI.listRideFeaturesForAdmin;
+export const upsertRideFeatureConfig = featuresSequelizeAPI.upsertRideFeatureConfig;
+export const setRideFeatureServiceAssignment = featuresSequelizeAPI.setRideFeatureServiceAssignment;
+export const grantDriverRideFeature = featuresSequelizeAPI.grantDriverRideFeature;
+export const revokeDriverRideFeature = featuresSequelizeAPI.revokeDriverRideFeature;
+export const grantVehicleRideFeature = featuresSequelizeAPI.grantVehicleRideFeature;
+export const revokeVehicleRideFeature = featuresSequelizeAPI.revokeVehicleRideFeature;
+export const getMyRideFeatureCapabilities = featuresSequelizeAPI.getMyRideFeatureCapabilities;
 
 // Cards (Sequelize)
 export const addCardSeq = cardsSequelizeAPI.addCard;

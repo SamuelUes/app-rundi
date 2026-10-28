@@ -26,6 +26,8 @@ import {
 } from '../../hooks/client/useRecurringRideForm';
 import { saveRecurringRide, MAX_RECURRING_RIDES } from '../../services/recurringRidesService';
 import { RRIcon } from '../../components/client/recurringRides/RRIcon';
+import DestPinImg from '../../assets/icons/final-marker/final-marker.svg';
+import StopPinImg from '../../assets/icons/extra-marker/extra-marker.svg';
 import mapsService from '../../services/mapsService';
 import alertService from '../../services/alertService';
 import { normalizeSuggestion, type NormalizedSuggestion } from '../../utils/suggestions';
@@ -35,8 +37,6 @@ import type { RecurringRide, RecurringRideVehicleType } from '../../types/recurr
 const { MANUAL_ORIGIN } = MAP_ICONS;
 const FALLBACK = { latitude: 12.1364, longitude: -86.2514 };
 const ORIGIN_PIN_IMG = require('../../assets/icons/origin_marker/origin_marker.png');
-const DEST_PIN_IMG = require('../../assets/icons/select-final-destination/selectfinaldestination.png');
-const STOP_PIN_IMG = require('../../assets/icons/select-extra-destination/selectextradestination_2x.png');
 
 export default function RecurringRideFormScreen({ navigation, route }: any) {
   const editingRide: RecurringRide | undefined = route?.params?.ride;
@@ -296,7 +296,7 @@ export default function RecurringRideFormScreen({ navigation, route }: any) {
               onPress={() => openSearch(index)}
               accessibilityRole="button"
             >
-              <Image source={STOP_PIN_IMG} style={styles.routePin} resizeMode="contain" />
+              <StopPinImg width={18} height={18} />
               <Text style={[styles.routeRowText, !stop.address && styles.routeRowPlaceholder]} numberOfLines={1}>
                 {stop.address || tr('labels.stopLabel', { index: index + 1 })}
               </Text>
@@ -317,7 +317,7 @@ export default function RecurringRideFormScreen({ navigation, route }: any) {
           onPress={() => openSearch('destination')}
           accessibilityRole="button"
         >
-          <Image source={DEST_PIN_IMG} style={styles.routePin} resizeMode="contain" />
+          <DestPinImg width={18} height={18} />
           <Text style={[styles.routeRowText, !destinationAddress && styles.routeRowPlaceholder]} numberOfLines={1}>
             {destinationAddress || tr('labels.destinationPlaceholder')}
           </Text>

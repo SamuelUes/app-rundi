@@ -13,7 +13,7 @@
  */
 
 export type { SupabaseGetOptions } from './rest';
-export { supabaseGet, supabasePost, supabaseUpdate, supabaseDelete, supabaseRpc } from './rest';
+export { supabaseGet, supabaseGetIn, supabasePost, supabaseUpdate, supabaseDelete, supabaseRpc } from './rest';
 export {
   supabaseGetSimpleRides,
   supabaseGetRidesWithLocationsAndPayments,

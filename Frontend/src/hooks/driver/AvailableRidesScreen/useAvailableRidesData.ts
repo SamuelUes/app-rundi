@@ -3,6 +3,7 @@ import { getDatabase, ref, onValue, get, query, orderByChild, equalTo } from 'fi
 import { extractRideVehicleTypeForMatching } from '../../../services/ridesService';
 import { getActiveRidesByAreaPath } from '../../../utils/serviceArea';
 import { RIDES_RADIUS_KM } from '../../../constants/rideRadius';
+import { useDriverRideFeatureCapabilities } from '../useDriverRideFeatureCapabilities';
 import {
   type Ride,
   type RawLocation,
@@ -65,6 +66,15 @@ const buildRide = (
     passengers: rideData.passengers || 1,
     rideType: rideData.rideType || 'normal',
     vehicleType: extractRideVehicleTypeForMatching(rideData) ?? undefined,
+    designatedDriverVehicle: rideData.designatedDriverVehicle ?? rideData.designated_driver_vehicle ?? null,
+    serviceCode: rideData.serviceCode ?? rideData.service_code ?? rideData.pricingSnapshot?.serviceCode ?? undefined,
+    featureCodes: Array.isArray(rideData.featureCodes)
+      ? rideData.featureCodes.filter((code: unknown): code is string => typeof code === 'string')
+      : Array.isArray(rideData.feature_codes)
+        ? rideData.feature_codes.filter((code: unknown): code is string => typeof code === 'string')
+        : Array.isArray(rideData.pricingSnapshot?.featureCodes)
+          ? rideData.pricingSnapshot.featureCodes.filter((code: unknown): code is string => typeof code === 'string')
+          : [],
     paymentMethod: rideData.paymentMethod,
     requestedAt,
     extraDestinations: extraStops,
@@ -89,6 +99,9 @@ export function useAvailableRidesData(
   const [activeRideGuard, setActiveRideGuard] = useState<{ id: string } | null>(null);
   const [selectedDriverVehicleType, setSelectedDriverVehicleType] = useState<'moto' | 'auto' | null>(null);
   const [driverIsDesignatedMode, setDriverIsDesignatedMode] = useState(false);
+  const [selectedDriverVehicleId, setSelectedDriverVehicleId] = useState<string | null>(null);
+  const { driverFeatureCodes, vehicleFeatureCodes } =
+    useDriverRideFeatureCapabilities(userId, selectedDriverVehicleId);
   const [driverStatus, setDriverStatus] = useState<string | null>(null);
   const [driverStatusLoaded, setDriverStatusLoaded] = useState(false);
   const ridesSnapshotsRef = useRef<Record<string, Record<string, any> | null | undefined>>({});
@@ -145,6 +158,13 @@ export function useAvailableRidesData(
         Object.entries<any>(data).forEach(([rideId, rideData]) => {
           const statusRaw = typeof rideData?.status === 'string' ? rideData.status.trim().toLowerCase() : '';
           if (statusRaw === 'canceled' || statusRaw === 'cancelled') return;
+          if (!checkRideDriverCompatibility(
+            rideData,
+            selectedDriverVehicleType,
+            driverIsDesignatedMode,
+            driverFeatureCodes,
+            vehicleFeatureCodes,
+          ).ok) return;
 
           const scheduledAtRaw = rideData?.scheduledAt;
           const scheduledAt = Number.isFinite(Number(scheduledAtRaw)) ? Number(scheduledAtRaw) : null;
@@ -171,13 +191,20 @@ export function useAvailableRidesData(
     );
 
     return () => unsubscribe();
-  }, [userId]);
+  }, [
+    userId,
+    selectedDriverVehicleType,
+    driverIsDesignatedMode,
+    driverFeatureCodes,
+    vehicleFeatureCodes,
+  ]);
 
   // Listener: driver vehicle type
   useEffect(() => {
     if (!userId) {
       setSelectedDriverVehicleType(null);
       setDriverIsDesignatedMode(false);
+      setSelectedDriverVehicleId(null);
       return;
     }
 
@@ -191,6 +218,8 @@ export function useAvailableRidesData(
         const resolvedType = resolveSelectedDriverVehicleType(info);
         setSelectedDriverVehicleType(resolvedType);
         setDriverIsDesignatedMode(Boolean(info?.isDesignatedDriverMode));
+        const rawVehicleId = info?.vehicle?.id ?? info?.currentVehicle?.id;
+        setSelectedDriverVehicleId(typeof rawVehicleId === 'string' ? rawVehicleId : null);
       },
       (error) => {
         console.warn('[AvailableRides] Error leyendo vehículo activo del conductor:', error);
@@ -313,6 +342,8 @@ export function useAvailableRidesData(
             rideData,
             selectedDriverVehicleType,
             driverIsDesignatedMode,
+            driverFeatureCodes,
+            vehicleFeatureCodes,
           );
           if (!compatibility.ok) return;
 
@@ -360,7 +391,15 @@ export function useAvailableRidesData(
       setLoading(false);
       setRefreshing(false);
     },
-    [userId, coords?.latitude, coords?.longitude, selectedDriverVehicleType, driverIsDesignatedMode],
+    [
+      userId,
+      coords?.latitude,
+      coords?.longitude,
+      selectedDriverVehicleType,
+      driverIsDesignatedMode,
+      driverFeatureCodes,
+      vehicleFeatureCodes,
+    ],
   );
 
   const applySnapshotRef = useRef(applySnapshot);

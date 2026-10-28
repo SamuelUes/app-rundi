@@ -95,6 +95,7 @@ export const markerStyles = StyleSheet.create({
     borderColor: 'rgba(0,0,0,0.08)',
   },
   requestTitle: { fontSize: 14, fontWeight: '700', color: '#0F172A', marginBottom: 4 },
+  requestServiceType: { fontSize: 11, fontWeight: '700', color: '#5D4B00', marginBottom: 4 },
   requestLine: { fontSize: 12, color: '#334155', marginBottom: 3 },
   requestMetaRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
   requestBubbleTouchable: { width: '100%', minHeight: 104, justifyContent: 'center', paddingVertical: 4 },
@@ -215,6 +216,13 @@ export const markerStyles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
     color: '#0F172A',
+  },
+  pinInfoCompactLabel: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#5D4B00',
+    marginBottom: 1,
+    textAlign: 'center',
   },
   pinInfoTail: {
     alignSelf: 'center',
@@ -355,6 +363,7 @@ export interface PinInfoBubbleProps {
   title?: string | null;
   text?: string | null;
   meta?: string | null;
+  label?: string | null;
   accentColor?: string;
   compact?: boolean;
 }
@@ -363,12 +372,14 @@ export const PinInfoBubble = React.memo(function PinInfoBubble({
   title,
   text,
   meta,
+  label,
   accentColor = '#0F172A',
   compact = false,
 }: PinInfoBubbleProps) {
   const safeTitle = typeof title === 'string' && title.trim().length > 0 ? title : null;
   const safeText = typeof text === 'string' && text.trim().length > 0 ? text : null;
   const safeMeta = typeof meta === 'string' && meta.trim().length > 0 ? meta : null;
+  const safeLabel = typeof label === 'string' && label.trim().length > 0 ? label : null;
 
   if (compact) {
     const compactText = safeMeta || safeText || safeTitle;
@@ -376,6 +387,11 @@ export const PinInfoBubble = React.memo(function PinInfoBubble({
     return (
       <View style={markerStyles.pinWithBubble} collapsable={false}>
         <View collapsable={false} style={[markerStyles.pinInfoBubble, markerStyles.pinInfoBubbleCompact]}>
+          {!!safeLabel && (
+            <Text numberOfLines={1} style={markerStyles.pinInfoCompactLabel}>
+              {safeLabel}
+            </Text>
+          )}
           <Text numberOfLines={1} style={[markerStyles.pinInfoCompactText, { color: accentColor }]}>
             {compactText}
           </Text>
@@ -385,7 +401,7 @@ export const PinInfoBubble = React.memo(function PinInfoBubble({
     );
   }
 
-  if (!safeTitle && !safeText && !safeMeta) return null;
+  if (!safeTitle && !safeText && !safeMeta && !safeLabel) return null;
 
   return (
     <View style={markerStyles.pinWithBubble} collapsable={false}>

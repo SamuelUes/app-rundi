@@ -84,6 +84,15 @@ class DriversService {
     return response.data as T;
   }
 
+  async getMyRideFeatureCapabilities(vehicleId?: string): Promise<{
+    success: boolean;
+    vehicleId: string | null;
+    driverFeatureCodes: string[];
+    vehicleFeatureCodes: string[];
+  }> {
+    return this.callFunction('getMyRideFeatureCapabilities', vehicleId ? { vehicleId } : {});
+  }
+
   async updateStatus(
     status: 'offline' | 'available' | 'busy',
     location?: Location,
@@ -129,6 +138,9 @@ class DriversService {
     radius: number = 10,
     vehicleType?: string,
     designatedDriverVehicle?: 'auto' | 'moto',
+    serviceCode?: string,
+    featureCodes: string[] = [],
+    eligibilityAt?: number,
   ): Promise<AvailableDriversResponse> {
     console.log('🚗 [driversService] Llamando getAvailableDrivers con:', {
       latitude: location.latitude,
@@ -136,6 +148,9 @@ class DriversService {
       radius,
       vehicleType,
       designatedDriverVehicle,
+      serviceCode,
+      featureCodes,
+      eligibilityAt,
     });
 
     const payload: Record<string, any> = {
@@ -150,6 +165,11 @@ class DriversService {
 
     if (designatedDriverVehicle) {
       payload.designatedDriverVehicle = designatedDriverVehicle;
+    }
+    if (serviceCode) payload.serviceCode = serviceCode;
+    if (featureCodes.length > 0) payload.featureCodes = featureCodes;
+    if (typeof eligibilityAt === 'number' && Number.isFinite(eligibilityAt)) {
+      payload.eligibilityAt = eligibilityAt;
     }
 
     const result = await this.callFunction<AvailableDriversResponse>('getAvailableDrivers', payload);

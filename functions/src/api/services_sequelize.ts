@@ -77,7 +77,7 @@ export const getServices = functions.https.onCall(async (data, context) => {
       const assignments = await supabaseGet(
         'service_feature_assignments',
         { enabled: true },
-        'service_id,configuration,features!inner(code,name,description,enabled,starts_at,ends_at,start_time,end_time,timezone,pricing_type,pricing_value,priority,stackable,metadata)',
+        'service_id,enabled,configuration,features!inner(code,name,description,enabled,starts_at,ends_at,start_time,end_time,timezone,pricing_type,pricing_value,priority,stackable,eligibility_subject,eligibility_mode,eligibility_rules,metadata)',
         { limit: 1000, requireServiceRole: true },
       ) as Array<Record<string, any>>;
 
@@ -97,11 +97,17 @@ export const getServices = functions.https.onCall(async (data, context) => {
           stackable: configuration.stackable === undefined
             ? feature.stackable !== false
             : configuration.stackable === true,
+          defaultSelected: configuration.default_selected === undefined
+            ? feature.metadata?.defaultSelected !== false
+            : configuration.default_selected === true,
           startTime: feature.start_time ?? null,
           endTime: feature.end_time ?? null,
           timezone: feature.timezone ?? 'America/Managua',
           startsAt: feature.starts_at ?? null,
           endsAt: feature.ends_at ?? null,
+          eligibilitySubject: feature.eligibility_subject ?? 'none',
+          eligibilityMode: feature.eligibility_mode ?? 'none',
+          eligibilityRules: feature.eligibility_rules ?? {},
           metadata: feature.metadata ?? {},
         });
         featuresByService.set(String(assignment.service_id), options);

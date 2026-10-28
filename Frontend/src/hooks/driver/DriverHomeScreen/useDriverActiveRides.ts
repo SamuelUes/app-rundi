@@ -234,6 +234,13 @@ export function useDriverActiveRides({
                 clientId: ride.clientId,
                 rideType: ride.rideType ?? ride.ride_type,
                 vehicleType: ride.vehicleType ?? ride.vehicle_type,
+                designatedDriverVehicle: ride.designatedDriverVehicle ?? ride.designated_driver_vehicle,
+                serviceCode: ride.serviceCode ?? ride.pricingSnapshot?.serviceCode ?? ride.service_code,
+                featureCodes: Array.isArray(ride.featureCodes)
+                  ? ride.featureCodes
+                  : Array.isArray(ride.pricingSnapshot?.featureCodes)
+                    ? ride.pricingSnapshot.featureCodes
+                    : [],
                 clientName: ride.client?.name || ride.clientName || 'Cliente',
                 originAddress: ride.originAddress || ride.origin?.address || 'Origen',
                 finalDestination: ride.destinationAddress || ride.destination?.address || 'Destino',

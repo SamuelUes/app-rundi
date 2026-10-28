@@ -214,6 +214,11 @@
           "estimatedDistance": "number (meters)",
           "estimatedDuration": "number (seconds)",
           "estimatedPrice": "number (córdobas)",
+          "pricingSnapshot": "object | null (snapshot autoritativo: serviceCode, featureCodes, surge, comisión)",
+          "featureCodes": "string[] (features validados solicitados: night | senior | premium | pet_friendly | ...)",
+          "serviceCode": "string | null (normal | motorcycle | designated_driver_auto | designated_driver_moto | night)",
+          "serviceId": "string | null (UUID de services en Supabase)",
+          "surgeMultiplier": "number",
           "eta": "number | null (minutes)",
           "distanceTraveled": "number (meters)",
           "rideType": "string (normal | premium | shared | designated_driver | designated_driver_moto)",
@@ -251,6 +256,8 @@
           "estimatedDuration": "number (seconds)",
           "estimatedPrice": "number (córdobas)",
           "requestedAt": "number (unix timestamp)",
+          "featureCodes": "string[] (features del viaje para filtrado de capacidades)",
+          "serviceCode": "string | null",
           "serviceAreaId": "string (referencia a service_areas)",
           "lastUpdate": "number (unix timestamp)"
         },
@@ -442,6 +449,10 @@
           "destination": { "lat": "number", "lng": "number", "address": "string" },
           "rideType": "string (normal | premium | shared | designated_driver | designated_driver_moto)",
           "estimatedPrice": "number",
+          "pricingSnapshot": "object | null",
+          "featureCodes": "string[] (features validados solicitados)",
+          "serviceCode": "string | null",
+          "serviceId": "string | null",
           "createdAt": "number"
         },
         "security_rules": {

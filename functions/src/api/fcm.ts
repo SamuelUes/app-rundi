@@ -2,8 +2,14 @@ import * as functions from "firebase-functions/v1";
 import admin from "firebase-admin";
 import { firestore } from "../config/firebase";
 import { sendNotificationToUserWithTokens, subscribeTokenToTopics, unsubscribeTokenFromTopics } from "../services/pushNotifications";
+import { requireDriver } from "../utils/sessionUtils";
+import { FeatureRepository } from "../sequelize/repositories/FeatureRepository";
+import { getFeaturePoliciesForService, getRideFeatureCapabilitiesForDriver } from "../helpers/rideFeatureService";
+import { resolveRideFeatureEligibility } from "../helpers/featureEligibility";
+import { serviceCodeFromRideFields } from "../helpers/priceCalculator";
 
 const TOKENS_SUBCOLLECTION = "fcmTokens";
+const featureRepository = new FeatureRepository();
 
 const FCM_TOPICS_ALL = "all";
 const FCM_TOPICS_CLIENTS = "clients";
@@ -109,14 +115,85 @@ interface NotifyProximityPayload {
 
 // Enviar notificación de "viaje por aproximación" a un conductor específico
 export const notifyProximityRide = functions.https.onCall(async (data: NotifyProximityPayload, context) => {
-  if (!context.auth?.uid) {
-    throw new functions.https.HttpsError("unauthenticated", "Usuario no autenticado");
+  const driverId = await requireDriver(context);
+  const requestedRideId = typeof data?.ride?.id === 'string' ? data.ride.id : '';
+  if (!requestedRideId) {
+    throw new functions.https.HttpsError("invalid-argument", "ride.id es requerido");
   }
 
-  const driverId = (data?.driverId || context.auth.uid) as string;
-  const ride = data?.ride;
-  if (!driverId || !ride?.id || !ride?.origin) {
-    throw new functions.https.HttpsError("invalid-argument", "driverId y ride son requeridos");
+  const rideSnapshot = await admin.database().ref(`activeRides/${requestedRideId}`).once('value');
+  const ride = rideSnapshot.val();
+  if (
+    !ride ||
+    String(ride.status ?? '').toLowerCase() !== 'requested' ||
+    ride.driverId
+  ) {
+    return { success: false, message: 'Ride no disponible' };
+  }
+
+  const driverInfoSnapshot = await admin.database().ref(`driversInfo/${driverId}`).once('value');
+  const driverInfo = driverInfoSnapshot.val() || {};
+  const driverVehicleType = String(driverInfo.vehicle?.type ?? driverInfo.vehicleType ?? '').toLowerCase();
+  const driverHasMoto = driverVehicleType.includes('moto') || driverVehicleType.includes('motorcycle');
+  const rideType = String(ride.rideType ?? ride.ride_type ?? 'normal').toLowerCase();
+  const rideHasMoto = String(
+    rideType === 'designated_driver'
+      ? ride.designatedDriverVehicle ?? ride.designated_driver_vehicle ?? ''
+      : ride.vehicleType ?? ride.vehicle_type ?? '',
+  ).toLowerCase().includes('moto');
+  if (
+    (rideType === 'designated_driver' && !driverInfo.isDesignatedDriverMode) ||
+    driverHasMoto !== rideHasMoto
+  ) {
+    return { success: false, message: 'Ride vehicle type not compatible' };
+  }
+
+  const featureCodes = Array.isArray(ride.featureCodes)
+    ? ride.featureCodes.filter((code: unknown): code is string => typeof code === 'string')
+    : Array.isArray(ride.pricingSnapshot?.featureCodes)
+      ? ride.pricingSnapshot.featureCodes.filter((code: unknown): code is string => typeof code === 'string')
+      : [];
+  if (featureCodes.length > 0) {
+    const serviceCode = String(
+      ride.pricingSnapshot?.serviceCode ??
+      ride.serviceCode ??
+      serviceCodeFromRideFields(ride.rideType, ride.vehicleType, ride.designatedDriverVehicle),
+    );
+    const serviceId =
+      (typeof ride.serviceId === 'string' && ride.serviceId) ||
+      await featureRepository.findServiceIdByCode(serviceCode);
+    if (!serviceId) return { success: false, message: 'Ride feature service unavailable' };
+
+    const vehicleId = driverInfo.vehicle?.id ?? driverInfo.currentVehicle?.id ?? null;
+    try {
+      const capabilities = await getRideFeatureCapabilitiesForDriver(
+        driverId,
+        typeof vehicleId === 'string' ? vehicleId : null,
+      );
+      const eligibility = resolveRideFeatureEligibility(
+        await getFeaturePoliciesForService(serviceId),
+        featureCodes,
+        {
+          serviceCode,
+          rideType: String(ride.rideType ?? ride.ride_type ?? 'normal'),
+          vehicleType: String(ride.vehicleType ?? ride.vehicle_type ?? 'auto'),
+          designatedDriverVehicle: ride.designatedDriverVehicle ?? ride.designated_driver_vehicle ?? null,
+          driverFeatureCodes: capabilities.driverFeatureCodes,
+          vehicleFeatureCodes: capabilities.vehicleFeatureCodes,
+          vehicleFacts: capabilities.vehicleFacts,
+          at: new Date(ride.scheduledAt ?? ride.createdAt ?? Date.now()),
+          currentTime: new Date(),
+        },
+      );
+      if (!eligibility.eligible) return { success: false, message: 'Ride feature not eligible' };
+    } catch (error) {
+      console.warn('[notifyProximityRide] No se pudo validar la elegibilidad del feature', {
+        rideId: requestedRideId,
+        driverId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return { success: false, message: 'Ride feature eligibility unavailable' };
+    }
   }
 
   // Obtener tokens del conductor
@@ -131,16 +208,38 @@ export const notifyProximityRide = functions.https.onCall(async (data: NotifyPro
     return { success: false, message: "No hay tokens FCM para el conductor" };
   }
 
+  const distanceMeters = Number(data?.ride?.distanceMeters);
   const title = "🚨 Solicitud cercana";
-  const body = `${ride?.distanceMeters ? Math.max(1, Math.round(Number(ride.distanceMeters))) + 'm' : ''} • C$${Math.round(Number(ride.estimatedPrice || 0))} • ${ride?.origin?.address || 'Cerca de ti'}`;
+  const body = `${Number.isFinite(distanceMeters) && distanceMeters > 0 ? Math.max(1, Math.round(distanceMeters)) + 'm' : ''} • C$${Math.round(Number(ride.estimatedPrice || 0))} • ${ride?.origin?.address || 'Cerca de ti'}`;
+  const notificationRide = {
+    id: requestedRideId,
+    clientId: ride.clientId ?? null,
+    clientName: ride.clientName ?? null,
+    status: ride.status,
+    origin: ride.origin ?? null,
+    destination: ride.destination ?? null,
+    extraDestinations: ride.extraDestinations ?? null,
+    estimatedPrice: ride.estimatedPrice ?? null,
+    estimatedDistance: ride.estimatedDistance ?? null,
+    estimatedDuration: ride.estimatedDuration ?? null,
+    clientSuggestedPrice: ride.clientSuggestedPrice ?? null,
+    featureCodes,
+    serviceCode: ride.pricingSnapshot?.serviceCode ?? ride.serviceCode ?? null,
+    rideType: ride.rideType ?? null,
+    vehicleType: ride.vehicleType ?? null,
+    designatedDriverVehicle: ride.designatedDriverVehicle ?? null,
+    passengers: ride.passengers ?? null,
+    paymentMethod: ride.paymentMethod ?? null,
+    distanceMeters: Number.isFinite(distanceMeters) && distanceMeters > 0 ? Math.round(distanceMeters) : undefined,
+  };
 
   await sendNotificationToUserWithTokens(driverId, tokens, {
     title,
     body,
     data: {
       type: "proximity_ride",
-      ride: JSON.stringify(ride),
-      nearbyRides: JSON.stringify(Array.isArray(data?.nearbyRides) ? data?.nearbyRides : []),
+      ride: JSON.stringify(notificationRide),
+      nearbyRides: JSON.stringify([notificationRide]),
     },
     androidChannelId: "rundi-default-v2",
     notificationKey: `proximity-ride-${ride.id}`,

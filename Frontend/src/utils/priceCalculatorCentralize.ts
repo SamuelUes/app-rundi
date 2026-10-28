@@ -83,7 +83,7 @@ interface ServiceAreaDoc {
 
 const STOP_FEE = 20;
 const SERVICE_AREAS_CACHE_TTL_MS = 5 * 60 * 1000;
-const REMOTE_TIMEOUT_MS = 3000;
+const REMOTE_TIMEOUT_MS = 10000;
 const PRICE_ENDPOINT = '/calculateRidePriceHttp';
 
 const DEFAULT_SERVICE_AREA: ServiceAreaDoc = {

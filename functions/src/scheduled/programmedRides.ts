@@ -8,6 +8,8 @@ import {
   serviceCodeFromRideFields,
 } from '../helpers/priceCalculator';
 import { calculateCommissionAmount } from '../helpers/pricingRules';
+import { isRideVehicleCompatible } from '../helpers/featureEligibility';
+import { evaluateDriverRideFeatureEligibility } from '../helpers/rideFeatureService';
 
 const db = admin.database();
 
@@ -179,6 +181,7 @@ const buildActiveRidePayload = (rideId: string, programmedRide: any, options: { 
     estimatedPrice: programmedRide.estimatedPrice ?? null,
     pricingSnapshot: programmedRide.pricingSnapshot ?? null,
     featureCodes: programmedRide.featureCodes ?? [],
+    serviceCode: programmedRide.pricingSnapshot?.serviceCode ?? programmedRide.serviceCode ?? null,
     surgeMultiplier: programmedRide.surgeMultiplier ?? 1,
     estimatedDistance: programmedRide.estimatedDistance ?? null,
     estimatedDuration: programmedRide.estimatedDuration ?? null,
@@ -405,7 +408,45 @@ export const processProgrammedRides = functions
         continue;
       }
 
-      const activateWithDriver = Boolean(rawRide.driverId && hasDriverConfirmed);
+      let activateWithDriver = Boolean(rawRide.driverId && hasDriverConfirmed);
+      if (activateWithDriver) {
+        const driverId = String(rawRide.driverId);
+        const driverInfoSnapshot = await db.ref(`driversInfo/${driverId}`).once('value');
+        const driverInfo = driverInfoSnapshot.val() || {};
+        const vehicleId = driverInfo?.vehicle?.id ?? driverInfo?.currentVehicle?.id ?? null;
+        const vehicleCompatible = isRideVehicleCompatible({
+          rideType: String(rawRide.rideType ?? rawRide.ride_type ?? 'normal'),
+          vehicleType: String(rawRide.vehicleType ?? rawRide.vehicle_type ?? 'auto'),
+          designatedDriverVehicle: rawRide.designatedDriverVehicle ?? rawRide.designated_driver_vehicle ?? null,
+          driverVehicleType: driverInfo?.vehicle?.type ?? driverInfo?.vehicleType ?? driverInfo?.currentVehicle?.type,
+          driverIsDesignatedDriverMode: Boolean(driverInfo?.isDesignatedDriverMode),
+        });
+        const eligibility = vehicleCompatible
+          ? await evaluateDriverRideFeatureEligibility(
+              rawRide,
+              driverId,
+              typeof vehicleId === 'string' ? vehicleId : null,
+            )
+          : { eligible: false, reason: 'vehicle_type_mismatch' };
+        if (!eligibility.eligible) {
+          activateWithDriver = false;
+          await db.ref(`programmedRides/${rideId}`).update({
+            driverId: null,
+            driver: null,
+            driverConfirmed: false,
+            driverConfirmedAt: null,
+            driverConfirmationRequestedAt: null,
+            status: 'client_confirmed',
+            updatedAt: admin.database.ServerValue.TIMESTAMP,
+          });
+          await programmedNotify(
+            driverId,
+            'Viaje programado no asignado',
+            'Tus capacidades o las del vehículo ya no coinciden con este servicio.',
+            { rideId, type: 'programmed_ride_driver_unassigned' },
+          );
+        }
+      }
       const promotedRide = {
         ...rawRide,
         driverId: activateWithDriver ? rawRide.driverId : null,

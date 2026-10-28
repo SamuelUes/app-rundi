@@ -79,6 +79,39 @@ export async function supabaseGet(
   }
 }
 
+export async function supabaseGetIn(
+  table: string,
+  column: string,
+  values: readonly string[],
+  select: string = '*',
+  options: SupabaseGetOptions = {},
+) {
+  const normalizedValues = [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+  if (normalizedValues.length === 0) return [];
+
+  const limit = Math.min(Math.max(options.limit ?? 1000, 1), 10000);
+  const query = new URLSearchParams({
+    select,
+    limit: String(limit),
+    [column]: `in.(${normalizedValues.map((value) => `"${value.replace(/"/g, '\\"')}"`).join(',')})`,
+  });
+  const url = `${supabaseUrl}/rest/v1/${table}?${query.toString()}`;
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: buildHeaders(options.requireServiceRole ?? false, {
+      ...(options.preferExactCount ? { Prefer: 'count=exact' } : {}),
+      ...options.headers,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Supabase GET ${table} IN failed: HTTP ${response.status}: ${errorText}`);
+  }
+
+  return await response.json();
+}
+
 export async function supabasePost(table: string, data: Record<string, any>) {
   try {
     const url = `${supabaseUrl}/rest/v1/${table}`;

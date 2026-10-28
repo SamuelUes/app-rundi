@@ -30,15 +30,30 @@ export function useDriversAvailability(
   coords: Coords | null,
   vehicleType: VehicleType,
   designatedDriverMode: DesignatedDriverMode,
+  serviceCode: string,
+  featureCodes: string[] | undefined,
+  eligibilityAt: number,
 ) {
   const [availabilityByType, setAvailabilityByType] = useState<RideAvailabilityByType | null>(null);
   const [checkingDrivers, setCheckingDrivers] = useState(false);
-  const lastFetchRef = useRef<{ coords: Coords; at: number } | null>(null);
+  const lastFetchRef = useRef<{ coords: Coords; at: number; requestKey: string } | null>(null);
 
   useEffect(() => {
     if (!coords) return;
     const last = lastFetchRef.current;
-    if (last && Date.now() - last.at < REFETCH_MIN_INTERVAL_MS && metersBetween(last.coords, coords) < REFETCH_MIN_DISTANCE_M) {
+    const requestKey = [
+      vehicleType,
+      designatedDriverMode,
+      serviceCode,
+      featureCodes?.join(',') ?? '',
+      Math.floor(eligibilityAt / 60_000),
+    ].join('|');
+    if (
+      last &&
+      last.requestKey === requestKey &&
+      Date.now() - last.at < REFETCH_MIN_INTERVAL_MS &&
+      metersBetween(last.coords, coords) < REFETCH_MIN_DISTANCE_M
+    ) {
       return;
     }
 
@@ -46,7 +61,17 @@ export function useDriversAvailability(
     const check = async () => {
       setCheckingDrivers(true);
       try {
-        const result = await driversService.checkAvailableDrivers(coords, SEARCH_RADIUS_KM);
+        const requestedVehicleType =
+          vehicleType === 'designated_driver' ? 'designated_driver' : vehicleType;
+        const result = await driversService.checkAvailableDrivers(
+          coords,
+          SEARCH_RADIUS_KM,
+          requestedVehicleType,
+          vehicleType === 'designated_driver' ? designatedDriverMode : undefined,
+          serviceCode,
+          featureCodes ?? [],
+          eligibilityAt,
+        );
         if (cancelled) return;
         const counts: RideAvailabilityByType = { moto: 0, auto: 0, designatedAuto: 0, designatedMoto: 0 };
         for (const driver of result.drivers ?? []) {
@@ -54,7 +79,7 @@ export function useDriversAvailability(
           if (bucket) counts[bucket] += 1;
         }
         setAvailabilityByType(counts);
-        lastFetchRef.current = { coords, at: Date.now() };
+        lastFetchRef.current = { coords, at: Date.now(), requestKey };
       } catch {
         if (!cancelled) setAvailabilityByType(null);
       } finally {
@@ -65,7 +90,7 @@ export function useDriversAvailability(
     return () => {
       cancelled = true;
     };
-  }, [coords]);
+  }, [coords, vehicleType, designatedDriverMode, serviceCode, featureCodes?.join(','), eligibilityAt]);
 
   const driversAvailable =
     availabilityByType == null

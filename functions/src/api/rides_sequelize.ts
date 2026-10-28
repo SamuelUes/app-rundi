@@ -4,7 +4,7 @@ import { randomInt } from 'crypto';
 import { DriverRepository } from '../sequelize/repositories/DriverRepository';
 import { RideLocationRepository } from '../sequelize/repositories/RideLocationRepository';
 import { RideService } from '../sequelize/services/RideService';
-import { supabaseGetRidesWithLocationsAndPayments } from '../supabase/client';
+import { supabaseGet, supabaseGetRidesWithLocationsAndPayments } from '../supabase/client';
 import { mapRides } from './rideHistory';
 import { notifyUserSafe } from '../services/notifyUserSafe';
 import { notifyLiveRideUpdate, LiveRideNotificationPayload } from '../services/liveRideNotifications';
@@ -26,6 +26,13 @@ import { DEFAULT_SERVICE_AREA_ID, PUSH_NOTIFICATIONS_ENABLED } from '../config/c
 import { ensureActiveSession, requireDriver, requireClient } from '../utils/sessionUtils';
 import { assertNotCrewFollower, getCrewMembership } from '../helpers/designatedCrewStore';
 import { complianceService } from '../sequelize/services/compliance';
+import { FeatureRepository } from '../sequelize/repositories/FeatureRepository';
+import {
+  evaluateDriverRideFeatureEligibility,
+  getFeaturePoliciesForService,
+  getRideFeatureCapabilitiesForDriver,
+} from '../helpers/rideFeatureService';
+import { isRideVehicleCompatible, resolveRideFeatureEligibility } from '../helpers/featureEligibility';
 import sequelize, { isSequelizeAvailable } from '../sequelize/config/database';
 import {
   AcceptRideSchema,
@@ -61,6 +68,7 @@ const serviceRepo = new ServiceRepository();
 const paymentRepo = new PaymentRepository();
 const vehicleRepo = new VehicleRepository();
 const inspectionRepo = new DesignatedDriverInspectionRepository();
+const featureRepo = new FeatureRepository();
 
 const safeLogRideEvent = async (
   eventType: string,
@@ -635,6 +643,39 @@ const assignDriverToProgrammedRideCore = async (
   if (rideType === 'designated_driver' && driverRole !== 'designated_driver') {
     throw new functions.https.HttpsError('permission-denied', 'Este viaje requiere un conductor designado');
   }
+  const driverInfo = await fetchDriverInfoFromRealtime(driverId);
+  if (!isRideVehicleCompatible({
+    rideType: String(preData.rideType ?? preData.ride_type ?? 'normal'),
+    vehicleType: String(preData.vehicleType ?? preData.vehicle_type ?? 'auto'),
+    designatedDriverVehicle: preData.designatedDriverVehicle ?? preData.designated_driver_vehicle ?? null,
+    driverVehicleType: driverInfo?.vehicle?.type ?? driverInfo?.vehicleType ?? driverInfo?.currentVehicle?.type,
+    driverIsDesignatedDriverMode: Boolean(driverInfo?.isDesignatedDriverMode),
+  })) {
+    throw new functions.https.HttpsError('failed-precondition', 'El vehículo del conductor no es compatible');
+  }
+  const selectedVehicleId = driverInfo?.vehicle?.id ?? driverInfo?.currentVehicle?.id ?? null;
+  try {
+    const eligibility = await evaluateDriverRideFeatureEligibility(
+      preData,
+      driverId,
+      typeof selectedVehicleId === 'string' ? selectedVehicleId : null,
+    );
+    if (!eligibility.eligible) {
+      throw new functions.https.HttpsError(
+        'failed-precondition',
+        'RIDE_FEATURE_INELIGIBLE',
+        { reason: eligibility.reason ?? 'feature_requirement_not_met' },
+      );
+    }
+  } catch (error: any) {
+    if (error instanceof functions.https.HttpsError) throw error;
+    console.warn('[assignDriverToProgrammedRide] No se pudo validar elegibilidad de features', {
+      rideId,
+      driverId,
+      error: error?.message || error,
+    });
+    throw new functions.https.HttpsError('failed-precondition', 'RIDE_FEATURE_ELIGIBILITY_UNAVAILABLE');
+  }
 
   // Transacción: solo un conductor puede tomar el viaje; si otro claim/assign
   // concurrente ya puso driverId, la transacción se aborta.
@@ -671,7 +712,6 @@ const assignDriverToProgrammedRideCore = async (
 
   const rideData = txResult.snapshot.val();
 
-  const driverInfo = await fetchDriverInfoFromRealtime(driverId);
   await rideRef.update({ driver: driverInfo });
 
   await notifyUserSafe(rideData.clientId, '🚗 Conductor asignado', 'Un conductor se asignó a tu viaje programado.', {
@@ -926,6 +966,40 @@ export const confirmProgrammedRideDriver = functions.https.onCall(async (data, c
 
   if (rideData.driverId !== driverId) {
     throw new functions.https.HttpsError('permission-denied', 'No eres el conductor asignado a este viaje');
+  }
+
+  const driverInfo = await fetchDriverInfoFromRealtime(driverId);
+  if (!isRideVehicleCompatible({
+    rideType: String(rideData.rideType ?? rideData.ride_type ?? 'normal'),
+    vehicleType: String(rideData.vehicleType ?? rideData.vehicle_type ?? 'auto'),
+    designatedDriverVehicle: rideData.designatedDriverVehicle ?? rideData.designated_driver_vehicle ?? null,
+    driverVehicleType: driverInfo?.vehicle?.type ?? driverInfo?.vehicleType ?? driverInfo?.currentVehicle?.type,
+    driverIsDesignatedDriverMode: Boolean(driverInfo?.isDesignatedDriverMode),
+  })) {
+    throw new functions.https.HttpsError('failed-precondition', 'El vehículo del conductor no es compatible');
+  }
+  const selectedVehicleId = driverInfo?.vehicle?.id ?? driverInfo?.currentVehicle?.id ?? null;
+  try {
+    const eligibility = await evaluateDriverRideFeatureEligibility(
+      rideData,
+      driverId,
+      typeof selectedVehicleId === 'string' ? selectedVehicleId : null,
+    );
+    if (!eligibility.eligible) {
+      throw new functions.https.HttpsError(
+        'failed-precondition',
+        'RIDE_FEATURE_INELIGIBLE',
+        { reason: eligibility.reason ?? 'feature_requirement_not_met' },
+      );
+    }
+  } catch (error: any) {
+    if (error instanceof functions.https.HttpsError) throw error;
+    console.warn('[confirmProgrammedRideDriver] No se pudo validar elegibilidad de features', {
+      rideId,
+      driverId,
+      error: error?.message || error,
+    });
+    throw new functions.https.HttpsError('failed-precondition', 'RIDE_FEATURE_ELIGIBILITY_UNAVAILABLE');
   }
 
   const now = admin.database.ServerValue.TIMESTAMP;
@@ -1316,6 +1390,16 @@ const normalizeRealtimeRide = (rideId: string, raw: any) => {
     raw?.designatedDriverVehicle ?? raw?.designated_driver_vehicle,
   );
   const serviceId = raw?.serviceId ?? raw?.service_id ?? undefined;
+  const serviceCode =
+    raw?.serviceCode ??
+    raw?.service_code ??
+    raw?.pricingSnapshot?.serviceCode ??
+    raw?.pricing_snapshot?.serviceCode ??
+    undefined;
+  const featureCodes = Array.isArray(raw?.featureCodes ?? raw?.feature_codes)
+    ? (raw?.featureCodes ?? raw?.feature_codes)
+      .filter((code: unknown): code is string => typeof code === 'string')
+    : [];
   const clientVehiclePhoto = raw?.clientVehiclePhoto ?? raw?.client_vehicle_photo ?? undefined;
 
   const estimatedPrice = toOptionalNumber(raw?.estimatedPrice ?? raw?.estimated_price ?? raw?.payment?.estimatedPrice) ?? 0;
@@ -1355,6 +1439,8 @@ const normalizeRealtimeRide = (rideId: string, raw: any) => {
   vehicleType: vehicleType ?? undefined,
   designatedDriverVehicle: designatedDriverVehicle ?? undefined,
     serviceId,
+    serviceCode,
+    featureCodes,
     clientVehiclePhoto,
     negotiationStatus: raw?.negotiationStatus ?? raw?.negotiation_status ?? null,
     clientName: raw?.clientName ?? client?.name ?? undefined,
@@ -1441,6 +1527,13 @@ export const getAvailableRides = functions.https.onCall(async (data, context) =>
     null;
   const driverVehicleType = normalizeVehicleType(driverVehicleTypeRaw) ?? 'auto';
   const driverIsDesignatedDriverMode = Boolean(driverInfo?.isDesignatedDriverMode);
+  const activeVehicleId =
+    typeof driverInfo?.vehicle?.id === 'string'
+      ? driverInfo.vehicle.id
+      : typeof driverInfo?.currentVehicle?.id === 'string'
+        ? driverInfo.currentVehicle.id
+        : null;
+  let driverCapabilities: Awaited<ReturnType<typeof getRideFeatureCapabilitiesForDriver>> | null = null;
 
   let rawValue: any = {};
   let usedPath = '';
@@ -1525,6 +1618,43 @@ export const getAvailableRides = functions.https.onCall(async (data, context) =>
       continue;
     }
 
+    if (normalized.featureCodes?.length) {
+      try {
+        driverCapabilities ??= await getRideFeatureCapabilitiesForDriver(uid, activeVehicleId);
+        const serviceCode = String(normalized.serviceCode ?? serviceCodeFromRideFields(
+          normalized.rideType,
+          normalized.vehicleType,
+          normalized.designatedDriverVehicle,
+        ));
+        const serviceId =
+          (typeof normalized.serviceId === 'string' && normalized.serviceId) ||
+          await featureRepo.findServiceIdByCode(serviceCode);
+        if (!serviceId) continue;
+        const eligibility = resolveRideFeatureEligibility(
+          await getFeaturePoliciesForService(serviceId),
+          normalized.featureCodes,
+          {
+            serviceCode,
+            rideType: normalized.rideType ?? 'normal',
+            vehicleType: normalized.vehicleType ?? 'auto',
+            designatedDriverVehicle: normalized.designatedDriverVehicle ?? null,
+            driverFeatureCodes: driverCapabilities.driverFeatureCodes,
+            vehicleFeatureCodes: driverCapabilities.vehicleFeatureCodes,
+            vehicleFacts: driverCapabilities.vehicleFacts,
+            at: normalized.requestedAt ? new Date(normalized.requestedAt) : new Date(),
+            currentTime: new Date(),
+          },
+        );
+        if (!eligibility.eligible) continue;
+      } catch (featureError) {
+        console.warn('[getAvailableRides] Ride feature eligibility unavailable; hiding ride', {
+          rideId,
+          error: featureError instanceof Error ? featureError.message : String(featureError),
+        });
+        continue;
+      }
+    }
+
     rides.push({
       id: normalized.id,
       status: normalized.status,
@@ -1547,6 +1677,8 @@ export const getAvailableRides = functions.https.onCall(async (data, context) =>
       vehicleType: normalized.vehicleType,
       designatedDriverVehicle: normalized.designatedDriverVehicle,
       serviceId: normalized.serviceId,
+      serviceCode: normalized.serviceCode,
+      featureCodes: normalized.featureCodes,
       clientVehiclePhoto: normalized.clientVehiclePhoto,
       negotiationStatus: normalized.negotiationStatus,
       rejections: normalized.rejections?.[uid]
@@ -2278,6 +2410,8 @@ export const createRide = functions.https.onCall(async (data, context) => {
       estimatedPrice,
       pricingSnapshot,
       featureCodes: pricingSnapshot?.featureCodes ?? [],
+      serviceCode: pricingSnapshot?.serviceCode ?? null,
+      serviceId,
       surgeMultiplier: pricingSnapshot?.surgeMultiplier ?? 1,
       estimatedDistance,
       estimatedDuration,
@@ -2490,6 +2624,84 @@ export const acceptRide = functions.https.onCall(async (data, context) => {
       throw new functions.https.HttpsError('failed-precondition', message);
     }
 
+    const activeVehicleId =
+      vehicleId ??
+      driverRealtimeInfo?.vehicle?.id ??
+      driverRealtimeInfo?.currentVehicle?.id ??
+      null;
+    let persistedRide: Record<string, any> | null = null;
+    if (!IS_LOAD_TEST) {
+      const rideRows = await supabaseGet(
+        'rides',
+        { id: rideId },
+        'id,service_id,ride_type,vehicle_type,designated_driver_vehicle,feature_codes,pricing_snapshot,requested_at',
+        { limit: 1, requireServiceRole: true },
+      ) as Array<Record<string, any>>;
+      persistedRide = rideRows[0] ?? null;
+    }
+
+    const featureCodes = Array.isArray(persistedRide?.feature_codes)
+      ? persistedRide.feature_codes.filter((code: unknown): code is string => typeof code === 'string')
+      : Array.isArray(firebaseRideData.featureCodes)
+        ? firebaseRideData.featureCodes.filter((code: unknown): code is string => typeof code === 'string')
+        : [];
+    if (!IS_LOAD_TEST && featureCodes.length > 0) {
+      const serviceCode =
+        String(persistedRide?.pricing_snapshot?.serviceCode ?? firebaseRideData?.pricingSnapshot?.serviceCode ?? '') ||
+        serviceCodeFromRideFields(
+          persistedRide?.ride_type ?? firebaseRideData.rideType,
+          persistedRide?.vehicle_type ?? firebaseRideData.vehicleType,
+          persistedRide?.designated_driver_vehicle ?? firebaseRideData.designatedDriverVehicle,
+        );
+      const serviceId =
+        (typeof persistedRide?.service_id === 'string' && persistedRide.service_id) ||
+        (typeof firebaseRideData.serviceId === 'string' && firebaseRideData.serviceId) ||
+        await featureRepo.findServiceIdByCode(serviceCode);
+      if (!serviceId) {
+        throw new functions.https.HttpsError('failed-precondition', 'RIDE_FEATURE_SERVICE_MISSING');
+      }
+
+      let capabilities;
+      try {
+        capabilities = await getRideFeatureCapabilitiesForDriver(driverId, activeVehicleId);
+      } catch (error: any) {
+        if (error?.message === 'ACTIVE_VEHICLE_NOT_OWNED') {
+          throw new functions.https.HttpsError('failed-precondition', 'ACTIVE_VEHICLE_NOT_OWNED');
+        }
+        throw new functions.https.HttpsError('internal', 'No se pudieron validar las capacidades del conductor');
+      }
+
+      const requestAtValue =
+        firebaseRideData.scheduledAt ??
+        persistedRide?.requested_at ??
+        firebaseRideData.createdAt ??
+        Date.now();
+      const requestAt = new Date(requestAtValue);
+      const eligibility = resolveRideFeatureEligibility(
+        await getFeaturePoliciesForService(serviceId),
+        featureCodes,
+        {
+          serviceCode,
+          rideType: String(persistedRide?.ride_type ?? firebaseRideData.rideType ?? 'normal'),
+          vehicleType: String(persistedRide?.vehicle_type ?? firebaseRideData.vehicleType ?? 'auto'),
+          designatedDriverVehicle:
+            persistedRide?.designated_driver_vehicle ?? firebaseRideData.designatedDriverVehicle ?? null,
+          driverFeatureCodes: capabilities.driverFeatureCodes,
+          vehicleFeatureCodes: capabilities.vehicleFeatureCodes,
+          vehicleFacts: capabilities.vehicleFacts,
+          at: requestAt,
+          currentTime: new Date(),
+        },
+      );
+      if (!eligibility.eligible) {
+        throw new functions.https.HttpsError(
+          'failed-precondition',
+          'RIDE_FEATURE_INELIGIBLE',
+          { reason: eligibility.reason ?? 'feature_requirement_not_met' },
+        );
+      }
+    }
+
     if (IS_LOAD_TEST) {
       const currentData = firebaseRideData || {};
       let newStatus = 'accepted';
@@ -2551,11 +2763,7 @@ export const acceptRide = functions.https.onCall(async (data, context) => {
 
     // ✅ Compliance documental: el conductor+vehículo deben estar habilitados
     try {
-      const effectiveVehicleId =
-        vehicleId ??
-        driverRealtimeInfo?.vehicle?.id ??
-        driverRealtimeInfo?.currentVehicle?.id ??
-        null;
+      const effectiveVehicleId = activeVehicleId;
 
       const evaluation = effectiveVehicleId
         ? await complianceService.canDriverOperateVehicle(
@@ -4143,6 +4351,13 @@ export const getRideDetails = functions.https.onCall(async (data, context) => {
             clientId: ride.client_id,
             driverId: ride.driver_id,
             status: ride.status,
+            rideType: ride.ride_type,
+            vehicleType: ride.vehicle_type,
+            designatedDriverVehicle: ride.designated_driver_vehicle,
+            serviceId: ride.service_id,
+            serviceCode: ride.pricing_snapshot?.serviceCode ?? null,
+            featureCodes: ride.feature_codes ?? [],
+            pricingSnapshot: ride.pricing_snapshot ?? null,
             estimatedPrice: ride.estimated_price,
             finalFare: ride.final_fare,
             createdAt: ride.created_at,
@@ -4186,6 +4401,13 @@ export const getRideDetails = functions.https.onCall(async (data, context) => {
         completedAt: rideData.completedAt ?? null,
         canceledAt: rideData.canceledAt ?? null,
         paymentType: rideData.paymentType ?? null,
+        rideType: rideData.rideType ?? null,
+        vehicleType: rideData.vehicleType ?? null,
+        designatedDriverVehicle: rideData.designatedDriverVehicle ?? null,
+        serviceId: rideData.serviceId ?? null,
+        serviceCode: rideData.serviceCode ?? rideData.pricingSnapshot?.serviceCode ?? null,
+        featureCodes: Array.isArray(rideData.featureCodes) ? rideData.featureCodes : [],
+        pricingSnapshot: rideData.pricingSnapshot ?? null,
         payments: [],
         locations: [],
         primaryPayment: null,

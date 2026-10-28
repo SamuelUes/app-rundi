@@ -15,6 +15,8 @@ import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useRecurringRides } from '../../hooks/client/useRecurringRides';
 import { deleteRecurringRide, MAX_RECURRING_RIDES } from '../../services/recurringRidesService';
 import { RRIcon } from '../../components/client/recurringRides/RRIcon';
+import DestPinImg from '../../assets/icons/final-marker/final-marker.svg';
+import StopPinImg from '../../assets/icons/extra-marker/extra-marker.svg';
 import alertService from '../../services/alertService';
 import type { RecurringRide } from '../../types/recurringRide';
 
@@ -24,8 +26,6 @@ const VEHICLE_LABEL_KEYS: Record<RecurringRide['vehicleType'], string> = {
   designated_driver: 'shared.searchRide.vehicle.designatedLabel',
 };
 const ORIGIN_PIN_IMG = require('../../assets/icons/origin_marker/origin_marker.png');
-const DEST_PIN_IMG = require('../../assets/icons/select-final-destination/selectfinaldestination.png');
-const STOP_PIN_IMG = require('../../assets/icons/select-extra-destination/selectextradestination_2x.png');
 
 export default function RecurringRidesScreen({ navigation }: any) {
   const { t } = useTranslation();
@@ -37,7 +37,7 @@ export default function RecurringRidesScreen({ navigation }: any) {
   const dangerColor = isDark ? '#EF8A80' : '#C62828';
   const metaIconColor = isDark ? 'rgba(245,241,234,0.65)' : colors.textSecondary;
   const accent = isDark ? colors.SecondBorder : '#B38737';
-  const accentInk = isDark ? '#FFFFFF' : '#241A09';
+  const accentInk = isDark ? '#FFFFFF' : '#FFFFFF';
 
   const handleRequest = useCallback(
     (ride: RecurringRide) => navigation.navigate('SearchRide', { recurringRide: ride }),
@@ -104,7 +104,7 @@ export default function RecurringRidesScreen({ navigation }: any) {
           {item.extraStops.map((stop, index) => (
             <View style={styles.routeRow} key={`${item.id}-stop-${index}`}>
               <View style={styles.routeIconCol}>
-                <Image source={STOP_PIN_IMG} style={styles.routePin} resizeMode="contain" />
+                <StopPinImg width={18} height={18} />
                 <View style={styles.routeConnector} />
               </View>
               <Text style={styles.routeAddr} numberOfLines={1}>{stop.address}</Text>
@@ -112,7 +112,7 @@ export default function RecurringRidesScreen({ navigation }: any) {
           ))}
           <View style={styles.routeRow}>
             <View style={styles.routeIconCol}>
-              <Image source={DEST_PIN_IMG} style={styles.routePin} resizeMode="contain" />
+              <DestPinImg width={18} height={18} />
             </View>
             <Text style={styles.routeAddr} numberOfLines={1}>{item.destination.address}</Text>
           </View>
@@ -207,7 +207,7 @@ export default function RecurringRidesScreen({ navigation }: any) {
 
 const createStyles = (colors: any, isDark: boolean) => {
   const accent = isDark ? colors.SecondBorder : '#B38737';
-  const accentInk = isDark ? '#FFFFFF' : '#241A09';
+  const accentInk = isDark ? '#FFFFFF' : '#FFFFFF';
   const accentSoftBg = isDark ? 'rgba(110,68,255,0.16)' : 'rgba(179,135,55,0.16)';
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
@@ -310,7 +310,7 @@ const createStyles = (colors: any, isDark: boolean) => {
       paddingVertical: 9,
       paddingHorizontal: 12,
       borderRadius: 999,
-      backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(28,25,23,0.05)',
+      backgroundColor: isDark ? 'rgba(255,255,255,06)' : 'rgba(28,25,23,0.05)',
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(28,25,23,0.1)',
     },

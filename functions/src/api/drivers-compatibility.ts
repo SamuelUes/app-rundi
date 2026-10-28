@@ -11,6 +11,9 @@ import { ServiceRepository } from '../sequelize/repositories/ServiceRepository';
 import { DriverRepository } from '../sequelize/repositories/DriverRepository';
 import { supabaseGet, supabasePost, supabaseUpdate } from '../supabase/client';
 import { syncLegacyDriverLicense } from '../sequelize/services/compliance/legacyBridge';
+import { FeatureRepository } from '../sequelize/repositories/FeatureRepository';
+import { getFeaturePoliciesForService, getRideFeatureCapabilitiesForDrivers } from '../helpers/rideFeatureService';
+import { resolveRideFeatureEligibility } from '../helpers/featureEligibility';
 
 import { DEFAULT_SERVICE_AREA_ID } from '../config/constants';
 
@@ -18,6 +21,7 @@ const db = admin.database();
 const driverServiceRepo = new DriverServiceRepository();
 const serviceRepo = new ServiceRepository();
 const driverRepo = new DriverRepository();
+const featureRepo = new FeatureRepository();
 
 const MOTO_KEYWORDS = ['moto', 'motorcycle', 'motorbike', 'bike', 'mototaxi', 'moto taxi'];
 const AUTO_KEYWORDS = ['auto', 'car', 'sedan', 'suv', 'pickup', 'truck', 'van', 'crossover', 'jeep', 'convertible', 'camioneta', 'coche', 'carro', 'automovil', 'automóvil', 'normal'];
@@ -155,7 +159,27 @@ export const updateDriverLocation = functions.https.onCall(async (data, context)
  */
 export const getAvailableDrivers = functions.https.onCall(async (data, context) => {
   try {
-    const { latitude, longitude, radius = 15, vehicleType, designatedDriverVehicle } = data;
+    const {
+      latitude,
+      longitude,
+      radius = 15,
+      vehicleType,
+      designatedDriverVehicle,
+      serviceCode,
+      featureCodes = [],
+      eligibilityAt,
+    } = data;
+
+    if (
+      !Array.isArray(featureCodes) ||
+      featureCodes.length > 50 ||
+      featureCodes.some((code: unknown) => typeof code !== 'string' || !code.trim() || code.length > 100)
+    ) {
+      throw new functions.https.HttpsError('invalid-argument', 'featureCodes debe contener códigos válidos');
+    }
+    if (featureCodes.length > 0 && typeof serviceCode !== 'string') {
+      throw new functions.https.HttpsError('invalid-argument', 'serviceCode es requerido para filtrar features');
+    }
 
     console.log(`🚗 [getAvailableDrivers] Buscando conductores disponibles en: ${latitude}, ${longitude}, vehicleType: ${vehicleType}`);
 
@@ -293,6 +317,61 @@ export const getAvailableDrivers = functions.https.onCall(async (data, context) 
       });
     }
 
+    if (featureCodes.length > 0) {
+      const serviceId = await featureRepo.findServiceIdByCode(String(serviceCode));
+      if (!serviceId) {
+        throw new functions.https.HttpsError('invalid-argument', 'Servicio no disponible');
+      }
+      const assignedFeatures = await getFeaturePoliciesForService(serviceId);
+      const candidateCapabilities = await getRideFeatureCapabilitiesForDrivers(
+        availableDrivers.map((candidate) => ({
+          userId: String(candidate.id),
+          vehicleId: typeof candidate.vehicle?.id === 'string' ? candidate.vehicle.id : null,
+        })),
+      );
+      const requestedAt = Number.isFinite(Number(eligibilityAt))
+        ? new Date(Number(eligibilityAt))
+        : new Date();
+      const resolvedRideType = String(serviceCode).startsWith('designated_driver_')
+        ? 'designated_driver'
+        : 'normal';
+      const resolvedVehicleType = serviceCode === 'motorcycle'
+        ? 'moto'
+        : resolvedRideType === 'designated_driver'
+          ? 'designated_driver'
+          : 'auto';
+      const resolvedDesignatedVehicle = serviceCode === 'designated_driver_moto'
+        ? 'moto'
+        : serviceCode === 'designated_driver_auto'
+          ? 'auto'
+          : null;
+
+      const eligibleDriverIds = new Set(
+        availableDrivers
+          .filter((candidate) => {
+            const capabilities = candidateCapabilities.get(String(candidate.id));
+            if (!capabilities) return false;
+            return resolveRideFeatureEligibility(assignedFeatures, featureCodes, {
+              serviceCode: String(serviceCode),
+              rideType: resolvedRideType,
+              vehicleType: resolvedVehicleType,
+              designatedDriverVehicle: resolvedDesignatedVehicle,
+              driverFeatureCodes: capabilities.driverFeatureCodes,
+              vehicleFeatureCodes: capabilities.vehicleFeatureCodes,
+              vehicleFacts: capabilities.vehicleFacts,
+              at: requestedAt,
+              currentTime: new Date(),
+            }).eligible;
+          })
+          .map((candidate) => String(candidate.id)),
+      );
+      for (let index = availableDrivers.length - 1; index >= 0; index -= 1) {
+        if (!eligibleDriverIds.has(String(availableDrivers[index].id))) {
+          availableDrivers.splice(index, 1);
+        }
+      }
+    }
+
     // Ordenar por distancia
     availableDrivers.sort((a, b) => a.distance - b.distance);
 
@@ -306,6 +385,7 @@ export const getAvailableDrivers = functions.https.onCall(async (data, context) 
     };
   } catch (error: any) {
     console.error('❌ [getAvailableDrivers] Error:', error);
+    if (error instanceof functions.https.HttpsError) throw error;
     throw new functions.https.HttpsError('internal', error.message);
   }
 });

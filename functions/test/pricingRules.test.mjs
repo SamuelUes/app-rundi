@@ -11,6 +11,7 @@ const {
   roundFareToNearestFive,
   isFeatureActiveAt,
   validateSelectedFeatureCodes,
+  getDefaultSelectedPricingFeatureCodes,
   resolveSurgeMultiplier,
 } = require('../lib/helpers/pricingRules.js');
 
@@ -102,6 +103,25 @@ describe('pricing feature rules', () => {
     const result = applyPricingFeatures(150, [night], new Date('2026-10-25T09:59:00Z'));
     assert.equal(result.fare, 165);
     assert.deepEqual(result.features.map((feature) => feature.code), ['night']);
+  });
+
+  it('keeps optional non-price features off by default while preserving existing defaults', () => {
+    const features = [
+      { ...night, code: 'night', startTime: null, endTime: null },
+      {
+        code: 'senior',
+        name: 'Senior',
+        pricingType: 'none',
+        pricingValue: 0,
+        priority: 20,
+        stackable: true,
+        defaultSelected: false,
+      },
+    ];
+    assert.deepEqual(
+      getDefaultSelectedPricingFeatureCodes(features, new Date('2026-10-25T09:59:00Z')),
+      ['night'],
+    );
   });
 
   it('accepts only assigned feature codes that are eligible at the calculation time', () => {

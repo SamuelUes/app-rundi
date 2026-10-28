@@ -24,6 +24,7 @@ import { getDatabase, ref, onValue, off } from 'firebase/database';
 import { formatNicaraguaTime } from '../../utils/dateUtils';
 import { formatCurrency } from '../../utils/safeFormatters';
 import { useTranslation } from 'react-i18next';
+import { getRideFeatureLabels, getRideServiceTypeLabel } from '../../utils/rideFeatureLabels';
 
 // Servicios optimizados
 import alertService from '../../services/alertService';
@@ -600,17 +601,10 @@ export default function CashPaymentScreen({ route, navigation }: any) {
     : Array.isArray(ride?.pricingSnapshot?.featureCodes)
       ? ride.pricingSnapshot.featureCodes
       : [];
-  const serviceLabel = serviceCode === 'motorcycle'
-    ? t('shared.searchRide.vehicle.motoLabel')
-    : serviceCode === 'designated_driver_auto'
-      ? `${t('shared.searchRide.vehicle.designatedLabel')} · ${t('shared.searchRide.vehicle.autoLabel')}`
-      : serviceCode === 'designated_driver_moto'
-        ? `${t('shared.searchRide.vehicle.designatedLabel')} · ${t('shared.searchRide.vehicle.modeMoto')}`
-      : serviceCode === 'normal'
-          ? t('shared.searchRide.vehicle.autoLabel')
-          : serviceCode === 'night'
-            ? t('shared.payment.summary.nightFeature')
-          : serviceCode || '';
+  const serviceLabel = getRideServiceTypeLabel(
+    { ...ride, serviceCode, featureCodes },
+    t,
+  );
   
   return (
     <View style={styles.container}>
@@ -681,13 +675,7 @@ export default function CashPaymentScreen({ route, navigation }: any) {
                 <Text style={styles.detailLabel}>{t('shared.payment.summary.features')}</Text>
               </View>
               <Text style={styles.detailValue}>
-                {featureCodes.map((code) =>
-                  code === 'night'
-                    ? t('shared.payment.summary.nightFeature')
-                    : code === 'designated_driver_moto_discount'
-                      ? t('shared.payment.summary.designatedMotoAdjustment')
-                      : code.replace(/_/g, ' '),
-                ).join(' / ')}
+                {getRideFeatureLabels({ ...ride, featureCodes }, t).join(' / ')}
               </Text>
             </View>
           )}

@@ -2,10 +2,12 @@ import React from 'react';
 import { View, Text, TouchableOpacity, Image } from 'react-native';
 import { formatCoords } from '../../../utils/rideCoords';
 import { MAP_ICONS } from '../../../constants/mapIcons';
+import DestPinImg from '../../../assets/icons/final-marker/final-marker.svg';
+import StopPinImg from '../../../assets/icons/extra-marker/extra-marker.svg';
 type TrFunction = (path: string, options?: Record<string, any>) => string;
 import type { Coords } from '../../../utils/rideCoords';
 
-const { ORIGIN_PIN, DESTINATION_PIN, MULTI_STOP_PIN } = MAP_ICONS;
+const { ORIGIN_PIN } = MAP_ICONS;
 
 interface RouteRow {
   kind: 'origin' | 'destination' | 'extra';
@@ -81,17 +83,16 @@ export function SearchRideRouteBubble({
 
           if (subtitle && subtitle === label) subtitle = '';
 
-          const iconSource =
-            row.kind === 'origin'
-              ? ORIGIN_PIN
-              : row.kind === 'destination'
-              ? DESTINATION_PIN
-              : MULTI_STOP_PIN;
-
           return (
             <View key={`${row.kind}-${row.index ?? 'final'}`} style={styles.timelineRow}>
               <View style={styles.timelineLeft}>
-                <Image source={iconSource} style={styles.timelineIcon} resizeMode="contain" />
+                {row.kind === 'origin' ? (
+                  <Image source={ORIGIN_PIN} style={styles.timelineIcon} resizeMode="contain" />
+                ) : row.kind === 'destination' ? (
+                  <DestPinImg width={20} height={20} />
+                ) : (
+                  <StopPinImg width={20} height={20} />
+                )}
                 {!isLast && <View style={styles.timelineConnector} />}
               </View>
 

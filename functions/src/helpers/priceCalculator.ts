@@ -34,6 +34,7 @@ import {
   calculateDynamicMinimumFare,
   calculateSurgeRatio,
   DEFAULT_SURGE_RULES,
+  getDefaultSelectedPricingFeatureCodes,
   resolveSurgeMultiplier,
   roundFareToNearestFive,
   validateSelectedFeatureCodes,
@@ -111,7 +112,7 @@ async function loadServiceFeatures(serviceId: string): Promise<PricingFeature[]>
     const rows = await supabaseGet(
       'service_feature_assignments',
       { service_id: serviceId, enabled: true },
-      'configuration,features!inner(code,name,enabled,starts_at,ends_at,start_time,end_time,timezone,pricing_type,pricing_value,priority,stackable)',
+      'enabled,configuration,features!inner(code,name,enabled,starts_at,ends_at,start_time,end_time,timezone,pricing_type,pricing_value,priority,stackable,eligibility_subject,eligibility_mode,eligibility_rules,metadata)',
       { limit: 100, requireServiceRole: true },
     ) as FeatureAssignmentRow[];
 
@@ -120,6 +121,7 @@ async function loadServiceFeatures(serviceId: string): Promise<PricingFeature[]>
       .map((row) => {
         const feature = row.features ?? {};
         const overrides = row.configuration ?? {};
+        const metadata = feature.metadata as Record<string, unknown> | undefined;
         const priority = Number(overrides.priority ?? feature.priority ?? 100);
         return {
           code: String(feature.code ?? ''),
@@ -128,11 +130,20 @@ async function loadServiceFeatures(serviceId: string): Promise<PricingFeature[]>
           pricingValue: Number(overrides.pricing_value ?? feature.pricing_value ?? 0),
           priority: Number.isFinite(priority) ? priority : 100,
           stackable: overrides.stackable === undefined ? feature.stackable !== false : overrides.stackable === true,
+          defaultSelected: overrides.default_selected === undefined
+            ? metadata?.defaultSelected !== false
+            : overrides.default_selected === true,
           startTime: typeof feature.start_time === 'string' ? feature.start_time : null,
           endTime: typeof feature.end_time === 'string' ? feature.end_time : null,
           timezone: typeof feature.timezone === 'string' ? feature.timezone : 'America/Managua',
           startsAt: typeof feature.starts_at === 'string' ? feature.starts_at : null,
           endsAt: typeof feature.ends_at === 'string' ? feature.ends_at : null,
+          enabled: feature.enabled === true,
+          eligibilitySubject: String(feature.eligibility_subject ?? 'none') as PricingFeature['eligibilitySubject'],
+          eligibilityMode: String(feature.eligibility_mode ?? 'none') as PricingFeature['eligibilityMode'],
+          eligibilityRules: feature.eligibility_rules && typeof feature.eligibility_rules === 'object'
+            ? feature.eligibility_rules as Record<string, unknown>
+            : {},
         } satisfies PricingFeature;
       })
       .filter((feature) => feature.code.length > 0);
@@ -851,10 +862,10 @@ export async function calculateRidePrice(
   }
 
   const activeFeatures = await loadServiceFeatures(service.id);
-  const selectedFeatureCodes =
-    options.selectedFeatureCodes === undefined
-      ? undefined
-      : validateSelectedFeatureCodes(options.selectedFeatureCodes, activeFeatures, calculationDate);
+  const selectedFeatureCodes = options.selectedFeatureCodes === undefined
+    ? getDefaultSelectedPricingFeatureCodes(activeFeatures, calculationDate)
+    : validateSelectedFeatureCodes(options.selectedFeatureCodes, activeFeatures, calculationDate);
+  const requestedFeatureCodes = selectedFeatureCodes;
   const featureResult = applyPricingFeatures(baseFare, activeFeatures, calculationDate, selectedFeatureCodes);
   const fareBeforeSurge = Math.max(featureResult.fare, minimumFare);
   const demandSupplyRatio = options.skipSurge ? null : await getDemandSupplyRatio(originLat, originLng);
@@ -873,7 +884,7 @@ export async function calculateRidePrice(
   }
 
   const commission = calculateCommissionAmount(finalFare, commissionRate);
-  const featureCodes = featureResult.features.map((feature) => feature.code);
+  const featureCodes = requestedFeatureCodes;
   const featureAdjustments = featureResult.features.map(({ code, adjustment }) => ({ code, adjustment }));
   const pricingSnapshot: PricingSnapshot = {
     serviceCode: service.code,

@@ -32,6 +32,9 @@ import ComplianceEvaluation from './ComplianceEvaluation';
 import DocumentAlert from './DocumentAlert';
 import ComplianceEvent from './ComplianceEvent';
 import LicenseCategoryRule from './LicenseCategoryRule';
+import Feature from './Feature';
+import DriverFeatureAssignment from './DriverFeatureAssignment';
+import VehicleFeatureAssignment from './VehicleFeatureAssignment';
 
 // Asociaciones
 // Ride - Payment (1:1)
@@ -96,4 +99,7 @@ export {
   DocumentAlert,
   ComplianceEvent,
   LicenseCategoryRule,
+  Feature,
+  DriverFeatureAssignment,
+  VehicleFeatureAssignment,
 };

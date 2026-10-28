@@ -250,6 +250,8 @@ export const syncActiveRidesByArea = functions.database
       designatedDriverVehicle: after.designatedDriverVehicle ?? null,
       rideType: after.rideType ?? null,
       vehicleType: after.vehicleType ?? null,
+      serviceCode: after.pricingSnapshot?.serviceCode ?? after.serviceCode ?? null,
+      featureCodes: Array.isArray(after.featureCodes) ? after.featureCodes : [],
       passengers: after.passengers ?? null,
       paymentMethod: after.paymentMethod ?? null,
       serviceId: after.serviceId ?? null,

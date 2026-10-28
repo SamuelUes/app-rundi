@@ -52,6 +52,25 @@ describe('ride feature selection', () => {
     ]);
   });
 
+  it('keeps optional service features off until the client selects them', () => {
+    const seniorFeature: ServiceFeatureOption = {
+      ...nightFeature,
+      code: 'senior',
+      name: 'Senior ride',
+      pricingType: 'none',
+      pricingValue: 0,
+      startTime: null,
+      endTime: null,
+      defaultSelected: false,
+    };
+    const at = new Date('2026-10-25T09:59:00Z');
+    expect(getDefaultSelectedFeatureCodes([nightFeature, seniorFeature], at)).toEqual(['night']);
+    expect(getSelectedFeatureCodes([nightFeature, seniorFeature], { senior: true }, at)).toEqual([
+      'night',
+      'senior',
+    ]);
+  });
+
   it('orders selected features before manual and condition-disabled features', () => {
     expect(orderFeaturesBySelection([motoDiscount, nightFeature], ['night']).map((feature) => feature.code))
       .toEqual(['night', 'designated_driver_moto_discount']);

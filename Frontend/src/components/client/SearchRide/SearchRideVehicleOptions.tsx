@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, Image, type ImageSourcePropType } from 'react-native';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import type { ServiceFeatureOption } from '../../../services/servicesService';
 import { getFeatureAvailability, orderFeaturesBySelection } from '../../../utils/rideFeatures';
@@ -18,6 +18,9 @@ const ION_ICONS: Record<string, React.ComponentProps<typeof Ionicons>['name']> =
   'car-sport-sharp': 'car',
   'directions-car': 'car',
   'person-pin': 'person-circle',
+  elderly: 'accessibility',
+  pets: 'paw',
+  'workspace-premium': 'diamond',
   person: 'person',
   check: 'checkmark',
   remove: 'remove',
@@ -113,6 +116,15 @@ interface SearchRideVehicleOptionsProps {
 const FEATURE_ICONS: Record<string, IconName> = {
   night: 'nightlight-round',
   designated_driver_moto_discount: 'local-offer',
+  senior: 'elderly',
+  premium: 'workspace-premium',
+  pet_friendly: 'pets',
+};
+
+const VEHICLE_OPTION_IMAGES: Record<VehicleType, ImageSourcePropType> = {
+  moto: require('../../../assets/images/searchImage/moto-services.png'),
+  auto: require('../../../assets/images/searchImage/auto-services.png'),
+  designated_driver: require('../../../assets/images/searchImage/designated-services.png'),
 };
 
 export function SearchRideVehicleOptions({
@@ -162,6 +174,9 @@ export function SearchRideVehicleOptions({
   const featureTitle = (feature: ServiceFeatureOption) => {
     if (feature.code === 'night') return tr('features.night');
     if (feature.code === 'designated_driver_moto_discount') return tr('features.designatedDriverMotoDiscount');
+    if (feature.code === 'senior') return tr('features.senior');
+    if (feature.code === 'premium') return tr('features.premium');
+    if (feature.code === 'pet_friendly') return tr('features.petFriendly');
     return feature.name;
   };
 
@@ -216,7 +231,12 @@ export function SearchRideVehicleOptions({
                 accessibilityState={{ selected: isSelected }}
               >
                 <View style={[styles.vehicleOptionIconBubble, isSelected && styles.vehicleOptionIconBubbleSelected]}>
-                  <RideIcon name={option.icon as IconName} iconSet={iconSet} size={28} color={isSelected ? iconColor : textColor} />
+                  <Image
+                    source={VEHICLE_OPTION_IMAGES[option.type]}
+                    style={styles.vehicleOptionIconImage}
+                    resizeMode="contain"
+                    accessibilityIgnoresInvertColors
+                  />
                 </View>
 
                 <View style={styles.vehicleOptionTitleBlock}>
@@ -225,7 +245,7 @@ export function SearchRideVehicleOptions({
                       {option.label}
                     </Text>
                     <View style={styles.vehicleOptionPassengerDisplay}>
-                      <RideIcon name="person" iconSet={iconSet} size={13} color={metaColor} />
+                      <RideIcon name="person" iconSet={iconSet} size={13} color={iconColor} />
                       <Text style={styles.vehicleOptionPassengerValue}>{passengers}</Text>
                     </View>
                   </View>
@@ -355,12 +375,12 @@ export function SearchRideVehicleOptions({
                               })}
                             >
                               <View style={styles.vehicleFeatureCardTitleRow}>
-                                <RideIcon name={icon} iconSet={iconSet} size={15} color={conditionDisabled ? metaColor : iconColor} />
+                                <RideIcon name={icon} iconSet={iconSet} size={16} color={conditionDisabled ? metaColor : iconColor} />
                                 <Text style={styles.vehicleFeatureCardTitle} numberOfLines={1}>
                                   {featureTitle(feature)}
                                 </Text>
                                 <View style={[styles.vehicleFeatureToggle, selected && styles.vehicleFeatureToggleSelected]}>
-                                  {selected ? <RideIcon name="check" iconSet={iconSet} size={11} color={textColor} /> : null}
+                                  {selected ? <RideIcon name="check" iconSet={iconSet} size={12} color={textColor} /> : null}
                                 </View>
                               </View>
                               <Text style={styles.vehicleFeatureImpact} numberOfLines={1}>

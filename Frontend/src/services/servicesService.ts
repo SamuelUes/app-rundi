@@ -12,11 +12,15 @@ export interface ServiceFeatureOption {
   pricingValue: number;
   priority: number;
   stackable: boolean;
+  defaultSelected?: boolean;
   startTime: string | null;
   endTime: string | null;
   timezone: string;
   startsAt: string | null;
   endsAt: string | null;
+  eligibilitySubject?: 'none' | 'driver' | 'vehicle';
+  eligibilityMode?: 'none' | 'manual' | 'automatic' | 'hybrid';
+  eligibilityRules?: Record<string, unknown>;
   metadata: Record<string, unknown>;
 }
 
@@ -93,11 +97,19 @@ class ServicesService {
               pricingValue: Number(feature.pricingValue ?? feature.pricing_value ?? 0),
               priority: Number(feature.priority ?? 100),
               stackable: feature.stackable !== false,
+              defaultSelected: feature.defaultSelected !== false,
               startTime: feature.startTime ?? feature.start_time ?? null,
               endTime: feature.endTime ?? feature.end_time ?? null,
               timezone: String(feature.timezone ?? 'America/Managua'),
               startsAt: feature.startsAt ?? feature.starts_at ?? null,
               endsAt: feature.endsAt ?? feature.ends_at ?? null,
+              eligibilitySubject: feature.eligibilitySubject ?? feature.eligibility_subject ?? 'none',
+              eligibilityMode: feature.eligibilityMode ?? feature.eligibility_mode ?? 'none',
+              eligibilityRules: feature.eligibilityRules && typeof feature.eligibilityRules === 'object'
+                ? feature.eligibilityRules
+                : feature.eligibility_rules && typeof feature.eligibility_rules === 'object'
+                  ? feature.eligibility_rules
+                  : {},
               metadata: feature.metadata && typeof feature.metadata === 'object' ? feature.metadata : {},
             }))
               .filter((feature: ServiceFeatureOption) => feature.code.length > 0)

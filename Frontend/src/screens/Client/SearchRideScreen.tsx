@@ -132,8 +132,6 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
     bottomPanelExpanded, setBottomPanelExpanded,
   } = state;
 
-  const { driversAvailable, checkingDrivers, availabilityByType } = useDriversAvailability(coords, vehicleType, designatedDriverMode);
-
   const {
     scheduleModalVisible,
     setScheduleModalVisible,
@@ -190,6 +188,14 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
       : 'normal';
   const selectedFeatureService = servicesCatalog.find((service) => service.code === selectedFeatureServiceCode);
   const selectedFeatureCodes = selectedFeatureCodesByService[selectedFeatureServiceCode];
+  const { driversAvailable, checkingDrivers, availabilityByType } = useDriversAvailability(
+    coords,
+    vehicleType,
+    designatedDriverMode,
+    selectedFeatureServiceCode,
+    selectedFeatureCodes,
+    calculationAt.getTime(),
+  );
 
   const onToggleFeature = useCallback(
     (code: string) => {
@@ -1144,15 +1150,20 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
 
 function createStyles(colors: any, isDark: boolean = false) {
   const accent = colors.primary || '#b38737';
-  const accentStrong = isDark ? '#e8c47f' : '#7a5714';
+  const accentStrong = isDark ? '#e8c47f' : '#c38d28';
   const accentSoft = isDark ? 'rgba(179, 135, 55, 0.26)' : 'rgba(179, 135, 55, 0.1)';
   const accentBorder = isDark ? 'rgba(232, 196, 127, 0.45)' : 'rgba(179, 135, 55, 0.45)';
+  const accentSecondBorder = isDark ? 'rgba(147, 117, 254, 0.5)' : 'rgba(179, 135, 55, 0.1)';
   const cardBg = colors.card || '#ffffff';
+  const card2Bg = colors.card2 || '#ededed';
   const surfaceBg = colors.surface || '#f5f5f5';
+  const surface2Bg = colors.surface2|| '#fafafa';
   const textPrimary = colors.text || '#111111';
+  const SecondBorder = isDark ? 'rgba(110, 68, 255, 0.3)' : 'rgba(179, 135, 55, 0.1)';
   const textSecondary = colors.textSecondary || '#666666';
   const borderColor = colors.border || '#e0e0e0';
-  const inputBg = isDark ? 'rgba(255, 255, 255, 0.06)' : surfaceBg;
+  const inputBg = isDark ? 'rgba(255, 255, 255, 0.07)' : surfaceBg;
+  const inputBgDeep = isDark ? 'rgba(255, 255, 255, 0.08)' : surfaceBg;
   const successSoft = isDark ? 'rgba(129, 199, 132, 0.15)' : 'rgba(76, 175, 80, 0.1)';
   const successBorder = isDark ? 'rgba(129, 199, 132, 0.4)' : 'rgba(76, 175, 80, 0.35)';
 
@@ -1384,16 +1395,16 @@ function createStyles(colors: any, isDark: boolean = false) {
     sectionCompact: { marginBottom: 14 },
     sectionTitle: { fontSize: 16, fontWeight: '800', color: textPrimary, marginBottom: 8 },
 
-    vehicleOptionsList: { gap: 2 },
+    vehicleOptionsList: { gap: 5 },
     vehicleOptionCard: {
       borderRadius: 16,
       borderWidth: 1.5,
       borderColor: 'transparent',
+      backgroundColor: surface2Bg,
       paddingHorizontal: 10,
     },
     vehicleOptionCardSelected: {
-      borderColor: textPrimary,
-      backgroundColor: cardBg,
+      backgroundColor: inputBg,
     },
     vehicleOptionTopRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, minHeight: 64 },
     vehicleOptionIconBubble: {
@@ -1405,11 +1416,20 @@ function createStyles(colors: any, isDark: boolean = false) {
       justifyContent: 'center',
     },
     vehicleOptionIconBubbleSelected: { backgroundColor: accentSoft },
+    vehicleOptionIconImage: { width: 46, height: 32 },
     vehicleOptionTitleBlock: { flex: 1, minWidth: 0 },
     vehicleOptionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, minWidth: 0 },
     vehicleOptionTitle: { fontSize: 16, fontWeight: '700', color: textPrimary, flexShrink: 1 },
-    vehicleOptionPassengerDisplay: { flexDirection: 'row', alignItems: 'center', gap: 1 },
-    vehicleOptionPassengerValue: { fontSize: 12.5, fontWeight: '600', color: textSecondary },
+    vehicleOptionPassengerDisplay: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 3,
+      paddingHorizontal: 7,
+      paddingVertical: 2,
+      borderRadius: 999,
+      backgroundColor: accentSoft,
+    },
+    vehicleOptionPassengerValue: { fontSize: 13, fontWeight: '700', color: textPrimary },
     vehicleOptionMeta: { fontSize: 12.5, color: textPrimary, marginTop: 1, fontVariant: ['tabular-nums'] },
     vehicleOptionSubtitle: { fontSize: 12.5, color: textSecondary, marginTop: 1 },
     vehicleOptionPrice: { fontSize: 16, fontWeight: '700', color: textPrimary, fontVariant: ['tabular-nums'], marginLeft: 4 },
@@ -1426,7 +1446,7 @@ function createStyles(colors: any, isDark: boolean = false) {
       alignItems: 'center',
       justifyContent: 'space-between',
       borderRadius: 14,
-      backgroundColor: surfaceBg,
+      backgroundColor: card2Bg,
       padding: 4,
     },
     vehicleOptionCounterBtn: {
@@ -1438,8 +1458,8 @@ function createStyles(colors: any, isDark: boolean = false) {
       justifyContent: 'center',
     },
     vehicleOptionCounterBtnDisabled: { opacity: 0.35 },
-    vehicleOptionPassengerCount: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-    vehicleOptionPassengerCountText: { fontSize: 15, fontWeight: '700', color: textPrimary, fontVariant: ['tabular-nums'] },
+    vehicleOptionPassengerCount: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    vehicleOptionPassengerCountText: { fontSize: 17, fontWeight: '800', color: textPrimary, fontVariant: ['tabular-nums']},
 
     vehicleFeaturesSection: { gap: 7 },
     vehicleFeaturesHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
@@ -1453,10 +1473,11 @@ function createStyles(colors: any, isDark: boolean = false) {
     vehicleFeaturesHint: { fontSize: 11, color: textSecondary },
     vehicleFeatureRail: { gap: 8, paddingRight: 8 },
     vehicleFeatureCard: {
-      width: 170,
+      minWidth: 140,
+      maxWidth: 210,
       minHeight: 64,
       justifyContent: 'center',
-      paddingHorizontal: 10,
+      paddingHorizontal: 12,
       paddingVertical: 8,
       borderRadius: 13,
       borderWidth: 1,
@@ -1465,22 +1486,26 @@ function createStyles(colors: any, isDark: boolean = false) {
       gap: 4,
     },
     vehicleFeatureCardSelected: {
-      borderColor: accentBorder,
-      backgroundColor: accentSoft,
+      borderColor: accentSecondBorder,
+      backgroundColor: SecondBorder,
     },
     vehicleFeatureCardDisabled: { opacity: 0.56 },
-    vehicleFeatureCardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-    vehicleFeatureCardTitle: { flex: 1, fontSize: 12, fontWeight: '700', color: textPrimary },
+    vehicleFeatureCardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    vehicleFeatureCardTitle: { flexShrink: 1, fontSize: 13, fontWeight: '700', color: textPrimary },
     vehicleFeatureToggle: {
-      width: 18,
-      height: 18,
-      borderRadius: 9,
+      width: 20,
+      height: 20,
+      borderRadius: 10,
       alignItems: 'center',
       justifyContent: 'center',
       borderWidth: 1,
       borderColor: textSecondary,
     },
-    vehicleFeatureToggleSelected: { borderColor: accentBorder, backgroundColor: accentBorder },
+    vehicleFeatureToggleSelected: { 
+      borderColor: accentBorder, 
+      borderWidth: 1.6, 
+      backgroundColor: accentSecondBorder 
+    },
     vehicleFeatureImpact: { fontSize: 12, fontWeight: '700', color: textPrimary, fontVariant: ['tabular-nums'] },
     vehicleFeatureCondition: { fontSize: 10, color: textSecondary },
     vehicleDemandNotice: { flexDirection: 'row', alignItems: 'center', gap: 6 },
@@ -1530,7 +1555,7 @@ function createStyles(colors: any, isDark: boolean = false) {
       paddingHorizontal: 12,
       paddingVertical: 8,
       borderRadius: 14,
-      backgroundColor: surfaceBg,
+      backgroundColor: card2Bg,
     },
     photoButtonText: { color: textPrimary, fontWeight: '700', fontSize: 14 },
 
@@ -1764,7 +1789,7 @@ function createStyles(colors: any, isDark: boolean = false) {
     searchInputHelper: { fontSize: 12, color: accentStrong, marginBottom: 6 },
     searchInputContainer: {
       borderRadius: 12,
-      backgroundColor: inputBg,
+      backgroundColor: inputBgDeep,
       paddingHorizontal: 14,
       paddingVertical: Platform.select({ ios: 12, android: 6, default: 8 }),
       borderWidth: 1,

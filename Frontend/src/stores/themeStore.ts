@@ -36,7 +36,9 @@ export const lightColors = {
 export const darkColors = {
   background: '#121212',
   surface: '#1E1E1E',
+  surface2: '#2F2F2F',
   card: '#2C2C2C',
+  card2: '#4f4f4f',
   text: '#FFFFFF',
   textSecondary: '#B3B3B3',
   textTertiary: '#808080',

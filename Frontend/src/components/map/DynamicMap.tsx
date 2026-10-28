@@ -17,6 +17,11 @@ type RideRequestMarker = {
   priceValue: number;
   hasClientSuggestedPrice: boolean;
   passengers: number;
+  serviceCode?: string;
+  featureCodes?: string[];
+  rideType?: string;
+  vehicleType?: string;
+  designatedDriverVehicle?: string | null;
 };
 
 type NearbyDriver = {

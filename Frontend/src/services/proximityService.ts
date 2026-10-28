@@ -24,6 +24,8 @@ export interface ProximityRidePreview {
   estimatedPrice: number;
   estimatedDistance?: number;
   estimatedDuration?: number;
+  serviceCode?: string;
+  featureCodes?: string[];
   clientSuggestedPrice?: number;
   driverOfferedPrice?: number | null;
   paymentMethod?: 'cash' | 'card';
@@ -413,6 +415,11 @@ function toPreview(ride: any): ProximityRidePreview {
     estimatedPrice: ride.estimatedPrice ?? ride.estimatedFare ?? ride.payment?.estimatedPrice ?? 0,
     estimatedDistance: ride.estimatedDistance ?? ride.distance,
     estimatedDuration: ride.estimatedDuration ?? ride.duration,
+    serviceCode: ride.serviceCode ?? ride.pricingSnapshot?.serviceCode,
+    featureCodes: Array.isArray(ride.featureCodes ?? ride.feature_codes ?? ride.pricingSnapshot?.featureCodes)
+      ? (ride.featureCodes ?? ride.feature_codes ?? ride.pricingSnapshot.featureCodes)
+        .filter((code: unknown): code is string => typeof code === 'string')
+      : [],
     clientSuggestedPrice: ride.clientSuggestedPrice,
     driverOfferedPrice: ride.driverOfferedPrice ?? null,
     paymentMethod: ride.paymentMethod ?? ride.payment?.paymentMethod,
@@ -462,7 +469,7 @@ async function getNearbyRides(
 
       const filtered = withDistance.filter((ride: ProximityRidePreview) => (ride.distanceMeters ?? 999999) <= thresholdMeters);
       const nearby = driverId ? filtered.filter((ride: ProximityRidePreview) => hasPriceChangedForDriver(ride, driverId)).slice(0, max) : filtered.slice(0, max);
-      if (nearby.length > 0) return nearby;
+      return nearby;
     } catch (e: any) {
       console.warn('[proximity] getAvailableRides no disponible, usando fallback Firebase.', e?.message || e);
     }
@@ -474,7 +481,12 @@ async function getNearbyRides(
     const snap = await get(ref(db, getActiveRidesByAreaPath()));
     const value = snap.val() || {};
     const rides = Object.values<any>(value)
-      .filter((r) => !r.driverId && String(r.status || 'requested').toLowerCase() === 'requested');
+      .filter((ride) => {
+        const featureCodes = ride.featureCodes ?? ride.feature_codes ?? ride.pricingSnapshot?.featureCodes;
+        return !ride.driverId &&
+          String(ride.status || 'requested').toLowerCase() === 'requested' &&
+          (!Array.isArray(featureCodes) || featureCodes.length === 0);
+      });
 
     const withDistance = rides
       .map((r) => {

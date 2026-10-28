@@ -15,6 +15,7 @@ import ridesService, { Ride } from '../../services/ridesService';
 import { useRideHistory } from '../../hooks/shared/ride/useRideHistory';
 import { useTranslation } from 'react-i18next';
 import { formatCurrency } from '../../utils/safeFormatters';
+import { getRideServiceTypeLabel } from '../../utils/rideFeatureLabels';
 
 export default function ClientRideHistoryScreen({ navigation }: any) {
   const { user } = useAuth();
@@ -81,6 +82,7 @@ export default function ClientRideHistoryScreen({ navigation }: any) {
     const showPaymentInfo = Boolean(
       paymentMethodRaw || commission > 0 || tip > 0 || item.primaryPayment
     );
+    const serviceTypeLabel = getRideServiceTypeLabel(item, t);
 
     const statusColor = getStatusColor(item.status);
     const paymentStatusColor =
@@ -170,6 +172,14 @@ export default function ClientRideHistoryScreen({ navigation }: any) {
                 {formatCurrency(price)}
               </Text>
             </View>
+          </View>
+          <View style={styles.paymentRow}>
+            <Text style={[styles.paymentLabel, { color: colors.textSecondary }]}>
+              {t('client.rideHistory.labels.service')}
+            </Text>
+            <Text style={[styles.paymentValue, { color: colors.text }]}>
+              {serviceTypeLabel}
+            </Text>
           </View>
 
           {showPaymentInfo && (
